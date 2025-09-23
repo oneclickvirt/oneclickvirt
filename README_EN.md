@@ -11,7 +11,7 @@ A scalable universal virtualization management platform that supports LXD, Incus
 ### Environment Requirements
 
 * Go 1.24.5
-* Node.js 19+
+* Node.js 22+
 * npm or yarn
 
 ### Service Addresses
