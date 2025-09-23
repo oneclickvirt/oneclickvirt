@@ -1,0 +1,154 @@
+name: Build and Release oneclickvirt
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: 1.24.5
+
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+
+    - name: Get current date
+      id: date
+      run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+
+    - name: Build Go server binaries
+      run: |
+        cd server
+        export CGO_ENABLED=0
+        export LDFLAGS="-s -w -extldflags '-static'"
+        
+        # Linux AMD64
+        GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-amd64 .
+        
+        # Linux ARM64
+        GOOS=linux GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-arm64 .
+        
+        # Windows AMD64
+        GOOS=windows GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-amd64.exe .
+        
+        # Windows ARM64
+        GOOS=windows GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-arm64.exe .
+
+    - name: Build Vue web application
+      run: |
+        cd web
+        npm install
+        npm run build
+        cd dist
+        zip -r ../../build/web-dist.zip .
+
+    - name: Create build directory
+      run: |
+        mkdir -p build
+        ls -la build/
+
+    - name: Compress binaries
+      run: |
+        cd build
+        tar -czf server-linux-amd64.tar.gz server-linux-amd64
+        tar -czf server-linux-arm64.tar.gz server-linux-arm64
+        zip server-windows-amd64.zip server-windows-amd64.exe
+        zip server-windows-arm64.zip server-windows-arm64.exe
+        rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe
+
+    - name: Update install script with new tag
+      run: |
+        TAG_NAME="v${{ steps.date.outputs.date }}"
+        sed -i "s/VERSION=.*/VERSION=\"${TAG_NAME}\"/" install.sh
+        
+    - name: Commit updated install script
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add install.sh
+        if git diff --staged --quiet; then
+          echo "No changes to commit"
+        else
+          git commit -m "chore: update install script to version v${{ steps.date.outputs.date }}"
+          git push
+        fi
+
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: v${{ steps.date.outputs.date }}
+        release_name: Release v${{ steps.date.outputs.date }}
+        body: |
+          ## 自动构建发布 - ${{ steps.date.outputs.date }}
+          **服务器二进制文件:**
+          - server-linux-amd64.tar.gz - Linux AMD64 版本
+          - server-linux-arm64.tar.gz - Linux ARM64 版本  
+          - server-windows-amd64.zip - Windows AMD64 版本
+          - server-windows-arm64.zip - Windows ARM64 版本
+          **Web 应用:**
+          - web-dist.zip - 前端静态文件
+          构建时间: ${{ steps.date.outputs.date }} | 提交: ${{ github.sha }}
+        draft: false
+        prerelease: false
+
+    - name: Upload Linux AMD64 Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./build/server-linux-amd64.tar.gz
+        asset_name: server-linux-amd64.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Linux ARM64 Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./build/server-linux-arm64.tar.gz
+        asset_name: server-linux-arm64.tar.gz
+        asset_content_type: application/gzip
+
+    - name: Upload Windows AMD64 Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./build/server-windows-amd64.zip
+        asset_name: server-windows-amd64.zip
+        asset_content_type: application/zip
+
+    - name: Upload Windows ARM64 Binary
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./build/server-windows-arm64.zip
+        asset_name: server-windows-arm64.zip
+        asset_content_type: application/zip
+
+    - name: Upload Web Distribution
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./build/web-dist.zip
+        asset_name: web-dist.zip
+        asset_content_type: application/zip
