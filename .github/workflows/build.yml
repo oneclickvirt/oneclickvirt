@@ -46,11 +46,13 @@ jobs:
     - name: Build Vue web application
       run: |
         cd web
-        npm install
+        rm -rf node_modules package-lock.json
+        npm install --no-optional
+        npm install @rollup/rollup-linux-x64-gnu --save-dev
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .
-
+        
     - name: Create build directory
       run: |
         mkdir -p build
