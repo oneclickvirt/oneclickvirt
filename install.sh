@@ -3,7 +3,7 @@
 # 2025.09.23
 
 
-VERSION="v20251223-000000"
+VERSION="v20250923-102432"
 REPO="oneclickvirt/oneclickvirt"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 RED='\033[0;31m'
