@@ -14,17 +14,37 @@ A scalable universal virtualization management platform that supports LXD, Incus
 * Node.js 22+
 * npm or yarn
 
-### Service Addresses
+### Environment Deployment
+
+1. Build frontend
+```bash
+cd web
+npm i
+npm run build
+```
+
+2. Build backend
+```bash
+cd server
+go mod tidy
+go build -o oneclickvirt main.go
+```
+
+3. Run the backend binary file ```oneclickvirt```.
+
+4. Configure domain binding to static file folder, no need to reverse proxy the backend, vite already comes with backend proxy requests.
+
+5. After installing mysql, create an empty database ```oneclickvirt```.
+
+6. Visit your domain, it will automatically redirect to the initialization interface, fill in the database information (root user) and related information, click initialize.
+
+7. After completing initialization, it will automatically redirect to the homepage, you can explore and use it on your own.
+
+### Local Development
 
 * Frontend: [http://localhost:8080](http://localhost:8080)
 * Backend API: [http://localhost:8888](http://localhost:8888)
 * API Documentation: [http://localhost:8888/swagger/index.html](http://localhost:8888/swagger/index.html)
-
-### Initialization Steps
-
-1. Visit [http://localhost:8080](http://localhost:8080), it will automatically redirect to the system initialization page.
-2. Set up administrator account information.
-3. After initialization is complete, you can use it normally.
 
 ## Default Accounts
 
@@ -37,43 +57,7 @@ After system initialization, the following default accounts will be generated:
 
 ## Configuration File
 
-The main configuration file is located at `server/config.yaml`
-
-## Technology Stack
-
-### Backend
-
-* Gin Web Framework
-* GORM ORM
-* MySQL Database
-* JWT Authentication
-
-### Frontend
-
-* Vue 3
-* Vite
-* Element Plus
-* Pinia
-* Vue Router
-
-## Deployment Instructions
-
-### Production Environment Deployment
-
-1. Build frontend
-```bash
-cd web
-npm run build
-```
-
-2. Build backend
-```bash
-cd server
-go build -o oneclickvirt main.go
-```
-
-3. Configure reverse proxy (Nginx is recommended).
-4. Set environment variable `GIN_MODE=release`.
+Main configuration file is located at `server/config.yaml`
 
 ## Demo Screenshots
 
@@ -83,3 +67,4 @@ go build -o oneclickvirt main.go
 ![](./.back/4.png)
 ![](./.back/5.png)
 ![](./.back/6.png)
+![](./.back/7.png)

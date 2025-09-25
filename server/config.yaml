@@ -114,7 +114,7 @@ zap:
     director: storage/logs
     encode-level: LowercaseLevelEncoder
     format: console
-    level: debug
+    level: info
     log-in-console: false
     max-array-elements: 5
     max-backups: 15
