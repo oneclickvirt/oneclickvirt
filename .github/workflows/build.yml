@@ -91,12 +91,11 @@ jobs:
       run: |
         TAG_NAME="v${{ steps.date.outputs.date }}"
         RELEASE_BODY="## 自动构建发布 - ${{ steps.date.outputs.date }}
-        **服务器二进制文件:**
-        - server-linux-amd64.tar.gz - Linux AMD64 版本
-        - server-linux-arm64.tar.gz - Linux ARM64 版本  
-        - server-windows-amd64.zip - Windows AMD64 版本
-        - server-windows-arm64.zip - Windows ARM64 版本
-        **Web 应用:**
+        
+        - server-linux-amd64.tar.gz - 后端 Linux AMD64 版本
+        - server-linux-arm64.tar.gz - 后端 Linux ARM64 版本  
+        - server-windows-amd64.zip - 后端 Windows AMD64 版本
+        - server-windows-arm64.zip - 后端 Windows ARM64 版本
         - web-dist.zip - 前端静态文件
         构建时间: ${{ steps.date.outputs.date }} | 提交: ${{ github.sha }}"
         
