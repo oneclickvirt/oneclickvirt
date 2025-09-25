@@ -96,8 +96,7 @@ jobs:
         - server-linux-arm64.tar.gz - 后端 Linux ARM64 版本  
         - server-windows-amd64.zip - 后端 Windows AMD64 版本
         - server-windows-arm64.zip - 后端 Windows ARM64 版本
-        - web-dist.zip - 前端静态文件
-        构建时间: ${{ steps.date.outputs.date }} | 提交: ${{ github.sha }}"
+        - web-dist.zip - 前端静态文件"
         
         # Create release using GitHub CLI
         gh release create "$TAG_NAME" \
