@@ -90,14 +90,44 @@ func GetTaskService() *TaskService {
 		// 初始化统一任务状态管理器
 		InitTaskStateManager(taskService)
 
-		// 服务启动时清理所有running状态的任务
-		taskService.cleanupRunningTasksOnStartup()
+		// 只有在数据库已初始化时才清理running状态的任务
+		if isSystemInitialized() {
+			taskService.cleanupRunningTasksOnStartup()
+		} else {
+			global.APP_LOG.Debug("系统未初始化，跳过任务清理")
+		}
 	})
 	return taskService
 }
 
+// isSystemInitialized 检查系统是否已初始化（本地检查，避免循环依赖）
+func isSystemInitialized() bool {
+	if global.APP_DB == nil {
+		return false
+	}
+
+	// 简单的数据库连接测试
+	sqlDB, err := global.APP_DB.DB()
+	if err != nil {
+		return false
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		return false
+	}
+
+	// 检查是否有用户表，这是一个基本的初始化标志
+	return global.APP_DB.Migrator().HasTable("users")
+}
+
 // cleanupRunningTasksOnStartup 服务启动时清理running状态的任务
 func (s *TaskService) cleanupRunningTasksOnStartup() {
+	// 再次检查数据库是否可用，防止在初始化过程中数据库状态发生变化
+	if global.APP_DB == nil {
+		global.APP_LOG.Warn("数据库连接不存在，无法清理运行中的任务")
+		return
+	}
+
 	// 将所有running状态的任务标记为failed
 	result := global.APP_DB.Model(&adminModel.Task{}).
 		Where("status = ?", "running").

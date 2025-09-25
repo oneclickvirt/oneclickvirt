@@ -4,12 +4,13 @@ import (
 	auth2 "oneclickvirt/service/auth"
 	"strings"
 
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // Login 用户登录

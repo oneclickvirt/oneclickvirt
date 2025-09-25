@@ -37,10 +37,34 @@ func GetTaskService() *TaskService {
 		taskService = &TaskService{
 			runningTasks: make(map[uint]*TaskContext),
 		}
-		// 启动时清理未完成的任务
-		taskService.cleanupUnfinishedTasks()
+		// 只有在数据库已初始化时才清理未完成的任务
+		if isSystemInitialized() {
+			taskService.cleanupUnfinishedTasks()
+		} else {
+			global.APP_LOG.Debug("系统未初始化，跳过配置任务清理")
+		}
 	})
 	return taskService
+}
+
+// isSystemInitialized 检查系统是否已初始化（本地检查，避免循环依赖）
+func isSystemInitialized() bool {
+	if global.APP_DB == nil {
+		return false
+	}
+
+	// 简单的数据库连接测试
+	sqlDB, err := global.APP_DB.DB()
+	if err != nil {
+		return false
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		return false
+	}
+
+	// 检查是否有用户表，这是一个基本的初始化标志
+	return global.APP_DB.Migrator().HasTable("users")
 }
 
 // NewTaskService 创建配置任务服务实例
@@ -50,6 +74,12 @@ func NewTaskService() *TaskService {
 
 // cleanupUnfinishedTasks 清理未完成的任务（服务重启后）
 func (s *TaskService) cleanupUnfinishedTasks() {
+	// 再次检查数据库是否可用
+	if global.APP_DB == nil {
+		global.APP_LOG.Warn("数据库连接不存在，无法清理未完成的配置任务")
+		return
+	}
+
 	var tasks []admin.ConfigurationTask
 	global.APP_DB.Where("status IN ?", []string{
 		admin.TaskStatusPending,

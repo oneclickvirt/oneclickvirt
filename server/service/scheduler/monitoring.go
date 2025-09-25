@@ -78,6 +78,12 @@ func (s *MonitoringSchedulerService) startVnStatCollection(ctx context.Context) 
 			global.APP_LOG.Info("vnStat数据收集任务已停止")
 			return
 		case <-ticker.C:
+			// 检查数据库是否已初始化
+			if global.APP_DB == nil {
+				global.APP_LOG.Debug("数据库未初始化，跳过vnStat数据收集")
+				continue
+			}
+
 			// 检查是否有启用的接口
 			var count int64
 			err := global.APP_DB.Model(&monitoringModel.VnStatInterface{}).Where("is_enabled = ?", true).Count(&count).Error

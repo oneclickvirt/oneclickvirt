@@ -29,13 +29,17 @@ type TaskLockReleaser interface {
 	ReleaseTaskLocks(taskID uint)
 }
 
+// SystemInitializationCallback 系统初始化完成后的回调函数类型
+type SystemInitializationCallback func()
+
 var (
 	APP_DB                   *gorm.DB
 	APP_LOG                  *zap.Logger
 	APP_CONFIG               config.Server
 	APP_VP                   *viper.Viper
 	APP_ENGINE               *gin.Engine
-	APP_SCHEDULER            Scheduler           // 任务调度器全局变量
-	APP_MONITORING_SCHEDULER MonitoringScheduler // 监控调度器全局变量
-	APP_TASK_LOCK_RELEASER   TaskLockReleaser    // 任务锁释放器全局变量
+	APP_SCHEDULER            Scheduler                    // 任务调度器全局变量
+	APP_MONITORING_SCHEDULER MonitoringScheduler          // 监控调度器全局变量
+	APP_TASK_LOCK_RELEASER   TaskLockReleaser             // 任务锁释放器全局变量
+	APP_SYSTEM_INIT_CALLBACK SystemInitializationCallback // 系统初始化完成回调函数
 )

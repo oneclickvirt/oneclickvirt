@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// InitAuthRouter 认证路由
 func InitAuthRouter(Router *gin.RouterGroup) {
 	AuthRouter := Router.Group("v1/auth")
 	{

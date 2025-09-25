@@ -158,6 +158,12 @@ func (s *SchedulerService) runTaskScheduler() {
 
 // processPendingTasks 处理待处理任务
 func (s *SchedulerService) processPendingTasks() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过任务处理")
+		return
+	}
+
 	// 获取所有待处理任务，按创建时间排序
 	var pendingTasks []adminModel.Task
 	err := global.APP_DB.Where("status = ?", "pending").
@@ -189,6 +195,12 @@ func (s *SchedulerService) processPendingTasks() {
 
 // tryStartTask 尝试启动任务
 func (s *SchedulerService) tryStartTask(task adminModel.Task) {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过任务启动")
+		return
+	}
+
 	// 检查ProviderID是否为空
 	if task.ProviderID == nil {
 		global.APP_LOG.Error("Task has no provider ID", zap.Uint("task_id", task.ID))

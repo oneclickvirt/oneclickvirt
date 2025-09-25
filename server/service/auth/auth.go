@@ -453,12 +453,12 @@ func (s *AuthService) sendPasswordByEmail(email, username, newPassword string) e
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword string) error {
 	config := global.APP_CONFIG.Auth
-	
+
 	// 检查Telegram是否启用
 	if !config.EnableTelegram {
 		return errors.New("Telegram通知服务未启用")
 	}
-	
+
 	// 检查Bot Token是否配置
 	if config.TelegramBotToken == "" {
 		return errors.New("Telegram Bot Token未配置")
@@ -477,7 +477,7 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 
 	// 构造消息内容
 	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该调用Telegram Bot API发送消息
 	// 可以使用 go-telegram-bot-api 包
 	// 示例实现：
@@ -485,18 +485,18 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 	// if err != nil {
 	//     return fmt.Errorf("创建Telegram Bot失败: %v", err)
 	// }
-	// 
+	//
 	// chatID, err := strconv.ParseInt(telegram, 10, 64)
 	// if err != nil {
 	//     return fmt.Errorf("无效的Telegram Chat ID: %v", err)
 	// }
-	// 
+	//
 	// msg := tgbotapi.NewMessage(chatID, message)
 	// _, err = bot.Send(msg)
 	// return err
-	
+
 	// 暂时返回未实现错误，但保留完整的配置检查逻辑
-	global.APP_LOG.Warn("Telegram Bot API集成待实现", 
+	global.APP_LOG.Warn("Telegram Bot API集成待实现",
 		zap.String("message", message),
 		zap.String("chatId", telegram))
 	return errors.New("Telegram Bot API集成待实现，请安装并配置 go-telegram-bot-api 包")
@@ -505,12 +505,12 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 	config := global.APP_CONFIG.Auth
-	
+
 	// 检查QQ是否启用
 	if !config.EnableQQ {
 		return errors.New("QQ通知服务未启用")
 	}
-	
+
 	// 检查QQ配置是否完整
 	if config.QQAppID == "" || config.QQAppKey == "" {
 		return errors.New("QQ应用配置不完整")
@@ -529,16 +529,16 @@ func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 
 	// 构造消息内容
 	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该调用QQ机器人API发送消息
 	// 可以使用QQ官方的OpenAPI或第三方SDK
 	// 示例实现：
 	// qqBot := qqapi.NewBot(config.QQAppID, config.QQAppKey)
 	// err := qqBot.SendPrivateMessage(qq, message)
 	// return err
-	
+
 	// 暂时返回未实现错误，但保留完整的配置检查逻辑
-	global.APP_LOG.Warn("QQ机器人API集成待实现", 
+	global.APP_LOG.Warn("QQ机器人API集成待实现",
 		zap.String("message", message),
 		zap.String("qqNumber", qq))
 	return errors.New("QQ机器人API集成待实现，请安装并配置相应的QQ SDK")
@@ -559,16 +559,16 @@ func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) err
 
 	// 构造短信内容
 	message := fmt.Sprintf("【您的应用】用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该调用短信服务商API
 	// 可以集成阿里云、腾讯云、华为云等短信服务
 	// 示例实现：
 	// smsClient := sms.NewClient(config.SMSAccessKey, config.SMSSecretKey)
 	// err := smsClient.SendSMS(phone, message, config.SMSTemplateID)
 	// return err
-	
+
 	// 暂时返回未实现错误，但保留完整的日志记录
-	global.APP_LOG.Warn("短信服务API集成待实现", 
+	global.APP_LOG.Warn("短信服务API集成待实现",
 		zap.String("message", message),
 		zap.String("phone", phone))
 	return errors.New("短信服务API集成待实现，请配置短信服务商（如阿里云、腾讯云等）")
@@ -593,15 +593,15 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 
 	// 构造短信内容
 	message := fmt.Sprintf("【您的应用】验证码：%s，5分钟内有效，请勿泄露。", code)
-	
+
 	// 这里应该调用短信服务商API
 	// 可以集成阿里云、腾讯云、华为云等短信服务
 	// 示例实现：
 	// smsClient := sms.NewClient(config.SMSAccessKey, config.SMSSecretKey)
 	// err := smsClient.SendSMS(phone, message, config.SMSVerificationTemplateID)
 	// return err
-	
-	global.APP_LOG.Warn("短信验证码服务API集成待实现", 
+
+	global.APP_LOG.Warn("短信验证码服务API集成待实现",
 		zap.String("message", message),
 		zap.String("phone", phone))
 	return errors.New("短信验证码服务API集成待实现，请配置短信服务商")
@@ -815,7 +815,7 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 	user := userModel.User{
 		Username: "user",
 		Password: string(userPassword),
-		Email:    "user@oneclickvirt.com",
+		Email:    "user@spiritlhl.net",
 		UserType: "user",
 		Status:   1,
 	}

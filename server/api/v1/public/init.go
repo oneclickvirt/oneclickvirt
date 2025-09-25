@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
 	"strconv"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -47,21 +48,35 @@ func CheckInit(c *gin.Context) {
 			needInit = true
 			global.APP_LOG.Warn("数据库连接ping失败", zap.Error(err))
 		} else {
-			// 使用服务层检查是否有用户数据
-			systemStatsService := resources.SystemStatsService{}
-			hasUsers, err := systemStatsService.CheckUserExists()
-			if err != nil {
-				message = "数据库查询失败，需要初始化"
+			// 检查数据库配置是否完整
+			if global.APP_CONFIG.Mysql.Dbname == "" || global.APP_CONFIG.Mysql.Path == "" {
+				message = "数据库配置不完整，需要初始化"
 				needInit = true
-				global.APP_LOG.Warn("查询用户表失败", zap.Error(err))
-			} else if !hasUsers {
-				message = "未找到用户数据，需要初始化"
-				needInit = true
-				global.APP_LOG.Info("数据库中无用户数据，需要初始化")
+				global.APP_LOG.Info("数据库配置不完整，需要初始化")
 			} else {
-				message = "数据库无需初始化"
-				needInit = false
-				global.APP_LOG.Debug("系统已初始化")
+				// 使用服务层检查是否有用户数据
+				systemStatsService := resources.SystemStatsService{}
+				hasUsers, err := systemStatsService.CheckUserExists()
+				if err != nil {
+					// 检查是否是"No database selected"错误
+					if err.Error() == "Error 1046 (3D000): No database selected" {
+						message = "数据库未选择，需要初始化"
+						needInit = true
+						global.APP_LOG.Info("数据库未选择，需要初始化")
+					} else {
+						message = "检查用户数据失败，需要初始化"
+						needInit = true
+						global.APP_LOG.Warn("检查用户数据失败", zap.Error(err))
+					}
+				} else if !hasUsers {
+					message = "未找到用户数据，需要初始化"
+					needInit = true
+					global.APP_LOG.Info("数据库中无用户数据，需要初始化")
+				} else {
+					message = "数据库无需初始化"
+					needInit = false
+					global.APP_LOG.Debug("系统已初始化")
+				}
 			}
 		}
 	}
@@ -185,23 +200,7 @@ func InitSystem(c *gin.Context) {
 		return
 	}
 
-	// 如果数据库已经初始化，使用服务层检查是否有用户数据
-	if global.APP_DB != nil {
-		systemStatsService := resources.SystemStatsService{}
-		hasUsers, err := systemStatsService.CheckUserExists()
-		if err != nil {
-			c.JSON(http.StatusInternalServerError, common.Error("检查用户数据失败: "+err.Error()))
-			return
-		}
-		if hasUsers {
-			c.JSON(http.StatusBadRequest, common.Error("系统已初始化"))
-			return
-		}
-	}
-
-	// 初始化服务
-	initService := &system.InitService{}
-
+	// 先检查数据库配置并确保数据库连接
 	// 转换端口字符串为整数
 	port, err := strconv.Atoi(req.Database.Port)
 	if err != nil {
@@ -209,7 +208,7 @@ func InitSystem(c *gin.Context) {
 		return
 	}
 
-	// 确保数据库和表结构
+	// 创建数据库配置
 	dbConfig := configModel.DatabaseConfig{
 		Type:     req.Database.Type,
 		Host:     req.Database.Host,
@@ -219,6 +218,32 @@ func InitSystem(c *gin.Context) {
 		Password: req.Database.Password,
 	}
 
+	// 初始化服务
+	initService := &system.InitService{}
+
+	// 测试数据库连接
+	if err := initService.TestDatabaseConnection(dbConfig); err != nil {
+		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败: "+err.Error()))
+		return
+	}
+
+	// 如果数据库已经连接，检查是否有用户数据
+	// 但要确保连接到正确的数据库
+	if global.APP_DB != nil {
+		// 先尝试使用当前连接检查，如果失败则跳过检查
+		systemStatsService := resources.SystemStatsService{}
+		hasUsers, err := systemStatsService.CheckUserExists()
+		if err == nil && hasUsers {
+			c.JSON(http.StatusBadRequest, common.Error("系统已初始化"))
+			return
+		}
+		// 如果检查失败（比如没有选择数据库），继续初始化流程
+		if err != nil {
+			global.APP_LOG.Debug("检查用户数据失败，继续初始化流程", zap.Error(err))
+		}
+	}
+
+	// 确保数据库和表结构
 	if err := initService.EnsureDatabase(dbConfig); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Error("数据库初始化失败: "+err.Error()))
 		return
@@ -246,6 +271,21 @@ func InitSystem(c *gin.Context) {
 
 	// 初始化系统镜像
 	source.SeedSystemImages()
+
+	// 系统初始化完成后，触发完整系统重新初始化
+	go func() {
+		global.APP_LOG.Info("系统初始化完成，开始完整系统重新初始化")
+
+		// 等待一小段时间确保数据库事务完成
+		time.Sleep(2 * time.Second)
+
+		// 调用系统初始化完成回调
+		if global.APP_SYSTEM_INIT_CALLBACK != nil {
+			global.APP_SYSTEM_INIT_CALLBACK()
+		}
+
+		global.APP_LOG.Info("完整系统重新初始化完成")
+	}()
 
 	c.JSON(http.StatusOK, common.Success("系统初始化成功"))
 }

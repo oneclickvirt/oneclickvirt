@@ -434,9 +434,6 @@ const databaseRules = {
   ],
   username: [
     { required: true, message: '请输入数据库用户名', trigger: 'blur' }
-  ],
-  password: [
-    { required: true, message: '请输入数据库密码', trigger: 'blur' }
   ]
 }
 

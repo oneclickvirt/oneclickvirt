@@ -90,6 +90,23 @@ func InitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 	})
 }
 
+// ReInitializeConfigManager 重新初始化配置管理器（用于系统初始化完成后）
+func ReInitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
+	if db == nil || logger == nil {
+		if logger != nil {
+			logger.Error("重新初始化配置管理器失败: 数据库或日志记录器为空")
+		}
+		return
+	}
+
+	// 直接重新创建配置管理器实例，绕过 sync.Once 限制
+	configManager = NewConfigManager(db, logger)
+	configManager.initValidationRules()
+	configManager.loadConfigFromDB()
+
+	logger.Info("配置管理器重新初始化完成")
+}
+
 // initValidationRules 初始化验证规则
 func (cm *ConfigManager) initValidationRules() {
 	// 认证配置验证规则
@@ -326,11 +343,30 @@ func (cm *ConfigManager) RollbackToSnapshot(version string) error {
 
 // loadConfigFromDB 从数据库加载配置
 func (cm *ConfigManager) loadConfigFromDB() {
+	if cm.db == nil {
+		cm.logger.Error("数据库连接为空，无法加载配置")
+		return
+	}
+
+	// 测试数据库连接
+	sqlDB, err := cm.db.DB()
+	if err != nil {
+		cm.logger.Error("获取数据库连接失败，无法加载配置", zap.Error(err))
+		return
+	}
+
+	if err := sqlDB.Ping(); err != nil {
+		cm.logger.Error("数据库连接测试失败，无法加载配置", zap.Error(err))
+		return
+	}
+
 	var configs []SystemConfig
 	if err := cm.db.Find(&configs).Error; err != nil {
 		cm.logger.Error("加载配置失败", zap.Error(err))
 		return
 	}
+
+	cm.logger.Info("从数据库加载配置", zap.Int("configCount", len(configs)))
 
 	for _, config := range configs {
 		cm.configCache[config.Key] = config.Value

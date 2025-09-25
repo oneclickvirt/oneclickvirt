@@ -44,8 +44,8 @@ mysql:
     max-idle-conns: 10
     max-open-conns: 100
     password: ""
-    path: 127.0.0.1
-    port: 3306
+    path:
+    port:
     prefix: ""
     singular: false
     username: root

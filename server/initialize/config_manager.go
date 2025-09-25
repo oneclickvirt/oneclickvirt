@@ -18,6 +18,26 @@ func InitializeConfigManager() {
 	}
 }
 
+// ReInitializeConfigManager 重新初始化配置管理器（用于系统初始化完成后）
+func ReInitializeConfigManager() {
+	if global.APP_DB == nil || global.APP_LOG == nil {
+		global.APP_LOG.Error("重新初始化配置管理器失败: 全局数据库或日志记录器未初始化")
+		return
+	}
+
+	// 重新初始化配置管理器
+	config.ReInitializeConfigManager(global.APP_DB, global.APP_LOG)
+
+	// 注册配置同步回调
+	configManager := config.GetConfigManager()
+	if configManager != nil {
+		configManager.RegisterChangeCallback(syncConfigToGlobal)
+		global.APP_LOG.Info("配置管理器重新初始化完成并注册回调")
+	} else {
+		global.APP_LOG.Error("配置管理器重新初始化后仍为空")
+	}
+}
+
 // syncConfigToGlobal 同步配置到全局变量
 func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 	switch key {

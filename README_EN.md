@@ -82,3 +82,4 @@ go build -o oneclickvirt main.go
 ![](./.back/3.png)
 ![](./.back/4.png)
 ![](./.back/5.png)
+![](./.back/6.png)

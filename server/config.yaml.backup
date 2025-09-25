@@ -37,7 +37,8 @@ jwt:
     signing-key: ""
 mysql:
     auto-create: true
-    db-name: oneclickvirt_test
+    config: charset=utf8mb4&parseTime=True&loc=Local
+    db-name: oneclickvirt
     engine: InnoDB
     log-mode: error
     log-zap: false

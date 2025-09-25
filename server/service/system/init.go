@@ -50,7 +50,7 @@ func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error
 	}
 
 	// 构建DSN，先不指定数据库名
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local",
 		config.Username, config.Password, config.Host, config.Port)
 
 	// 尝试连接MySQL服务器
@@ -89,7 +89,7 @@ func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error
 	}
 
 	// 测试连接到具体数据库
-	dsnWithDB := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsnWithDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
 		config.Username, config.Password, config.Host, config.Port, config.Database)
 
 	dbWithDB, err := gorm.Open(mysql.Open(dsnWithDB), &gorm.Config{
@@ -257,10 +257,60 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	return nil
 }
 
-// ReinitializeDatabase 重新初始化数据库 (简化版本)
+// ReinitializeDatabase 重新初始化数据库连接
 func (s *InitService) ReinitializeDatabase() error {
-	// 对于初始化阶段，我们只需要更新全局配置
-	// 实际的数据库重新初始化在main.go中处理
-	global.APP_LOG.Debug("数据库配置已更新，需要重启服务生效")
+	// 读取配置文件获取最新的数据库配置
+	configPath := "./config.yaml"
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %v", err)
+	}
+
+	var c map[string]interface{}
+	if err := yaml.Unmarshal(configData, &c); err != nil {
+		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+
+	// 获取 MySQL 配置
+	mysqlConfig, ok := c["mysql"].(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("MySQL配置不存在")
+	}
+
+	// 提取配置信息
+	host, _ := mysqlConfig["path"].(string)
+	port, _ := mysqlConfig["port"].(int)
+	dbname, _ := mysqlConfig["db-name"].(string)
+	username, _ := mysqlConfig["username"].(string)
+	password, _ := mysqlConfig["password"].(string)
+	config, _ := mysqlConfig["config"].(string)
+
+	if host == "" || username == "" || dbname == "" {
+		return fmt.Errorf("数据库配置不完整")
+	}
+
+	// 构建DSN并连接数据库
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
+		username, password, host, port, dbname, config)
+
+	mysqlDriverConfig := mysql.Config{
+		DSN:                       dsn,
+		DefaultStringSize:         191,
+		SkipInitializeWithVersion: false,
+	}
+
+	gormConfig := &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	}
+
+	db, err := gorm.Open(mysql.New(mysqlDriverConfig), gormConfig)
+	if err != nil {
+		return fmt.Errorf("重新连接数据库失败: %v", err)
+	}
+
+	// 更新全局数据库连接
+	global.APP_DB = db
+	global.APP_LOG.Info("数据库连接已更新")
+
 	return nil
 }

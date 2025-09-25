@@ -1,11 +1,13 @@
 package router
 
 import (
-	"github.com/gin-gonic/gin"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/api/v1/system"
+
+	"github.com/gin-gonic/gin"
 )
 
+// InitPublicRouter 公开路由
 func InitPublicRouter(Router *gin.RouterGroup) {
 	PublicRouter := Router.Group("v1/public")
 	{
@@ -17,6 +19,7 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 		PublicRouter.GET("register-config", public.GetRegisterConfig)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
 	}
+
 	StaticRouter := Router.Group("v1/static")
 	{
 		StaticRouter.GET(":type/*path", system.ServeStaticFile)

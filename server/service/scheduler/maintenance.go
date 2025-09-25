@@ -55,6 +55,12 @@ func (s *SchedulerService) cleanupExpiredInstances() {
 
 // cleanupExpiredJWTBlacklist 清理过期的JWT黑名单
 func (s *SchedulerService) cleanupExpiredJWTBlacklist() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过JWT黑名单清理")
+		return
+	}
+
 	result := global.APP_DB.Where("expires_at < ?", time.Now()).
 		Delete(&auth.JWTBlacklist{})
 
@@ -68,6 +74,11 @@ func (s *SchedulerService) cleanupExpiredJWTBlacklist() {
 
 // cleanupExpiredProviders 清理过期的Provider配置
 func (s *SchedulerService) cleanupExpiredProviders() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过Provider清理")
+		return
+	}
 	// 标记长时间未活动的Provider为不可用
 	inactiveThreshold := time.Now().Add(-24 * time.Hour)
 
@@ -85,6 +96,12 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 
 // cleanupOldTasks 清理旧的任务记录
 func (s *SchedulerService) cleanupOldTasks() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过旧任务清理")
+		return
+	}
+
 	// 清理30天前的已完成任务
 	oldThreshold := time.Now().Add(-30 * 24 * time.Hour)
 

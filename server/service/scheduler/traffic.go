@@ -26,8 +26,14 @@ type TrafficServiceInterface interface {
 	InitUserTrafficQuota(userID uint) error
 }
 
-// syncAllTrafficData 同步所有实例的流量数据（使用vnStat）
+// syncAllTrafficData 同步所有流量数据（使用vnStat）
 func (s *SchedulerService) syncAllTrafficData() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过流量数据同步")
+		return
+	}
+
 	// 降低流量同步的日志级别，减少频繁输出
 	global.APP_LOG.Debug("开始同步流量数据（基于vnStat）")
 
@@ -42,6 +48,12 @@ func (s *SchedulerService) syncAllTrafficData() {
 
 // checkMonthlyTrafficReset 检查月度流量重置（使用vnStat）
 func (s *SchedulerService) checkMonthlyTrafficReset() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过流量重置检查")
+		return
+	}
+
 	// 获取所有活跃用户
 	var userIDs []uint
 	if err := global.APP_DB.Model(&user.User{}).
