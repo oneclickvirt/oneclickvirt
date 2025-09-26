@@ -5,12 +5,20 @@ import (
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
+	"strings"
 
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	swaggerFiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 )
+
+// isAPIPath 检查路径是否为API路径
+func isAPIPath(path string) bool {
+	return strings.HasPrefix(path, "/api/") ||
+		strings.HasPrefix(path, "/swagger/") ||
+		path == "/health"
+}
 
 // SetupRouter 统一的路由设置入口
 func SetupRouter() *gin.Engine {
