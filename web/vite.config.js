@@ -16,12 +16,12 @@ export default defineConfig(({ mode }) => {
       open: true,
       proxy: {
         [env.VITE_BASE_API || '/api']: {
-          target: `${env.VITE_BASE_PATH}:${env.VITE_SERVER_PORT}` || 'http://127.0.0.1:8888',
+          target: `${env.VITE_BASE_PATH}:${env.VITE_SERVER_PORT}` || 'http://0.0.0.0:8888',
           changeOrigin: true,
           // 可选：调试日志
           configure: (proxy, options) => {
             proxy.on('proxyReq', (proxyReq, req, res) => {
-              console.log(`代理请求: ${req.method} ${req.url} -> ${options.target}${proxyReq.path}`)
+              // console.log(`代理请求: ${req.method} ${req.url} -> ${options.target}${proxyReq.path}`)
             })
           }
         }
