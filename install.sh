@@ -1,6 +1,6 @@
 #!/bin/bash
 # from https://github.com/oneclickvirt/oneclickvirt
-# 2025.09.23
+# 2025.09.27
 
 VERSION="v20250927-054857"
 REPO="oneclickvirt/oneclickvirt"
@@ -311,8 +311,7 @@ install_server() {
                 exit 1
             fi
         fi
-        
-        chmod +x "/opt/oneclickvirt/server/oneclickvirt-server"
+        chmod 777 /opt/oneclickvirt/server/oneclickvirt-server
         rm -f "$temp_file"
         log_success "服务器二进制文件安装完成"
     else
@@ -339,7 +338,6 @@ install_web() {
         log_error "下载失败: $download_url"
         exit 1
     fi
-    
     log_info "解压Web应用文件..."
     if command -v unzip &> /dev/null; then
         if unzip -q "$temp_file" -d /opt/oneclickvirt/web/; then
@@ -364,6 +362,7 @@ install_web() {
             exit 1
         fi
     fi
+    chmod 777 /opt/oneclickvirt/web/
 }
 
 download_config() {
