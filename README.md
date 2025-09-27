@@ -6,7 +6,7 @@
 
 [www.spiritlhl.net](https://www.spiritlhl.net/)
 
-## 快速开始
+## 开发测试
 
 ### 环境要求
 
@@ -20,25 +20,23 @@
 ```bash
 cd web
 npm i
-npm run build
+npm run serve
 ```
 
 2. 构建后端
 ```bash
 cd server
 go mod tidy
-go build -o oneclickvirt main.go
+go run main.go
 ```
 
-3. 挂起执行后端的二进制文件```oneclickvirt```。
+3. 开发模式下不需要反代后端，vite已自带后端代理请求。
 
-4. 配置域名绑定静态文件夹，不需要反代后端，vite已自带后端代理请求。
+5. 在mysql中创建一个空的数据库```oneclickvirt```，记录对应的账户和密码。
 
-5. 安装mysql后，创建一个空的数据库```oneclickvirt```。
+6. 访问前端地址，自动跳转到初始化界面，填写数据库信息和相关信息，点击初始化。
 
-6. 访问你的域名，自动跳转到初始化界面，填写数据库信息(root用户)和相关信息，点击初始化。
-
-7. 完成初始化后会自动跳转到首页，可以自行探索并使用了。
+7. 完成初始化后会自动跳转到首页，可以开始开发测试了。
 
 ### 本地开发
 

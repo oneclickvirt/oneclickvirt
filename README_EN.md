@@ -1,12 +1,12 @@
 # OneClickVirt Virtualization Management Platform
 
-A scalable universal virtualization management platform that supports LXD, Incus, Docker, and Proxmox VE.
+An extensible universal virtualization management platform that supports LXD, Incus, Docker, and Proxmox VE.
 
 ## Detailed Description
 
 [www.spiritlhl.net](https://www.spiritlhl.net/)
 
-## Quick Start
+## Development and Testing
 
 ### Environment Requirements
 
@@ -20,25 +20,23 @@ A scalable universal virtualization management platform that supports LXD, Incus
 ```bash
 cd web
 npm i
-npm run build
+npm run serve
 ```
 
 2. Build backend
 ```bash
 cd server
 go mod tidy
-go build -o oneclickvirt main.go
+go run main.go
 ```
 
-3. Run the backend binary file ```oneclickvirt```.
+3. In development mode, there's no need to proxy the backend, as Vite already includes backend proxy requests.
 
-4. Configure domain binding to static file folder, no need to reverse proxy the backend, vite already comes with backend proxy requests.
+4. Create an empty database named `oneclickvirt` in MySQL, and record the corresponding account and password.
 
-5. After installing mysql, create an empty database ```oneclickvirt```.
+5. Access the frontend address, which will automatically redirect to the initialization interface. Fill in the database information and related details, then click initialize.
 
-6. Visit your domain, it will automatically redirect to the initialization interface, fill in the database information (root user) and related information, click initialize.
-
-7. After completing initialization, it will automatically redirect to the homepage, you can explore and use it on your own.
+6. After completing initialization, it will automatically redirect to the homepage, and you can start development and testing.
 
 ### Local Development
 
@@ -53,11 +51,11 @@ After system initialization, the following default accounts will be generated:
 * Administrator account: `admin / Admin123!@#`
 * Regular user: `testuser / TestUser123!@#`
 
-> Tip: Please change the default password immediately after first login.
+> Tip: Please change the default passwords immediately after first login.
 
 ## Configuration File
 
-Main configuration file is located at `server/config.yaml`
+The main configuration file is located at `server/config.yaml`
 
 ## Demo Screenshots
 
