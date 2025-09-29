@@ -126,11 +126,8 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'set -e' >> /start.sh && \
     echo 'echo "Starting OneClickVirt..."' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo '# Set environment variables' >> /start.sh && \
-    echo 'export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-OneClickVirt123!}' >> /start.sh && \
+    echo '# Set environment variables (无密码配置)' >> /start.sh && \
     echo 'export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}' >> /start.sh && \
-    echo 'export MYSQL_USER=${MYSQL_USER:-oneclickvirt}' >> /start.sh && \
-    echo 'export MYSQL_PASSWORD=${MYSQL_PASSWORD:-OneClickVirt123!}' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '# Initialize MySQL database if needed' >> /start.sh && \
     echo 'if [ ! -d "/var/lib/mysql/mysql" ]; then' >> /start.sh && \
@@ -146,25 +143,26 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '        sleep 1' >> /start.sh && \
     echo '    done' >> /start.sh && \
     echo '    ' >> /start.sh && \
+    echo '    # 设置root用户无密码，并创建数据库' >> /start.sh && \
     echo '    mysql --socket=/tmp/mysql_init.sock <<SQLEND' >> /start.sh && \
-    echo "ALTER USER 'root'@'localhost' IDENTIFIED BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
+    echo "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '::1');" >> /start.sh && \
+    echo "UPDATE mysql.user SET authentication_string='' WHERE User='root';" >> /start.sh && \
+    echo "UPDATE mysql.user SET plugin='mysql_native_password' WHERE User='root';" >> /start.sh && \
     echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
-    echo "CREATE USER IF NOT EXISTS '\${MYSQL_USER}'@'localhost' IDENTIFIED BY '\${MYSQL_PASSWORD}';" >> /start.sh && \
-    echo "GRANT ALL PRIVILEGES ON \\\`\${MYSQL_DATABASE}\\\`.* TO '\${MYSQL_USER}'@'localhost';" >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo 'SQLEND' >> /start.sh && \
     echo '    ' >> /start.sh && \
     echo '    kill $mysql_pid' >> /start.sh && \
     echo '    wait $mysql_pid' >> /start.sh && \
-    echo '    echo "MySQL initialization completed."' >> /start.sh && \
+    echo '    echo "MySQL initialization completed (root user with no password)."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '# Set environment variables for application' >> /start.sh && \
     echo 'export DB_HOST="127.0.0.1"' >> /start.sh && \
     echo 'export DB_PORT="3306"' >> /start.sh && \
     echo 'export DB_NAME="$MYSQL_DATABASE"' >> /start.sh && \
-    echo 'export DB_USER="$MYSQL_USER"' >> /start.sh && \
-    echo 'export DB_PASSWORD="$MYSQL_PASSWORD"' >> /start.sh && \
+    echo 'export DB_USER="root"' >> /start.sh && \
+    echo 'export DB_PASSWORD=""' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'echo "Starting services..."' >> /start.sh && \
     echo 'exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
