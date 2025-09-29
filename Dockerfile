@@ -35,9 +35,8 @@ COPY --from=backend-builder /app/server/main ./main
 COPY --from=backend-builder /app/server/config.yaml ./config.yaml
 COPY --from=frontend-builder /app/web/dist /var/www/html
 
-# Create users and set permissions
-RUN adduser -D -s /bin/sh mysql mysql \
-    && chown -R mysql:mysql /var/lib/mysql /var/log/mysql /run/mysqld \
+# Set permissions (mysql user already exists from package installation)
+RUN chown -R mysql:mysql /var/lib/mysql /var/log/mysql /run/mysqld \
     && chown -R nginx:nginx /var/www/html \
     && chmod -R 755 /var/www/html
 
@@ -94,7 +93,8 @@ RUN echo 'user nginx;' > /etc/nginx/nginx.conf && \
     echo '}' >> /etc/nginx/nginx.conf
 
 # Configure Supervisor
-RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
+RUN mkdir -p /etc/supervisor/conf.d && \
+    echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
     echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
     echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
