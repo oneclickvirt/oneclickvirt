@@ -2,10 +2,10 @@
 # Single container with MySQL + Application + Nginx
 
 # Stage 1: Build frontend
-FROM node:22-alpine AS frontend-builder
+FROM node:22-slim AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm ci --only=production
+RUN rm -f package-lock.json && npm install
 COPY web/ ./
 RUN npm run build
 
