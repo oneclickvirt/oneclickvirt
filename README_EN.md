@@ -6,6 +6,31 @@ An extensible universal virtualization management platform that supports LXD, In
 
 [www.spiritlhl.net](https://www.spiritlhl.net/)
 
+## Quick Deployment
+
+### Docker Deployment
+
+```bash
+git clone https://github.com/spiritLHLS/oneclickvirt.git
+cd oneclickvirt
+```
+
+```bash
+# Build image
+docker build -t oneclickvirt .
+```
+
+```bash
+# Start container
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  oneclickvirt
+```
+
 ## Development and Testing
 
 ### Environment Requirements

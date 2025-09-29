@@ -6,15 +6,41 @@
 
 [www.spiritlhl.net](https://www.spiritlhl.net/)
 
-## 开发测试
+## 快速部署
 
-### 环境要求
+### 方式一：Docker 一键部署
+
+```bash
+git clone https://github.com/spiritLHLS/oneclickvirt.git
+cd oneclickvirt
+```
+
+```bash
+# 构建镜像
+docker build -t oneclickvirt .
+```
+
+```bash
+# 启动容器
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  oneclickvirt
+```
+
+### 方式二：手动开发部署
+
+#### 环境要求
 
 * Go 1.24.5
 * Node.js 22+
+* MySQL 8.0+
 * npm 或 yarn
 
-### 环境部署
+#### 环境部署
 
 1. 构建前端
 ```bash
@@ -38,7 +64,7 @@ go run main.go
 
 7. 完成初始化后会自动跳转到首页，可以开始开发测试了。
 
-### 本地开发
+#### 本地开发
 
 * 前端：[http://localhost:8080](http://localhost:8080)
 * 后端 API：[http://localhost:8888](http://localhost:8888)
