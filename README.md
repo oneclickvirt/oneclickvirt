@@ -11,7 +11,7 @@
 ### 方式一：Docker 一键部署
 
 ```bash
-git clone https://github.com/spiritLHLS/oneclickvirt.git
+git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
 ```
 
