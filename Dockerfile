@@ -42,142 +42,133 @@ RUN adduser -D -s /bin/sh mysql mysql \
     && chmod -R 755 /var/www/html
 
 # Configure MySQL
-RUN cat > /etc/my.cnf << 'EOF'
-[mysqld]
-datadir=/var/lib/mysql
-socket=/run/mysqld/mysqld.sock
-user=mysql
-pid-file=/run/mysqld/mysqld.pid
-bind-address=127.0.0.1
-port=3306
-character-set-server=utf8mb4
-collation-server=utf8mb4_unicode_ci
-default-authentication-plugin=mysql_native_password
-max_connections=100
-skip-networking=0
-EOF
+RUN echo '[mysqld]' > /etc/my.cnf && \
+    echo 'datadir=/var/lib/mysql' >> /etc/my.cnf && \
+    echo 'socket=/run/mysqld/mysqld.sock' >> /etc/my.cnf && \
+    echo 'user=mysql' >> /etc/my.cnf && \
+    echo 'pid-file=/run/mysqld/mysqld.pid' >> /etc/my.cnf && \
+    echo 'bind-address=127.0.0.1' >> /etc/my.cnf && \
+    echo 'port=3306' >> /etc/my.cnf && \
+    echo 'character-set-server=utf8mb4' >> /etc/my.cnf && \
+    echo 'collation-server=utf8mb4_unicode_ci' >> /etc/my.cnf && \
+    echo 'default-authentication-plugin=mysql_native_password' >> /etc/my.cnf && \
+    echo 'max_connections=100' >> /etc/my.cnf && \
+    echo 'skip-networking=0' >> /etc/my.cnf
 
 # Configure Nginx
-RUN cat > /etc/nginx/nginx.conf << 'EOF'
-user nginx;
-worker_processes auto;
-error_log /var/log/nginx/error.log;
-pid /run/nginx.pid;
-events { worker_connections 1024; }
-http {
-    include /etc/nginx/mime.types;
-    default_type application/octet-stream;
-    sendfile on;
-    keepalive_timeout 65;
-    gzip on;
-    server {
-        listen 80;
-        server_name localhost;
-        root /var/www/html;
-        index index.html;
-        client_max_body_size 10M;
-        
-        location /api/ {
-            proxy_pass http://127.0.0.1:8888;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-        }
-        
-        location /swagger/ {
-            proxy_pass http://127.0.0.1:8888;
-            proxy_set_header Host $host;
-            proxy_set_header X-Real-IP $remote_addr;
-        }
-        
-        location / {
-            try_files $uri $uri/ /index.html;
-        }
-    }
-}
-EOF
+RUN echo 'user nginx;' > /etc/nginx/nginx.conf && \
+    echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
+    echo 'error_log /var/log/nginx/error.log;' >> /etc/nginx/nginx.conf && \
+    echo 'pid /run/nginx.pid;' >> /etc/nginx/nginx.conf && \
+    echo 'events { worker_connections 1024; }' >> /etc/nginx/nginx.conf && \
+    echo 'http {' >> /etc/nginx/nginx.conf && \
+    echo '    include /etc/nginx/mime.types;' >> /etc/nginx/nginx.conf && \
+    echo '    default_type application/octet-stream;' >> /etc/nginx/nginx.conf && \
+    echo '    sendfile on;' >> /etc/nginx/nginx.conf && \
+    echo '    keepalive_timeout 65;' >> /etc/nginx/nginx.conf && \
+    echo '    gzip on;' >> /etc/nginx/nginx.conf && \
+    echo '    server {' >> /etc/nginx/nginx.conf && \
+    echo '        listen 80;' >> /etc/nginx/nginx.conf && \
+    echo '        server_name localhost;' >> /etc/nginx/nginx.conf && \
+    echo '        root /var/www/html;' >> /etc/nginx/nginx.conf && \
+    echo '        index index.html;' >> /etc/nginx/nginx.conf && \
+    echo '        client_max_body_size 10M;' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location /api/ {' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location /swagger/ {' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location / {' >> /etc/nginx/nginx.conf && \
+    echo '            try_files $uri $uri/ /index.html;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '    }' >> /etc/nginx/nginx.conf && \
+    echo '}' >> /etc/nginx/nginx.conf
 
 # Configure Supervisor
-RUN cat > /etc/supervisor/conf.d/supervisord.conf << 'EOF'
-[supervisord]
-nodaemon=true
-user=root
-
-[program:mysql]
-command=/usr/bin/mysqld --user=mysql --console
-autostart=true
-autorestart=true
-user=mysql
-priority=1
-
-[program:app]
-command=/app/main
-directory=/app
-autostart=true
-autorestart=true
-user=root
-priority=2
-environment=DB_HOST="127.0.0.1",DB_PORT="3306"
-
-[program:nginx]
-command=/usr/sbin/nginx -g "daemon off;"
-autostart=true
-autorestart=true
-user=root
-priority=3
-EOF
+RUN echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:mysql]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=/usr/bin/mysqld --user=mysql --console' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=mysql' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'priority=1' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:app]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=/app/main' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'directory=/app' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'priority=2' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'command=/usr/sbin/nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
+    echo 'priority=3' >> /etc/supervisor/conf.d/supervisord.conf
 
 # Create startup script
-RUN cat > /start.sh << 'EOF'
-#!/bin/bash
-set -e
-echo "Starting OneClickVirt..."
-
-# Set environment variables
-export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-OneClickVirt123!}
-export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}
-export MYSQL_USER=${MYSQL_USER:-oneclickvirt}
-export MYSQL_PASSWORD=${MYSQL_PASSWORD:-OneClickVirt123!}
-
-# Initialize MySQL database if needed
-if [ ! -d "/var/lib/mysql/mysql" ]; then
-    echo "Initializing MySQL database..."
-    mysql_install_db --user=mysql --datadir=/var/lib/mysql
-    
-    mysqld --user=mysql --skip-networking --socket=/tmp/mysql_init.sock &
-    mysql_pid=$!
-    
-    for i in {1..30}; do
-        if mysql --socket=/tmp/mysql_init.sock -e "SELECT 1" >/dev/null 2>&1; then break; fi
-        echo "Waiting for MySQL to start... ($i/30)"
-        sleep 1
-    done
-    
-    mysql --socket=/tmp/mysql_init.sock <<EOSQL
-ALTER USER 'root'@'localhost' IDENTIFIED BY '${MYSQL_ROOT_PASSWORD}';
-CREATE DATABASE IF NOT EXISTS \`${MYSQL_DATABASE}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${MYSQL_USER}'@'localhost' IDENTIFIED BY '${MYSQL_PASSWORD}';
-GRANT ALL PRIVILEGES ON \`${MYSQL_DATABASE}\`.* TO '${MYSQL_USER}'@'localhost';
-FLUSH PRIVILEGES;
-EOSQL
-    
-    kill $mysql_pid
-    wait $mysql_pid
-    echo "MySQL initialization completed."
-fi
-
-# Set environment variables for application
-export DB_HOST="127.0.0.1"
-export DB_PORT="3306"
-export DB_NAME="$MYSQL_DATABASE"
-export DB_USER="$MYSQL_USER"
-export DB_PASSWORD="$MYSQL_PASSWORD"
-
-echo "Starting services..."
-exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf
-EOF
-
-RUN chmod +x /start.sh
+RUN echo '#!/bin/bash' > /start.sh && \
+    echo 'set -e' >> /start.sh && \
+    echo 'echo "Starting OneClickVirt..."' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Set environment variables' >> /start.sh && \
+    echo 'export MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-OneClickVirt123!}' >> /start.sh && \
+    echo 'export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}' >> /start.sh && \
+    echo 'export MYSQL_USER=${MYSQL_USER:-oneclickvirt}' >> /start.sh && \
+    echo 'export MYSQL_PASSWORD=${MYSQL_PASSWORD:-OneClickVirt123!}' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Initialize MySQL database if needed' >> /start.sh && \
+    echo 'if [ ! -d "/var/lib/mysql/mysql" ]; then' >> /start.sh && \
+    echo '    echo "Initializing MySQL database..."' >> /start.sh && \
+    echo '    mysql_install_db --user=mysql --datadir=/var/lib/mysql' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    mysqld --user=mysql --skip-networking --socket=/tmp/mysql_init.sock &' >> /start.sh && \
+    echo '    mysql_pid=$!' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    for i in {1..30}; do' >> /start.sh && \
+    echo '        if mysql --socket=/tmp/mysql_init.sock -e "SELECT 1" >/dev/null 2>&1; then break; fi' >> /start.sh && \
+    echo '        echo "Waiting for MySQL to start... ($i/30)"' >> /start.sh && \
+    echo '        sleep 1' >> /start.sh && \
+    echo '    done' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    mysql --socket=/tmp/mysql_init.sock <<SQLEND' >> /start.sh && \
+    echo "ALTER USER 'root'@'localhost' IDENTIFIED BY '\${MYSQL_ROOT_PASSWORD}';" >> /start.sh && \
+    echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
+    echo "CREATE USER IF NOT EXISTS '\${MYSQL_USER}'@'localhost' IDENTIFIED BY '\${MYSQL_PASSWORD}';" >> /start.sh && \
+    echo "GRANT ALL PRIVILEGES ON \\\`\${MYSQL_DATABASE}\\\`.* TO '\${MYSQL_USER}'@'localhost';" >> /start.sh && \
+    echo 'FLUSH PRIVILEGES;' >> /start.sh && \
+    echo 'SQLEND' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    kill $mysql_pid' >> /start.sh && \
+    echo '    wait $mysql_pid' >> /start.sh && \
+    echo '    echo "MySQL initialization completed."' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Set environment variables for application' >> /start.sh && \
+    echo 'export DB_HOST="127.0.0.1"' >> /start.sh && \
+    echo 'export DB_PORT="3306"' >> /start.sh && \
+    echo 'export DB_NAME="$MYSQL_DATABASE"' >> /start.sh && \
+    echo 'export DB_USER="$MYSQL_USER"' >> /start.sh && \
+    echo 'export DB_PASSWORD="$MYSQL_PASSWORD"' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo 'echo "Starting services..."' >> /start.sh && \
+    echo 'exec /usr/bin/supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
+    chmod +x /start.sh
 
 EXPOSE 80
 
