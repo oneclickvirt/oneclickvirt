@@ -154,14 +154,23 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql' >> /start.sh && \
     echo 'chmod 755 /var/run/mysqld' >> /start.sh && \
     echo '' >> /start.sh && \
+    echo '# Check if database needs initialization' >> /start.sh && \
     echo 'INIT_NEEDED=false' >> /start.sh && \
-    echo 'if [ ! -d "/var/lib/mysql/mysql" ] || [ -f "/var/lib/mysql/mariadb_upgrade_info" ] || [ -f "/var/lib/mysql/aria_log.00000001" ]; then' >> /start.sh && \
-    echo '    echo "Cleaning and initializing $DB_TYPE database..."' >> /start.sh && \
+    echo 'if [ ! -d "/var/lib/mysql/mysql" ]; then' >> /start.sh && \
+    echo '    echo "Database system directory not found - initializing $DB_TYPE database..."' >> /start.sh && \
     echo '    INIT_NEEDED=true' >> /start.sh && \
+    echo 'elif [ -f "/var/lib/mysql/mariadb_upgrade_info" ] || [ -f "/var/lib/mysql/aria_log.00000001" ]; then' >> /start.sh && \
+    echo '    echo "MariaDB upgrade artifacts found - reinitializing database..."' >> /start.sh && \
+    echo '    INIT_NEEDED=true' >> /start.sh && \
+    echo 'else' >> /start.sh && \
+    echo '    echo "Database already initialized, skipping initialization..."' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo 'if [ "$INIT_NEEDED" = "true" ]; then' >> /start.sh && \
     echo '    # Stop any running database processes' >> /start.sh && \
     echo '    pkill -f "$DB_DAEMON" || true' >> /start.sh && \
     echo '    sleep 2' >> /start.sh && \
-    echo '    # Remove old/corrupted data' >> /start.sh && \
+    echo '    # Remove old/corrupted data only when needed' >> /start.sh && \
     echo '    rm -rf /var/lib/mysql/*' >> /start.sh && \
     echo '    # Initialize database based on type' >> /start.sh && \
     echo '    if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
@@ -173,18 +182,18 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '        echo "$DB_TYPE initialization failed"' >> /start.sh && \
     echo '        exit 1' >> /start.sh && \
     echo '    fi' >> /start.sh && \
-    echo 'else' >> /start.sh && \
-    echo '    echo "$DB_TYPE database exists, checking configuration..."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo 'echo "Configuring $DB_TYPE users and permissions..."' >> /start.sh && \
-    echo 'pkill -f "$DB_DAEMON" || true' >> /start.sh && \
-    echo 'sleep 2' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo '# Start temporary database server for configuration' >> /start.sh && \
-    echo 'echo "Starting temporary $DB_TYPE server for configuration..."' >> /start.sh && \
-    echo '$DB_DAEMON --user=mysql --skip-networking --skip-grant-tables --socket=/var/run/mysqld/mysqld.sock --pid-file=/var/run/mysqld/mysqld.pid --log-error=/var/log/mysql/error.log &' >> /start.sh && \
-    echo 'mysql_pid=$!' >> /start.sh && \
+    echo '# Configure database users and permissions only if initialization was needed' >> /start.sh && \
+    echo 'if [ "$INIT_NEEDED" = "true" ]; then' >> /start.sh && \
+    echo '    echo "Configuring $DB_TYPE users and permissions..."' >> /start.sh && \
+    echo '    pkill -f "$DB_DAEMON" || true' >> /start.sh && \
+    echo '    sleep 2' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    # Start temporary database server for configuration' >> /start.sh && \
+    echo '    echo "Starting temporary $DB_TYPE server for configuration..."' >> /start.sh && \
+    echo '    $DB_DAEMON --user=mysql --skip-networking --skip-grant-tables --socket=/var/run/mysqld/mysqld.sock --pid-file=/var/run/mysqld/mysqld.pid --log-error=/var/log/mysql/error.log &' >> /start.sh && \
+    echo '    mysql_pid=$!' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'for i in {1..30}; do' >> /start.sh && \
     echo '    if mysql --socket=/var/run/mysqld/mysqld.sock -e "SELECT 1" >/dev/null 2>&1; then' >> /start.sh && \
@@ -198,11 +207,11 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '        exit 1' >> /start.sh && \
     echo '    fi' >> /start.sh && \
     echo '    sleep 1' >> /start.sh && \
-    echo 'done' >> /start.sh && \
-    echo '' >> /start.sh && \
-    echo 'echo "Configuring $DB_TYPE users and database..."' >> /start.sh && \
-    echo 'if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
-    echo '    mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
+    echo '    done' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    echo "Configuring $DB_TYPE users and database..."' >> /start.sh && \
+    echo '    if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
+    echo '        mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '';" >> /start.sh && \
     echo "DROP USER IF EXISTS 'root'@'127.0.0.1';" >> /start.sh && \
@@ -215,8 +224,8 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo 'SQLEND' >> /start.sh && \
-    echo 'else' >> /start.sh && \
-    echo '    mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
+    echo '    else' >> /start.sh && \
+    echo '        mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo "UPDATE mysql.user SET Password=PASSWORD('') WHERE User='root';" >> /start.sh && \
     echo "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '%');" >> /start.sh && \
@@ -225,11 +234,14 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo 'SQLEND' >> /start.sh && \
-    echo 'fi' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo 'kill $mysql_pid' >> /start.sh && \
-    echo 'wait $mysql_pid 2>/dev/null || true' >> /start.sh && \
-    echo 'echo "$DB_TYPE configuration completed."' >> /start.sh && \
+    echo '    kill $mysql_pid' >> /start.sh && \
+    echo '    wait $mysql_pid 2>/dev/null || true' >> /start.sh && \
+    echo '    echo "$DB_TYPE configuration completed."' >> /start.sh && \
+    echo 'else' >> /start.sh && \
+    echo '    echo "Database already configured, skipping user configuration..."' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '# Create supervisor configuration dynamically' >> /start.sh && \
     echo 'echo "Creating supervisor configuration for $DB_TYPE..."' >> /start.sh && \
@@ -285,6 +297,9 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'echo "Starting services..."' >> /start.sh && \
     echo 'exec supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
     chmod +x /start.sh
+
+# Declare volumes for data persistence (optional)
+VOLUME ["/var/lib/mysql", "/app/storage"]
 
 EXPOSE 80
 
