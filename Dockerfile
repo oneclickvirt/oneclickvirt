@@ -36,7 +36,7 @@ RUN apt-get update && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client; \
     fi && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    rm -rf /var/lib/apt/lists/* && rm -rf /var/lib/mysql/*
 
 ENV TZ=Asia/Shanghai
 WORKDIR /app

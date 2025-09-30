@@ -101,7 +101,7 @@ sysm:
     db-type: mysql
 system:
     addr: 8888
-    db-type: mysql
+    db-type: mariadb
     env: development
     iplimit-count: 15000
     iplimit-time: 3600
