@@ -23,7 +23,7 @@ ARG TARGETARCH
 # Install database and other services based on architecture
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        gnupg2 wget lsb-release nginx supervisor && \
+        gnupg2 wget lsb-release procps nginx supervisor && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Installing MySQL for AMD64..." && \
         wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
@@ -282,13 +282,14 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'startretries=3' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:app]' >> /start.sh && \
-    echo 'command=/app/main' >> /start.sh && \
+    echo 'command=/bin/bash -c "sleep 12 && /app/main"' >> /start.sh && \
     echo 'directory=/app' >> /start.sh && \
     echo 'autostart=true' >> /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
     echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306"' >> /start.sh && \
+    echo 'startsecs=1' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
     echo 'command=/usr/sbin/nginx -g "daemon off;"' >> /start.sh && \
