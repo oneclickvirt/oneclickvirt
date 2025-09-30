@@ -21,13 +21,12 @@ FROM debian:12-slim
 
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    gnupg2 wget lsb-release && \
+        gnupg2 wget lsb-release && \
     wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
     DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
-    apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-    mysql-server mysql-client nginx supervisor bash curl ca-certificates tzdata && \
-    rm -f mysql-apt-config_0.8.29-1_all.deb && \
+    DEBIAN_FRONTEND=noninteractive apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
+    rm -rf mysql-apt-config_0.8.29-1_all.deb && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
@@ -44,7 +43,11 @@ COPY --from=frontend-builder /app/web/dist /var/www/html
 RUN mkdir -p /var/run/mysqld && \
     chown -R mysql:mysql /var/lib/mysql /var/log/mysql /var/run/mysqld && \
     chown -R www-data:www-data /var/www/html && \
-    chmod -R 755 /var/www/html
+    chmod -R 755 /var/www/html && \
+    chmod 755 /app/main && \
+    chmod 666 /app/config.yaml && \
+    chmod 750 /app/storage && \
+    chmod -R 750 /app/storage/*
 
 RUN echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
     echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
