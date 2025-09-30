@@ -25,10 +25,10 @@ RUN apt-get update && \
     wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
     DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
     DEBIAN_FRONTEND=noninteractive apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        mysql-community-server mysql-client-core-8.0 && \
     rm -rf mysql-apt-config_0.8.29-1_all.deb && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean && rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Asia/Shanghai
 WORKDIR /app
