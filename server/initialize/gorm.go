@@ -17,9 +17,14 @@ import (
 	"gorm.io/gorm"
 )
 
-// GormMysql 初始化Mysql数据库
+// GormMysql 初始化数据库（支持MySQL和MariaDB）
 func GormMysql() *gorm.DB {
 	m := global.APP_CONFIG.Mysql
+	dbType := global.APP_CONFIG.System.DbType
+	if dbType == "" {
+		dbType = "mysql" // 默认
+	}
+
 	mysqlConfig := config.MysqlConfig{
 		Path:         m.Path,
 		Port:         m.Port,
@@ -35,19 +40,24 @@ func GormMysql() *gorm.DB {
 		AutoCreate:   m.AutoCreate,
 	}
 	if db, err := internal.GormMysql(mysqlConfig); err != nil {
-		global.APP_LOG.Error("MySQL数据库初始化失败", zap.Error(err))
+		global.APP_LOG.Error("数据库初始化失败",
+			zap.String("dbType", dbType),
+			zap.Error(err))
 		return nil
 	} else {
 		db.InstanceSet("gorm:table_options", "ENGINE="+m.Engine)
-		global.APP_LOG.Info("MySQL数据库初始化成功", zap.String("engine", m.Engine))
+		global.APP_LOG.Info("数据库初始化成功",
+			zap.String("dbType", dbType),
+			zap.String("engine", m.Engine))
 		return db
 	}
 }
 
 // Gorm 初始化数据库并产生数据库全局变量
 func Gorm() *gorm.DB {
-	// 只支持MySQL
+	// 支持MySQL和MariaDB
 	db := GormMysql()
+	dbType := global.APP_CONFIG.System.DbType
 
 	// 验证数据库连接
 	if db != nil {
@@ -55,7 +65,7 @@ func Gorm() *gorm.DB {
 			global.APP_LOG.Error("数据库连接验证失败", zap.Error(err))
 			return nil
 		}
-		global.APP_LOG.Info("数据库连接验证成功", zap.String("dbType", "mysql"))
+		global.APP_LOG.Info("数据库连接验证成功", zap.String("dbType", dbType))
 
 		// 自动迁移表结构（无论是否初始化都执行，确保表结构是最新的）
 		global.APP_LOG.Info("开始数据库表结构自动迁移")

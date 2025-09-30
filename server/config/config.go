@@ -55,7 +55,7 @@ type LevelLimitInfo struct {
 type System struct {
 	Env           string `mapstructure:"env" json:"env" yaml:"env"`                                  // 环境值
 	Addr          int    `mapstructure:"addr" json:"addr" yaml:"addr"`                               // 端口值
-	DbType        string `mapstructure:"db-type" json:"db-type" yaml:"db-type"`                      // 数据库类型:mysql(默认)
+	DbType        string `mapstructure:"db-type" json:"db-type" yaml:"db-type"`                      // 数据库类型:mysql(默认)|mariadb
 	OssType       string `mapstructure:"oss-type" json:"oss-type" yaml:"oss-type"`                   // Oss类型
 	UseMultipoint bool   `mapstructure:"use-multipoint" json:"use-multipoint" yaml:"use-multipoint"` // 多点登录拦截
 	UseRedis      bool   `mapstructure:"use-redis" json:"use-redis" yaml:"use-redis"`                // 使用redis
@@ -70,6 +70,7 @@ type JWT struct {
 	Issuer      string `mapstructure:"issuer" json:"issuer" yaml:"issuer"`                   // 签发者
 }
 
+// Database 数据库配置，支持MySQL和MariaDB
 type Mysql struct {
 	Path         string `mapstructure:"path" json:"path" yaml:"path"`                               // 服务器地址:端口
 	Port         string `mapstructure:"port" json:"port" yaml:"port"`                               //:端口

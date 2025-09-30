@@ -3,6 +3,7 @@ package system
 import (
 	"fmt"
 	"os"
+	"strconv"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -45,20 +46,20 @@ func (s *InitService) CheckDatabaseConnection() error {
 
 // TestDatabaseConnection 测试数据库连接（不需要全局DB连接）
 func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error {
-	if config.Type != "mysql" {
-		return fmt.Errorf("不支持的数据库类型: %s", config.Type)
+	if config.Type != "mysql" && config.Type != "mariadb" {
+		return fmt.Errorf("不支持的数据库类型: %s，仅支持mysql和mariadb", config.Type)
 	}
 
 	// 构建DSN，先不指定数据库名
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local",
 		config.Username, config.Password, config.Host, config.Port)
 
-	// 尝试连接MySQL服务器
+	// 尝试连接数据库服务器（MySQL或MariaDB使用相同的连接方式）
 	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		return fmt.Errorf("连接MySQL服务器失败: %v", err)
+		return fmt.Errorf("连接%s服务器失败: %v", config.Type, err)
 	}
 
 	// 测试连接
@@ -210,19 +211,19 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	}
 
 	// 更新系统配置
-	if sysm, ok := c["sysm"].(map[string]interface{}); ok {
-		sysm["db-type"] = dbConfig.Type
+	if system, ok := c["system"].(map[string]interface{}); ok {
+		system["db-type"] = dbConfig.Type
 	} else {
-		c["sysm"] = map[string]interface{}{
+		c["system"] = map[string]interface{}{
 			"db-type": dbConfig.Type,
 		}
 	}
 
-	// 如果是MySQL，更新MySQL配置
-	if dbConfig.Type == "mysql" {
+	// 对于MySQL和MariaDB，都使用相同的配置结构（因为它们兼容MySQL协议）
+	if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
 		c["mysql"] = map[string]interface{}{
 			"path":           dbConfig.Host,
-			"port":           dbConfig.Port,
+			"port":           strconv.Itoa(dbConfig.Port),
 			"db-name":        dbConfig.Database,
 			"username":       dbConfig.Username,
 			"password":       dbConfig.Password,
@@ -234,6 +235,8 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 			"max-open-conns": 100,
 			"log-mode":       "error",
 			"log-zap":        false,
+			"max-lifetime":   3600,
+			"auto-create":    true,
 		}
 	}
 
@@ -279,19 +282,40 @@ func (s *InitService) ReinitializeDatabase() error {
 
 	// 提取配置信息
 	host, _ := mysqlConfig["path"].(string)
-	port, _ := mysqlConfig["port"].(int)
 	dbname, _ := mysqlConfig["db-name"].(string)
 	username, _ := mysqlConfig["username"].(string)
 	password, _ := mysqlConfig["password"].(string)
 	config, _ := mysqlConfig["config"].(string)
+
+	// 处理端口字段，支持字符串和数字两种类型
+	var portStr string
+	if portVal, exists := mysqlConfig["port"]; exists {
+		switch v := portVal.(type) {
+		case string:
+			portStr = v
+		case int:
+			portStr = fmt.Sprintf("%d", v)
+		case float64:
+			portStr = fmt.Sprintf("%.0f", v)
+		default:
+			portStr = "3306" // 默认端口
+		}
+	} else {
+		portStr = "3306" // 默认端口
+	}
+
+	// 如果端口为空，设置默认值
+	if portStr == "" {
+		portStr = "3306"
+	}
 
 	if host == "" || username == "" || dbname == "" {
 		return fmt.Errorf("数据库配置不完整")
 	}
 
 	// 构建DSN并连接数据库
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?%s",
-		username, password, host, port, dbname, config)
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/%s?%s",
+		username, password, host, portStr, dbname, config)
 
 	mysqlDriverConfig := mysql.Config{
 		DSN:                       dsn,

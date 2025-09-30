@@ -5,6 +5,7 @@ import (
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
+	"runtime"
 	"strconv"
 	"time"
 
@@ -118,9 +119,9 @@ func TestDatabaseConnection(c *gin.Context) {
 		return
 	}
 
-	// 目前只支持MySQL
-	if req.Type != "mysql" {
-		c.JSON(http.StatusBadRequest, common.Error("暂时只支持MySQL数据库"))
+	// 支持MySQL和MariaDB
+	if req.Type != "mysql" && req.Type != "mariadb" {
+		c.JSON(http.StatusBadRequest, common.Error("仅支持MySQL和MariaDB数据库"))
 		return
 	}
 
@@ -308,4 +309,35 @@ func GetRegisterConfig(c *gin.Context) {
 		},
 	}
 	c.JSON(http.StatusOK, common.Success(config))
+}
+
+// GetRecommendedDatabaseType 获取推荐的数据库类型
+// @Summary 获取推荐的数据库类型
+// @Description 根据系统架构获取推荐的数据库类型
+// @Tags 系统初始化
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取成功"
+// @Router /public/recommended-db-type [get]
+func GetRecommendedDatabaseType(c *gin.Context) {
+	var recommendedType string
+	var reason string
+
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		recommendedType = "mysql"
+		reason = "AMD64架构推荐使用MySQL以获得最佳性能"
+	} else {
+		recommendedType = "mariadb"
+		reason = "ARM64架构推荐使用MariaDB以获得更好的兼容性"
+	}
+
+	response := map[string]interface{}{
+		"recommendedType": recommendedType,
+		"reason":          reason,
+		"architecture":    arch,
+		"supportedTypes":  []string{"mysql", "mariadb"},
+	}
+
+	c.JSON(http.StatusOK, common.Success(response))
 }

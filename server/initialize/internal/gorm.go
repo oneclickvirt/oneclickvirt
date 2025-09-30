@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-// GormMysql 初始化Mysql数据库，支持自动创建数据库
+// GormMysql 初始化数据库（支持MySQL和MariaDB），支持自动创建数据库
 func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 	// 检查基本参数
 	if m.Username == "" {
@@ -60,7 +60,7 @@ func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 
 	db, err := gorm.Open(mysql.New(mysqlConfig), gormConfig)
 	if err != nil {
-		return nil, fmt.Errorf("连接MySQL数据库失败: %w", err)
+		return nil, fmt.Errorf("连接数据库失败: %w", err)
 	}
 
 	// 设置表选项为InnoDB引擎
@@ -95,7 +95,7 @@ func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 
 // createDatabaseIfNotExists 创建数据库（如果不存在）
 func createDatabaseIfNotExists(m config.MysqlConfig) error {
-	// 连接MySQL服务器（不指定数据库）
+	// 连接数据库服务器（不指定数据库）
 	dsn := fmt.Sprintf("%s:%s@tcp(%s:%s)/?%s",
 		m.Username, m.Password, m.Path, m.Port, m.Config)
 
@@ -103,7 +103,7 @@ func createDatabaseIfNotExists(m config.MysqlConfig) error {
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
-		return fmt.Errorf("连接MySQL服务器失败: %w", err)
+		return fmt.Errorf("连接数据库服务器失败: %w", err)
 	}
 
 	// 检查数据库是否存在

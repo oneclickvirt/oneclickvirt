@@ -43,6 +43,7 @@ mysql:
     log-mode: error
     log-zap: false
     max-idle-conns: 10
+    max-lifetime: 3600
     max-open-conns: 100
     password: ""
     path: 127.0.0.1

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
@@ -16,11 +17,14 @@ import (
 
 // 默认配置
 func getDefaultConfig() config.Server {
+	// 根据架构自动检测数据库类型
+	defaultDbType := detectDatabaseType()
+
 	return config.Server{
 		System: config.System{
 			Env:           "public",
 			Addr:          8888,
-			DbType:        "mysql",
+			DbType:        defaultDbType,
 			UseMultipoint: false,
 			UseRedis:      false,
 		},
@@ -166,13 +170,34 @@ func createDefaultConfigFile(configPath string) error {
 // 智能选择数据库类型
 func selectDatabaseType(cfg *config.Server) {
 	switch cfg.System.DbType {
-	case "mysql":
+	case "mysql", "mariadb":
 		if cfg.Mysql.Dbname == "" && !cfg.Mysql.AutoCreate {
-			fmt.Println("[CONFIG] MySQL配置不完整且未启用自动创建数据库")
+			fmt.Printf("[CONFIG] %s配置不完整且未启用自动创建数据库\n", cfg.System.DbType)
 		}
+		fmt.Printf("[CONFIG] 使用数据库类型: %s\n", cfg.System.DbType)
 	default:
-		fmt.Printf("[CONFIG] 不支持的数据库类型: %s，强制使用MySQL\n", cfg.System.DbType)
-		cfg.System.DbType = "mysql"
+		// 默认使用MySQL，但允许在Docker环境中动态检测
+		detectedType := detectDatabaseType()
+		fmt.Printf("[CONFIG] 不支持的数据库类型: %s，自动检测为: %s\n", cfg.System.DbType, detectedType)
+		cfg.System.DbType = detectedType
+	}
+}
+
+// 检测当前环境中的数据库类型
+func detectDatabaseType() string {
+	// 检查环境变量
+	if dbType := os.Getenv("DB_TYPE"); dbType != "" {
+		if dbType == "mysql" || dbType == "mariadb" {
+			return dbType
+		}
+	}
+
+	// 检查架构来决定默认数据库类型（与Dockerfile中的逻辑一致）
+	arch := runtime.GOARCH
+	if arch == "amd64" {
+		return "mysql"
+	} else {
+		return "mariadb"
 	}
 }
 

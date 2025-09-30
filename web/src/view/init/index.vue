@@ -31,18 +31,37 @@
               >
                 <el-radio-group
                   v-model="databaseForm.type"
-                  disabled
+                  @change="onDatabaseTypeChange"
                 >
                   <el-radio label="mysql">
-                    MySQL（高并发支持，推荐使用）
+                    MySQL（推荐AMD64架构使用）
+                  </el-radio>
+                  <el-radio label="mariadb">
+                    MariaDB（推荐ARM64架构使用）
                   </el-radio>
                 </el-radio-group>
+                <div class="database-type-hint">
+                  <el-text
+                    v-if="dbRecommendation"
+                    size="small"
+                    type="success"
+                  >
+                    {{ dbRecommendation.reason }} (架构: {{ dbRecommendation.architecture }})
+                  </el-text>
+                  <el-text
+                    v-else
+                    size="small"
+                    type="info"
+                  >
+                    系统会根据架构自动选择合适的数据库类型，您也可以手动选择
+                  </el-text>
+                </div>
               </el-form-item>
               
-              <!-- MySQL配置项 -->
+              <!-- 数据库配置项（MySQL/MariaDB通用） -->
               <div
-                v-if="databaseForm.type === 'mysql'"
-                class="mysql-config"
+                v-if="databaseForm.type === 'mysql' || databaseForm.type === 'mariadb'"
+                class="database-config"
               >
                 <el-form-item
                   label="数据库地址"
@@ -276,7 +295,7 @@
           <template #default>
             <p>系统初始化需要配置以下信息：</p>
             <ul>
-              <li><strong>数据库配置：</strong>设置MySQL数据库连接信息</li>
+              <li><strong>数据库配置：</strong>设置MySQL或MariaDB数据库连接信息</li>
               <li><strong>管理员设置：</strong>创建拥有系统最高权限的管理员账户</li>
               <li><strong>普通用户设置：</strong>创建具有基础功能使用权限的普通用户账户</li>
             </ul>
@@ -291,7 +310,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { post } from '@/utils/request'
+import { post, get } from '@/utils/request'
 import { checkSystemInit } from '@/api/init'
 
 const router = useRouter()
@@ -303,6 +322,7 @@ const testingConnection = ref(false)
 const connectionTestResult = ref(null)
 const pollingTimer = ref(null)
 const activeTab = ref('database')
+const dbRecommendation = ref(null)
 
 // 数据库配置表单
 const databaseForm = reactive({
@@ -474,6 +494,59 @@ const handleTabClick = (tab) => {
   activeTab.value = tab.name
 }
 
+// 数据库类型变化处理
+const onDatabaseTypeChange = (type) => {
+  console.log('数据库类型变更为:', type)
+  // 根据数据库类型调整默认端口
+  if (type === 'mysql' || type === 'mariadb') {
+    databaseForm.port = '3306'
+  }
+}
+
+// 自动检测数据库类型
+const detectDatabaseType = async () => {
+  try {
+    // 尝试从后端API获取推荐的数据库类型
+    const response = await get('/v1/public/recommended-db-type')
+    if (response && response.code === 0 && response.data) {
+      console.log('服务器推荐的数据库类型:', response.data)
+      return {
+        type: response.data.recommendedType,
+        reason: response.data.reason,
+        architecture: response.data.architecture
+      }
+    }
+  } catch (error) {
+    console.warn('获取推荐数据库类型失败，使用客户端检测:', error)
+  }
+  
+  // 如果API调用失败，回退到客户端检测
+  const userAgent = navigator.userAgent.toLowerCase()
+  const platform = navigator.platform.toLowerCase()
+  
+  // 简单的架构检测逻辑
+  if (platform.includes('arm') || platform.includes('aarch64')) {
+    return {
+      type: 'mariadb',
+      reason: 'ARM64架构推荐使用MariaDB',
+      architecture: 'ARM64'
+    }
+  } else if (platform.includes('x86') || platform.includes('intel') || platform.includes('amd64')) {
+    return {
+      type: 'mysql', 
+      reason: 'AMD64架构推荐使用MySQL',
+      architecture: 'AMD64'
+    }
+  }
+  
+  // 默认使用MySQL
+  return {
+    type: 'mysql',
+    reason: '默认推荐使用MySQL',
+    architecture: 'Unknown'
+  }
+}
+
 const fillDefaultData = () => {
   // 填入默认数据
   initForm.admin.username = 'admin'
@@ -545,8 +618,8 @@ const handleInit = async () => {
       userFormRef.value.validate()
     ]
     
-    // 如果是MySQL，需要验证数据库配置
-    if (databaseForm.type === 'mysql') {
+    // 如果是MySQL或MariaDB，需要验证数据库配置
+    if (databaseForm.type === 'mysql' || databaseForm.type === 'mariadb') {
       validations.push(databaseFormRef.value.validate())
     }
     
@@ -589,8 +662,15 @@ const handleInit = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
   console.log('Init页面已挂载，启动轮询检查')
+  
+  // 自动检测并设置数据库类型
+  const detection = await detectDatabaseType()
+  console.log('检测到的数据库类型:', detection)
+  databaseForm.type = detection.type
+  dbRecommendation.value = detection
+  
   startPolling()
 })
 
@@ -828,6 +908,11 @@ onUnmounted(() => {
   margin-top: 5px;
   font-size: 12px;
   line-height: 1.4;
+}
+
+.database-type-hint {
+  margin-top: 8px;
+  font-size: 12px;
 }
 
 .test-success {
