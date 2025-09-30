@@ -156,14 +156,21 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '' >> /start.sh && \
     echo '# Check if database needs initialization' >> /start.sh && \
     echo 'INIT_NEEDED=false' >> /start.sh && \
-    echo 'if [ ! -d "/var/lib/mysql/mysql" ]; then' >> /start.sh && \
-    echo '    echo "Database system directory not found - initializing $DB_TYPE database..."' >> /start.sh && \
+    echo '# Create initialization flag file path' >> /start.sh && \
+    echo 'INIT_FLAG="/app/storage/.db_initialized"' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Check various conditions for initialization' >> /start.sh && \
+    echo 'if [ ! -f "$INIT_FLAG" ]; then' >> /start.sh && \
+    echo '    echo "Initialization flag not found - database needs initialization"' >> /start.sh && \
     echo '    INIT_NEEDED=true' >> /start.sh && \
-    echo 'elif [ -f "/var/lib/mysql/mariadb_upgrade_info" ] || [ -f "/var/lib/mysql/aria_log.00000001" ]; then' >> /start.sh && \
-    echo '    echo "MariaDB upgrade artifacts found - reinitializing database..."' >> /start.sh && \
+    echo 'elif [ ! -d "/var/lib/mysql/mysql" ]; then' >> /start.sh && \
+    echo '    echo "Database system directory not found - reinitializing database..."' >> /start.sh && \
+    echo '    INIT_NEEDED=true' >> /start.sh && \
+    echo 'elif [ "$(ls -A /var/lib/mysql 2>/dev/null | wc -l)" -eq 0 ]; then' >> /start.sh && \
+    echo '    echo "Database directory is empty - reinitializing database..."' >> /start.sh && \
     echo '    INIT_NEEDED=true' >> /start.sh && \
     echo 'else' >> /start.sh && \
-    echo '    echo "Database already initialized, skipping initialization..."' >> /start.sh && \
+    echo '    echo "Database already initialized (flag exists and data present), skipping initialization..."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'if [ "$INIT_NEEDED" = "true" ]; then' >> /start.sh && \
@@ -239,6 +246,9 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '    kill $mysql_pid' >> /start.sh && \
     echo '    wait $mysql_pid 2>/dev/null || true' >> /start.sh && \
     echo '    echo "$DB_TYPE configuration completed."' >> /start.sh && \
+    echo '    # Create initialization flag to prevent re-initialization' >> /start.sh && \
+    echo '    echo "$(date): Database initialized successfully with $DB_TYPE" > "$INIT_FLAG"' >> /start.sh && \
+    echo '    echo "Created initialization flag at $INIT_FLAG"' >> /start.sh && \
     echo 'else' >> /start.sh && \
     echo '    echo "Database already configured, skipping user configuration..."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
