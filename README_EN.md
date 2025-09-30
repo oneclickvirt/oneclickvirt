@@ -11,7 +11,7 @@ An extensible universal virtualization management platform that supports LXD, In
 ### Docker Deployment
 
 ```bash
-git clone https://github.com/spiritLHLS/oneclickvirt.git
+git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
 ```
 
