@@ -86,6 +86,9 @@ jobs:
       packages: write
     
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
       - name: Download digests
         uses: actions/download-artifact@v4
         with:
@@ -134,3 +137,11 @@ jobs:
       - name: Inspect image
         run: |
           docker buildx imagetools inspect ${{ env.DOCKER_IMAGE }}:${{ steps.meta.outputs.version }}
+      
+      - name: Update Docker Hub Description
+        uses: peter-evans/dockerhub-description@v4
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          repository: spiritlhl/oneclickvirt
+          readme-filepath: ./README.md
