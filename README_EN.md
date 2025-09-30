@@ -8,7 +8,35 @@ An extensible universal virtualization management platform that supports LXD, In
 
 ## Quick Deployment
 
-### Docker Deployment
+### Method 1: Using Pre-built Images
+
+Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture:
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:latest
+```
+
+Or using GitHub Container Registry:
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  ghcr.io/oneclickvirt/oneclickvirt:latest
+```
+
+### Method 2: Build from Source
+
+If you need to modify the source code or build custom images:
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -16,12 +44,10 @@ cd oneclickvirt
 ```
 
 ```bash
-# Build image
 docker build -t oneclickvirt .
 ```
 
 ```bash
-# Start container
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \

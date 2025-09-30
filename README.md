@@ -8,7 +8,35 @@
 
 ## 快速部署
 
-### 方式一：Docker 一键部署
+### 方式一：使用预构建镜像
+
+使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本：
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:latest
+```
+
+或者使用 GitHub Container Registry：
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  ghcr.io/oneclickvirt/oneclickvirt:latest
+```
+
+### 方式二：自己编译打包
+
+如果需要修改源码或自定义构建：
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -16,12 +44,10 @@ cd oneclickvirt
 ```
 
 ```bash
-# 构建镜像
 docker build -t oneclickvirt .
 ```
 
 ```bash
-# 启动容器
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
@@ -31,7 +57,7 @@ docker run -d \
   oneclickvirt
 ```
 
-### 方式二：手动开发部署
+### 方式三：手动开发部署
 
 #### 环境要求
 
