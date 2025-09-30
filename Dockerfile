@@ -18,17 +18,25 @@ COPY server/ ./
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -installsuffix cgo -ldflags "-w -s" -o main .
 
 FROM debian:12-slim
+ARG TARGETARCH
 
+# Install database and other services based on architecture
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        gnupg2 wget lsb-release && \
-    wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
-    DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
-    DEBIAN_FRONTEND=noninteractive apt-get update && \
-    DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        mysql-community-server mysql-client-core-8.0 && \
-    rm -rf mysql-apt-config_0.8.29-1_all.deb && \
-    apt-get clean && rm -rf /var/lib/apt/lists/*
+        gnupg2 wget lsb-release nginx supervisor && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+        echo "Installing MySQL for AMD64..." && \
+        wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
+        DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
+        DEBIAN_FRONTEND=noninteractive apt-get update && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
+        rm -rf mysql-apt-config_0.8.29-1_all.deb; \
+    else \
+        echo "Installing MariaDB for ARM64..." && \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client; \
+    fi && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Asia/Shanghai
 WORKDIR /app
@@ -49,22 +57,41 @@ RUN mkdir -p /var/run/mysqld && \
     chmod 750 /app/storage && \
     chmod -R 750 /app/storage/*
 
-RUN echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
-    echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'authentication_policy=mysql_native_password' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'max_connections=100' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'innodb_buffer_pool_size=128M' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'innodb_redo_log_capacity=67108864' >> /etc/mysql/conf.d/custom.cnf && \
-    echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf
+# Create database configuration based on architecture
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
+        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'authentication_policy=mysql_native_password' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'max_connections=100' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_buffer_pool_size=128M' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_redo_log_capacity=67108864' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
+    else \
+        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
+        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'max_connections=100' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_buffer_pool_size=128M' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
+        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
+    fi
 
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
@@ -103,93 +130,79 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '    }' >> /etc/nginx/nginx.conf && \
     echo '}' >> /etc/nginx/nginx.conf
 
-RUN mkdir -p /etc/supervisor/conf.d && \
-    echo '[supervisord]' > /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'nodaemon=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:mysql]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=/usr/sbin/mysqld --defaults-file=/etc/mysql/conf.d/custom.cnf' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=mysql' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'priority=1' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile=/var/log/supervisor/mysql.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile=/var/log/supervisor/mysql_error.log' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stdout_logfile_maxbytes=10MB' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'stderr_logfile_maxbytes=10MB' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'startsecs=10' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'startretries=3' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:app]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=/app/main' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'directory=/app' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'priority=2' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306"' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo '[program:nginx]' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'command=/usr/sbin/nginx -g "daemon off;"' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autostart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'autorestart=true' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'user=root' >> /etc/supervisor/conf.d/supervisord.conf && \
-    echo 'priority=3' >> /etc/supervisor/conf.d/supervisord.conf
+# Create base supervisor directory
+RUN mkdir -p /etc/supervisor/conf.d
 
+# Create architecture-aware startup script
 RUN echo '#!/bin/bash' > /start.sh && \
     echo 'set -e' >> /start.sh && \
     echo 'echo "Starting OneClickVirt..."' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}' >> /start.sh && \
     echo '' >> /start.sh && \
+    echo '# Detect architecture and set database type' >> /start.sh && \
+    echo 'ARCH=$(uname -m)' >> /start.sh && \
+    echo 'if [ "$ARCH" = "x86_64" ]; then' >> /start.sh && \
+    echo '    DB_TYPE="mysql"' >> /start.sh && \
+    echo '    DB_DAEMON="mysqld"' >> /start.sh && \
+    echo 'else' >> /start.sh && \
+    echo '    DB_TYPE="mariadb"' >> /start.sh && \
+    echo '    DB_DAEMON="mariadbd"' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo 'echo "Detected architecture: $ARCH, using database: $DB_TYPE"' >> /start.sh && \
+    echo '' >> /start.sh && \
     echo 'chown -R mysql:mysql /var/lib/mysql /var/run/mysqld /var/log/mysql' >> /start.sh && \
     echo 'chmod 755 /var/run/mysqld' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'INIT_NEEDED=false' >> /start.sh && \
     echo 'if [ ! -d "/var/lib/mysql/mysql" ] || [ -f "/var/lib/mysql/mariadb_upgrade_info" ] || [ -f "/var/lib/mysql/aria_log.00000001" ]; then' >> /start.sh && \
-    echo '    echo "Cleaning and initializing MySQL database..."' >> /start.sh && \
+    echo '    echo "Cleaning and initializing $DB_TYPE database..."' >> /start.sh && \
     echo '    INIT_NEEDED=true' >> /start.sh && \
-    echo '    # Stop any running MySQL processes' >> /start.sh && \
-    echo '    pkill -f mysqld || true' >> /start.sh && \
+    echo '    # Stop any running database processes' >> /start.sh && \
+    echo '    pkill -f "$DB_DAEMON" || true' >> /start.sh && \
     echo '    sleep 2' >> /start.sh && \
     echo '    # Remove old/corrupted data' >> /start.sh && \
     echo '    rm -rf /var/lib/mysql/*' >> /start.sh && \
-    echo '    # Initialize fresh MySQL 8.0 database' >> /start.sh && \
-    echo '    mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql --skip-name-resolve' >> /start.sh && \
+    echo '    # Initialize database based on type' >> /start.sh && \
+    echo '    if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
+    echo '        mysqld --initialize-insecure --user=mysql --datadir=/var/lib/mysql --skip-name-resolve' >> /start.sh && \
+    echo '    else' >> /start.sh && \
+    echo '        mariadb-install-db --user=mysql --datadir=/var/lib/mysql --skip-name-resolve' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
     echo '    if [ $? -ne 0 ]; then' >> /start.sh && \
-    echo '        echo "MySQL initialization failed"' >> /start.sh && \
+    echo '        echo "$DB_TYPE initialization failed"' >> /start.sh && \
     echo '        exit 1' >> /start.sh && \
     echo '    fi' >> /start.sh && \
     echo 'else' >> /start.sh && \
-    echo '    echo "MySQL database exists, checking configuration..."' >> /start.sh && \
+    echo '    echo "$DB_TYPE database exists, checking configuration..."' >> /start.sh && \
     echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo 'echo "Configuring MySQL users and permissions..."' >> /start.sh && \
-    echo 'pkill -f mysqld || true' >> /start.sh && \
+    echo 'echo "Configuring $DB_TYPE users and permissions..."' >> /start.sh && \
+    echo 'pkill -f "$DB_DAEMON" || true' >> /start.sh && \
     echo 'sleep 2' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo '# Start temporary MySQL server for configuration' >> /start.sh && \
-    echo 'echo "Starting temporary MySQL server for configuration..."' >> /start.sh && \
-    echo 'mysqld --user=mysql --skip-networking --skip-grant-tables --socket=/var/run/mysqld/mysqld.sock --pid-file=/var/run/mysqld/mysqld.pid --log-error=/var/log/mysql/error.log &' >> /start.sh && \
+    echo '# Start temporary database server for configuration' >> /start.sh && \
+    echo 'echo "Starting temporary $DB_TYPE server for configuration..."' >> /start.sh && \
+    echo '$DB_DAEMON --user=mysql --skip-networking --skip-grant-tables --socket=/var/run/mysqld/mysqld.sock --pid-file=/var/run/mysqld/mysqld.pid --log-error=/var/log/mysql/error.log &' >> /start.sh && \
     echo 'mysql_pid=$!' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'for i in {1..30}; do' >> /start.sh && \
     echo '    if mysql --socket=/var/run/mysqld/mysqld.sock -e "SELECT 1" >/dev/null 2>&1; then' >> /start.sh && \
-    echo '        echo "MySQL started successfully"' >> /start.sh && \
+    echo '        echo "$DB_TYPE started successfully"' >> /start.sh && \
     echo '        break' >> /start.sh && \
     echo '    fi' >> /start.sh && \
-    echo '    echo "Waiting for MySQL to start... ($i/30)"' >> /start.sh && \
+    echo '    echo "Waiting for $DB_TYPE to start... ($i/30)"' >> /start.sh && \
     echo '    if [ $i -eq 30 ]; then' >> /start.sh && \
-    echo '        echo "MySQL failed to start"' >> /start.sh && \
+    echo '        echo "$DB_TYPE failed to start"' >> /start.sh && \
     echo '        kill $mysql_pid 2>/dev/null || true' >> /start.sh && \
     echo '        exit 1' >> /start.sh && \
     echo '    fi' >> /start.sh && \
     echo '    sleep 1' >> /start.sh && \
     echo 'done' >> /start.sh && \
     echo '' >> /start.sh && \
-    echo 'echo "Configuring MySQL users and database..."' >> /start.sh && \
-    echo 'mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
+    echo 'echo "Configuring $DB_TYPE users and database..."' >> /start.sh && \
+    echo 'if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
+    echo '    mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '';" >> /start.sh && \
     echo "DROP USER IF EXISTS 'root'@'127.0.0.1';" >> /start.sh && \
@@ -202,10 +215,66 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
     echo 'FLUSH PRIVILEGES;' >> /start.sh && \
     echo 'SQLEND' >> /start.sh && \
+    echo 'else' >> /start.sh && \
+    echo '    mysql --socket=/var/run/mysqld/mysqld.sock <<SQLEND' >> /start.sh && \
+    echo 'FLUSH PRIVILEGES;' >> /start.sh && \
+    echo "UPDATE mysql.user SET Password=PASSWORD('') WHERE User='root';" >> /start.sh && \
+    echo "DELETE FROM mysql.user WHERE User='root' AND Host NOT IN ('localhost', '127.0.0.1', '%');" >> /start.sh && \
+    echo "INSERT IGNORE INTO mysql.user (Host, User, Password, Select_priv, Insert_priv, Update_priv, Delete_priv, Create_priv, Drop_priv, Reload_priv, Shutdown_priv, Process_priv, File_priv, Grant_priv, References_priv, Index_priv, Alter_priv, Show_db_priv, Super_priv, Create_tmp_table_priv, Lock_tables_priv, Execute_priv, Repl_slave_priv, Repl_client_priv, Create_view_priv, Show_view_priv, Create_routine_priv, Alter_routine_priv, Create_user_priv, Event_priv, Trigger_priv, Create_tablespace_priv, ssl_type, ssl_cipher, x509_issuer, x509_subject, max_questions, max_updates, max_connections, max_user_connections, plugin, authentication_string) VALUES ('127.0.0.1', 'root', PASSWORD(''), 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', '', '', '', '', 0, 0, 0, 0, '', '');" >> /start.sh && \
+    echo "INSERT IGNORE INTO mysql.user (Host, User, Password, Select_priv, Insert_priv, Update_priv, Delete_priv, Create_priv, Drop_priv, Reload_priv, Shutdown_priv, Process_priv, File_priv, Grant_priv, References_priv, Index_priv, Alter_priv, Show_db_priv, Super_priv, Create_tmp_table_priv, Lock_tables_priv, Execute_priv, Repl_slave_priv, Repl_client_priv, Create_view_priv, Show_view_priv, Create_routine_priv, Alter_routine_priv, Create_user_priv, Event_priv, Trigger_priv, Create_tablespace_priv, ssl_type, ssl_cipher, x509_issuer, x509_subject, max_questions, max_updates, max_connections, max_user_connections, plugin, authentication_string) VALUES ('%', 'root', PASSWORD(''), 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', 'Y', '', '', '', '', 0, 0, 0, 0, '', '');" >> /start.sh && \
+    echo "CREATE DATABASE IF NOT EXISTS \\\`\${MYSQL_DATABASE}\\\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" >> /start.sh && \
+    echo 'FLUSH PRIVILEGES;' >> /start.sh && \
+    echo 'SQLEND' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'kill $mysql_pid' >> /start.sh && \
     echo 'wait $mysql_pid 2>/dev/null || true' >> /start.sh && \
-    echo 'echo "MySQL configuration completed."' >> /start.sh && \
+    echo 'echo "$DB_TYPE configuration completed."' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Create supervisor configuration dynamically' >> /start.sh && \
+    echo 'echo "Creating supervisor configuration for $DB_TYPE..."' >> /start.sh && \
+    echo 'cat > /etc/supervisor/conf.d/supervisord.conf <<SUPEREND' >> /start.sh && \
+    echo '[supervisord]' >> /start.sh && \
+    echo 'nodaemon=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[program:mysql]' >> /start.sh && \
+    echo 'SUPEREND' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo 'if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
+    echo '    echo "command=/usr/sbin/mysqld --defaults-file=/etc/mysql/conf.d/custom.cnf" >> /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
+    echo 'else' >> /start.sh && \
+    echo '    echo "command=/usr/sbin/mariadbd --defaults-file=/etc/mysql/conf.d/custom.cnf" >> /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo 'cat >> /etc/supervisor/conf.d/supervisord.conf <<SUPEREND2' >> /start.sh && \
+    echo 'autostart=true' >> /start.sh && \
+    echo 'autorestart=true' >> /start.sh && \
+    echo 'user=mysql' >> /start.sh && \
+    echo 'priority=1' >> /start.sh && \
+    echo 'stdout_logfile=/var/log/supervisor/mysql.log' >> /start.sh && \
+    echo 'stderr_logfile=/var/log/supervisor/mysql_error.log' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'startsecs=10' >> /start.sh && \
+    echo 'startretries=3' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[program:app]' >> /start.sh && \
+    echo 'command=/app/main' >> /start.sh && \
+    echo 'directory=/app' >> /start.sh && \
+    echo 'autostart=true' >> /start.sh && \
+    echo 'autorestart=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo 'priority=2' >> /start.sh && \
+    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306"' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[program:nginx]' >> /start.sh && \
+    echo 'command=/usr/sbin/nginx -g "daemon off;"' >> /start.sh && \
+    echo 'autostart=true' >> /start.sh && \
+    echo 'autorestart=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo 'priority=3' >> /start.sh && \
+    echo 'SUPEREND2' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'export DB_HOST="127.0.0.1"' >> /start.sh && \
     echo 'export DB_PORT="3306"' >> /start.sh && \
