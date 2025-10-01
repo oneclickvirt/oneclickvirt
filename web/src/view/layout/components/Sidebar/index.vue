@@ -199,6 +199,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/oauth2-providers',
+        name: 'AdminOAuth2Providers',
+        meta: {
+          title: 'OAuth2提供商',
+          icon: 'Connection'
+        }
+      },
+      {
         path: '/admin/announcements',
         name: 'AdminAnnouncements',
         meta: {

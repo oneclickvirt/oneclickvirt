@@ -307,6 +307,7 @@ func GetRegisterConfig(c *gin.Context) {
 		"inviteCode": map[string]interface{}{
 			"enabled": global.APP_CONFIG.InviteCode.Enabled,
 		},
+		"oauth2Enabled": global.APP_CONFIG.Auth.EnableOAuth2,
 	}
 	c.JSON(http.StatusOK, common.Success(config))
 }

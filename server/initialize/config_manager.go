@@ -59,18 +59,34 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 
 // syncAuthConfig 同步认证配置
 func syncAuthConfig(authConfig map[string]interface{}) {
+	global.APP_LOG.Info("同步认证配置到全局变量", zap.Any("authConfig", authConfig))
+
 	if enablePublicRegistration, ok := authConfig["enablePublicRegistration"].(bool); ok {
 		global.APP_CONFIG.Auth.EnablePublicRegistration = enablePublicRegistration
+		global.APP_LOG.Info("同步enablePublicRegistration", zap.Bool("value", enablePublicRegistration))
 	}
 	if enableEmail, ok := authConfig["enableEmail"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableEmail = enableEmail
+		global.APP_LOG.Info("同步enableEmail", zap.Bool("value", enableEmail))
 	}
 	if enableTelegram, ok := authConfig["enableTelegram"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableTelegram = enableTelegram
+		global.APP_LOG.Info("同步enableTelegram", zap.Bool("value", enableTelegram))
 	}
 	if enableQQ, ok := authConfig["enableQQ"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableQQ = enableQQ
+		global.APP_LOG.Info("同步enableQQ", zap.Bool("value", enableQQ))
 	}
+	if enableOAuth2, ok := authConfig["enableOAuth2"].(bool); ok {
+		global.APP_CONFIG.Auth.EnableOAuth2 = enableOAuth2
+		global.APP_LOG.Info("同步enableOAuth2", zap.Bool("value", enableOAuth2))
+	}
+
+	global.APP_LOG.Info("认证配置同步完成",
+		zap.Bool("EnableOAuth2", global.APP_CONFIG.Auth.EnableOAuth2),
+		zap.Bool("EnableEmail", global.APP_CONFIG.Auth.EnableEmail),
+		zap.Bool("EnableTelegram", global.APP_CONFIG.Auth.EnableTelegram),
+		zap.Bool("EnableQQ", global.APP_CONFIG.Auth.EnableQQ))
 }
 
 // syncInviteCodeConfig 同步邀请码配置

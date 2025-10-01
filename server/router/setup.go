@@ -60,6 +60,7 @@ func SetupRouter() *gin.Engine {
 			// 初始化各模块路由
 			InitAuthRouter(PublicGroup)   // 认证相关路由
 			InitPublicRouter(PublicGroup) // 公开路由
+			InitOAuth2Router(PublicGroup) // OAuth2路由
 		}
 
 		// 配置路由

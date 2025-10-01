@@ -31,6 +31,15 @@ const routes = [
     }
   },
   {
+    path: '/oauth2/callback',
+    name: 'OAuth2Callback',
+    component: () => import('@/view/oauth2-callback/index.vue'),
+    meta: {
+      title: 'OAuth2登录处理',
+      requiresAuth: false
+    }
+  },
+  {
     path: '/register',
     name: 'Register',
     component: () => import('@/view/register/index.vue'),
@@ -224,6 +233,16 @@ const routes = [
         component: () => import('@/view/admin/config/index.vue'),
         meta: {
           title: '系统配置',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'oauth2-providers',
+        name: 'AdminOAuth2Providers',
+        component: () => import('@/view/admin/oauth2/index.vue'),
+        meta: {
+          title: 'OAuth2提供商',
           requiresAuth: true,
           roles: ['admin']
         }

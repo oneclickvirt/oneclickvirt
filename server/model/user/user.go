@@ -50,6 +50,14 @@ type User struct {
 	// 其他信息
 	InviteCode  string     `json:"inviteCode" gorm:"size:32"` // 注册时使用的邀请码
 	LastLoginAt *time.Time `json:"lastLoginAt"`               // 最后登录时间
+
+	// OAuth2关联信息
+	OAuth2ProviderID uint   `json:"oauth2ProviderId" gorm:"index"`   // OAuth2提供商ID（关联oauth2_providers表）
+	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识
+	OAuth2Username   string `json:"oauth2Username" gorm:"size:255"`  // OAuth2提供商返回的用户名
+	OAuth2Email      string `json:"oauth2Email" gorm:"size:255"`     // OAuth2提供商返回的邮箱
+	OAuth2Avatar     string `json:"oauth2Avatar" gorm:"size:512"`    // OAuth2提供商返回的头像URL
+	OAuth2Extra      string `json:"oauth2Extra" gorm:"type:text"`    // OAuth2提供商返回的额外信息（JSON格式）
 }
 
 func (u *User) BeforeCreate(tx *gorm.DB) error {

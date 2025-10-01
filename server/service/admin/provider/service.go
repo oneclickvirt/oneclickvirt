@@ -164,6 +164,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		PortRangeStart:   req.PortRangeStart,
 		PortRangeEnd:     req.PortRangeEnd,
 		NetworkType:      req.NetworkType,
+		// 带宽配置
+		DefaultInboundBandwidth:  req.DefaultInboundBandwidth,
+		DefaultOutboundBandwidth: req.DefaultOutboundBandwidth,
+		MaxInboundBandwidth:      req.MaxInboundBandwidth,
+		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
+		// 流量管理
+		MaxTraffic: req.MaxTraffic,
 	}
 
 	// 设置默认值
@@ -193,6 +200,23 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	}
 	if provider.NetworkType == "" {
 		provider.NetworkType = "nat_ipv4"
+	}
+	// 带宽配置默认值
+	if provider.DefaultInboundBandwidth <= 0 {
+		provider.DefaultInboundBandwidth = 300
+	}
+	if provider.DefaultOutboundBandwidth <= 0 {
+		provider.DefaultOutboundBandwidth = 300
+	}
+	if provider.MaxInboundBandwidth <= 0 {
+		provider.MaxInboundBandwidth = 1000
+	}
+	if provider.MaxOutboundBandwidth <= 0 {
+		provider.MaxOutboundBandwidth = 1000
+	}
+	// 流量限制默认值：1TB
+	if provider.MaxTraffic <= 0 {
+		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
 	}
 	provider.NextAvailablePort = provider.PortRangeStart
 
@@ -302,6 +326,23 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	if req.NetworkType != "" {
 		provider.NetworkType = req.NetworkType
+	}
+	// 带宽配置更新
+	if req.DefaultInboundBandwidth > 0 {
+		provider.DefaultInboundBandwidth = req.DefaultInboundBandwidth
+	}
+	if req.DefaultOutboundBandwidth > 0 {
+		provider.DefaultOutboundBandwidth = req.DefaultOutboundBandwidth
+	}
+	if req.MaxInboundBandwidth > 0 {
+		provider.MaxInboundBandwidth = req.MaxInboundBandwidth
+	}
+	if req.MaxOutboundBandwidth > 0 {
+		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
+	}
+	// 流量限制更新
+	if req.MaxTraffic > 0 {
+		provider.MaxTraffic = req.MaxTraffic
 	}
 
 	// 设置默认值

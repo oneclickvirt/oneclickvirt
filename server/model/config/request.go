@@ -10,6 +10,7 @@ type AuthConfig struct {
 	EnableEmail              bool   `json:"enableEmail"`
 	EnableTelegram           bool   `json:"enableTelegram"`
 	EnableQQ                 bool   `json:"enableQQ"`
+	EnableOAuth2             bool   `json:"enableOAuth2"`             // 是否启用OAuth2登录
 	EnablePublicRegistration bool   `json:"enablePublicRegistration"` // 是否启用公开注册（无需邀请码）
 	EmailSMTPHost            string `json:"emailSMTPHost"`
 	EmailSMTPPort            int    `json:"emailSMTPPort"`

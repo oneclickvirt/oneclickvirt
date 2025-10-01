@@ -114,6 +114,10 @@ func (cm *ConfigManager) initValidationRules() {
 		Required: true,
 		Type:     "bool",
 	}
+	cm.validationRules["auth.enableOAuth2"] = ConfigValidationRule{
+		Required: false,
+		Type:     "bool",
+	}
 	cm.validationRules["auth.emailSMTPPort"] = ConfigValidationRule{
 		Required: false,
 		Type:     "int",

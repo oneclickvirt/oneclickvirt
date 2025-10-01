@@ -83,6 +83,25 @@
           </el-button>
         </div>
 
+        <!-- OAuth2登录 -->
+        <div
+          v-if="oauth2Enabled && oauth2Providers.length > 0"
+          class="oauth2-login"
+        >
+          <el-divider>或使用第三方登录</el-divider>
+          <div class="oauth2-providers">
+            <el-button
+              v-for="provider in oauth2Providers"
+              :key="provider.id"
+              class="oauth2-button"
+              @click="handleOAuth2Login(provider)"
+            >
+              <el-icon><Connection /></el-icon>
+              {{ provider.displayName }}
+            </el-button>
+          </div>
+        </div>
+
         <div class="form-footer">
           <p>
             还没有账号? <router-link to="/register">
@@ -110,6 +129,9 @@ import { useRouter } from 'vue-router'
 import { useUserStore } from '@/pinia/modules/user'
 import { getCaptcha } from '@/api/auth'
 import { useErrorHandler } from '@/composables/useErrorHandler'
+import { getPublicConfig } from '@/api/public'
+import { getEnabledOAuth2Providers } from '@/api/oauth2'
+import { Connection } from '@element-plus/icons-vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -119,6 +141,8 @@ const loginFormRef = ref()
 const loading = ref(false)
 const captchaImage = ref('')
 const captchaId = ref('')
+const oauth2Enabled = ref(false)
+const oauth2Providers = ref([])
 
 const loginForm = reactive({
   username: '',
@@ -177,8 +201,32 @@ const refreshCaptcha = async () => {
   })
 }
 
+// OAuth2登录
+const handleOAuth2Login = (provider) => {
+  // 跳转到后端的OAuth2登录接口，使用provider_id参数
+  window.location.href = `/api/v1/auth/oauth2/login?provider_id=${provider.id}`
+}
+
+// 检查OAuth2配置并加载提供商列表
+const checkOAuth2Config = async () => {
+  try {
+    // 获取OAuth2全局开关状态
+    const configResponse = await getPublicConfig()
+    oauth2Enabled.value = configResponse.data?.oauth2Enabled || false
+    
+    // 如果启用了OAuth2，加载提供商列表
+    if (oauth2Enabled.value) {
+      const providersResponse = await getEnabledOAuth2Providers()
+      oauth2Providers.value = providersResponse.data || []
+    }
+  } catch (error) {
+    console.error('获取OAuth2配置失败:', error)
+  }
+}
+
 onMounted(() => {
   refreshCaptcha()
+  checkOAuth2Config()
 })
 </script>
 
@@ -297,6 +345,31 @@ onMounted(() => {
 .captcha-loading {
   font-size: 12px;
   color: #909399;
+}
+
+.oauth2-login {
+  margin: 20px 0;
+}
+
+.oauth2-providers {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.oauth2-button {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #dcdfe6;
+  background: white;
+  color: #606266;
+}
+
+.oauth2-button:hover {
+  border-color: #409eff;
+  color: #409eff;
 }
 
 @media (max-width: 768px) {

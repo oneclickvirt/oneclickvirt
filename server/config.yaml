@@ -4,6 +4,7 @@ auth:
     email-smtp-port: "3306"
     email-username: root
     enable-email: false
+    enable-oauth2: false
     enable-public-registration: true
     enable-qq: false
     enable-telegram: false
@@ -45,8 +46,8 @@ mysql:
     max-lifetime: 3600
     max-open-conns: 100
     password: ""
-    path: 
-    port: 
+    path:
+    port:
     prefix: ""
     singular: false
     username: root
@@ -120,7 +121,7 @@ zap:
     director: storage/logs
     encode-level: LowercaseLevelEncoder
     format: console
-    level: debug
+    level: info
     log-in-console: false
     max-array-elements: 5
     max-backups: 15

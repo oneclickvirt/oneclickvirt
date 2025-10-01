@@ -4,6 +4,7 @@ auth:
     email-smtp-port: "3306"
     email-username: root
     enable-email: false
+    enable-oauth2: false
     enable-public-registration: true
     enable-qq: false
     enable-telegram: false

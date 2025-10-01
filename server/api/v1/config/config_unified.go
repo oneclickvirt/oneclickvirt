@@ -221,6 +221,9 @@ func syncConfigToGlobalViaService(configData map[string]interface{}) error {
 			if v, ok := authMap["enableQQ"].(bool); ok {
 				global.APP_CONFIG.Auth.EnableQQ = v
 			}
+			if v, ok := authMap["enableOAuth2"].(bool); ok {
+				global.APP_CONFIG.Auth.EnableOAuth2 = v
+			}
 			if v, ok := authMap["enablePublicRegistration"].(bool); ok {
 				global.APP_CONFIG.Auth.EnablePublicRegistration = v
 			}
@@ -418,7 +421,9 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 	}
 
 	return result
-} // getAdminConfig 获取管理员配置
+}
+
+// getAdminConfig 获取管理员配置
 func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 	// 直接从 global.APP_CONFIG 构建完整配置返回
 	// 确保返回所有配置项（包括默认值）
@@ -429,6 +434,7 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 		"enableEmail":              global.APP_CONFIG.Auth.EnableEmail,
 		"enableTelegram":           global.APP_CONFIG.Auth.EnableTelegram,
 		"enableQQ":                 global.APP_CONFIG.Auth.EnableQQ,
+		"enableOAuth2":             global.APP_CONFIG.Auth.EnableOAuth2,
 		"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
 		"emailSMTPHost":            global.APP_CONFIG.Auth.EmailSMTPHost,
 		"emailSMTPPort":            global.APP_CONFIG.Auth.EmailSMTPPort,

@@ -29,6 +29,7 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 		"enableEmail":              req.Auth.EnableEmail,
 		"enableTelegram":           req.Auth.EnableTelegram,
 		"enableQQ":                 req.Auth.EnableQQ,
+		"enableOAuth2":             req.Auth.EnableOAuth2,
 		"enablePublicRegistration": req.Auth.EnablePublicRegistration,
 		"emailSMTPHost":            req.Auth.EmailSMTPHost,
 		"emailSMTPPort":            req.Auth.EmailSMTPPort,
@@ -133,23 +134,83 @@ func (s *ConfigService) GetConfig() map[string]interface{} {
 		return map[string]interface{}{}
 	}
 
-	// 从配置管理器获取配置
-	allConfig := configManager.GetAllConfig()
+	// 从配置管理器获取扁平化配置
+	flatConfig := configManager.GetAllConfig()
+	global.APP_LOG.Info("获取扁平化配置", zap.Int("count", len(flatConfig)))
 
-	// 返回公开的配置部分
-	result := make(map[string]interface{})
+	// 记录所有auth相关的配置
+	for key, value := range flatConfig {
+		if len(key) >= 4 && key[:4] == "auth" {
+			global.APP_LOG.Info("扁平化配置项", zap.String("key", key), zap.Any("value", value))
+		}
+	}
 
-	if auth, exists := allConfig["auth"]; exists {
-		result["auth"] = auth
-	}
-	if quota, exists := allConfig["quota"]; exists {
-		result["quota"] = quota
-	}
-	if inviteCode, exists := allConfig["inviteCode"]; exists {
-		result["inviteCode"] = inviteCode
+	// 将扁平化配置转换为嵌套结构
+	result := unflattenConfig(flatConfig)
+
+	// 记录转换后的auth配置
+	if auth, exists := result["auth"]; exists {
+		global.APP_LOG.Info("转换后的auth配置", zap.Any("auth", auth))
 	}
 
 	return result
+}
+
+// unflattenConfig 将扁平化配置转换为嵌套结构
+// 例如: {"auth.enableEmail": true} => {"auth": {"enableEmail": true}}
+func unflattenConfig(flat map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, value := range flat {
+		parts := splitKey(key)
+		setNestedValue(result, parts, value)
+	}
+
+	return result
+}
+
+// splitKey 分割配置键
+func splitKey(key string) []string {
+	parts := []string{}
+	current := ""
+
+	for _, char := range key {
+		if char == '.' {
+			if current != "" {
+				parts = append(parts, current)
+				current = ""
+			}
+		} else {
+			current += string(char)
+		}
+	}
+
+	if current != "" {
+		parts = append(parts, current)
+	}
+
+	return parts
+}
+
+// setNestedValue 设置嵌套值
+func setNestedValue(m map[string]interface{}, keys []string, value interface{}) {
+	if len(keys) == 0 {
+		return
+	}
+
+	if len(keys) == 1 {
+		m[keys[0]] = value
+		return
+	}
+
+	key := keys[0]
+	if _, exists := m[key]; !exists {
+		m[key] = make(map[string]interface{})
+	}
+
+	if nested, ok := m[key].(map[string]interface{}); ok {
+		setNestedValue(nested, keys[1:], value)
+	}
 }
 
 // SaveInstanceTypePermissions 保存实例类型权限配置
@@ -183,5 +244,25 @@ func (s *ConfigService) SaveInstanceTypePermissions(minLevelForContainer, minLev
 	}
 
 	global.APP_LOG.Info("实例类型权限配置保存成功")
+	return nil
+}
+
+// UpdateOAuth2Config 更新OAuth2配置
+func (s *ConfigService) UpdateOAuth2Config(updates map[string]interface{}) error {
+	configManager := config.GetConfigManager()
+	if configManager == nil {
+		return fmt.Errorf("配置管理器未初始化")
+	}
+
+	configUpdates := make(map[string]interface{})
+	for key, value := range updates {
+		configUpdates[fmt.Sprintf("oauth2.%s", key)] = value
+	}
+
+	if err := configManager.UpdateConfig(configUpdates); err != nil {
+		global.APP_LOG.Error("更新OAuth2配置失败", zap.Error(err))
+		return err
+	}
+
 	return nil
 }

@@ -39,12 +39,14 @@ const (
 	CodePermissionNotFound = 3006
 
 	// 业务相关错误 4000-4999
-	CodeInviteCodeInvalid  = 4001
-	CodeInviteCodeExpired  = 4002
-	CodeInviteCodeUsed     = 4003
-	CodeCaptchaInvalid     = 4004
-	CodeCaptchaRequired    = 4005
-	CodeTokenGenerateError = 4006
+	CodeInviteCodeInvalid       = 4001
+	CodeInviteCodeExpired       = 4002
+	CodeInviteCodeUsed          = 4003
+	CodeCaptchaInvalid          = 4004
+	CodeCaptchaRequired         = 4005
+	CodeTokenGenerateError      = 4006
+	CodeOAuth2Failed            = 4007 // OAuth2认证失败
+	CodeOAuth2RegistrationLimit = 4008 // OAuth2注册已达限制
 
 	// 系统相关错误 5000-5999
 	CodeConfigError      = 5001
@@ -56,38 +58,40 @@ const (
 
 // 错误信息映射
 var ErrorMessages = map[int]string{
-	CodeSuccess:            "操作成功",
-	CodeError:              "操作失败",
-	CodeInvalidParam:       "请求参数错误",
-	CodeInternalError:      "系统内部错误",
-	CodeUnauthorized:       "未授权访问",
-	CodeForbidden:          "禁止访问",
-	CodeNotFound:           "资源不存在",
-	CodeConflict:           "资源冲突",
-	CodeValidationError:    "数据验证失败",
-	CodeUserNotFound:       "用户不存在",
-	CodeUserExists:         "用户已存在",
-	CodeUsernameExists:     "用户名已存在",
-	CodeInvalidCredentials: "用户名或密码错误",
-	CodeUserDisabled:       "用户已被禁用",
-	CodeUserPermissionDeny: "用户权限不足",
-	CodeRoleNotFound:       "角色不存在",
-	CodeRoleExists:         "角色已存在",
-	CodePermissionDeny:     "权限不足",
-	CodeInvalidRole:        "无效的角色",
-	CodeRoleInUse:          "角色正在使用中，无法删除",
-	CodePermissionNotFound: "权限不存在",
-	CodeInviteCodeInvalid:  "邀请码无效",
-	CodeInviteCodeExpired:  "邀请码已过期",
-	CodeInviteCodeUsed:     "邀请码已被使用",
-	CodeCaptchaInvalid:     "验证码错误",
-	CodeCaptchaRequired:    "请提供验证码",
-	CodeTokenGenerateError: "令牌生成失败",
-	CodeConfigError:        "配置错误",
-	CodeDatabaseError:      "数据库错误",
-	CodeCacheError:         "缓存错误",
-	CodeExternalAPIError:   "外部API调用失败",
-	CodeRequestTooLarge:    "请求数据过大",
+	CodeSuccess:                 "操作成功",
+	CodeError:                   "操作失败",
+	CodeInvalidParam:            "请求参数错误",
+	CodeInternalError:           "系统内部错误",
+	CodeUnauthorized:            "未授权访问",
+	CodeForbidden:               "禁止访问",
+	CodeNotFound:                "资源不存在",
+	CodeConflict:                "资源冲突",
+	CodeValidationError:         "数据验证失败",
+	CodeUserNotFound:            "用户不存在",
+	CodeUserExists:              "用户已存在",
+	CodeUsernameExists:          "用户名已存在",
+	CodeInvalidCredentials:      "用户名或密码错误",
+	CodeUserDisabled:            "用户已被禁用",
+	CodeUserPermissionDeny:      "用户权限不足",
+	CodeRoleNotFound:            "角色不存在",
+	CodeRoleExists:              "角色已存在",
+	CodePermissionDeny:          "权限不足",
+	CodeInvalidRole:             "无效的角色",
+	CodeRoleInUse:               "角色正在使用中，无法删除",
+	CodePermissionNotFound:      "权限不存在",
+	CodeInviteCodeInvalid:       "邀请码无效",
+	CodeInviteCodeExpired:       "邀请码已过期",
+	CodeInviteCodeUsed:          "邀请码已被使用",
+	CodeCaptchaInvalid:          "验证码错误",
+	CodeCaptchaRequired:         "请提供验证码",
+	CodeTokenGenerateError:      "令牌生成失败",
+	CodeOAuth2Failed:            "OAuth2认证失败",
+	CodeOAuth2RegistrationLimit: "OAuth2注册已达到限制",
+	CodeConfigError:             "配置错误",
+	CodeDatabaseError:           "数据库错误",
+	CodeCacheError:              "缓存错误",
+	CodeExternalAPIError:        "外部API调用失败",
+	CodeRequestTooLarge:         "请求数据过大",
 }
 
 // AppError 统一错误结构

@@ -24,6 +24,7 @@ type Auth struct {
 	EnableEmail              bool   `mapstructure:"enable-email" json:"enable-email" yaml:"enable-email"`
 	EnableTelegram           bool   `mapstructure:"enable-telegram" json:"enable-telegram" yaml:"enable-telegram"`
 	EnableQQ                 bool   `mapstructure:"enable-qq" json:"enable-qq" yaml:"enable-qq"`
+	EnableOAuth2             bool   `mapstructure:"enable-oauth2" json:"enable-oauth2" yaml:"enable-oauth2"`                                        // 是否启用OAuth2登录（全局开关）
 	EnablePublicRegistration bool   `mapstructure:"enable-public-registration" json:"enable-public-registration" yaml:"enable-public-registration"` // 是否启用公开注册（无需邀请码）
 	EmailSMTPHost            string `mapstructure:"email-smtp-host" json:"email-smtp-host" yaml:"email-smtp-host"`
 	EmailSMTPPort            int    `mapstructure:"email-smtp-port" json:"email-smtp-port" yaml:"email-smtp-port"`

@@ -10,7 +10,118 @@ export function setupRouterGuards(router) {
     NProgress.start()
     
     const userStore = useUserStore()
-    const token = userStore.token || sessionStorage.getItem('token')
+    
+    // 检查URL参数中是否有OAuth2 token（解决跨域localStorage隔离问题）
+    const urlParams = new URLSearchParams(window.location.search)
+    const oauth2Token = urlParams.get('oauth2_token')
+    const oauth2Username = urlParams.get('username')
+    
+    if (oauth2Token) {
+      console.log('从URL参数中检测到OAuth2 token，开始处理...')
+      
+      // 保存token到localStorage和sessionStorage
+      localStorage.setItem('token', oauth2Token)
+      sessionStorage.setItem('token', oauth2Token)
+      userStore.setToken(oauth2Token)
+      
+      if (oauth2Username) {
+        localStorage.setItem('username', oauth2Username)
+      }
+      
+      // 清理URL参数（避免token暴露在URL中）
+      const cleanURL = window.location.pathname + window.location.hash
+      window.history.replaceState({}, document.title, cleanURL)
+      
+      // 获取用户信息
+      try {
+        console.log('正在获取用户信息...')
+        await userStore.fetchUserInfo()
+        
+        console.log('OAuth2登录成功，用户信息已加载:', {
+          user: userStore.user,
+          userType: userStore.userType,
+          userInfo: userStore.userInfo
+        })
+        
+        // 根据用户类型跳转到相应页面
+        const userType = userStore.userInfo?.userType || userStore.userType
+        console.log('OAuth2登录完成，用户类型:', userType)
+        
+        if (userType === 'admin') {
+          next('/admin')
+          return
+        } else if (userType === 'user') {
+          next('/user')
+          return
+        }
+      } catch (error) {
+        console.error('OAuth2登录后获取用户信息失败:', error)
+        // 清理无效token
+        localStorage.removeItem('token')
+        sessionStorage.removeItem('token')
+        userStore.logout()
+        next('/home')
+        return
+      }
+    }
+    
+    console.log('路由守卫检查:', {
+      to: to.path,
+      from: from.path,
+      hasUserStoreToken: !!userStore.token,
+      hasLocalStorageToken: !!localStorage.getItem('token'),
+      hasUser: !!userStore.user,
+      userType: userStore.userType
+    })
+    
+    // OAuth2登录后token处理：如果localStorage有token但userStore没有，则同步
+    if (!userStore.token && localStorage.getItem('token')) {
+      console.log('检测到localStorage有token但userStore没有，开始同步...')
+      const storedToken = localStorage.getItem('token')
+      userStore.setToken(storedToken)
+      sessionStorage.setItem('token', storedToken)
+      
+      // 获取用户信息
+      try {
+        console.log('正在获取用户信息...')
+        await userStore.fetchUserInfo()
+        
+        // 清理OAuth2回调相关的localStorage（可选）
+        localStorage.removeItem('username')
+        
+        console.log('OAuth2登录成功，用户信息已加载:', {
+          user: userStore.user,
+          userType: userStore.userType,
+          userInfo: userStore.userInfo
+        })
+        
+        // 如果在首页且已登录，跳转到用户主页
+        if (to.path === '/' || to.path === '/home') {
+          const userType = userStore.userInfo?.userType || userStore.userType
+          console.log('从首页跳转，用户类型:', userType)
+          if (userType === 'admin') {
+            next('/admin')
+            return
+          } else if (userType === 'user') {
+            next('/user')
+            return
+          }
+        }
+        // 如果不是首页，继续正常流程，不要return
+      } catch (error) {
+        console.error('OAuth2登录后获取用户信息失败:', error)
+        // 清理无效token
+        localStorage.removeItem('token')
+        sessionStorage.removeItem('token')
+        userStore.logout()
+        next('/home')
+        return
+      }
+    }
+    
+    // 重新获取token（在OAuth2同步后）
+    const token = userStore.token || sessionStorage.getItem('token') || localStorage.getItem('token')
+    console.log('最终token检查:', !!token)
     
     // 检查系统初始化状态（除了初始化页面本身）
     if (to.name !== 'SystemInit') {

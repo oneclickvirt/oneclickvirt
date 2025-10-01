@@ -1173,6 +1173,33 @@
               </el-col>
             </el-row>
 
+            <el-divider content-position="left">
+              <span style="color: #666; font-size: 14px;">流量配置</span>
+            </el-divider>
+
+            <el-form-item
+              label="最大流量限制"
+              prop="maxTraffic"
+            >
+              <el-input-number
+                v-model="maxTrafficTB"
+                :min="0.001"
+                :max="10"
+                :step="0.1"
+                :precision="3"
+                placeholder="1"
+                style="width: 100%"
+              />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  最大流量限制（TB），支持小数点，默认1TB，每月1号自动重置
+                </el-text>
+              </div>
+            </el-form-item>
+
             <el-alert
               title="带宽限制机制说明"
               type="warning"
@@ -1184,6 +1211,7 @@
                 <li><strong>默认带宽：</strong>实例创建时的初始带宽限制，会结合用户等级进行调整</li>
                 <li><strong>最大带宽：</strong>该服务器上任何实例都不能超过的带宽上限</li>
                 <li><strong>用户等级：</strong>最终带宽 = min(用户等级限制, 默认带宽, 最大带宽)</li>
+                <li><strong>流量限制：</strong>每月1号自动重置，超过限制后Provider将被限流</li>
               </ul>
             </el-alert>
           </el-form>
@@ -1656,7 +1684,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, watch, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened } from '@element-plus/icons-vue'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail } from '@/api/admin'
@@ -1714,9 +1742,26 @@ const addProviderForm = reactive({
   defaultOutboundBandwidth: 300, // 默认出站带宽限制（Mbps）
   maxInboundBandwidth: 1000, // 最大入站带宽限制（Mbps）
   maxOutboundBandwidth: 1000, // 最大出站带宽限制（Mbps）
+  // 流量配置
+  maxTraffic: 1048576, // 最大流量限制（MB），默认1TB
   ipv4PortMappingMethod: 'device_proxy', // IPv4端口映射方式：device_proxy, iptables, native
   ipv6PortMappingMethod: 'device_proxy',  // IPv6端口映射方式：device_proxy, iptables, native
   executionRule: 'auto' // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
+})
+
+// 流量单位转换：TB 转 MB (1TB = 1024 * 1024 MB = 1048576 MB)
+const TB_TO_MB = 1048576
+
+// 计算属性：maxTraffic 的 TB 单位显示
+const maxTrafficTB = computed({
+  get: () => {
+    // 从 MB 转换为 TB
+    return Number((addProviderForm.maxTraffic / TB_TO_MB).toFixed(3))
+  },
+  set: (value) => {
+    // 从 TB 转换为 MB
+    addProviderForm.maxTraffic = Math.round(value * TB_TO_MB)
+  }
 })
 
 // 表单验证规则
@@ -1827,6 +1872,8 @@ const cancelAddServer = () => {
     defaultOutboundBandwidth: 300,
     maxInboundBandwidth: 1000,
     maxOutboundBandwidth: 1000,
+    // 重置流量配置 (1TB = 1048576 MB)
+    maxTraffic: 1048576,
     ipv4PortMappingMethod: 'device_proxy',
     ipv6PortMappingMethod: 'device_proxy'
   })
@@ -1877,6 +1924,8 @@ const submitAddServer = async () => {
       defaultOutboundBandwidth: addProviderForm.defaultOutboundBandwidth || 300,
       maxInboundBandwidth: addProviderForm.maxInboundBandwidth || 1000,
       maxOutboundBandwidth: addProviderForm.maxOutboundBandwidth || 1000,
+      // 流量配置
+      maxTraffic: addProviderForm.maxTraffic || 1048576,
       // 操作执行规则
       executionRule: addProviderForm.executionRule || 'auto' // 操作轮转规则
     }
@@ -1986,6 +2035,8 @@ const editProvider = (provider) => {
     defaultOutboundBandwidth: provider.defaultOutboundBandwidth || 300,
     maxInboundBandwidth: provider.maxInboundBandwidth || 1000,
     maxOutboundBandwidth: provider.maxOutboundBandwidth || 1000,
+    // 流量配置
+    maxTraffic: provider.maxTraffic || 1048576,
     // 操作执行规则
     executionRule: provider.executionRule || 'auto' // 默认自动切换
   })

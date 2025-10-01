@@ -60,6 +60,14 @@
             
             <el-row :gutter="20">
               <el-col :span="12">
+                <el-form-item label="OAuth2">
+                  <el-switch v-model="config.auth.enableOAuth2" />
+                  <div class="form-item-hint">
+                    启用后，用户可通过OAuth2提供商注册或登录
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
                 <el-form-item label="邀请码系统">
                   <el-switch v-model="config.inviteCode.enabled" />
                   <div class="form-item-hint">
@@ -474,6 +482,7 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
+import OAuth2ConfigComponent from './OAuth2ConfigComponent.vue'
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -483,6 +492,7 @@ const config = ref({
     enableEmail: false,
     enableTelegram: false,
     enableQQ: false,
+    enableOAuth2: false,
     enablePublicRegistration: false, // 是否启用公开注册
     emailSMTPHost: '',
     emailSMTPPort: 587,

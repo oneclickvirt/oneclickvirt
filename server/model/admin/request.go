@@ -75,10 +75,10 @@ type CreateProviderRequest struct {
 	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 	// 带宽配置
-	DefaultInboundBandwidth  int   `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
-	DefaultOutboundBandwidth int   `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
-	MaxInboundBandwidth      int   `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
-	MaxOutboundBandwidth     int   `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
+	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
+	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
+	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
 	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
 }
@@ -119,10 +119,10 @@ type UpdateProviderRequest struct {
 	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 	// 带宽配置
-	DefaultInboundBandwidth  int   `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
-	DefaultOutboundBandwidth int   `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
-	MaxInboundBandwidth      int   `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
-	MaxOutboundBandwidth     int   `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
+	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
+	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
+	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
 	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
 }

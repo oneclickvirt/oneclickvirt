@@ -67,3 +67,25 @@ export function updateAdminConfig(data) {
 export function getPublicConfig() {
   return getUnifiedConfig('public')
 }
+// OAuth2配置API
+export function getOAuth2Config() {
+  return request({
+    url: '/v1/config/oauth2',
+    method: 'get'
+  })
+}
+
+export function updateOAuth2Config(data) {
+  return request({
+    url: '/v1/config/oauth2',
+    method: 'put',
+    data
+  })
+}
+
+export function resetOAuth2RegistrationCount() {
+  return request({
+    url: '/v1/config/oauth2/reset-count',
+    method: 'post'
+  })
+}
