@@ -293,11 +293,19 @@ export const deleteInviteCode = (id) => {
   })
 }
 
-export const exportInviteCodes = () => {
+export const batchDeleteInviteCodes = (data) => {
+  return request({
+    url: '/v1/admin/invite-codes/batch-delete',
+    method: 'post',
+    data
+  })
+}
+
+export const exportInviteCodes = (data) => {
   return request({
     url: '/v1/admin/invite-codes/export',
     method: 'get',
-    responseType: 'blob'
+    params: data
   })
 }
 

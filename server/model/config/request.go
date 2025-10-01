@@ -21,9 +21,8 @@ type AuthConfig struct {
 }
 
 type InviteCodeConfig struct {
-	Enabled        bool `json:"enabled"`        // 是否启用邀请码系统
-	Required       bool `json:"required"`       // 是否必须邀请码（兼容旧字段）
-	DefaultMaxUses int  `json:"defaultMaxUses"` // 默认最大使用次数
+	Enabled  bool `json:"enabled"`  // 是否启用邀请码系统
+	Required bool `json:"required"` // 是否必须邀请码（兼容旧字段）
 }
 
 type QuotaConfig struct {

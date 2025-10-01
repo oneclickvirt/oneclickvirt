@@ -120,9 +120,8 @@ func getDefaultConfig() config.Server {
 			},
 		},
 		InviteCode: config.InviteCode{
-			Enabled:        false,
-			Required:       false,
-			DefaultMaxUses: 10,
+			Enabled:  false,
+			Required: false,
 		},
 		Captcha: config.Captcha{
 			Enabled:    false,

@@ -971,7 +971,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 // @Security BearerAuth
 // @Param instance_id path int true "实例ID"
 // @Param interface query string false "网络接口名称（可选）"
-// @Success 200 {object} common.Response{data=service.VnStatResponse} "获取成功"
+// @Success 200 {object} common.Response{data=monitoring.VnStatResponse} "获取成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"
 // @Failure 403 {object} common.Response "无权限访问该实例"
@@ -1040,7 +1040,7 @@ func GetInstanceVnStatSummary(c *gin.Context) {
 // @Param start_date query string false "开始日期（YYYY-MM-DD）"
 // @Param end_date query string false "结束日期（YYYY-MM-DD）"
 // @Param limit query int false "返回记录数限制（默认100）"
-// @Success 200 {object} common.Response{data=service.VnStatResponse} "查询成功"
+// @Success 200 {object} common.Response{data=monitoring.VnStatResponse} "查询成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"
 // @Failure 403 {object} common.Response "无权限访问该实例"

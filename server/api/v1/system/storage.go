@@ -5,8 +5,9 @@ import (
 	"oneclickvirt/service/storage"
 	"strconv"
 
-	"github.com/gin-gonic/gin"
 	"oneclickvirt/model/common"
+
+	"github.com/gin-gonic/gin"
 )
 
 // StorageApi 存储管理API
@@ -70,7 +71,7 @@ func (s *StorageApi) CleanupTempFiles(c *gin.Context) {
 // @Security BearerAuth
 // @Accept json
 // @Produce json
-// @Success 200 {object} common.Response{data=[]service.LogFileInfo} "success"
+// @Success 200 {object} common.Response{data=[]log.LogFileInfo} "success"
 // @Router /api/v1/admin/logs/files [get]
 func (s *StorageApi) GetLogFiles(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()

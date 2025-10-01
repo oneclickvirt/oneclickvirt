@@ -59,6 +59,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/invite-codes", admin.CreateInviteCode)
 		AdminGroup.POST("/invite-codes/generate", admin.GenerateInviteCode)
 		AdminGroup.GET("/invite-codes/export", admin.ExportInviteCodes)
+		AdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
 		AdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
 
 		// 系统监控

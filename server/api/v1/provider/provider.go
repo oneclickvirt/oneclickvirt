@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"oneclickvirt/service/provider"
 
+	"oneclickvirt/global"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"oneclickvirt/global"
 )
 
 type ProviderApi struct{}
@@ -21,7 +22,7 @@ var providerApiService = &provider.ProviderApiService{}
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param request body service.ConnectProviderRequest true "连接参数"
+// @Param request body provider.ConnectProviderRequest true "连接参数"
 // @Success 200 {object} common.Response "连接成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "连接失败"
@@ -175,7 +176,7 @@ func (p *ProviderApi) ListInstances(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param type path string true "Provider类型" Enums(docker,lxd,incus,proxmox)
-// @Param request body service.CreateInstanceRequest true "创建实例请求参数"
+// @Param request body provider.CreateInstanceRequest true "创建实例请求参数"
 // @Success 200 {object} common.Response{data=object} "创建成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 404 {object} common.Response "Provider不存在"

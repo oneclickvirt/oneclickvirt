@@ -50,9 +50,58 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 		levelLimits := make(map[string]interface{})
 		for level, modelLimit := range req.Quota.LevelLimits {
 			levelKey := fmt.Sprintf("%d", level)
+
+			// 验证资源限制值，不允许为空或0
+			if modelLimit.MaxInstances <= 0 {
+				return fmt.Errorf("等级 %d 的最大实例数不能为空或小于等于0", level)
+			}
+
+			if modelLimit.MaxTraffic <= 0 {
+				return fmt.Errorf("等级 %d 的流量限制不能为空或小于等于0", level)
+			}
+
+			// 验证 MaxResources
+			if modelLimit.MaxResources == nil {
+				return fmt.Errorf("等级 %d 的资源配置不能为空", level)
+			}
+
+			// 验证各项资源限制
+			if cpu, ok := modelLimit.MaxResources["cpu"]; !ok || cpu == nil {
+				return fmt.Errorf("等级 %d 的CPU配置不能为空", level)
+			} else if cpuVal, ok := cpu.(float64); ok && cpuVal <= 0 {
+				return fmt.Errorf("等级 %d 的CPU配置不能小于等于0", level)
+			} else if cpuVal, ok := cpu.(int); ok && cpuVal <= 0 {
+				return fmt.Errorf("等级 %d 的CPU配置不能小于等于0", level)
+			}
+
+			if memory, ok := modelLimit.MaxResources["memory"]; !ok || memory == nil {
+				return fmt.Errorf("等级 %d 的内存配置不能为空", level)
+			} else if memVal, ok := memory.(float64); ok && memVal <= 0 {
+				return fmt.Errorf("等级 %d 的内存配置不能小于等于0", level)
+			} else if memVal, ok := memory.(int); ok && memVal <= 0 {
+				return fmt.Errorf("等级 %d 的内存配置不能小于等于0", level)
+			}
+
+			if disk, ok := modelLimit.MaxResources["disk"]; !ok || disk == nil {
+				return fmt.Errorf("等级 %d 的磁盘配置不能为空", level)
+			} else if diskVal, ok := disk.(float64); ok && diskVal <= 0 {
+				return fmt.Errorf("等级 %d 的磁盘配置不能小于等于0", level)
+			} else if diskVal, ok := disk.(int); ok && diskVal <= 0 {
+				return fmt.Errorf("等级 %d 的磁盘配置不能小于等于0", level)
+			}
+
+			if bandwidth, ok := modelLimit.MaxResources["bandwidth"]; !ok || bandwidth == nil {
+				return fmt.Errorf("等级 %d 的带宽配置不能为空", level)
+			} else if bwVal, ok := bandwidth.(float64); ok && bwVal <= 0 {
+				return fmt.Errorf("等级 %d 的带宽配置不能小于等于0", level)
+			} else if bwVal, ok := bandwidth.(int); ok && bwVal <= 0 {
+				return fmt.Errorf("等级 %d 的带宽配置不能小于等于0", level)
+			}
+
 			levelLimits[levelKey] = map[string]interface{}{
 				"maxInstances": modelLimit.MaxInstances,
 				"maxResources": modelLimit.MaxResources,
+				"maxTraffic":   modelLimit.MaxTraffic,
 			}
 		}
 		quotaConfig["levelLimits"] = levelLimits
@@ -61,9 +110,8 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 
 	// 邀请码配置
 	inviteCodeConfig := map[string]interface{}{
-		"enabled":        req.InviteCode.Enabled,
-		"required":       req.InviteCode.Required,
-		"defaultMaxUses": req.InviteCode.DefaultMaxUses,
+		"enabled":  req.InviteCode.Enabled,
+		"required": req.InviteCode.Required,
 	}
 	configUpdates["inviteCode"] = inviteCodeConfig
 

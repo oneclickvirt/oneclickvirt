@@ -156,10 +156,11 @@ func (s *InviteService) DeleteInviteCode(id uint, userID uint, isAdmin bool) err
 		return common.NewError(common.CodeConflict, "邀请码已被使用，无法删除")
 	}
 
-	// 使用数据库抽象层删除
+	// 使用数据库抽象层删除（硬删除）
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&inviteCode).Error
+		// 使用Unscoped()进行硬删除，而不是软删除
+		return tx.Unscoped().Delete(&inviteCode).Error
 	}); err != nil {
 		return common.NewError(common.CodeDatabaseError, "删除邀请码失败")
 	}

@@ -26,11 +26,3 @@ func respondUnauthorized(c *gin.Context, msg string) {
 		Msg:  msg,
 	})
 }
-
-func ExportInviteCodes(c *gin.Context) {
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "导出成功",
-		Data: "export data",
-	})
-}

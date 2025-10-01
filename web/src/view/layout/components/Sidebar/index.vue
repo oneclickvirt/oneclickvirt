@@ -151,6 +151,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/invite-codes',
+        name: 'AdminInviteCodes',
+        meta: {
+          title: '邀请码管理',
+          icon: 'Ticket'
+        }
+      },
+      {
         path: '/admin/providers',
         name: 'AdminProviders',
         meta: {
@@ -196,14 +204,6 @@ const userRoutes = computed(() => {
         meta: {
           title: '公告管理',
           icon: 'Bell'
-        }
-      },
-      {
-        path: '/admin/invite-codes',
-        name: 'AdminInviteCodes',
-        meta: {
-          title: '邀请码管理',
-          icon: 'Ticket'
         }
       },
       {

@@ -52,7 +52,6 @@ type ProviderManageResponse struct {
 type InviteCodeResponse struct {
 	system.InviteCode
 	CreatedByUser string `json:"createdByUser"`
-	UsedByUser    string `json:"usedByUser"`
 }
 
 type InstanceManageResponse struct {

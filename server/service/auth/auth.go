@@ -71,26 +71,23 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 	return &user, token, nil
 }
 
-func (s *AuthService) Register(req auth.RegisterRequest) error {
+func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, userAgent string) error {
 	// 检查注册是否启用
 	enableRegistration := global.APP_CONFIG.Auth.EnablePublicRegistration
 	if !enableRegistration && !global.APP_CONFIG.InviteCode.Enabled {
 		return errors.New("注册功能已被禁用")
 	}
+
 	// 验证图形验证码（开发模式下可以跳过）
-	if global.APP_CONFIG.System.Env != "development" {
-		// 非开发环境下验证验证码（API层已经检查了完整性）
+	if req.CaptchaId != "" && req.Captcha != "" {
 		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return err
+			return common.NewError(common.CodeCaptchaInvalid)
 		}
-	} else {
-		// 开发环境下，如果提供了验证码就验证，没提供就跳过
-		if req.CaptchaId != "" && req.Captcha != "" {
-			if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-				return err
-			}
-		}
+	} else if global.APP_CONFIG.System.Env != "development" {
+		// 只在非开发环境下强制要求验证码
+		return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 	}
+
 	// 邀请码验证逻辑
 	// 如果启用邀请码系统且未启用公开注册，则必须要邀请码
 	if global.APP_CONFIG.InviteCode.Enabled && !global.APP_CONFIG.Auth.EnablePublicRegistration {
@@ -112,10 +109,12 @@ func (s *AuthService) Register(req auth.RegisterRequest) error {
 		return err
 	}
 
+	// 检查用户名是否已存在
 	var existingUser userModel.User
 	if err := global.APP_DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
-		return errors.New("用户名已存在")
+		return common.NewError(common.CodeUsernameExists, "用户名已存在")
 	}
+
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -172,9 +171,9 @@ func (s *AuthService) Register(req auth.RegisterRequest) error {
 			return errors.New("分配默认角色失败")
 		}
 
-		// 如果使用了邀请码，记录使用情况
+		// 如果使用了邀请码，记录使用情况（只在注册成功时）
 		if req.InviteCode != "" {
-			if err := s.useInviteCodeWithTx(tx, req.InviteCode, user.ID); err != nil {
+			if err := s.useInviteCodeWithTx(tx, req.InviteCode, ip, userAgent); err != nil {
 				return err
 			}
 		}
@@ -204,10 +203,15 @@ func (s *AuthService) Register(req auth.RegisterRequest) error {
 	return transactionErr
 }
 
+// Register 兼容旧接口，使用默认IP和UserAgent
+func (s *AuthService) Register(req auth.RegisterRequest) error {
+	return s.RegisterWithContext(req, "127.0.0.1", "API Registration")
+}
+
 // RegisterAndLogin 注册并自动登录
-func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest) (*userModel.User, string, error) {
+func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, userAgent string) (*userModel.User, string, error) {
 	// 先执行注册
-	if err := s.Register(req); err != nil {
+	if err := s.RegisterWithContext(req, ip, userAgent); err != nil {
 		return nil, "", err
 	}
 	// 注册成功后自动登录
@@ -700,36 +704,10 @@ func (s *AuthService) verifyInviteCode(code string) error {
 }
 
 // useInviteCodeWithTx 使用邀请码（带事务支持）
-func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, userID uint) error {
+func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, ip string, userAgent string) error {
 	var inviteCode system.InviteCode
 	err := db.Where("code = ? AND status = ?", code, 1).First(&inviteCode).Error
 	if err != nil {
-		return err
-	}
-
-	// 检查该用户是否已经使用过这个邀请码
-	var existingUsage system.InviteCodeUsage
-	if err := db.Where("invite_code_id = ? AND user_id = ?", inviteCode.ID, userID).First(&existingUsage).Error; err == nil {
-		return common.NewError(common.CodeInviteCodeUsed)
-	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
-		// 如果不是记录不存在的错误，说明是数据库错误
-		return err
-	}
-
-	// 检查邀请码是否已经被其他用户使用（如果是一次性邀请码）
-	if inviteCode.MaxUses == 1 {
-		var usageCount int64
-		if err := db.Model(&system.InviteCodeUsage{}).Where("invite_code_id = ?", inviteCode.ID).Count(&usageCount).Error; err != nil {
-			return err
-		}
-		if usageCount > 0 {
-			return common.NewError(common.CodeInviteCodeUsed)
-		}
-	}
-
-	// 获取用户信息以填充使用记录
-	var user userModel.User
-	if err := db.Where("id = ?", userID).First(&user).Error; err != nil {
 		return err
 	}
 
@@ -743,10 +721,8 @@ func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, userID uint)
 	// 保存邀请码使用记录
 	usage := system.InviteCodeUsage{
 		InviteCodeID: inviteCode.ID,
-		UserID:       &userID,
-		Username:     user.Username,
-		IP:           "127.0.0.1",        // 在注册过程中可能无法获取真实IP，使用默认值
-		UserAgent:    "API Registration", // 默认用户代理
+		IP:           ip,
+		UserAgent:    userAgent,
 		UsedAt:       time.Now(),
 	}
 

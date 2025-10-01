@@ -13,11 +13,9 @@ type InviteCode struct {
 	Code        string         `json:"code" gorm:"size:32;not null;uniqueIndex"` // 邀请码
 	CreatorID   uint           `json:"creatorId" gorm:"not null;index"`          // 创建者ID
 	CreatorName string         `json:"creatorName" gorm:"size:50;not null"`      // 创建者名称
-	UsedBy      *uint          `json:"usedBy" gorm:"index"`                      // 使用者ID，可为空
 	Description string         `json:"description" gorm:"size:255"`              // 描述
 	MaxUses     int            `json:"maxUses" gorm:"not null;default:1"`        // 最大使用次数，0表示无限制
 	UsedCount   int            `json:"usedCount" gorm:"not null;default:0"`      // 已使用次数
-	UsedAt      *time.Time     `json:"usedAt" gorm:"index"`                      // 使用时间
 	ExpiresAt   *time.Time     `json:"expiresAt" gorm:"index"`                   // 过期时间
 	Status      int            `json:"status" gorm:"not null;default:1;index"`   // 状态：0-禁用 1-启用
 	CreatedAt   time.Time      `json:"createdAt"`
@@ -29,18 +27,16 @@ func (InviteCode) TableName() string {
 	return "invite_codes"
 }
 
-// InviteCodeUsage 邀请码使用记录
+// InviteCodeUsage 邀请码使用记录（仅记录成功注册）
 type InviteCodeUsage struct {
 	ID           uint           `json:"id" gorm:"primarykey"`
 	InviteCodeID uint           `json:"inviteCodeId" gorm:"not null;index"` // 邀请码ID
-	UserID       *uint          `json:"userId" gorm:"index"`                // 使用者ID (允许为空以支持SET NULL)
-	Username     string         `json:"username" gorm:"size:50;not null"`   // 使用者用户名
 	IP           string         `json:"ip" gorm:"size:45;not null"`         // 使用IP
 	UserAgent    string         `json:"userAgent" gorm:"size:500"`          // 用户代理
 	UsedAt       time.Time      `json:"usedAt" gorm:"not null"`             // 使用时间
 	CreatedAt    time.Time      `json:"createdAt"`
 	UpdatedAt    time.Time      `json:"updatedAt"`
-	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"` // 添加软删除字段
+	DeletedAt    gorm.DeletedAt `json:"-" gorm:"index"`
 }
 
 // SystemImage 系统镜像模型 - 用于管理各种操作系统镜像

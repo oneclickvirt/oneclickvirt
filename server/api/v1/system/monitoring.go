@@ -4,8 +4,9 @@ import (
 	"net/http"
 	"oneclickvirt/service/resources"
 
-	"github.com/gin-gonic/gin"
 	"oneclickvirt/model/common"
+
+	"github.com/gin-gonic/gin"
 )
 
 type MonitoringApi struct{}
@@ -17,7 +18,7 @@ type MonitoringApi struct{}
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} common.Response{data=service.SystemStats} "获取成功"
+// @Success 200 {object} common.Response{data=system.SystemStats} "获取成功"
 // @Failure 401 {object} common.Response "认证失败"
 // @Failure 500 {object} common.Response "获取失败"
 // @Router /admin/monitoring/system [get]

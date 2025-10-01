@@ -20,12 +20,67 @@
           </div>
         </div>
       </template>
+
+      <!-- 筛选栏 -->
+      <div class="filter-bar">
+        <el-form :inline="true">
+          <el-form-item label="使用状态">
+            <el-select
+              v-model="filterForm.isUsed"
+              placeholder="全部"
+              clearable
+              style="width: 120px"
+              @change="handleFilterChange"
+            >
+              <el-option label="全部" :value="null" />
+              <el-option label="未使用" :value="false" />
+              <el-option label="已使用" :value="true" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="状态">
+            <el-select
+              v-model="filterForm.status"
+              placeholder="全部"
+              clearable
+              style="width: 120px"
+              @change="handleFilterChange"
+            >
+              <el-option label="全部" :value="0" />
+              <el-option label="可用" :value="1" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 批量操作按钮 -->
+      <div
+        v-if="selectedCodes.length > 0"
+        class="batch-actions"
+      >
+        <el-button
+          type="primary"
+          @click="handleBatchExport"
+        >
+          导出选中 ({{ selectedCodes.length }})
+        </el-button>
+        <el-button
+          type="danger"
+          @click="handleBatchDelete"
+        >
+          删除选中 ({{ selectedCodes.length }})
+        </el-button>
+      </div>
       
       <el-table
         v-loading="loading"
         :data="inviteCodes"
         style="width: 100%"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column
+          type="selection"
+          width="55"
+        />
         <el-table-column
           prop="id"
           label="ID"
@@ -36,16 +91,16 @@
           label="邀请码"
         />
         <el-table-column
-          prop="max_uses"
+          prop="maxUses"
           label="最大使用次数"
           width="120"
         >
           <template #default="scope">
-            {{ scope.row.max_uses === 0 ? '无限制' : scope.row.max_uses }}
+            {{ scope.row.maxUses === 0 ? '无限制' : scope.row.maxUses }}
           </template>
         </el-table-column>
         <el-table-column
-          prop="used_count"
+          prop="usedCount"
           label="已使用次数"
           width="120"
         />
@@ -61,21 +116,21 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="expires_at"
+          prop="expiresAt"
           label="过期时间"
           width="160"
         >
           <template #default="scope">
-            {{ scope.row.expires_at ? new Date(scope.row.expires_at).toLocaleString() : '永不过期' }}
+            {{ scope.row.expiresAt ? new Date(scope.row.expiresAt).toLocaleString() : '永不过期' }}
           </template>
         </el-table-column>
         <el-table-column
-          prop="created_at"
+          prop="createdAt"
           label="创建时间"
           width="160"
         >
           <template #default="scope">
-            {{ new Date(scope.row.created_at).toLocaleString() }}
+            {{ new Date(scope.row.createdAt).toLocaleString() }}
           </template>
         </el-table-column>
         <el-table-column
@@ -131,7 +186,7 @@
             show-word-limit
           />
           <div class="form-tip">
-            邀请码必须唯一，建议使用字母、数字、下划线或连字符
+            邀请码只能包含数字和英文大写字母
           </div>
         </el-form-item>
         <el-form-item
@@ -189,7 +244,7 @@
     <!-- 生成邀请码对话框 -->
     <el-dialog 
       v-model="showGenerateDialog" 
-      title="生成邀请码" 
+      title="批量生成邀请码" 
       width="500px"
     >
       <el-form 
@@ -259,22 +314,56 @@
         </span>
       </template>
     </el-dialog>
+
+    <!-- 导出邀请码对话框 -->
+    <el-dialog
+      v-model="showExportDialog"
+      title="导出邀请码"
+      width="600px"
+    >
+      <div class="export-content">
+        <el-input
+          v-model="exportedCodes"
+          type="textarea"
+          :rows="15"
+          readonly
+        />
+      </div>
+      <template #footer>
+        <span class="dialog-footer">
+          <el-button @click="showExportDialog = false">关闭</el-button>
+          <el-button
+            type="primary"
+            @click="copyExportedCodes"
+          >复制</el-button>
+        </span>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getInviteCodes, createInviteCode, generateInviteCodes, deleteInviteCode } from '@/api/admin'
+import { getInviteCodes, createInviteCode, generateInviteCodes, deleteInviteCode, batchDeleteInviteCodes, exportInviteCodes } from '@/api/admin'
 
 const inviteCodes = ref([])
 const loading = ref(false)
 const showCreateDialog = ref(false)
 const showGenerateDialog = ref(false)
+const showExportDialog = ref(false)
 const createLoading = ref(false)
 const generateLoading = ref(false)
 const createFormRef = ref()
 const generateFormRef = ref()
+const selectedCodes = ref([])
+const exportedCodes = ref('')
+
+// 筛选表单
+const filterForm = reactive({
+  isUsed: null,
+  status: 0
+})
 
 // 分页
 const currentPage = ref(1)
@@ -294,7 +383,7 @@ const createRules = {
   code: [
     { required: true, message: '请输入邀请码', trigger: 'blur' },
     { min: 3, max: 50, message: '邀请码长度为3-50个字符', trigger: 'blur' },
-    { pattern: /^[a-zA-Z0-9_-]+$/, message: '邀请码只能包含字母、数字、下划线或连字符', trigger: 'blur' }
+    { pattern: /^[0-9A-Z]+$/, message: '邀请码只能包含数字和英文大写字母', trigger: 'blur' }
   ],
   maxUses: [
     { required: true, message: '请输入最大使用次数', trigger: 'blur' }
@@ -322,10 +411,19 @@ const generateRules = {
 const loadInviteCodes = async () => {
   loading.value = true
   try {
-    const response = await getInviteCodes({
+    const params = {
       page: currentPage.value,
       pageSize: pageSize.value
-    })
+    }
+    
+    if (filterForm.isUsed !== null) {
+      params.isUsed = filterForm.isUsed
+    }
+    if (filterForm.status !== 0) {
+      params.status = filterForm.status
+    }
+    
+    const response = await getInviteCodes(params)
     inviteCodes.value = response.data.list || []
     total.value = response.data.total || 0
   } catch (error) {
@@ -333,6 +431,67 @@ const loadInviteCodes = async () => {
   } finally {
     loading.value = false
   }
+}
+
+const handleFilterChange = () => {
+  currentPage.value = 1
+  loadInviteCodes()
+}
+
+const handleSelectionChange = (selection) => {
+  selectedCodes.value = selection
+}
+
+const handleBatchExport = async () => {
+  if (selectedCodes.value.length === 0) {
+    ElMessage.warning('请选择要导出的邀请码')
+    return
+  }
+  
+  try {
+    const ids = selectedCodes.value.map(item => item.id)
+    const response = await exportInviteCodes({ ids })
+    exportedCodes.value = response.data.join('\n')
+    showExportDialog.value = true
+  } catch (error) {
+    ElMessage.error('导出邀请码失败')
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (selectedCodes.value.length === 0) {
+    ElMessage.warning('请选择要删除的邀请码')
+    return
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedCodes.value.length} 个邀请码吗？此操作不可恢复。`,
+      '批量删除邀请码',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+    
+    const ids = selectedCodes.value.map(item => item.id)
+    await batchDeleteInviteCodes({ ids })
+    ElMessage.success('批量删除成功')
+    await loadInviteCodes()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('批量删除失败')
+    }
+  }
+}
+
+const copyExportedCodes = () => {
+  navigator.clipboard.writeText(exportedCodes.value).then(() => {
+    ElMessage.success('已复制到剪贴板')
+  }).catch(() => {
+    ElMessage.error('复制失败，请手动复制')
+  })
 }
 
 const cancelCreate = () => {
@@ -353,7 +512,7 @@ const submitCreate = async () => {
 
     const data = {
       code: createForm.code,
-      count: 1, // 自定义邀请码一次只创建一个
+      count: 1,
       maxUses: createForm.maxUses,
       expiresAt: createForm.expiresAt || '',
       remark: createForm.description
@@ -457,6 +616,17 @@ onMounted(() => {
   align-items: center;
 }
 
+.filter-bar {
+  margin-bottom: 20px;
+}
+
+.batch-actions {
+  margin-bottom: 15px;
+  padding: 10px;
+  background-color: #f5f7fa;
+  border-radius: 4px;
+}
+
 .pagination-wrapper {
   margin-top: 20px;
   display: flex;
@@ -473,5 +643,9 @@ onMounted(() => {
   font-size: 12px;
   color: #909399;
   margin-top: 4px;
+}
+
+.export-content {
+  margin: 20px 0;
 }
 </style>

@@ -34,9 +34,18 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 	if req.Code != "" {
 		query = query.Where("code LIKE ?", "%"+req.Code+"%")
 	}
-	if req.Used != nil {
-		query = query.Where("used = ?", *req.Used)
+
+	// 按使用状态筛选
+	if req.IsUsed != nil {
+		if *req.IsUsed {
+			// 已使用：UsedCount > 0
+			query = query.Where("used_count > ?", 0)
+		} else {
+			// 未使用：UsedCount = 0
+			query = query.Where("used_count = ?", 0)
+		}
 	}
+
 	if req.Status != 0 {
 		query = query.Where("status = ?", req.Status)
 	}
@@ -46,30 +55,23 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 	}
 
 	offset := (req.Page - 1) * req.PageSize
-	if err := query.Offset(offset).Limit(req.PageSize).Find(&inviteCodes).Error; err != nil {
+	if err := query.Order("created_at DESC").Offset(offset).Limit(req.PageSize).Find(&inviteCodes).Error; err != nil {
 		return nil, 0, err
 	}
 
 	var codeResponses []admin.InviteCodeResponse
 	for _, code := range inviteCodes {
-		var createdByUser, usedByUser string
+		var createdByUser string
 		if code.CreatorID != 0 {
 			var user userModel.User
 			if err := global.APP_DB.First(&user, code.CreatorID).Error; err == nil {
 				createdByUser = user.Username
 			}
 		}
-		if code.UsedBy != nil && *code.UsedBy != 0 {
-			var user userModel.User
-			if err := global.APP_DB.First(&user, *code.UsedBy).Error; err == nil {
-				usedByUser = user.Username
-			}
-		}
 
 		codeResponse := admin.InviteCodeResponse{
 			InviteCode:    code,
 			CreatedByUser: createdByUser,
-			UsedByUser:    usedByUser,
 		}
 		codeResponses = append(codeResponses, codeResponse)
 	}
@@ -221,41 +223,46 @@ func (s *Service) generateInviteCodeWithLength(length int) string {
 	return string(bytes)
 }
 
-// DeleteInviteCode 删除邀请码
+// DeleteInviteCode 删除邀请码（硬删除）
 func (s *Service) DeleteInviteCode(codeID uint) error {
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&system.InviteCode{}, codeID).Error
+		// 使用Unscoped()进行硬删除，而不是软删除
+		return tx.Unscoped().Delete(&system.InviteCode{}, codeID).Error
 	})
 }
 
-// ExportInviteCodes 导出邀请码为CSV格式
-func (s *Service) ExportInviteCodes() (string, error) {
+// BatchDeleteInviteCodes 批量删除邀请码（硬删除）
+func (s *Service) BatchDeleteInviteCodes(ids []uint) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("请选择要删除的邀请码")
+	}
+
+	dbService := database.GetDatabaseService()
+	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 使用Unscoped()进行硬删除，而不是软删除
+		return tx.Unscoped().Delete(&system.InviteCode{}, ids).Error
+	})
+}
+
+// ExportInviteCodes 导出邀请码为文本格式（每行一个）
+func (s *Service) ExportInviteCodes(ids []uint) ([]string, error) {
 	var codes []system.InviteCode
-	if err := global.APP_DB.Find(&codes).Error; err != nil {
-		return "", err
+	query := global.APP_DB.Model(&system.InviteCode{})
+
+	if len(ids) > 0 {
+		// 如果指定了ID，只导出指定的邀请码
+		query = query.Where("id IN ?", ids)
 	}
 
-	csvContent := "Code,MaxUses,UsedCount,ExpiresAt,Description,Status,CreatedAt\n"
+	if err := query.Find(&codes).Error; err != nil {
+		return nil, err
+	}
+
+	var result []string
 	for _, code := range codes {
-		expiresAt := ""
-		if code.ExpiresAt != nil {
-			expiresAt = code.ExpiresAt.Format("2006-01-02 15:04:05")
-		}
-		status := "启用"
-		if code.Status == 0 {
-			status = "禁用"
-		}
-		csvContent += fmt.Sprintf("%s,%d,%d,%s,%s,%s,%s\n",
-			code.Code,
-			code.MaxUses,
-			code.UsedCount,
-			expiresAt,
-			code.Description,
-			status,
-			code.CreatedAt.Format("2006-01-02 15:04:05"),
-		)
+		result = append(result, code.Code)
 	}
 
-	return csvContent, nil
+	return result, nil
 }

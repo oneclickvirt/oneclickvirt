@@ -74,6 +74,13 @@ type CreateProviderRequest struct {
 	PortRangeStart   int    `json:"portRangeStart"`                                                                                  // 端口映射范围起始，默认10000
 	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	// 带宽配置
+	DefaultInboundBandwidth  int   `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
+	DefaultOutboundBandwidth int   `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
+	MaxInboundBandwidth      int   `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
+	MaxOutboundBandwidth     int   `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	// 流量管理
+	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
 }
 
 type UpdateProviderRequest struct {
@@ -111,6 +118,13 @@ type UpdateProviderRequest struct {
 	PortRangeStart   int    `json:"portRangeStart"`                                                                                  // 端口映射范围起始，默认10000
 	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	// 带宽配置
+	DefaultInboundBandwidth  int   `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
+	DefaultOutboundBandwidth int   `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
+	MaxInboundBandwidth      int   `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
+	MaxOutboundBandwidth     int   `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
+	// 流量管理
+	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
 }
 
 type ProviderListRequest struct {
@@ -140,9 +154,14 @@ type CreateInviteCodeRequest struct {
 
 type InviteCodeListRequest struct {
 	common.PageInfo
-	Code   string `json:"code"`
-	Used   *bool  `json:"used"`
-	Status int    `json:"status"`
+	Code   string `json:"code" form:"code"`
+	IsUsed *bool  `json:"isUsed" form:"isUsed"` // 是否已使用：true-已使用，false-未使用
+	Status int    `json:"status" form:"status"`
+}
+
+// BatchDeleteInviteCodesRequest 批量删除邀请码请求
+type BatchDeleteInviteCodesRequest struct {
+	IDs []uint `json:"ids" binding:"required,min=1"`
 }
 
 type CreateInstanceRequest struct {

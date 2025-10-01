@@ -25,9 +25,10 @@ const (
 	// 用户相关错误 2000-2999
 	CodeUserNotFound       = 2001
 	CodeUserExists         = 2002
-	CodeInvalidCredentials = 2003
-	CodeUserDisabled       = 2004
-	CodeUserPermissionDeny = 2005
+	CodeUsernameExists     = 2003
+	CodeInvalidCredentials = 2004
+	CodeUserDisabled       = 2005
+	CodeUserPermissionDeny = 2006
 
 	// 角色权限相关错误 3000-3999
 	CodeRoleNotFound       = 3001
@@ -66,6 +67,7 @@ var ErrorMessages = map[int]string{
 	CodeValidationError:    "数据验证失败",
 	CodeUserNotFound:       "用户不存在",
 	CodeUserExists:         "用户已存在",
+	CodeUsernameExists:     "用户名已存在",
 	CodeInvalidCredentials: "用户名或密码错误",
 	CodeUserDisabled:       "用户已被禁用",
 	CodeUserPermissionDeny: "用户权限不足",
@@ -178,7 +180,7 @@ func getHTTPCode(code int) int {
 		return http.StatusForbidden
 	case CodeNotFound, CodeUserNotFound, CodeRoleNotFound, CodePermissionNotFound:
 		return http.StatusNotFound
-	case CodeConflict, CodeUserExists, CodeRoleExists:
+	case CodeConflict, CodeUserExists, CodeUsernameExists, CodeRoleExists:
 		return http.StatusConflict
 	case CodeRequestTooLarge:
 		return http.StatusRequestEntityTooLarge

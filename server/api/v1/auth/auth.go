@@ -133,7 +133,7 @@ func Register(c *gin.Context) {
 	}
 
 	authService := auth2.AuthService{}
-	user, token, err := authService.RegisterAndLogin(req)
+	user, token, err := authService.RegisterAndLogin(req, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
 		global.APP_LOG.Warn("用户注册失败",
 			zap.String("username", req.Username),

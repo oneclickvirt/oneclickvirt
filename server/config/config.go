@@ -90,9 +90,8 @@ type Mysql struct {
 }
 
 type InviteCode struct {
-	Enabled        bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`                            // 是否启用邀请码
-	Required       bool `mapstructure:"required" json:"required" yaml:"required"`                         // 是否必须邀请码
-	DefaultMaxUses int  `mapstructure:"default-max-uses" json:"default-max-uses" yaml:"default-max-uses"` // 默认最大使用次数
+	Enabled  bool `mapstructure:"enabled" json:"enabled" yaml:"enabled"`    // 是否启用邀请码
+	Required bool `mapstructure:"required" json:"required" yaml:"required"` // 是否必须邀请码
 }
 
 type Captcha struct {

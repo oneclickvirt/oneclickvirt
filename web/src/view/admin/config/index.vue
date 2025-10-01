@@ -32,7 +32,7 @@
           >
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="启用邮箱注册">
+                <el-form-item label="邮箱注册">
                   <el-switch v-model="config.auth.enableEmail" />
                 </el-form-item>
               </el-col>
@@ -47,13 +47,24 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="启用Telegram登录">
+                <el-form-item label="Telegram登录">
                   <el-switch v-model="config.auth.enableTelegram" />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="启用QQ登录">
+                <el-form-item label="QQ登录">
                   <el-switch v-model="config.auth.enableQQ" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+            
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="邀请码系统">
+                  <el-switch v-model="config.inviteCode.enabled" />
+                  <div class="form-item-hint">
+                    启用后，新用户注册需要提供有效的邀请码
+                  </div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -190,47 +201,6 @@
           </el-form>
         </el-tab-pane>
 
-        <!-- 邀请码配置 -->
-        <el-tab-pane
-          label="邀请码"
-          name="invite"
-        >
-          <el-form
-            v-loading="loading"
-            :model="config"
-            label-width="140px"
-            class="config-form"
-          >
-            <el-alert
-              title="邀请码系统说明"
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 20px;"
-            >
-              启用邀请码系统后，新用户注册需要提供有效的邀请码
-            </el-alert>
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item label="启用邀请码系统">
-                  <el-switch v-model="config.inviteCode.enabled" />
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item label="默认最大使用次数">
-                  <el-input-number
-                    v-model="config.inviteCode.defaultMaxUses"
-                    :min="1"
-                    :max="999"
-                    :disabled="!config.inviteCode.enabled"
-                    style="width: 100%"
-                  />
-                </el-form-item>
-              </el-col>
-            </el-row>
-          </el-form>
-        </el-tab-pane>
-
         <!-- 用户等级配置 -->
         <el-tab-pane
           label="用户等级"
@@ -253,6 +223,10 @@
               <div style="margin-top: 8px; color: #67C23A;">
                 <i class="el-icon-check"></i>
                 配置保存时会自动同步所有用户的资源限制到对应等级配置，无需手动操作。
+              </div>
+              <div style="margin-top: 8px; color: #E6A23C;">
+                <i class="el-icon-warning"></i>
+                注意：所有资源限制值不能为空或小于等于0，清空输入框将无法保存配置。
               </div>
             </el-alert>
             
@@ -306,7 +280,9 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxInstances" 
                           :min="1" 
-                          :max="100" 
+                          :max="100"
+                          :controls="true"
+                          :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
@@ -316,7 +292,9 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxResources.cpu" 
                           :min="1" 
-                          :max="64" 
+                          :max="64"
+                          :controls="true"
+                          :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
@@ -326,7 +304,9 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxResources.memory" 
                           :min="128" 
-                          :max="65536" 
+                          :max="65536"
+                          :controls="true"
+                          :step="128"
                           style="width: 100%" 
                         />
                       </el-form-item>
@@ -336,7 +316,9 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxResources.disk" 
                           :min="512" 
-                          :max="102400" 
+                          :max="102400"
+                          :controls="true"
+                          :step="512"
                           style="width: 100%" 
                         />
                       </el-form-item>
@@ -348,7 +330,9 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxResources.bandwidth" 
                           :min="1" 
-                          :max="1000" 
+                          :max="10000"
+                          :controls="true"
+                          :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
@@ -358,7 +342,8 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level].maxTraffic" 
                           :min="1024" 
-                          :max="1048576" 
+                          :max="10485760"
+                          :controls="true"
                           :step="1024"
                           style="width: 100%" 
                         />
@@ -518,8 +503,7 @@ const config = ref({
     }
   },
   inviteCode: {
-    enabled: false,
-    defaultMaxUses: 1
+    enabled: false
   }
 })
 
@@ -536,17 +520,22 @@ const loadConfig = async () => {
   try {
     const response = await getAdminConfig()
     if (response.data) {
-      // 合并响应数据到配置中
+      // 直接使用服务端返回的完整配置
       if (response.data.auth) {
-        Object.assign(config.value.auth, response.data.auth)
+        config.value.auth = {
+          ...config.value.auth,
+          ...response.data.auth
+        }
       }
+      
       if (response.data.quota) {
-        Object.assign(config.value.quota, response.data.quota)
-        // 确保等级限制数据结构正确
+        // 直接使用服务端返回的配额配置
+        config.value.quota = response.data.quota
+        
+        // 确保所有5个等级都存在（如果服务端没有返回某个等级，填充默认值）
         if (!config.value.quota.levelLimits) {
           config.value.quota.levelLimits = {}
         }
-        // 填充默认等级限制
         for (let i = 1; i <= 5; i++) {
           if (!config.value.quota.levelLimits[i]) {
             config.value.quota.levelLimits[i] = {
@@ -554,14 +543,20 @@ const loadConfig = async () => {
               maxResources: {
                 cpu: Math.pow(2, i - 1),
                 memory: 512 * Math.pow(2, i - 1),
-                disk: 10240 * Math.pow(2, i - 1) // 10GB基数，以MB为单位
-              }
+                disk: 10240 * Math.pow(2, i - 1),
+                bandwidth: 10 * i
+              },
+              maxTraffic: 1024 * i
             }
           }
         }
       }
+      
       if (response.data.inviteCode) {
-        Object.assign(config.value.inviteCode, response.data.inviteCode)
+        config.value.inviteCode = {
+          ...config.value.inviteCode,
+          ...response.data.inviteCode
+        }
       }
     }
   } catch (error) {
@@ -585,6 +580,52 @@ const loadInstanceTypePermissions = async () => {
 }
 
 const saveConfig = async () => {
+  // 验证配置数据，确保所有资源限制值不为空
+  for (let level = 1; level <= 5; level++) {
+    const limit = config.value.quota.levelLimits[level]
+    if (!limit) {
+      ElMessage.error(`等级${level}的配置不能为空`)
+      return
+    }
+    
+    // 验证必填字段
+    if (!limit.maxInstances || limit.maxInstances <= 0) {
+      ElMessage.error(`等级${level}的最大实例数不能为空或小于等于0`)
+      return
+    }
+    
+    if (!limit.maxTraffic || limit.maxTraffic <= 0) {
+      ElMessage.error(`等级${level}的流量限制不能为空或小于等于0`)
+      return
+    }
+    
+    if (!limit.maxResources) {
+      ElMessage.error(`等级${level}的资源配置不能为空`)
+      return
+    }
+    
+    // 验证各项资源限制
+    if (!limit.maxResources.cpu || limit.maxResources.cpu <= 0) {
+      ElMessage.error(`等级${level}的最大CPU核心数不能为空或小于等于0`)
+      return
+    }
+    
+    if (!limit.maxResources.memory || limit.maxResources.memory <= 0) {
+      ElMessage.error(`等级${level}的最大内存不能为空或小于等于0`)
+      return
+    }
+    
+    if (!limit.maxResources.disk || limit.maxResources.disk <= 0) {
+      ElMessage.error(`等级${level}的最大磁盘不能为空或小于等于0`)
+      return
+    }
+    
+    if (!limit.maxResources.bandwidth || limit.maxResources.bandwidth <= 0) {
+      ElMessage.error(`等级${level}的最大带宽不能为空或小于等于0`)
+      return
+    }
+  }
+  
   loading.value = true
   try {
     // 保存基础配置

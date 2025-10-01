@@ -17,6 +17,9 @@ definitions:
     properties:
       canForceStop:
         type: boolean
+      cancelReason:
+        description: 取消原因
+        type: string
       completedAt:
         type: string
       createdAt:
@@ -96,6 +99,25 @@ definitions:
         type: integer
     type: object
   admin.BatchAnnouncementRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        type: array
+    required:
+    - ids
+    type: object
+  admin.BatchDeleteInviteCodesRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        minItems: 1
+        type: array
+    required:
+    - ids
+    type: object
+  admin.BatchDeletePortMappingRequest:
     properties:
       ids:
         items:
@@ -315,10 +337,38 @@ definitions:
     required:
     - count
     type: object
+  admin.CreatePortMappingRequest:
+    properties:
+      description:
+        type: string
+      guestPort:
+        maximum: 65535
+        minimum: 1
+        type: integer
+      hostPort:
+        description: 可选，不指定则自动分配
+        type: integer
+      instanceId:
+        type: integer
+      protocol:
+        enum:
+        - tcp
+        - udp
+        type: string
+    required:
+    - guestPort
+    - instanceId
+    - protocol
+    type: object
   admin.CreateProviderRequest:
     properties:
       allowClaim:
         type: boolean
+      allowConcurrentTasks:
+        description: 是否允许并发任务，默认false
+        type: boolean
+      architecture:
+        type: string
       config:
         type: string
       container_enabled:
@@ -327,11 +377,27 @@ definitions:
         type: string
       countryCode:
         type: string
+      defaultPortCount:
+        description: 端口映射配置
+        type: integer
+      enableTaskPolling:
+        description: 是否启用任务轮询，默认true
+        type: boolean
       endpoint:
+        type: string
+      executionRule:
+        description: 操作执行配置
+        enum:
+        - auto
+        - api_only
+        - ssh_only
         type: string
       expiresAt:
         description: '过期时间，格式: "2006-01-02 15:04:05"'
         type: string
+      maxConcurrentTasks:
+        description: 最大并发任务数，默认1
+        type: integer
       maxContainerInstances:
         description: 最大容器数量限制
         type: integer
@@ -340,11 +406,35 @@ definitions:
         type: integer
       name:
         type: string
+      networkType:
+        description: 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6,
+          ipv6_only
+        enum:
+        - nat_ipv4
+        - nat_ipv4_ipv6
+        - dedicated_ipv4
+        - dedicated_ipv4_ipv6
+        - ipv6_only
+        type: string
       password:
         type: string
+      portRangeEnd:
+        description: 端口映射范围结束，默认65535
+        type: integer
+      portRangeStart:
+        description: 端口映射范围起始，默认10000
+        type: integer
       region:
         type: string
       sshPort:
+        type: integer
+      status:
+        type: string
+      storagePool:
+        description: 存储配置（ProxmoxVE专用）
+        type: string
+      taskPollInterval:
+        description: 任务轮询间隔（秒），默认60秒
         type: integer
       token:
         type: string
@@ -401,6 +491,47 @@ definitions:
     required:
     - taskId
     type: object
+  admin.GetInstancePasswordResponse:
+    properties:
+      newPassword:
+        type: string
+      resetTime:
+        type: integer
+    type: object
+  admin.InstanceActionRequest:
+    properties:
+      action:
+        type: string
+    required:
+    - action
+    type: object
+  admin.ProviderPortConfigRequest:
+    properties:
+      defaultPortCount:
+        description: 每个实例默认映射端口数量
+        maximum: 50
+        minimum: 1
+        type: integer
+      networkType:
+        description: 网络配置类型
+        enum:
+        - nat_ipv4
+        - nat_ipv4_ipv6
+        - dedicated_ipv4
+        - dedicated_ipv4_ipv6
+        - ipv6_only
+        type: string
+      portRangeEnd:
+        description: 端口映射范围结束
+        maximum: 65535
+        minimum: 1024
+        type: integer
+      portRangeStart:
+        description: 端口映射范围起始
+        maximum: 65535
+        minimum: 1024
+        type: integer
+    type: object
   admin.ProviderStatusResponse:
     properties:
       apiStatus:
@@ -438,6 +569,14 @@ definitions:
         type: string
       uuid:
         type: string
+    type: object
+  admin.ResetInstancePasswordRequest:
+    type: object
+  admin.ResetInstancePasswordResponse:
+    properties:
+      taskId:
+        description: 异步任务ID
+        type: integer
     type: object
   admin.ResetUserPasswordRequest:
     type: object
@@ -494,10 +633,40 @@ definitions:
         maximum: 5
         minimum: 1
         type: integer
+      minLevelForDelete:
+        maximum: 5
+        minimum: 1
+        type: integer
       minLevelForVM:
         maximum: 5
         minimum: 1
         type: integer
+    type: object
+  admin.UpdatePortMappingRequest:
+    properties:
+      description:
+        type: string
+      guestPort:
+        maximum: 65535
+        minimum: 1
+        type: integer
+      id:
+        type: integer
+      protocol:
+        enum:
+        - tcp
+        - udp
+        type: string
+      status:
+        enum:
+        - active
+        - inactive
+        type: string
+    required:
+    - guestPort
+    - id
+    - protocol
+    - status
     type: object
   admin.UpdateSystemConfigRequest:
     properties:
@@ -527,12 +696,6 @@ definitions:
         maximum: 1
         minimum: 0
         type: integer
-      userIds:
-        items:
-          type: integer
-        type: array
-    required:
-    - userIds
     type: object
   auth.ForgotPasswordRequest:
     properties:
@@ -645,9 +808,6 @@ definitions:
     type: object
   config.InviteCodeConfig:
     properties:
-      defaultMaxUses:
-        description: 默认最大使用次数
-        type: integer
       enabled:
         description: 是否启用邀请码系统
         type: boolean
@@ -661,7 +821,7 @@ definitions:
         type: integer
       levelLimits:
         additionalProperties:
-          $ref: '#/definitions/github_com_oneclickvirt_server_model_config.LevelLimitInfo'
+          $ref: '#/definitions/oneclickvirt_model_config.LevelLimitInfo'
         type: object
     type: object
   config.UnifiedConfigRequest:
@@ -712,309 +872,355 @@ definitions:
       upload_dir:
         type: string
     type: object
-  github_com_oneclickvirt_server_model_config.LevelLimitInfo:
+  gorm.DeletedAt:
+    properties:
+      time:
+        type: string
+      valid:
+        description: Valid is true if Time is not NULL
+        type: boolean
+    type: object
+  log.LogFileInfo:
+    properties:
+      date:
+        description: 添加日期字段，格式为 YYYY-MM-DD
+        type: string
+      is_gzip:
+        type: boolean
+      mod_time:
+        type: string
+      name:
+        type: string
+      path:
+        type: string
+      size:
+        type: integer
+    type: object
+  monitoring.VnStatDate:
+    properties:
+      day:
+        type: integer
+      month:
+        type: integer
+      year:
+        type: integer
+    type: object
+  monitoring.VnStatDayRecord:
+    properties:
+      date:
+        $ref: '#/definitions/monitoring.VnStatDate'
+      id:
+        description: v2+ 才有
+        type: integer
+      rx:
+        type: integer
+      timestamp:
+        description: v2+ 才有
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatFiveMinRecord:
+    properties:
+      date:
+        $ref: '#/definitions/monitoring.VnStatDate'
+      id:
+        type: integer
+      rx:
+        type: integer
+      time:
+        $ref: '#/definitions/monitoring.VnStatTime'
+      timestamp:
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatHourRecord:
+    properties:
+      date:
+        $ref: '#/definitions/monitoring.VnStatDate'
+      id:
+        type: integer
+      rx:
+        type: integer
+      time:
+        $ref: '#/definitions/monitoring.VnStatTime'
+      timestamp:
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatInterface:
+    properties:
+      created_at:
+        type: string
+      deleted_at:
+        $ref: '#/definitions/gorm.DeletedAt'
+      id:
+        type: integer
+      instance_id:
+        description: 实例ID
+        type: integer
+      interface:
+        description: 接口名称
+        type: string
+      is_enabled:
+        description: 是否启用监控
+        type: boolean
+      last_sync:
+        description: 最后同步时间
+        type: string
+      provider_id:
+        description: Provider ID
+        type: integer
+      updated_at:
+        type: string
+    type: object
+  monitoring.VnStatInterfaceData:
+    properties:
+      alias:
+        type: string
+      created:
+        allOf:
+        - $ref: '#/definitions/monitoring.VnStatTimestamp'
+        description: v2+ 才有
+      name:
+        type: string
+      traffic:
+        $ref: '#/definitions/monitoring.VnStatTrafficData'
+      updated:
+        allOf:
+        - $ref: '#/definitions/monitoring.VnStatTimestamp'
+        description: v2+ 才有
+    type: object
+  monitoring.VnStatMonthRecord:
+    properties:
+      date:
+        allOf:
+        - $ref: '#/definitions/monitoring.VnStatDate'
+        description: 只有年月
+      id:
+        description: v2+ 才有
+        type: integer
+      rx:
+        type: integer
+      timestamp:
+        description: v2+ 才有
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatResponse:
+    properties:
+      interfaces:
+        items:
+          $ref: '#/definitions/monitoring.VnStatInterfaceData'
+        type: array
+      jsonversion:
+        type: string
+      vnstatversion:
+        type: string
+    type: object
+  monitoring.VnStatTime:
+    properties:
+      hour:
+        type: integer
+      minute:
+        type: integer
+    type: object
+  monitoring.VnStatTimestamp:
+    properties:
+      date:
+        $ref: '#/definitions/monitoring.VnStatDate'
+      time:
+        allOf:
+        - $ref: '#/definitions/monitoring.VnStatTime'
+        description: 有些地方没有时间
+      timestamp:
+        description: v2+ 才有
+        type: integer
+    type: object
+  monitoring.VnStatTopRecord:
+    properties:
+      date:
+        $ref: '#/definitions/monitoring.VnStatDate'
+      id:
+        description: v2+ 才有
+        type: integer
+      rx:
+        type: integer
+      timestamp:
+        description: v2+ 才有
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatTotal:
+    properties:
+      rx:
+        type: integer
+      tx:
+        type: integer
+    type: object
+  monitoring.VnStatTrafficData:
+    properties:
+      day:
+        description: v2 使用
+        items:
+          $ref: '#/definitions/monitoring.VnStatDayRecord'
+        type: array
+      days:
+        description: v1 格式字段 (复数形式)
+        items:
+          $ref: '#/definitions/monitoring.VnStatDayRecord'
+        type: array
+      fiveminute:
+        description: v2 格式字段 (单数形式)
+        items:
+          $ref: '#/definitions/monitoring.VnStatFiveMinRecord'
+        type: array
+      hour:
+        description: v2+ 新增
+        items:
+          $ref: '#/definitions/monitoring.VnStatHourRecord'
+        type: array
+      month:
+        description: v2 使用
+        items:
+          $ref: '#/definitions/monitoring.VnStatMonthRecord'
+        type: array
+      months:
+        description: v1 使用
+        items:
+          $ref: '#/definitions/monitoring.VnStatMonthRecord'
+        type: array
+      top:
+        description: v2 使用
+        items:
+          $ref: '#/definitions/monitoring.VnStatTopRecord'
+        type: array
+      tops:
+        description: v1 使用
+        items:
+          $ref: '#/definitions/monitoring.VnStatTopRecord'
+        type: array
+      total:
+        $ref: '#/definitions/monitoring.VnStatTotal'
+      year:
+        description: v2+ 新增
+        items:
+          $ref: '#/definitions/monitoring.VnStatYearRecord'
+        type: array
+    type: object
+  monitoring.VnStatYearRecord:
+    properties:
+      date:
+        allOf:
+        - $ref: '#/definitions/monitoring.VnStatDate'
+        description: 只有年
+      id:
+        type: integer
+      rx:
+        type: integer
+      timestamp:
+        type: integer
+      tx:
+        type: integer
+    type: object
+  oneclickvirt_model_config.LevelLimitInfo:
     properties:
       maxInstances:
         type: integer
       maxResources:
         additionalProperties: true
         type: object
-    type: object
-  model.Api:
-    properties:
-      createdAt:
-        type: string
-      description:
-        type: string
-      group:
-        type: string
-      id:
+      maxTraffic:
+        description: 最大流量限制(MB)
         type: integer
-      method:
-        type: string
-      path:
-        type: string
-      roles:
-        items:
-          $ref: '#/definitions/model.Role'
-        type: array
-      updatedAt:
-        type: string
     type: object
-  model.Instance:
+  oneclickvirt_service_provider.ConnectProviderRequest:
     properties:
-      bandwidth:
-        description: 网络带宽（Mbps）
+      cert_path:
+        type: string
+      container_enabled:
+        type: boolean
+      host:
+        type: string
+      key_path:
+        type: string
+      name:
+        type: string
+      networkType:
+        description: 网络配置类型
+        type: string
+      password:
+        type: string
+      port:
+        description: 兼容旧的port字段
         type: integer
+      sshPort:
+        description: 新的sshPort字段
+        type: integer
+      token:
+        description: API Token，用于ProxmoxVE等
+        type: string
+      type:
+        type: string
+      username:
+        type: string
+      vm_enabled:
+        type: boolean
+    required:
+    - host
+    - name
+    - password
+    - type
+    - username
+    type: object
+  oneclickvirt_service_provider.CreateInstanceRequest:
+    properties:
       cpu:
-        type: integer
-      createdAt:
         type: string
       disk:
-        description: 磁盘大小（MB）
-        type: integer
-      expiredAt:
-        description: 到期时间
         type: string
-      id:
-        type: integer
+      env:
+        additionalProperties:
+          type: string
+        type: object
       image:
         type: string
+      image_path:
+        description: 镜像文件路径
+        type: string
+      image_url:
+        description: 镜像下载URL
+        type: string
       instance_type:
-        type: string
-      ip:
-        type: string
-      ipAddress:
-        description: 公网IP
+        description: container 或 vm
         type: string
       memory:
-        description: 内存大小（MB）
-        type: integer
+        type: string
+      metadata:
+        additionalProperties:
+          type: string
+        type: object
       name:
         type: string
       network:
         type: string
-      osType:
-        description: 操作系统类型
-        type: string
-      password:
-        description: 登录密码
-        type: string
       ports:
         items:
-          $ref: '#/definitions/model.Port'
+          type: string
         type: array
-      provider:
-        allOf:
-        - $ref: '#/definitions/model.Provider'
-        description: 关联到Provider
-      providerId:
-        description: 改为uint类型，关联到providers表
-        type: integer
-      region:
-        type: string
-      softDeleted:
-        type: boolean
-      sshPort:
-        description: SSH端口
-        type: integer
-      status:
-        type: string
-      updatedAt:
-        type: string
-      user:
-        $ref: '#/definitions/model.User'
-      userId:
-        type: integer
-      username:
-        description: 登录用户名
-        type: string
-      uuid:
-        type: string
-    type: object
-  model.Menu:
-    properties:
-      children:
-        items:
-          $ref: '#/definitions/model.Menu'
-        type: array
-      component:
-        type: string
-      createdAt:
-        type: string
-      hidden:
-        type: boolean
-      icon:
-        type: string
-      id:
-        type: integer
-      name:
-        type: string
-      parentId:
-        description: 改为可空指针，避免外键约束问题
-        type: integer
-      path:
-        type: string
-      roles:
-        items:
-          $ref: '#/definitions/model.Role'
-        type: array
-      sort:
-        type: integer
-      status:
-        type: integer
-      title:
-        type: string
-      type:
-        type: integer
-      updatedAt:
-        type: string
-    type: object
-  model.Port:
-    properties:
-      createdAt:
-        type: string
-      guestPort:
-        type: integer
-      hostPort:
-        type: integer
-      id:
-        type: integer
-      instance:
-        $ref: '#/definitions/model.Instance'
-      instanceId:
-        type: integer
-      protocol:
-        type: string
-      status:
-        type: string
-      updatedAt:
-        type: string
-    type: object
-  model.Provider:
-    properties:
-      allowClaim:
-        type: boolean
-      apiStatus:
-        description: 'API连接状态: online, offline, unknown'
-        type: string
-      architecture:
-        description: 架构字段
-        type: string
-      autoConfigured:
-        description: 是否已自动配置
-        type: boolean
-      availableCpuCores:
-        description: 可用资源统计（动态计算）
-        type: integer
-      availableMemory:
-        description: 可用内存（MB）
-        type: integer
-      caCertPath:
-        description: CA证书路径
-        type: string
-      certFingerprint:
-        description: 证书指纹
-        type: string
-      certPath:
-        description: 证书相关字段
-        type: string
-      config:
-        type: string
-      configBackupPath:
-        description: 配置备份文件路径
-        type: string
-      configVersion:
-        description: 配置版本号
-        type: integer
-      container_enabled:
-        type: boolean
-      containerCount:
-        description: 当前容器数量
-        type: integer
-      country:
-        type: string
-      countryCode:
-        type: string
-      createdAt:
-        type: string
-      endpoint:
-        type: string
-      expiresAt:
-        description: 过期时间
-        type: string
-      id:
-        type: integer
-      isFrozen:
-        description: 是否冻结
-        type: boolean
-      keyPath:
-        description: 客户端私钥路径
-        type: string
-      lastApiCheck:
-        description: 最后API检查时间
-        type: string
-      lastConfigUpdate:
-        description: 最后配置更新时间
-        type: string
-      lastSshCheck:
-        description: 最后SSH检查时间
-        type: string
-      maxContainerInstances:
-        description: 实例限制配置
-        type: integer
-      maxVMInstances:
-        description: 最大虚拟机数量限制，0表示无限制
-        type: integer
-      name:
-        type: string
-      nodeCpuCores:
-        description: 节点资源信息（基于当前实例统计，而非SSH查询）
-        type: integer
-      nodeDiskTotal:
-        description: 节点总磁盘空间（MB）
-        type: integer
-      nodeMemoryTotal:
-        description: 节点总内存（MB）
-        type: integer
-      region:
-        type: string
-      resourceSynced:
-        description: 资源信息是否已同步
-        type: boolean
-      resourceSyncedAt:
-        description: 资源信息同步时间
-        type: string
-      sshPort:
-        description: SSH端口
-        type: integer
-      sshStatus:
-        description: 'SSH连接状态: online, offline, unknown'
-        type: string
-      status:
-        type: string
-      supported_types:
-        type: string
-      totalQuota:
-        description: 总配额
-        type: integer
-      type:
-        type: string
-      updatedAt:
-        type: string
-      usedCpuCores:
-        description: 资源占用统计（基于实例计算）
-        type: integer
-      usedDisk:
-        description: 已占用磁盘（MB）
-        type: integer
-      usedInstances:
-        description: 已使用实例数
-        type: integer
-      usedMemory:
-        description: 已占用内存（MB）
-        type: integer
-      usedQuota:
-        description: 已使用配额
-        type: integer
-      username:
-        type: string
-      uuid:
-        type: string
-      vm_enabled:
-        type: boolean
-      vmCount:
-        description: 当前虚拟机数量
+      systemImageId:
+        description: 系统镜像ID
         type: integer
     type: object
-  model.ResourceReservation:
+  resource.ResourceReservation:
     properties:
       bandwidth:
         description: 预留的带宽(Mbps)
         type: integer
-      consumedAt:
-        description: 资源消费时间（实例创建成功）
-        type: string
       cpu:
         description: 预留的CPU核心数
         type: integer
@@ -1024,195 +1230,222 @@ definitions:
         description: 预留的磁盘(MB)
         type: integer
       expiresAt:
-        description: 预留过期时间
+        description: TTL管理
         type: string
       id:
         type: integer
       instanceType:
-        description: container 或 vm
+        description: 实例规格
         type: string
       memory:
         description: 预留的内存(MB)
         type: integer
-      provider:
-        allOf:
-        - $ref: '#/definitions/model.Provider'
-        description: 关联Provider
       providerId:
         description: Provider ID
         type: integer
-      releasedAt:
-        description: 资源释放时间（任务失败或取消）
+      sessionId:
+        description: 会话标识，唯一主键
         type: string
-      status:
-        description: reserved, consumed, released, expired
-        type: string
-      task:
-        allOf:
-        - $ref: '#/definitions/model.Task'
-        description: 关联任务
-      taskId:
-        description: 关联的任务ID
-        type: integer
       updatedAt:
         type: string
-      user:
-        allOf:
-        - $ref: '#/definitions/model.User'
-        description: 关联用户
       userId:
-        description: 用户ID
+        description: 核心标识字段
         type: integer
       uuid:
         type: string
     type: object
-  model.Role:
+  system.CPUStats:
     properties:
-      apis:
-        items:
-          $ref: '#/definitions/model.Api'
-        type: array
-      code:
-        description: 用于业务逻辑识别
+      cores:
+        description: CPU核心数
+        type: integer
+      load_avg_1:
+        description: 1分钟负载平均值
+        type: number
+      load_avg_5:
+        description: 5分钟负载平均值
+        type: number
+      load_avg_15:
+        description: 15分钟负载平均值
+        type: number
+      usage:
+        description: CPU使用率
+        type: number
+    type: object
+  system.CreateSystemImageRequest:
+    properties:
+      architecture:
+        enum:
+        - amd64
+        - arm64
+        - s390x
         type: string
-      createdAt:
+      checksum:
         type: string
       description:
         type: string
-      displayName:
+      instanceType:
+        enum:
+        - vm
+        - container
         type: string
-      id:
-        type: integer
-      menus:
-        items:
-          $ref: '#/definitions/model.Menu'
-        type: array
       name:
         type: string
-      remark:
-        description: 备注字段
+      osType:
         type: string
-      sort:
-        type: integer
-      status:
-        type: integer
-      updatedAt:
+      osVersion:
         type: string
-      users:
-        items:
-          $ref: '#/definitions/model.User'
-        type: array
+      providerType:
+        enum:
+        - proxmox
+        - lxd
+        - incus
+        - docker
+        type: string
+      size:
+        type: integer
+      tags:
+        type: string
+      url:
+        type: string
+    required:
+    - architecture
+    - instanceType
+    - name
+    - providerType
+    - url
     type: object
-  model.Task:
+  system.DatabaseStats:
     properties:
-      canForceStop:
-        description: 是否可以强制停止（仅管理员）
-        type: boolean
-      completedAt:
-        description: 完成时间
-        type: string
-      createdAt:
-        type: string
-      errorMessage:
-        description: 错误信息
-        type: string
-      estimatedDuration:
-        description: 预计耗时（秒）
+      connections:
+        description: 当前连接数
         type: integer
-      id:
+      max_connections:
+        description: 最大连接数
         type: integer
-      instance:
-        $ref: '#/definitions/model.Instance'
-      instanceId:
-        description: 关联的实例ID（可选）
+      queries_total:
+        description: 总查询数
         type: integer
-      isForceStoppable:
-        description: 是否允许强制停止
-        type: boolean
-      progress:
-        description: 进度百分比
+      slow_queries:
+        description: 慢查询数
         type: integer
-      provider:
-        $ref: '#/definitions/model.Provider'
-      providerId:
-        description: 任务所属节点，可为空
-        type: integer
-      startedAt:
-        description: 开始时间
-        type: string
-      status:
-        description: pending, running, completed, failed, cancelled, timeout
-        type: string
-      statusMessage:
-        description: 状态描述
-        type: string
-      taskData:
-        description: 任务数据JSON
-        type: string
-      taskType:
-        description: create, start, stop, restart, reset, delete
-        type: string
-      timeoutDuration:
-        description: 超时时间（秒，默认30分钟）
-        type: integer
-      updatedAt:
-        type: string
-      user:
-        $ref: '#/definitions/model.User'
-      userId:
-        description: 任务所属用户
-        type: integer
-      uuid:
+      uptime:
+        description: 运行时间
         type: string
     type: object
-  model.User:
+  system.DiskStats:
     properties:
-      avatar:
-        type: string
-      createdAt:
-        type: string
-      email:
-        type: string
-      id:
+      free:
+        description: 磁盘空闲
         type: integer
-      instances:
-        items:
-          $ref: '#/definitions/model.Instance'
-        type: array
-      inviteCode:
-        type: string
-      level:
-        description: 用户等级，统一使用此字段
+      total:
+        description: 磁盘总大小
         type: integer
-      nickname:
-        type: string
-      phone:
-        type: string
-      qq:
-        type: string
-      roles:
-        items:
-          $ref: '#/definitions/model.Role'
-        type: array
-      status:
-        description: 0=禁用（不可登录），1=正常
+      usage:
+        description: 磁盘使用率
+        type: number
+      used:
+        description: 磁盘已使用
         type: integer
-      telegram:
-        type: string
-      totalQuota:
-        description: 总配额（传统系统兼容字段）
+    type: object
+  system.MemoryStats:
+    properties:
+      free:
+        description: 空闲内存
         type: integer
-      updatedAt:
-        type: string
-      usedQuota:
-        description: 已使用配额（传统系统兼容字段）
+      swap_total:
+        description: 交换分区总大小
         type: integer
-      userType:
+      swap_used:
+        description: 交换分区已使用
+        type: integer
+      total:
+        description: 总内存
+        type: integer
+      usage:
+        description: 内存使用率
+        type: number
+      used:
+        description: 已使用内存
+        type: integer
+    type: object
+  system.NetworkStats:
+    properties:
+      bytes_received:
+        description: 接收字节数
+        type: integer
+      bytes_sent:
+        description: 发送字节数
+        type: integer
+      packets_recv:
+        description: 接收包数
+        type: integer
+      packets_sent:
+        description: 发送包数
+        type: integer
+    type: object
+  system.RuntimeStats:
+    properties:
+      gc_cycles:
+        description: GC循环次数
+        type: integer
+      goroutines:
+        description: 协程数量
+        type: integer
+      heap_alloc:
+        description: 堆内存分配
+        type: integer
+      heap_idle:
+        description: 堆内存空闲
+        type: integer
+      heap_inuse:
+        description: 堆内存使用中
+        type: integer
+      heap_sys:
+        description: 堆内存系统
+        type: integer
+      last_gc:
+        description: 最后GC时间
         type: string
-      username:
+      uptime:
+        description: 运行时间
         type: string
-      uuid:
+    type: object
+  system.SystemStats:
+    properties:
+      cpu:
+        $ref: '#/definitions/system.CPUStats'
+      database:
+        $ref: '#/definitions/system.DatabaseStats'
+      disk:
+        $ref: '#/definitions/system.DiskStats'
+      memory:
+        $ref: '#/definitions/system.MemoryStats'
+      network:
+        $ref: '#/definitions/system.NetworkStats'
+      runtime:
+        $ref: '#/definitions/system.RuntimeStats'
+      timestamp:
         type: string
+    type: object
+  traffic.ManageTrafficLimitRequest:
+    properties:
+      action:
+        description: '"limit" 或 "unlimit"'
+        type: string
+      reason:
+        description: 限制原因（仅在action为limit时需要）
+        type: string
+      target_id:
+        description: 目标用户ID或Provider ID
+        type: integer
+      type:
+        description: '"user" 或 "provider"'
+        type: string
+    required:
+    - action
+    - target_id
+    - type
     type: object
   user.AvailableProviderResponse:
     properties:
@@ -1233,8 +1466,6 @@ definitions:
         type: integer
       id:
         type: integer
-      location:
-        type: string
       memory:
         description: 总内存(MB)
         type: integer
@@ -1341,6 +1572,13 @@ definitions:
       sizeMB:
         type: integer
     type: object
+  user.GetInstancePasswordResponse:
+    properties:
+      newPassword:
+        type: string
+      resetTime:
+        type: integer
+    type: object
   user.InstanceActionRequest:
     properties:
       action:
@@ -1379,6 +1617,19 @@ definitions:
           $ref: '#/definitions/user.MemorySpecResponse'
         type: array
     type: object
+  user.InstanceMonitoringResponse:
+    properties:
+      trafficData:
+        allOf:
+        - $ref: '#/definitions/user.TrafficData'
+        description: |-
+          硬件监控已移除，只保留流量监控
+          CPUUsage    float64     `json:"cpuUsage"`    // 已移除：硬件资源使用率监控
+          MemoryUsage float64     `json:"memoryUsage"` // 已移除：硬件资源使用率监控
+          DiskUsage   float64     `json:"diskUsage"`   // 已移除：硬件资源使用率监控
+          NetworkIn   int64       `json:"networkIn"`   // 已移除：网络接收速率
+          NetworkOut  int64       `json:"networkOut"`  // 已移除：网络发送速率
+    type: object
   user.MemorySpecResponse:
     properties:
       id:
@@ -1386,6 +1637,13 @@ definitions:
       name:
         type: string
       sizeMB:
+        type: integer
+    type: object
+  user.ResetInstancePasswordRequest:
+    type: object
+  user.ResetInstancePasswordResponse:
+    properties:
+      taskId:
         type: integer
     type: object
   user.ResetPasswordRequest:
@@ -1415,6 +1673,53 @@ definitions:
       version:
         type: string
     type: object
+  user.TrafficData:
+    properties:
+      currentMonth:
+        description: 当月已使用流量（MB）
+        type: integer
+      history:
+        description: 历史流量数据
+        items:
+          $ref: '#/definitions/user.TrafficHistoryItem'
+        type: array
+      isLimited:
+        description: 是否因流量超限被限制
+        type: boolean
+      limitReason:
+        description: 流量限制原因描述
+        type: string
+      limitType:
+        description: '流量限制类型: user, provider, both, unknown'
+        type: string
+      totalLimit:
+        description: 流量限制（MB）
+        type: integer
+      usagePercent:
+        description: 使用百分比
+        type: number
+    type: object
+  user.TrafficHistoryItem:
+    properties:
+      lastSync:
+        description: 最后同步时间
+        type: string
+      month:
+        description: 月份
+        type: integer
+      totalUsed:
+        description: 总使用流量（MB）
+        type: integer
+      trafficIn:
+        description: 入站流量（MB）
+        type: integer
+      trafficOut:
+        description: 出站流量（MB）
+        type: integer
+      year:
+        description: 年份
+        type: integer
+    type: object
   user.UpdateProfileRequest:
     properties:
       email:
@@ -1424,6 +1729,64 @@ definitions:
       phone:
         type: string
       telegram:
+        type: string
+    type: object
+  user.UserInstanceDetailResponse:
+    properties:
+      bandwidth:
+        type: integer
+      cpu:
+        type: integer
+      createdAt:
+        type: string
+      disk:
+        type: integer
+      expiredAt:
+        type: string
+      id:
+        type: integer
+      ipv4MappingType:
+        description: IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
+        type: string
+      ipv6Address:
+        description: 内网IPv6地址
+        type: string
+      memory:
+        type: integer
+      name:
+        type: string
+      networkType:
+        description: 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6,
+          ipv6_only
+        type: string
+      osType:
+        type: string
+      password:
+        type: string
+      portRangeEnd:
+        description: 端口范围结束
+        type: integer
+      portRangeStart:
+        description: 端口范围起始
+        type: integer
+      privateIP:
+        description: 内网IPv4地址
+        type: string
+      providerName:
+        type: string
+      publicIP:
+        description: 公网IPv4地址
+        type: string
+      publicIPv6:
+        description: 公网IPv6地址
+        type: string
+      sshPort:
+        type: integer
+      status:
+        type: string
+      type:
+        type: string
+      username:
         type: string
     type: object
   user.UserLimitsResponse:
@@ -1444,6 +1807,9 @@ definitions:
       maxMemory:
         description: 最大内存(MB)
         type: integer
+      maxTraffic:
+        description: 最大流量(MB)
+        type: integer
       usedBandwidth:
         description: 已使用带宽(Mbps)
         type: integer
@@ -1458,180 +1824,9 @@ definitions:
       usedMemory:
         description: 已使用内存(MB)
         type: integer
-    type: object
-  v1.CPUStats:
-    properties:
-      cores:
-        description: CPU核心数
+      usedTraffic:
+        description: 已使用流量(MB)
         type: integer
-      load_avg_1:
-        description: 1分钟负载平均值
-        type: number
-      load_avg_5:
-        description: 5分钟负载平均值
-        type: number
-      load_avg_15:
-        description: 15分钟负载平均值
-        type: number
-      usage:
-        description: CPU使用率
-        type: number
-    type: object
-  v1.CreateSystemImageRequest:
-    properties:
-      architecture:
-        enum:
-        - amd64
-        - arm64
-        - s390x
-        type: string
-      checksum:
-        type: string
-      description:
-        type: string
-      instanceType:
-        enum:
-        - vm
-        - container
-        type: string
-      name:
-        type: string
-      osType:
-        type: string
-      osVersion:
-        type: string
-      providerType:
-        enum:
-        - proxmox
-        - lxd
-        - incus
-        - docker
-        type: string
-      size:
-        type: integer
-      tags:
-        type: string
-      url:
-        type: string
-    required:
-    - architecture
-    - instanceType
-    - name
-    - providerType
-    - url
-    type: object
-  v1.DatabaseStats:
-    properties:
-      connections:
-        description: 当前连接数
-        type: integer
-      max_connections:
-        description: 最大连接数
-        type: integer
-      queries_total:
-        description: 总查询数
-        type: integer
-      slow_queries:
-        description: 慢查询数
-        type: integer
-      uptime:
-        description: 运行时间
-        type: string
-    type: object
-  v1.DiskStats:
-    properties:
-      free:
-        description: 磁盘空闲
-        type: integer
-      total:
-        description: 磁盘总大小
-        type: integer
-      usage:
-        description: 磁盘使用率
-        type: number
-      used:
-        description: 磁盘已使用
-        type: integer
-    type: object
-  v1.MemoryStats:
-    properties:
-      free:
-        description: 空闲内存
-        type: integer
-      swap_total:
-        description: 交换分区总大小
-        type: integer
-      swap_used:
-        description: 交换分区已使用
-        type: integer
-      total:
-        description: 总内存
-        type: integer
-      usage:
-        description: 内存使用率
-        type: number
-      used:
-        description: 已使用内存
-        type: integer
-    type: object
-  v1.NetworkStats:
-    properties:
-      bytes_received:
-        description: 接收字节数
-        type: integer
-      bytes_sent:
-        description: 发送字节数
-        type: integer
-      packets_recv:
-        description: 接收包数
-        type: integer
-      packets_sent:
-        description: 发送包数
-        type: integer
-    type: object
-  v1.RuntimeStats:
-    properties:
-      gc_cycles:
-        description: GC循环次数
-        type: integer
-      goroutines:
-        description: 协程数量
-        type: integer
-      heap_alloc:
-        description: 堆内存分配
-        type: integer
-      heap_idle:
-        description: 堆内存空闲
-        type: integer
-      heap_inuse:
-        description: 堆内存使用中
-        type: integer
-      heap_sys:
-        description: 堆内存系统
-        type: integer
-      last_gc:
-        description: 最后GC时间
-        type: string
-      uptime:
-        description: 运行时间
-        type: string
-    type: object
-  v1.SystemStats:
-    properties:
-      cpu:
-        $ref: '#/definitions/v1.CPUStats'
-      database:
-        $ref: '#/definitions/v1.DatabaseStats'
-      disk:
-        $ref: '#/definitions/v1.DiskStats'
-      memory:
-        $ref: '#/definitions/v1.MemoryStats'
-      network:
-        $ref: '#/definitions/v1.NetworkStats'
-      runtime:
-        $ref: '#/definitions/v1.RuntimeStats'
-      timestamp:
-        type: string
     type: object
 host: localhost:8888
 info:
@@ -1894,7 +2089,7 @@ paths:
     put:
       consumes:
       - application/json
-      description: 更新系统的配置参数
+      description: 更新系统的配置参数，支持单个配置项和批量配置
       parameters:
       - description: 更新配置请求参数
         in: body
@@ -2234,6 +2429,174 @@ paths:
       summary: 创建实例
       tags:
       - 管理员管理
+  /admin/instances/{id}/action:
+    post:
+      consumes:
+      - application/json
+      description: 管理员对实例执行启动、停止、重启等操作
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: string
+      - description: 操作请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.InstanceActionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 操作成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员执行实例操作
+      tags:
+      - 管理员管理
+  /admin/instances/{id}/password/{taskId}:
+    get:
+      consumes:
+      - application/json
+      description: 通过任务ID获取实例重置后的新密码
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 任务ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.GetInstancePasswordResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例或任务不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员获取实例重置后的新密码
+      tags:
+      - 管理员管理
+  /admin/instances/{id}/port-mappings:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取指定实例的所有端口映射
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例端口映射
+      tags:
+      - 端口映射管理
+  /admin/instances/{id}/reset-password:
+    put:
+      consumes:
+      - application/json
+      description: 管理员重置指定实例的登录密码，创建异步任务执行密码重置操作
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 重置实例密码请求参数（可为空对象）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.ResetInstancePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 任务创建成功，返回任务ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.ResetInstancePasswordResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建任务失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员重置实例密码
+      tags:
+      - 管理员管理
   /admin/invite-codes:
     get:
       consumes:
@@ -2345,6 +2708,74 @@ paths:
       summary: 删除邀请码
       tags:
       - 邀请码管理
+  /admin/invite-codes/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量删除指定的邀请码
+      parameters:
+      - description: 批量删除邀请码请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.BatchDeleteInviteCodesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量删除邀请码
+      tags:
+      - 邀请码管理
+  /admin/invite-codes/export:
+    get:
+      consumes:
+      - application/json
+      description: 导出选中的邀请码为文本格式（每行一个）
+      parameters:
+      - collectionFormat: csv
+        description: 邀请码ID列表，不传则导出全部
+        in: query
+        items:
+          type: integer
+        name: ids
+        type: array
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导出成功，返回邀请码列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: string
+                  type: array
+              type: object
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导出邀请码
+      tags:
+      - 邀请码管理
   /admin/invite-codes/generate:
     post:
       consumes:
@@ -2388,7 +2819,7 @@ paths:
     get:
       consumes:
       - application/json
-      description: 检查系统各个组件的健康状态
+      description: 检查各个组件的健康状态
       produces:
       - application/json
       responses:
@@ -2401,47 +2832,29 @@ paths:
                 data:
                   type: object
               type: object
+        "401":
+          description: 认证失败
+          schema:
+            $ref: '#/definitions/common.Response'
         "500":
           description: 检查失败
           schema:
             $ref: '#/definitions/common.Response'
       security:
       - BearerAuth: []
-      summary: 系统健康检查
-      tags:
-      - 系统监控
-  /admin/monitoring/instances:
-    get:
-      consumes:
-      - application/json
-      description: 获取所有实例的监控和状态数据
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取实例监控数据
+      summary: 获取系统健康检查
       tags:
       - 系统监控
   /admin/monitoring/metrics:
     get:
       consumes:
       - application/json
-      description: 返回Prometheus格式的系统监控指标数据
+      description: 返回Prometheus格式的系统监控指标，用于监控系统集成
       produces:
       - text/plain
       responses:
         "200":
-          description: Prometheus格式的指标数据
+          description: Prometheus指标数据
           schema:
             type: string
         "401":
@@ -2450,10 +2863,10 @@ paths:
             $ref: '#/definitions/common.Response'
       security:
       - BearerAuth: []
-      summary: 获取Prometheus指标
+      summary: 获取Prometheus格式的指标
       tags:
       - 系统监控
-  /admin/monitoring/providers:
+  /admin/monitoring/provider:
     get:
       consumes:
       - application/json
@@ -2490,7 +2903,7 @@ paths:
             - $ref: '#/definitions/common.Response'
             - properties:
                 data:
-                  $ref: '#/definitions/v1.SystemStats'
+                  $ref: '#/definitions/system.SystemStats'
               type: object
         "401":
           description: 认证失败
@@ -2505,7 +2918,194 @@ paths:
       summary: 获取系统统计信息
       tags:
       - 系统监控
-  /admin/providers:
+  /admin/port-mappings:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取端口映射列表
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: Provider ID
+        in: query
+        name: providerId
+        type: integer
+      - description: 实例ID
+        in: query
+        name: instanceId
+        type: integer
+      - description: 协议类型
+        in: query
+        name: protocol
+        type: string
+      - description: 状态
+        in: query
+        name: status
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取端口映射列表
+      tags:
+      - 端口映射管理
+    post:
+      consumes:
+      - application/json
+      description: 管理员创建新的端口映射
+      parameters:
+      - description: 创建端口映射请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.CreatePortMappingRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建端口映射
+      tags:
+      - 端口映射管理
+  /admin/port-mappings/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 管理员删除端口映射
+      parameters:
+      - description: 端口映射ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除端口映射
+      tags:
+      - 端口映射管理
+    put:
+      consumes:
+      - application/json
+      description: 管理员更新端口映射信息
+      parameters:
+      - description: 端口映射ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新端口映射请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.UpdatePortMappingRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新端口映射
+      tags:
+      - 端口映射管理
+  /admin/port-mappings/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量删除端口映射
+      parameters:
+      - description: 批量删除端口映射请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.BatchDeletePortMappingRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量删除端口映射
+      tags:
+      - 端口映射管理
+  /admin/provider:
     get:
       consumes:
       - application/json
@@ -2585,7 +3185,7 @@ paths:
       summary: 创建提供商
       tags:
       - 提供商管理
-  /admin/providers/{id}/auto-configure-stream:
+  /admin/provider/{id}/auto-configure-stream:
     post:
       consumes:
       - application/json
@@ -2616,7 +3216,7 @@ paths:
       summary: 实时自动配置Provider
       tags:
       - 管理员管理
-  /admin/providers/{id}/generate-cert:
+  /admin/provider/{id}/generate-cert:
     post:
       consumes:
       - application/json
@@ -2652,7 +3252,7 @@ paths:
       summary: 为Provider生成证书或配置
       tags:
       - 管理员管理
-  /admin/providers/{id}/health-check:
+  /admin/provider/{id}/health-check:
     post:
       consumes:
       - application/json
@@ -2688,7 +3288,80 @@ paths:
       summary: 检查Provider健康状态
       tags:
       - 管理员管理
-  /admin/providers/{id}/status:
+  /admin/provider/{id}/port-config:
+    put:
+      consumes:
+      - application/json
+      description: 管理员更新Provider的端口映射配置
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: Provider端口配置请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.ProviderPortConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 更新成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 更新失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新Provider端口配置
+      tags:
+      - 端口映射管理
+  /admin/provider/{id}/port-usage:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取Provider的端口使用统计
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider端口使用情况
+      tags:
+      - 端口映射管理
+  /admin/provider/{id}/status:
     get:
       consumes:
       - application/json
@@ -2724,7 +3397,7 @@ paths:
       summary: 获取Provider状态详情
       tags:
       - 管理员管理
-  /admin/providers/auto-configure:
+  /admin/provider/auto-configure:
     post:
       consumes:
       - application/json
@@ -2765,7 +3438,7 @@ paths:
       summary: 自动配置Provider
       tags:
       - 管理员管理
-  /admin/providers/export-configs:
+  /admin/provider/export-configs:
     post:
       consumes:
       - application/json
@@ -2872,7 +3545,7 @@ paths:
         name: request
         required: true
         schema:
-          $ref: '#/definitions/v1.CreateSystemImageRequest'
+          $ref: '#/definitions/system.CreateSystemImageRequest'
       produces:
       - application/json
       responses:
@@ -3033,6 +3706,36 @@ paths:
       summary: 强制停止任务
       tags:
       - 管理员管理
+  /admin/tasks/overall-stats:
+    get:
+      consumes:
+      - application/json
+      description: 获取所有任务的总体统计信息，包括各种状态的任务数量
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.TaskStatsResponse'
+              type: object
+        "401":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取任务总体统计信息
+      tags:
+      - 管理员管理
   /admin/tasks/stats:
     get:
       consumes:
@@ -3063,6 +3766,152 @@ paths:
       summary: 获取任务统计
       tags:
       - 管理员管理
+  /admin/traffic/sync/all:
+    post:
+      consumes:
+      - application/json
+      description: 立即触发全系统所有实例的流量数据同步
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 手动同步全系统流量数据
+      tags:
+      - 管理员-流量同步
+  /admin/traffic/sync/instance/{instance_id}:
+    post:
+      consumes:
+      - application/json
+      description: 立即触发指定实例的流量数据同步
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 手动同步单个实例的流量数据
+      tags:
+      - 管理员-流量同步
+  /admin/traffic/sync/provider/{provider_id}:
+    post:
+      consumes:
+      - application/json
+      description: 立即触发指定Provider所有实例的流量数据同步
+      parameters:
+      - description: Provider ID
+        in: path
+        name: provider_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 手动同步Provider所有实例的流量数据
+      tags:
+      - 管理员-流量同步
+  /admin/traffic/sync/user/{user_id}:
+    post:
+      consumes:
+      - application/json
+      description: 立即触发指定用户所有实例的流量数据同步
+      parameters:
+      - description: 用户ID
+        in: path
+        name: user_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未认证
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 权限不足
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 手动同步用户所有实例的流量数据
+      tags:
+      - 管理员-流量同步
   /admin/upload/cleanup:
     post:
       consumes:
@@ -3624,6 +4473,98 @@ paths:
       summary: 获取API列表
       tags:
       - API管理
+  /api/v1/admin/logs/cleanup:
+    post:
+      consumes:
+      - application/json
+      description: 根据配置的保留天数清理旧的日志文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清理旧日志文件
+      tags:
+      - System
+  /api/v1/admin/logs/compress:
+    post:
+      consumes:
+      - application/json
+      description: 压缩昨天之前的日志文件以节省存储空间
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 压缩旧日志文件
+      tags:
+      - System
+  /api/v1/admin/logs/files:
+    get:
+      consumes:
+      - application/json
+      description: 获取所有日志文件的信息，包括按日期分割的日志文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/log.LogFileInfo'
+                  type: array
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取日志文件列表
+      tags:
+      - System
+  /api/v1/admin/logs/read:
+    get:
+      consumes:
+      - application/json
+      description: 读取指定日志文件的内容，支持指定返回行数
+      parameters:
+      - description: 日志文件名
+        in: query
+        name: filename
+        required: true
+        type: string
+      - description: 返回行数，默认100行
+        in: query
+        name: lines
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: string
+                  type: array
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 读取日志文件内容
+      tags:
+      - System
   /api/v1/admin/monitoring/audit-logs:
     get:
       consumes:
@@ -3727,6 +4668,273 @@ paths:
       summary: 获取系统日志
       tags:
       - 监控管理
+  /api/v1/admin/storage/cleanup:
+    post:
+      consumes:
+      - application/json
+      description: 清理临时目录中的所有文件
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清理临时文件
+      tags:
+      - System
+  /api/v1/admin/storage/info:
+    get:
+      consumes:
+      - application/json
+      description: 获取存储目录结构和状态信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取存储目录信息
+      tags:
+      - System
+  /api/v1/admin/storage/init:
+    post:
+      consumes:
+      - application/json
+      description: 重新创建所有必要的存储目录
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: success
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 重新初始化存储目录
+      tags:
+      - System
+  /api/v1/admin/traffic/manage:
+    post:
+      consumes:
+      - application/json
+      description: 手动设置或解除用户/Provider的流量限制
+      parameters:
+      - description: 流量限制管理请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.ManageTrafficLimitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 管理流量限制
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/overview:
+    get:
+      consumes:
+      - application/json
+      description: 获取整个系统的流量使用情况概览
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取系统流量概览
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/provider/{providerId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定Provider的流量使用情况
+      parameters:
+      - description: Provider ID
+        in: path
+        name: providerId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取Provider流量统计
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/user/{userId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定用户的流量使用情况
+      parameters:
+      - description: 用户ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量统计
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/users/rank:
+    get:
+      consumes:
+      - application/json
+      description: 获取系统中所有用户的流量使用排行榜
+      parameters:
+      - description: 返回结果数量限制，默认20
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量排行榜
+      tags:
+      - 管理员流量
+  /api/v1/user/traffic/instance/{instanceId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的详细流量统计信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instanceId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取实例流量详情
+      tags:
+      - 用户流量
+  /api/v1/user/traffic/instances:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户所有实例的流量使用汇总信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户所有实例流量汇总
+      tags:
+      - 用户流量
+  /api/v1/user/traffic/limit-status:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户的流量限制状态和受限实例信息
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取流量限制状态
+      tags:
+      - 用户流量
+  /api/v1/user/traffic/overview:
+    get:
+      consumes:
+      - application/json
+      description: 基于vnStat获取用户流量使用情况概览
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取用户流量概览
+      tags:
+      - 用户流量
+  /api/v1/user/traffic/vnstat/{instanceId}:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的原始vnStat统计数据
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instanceId
+        required: true
+        type: integer
+      - description: 网络接口名称
+        in: query
+        name: interface
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 获取原始vnStat数据
+      tags:
+      - 用户流量
   /apis/routes:
     get:
       consumes:
@@ -4109,60 +5317,7 @@ paths:
       summary: 获取权限列表
       tags:
       - 权限管理
-  /provider/connect:
-    post:
-      consumes:
-      - application/json
-      description: 连接到虚拟化提供者（如Docker、LXD、Proxmox等）
-      parameters:
-      - description: 连接参数
-        in: body
-        name: request
-        required: true
-        schema:
-          properties:
-            cert_path:
-              type: string
-            container_enabled:
-              type: boolean
-            host:
-              type: string
-            key_path:
-              type: string
-            name:
-              type: string
-            password:
-              type: string
-            port:
-              type: integer
-            type:
-              type: string
-            username:
-              type: string
-            vm_enabled:
-              type: boolean
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 连接成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 连接失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 连接虚拟化Provider
-      tags:
-      - 虚拟化管理
-  /providers/:
+  /provider/:
     get:
       consumes:
       - application/json
@@ -4186,7 +5341,7 @@ paths:
       summary: 获取所有Provider
       tags:
       - 虚拟化管理
-  /providers/{type}/capabilities:
+  /provider/{type}/capabilities:
     get:
       consumes:
       - application/json
@@ -4223,7 +5378,7 @@ paths:
       summary: 获取Provider能力
       tags:
       - 虚拟化管理
-  /providers/{type}/instances:
+  /provider/{type}/instances:
     get:
       consumes:
       - application/json
@@ -4286,7 +5441,7 @@ paths:
         name: request
         required: true
         schema:
-          type: object
+          $ref: '#/definitions/oneclickvirt_service_provider.CreateInstanceRequest'
       produces:
       - application/json
       responses:
@@ -4316,7 +5471,7 @@ paths:
       summary: 创建实例
       tags:
       - 虚拟化管理
-  /providers/{type}/status:
+  /provider/{type}/status:
     get:
       consumes:
       - application/json
@@ -4351,6 +5506,38 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取Provider状态
+      tags:
+      - 虚拟化管理
+  /provider/connect:
+    post:
+      consumes:
+      - application/json
+      description: 连接到虚拟化提供者（如Docker、LXD、Proxmox等）
+      parameters:
+      - description: 连接参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/oneclickvirt_service_provider.ConnectProviderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 连接成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 连接失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 连接虚拟化Provider
       tags:
       - 虚拟化管理
   /public/init:
@@ -4403,6 +5590,26 @@ paths:
       summary: 检查系统初始化状态
       tags:
       - 系统初始化
+  /public/recommended-db-type:
+    get:
+      consumes:
+      - application/json
+      description: 根据系统架构获取推荐的数据库类型
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: 获取推荐的数据库类型
+      tags:
+      - 系统初始化
   /public/register-config:
     get:
       consumes:
@@ -4421,6 +5628,36 @@ paths:
                   type: object
               type: object
       summary: 获取注册配置信息
+      tags:
+      - 系统初始化
+  /public/test-db-connection:
+    post:
+      consumes:
+      - application/json
+      description: 测试数据库连接是否可用，用于初始化前验证数据库配置
+      parameters:
+      - description: 数据库连接参数
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 连接成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 连接失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 测试数据库连接
       tags:
       - 系统初始化
   /static/{type}/{path}:
@@ -4524,7 +5761,7 @@ paths:
             - properties:
                 data:
                   items:
-                    $ref: '#/definitions/model.ResourceReservation'
+                    $ref: '#/definitions/resource.ResourceReservation'
                   type: array
               type: object
         "401":
@@ -4857,6 +6094,447 @@ paths:
       summary: 创建实例
       tags:
       - 用户管理
+  /user/instances/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户实例的详细信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.UserInstanceDetailResponse'
+              type: object
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 实例不存在或无权限
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户实例详情
+      tags:
+      - 用户管理
+  /user/instances/{id}/monitoring:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户实例的监控数据，包括流量统计信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.InstanceMonitoringResponse'
+              type: object
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 实例不存在或无权限
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例监控数据
+      tags:
+      - 用户管理
+  /user/instances/{id}/password/{taskId}:
+    get:
+      consumes:
+      - application/json
+      description: 通过任务ID获取实例重置后的新密码
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 任务ID
+        in: path
+        name: taskId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.GetInstancePasswordResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 实例不存在或无权限
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 任务不存在或未完成
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例重置后的新密码
+      tags:
+      - 用户管理
+  /user/instances/{id}/ports:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定实例的端口映射信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权限访问
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例端口映射
+      tags:
+      - 用户管理
+  /user/instances/{id}/reset-password:
+    put:
+      consumes:
+      - application/json
+      description: 用户重置自己实例的登录密码，创建异步任务执行密码重置操作
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 重置实例密码请求参数（可为空对象）
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/user.ResetInstancePasswordRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 任务创建成功，返回任务ID
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/user.ResetInstancePasswordResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 实例不存在或无权限
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建任务失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 用户重置实例密码
+      tags:
+      - 用户管理
+  /user/instances/{instance_id}/vnstat/dashboard:
+    get:
+      consumes:
+      - application/json
+      description: 获取实例的vnStat仪表板数据，包括汇总、趋势图等信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权限访问该实例
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例vnStat仪表板数据
+      tags:
+      - 用户管理
+  /user/instances/{instance_id}/vnstat/interfaces:
+    get:
+      consumes:
+      - application/json
+      description: 获取实例的所有vnStat监控接口列表及其状态
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/monitoring.VnStatInterface'
+                  type: array
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权限访问该实例
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例vnStat接口列表
+      tags:
+      - 用户管理
+  /user/instances/{instance_id}/vnstat/query:
+    get:
+      consumes:
+      - application/json
+      description: 根据查询条件获取实例的vnStat流量数据，支持按类型、时间范围查询
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      - description: 网络接口名称
+        in: query
+        name: interface
+        type: string
+      - description: 查询类型：total, daily, monthly, hourly
+        in: query
+        name: type
+        type: string
+      - description: 时间周期
+        in: query
+        name: period
+        type: string
+      - description: 开始日期（YYYY-MM-DD）
+        in: query
+        name: start_date
+        type: string
+      - description: 结束日期（YYYY-MM-DD）
+        in: query
+        name: end_date
+        type: string
+      - description: 返回记录数限制（默认100）
+        in: query
+        name: limit
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 查询成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/monitoring.VnStatResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权限访问该实例
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 查询失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 查询实例vnStat流量数据
+      tags:
+      - 用户管理
+  /user/instances/{instance_id}/vnstat/summary:
+    get:
+      consumes:
+      - application/json
+      description: 获取用户实例的vnStat流量汇总信息，包括今日、本月和总流量统计
+      parameters:
+      - description: 实例ID
+        in: path
+        name: instance_id
+        required: true
+        type: integer
+      - description: 网络接口名称（可选）
+        in: query
+        name: interface
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/monitoring.VnStatResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "403":
+          description: 无权限访问该实例
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例vnStat流量汇总
+      tags:
+      - 用户管理
   /user/instances/action:
     post:
       consumes:
@@ -4959,6 +6637,48 @@ paths:
       summary: 修改密码
       tags:
       - 用户管理
+  /user/port-mappings:
+    get:
+      consumes:
+      - application/json
+      description: 获取当前登录用户的所有端口映射
+      parameters:
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页数量
+        in: query
+        name: limit
+        type: integer
+      - description: 搜索关键字
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取用户端口映射列表
+      tags:
+      - 用户管理
   /user/profile:
     put:
       consumes:
@@ -4995,7 +6715,7 @@ paths:
       summary: 更新个人信息
       tags:
       - 用户管理
-  /user/providers/{id}/capabilities:
+  /user/provider/{id}/capabilities:
     get:
       consumes:
       - application/json
@@ -5035,7 +6755,7 @@ paths:
       summary: 获取Provider能力信息
       tags:
       - 用户管理
-  /user/providers/available:
+  /user/provider/available:
     get:
       consumes:
       - application/json

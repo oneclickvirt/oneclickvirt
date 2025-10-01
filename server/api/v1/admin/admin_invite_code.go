@@ -177,3 +177,80 @@ func GenerateInviteCode(c *gin.Context) {
 		Data: codes,
 	})
 }
+
+// BatchDeleteInviteCodes 批量删除邀请码
+// @Summary 批量删除邀请码
+// @Description 管理员批量删除指定的邀请码
+// @Tags 邀请码管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body admin.BatchDeleteInviteCodesRequest true "批量删除邀请码请求参数"
+// @Success 200 {object} common.Response "删除成功"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 500 {object} common.Response "服务器内部错误"
+// @Router /admin/invite-codes/batch-delete [post]
+func BatchDeleteInviteCodes(c *gin.Context) {
+	var req admin.BatchDeleteInviteCodesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "参数错误",
+		})
+		return
+	}
+
+	inviteService := invite.NewService()
+	err := inviteService.BatchDeleteInviteCodes(req.IDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 500,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 200,
+		Msg:  "批量删除邀请码成功",
+	})
+}
+
+// ExportInviteCodes 导出邀请码
+// @Summary 导出邀请码
+// @Description 导出选中的邀请码为文本格式（每行一个）
+// @Tags 邀请码管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param ids query []int false "邀请码ID列表，不传则导出全部"
+// @Success 200 {object} common.Response{data=[]string} "导出成功，返回邀请码列表"
+// @Failure 500 {object} common.Response "服务器内部错误"
+// @Router /admin/invite-codes/export [get]
+func ExportInviteCodes(c *gin.Context) {
+	var req struct {
+		IDs []uint `form:"ids"`
+	}
+
+	// 从 query 参数获取 IDs（GET 请求）
+	if err := c.ShouldBindQuery(&req); err != nil {
+		// 如果没有传IDs，则导出全部
+		req.IDs = nil
+	}
+
+	inviteService := invite.NewService()
+	codes, err := inviteService.ExportInviteCodes(req.IDs)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 500,
+			Msg:  err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 200,
+		Msg:  "导出邀请码成功",
+		Data: codes,
+	})
+}

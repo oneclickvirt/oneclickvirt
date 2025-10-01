@@ -126,6 +126,16 @@ func (cm *ConfigManager) initValidationRules() {
 		MinValue: 1,
 		MaxValue: 5,
 	}
+
+	// 等级限制配置验证规则
+	cm.validationRules["quota.levelLimits"] = ConfigValidationRule{
+		Required: false,
+		Type:     "object",
+		Validator: func(value interface{}) error {
+			return cm.validateLevelLimits(value)
+		},
+	}
+
 	// 添加更多验证规则...
 }
 
@@ -192,8 +202,9 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
-	// 验证所有配置
-	for key, value := range config {
+	// 展开嵌套配置并验证
+	flatConfig := cm.flattenConfig(config, "")
+	for key, value := range flatConfig {
 		if err := cm.validateConfig(key, value); err != nil {
 			return fmt.Errorf("配置 %s 验证失败: %v", key, err)
 		}
@@ -204,7 +215,7 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	// 保存旧配置用于比较
 	oldConfig := make(map[string]interface{})
-	for key := range config {
+	for key := range flatConfig {
 		oldConfig[key] = cm.configCache[key]
 	}
 
@@ -213,7 +224,7 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	// 更新配置
 	oldValues := make(map[string]interface{})
-	for key, value := range config {
+	for key, value := range flatConfig {
 		oldValues[key] = cm.configCache[key]
 		cm.configCache[key] = value
 
@@ -277,15 +288,24 @@ func (cm *ConfigManager) validateConfig(key string, value interface{}) error {
 	// 基础类型验证
 	switch rule.Type {
 	case "int":
-		if intVal, ok := value.(int); ok {
-			if rule.MinValue != nil && intVal < rule.MinValue.(int) {
-				return fmt.Errorf("配置项 %s 的值 %d 小于最小值 %d", key, intVal, rule.MinValue)
-			}
-			if rule.MaxValue != nil && intVal > rule.MaxValue.(int) {
-				return fmt.Errorf("配置项 %s 的值 %d 大于最大值 %d", key, intVal, rule.MaxValue)
-			}
-		} else {
+		var intVal int
+		// JSON 解析后数字可能是 int、float64 或 int64
+		switch v := value.(type) {
+		case int:
+			intVal = v
+		case float64:
+			intVal = int(v)
+		case int64:
+			intVal = int(v)
+		default:
 			return fmt.Errorf("配置项 %s 类型错误，期望 int", key)
+		}
+
+		if rule.MinValue != nil && intVal < rule.MinValue.(int) {
+			return fmt.Errorf("配置项 %s 的值 %d 小于最小值 %d", key, intVal, rule.MinValue)
+		}
+		if rule.MaxValue != nil && intVal > rule.MaxValue.(int) {
+			return fmt.Errorf("配置项 %s 的值 %d 大于最大值 %d", key, intVal, rule.MaxValue)
 		}
 	case "bool":
 		if _, ok := value.(bool); !ok {
@@ -298,6 +318,121 @@ func (cm *ConfigManager) validateConfig(key string, value interface{}) error {
 	}
 
 	return nil
+}
+
+// validateLevelLimits 验证等级限制配置
+func (cm *ConfigManager) validateLevelLimits(value interface{}) error {
+	levelLimitsMap, ok := value.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("levelLimits 必须是对象类型")
+	}
+
+	// 验证每个等级的配置
+	for levelStr, limitValue := range levelLimitsMap {
+		limitMap, ok := limitValue.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("等级 %s 的配置必须是对象类型", levelStr)
+		}
+
+		// 验证 maxInstances
+		maxInstances, exists := limitMap["maxInstances"]
+		if !exists {
+			return fmt.Errorf("等级 %s 缺少 maxInstances 配置", levelStr)
+		}
+		if err := validatePositiveNumber(maxInstances, fmt.Sprintf("等级 %s 的 maxInstances", levelStr)); err != nil {
+			return err
+		}
+
+		// 验证 maxTraffic
+		maxTraffic, exists := limitMap["maxTraffic"]
+		if !exists {
+			return fmt.Errorf("等级 %s 缺少 maxTraffic 配置", levelStr)
+		}
+		if err := validatePositiveNumber(maxTraffic, fmt.Sprintf("等级 %s 的 maxTraffic", levelStr)); err != nil {
+			return err
+		}
+
+		// 验证 maxResources
+		maxResources, exists := limitMap["maxResources"]
+		if !exists {
+			return fmt.Errorf("等级 %s 缺少 maxResources 配置", levelStr)
+		}
+
+		resourcesMap, ok := maxResources.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("等级 %s 的 maxResources 必须是对象类型", levelStr)
+		}
+
+		// 验证必需的资源字段
+		requiredResources := []string{"cpu", "memory", "disk", "bandwidth"}
+		for _, resource := range requiredResources {
+			resourceValue, exists := resourcesMap[resource]
+			if !exists {
+				return fmt.Errorf("等级 %s 的 maxResources 缺少 %s 配置", levelStr, resource)
+			}
+			if err := validatePositiveNumber(resourceValue, fmt.Sprintf("等级 %s 的 %s", levelStr, resource)); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+// validatePositiveNumber 验证数值必须为正数
+func validatePositiveNumber(value interface{}, fieldName string) error {
+	switch v := value.(type) {
+	case int:
+		if v <= 0 {
+			return fmt.Errorf("%s 不能为空或小于等于0", fieldName)
+		}
+	case int64:
+		if v <= 0 {
+			return fmt.Errorf("%s 不能为空或小于等于0", fieldName)
+		}
+	case float64:
+		if v <= 0 {
+			return fmt.Errorf("%s 不能为空或小于等于0", fieldName)
+		}
+	case float32:
+		if v <= 0 {
+			return fmt.Errorf("%s 不能为空或小于等于0", fieldName)
+		}
+	default:
+		return fmt.Errorf("%s 必须是数值类型", fieldName)
+	}
+	return nil
+}
+
+// flattenConfig 将嵌套配置展开为扁平的 key-value 对
+// 例如: {"quota": {"levelLimits": {...}}} => {"quota.levelLimits": {...}}
+func (cm *ConfigManager) flattenConfig(config map[string]interface{}, prefix string) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, value := range config {
+		fullKey := key
+		if prefix != "" {
+			fullKey = prefix + "." + key
+		}
+
+		// 如果值是 map，递归展开
+		if valueMap, ok := value.(map[string]interface{}); ok {
+			// 先保存这一层的值（用于验证）
+			result[fullKey] = value
+
+			// 然后递归展开子配置（但不包括 levelLimits，因为它需要作为整体验证）
+			if key != "levelLimits" {
+				nested := cm.flattenConfig(valueMap, fullKey)
+				for nestedKey, nestedValue := range nested {
+					result[nestedKey] = nestedValue
+				}
+			}
+		} else {
+			result[fullKey] = value
+		}
+	}
+
+	return result
 }
 
 // createSnapshot 创建配置快照

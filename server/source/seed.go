@@ -520,64 +520,64 @@ func initLevelConfigurations() {
 	}
 
 	// 设置默认等级配置
-	// 等级1: 最低档次，带宽100Mbps，流量100GB
+	// 等级1: 最低档次
 	global.APP_CONFIG.Quota.LevelLimits[1] = config.LevelLimitInfo{
 		MaxInstances: 1,
 		MaxResources: map[string]interface{}{
 			"cpu":       1,
-			"memory":    350,  // 350MB
-			"disk":      1024, // 1GB
-			"bandwidth": 100,  // 100Mbps
+			"memory":    512,   // 512MB
+			"disk":      10240, // 10GB
+			"bandwidth": 10,    // 10Mbps
 		},
 		MaxTraffic: 102400, // 100GB
 	}
 
-	// 等级2: 中级档次，带宽200Mbps，流量200GB
+	// 等级2: 中级档次
 	global.APP_CONFIG.Quota.LevelLimits[2] = config.LevelLimitInfo{
-		MaxInstances: 2,
+		MaxInstances: 3,
 		MaxResources: map[string]interface{}{
 			"cpu":       2,
-			"memory":    750,  // 750MB
-			"disk":      2048, // 2GB
-			"bandwidth": 200,  // 200Mbps
+			"memory":    1024,  // 1GB
+			"disk":      20480, // 20GB
+			"bandwidth": 20,    // 20Mbps
 		},
 		MaxTraffic: 204800, // 200GB
 	}
 
-	// 等级3: 高级档次，带宽300Mbps，流量400GB
+	// 等级3: 高级档次
 	global.APP_CONFIG.Quota.LevelLimits[3] = config.LevelLimitInfo{
-		MaxInstances: 3,
+		MaxInstances: 5,
 		MaxResources: map[string]interface{}{
-			"cpu":       3,
-			"memory":    1250, // 1.25GB
-			"disk":      3072, // 3GB
-			"bandwidth": 300,  // 300Mbps
+			"cpu":       4,
+			"memory":    2048,  // 2GB
+			"disk":      40960, // 40GB
+			"bandwidth": 50,    // 50Mbps
+		},
+		MaxTraffic: 307200, // 300GB
+	}
+
+	// 等级4: 超级档次
+	global.APP_CONFIG.Quota.LevelLimits[4] = config.LevelLimitInfo{
+		MaxInstances: 10,
+		MaxResources: map[string]interface{}{
+			"cpu":       8,
+			"memory":    4096,  // 4GB
+			"disk":      81920, // 80GB
+			"bandwidth": 100,   // 100Mbps
 		},
 		MaxTraffic: 409600, // 400GB
 	}
 
-	// 等级4: 超级档次，带宽400Mbps，流量800GB
-	global.APP_CONFIG.Quota.LevelLimits[4] = config.LevelLimitInfo{
-		MaxInstances: 4,
-		MaxResources: map[string]interface{}{
-			"cpu":       4,
-			"memory":    2250, // 2.25GB
-			"disk":      4100, // 5.1GB
-			"bandwidth": 400,  // 400Mbps
-		},
-		MaxTraffic: 819200, // 800GB
-	}
-
-	// 等级5: 管理员档次，带宽500Mbps，流量1600GB
+	// 等级5: 管理员档次
 	global.APP_CONFIG.Quota.LevelLimits[5] = config.LevelLimitInfo{
-		MaxInstances: 5,
+		MaxInstances: 20,
 		MaxResources: map[string]interface{}{
-			"cpu":       5,
-			"memory":    3200,  // 3.2GB
-			"disk":      10240, // 10GB
-			"bandwidth": 500,   // 500Mbps
+			"cpu":       16,
+			"memory":    8192,   // 8GB
+			"disk":      163840, // 160GB
+			"bandwidth": 200,    // 200Mbps
 		},
-		MaxTraffic: 1638400, // 1600GB
+		MaxTraffic: 512000, // 500GB
 	}
 
 	global.APP_LOG.Info("等级与带宽配置初始化完成")

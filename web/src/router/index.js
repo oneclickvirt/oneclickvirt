@@ -169,6 +169,16 @@ const routes = [
         }
       },
       {
+        path: 'invite-codes',
+        name: 'AdminInviteCodes',
+        component: () => import('@/view/admin/invite-codes/index.vue'),
+        meta: {
+          title: '邀请码管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'providers',
         name: 'AdminProviders',
         component: () => import('@/view/admin/providers/index.vue'),
@@ -224,16 +234,6 @@ const routes = [
         component: () => import('@/view/admin/announcements/index.vue'),
         meta: {
           title: '公告管理',
-          requiresAuth: true,
-          roles: ['admin']
-        }
-      },
-      {
-        path: 'invite-codes',
-        name: 'AdminInviteCodes',
-        component: () => import('@/view/admin/invite-codes/index.vue'),
-        meta: {
-          title: '邀请码管理',
           requiresAuth: true,
           roles: ['admin']
         }

@@ -5,15 +5,17 @@ import (
 	"net/http"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
+	"strings"
 
-	"github.com/gin-gonic/gin"
-	"go.uber.org/zap"
 	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
 	"oneclickvirt/model/common"
 	configModel "oneclickvirt/model/config"
+
+	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // GetUnifiedConfig 获取统一配置接口
@@ -39,7 +41,18 @@ func GetUnifiedConfig(c *gin.Context) {
 		return
 	}
 
-	scope := c.DefaultQuery("scope", "user")
+	// 根据请求路径自动判断 scope
+	scope := c.DefaultQuery("scope", "")
+	if scope == "" {
+		// 如果没有提供 scope 参数，根据路径判断
+		if strings.Contains(c.Request.URL.Path, "/admin/") {
+			scope = "admin"
+		} else if strings.Contains(c.Request.URL.Path, "/public/") {
+			scope = "public"
+		} else {
+			scope = "user"
+		}
+	}
 
 	// 根据用户权限和请求范围决定返回的配置
 	configManager := config.GetConfigManager()
@@ -126,8 +139,12 @@ func UpdateUnifiedConfig(c *gin.Context) {
 			return
 		}
 	} else {
-		// 向后兼容：直接配置数据
-		req.Scope = "admin" // 默认管理员范围
+		// 向后兼容：直接配置数据，根据路径判断 scope
+		if strings.Contains(c.Request.URL.Path, "/admin/") {
+			req.Scope = "admin"
+		} else {
+			req.Scope = "user"
+		}
 		req.Config = rawData
 	}
 
@@ -186,22 +203,73 @@ func getPublicConfig(cm *config.ConfigManager) map[string]interface{} {
 		}
 	}
 
-	return publicConfig
+	// 将扁平化配置转换为嵌套结构
+	return unflattenConfig(publicConfig)
 }
 
-// syncConfigToGlobalViaService 通过ConfigService同步配置到全局配置对象
-func syncConfigToGlobalViaService(config map[string]interface{}) error {
-	// 重新触发配置加载，确保全局配置同步
-	configService := auth.ConfigService{}
+// syncConfigToGlobalViaService 同步配置到全局配置对象
+func syncConfigToGlobalViaService(configData map[string]interface{}) error {
+	// 同步认证配置
+	if authData, exists := configData["auth"]; exists {
+		if authMap, ok := authData.(map[string]interface{}); ok {
+			if v, ok := authMap["enableEmail"].(bool); ok {
+				global.APP_CONFIG.Auth.EnableEmail = v
+			}
+			if v, ok := authMap["enableTelegram"].(bool); ok {
+				global.APP_CONFIG.Auth.EnableTelegram = v
+			}
+			if v, ok := authMap["enableQQ"].(bool); ok {
+				global.APP_CONFIG.Auth.EnableQQ = v
+			}
+			if v, ok := authMap["enablePublicRegistration"].(bool); ok {
+				global.APP_CONFIG.Auth.EnablePublicRegistration = v
+			}
+			if v, ok := authMap["emailSMTPHost"].(string); ok {
+				global.APP_CONFIG.Auth.EmailSMTPHost = v
+			}
+			if v, ok := authMap["emailSMTPPort"]; ok {
+				if port, ok := v.(float64); ok {
+					global.APP_CONFIG.Auth.EmailSMTPPort = int(port)
+				} else if port, ok := v.(int); ok {
+					global.APP_CONFIG.Auth.EmailSMTPPort = port
+				}
+			}
+			if v, ok := authMap["emailUsername"].(string); ok {
+				global.APP_CONFIG.Auth.EmailUsername = v
+			}
+			if v, ok := authMap["emailPassword"].(string); ok {
+				global.APP_CONFIG.Auth.EmailPassword = v
+			}
+			if v, ok := authMap["telegramBotToken"].(string); ok {
+				global.APP_CONFIG.Auth.TelegramBotToken = v
+			}
+			if v, ok := authMap["qqAppID"].(string); ok {
+				global.APP_CONFIG.Auth.QQAppID = v
+			}
+			if v, ok := authMap["qqAppKey"].(string); ok {
+				global.APP_CONFIG.Auth.QQAppKey = v
+			}
+			global.APP_LOG.Info("认证配置已同步到全局配置")
+		}
+	}
 
-	// 通过ConfigService的ensureDefaultLevelLimits确保配额配置同步
-	// 这是一个安全的操作，会确保默认配置存在
-	configService.GetConfig()
+	// 同步邀请码配置
+	if inviteData, exists := configData["inviteCode"]; exists {
+		if inviteMap, ok := inviteData.(map[string]interface{}); ok {
+			if v, ok := inviteMap["enabled"].(bool); ok {
+				global.APP_CONFIG.InviteCode.Enabled = v
+			}
+			if v, ok := inviteMap["required"].(bool); ok {
+				global.APP_CONFIG.InviteCode.Required = v
+			}
+			global.APP_LOG.Info("邀请码配置已同步到全局配置")
+		}
+	}
 
-	// 处理特定的配额配置更新
-	if quotaData, exists := config["quota"]; exists {
+	// 同步配额配置
+	if quotaData, exists := configData["quota"]; exists {
 		if quotaMap, ok := quotaData.(map[string]interface{}); ok {
-			// 更新默认等级
+			// 同步默认等级
 			if defaultLevel, exists := quotaMap["defaultLevel"]; exists {
 				if level, ok := defaultLevel.(float64); ok {
 					global.APP_CONFIG.Quota.DefaultLevel = int(level)
@@ -210,32 +278,86 @@ func syncConfigToGlobalViaService(config map[string]interface{}) error {
 				}
 			}
 
-			// 对于等级限制，我们通过重新初始化来确保同步
-			if _, exists := quotaMap["levelLimits"]; exists {
-				// 强制重新加载配置文件以确保同步
-				// 这会触发配置的重新读取和同步
-				global.APP_LOG.Info("等级限制配置已更新，强制重新同步配置")
-
-				// 使用新的自动同步服务检测变更并同步用户限制
-				quotaSyncService := resources.QuotaSyncService{}
-
-				// 创建旧配置映射（从全局配置）
-				oldConfig := make(map[string]interface{})
-				if global.APP_CONFIG.Quota.LevelLimits != nil {
-					oldQuota := map[string]interface{}{
-						"levelLimits": convertLevelLimitsToMap(global.APP_CONFIG.Quota.LevelLimits),
+			// 同步等级限制
+			if levelLimitsData, exists := quotaMap["levelLimits"]; exists {
+				if levelLimitsMap, ok := levelLimitsData.(map[string]interface{}); ok {
+					// 保存旧配置用于检测变更
+					oldLevelLimits := make(map[int]config.LevelLimitInfo)
+					for k, v := range global.APP_CONFIG.Quota.LevelLimits {
+						oldLevelLimits[k] = v
 					}
-					oldConfig["quota"] = oldQuota
-				}
 
-				// 检测变更并自动同步
-				if err := quotaSyncService.DetectAndSyncLevelChanges(oldConfig, config); err != nil {
-					global.APP_LOG.Error("自动同步用户资源限制失败", zap.Error(err))
-					// 不阻止配置保存，但记录错误
+					// 初始化等级限制map
+					if global.APP_CONFIG.Quota.LevelLimits == nil {
+						global.APP_CONFIG.Quota.LevelLimits = make(map[int]config.LevelLimitInfo)
+					}
+
+					// 更新等级限制
+					for levelStr, limitData := range levelLimitsMap {
+						if limitMap, ok := limitData.(map[string]interface{}); ok {
+							// 解析等级数字
+							var level int
+							fmt.Sscanf(levelStr, "%d", &level)
+							if level < 1 || level > 5 {
+								continue
+							}
+
+							levelLimit := config.LevelLimitInfo{}
+
+							// 解析 maxInstances
+							if maxInstances, exists := limitMap["maxInstances"]; exists {
+								if v, ok := maxInstances.(float64); ok {
+									levelLimit.MaxInstances = int(v)
+								} else if v, ok := maxInstances.(int); ok {
+									levelLimit.MaxInstances = v
+								}
+							}
+
+							// 解析 maxTraffic
+							if maxTraffic, exists := limitMap["maxTraffic"]; exists {
+								if v, ok := maxTraffic.(float64); ok {
+									levelLimit.MaxTraffic = int64(v)
+								} else if v, ok := maxTraffic.(int64); ok {
+									levelLimit.MaxTraffic = v
+								} else if v, ok := maxTraffic.(int); ok {
+									levelLimit.MaxTraffic = int64(v)
+								}
+							}
+
+							// 解析 maxResources
+							if maxResources, exists := limitMap["maxResources"]; exists {
+								if resourcesMap, ok := maxResources.(map[string]interface{}); ok {
+									levelLimit.MaxResources = resourcesMap
+								}
+							}
+
+							global.APP_CONFIG.Quota.LevelLimits[level] = levelLimit
+						}
+					}
+
+					global.APP_LOG.Info("配额等级限制已同步到全局配置",
+						zap.Int("等级数量", len(global.APP_CONFIG.Quota.LevelLimits)))
+
+					// 检测变更并自动同步用户资源限制
+					quotaSyncService := resources.QuotaSyncService{}
+					oldConfig := map[string]interface{}{
+						"quota": map[string]interface{}{
+							"levelLimits": convertLevelLimitsToMap(oldLevelLimits),
+						},
+					}
+					newConfig := map[string]interface{}{
+						"quota": map[string]interface{}{
+							"levelLimits": levelLimitsMap,
+						},
+					}
+					if err := quotaSyncService.DetectAndSyncLevelChanges(oldConfig, newConfig); err != nil {
+						global.APP_LOG.Error("自动同步用户资源限制失败", zap.Error(err))
+					}
 				}
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -262,42 +384,111 @@ func convertLevelLimitsToMap(levelLimits map[int]config.LevelLimitInfo) map[stri
 
 // getUserConfig 获取用户配置（使用服务端权限验证）
 func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map[string]interface{} {
-	allConfig := cm.GetAllConfig()
-	userConfig := make(map[string]interface{})
+	result := make(map[string]interface{})
 	permissionService := auth.PermissionService{}
 
-	// 用户可以访问的配置项
-	allowedKeys := []string{
-		"app.name",
-		"app.version",
-		"auth.enablePublicRegistration",
-		"quota.defaultLevel",
-		"quota.levelLimits",
+	// 基础配置 - 所有用户可见
+	result["auth"] = map[string]interface{}{
+		"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
 	}
 
-	// 使用权限服务验证，而不是依赖JWT中的userType
-	hasAdminPermission := permissionService.HasPermission(authCtx.UserID, "admin")
-	if hasAdminPermission {
-		allowedKeys = append(allowedKeys, []string{
-			"auth.enableEmail",
-			"auth.enableTelegram",
-			"auth.enableQQ",
-		}...)
-	}
-
-	for _, key := range allowedKeys {
-		if value, exists := allConfig[key]; exists {
-			userConfig[key] = value
+	// 配额配置 - 从 global.APP_CONFIG 获取完整配置
+	levelLimits := make(map[string]interface{})
+	for level, limitInfo := range global.APP_CONFIG.Quota.LevelLimits {
+		levelKey := fmt.Sprintf("%d", level)
+		levelLimits[levelKey] = map[string]interface{}{
+			"maxInstances": limitInfo.MaxInstances,
+			"maxResources": limitInfo.MaxResources,
+			"maxTraffic":   limitInfo.MaxTraffic,
 		}
 	}
 
-	return userConfig
+	result["quota"] = map[string]interface{}{
+		"defaultLevel": global.APP_CONFIG.Quota.DefaultLevel,
+		"levelLimits":  levelLimits,
+	}
+
+	// 管理员可以看到更多配置
+	hasAdminPermission := permissionService.HasPermission(authCtx.UserID, "admin")
+	if hasAdminPermission {
+		authConfig := result["auth"].(map[string]interface{})
+		authConfig["enableEmail"] = global.APP_CONFIG.Auth.EnableEmail
+		authConfig["enableTelegram"] = global.APP_CONFIG.Auth.EnableTelegram
+		authConfig["enableQQ"] = global.APP_CONFIG.Auth.EnableQQ
+	}
+
+	return result
+} // getAdminConfig 获取管理员配置
+func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
+	// 直接从 global.APP_CONFIG 构建完整配置返回
+	// 确保返回所有配置项（包括默认值）
+	result := make(map[string]interface{})
+
+	// 认证配置
+	result["auth"] = map[string]interface{}{
+		"enableEmail":              global.APP_CONFIG.Auth.EnableEmail,
+		"enableTelegram":           global.APP_CONFIG.Auth.EnableTelegram,
+		"enableQQ":                 global.APP_CONFIG.Auth.EnableQQ,
+		"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
+		"emailSMTPHost":            global.APP_CONFIG.Auth.EmailSMTPHost,
+		"emailSMTPPort":            global.APP_CONFIG.Auth.EmailSMTPPort,
+		"emailUsername":            global.APP_CONFIG.Auth.EmailUsername,
+		"emailPassword":            global.APP_CONFIG.Auth.EmailPassword,
+		"telegramBotToken":         global.APP_CONFIG.Auth.TelegramBotToken,
+		"qqAppID":                  global.APP_CONFIG.Auth.QQAppID,
+		"qqAppKey":                 global.APP_CONFIG.Auth.QQAppKey,
+	}
+
+	// 邀请码配置
+	result["inviteCode"] = map[string]interface{}{
+		"enabled":  global.APP_CONFIG.InviteCode.Enabled,
+		"required": global.APP_CONFIG.InviteCode.Required,
+	}
+
+	// 配额配置 - 从 global.APP_CONFIG 获取完整的等级限制
+	levelLimits := make(map[string]interface{})
+	for level, limitInfo := range global.APP_CONFIG.Quota.LevelLimits {
+		levelKey := fmt.Sprintf("%d", level)
+		levelLimits[levelKey] = map[string]interface{}{
+			"maxInstances": limitInfo.MaxInstances,
+			"maxResources": limitInfo.MaxResources,
+			"maxTraffic":   limitInfo.MaxTraffic,
+		}
+	}
+
+	result["quota"] = map[string]interface{}{
+		"defaultLevel": global.APP_CONFIG.Quota.DefaultLevel,
+		"levelLimits":  levelLimits,
+	}
+
+	return result
+} // unflattenConfig 将扁平化的配置（如 quota.defaultLevel）转换为嵌套结构（如 quota: { defaultLevel: 1 }）
+func unflattenConfig(flatConfig map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, value := range flatConfig {
+		setNestedValue(result, key, value)
+	}
+
+	return result
 }
 
-// getAdminConfig 获取管理员配置
-func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
-	// 管理员可以访问所有配置
-	return cm.GetAllConfig()
+// setNestedValue 将点分隔的键设置为嵌套结构
+func setNestedValue(target map[string]interface{}, key string, value interface{}) {
+	keys := strings.Split(key, ".")
+	current := target
+
+	for i := 0; i < len(keys)-1; i++ {
+		k := keys[i]
+		if _, exists := current[k]; !exists {
+			current[k] = make(map[string]interface{})
+		}
+		if nested, ok := current[k].(map[string]interface{}); ok {
+			current = nested
+		}
+	}
+
+	current[keys[len(keys)-1]] = value
 }
 
 // hasConfigUpdatePermission 检查配置更新权限（使用服务端权限验证）

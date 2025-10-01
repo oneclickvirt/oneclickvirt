@@ -81,9 +81,6 @@ func syncInviteCodeConfig(inviteConfig map[string]interface{}) {
 	if required, ok := inviteConfig["required"].(bool); ok {
 		global.APP_CONFIG.InviteCode.Required = required
 	}
-	if defaultMaxUses, ok := inviteConfig["defaultMaxUses"].(float64); ok {
-		global.APP_CONFIG.InviteCode.DefaultMaxUses = int(defaultMaxUses)
-	}
 }
 
 // syncQuotaConfig 同步配额配置
