@@ -775,9 +775,9 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 更新进度
 	s.updateTaskProgress(task.ID, 50, "正在启动实例...")
 
-	// 调用Provider启动实例
+	// 调用Provider启动实例，使用 Provider ID 确保使用正确的 Provider
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StartInstance(ctx, provider.Type, instance.Name); err != nil {
+	if err := providerApiService.StartInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider启动实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
@@ -915,9 +915,9 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	// 更新进度
 	s.updateTaskProgress(task.ID, 70, "正在停止实例...")
 
-	// 调用Provider停止实例
+	// 调用Provider停止实例，使用 Provider ID 确保使用正确的 Provider
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StopInstance(ctx, provider.Type, instance.Name); err != nil {
+	if err := providerApiService.StopInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider停止实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
@@ -1004,10 +1004,10 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 更新进度
 	s.updateTaskProgress(task.ID, 60, "正在重启实例...")
 
-	// 调用Provider重启实例
+	// 调用Provider重启实例，使用 Provider ID 确保使用正确的 Provider
 	providerApiService := &provider2.ProviderApiService{}
 
-	if err := providerApiService.RestartInstance(ctx, provider.Type, instance.Name); err != nil {
+	if err := providerApiService.RestartInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider重启实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
@@ -1170,7 +1170,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			s.updateTaskProgress(task.ID, 60+attempt*5, fmt.Sprintf("正在删除实例（第%d次尝试）...", attempt))
 		}
 
-		if err := providerApiService.DeleteInstance(ctx, provider.Type, instance.Name); err != nil {
+		// 使用 Provider ID 确保使用正确的 Provider
+		if err := providerApiService.DeleteInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("Provider删除实例失败，准备重试",
 				zap.Uint("taskId", task.ID),
@@ -1329,17 +1330,23 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("获取Provider配置失败: %v", err)
 	}
 
-	// 获取原始系统镜像
+	// 获取原始系统镜像，使用Provider的架构信息进行匹配
 	var systemImage systemModel.SystemImage
-	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ?",
-		instance.Image, provider.Type, instance.InstanceType).First(&systemImage).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
+		instance.Image, provider.Type, instance.InstanceType, provider.Architecture).First(&systemImage).Error; err != nil {
+		global.APP_LOG.Error("获取系统镜像信息失败",
+			zap.String("image", instance.Image),
+			zap.String("providerType", provider.Type),
+			zap.String("instanceType", instance.InstanceType),
+			zap.String("architecture", provider.Architecture),
+			zap.Error(err))
 		return fmt.Errorf("获取系统镜像信息失败: %v", err)
 	}
 
 	providerApiService := &provider2.ProviderApiService{}
 
-	// 第一步：删除现有实例
-	if err := providerApiService.DeleteInstance(ctx, provider.Type, instance.Name); err != nil {
+	// 第一步：删除现有实例，使用 Provider ID 确保使用正确的 Provider
+	if err := providerApiService.DeleteInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider删除实例失败（重置过程中）",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
@@ -1351,7 +1358,7 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 	// 等待一段时间确保删除完成
 	time.Sleep(3 * time.Second)
 
-	// 第二步：重新创建实例
+	// 第二步：重新创建实例，使用 CreateInstanceByProviderID 方法以指定准确的Provider
 	createReq := provider2.CreateInstanceRequest{
 		InstanceConfig: providerModel.ProviderInstanceConfig{
 			Name:         instance.Name,
@@ -1369,7 +1376,7 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 	createReq.InstanceConfig.Env["RESET_OPERATION"] = "true"
 	createReq.InstanceConfig.Metadata["original_instance_id"] = fmt.Sprintf("%d", instance.ID)
 
-	if err := providerApiService.CreateInstance(ctx, provider.Type, createReq); err != nil {
+	if err := providerApiService.CreateInstanceByProviderID(ctx, provider.ID, createReq); err != nil {
 		global.APP_LOG.Error("Provider重建实例失败（重置过程中）",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
