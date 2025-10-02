@@ -59,12 +59,24 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 		}
 	}
 
+	// 设置SSH超时配置
+	sshConnectTimeout := config.SSHConnectTimeout
+	sshExecuteTimeout := config.SSHExecuteTimeout
+	if sshConnectTimeout <= 0 {
+		sshConnectTimeout = 30 // 默认30秒
+	}
+	if sshExecuteTimeout <= 0 {
+		sshExecuteTimeout = 300 // 默认300秒
+	}
+
 	// 尝试 SSH 连接
 	sshConfig := utils.SSHConfig{
-		Host:     config.Host,
-		Port:     config.Port,
-		Username: config.Username,
-		Password: config.Password,
+		Host:           config.Host,
+		Port:           config.Port,
+		Username:       config.Username,
+		Password:       config.Password,
+		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
 	}
 
 	client, err := utils.NewSSHClient(sshConfig)

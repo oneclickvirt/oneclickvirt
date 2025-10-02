@@ -321,9 +321,9 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		if detail.PublicIP == "" {
 			detail.PublicIP = s.extractIPFromEndpoint(provider.Endpoint)
 		}
-		detail.PortRangeStart = provider.PortRangeStart // 添加端口范围起始
-		detail.PortRangeEnd = provider.PortRangeEnd     // 添加端口范围结束
-		detail.NetworkType = provider.NetworkType       // 添加网络配置类型
+		detail.PortRangeStart = provider.PortRangeStart // 端口范围起始
+		detail.PortRangeEnd = provider.PortRangeEnd     // 端口范围结束
+		detail.NetworkType = provider.NetworkType       // 网络配置类型
 	}
 
 	return detail, nil

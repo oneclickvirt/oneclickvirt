@@ -198,16 +198,6 @@ const routes = [
         }
       },
       {
-        path: 'instances',
-        name: 'AdminInstances',
-        component: () => import('@/view/admin/instances/index.vue'),
-        meta: {
-          title: '实例管理',
-          requiresAuth: true,
-          roles: ['admin']
-        }
-      },
-      {
         path: 'tasks',
         name: 'AdminTasks',
         component: () => import('@/view/admin/tasks/index.vue'),
@@ -218,41 +208,21 @@ const routes = [
         }
       },
       {
+        path: 'instances',
+        name: 'AdminInstances',
+        component: () => import('@/view/admin/instances/index.vue'),
+        meta: {
+          title: '实例管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'port-mappings',
         name: 'AdminPortMappings',
         component: () => import('@/view/admin/portmapping/index.vue'),
         meta: {
           title: '端口映射管理',
-          requiresAuth: true,
-          roles: ['admin']
-        }
-      },
-      {
-        path: 'config',
-        name: 'AdminConfig',
-        component: () => import('@/view/admin/config/index.vue'),
-        meta: {
-          title: '系统配置',
-          requiresAuth: true,
-          roles: ['admin']
-        }
-      },
-      {
-        path: 'oauth2-providers',
-        name: 'AdminOAuth2Providers',
-        component: () => import('@/view/admin/oauth2/index.vue'),
-        meta: {
-          title: 'OAuth2提供商',
-          requiresAuth: true,
-          roles: ['admin']
-        }
-      },
-      {
-        path: 'announcements',
-        name: 'AdminAnnouncements',
-        component: () => import('@/view/admin/announcements/index.vue'),
-        meta: {
-          title: '公告管理',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -273,6 +243,36 @@ const routes = [
         component: () => import('@/view/admin/system-images/index.vue'),
         meta: {
           title: '系统镜像管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'announcements',
+        name: 'AdminAnnouncements',
+        component: () => import('@/view/admin/announcements/index.vue'),
+        meta: {
+          title: '公告管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'config',
+        name: 'AdminConfig',
+        component: () => import('@/view/admin/config/index.vue'),
+        meta: {
+          title: '系统配置',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'oauth2-providers',
+        name: 'AdminOAuth2Providers',
+        component: () => import('@/view/admin/oauth2/index.vue'),
+        meta: {
+          title: 'OAuth2提供商',
           requiresAuth: true,
           roles: ['admin']
         }

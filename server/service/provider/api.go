@@ -152,6 +152,8 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 		CertPath:              req.CertPath,
 		KeyPath:               req.KeyPath,
 		NetworkType:           req.NetworkType,
+		SSHConnectTimeout:     30,  // 默认30秒连接超时
+		SSHExecuteTimeout:     300, // 默认300秒执行超时
 	}
 
 	// 连接Provider

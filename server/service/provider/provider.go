@@ -119,7 +119,9 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		ContainerEnabled:      dbProvider.ContainerEnabled,
 		VirtualMachineEnabled: dbProvider.VirtualMachineEnabled,
 		NetworkType:           dbProvider.NetworkType,
-		ExecutionRule:         dbProvider.ExecutionRule, // 添加操作轮转规则
+		ExecutionRule:         dbProvider.ExecutionRule,
+		SSHConnectTimeout:     dbProvider.SSHConnectTimeout,
+		SSHExecuteTimeout:     dbProvider.SSHExecuteTimeout,
 	}
 
 	// 如果Provider已自动配置，尝试加载完整配置

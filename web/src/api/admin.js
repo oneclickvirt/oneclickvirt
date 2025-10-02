@@ -145,6 +145,16 @@ export const unfreezeProvider = (id, expiresAt) => {
   })
 }
 
+// 测试SSH连接
+export const testSSHConnection = (data) => {
+  return request({
+    url: '/v1/admin/providers/test-ssh-connection',
+    method: 'post',
+    data,
+    timeout: 120000 // 120秒超时，因为要测试3次连接
+  })
+}
+
 export const updateProviderStatus = (id, status) => {
   return request({
     url: `/v1/admin/providers/${id}/status`,

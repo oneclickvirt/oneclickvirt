@@ -39,15 +39,28 @@ func (d *DockerProvider) GetSupportedInstanceTypes() []string {
 
 func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	d.config = config
+	global.APP_LOG.Info("Docker provider开始连接",
+		zap.String("host", utils.TruncateString(config.Host, 32)),
+		zap.Int("port", config.Port))
 
-	// SSH 连接
-	sshConfig := utils.SSHConfig{
-		Host:     config.Host,
-		Port:     config.Port,
-		Username: config.Username,
-		Password: config.Password,
+	// 设置SSH超时配置
+	sshConnectTimeout := config.SSHConnectTimeout
+	sshExecuteTimeout := config.SSHExecuteTimeout
+	if sshConnectTimeout <= 0 {
+		sshConnectTimeout = 30 // 默认30秒
+	}
+	if sshExecuteTimeout <= 0 {
+		sshExecuteTimeout = 300 // 默认300秒
 	}
 
+	sshConfig := utils.SSHConfig{
+		Host:           config.Host,
+		Port:           config.Port,
+		Username:       config.Username,
+		Password:       config.Password,
+		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
+		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
+	}
 	client, err := utils.NewSSHClient(sshConfig)
 	if err != nil {
 		return fmt.Errorf("failed to connect via SSH: %w", err)

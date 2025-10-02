@@ -66,7 +66,7 @@ func (s *UserTrafficService) GetUserTrafficOverview(userID uint) (map[string]int
 		vnstatData["total_limit"] = u.TotalTraffic
 	}
 
-	// 添加数据源标识
+	// 数据源标识
 	vnstatData["data_source"] = "vnstat"
 	vnstatData["vnstat_available"] = true
 

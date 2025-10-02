@@ -81,6 +81,9 @@ type CreateProviderRequest struct {
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
 	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
+	// SSH连接配置
+	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
+	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
 }
 
 type UpdateProviderRequest struct {
@@ -125,6 +128,9 @@ type UpdateProviderRequest struct {
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
 	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
+	// SSH连接配置
+	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
+	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
 }
 
 type ProviderListRequest struct {
@@ -141,6 +147,15 @@ type FreezeProviderRequest struct {
 type UnfreezeProviderRequest struct {
 	ID        uint   `json:"id" binding:"required"`
 	ExpiresAt string `json:"expiresAt"` // 新的过期时间，格式: "2006-01-02 15:04:05"
+}
+
+// TestSSHConnectionRequest 测试SSH连接请求
+type TestSSHConnectionRequest struct {
+	Host      string `json:"host" binding:"required"`     // SSH服务器地址
+	Port      int    `json:"port" binding:"required"`     // SSH端口
+	Username  string `json:"username" binding:"required"` // SSH用户名
+	Password  string `json:"password" binding:"required"` // SSH密码
+	TestCount int    `json:"testCount"`                   // 测试次数，默认3次
 }
 
 type CreateInviteCodeRequest struct {

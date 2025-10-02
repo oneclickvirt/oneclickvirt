@@ -79,6 +79,10 @@ type Provider struct {
 	AllowConcurrentTasks bool `json:"allowConcurrentTasks" gorm:"default:false"` // 是否允许并发执行任务
 	MaxConcurrentTasks   int  `json:"maxConcurrentTasks" gorm:"default:1"`       // 最大并发任务数量
 
+	// SSH连接配置
+	SSHConnectTimeout int `json:"sshConnectTimeout" gorm:"default:30"`  // SSH连接超时时间（秒），默认30秒
+	SSHExecuteTimeout int `json:"sshExecuteTimeout" gorm:"default:300"` // SSH命令执行超时时间（秒），默认300秒
+
 	// 任务调度配置
 	TaskPollInterval  int  `json:"taskPollInterval" gorm:"default:60"`    // 任务轮询间隔（秒）
 	EnableTaskPolling bool `json:"enableTaskPolling" gorm:"default:true"` // 是否启用任务轮询机制
@@ -286,12 +290,14 @@ type ProviderNodeConfig struct {
 	TokenID               string   `json:"token_id"` // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
-	Country               string   `json:"country"`           // Provider所在国家，用于CDN选择
-	Architecture          string   `json:"architecture"`      // 架构类型，如amd64, arm64等
-	Type                  string   `json:"type"`              // docker, lxd, incus, proxmox
-	SupportedTypes        []string `json:"supported_types"`   // 支持的实例类型: container, vm, both
-	ContainerEnabled      bool     `json:"container_enabled"` // 是否支持容器
-	VirtualMachineEnabled bool     `json:"vm_enabled"`        // 是否支持虚拟机
-	ExecutionRule         string   `json:"execution_rule"`    // 操作轮转规则：auto, api_only, ssh_only
-	NetworkType           string   `json:"networkType"`       // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
+	Architecture          string   `json:"architecture"`        // 架构类型，如amd64, arm64等
+	Type                  string   `json:"type"`                // docker, lxd, incus, proxmox
+	SupportedTypes        []string `json:"supported_types"`     // 支持的实例类型: container, vm, both
+	ContainerEnabled      bool     `json:"container_enabled"`   // 是否支持容器
+	VirtualMachineEnabled bool     `json:"vm_enabled"`          // 是否支持虚拟机
+	SSHConnectTimeout     int      `json:"ssh_connect_timeout"` // SSH连接超时时间（秒）
+	SSHExecuteTimeout     int      `json:"ssh_execute_timeout"` // SSH命令执行超时时间（秒）
+	ExecutionRule         string   `json:"execution_rule"`      // 操作轮转规则：auto, api_only, ssh_only
+	NetworkType           string   `json:"networkType"`         // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 }

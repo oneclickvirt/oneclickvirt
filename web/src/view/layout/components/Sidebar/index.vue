@@ -167,19 +167,19 @@ const userRoutes = computed(() => {
         }
       },
       {
-        path: '/admin/instances',
-        name: 'AdminInstances',
-        meta: {
-          title: '实例管理',
-          icon: 'Box'
-        }
-      },
-      {
         path: '/admin/tasks',
         name: 'AdminTasks',
         meta: {
           title: '任务管理',
           icon: 'List'
+        }
+      },
+      {
+        path: '/admin/instances',
+        name: 'AdminInstances',
+        meta: {
+          title: '实例管理',
+          icon: 'Box'
         }
       },
       {

@@ -559,6 +559,103 @@
                 placeholder="可选：SSH私钥内容"
               />
             </el-form-item>
+            
+            <el-divider content-position="left">
+              SSH超时配置
+            </el-divider>
+            
+            <el-form-item
+              label="连接超时"
+              prop="sshConnectTimeout"
+            >
+              <el-input-number
+                v-model="addProviderForm.sshConnectTimeout"
+                :min="5"
+                :max="300"
+                :step="5"
+                placeholder="30"
+              />
+              <span style="margin-left: 10px;">秒</span>
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  SSH连接建立的超时时间，Docker环境建议设置较大值（30秒以上）
+                </el-text>
+              </div>
+            </el-form-item>
+            
+            <el-form-item
+              label="执行超时"
+              prop="sshExecuteTimeout"
+            >
+              <el-input-number
+                v-model="addProviderForm.sshExecuteTimeout"
+                :min="30"
+                :max="3600"
+                :step="30"
+                placeholder="300"
+              />
+              <span style="margin-left: 10px;">秒</span>
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  SSH命令执行的超时时间，复杂操作建议设置300秒以上
+                </el-text>
+              </div>
+            </el-form-item>
+            
+            <el-form-item label="连接测试">
+              <el-button
+                type="primary"
+                :loading="testingConnection"
+                :disabled="!addProviderForm.host || !addProviderForm.username || !addProviderForm.password"
+                @click="testSSHConnection"
+              >
+                <el-icon v-if="!testingConnection">
+                  <Connection />
+                </el-icon>
+                {{ testingConnection ? '测试中...' : '测试SSH连接' }}
+              </el-button>
+              <div
+                v-if="connectionTestResult"
+                class="form-tip"
+                style="margin-top: 10px;"
+              >
+                <el-alert
+                  :title="connectionTestResult.title"
+                  :type="connectionTestResult.type"
+                  :closable="false"
+                  show-icon
+                >
+                  <template v-if="connectionTestResult.success">
+                    <div style="margin-top: 8px;">
+                      <p><strong>测试结果：</strong></p>
+                      <p>最小延迟: {{ connectionTestResult.minLatency }}ms</p>
+                      <p>最大延迟: {{ connectionTestResult.maxLatency }}ms</p>
+                      <p>平均延迟: {{ connectionTestResult.avgLatency }}ms</p>
+                      <p style="margin-top: 8px;">
+                        <strong>推荐超时时间: {{ connectionTestResult.recommendedTimeout }}秒</strong>
+                      </p>
+                      <el-button
+                        type="primary"
+                        size="small"
+                        style="margin-top: 8px;"
+                        @click="applyRecommendedTimeout"
+                      >
+                        应用推荐值
+                      </el-button>
+                    </div>
+                  </template>
+                  <template v-else>
+                    <p>{{ connectionTestResult.error }}</p>
+                  </template>
+                </el-alert>
+              </div>
+            </el-form-item>
           </el-form>
         </el-tab-pane>
 
@@ -1687,7 +1784,7 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened } from '@element-plus/icons-vue'
-import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail } from '@/api/admin'
+import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { countries, getFlagEmoji, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { formatMemorySize, formatDiskSize } from '@/utils/unit-formatter'
 import { useUserStore } from '@/pinia/modules/user'
@@ -1746,7 +1843,9 @@ const addProviderForm = reactive({
   maxTraffic: 1048576, // 最大流量限制（MB），默认1TB
   ipv4PortMappingMethod: 'device_proxy', // IPv4端口映射方式：device_proxy, iptables, native
   ipv6PortMappingMethod: 'device_proxy',  // IPv6端口映射方式：device_proxy, iptables, native
-  executionRule: 'auto' // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
+  executionRule: 'auto', // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
+  sshConnectTimeout: 30, // SSH连接超时（秒），默认30秒
+  sshExecuteTimeout: 300 // SSH执行超时（秒），默认300秒
 })
 
 // 流量单位转换：TB 转 MB (1TB = 1024 * 1024 MB = 1048576 MB)
@@ -1833,6 +1932,71 @@ const loadProviders = async () => {
   }
 }
 
+// SSH连接测试相关
+const testingConnection = ref(false)
+const connectionTestResult = ref(null)
+
+// 测试SSH连接
+const testSSHConnection = async () => {
+  if (!addProviderForm.host || !addProviderForm.username || !addProviderForm.password) {
+    ElMessage.warning('请先填写主机地址、用户名和密码')
+    return
+  }
+
+  testingConnection.value = true
+  connectionTestResult.value = null
+
+  try {
+    const result = await testSSHConnectionAPI({
+      host: addProviderForm.host,
+      port: addProviderForm.port || 22,
+      username: addProviderForm.username,
+      password: addProviderForm.password,
+      testCount: 3
+    })
+
+    if (result.code === 200 && result.data.success) {
+      connectionTestResult.value = {
+        success: true,
+        title: 'SSH连接测试成功',
+        type: 'success',
+        minLatency: result.data.minLatency,
+        maxLatency: result.data.maxLatency,
+        avgLatency: result.data.avgLatency,
+        recommendedTimeout: result.data.recommendedTimeout
+      }
+      ElMessage.success('SSH连接测试成功')
+    } else {
+      connectionTestResult.value = {
+        success: false,
+        title: 'SSH连接测试失败',
+        type: 'error',
+        error: result.data.errorMessage || result.msg || '连接失败'
+      }
+      ElMessage.error('SSH连接测试失败: ' + (result.data.errorMessage || result.msg))
+    }
+  } catch (error) {
+    connectionTestResult.value = {
+      success: false,
+      title: 'SSH连接测试失败',
+      type: 'error',
+      error: error.message || '网络请求失败'
+    }
+    ElMessage.error('测试失败: ' + error.message)
+  } finally {
+    testingConnection.value = false
+  }
+}
+
+// 应用推荐的超时值
+const applyRecommendedTimeout = () => {
+  if (connectionTestResult.value && connectionTestResult.value.success) {
+    addProviderForm.sshConnectTimeout = connectionTestResult.value.recommendedTimeout
+    addProviderForm.sshExecuteTimeout = Math.max(300, connectionTestResult.value.recommendedTimeout * 10)
+    ElMessage.success('已应用推荐的超时配置')
+  }
+}
+
 const cancelAddServer = () => {
   showAddDialog.value = false
   isEditing.value = false
@@ -1875,8 +2039,13 @@ const cancelAddServer = () => {
     // 重置流量配置 (1TB = 1048576 MB)
     maxTraffic: 1048576,
     ipv4PortMappingMethod: 'device_proxy',
-    ipv6PortMappingMethod: 'device_proxy'
+    ipv6PortMappingMethod: 'device_proxy',
+    // 重置SSH超时配置
+    sshConnectTimeout: 30,
+    sshExecuteTimeout: 300
   })
+  // 清空连接测试结果
+  connectionTestResult.value = null
 }
 
 const submitAddServer = async () => {
@@ -1927,7 +2096,10 @@ const submitAddServer = async () => {
       // 流量配置
       maxTraffic: addProviderForm.maxTraffic || 1048576,
       // 操作执行规则
-      executionRule: addProviderForm.executionRule || 'auto' // 操作轮转规则
+      executionRule: addProviderForm.executionRule || 'auto', // 操作轮转规则
+      // SSH超时配置
+      sshConnectTimeout: addProviderForm.sshConnectTimeout || 30,
+      sshExecuteTimeout: addProviderForm.sshExecuteTimeout || 300
     }
 
     // 根据Provider类型设置端口映射方式
@@ -2038,7 +2210,10 @@ const editProvider = (provider) => {
     // 流量配置
     maxTraffic: provider.maxTraffic || 1048576,
     // 操作执行规则
-    executionRule: provider.executionRule || 'auto' // 默认自动切换
+    executionRule: provider.executionRule || 'auto', // 默认自动切换
+    // SSH超时配置
+    sshConnectTimeout: provider.sshConnectTimeout || 30,
+    sshExecuteTimeout: provider.sshExecuteTimeout || 300
   })
 
   // 根据Provider类型设置端口映射方式的默认值

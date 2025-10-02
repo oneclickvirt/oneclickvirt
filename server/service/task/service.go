@@ -1096,7 +1096,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	// 更新进度
 	s.updateTaskProgress(task.ID, 60, "正在删除实例...")
 
-	// 调用Provider删除实例，添加重试机制
+	// 调用Provider删除实例，重试机制
 	providerApiService := &provider2.ProviderApiService{}
 	maxRetries := global.APP_CONFIG.Task.DeleteRetryCount
 	if maxRetries <= 0 {
@@ -1481,7 +1481,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	// 更新进度
 	s.updateTaskProgress(task.ID, 50, "正在设置新密码...")
 
-	// 通过Provider重置实例密码，添加重试机制
+	// 通过Provider重置实例密码，重试机制
 	providerService := provider.GetProviderService()
 	maxRetries := 3
 	var lastErr error

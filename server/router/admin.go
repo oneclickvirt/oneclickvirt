@@ -82,6 +82,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.DELETE("/providers/:id", admin.DeleteProvider)
 		AdminGroup.POST("/providers/freeze", admin.FreezeProvider)
 		AdminGroup.POST("/providers/unfreeze", admin.UnfreezeProvider)
+		AdminGroup.POST("/providers/test-ssh-connection", admin.TestSSHConnection)
 
 		// 证书管理
 		AdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)

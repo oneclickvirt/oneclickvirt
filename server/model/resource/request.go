@@ -8,7 +8,7 @@ type ResourceCheckRequest struct {
 	InstanceType string `json:"instanceType"` // container 或 vm
 	CPU          int    `json:"cpu"`
 	Memory       int64  `json:"memory"` // MB
-	Disk         int64  `json:"disk"`   // GB
+	Disk         int64  `json:"disk"`   // MB
 }
 
 // ResourceCheckResult 资源校验结果

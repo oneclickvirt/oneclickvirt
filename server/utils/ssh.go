@@ -30,11 +30,18 @@ type SSHClient struct {
 
 func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 	if config.ConnectTimeout == 0 {
-		config.ConnectTimeout = 12 * time.Second // 用户要求的12秒连接等待
+		config.ConnectTimeout = 30 * time.Second // 增加到30秒，适应Docker容器网络环境
 	}
 	if config.ExecuteTimeout == 0 {
 		config.ExecuteTimeout = 300 * time.Second // 5分钟执行超时，足够处理复杂配置
 	}
+
+	global.APP_LOG.Debug("SSH客户端连接配置",
+		zap.String("host", config.Host),
+		zap.Int("port", config.Port),
+		zap.Duration("connectTimeout", config.ConnectTimeout),
+		zap.Duration("executeTimeout", config.ExecuteTimeout))
+
 	sshConfig := &ssh.ClientConfig{
 		User: config.Username,
 		Auth: []ssh.AuthMethod{
@@ -122,6 +129,114 @@ func (c *SSHClient) Close() error {
 		return c.client.Close()
 	}
 	return nil
+}
+
+// TestSSHConnectionLatency 测试SSH连接延迟，执行指定次数测试并返回结果
+// 复用 NewSSHClient 和 Execute 方法，确保测试环境与实际生产环境完全一致
+func TestSSHConnectionLatency(config SSHConfig, testCount int) (minLatency, maxLatency, avgLatency time.Duration, err error) {
+	if testCount <= 0 {
+		testCount = 3 // 默认测试3次
+	}
+
+	latencies := make([]time.Duration, 0, testCount)
+	var totalLatency time.Duration
+	successCount := 0
+	var lastError error
+
+	global.APP_LOG.Info("开始SSH连接延迟测试",
+		zap.String("host", config.Host),
+		zap.Int("port", config.Port),
+		zap.Int("testCount", testCount))
+
+	for i := 0; i < testCount; i++ {
+		startTime := time.Now()
+
+		// 使用真实的 NewSSHClient 创建连接，确保测试环境与生产环境一致
+		client, connErr := NewSSHClient(config)
+		if connErr != nil {
+			global.APP_LOG.Error("SSH连接测试失败",
+				zap.Int("attempt", i+1),
+				zap.Error(connErr))
+			lastError = fmt.Errorf("连接失败(第%d次): %w", i+1, connErr)
+			// 不立即返回，继续尝试其他次数
+			time.Sleep(1 * time.Second) // 失败后等待1秒再试
+			continue
+		}
+
+		// 使用真实的 Execute 方法执行命令，测试完整的执行流程（包括PTY、环境变量等）
+		_, cmdErr := client.Execute("echo test")
+
+		// 重要：立即关闭客户端，释放连接
+		closeErr := client.Close()
+		if closeErr != nil {
+			global.APP_LOG.Warn("关闭SSH连接时出错",
+				zap.Int("attempt", i+1),
+				zap.Error(closeErr))
+		}
+
+		if cmdErr != nil {
+			global.APP_LOG.Error("SSH命令执行失败",
+				zap.Int("attempt", i+1),
+				zap.Error(cmdErr))
+			lastError = fmt.Errorf("命令执行失败(第%d次): %w", i+1, cmdErr)
+			// 不立即返回，继续尝试其他次数
+			time.Sleep(1 * time.Second) // 失败后等待1秒再试
+			continue
+		}
+
+		latency := time.Since(startTime)
+		latencies = append(latencies, latency)
+		totalLatency += latency
+		successCount++
+
+		global.APP_LOG.Info("SSH连接测试完成",
+			zap.Int("attempt", i+1),
+			zap.Duration("latency", latency))
+
+		// 两次测试之间稍作延迟，避免连接过快
+		if i < testCount-1 {
+			time.Sleep(500 * time.Millisecond)
+		}
+	}
+
+	// 检查是否至少有一次成功
+	if successCount == 0 {
+		if lastError != nil {
+			return 0, 0, 0, fmt.Errorf("所有 %d 次连接测试均失败，最后错误: %w", testCount, lastError)
+		}
+		return 0, 0, 0, fmt.Errorf("所有 %d 次连接测试均失败", testCount)
+	}
+
+	// 如果部分成功，记录警告
+	if successCount < testCount {
+		global.APP_LOG.Warn("部分SSH连接测试失败",
+			zap.Int("successCount", successCount),
+			zap.Int("totalCount", testCount),
+			zap.Int("failedCount", testCount-successCount))
+	}
+
+	// 计算统计数据（仅基于成功的测试）
+	minLatency = latencies[0]
+	maxLatency = latencies[0]
+	for _, lat := range latencies {
+		if lat < minLatency {
+			minLatency = lat
+		}
+		if lat > maxLatency {
+			maxLatency = lat
+		}
+	}
+	avgLatency = totalLatency / time.Duration(successCount)
+
+	global.APP_LOG.Info("SSH连接延迟测试完成",
+		zap.Int("successCount", successCount),
+		zap.Int("totalCount", testCount),
+		zap.Duration("minLatency", minLatency),
+		zap.Duration("maxLatency", maxLatency),
+		zap.Duration("avgLatency", avgLatency),
+		zap.Duration("recommendedTimeout", maxLatency*2))
+
+	return minLatency, maxLatency, avgLatency, nil
 }
 
 // ExecuteWithLogging 执行命令并记录详细的调试信息，用于排查复杂命令的执行问题

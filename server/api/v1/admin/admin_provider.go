@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 	"strconv"
 	"strings"
 
@@ -483,5 +484,99 @@ func ExportProviderConfigs(c *gin.Context) {
 		Data: gin.H{
 			"exportDir": exportDir,
 		},
+	})
+}
+
+// TestSSHConnection 测试SSH连接延迟
+// @Summary 测试SSH连接延迟
+// @Description 测试SSH连接延迟，执行多次测试并返回最小、最大、平均延迟及推荐超时时间
+// @Tags 提供商管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body admin.TestSSHConnectionRequest true "测试SSH连接请求参数"
+// @Success 200 {object} common.Response{data=admin.TestSSHConnectionResponse} "测试成功"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 500 {object} common.Response "测试失败"
+// @Router /admin/providers/test-ssh-connection [post]
+func TestSSHConnection(c *gin.Context) {
+	var req admin.TestSSHConnectionRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	// 设置默认测试次数
+	if req.TestCount <= 0 {
+		req.TestCount = 3
+	}
+	if req.TestCount > 10 {
+		req.TestCount = 10 // 最多测试10次
+	}
+
+	global.APP_LOG.Info("开始测试SSH连接",
+		zap.String("host", req.Host),
+		zap.Int("port", req.Port),
+		zap.String("username", req.Username),
+		zap.Int("testCount", req.TestCount))
+
+	// 导入 utils 包
+	sshConfig := utils.SSHConfig{
+		Host:     req.Host,
+		Port:     req.Port,
+		Username: req.Username,
+		Password: req.Password,
+	}
+
+	// 执行测试
+	minLatency, maxLatency, avgLatency, err := utils.TestSSHConnectionLatency(sshConfig, req.TestCount)
+	if err != nil {
+		global.APP_LOG.Error("SSH连接测试失败",
+			zap.String("host", req.Host),
+			zap.Int("port", req.Port),
+			zap.Error(err))
+
+		c.JSON(http.StatusOK, common.Response{
+			Code: 500,
+			Msg:  "SSH连接测试失败",
+			Data: admin.TestSSHConnectionResponse{
+				Success:      false,
+				ErrorMessage: err.Error(),
+				TestCount:    req.TestCount,
+			},
+		})
+		return
+	}
+
+	// 计算推荐超时时间：最大延迟 * 2（向上取整到秒）
+	recommendedTimeout := int((maxLatency * 2).Seconds())
+	if recommendedTimeout < 10 {
+		recommendedTimeout = 10 // 最小10秒
+	}
+
+	response := admin.TestSSHConnectionResponse{
+		Success:            true,
+		MinLatency:         minLatency.Milliseconds(),
+		MaxLatency:         maxLatency.Milliseconds(),
+		AvgLatency:         avgLatency.Milliseconds(),
+		RecommendedTimeout: recommendedTimeout,
+		TestCount:          req.TestCount,
+	}
+
+	global.APP_LOG.Info("SSH连接测试成功",
+		zap.String("host", req.Host),
+		zap.Int("port", req.Port),
+		zap.Int64("minLatency", response.MinLatency),
+		zap.Int64("maxLatency", response.MaxLatency),
+		zap.Int64("avgLatency", response.AvgLatency),
+		zap.Int("recommendedTimeout", response.RecommendedTimeout))
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 200,
+		Msg:  "SSH连接测试成功",
+		Data: response,
 	})
 }

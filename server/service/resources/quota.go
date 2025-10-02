@@ -161,7 +161,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	// 4. 检查磁盘限制
 	if currentResources.Disk+requestedResources.Disk > maxResources.Disk {
 		result.Allowed = false
-		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %dGB，当前使用 %dGB，最大允许 %dGB",
+		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %dMB，当前使用 %dMB，最大允许 %dMB",
 			requestedResources.Disk, currentResources.Disk, maxResources.Disk)
 		return result, nil
 	}

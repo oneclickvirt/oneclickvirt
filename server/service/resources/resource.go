@@ -137,7 +137,7 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 	// 磁盘严格校验（不可超开）
 	if req.Disk > availableDisk {
 		result.Allowed = false
-		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d GB，可用 %d GB", req.Disk, availableDisk)
+		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
 		return result, nil
 	}
 

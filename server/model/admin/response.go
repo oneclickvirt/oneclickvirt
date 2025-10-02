@@ -159,3 +159,14 @@ type ResetPasswordTaskResult struct {
 	NewPassword string `json:"newPassword"`
 	ResetTime   int64  `json:"resetTime"`
 }
+
+// TestSSHConnectionResponse 测试SSH连接响应
+type TestSSHConnectionResponse struct {
+	Success            bool   `json:"success"`                // 测试是否成功
+	MinLatency         int64  `json:"minLatency"`             // 最小延迟（毫秒）
+	MaxLatency         int64  `json:"maxLatency"`             // 最大延迟（毫秒）
+	AvgLatency         int64  `json:"avgLatency"`             // 平均延迟（毫秒）
+	RecommendedTimeout int    `json:"recommendedTimeout"`     // 推荐的超时时间（秒），最大延迟*2
+	TestCount          int    `json:"testCount"`              // 测试次数
+	ErrorMessage       string `json:"errorMessage,omitempty"` // 错误信息（如果失败）
+}

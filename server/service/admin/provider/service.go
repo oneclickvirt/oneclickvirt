@@ -171,6 +171,9 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
 		// 流量管理
 		MaxTraffic: req.MaxTraffic,
+		// SSH连接配置
+		SSHConnectTimeout: req.SSHConnectTimeout,
+		SSHExecuteTimeout: req.SSHExecuteTimeout,
 	}
 
 	// 设置默认值
@@ -217,6 +220,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	// 流量限制默认值：1TB
 	if provider.MaxTraffic <= 0 {
 		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
+	}
+	// SSH超时默认值
+	if provider.SSHConnectTimeout <= 0 {
+		provider.SSHConnectTimeout = 30 // 默认30秒连接超时
+	}
+	if provider.SSHExecuteTimeout <= 0 {
+		provider.SSHExecuteTimeout = 300 // 默认300秒执行超时
 	}
 	provider.NextAvailablePort = provider.PortRangeStart
 
@@ -343,6 +353,13 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	// 流量限制更新
 	if req.MaxTraffic > 0 {
 		provider.MaxTraffic = req.MaxTraffic
+	}
+	// SSH超时配置更新
+	if req.SSHConnectTimeout > 0 {
+		provider.SSHConnectTimeout = req.SSHConnectTimeout
+	}
+	if req.SSHExecuteTimeout > 0 {
+		provider.SSHExecuteTimeout = req.SSHExecuteTimeout
 	}
 
 	// 设置默认值

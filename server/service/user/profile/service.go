@@ -208,12 +208,12 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 	// 构建查询条件
 	query := global.APP_DB.Model(&adminModel.Task{}).Where("user_id = ?", userID)
 
-	// 添加状态筛选
+	// 状态筛选
 	if req.Status != "" {
 		query = query.Where("status = ?", req.Status)
 	}
 
-	// 添加任务类型筛选
+	// 任务类型筛选
 	if req.TaskType != "" {
 		query = query.Where("task_type = ?", req.TaskType)
 	}

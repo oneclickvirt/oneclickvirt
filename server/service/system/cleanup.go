@@ -83,7 +83,26 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 				zap.String("instanceName", instance.Name))
 		}
 
-		// 2. 释放资源配额
+		// 2. 释放物理资源（CPU/Memory/Disk）
+		global.APP_LOG.Debug("释放失败实例物理资源",
+			zap.Uint("instanceId", instance.ID),
+			zap.Int("cpu", instance.CPU),
+			zap.Int64("memory", instance.Memory),
+			zap.Int64("disk", instance.Disk))
+
+		resourceService := &resources.ResourceService{}
+		if err := resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
+			instance.CPU, instance.Memory, instance.Disk); err != nil {
+			global.APP_LOG.Error("释放失败实例物理资源失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+			// 不返回错误，继续其他清理操作
+		} else {
+			global.APP_LOG.Info("释放失败实例物理资源成功",
+				zap.Uint("instanceId", instance.ID))
+		}
+
+		// 3. 释放资源配额（实例数量）
 		global.APP_LOG.Debug("释放失败实例资源配额",
 			zap.Uint("instanceId", instance.ID))
 
@@ -98,7 +117,7 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 			}
 		}
 
-		// 3. 删除实例记录
+		// 4. 删除实例记录
 		if err := tx.Delete(instance).Error; err != nil {
 			return err
 		}
