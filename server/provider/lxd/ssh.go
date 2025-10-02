@@ -2,6 +2,7 @@ package lxd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -16,6 +17,7 @@ import (
 )
 
 func (l *LXDProvider) sshListInstances(ctx context.Context) ([]provider.Instance, error) {
+	// 原有逻辑：使用 CSV 格式获取基本实例信息（兼容性最好）
 	output, err := l.sshClient.Execute("lxc list --format csv -c n,s,t")
 	if err != nil {
 		return nil, err
@@ -42,8 +44,180 @@ func (l *LXDProvider) sshListInstances(ctx context.Context) ([]provider.Instance
 		instances = append(instances, instance)
 	}
 
+	// 补充逻辑：尝试通过 JSON 格式获取 IP 地址信息（如果支持的话）
+	l.enrichInstancesWithIPAddresses(&instances)
+
 	global.APP_LOG.Info("通过SSH成功获取LXD实例列表", zap.Int("count", len(instances)))
 	return instances, nil
+}
+
+// enrichInstancesWithIPAddresses 补充获取实例的IP地址信息
+func (l *LXDProvider) enrichInstancesWithIPAddresses(instances *[]provider.Instance) {
+	// 尝试使用 JSON 格式获取详细信息（包含 IP 地址）
+	output, err := l.sshClient.Execute("lxc list --format json")
+	if err != nil {
+		// JSON 格式不支持，跳过IP地址获取
+		global.APP_LOG.Debug("lxc list --format json 不支持，跳过IP地址获取",
+			zap.Error(err))
+		return
+	}
+
+	// 解析 JSON 输出
+	var lxdInstances []map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &lxdInstances); err != nil {
+		global.APP_LOG.Debug("解析 lxc list JSON 输出失败",
+			zap.Error(err))
+		return
+	}
+
+	// 构建实例名称到JSON数据的映射
+	instanceMap := make(map[string]map[string]interface{})
+	for _, inst := range lxdInstances {
+		if name, ok := inst["name"].(string); ok {
+			instanceMap[name] = inst
+		}
+	}
+
+	// 遍历实例列表，补充 IP 地址信息
+	for idx := range *instances {
+		instance := &(*instances)[idx]
+		inst, exists := instanceMap[instance.Name]
+		if !exists {
+			continue
+		}
+
+		// 从 state.network 提取网络信息
+		if state, ok := inst["state"].(map[string]interface{}); ok {
+			if network, ok := state["network"].(map[string]interface{}); ok {
+				// 遍历网络接口，通常是 eth0, eth1 等
+				for ifaceName, ifaceData := range network {
+					if ifaceMap, ok := ifaceData.(map[string]interface{}); ok {
+						if addresses, ok := ifaceMap["addresses"].([]interface{}); ok {
+							for _, addr := range addresses {
+								if addrMap, ok := addr.(map[string]interface{}); ok {
+									family, _ := addrMap["family"].(string)
+									scope, _ := addrMap["scope"].(string)
+									address, _ := addrMap["address"].(string)
+
+									// IPv4 地址
+									if family == "inet" {
+										if scope == "global" || scope == "link" {
+											if instance.PrivateIP == "" {
+												instance.PrivateIP = address
+												instance.IP = address
+												global.APP_LOG.Debug("获取到内网IPv4地址",
+													zap.String("instance", instance.Name),
+													zap.String("interface", ifaceName),
+													zap.String("ip", address))
+											}
+										}
+									}
+
+									// IPv6 地址
+									if family == "inet6" && scope == "global" {
+										if instance.IPv6Address == "" {
+											instance.IPv6Address = address
+											global.APP_LOG.Debug("获取到IPv6地址",
+												zap.String("instance", instance.Name),
+												zap.String("interface", ifaceName),
+												zap.String("ipv6", address))
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 补充逻辑1：如果没有获取到内网IPv4，尝试从 eth0 明确获取
+				if instance.PrivateIP == "" {
+					if eth0, ok := network["eth0"].(map[string]interface{}); ok {
+						if addresses, ok := eth0["addresses"].([]interface{}); ok {
+							for _, addr := range addresses {
+								if addrMap, ok := addr.(map[string]interface{}); ok {
+									family, _ := addrMap["family"].(string)
+									scope, _ := addrMap["scope"].(string)
+									address, _ := addrMap["address"].(string)
+
+									if family == "inet" && scope == "global" {
+										instance.PrivateIP = address
+										instance.IP = address
+										global.APP_LOG.Debug("从eth0补充获取到内网IPv4地址",
+											zap.String("instance", instance.Name),
+											zap.String("ip", address))
+										break
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 补充逻辑2：处理IPv6地址，优先使用公网IPv6
+				if instance.IPv6Address != "" && strings.HasPrefix(instance.IPv6Address, "fd") {
+					// 当前IPv6是ULA地址，尝试从eth1获取公网IPv6
+					if eth1, ok := network["eth1"].(map[string]interface{}); ok {
+						if addresses, ok := eth1["addresses"].([]interface{}); ok {
+							for _, addr := range addresses {
+								if addrMap, ok := addr.(map[string]interface{}); ok {
+									family, _ := addrMap["family"].(string)
+									scope, _ := addrMap["scope"].(string)
+									address, _ := addrMap["address"].(string)
+
+									if family == "inet6" && scope == "global" && !strings.HasPrefix(address, "fd") {
+										instance.IPv6Address = address
+										global.APP_LOG.Debug("从eth1替换为公网IPv6地址",
+											zap.String("instance", instance.Name),
+											zap.String("ipv6", address))
+										break
+									}
+								}
+							}
+						}
+					}
+				} else if instance.IPv6Address == "" {
+					// 如果没有获取到任何IPv6，尝试从eth1获取
+					if eth1, ok := network["eth1"].(map[string]interface{}); ok {
+						if addresses, ok := eth1["addresses"].([]interface{}); ok {
+							for _, addr := range addresses {
+								if addrMap, ok := addr.(map[string]interface{}); ok {
+									family, _ := addrMap["family"].(string)
+									scope, _ := addrMap["scope"].(string)
+									address, _ := addrMap["address"].(string)
+
+									if family == "inet6" && scope == "global" {
+										if !strings.HasPrefix(address, "fd") {
+											instance.IPv6Address = address
+											global.APP_LOG.Debug("从eth1补充获取到公网IPv6地址",
+												zap.String("instance", instance.Name),
+												zap.String("ipv6", address))
+											break
+										} else if instance.IPv6Address == "" {
+											instance.IPv6Address = address
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// 补充逻辑3：如果 state.network 中仍然没有获取到 IPv6，尝试从 devices 配置中获取
+		if instance.IPv6Address == "" {
+			if devices, ok := inst["devices"].(map[string]interface{}); ok {
+				if eth1, ok := devices["eth1"].(map[string]interface{}); ok {
+					if ipv6Addr, ok := eth1["ipv6.address"].(string); ok && ipv6Addr != "" {
+						instance.IPv6Address = ipv6Addr
+						global.APP_LOG.Debug("从devices配置获取到IPv6地址",
+							zap.String("instance", instance.Name),
+							zap.String("ipv6", ipv6Addr))
+					}
+				}
+			}
+		}
+	}
 }
 
 func (l *LXDProvider) sshCreateInstance(ctx context.Context, config provider.InstanceConfig) error {

@@ -15,7 +15,7 @@ import (
 )
 
 func (i *IncusProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
-	url := fmt.Sprintf("https://%s:8443/1.0/instances", i.config.Host)
+	url := fmt.Sprintf("https://%s:8443/1.0/instances?recursion=1", i.config.Host)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -36,12 +36,153 @@ func (i *IncusProvider) apiListInstances(ctx context.Context) ([]provider.Instan
 	if metadata, ok := response["metadata"].([]interface{}); ok {
 		for _, item := range metadata {
 			if instanceData, ok := item.(map[string]interface{}); ok {
+				name, _ := instanceData["name"].(string)
+				status, _ := instanceData["status"].(string)
+				instanceType, _ := instanceData["type"].(string)
+
 				instance := provider.Instance{
-					ID:     instanceData["name"].(string),
-					Name:   instanceData["name"].(string),
-					Status: instanceData["status"].(string),
-					Type:   instanceData["type"].(string),
+					ID:     name,
+					Name:   name,
+					Status: status,
+					Type:   instanceType,
 				}
+
+				// 原有逻辑：遍历所有网络接口提取网络信息
+				if state, ok := instanceData["state"].(map[string]interface{}); ok {
+					if network, ok := state["network"].(map[string]interface{}); ok {
+						// 遍历网络接口
+						for ifaceName, ifaceData := range network {
+							if ifaceMap, ok := ifaceData.(map[string]interface{}); ok {
+								if addresses, ok := ifaceMap["addresses"].([]interface{}); ok {
+									for _, addr := range addresses {
+										if addrMap, ok := addr.(map[string]interface{}); ok {
+											family, _ := addrMap["family"].(string)
+											scope, _ := addrMap["scope"].(string)
+											address, _ := addrMap["address"].(string)
+
+											// IPv4 地址
+											if family == "inet" {
+												if scope == "global" || scope == "link" {
+													// 内网 IPv4 地址
+													if instance.PrivateIP == "" {
+														instance.PrivateIP = address
+														instance.IP = address // 向后兼容
+														global.APP_LOG.Debug("获取到内网IPv4地址",
+															zap.String("instance", name),
+															zap.String("interface", ifaceName),
+															zap.String("ip", address))
+													}
+												}
+											}
+
+											// IPv6 地址
+											if family == "inet6" && scope == "global" {
+												// 全局 IPv6 地址
+												if instance.IPv6Address == "" {
+													instance.IPv6Address = address
+													global.APP_LOG.Debug("获取到IPv6地址",
+														zap.String("instance", name),
+														zap.String("interface", ifaceName),
+														zap.String("ipv6", address))
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+
+						// 补充逻辑1：如果原有逻辑没有获取到内网IPv4，尝试从 eth0 明确获取
+						if instance.PrivateIP == "" {
+							if eth0, ok := network["eth0"].(map[string]interface{}); ok {
+								if addresses, ok := eth0["addresses"].([]interface{}); ok {
+									for _, addr := range addresses {
+										if addrMap, ok := addr.(map[string]interface{}); ok {
+											family, _ := addrMap["family"].(string)
+											scope, _ := addrMap["scope"].(string)
+											address, _ := addrMap["address"].(string)
+
+											if family == "inet" && scope == "global" {
+												instance.PrivateIP = address
+												instance.IP = address
+												global.APP_LOG.Debug("从eth0补充获取到内网IPv4地址",
+													zap.String("instance", name),
+													zap.String("ip", address))
+												break
+											}
+										}
+									}
+								}
+							}
+						}
+
+						// 补充逻辑2：如果原有逻辑获取到的IPv6是ULA地址，尝试从 eth1 获取公网IPv6
+						if instance.IPv6Address != "" && strings.HasPrefix(instance.IPv6Address, "fd") {
+							// 当前IPv6是ULA地址，尝试从eth1获取公网IPv6
+							if eth1, ok := network["eth1"].(map[string]interface{}); ok {
+								if addresses, ok := eth1["addresses"].([]interface{}); ok {
+									for _, addr := range addresses {
+										if addrMap, ok := addr.(map[string]interface{}); ok {
+											family, _ := addrMap["family"].(string)
+											scope, _ := addrMap["scope"].(string)
+											address, _ := addrMap["address"].(string)
+
+											if family == "inet6" && scope == "global" && !strings.HasPrefix(address, "fd") {
+												instance.IPv6Address = address
+												global.APP_LOG.Debug("从eth1替换为公网IPv6地址",
+													zap.String("instance", name),
+													zap.String("ipv6", address))
+												break
+											}
+										}
+									}
+								}
+							}
+						} else if instance.IPv6Address == "" {
+							// 如果原有逻辑没有获取到任何IPv6，尝试从eth1获取
+							if eth1, ok := network["eth1"].(map[string]interface{}); ok {
+								if addresses, ok := eth1["addresses"].([]interface{}); ok {
+									for _, addr := range addresses {
+										if addrMap, ok := addr.(map[string]interface{}); ok {
+											family, _ := addrMap["family"].(string)
+											scope, _ := addrMap["scope"].(string)
+											address, _ := addrMap["address"].(string)
+
+											if family == "inet6" && scope == "global" {
+												// 优先使用非ULA地址
+												if !strings.HasPrefix(address, "fd") {
+													instance.IPv6Address = address
+													global.APP_LOG.Debug("从eth1补充获取到公网IPv6地址",
+														zap.String("instance", name),
+														zap.String("ipv6", address))
+													break
+												} else if instance.IPv6Address == "" {
+													// 如果没有公网IPv6，至少保存ULA地址
+													instance.IPv6Address = address
+												}
+											}
+										}
+									}
+								}
+							}
+						}
+					}
+				}
+
+				// 补充逻辑3：如果 state.network 中仍然没有获取到 IPv6，尝试从 devices 配置中获取
+				if instance.IPv6Address == "" {
+					if devices, ok := instanceData["devices"].(map[string]interface{}); ok {
+						if eth1, ok := devices["eth1"].(map[string]interface{}); ok {
+							if ipv6Addr, ok := eth1["ipv6.address"].(string); ok && ipv6Addr != "" {
+								instance.IPv6Address = ipv6Addr
+								global.APP_LOG.Debug("从devices配置获取到IPv6地址",
+									zap.String("instance", name),
+									zap.String("ipv6", ipv6Addr))
+							}
+						}
+					}
+				}
+
 				instances = append(instances, instance)
 			}
 		}
