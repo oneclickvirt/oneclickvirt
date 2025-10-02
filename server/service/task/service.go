@@ -346,7 +346,8 @@ func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
 		switch task.Status {
 		case "pending":
 			return s.cancelPendingTask(tx, taskID, fmt.Sprintf("管理员取消: %s", reason))
-		case "running":
+		case "processing", "running":
+			// processing和running状态都使用强制停止
 			return s.forceStopRunningTask(tx, taskID, fmt.Sprintf("管理员强制停止: %s", reason))
 		case "cancelling":
 			return s.forceKillTask(tx, taskID, fmt.Sprintf("管理员强制终止: %s", reason))
@@ -354,6 +355,11 @@ func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
 			return fmt.Errorf("任务状态[%s]不允许操作", task.Status)
 		}
 	})
+
+	// 任务取消成功后，如果是删除任务，触发资源释放
+	if err == nil {
+		go s.handleCancelledTaskCleanup(taskID)
+	}
 
 	return err
 }
@@ -447,6 +453,54 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 	}()
 
 	return nil
+}
+
+// handleCancelledTaskCleanup 处理被取消任务的清理工作（特别是删除任务）
+func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
+	var task adminModel.Task
+	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
+		global.APP_LOG.Error("获取被取消任务信息失败", zap.Uint("taskId", taskID), zap.Error(err))
+		return
+	}
+
+	// 如果是删除任务，需要进行资源清理
+	if task.TaskType == "delete" && task.InstanceID != nil {
+		global.APP_LOG.Info("开始清理被取消的删除任务的资源",
+			zap.Uint("taskId", taskID),
+			zap.Uint("instanceId", *task.InstanceID))
+
+		// 解析任务数据
+		var taskReq adminModel.DeleteInstanceTaskRequest
+		if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+			global.APP_LOG.Error("解析删除任务数据失败", zap.Uint("taskId", taskID), zap.Error(err))
+			return
+		}
+
+		// 获取实例信息
+		var instance providerModel.Instance
+		if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				global.APP_LOG.Error("获取实例信息失败", zap.Uint("instanceId", *task.InstanceID), zap.Error(err))
+			}
+			return
+		}
+
+		// 恢复实例状态（如果是deleting状态）
+		if instance.Status == "deleting" {
+			// 尝试恢复到之前的状态，如果无法确定则设为stopped
+			newStatus := "stopped"
+			if err := global.APP_DB.Model(&instance).Update("status", newStatus).Error; err != nil {
+				global.APP_LOG.Error("恢复实例状态失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("newStatus", newStatus),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已恢复被取消删除任务的实例状态",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("status", newStatus))
+			}
+		}
+	}
 }
 
 // releaseTaskResources 释放任务资源
@@ -607,21 +661,22 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 		}
 
 		taskResponse := adminModel.AdminTaskResponse{
-			ID:               task.ID,
-			UUID:             task.UUID,
-			TaskType:         task.TaskType,
-			Status:           task.Status,
-			Progress:         task.Progress,
-			ErrorMessage:     task.ErrorMessage,
-			CancelReason:     task.CancelReason,
-			CreatedAt:        task.CreatedAt,
-			StartedAt:        task.StartedAt,
-			CompletedAt:      task.CompletedAt,
-			TimeoutDuration:  task.TimeoutDuration,
-			StatusMessage:    task.StatusMessage,
-			UserID:           task.UserID,
-			ProviderID:       &providerID,
-			CanForceStop:     (task.Status == "running" || task.Status == "cancelling") && task.IsForceStoppable,
+			ID:              task.ID,
+			UUID:            task.UUID,
+			TaskType:        task.TaskType,
+			Status:          task.Status,
+			Progress:        task.Progress,
+			ErrorMessage:    task.ErrorMessage,
+			CancelReason:    task.CancelReason,
+			CreatedAt:       task.CreatedAt,
+			StartedAt:       task.StartedAt,
+			CompletedAt:     task.CompletedAt,
+			TimeoutDuration: task.TimeoutDuration,
+			StatusMessage:   task.StatusMessage,
+			UserID:          task.UserID,
+			ProviderID:      &providerID,
+			// 管理员可以强制停止processing, running, cancelling状态的任务
+			CanForceStop:     (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
 			IsForceStoppable: task.IsForceStoppable,
 			RemainingTime:    remainingTime,
 		}

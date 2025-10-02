@@ -343,7 +343,7 @@
         >
           <template #default="{ row }">
             <el-button
-              v-if="row.status === 'running' && row.canForceStop"
+              v-if="row.canForceStop"
               type="danger"
               size="small"
               @click="showForceStopDialog(row)"
