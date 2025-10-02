@@ -224,6 +224,13 @@ func SeedSystemImages() {
 				imageInfo.Name, imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture).First(&existingImage)
 
 			if result.Error != nil {
+				// 确定镜像状态：默认仅启用 Debian 和 Alpine 镜像
+				imageStatus := "inactive"
+				osTypeLower := strings.ToLower(imageInfo.OSType)
+				if osTypeLower == "debian" || osTypeLower == "alpine" {
+					imageStatus = "active"
+				}
+
 				// 创建新镜像记录
 				systemImage := system.SystemImage{
 					Name:         imageInfo.Name,
@@ -231,7 +238,7 @@ func SeedSystemImages() {
 					InstanceType: imageInfo.InstanceType,
 					Architecture: imageInfo.Architecture,
 					URL:          imageInfo.URL,
-					Status:       "active",
+					Status:       imageStatus,
 					Description:  imageInfo.Description,
 					OSType:       imageInfo.OSType,
 					OSVersion:    imageInfo.OSVersion,

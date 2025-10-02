@@ -81,8 +81,8 @@ func getDefaultConfig() config.Server {
 					MaxInstances: 1,
 					MaxResources: map[string]interface{}{
 						"cpu":    1,
-						"memory": 512,
-						"disk":   10,
+						"memory": 1025,
+						"disk":   1,
 					},
 				},
 				2: {
