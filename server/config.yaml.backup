@@ -5,7 +5,7 @@ auth:
     email-username: root
     enable-email: false
     enable-oauth2: false
-    enable-public-registration: true
+    enable-public-registration: false
     enable-qq: false
     enable-telegram: false
     qq-app-id: ""
@@ -63,8 +63,8 @@ quota:
             max-resources:
                 bandwidth: 10
                 cpu: 1
-                disk: 10240
-                memory: 512
+                disk: 1025
+                memory: 350
             max-traffic: 102400
         2:
             max-instances: 3

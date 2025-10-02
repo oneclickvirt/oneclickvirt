@@ -388,7 +388,7 @@ const filterForm = reactive({
 
 const pagination = reactive({
   page: 1,
-  pageSize: 20
+  pageSize: 10
 })
 
 // 按服务器分组任务

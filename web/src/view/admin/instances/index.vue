@@ -437,7 +437,7 @@ const filters = ref({
 // 分页
 const pagination = ref({
   page: 1,
-  pageSize: 20,
+  pageSize: 10,
   total: 0
 })
 

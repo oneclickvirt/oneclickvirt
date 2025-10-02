@@ -14,7 +14,9 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon user-icon">
-              <el-icon><User /></el-icon>
+              <el-icon :size="40">
+                <User />
+              </el-icon>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -32,7 +34,9 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon server-icon">
-              <el-icon><Monitor /></el-icon>
+              <el-icon :size="40">
+                <Monitor />
+              </el-icon>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -50,7 +54,9 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon vm-icon">
-              <el-icon><Box /></el-icon>
+              <el-icon :size="40">
+                <Cpu />
+              </el-icon>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -68,7 +74,9 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon container-icon">
-              <el-icon><Grid /></el-icon>
+              <el-icon :size="40">
+                <Box />
+              </el-icon>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -88,7 +96,7 @@
 <script setup>
 import { reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { User, Monitor, Box, Grid } from '@element-plus/icons-vue'
+import { User, Monitor, Cpu, Box } from '@element-plus/icons-vue'
 import { getAdminDashboard } from '@/api/admin'
 
 const dashboardData = reactive({
@@ -123,7 +131,7 @@ onMounted(async () => {
 
 <style scoped>
 .admin-dashboard {
-  padding: 20px;
+  padding: 24px;
 }
 
 .dashboard-header {
@@ -132,14 +140,14 @@ onMounted(async () => {
 
 .dashboard-header h1 {
   margin: 0 0 10px 0;
-  color: #333;
+  color: #303133;
   font-size: 28px;
   font-weight: 600;
 }
 
 .dashboard-header p {
   margin: 0;
-  color: #666;
+  color: #909399;
   font-size: 16px;
 }
 
@@ -148,57 +156,72 @@ onMounted(async () => {
 }
 
 .stat-card {
-  height: 120px;
+  height: 140px;
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  cursor: pointer;
+}
+
+.stat-card:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 
 .stat-content {
   display: flex;
   align-items: center;
   height: 100%;
+  padding: 10px;
 }
 
 .stat-icon {
-  width: 60px;
-  height: 60px;
+  width: 70px;
+  height: 70px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-right: 20px;
-  font-size: 24px;
   color: white;
+  flex-shrink: 0;
 }
 
 .user-icon {
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
 }
 
 .server-icon {
   background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  box-shadow: 0 4px 12px rgba(240, 147, 251, 0.4);
 }
 
 .vm-icon {
   background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
 }
 
 .container-icon {
   background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+  box-shadow: 0 4px 12px rgba(67, 233, 123, 0.4);
 }
 
 .stat-info {
   flex: 1;
+  min-width: 0;
 }
 
 .stat-number {
-  font-size: 32px;
-  font-weight: bold;
-  color: #333;
-  line-height: 1;
+  font-size: 36px;
+  font-weight: 700;
+  color: #303133;
+  line-height: 1.2;
+  margin-bottom: 8px;
 }
 
 .stat-label {
   font-size: 14px;
-  color: #666;
-  margin-top: 5px;
+  color: #909399;
+  font-weight: 500;
 }
 </style>

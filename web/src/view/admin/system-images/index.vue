@@ -186,6 +186,10 @@
       <el-table
         v-loading="loading"
         :data="tableData"
+        class="system-images-table"
+        :row-style="{ height: '60px' }"
+        :cell-style="{ padding: '12px 0' }"
+        :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
         stripe
         border
         @selection-change="handleSelectionChange"
@@ -193,15 +197,18 @@
         <el-table-column
           type="selection"
           width="55"
+          align="center"
         />
         <el-table-column
           prop="name"
           label="镜像名称"
-          min-width="80"
+          min-width="140"
+          show-overflow-tooltip
         />
         <el-table-column
           label="Provider类型"
-          width="120"
+          width="130"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="getProviderTypeColor(scope.row.providerType)">
@@ -211,7 +218,8 @@
         </el-table-column>
         <el-table-column
           label="实例类型"
-          width="100"
+          width="110"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.instanceType === 'vm' ? 'primary' : 'success'">
@@ -222,11 +230,14 @@
         <el-table-column
           prop="architecture"
           label="架构"
-          width="80"
+          width="100"
+          align="center"
+          show-overflow-tooltip
         />
         <el-table-column
           label="操作系统"
-          width="120"
+          width="140"
+          show-overflow-tooltip
         >
           <template #default="scope">
             {{ getDisplayName(scope.row.osType) || scope.row.osType || '-' }}
@@ -235,24 +246,22 @@
         <el-table-column
           prop="osVersion"
           label="版本"
-          width="100"
+          width="120"
+          show-overflow-tooltip
         />
         <el-table-column
           label="URL"
-          width="150"
+          min-width="200"
+          show-overflow-tooltip
         >
           <template #default="scope">
-            <el-tooltip
-              :content="scope.row.url"
-              placement="top"
-            >
-              <span class="url-text">{{ truncateUrl(scope.row.url) }}</span>
-            </el-tooltip>
+            <span class="url-text">{{ scope.row.url }}</span>
           </template>
         </el-table-column>
         <el-table-column
           label="大小"
-          width="80"
+          width="100"
+          align="center"
         >
           <template #default="scope">
             {{ formatFileSize(scope.row.size) }}
@@ -260,7 +269,8 @@
         </el-table-column>
         <el-table-column
           label="状态"
-          width="80"
+          width="100"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.status === 'active' ? 'success' : 'danger'">
@@ -270,7 +280,8 @@
         </el-table-column>
         <el-table-column
           label="创建时间"
-          width="160"
+          width="180"
+          align="center"
         >
           <template #default="scope">
             {{ formatDateTime(scope.row.createdAt) }}
@@ -278,31 +289,34 @@
         </el-table-column>
         <el-table-column
           label="操作"
-          width="220"
+          width="240"
           fixed="right"
+          align="center"
         >
           <template #default="scope">
-            <el-button
-              type="primary"
-              size="small"
-              @click="handleEdit(scope.row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              :type="scope.row.status === 'active' ? 'warning' : 'success'"
-              size="small"
-              @click="handleToggleStatus(scope.row)"
-            >
-              {{ scope.row.status === 'active' ? '禁用' : '激活' }}
-            </el-button>
-            <el-button
-              type="danger"
-              size="small"
-              @click="handleDelete(scope.row)"
-            >
-              删除
-            </el-button>
+            <div class="action-buttons">
+              <el-button
+                type="primary"
+                size="small"
+                @click="handleEdit(scope.row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                :type="scope.row.status === 'active' ? 'warning' : 'success'"
+                size="small"
+                @click="handleToggleStatus(scope.row)"
+              >
+                {{ scope.row.status === 'active' ? '禁用' : '激活' }}
+              </el-button>
+              <el-button
+                type="danger"
+                size="small"
+                @click="handleDelete(scope.row)"
+              >
+                删除
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -957,13 +971,55 @@ onMounted(() => {
 
 <style scoped>
 .system-images-container {
-  padding: 20px;
+  padding: 24px;
+  
+  .box-card {
+    :deep(.el-card__header) {
+      padding: 20px 24px;
+      border-bottom: 1px solid #ebeef5;
+    }
+    
+    :deep(.el-card__body) {
+      padding: 24px;
+    }
+  }
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
+}
+
+.system-images-table {
+  width: 100%;
+  
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 4px 0;
+    
+    .el-button {
+      margin: 0 !important;
+    }
+  }
+  
+  :deep(.el-table__cell) {
+    .cell {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 }
 
 .filter-container {
@@ -982,6 +1038,11 @@ onMounted(() => {
 .url-text {
   cursor: pointer;
   color: #409eff;
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .is-default {

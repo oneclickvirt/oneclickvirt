@@ -226,28 +226,34 @@
     </div>
 
     <!-- 任务列表 -->
-    <el-card>
+    <el-card class="tasks-card">
       <el-table
         v-loading="loading"
         :data="tasks"
-        style="width: 100%"
+        class="tasks-table"
+        :row-style="{ height: '60px' }"
+        :cell-style="{ padding: '12px 0' }"
+        :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
         :default-sort="{prop: 'createdAt', order: 'descending'}"
       >
         <el-table-column
           prop="id"
           label="ID"
           width="80"
+          align="center"
           sortable
         />
         <el-table-column
           prop="userName"
           label="用户"
-          width="120"
+          width="140"
+          show-overflow-tooltip
         />
         <el-table-column
           prop="taskType"
           label="任务类型"
-          width="100"
+          width="120"
+          align="center"
         >
           <template #default="{ row }">
             <el-tag size="small">
@@ -258,7 +264,8 @@
         <el-table-column
           prop="status"
           label="状态"
-          width="100"
+          width="110"
+          align="center"
         >
           <template #default="{ row }">
             <el-tag
@@ -272,7 +279,8 @@
         <el-table-column
           prop="progress"
           label="进度"
-          width="120"
+          width="140"
+          align="center"
         >
           <template #default="{ row }">
             <el-progress
@@ -287,19 +295,20 @@
         <el-table-column
           prop="providerName"
           label="节点"
-          width="120"
+          width="140"
+          show-overflow-tooltip
         />
         <el-table-column
           prop="instanceName"
           label="实例"
-          width="150"
+          min-width="180"
         >
           <template #default="{ row }">
-            <div v-if="row.instanceName">
-              <div>{{ row.instanceName }}</div>
+            <div v-if="row.instanceName" class="instance-info">
+              <div class="instance-name">{{ row.instanceName }}</div>
               <el-tag
                 v-if="row.instanceType"
-                size="mini"
+                size="small"
                 :type="row.instanceType === 'vm' ? 'warning' : 'info'"
               >
                 {{ row.instanceType === 'vm' ? '虚拟机' : '容器' }}
@@ -314,7 +323,8 @@
         <el-table-column
           prop="createdAt"
           label="创建时间"
-          width="160"
+          width="180"
+          align="center"
           sortable
         >
           <template #default="{ row }">
@@ -324,7 +334,8 @@
         <el-table-column
           prop="remainingTime"
           label="剩余时间"
-          width="100"
+          width="110"
+          align="center"
         >
           <template #default="{ row }">
             <span v-if="row.status === 'running' && row.remainingTime > 0">
@@ -338,32 +349,35 @@
         </el-table-column>
         <el-table-column
           label="操作"
-          width="180"
+          width="220"
           fixed="right"
+          align="center"
         >
           <template #default="{ row }">
-            <el-button
-              v-if="row.canForceStop"
-              type="danger"
-              size="small"
-              @click="showForceStopDialog(row)"
-            >
-              强制停止
-            </el-button>
-            <el-button
-              v-if="row.status === 'pending'"
-              type="warning"
-              size="small"
-              @click="cancelTask(row)"
-            >
-              取消任务
-            </el-button>
-            <el-button
-              size="small"
-              @click="viewTaskDetail(row)"
-            >
-              详情
-            </el-button>
+            <div class="action-buttons">
+              <el-button
+                v-if="row.canForceStop"
+                type="danger"
+                size="small"
+                @click="showForceStopDialog(row)"
+              >
+                强制停止
+              </el-button>
+              <el-button
+                v-if="row.status === 'pending'"
+                type="warning"
+                size="small"
+                @click="cancelTask(row)"
+              >
+                取消任务
+              </el-button>
+              <el-button
+                size="small"
+                @click="viewTaskDetail(row)"
+              >
+                详情
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -574,7 +588,7 @@ const filterForm = reactive({
 
 const pagination = reactive({
   page: 1,
-  pageSize: 20
+  pageSize: 10
 })
 
 const forceStopDialog = reactive({
@@ -816,27 +830,28 @@ onMounted(() => {
 
 <style scoped>
 .admin-tasks {
-  padding: 20px;
+  padding: 24px;
 }
 
 .page-header {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .page-header h1 {
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
+  color: #303133;
 }
 
 .page-header p {
   margin: 0;
-  color: #666;
+  color: #909399;
   font-size: 14px;
 }
 
 .stats-cards {
-  margin-bottom: 20px;
+  margin-bottom: 24px;
 }
 
 .stats-card {
@@ -892,6 +907,50 @@ onMounted(() => {
   background: #f5f5f5;
   padding: 20px;
   border-radius: 4px;
+}
+
+.tasks-card {
+  :deep(.el-card__body) {
+    padding: 24px;
+  }
+}
+
+.tasks-table {
+  width: 100%;
+  
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 4px 0;
+    
+    .el-button {
+      margin: 0 !important;
+    }
+  }
+  
+  .instance-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    
+    .instance-name {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      font-weight: 500;
+    }
+  }
+  
+  :deep(.el-table__cell) {
+    .cell {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 }
 
 .pagination {

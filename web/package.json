@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
+    "@fortawesome/fontawesome-free": "^7.1.0",
     "@vueup/vue-quill": "^1.2.0",
     "axios": "^1.8.2",
     "dotenv": "^17.2.1",
@@ -27,10 +28,10 @@
     "vue-router": "^4.4.3"
   },
   "devDependencies": {
+    "@eslint/js": "^9.12.0",
     "@vitejs/plugin-vue": "^5.0.3",
     "@vue/compiler-sfc": "^3.5.1",
     "autoprefixer": "^10.4.20",
-    "@eslint/js": "^9.12.0",
     "eslint": "^9.12.0",
     "eslint-plugin-vue": "^9.19.2",
     "sass": "^1.78.0",

@@ -4,12 +4,6 @@
       <template #header>
         <div class="config-header">
           <span>系统配置</span>
-          <el-text
-            type="info"
-            size="small"
-          >
-            分类管理系统各项配置
-          </el-text>
         </div>
       </template>
       

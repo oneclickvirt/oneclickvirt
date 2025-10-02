@@ -1,11 +1,12 @@
 <template>
   <div class="oauth2-providers-container">
-    <el-card shadow="never">
+    <el-card shadow="never" class="providers-card">
       <template #header>
         <div class="card-header">
-          <span>OAuth2 提供商管理</span>
+          <span class="card-title">OAuth2 提供商管理</span>
           <el-button
             type="primary"
+            size="default"
             @click="handleAdd"
           >
             <el-icon><Plus /></el-icon>
@@ -17,31 +18,36 @@
       <el-table
         v-loading="loading"
         :data="providers"
-        style="width: 100%"
+        class="providers-table"
+        :row-style="{ height: '60px' }"
+        :cell-style="{ padding: '12px 0' }"
+        :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
       >
         <el-table-column
           prop="id"
           label="ID"
-          width="60"
+          width="80"
+          align="center"
         />
         <el-table-column
           prop="displayName"
           label="显示名称"
-          width="150"
+          min-width="140"
         />
         <el-table-column
           prop="name"
           label="标识名称"
-          width="120"
+          min-width="140"
         />
         <el-table-column
           label="状态"
           width="100"
+          align="center"
         >
           <template #default="{ row }">
             <el-tag
               :type="row.enabled ? 'success' : 'info'"
-              size="small"
+              size="default"
             >
               {{ row.enabled ? '已启用' : '已禁用' }}
             </el-tag>
@@ -49,7 +55,8 @@
         </el-table-column>
         <el-table-column
           label="注册统计"
-          width="150"
+          width="140"
+          align="center"
         >
           <template #default="{ row }">
             <span v-if="row.maxRegistrations > 0">
@@ -63,40 +70,44 @@
         <el-table-column
           prop="clientId"
           label="Client ID"
-          width="200"
+          min-width="220"
           show-overflow-tooltip
         />
         <el-table-column
           prop="redirectUrl"
           label="回调地址"
+          min-width="200"
           show-overflow-tooltip
         />
         <el-table-column
           label="操作"
-          width="280"
+          width="300"
           fixed="right"
+          align="center"
         >
           <template #default="{ row }">
-            <el-button
-              size="small"
-              @click="handleEdit(row)"
-            >
-              编辑
-            </el-button>
-            <el-button
-              size="small"
-              type="warning"
-              @click="handleResetCount(row)"
-            >
-              重置计数
-            </el-button>
-            <el-button
-              size="small"
-              type="danger"
-              @click="handleDelete(row)"
-            >
-              删除
-            </el-button>
+            <div class="action-buttons">
+              <el-button
+                size="small"
+                @click="handleEdit(row)"
+              >
+                编辑
+              </el-button>
+              <el-button
+                size="small"
+                type="warning"
+                @click="handleResetCount(row)"
+              >
+                重置计数
+              </el-button>
+              <el-button
+                size="small"
+                type="danger"
+                @click="handleDelete(row)"
+              >
+                删除
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -106,13 +117,13 @@
     <el-dialog
       v-model="dialogVisible"
       :title="dialogTitle"
-      width="800px"
+      width="900px"
       :close-on-click-modal="false"
     >
       <template #header>
-        <div style="display: flex; align-items: center; justify-content: space-between;">
+        <div class="dialog-header">
           <span>{{ dialogTitle }}</span>
-          <div v-if="!isEdit" style="display: flex; gap: 10px;">
+          <div v-if="!isEdit" class="preset-buttons">
             <el-button
               size="small"
               type="primary"
@@ -136,75 +147,92 @@
         ref="formRef"
         :model="formData"
         :rules="formRules"
-        label-width="140px"
+        label-width="120px"
+        class="oauth2-form"
       >
-        <el-tabs v-model="activeTab">
+        <el-tabs v-model="activeTab" class="oauth2-tabs">
           <el-tab-pane
             label="基础配置"
             name="basic"
           >
-            <el-form-item
-              label="显示名称"
-              prop="displayName"
-            >
-              <el-input
-                v-model="formData.displayName"
-                placeholder="例如: Linux.do"
-              />
-            </el-form-item>
+            <div class="form-section">
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item
+                    label="显示名称"
+                    prop="displayName"
+                  >
+                    <el-input
+                      v-model="formData.displayName"
+                      placeholder="例如: Linux.do"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item
+                    label="标识名称"
+                    prop="name"
+                  >
+                    <el-input
+                      v-model="formData.name"
+                      placeholder="例如: linuxdo (唯一标识，不可重复)"
+                      :disabled="isEdit"
+                    />
+                  </el-form-item>
+                </el-col>
+              </el-row>
 
-            <el-form-item
-              label="标识名称"
-              prop="name"
-            >
-              <el-input
-                v-model="formData.name"
-                placeholder="例如: linuxdo (唯一标识，不可重复)"
-                :disabled="isEdit"
-              />
-            </el-form-item>
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item label="启用状态">
+                    <el-switch
+                      v-model="formData.enabled"
+                      active-text="启用"
+                      inactive-text="禁用"
+                    />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item
+                    label="显示顺序"
+                    prop="sort"
+                  >
+                    <el-input-number
+                      v-model="formData.sort"
+                      :min="0"
+                      :max="999"
+                      :controls-position="right"
+                      style="width: 100%"
+                    />
+                    <span class="form-tip">数字越小越靠前</span>
+                  </el-form-item>
+                </el-col>
+              </el-row>
 
-            <el-form-item label="启用状态">
-              <el-switch
-                v-model="formData.enabled"
-                active-text="启用"
-                inactive-text="禁用"
-              />
-            </el-form-item>
+              <el-divider content-position="left">OAuth2 凭证</el-divider>
 
-            <el-form-item
-              label="Client ID"
-              prop="clientId"
-            >
-              <el-input
-                v-model="formData.clientId"
-                placeholder="OAuth2 Client ID"
-              />
-            </el-form-item>
+              <el-form-item
+                label="Client ID"
+                prop="clientId"
+              >
+                <el-input
+                  v-model="formData.clientId"
+                  placeholder="OAuth2 Client ID"
+                />
+              </el-form-item>
 
-            <el-form-item
-              label="Client Secret"
-              prop="clientSecret"
-            >
-              <el-input
-                v-model="formData.clientSecret"
-                type="password"
-                placeholder="OAuth2 Client Secret"
-                show-password
-              />
-            </el-form-item>
-
-            <el-form-item
-              label="显示顺序"
-              prop="sort"
-            >
-              <el-input-number
-                v-model="formData.sort"
-                :min="0"
-                :max="999"
-              />
-              <span class="form-tip">数字越小越靠前</span>
-            </el-form-item>
+              <el-form-item
+                label="Client Secret"
+                prop="clientSecret"
+              >
+                <el-input
+                  v-model="formData.clientSecret"
+                  type="password"
+                  placeholder="OAuth2 Client Secret"
+                  show-password
+                />
+              </el-form-item>
+            </div>
           </el-tab-pane>
 
           <el-tab-pane
@@ -774,19 +802,95 @@ const removeLevelMapping = (key) => {
 
 <style scoped lang="scss">
 .oauth2-providers-container {
-  padding: 20px;
+  padding: 24px;
+  
+  .providers-card {
+    :deep(.el-card__header) {
+      padding: 20px 24px;
+      border-bottom: 1px solid #ebeef5;
+    }
+    
+    :deep(.el-card__body) {
+      padding: 24px;
+    }
+  }
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  .card-title {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
+}
+
+.providers-table {
+  width: 100%;
+  
+  .action-buttons {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    flex-wrap: wrap;
+    padding: 4px 0;
+    
+    .el-button {
+      margin: 0 !important;
+    }
+  }
+}
+
+.dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  
+  .preset-buttons {
+    display: flex;
+    gap: 10px;
+  }
+}
+
+.oauth2-form {
+  .oauth2-tabs {
+    :deep(.el-tabs__content) {
+      padding-top: 20px;
+    }
+  }
+
+  .form-section {
+    padding: 10px 0;
+  }
+
+  :deep(.el-form-item) {
+    margin-bottom: 24px;
+  }
+
+  :deep(.el-divider) {
+    margin: 30px 0 24px 0;
+  }
+
+  :deep(.el-input-number) {
+    width: 100%;
+  }
+  
+  :deep(.el-col) {
+    .el-form-item {
+      margin-right: 0;
+    }
+  }
 }
 
 .form-tip {
-  margin-left: 10px;
+  display: block;
+  margin-top: 4px;
   font-size: 12px;
   color: #909399;
+  line-height: 1.5;
 }
 
 .level-mapping {

@@ -54,21 +54,21 @@
           <div class="feature-preview">
             <div class="preview-card">
               <div class="card-icon">
-                🖥️
+                <i class="fas fa-server"></i>
               </div>
               <h3>虚拟机管理</h3>
               <p>快速创建和管理虚拟机实例</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
-                📦
+                <i class="fas fa-box"></i>
               </div>
               <h3>容器管理</h3>
               <p>快速创建和管理容器实例</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
-                📊
+                <i class="fas fa-chart-bar"></i>
               </div>
               <h3>监控面板</h3>
               <p>实时监控资源使用情况</p>
@@ -204,6 +204,13 @@
                 target="_blank"
                 rel="noopener noreferrer"
               >OneClickVirt</a>
+            </li>
+            <li>
+              <a
+                href="https://github.com/oneclickvirt/ecs"
+                target="_blank"
+                rel="noopener noreferrer"
+              >ECS</a>
             </li>
           </ul>
         </div>

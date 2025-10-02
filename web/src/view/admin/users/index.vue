@@ -144,34 +144,46 @@
       <el-table 
         v-loading="loading" 
         :data="users" 
-        style="width: 100%"
+        class="users-table"
+        :row-style="{ height: '60px' }"
+        :cell-style="{ padding: '12px 0' }"
+        :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
         @selection-change="handleSelectionChange"
       >
         <el-table-column
           type="selection"
           width="55"
+          align="center"
         />
         <el-table-column
           prop="id"
           label="ID"
-          width="60"
+          width="80"
+          align="center"
         />
         <el-table-column
           prop="username"
           label="用户名"
+          min-width="140"
+          show-overflow-tooltip
         />
         <el-table-column
           prop="email"
           label="邮箱"
+          min-width="180"
+          show-overflow-tooltip
         />
         <el-table-column
           prop="nickname"
           label="昵称"
+          min-width="140"
+          show-overflow-tooltip
         />
         <el-table-column
           prop="level"
           label="等级"
           width="100"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="getLevelTagType(scope.row.level)">
@@ -183,6 +195,7 @@
           prop="userType"
           label="用户类型"
           width="120"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="getUserTypeTagType(scope.row.userType)">
@@ -194,6 +207,7 @@
           prop="status"
           label="状态"
           width="100"
+          align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'">
@@ -203,58 +217,62 @@
         </el-table-column>
         <el-table-column
           label="操作"
-          width="400"
+          width="250"
+          fixed="right"
+          align="center"
         >
           <template #default="scope">
-            <el-button
-              size="small"
-              @click="editUser(scope.row)"
-            >
-              编辑
-            </el-button>
-            <el-dropdown @command="(level) => handleSetUserLevel(scope.row, level)">
+            <div class="action-buttons">
               <el-button
                 size="small"
-                type="primary"
+                @click="editUser(scope.row)"
               >
-                等级设置<el-icon class="el-icon--right">
-                  <arrow-down />
-                </el-icon>
+                编辑
               </el-button>
-              <template #dropdown>
-                <el-dropdown-menu>
-                  <el-dropdown-item :command="1">
-                    设置为等级1
-                  </el-dropdown-item>
-                  <el-dropdown-item :command="2">
-                    设置为等级2
-                  </el-dropdown-item>
-                  <el-dropdown-item :command="3">
-                    设置为等级3
-                  </el-dropdown-item>
-                  <el-dropdown-item :command="4">
-                    设置为等级4
-                  </el-dropdown-item>
-                  <el-dropdown-item :command="5">
-                    设置为等级5
-                  </el-dropdown-item>
-                </el-dropdown-menu>
-              </template>
-            </el-dropdown>
-            <el-button
-              size="small"
-              :type="scope.row.status === 1 ? 'danger' : 'success'"
-              @click="handleToggleUserStatus(scope.row)"
-            >
-              {{ scope.row.status === 1 ? '禁用' : '启用' }}
-            </el-button>
-            <el-button
-              size="small"
-              type="warning"
-              @click="handleResetPassword(scope.row)"
-            >
-              重置密码
-            </el-button>
+              <el-dropdown @command="(level) => handleSetUserLevel(scope.row, level)">
+                <el-button
+                  size="small"
+                  type="primary"
+                >
+                  等级设置<el-icon class="el-icon--right">
+                    <arrow-down />
+                  </el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :command="1">
+                      设置为等级1
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="2">
+                      设置为等级2
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="3">
+                      设置为等级3
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="4">
+                      设置为等级4
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="5">
+                      设置为等级5
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-button
+                size="small"
+                :type="scope.row.status === 1 ? 'danger' : 'success'"
+                @click="handleToggleUserStatus(scope.row)"
+              >
+                {{ scope.row.status === 1 ? '禁用' : '启用' }}
+              </el-button>
+              <el-button
+                size="small"
+                type="warning"
+                @click="handleResetPassword(scope.row)"
+              >
+                重置密码
+              </el-button>
+            </div>
           </template>
         </el-table-column>
       </el-table>
@@ -364,7 +382,7 @@
         </el-row>
 
         <el-row :gutter="20">
-          <el-col :span="8">
+          <el-col :span="12">
             <el-form-item
               label="用户类型"
               prop="userType"
@@ -384,7 +402,30 @@
               </el-select>
             </el-form-item>
           </el-col>
-          <el-col :span="8">
+          <el-col :span="12">
+            <el-form-item
+              label="状态"
+              prop="status"
+            >
+              <el-select
+                v-model="addUserForm.status"
+                style="width: 100%"
+              >
+                <el-option
+                  label="正常"
+                  :value="1"
+                />
+                <el-option
+                  label="禁用"
+                  :value="0"
+                />
+              </el-select>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        
+        <el-row :gutter="20">
+          <el-col :span="12">
             <el-form-item
               label="等级"
               prop="level"
@@ -413,26 +454,6 @@
                 <el-option
                   label="等级5"
                   :value="5"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="8">
-            <el-form-item
-              label="状态"
-              prop="status"
-            >
-              <el-select
-                v-model="addUserForm.status"
-                style="width: 100%"
-              >
-                <el-option
-                  label="正常"
-                  :value="1"
-                />
-                <el-option
-                  label="禁用"
-                  :value="0"
                 />
               </el-select>
             </el-form-item>
@@ -1062,15 +1083,71 @@ const handleCurrentChange = (page) => {
 }
 </script>
 
-<style scoped>
+<style scoped lang="scss">
 .users-container {
-  padding: 20px;
+  padding: 24px;
+  
+  .el-card {
+    :deep(.el-card__header) {
+      padding: 20px 24px;
+      border-bottom: 1px solid #ebeef5;
+    }
+    
+    :deep(.el-card__body) {
+      padding: 24px;
+    }
+  }
 }
 
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
+  
+  .header-actions {
+    .el-button {
+      padding: 10px 20px;
+    }
+  }
+}
+
+.users-table {
+  width: 100%;
+  
+  .action-buttons {
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    padding: 4px 0;
+    
+    .el-button {
+      margin: 0 !important;
+      padding: 8px 16px;
+    }
+    
+    .el-dropdown {
+      .el-button {
+        margin: 0 !important;
+        padding: 8px 16px;
+      }
+    }
+  }
+  
+  :deep(.el-table__cell) {
+    .cell {
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
 }
 
 .toolbar {
@@ -1079,23 +1156,35 @@ const handleCurrentChange = (page) => {
   justify-content: space-between;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
+  
+  .el-button {
+    padding: 10px 20px;
+  }
 }
 
 .search-section {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
-  gap: 10px;
+  gap: 12px;
+  
+  .el-button {
+    padding: 10px 20px;
+  }
 }
 
 .batch-actions {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 10px;
+  gap: 12px;
+  padding: 12px 16px;
   background-color: #f5f7fa;
   border-radius: 4px;
+  
+  .el-button {
+    padding: 8px 16px;
+  }
 }
 
 .selection-info {
@@ -1122,5 +1211,47 @@ const handleCurrentChange = (page) => {
 
 .dialog-footer {
   text-align: right;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  
+  .el-button {
+    padding: 10px 24px;
+    margin: 0 !important;
+  }
+}
+
+:deep(.el-dialog) {
+  .el-dialog__body {
+    padding: 24px 24px 10px;
+  }
+  
+  .el-form {
+    .el-form-item {
+      margin-bottom: 24px;
+    }
+    
+    .el-row {
+      margin-bottom: 8px;
+    }
+    
+    .el-input {
+      .el-input__inner {
+        padding: 8px 12px;
+      }
+    }
+    
+    .el-select {
+      .el-input__inner {
+        padding: 8px 12px;
+      }
+    }
+  }
+  
+  .el-input-group__append {
+    .el-button {
+      padding: 8px 16px;
+    }
+  }
 }
 </style>
