@@ -83,25 +83,6 @@
           </el-button>
         </div>
 
-        <!-- OAuth2登录 -->
-        <div
-          v-if="oauth2Enabled && oauth2Providers.length > 0"
-          class="oauth2-login"
-        >
-          <el-divider>或使用第三方登录</el-divider>
-          <div class="oauth2-providers">
-            <el-button
-              v-for="provider in oauth2Providers"
-              :key="provider.id"
-              class="oauth2-button"
-              @click="handleOAuth2Login(provider)"
-            >
-              <el-icon><Connection /></el-icon>
-              {{ provider.displayName }}
-            </el-button>
-          </div>
-        </div>
-
         <div class="form-footer">
           <p>
             还没有账号? <router-link to="/register">
@@ -119,6 +100,25 @@
           </router-link>
         </div>
       </el-form>
+
+      <!-- OAuth2登录 -->
+      <div
+        v-if="oauth2Enabled && oauth2Providers.length > 0"
+        class="oauth2-login"
+      >
+        <el-divider>或使用第三方登录或注册</el-divider>
+        <div class="oauth2-providers">
+          <el-button
+            v-for="provider in oauth2Providers"
+            :key="provider.id"
+            class="oauth2-button"
+            @click="handleOAuth2Login(provider)"
+          >
+            <el-icon><Connection /></el-icon>
+            {{ provider.displayName }}
+          </el-button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

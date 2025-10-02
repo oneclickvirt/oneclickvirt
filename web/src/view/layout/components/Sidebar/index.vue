@@ -162,7 +162,7 @@ const userRoutes = computed(() => {
         path: '/admin/providers',
         name: 'AdminProviders',
         meta: {
-          title: '提供商管理',
+          title: '服务器提供商',
           icon: 'Monitor'
         }
       },
@@ -183,10 +183,42 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/traffic',
+        name: 'AdminTraffic',
+        meta: {
+          title: '流量管理',
+          icon: 'TrendCharts'
+        }
+      },
+      {
         path: '/admin/port-mappings',
         name: 'AdminPortMappings',
         meta: {
-          title: '端口映射管理',
+          title: '端口管理',
+          icon: 'Connection'
+        }
+      },
+      {
+        path: '/admin/system-images',
+        name: 'AdminSystemImages',
+        meta: {
+          title: '系统镜像管理',
+          icon: 'Folder'
+        }
+      },
+      {
+        path: '/admin/announcements',
+        name: 'AdminAnnouncements',
+        meta: {
+          title: '公告管理',
+          icon: 'Bell'
+        }
+      },
+      {
+        path: '/admin/oauth2-providers',
+        name: 'AdminOAuth2Providers',
+        meta: {
+          title: 'OAuth2提供商',
           icon: 'Connection'
         }
       },
@@ -199,43 +231,11 @@ const userRoutes = computed(() => {
         }
       },
       {
-        path: '/admin/oauth2-providers',
-        name: 'AdminOAuth2Providers',
-        meta: {
-          title: 'OAuth2提供商',
-          icon: 'Connection'
-        }
-      },
-      {
-        path: '/admin/announcements',
-        name: 'AdminAnnouncements',
-        meta: {
-          title: '公告管理',
-          icon: 'Bell'
-        }
-      },
-      {
         path: '/admin/upload-config',
         name: 'AdminUploadConfig',
         meta: {
-          title: '文件上传配置',
+          title: '文件配置',
           icon: 'Upload'
-        }
-      },
-      {
-        path: '/admin/traffic',
-        name: 'AdminTraffic',
-        meta: {
-          title: '流量管理',
-          icon: 'TrendCharts'
-        }
-      },
-      {
-        path: '/admin/system-images',
-        name: 'AdminSystemImages',
-        meta: {
-          title: '系统镜像',
-          icon: 'Folder'
         }
       }
     ]

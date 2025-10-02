@@ -2708,13 +2708,45 @@ const viewTaskLog = async (taskId) => {
 }
 
 // 复制任务日志
-const copyTaskLog = () => {
-  if (taskLogDialog.task && taskLogDialog.task.logOutput) {
-    navigator.clipboard.writeText(taskLogDialog.task.logOutput).then(() => {
+const copyTaskLog = async () => {
+  const logOutput = taskLogDialog.task?.logOutput
+  if (!logOutput) {
+    ElMessage.warning('没有可复制的日志')
+    return
+  }
+  
+  try {
+    // 优先使用 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(logOutput)
       ElMessage.success('日志已复制到剪贴板')
-    }).catch(() => {
-      ElMessage.error('复制失败')
-    })
+      return
+    }
+    
+    // 降级方案：使用传统的 document.execCommand
+    const textArea = document.createElement('textarea')
+    textArea.value = logOutput
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-999999px'
+    textArea.style.top = '-999999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    
+    try {
+      // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
+      const successful = document.execCommand('copy')
+      if (successful) {
+        ElMessage.success('日志已复制到剪贴板')
+      } else {
+        throw new Error('execCommand failed')
+      }
+    } finally {
+      document.body.removeChild(textArea)
+    }
+  } catch (error) {
+    console.error('复制失败:', error)
+    ElMessage.error('复制失败')
   }
 }
 

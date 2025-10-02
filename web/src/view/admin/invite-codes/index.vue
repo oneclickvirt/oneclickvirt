@@ -486,12 +486,45 @@ const handleBatchDelete = async () => {
   }
 }
 
-const copyExportedCodes = () => {
-  navigator.clipboard.writeText(exportedCodes.value).then(() => {
-    ElMessage.success('已复制到剪贴板')
-  }).catch(() => {
+const copyExportedCodes = async () => {
+  if (!exportedCodes.value) {
+    ElMessage.warning('没有可复制的内容')
+    return
+  }
+  
+  try {
+    // 优先使用 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(exportedCodes.value)
+      ElMessage.success('已复制到剪贴板')
+      return
+    }
+    
+    // 降级方案：使用传统的 document.execCommand
+    const textArea = document.createElement('textarea')
+    textArea.value = exportedCodes.value
+    textArea.style.position = 'fixed'
+    textArea.style.left = '-999999px'
+    textArea.style.top = '-999999px'
+    document.body.appendChild(textArea)
+    textArea.focus()
+    textArea.select()
+    
+    try {
+      // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
+      const successful = document.execCommand('copy')
+      if (successful) {
+        ElMessage.success('已复制到剪贴板')
+      } else {
+        throw new Error('execCommand failed')
+      }
+    } finally {
+      document.body.removeChild(textArea)
+    }
+  } catch (error) {
+    console.error('复制失败:', error)
     ElMessage.error('复制失败，请手动复制')
-  })
+  }
 }
 
 const cancelCreate = () => {

@@ -513,6 +513,29 @@ const canCreateInstanceType = (instanceType) => {
   }
 }
 
+// 自动选择第一个可用的规格选项
+const autoSelectFirstAvailableSpecs = () => {
+  // 自动选择第一个可用的CPU规格
+  if (availableCpuSpecs.value.length > 0 && !configForm.cpuId) {
+    configForm.cpuId = availableCpuSpecs.value[0].id
+  }
+  
+  // 自动选择第一个可用的内存规格
+  if (availableMemorySpecs.value.length > 0 && !configForm.memoryId) {
+    configForm.memoryId = availableMemorySpecs.value[0].id
+  }
+  
+  // 自动选择第一个可用的磁盘规格
+  if (availableDiskSpecs.value.length > 0 && !configForm.diskId) {
+    configForm.diskId = availableDiskSpecs.value[0].id
+  }
+  
+  // 自动选择第一个可用的带宽规格
+  if (availableBandwidthSpecs.value.length > 0 && !configForm.bandwidthId) {
+    configForm.bandwidthId = availableBandwidthSpecs.value[0].id
+  }
+}
+
 // 当实例类型变化时，重新加载对应的镜像
 const onInstanceTypeChange = async () => {
   if (selectedProvider.value && configForm.type) {
@@ -520,6 +543,9 @@ const onInstanceTypeChange = async () => {
   }
   // 清空已选择的镜像
   configForm.imageId = ''
+  
+  // 自动选择第一个可用的规格选项（内存和磁盘可能因实例类型而变化）
+  autoSelectFirstAvailableSpecs()
 }
 
 // 获取可用提供商列表
@@ -654,6 +680,24 @@ const selectProvider = async (provider) => {
   // 加载节点支持能力
   await loadProviderCapabilities(provider.id)
   
+  // 检查当前选择的实例类型是否在新节点中可用
+  const currentType = configForm.type
+  const canUseCurrentType = canCreateInstanceType(currentType)
+  
+  // 如果当前类型不可用，自动切换到第一个可用的类型
+  if (!canUseCurrentType) {
+    const capabilities = providerCapabilities.value[provider.id]
+    if (capabilities && capabilities.supportedTypes && capabilities.supportedTypes.length > 0) {
+      // 按优先级顺序检查可用类型：container -> vm
+      for (const type of ['container', 'vm']) {
+        if (capabilities.supportedTypes.includes(type) && canCreateInstanceType(type)) {
+          configForm.type = type
+          break
+        }
+      }
+    }
+  }
+  
   // 重新加载镜像列表
   if (configForm.type) {
     await loadFilteredImages()
@@ -661,6 +705,9 @@ const selectProvider = async (provider) => {
   
   // 清空已选择的镜像，因为不同服务器支持的镜像可能不同
   configForm.imageId = ''
+  
+  // 自动选择第一个可用的规格选项
+  autoSelectFirstAvailableSpecs()
 }
 
 // 重置表单
@@ -797,12 +844,15 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
         }
       }
       
+      let needAutoSelect = false
+      
       // 检查当前选择的内存是否符合新的最低要求
       if (configForm.memoryId) {
         const currentMemory = instanceConfig.value.memorySpecs?.find(spec => spec.id === configForm.memoryId)
         if (currentMemory && currentMemory.sizeMB < minMemoryMB) {
           configForm.memoryId = ''
-          ElMessage.warning(`镜像类型变更，当前内存规格不符合最低要求，请重新选择`)
+          needAutoSelect = true
+          ElMessage.warning(`镜像类型变更，当前内存规格不符合最低要求，已自动选择合适的规格`)
         }
       }
       
@@ -811,8 +861,14 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
         const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
         if (currentDisk && currentDisk.sizeMB < minDiskMB) {
           configForm.diskId = ''
-          ElMessage.warning(`镜像类型变更，当前磁盘规格不符合最低要求，请重新选择`)
+          needAutoSelect = true
+          ElMessage.warning(`镜像类型变更，当前磁盘规格不符合最低要求，已自动选择合适的规格`)
         }
+      }
+      
+      // 如果有规格被重置，自动选择第一个可用的
+      if (needAutoSelect) {
+        autoSelectFirstAvailableSpecs()
       }
     }
   }
@@ -831,7 +887,11 @@ watch(() => selectedProvider.value?.type, (newProviderType, oldProviderType) => 
     const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
     if (currentDisk && currentDisk.sizeMB < minDiskMB) {
       configForm.diskId = ''
-      ElMessage.warning(`Provider变更，当前磁盘规格不符合新Provider的最低要求，请重新选择`)
+      ElMessage.warning(`Provider变更，当前磁盘规格不符合新Provider的最低要求，已自动选择合适的规格`)
+      // 自动选择第一个可用的磁盘规格
+      if (availableDiskSpecs.value.length > 0) {
+        configForm.diskId = availableDiskSpecs.value[0].id
+      }
     }
   }
 })
