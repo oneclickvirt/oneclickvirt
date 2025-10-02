@@ -6,6 +6,9 @@ import 'nprogress/nprogress.css'
 NProgress.configure({ showSpinner: false })
 
 export function setupRouterGuards(router) {
+  // 定义白名单（放在最前面，供所有逻辑使用）
+  const whiteList = ['/home', '/login', '/register', '/forgot-password', '/init', '/admin/login']
+  
   router.beforeEach(async (to, from, next) => {
     NProgress.start()
     
@@ -109,13 +112,20 @@ export function setupRouterGuards(router) {
         }
         // 如果不是首页，继续正常流程，不要return
       } catch (error) {
-        console.error('OAuth2登录后获取用户信息失败:', error)
-        // 清理无效token
-        localStorage.removeItem('token')
-        sessionStorage.removeItem('token')
-        userStore.logout()
-        next('/home')
-        return
+        console.error('localStorage token失效，获取用户信息失败:', error)
+        // 清理无效token（包括localStorage）
+        userStore.clearUserData()
+        
+        // 如果当前在需要认证的页面，重定向到首页
+        if (to.meta.requiresAuth || (!whiteList.includes(to.path) && to.path !== '/home')) {
+          console.log('Token失效且访问受保护页面，重定向到首页')
+          next('/home')
+          return
+        }
+        
+        // 如果当前在公开页面（如登录页、首页），则继续访问
+        console.log('Token失效但访问公开页面，允许继续访问')
+        // 继续正常流程，不要return，让后续逻辑处理
       }
     }
     
@@ -164,7 +174,7 @@ export function setupRouterGuards(router) {
       }
     }
     
-    const whiteList = ['/home', '/login', '/register', '/forgot-password', '/init', '/admin/login']
+    // whiteList 已在函数开头定义，这里不需要重复定义
     
     if (whiteList.includes(to.path)) {
       next()

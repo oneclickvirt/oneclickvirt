@@ -167,6 +167,9 @@ export const useUserStore = defineStore('user', {
       this.permissions = []
       sessionStorage.removeItem('token')
       sessionStorage.removeItem('userType')
+      // 同时清除localStorage中的token，防止残留
+      localStorage.removeItem('token')
+      localStorage.removeItem('username')
     },
 
     // 检查权限

@@ -50,8 +50,9 @@ class UserStatusMonitor {
 
     const userStore = useUserStore()
     
-    // 如果没有Token，无需检查
+    // 如果没有Token，停止监控
     if (!userStore.token) {
+      this.stopMonitoring()
       return
     }
 
@@ -79,8 +80,21 @@ class UserStatusMonitor {
         }
       }
     } catch (error) {
-      // 检查失败，但不立即清除用户数据，可能是网络问题
+      // 检查失败时判断错误类型
       console.warn('用户状态检查失败:', error)
+      
+      // 如果是认证错误(401)，停止监控并清除数据
+      if (error.response?.status === 401) {
+        this.stopMonitoring()
+        userStore.clearUserData()
+        
+        const currentPath = router.currentRoute.value.path
+        if (!['/home', '/login', '/register', '/forgot-password'].includes(currentPath)) {
+          ElMessage.warning('您的登录状态已失效，请重新登录')
+          router.push('/home')
+        }
+      }
+      // 其他错误可能是网络问题，不立即停止监控
     } finally {
       this.isChecking = false
     }

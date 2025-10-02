@@ -170,7 +170,8 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 	// 获取用户基本信息和状态
 	var user user.User
 	if err := global.APP_DB.Select("id, username, user_type, status, level").First(&user, userID).Error; err != nil {
-		global.APP_LOG.Warn("用户不存在或查询失败",
+		// 使用Debug级别，因为这可能是过期token导致的正常情况
+		global.APP_LOG.Debug("用户不存在或查询失败(可能是过期token)",
 			zap.Uint("userID", userID),
 			zap.Error(err))
 		return nil, fmt.Errorf("用户不存在")
