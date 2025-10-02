@@ -142,7 +142,7 @@
             <el-table-column prop="email" label="邮箱" />
             <el-table-column label="本月使用" width="120">
               <template #default="{ row }">
-                {{ row.formatted?.month_usage || formatTrafficMB(row.month_usage) }}
+                {{ row.formatted?.month_usage || formatBytes(row.month_usage) }}
               </template>
             </el-table-column>
             <el-table-column label="总限额" width="120">
