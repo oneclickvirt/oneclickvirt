@@ -39,7 +39,6 @@
             <el-input
               v-model="loginForm.captcha"
               placeholder="请输入验证码"
-              style="width: 60%"
             />
             <div
               class="captcha-image"
@@ -193,6 +192,29 @@ onMounted(() => {
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
+.login-form :deep(.el-form) {
+  width: 100%;
+}
+
+.login-form :deep(.el-form-item) {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.login-form :deep(.el-form-item__content) {
+  width: 100%;
+  line-height: normal;
+}
+
+.login-form :deep(.el-input) {
+  width: 100%;
+}
+
+.login-form :deep(.el-input__wrapper) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .login-header {
   text-align: center;
   margin-bottom: 30px;
@@ -214,6 +236,12 @@ onMounted(() => {
   margin-top: 20px;
   font-size: 14px;
   color: #909399;
+  width: 100%;
+}
+
+.login-form :deep(.el-button) {
+  width: 100% !important;
+  height: 45px;
 }
 
 .back-link {
@@ -230,10 +258,16 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.captcha-container .el-input {
+  flex: 1;
 }
 
 .captcha-image {
-  width: 38%;
+  width: 120px;
   height: 40px;
   border: 1px solid #dcdfe6;
   border-radius: 4px;
@@ -242,6 +276,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .captcha-image img {

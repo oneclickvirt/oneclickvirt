@@ -39,7 +39,6 @@
             <el-input
               v-model="loginForm.captcha"
               placeholder="请输入验证码"
-              style="width: 60%"
             />
             <div
               class="captcha-image"
@@ -106,7 +105,7 @@
         v-if="oauth2Enabled && oauth2Providers.length > 0"
         class="oauth2-login"
       >
-        <el-divider>或使用第三方登录或注册</el-divider>
+        <el-divider>第三方登录或注册</el-divider>
         <div class="oauth2-providers">
           <el-button
             v-for="provider in oauth2Providers"
@@ -260,6 +259,29 @@ onMounted(() => {
   box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
 }
 
+.login-form :deep(.el-form) {
+  width: 100%;
+}
+
+.login-form :deep(.el-form-item) {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+.login-form :deep(.el-form-item__content) {
+  width: 100%;
+  line-height: normal;
+}
+
+.login-form :deep(.el-input) {
+  width: 100%;
+}
+
+.login-form :deep(.el-input__wrapper) {
+  width: 100%;
+  box-sizing: border-box;
+}
+
 .login-header {
   text-align: center;
   margin-bottom: 30px;
@@ -281,6 +303,7 @@ onMounted(() => {
   justify-content: space-between;
   align-items: center;
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .forgot-link {
@@ -290,11 +313,18 @@ onMounted(() => {
 
 .form-actions {
   margin-bottom: 20px;
+  width: 100%;
+}
+
+.form-actions .el-button {
+  width: 100% !important;
+  height: 45px;
 }
 
 .form-footer {
   text-align: center;
   margin-bottom: 20px;
+  width: 100%;
 }
 
 .form-footer a {
@@ -322,10 +352,16 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+}
+
+.captcha-container .el-input {
+  flex: 1;
 }
 
 .captcha-image {
-  width: 38%;
+  width: 120px;
   height: 40px;
   border: 1px solid #dcdfe6;
   border-radius: 4px;
@@ -334,6 +370,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .captcha-image img {
@@ -348,6 +385,12 @@ onMounted(() => {
 }
 
 .oauth2-login {
+  margin: 20px 0 0 0;
+  width: 100%;
+  padding: 0;
+}
+
+.oauth2-login :deep(.el-divider) {
   margin: 20px 0;
 }
 
@@ -355,21 +398,33 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
+  padding: 0;
+  margin: 0;
 }
 
 .oauth2-button {
-  width: 100%;
+  width: 100% !important;
+  height: 45px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: 1px solid #dcdfe6;
   background: white;
   color: #606266;
+  margin: 0 !important;
+  padding: 0 20px !important;
+  box-sizing: border-box;
 }
 
 .oauth2-button:hover {
   border-color: #409eff;
   color: #409eff;
+}
+
+.oauth2-providers :deep(.el-button) {
+  width: 100% !important;
+  margin: 0 !important;
 }
 
 @media (max-width: 768px) {
