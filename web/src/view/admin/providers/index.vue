@@ -408,6 +408,7 @@
         v-model="activeConfigTab"
         type="border-card"
         class="server-config-tabs"
+        :lazy="false"
       >
         <!-- 基本信息 -->
         <el-tab-pane
@@ -753,105 +754,263 @@
             label-width="120px"
             class="server-form"
           >
-            <el-alert
-              title="虚拟化类型说明"
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 20px;"
-            >
-              配置该服务器支持的虚拟化类型和实例数量限制
-            </el-alert>
-            
-            <el-form-item
-              label="支持类型"
-              prop="supportTypes"
-            >
-              <div class="support-type-group">
-                <el-checkbox v-model="addProviderForm.containerEnabled">
-                  <span>支持容器</span>
-                  <el-tooltip
-                    content="支持Docker、LXC等容器技术"
-                    placement="top"
-                  >
-                    <el-icon style="margin-left: 5px;">
-                      <InfoFilled />
-                    </el-icon>
-                  </el-tooltip>
-                </el-checkbox>
-                <el-checkbox 
-                  v-model="addProviderForm.vmEnabled"
-                  :disabled="addProviderForm.type === 'docker'"
-                >
-                  <span>支持虚拟机</span>
-                  <el-tooltip
-                    content="支持KVM、Xen等虚拟化技术"
-                    placement="top"
-                  >
-                    <el-icon style="margin-left: 5px;">
-                      <InfoFilled />
-                    </el-icon>
-                  </el-tooltip>
-                </el-checkbox>
-              </div>
-              <div class="form-tip">
-                <el-text
-                  size="small"
-                  type="info"
-                >
-                  {{ addProviderForm.type === 'docker' ? 'Docker只支持容器虚拟化' : '至少选择一种支持的虚拟化类型' }}
-                </el-text>
-              </div>
-            </el-form-item>
+            <!-- 虚拟化配置 -->
+            <el-divider content-position="left">
+              <el-icon><Monitor /></el-icon>
+              <span style="margin-left: 8px;">虚拟化配置</span>
+            </el-divider>
 
-            <el-row :gutter="20">
+            <el-row :gutter="20" style="margin-bottom: 20px;">
               <el-col :span="12">
-                <el-form-item
-                  label="最大容器数"
-                  prop="maxContainerInstances"
-                >
-                  <el-input-number
-                    v-model="addProviderForm.maxContainerInstances"
-                    :min="0"
-                    :max="1000"
-                    :step="1"
-                    placeholder="0表示无限制"
-                    style="width: 100%"
-                  />
-                  <div class="form-tip">
-                    <el-text
-                      size="small"
-                      type="info"
+                <el-card shadow="hover" style="height: 100%;">
+                  <template #header>
+                    <div style="display: flex; align-items: center; font-weight: 600;">
+                      <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
+                      <span>支持类型</span>
+                    </div>
+                  </template>
+                  <div class="support-type-group" style="padding: 10px 0;">
+                    <el-checkbox v-model="addProviderForm.containerEnabled" style="margin-right: 30px;">
+                      <span style="font-size: 14px;">支持容器</span>
+                      <el-tooltip content="支持Docker、LXC等容器技术" placement="top">
+                        <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </el-checkbox>
+                    <el-checkbox 
+                      v-model="addProviderForm.vmEnabled"
+                      :disabled="addProviderForm.type === 'docker'"
                     >
-                      设置最大容器实例数量，0表示无限制
+                      <span style="font-size: 14px;">支持虚拟机</span>
+                      <el-tooltip content="支持KVM、Xen等虚拟化技术" placement="top">
+                        <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
+                      </el-tooltip>
+                    </el-checkbox>
+                  </div>
+                  <div class="form-tip" style="margin-top: 10px;">
+                    <el-text size="small" type="info">
+                      {{ addProviderForm.type === 'docker' ? 'Docker只支持容器；Incus/LXD支持容器和虚拟机；ProxmoxVE只支持虚拟机' : '至少选择一种支持的虚拟化类型' }}
                     </el-text>
                   </div>
-                </el-form-item>
+                </el-card>
               </el-col>
               <el-col :span="12">
-                <el-form-item
-                  label="最大虚拟机数"
-                  prop="maxVMInstances"
-                >
-                  <el-input-number
-                    v-model="addProviderForm.maxVMInstances"
-                    :min="0"
-                    :max="1000"
-                    :step="1"
-                    placeholder="0表示无限制"
-                    style="width: 100%"
-                  />
-                  <div class="form-tip">
-                    <el-text
-                      size="small"
-                      type="info"
-                    >
-                      设置最大虚拟机实例数量，0表示无限制
-                    </el-text>
+                <el-card shadow="hover" style="height: 100%;">
+                  <template #header>
+                    <div style="display: flex; align-items: center; font-weight: 600;">
+                      <el-icon size="18" style="margin-right: 8px;"><DocumentCopy /></el-icon>
+                      <span>实例数限制</span>
+                    </div>
+                  </template>
+                  <div style="padding: 5px 0;">
+                    <el-form-item label="最大容器数" label-width="100px" style="margin-bottom: 15px;">
+                      <el-input-number
+                        v-model="addProviderForm.maxContainerInstances"
+                        :min="0"
+                        :max="1000"
+                        :step="1"
+                        placeholder="0=无限制"
+                        size="small"
+                        style="width: 100%"
+                      />
+                      <div class="form-tip" style="margin-top: 5px;">
+                        <el-text size="small" type="info">设置最大容器数量，0表示无限制</el-text>
+                      </div>
+                    </el-form-item>
+                    
+                    <el-form-item label="最大虚拟机数" label-width="100px" style="margin-bottom: 0;">
+                      <el-input-number
+                        v-model="addProviderForm.maxVMInstances"
+                        :min="0"
+                        :max="1000"
+                        :step="1"
+                        placeholder="0=无限制"
+                        size="small"
+                        style="width: 100%"
+                      />
+                      <div class="form-tip" style="margin-top: 5px;">
+                        <el-text size="small" type="info">设置最大虚拟机数量，0表示无限制</el-text>
+                      </div>
+                    </el-form-item>
                   </div>
-                </el-form-item>
+                </el-card>
               </el-col>
             </el-row>
+
+            <!-- 容器资源限制配置 -->
+            <div style="margin-top: 20px;">
+              <el-card shadow="hover">
+                <template #header>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; font-weight: 600;">
+                      <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
+                      <span>容器资源限制配置</span>
+                    </div>
+                    <el-tag size="small" type="info">Container</el-tag>
+                  </div>
+                </template>
+                <el-alert
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                  style="margin-bottom: 20px;"
+                >
+                  <template #title>
+                    <span style="font-size: 13px;">配置说明</span>
+                  </template>
+                  <div style="font-size: 12px; line-height: 1.8;">
+                    启用限制：该资源计入Provider总量，执行严格的配额管理<br/>
+                    不限制：该资源不计入Provider总量，允许超分配，但实例本身仍会被设置资源限制
+                  </div>
+                </el-alert>
+                <el-row :gutter="20">
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Cpu /></el-icon>
+                        <span>限制CPU</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.containerLimitCpu"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认不限制CPU核心数</span>
+                      </div>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Memo /></el-icon>
+                        <span>限制内存</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.containerLimitMemory"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认不限制内存大小</span>
+                      </div>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Coin /></el-icon>
+                        <span>限制硬盘</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.containerLimitDisk"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认限制硬盘大小</span>
+                      </div>
+                    </div>
+                  </el-col>
+                </el-row>
+              </el-card>
+            </div>
+
+            <!-- 虚拟机资源限制配置 -->
+            <div style="margin-top: 20px;">
+              <el-card shadow="hover">
+                <template #header>
+                  <div style="display: flex; align-items: center; justify-content: space-between;">
+                    <div style="display: flex; align-items: center; font-weight: 600;">
+                      <el-icon size="18" style="margin-right: 8px;"><Monitor /></el-icon>
+                      <span>虚拟机资源限制配置</span>
+                    </div>
+                    <el-tag size="small" type="success">Virtual Machine</el-tag>
+                  </div>
+                </template>
+                <el-alert
+                  type="warning"
+                  :closable="false"
+                  show-icon
+                  style="margin-bottom: 20px;"
+                >
+                  <template #title>
+                    <span style="font-size: 13px;">配置说明</span>
+                  </template>
+                  <div style="font-size: 12px; line-height: 1.8;">
+                    启用限制：该资源计入Provider总量，执行严格的配额管理<br/>
+                    不限制：该资源不计入Provider总量，允许超分配，但实例本身仍会被设置资源限制
+                  </div>
+                </el-alert>
+                <el-row :gutter="20">
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Cpu /></el-icon>
+                        <span>限制CPU</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.vmLimitCpu"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认限制CPU核心数</span>
+                      </div>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Memo /></el-icon>
+                        <span>限制内存</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.vmLimitMemory"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认限制内存大小</span>
+                      </div>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="resource-limit-item">
+                      <div class="resource-limit-label">
+                        <el-icon><Coin /></el-icon>
+                        <span>限制硬盘</span>
+                      </div>
+                      <el-switch
+                        v-model="addProviderForm.vmLimitDisk"
+                        active-text="限制"
+                        inactive-text="不限制"
+                        inline-prompt
+                        style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
+                      />
+                      <div class="resource-limit-tip">
+                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <span>默认限制硬盘大小</span>
+                      </div>
+                    </div>
+                  </el-col>
+                </el-row>
+              </el-card>
+            </div>
 
             <!-- ProxmoxVE存储配置 -->
             <el-form-item
@@ -1783,7 +1942,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened } from '@element-plus/icons-vue'
+import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin } from '@element-plus/icons-vue'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { countries, getFlagEmoji, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { formatMemorySize, formatDiskSize } from '@/utils/unit-formatter'
@@ -1845,7 +2004,15 @@ const addProviderForm = reactive({
   ipv6PortMappingMethod: 'device_proxy',  // IPv6端口映射方式：device_proxy, iptables, native
   executionRule: 'auto', // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
   sshConnectTimeout: 30, // SSH连接超时（秒），默认30秒
-  sshExecuteTimeout: 300 // SSH执行超时（秒），默认300秒
+  sshExecuteTimeout: 300, // SSH执行超时（秒），默认300秒
+  // 容器资源限制配置
+  containerLimitCpu: false, // 容器是否限制CPU，默认不限制
+  containerLimitMemory: false, // 容器是否限制内存，默认不限制
+  containerLimitDisk: true, // 容器是否限制硬盘，默认限制
+  // 虚拟机资源限制配置
+  vmLimitCpu: true, // 虚拟机是否限制CPU，默认限制
+  vmLimitMemory: true, // 虚拟机是否限制内存，默认限制
+  vmLimitDisk: true // 虚拟机是否限制硬盘，默认限制
 })
 
 // 流量单位转换：TB 转 MB (1TB = 1024 * 1024 MB = 1048576 MB)
@@ -2042,7 +2209,14 @@ const cancelAddServer = () => {
     ipv6PortMappingMethod: 'device_proxy',
     // 重置SSH超时配置
     sshConnectTimeout: 30,
-    sshExecuteTimeout: 300
+    sshExecuteTimeout: 300,
+    // 重置资源限制配置
+    containerLimitCpu: false,
+    containerLimitMemory: false,
+    containerLimitDisk: true,
+    vmLimitCpu: true,
+    vmLimitMemory: true,
+    vmLimitDisk: true
   })
   // 清空连接测试结果
   connectionTestResult.value = null
@@ -2099,7 +2273,15 @@ const submitAddServer = async () => {
       executionRule: addProviderForm.executionRule || 'auto', // 操作轮转规则
       // SSH超时配置
       sshConnectTimeout: addProviderForm.sshConnectTimeout || 30,
-      sshExecuteTimeout: addProviderForm.sshExecuteTimeout || 300
+      sshExecuteTimeout: addProviderForm.sshExecuteTimeout || 300,
+      // 容器资源限制配置
+      containerLimitCpu: addProviderForm.containerLimitCpu !== undefined ? addProviderForm.containerLimitCpu : false,
+      containerLimitMemory: addProviderForm.containerLimitMemory !== undefined ? addProviderForm.containerLimitMemory : false,
+      containerLimitDisk: addProviderForm.containerLimitDisk !== undefined ? addProviderForm.containerLimitDisk : true,
+      // 虚拟机资源限制配置
+      vmLimitCpu: addProviderForm.vmLimitCpu !== undefined ? addProviderForm.vmLimitCpu : true,
+      vmLimitMemory: addProviderForm.vmLimitMemory !== undefined ? addProviderForm.vmLimitMemory : true,
+      vmLimitDisk: addProviderForm.vmLimitDisk !== undefined ? addProviderForm.vmLimitDisk : true
     }
 
     // 根据Provider类型设置端口映射方式
@@ -2183,7 +2365,7 @@ const editProvider = (provider) => {
     region: provider.region || '',
     country: provider.country || '',
     countryCode: provider.countryCode || '',
-    containerEnabled: provider.container_enabled !== false,
+    containerEnabled: provider.container_enabled === true,
     vmEnabled: provider.vm_enabled === true,
     architecture: provider.architecture || 'amd64', // 添加架构字段
     status: provider.status || 'active',
@@ -2213,7 +2395,15 @@ const editProvider = (provider) => {
     executionRule: provider.executionRule || 'auto', // 默认自动切换
     // SSH超时配置
     sshConnectTimeout: provider.sshConnectTimeout || 30,
-    sshExecuteTimeout: provider.sshExecuteTimeout || 300
+    sshExecuteTimeout: provider.sshExecuteTimeout || 300,
+    // 容器资源限制配置
+    containerLimitCpu: provider.containerLimitCpu !== undefined ? provider.containerLimitCpu : false,
+    containerLimitMemory: provider.containerLimitMemory !== undefined ? provider.containerLimitMemory : false,
+    containerLimitDisk: provider.containerLimitDisk !== undefined ? provider.containerLimitDisk : true,
+    // 虚拟机资源限制配置
+    vmLimitCpu: provider.vmLimitCpu !== undefined ? provider.vmLimitCpu : true,
+    vmLimitMemory: provider.vmLimitMemory !== undefined ? provider.vmLimitMemory : true,
+    vmLimitDisk: provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true
   })
 
   // 根据Provider类型设置端口映射方式的默认值
@@ -2233,6 +2423,13 @@ const editProvider = (provider) => {
   
   isEditing.value = true
   showAddDialog.value = true
+  
+  // 使用 nextTick 确保弹窗打开后，表单数据正确绑定到组件
+  nextTick(() => {
+    // 强制更新复选框状态
+    addProviderForm.containerEnabled = provider.container_enabled === true
+    addProviderForm.vmEnabled = provider.vm_enabled === true
+  })
 }
 
 const handleDeleteProvider = async (id) => {
@@ -2913,5 +3110,49 @@ const formatRelativeTime = (dateTime) => {
 
 .traffic-status {
   text-align: center;
+}
+
+/* 资源限制配置样式 */
+.resource-limit-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 20px;
+  background: #f5f7fa;
+  border-radius: 8px;
+  transition: all 0.3s;
+}
+
+.resource-limit-item:hover {
+  background: #ecf0f3;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.resource-limit-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.resource-limit-label .el-icon {
+  font-size: 18px;
+  color: #409eff;
+}
+
+.resource-limit-tip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: #909399;
+  text-align: center;
+}
+
+.resource-limit-tip .el-icon {
+  color: #409eff;
 }
 </style>

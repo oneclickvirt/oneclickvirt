@@ -228,7 +228,7 @@
                 <el-input
                   v-model="formData.clientSecret"
                   type="password"
-                  placeholder="OAuth2 Client Secret"
+                  :placeholder="isEdit ? '留空表示不修改原有Secret' : 'OAuth2 Client Secret'"
                   show-password
                 />
               </el-form-item>
@@ -518,7 +518,7 @@ const formData = reactive({
   sort: 0
 })
 
-const formRules = {
+const formRules = computed(() => ({
   name: [
     { required: true, message: '请输入标识名称', trigger: 'blur' }
   ],
@@ -529,7 +529,7 @@ const formRules = {
     { required: true, message: '请输入Client ID', trigger: 'blur' }
   ],
   clientSecret: [
-    { required: true, message: '请输入Client Secret', trigger: 'blur' }
+    { required: !isEdit.value, message: '请输入Client Secret', trigger: 'blur' }
   ],
   redirectUrl: [
     { required: true, message: '请输入回调地址', trigger: 'blur' }
@@ -552,7 +552,7 @@ const formRules = {
   defaultLevel: [
     { required: true, message: '请设置默认等级', trigger: 'blur' }
   ]
-}
+}))
 
 onMounted(() => {
   loadProviders()

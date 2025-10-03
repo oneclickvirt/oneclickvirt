@@ -260,6 +260,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(30, "初始化实例...")
 	// 根据实例类型使用正确的命令格式（参考官方buildvm.sh）
+	// 注意：始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
 	var cmd string
 	if config.InstanceType == "vm" {
 		// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB

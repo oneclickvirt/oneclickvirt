@@ -72,19 +72,19 @@ func (p *ProviderApi) GetProviders(c *gin.Context) {
 
 // GetProviderStatus 获取Provider状态
 // @Summary 获取Provider状态
-// @Description 获取指定类型虚拟化提供者的连接状态和支持的实例类型
+// @Description 获取指定Provider的连接状态和支持的实例类型
 // @Tags 虚拟化管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param type path string true "Provider类型" Enums(docker,lxd,incus,proxmox)
+// @Param id path int true "Provider ID"
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Failure 404 {object} common.Response "Provider不存在"
-// @Router /provider/{type}/status [get]
+// @Router /provider/{id}/status [get]
 func (p *ProviderApi) GetProviderStatus(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
-	data, err := providerApiService.GetProviderStatus(providerType)
+	data, err := providerApiService.GetProviderStatusByID(providerID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
@@ -102,19 +102,19 @@ func (p *ProviderApi) GetProviderStatus(c *gin.Context) {
 
 // GetProviderCapabilities 获取Provider能力
 // @Summary 获取Provider能力
-// @Description 获取指定类型虚拟化提供者支持的功能和实例类型
+// @Description 获取指定Provider支持的功能和实例类型
 // @Tags 虚拟化管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param type path string true "Provider类型" Enums(docker,lxd,incus,proxmox)
+// @Param id path int true "Provider ID"
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Failure 404 {object} common.Response "Provider不存在"
-// @Router /provider/{type}/capabilities [get]
+// @Router /provider/{id}/capabilities [get]
 func (p *ProviderApi) GetProviderCapabilities(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
-	data, err := providerApiService.GetProviderCapabilities(providerType)
+	data, err := providerApiService.GetProviderCapabilitiesByID(providerID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{
 			"code": 404,
@@ -137,15 +137,15 @@ func (p *ProviderApi) GetProviderCapabilities(c *gin.Context) {
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Param type path string true "Provider类型" Enums(docker,lxd,incus,proxmox)
+// @Param id path int true "Provider ID"
 // @Success 200 {object} common.Response{data=[]object} "获取成功"
 // @Failure 404 {object} common.Response "Provider不存在"
 // @Failure 500 {object} common.Response "获取失败"
-// @Router /provider/{type}/instances [get]
+// @Router /provider/{id}/instances [get]
 func (p *ProviderApi) ListInstances(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
-	instances, err := providerApiService.ListInstances(c.Request.Context(), providerType)
+	instances, err := providerApiService.ListInstancesByProviderID(c.Request.Context(), providerID)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -181,9 +181,9 @@ func (p *ProviderApi) ListInstances(c *gin.Context) {
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 404 {object} common.Response "Provider不存在"
 // @Failure 500 {object} common.Response "创建失败"
-// @Router /provider/{type}/instances [post]
+// @Router /provider/{id}/instances [post]
 func (p *ProviderApi) CreateInstance(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
 	var req provider.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -195,7 +195,7 @@ func (p *ProviderApi) CreateInstance(c *gin.Context) {
 		return
 	}
 
-	if err := providerApiService.CreateInstance(c.Request.Context(), providerType, req); err != nil {
+	if err := providerApiService.CreateInstanceByProviderIDFromString(c.Request.Context(), providerID, req); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,
@@ -218,10 +218,10 @@ func (p *ProviderApi) CreateInstance(c *gin.Context) {
 
 // GetInstance 获取实例详情
 func (p *ProviderApi) GetInstance(c *gin.Context) {
-	providerType := c.Param("type")
-	instanceID := c.Param("id")
+	providerID := c.Param("id")
+	instanceName := c.Param("name")
 
-	instance, err := providerApiService.GetInstance(c.Request.Context(), providerType, instanceID)
+	instance, err := providerApiService.GetInstanceByProviderID(c.Request.Context(), providerID, instanceName)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -251,10 +251,10 @@ func (p *ProviderApi) GetInstance(c *gin.Context) {
 
 // StartInstance 启动实例
 func (p *ProviderApi) StartInstance(c *gin.Context) {
-	providerType := c.Param("type")
-	instanceID := c.Param("id")
+	providerID := c.Param("id")
+	instanceName := c.Param("name")
 
-	if err := providerApiService.StartInstance(c.Request.Context(), providerType, instanceID); err != nil {
+	if err := providerApiService.StartInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,
@@ -277,10 +277,10 @@ func (p *ProviderApi) StartInstance(c *gin.Context) {
 
 // StopInstance 停止实例
 func (p *ProviderApi) StopInstance(c *gin.Context) {
-	providerType := c.Param("type")
-	instanceID := c.Param("id")
+	providerID := c.Param("id")
+	instanceName := c.Param("name")
 
-	if err := providerApiService.StopInstance(c.Request.Context(), providerType, instanceID); err != nil {
+	if err := providerApiService.StopInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,
@@ -303,10 +303,10 @@ func (p *ProviderApi) StopInstance(c *gin.Context) {
 
 // DeleteInstance 删除实例
 func (p *ProviderApi) DeleteInstance(c *gin.Context) {
-	providerType := c.Param("type")
-	instanceID := c.Param("id")
+	providerID := c.Param("id")
+	instanceName := c.Param("name")
 
-	if err := providerApiService.DeleteInstance(c.Request.Context(), providerType, instanceID); err != nil {
+	if err := providerApiService.DeleteInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,
@@ -329,9 +329,9 @@ func (p *ProviderApi) DeleteInstance(c *gin.Context) {
 
 // ListImages 获取镜像列表
 func (p *ProviderApi) ListImages(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
-	images, err := providerApiService.ListImages(c.Request.Context(), providerType)
+	images, err := providerApiService.ListImagesByProviderID(c.Request.Context(), providerID)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
@@ -356,7 +356,7 @@ func (p *ProviderApi) ListImages(c *gin.Context) {
 
 // PullImage 拉取镜像
 func (p *ProviderApi) PullImage(c *gin.Context) {
-	providerType := c.Param("type")
+	providerID := c.Param("id")
 
 	var req struct {
 		Image string `json:"image" binding:"required"`
@@ -371,7 +371,7 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 		return
 	}
 
-	if err := providerApiService.PullImage(c.Request.Context(), providerType, req.Image); err != nil {
+	if err := providerApiService.PullImageByProviderID(c.Request.Context(), providerID, req.Image); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,
@@ -394,10 +394,10 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 
 // DeleteImage 删除镜像
 func (p *ProviderApi) DeleteImage(c *gin.Context) {
-	providerType := c.Param("type")
-	imageID := c.Param("id")
+	providerID := c.Param("id")
+	imageName := c.Param("image")
 
-	if err := providerApiService.DeleteImage(c.Request.Context(), providerType, imageID); err != nil {
+	if err := providerApiService.DeleteImageByProviderID(c.Request.Context(), providerID, imageName); err != nil {
 		if err.Error() == "Provider不存在" {
 			c.JSON(http.StatusNotFound, gin.H{
 				"code": 404,

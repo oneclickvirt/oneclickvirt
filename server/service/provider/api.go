@@ -39,6 +39,16 @@ type ConnectProviderRequest struct {
 	CertPath              string `json:"cert_path"`
 	KeyPath               string `json:"key_path"`
 	NetworkType           string `json:"networkType"` // 网络配置类型
+
+	// 容器资源限制配置（Provider层面）
+	ContainerLimitCPU    bool `json:"containerLimitCpu"`    // 容器是否限制CPU数量
+	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器是否限制内存大小
+	ContainerLimitDisk   bool `json:"containerLimitDisk"`   // 容器是否限制硬盘大小
+
+	// 虚拟机资源限制配置（Provider层面）
+	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量
+	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小
+	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小
 }
 
 // CreateInstanceRequest 创建实例的请求结构
@@ -75,51 +85,6 @@ func (s *ProviderApiService) GetProviderByName(providerName string) (*ProviderWi
 	}, nil
 }
 
-// GetProviderByType 获取指定类型的Provider实例，如果未连接则尝试连接
-func (s *ProviderApiService) GetProviderByType(providerType string) (provider.Provider, error) {
-	// 首先尝试从已连接的Provider服务中获取
-	providerService := GetProviderService()
-	if prov, exists := providerService.GetProviderByType(providerType); exists {
-		// 检查连接状态
-		if prov.IsConnected() {
-			return prov, nil
-		}
-		global.APP_LOG.Info("Provider已存在但未连接，尝试重新连接",
-			zap.String("type", providerType))
-	}
-
-	// 如果没有找到已连接的Provider，尝试从数据库加载并连接
-	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("type = ? AND status = ?", providerType, "active").First(&dbProvider).Error; err != nil {
-		return nil, fmt.Errorf("Provider %s 不存在或不可用", providerType)
-	}
-
-	// 检查Provider是否过期或冻结
-	if dbProvider.IsFrozen {
-		return nil, fmt.Errorf("Provider %s 已被冻结", providerType)
-	}
-
-	if dbProvider.ExpiresAt != nil && dbProvider.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("Provider %s 已过期", providerType)
-	}
-
-	// 加载并连接Provider
-	if err := providerService.LoadProvider(dbProvider); err != nil {
-		global.APP_LOG.Error("加载Provider失败",
-			zap.String("type", providerType),
-			zap.String("name", dbProvider.Name),
-			zap.Error(err))
-		return nil, fmt.Errorf("Provider %s 连接失败: %v", providerType, err)
-	}
-
-	// 再次从Provider服务中获取已连接的实例
-	if prov, exists := providerService.GetProviderByType(providerType); exists {
-		return prov, nil
-	}
-
-	return nil, fmt.Errorf("Provider %s 加载后仍不可用", providerType)
-}
-
 // ConnectProvider 连接Provider
 func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectProviderRequest) error {
 	// 获取Provider实例
@@ -154,6 +119,13 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 		NetworkType:           req.NetworkType,
 		SSHConnectTimeout:     30,  // 默认30秒连接超时
 		SSHExecuteTimeout:     300, // 默认300秒执行超时
+		// 资源限制配置
+		ContainerLimitCPU:    req.ContainerLimitCPU,
+		ContainerLimitMemory: req.ContainerLimitMemory,
+		ContainerLimitDisk:   req.ContainerLimitDisk,
+		VMLimitCPU:           req.VMLimitCPU,
+		VMLimitMemory:        req.VMLimitMemory,
+		VMLimitDisk:          req.VMLimitDisk,
 	}
 
 	// 连接Provider
@@ -171,187 +143,32 @@ func (s *ProviderApiService) GetAllProviders() map[string]provider.Provider {
 	return provider.GetAllProviders()
 }
 
-// GetProviderStatus 获取Provider状态
-func (s *ProviderApiService) GetProviderStatus(providerType string) (map[string]interface{}, error) {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return nil, fmt.Errorf("Provider不存在")
-	}
-
-	// 检查连接状态
-	status := "inactive"
-	if prov.IsConnected() {
-		status = "active"
-	}
-
-	return map[string]interface{}{
-		"type":                     providerType,
-		"status":                   status,
-		"supported_instance_types": prov.GetSupportedInstanceTypes(),
-	}, nil
-}
-
-// GetProviderCapabilities 获取Provider能力
-func (s *ProviderApiService) GetProviderCapabilities(providerType string) (map[string]interface{}, error) {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return nil, fmt.Errorf("Provider不存在")
-	}
-
-	return map[string]interface{}{
-		"type":                     providerType,
-		"supported_instance_types": prov.GetSupportedInstanceTypes(),
-	}, nil
-}
-
 // CheckProviderConnection 检查Provider连接状态
-func (s *ProviderApiService) CheckProviderConnection(prov provider.Provider, providerType string) error {
+func CheckProviderConnection(prov provider.Provider) error {
 	if !prov.IsConnected() {
-		return fmt.Errorf("%s Provider服务不可用，请先连接Provider", providerType)
+		return fmt.Errorf("Provider服务不可用，请先连接Provider")
 	}
-	return nil
-}
-
-// CheckProviderStatus 检查Provider状态（包括连接状态、冻结状态和过期状态）
-func (s *ProviderApiService) CheckProviderStatus(prov provider.Provider, providerType string) error {
-	// 首先检查连接状态
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	// 查询数据库中的Provider状态
-	var providerModel providerModel.Provider
-	if err := global.APP_DB.Where("type = ?", providerType).First(&providerModel).Error; err != nil {
-		return fmt.Errorf("Provider配置不存在")
-	}
-
-	// 检查是否冻结
-	if providerModel.IsFrozen {
-		return fmt.Errorf("Provider已被冻结，无法执行操作")
-	}
-
-	// 检查是否过期
-	if providerModel.ExpiresAt != nil && providerModel.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期，无法执行操作")
-	}
-
-	return nil
-}
-
-// ListInstances 获取实例列表
-func (s *ProviderApiService) ListInstances(ctx context.Context, providerType string) ([]provider.Instance, error) {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return nil, fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider是否连接
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return nil, err
-	}
-
-	instances, err := prov.ListInstances(ctx)
-	if err != nil {
-		global.APP_LOG.Error("获取实例列表失败", zap.Error(err))
-		return nil, fmt.Errorf("获取实例列表失败: %v", err)
-	}
-
-	return instances, nil
-}
-
-// CreateInstance 创建实例
-func (s *ProviderApiService) CreateInstance(ctx context.Context, providerType string, req CreateInstanceRequest) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查提供商连接状态、冻结状态和过期状态
-	if err := s.CheckProviderStatus(prov, providerType); err != nil {
-		return err
-	}
-
-	config := req.InstanceConfig
-
-	// 验证Provider类型和实例类型兼容性
-	resourceService := &resources.ResourceService{}
-
-	// 首先需要获取Provider ID
-	var provider providerModel.Provider
-	if err := global.APP_DB.Where("type = ?", providerType).First(&provider).Error; err != nil {
-		global.APP_LOG.Error("获取Provider失败", zap.Error(err))
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 验证Provider是否支持该实例类型
-	if err := resourceService.ValidateInstanceTypeSupport(provider.ID, config.InstanceType); err != nil {
-		global.APP_LOG.Error("实例类型不支持", zap.Error(err))
-		return err
-	}
-
-	// 如果指定了系统镜像ID，获取镜像URL
-	if req.SystemImageID > 0 {
-		imageService := images.ImageService{}
-		downloadReq := imageModel.DownloadImageRequest{
-			ImageID:      req.SystemImageID,
-			ProviderType: providerType,
-			InstanceType: config.InstanceType,
-			Architecture: provider.Architecture, // 使用Provider的架构信息
-		}
-
-		imageURL, err := imageService.PrepareImageForInstance(downloadReq)
-		if err != nil {
-			global.APP_LOG.Error("准备镜像失败", zap.Error(err))
-			return fmt.Errorf("准备镜像失败: %v", err)
-		}
-
-		// 设置镜像URL，让Provider自己处理下载
-		config.ImageURL = imageURL
-		global.APP_LOG.Info("镜像信息准备完成", zap.String("imageURL", imageURL))
-	}
-
-	if err := prov.CreateInstance(ctx, config); err != nil {
-		global.APP_LOG.Error("创建实例失败", zap.Error(err))
-		return fmt.Errorf("创建实例失败: %v", err)
-	}
-
-	global.APP_LOG.Info("实例创建成功", zap.String("name", config.Name))
 	return nil
 }
 
 // CreateInstanceByProviderID 根据Provider ID创建实例（确保使用正确的Provider）
 func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, providerID uint, req CreateInstanceRequest) error {
-	// 获取指定的Provider配置
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		global.APP_LOG.Error("获取Provider失败", zap.Uint("providerId", providerID), zap.Error(err))
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider状态
-	if provider.IsFrozen {
-		return fmt.Errorf("Provider已被冻结")
-	}
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期")
-	}
-
-	// 获取Provider实例
-	prov, err := s.GetProviderByType(provider.Type)
+	// 使用新的GetProviderByID方法
+	prov, dbProvider, err := s.GetProviderByID(providerID)
 	if err != nil {
-		return fmt.Errorf("Provider不存在")
+		return err
 	}
 
 	// 检查连接状态
-	if !prov.IsConnected() {
-		return fmt.Errorf("Provider未连接")
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
 	}
 
 	config := req.InstanceConfig
 
 	// 验证Provider类型和实例类型兼容性
 	resourceService := &resources.ResourceService{}
-	if err := resourceService.ValidateInstanceTypeSupport(provider.ID, config.InstanceType); err != nil {
+	if err := resourceService.ValidateInstanceTypeSupport(dbProvider.ID, config.InstanceType); err != nil {
 		global.APP_LOG.Error("实例类型不支持", zap.Error(err))
 		return err
 	}
@@ -361,9 +178,9 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 		imageService := images.ImageService{}
 		downloadReq := imageModel.DownloadImageRequest{
 			ImageID:      req.SystemImageID,
-			ProviderType: provider.Type,
+			ProviderType: dbProvider.Type,
 			InstanceType: config.InstanceType,
-			Architecture: provider.Architecture, // 使用指定Provider的架构信息
+			Architecture: dbProvider.Architecture, // 使用指定Provider的架构信息
 		}
 
 		imageURL, err := imageService.PrepareImageForInstance(downloadReq)
@@ -387,28 +204,14 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 
 // StartInstanceByProviderID 根据Provider ID启动实例（确保使用正确的Provider）
 func (s *ProviderApiService) StartInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
-	// 获取指定的Provider配置
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider状态
-	if provider.IsFrozen {
-		return fmt.Errorf("Provider已被冻结")
-	}
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期")
-	}
-
-	// 获取Provider实例
-	prov, err := s.GetProviderByType(provider.Type)
+	// 使用新的GetProviderByID方法
+	prov, _, err := s.GetProviderByID(providerID)
 	if err != nil {
-		return fmt.Errorf("Provider不存在")
+		return err
 	}
 
-	if !prov.IsConnected() {
-		return fmt.Errorf("Provider未连接")
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
 	}
 
 	if err := prov.StartInstance(ctx, instanceID); err != nil {
@@ -427,28 +230,14 @@ func (s *ProviderApiService) StartInstanceByProviderID(ctx context.Context, prov
 
 // StopInstanceByProviderID 根据Provider ID停止实例（确保使用正确的Provider）
 func (s *ProviderApiService) StopInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
-	// 获取指定的Provider配置
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider状态
-	if provider.IsFrozen {
-		return fmt.Errorf("Provider已被冻结")
-	}
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期")
-	}
-
-	// 获取Provider实例
-	prov, err := s.GetProviderByType(provider.Type)
+	// 使用新的GetProviderByID方法
+	prov, _, err := s.GetProviderByID(providerID)
 	if err != nil {
-		return fmt.Errorf("Provider不存在")
+		return err
 	}
 
-	if !prov.IsConnected() {
-		return fmt.Errorf("Provider未连接")
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
 	}
 
 	if err := prov.StopInstance(ctx, instanceID); err != nil {
@@ -467,28 +256,14 @@ func (s *ProviderApiService) StopInstanceByProviderID(ctx context.Context, provi
 
 // RestartInstanceByProviderID 根据Provider ID重启实例（确保使用正确的Provider）
 func (s *ProviderApiService) RestartInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
-	// 获取指定的Provider配置
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider状态
-	if provider.IsFrozen {
-		return fmt.Errorf("Provider已被冻结")
-	}
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期")
-	}
-
-	// 获取Provider实例
-	prov, err := s.GetProviderByType(provider.Type)
+	// 使用新的GetProviderByID方法
+	prov, _, err := s.GetProviderByID(providerID)
 	if err != nil {
-		return fmt.Errorf("Provider不存在")
+		return err
 	}
 
-	if !prov.IsConnected() {
-		return fmt.Errorf("Provider未连接")
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
 	}
 
 	if err := prov.RestartInstance(ctx, instanceID); err != nil {
@@ -507,28 +282,14 @@ func (s *ProviderApiService) RestartInstanceByProviderID(ctx context.Context, pr
 
 // DeleteInstanceByProviderID 根据Provider ID删除实例（确保使用正确的Provider）
 func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
-	// 获取指定的Provider配置
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider状态
-	if provider.IsFrozen {
-		return fmt.Errorf("Provider已被冻结")
-	}
-	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("Provider已过期")
-	}
-
-	// 获取Provider实例
-	prov, err := s.GetProviderByType(provider.Type)
+	// 使用新的GetProviderByID方法
+	prov, _, err := s.GetProviderByID(providerID)
 	if err != nil {
-		return fmt.Errorf("Provider不存在")
+		return err
 	}
 
-	if !prov.IsConnected() {
-		return fmt.Errorf("Provider未连接")
+	if err := CheckProviderConnection(prov); err != nil {
+		return err
 	}
 
 	if err := prov.DeleteInstance(ctx, instanceID); err != nil {
@@ -545,174 +306,7 @@ func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, pro
 	return nil
 }
 
-// GetInstance 获取实例详情
-func (s *ProviderApiService) GetInstance(ctx context.Context, providerType, instanceID string) (interface{}, error) {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return nil, fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider是否连接
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return nil, err
-	}
-
-	instance, err := prov.GetInstance(ctx, instanceID)
-	if err != nil {
-		global.APP_LOG.Error("获取实例失败", zap.Error(err))
-		return nil, fmt.Errorf("获取实例失败: %v", err)
-	}
-
-	if instance == nil {
-		return nil, fmt.Errorf("实例不存在")
-	}
-
-	return instance, nil
-}
-
-// StartInstance 启动实例
-func (s *ProviderApiService) StartInstance(ctx context.Context, providerType, instanceID string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider是否连接
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.StartInstance(ctx, instanceID); err != nil {
-		global.APP_LOG.Error("启动实例失败", zap.Error(err))
-		return fmt.Errorf("启动实例失败: %v", err)
-	}
-
-	global.APP_LOG.Info("实例启动成功", zap.String("id", instanceID))
-	return nil
-}
-
-// StopInstance 停止实例
-func (s *ProviderApiService) StopInstance(ctx context.Context, providerType, instanceID string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider是否连接
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.StopInstance(ctx, instanceID); err != nil {
-		global.APP_LOG.Error("停止实例失败", zap.Error(err))
-		return fmt.Errorf("停止实例失败: %v", err)
-	}
-
-	global.APP_LOG.Info("实例停止成功", zap.String("id", instanceID))
-	return nil
-}
-
-// RestartInstance 重启实例
-func (s *ProviderApiService) RestartInstance(ctx context.Context, providerType, instanceID string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查提供商连接状态
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.RestartInstance(ctx, instanceID); err != nil {
-		global.APP_LOG.Error("重启实例失败", zap.Error(err))
-		return fmt.Errorf("重启实例失败: %v", err)
-	}
-
-	global.APP_LOG.Info("实例重启成功", zap.String("id", instanceID))
-	return nil
-}
-
-// DeleteInstance 删除实例
-func (s *ProviderApiService) DeleteInstance(ctx context.Context, providerType, instanceID string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查提供商连接状态
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.DeleteInstance(ctx, instanceID); err != nil {
-		global.APP_LOG.Error("删除实例失败", zap.Error(err))
-		return fmt.Errorf("删除实例失败: %v", err)
-	}
-
-	global.APP_LOG.Info("实例删除成功", zap.String("id", instanceID))
-	return nil
-}
-
-// ListImages 获取镜像列表
-func (s *ProviderApiService) ListImages(ctx context.Context, providerType string) ([]provider.Image, error) {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return nil, fmt.Errorf("Provider不存在")
-	}
-
-	// 检查Provider是否连接
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return nil, err
-	}
-
-	images, err := prov.ListImages(ctx)
-	if err != nil {
-		global.APP_LOG.Error("获取镜像列表失败", zap.Error(err))
-		return nil, fmt.Errorf("获取镜像列表失败: %v", err)
-	}
-
-	return images, nil
-}
-
-// PullImage 拉取镜像
-func (s *ProviderApiService) PullImage(ctx context.Context, providerType, image string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查提供商连接状态
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.PullImage(ctx, image); err != nil {
-		global.APP_LOG.Error("镜像拉取失败", zap.Error(err))
-		return fmt.Errorf("镜像拉取失败: %v", err)
-	}
-
-	global.APP_LOG.Info("镜像拉取成功", zap.String("image", image))
-	return nil
-}
-
-// DeleteImage 删除镜像
-func (s *ProviderApiService) DeleteImage(ctx context.Context, providerType, imageID string) error {
-	prov, err := s.GetProviderByType(providerType)
-	if err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 检查提供商连接状态
-	if err := s.CheckProviderConnection(prov, providerType); err != nil {
-		return err
-	}
-
-	if err := prov.DeleteImage(ctx, imageID); err != nil {
-		global.APP_LOG.Error("镜像删除失败", zap.Error(err))
-		return fmt.Errorf("镜像删除失败: %v", err)
-	}
-
-	global.APP_LOG.Info("镜像删除成功", zap.String("id", imageID))
-	return nil
-}
+// ========================================
+// 以下所有使用providerType作为参数的旧方法已全部删除
+// 请使用 api_by_id.go 中带有 ByID 后缀的新方法
+// ========================================

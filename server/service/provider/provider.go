@@ -122,6 +122,13 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		ExecutionRule:         dbProvider.ExecutionRule,
 		SSHConnectTimeout:     dbProvider.SSHConnectTimeout,
 		SSHExecuteTimeout:     dbProvider.SSHExecuteTimeout,
+		// 资源限制配置
+		ContainerLimitCPU:    dbProvider.ContainerLimitCPU,
+		ContainerLimitMemory: dbProvider.ContainerLimitMemory,
+		ContainerLimitDisk:   dbProvider.ContainerLimitDisk,
+		VMLimitCPU:           dbProvider.VMLimitCPU,
+		VMLimitMemory:        dbProvider.VMLimitMemory,
+		VMLimitDisk:          dbProvider.VMLimitDisk,
 	}
 
 	// 如果Provider已自动配置，尝试加载完整配置
@@ -194,9 +201,15 @@ func (ps *ProviderService) GetProvider(name string) (provider.Provider, bool) {
 }
 
 // GetProviderByType 获取指定类型的第一个Provider
+// 【已弃用】此方法存在歧义问题，当有多个相同type的provider时会返回随机结果
+// 请使用 GetProvider(name) 或通过 ProviderApiService.GetProviderByID(id) 代替
+// Deprecated: Use GetProvider(name) or ProviderApiService.GetProviderByID(id) instead
 func (ps *ProviderService) GetProviderByType(providerType string) (provider.Provider, bool) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
+
+	global.APP_LOG.Warn("使用了已弃用的GetProviderByType方法，此方法存在歧义",
+		zap.String("type", providerType))
 
 	for _, prov := range ps.providers {
 		if prov.GetType() == providerType {

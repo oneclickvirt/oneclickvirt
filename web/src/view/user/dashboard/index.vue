@@ -242,13 +242,26 @@ const announcements = ref([])
 
 // 获取用户限制信息
 const loadUserLimits = async () => {
+  const loadingMsg = ElMessage({
+    message: '正在刷新配额信息...',
+    type: 'info',
+    duration: 0, // 不自动关闭
+    showClose: false
+  })
+  
   try {
     const response = await getUserLimits()
     if (response.code === 0 || response.code === 200) {
       Object.assign(userLimits, response.data)
+      loadingMsg.close()
+      ElMessage.success('配额信息已刷新')
+    } else {
+      loadingMsg.close()
+      ElMessage.error(response.message || '加载用户配额信息失败')
     }
   } catch (error) {
     console.error('获取用户限制失败:', error)
+    loadingMsg.close()
     ElMessage.error('加载用户配额信息失败')
   }
 }

@@ -476,7 +476,6 @@ import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
-import OAuth2ConfigComponent from './OAuth2ConfigComponent.vue'
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -574,8 +573,14 @@ const loadConfig = async () => {
 const loadInstanceTypePermissions = async () => {
   try {
     const response = await getInstanceTypePermissions()
+    console.log('加载实例类型权限配置响应:', response)
     if (response.code === 0 && response.data) {
-      Object.assign(instanceTypePermissions.value, response.data)
+      instanceTypePermissions.value = {
+        minLevelForContainer: response.data.minLevelForContainer || 1,
+        minLevelForVM: response.data.minLevelForVM || 3,
+        minLevelForDelete: response.data.minLevelForDelete || 2
+      }
+      console.log('实例类型权限配置已加载:', instanceTypePermissions.value)
     }
   } catch (error) {
     console.error('加载实例类型权限配置失败:', error)
@@ -632,16 +637,26 @@ const saveConfig = async () => {
   
   loading.value = true
   try {
+    console.log('开始保存配置...')
+    console.log('基础配置:', config.value)
+    console.log('实例类型权限配置:', instanceTypePermissions.value)
+    
     // 保存基础配置
-    await updateAdminConfig(config.value)
+    const configResult = await updateAdminConfig(config.value)
+    console.log('基础配置保存结果:', configResult)
     
     // 保存实例类型权限配置
-    await updateInstanceTypePermissions(instanceTypePermissions.value)
+    const permissionsResult = await updateInstanceTypePermissions(instanceTypePermissions.value)
+    console.log('实例类型权限配置保存结果:', permissionsResult)
     
     ElMessage.success('配置保存成功，已自动同步用户资源限制')
+    
+    // 保存成功后重新加载配置，确保显示最新数据
+    await loadConfig()
+    await loadInstanceTypePermissions()
   } catch (error) {
     console.error('保存配置失败:', error)
-    ElMessage.error('配置保存失败')
+    ElMessage.error('配置保存失败: ' + (error.message || '未知错误'))
   } finally {
     loading.value = false
   }

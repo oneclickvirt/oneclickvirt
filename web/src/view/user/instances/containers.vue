@@ -10,7 +10,7 @@
           <el-icon><Plus /></el-icon>
           申领新容器
         </el-button>
-        <el-button @click="loadInstances">
+        <el-button @click="() => loadInstances(true)">
           <el-icon><Refresh /></el-icon>
           刷新
         </el-button>
@@ -80,7 +80,7 @@
         <el-form-item>
           <el-button
             type="primary"
-            @click="loadInstances"
+            @click="() => loadInstances(true)"
           >
             搜索
           </el-button>
@@ -437,7 +437,7 @@ const copyToClipboard = async (text) => {
 }
 
 // 加载实例列表
-const loadInstances = async () => {
+const loadInstances = async (showSuccessMsg = false) => {
   loading.value = true
   try {
     const params = {
@@ -449,6 +449,11 @@ const loadInstances = async () => {
     const response = await getUserInstances(params)
     instances.value = response.data.list
     pagination.total = response.data.total
+    
+    // 只有在明确刷新时才显示成功提示
+    if (showSuccessMsg) {
+      ElMessage.success(`已刷新，共 ${pagination.total} 个实例`)
+    }
   } catch (error) {
     ElMessage.error('加载实例列表失败')
   } finally {
@@ -461,7 +466,7 @@ const resetFilter = () => {
   filterForm.status = ''
   filterForm.region = ''
   pagination.page = 1
-  loadInstances()
+  loadInstances(true)
 }
 
 // 处理实例操作

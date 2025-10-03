@@ -94,6 +94,20 @@ type Provider struct {
 	MaxContainerInstances int `json:"maxContainerInstances" gorm:"default:0"` // 最大容器实例数量（0表示无限制）
 	MaxVMInstances        int `json:"maxVMInstances" gorm:"default:0"`        // 最大虚拟机实例数量（0表示无限制）
 
+	// 容器资源配额管理配置（Provider层面）
+	// 这些配置决定该资源是否计入Provider总量预算，不影响实例创建时的资源参数设置
+	// false=允许超分配（不计入总量），true=严格限制（计入总量）
+	ContainerLimitCPU    bool `json:"containerLimitCpu" gorm:"default:false"`    // 容器CPU是否计入Provider总量预算，默认false（允许超分配）
+	ContainerLimitMemory bool `json:"containerLimitMemory" gorm:"default:false"` // 容器内存是否计入Provider总量预算，默认false（允许超分配）
+	ContainerLimitDisk   bool `json:"containerLimitDisk" gorm:"default:true"`    // 容器硬盘是否计入Provider总量预算，默认true（严格限制）
+
+	// 虚拟机资源配额管理配置（Provider层面）
+	// 这些配置决定该资源是否计入Provider总量预算，不影响实例创建时的资源参数设置
+	// false=允许超分配（不计入总量），true=严格限制（计入总量）
+	VMLimitCPU    bool `json:"vmLimitCpu" gorm:"default:true"`    // 虚拟机CPU是否计入Provider总量预算，默认true（严格限制）
+	VMLimitMemory bool `json:"vmLimitMemory" gorm:"default:true"` // 虚拟机内存是否计入Provider总量预算，默认true（严格限制）
+	VMLimitDisk   bool `json:"vmLimitDisk" gorm:"default:true"`   // 虚拟机硬盘是否计入Provider总量预算，默认true（严格限制）
+
 	// 端口映射配置
 	DefaultPortCount  int    `json:"defaultPortCount" gorm:"default:10"`                   // 每个实例默认映射端口数量
 	PortRangeStart    int    `json:"portRangeStart" gorm:"default:10000"`                  // 端口映射范围起始
@@ -300,4 +314,14 @@ type ProviderNodeConfig struct {
 	SSHExecuteTimeout     int      `json:"ssh_execute_timeout"` // SSH命令执行超时时间（秒）
 	ExecutionRule         string   `json:"execution_rule"`      // 操作轮转规则：auto, api_only, ssh_only
 	NetworkType           string   `json:"networkType"`         // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+
+	// 容器资源限制配置（Provider层面）
+	ContainerLimitCPU    bool `json:"containerLimitCpu"`    // 容器是否限制CPU数量，默认不限制
+	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器是否限制内存大小，默认不限制
+	ContainerLimitDisk   bool `json:"containerLimitDisk"`   // 容器是否限制硬盘大小，默认限制
+
+	// 虚拟机资源限制配置（Provider层面）
+	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量，默认限制
+	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小，默认限制
+	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小，默认限制
 }

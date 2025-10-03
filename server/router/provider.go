@@ -33,8 +33,8 @@ func InitProviderRouter(Router *gin.RouterGroup) {
 		ProviderGroup.GET("/", providerApi.GetProviders)
 		ProviderGroup.POST("/connect", providerApi.ConnectProvider)
 
-		// 动态Provider路由 - 支持任意provider名称
-		DynamicProviderGroup := ProviderGroup.Group("/:providerName")
+		// 动态Provider路由 - 使用Provider ID
+		DynamicProviderGroup := ProviderGroup.Group("/:id")
 		{
 			DynamicProviderGroup.GET("/status", providerApi.GetProviderStatus)
 			DynamicProviderGroup.GET("/capabilities", providerApi.GetProviderCapabilities)

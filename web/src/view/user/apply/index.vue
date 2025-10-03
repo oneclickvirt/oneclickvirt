@@ -43,7 +43,7 @@
           <span>选择服务器</span>
           <el-button
             size="small"
-            @click="loadProviders"
+            @click="() => loadProviders(true)"
           >
             <el-icon><Refresh /></el-icon>
             刷新
@@ -284,7 +284,7 @@
       </template>
       <el-button
         type="primary"
-        @click="loadProviders"
+        @click="() => loadProviders(true)"
       >
         刷新
       </el-button>
@@ -549,7 +549,7 @@ const onInstanceTypeChange = async () => {
 }
 
 // 获取可用提供商列表
-const loadProviders = async () => {
+const loadProviders = async (showSuccessMsg = false) => {
   try {
     loading.value = true
     const response = await getAvailableProviders()
@@ -560,6 +560,8 @@ const loadProviders = async () => {
       if (providers.value.length === 0) {
         ElMessage.info('当前没有可用的服务器节点，请稍后再试或联系管理员')
         console.info('没有可用的Provider，可能原因：资源未同步、节点离线或配置不完整')
+      } else if (showSuccessMsg) {
+        ElMessage.success(`已刷新，共 ${providers.value.length} 个可用服务器`)
       }
     } else {
       providers.value = []

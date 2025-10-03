@@ -65,6 +65,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 	}
 
 	// 添加基础配置参数
+	// 注意：始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
 	configParams := []string{}
 
 	if config.CPU != "" {

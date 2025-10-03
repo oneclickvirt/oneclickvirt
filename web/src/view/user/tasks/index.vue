@@ -112,14 +112,14 @@
         <el-form-item>
           <el-button
             type="primary"
-            @click="loadTasks"
+            @click="() => loadTasks(true)"
           >
             筛选
           </el-button>
           <el-button @click="resetFilter">
             重置
           </el-button>
-          <el-button @click="loadTasks">
+          <el-button @click="() => loadTasks(true)">
             <el-icon><Refresh /></el-icon>
             刷新
           </el-button>
@@ -431,7 +431,7 @@ const groupedTasks = computed(() => {
 })
 
 // 获取任务列表
-const loadTasks = async () => {
+const loadTasks = async (showSuccessMsg = false) => {
   try {
     loading.value = true
     const params = {
@@ -449,6 +449,10 @@ const loadTasks = async () => {
         tasks: tasks.value,
         groupedTasks: groupedTasks.value
       })
+      // 只有在明确刷新时才显示成功提示
+      if (showSuccessMsg) {
+        ElMessage.success(`已刷新，共 ${total.value} 个任务`)
+      }
     } else {
       tasks.value = []
       total.value = 0
@@ -487,7 +491,7 @@ const resetFilter = () => {
     status: ''
   })
   pagination.page = 1
-  loadTasks()
+  loadTasks(true)
 }
 
 // 取消任务

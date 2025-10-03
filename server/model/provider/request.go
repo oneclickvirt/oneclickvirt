@@ -64,4 +64,14 @@ type NodeConfigRequest struct {
 	SupportedTypes        []string `json:"supported_types"`
 	ContainerEnabled      bool     `json:"container_enabled"`
 	VirtualMachineEnabled bool     `json:"vm_enabled"`
+
+	// 容器资源限制配置（Provider层面）
+	ContainerLimitCPU    bool `json:"containerLimitCpu"`    // 容器是否限制CPU数量
+	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器是否限制内存大小
+	ContainerLimitDisk   bool `json:"containerLimitDisk"`   // 容器是否限制硬盘大小
+
+	// 虚拟机资源限制配置（Provider层面）
+	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量
+	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小
+	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小
 }

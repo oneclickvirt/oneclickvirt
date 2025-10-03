@@ -93,7 +93,8 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 		return result, nil
 	}
 
-	// 计算可用资源
+	// 计算可用资源（考虑Provider的资源限制配置）
+	// 如果资源类型配置为不限制（false），则不计入总量，允许超分配
 	availableCPU := provider.NodeCPUCores - provider.UsedCPUCores
 	availableMemory := provider.NodeMemoryTotal - provider.UsedMemory
 	availableDisk := provider.NodeDiskTotal - provider.UsedDisk
@@ -102,7 +103,7 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 	result.AvailableMemory = availableMemory
 	result.AvailableDisk = availableDisk
 
-	// 对于容器，CPU可以超开（共享CPU），只检查实例数量限制
+	// 根据实例类型检查资源
 	if req.InstanceType == "container" {
 		// 检查容器数量限制
 		if provider.MaxContainerInstances > 0 && provider.ContainerCount >= provider.MaxContainerInstances {
@@ -110,41 +111,62 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 			result.Reason = fmt.Sprintf("容器数量已达上限：%d/%d", provider.ContainerCount, provider.MaxContainerInstances)
 			return result, nil
 		}
-		// 容器不进行CPU核心数限制
-	} else {
-		// 对于虚拟机，严格检查CPU核心数（独享）
-		if req.CPU > availableCPU {
+
+		// 容器CPU检查：如果ContainerLimitCPU为false，允许超分配（不检查）
+		if provider.ContainerLimitCPU && req.CPU > availableCPU {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("CPU资源不足：需要 %d 核，可用 %d 核", req.CPU, availableCPU)
 			return result, nil
 		}
 
-		// 检查虚拟机数量限制
+		// 容器内存检查：如果ContainerLimitMemory为false，允许超分配（不检查）
+		if provider.ContainerLimitMemory && req.Memory > availableMemory {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("内存资源不足：需要 %d MB，可用 %d MB", req.Memory, availableMemory)
+			return result, nil
+		}
+
+		// 容器磁盘检查：如果ContainerLimitDisk为false，允许超分配（不检查）
+		if provider.ContainerLimitDisk && req.Disk > availableDisk {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
+			return result, nil
+		}
+	} else {
+		// 虚拟机数量限制
 		if provider.MaxVMInstances > 0 && provider.VMCount >= provider.MaxVMInstances {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("虚拟机数量已达上限：%d/%d", provider.VMCount, provider.MaxVMInstances)
 			return result, nil
 		}
-	}
 
-	// 内存严格校验（不可超开）
-	if req.Memory > availableMemory {
-		result.Allowed = false
-		result.Reason = fmt.Sprintf("内存资源不足：需要 %d MB，可用 %d MB", req.Memory, availableMemory)
-		return result, nil
-	}
+		// 虚拟机CPU检查：如果VMLimitCPU为false，允许超分配（不检查）
+		if provider.VMLimitCPU && req.CPU > availableCPU {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("CPU资源不足：需要 %d 核，可用 %d 核", req.CPU, availableCPU)
+			return result, nil
+		}
 
-	// 磁盘严格校验（不可超开）
-	if req.Disk > availableDisk {
-		result.Allowed = false
-		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
-		return result, nil
+		// 虚拟机内存检查：如果VMLimitMemory为false，允许超分配（不检查）
+		if provider.VMLimitMemory && req.Memory > availableMemory {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("内存资源不足：需要 %d MB，可用 %d MB", req.Memory, availableMemory)
+			return result, nil
+		}
+
+		// 虚拟机磁盘检查：如果VMLimitDisk为false，允许超分配（不检查）
+		if provider.VMLimitDisk && req.Disk > availableDisk {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
+			return result, nil
+		}
 	}
 
 	return result, nil
 }
 
 // AllocateResourcesInTx 在事务中分配资源（不创建新事务，使用悲观锁）
+// 根据Provider的资源限制配置决定是否扣减资源
 func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, instanceType string, cpu int, memory, disk int64) error {
 	global.APP_LOG.Info("开始分配资源",
 		zap.Uint("providerId", providerID),
@@ -162,18 +184,59 @@ func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, in
 		return fmt.Errorf("Provider不存在或无法锁定: %v", err)
 	}
 
-	// 更新资源占用
+	// 更新资源占用（根据资源限制配置决定是否扣减）
 	updates := map[string]interface{}{
-		"used_memory": provider.UsedMemory + memory,
-		"used_disk":   provider.UsedDisk + disk,
-		"updated_at":  time.Now(),
+		"updated_at": time.Now(),
 	}
 
-	// 只有虚拟机才占用CPU核心
+	// 根据实例类型和资源限制配置更新资源占用
 	if instanceType == "vm" {
-		updates["used_cpu_cores"] = provider.UsedCPUCores + cpu
+		// 虚拟机：根据VMLimitXXX配置决定是否扣减资源
+		if provider.VMLimitCPU {
+			updates["used_cpu_cores"] = provider.UsedCPUCores + cpu
+			global.APP_LOG.Debug("扣减VM CPU资源", zap.Int("cpu", cpu))
+		} else {
+			global.APP_LOG.Debug("VM CPU不计入总量（允许超分配）", zap.Int("cpu", cpu))
+		}
+
+		if provider.VMLimitMemory {
+			updates["used_memory"] = provider.UsedMemory + memory
+			global.APP_LOG.Debug("扣减VM内存资源", zap.Int64("memory", memory))
+		} else {
+			global.APP_LOG.Debug("VM内存不计入总量（允许超分配）", zap.Int64("memory", memory))
+		}
+
+		if provider.VMLimitDisk {
+			updates["used_disk"] = provider.UsedDisk + disk
+			global.APP_LOG.Debug("扣减VM磁盘资源", zap.Int64("disk", disk))
+		} else {
+			global.APP_LOG.Debug("VM磁盘不计入总量（允许超分配）", zap.Int64("disk", disk))
+		}
+
 		updates["vm_count"] = provider.VMCount + 1
 	} else {
+		// 容器：根据ContainerLimitXXX配置决定是否扣减资源
+		if provider.ContainerLimitCPU {
+			updates["used_cpu_cores"] = provider.UsedCPUCores + cpu
+			global.APP_LOG.Debug("扣减容器CPU资源", zap.Int("cpu", cpu))
+		} else {
+			global.APP_LOG.Debug("容器CPU不计入总量（允许超分配）", zap.Int("cpu", cpu))
+		}
+
+		if provider.ContainerLimitMemory {
+			updates["used_memory"] = provider.UsedMemory + memory
+			global.APP_LOG.Debug("扣减容器内存资源", zap.Int64("memory", memory))
+		} else {
+			global.APP_LOG.Debug("容器内存不计入总量（允许超分配）", zap.Int64("memory", memory))
+		}
+
+		if provider.ContainerLimitDisk {
+			updates["used_disk"] = provider.UsedDisk + disk
+			global.APP_LOG.Debug("扣减容器磁盘资源", zap.Int64("disk", disk))
+		} else {
+			global.APP_LOG.Debug("容器磁盘不计入总量（允许超分配）", zap.Int64("disk", disk))
+		}
+
 		updates["container_count"] = provider.ContainerCount + 1
 	}
 
@@ -203,6 +266,7 @@ func (s *ResourceService) AllocateResources(providerID uint, instanceType string
 }
 
 // ReleaseResourcesInTx 在事务中释放资源
+// 根据Provider的资源限制配置决定是否回收资源
 func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, instanceType string, cpu int, memory, disk int64) error {
 	global.APP_LOG.Info("开始释放资源",
 		zap.Uint("providerId", providerID),
@@ -220,37 +284,92 @@ func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, ins
 		return fmt.Errorf("Provider不存在或无法锁定: %v", err)
 	}
 
-	// 更新资源占用
+	// 更新资源占用（根据资源限制配置决定是否回收）
 	updates := map[string]interface{}{
-		"used_memory": provider.UsedMemory - memory,
-		"used_disk":   provider.UsedDisk - disk,
-		"updated_at":  time.Now(),
+		"updated_at": time.Now(),
 	}
 
-	// 只有虚拟机才释放CPU核心
+	// 根据实例类型和资源限制配置更新资源占用
 	if instanceType == "vm" {
-		updates["used_cpu_cores"] = provider.UsedCPUCores - cpu
-		updates["vm_count"] = provider.VMCount - 1
-	} else {
-		updates["container_count"] = provider.ContainerCount - 1
-	}
-
-	// 确保值不为负数
-	if updates["used_memory"].(int64) < 0 {
-		updates["used_memory"] = int64(0)
-	}
-	if updates["used_disk"].(int64) < 0 {
-		updates["used_disk"] = int64(0)
-	}
-	if instanceType == "vm" && updates["used_cpu_cores"].(int) < 0 {
-		updates["used_cpu_cores"] = 0
-	}
-	if (instanceType == "vm" && updates["vm_count"].(int) < 0) || (instanceType == "container" && updates["container_count"].(int) < 0) {
-		if instanceType == "vm" {
-			updates["vm_count"] = 0
+		// 虚拟机：根据VMLimitXXX配置决定是否回收资源
+		if provider.VMLimitCPU {
+			newCPU := provider.UsedCPUCores - cpu
+			if newCPU < 0 {
+				newCPU = 0
+			}
+			updates["used_cpu_cores"] = newCPU
+			global.APP_LOG.Debug("回收VM CPU资源", zap.Int("cpu", cpu))
 		} else {
-			updates["container_count"] = 0
+			global.APP_LOG.Debug("VM CPU未计入总量，无需回收", zap.Int("cpu", cpu))
 		}
+
+		if provider.VMLimitMemory {
+			newMemory := provider.UsedMemory - memory
+			if newMemory < 0 {
+				newMemory = 0
+			}
+			updates["used_memory"] = newMemory
+			global.APP_LOG.Debug("回收VM内存资源", zap.Int64("memory", memory))
+		} else {
+			global.APP_LOG.Debug("VM内存未计入总量，无需回收", zap.Int64("memory", memory))
+		}
+
+		if provider.VMLimitDisk {
+			newDisk := provider.UsedDisk - disk
+			if newDisk < 0 {
+				newDisk = 0
+			}
+			updates["used_disk"] = newDisk
+			global.APP_LOG.Debug("回收VM磁盘资源", zap.Int64("disk", disk))
+		} else {
+			global.APP_LOG.Debug("VM磁盘未计入总量，无需回收", zap.Int64("disk", disk))
+		}
+
+		newVMCount := provider.VMCount - 1
+		if newVMCount < 0 {
+			newVMCount = 0
+		}
+		updates["vm_count"] = newVMCount
+	} else {
+		// 容器：根据ContainerLimitXXX配置决定是否回收资源
+		if provider.ContainerLimitCPU {
+			newCPU := provider.UsedCPUCores - cpu
+			if newCPU < 0 {
+				newCPU = 0
+			}
+			updates["used_cpu_cores"] = newCPU
+			global.APP_LOG.Debug("回收容器CPU资源", zap.Int("cpu", cpu))
+		} else {
+			global.APP_LOG.Debug("容器CPU未计入总量，无需回收", zap.Int("cpu", cpu))
+		}
+
+		if provider.ContainerLimitMemory {
+			newMemory := provider.UsedMemory - memory
+			if newMemory < 0 {
+				newMemory = 0
+			}
+			updates["used_memory"] = newMemory
+			global.APP_LOG.Debug("回收容器内存资源", zap.Int64("memory", memory))
+		} else {
+			global.APP_LOG.Debug("容器内存未计入总量，无需回收", zap.Int64("memory", memory))
+		}
+
+		if provider.ContainerLimitDisk {
+			newDisk := provider.UsedDisk - disk
+			if newDisk < 0 {
+				newDisk = 0
+			}
+			updates["used_disk"] = newDisk
+			global.APP_LOG.Debug("回收容器磁盘资源", zap.Int64("disk", disk))
+		} else {
+			global.APP_LOG.Debug("容器磁盘未计入总量，无需回收", zap.Int64("disk", disk))
+		}
+
+		newContainerCount := provider.ContainerCount - 1
+		if newContainerCount < 0 {
+			newContainerCount = 0
+		}
+		updates["container_count"] = newContainerCount
 	}
 
 	if err := tx.Model(&provider).Updates(updates).Error; err != nil {

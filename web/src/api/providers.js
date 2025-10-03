@@ -21,82 +21,83 @@ export function getSupportedProviders() {
   })
 }
 
-export function getProviderStatusApi(type) {
+// 改为使用Provider ID而不是type
+export function getProviderStatusApi(providerId) {
   return request({
-    url: `/v1/providers/${type}/status`,
+    url: `/v1/providers/${providerId}/status`,
     method: 'get'
   })
 }
 
-export function getProviderCapabilities(type) {
+export function getProviderCapabilities(providerId) {
   return request({
-    url: `/v1/providers/${type}/capabilities`,
+    url: `/v1/providers/${providerId}/capabilities`,
     method: 'get'
   })
 }
 
-export const getInstancesApi = (type) => {
+export const getInstancesApi = (providerId) => {
   return request({
-    url: `/v1/providers/${type}/instances`,
+    url: `/v1/providers/${providerId}/instances`,
     method: 'get'
   })
 }
 
-export const createInstanceApi = (type, data) => {
+export const createInstanceApi = (providerId, data) => {
   return instanceOperationRequest({
-    url: `/v1/providers/${type}/instances`,
+    url: `/v1/providers/${providerId}/instances`,
     method: 'post',
     data
   })
 }
 
-export const getInstanceApi = (type, id) => {
+export const getInstanceApi = (providerId, instanceName) => {
   return request({
-    url: `/v1/providers/${type}/instances/${id}`,
+    url: `/v1/providers/${providerId}/instances/${instanceName}`,
     method: 'get'
   })
 }
 
-export const startInstanceApi = (type, id) => {
+export const startInstanceApi = (providerId, instanceName) => {
   return request({
-    url: `/v1/providers/${type}/instances/${id}/start`,
+    url: `/v1/providers/${providerId}/instances/${instanceName}/start`,
     method: 'post'
   })
 }
 
-export const stopInstanceApi = (type, id) => {
+export const stopInstanceApi = (providerId, instanceName) => {
   return request({
-    url: `/v1/providers/${type}/instances/${id}/stop`,
+    url: `/v1/providers/${providerId}/instances/${instanceName}/stop`,
     method: 'post'
   })
 }
 
-export const deleteInstanceApi = (type, id) => {
+export const deleteInstanceApi = (providerId, instanceName) => {
   return instanceOperationRequest({
-    url: `/v1/providers/${type}/instances/${id}`,
+    url: `/v1/providers/${providerId}/instances/${instanceName}`,
     method: 'delete'
   })
 }
 
-export const getImagesApi = (type) => {
+export const getImagesApi = (providerId) => {
   return request({
-    url: `/v1/providers/${type}/images`,
+    url: `/v1/providers/${providerId}/images`,
     method: 'get'
   })
 }
 
-export const pullImageApi = (type, data) => {
+export const pullImageApi = (providerId, data) => {
   return request({
-    url: `/v1/providers/${type}/images/pull`,
+    url: `/v1/providers/${providerId}/images/pull`,
     method: 'post',
     data,
     timeout: 100000
   })
 }
 
-export const deleteImageApi = (type, id) => {
+export const deleteImageApi = (providerId, imageName) => {
   return request({
-    url: `/v1/providers/${type}/images/${id}`,
+    url: `/v1/providers/${providerId}/images/${imageName}`,
     method: 'delete'
   })
 }

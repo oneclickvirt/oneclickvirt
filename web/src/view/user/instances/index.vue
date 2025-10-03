@@ -89,7 +89,7 @@
           <el-form-item>
             <el-button
               type="primary"
-              @click="loadInstances"
+              @click="() => loadInstances(true)"
             >
               筛选
             </el-button>
@@ -295,7 +295,7 @@ const pagination = reactive({
 })
 
 // 获取实例列表
-const loadInstances = async () => {
+const loadInstances = async (showSuccessMsg = false) => {
   try {
     loading.value = true
     const params = {
@@ -308,6 +308,10 @@ const loadInstances = async () => {
     if (response.code === 0 || response.code === 200) {
       instances.value = response.data.list || []
       total.value = response.data.total || 0
+      // 只有在明确刷新时才显示成功提示
+      if (showSuccessMsg) {
+        ElMessage.success(`已刷新，共 ${total.value} 个实例`)
+      }
     } else {
       instances.value = []
       total.value = 0
@@ -348,7 +352,7 @@ const resetFilter = () => {
     providerId: ''
   })
   pagination.page = 1
-  loadInstances()
+  loadInstances(true)
 }
 
 // 获取状态类型

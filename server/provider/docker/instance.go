@@ -173,9 +173,12 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
+	// 始终应用CPU限制参数（资源限制配置只影响Provider层面的资源预算计算）
 	if config.CPU != "" {
 		cmd += fmt.Sprintf(" --cpus=%s", config.CPU)
 	}
+
+	// 始终应用内存限制参数（资源限制配置只影响Provider层面的资源预算计算）
 	if config.Memory != "" {
 		// Docker --memory parameter supports the following units (as per official documentation):
 		// - b, k, m, g (with optional 'B' suffix): 1024-based binary units
@@ -186,7 +189,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(75, "配置存储限制...")
-	// 检查并添加硬盘大小限制
+	// 始终检查并应用硬盘限制（资源限制配置只影响Provider层面的资源预算计算）
 	if config.Disk != "" && config.Disk != "0" {
 		// 检查存储驱动是否支持硬盘大小限制
 		supportsDiskLimit, storageDriver, err := d.checkStorageDriver()
