@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
+	"strings"
+	"time"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 
 	"go.uber.org/zap"
@@ -132,16 +136,73 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 
 	updateProgress(10, "开始Proxmox API创建实例...")
 
-	// 在API创建之前，处理镜像下载和导入
-	updateProgress(30, "处理镜像下载和导入...")
-	if err := p.handleImageDownloadAndImport(ctx, &config); err != nil {
-		return fmt.Errorf("镜像处理失败: %w", err)
+	// 获取下一个可用的VMID
+	vmid, err := p.getNextVMID(ctx, config.InstanceType)
+	if err != nil {
+		return fmt.Errorf("获取VMID失败: %w", err)
 	}
 
-	updateProgress(50, "调用Proxmox API创建实例...")
-	// TODO: 实现 Proxmox API 创建实例的具体逻辑
+	updateProgress(20, "准备镜像和资源...")
+
+	// 确保必要的镜像存在（通过SSH准备镜像，因为API和SSH使用相同的文件系统）
+	if err := p.prepareImage(ctx, config.Image, config.InstanceType); err != nil {
+		return fmt.Errorf("准备镜像失败: %w", err)
+	}
+
+	updateProgress(40, "通过API创建实例配置...")
+
+	// 根据实例类型通过API创建容器或虚拟机
+	if config.InstanceType == "container" {
+		if err := p.apiCreateContainer(ctx, vmid, config, updateProgress); err != nil {
+			return fmt.Errorf("API创建容器失败: %w", err)
+		}
+	} else {
+		if err := p.apiCreateVM(ctx, vmid, config, updateProgress); err != nil {
+			return fmt.Errorf("API创建虚拟机失败: %w", err)
+		}
+	}
+
+	updateProgress(90, "配置网络和启动...")
+
+	// 配置网络
+	if err := p.configureInstanceNetwork(ctx, vmid, config); err != nil {
+		global.APP_LOG.Warn("网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+	}
+
+	// 启动实例
+	if err := p.apiStartInstance(ctx, fmt.Sprintf("%d", vmid)); err != nil {
+		global.APP_LOG.Warn("启动实例失败", zap.Int("vmid", vmid), zap.Error(err))
+	}
+
+	// 配置端口映射
+	updateProgress(91, "配置端口映射...")
+	if err := p.configureInstancePortMappings(ctx, config, vmid); err != nil {
+		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
+	}
+
+	// 配置SSH密码
+	updateProgress(92, "配置SSH密码...")
+	if err := p.configureInstanceSSHPasswordByVMID(ctx, vmid, config); err != nil {
+		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
+	}
+
+	// 初始化vnstat流量监控
+	updateProgress(95, "初始化vnstat流量监控...")
+	if err := p.initializeVnStatMonitoring(ctx, vmid, config.Name); err != nil {
+		global.APP_LOG.Warn("初始化vnstat监控失败",
+			zap.Int("vmid", vmid),
+			zap.String("name", config.Name),
+			zap.Error(err))
+	}
+
 	updateProgress(100, "Proxmox API实例创建完成")
-	return fmt.Errorf("API create instance not implemented yet")
+
+	global.APP_LOG.Info("Proxmox API实例创建成功",
+		zap.String("name", config.Name),
+		zap.Int("vmid", vmid),
+		zap.String("type", config.InstanceType))
+
+	return nil
 }
 
 func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error {
@@ -454,8 +515,9 @@ func (p *ProxmoxProvider) apiListImages(ctx context.Context) ([]provider.Image, 
 }
 
 func (p *ProxmoxProvider) apiPullImage(ctx context.Context, image string) error {
-	// 实现 Proxmox API 下载镜像
-	return fmt.Errorf("API pull image not implemented yet")
+	// Proxmox API 拉取镜像与SSH方式一致，都是直接下载文件到文件系统
+	// 因为Proxmox没有独立的镜像仓库API，所以使用SSH方式下载
+	return p.sshPullImage(ctx, image)
 }
 
 func (p *ProxmoxProvider) apiDeleteImage(ctx context.Context, id string) error {
@@ -483,8 +545,474 @@ func (p *ProxmoxProvider) apiDeleteImage(ctx context.Context, id string) error {
 
 // apiSetInstancePassword 通过API设置实例密码
 func (p *ProxmoxProvider) apiSetInstancePassword(ctx context.Context, instanceID, password string) error {
-	// TODO: Proxmox API方式设置密码
-	// Proxmox的密码设置需要通过特定的API调用
-	// 这里先返回错误，建议使用SSH方式
-	return fmt.Errorf("Proxmox API密码设置暂未实现，请使用SSH方式")
+	// 先查找实例的VMID和类型
+	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, instanceID)
+	if err != nil {
+		global.APP_LOG.Error("API查找Proxmox实例失败",
+			zap.String("instanceID", instanceID),
+			zap.Error(err))
+		return fmt.Errorf("查找实例失败: %w", err)
+	}
+
+	// 检查实例状态
+	var statusURL string
+	switch instanceType {
+	case "container":
+		statusURL = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/current", p.config.Host, p.node, vmid)
+	case "vm":
+		statusURL = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/current", p.config.Host, p.node, vmid)
+	default:
+		return fmt.Errorf("未知的实例类型: %s", instanceType)
+	}
+
+	statusReq, err := http.NewRequestWithContext(ctx, "GET", statusURL, nil)
+	if err != nil {
+		return fmt.Errorf("创建状态查询请求失败: %w", err)
+	}
+	p.setAPIAuth(statusReq)
+
+	statusResp, err := p.apiClient.Do(statusReq)
+	if err != nil {
+		return fmt.Errorf("查询实例状态失败: %w", err)
+	}
+	defer statusResp.Body.Close()
+
+	var statusResponse map[string]interface{}
+	if err := json.NewDecoder(statusResp.Body).Decode(&statusResponse); err != nil {
+		return fmt.Errorf("解析状态响应失败: %w", err)
+	}
+
+	if data, ok := statusResponse["data"].(map[string]interface{}); ok {
+		if status, ok := data["status"].(string); ok && status != "running" {
+			return fmt.Errorf("实例 %s (VMID: %s) 未运行，当前状态: %s", instanceID, vmid, status)
+		}
+	}
+
+	// 根据实例类型设置密码
+	switch instanceType {
+	case "container":
+		// LXC容器 - 通过API执行命令设置密码
+		return p.apiSetContainerPassword(ctx, vmid, password)
+	case "vm":
+		// QEMU虚拟机 - 通过API设置cloud-init密码
+		return p.apiSetVMPassword(ctx, vmid, password)
+	default:
+		return fmt.Errorf("未知的实例类型: %s", instanceType)
+	}
+}
+
+// apiSetContainerPassword 通过API为LXC容器设置密码
+func (p *ProxmoxProvider) apiSetContainerPassword(ctx context.Context, vmid, password string) error {
+	// 使用LXC容器的exec API执行chpasswd命令
+	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/exec", p.config.Host, p.node, vmid)
+
+	// 构造执行命令的请求体
+	payload := map[string]interface{}{
+		"command": fmt.Sprintf("echo 'root:%s' | chpasswd", password),
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	p.setAPIAuth(req)
+
+	resp, err := p.apiClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("执行API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var respData map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&respData)
+		return fmt.Errorf("设置容器密码失败: status %d, response: %v", resp.StatusCode, respData)
+	}
+
+	global.APP_LOG.Info("通过API成功设置容器密码", zap.String("vmid", vmid))
+	return nil
+}
+
+// apiSetVMPassword 通过API为QEMU虚拟机设置密码
+func (p *ProxmoxProvider) apiSetVMPassword(ctx context.Context, vmid, password string) error {
+	// 使用cloud-init设置密码
+	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/config", p.config.Host, p.node, vmid)
+
+	// 构造cloud-init密码配置
+	payload := map[string]interface{}{
+		"cipassword": password,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "PUT", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	p.setAPIAuth(req)
+
+	resp, err := p.apiClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("执行API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var respData map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&respData)
+		return fmt.Errorf("设置虚拟机密码失败: status %d, response: %v", resp.StatusCode, respData)
+	}
+
+	// 重启虚拟机以应用密码更改
+	restartURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/reboot", p.config.Host, p.node, vmid)
+	restartReq, err := http.NewRequestWithContext(ctx, "POST", restartURL, nil)
+	if err != nil {
+		global.APP_LOG.Warn("创建重启请求失败", zap.String("vmid", vmid), zap.Error(err))
+		return nil // 密码已设置，重启失败不影响
+	}
+	p.setAPIAuth(restartReq)
+
+	restartResp, err := p.apiClient.Do(restartReq)
+	if err != nil {
+		global.APP_LOG.Warn("重启虚拟机失败", zap.String("vmid", vmid), zap.Error(err))
+		return nil // 密码已设置，重启失败不影响
+	}
+	defer restartResp.Body.Close()
+
+	global.APP_LOG.Info("通过API成功设置虚拟机密码并重启", zap.String("vmid", vmid))
+	return nil
+}
+
+// apiCreateContainer 通过API创建LXC容器
+func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, config provider.InstanceConfig, updateProgress func(int, string)) error {
+	updateProgress(50, "通过API创建LXC容器...")
+
+	// 获取系统镜像配置
+	systemConfig := &provider.InstanceConfig{
+		Image:        config.Image,
+		InstanceType: config.InstanceType,
+	}
+
+	err := p.queryAndSetSystemImage(ctx, systemConfig)
+	if err != nil {
+		return fmt.Errorf("获取系统镜像失败: %v", err)
+	}
+
+	// 生成本地镜像文件路径
+	fileName := p.generateRemoteFileName(config.Image, systemConfig.ImageURL, p.config.Architecture)
+	localImagePath := filepath.Join("/var/lib/vz/template/cache", fileName)
+
+	// 确保镜像文件存在（通过SSH下载）
+	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	output, err := p.sshClient.Execute(checkCmd)
+	if err != nil {
+		return fmt.Errorf("检查镜像文件失败: %v", err)
+	}
+
+	if strings.TrimSpace(output) == "missing" {
+		updateProgress(30, "下载容器镜像...")
+		_, err = p.sshClient.Execute("mkdir -p /var/lib/vz/template/cache")
+		if err != nil {
+			return fmt.Errorf("创建缓存目录失败: %v", err)
+		}
+
+		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
+		_, err = p.sshClient.Execute(downloadCmd)
+		if err != nil {
+			return fmt.Errorf("下载镜像失败: %v", err)
+		}
+	}
+
+	// 获取存储配置
+	var providerRecord providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider记录失败，使用默认存储", zap.Error(err))
+	}
+
+	storage := providerRecord.StoragePool
+	if storage == "" {
+		storage = "local"
+	}
+
+	// 转换参数格式
+	cpuFormatted := convertCPUFormat(config.CPU)
+	memoryFormatted := convertMemoryFormat(config.Memory)
+	diskFormatted := convertDiskFormat(config.Disk)
+
+	// 构造API请求创建容器
+	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc", p.config.Host, p.node)
+
+	payload := map[string]interface{}{
+		"vmid":         vmid,
+		"ostemplate":   localImagePath,
+		"cores":        cpuFormatted,
+		"memory":       memoryFormatted,
+		"swap":         "128",
+		"rootfs":       fmt.Sprintf("%s:%s", storage, diskFormatted),
+		"onboot":       "1",
+		"features":     "nesting=1",
+		"hostname":     config.Name,
+		"unprivileged": "1",
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	p.setAPIAuth(req)
+
+	resp, err := p.apiClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("执行API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var respData map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&respData)
+		return fmt.Errorf("创建容器失败: status %d, response: %v", resp.StatusCode, respData)
+	}
+
+	updateProgress(70, "配置容器网络...")
+
+	// 配置网络
+	userIP := fmt.Sprintf("172.16.1.%d", vmid)
+	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
+
+	netPayload := map[string]interface{}{
+		"net0": fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", userIP),
+	}
+
+	netJsonData, _ := json.Marshal(netPayload)
+	netReq, _ := http.NewRequestWithContext(ctx, "PUT", netConfigURL, strings.NewReader(string(netJsonData)))
+	netReq.Header.Set("Content-Type", "application/json")
+	p.setAPIAuth(netReq)
+
+	netResp, err := p.apiClient.Do(netReq)
+	if err != nil {
+		global.APP_LOG.Warn("配置容器网络失败", zap.Error(err))
+	} else {
+		netResp.Body.Close()
+	}
+
+	updateProgress(80, "启动容器...")
+
+	global.APP_LOG.Info("通过API成功创建LXC容器",
+		zap.Int("vmid", vmid),
+		zap.String("name", config.Name))
+
+	return nil
+}
+
+// apiCreateVM 通过API创建QEMU虚拟机
+func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config provider.InstanceConfig, updateProgress func(int, string)) error {
+	updateProgress(50, "通过API创建QEMU虚拟机...")
+
+	// 获取系统镜像配置
+	systemConfig := &provider.InstanceConfig{
+		Image:        config.Image,
+		InstanceType: config.InstanceType,
+	}
+
+	err := p.queryAndSetSystemImage(ctx, systemConfig)
+	if err != nil {
+		return fmt.Errorf("获取系统镜像失败: %v", err)
+	}
+
+	// 生成本地镜像文件路径
+	fileName := p.generateRemoteFileName(config.Image, systemConfig.ImageURL, p.config.Architecture)
+	localImagePath := fmt.Sprintf("/root/qcow/%s", fileName)
+
+	// 确保镜像文件存在（通过SSH下载）
+	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	output, err := p.sshClient.Execute(checkCmd)
+	if err != nil {
+		return fmt.Errorf("检查镜像文件失败: %v", err)
+	}
+
+	if strings.TrimSpace(output) == "missing" {
+		updateProgress(30, "下载虚拟机镜像...")
+		_, err = p.sshClient.Execute("mkdir -p /root/qcow")
+		if err != nil {
+			return fmt.Errorf("创建目录失败: %v", err)
+		}
+
+		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
+		_, err = p.sshClient.Execute(downloadCmd)
+		if err != nil {
+			return fmt.Errorf("下载镜像失败: %v", err)
+		}
+	}
+
+	// 检测系统架构和KVM支持
+	archCmd := "uname -m"
+	archOutput, _ := p.sshClient.Execute(archCmd)
+	systemArch := strings.TrimSpace(archOutput)
+
+	kvmFlag := 1
+	cpuType := "host"
+	kvmCheckCmd := "[ -e /dev/kvm ] && [ -r /dev/kvm ] && [ -w /dev/kvm ] && echo 'kvm_available' || echo 'kvm_unavailable'"
+	kvmOutput, _ := p.sshClient.Execute(kvmCheckCmd)
+	if strings.TrimSpace(kvmOutput) != "kvm_available" {
+		kvmFlag = 0
+		switch systemArch {
+		case "aarch64", "armv7l", "armv8", "armv8l":
+			cpuType = "max"
+		case "i386", "i686", "x86":
+			cpuType = "qemu32"
+		default:
+			cpuType = "qemu64"
+		}
+	}
+
+	// 获取存储配置
+	var providerRecord providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider记录失败，使用默认存储", zap.Error(err))
+	}
+
+	storage := providerRecord.StoragePool
+	if storage == "" {
+		storage = "local"
+	}
+
+	// 转换参数格式
+	cpuFormatted := convertCPUFormat(config.CPU)
+	memoryFormatted := convertMemoryFormat(config.Memory)
+
+	// 获取IPv6配置信息
+	ipv6Info, err := p.getIPv6Info(ctx)
+	if err != nil {
+		global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
+		ipv6Info = &IPv6Info{HasAppendedAddresses: false}
+	}
+
+	var net1Bridge string
+	if ipv6Info.HasAppendedAddresses {
+		net1Bridge = "vmbr1"
+	} else {
+		net1Bridge = "vmbr2"
+	}
+
+	// 通过API创建虚拟机
+	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
+
+	payload := map[string]interface{}{
+		"vmid":    vmid,
+		"name":    config.Name,
+		"agent":   "1",
+		"scsihw":  "virtio-scsi-single",
+		"serial0": "socket",
+		"cores":   cpuFormatted,
+		"sockets": "1",
+		"cpu":     cpuType,
+		"net0":    "virtio,bridge=vmbr1,firewall=0",
+		"net1":    fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge),
+		"ostype":  "l26",
+		"kvm":     fmt.Sprintf("%d", kvmFlag),
+		"memory":  memoryFormatted,
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("序列化请求失败: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", url, strings.NewReader(string(jsonData)))
+	if err != nil {
+		return fmt.Errorf("创建请求失败: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	p.setAPIAuth(req)
+
+	resp, err := p.apiClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("执行API请求失败: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		var respData map[string]interface{}
+		json.NewDecoder(resp.Body).Decode(&respData)
+		return fmt.Errorf("创建虚拟机失败: status %d, response: %v", resp.StatusCode, respData)
+	}
+
+	updateProgress(60, "导入磁盘镜像...")
+
+	// 导入磁盘镜像（需要通过SSH执行，因为没有直接的API）
+	if systemArch == "aarch64" || systemArch == "armv7l" || systemArch == "armv8" || systemArch == "armv8l" {
+		_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --bios ovmf", vmid))
+		if err != nil {
+			global.APP_LOG.Warn("设置ARM BIOS失败", zap.Error(err))
+		}
+	}
+
+	importCmd := fmt.Sprintf("qm importdisk %d %s %s", vmid, localImagePath, storage)
+	_, err = p.sshClient.Execute(importCmd)
+	if err != nil {
+		return fmt.Errorf("导入磁盘失败: %w", err)
+	}
+
+	updateProgress(70, "配置虚拟机磁盘和启动...")
+
+	// 配置磁盘和启动（通过SSH，因为这些配置复杂且没有直接的简单API）
+	// 这部分使用SSH来完成剩余的配置
+	time.Sleep(3 * time.Second)
+
+	// 查找并设置磁盘
+	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", storage, vmid)
+	diskOutput, _ := p.sshClient.Execute(findDiskCmd)
+	volid := strings.TrimSpace(diskOutput)
+
+	if volid == "" {
+		findDiskCmd = fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid {print $1}' | tail -n 1", storage, vmid)
+		diskOutput, _ = p.sshClient.Execute(findDiskCmd)
+		volid = strings.TrimSpace(diskOutput)
+	}
+
+	if volid != "" {
+		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsihw virtio-scsi-pci --scsi0 %s", vmid, volid))
+	}
+
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --bootdisk scsi0", vmid))
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --boot order=scsi0", vmid))
+
+	// 配置云初始化
+	if systemArch == "aarch64" || systemArch == "armv7l" || systemArch == "armv8" || systemArch == "armv8l" {
+		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --scsi1 %s:cloudinit", vmid, storage))
+	} else {
+		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s:cloudinit", vmid, storage))
+	}
+
+	// 调整磁盘大小
+	diskFormatted := convertDiskFormat(config.Disk)
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm resize %d scsi0 %s", vmid, diskFormatted))
+
+	// 配置IP
+	userIP := fmt.Sprintf("172.16.1.%d", vmid)
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=172.16.1.1", vmid, userIP))
+
+	updateProgress(80, "虚拟机配置完成...")
+
+	global.APP_LOG.Info("通过API成功创建QEMU虚拟机",
+		zap.Int("vmid", vmid),
+		zap.String("name", config.Name))
+
+	return nil
 }

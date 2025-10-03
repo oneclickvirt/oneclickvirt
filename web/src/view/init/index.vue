@@ -112,7 +112,7 @@
                 </el-form-item>
                 
                 <!-- 数据库连接测试 -->
-                <el-form-item label=" ">
+                <el-form-item>
                   <el-button 
                     type="info" 
                     :loading="testingConnection"
@@ -270,6 +270,7 @@
       <div class="action-buttons">
         <el-button
           type="info"
+          style="width: 48%"
           @click="fillDefaultData"
         >
           一键填入默认信息
@@ -277,6 +278,7 @@
         <el-button
           type="primary"
           :loading="loading"
+          style="width: 48%"
           @click="handleInit"
         >
           初始化系统
@@ -741,30 +743,8 @@ onUnmounted(() => {
   margin-bottom: 30px;
 }
 
-:deep(.el-form) {
-  width: 100%;
-}
-
-:deep(.el-form-item__content) {
-  width: 100%;
-}
-
-:deep(.el-input) {
-  width: 100%;
-}
-
 .init-tabs :deep(.el-tabs__content) {
-  padding: 20px 0;
-}
-
-:deep(.el-tabs--border-card) {
-  border-radius: 12px;
-  border: 1px solid rgba(229, 231, 235, 0.8);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-}
-
-:deep(.el-tab-pane) {
-  width: 100%;
+  padding: 25px 0;
 }
 
 .mysql-config {
@@ -776,16 +756,8 @@ onUnmounted(() => {
 .action-buttons {
   display: flex;
   justify-content: space-between;
-  align-items: stretch;
   margin-bottom: 30px;
-  gap: 16px;
-  width: 100%;
-}
-
-.action-buttons :deep(.el-button) {
-  flex: 1;
-  height: 50px;
-  min-width: 0;
+  gap: 15px;
 }
 
 .init-info {
@@ -833,6 +805,7 @@ onUnmounted(() => {
   background: #6b7280;
   border-color: #6b7280;
   border-radius: 12px;
+  height: 50px;
   font-size: 16px;
   font-weight: 600;
   transition: all 0.3s ease;
@@ -845,38 +818,17 @@ onUnmounted(() => {
 }
 
 :deep(.el-form-item) {
-  margin-bottom: 24px;
-  display: flex;
-  align-items: flex-start;
+  margin-bottom: 25px;
 }
 
 :deep(.el-form-item__label) {
   color: #374151;
   font-weight: 500;
   font-size: 15px;
-  line-height: 1.5;
-  flex-shrink: 0;
-  width: 120px !important;
-}
-
-:deep(.el-form-item__content) {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 :deep(.el-input) {
-  width: 100%;
   border-radius: 12px;
-}
-
-:deep(.el-radio-group) {
-  width: 100%;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
 }
 
 :deep(.el-input__wrapper) {
@@ -886,8 +838,6 @@ onUnmounted(() => {
   transition: all 0.3s ease;
   padding: 12px 16px;
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
-  width: 100%;
-  box-sizing: border-box;
 }
 
 :deep(.el-input__wrapper:hover) {
@@ -911,6 +861,7 @@ onUnmounted(() => {
   background: #16a34a;
   border-color: #16a34a;
   border-radius: 12px;
+  height: 50px;
   font-size: 16px;
   font-weight: 600;
   transition: all 0.3s ease;
@@ -976,11 +927,6 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
-:deep(.el-form-item .el-button--info) {
-  height: 40px;
-  padding: 0 20px;
-}
-
 @media (max-width: 768px) {
   .init-form {
     padding: 35px 25px;
@@ -995,7 +941,7 @@ onUnmounted(() => {
     font-size: 14px;
   }
 
-  .action-buttons :deep(.el-button) {
+  :deep(.el-button--primary) {
     height: 45px;
     font-size: 15px;
   }
