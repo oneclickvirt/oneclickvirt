@@ -393,6 +393,15 @@ const viewInstanceDetail = (instance) => {
     ElMessage.error('实例信息无效')
     return
   }
+  
+  // 只允许运行中、停止中、已停止状态进入详情页面
+  const allowedStatuses = ['running', 'stopped', 'stopping']
+  if (!allowedStatuses.includes(instance.status)) {
+    const statusText = getStatusText(instance.status)
+    ElMessage.warning(`实例当前状态为"${statusText}"，无法查看详情。请等待实例进入运行或停止状态。`)
+    return
+  }
+  
   router.push(`/user/instances/${instance.id}`)
 }
 

@@ -243,7 +243,12 @@ func (s *ConfigService) SaveInstanceTypePermissions(minLevelForContainer, minLev
 		return fmt.Errorf("保存实例类型权限配置失败: %v", err)
 	}
 
-	global.APP_LOG.Info("实例类型权限配置保存成功")
+	// 立即同步到全局配置（避免需要重启服务）
+	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer = minLevelForContainer
+	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM = minLevelForVM
+	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete = minLevelForDelete
+
+	global.APP_LOG.Info("实例类型权限配置保存成功，已同步到全局配置")
 	return nil
 }
 

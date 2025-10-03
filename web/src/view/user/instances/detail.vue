@@ -800,8 +800,11 @@ const performAction = async (action) => {
     if (response.code === 0 || response.code === 200) {
       ElMessage.success(`${actionText}请求已提交，正在处理中...`)
       
-      if (action === 'delete') {
-        // 删除后返回列表页
+      if (action === 'delete' || action === 'reset') {
+        // 删除和重置系统后返回列表页，避免显示过期数据
+        if (action === 'reset') {
+          ElMessage.info('重置系统需要一定时间，请在实例列表中等待实例状态变为"运行中"后再进入详情页面')
+        }
         router.push('/user/instances')
       } else {
         // 其他操作刷新详情

@@ -281,6 +281,37 @@ func syncConfigToGlobalViaService(configData map[string]interface{}) error {
 				}
 			}
 
+			// 同步实例类型权限配置
+			if instanceTypePermissions, exists := quotaMap["instanceTypePermissions"]; exists {
+				if permissionsMap, ok := instanceTypePermissions.(map[string]interface{}); ok {
+					if v, ok := permissionsMap["minLevelForContainer"]; ok {
+						if level, ok := v.(float64); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer = int(level)
+						} else if level, ok := v.(int); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer = level
+						}
+					}
+					if v, ok := permissionsMap["minLevelForVM"]; ok {
+						if level, ok := v.(float64); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM = int(level)
+						} else if level, ok := v.(int); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM = level
+						}
+					}
+					if v, ok := permissionsMap["minLevelForDelete"]; ok {
+						if level, ok := v.(float64); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete = int(level)
+						} else if level, ok := v.(int); ok {
+							global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete = level
+						}
+					}
+					global.APP_LOG.Info("实例类型权限配置已同步到全局配置",
+						zap.Int("minLevelForContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer),
+						zap.Int("minLevelForVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM),
+						zap.Int("minLevelForDelete", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete))
+				}
+			}
+
 			// 同步等级限制
 			if levelLimitsData, exists := quotaMap["levelLimits"]; exists {
 				if levelLimitsMap, ok := levelLimitsData.(map[string]interface{}); ok {
