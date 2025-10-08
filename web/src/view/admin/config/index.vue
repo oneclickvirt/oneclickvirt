@@ -26,8 +26,11 @@
           >
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="邮箱注册">
+                <el-form-item label="邮箱登录">
                   <el-switch v-model="config.auth.enableEmail" />
+                  <div class="form-item-hint">
+                    启用后，用户可通过邮箱验证码登录
+                  </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
@@ -43,11 +46,17 @@
               <el-col :span="12">
                 <el-form-item label="Telegram登录">
                   <el-switch v-model="config.auth.enableTelegram" />
+                  <div class="form-item-hint">
+                    启用后，用户可通过Telegram验证码登录
+                  </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item label="QQ登录">
                   <el-switch v-model="config.auth.enableQQ" />
+                  <div class="form-item-hint">
+                    启用后，用户可通过QQ验证码登录
+                  </div>
                 </el-form-item>
               </el-col>
             </el-row>

@@ -229,3 +229,54 @@ func Logout(c *gin.Context) {
 
 	common.ResponseSuccess(c, nil, "登出成功")
 }
+
+// SendVerifyCode 发送验证码
+// @Summary 发送验证码
+// @Description 向指定的邮箱/Telegram/QQ发送登录验证码
+// @Tags 认证管理
+// @Accept json
+// @Produce json
+// @Param request body auth.SendVerifyCodeRequest true "发送验证码请求参数"
+// @Success 200 {object} common.Response "验证码发送成功"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Failure 500 {object} common.Response "服务器内部错误"
+// @Router /auth/send-verify-code [post]
+func SendVerifyCode(c *gin.Context) {
+	var req auth.SendVerifyCodeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+
+	// 验证图形验证码（开发模式下可以跳过）
+	if req.CaptchaId != "" && req.Captcha != "" {
+		// 使用验证服务验证图形验证码
+		authValidationService := auth2.AuthValidationService{}
+		if err := authValidationService.ValidateCaptchaRequired(req.CaptchaId, req.Captcha); err != nil {
+			common.ResponseWithError(c, err)
+			return
+		}
+	} else if global.APP_CONFIG.System.Env != "development" {
+		// 只在非开发环境下强制要求验证码
+		common.ResponseWithError(c, common.NewError(common.CodeCaptchaRequired, "请填写图形验证码"))
+		return
+	}
+
+	authService := auth2.AuthService{}
+	if err := authService.SendVerifyCode(req.Type, req.Target); err != nil {
+		global.APP_LOG.Warn("发送验证码失败",
+			zap.String("type", req.Type),
+			zap.String("target", req.Target),
+			zap.String("error", err.Error()),
+			zap.String("ip", c.ClientIP()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+
+	global.APP_LOG.Info("验证码发送成功",
+		zap.String("type", req.Type),
+		zap.String("target", req.Target),
+		zap.String("ip", c.ClientIP()))
+
+	common.ResponseSuccess(c, nil, "验证码已发送，请查收")
+}

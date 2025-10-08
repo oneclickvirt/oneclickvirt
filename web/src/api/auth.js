@@ -67,3 +67,11 @@ export function logout() {
     method: 'post'
   })
 }
+// 发送验证码 - 用于邮箱/TG/QQ登录
+export function sendVerifyCode(data) {
+  return request({
+    url: '/v1/auth/send-verify-code',
+    method: 'post',
+    data
+  })
+}

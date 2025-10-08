@@ -29,7 +29,29 @@ import (
 type AuthService struct{}
 
 func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, error) {
-	// 验证验证码（开发模式下可以跳过）
+	// 根据登录类型调用不同的登录逻辑
+	loginType := req.LoginType
+	if loginType == "" {
+		loginType = "username" // 默认使用用户名密码登录
+	}
+
+	switch loginType {
+	case "username":
+		return s.loginWithPassword(req)
+	case "email":
+		return s.loginWithEmailCode(req)
+	case "telegram":
+		return s.loginWithTelegramCode(req)
+	case "qq":
+		return s.loginWithQQCode(req)
+	default:
+		return nil, "", common.NewError(common.CodeInvalidParam, "不支持的登录类型")
+	}
+}
+
+// loginWithPassword 用户名密码登录
+func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User, string, error) {
+	// 验证图形验证码（开发模式下可以跳过）
 	if req.CaptchaId != "" && req.Captcha != "" {
 		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
 			return nil, "", common.NewError(common.CodeCaptchaInvalid)
@@ -37,6 +59,11 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 	} else if global.APP_CONFIG.System.Env != "development" {
 		// 只在非开发环境下强制要求验证码
 		return nil, "", common.NewError(common.CodeCaptchaRequired)
+	}
+
+	// 检查必要参数
+	if req.Username == "" || req.Password == "" {
+		return nil, "", common.NewError(common.CodeInvalidParam, "用户名和密码不能为空")
 	}
 
 	// 先查询用户是否存在
@@ -59,6 +86,135 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 	}
 
 	global.APP_LOG.Info("用户登录成功", zap.String("username", user.Username), zap.String("userType", user.UserType), zap.Uint("userID", user.ID))
+
+	// 生成JWT令牌
+	token, err := utils.GenerateToken(user.ID, user.Username, user.UserType)
+	if err != nil {
+		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
+		return nil, "", errors.New("登录失败，请稍后重试")
+	}
+	// 更新最后登录时间
+	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	return &user, token, nil
+}
+
+// loginWithEmailCode 邮箱验证码登录
+func (s *AuthService) loginWithEmailCode(req auth.LoginRequest) (*userModel.User, string, error) {
+	// 检查邮箱登录是否启用
+	if !global.APP_CONFIG.Auth.EnableEmail {
+		return nil, "", common.NewError(common.CodeInvalidParam, "邮箱登录未启用")
+	}
+
+	// 检查必要参数
+	if req.Target == "" || req.VerifyCode == "" {
+		return nil, "", common.NewError(common.CodeInvalidParam, "邮箱地址和验证码不能为空")
+	}
+
+	// 验证验证码
+	if err := s.verifyCode("email", req.Target, req.VerifyCode); err != nil {
+		return nil, "", err
+	}
+
+	// 查找用户
+	var user userModel.User
+	if err := global.APP_DB.Where("email = ?", req.Target).First(&user).Error; err != nil {
+		global.APP_LOG.Debug("邮箱登录失败", zap.String("email", req.Target), zap.String("error", "record not found"))
+		return nil, "", common.NewError(common.CodeInvalidCredentials, "该邮箱未绑定任何账号")
+	}
+
+	// 检查用户状态
+	if user.Status != 1 {
+		global.APP_LOG.Warn("禁用用户尝试登录", zap.String("email", req.Target), zap.Int("status", user.Status))
+		return nil, "", common.NewError(common.CodeUserDisabled)
+	}
+
+	global.APP_LOG.Info("用户邮箱登录成功", zap.String("email", req.Target), zap.String("username", user.Username), zap.Uint("userID", user.ID))
+
+	// 生成JWT令牌
+	token, err := utils.GenerateToken(user.ID, user.Username, user.UserType)
+	if err != nil {
+		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
+		return nil, "", errors.New("登录失败，请稍后重试")
+	}
+	// 更新最后登录时间
+	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	return &user, token, nil
+}
+
+// loginWithTelegramCode Telegram验证码登录
+func (s *AuthService) loginWithTelegramCode(req auth.LoginRequest) (*userModel.User, string, error) {
+	// 检查Telegram登录是否启用
+	if !global.APP_CONFIG.Auth.EnableTelegram {
+		return nil, "", common.NewError(common.CodeInvalidParam, "Telegram登录未启用")
+	}
+
+	// 检查必要参数
+	if req.Target == "" || req.VerifyCode == "" {
+		return nil, "", common.NewError(common.CodeInvalidParam, "Telegram用户名和验证码不能为空")
+	}
+
+	// 验证验证码
+	if err := s.verifyCode("telegram", req.Target, req.VerifyCode); err != nil {
+		return nil, "", err
+	}
+
+	// 查找用户
+	var user userModel.User
+	if err := global.APP_DB.Where("telegram = ?", req.Target).First(&user).Error; err != nil {
+		global.APP_LOG.Debug("Telegram登录失败", zap.String("telegram", req.Target), zap.String("error", "record not found"))
+		return nil, "", common.NewError(common.CodeInvalidCredentials, "该Telegram账号未绑定任何账号")
+	}
+
+	// 检查用户状态
+	if user.Status != 1 {
+		global.APP_LOG.Warn("禁用用户尝试登录", zap.String("telegram", req.Target), zap.Int("status", user.Status))
+		return nil, "", common.NewError(common.CodeUserDisabled)
+	}
+
+	global.APP_LOG.Info("用户Telegram登录成功", zap.String("telegram", req.Target), zap.String("username", user.Username), zap.Uint("userID", user.ID))
+
+	// 生成JWT令牌
+	token, err := utils.GenerateToken(user.ID, user.Username, user.UserType)
+	if err != nil {
+		global.APP_LOG.Error("生成JWT令牌失败", zap.Error(err))
+		return nil, "", errors.New("登录失败，请稍后重试")
+	}
+	// 更新最后登录时间
+	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	return &user, token, nil
+}
+
+// loginWithQQCode QQ验证码登录
+func (s *AuthService) loginWithQQCode(req auth.LoginRequest) (*userModel.User, string, error) {
+	// 检查QQ登录是否启用
+	if !global.APP_CONFIG.Auth.EnableQQ {
+		return nil, "", common.NewError(common.CodeInvalidParam, "QQ登录未启用")
+	}
+
+	// 检查必要参数
+	if req.Target == "" || req.VerifyCode == "" {
+		return nil, "", common.NewError(common.CodeInvalidParam, "QQ号和验证码不能为空")
+	}
+
+	// 验证验证码
+	if err := s.verifyCode("qq", req.Target, req.VerifyCode); err != nil {
+		return nil, "", err
+	}
+
+	// 查找用户
+	var user userModel.User
+	if err := global.APP_DB.Where("qq = ?", req.Target).First(&user).Error; err != nil {
+		global.APP_LOG.Debug("QQ登录失败", zap.String("qq", req.Target), zap.String("error", "record not found"))
+		return nil, "", common.NewError(common.CodeInvalidCredentials, "该QQ号未绑定任何账号")
+	}
+
+	// 检查用户状态
+	if user.Status != 1 {
+		global.APP_LOG.Warn("禁用用户尝试登录", zap.String("qq", req.Target), zap.Int("status", user.Status))
+		return nil, "", common.NewError(common.CodeUserDisabled)
+	}
+
+	global.APP_LOG.Info("用户QQ登录成功", zap.String("qq", req.Target), zap.String("username", user.Username), zap.Uint("userID", user.ID))
 
 	// 生成JWT令牌
 	token, err := utils.GenerateToken(user.ID, user.Username, user.UserType)
@@ -225,30 +381,86 @@ func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, user
 }
 
 func (s *AuthService) SendVerifyCode(codeType, target string) error {
+	// 检查对应的通信渠道是否启用
+	switch codeType {
+	case "email":
+		if !global.APP_CONFIG.Auth.EnableEmail {
+			return common.NewError(common.CodeInvalidParam, "邮箱登录未启用")
+		}
+	case "telegram":
+		if !global.APP_CONFIG.Auth.EnableTelegram {
+			return common.NewError(common.CodeInvalidParam, "Telegram登录未启用")
+		}
+	case "qq":
+		if !global.APP_CONFIG.Auth.EnableQQ {
+			return common.NewError(common.CodeInvalidParam, "QQ登录未启用")
+		}
+	default:
+		return errors.New("不支持的验证码类型")
+	}
+
+	// 生成6位数字验证码
 	code := generateRandomCode()
 	expiresAt := time.Now().Add(5 * time.Minute)
+
 	verifyCode := userModel.VerifyCode{
 		Code:      code,
 		Type:      codeType,
 		Target:    target,
 		ExpiresAt: expiresAt,
+		Used:      false,
 	}
 
-	// 使用数据库抽象层创建
+	// 删除该目标之前未使用的验证码
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 删除旧验证码
+		if err := tx.Where("target = ? AND type = ? AND used = ?", target, codeType, false).Delete(&userModel.VerifyCode{}).Error; err != nil {
+			return err
+		}
+		// 创建新验证码
 		return tx.Create(&verifyCode).Error
 	}); err != nil {
 		return err
 	}
+
+	// 根据类型发送验证码
 	switch codeType {
 	case "email":
 		return s.sendEmailCode(target, code)
-	case "phone":
-		return s.sendSMSCode(target, code)
+	case "telegram":
+		return s.sendTelegramCode(target, code)
+	case "qq":
+		return s.sendQQCode(target, code)
 	default:
 		return errors.New("不支持的验证码类型")
 	}
+}
+
+// verifyCode 验证验证码
+func (s *AuthService) verifyCode(codeType, target, code string) error {
+	var verifyCode userModel.VerifyCode
+
+	// 查找匹配的验证码
+	err := global.APP_DB.Where("target = ? AND type = ? AND code = ? AND used = ? AND expires_at > ?",
+		target, codeType, code, false, time.Now()).First(&verifyCode).Error
+
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return common.NewError(common.CodeInvalidParam, "验证码错误或已过期")
+		}
+		return err
+	}
+
+	// 标记验证码为已使用
+	dbService := database.GetDatabaseService()
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		return tx.Model(&verifyCode).Update("used", true).Error
+	}); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
@@ -579,9 +791,111 @@ func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) err
 }
 
 func (s *AuthService) sendEmailCode(email, code string) error {
-	subject := "验证码"
-	body := fmt.Sprintf("您的验证码是：%s，5分钟内有效。", code)
+	// 检查邮箱配置是否可用
+	if !s.isEmailConfigured() {
+		global.APP_LOG.Warn("邮箱服务未配置，无法发送验证码",
+			zap.String("email", email),
+			zap.String("operation", "send_email_verify_code"))
+		return errors.New("邮箱服务未配置，请联系管理员")
+	}
+
+	subject := "登录验证码"
+	body := fmt.Sprintf("您的登录验证码是：<strong>%s</strong><br><br>验证码5分钟内有效，请勿泄露给他人。", code)
 	return s.sendEmail(email, subject, body)
+}
+
+func (s *AuthService) sendTelegramCode(telegram, code string) error {
+	config := global.APP_CONFIG.Auth
+
+	// 检查Telegram是否启用
+	if !config.EnableTelegram {
+		return errors.New("Telegram登录未启用")
+	}
+
+	// 检查Bot Token是否配置
+	if config.TelegramBotToken == "" {
+		return errors.New("Telegram Bot Token未配置")
+	}
+
+	global.APP_LOG.Info("发送验证码到Telegram",
+		zap.String("telegram", telegram),
+		zap.String("operation", "send_telegram_verify_code"))
+
+	// 在开发环境下直接返回成功并记录验证码
+	if global.APP_CONFIG.System.Env == "development" {
+		global.APP_LOG.Info("开发环境模拟发送Telegram验证码",
+			zap.String("telegram", telegram),
+			zap.String("code", code))
+		return nil
+	}
+
+	// 构造消息内容
+	message := fmt.Sprintf("您的登录验证码是：%s\n验证码5分钟内有效，请勿泄露给他人。", code)
+
+	// 这里应该调用Telegram Bot API发送消息
+	// 可以使用 go-telegram-bot-api 包
+	// 示例实现：
+	// bot, err := tgbotapi.NewBotAPI(config.TelegramBotToken)
+	// if err != nil {
+	//     return fmt.Errorf("创建Telegram Bot失败: %v", err)
+	// }
+	//
+	// chatID, err := strconv.ParseInt(telegram, 10, 64)
+	// if err != nil {
+	//     return fmt.Errorf("无效的Telegram Chat ID: %v", err)
+	// }
+	//
+	// msg := tgbotapi.NewMessage(chatID, message)
+	// _, err = bot.Send(msg)
+	// return err
+
+	// 暂时返回未实现错误，但保留完整的配置检查逻辑
+	global.APP_LOG.Warn("Telegram Bot API集成待实现",
+		zap.String("message", message),
+		zap.String("chatId", telegram))
+	return errors.New("Telegram Bot API集成待实现，请安装并配置 go-telegram-bot-api 包")
+}
+
+func (s *AuthService) sendQQCode(qq, code string) error {
+	config := global.APP_CONFIG.Auth
+
+	// 检查QQ是否启用
+	if !config.EnableQQ {
+		return errors.New("QQ登录未启用")
+	}
+
+	// 检查QQ配置是否完整
+	if config.QQAppID == "" || config.QQAppKey == "" {
+		return errors.New("QQ应用配置不完整")
+	}
+
+	global.APP_LOG.Info("发送验证码到QQ",
+		zap.String("qq", qq),
+		zap.String("operation", "send_qq_verify_code"))
+
+	// 在开发环境下直接返回成功并记录验证码
+	if global.APP_CONFIG.System.Env == "development" {
+		global.APP_LOG.Info("开发环境模拟发送QQ验证码",
+			zap.String("qq", qq),
+			zap.String("code", code))
+		return nil
+	}
+
+	// 构造消息内容
+	message := fmt.Sprintf("您的登录验证码是：%s\n验证码5分钟内有效，请勿泄露给他人。", code)
+
+	// 这里应该调用QQ机器人API发送消息
+	// 可以使用QQ官方的OpenAPI或第三方SDK
+	// 示例实现：
+	// qqBot := qqapi.NewBot(config.QQAppID, config.QQAppKey)
+	// err := qqBot.SendPrivateMessage(qq, message)
+	// return err
+
+	// 暂时返回未实现错误，但保留完整的配置检查逻辑
+	global.APP_LOG.Warn("QQ机器人API集成待实现",
+		zap.String("message", message),
+		zap.String("qqNumber", qq))
+	return errors.New("QQ机器人API集成待实现，请安装并配置相应的QQ SDK")
 }
 
 func (s *AuthService) sendSMSCode(phone, code string) error {

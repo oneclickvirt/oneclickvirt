@@ -15,6 +15,7 @@ func InitAuthRouter(Router *gin.RouterGroup) {
 		AuthRouter.POST("login", auth.Login)
 		AuthRouter.POST("register", auth.Register)
 		AuthRouter.GET("captcha", auth.GetCaptcha)
+		AuthRouter.POST("send-verify-code", auth.SendVerifyCode) // 发送登录验证码
 		AuthRouter.POST("forgot-password", auth.ForgotPassword)
 		AuthRouter.POST("reset-password", auth.ResetPassword)
 		AuthRouter.POST("logout", middleware.RequireAuth(authModel.AuthLevelUser), auth.Logout)

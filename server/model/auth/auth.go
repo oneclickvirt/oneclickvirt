@@ -8,12 +8,22 @@ import (
 
 // LoginRequest 登录请求
 type LoginRequest struct {
-	Username  string `json:"username" binding:"required" example:"admin"`
-	Password  string `json:"password" binding:"required" example:"password"`
-	Captcha   string `json:"captcha,omitempty"`
-	CaptchaId string `json:"captchaId,omitempty"`
-	LoginType string `json:"loginType,omitempty"` // username, email, phone
-	UserType  string `json:"userType,omitempty"`  // admin, user
+	Username   string `json:"username" example:"admin"`    // 用户名登录时必填
+	Password   string `json:"password" example:"password"` // 密码登录时必填
+	Captcha    string `json:"captcha,omitempty"`           // 图形验证码
+	CaptchaId  string `json:"captchaId,omitempty"`         // 图形验证码ID
+	LoginType  string `json:"loginType,omitempty"`         // 登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)
+	UserType   string `json:"userType,omitempty"`          // 用户类型: admin, user
+	Target     string `json:"target,omitempty"`            // 验证码登录时的目标: 邮箱地址/TG用户名/QQ号
+	VerifyCode string `json:"verifyCode,omitempty"`        // 验证码登录时的验证码
+}
+
+// SendVerifyCodeRequest 发送验证码请求
+type SendVerifyCodeRequest struct {
+	Type      string `json:"type" binding:"required"`   // 验证码类型: email, telegram, qq
+	Target    string `json:"target" binding:"required"` // 目标: 邮箱地址/TG用户名或ID/QQ号
+	CaptchaId string `json:"captchaId,omitempty"`       // 图形验证码ID（可选，根据配置）
+	Captcha   string `json:"captcha,omitempty"`         // 图形验证码（可选，根据配置）
 }
 
 // RegisterRequest 注册请求
