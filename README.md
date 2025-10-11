@@ -12,6 +12,8 @@
 
 使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本：
 
+**基础使用（不配置域名）：**
+
 ```bash
 docker run -d \
   --name oneclickvirt \
@@ -22,12 +24,30 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
+**配置域名访问：**
+
+如果你需要配置域名，需要设置 `FRONTEND_URL` 环境变量：
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:latest
+```
+
+> **说明**：`FRONTEND_URL` 用于配置前端访问地址，影响 CORS、OAuth2 回调等功能。系统会自动检测 HTTP/HTTPS 协议并调整相应配置，协议头可以是http或https。
+
 或者使用 GitHub Container Registry：
 
 ```bash
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \

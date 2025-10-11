@@ -140,6 +140,21 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '' >> /start.sh && \
     echo 'export MYSQL_DATABASE=${MYSQL_DATABASE:-oneclickvirt}' >> /start.sh && \
     echo '' >> /start.sh && \
+    echo '# Update config.yaml with FRONTEND_URL if provided' >> /start.sh && \
+    echo 'if [ ! -z "$FRONTEND_URL" ]; then' >> /start.sh && \
+    echo '    echo "Configuring frontend-url: $FRONTEND_URL"' >> /start.sh && \
+    echo '    sed -i "s|frontend-url:.*|frontend-url: \"$FRONTEND_URL\"|g" /app/config.yaml' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    # Detect if URL is HTTPS and update nginx config accordingly' >> /start.sh && \
+    echo '    if echo "$FRONTEND_URL" | grep -q "^https://"; then' >> /start.sh && \
+    echo '        echo "Detected HTTPS frontend, updating nginx proxy headers..."' >> /start.sh && \
+    echo '        sed -i "/proxy_set_header X-Forwarded-For/a\            proxy_set_header X-Forwarded-Proto https;" /etc/nginx/nginx.conf' >> /start.sh && \
+    echo '        sed -i "/proxy_set_header X-Forwarded-For/a\            proxy_set_header X-Forwarded-Ssl on;" /etc/nginx/nginx.conf' >> /start.sh && \
+    echo '    else' >> /start.sh && \
+    echo '        echo "Detected HTTP frontend, using default nginx config"' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
     echo '# Detect architecture and set database type' >> /start.sh && \
     echo 'ARCH=$(uname -m)' >> /start.sh && \
     echo 'if [ "$ARCH" = "x86_64" ]; then' >> /start.sh && \

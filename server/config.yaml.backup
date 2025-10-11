@@ -113,6 +113,7 @@ system:
     oss-type: local
     use-multipoint: false
     use-redis: false
+    frontend-url: ""
 task:
     delete-retry-count: 3
     delete-retry-delay: 2

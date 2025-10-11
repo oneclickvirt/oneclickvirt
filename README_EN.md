@@ -12,6 +12,8 @@ An extensible universal virtualization management platform that supports LXD, In
 
 Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture:
 
+**Basic Usage (without domain configuration):**
+
 ```bash
 docker run -d \
   --name oneclickvirt \
@@ -22,12 +24,30 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
+**Configure Domain Access:**
+
+If you need to configure a domain, set the `FRONTEND_URL` environment variable:
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -v oneclickvirt-data:/var/lib/mysql \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:latest
+```
+
+> **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
+
 Or using GitHub Container Registry:
 
 ```bash
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
   --restart unless-stopped \
