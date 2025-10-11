@@ -133,6 +133,9 @@ func OAuth2Callback(c *gin.Context) {
 		zap.String("username", usr.Username),
 		zap.Uint("user_id", usr.ID))
 
+	// 获取前端URL配置，如果没有配置，尝试智能检测
+	frontendURL := global.APP_CONFIG.System.FrontendURL
+
 	// 返回HTML页面，通过JavaScript跳转并携带token参数
 	// 注意：localStorage在不同端口/域名下是隔离的，所以必须通过URL参数传递
 	html := fmt.Sprintf(`<!DOCTYPE html>
@@ -197,27 +200,19 @@ func OAuth2Callback(c *gin.Context) {
             try {
                 var token = '%s';
                 var username = '%s';
+                var configuredFrontendURL = '%s';
                 
-                // 智能检测前端URL
-                var frontendURL = '/';
+                // 使用配置的前端URL
+                var frontendURL = configuredFrontendURL;
                 
-                // 尝试从document.referrer获取（如果有）
-                if (document.referrer) {
-                    try {
-                        var refUrl = new URL(document.referrer);
-                        // 检查是否是前端域名（包含8080端口或80/443端口）
-                        if (refUrl.port === '8080' || refUrl.port === '8080' || 
-                            refUrl.port === '80' || refUrl.port === '443' || refUrl.port === '') {
-                            frontendURL = refUrl.origin + '/';
-                        }
-                    } catch (e) {
-                        console.log('无法解析referrer:', e);
-                    }
+                // 如果配置为空，使用相对路径（同域名下的前端）
+                if (!frontendURL) {
+                    frontendURL = window.location.origin + '/';
                 }
                 
-                // 如果当前端口是8888（后端），尝试切换到8080（开发环境前端Vite）
-                if (window.location.port === '8888' && window.location.hostname === 'localhost') {
-                    frontendURL = window.location.protocol + '//' + window.location.hostname + ':8080/';
+                // 确保URL以/结尾
+                if (!frontendURL.endsWith('/')) {
+                    frontendURL += '/';
                 }
                 
                 // 将token作为URL参数传递（解决跨域localStorage隔离问题）
@@ -237,7 +232,7 @@ func OAuth2Callback(c *gin.Context) {
         })();
     </script>
 </body>
-</html>`, token, url.QueryEscape(usr.Username))
+</html>`, token, url.QueryEscape(usr.Username), frontendURL)
 
 	c.Header("Content-Type", "text/html; charset=utf-8")
 	c.String(http.StatusOK, html)
