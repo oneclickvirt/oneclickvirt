@@ -107,7 +107,7 @@ sysm:
 system:
     addr: 8888
     db-type: mysql
-    env: development
+    env: production
     iplimit-count: 15000
     iplimit-time: 3600
     oss-type: local
