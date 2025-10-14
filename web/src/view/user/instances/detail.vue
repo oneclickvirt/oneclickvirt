@@ -70,6 +70,7 @@
               重启
             </el-button>
             <el-button 
+              v-if="instanceTypePermissions.canResetInstance"
               type="info"
               size="small"
               :loading="actionLoading"
@@ -574,7 +575,12 @@ const activeTab = ref('overview') // 默认显示概览标签页
 const instanceTypePermissions = ref({
   canCreateContainer: false,
   canCreateVM: false,
-  canDeleteInstance: false
+  canDeleteInstance: false,
+  canResetInstance: false,
+  canDeleteContainer: false,
+  canDeleteVM: false,
+  canResetContainer: false,
+  canResetVM: false
 })
 
 const instance = ref({
@@ -660,6 +666,8 @@ const loadInstanceDetail = async () => {
     const response = await getUserInstanceDetail(route.params.id)
     if (response.code === 0 || response.code === 200) {
       Object.assign(instance.value, response.data)
+      // 实例详情加载完成后，更新权限
+      updateInstancePermissions()
       return true
     }
     return false
@@ -734,10 +742,20 @@ const loadInstanceTypePermissions = async () => {
   try {
     const response = await getUserInstanceTypePermissions()
     if (response.code === 0 || response.code === 200) {
-      instanceTypePermissions.value = response.data || {
-        canCreateContainer: false,
-        canCreateVM: false,
-        canDeleteInstance: false
+      const data = response.data || {}
+      instanceTypePermissions.value = {
+        canCreateContainer: data.canCreateContainer || false,
+        canCreateVM: data.canCreateVM || false,
+        canDeleteContainer: data.canDeleteContainer || false,
+        canDeleteVM: data.canDeleteVM || false,
+        canResetContainer: data.canResetContainer || false,
+        canResetVM: data.canResetVM || false,
+        canDeleteInstance: false, // 初始化，后续根据实例类型动态设置
+        canResetInstance: false  // 初始化，后续根据实例类型动态设置
+      }
+      // 如果实例详情已加载，根据实例类型设置对应权限
+      if (instance.value.instance_type) {
+        updateInstancePermissions()
       }
     }
   } catch (error) {
@@ -745,8 +763,25 @@ const loadInstanceTypePermissions = async () => {
     instanceTypePermissions.value = {
       canCreateContainer: false,
       canCreateVM: false,
-      canDeleteInstance: false
+      canDeleteInstance: false,
+      canResetInstance: false,
+      canDeleteContainer: false,
+      canDeleteVM: false,
+      canResetContainer: false,
+      canResetVM: false
     }
+  }
+}
+
+// 根据实例类型更新权限
+const updateInstancePermissions = () => {
+  if (instance.value.instance_type === 'vm') {
+    instanceTypePermissions.value.canDeleteInstance = instanceTypePermissions.value.canDeleteVM
+    instanceTypePermissions.value.canResetInstance = instanceTypePermissions.value.canResetVM
+  } else {
+    // container 或其他类型
+    instanceTypePermissions.value.canDeleteInstance = instanceTypePermissions.value.canDeleteContainer
+    instanceTypePermissions.value.canResetInstance = instanceTypePermissions.value.canResetContainer
   }
 }
 
@@ -1021,6 +1056,8 @@ watch(() => route.params.id, async (newId, oldId) => {
     const success = await loadInstanceDetail()
     if (success) {
       refreshMonitoring()
+      // 重新加载权限配置以更新按钮显示
+      await loadInstanceTypePermissions()
     }
   }
 })
