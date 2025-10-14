@@ -33,13 +33,13 @@ func CheckInit(c *gin.Context) {
 		needInit = true
 	)
 
-	// 首先检查初始化标志文件是否存在（最可靠的判断方式）
-	initFlagPath := "./storage/.db_initialized"
+	// 首先检查业务系统初始化标志文件是否存在（最可靠的判断方式）
+	initFlagPath := "./storage/.system_initialized"
 	if _, err := os.Stat(initFlagPath); err == nil {
 		// 标志文件存在，说明系统已初始化
 		message = "数据库无需初始化"
 		needInit = false
-		global.APP_LOG.Debug("检测到初始化标志文件，系统已初始化", zap.String("flagPath", initFlagPath))
+		global.APP_LOG.Debug("检测到系统初始化标志文件，系统已初始化", zap.String("flagPath", initFlagPath))
 
 		c.JSON(http.StatusOK, common.Success(gin.H{
 			"needInit": needInit,
@@ -49,7 +49,7 @@ func CheckInit(c *gin.Context) {
 	}
 
 	// 标志文件不存在，继续其他检查
-	global.APP_LOG.Debug("初始化标志文件不存在，继续检查数据库状态", zap.String("flagPath", initFlagPath))
+	global.APP_LOG.Debug("系统初始化标志文件不存在，继续检查数据库状态", zap.String("flagPath", initFlagPath))
 
 	// 检查数据库连接是否存在
 	if global.APP_DB == nil {
@@ -292,8 +292,8 @@ func InitSystem(c *gin.Context) {
 	// 初始化系统镜像
 	source.SeedSystemImages()
 
-	// 创建初始化标志文件
-	initFlagPath := "./storage/.db_initialized"
+	// 创建业务系统初始化标志文件（与数据库初始化标志分离）
+	initFlagPath := "./storage/.system_initialized"
 	initFlagDir := "./storage"
 
 	// 确保目录存在
@@ -301,12 +301,12 @@ func InitSystem(c *gin.Context) {
 		global.APP_LOG.Warn("创建storage目录失败", zap.Error(err))
 	}
 
-	// 写入初始化标志文件
-	flagContent := "Database initialized at: " + time.Now().Format(time.RFC3339)
+	// 写入业务系统初始化标志文件
+	flagContent := "System initialized at: " + time.Now().Format(time.RFC3339)
 	if err := os.WriteFile(initFlagPath, []byte(flagContent), 0644); err != nil {
-		global.APP_LOG.Warn("创建初始化标志文件失败", zap.Error(err))
+		global.APP_LOG.Warn("创建系统初始化标志文件失败", zap.Error(err))
 	} else {
-		global.APP_LOG.Info("成功创建初始化标志文件", zap.String("path", initFlagPath))
+		global.APP_LOG.Info("成功创建系统初始化标志文件", zap.String("path", initFlagPath))
 	}
 
 	// 系统初始化完成后，触发完整系统重新初始化
