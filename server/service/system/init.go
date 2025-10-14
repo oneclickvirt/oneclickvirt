@@ -128,8 +128,6 @@ func (s *InitService) AutoMigrateTables() error {
 		&userModel.TrafficRecord{}, // 用户流量记录表
 		&auth.Role{},               // 角色管理表
 		&userModel.UserRole{},      // 用户角色关联表
-		&auth.Menu{},               // 菜单权限表
-		&auth.Api{},                // API权限表
 
 		// 实例相关表
 		&provider.Instance{}, // 虚拟机/容器实例表

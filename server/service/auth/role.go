@@ -23,7 +23,7 @@ func (s *RoleService) GetRoleList(req common.PageInfo) (interface{}, error) {
 	var roles []auth.Role
 	var total int64
 
-	db := global.APP_DB.Model(&auth.Role{}).Preload("Permissions")
+	db := global.APP_DB.Model(&auth.Role{})
 
 	// 计算总数
 	if err := db.Count(&total).Error; err != nil {
@@ -128,30 +128,10 @@ func (s *RoleService) DeleteRole(roleID uint) error {
 // GetRoleByID 根据ID获取角色
 func (s *RoleService) GetRoleByID(roleID uint) (*auth.Role, error) {
 	var role auth.Role
-	if err := global.APP_DB.Preload("Permissions").First(&role, roleID).Error; err != nil {
+	if err := global.APP_DB.First(&role, roleID).Error; err != nil {
 		return nil, errors.New("角色不存在")
 	}
 	return &role, nil
-}
-
-// AssignPermissions 为角色分配权限
-func (s *RoleService) AssignPermissions(roleID uint, permissionIDs []uint) error {
-	var role auth.Role
-	if err := global.APP_DB.First(&role, roleID).Error; err != nil {
-		return errors.New("角色不存在")
-	}
-
-	// 清除现有权限关联
-	global.APP_DB.Model(&role).Association("Permissions").Clear()
-
-	// 获取权限列表
-	var permissions []auth.Permission
-	if err := global.APP_DB.Find(&permissions, permissionIDs).Error; err != nil {
-		return err
-	}
-
-	// 建立新的权限关联
-	return global.APP_DB.Model(&role).Association("Permissions").Append(permissions)
 }
 
 // GetAllRoles 获取所有角色（不分页）

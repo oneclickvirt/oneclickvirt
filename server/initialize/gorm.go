@@ -112,8 +112,6 @@ func RegisterTables(db *gorm.DB) {
 		&userModel.TrafficRecord{}, // 用户流量记录表
 		&authModel.Role{},          // 角色管理表
 		&userModel.UserRole{},      // 用户角色关联表
-		&authModel.Menu{},          // 菜单权限表
-		&authModel.Permission{},    // API权限表
 
 		// OAuth2相关表
 		&oauth2Model.OAuth2Provider{}, // OAuth2提供商配置表

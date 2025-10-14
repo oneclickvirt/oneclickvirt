@@ -1,11 +1,5 @@
 package auth
 
-import (
-	"time"
-
-	"gorm.io/gorm"
-)
-
 // LoginRequest 登录请求
 type LoginRequest struct {
 	Username   string `json:"username" example:"admin"`    // 用户名登录时必填
@@ -70,26 +64,6 @@ type CaptchaResponse struct {
 	CaptchaId string `json:"captchaId"`
 	PicPath   string `json:"picPath"`
 	ImageData string `json:"imageData"`
-}
-
-// Permission 权限模型
-type Permission struct {
-	ID          uint           `json:"id" gorm:"primarykey"`
-	CreatedAt   time.Time      `json:"createdAt"`
-	UpdatedAt   time.Time      `json:"updatedAt"`
-	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"`
-	Name        string         `json:"name" gorm:"uniqueIndex;not null;size:64"`
-	Description string         `json:"description" gorm:"size:255"`
-	Resource    string         `json:"resource" gorm:"size:64"`
-	Action      string         `json:"action" gorm:"size:64"`
-	Status      int            `json:"status" gorm:"default:1"`
-}
-type Api struct {
-	Path        string
-	Method      string
-	Description string
-	Group       string
-	Status      int
 }
 
 type ExportUsersRequest struct {

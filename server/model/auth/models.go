@@ -43,26 +43,3 @@ type Role struct {
 	Status      int    `json:"status" gorm:"default:1"`                  // 角色状态：0=禁用，1=启用
 	Remark      string `json:"remark" gorm:"size:255"`                   // 备注信息
 }
-
-// Menu 菜单模型
-type Menu struct {
-	ID        uint           `json:"id" gorm:"primarykey"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
-	ParentID  *uint          `json:"parentId"` // 改为可空指针，避免外键约束问题
-	Name      string         `json:"name" gorm:"not null;size:64"`
-	Title     string         `json:"title" gorm:"not null;size:64"`
-	Icon      string         `json:"icon" gorm:"size:64"`
-	Path      string         `json:"path" gorm:"size:128"`
-	Component string         `json:"component" gorm:"size:128"`
-	Sort      int            `json:"sort" gorm:"default:0"`
-	Status    int            `json:"status" gorm:"default:1"`
-	Type      int            `json:"type" gorm:"default:1"`
-}
-
-// RolePermission 角色权限关联表
-type RolePermission struct {
-	RoleID       uint `gorm:"primarykey" json:"role_id"`
-	PermissionID uint `gorm:"primarykey" json:"permission_id"`
-}

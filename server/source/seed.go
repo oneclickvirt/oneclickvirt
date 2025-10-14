@@ -22,8 +22,6 @@ import (
 // InitSeedData 初始化种子数据，确保不重复创建
 func InitSeedData() {
 	initDefaultRoles()
-	initDefaultMenus()
-	initDefaultAPIs()
 	initDefaultAnnouncements()
 	initLevelConfigurations()
 }
@@ -42,46 +40,6 @@ func initDefaultRoles() {
 			dbService := database.GetDatabaseService()
 			dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 				return tx.Create(&role).Error
-			})
-		}
-	}
-}
-
-func initDefaultMenus() {
-	menus := []auth.Menu{
-		{Name: "仪表盘", Title: "仪表盘", Path: "/dashboard", Component: "dashboard/index", Icon: "dashboard", Sort: 1, Status: 1},
-		{Name: "虚拟化管理", Title: "虚拟化管理", Path: "/virtualization", Component: "virtualization/index", Icon: "server", Sort: 2, Status: 1},
-		{Name: "系统管理", Title: "系统管理", Path: "/system", Component: "system/index", Icon: "setting", Sort: 3, Status: 1},
-	}
-
-	for _, menu := range menus {
-		var count int64
-		global.APP_DB.Model(&auth.Menu{}).Where("name = ? AND path = ?", menu.Name, menu.Path).Count(&count)
-		if count == 0 {
-			dbService := database.GetDatabaseService()
-			dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Create(&menu).Error
-			})
-		}
-	}
-}
-
-func initDefaultAPIs() {
-	apis := []auth.Api{
-		{Path: "/api/v1/auth/login", Method: "POST", Description: "用户登录", Group: "认证"},
-		{Path: "/api/v1/auth/logout", Method: "POST", Description: "用户退出", Group: "认证"},
-		{Path: "/api/v1/virtualization/provider", Method: "GET", Description: "获取提供商列表", Group: "虚拟化"},
-		{Path: "/api/v1/virtualization/instances", Method: "GET", Description: "获取实例列表", Group: "虚拟化"},
-		{Path: "/api/v1/virtualization/instances", Method: "POST", Description: "创建实例", Group: "虚拟化"},
-	}
-
-	for _, api := range apis {
-		var count int64
-		global.APP_DB.Model(&auth.Api{}).Where("path = ? AND method = ?", api.Path, api.Method).Count(&count)
-		if count == 0 {
-			dbService := database.GetDatabaseService()
-			dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Create(&api).Error
 			})
 		}
 	}

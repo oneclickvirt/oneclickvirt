@@ -108,12 +108,12 @@ system:
     addr: 8888
     db-type: mysql
     env: development
+    frontend-url: ""
     iplimit-count: 15000
     iplimit-time: 3600
     oss-type: local
     use-multipoint: false
     use-redis: false
-    frontend-url: ""
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
