@@ -12,9 +12,8 @@ FROM golang:1.24-alpine AS backend-builder
 ARG TARGETARCH
 WORKDIR /app/server
 RUN apk add --no-cache git ca-certificates
-COPY server/go.mod server/go.sum ./
-RUN go mod download
 COPY server/ ./
+RUN go mod download
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -installsuffix cgo -ldflags "-w -s" -o main .
 
 FROM debian:12-slim
