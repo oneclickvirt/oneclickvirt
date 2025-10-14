@@ -29,6 +29,9 @@ jobs:
     - name: Build Go server binaries
       run: |
         cd server
+        export GO111MODULE=on
+        go mod download
+        go mod verify
         export CGO_ENABLED=0
         export LDFLAGS="-s -w -extldflags '-static'"
         
