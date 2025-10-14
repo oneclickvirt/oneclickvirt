@@ -667,16 +667,28 @@ func (s *Service) GetInstanceTypePermissions(userID uint) (map[string]interface{
 
 	// 根据用户等级和配置判断权限
 	result := map[string]interface{}{
-		"canCreateContainer": effective.EffectiveLevel >= permissions.MinLevelForContainer,
-		"canCreateVM":        effective.EffectiveLevel >= permissions.MinLevelForVM,
-		"canDeleteInstance":  effective.EffectiveLevel >= permissions.MinLevelForDelete,
+		"canCreateContainer":         effective.EffectiveLevel >= permissions.MinLevelForContainer,
+		"canCreateVM":                effective.EffectiveLevel >= permissions.MinLevelForVM,
+		"canDeleteContainer":         effective.EffectiveLevel >= permissions.MinLevelForDeleteContainer,
+		"canDeleteVM":                effective.EffectiveLevel >= permissions.MinLevelForDeleteVM,
+		"canResetContainer":          effective.EffectiveLevel >= permissions.MinLevelForResetContainer,
+		"canResetVM":                 effective.EffectiveLevel >= permissions.MinLevelForResetVM,
+		"minLevelForContainer":       permissions.MinLevelForContainer,
+		"minLevelForVM":              permissions.MinLevelForVM,
+		"minLevelForDeleteContainer": permissions.MinLevelForDeleteContainer,
+		"minLevelForDeleteVM":        permissions.MinLevelForDeleteVM,
+		"minLevelForResetContainer":  permissions.MinLevelForResetContainer,
+		"minLevelForResetVM":         permissions.MinLevelForResetVM,
 	}
 
 	// admin 权限可以执行所有操作
 	if effective.EffectiveType == "admin" {
 		result["canCreateContainer"] = true
 		result["canCreateVM"] = true
-		result["canDeleteInstance"] = true
+		result["canDeleteContainer"] = true
+		result["canDeleteVM"] = true
+		result["canResetContainer"] = true
+		result["canResetVM"] = true
 	}
 
 	return result, nil

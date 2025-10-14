@@ -186,7 +186,7 @@ func (s *PermissionService) CheckInstancePermission(userID uint, instanceType st
 }
 
 // CheckInstanceDeletePermission 检查实例删除权限
-func (s *PermissionService) CheckInstanceDeletePermission(userID uint) bool {
+func (s *PermissionService) CheckInstanceDeletePermission(userID uint, instanceType string) bool {
 	effective, err := s.GetUserEffectivePermission(userID)
 	if err != nil {
 		return false
@@ -197,9 +197,40 @@ func (s *PermissionService) CheckInstanceDeletePermission(userID uint) bool {
 		return true
 	}
 
-	// 根据配置检查用户等级是否满足删除权限要求
+	// 根据配置和实例类型检查用户等级是否满足删除权限要求
 	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
-	return effective.EffectiveLevel >= permissions.MinLevelForDelete
+	switch instanceType {
+	case "container":
+		return effective.EffectiveLevel >= permissions.MinLevelForDeleteContainer
+	case "vm":
+		return effective.EffectiveLevel >= permissions.MinLevelForDeleteVM
+	default:
+		return false
+	}
+}
+
+// CheckInstanceResetPermission 检查实例重置权限
+func (s *PermissionService) CheckInstanceResetPermission(userID uint, instanceType string) bool {
+	effective, err := s.GetUserEffectivePermission(userID)
+	if err != nil {
+		return false
+	}
+
+	// admin 权限可以重置任何实例
+	if effective.EffectiveType == "admin" {
+		return true
+	}
+
+	// 根据配置和实例类型检查用户等级是否满足重置权限要求
+	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	switch instanceType {
+	case "container":
+		return effective.EffectiveLevel >= permissions.MinLevelForResetContainer
+	case "vm":
+		return effective.EffectiveLevel >= permissions.MinLevelForResetVM
+	default:
+		return false
+	}
 }
 
 // CheckAPIAccess 检查API访问权限

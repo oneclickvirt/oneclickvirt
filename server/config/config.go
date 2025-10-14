@@ -42,9 +42,12 @@ type Quota struct {
 }
 
 type InstanceTypePermissions struct {
-	MinLevelForContainer int `mapstructure:"min-level-for-container" json:"min-level-for-container" yaml:"min-level-for-container"`
-	MinLevelForVM        int `mapstructure:"min-level-for-vm" json:"min-level-for-vm" yaml:"min-level-for-vm"`
-	MinLevelForDelete    int `mapstructure:"min-level-for-delete" json:"min-level-for-delete" yaml:"min-level-for-delete"`
+	MinLevelForContainer       int `mapstructure:"min-level-for-container" json:"min-level-for-container" yaml:"min-level-for-container"`
+	MinLevelForVM              int `mapstructure:"min-level-for-vm" json:"min-level-for-vm" yaml:"min-level-for-vm"`
+	MinLevelForDeleteContainer int `mapstructure:"min-level-for-delete-container" json:"min-level-for-delete-container" yaml:"min-level-for-delete-container"`
+	MinLevelForDeleteVM        int `mapstructure:"min-level-for-delete-vm" json:"min-level-for-delete-vm" yaml:"min-level-for-delete-vm"`
+	MinLevelForResetContainer  int `mapstructure:"min-level-for-reset-container" json:"min-level-for-reset-container" yaml:"min-level-for-reset-container"`
+	MinLevelForResetVM         int `mapstructure:"min-level-for-reset-vm" json:"min-level-for-reset-vm" yaml:"min-level-for-reset-vm"`
 }
 
 type LevelLimitInfo struct {

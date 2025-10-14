@@ -186,17 +186,44 @@ func syncQuotaConfig(quotaConfig map[string]interface{}) {
 			}
 		}
 
-		if minLevelForDelete, exists := instanceTypePermissions["minLevelForDelete"]; exists {
-			if level, ok := minLevelForDelete.(float64); ok {
-				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete = int(level)
-			} else if level, ok := minLevelForDelete.(int); ok {
-				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete = level
+		if minLevelForDeleteContainer, exists := instanceTypePermissions["minLevelForDeleteContainer"]; exists {
+			if level, ok := minLevelForDeleteContainer.(float64); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer = int(level)
+			} else if level, ok := minLevelForDeleteContainer.(int); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer = level
+			}
+		}
+
+		if minLevelForDeleteVM, exists := instanceTypePermissions["minLevelForDeleteVM"]; exists {
+			if level, ok := minLevelForDeleteVM.(float64); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM = int(level)
+			} else if level, ok := minLevelForDeleteVM.(int); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM = level
+			}
+		}
+
+		if minLevelForResetContainer, exists := instanceTypePermissions["minLevelForResetContainer"]; exists {
+			if level, ok := minLevelForResetContainer.(float64); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer = int(level)
+			} else if level, ok := minLevelForResetContainer.(int); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer = level
+			}
+		}
+
+		if minLevelForResetVM, exists := instanceTypePermissions["minLevelForResetVM"]; exists {
+			if level, ok := minLevelForResetVM.(float64); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM = int(level)
+			} else if level, ok := minLevelForResetVM.(int); ok {
+				global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM = level
 			}
 		}
 
 		global.APP_LOG.Info("实例类型权限配置已同步到全局配置",
 			zap.Int("minLevelForContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer),
 			zap.Int("minLevelForVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM),
-			zap.Int("minLevelForDelete", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete))
+			zap.Int("minLevelForDeleteContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer),
+			zap.Int("minLevelForDeleteVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM),
+			zap.Int("minLevelForResetContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer),
+			zap.Int("minLevelForResetVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM))
 	}
 }

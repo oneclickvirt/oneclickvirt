@@ -1,16 +1,8 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
-    enable-email: false
-    enable-oauth2: false
-    enable-public-registration: false
-    enable-qq: false
-    enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
+    enableEmail: false
+    enablePublicRegistration: false
+    enableQQ: false
+    enableTelegram: false
 captcha:
     enabled: true
     expire-time: 300
@@ -30,6 +22,9 @@ cors:
 invite-code:
     enabled: false
     required: false
+inviteCode:
+    enabled: true
+    required: true
 jwt:
     buffer-time: 1d
     expires-time: 7d
@@ -52,52 +47,16 @@ mysql:
     singular: false
     username: root
 quota:
-    default-level: 1
-    instance-type-permissions:
-        min-level-for-container: 1
-        min-level-for-delete: 2
-        min-level-for-vm: 1
-    level-limits:
-        1:
-            max-instances: 1
-            max-resources:
-                bandwidth: 10
-                cpu: 1
-                disk: 1025
-                memory: 350
-            max-traffic: 102400
-        2:
-            max-instances: 3
-            max-resources:
-                bandwidth: 20
-                cpu: 2
-                disk: 20480
-                memory: 1024
-            max-traffic: 204800
-        3:
-            max-instances: 5
-            max-resources:
-                bandwidth: 50
-                cpu: 4
-                disk: 40960
-                memory: 2048
-            max-traffic: 307200
-        4:
-            max-instances: 10
-            max-resources:
+    defaultLevel: 1
+    levelLimits:
+        "1":
+            maxInstances: 1
+            maxResources:
                 bandwidth: 100
-                cpu: 8
-                disk: 81920
-                memory: 4096
-            max-traffic: 409600
-        5:
-            max-instances: 20
-            max-resources:
-                bandwidth: 200
-                cpu: 16
-                disk: 163840
-                memory: 8192
-            max-traffic: 512000
+                cpu: 2
+                disk: 10240
+                memory: 1024
+            maxTraffic: 1024
 redis:
     addr: ""
     db: 0

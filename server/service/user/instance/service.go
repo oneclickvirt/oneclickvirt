@@ -219,6 +219,12 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return errors.New("实例状态不允许重置")
 		}
 
+		// 检查用户重置权限
+		permissionService := auth.PermissionService{}
+		if !permissionService.CheckInstanceResetPermission(userID, instance.InstanceType) {
+			return errors.New("您的等级不足，无法自行重置系统，请联系管理员处理")
+		}
+
 		// 检查是否已有进行中的重置任务
 		var existingTask adminModel.Task
 		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'reset' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {
@@ -241,7 +247,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 
 		// 检查用户删除权限
 		permissionService := auth.PermissionService{}
-		if !permissionService.CheckInstanceDeletePermission(userID) {
+		if !permissionService.CheckInstanceDeletePermission(userID, instance.InstanceType) {
 			return errors.New("您的等级不足，无法自行删除实例，请联系管理员处理")
 		}
 

@@ -2,10 +2,12 @@ package config
 
 import (
 	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
+	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
 )
 
@@ -548,10 +550,104 @@ func (cm *ConfigManager) GetSnapshots() []ConfigSnapshot {
 	return result
 }
 
-// syncToGlobalConfig 同步配置到全局配置
+// syncToGlobalConfig 同步配置到全局配置并写回YAML文件
 func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error {
 	// 这个方法需要导入 global 包，但为了避免循环导入，我们需要通过依赖注入或回调的方式实现
 	// 暂时先记录日志，具体实现需要在初始化时注册同步回调
 	cm.logger.Info("配置已更新，需要同步到全局配置", zap.Any("config", config))
+
+	// 写回YAML文件
+	if err := cm.writeConfigToYAML(config); err != nil {
+		cm.logger.Error("写回YAML文件失败", zap.Error(err))
+		return err
+	}
+
 	return nil
+}
+
+// writeConfigToYAML 将配置写回到YAML文件（保留原始key格式，避免驼峰转换）
+func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error {
+	// 读取现有配置文件
+	file, err := os.ReadFile("config.yaml")
+	if err != nil {
+		cm.logger.Error("读取配置文件失败", zap.Error(err))
+		return err
+	}
+
+	// 解析YAML到map
+	var config map[string]interface{}
+	if err := yaml.Unmarshal(file, &config); err != nil {
+		cm.logger.Error("解析YAML失败", zap.Error(err))
+		return err
+	}
+
+	// 递归合并更新（保留连接符key）
+	for key, value := range updates {
+		setNestedValue(config, key, value)
+	}
+
+	// 序列化回YAML
+	out, err := yaml.Marshal(config)
+	if err != nil {
+		cm.logger.Error("序列化YAML失败", zap.Error(err))
+		return err
+	}
+
+	// 写回文件
+	if err := os.WriteFile("config.yaml", out, 0644); err != nil {
+		cm.logger.Error("写入配置文件失败", zap.Error(err))
+		return err
+	}
+
+	cm.logger.Info("配置已成功写回YAML文件")
+	return nil
+}
+
+// setNestedValue 递归设置嵌套配置值（通过点分隔的key）
+func setNestedValue(config map[string]interface{}, key string, value interface{}) {
+	keys := splitKey(key)
+	if len(keys) == 0 {
+		return
+	}
+
+	// 递归找到最后一层的map
+	current := config
+	for i := 0; i < len(keys)-1; i++ {
+		k := keys[i]
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
+		} else {
+			// 如果中间层不存在或不是map，创建新map
+			newMap := make(map[string]interface{})
+			current[k] = newMap
+			current = newMap
+		}
+	}
+
+	// 设置最后一层的值
+	lastKey := keys[len(keys)-1]
+	current[lastKey] = value
+}
+
+// splitKey 分割点分隔的key（例如 "quota.level-limits" -> ["quota", "level-limits"]）
+func splitKey(key string) []string {
+	var result []string
+	var current string
+
+	for _, ch := range key {
+		if ch == '.' {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(ch)
+		}
+	}
+
+	if current != "" {
+		result = append(result, current)
+	}
+
+	return result
 }

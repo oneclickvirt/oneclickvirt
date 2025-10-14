@@ -55,8 +55,11 @@ quota:
     default-level: 1
     instance-type-permissions:
         min-level-for-container: 1
-        min-level-for-delete: 2
-        min-level-for-vm: 1
+        min-level-for-delete-container: 2
+        min-level-for-delete-vm: 3
+        min-level-for-reset-container: 2
+        min-level-for-reset-vm: 3
+        min-level-for-vm: 3
     level-limits:
         1:
             max-instances: 1

@@ -289,7 +289,7 @@
                     <el-col :span="6">
                       <el-form-item label="最大实例数">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxInstances" 
+                          v-model="config.quota.levelLimits[level]['maxInstances']" 
                           :min="1" 
                           :max="100"
                           :controls="true"
@@ -301,7 +301,7 @@
                     <el-col :span="6">
                       <el-form-item label="最大CPU核心">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxResources.cpu" 
+                          v-model="config.quota.levelLimits[level]['maxResources']['cpu']" 
                           :min="1" 
                           :max="64"
                           :controls="true"
@@ -313,7 +313,7 @@
                     <el-col :span="6">
                       <el-form-item label="最大内存(MB)">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxResources.memory" 
+                          v-model="config.quota.levelLimits[level]['maxResources']['memory']" 
                           :min="128" 
                           :max="65536"
                           :controls="true"
@@ -325,7 +325,7 @@
                     <el-col :span="6">
                       <el-form-item label="最大磁盘(MB)">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxResources.disk" 
+                          v-model="config.quota.levelLimits[level]['maxResources']['disk']" 
                           :min="512" 
                           :max="102400"
                           :controls="true"
@@ -339,7 +339,7 @@
                     <el-col :span="6">
                       <el-form-item label="最大带宽(Mbps)">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxResources.bandwidth" 
+                          v-model="config.quota.levelLimits[level]['maxResources']['bandwidth']" 
                           :min="1" 
                           :max="10000"
                           :controls="true"
@@ -351,7 +351,7 @@
                     <el-col :span="6">
                       <el-form-item label="流量限制(MB)">
                         <el-input-number 
-                          v-model="config.quota.levelLimits[level].maxTraffic" 
+                          v-model="config.quota.levelLimits[level]['maxTraffic']" 
                           :min="1024" 
                           :max="10485760"
                           :controls="true"
@@ -375,7 +375,7 @@
           <el-form
             v-loading="loading"
             :model="instanceTypePermissions"
-            label-width="140px"
+            label-width="180px"
             class="config-form"
           >
             <el-alert
@@ -385,25 +385,35 @@
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置不同实例类型和操作的最低用户等级要求。容器对所有等级用户开放，虚拟机和删除操作需要达到指定等级。
+              配置不同实例类型和操作的最低用户等级要求。可以分别设置容器和虚拟机的创建、删除和重置系统操作的最低等级。
             </el-alert>
             
+            <!-- 创建权限 -->
+            <el-divider content-position="left">
+              <el-icon><Plus /></el-icon> 创建权限
+            </el-divider>
             <el-row :gutter="20">
-              <el-col :span="8">
-                <el-form-item label="容器权限">
-                  <el-tag
-                    type="success"
-                    size="large"
+              <el-col :span="12">
+                <el-form-item label="容器创建最低等级">
+                  <el-select
+                    v-model="instanceTypePermissions.minLevelForContainer"
+                    placeholder="选择等级"
+                    style="width: 100%"
                   >
-                    所有等级用户均可创建
-                  </el-tag>
+                    <el-option
+                      v-for="level in [1, 2, 3, 4, 5]"
+                      :key="level"
+                      :label="`等级 ${level}`"
+                      :value="level"
+                    />
+                  </el-select>
                   <div class="form-item-hint">
-                    容器资源占用较少，对所有用户开放
+                    容器资源占用较少，建议设置较低门槛
                   </div>
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
-                <el-form-item label="虚拟机最低等级">
+              <el-col :span="12">
+                <el-form-item label="虚拟机创建最低等级">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForVM"
                     placeholder="选择等级"
@@ -421,10 +431,17 @@
                   </div>
                 </el-form-item>
               </el-col>
-              <el-col :span="8">
-                <el-form-item label="删除实例最低等级">
+            </el-row>
+
+            <!-- 删除权限 -->
+            <el-divider content-position="left">
+              <el-icon><Delete /></el-icon> 删除权限
+            </el-divider>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="容器删除最低等级">
                   <el-select
-                    v-model="instanceTypePermissions.minLevelForDelete"
+                    v-model="instanceTypePermissions.minLevelForDeleteContainer"
                     placeholder="选择等级"
                     style="width: 100%"
                   >
@@ -436,7 +453,71 @@
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    低等级用户需管理员协助删除，避免误操作
+                    容器删除操作权限等级要求
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="虚拟机删除最低等级">
+                  <el-select
+                    v-model="instanceTypePermissions.minLevelForDeleteVM"
+                    placeholder="选择等级"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="level in [1, 2, 3, 4, 5]"
+                      :key="level"
+                      :label="`等级 ${level}`"
+                      :value="level"
+                    />
+                  </el-select>
+                  <div class="form-item-hint">
+                    虚拟机删除操作权限等级要求
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <!-- 重置系统权限 -->
+            <el-divider content-position="left">
+              <el-icon><Refresh /></el-icon> 重置系统权限
+            </el-divider>
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="容器重置系统最低等级">
+                  <el-select
+                    v-model="instanceTypePermissions.minLevelForResetContainer"
+                    placeholder="选择等级"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="level in [1, 2, 3, 4, 5]"
+                      :key="level"
+                      :label="`等级 ${level}`"
+                      :value="level"
+                    />
+                  </el-select>
+                  <div class="form-item-hint">
+                    容器重置系统操作权限等级要求
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="虚拟机重置系统最低等级">
+                  <el-select
+                    v-model="instanceTypePermissions.minLevelForResetVM"
+                    placeholder="选择等级"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      v-for="level in [1, 2, 3, 4, 5]"
+                      :key="level"
+                      :label="`等级 ${level}`"
+                      :value="level"
+                    />
+                  </el-select>
+                  <div class="form-item-hint">
+                    虚拟机重置系统操作权限等级要求
                   </div>
                 </el-form-item>
               </el-col>
@@ -450,9 +531,10 @@
               style="margin-top: 20px;"
             >
               <ul style="margin: 0; padding-left: 20px;">
-                <li>容器：资源占用较少，对所有等级开放</li>
-                <li>虚拟机：资源占用较大，建议设置等级2-3以上</li>
-                <li>删除实例：建议设置等级2以上，避免新用户误删实例</li>
+                <li>容器创建：资源占用较少，建议等级1即可创建</li>
+                <li>虚拟机创建：资源占用较大，建议设置等级2-3以上</li>
+                <li>容器删除/重置：建议等级1-2，相对安全</li>
+                <li>虚拟机删除/重置：建议设置等级2以上，避免误操作</li>
               </ul>
             </el-alert>
           </el-form>
@@ -520,9 +602,12 @@ const config = ref({
 })
 
 const instanceTypePermissions = ref({
-  minLevelForContainer: 1, // 固定为1，所有等级用户都可创建
+  minLevelForContainer: 1,
   minLevelForVM: 3,
-  minLevelForDelete: 2 // 等级2及以上可以自行删除实例
+  minLevelForDeleteContainer: 1,
+  minLevelForDeleteVM: 2,
+  minLevelForResetContainer: 1,
+  minLevelForResetVM: 2
 })
 
 const loading = ref(false)
@@ -531,8 +616,9 @@ const loadConfig = async () => {
   loading.value = true
   try {
     const response = await getAdminConfig()
-    if (response.data) {
-      // 直接使用服务端返回的完整配置
+    console.log('加载配置响应:', response)
+    if (response.code === 0 && response.data) {
+      // 合并配置，确保所有字段都有默认值
       if (response.data.auth) {
         config.value.auth = {
           ...config.value.auth,
@@ -540,34 +626,43 @@ const loadConfig = async () => {
         }
       }
       
-      if (response.data.quota) {
-        // 直接使用服务端返回的配额配置
-        config.value.quota = response.data.quota
-        
-        // 确保所有5个等级都存在（如果服务端没有返回某个等级，填充默认值）
-        if (!config.value.quota.levelLimits) {
-          config.value.quota.levelLimits = {}
-        }
-        for (let i = 1; i <= 5; i++) {
-          if (!config.value.quota.levelLimits[i]) {
-            config.value.quota.levelLimits[i] = {
-              maxInstances: i,
-              maxResources: {
-                cpu: Math.pow(2, i - 1),
-                memory: 512 * Math.pow(2, i - 1),
-                disk: 10240 * Math.pow(2, i - 1),
-                bandwidth: 10 * i
-              },
-              maxTraffic: 1024 * i
-            }
-          }
-        }
-      }
-      
       if (response.data.inviteCode) {
         config.value.inviteCode = {
           ...config.value.inviteCode,
           ...response.data.inviteCode
+        }
+      }
+      
+      // 加载等级配置
+      if (response.data.quota && response.data.quota.levelLimits) {
+        config.value.quota.levelLimits = {}
+        for (let level = 1; level <= 5; level++) {
+          const levelKey = String(level)
+          if (response.data.quota.levelLimits[levelKey]) {
+            const limitData = response.data.quota.levelLimits[levelKey]
+            config.value.quota.levelLimits[level] = {
+              maxInstances: limitData.maxInstances || (level * 2),
+              maxResources: {
+                cpu: limitData.maxResources?.cpu || (level * 2),
+                memory: limitData.maxResources?.memory || (1024 * Math.pow(2, level - 1)),
+                disk: limitData.maxResources?.disk || (10240 * Math.pow(2, level - 1)),
+                bandwidth: limitData.maxResources?.bandwidth || (10 * level)
+              },
+              maxTraffic: limitData.maxTraffic || (1024 * level)
+            }
+          } else {
+            // 如果没有数据，使用默认值
+            config.value.quota.levelLimits[level] = {
+              maxInstances: level * 2,
+              maxResources: {
+                cpu: level * 2,
+                memory: 1024 * Math.pow(2, level - 1),
+                disk: 10240 * Math.pow(2, level - 1),
+                bandwidth: 10 * level
+              },
+              maxTraffic: 1024 * level
+            }
+          }
         }
       }
     }
@@ -587,9 +682,11 @@ const loadInstanceTypePermissions = async () => {
       instanceTypePermissions.value = {
         minLevelForContainer: response.data.minLevelForContainer || 1,
         minLevelForVM: response.data.minLevelForVM || 3,
-        minLevelForDelete: response.data.minLevelForDelete || 2
+        minLevelForDeleteContainer: response.data.minLevelForDeleteContainer || 1,
+        minLevelForDeleteVM: response.data.minLevelForDeleteVM || 2,
+        minLevelForResetContainer: response.data.minLevelForResetContainer || 1,
+        minLevelForResetVM: response.data.minLevelForResetVM || 2
       }
-      console.log('实例类型权限配置已加载:', instanceTypePermissions.value)
     }
   } catch (error) {
     console.error('加载实例类型权限配置失败:', error)

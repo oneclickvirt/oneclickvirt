@@ -63,9 +63,12 @@ func (s *AdminDashboardService) GetInstanceTypePermissions() map[string]interfac
 	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
 
 	return map[string]interface{}{
-		"minLevelForContainer": permissions.MinLevelForContainer,
-		"minLevelForVM":        permissions.MinLevelForVM,
-		"minLevelForDelete":    permissions.MinLevelForDelete,
+		"minLevelForContainer":       permissions.MinLevelForContainer,
+		"minLevelForVM":              permissions.MinLevelForVM,
+		"minLevelForDeleteContainer": permissions.MinLevelForDeleteContainer,
+		"minLevelForDeleteVM":        permissions.MinLevelForDeleteVM,
+		"minLevelForResetContainer":  permissions.MinLevelForResetContainer,
+		"minLevelForResetVM":         permissions.MinLevelForResetVM,
 	}
 }
 
@@ -76,6 +79,9 @@ func (s *AdminDashboardService) UpdateInstanceTypePermissions(req admin.UpdateIn
 	return configService.SaveInstanceTypePermissions(
 		req.MinLevelForContainer,
 		req.MinLevelForVM,
-		req.MinLevelForDelete,
+		req.MinLevelForDeleteContainer,
+		req.MinLevelForDeleteVM,
+		req.MinLevelForResetContainer,
+		req.MinLevelForResetVM,
 	)
 }

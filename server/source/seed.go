@@ -490,9 +490,9 @@ func initLevelConfigurations() {
 		MaxInstances: 1,
 		MaxResources: map[string]interface{}{
 			"cpu":       1,
-			"memory":    512,   // 512MB
-			"disk":      10240, // 10GB
-			"bandwidth": 10,    // 10Mbps
+			"memory":    350,  // 350MB
+			"disk":      1024, // 1GB
+			"bandwidth": 100,  // 100Mbps
 		},
 		MaxTraffic: 102400, // 100GB
 	}
@@ -504,7 +504,7 @@ func initLevelConfigurations() {
 			"cpu":       2,
 			"memory":    1024,  // 1GB
 			"disk":      20480, // 20GB
-			"bandwidth": 20,    // 20Mbps
+			"bandwidth": 200,   // 200Mbps
 		},
 		MaxTraffic: 204800, // 200GB
 	}
@@ -516,7 +516,7 @@ func initLevelConfigurations() {
 			"cpu":       4,
 			"memory":    2048,  // 2GB
 			"disk":      40960, // 40GB
-			"bandwidth": 50,    // 50Mbps
+			"bandwidth": 500,   // 500Mbps
 		},
 		MaxTraffic: 307200, // 300GB
 	}
@@ -528,7 +528,7 @@ func initLevelConfigurations() {
 			"cpu":       8,
 			"memory":    4096,  // 4GB
 			"disk":      81920, // 80GB
-			"bandwidth": 100,   // 100Mbps
+			"bandwidth": 1000,  // 1000Mbps
 		},
 		MaxTraffic: 409600, // 400GB
 	}
@@ -540,7 +540,7 @@ func initLevelConfigurations() {
 			"cpu":       16,
 			"memory":    8192,   // 8GB
 			"disk":      163840, // 160GB
-			"bandwidth": 200,    // 200Mbps
+			"bandwidth": 2000,   // 2000Mbps
 		},
 		MaxTraffic: 512000, // 500GB
 	}
@@ -557,20 +557,28 @@ func initInstanceTypePermissions() {
 
 	// 检查配置是否已经设置
 	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
-	if permissions.MinLevelForContainer != 0 || permissions.MinLevelForVM != 0 || permissions.MinLevelForDelete != 0 {
+	if permissions.MinLevelForContainer != 0 || permissions.MinLevelForVM != 0 ||
+		permissions.MinLevelForDeleteContainer != 0 || permissions.MinLevelForDeleteVM != 0 ||
+		permissions.MinLevelForResetContainer != 0 || permissions.MinLevelForResetVM != 0 {
 		global.APP_LOG.Info("实例类型权限配置已存在，跳过初始化")
 		return
 	}
 
 	// 设置默认权限配置
 	global.APP_CONFIG.Quota.InstanceTypePermissions = config.InstanceTypePermissions{
-		MinLevelForContainer: 1, // 所有等级用户都可以创建容器
-		MinLevelForVM:        3, // 等级3及以上可以创建虚拟机
-		MinLevelForDelete:    2, // 等级2及以上可以自行删除实例
+		MinLevelForContainer:       1, // 所有等级用户都可以创建容器
+		MinLevelForVM:              3, // 等级3及以上可以创建虚拟机
+		MinLevelForDeleteContainer: 1, // 等级1及以上可以删除容器
+		MinLevelForDeleteVM:        2, // 等级2及以上可以删除虚拟机
+		MinLevelForResetContainer:  1, // 等级1及以上可以重置容器系统
+		MinLevelForResetVM:         2, // 等级2及以上可以重置虚拟机系统
 	}
 
 	global.APP_LOG.Info("实例类型权限配置初始化完成",
 		zap.Int("minLevelForContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer),
 		zap.Int("minLevelForVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM),
-		zap.Int("minLevelForDelete", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDelete))
+		zap.Int("minLevelForDeleteContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer),
+		zap.Int("minLevelForDeleteVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM),
+		zap.Int("minLevelForResetContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer),
+		zap.Int("minLevelForResetVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM))
 }
