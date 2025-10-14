@@ -50,9 +50,9 @@ quota:
     defaultLevel: 1
     levelLimits:
         "1":
-            maxInstances: 1
+            maxInstances: 3
             maxResources:
-                bandwidth: 100
+                bandwidth: 10
                 cpu: 2
                 disk: 10240
                 memory: 1024
