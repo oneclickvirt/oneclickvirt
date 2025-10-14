@@ -27,8 +27,9 @@ jobs:
       run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
     - name: Build Go server binaries
+      working-directory: ./server
       run: |
-        cd server
+        ls
         export GO111MODULE=on
         go mod download
         go mod verify
