@@ -17,7 +17,7 @@ import (
 // @Accept json
 // @Produce json
 // @Security BearerAuth
-// @Success 200 {object} common.Response{data=[]oauth2Model.OAuth2Provider}
+// @Success 200 {object} common.Response{data=[]oauth2.OAuth2Provider}
 // @Router /oauth2/providers [get]
 func GetProviders(c *gin.Context) {
 	providerService := oauth2Service.ProviderService{}

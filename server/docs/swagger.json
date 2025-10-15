@@ -2668,6 +2668,69 @@
                 }
             }
         },
+        "/admin/providers/test-ssh-connection": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "测试SSH连接延迟，执行多次测试并返回最小、最大、平均延迟及推荐超时时间",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "提供商管理"
+                ],
+                "summary": "测试SSH连接延迟",
+                "parameters": [
+                    {
+                        "description": "测试SSH连接请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.TestSSHConnectionRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "测试成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.TestSSHConnectionResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "测试失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/system-images": {
             "get": {
                 "security": [
@@ -4150,75 +4213,6 @@
                 }
             }
         },
-        "/api/create": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "创建新的API接口记录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "创建API接口",
-                "responses": {
-                    "200": {
-                        "description": "创建成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/api/list": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取系统的API接口列表",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "获取API列表",
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": true
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/logs/cleanup": {
             "post": {
                 "security": [
@@ -4980,169 +4974,6 @@
                 }
             }
         },
-        "/api/{id}": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "更新API接口信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "更新API接口",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "API ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "更新API请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "type": "object"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "更新成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "delete": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "删除API接口记录",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "删除API接口",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "API ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "删除成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/apis/routes": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取当前系统的所有路由信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "获取路由信息",
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {}
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
-        "/apis/sync": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "从路由中自动发现并同步API接口到数据库",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "API管理"
-                ],
-                "summary": "同步API接口",
-                "responses": {
-                    "200": {
-                        "description": "同步成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": true
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/auth/captcha": {
             "get": {
                 "description": "生成图片验证码用于用户验证",
@@ -5344,6 +5175,95 @@
                 }
             }
         },
+        "/auth/oauth2/callback": {
+            "get": {
+                "description": "处理OAuth2提供商的回调",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "OAuth2回调",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "授权码",
+                        "name": "code",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "状态令牌",
+                        "name": "state",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "additionalProperties": true
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/oauth2/login": {
+            "get": {
+                "description": "跳转到OAuth2提供商的授权页面",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证"
+                ],
+                "summary": "OAuth2登录",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "提供商名称（如linuxdo）",
+                        "name": "provider",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "提供商ID",
+                        "name": "provider_id",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "302": {
+                        "description": "重定向到OAuth2授权页面",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/auth/register": {
             "post": {
                 "description": "创建新用户账户",
@@ -5423,6 +5343,52 @@
                 "responses": {
                     "200": {
                         "description": "密码重置成功，新密码已发送到绑定的通信渠道",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/auth/send-verify-code": {
+            "post": {
+                "description": "向指定的邮箱/Telegram/QQ发送登录验证码",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "认证管理"
+                ],
+                "summary": "发送验证码",
+                "parameters": [
+                    {
+                        "description": "发送验证码请求参数",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.SendVerifyCodeRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "验证码发送成功",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -5652,14 +5618,14 @@
                 }
             }
         },
-        "/permission/list": {
+        "/oauth2/providers": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "获取系统的权限列表",
+                "description": "获取所有OAuth2提供商（包括禁用的）",
                 "consumes": [
                     "application/json"
                 ],
@@ -5667,12 +5633,12 @@
                     "application/json"
                 ],
                 "tags": [
-                    "权限管理"
+                    "OAuth2"
                 ],
-                "summary": "获取权限列表",
+                "summary": "获取OAuth2提供商列表",
                 "responses": {
                     "200": {
-                        "description": "获取成功",
+                        "description": "OK",
                         "schema": {
                             "allOf": [
                                 {
@@ -5682,12 +5648,228 @@
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "type": "object",
-                                            "additionalProperties": true
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/oauth2.OAuth2Provider"
+                                            }
                                         }
                                     }
                                 }
                             ]
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "创建新的OAuth2提供商配置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "创建OAuth2提供商",
+                "parameters": [
+                    {
+                        "description": "提供商配置",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/oauth2.CreateProviderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/oauth2.OAuth2Provider"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/oauth2/providers/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定OAuth2提供商的详细信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "获取OAuth2提供商详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "提供商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/oauth2.OAuth2Provider"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            },
+            "put": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "更新OAuth2提供商配置",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "更新OAuth2提供商",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "提供商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "更新内容",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/oauth2.UpdateProviderRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "删除OAuth2提供商（如有用户使用则无法删除）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "删除OAuth2提供商",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "提供商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/oauth2/providers/{id}/reset-count": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "重置OAuth2提供商的注册计数",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "重置注册计数",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "提供商ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
                         }
                     }
                 }
@@ -5787,14 +5969,14 @@
                 }
             }
         },
-        "/provider/{type}/capabilities": {
+        "/provider/{id}/capabilities": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "获取指定类型虚拟化提供者支持的功能和实例类型",
+                "description": "获取指定Provider支持的功能和实例类型",
                 "consumes": [
                     "application/json"
                 ],
@@ -5807,15 +5989,9 @@
                 "summary": "获取Provider能力",
                 "parameters": [
                     {
-                        "enum": [
-                            "docker",
-                            "lxd",
-                            "incus",
-                            "proxmox"
-                        ],
-                        "type": "string",
-                        "description": "Provider类型",
-                        "name": "type",
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
@@ -5848,7 +6024,7 @@
                 }
             }
         },
-        "/provider/{type}/instances": {
+        "/provider/{id}/instances": {
             "get": {
                 "security": [
                     {
@@ -5868,15 +6044,9 @@
                 "summary": "获取实例列表",
                 "parameters": [
                     {
-                        "enum": [
-                            "docker",
-                            "lxd",
-                            "incus",
-                            "proxmox"
-                        ],
-                        "type": "string",
-                        "description": "Provider类型",
-                        "name": "type",
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
@@ -5998,14 +6168,14 @@
                 }
             }
         },
-        "/provider/{type}/status": {
+        "/provider/{id}/status": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "获取指定类型虚拟化提供者的连接状态和支持的实例类型",
+                "description": "获取指定Provider的连接状态和支持的实例类型",
                 "consumes": [
                     "application/json"
                 ],
@@ -6018,15 +6188,9 @@
                 "summary": "获取Provider状态",
                 "parameters": [
                     {
-                        "enum": [
-                            "docker",
-                            "lxd",
-                            "incus",
-                            "proxmox"
-                        ],
-                        "type": "string",
-                        "description": "Provider类型",
-                        "name": "type",
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
                         "in": "path",
                         "required": true
                     }
@@ -6131,6 +6295,45 @@
                                     "properties": {
                                         "data": {
                                             "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/public/oauth2/providers": {
+            "get": {
+                "description": "获取所有启用的OAuth2提供商（公开接口）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "获取启用的OAuth2提供商",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object",
+                                                "additionalProperties": true
+                                            }
                                         }
                                     }
                                 }
@@ -8295,47 +8498,6 @@
                 }
             }
         },
-        "/user/roles": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取用户的角色列表",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户管理"
-                ],
-                "summary": "获取用户角色列表",
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {}
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    }
-                }
-            }
-        },
         "/user/tasks": {
             "get": {
                 "security": [
@@ -9042,6 +9204,14 @@
                 "countryCode": {
                     "type": "string"
                 },
+                "defaultInboundBandwidth": {
+                    "description": "带宽配置",
+                    "type": "integer"
+                },
+                "defaultOutboundBandwidth": {
+                    "description": "默认出站带宽限制（Mbps）",
+                    "type": "integer"
+                },
                 "defaultPortCount": {
                     "description": "端口映射配置",
                     "type": "integer"
@@ -9072,6 +9242,18 @@
                 },
                 "maxContainerInstances": {
                     "description": "最大容器数量限制",
+                    "type": "integer"
+                },
+                "maxInboundBandwidth": {
+                    "description": "最大入站带宽限制（Mbps）",
+                    "type": "integer"
+                },
+                "maxOutboundBandwidth": {
+                    "description": "最大出站带宽限制（Mbps）",
+                    "type": "integer"
+                },
+                "maxTraffic": {
+                    "description": "流量管理",
                     "type": "integer"
                 },
                 "maxVMInstances": {
@@ -9105,6 +9287,14 @@
                 },
                 "region": {
                     "type": "string"
+                },
+                "sshConnectTimeout": {
+                    "description": "SSH连接配置",
+                    "type": "integer"
+                },
+                "sshExecuteTimeout": {
+                    "description": "SSH命令执行超时时间（秒），默认300秒",
+                    "type": "integer"
                 },
                 "sshPort": {
                     "type": "integer"
@@ -9358,6 +9548,70 @@
                 }
             }
         },
+        "admin.TestSSHConnectionRequest": {
+            "type": "object",
+            "required": [
+                "host",
+                "password",
+                "port",
+                "username"
+            ],
+            "properties": {
+                "host": {
+                    "description": "SSH服务器地址",
+                    "type": "string"
+                },
+                "password": {
+                    "description": "SSH密码",
+                    "type": "string"
+                },
+                "port": {
+                    "description": "SSH端口",
+                    "type": "integer"
+                },
+                "testCount": {
+                    "description": "测试次数，默认3次",
+                    "type": "integer"
+                },
+                "username": {
+                    "description": "SSH用户名",
+                    "type": "string"
+                }
+            }
+        },
+        "admin.TestSSHConnectionResponse": {
+            "type": "object",
+            "properties": {
+                "avgLatency": {
+                    "description": "平均延迟（毫秒）",
+                    "type": "integer"
+                },
+                "errorMessage": {
+                    "description": "错误信息（如果失败）",
+                    "type": "string"
+                },
+                "maxLatency": {
+                    "description": "最大延迟（毫秒）",
+                    "type": "integer"
+                },
+                "minLatency": {
+                    "description": "最小延迟（毫秒）",
+                    "type": "integer"
+                },
+                "recommendedTimeout": {
+                    "description": "推荐的超时时间（秒），最大延迟*2",
+                    "type": "integer"
+                },
+                "success": {
+                    "description": "测试是否成功",
+                    "type": "boolean"
+                },
+                "testCount": {
+                    "description": "测试次数",
+                    "type": "integer"
+                }
+            }
+        },
         "admin.UpdateAnnouncementRequest": {
             "type": "object",
             "properties": {
@@ -9405,7 +9659,22 @@
                     "maximum": 5,
                     "minimum": 1
                 },
-                "minLevelForDelete": {
+                "minLevelForDeleteContainer": {
+                    "type": "integer",
+                    "maximum": 5,
+                    "minimum": 1
+                },
+                "minLevelForDeleteVM": {
+                    "type": "integer",
+                    "maximum": 5,
+                    "minimum": 1
+                },
+                "minLevelForResetContainer": {
+                    "type": "integer",
+                    "maximum": 5,
+                    "minimum": 1
+                },
+                "minLevelForResetVM": {
                     "type": "integer",
                     "maximum": 5,
                     "minimum": 1
@@ -9519,32 +9788,40 @@
         },
         "auth.LoginRequest": {
             "type": "object",
-            "required": [
-                "password",
-                "username"
-            ],
             "properties": {
                 "captcha": {
+                    "description": "图形验证码",
                     "type": "string"
                 },
                 "captchaId": {
+                    "description": "图形验证码ID",
                     "type": "string"
                 },
                 "loginType": {
-                    "description": "username, email, phone",
+                    "description": "登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)",
                     "type": "string"
                 },
                 "password": {
+                    "description": "密码登录时必填",
                     "type": "string",
                     "example": "password"
                 },
+                "target": {
+                    "description": "验证码登录时的目标: 邮箱地址/TG用户名/QQ号",
+                    "type": "string"
+                },
                 "userType": {
-                    "description": "admin, user",
+                    "description": "用户类型: admin, user",
                     "type": "string"
                 },
                 "username": {
+                    "description": "用户名登录时必填",
                     "type": "string",
                     "example": "admin"
+                },
+                "verifyCode": {
+                    "description": "验证码登录时的验证码",
+                    "type": "string"
                 }
             }
         },
@@ -9604,6 +9881,31 @@
                 }
             }
         },
+        "auth.SendVerifyCodeRequest": {
+            "type": "object",
+            "required": [
+                "target",
+                "type"
+            ],
+            "properties": {
+                "captcha": {
+                    "description": "图形验证码（可选，根据配置）",
+                    "type": "string"
+                },
+                "captchaId": {
+                    "description": "图形验证码ID（可选，根据配置）",
+                    "type": "string"
+                },
+                "target": {
+                    "description": "目标: 邮箱地址/TG用户名或ID/QQ号",
+                    "type": "string"
+                },
+                "type": {
+                    "description": "验证码类型: email, telegram, qq",
+                    "type": "string"
+                }
+            }
+        },
         "common.Response": {
             "type": "object",
             "properties": {
@@ -9632,6 +9934,10 @@
                     "type": "string"
                 },
                 "enableEmail": {
+                    "type": "boolean"
+                },
+                "enableOAuth2": {
+                    "description": "是否启用OAuth2登录",
                     "type": "boolean"
                 },
                 "enablePublicRegistration": {
@@ -9752,18 +10058,6 @@
                 }
             }
         },
-        "gorm.DeletedAt": {
-            "type": "object",
-            "properties": {
-                "time": {
-                    "type": "string"
-                },
-                "valid": {
-                    "description": "Valid is true if Time is not NULL",
-                    "type": "boolean"
-                }
-            }
-        },
         "log.LogFileInfo": {
             "type": "object",
             "properties": {
@@ -9875,9 +10169,6 @@
             "properties": {
                 "created_at": {
                     "type": "string"
-                },
-                "deleted_at": {
-                    "$ref": "#/definitions/gorm.DeletedAt"
                 },
                 "id": {
                     "type": "integer"
@@ -10141,6 +10432,244 @@
                 }
             }
         },
+        "oauth2.CreateProviderRequest": {
+            "type": "object",
+            "required": [
+                "authUrl",
+                "clientId",
+                "clientSecret",
+                "displayName",
+                "name",
+                "redirectUrl",
+                "tokenUrl",
+                "userInfoUrl"
+            ],
+            "properties": {
+                "authUrl": {
+                    "type": "string"
+                },
+                "avatarField": {
+                    "type": "string"
+                },
+                "clientId": {
+                    "type": "string"
+                },
+                "clientSecret": {
+                    "type": "string"
+                },
+                "defaultLevel": {
+                    "type": "integer"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "emailField": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "levelMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "maxRegistrations": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nicknameField": {
+                    "type": "string"
+                },
+                "redirectUrl": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                },
+                "tokenUrl": {
+                    "type": "string"
+                },
+                "trustLevelField": {
+                    "type": "string"
+                },
+                "userIdField": {
+                    "type": "string"
+                },
+                "userInfoUrl": {
+                    "type": "string"
+                },
+                "usernameField": {
+                    "type": "string"
+                }
+            }
+        },
+        "oauth2.OAuth2Provider": {
+            "type": "object",
+            "properties": {
+                "authUrl": {
+                    "description": "OAuth2授权地址",
+                    "type": "string"
+                },
+                "avatarField": {
+                    "description": "头像字段映射",
+                    "type": "string"
+                },
+                "clientId": {
+                    "description": "OAuth2配置",
+                    "type": "string"
+                },
+                "clientSecret": {
+                    "description": "OAuth2客户端密钥",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "currentRegistrations": {
+                    "description": "当前注册数量",
+                    "type": "integer"
+                },
+                "defaultLevel": {
+                    "description": "默认等级（当没有等级映射或无法提取等级时使用）",
+                    "type": "integer"
+                },
+                "displayName": {
+                    "description": "显示名称",
+                    "type": "string"
+                },
+                "emailField": {
+                    "description": "邮箱字段映射",
+                    "type": "string"
+                },
+                "enabled": {
+                    "description": "是否启用",
+                    "type": "boolean"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "levelMapping": {
+                    "description": "等级映射（JSON字符串，如 {\"0\":1,\"1\":2,\"2\":3}）\n映射外部信任等级到系统用户等级",
+                    "type": "string"
+                },
+                "maxRegistrations": {
+                    "description": "注册限制",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "基础信息",
+                    "type": "string"
+                },
+                "nicknameField": {
+                    "description": "可选字段映射",
+                    "type": "string"
+                },
+                "redirectUrl": {
+                    "description": "OAuth2回调地址",
+                    "type": "string"
+                },
+                "sort": {
+                    "description": "显示顺序",
+                    "type": "integer"
+                },
+                "tokenUrl": {
+                    "description": "OAuth2令牌地址",
+                    "type": "string"
+                },
+                "totalUsers": {
+                    "description": "统计信息",
+                    "type": "integer"
+                },
+                "trustLevelField": {
+                    "description": "信任等级字段映射（可选，如LinuxDo的trust_level）",
+                    "type": "string"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "userIdField": {
+                    "description": "字段映射（支持嵌套字段，如 user.profile.name）",
+                    "type": "string"
+                },
+                "userInfoUrl": {
+                    "description": "OAuth2用户信息地址",
+                    "type": "string"
+                },
+                "usernameField": {
+                    "description": "用户名字段映射",
+                    "type": "string"
+                }
+            }
+        },
+        "oauth2.UpdateProviderRequest": {
+            "type": "object",
+            "properties": {
+                "authUrl": {
+                    "type": "string"
+                },
+                "avatarField": {
+                    "type": "string"
+                },
+                "clientId": {
+                    "type": "string"
+                },
+                "clientSecret": {
+                    "type": "string"
+                },
+                "defaultLevel": {
+                    "type": "integer"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "emailField": {
+                    "type": "string"
+                },
+                "enabled": {
+                    "type": "boolean"
+                },
+                "levelMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "maxRegistrations": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nicknameField": {
+                    "type": "string"
+                },
+                "redirectUrl": {
+                    "type": "string"
+                },
+                "sort": {
+                    "type": "integer"
+                },
+                "tokenUrl": {
+                    "type": "string"
+                },
+                "trustLevelField": {
+                    "type": "string"
+                },
+                "userIdField": {
+                    "type": "string"
+                },
+                "userInfoUrl": {
+                    "type": "string"
+                },
+                "usernameField": {
+                    "type": "string"
+                }
+            }
+        },
         "oneclickvirt_model_config.LevelLimitInfo": {
             "type": "object",
             "properties": {
@@ -10169,6 +10698,18 @@
             "properties": {
                 "cert_path": {
                     "type": "string"
+                },
+                "containerLimitCpu": {
+                    "description": "容器资源限制配置（Provider层面）",
+                    "type": "boolean"
+                },
+                "containerLimitDisk": {
+                    "description": "容器是否限制硬盘大小",
+                    "type": "boolean"
+                },
+                "containerLimitMemory": {
+                    "description": "容器是否限制内存大小",
+                    "type": "boolean"
                 },
                 "container_enabled": {
                     "type": "boolean"
@@ -10206,6 +10747,18 @@
                 },
                 "username": {
                     "type": "string"
+                },
+                "vmLimitCpu": {
+                    "description": "虚拟机资源限制配置（Provider层面）",
+                    "type": "boolean"
+                },
+                "vmLimitDisk": {
+                    "description": "虚拟机是否限制硬盘大小",
+                    "type": "boolean"
+                },
+                "vmLimitMemory": {
+                    "description": "虚拟机是否限制内存大小",
+                    "type": "boolean"
                 },
                 "vm_enabled": {
                     "type": "boolean"

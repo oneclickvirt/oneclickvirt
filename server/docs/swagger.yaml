@@ -377,6 +377,12 @@ definitions:
         type: string
       countryCode:
         type: string
+      defaultInboundBandwidth:
+        description: 带宽配置
+        type: integer
+      defaultOutboundBandwidth:
+        description: 默认出站带宽限制（Mbps）
+        type: integer
       defaultPortCount:
         description: 端口映射配置
         type: integer
@@ -400,6 +406,15 @@ definitions:
         type: integer
       maxContainerInstances:
         description: 最大容器数量限制
+        type: integer
+      maxInboundBandwidth:
+        description: 最大入站带宽限制（Mbps）
+        type: integer
+      maxOutboundBandwidth:
+        description: 最大出站带宽限制（Mbps）
+        type: integer
+      maxTraffic:
+        description: 流量管理
         type: integer
       maxVMInstances:
         description: 最大虚拟机数量限制
@@ -426,6 +441,12 @@ definitions:
         type: integer
       region:
         type: string
+      sshConnectTimeout:
+        description: SSH连接配置
+        type: integer
+      sshExecuteTimeout:
+        description: SSH命令执行超时时间（秒），默认300秒
+        type: integer
       sshPort:
         type: integer
       status:
@@ -601,6 +622,53 @@ definitions:
       totalTasks:
         type: integer
     type: object
+  admin.TestSSHConnectionRequest:
+    properties:
+      host:
+        description: SSH服务器地址
+        type: string
+      password:
+        description: SSH密码
+        type: string
+      port:
+        description: SSH端口
+        type: integer
+      testCount:
+        description: 测试次数，默认3次
+        type: integer
+      username:
+        description: SSH用户名
+        type: string
+    required:
+    - host
+    - password
+    - port
+    - username
+    type: object
+  admin.TestSSHConnectionResponse:
+    properties:
+      avgLatency:
+        description: 平均延迟（毫秒）
+        type: integer
+      errorMessage:
+        description: 错误信息（如果失败）
+        type: string
+      maxLatency:
+        description: 最大延迟（毫秒）
+        type: integer
+      minLatency:
+        description: 最小延迟（毫秒）
+        type: integer
+      recommendedTimeout:
+        description: 推荐的超时时间（秒），最大延迟*2
+        type: integer
+      success:
+        description: 测试是否成功
+        type: boolean
+      testCount:
+        description: 测试次数
+        type: integer
+    type: object
   admin.UpdateAnnouncementRequest:
     properties:
       content:
@@ -633,7 +701,19 @@ definitions:
         maximum: 5
         minimum: 1
         type: integer
-      minLevelForDelete:
+      minLevelForDeleteContainer:
+        maximum: 5
+        minimum: 1
+        type: integer
+      minLevelForDeleteVM:
+        maximum: 5
+        minimum: 1
+        type: integer
+      minLevelForResetContainer:
+        maximum: 5
+        minimum: 1
+        type: integer
+      minLevelForResetVM:
         maximum: 5
         minimum: 1
         type: integer
@@ -714,24 +794,31 @@ definitions:
   auth.LoginRequest:
     properties:
       captcha:
+        description: 图形验证码
         type: string
       captchaId:
+        description: 图形验证码ID
         type: string
       loginType:
-        description: username, email, phone
+        description: '登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)'
         type: string
       password:
+        description: 密码登录时必填
         example: password
         type: string
+      target:
+        description: '验证码登录时的目标: 邮箱地址/TG用户名/QQ号'
+        type: string
       userType:
-        description: admin, user
+        description: '用户类型: admin, user'
         type: string
       username:
+        description: 用户名登录时必填
         example: admin
         type: string
-    required:
-    - password
-    - username
+      verifyCode:
+        description: 验证码登录时的验证码
+        type: string
     type: object
   auth.RegisterRequest:
     properties:
@@ -772,6 +859,24 @@ definitions:
     required:
     - token
     type: object
+  auth.SendVerifyCodeRequest:
+    properties:
+      captcha:
+        description: 图形验证码（可选，根据配置）
+        type: string
+      captchaId:
+        description: 图形验证码ID（可选，根据配置）
+        type: string
+      target:
+        description: '目标: 邮箱地址/TG用户名或ID/QQ号'
+        type: string
+      type:
+        description: '验证码类型: email, telegram, qq'
+        type: string
+    required:
+    - target
+    - type
+    type: object
   common.Response:
     properties:
       code:
@@ -791,6 +896,9 @@ definitions:
       emailUsername:
         type: string
       enableEmail:
+        type: boolean
+      enableOAuth2:
+        description: 是否启用OAuth2登录
         type: boolean
       enablePublicRegistration:
         description: 是否启用公开注册（无需邀请码）
@@ -872,14 +980,6 @@ definitions:
       upload_dir:
         type: string
     type: object
-  gorm.DeletedAt:
-    properties:
-      time:
-        type: string
-      valid:
-        description: Valid is true if Time is not NULL
-        type: boolean
-    type: object
   log.LogFileInfo:
     properties:
       date:
@@ -954,8 +1054,6 @@ definitions:
     properties:
       created_at:
         type: string
-      deleted_at:
-        $ref: '#/definitions/gorm.DeletedAt'
       id:
         type: integer
       instance_id:
@@ -1127,6 +1225,175 @@ definitions:
       tx:
         type: integer
     type: object
+  oauth2.CreateProviderRequest:
+    properties:
+      authUrl:
+        type: string
+      avatarField:
+        type: string
+      clientId:
+        type: string
+      clientSecret:
+        type: string
+      defaultLevel:
+        type: integer
+      displayName:
+        type: string
+      emailField:
+        type: string
+      enabled:
+        type: boolean
+      levelMapping:
+        additionalProperties:
+          type: integer
+        type: object
+      maxRegistrations:
+        type: integer
+      name:
+        type: string
+      nicknameField:
+        type: string
+      redirectUrl:
+        type: string
+      sort:
+        type: integer
+      tokenUrl:
+        type: string
+      trustLevelField:
+        type: string
+      userIdField:
+        type: string
+      userInfoUrl:
+        type: string
+      usernameField:
+        type: string
+    required:
+    - authUrl
+    - clientId
+    - clientSecret
+    - displayName
+    - name
+    - redirectUrl
+    - tokenUrl
+    - userInfoUrl
+    type: object
+  oauth2.OAuth2Provider:
+    properties:
+      authUrl:
+        description: OAuth2授权地址
+        type: string
+      avatarField:
+        description: 头像字段映射
+        type: string
+      clientId:
+        description: OAuth2配置
+        type: string
+      clientSecret:
+        description: OAuth2客户端密钥
+        type: string
+      createdAt:
+        type: string
+      currentRegistrations:
+        description: 当前注册数量
+        type: integer
+      defaultLevel:
+        description: 默认等级（当没有等级映射或无法提取等级时使用）
+        type: integer
+      displayName:
+        description: 显示名称
+        type: string
+      emailField:
+        description: 邮箱字段映射
+        type: string
+      enabled:
+        description: 是否启用
+        type: boolean
+      id:
+        type: integer
+      levelMapping:
+        description: |-
+          等级映射（JSON字符串，如 {"0":1,"1":2,"2":3}）
+          映射外部信任等级到系统用户等级
+        type: string
+      maxRegistrations:
+        description: 注册限制
+        type: integer
+      name:
+        description: 基础信息
+        type: string
+      nicknameField:
+        description: 可选字段映射
+        type: string
+      redirectUrl:
+        description: OAuth2回调地址
+        type: string
+      sort:
+        description: 显示顺序
+        type: integer
+      tokenUrl:
+        description: OAuth2令牌地址
+        type: string
+      totalUsers:
+        description: 统计信息
+        type: integer
+      trustLevelField:
+        description: 信任等级字段映射（可选，如LinuxDo的trust_level）
+        type: string
+      updatedAt:
+        type: string
+      userIdField:
+        description: 字段映射（支持嵌套字段，如 user.profile.name）
+        type: string
+      userInfoUrl:
+        description: OAuth2用户信息地址
+        type: string
+      usernameField:
+        description: 用户名字段映射
+        type: string
+    type: object
+  oauth2.UpdateProviderRequest:
+    properties:
+      authUrl:
+        type: string
+      avatarField:
+        type: string
+      clientId:
+        type: string
+      clientSecret:
+        type: string
+      defaultLevel:
+        type: integer
+      displayName:
+        type: string
+      emailField:
+        type: string
+      enabled:
+        type: boolean
+      levelMapping:
+        additionalProperties:
+          type: integer
+        type: object
+      maxRegistrations:
+        type: integer
+      name:
+        type: string
+      nicknameField:
+        type: string
+      redirectUrl:
+        type: string
+      sort:
+        type: integer
+      tokenUrl:
+        type: string
+      trustLevelField:
+        type: string
+      userIdField:
+        type: string
+      userInfoUrl:
+        type: string
+      usernameField:
+        type: string
+    type: object
   oneclickvirt_model_config.LevelLimitInfo:
     properties:
       maxInstances:
@@ -1143,6 +1410,15 @@ definitions:
       cert_path:
         type: string
       container_enabled:
+        type: boolean
+      containerLimitCpu:
+        description: 容器资源限制配置（Provider层面）
+        type: boolean
+      containerLimitDisk:
+        description: 容器是否限制硬盘大小
+        type: boolean
+      containerLimitMemory:
+        description: 容器是否限制内存大小
         type: boolean
       host:
         type: string
@@ -1169,6 +1445,15 @@ definitions:
       username:
         type: string
       vm_enabled:
+        type: boolean
+      vmLimitCpu:
+        description: 虚拟机资源限制配置（Provider层面）
+        type: boolean
+      vmLimitDisk:
+        description: 虚拟机是否限制硬盘大小
+        type: boolean
+      vmLimitMemory:
+        description: 虚拟机是否限制内存大小
         type: boolean
     required:
     - host
@@ -3459,6 +3744,43 @@ paths:
       summary: 导出所有Provider配置
       tags:
       - 管理员管理
+  /admin/providers/test-ssh-connection:
+    post:
+      consumes:
+      - application/json
+      description: 测试SSH连接延迟，执行多次测试并返回最小、最大、平均延迟及推荐超时时间
+      parameters:
+      - description: 测试SSH连接请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.TestSSHConnectionRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 测试成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/admin.TestSSHConnectionResponse'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 测试失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 测试SSH连接延迟
+      tags:
+      - 提供商管理
   /admin/system-images:
     get:
       consumes:
@@ -4382,97 +4704,6 @@ paths:
       summary: 管理员批量更新用户状态
       tags:
       - 管理员管理
-  /api/{id}:
-    delete:
-      consumes:
-      - application/json
-      description: 删除API接口记录
-      parameters:
-      - description: API ID
-        in: path
-        name: id
-        required: true
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 删除成功
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 删除API接口
-      tags:
-      - API管理
-    put:
-      consumes:
-      - application/json
-      description: 更新API接口信息
-      parameters:
-      - description: API ID
-        in: path
-        name: id
-        required: true
-        type: string
-      - description: 更新API请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          type: object
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 更新成功
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 更新API接口
-      tags:
-      - API管理
-  /api/create:
-    post:
-      consumes:
-      - application/json
-      description: 创建新的API接口记录
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 创建成功
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 创建API接口
-      tags:
-      - API管理
-  /api/list:
-    get:
-      consumes:
-      - application/json
-      description: 获取系统的API接口列表
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  additionalProperties: true
-                  type: object
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取API列表
-      tags:
-      - API管理
   /api/v1/admin/logs/cleanup:
     post:
       consumes:
@@ -4935,52 +5166,6 @@ paths:
       summary: 获取原始vnStat数据
       tags:
       - 用户流量
-  /apis/routes:
-    get:
-      consumes:
-      - application/json
-      description: 获取当前系统的所有路由信息
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items: {}
-                  type: array
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取路由信息
-      tags:
-      - API管理
-  /apis/sync:
-    post:
-      consumes:
-      - application/json
-      description: 从路由中自动发现并同步API接口到数据库
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 同步成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  additionalProperties: true
-                  type: object
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 同步API接口
-      tags:
-      - API管理
   /auth/captcha:
     get:
       consumes:
@@ -5106,6 +5291,62 @@ paths:
       summary: 用户登出
       tags:
       - 认证管理
+  /auth/oauth2/callback:
+    get:
+      consumes:
+      - application/json
+      description: 处理OAuth2提供商的回调
+      parameters:
+      - description: 授权码
+        in: query
+        name: code
+        required: true
+        type: string
+      - description: 状态令牌
+        in: query
+        name: state
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties: true
+                  type: object
+              type: object
+      summary: OAuth2回调
+      tags:
+      - 认证
+  /auth/oauth2/login:
+    get:
+      consumes:
+      - application/json
+      description: 跳转到OAuth2提供商的授权页面
+      parameters:
+      - description: 提供商名称（如linuxdo）
+        in: query
+        name: provider
+        type: string
+      - description: 提供商ID
+        in: query
+        name: provider_id
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "302":
+          description: 重定向到OAuth2授权页面
+          schema:
+            type: string
+      summary: OAuth2登录
+      tags:
+      - 认证
   /auth/register:
     post:
       consumes:
@@ -5165,6 +5406,36 @@ paths:
           schema:
             $ref: '#/definitions/common.Response'
       summary: 重置密码
+      tags:
+      - 认证管理
+  /auth/send-verify-code:
+    post:
+      consumes:
+      - application/json
+      description: 向指定的邮箱/Telegram/QQ发送登录验证码
+      parameters:
+      - description: 发送验证码请求参数
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.SendVerifyCodeRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 验证码发送成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 发送验证码
       tags:
       - 认证管理
   /config:
@@ -5294,29 +5565,159 @@ paths:
       summary: 系统健康检查
       tags:
       - Health
-  /permission/list:
+  /oauth2/providers:
     get:
       consumes:
       - application/json
-      description: 获取系统的权限列表
+      description: 获取所有OAuth2提供商（包括禁用的）
       produces:
       - application/json
       responses:
         "200":
-          description: 获取成功
+          description: OK
           schema:
             allOf:
             - $ref: '#/definitions/common.Response'
             - properties:
                 data:
-                  additionalProperties: true
-                  type: object
+                  items:
+                    $ref: '#/definitions/oauth2.OAuth2Provider'
+                  type: array
               type: object
       security:
       - BearerAuth: []
-      summary: 获取权限列表
+      summary: 获取OAuth2提供商列表
       tags:
-      - 权限管理
+      - OAuth2
+    post:
+      consumes:
+      - application/json
+      description: 创建新的OAuth2提供商配置
+      parameters:
+      - description: 提供商配置
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/oauth2.CreateProviderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/oauth2.OAuth2Provider'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 创建OAuth2提供商
+      tags:
+      - OAuth2
+  /oauth2/providers/{id}:
+    delete:
+      consumes:
+      - application/json
+      description: 删除OAuth2提供商（如有用户使用则无法删除）
+      parameters:
+      - description: 提供商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除OAuth2提供商
+      tags:
+      - OAuth2
+    get:
+      consumes:
+      - application/json
+      description: 获取指定OAuth2提供商的详细信息
+      parameters:
+      - description: 提供商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/oauth2.OAuth2Provider'
+              type: object
+      security:
+      - BearerAuth: []
+      summary: 获取OAuth2提供商详情
+      tags:
+      - OAuth2
+    put:
+      consumes:
+      - application/json
+      description: 更新OAuth2提供商配置
+      parameters:
+      - description: 提供商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 更新内容
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/oauth2.UpdateProviderRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 更新OAuth2提供商
+      tags:
+      - OAuth2
+  /oauth2/providers/{id}/reset-count:
+    post:
+      consumes:
+      - application/json
+      description: 重置OAuth2提供商的注册计数
+      parameters:
+      - description: 提供商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 重置注册计数
+      tags:
+      - OAuth2
   /provider/:
     get:
       consumes:
@@ -5341,22 +5742,17 @@ paths:
       summary: 获取所有Provider
       tags:
       - 虚拟化管理
-  /provider/{type}/capabilities:
+  /provider/{id}/capabilities:
     get:
       consumes:
       - application/json
-      description: 获取指定类型虚拟化提供者支持的功能和实例类型
+      description: 获取指定Provider支持的功能和实例类型
       parameters:
-      - description: Provider类型
-        enum:
-        - docker
-        - lxd
-        - incus
-        - proxmox
+      - description: Provider ID
         in: path
-        name: type
+        name: id
         required: true
-        type: string
+        type: integer
       produces:
       - application/json
       responses:
@@ -5378,22 +5774,17 @@ paths:
       summary: 获取Provider能力
       tags:
       - 虚拟化管理
-  /provider/{type}/instances:
+  /provider/{id}/instances:
     get:
       consumes:
       - application/json
       description: 获取指定Provider下的所有实例
       parameters:
-      - description: Provider类型
-        enum:
-        - docker
-        - lxd
-        - incus
-        - proxmox
+      - description: Provider ID
         in: path
-        name: type
+        name: id
         required: true
-        type: string
+        type: integer
       produces:
       - application/json
       responses:
@@ -5471,22 +5862,17 @@ paths:
       summary: 创建实例
       tags:
       - 虚拟化管理
-  /provider/{type}/status:
+  /provider/{id}/status:
     get:
       consumes:
       - application/json
-      description: 获取指定类型虚拟化提供者的连接状态和支持的实例类型
+      description: 获取指定Provider的连接状态和支持的实例类型
       parameters:
-      - description: Provider类型
-        enum:
-        - docker
-        - lxd
-        - incus
-        - proxmox
+      - description: Provider ID
         in: path
-        name: type
+        name: id
         required: true
-        type: string
+        type: integer
       produces:
       - application/json
       responses:
@@ -5590,6 +5976,29 @@ paths:
       summary: 检查系统初始化状态
       tags:
       - 系统初始化
+  /public/oauth2/providers:
+    get:
+      consumes:
+      - application/json
+      description: 获取所有启用的OAuth2提供商（公开接口）
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    additionalProperties: true
+                    type: object
+                  type: array
+              type: object
+      summary: 获取启用的OAuth2提供商
+      tags:
+      - OAuth2
   /public/recommended-db-type:
     get:
       consumes:
@@ -6903,29 +7312,6 @@ paths:
       security:
       - BearerAuth: []
       summary: 申领资源
-      tags:
-      - 用户管理
-  /user/roles:
-    get:
-      consumes:
-      - application/json
-      description: 获取用户的角色列表
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  items: {}
-                  type: array
-              type: object
-      security:
-      - BearerAuth: []
-      summary: 获取用户角色列表
       tags:
       - 用户管理
   /user/tasks:

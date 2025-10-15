@@ -20,7 +20,7 @@ type InviteCode struct {
 	Status      int            `json:"status" gorm:"not null;default:1;index"`   // 状态：0-禁用 1-启用
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
-	DeletedAt   gorm.DeletedAt `json:"deletedAt" gorm:"index"`
+	DeletedAt   gorm.DeletedAt `json:"deletedAt" gorm:"index" swaggerignore:"true"`
 }
 
 func (InviteCode) TableName() string {

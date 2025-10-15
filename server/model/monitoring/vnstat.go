@@ -32,7 +32,7 @@ type VnStatTrafficRecord struct {
 	RecordTime time.Time      `json:"record_time"` // 记录时间
 	CreatedAt  time.Time      `json:"created_at"`
 	UpdatedAt  time.Time      `json:"updated_at"`
-	DeletedAt  gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	DeletedAt  gorm.DeletedAt `json:"deleted_at" gorm:"index" swaggerignore:"true"`
 }
 
 // TableName 指定表名
@@ -51,7 +51,7 @@ type VnStatInterface struct {
 
 	CreatedAt time.Time      `json:"created_at"`
 	UpdatedAt time.Time      `json:"updated_at"`
-	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index"`
+	DeletedAt gorm.DeletedAt `json:"deleted_at" gorm:"index" swaggerignore:"true"`
 }
 
 // TableName 指定表名
