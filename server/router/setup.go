@@ -77,6 +77,9 @@ func SetupRouter() *gin.Engine {
 		InitProviderRouter(ApiGroup)
 	}
 
+	// 设置静态文件路由（如果启用了嵌入模式）
+	setupStaticRoutes(Router)
+
 	return Router
 }
 

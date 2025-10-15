@@ -8,9 +8,23 @@
 
 ## 快速部署
 
-### 方式一：使用预构建镜像
+### 方式一：使用预构建镜像（推荐）
 
-使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本：
+使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本。
+
+**镜像标签说明：**
+
+| 镜像标签 | 说明 | 适用场景 |
+|---------|------|---------|
+| `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
+| `spiritlhl/oneclickvirt:20251015` | 一体化版本特定日期版本 | 需要固定版本 |
+| `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
+| `spiritlhl/oneclickvirt:no-db-20251015` | 独立数据库版本特定日期 | 不内置数据库 |
+
+所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
+
+<details>
+<summary>展开查看一体化版本（内置数据库）</summary>
 
 **基础使用（不配置域名）：**
 
@@ -39,8 +53,6 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
-> **说明**：`FRONTEND_URL` 用于配置前端访问地址，影响 CORS、OAuth2 回调等功能。系统会自动检测 HTTP/HTTPS 协议并调整相应配置，协议头可以是http或https。
-
 或者使用 GitHub Container Registry：
 
 ```bash
@@ -54,20 +66,53 @@ docker run -d \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
 
+</details>
+
+<details>
+<summary>展开查看独立数据库版本</summary>
+
+使用外部数据库，镜像更小，启动更快：
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -e DB_HOST="your-mysql-host" \
+  -e DB_PORT="3306" \
+  -e DB_NAME="oneclickvirt" \
+  -e DB_USER="root" \
+  -e DB_PASSWORD="your-password" \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:no-db
+```
+
+**环境变量说明：**
+- `FRONTEND_URL`: 前端访问地址（必填，支持 http/https）
+- `DB_HOST`: 数据库主机地址
+- `DB_PORT`: 数据库端口（默认 3306）
+- `DB_NAME`: 数据库名称
+- `DB_USER`: 数据库用户名
+- `DB_PASSWORD`: 数据库密码
+
+</details>
+
+> **说明**：`FRONTEND_URL` 用于配置前端访问地址，影响 CORS、OAuth2 回调等功能。系统会自动检测 HTTP/HTTPS 协议并调整相应配置，协议头可以是http或https。
+
 ### 方式二：自己编译打包
 
+<details>
+<summary>展开查看编译步骤</summary>
+
 如果需要修改源码或自定义构建：
+
+**一体化版本（内置数据库）：**
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
-```
-
-```bash
 docker build -t oneclickvirt .
-```
-
-```bash
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
@@ -77,7 +122,32 @@ docker run -d \
   oneclickvirt
 ```
 
+**独立数据库版本：**
+
+```bash
+git clone https://github.com/oneclickvirt/oneclickvirt.git
+cd oneclickvirt
+docker build -f Dockerfile.no-db -t oneclickvirt:no-db .
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -e DB_HOST="your-mysql-host" \
+  -e DB_PORT="3306" \
+  -e DB_NAME="oneclickvirt" \
+  -e DB_USER="root" \
+  -e DB_PASSWORD="your-password" \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  oneclickvirt:no-db
+```
+
+</details>
+
 ### 方式三：手动开发部署
+
+<details>
+<summary>展开查看开发部署步骤</summary>
 
 #### 环境要求
 
@@ -115,6 +185,8 @@ go run main.go
 * 前端：[http://localhost:8080](http://localhost:8080)
 * 后端 API：[http://localhost:8888](http://localhost:8888)
 * API 文档：[http://localhost:8888/swagger/index.html](http://localhost:8888/swagger/index.html)
+
+</details>
 
 ## 默认账户
 

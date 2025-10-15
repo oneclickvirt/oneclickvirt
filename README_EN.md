@@ -8,9 +8,23 @@ An extensible universal virtualization management platform that supports LXD, In
 
 ## Quick Deployment
 
-### Method 1: Using Pre-built Images
+### Method 1: Using Pre-built Images (Recommended)
 
-Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture:
+Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture.
+
+**Image Tags:**
+
+| Image Tag | Description | Use Case |
+|-----------|-------------|----------|
+| `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
+| `spiritlhl/oneclickvirt:20251015` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
+| `spiritlhl/oneclickvirt:no-db-20251015` | Standalone database version with date | Without database |
+
+All images support both `linux/amd64` and `linux/arm64` architectures.
+
+<details>
+<summary>View All-in-One Version (Built-in Database)</summary>
 
 **Basic Usage (without domain configuration):**
 
@@ -39,8 +53,6 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
-> **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
-
 Or using GitHub Container Registry:
 
 ```bash
@@ -54,20 +66,53 @@ docker run -d \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
 
+</details>
+
+<details>
+<summary>View Standalone Database Version</summary>
+
+Use external database for smaller image size and faster startup:
+
+```bash
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -e DB_HOST="your-mysql-host" \
+  -e DB_PORT="3306" \
+  -e DB_NAME="oneclickvirt" \
+  -e DB_USER="root" \
+  -e DB_PASSWORD="your-password" \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  spiritlhl/oneclickvirt:no-db
+```
+
+**Environment Variables:**
+- `FRONTEND_URL`: Frontend access URL (required, supports http/https)
+- `DB_HOST`: Database host address
+- `DB_PORT`: Database port (default 3306)
+- `DB_NAME`: Database name
+- `DB_USER`: Database username
+- `DB_PASSWORD`: Database password
+
+</details>
+
+> **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
+
 ### Method 2: Build from Source
 
+<details>
+<summary>View Build Instructions</summary>
+
 If you need to modify the source code or build custom images:
+
+**All-in-One Version (Built-in Database):**
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
 cd oneclickvirt
-```
-
-```bash
 docker build -t oneclickvirt .
-```
-
-```bash
 docker run -d \
   --name oneclickvirt \
   -p 80:80 \
@@ -77,7 +122,32 @@ docker run -d \
   oneclickvirt
 ```
 
+**Standalone Database Version:**
+
+```bash
+git clone https://github.com/oneclickvirt/oneclickvirt.git
+cd oneclickvirt
+docker build -f Dockerfile.no-db -t oneclickvirt:no-db .
+docker run -d \
+  --name oneclickvirt \
+  -p 80:80 \
+  -e FRONTEND_URL="https://your-domain.com" \
+  -e DB_HOST="your-mysql-host" \
+  -e DB_PORT="3306" \
+  -e DB_NAME="oneclickvirt" \
+  -e DB_USER="root" \
+  -e DB_PASSWORD="your-password" \
+  -v oneclickvirt-storage:/app/storage \
+  --restart unless-stopped \
+  oneclickvirt:no-db
+```
+
+</details>
+
 ## Development and Testing
+
+<details>
+<summary>View Development Setup</summary>
 
 ### Environment Requirements
 
@@ -114,6 +184,8 @@ go run main.go
 * Frontend: [http://localhost:8080](http://localhost:8080)
 * Backend API: [http://localhost:8888](http://localhost:8888)
 * API Documentation: [http://localhost:8888/swagger/index.html](http://localhost:8888/swagger/index.html)
+
+</details>
 
 ## Default Accounts
 

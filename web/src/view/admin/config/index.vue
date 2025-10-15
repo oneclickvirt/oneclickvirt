@@ -589,11 +589,11 @@ const config = ref({
   quota: {
     defaultLevel: 1,
     levelLimits: {
-      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 10 }, maxTraffic: 1024 },    // 10GB = 10240MB, 流量1GB
-      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 20 }, maxTraffic: 2048 },   // 20GB = 20480MB, 流量2GB  
-      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 50 }, maxTraffic: 4096 },   // 40GB = 40960MB, 流量4GB
-      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 100 }, maxTraffic: 8192 },  // 80GB = 81920MB, 流量8GB
-      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 200 }, maxTraffic: 16384 } // 160GB = 163840MB, 流量16GB
+      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 1024, bandwidth: 100 }, maxTraffic: 102400 },    // 磁盘1GB, 流量100MB
+      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 2048, bandwidth: 200 }, maxTraffic: 204800 },   // 磁盘2GB, 流量200MB  
+      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 4096, bandwidth: 500 }, maxTraffic: 409600 },   // 磁盘4GB, 流量400MB
+      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 819200 },  // 磁盘8GB, 流量800MB
+      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 1638400 } // 磁盘16GB, 流量1600MB
     }
   },
   inviteCode: {

@@ -26,7 +26,22 @@ jobs:
       id: date
       run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
 
-    - name: Build Go server binaries
+    - name: Create build directory
+      run: |
+        mkdir -p build
+        ls -la
+
+    - name: Build Vue web application
+      run: |
+        cd web
+        rm -rf node_modules package-lock.json
+        npm install --no-optional
+        npm install @rollup/rollup-linux-x64-gnu --save-dev
+        npm run build
+        cd dist
+        zip -r ../../build/web-dist.zip .
+
+    - name: Build Go server binaries (Standalone - without embedded frontend)
       working-directory: ./server
       run: |
         ls
@@ -48,29 +63,52 @@ jobs:
         # Windows ARM64
         GOOS=windows GOARCH=arm64 go build -ldflags="$LDFLAGS" -o ../build/server-windows-arm64.exe .
 
-    - name: Build Vue web application
+    - name: Prepare embedded frontend
       run: |
-        cd web
-        rm -rf node_modules package-lock.json
-        npm install --no-optional
-        npm install @rollup/rollup-linux-x64-gnu --save-dev
-        npm run build
-        cd dist
-        zip -r ../../build/web-dist.zip .
+        # Copy built web files to server/router/dist for embedding
+        mkdir -p server/router/dist
+        cp -r web/dist/* server/router/dist/
+        ls -la server/router/dist/
+
+    - name: Build Go server binaries (All-in-one - with embedded frontend)
+      working-directory: ./server
+      run: |
+        export GO111MODULE=on
+        export CGO_ENABLED=0
+        export LDFLAGS="-s -w -extldflags '-static'"
         
-    - name: Create build directory
-      run: |
-        mkdir -p build
-        ls -la build/
+        # Linux AMD64 (with embedded frontend)
+        GOOS=linux GOARCH=amd64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-linux-amd64 .
+        
+        # Linux ARM64 (with embedded frontend)
+        GOOS=linux GOARCH=arm64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-linux-arm64 .
+        
+        # Windows AMD64 (with embedded frontend)
+        GOOS=windows GOARCH=amd64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-windows-amd64.exe .
+        
+        # Windows ARM64 (with embedded frontend)
+        GOOS=windows GOARCH=arm64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-windows-arm64.exe .
 
     - name: Compress binaries
       run: |
         cd build
+        # Compress standalone binaries
         tar -czf server-linux-amd64.tar.gz server-linux-amd64
         tar -czf server-linux-arm64.tar.gz server-linux-arm64
         zip server-windows-amd64.zip server-windows-amd64.exe
         zip server-windows-arm64.zip server-windows-arm64.exe
+        
+        # Compress all-in-one binaries
+        tar -czf server-allinone-linux-amd64.tar.gz server-allinone-linux-amd64
+        tar -czf server-allinone-linux-arm64.tar.gz server-allinone-linux-arm64
+        zip server-allinone-windows-amd64.zip server-allinone-windows-amd64.exe
+        zip server-allinone-windows-arm64.zip server-allinone-windows-arm64.exe
+        
+        # Remove uncompressed binaries
         rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe
+        rm server-allinone-linux-amd64 server-allinone-linux-arm64 server-allinone-windows-amd64.exe server-allinone-windows-arm64.exe
+        
+        ls -lh
 
     - name: Update install script with new tag
       run: |
@@ -96,11 +134,18 @@ jobs:
         TAG_NAME="v${{ steps.date.outputs.date }}"
         RELEASE_BODY="## 自动构建发布 - ${{ steps.date.outputs.date }}
         
+        ### 独立部署版本（需要分别部署前后端）
         - server-linux-amd64.tar.gz - 后端 Linux AMD64 版本
         - server-linux-arm64.tar.gz - 后端 Linux ARM64 版本  
         - server-windows-amd64.zip - 后端 Windows AMD64 版本
         - server-windows-arm64.zip - 后端 Windows ARM64 版本
-        - web-dist.zip - 前端静态文件"
+        - web-dist.zip - 前端静态文件
+        
+        ### 一体化部署版本（前端已内嵌，单二进制文件部署）
+        - server-allinone-linux-amd64.tar.gz - 一体化 Linux AMD64 版本
+        - server-allinone-linux-arm64.tar.gz - 一体化 Linux ARM64 版本
+        - server-allinone-windows-amd64.zip - 一体化 Windows AMD64 版本
+        - server-allinone-windows-arm64.zip - 一体化 Windows ARM64 版本"
         
         # Create release using GitHub CLI
         gh release create "$TAG_NAME" \
@@ -110,4 +155,8 @@ jobs:
           ./build/server-linux-arm64.tar.gz \
           ./build/server-windows-amd64.zip \
           ./build/server-windows-arm64.zip \
+          ./build/server-allinone-linux-amd64.tar.gz \
+          ./build/server-allinone-linux-arm64.tar.gz \
+          ./build/server-allinone-windows-amd64.zip \
+          ./build/server-allinone-windows-arm64.zip \
           ./build/web-dist.zip

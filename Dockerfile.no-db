@@ -1,0 +1,148 @@
+# OneClickVirt Container (Without Database)
+
+FROM node:22-slim AS frontend-builder
+WORKDIR /app/web
+COPY web/package*.json ./
+RUN rm -f package-lock.json && npm install
+COPY web/ ./
+RUN npm run build
+
+
+FROM golang:1.24-alpine AS backend-builder
+ARG TARGETARCH
+WORKDIR /app/server
+RUN apk add --no-cache git ca-certificates
+COPY server/ ./
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -installsuffix cgo -ldflags "-w -s" -o main .
+
+FROM debian:12-slim
+ARG TARGETARCH
+
+# Install only nginx and supervisor (no database)
+RUN apt-get update && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        procps nginx supervisor && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV TZ=Asia/Shanghai
+WORKDIR /app
+RUN mkdir -p /var/log/supervisor \
+    && mkdir -p /app/storage/{cache,certs,configs,exports,logs,temp,uploads}
+
+COPY --from=backend-builder /app/server/main ./main
+COPY --from=backend-builder /app/server/config.yaml ./config.yaml
+COPY --from=frontend-builder /app/web/dist /var/www/html
+
+RUN chown -R www-data:www-data /var/www/html && \
+    chmod -R 755 /var/www/html && \
+    chmod 755 /app/main && \
+    chmod 666 /app/config.yaml && \
+    chmod 750 /app/storage && \
+    chmod -R 750 /app/storage/*
+
+# Configure nginx
+RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
+    echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
+    echo 'error_log /var/log/nginx/error.log;' >> /etc/nginx/nginx.conf && \
+    echo 'pid /run/nginx.pid;' >> /etc/nginx/nginx.conf && \
+    echo 'events { worker_connections 1024; }' >> /etc/nginx/nginx.conf && \
+    echo 'http {' >> /etc/nginx/nginx.conf && \
+    echo '    include /etc/nginx/mime.types;' >> /etc/nginx/nginx.conf && \
+    echo '    default_type application/octet-stream;' >> /etc/nginx/nginx.conf && \
+    echo '    sendfile on;' >> /etc/nginx/nginx.conf && \
+    echo '    keepalive_timeout 65;' >> /etc/nginx/nginx.conf && \
+    echo '    gzip on;' >> /etc/nginx/nginx.conf && \
+    echo '    server {' >> /etc/nginx/nginx.conf && \
+    echo '        listen 80;' >> /etc/nginx/nginx.conf && \
+    echo '        server_name localhost;' >> /etc/nginx/nginx.conf && \
+    echo '        root /var/www/html;' >> /etc/nginx/nginx.conf && \
+    echo '        index index.html;' >> /etc/nginx/nginx.conf && \
+    echo '        client_max_body_size 10M;' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location /api/ {' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location /swagger/ {' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '        ' >> /etc/nginx/nginx.conf && \
+    echo '        location / {' >> /etc/nginx/nginx.conf && \
+    echo '            try_files $uri $uri/ /index.html;' >> /etc/nginx/nginx.conf && \
+    echo '        }' >> /etc/nginx/nginx.conf && \
+    echo '    }' >> /etc/nginx/nginx.conf && \
+    echo '}' >> /etc/nginx/nginx.conf
+
+# Create base supervisor directory
+RUN mkdir -p /etc/supervisor/conf.d
+
+# Create startup script without database initialization
+RUN echo '#!/bin/bash' > /start.sh && \
+    echo 'set -e' >> /start.sh && \
+    echo 'echo "Starting OneClickVirt (No Database)..."' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Update config.yaml with FRONTEND_URL if provided' >> /start.sh && \
+    echo 'if [ ! -z "$FRONTEND_URL" ]; then' >> /start.sh && \
+    echo '    echo "Configuring frontend-url: $FRONTEND_URL"' >> /start.sh && \
+    echo '    sed -i "s|frontend-url:.*|frontend-url: \"$FRONTEND_URL\"|g" /app/config.yaml' >> /start.sh && \
+    echo '    ' >> /start.sh && \
+    echo '    # Detect if URL is HTTPS and update nginx config accordingly' >> /start.sh && \
+    echo '    if echo "$FRONTEND_URL" | grep -q "^https://"; then' >> /start.sh && \
+    echo '        echo "Detected HTTPS frontend, updating nginx proxy headers..."' >> /start.sh && \
+    echo '        sed -i "/proxy_set_header X-Forwarded-For/a\            proxy_set_header X-Forwarded-Proto https;" /etc/nginx/nginx.conf' >> /start.sh && \
+    echo '        sed -i "/proxy_set_header X-Forwarded-For/a\            proxy_set_header X-Forwarded-Ssl on;" /etc/nginx/nginx.conf' >> /start.sh && \
+    echo '    else' >> /start.sh && \
+    echo '        echo "Detected HTTP frontend, using default nginx config"' >> /start.sh && \
+    echo '    fi' >> /start.sh && \
+    echo 'fi' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '# Create supervisor configuration without database' >> /start.sh && \
+    echo 'echo "Creating supervisor configuration..."' >> /start.sh && \
+    echo 'cat > /etc/supervisor/conf.d/supervisord.conf <<SUPEREND' >> /start.sh && \
+    echo '[supervisord]' >> /start.sh && \
+    echo 'nodaemon=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[program:app]' >> /start.sh && \
+    echo 'command=/app/main' >> /start.sh && \
+    echo 'directory=/app' >> /start.sh && \
+    echo 'autostart=true' >> /start.sh && \
+    echo 'autorestart=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo 'priority=1' >> /start.sh && \
+    echo 'stdout_logfile=/var/log/supervisor/app.log' >> /start.sh && \
+    echo 'stderr_logfile=/var/log/supervisor/app_error.log' >> /start.sh && \
+    echo 'stdout_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'stderr_logfile_maxbytes=10MB' >> /start.sh && \
+    echo 'startsecs=5' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[program:nginx]' >> /start.sh && \
+    echo 'command=/usr/sbin/nginx -g "daemon off;"' >> /start.sh && \
+    echo 'autostart=true' >> /start.sh && \
+    echo 'autorestart=true' >> /start.sh && \
+    echo 'user=root' >> /start.sh && \
+    echo 'priority=2' >> /start.sh && \
+    echo 'stdout_logfile=/var/log/supervisor/nginx.log' >> /start.sh && \
+    echo 'stderr_logfile=/var/log/supervisor/nginx_error.log' >> /start.sh && \
+    echo 'SUPEREND' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo 'echo "Starting services..."' >> /start.sh && \
+    echo 'exec supervisord -c /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
+    chmod +x /start.sh
+
+# Declare volume for data persistence
+VOLUME ["/app/storage"]
+
+EXPOSE 80
+
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost/api/v1/health || exit 1
+
+CMD ["/start.sh"]

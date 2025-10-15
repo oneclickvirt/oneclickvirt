@@ -1,0 +1,2 @@
+# This directory will contain the built web frontend files when building with embed mode
+# The frontend dist files will be copied here during the GitHub Actions build process
