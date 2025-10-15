@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -208,8 +209,14 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
 
+	// 将驼峰格式转换为连接符格式，以保持与YAML一致
+	kebabConfig := convertMapKeysToKebab(config)
+	cm.logger.Info("转换配置格式",
+		zap.Int("originalKeys", len(config)),
+		zap.Int("kebabKeys", len(kebabConfig)))
+
 	// 展开嵌套配置并验证
-	flatConfig := cm.flattenConfig(config, "")
+	flatConfig := cm.flattenConfig(kebabConfig, "")
 	for key, value := range flatConfig {
 		if err := cm.validateConfig(key, value); err != nil {
 			return fmt.Errorf("配置 %s 验证失败: %v", key, err)
@@ -255,13 +262,13 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	cm.lastUpdate = time.Now()
 
-	// 同步配置到全局配置
-	if err := cm.syncToGlobalConfig(config); err != nil {
+	// 同步配置到全局配置 - 使用连接符格式的配置
+	if err := cm.syncToGlobalConfig(kebabConfig); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
 	}
 
-	// 触发回调
-	for key, newValue := range config {
+	// 触发回调 - 使用连接符格式的配置
+	for key, newValue := range kebabConfig {
 		oldValue := oldValues[key]
 		for _, callback := range cm.changeCallbacks {
 			if err := callback(key, oldValue, newValue); err != nil {
@@ -512,6 +519,14 @@ func (cm *ConfigManager) loadConfigFromDB() {
 	for _, config := range configs {
 		cm.configCache[config.Key] = config.Value
 	}
+	if len(configs) > 0 {
+		cm.logger.Info("开始同步数据库配置到全局配置变量")
+		if err := cm.syncDatabaseConfigToGlobal(); err != nil {
+			cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
+		} else {
+			cm.logger.Info("数据库配置已成功同步到全局配置")
+		}
+	}
 }
 
 // saveConfigToDB 保存配置到数据库
@@ -581,8 +596,14 @@ func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error
 		return err
 	}
 
+	// 将驼峰格式的updates转换为连接符格式，以匹配YAML标签
+	kebabUpdates := convertMapKeysToKebab(updates)
+	cm.logger.Info("转换配置格式为连接符",
+		zap.Int("originalCount", len(updates)),
+		zap.Int("convertedCount", len(kebabUpdates)))
+
 	// 递归合并更新（保留连接符key）
-	for key, value := range updates {
+	for key, value := range kebabUpdates {
 		setNestedValue(config, key, value)
 	}
 
@@ -600,6 +621,32 @@ func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error
 	}
 
 	cm.logger.Info("配置已成功写回YAML文件")
+	return nil
+}
+
+// syncDatabaseConfigToGlobal 将数据库中的配置同步到全局配置
+func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
+	// 构建嵌套配置结构
+	nestedConfig := make(map[string]interface{})
+
+	// 将扁平配置转换为嵌套结构
+	for key, value := range cm.configCache {
+		setNestedValue(nestedConfig, key, value)
+	}
+
+	// 遍历配置并同步到全局配置
+	// 这里需要导入 global 包，但为了避免循环导入
+	// 我们通过回调机制来实现同步
+	for key, value := range nestedConfig {
+		for _, callback := range cm.changeCallbacks {
+			if err := callback(key, nil, value); err != nil {
+				cm.logger.Error("同步配置到全局变量失败",
+					zap.String("key", key),
+					zap.Error(err))
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -649,5 +696,35 @@ func splitKey(key string) []string {
 		result = append(result, current)
 	}
 
+	return result
+}
+
+// camelToKebab 将驼峰格式转换为连接符格式
+// 例如: "enableEmail" -> "enable-email", "levelLimits" -> "level-limits"
+func camelToKebab(s string) string {
+	var result []rune
+	for i, r := range s {
+		if i > 0 && r >= 'A' && r <= 'Z' {
+			result = append(result, '-')
+		}
+		result = append(result, r)
+	}
+	return strings.ToLower(string(result))
+}
+
+// convertMapKeysToKebab 递归将map的key从驼峰转换为连接符格式
+func convertMapKeysToKebab(data map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+	for key, value := range data {
+		// 转换当前key
+		kebabKey := camelToKebab(key)
+
+		// 如果value是map，递归转换
+		if mapValue, ok := value.(map[string]interface{}); ok {
+			result[kebabKey] = convertMapKeysToKebab(mapValue)
+		} else {
+			result[kebabKey] = value
+		}
+	}
 	return result
 }
