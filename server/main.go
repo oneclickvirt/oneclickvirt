@@ -27,7 +27,7 @@ import (
 // @license.name MIT
 // @license.url https://opensource.org/licenses/MIT
 
-// @host localhost:8888
+// @host 0.0.0.0:8888
 // @BasePath /api/v1
 // @schemes http https
 
@@ -51,8 +51,8 @@ func runServer() {
 	global.APP_LOG.Debug("路由初始化完成")
 	address := fmt.Sprintf(":%d", global.APP_CONFIG.System.Addr)
 	s := initialize.InitServer(address, router)
-	global.APP_LOG.Info("服务器启动成功", zap.String("address", address))
-	global.APP_LOG.Info("API文档地址", zap.String("url", fmt.Sprintf("http://127.0.0.1%s/swagger/index.html", address)))
+	global.APP_LOG.Info("服务器启动成功", zap.String("address", fmt.Sprintf("0.0.0.0%s", address)))
+	global.APP_LOG.Info("API文档地址", zap.String("url", fmt.Sprintf("http://0.0.0.0%s/swagger/index.html", address)))
 	if err := s.ListenAndServe(); err != nil {
 		global.APP_LOG.Fatal("服务器启动失败", zap.Error(err))
 	}
