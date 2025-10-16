@@ -313,21 +313,42 @@ const getLevelDescription = (level) => {
 
 // 获取等级权益
 const getLevelBenefits = (level) => {
-  const benefitsMap = {
-    1: [
-      '最多创建 1 个实例',
-    ],
-    2: [
-      '最多创建 2 个实例',
-    ],
-    3: [
-      '最多创建 3 个实例',
-    ],
-    4: [
-      '无限制实例创建',
-    ]
+  // 根据实际的配额限制动态生成权益列表
+  const benefits = []
+  
+  // 实例数量权益
+  if (userLimits.maxInstances > 0) {
+    benefits.push(`最多创建 ${userLimits.maxInstances} 个实例`)
+  } else {
+    benefits.push('无限制实例创建')
   }
-  return benefitsMap[level] || []
+  
+  // CPU权益
+  if (userLimits.maxCpu > 0) {
+    benefits.push(`最多使用 ${userLimits.maxCpu} 核心 CPU`)
+  }
+  
+  // 内存权益
+  if (userLimits.maxMemory > 0) {
+    benefits.push(`最多使用 ${formatMemory(userLimits.maxMemory)} 内存`)
+  }
+  
+  // 磁盘权益
+  if (userLimits.maxDisk > 0) {
+    benefits.push(`最多使用 ${formatStorage(userLimits.maxDisk)} 存储空间`)
+  }
+  
+  // 带宽权益
+  if (userLimits.maxBandwidth > 0) {
+    benefits.push(`最多使用 ${formatBandwidth(userLimits.maxBandwidth)} 带宽`)
+  }
+  
+  // 流量权益
+  if (userLimits.maxTraffic > 0) {
+    benefits.push(`每月最多使用 ${formatTraffic(userLimits.maxTraffic)} 流量`)
+  }
+  
+  return benefits.length > 0 ? benefits : ['暂无配额限制信息']
 }
 
 // 获取使用百分比
