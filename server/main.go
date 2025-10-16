@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 
 	"oneclickvirt/global"
 	"oneclickvirt/initialize"
@@ -36,6 +37,9 @@ import (
 // @name Authorization
 
 func main() {
+	// 确保从正确的工作目录运行
+	ensureCorrectWorkingDirectory()
+
 	// 设置系统初始化完成后的回调函数
 	initialize.SetSystemInitCallback()
 
@@ -46,13 +50,31 @@ func main() {
 	runServer()
 }
 
+// ensureCorrectWorkingDirectory 确保从正确的工作目录启动
+func ensureCorrectWorkingDirectory() {
+	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
+		fmt.Println("[ERROR] 未找到 config.yaml 文件")
+		fmt.Println("[HINT] 请确保从项目的 server 目录启动程序")
+		os.Exit(1)
+	}
+	if err := os.MkdirAll("storage", 0755); err != nil {
+		fmt.Printf("[ERROR] 无法创建 storage 目录: %v\n", err)
+		fmt.Println("[HINT] 请检查当前目录的写入权限")
+		os.Exit(1)
+	}
+	if wd, err := os.Getwd(); err == nil {
+		fmt.Printf("[SYSTEM] 工作目录: %s\n", wd)
+	}
+}
+
 func runServer() {
 	router := initialize.Routers()
 	global.APP_LOG.Debug("路由初始化完成")
 	address := fmt.Sprintf(":%d", global.APP_CONFIG.System.Addr)
 	s := initialize.InitServer(address, router)
-	global.APP_LOG.Info("服务器启动成功", zap.String("address", fmt.Sprintf("0.0.0.0%s", address)))
-	global.APP_LOG.Info("API文档地址", zap.String("url", fmt.Sprintf("http://0.0.0.0%s/swagger/index.html", address)))
+	fmt.Printf("[SUCCESS] 服务器启动成功，监听端口: %d\n", global.APP_CONFIG.System.Addr)
+	fmt.Printf("[INFO] API文档路径: /swagger/index.html\n")
+	global.APP_LOG.Info("服务器启动成功", zap.Int("port", global.APP_CONFIG.System.Addr))
 	if err := s.ListenAndServe(); err != nil {
 		global.APP_LOG.Fatal("服务器启动失败", zap.Error(err))
 	}

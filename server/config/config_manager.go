@@ -15,7 +15,7 @@ import (
 
 // 配置标志文件路径
 const (
-	ConfigModifiedFlagFile = "storage/.config_modified"
+	ConfigModifiedFlagFile = "./storage/.config_modified"
 )
 
 // SystemConfig 系统配置模型（避免循环导入）

@@ -14,8 +14,8 @@ import (
 
 // Zap 获取 zap.Logger
 func Zap() (logger *zap.Logger) {
-	// 确保日志目录存在 - 使用storage/logs目录
-	logDir := "storage/logs"
+	// 确保日志目录存在 - 使用./storage/logs目录
+	logDir := "./storage/logs"
 	if err := utils.EnsureDir(logDir); err != nil {
 		// 在日志系统未完全初始化时，使用标准输出
 		fmt.Printf("[SYSTEM] 日志目录创建失败 %v: %v，将使用控制台输出\n", logDir, err)
