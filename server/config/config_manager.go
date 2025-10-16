@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -10,6 +11,11 @@ import (
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
+)
+
+// 配置标志文件路径
+const (
+	ConfigModifiedFlagFile = "storage/.config_modified"
 )
 
 // SystemConfig 系统配置模型（避免循环导入）
@@ -262,6 +268,11 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	cm.lastUpdate = time.Now()
 
+	// 标记配置已被修改（创建标志文件）
+	if err := cm.markConfigAsModified(); err != nil {
+		cm.logger.Warn("创建配置修改标志文件失败，但配置已保存", zap.Error(err))
+	}
+
 	// 同步配置到全局配置 - 使用连接符格式的配置
 	if err := cm.syncToGlobalConfig(kebabConfig); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
@@ -508,24 +519,45 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		return
 	}
 
-	var configs []SystemConfig
-	if err := cm.db.Find(&configs).Error; err != nil {
-		cm.logger.Error("加载配置失败", zap.Error(err))
-		return
-	}
+	// 检查配置修改标志
+	configModified := cm.isConfigModified()
+	cm.logger.Info("配置加载策略检查", zap.Bool("configModified", configModified))
 
-	cm.logger.Info("从数据库加载配置", zap.Int("configCount", len(configs)))
+	if configModified {
+		// 标志文件存在：以数据库为权威，恢复到YAML文件
+		cm.logger.Info("检测到配置修改标志，将从数据库恢复配置到YAML文件")
+		if err := cm.RestoreConfigFromDatabase(); err != nil {
+			cm.logger.Error("从数据库恢复配置失败", zap.Error(err))
+		} else {
+			cm.logger.Info("配置已从数据库恢复到YAML文件")
+		}
 
-	for _, config := range configs {
-		cm.configCache[config.Key] = config.Value
-	}
-	if len(configs) > 0 {
-		cm.logger.Info("开始同步数据库配置到全局配置变量")
+		// 同步到全局配置
 		if err := cm.syncDatabaseConfigToGlobal(); err != nil {
 			cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
 		} else {
 			cm.logger.Info("数据库配置已成功同步到全局配置")
 		}
+	} else {
+		// 标志文件不存在：首次启动或未修改过配置，以YAML为权威
+		cm.logger.Info("首次启动或配置未修改，将YAML配置同步到数据库")
+		if err := cm.syncYAMLConfigToDatabase(); err != nil {
+			cm.logger.Error("同步YAML配置到数据库失败", zap.Error(err))
+		} else {
+			cm.logger.Info("YAML配置已同步到数据库")
+		}
+
+		// 重新从数据库加载以确保缓存一致
+		var configs []SystemConfig
+		if err := cm.db.Find(&configs).Error; err != nil {
+			cm.logger.Error("重新加载配置失败", zap.Error(err))
+			return
+		}
+
+		for _, config := range configs {
+			cm.configCache[config.Key] = config.Value
+		}
+		cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
 	}
 }
 
@@ -580,7 +612,7 @@ func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error
 	return nil
 }
 
-// writeConfigToYAML 将配置写回到YAML文件（保留原始key格式，避免驼峰转换）
+// writeConfigToYAML 将配置写回到YAML文件（保留原始key格式）
 func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error {
 	// 读取现有配置文件
 	file, err := os.ReadFile("config.yaml")
@@ -589,26 +621,28 @@ func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error
 		return err
 	}
 
-	// 解析YAML到map
-	var config map[string]interface{}
-	if err := yaml.Unmarshal(file, &config); err != nil {
+	// 使用yaml.v3的Node API来精确控制更新，保持原有格式
+	var node yaml.Node
+	if err := yaml.Unmarshal(file, &node); err != nil {
 		cm.logger.Error("解析YAML失败", zap.Error(err))
 		return err
 	}
 
-	// 将驼峰格式的updates转换为连接符格式，以匹配YAML标签
+	// 将驼峰格式的updates转换为连接符格式
 	kebabUpdates := convertMapKeysToKebab(updates)
 	cm.logger.Info("转换配置格式为连接符",
 		zap.Int("originalCount", len(updates)),
 		zap.Int("convertedCount", len(kebabUpdates)))
 
-	// 递归合并更新（保留连接符key）
+	// 使用Node API更新值，保持原有key格式不变
 	for key, value := range kebabUpdates {
-		setNestedValue(config, key, value)
+		if err := updateYAMLNode(&node, key, value); err != nil {
+			cm.logger.Warn("更新YAML节点失败", zap.String("key", key), zap.Error(err))
+		}
 	}
 
-	// 序列化回YAML
-	out, err := yaml.Marshal(config)
+	// 序列化Node，这样可以保持原有的key格式
+	out, err := yaml.Marshal(&node)
 	if err != nil {
 		cm.logger.Error("序列化YAML失败", zap.Error(err))
 		return err
@@ -621,6 +655,123 @@ func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error
 	}
 
 	cm.logger.Info("配置已成功写回YAML文件")
+	return nil
+}
+
+// updateYAMLNode 使用Node API更新YAML节点的值，保持key格式不变
+func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
+	// 分割路径
+	keys := splitKey(path)
+
+	// 找到Document节点
+	if node.Kind != yaml.DocumentNode || len(node.Content) == 0 {
+		return fmt.Errorf("invalid document node")
+	}
+
+	// 从根映射开始
+	current := node.Content[0]
+
+	// 遍历路径找到目标节点
+	for i := 0; i < len(keys); i++ {
+		key := keys[i]
+
+		if current.Kind != yaml.MappingNode {
+			return fmt.Errorf("expected mapping node at key: %s", key)
+		}
+
+		// 在映射中查找key
+		found := false
+		for j := 0; j < len(current.Content); j += 2 {
+			keyNode := current.Content[j]
+			valueNode := current.Content[j+1]
+
+			if keyNode.Value == key {
+				found = true
+
+				if i == len(keys)-1 {
+					// 到达目标节点，更新值
+					if err := setNodeValue(valueNode, value); err != nil {
+						return err
+					}
+					return nil
+				} else {
+					// 继续向下遍历
+					current = valueNode
+				}
+				break
+			}
+		}
+
+		if !found {
+			// key不存在，需要创建
+			return fmt.Errorf("key not found: %s", key)
+		}
+	}
+
+	return nil
+}
+
+// setNodeValue 设置节点的值
+func setNodeValue(node *yaml.Node, value interface{}) error {
+	switch v := value.(type) {
+	case string:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!str"
+		node.Value = v
+	case int:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!int"
+		node.Value = fmt.Sprintf("%d", v)
+	case int64:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!int"
+		node.Value = fmt.Sprintf("%d", v)
+	case float64:
+		node.Kind = yaml.ScalarNode
+		// 如果是整数，转换为int显示
+		if v == float64(int64(v)) {
+			node.Tag = "!!int"
+			node.Value = fmt.Sprintf("%d", int64(v))
+		} else {
+			node.Tag = "!!float"
+			node.Value = fmt.Sprintf("%g", v)
+		}
+	case bool:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!bool"
+		if v {
+			node.Value = "true"
+		} else {
+			node.Value = "false"
+		}
+	case map[string]interface{}:
+		// 对于复杂类型（如level-limits），序列化为YAML子结构
+		subYAML, err := yaml.Marshal(v)
+		if err != nil {
+			return err
+		}
+		var subNode yaml.Node
+		if err := yaml.Unmarshal(subYAML, &subNode); err != nil {
+			return err
+		}
+		// 复制子节点的内容
+		if subNode.Kind == yaml.DocumentNode && len(subNode.Content) > 0 {
+			*node = *subNode.Content[0]
+		}
+	default:
+		// 其他类型尝试序列化
+		subYAML, err := yaml.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("unsupported value type: %T", v)
+		}
+		var subNode yaml.Node
+		if err := yaml.Unmarshal(subYAML, &subNode); err != nil {
+			return err
+		}
+		if subNode.Kind == yaml.DocumentNode && len(subNode.Content) > 0 {
+			*node = *subNode.Content[0]
+		}
+	}
 	return nil
 }
 
@@ -727,4 +878,185 @@ func convertMapKeysToKebab(data map[string]interface{}) map[string]interface{} {
 		}
 	}
 	return result
+}
+
+// ===== 配置恢复相关方法 =====
+
+// isConfigModified 检查配置是否已被修改（标志文件是否存在）
+func (cm *ConfigManager) isConfigModified() bool {
+	_, err := os.Stat(ConfigModifiedFlagFile)
+	return err == nil
+}
+
+// markConfigAsModified 标记配置已被修改
+func (cm *ConfigManager) markConfigAsModified() error {
+	// 确保目录存在
+	dir := filepath.Dir(ConfigModifiedFlagFile)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("创建标志文件目录失败: %v", err)
+	}
+
+	// 创建标志文件
+	file, err := os.Create(ConfigModifiedFlagFile)
+	if err != nil {
+		return fmt.Errorf("创建标志文件失败: %v", err)
+	}
+	defer file.Close()
+
+	// 写入时间戳
+	timestamp := time.Now().Format(time.RFC3339)
+	if _, err := file.WriteString(fmt.Sprintf("Configuration modified at: %s\n", timestamp)); err != nil {
+		return fmt.Errorf("写入标志文件失败: %v", err)
+	}
+
+	cm.logger.Info("配置修改标志文件已创建", zap.String("file", ConfigModifiedFlagFile))
+	return nil
+}
+
+// RestoreConfigFromDatabase 从数据库恢复配置到YAML文件
+func (cm *ConfigManager) RestoreConfigFromDatabase() error {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+
+	cm.logger.Info("开始从数据库恢复配置到YAML文件")
+
+	// 从数据库读取所有配置
+	var configs []SystemConfig
+	if err := cm.db.Find(&configs).Error; err != nil {
+		cm.logger.Error("从数据库读取配置失败", zap.Error(err))
+		return fmt.Errorf("从数据库读取配置失败: %v", err)
+	}
+
+	if len(configs) == 0 {
+		cm.logger.Warn("数据库中没有配置数据，跳过恢复")
+		return nil
+	}
+
+	cm.logger.Info("从数据库读取到配置", zap.Int("count", len(configs)))
+
+	// 读取现有YAML文件
+	file, err := os.ReadFile("config.yaml")
+	if err != nil {
+		cm.logger.Error("读取配置文件失败", zap.Error(err))
+		return fmt.Errorf("读取配置文件失败: %v", err)
+	}
+
+	// 使用Node API解析，保持原有格式
+	var node yaml.Node
+	if err := yaml.Unmarshal(file, &node); err != nil {
+		cm.logger.Error("解析YAML失败", zap.Error(err))
+		return fmt.Errorf("解析YAML失败: %v", err)
+	}
+
+	// 使用Node API更新每个配置值
+	for _, config := range configs {
+		if err := updateYAMLNode(&node, config.Key, config.Value); err != nil {
+			cm.logger.Warn("更新配置失败",
+				zap.String("key", config.Key),
+				zap.Error(err))
+		}
+	}
+
+	// 序列化Node，保持原有key格式
+	out, err := yaml.Marshal(&node)
+	if err != nil {
+		cm.logger.Error("序列化配置失败", zap.Error(err))
+		return fmt.Errorf("序列化配置失败: %v", err)
+	}
+
+	// 写回文件
+	if err := os.WriteFile("config.yaml", out, 0644); err != nil {
+		cm.logger.Error("写入配置文件失败", zap.Error(err))
+		return fmt.Errorf("写入配置文件失败: %v", err)
+	}
+
+	// 更新内存缓存
+	for _, config := range configs {
+		cm.configCache[config.Key] = config.Value
+	}
+
+	cm.logger.Info("配置已成功从数据库恢复到YAML文件")
+	return nil
+}
+
+// syncYAMLConfigToDatabase 将YAML配置同步到数据库
+func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
+	cm.logger.Info("开始将YAML配置同步到数据库")
+
+	// 读取YAML文件
+	file, err := os.ReadFile("config.yaml")
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %v", err)
+	}
+
+	var yamlConfig map[string]interface{}
+	if err := yaml.Unmarshal(file, &yamlConfig); err != nil {
+		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+
+	// 提取需要同步的配置部分
+	configsToSync := make(map[string]interface{})
+
+	// Auth配置
+	if auth, ok := yamlConfig["auth"].(map[string]interface{}); ok {
+		for key, value := range auth {
+			configsToSync[fmt.Sprintf("auth.%s", key)] = value
+		}
+	}
+
+	// Quota配置
+	if quota, ok := yamlConfig["quota"].(map[string]interface{}); ok {
+		if defaultLevel, exists := quota["default-level"]; exists {
+			configsToSync["quota.default-level"] = defaultLevel
+		}
+
+		// level-limits 作为整体存储（序列化为JSON字符串）
+		if levelLimits, ok := quota["level-limits"].(map[string]interface{}); ok {
+			// 将 level-limits 转换为 JSON 字符串存储
+			levelLimitsJSON, err := yaml.Marshal(levelLimits)
+			if err != nil {
+				cm.logger.Warn("序列化 level-limits 失败", zap.Error(err))
+			} else {
+				configsToSync["quota.level-limits"] = string(levelLimitsJSON)
+			}
+		}
+
+		if permissions, ok := quota["instance-type-permissions"].(map[string]interface{}); ok {
+			for key, value := range permissions {
+				configsToSync[fmt.Sprintf("quota.instance-type-permissions.%s", key)] = value
+			}
+		}
+	}
+
+	// InviteCode配置
+	if inviteCode, ok := yamlConfig["invite-code"].(map[string]interface{}); ok {
+		for key, value := range inviteCode {
+			configsToSync[fmt.Sprintf("invite-code.%s", key)] = value
+		}
+	}
+
+	// OAuth2配置
+	if oauth2, ok := yamlConfig["oauth2"].(map[string]interface{}); ok {
+		for key, value := range oauth2 {
+			configsToSync[fmt.Sprintf("oauth2.%s", key)] = value
+		}
+	}
+
+	// 批量保存到数据库
+	tx := cm.db.Begin()
+	savedCount := 0
+	for key, value := range configsToSync {
+		if err := cm.saveConfigToDBWithTx(tx, key, value); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("保存配置 %s 到数据库失败: %v", key, err)
+		}
+		savedCount++
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("提交配置到数据库失败: %v", err)
+	}
+
+	cm.logger.Info("YAML配置已成功同步到数据库", zap.Int("count", savedCount))
+	return nil
 }
