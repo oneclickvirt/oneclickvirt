@@ -852,14 +852,67 @@ func splitKey(key string) []string {
 
 // camelToKebab 将驼峰格式转换为连接符格式
 // 例如: "enableEmail" -> "enable-email", "levelLimits" -> "level-limits"
+// 特殊处理: "OAuth2" -> "oauth2", "QQ" -> "qq", "SMTP" -> "smtp", "ID" -> "id"
 func camelToKebab(s string) string {
+	// 特殊词汇映射表 - 这些词汇不应该被连接符分割
+	specialWords := map[string]string{
+		"OAuth2": "oauth2",
+		"oauth2": "oauth2",
+		"QQ":     "qq",
+		"qq":     "qq",
+		"SMTP":   "smtp",
+		"smtp":   "smtp",
+		"ID":     "id",
+		"id":     "id",
+		"IP":     "ip",
+		"ip":     "ip",
+		"URL":    "url",
+		"url":    "url",
+		"CDN":    "cdn",
+		"cdn":    "cdn",
+		"DB":     "db",
+		"db":     "db",
+		"API":    "api",
+		"api":    "api",
+		"JWT":    "jwt",
+		"jwt":    "jwt",
+	}
+
+	// 直接检查是否是特殊词汇
+	if mapped, ok := specialWords[s]; ok {
+		return mapped
+	}
+
 	var result []rune
+	var lastWasUpper bool
+
 	for i, r := range s {
-		if i > 0 && r >= 'A' && r <= 'Z' {
-			result = append(result, '-')
+		isUpper := r >= 'A' && r <= 'Z'
+
+		// 如果当前是大写字母
+		if isUpper {
+			// 检查是否是连续大写（如 ID, QQ, SMTP）
+			if i > 0 {
+				// 如果前一个不是大写，或者下一个是小写（驼峰边界），则添加分隔符
+				if !lastWasUpper {
+					result = append(result, '-')
+				} else if i+1 < len(s) {
+					// 检查下一个字符
+					nextRune := rune(s[i+1])
+					if nextRune >= 'a' && nextRune <= 'z' {
+						// 这是 HTTPServer 这样的情况，在 HTTP 和 Server 之间加分隔符
+						result = append(result, '-')
+					}
+				}
+			}
+			lastWasUpper = true
+		} else {
+			lastWasUpper = false
 		}
+
 		result = append(result, r)
 	}
+
 	return strings.ToLower(string(result))
 }
 
@@ -1039,6 +1092,76 @@ func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
 	if oauth2, ok := yamlConfig["oauth2"].(map[string]interface{}); ok {
 		for key, value := range oauth2 {
 			configsToSync[fmt.Sprintf("oauth2.%s", key)] = value
+		}
+	}
+
+	// System配置
+	if system, ok := yamlConfig["system"].(map[string]interface{}); ok {
+		for key, value := range system {
+			configsToSync[fmt.Sprintf("system.%s", key)] = value
+		}
+	}
+
+	// JWT配置
+	if jwt, ok := yamlConfig["jwt"].(map[string]interface{}); ok {
+		for key, value := range jwt {
+			configsToSync[fmt.Sprintf("jwt.%s", key)] = value
+		}
+	}
+
+	// CORS配置
+	if cors, ok := yamlConfig["cors"].(map[string]interface{}); ok {
+		for key, value := range cors {
+			configsToSync[fmt.Sprintf("cors.%s", key)] = value
+		}
+	}
+
+	// Redis配置
+	if redis, ok := yamlConfig["redis"].(map[string]interface{}); ok {
+		for key, value := range redis {
+			configsToSync[fmt.Sprintf("redis.%s", key)] = value
+		}
+	}
+
+	// CDN配置
+	if cdn, ok := yamlConfig["cdn"].(map[string]interface{}); ok {
+		for key, value := range cdn {
+			configsToSync[fmt.Sprintf("cdn.%s", key)] = value
+		}
+	}
+
+	// Task配置
+	if task, ok := yamlConfig["task"].(map[string]interface{}); ok {
+		for key, value := range task {
+			configsToSync[fmt.Sprintf("task.%s", key)] = value
+		}
+	}
+
+	// Captcha配置
+	if captcha, ok := yamlConfig["captcha"].(map[string]interface{}); ok {
+		for key, value := range captcha {
+			configsToSync[fmt.Sprintf("captcha.%s", key)] = value
+		}
+	}
+
+	// Mysql配置
+	if mysql, ok := yamlConfig["mysql"].(map[string]interface{}); ok {
+		for key, value := range mysql {
+			configsToSync[fmt.Sprintf("mysql.%s", key)] = value
+		}
+	}
+
+	// Zap配置
+	if zap, ok := yamlConfig["zap"].(map[string]interface{}); ok {
+		for key, value := range zap {
+			configsToSync[fmt.Sprintf("zap.%s", key)] = value
+		}
+	}
+
+	// Upload配置
+	if upload, ok := yamlConfig["upload"].(map[string]interface{}); ok {
+		for key, value := range upload {
+			configsToSync[fmt.Sprintf("upload.%s", key)] = value
 		}
 	}
 

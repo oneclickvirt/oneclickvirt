@@ -22,36 +22,30 @@ import (
 	"go.uber.org/zap"
 )
 
+// getMaxAvatarSize 获取头像最大大小限制（字节）
+func getMaxAvatarSize() int64 {
+	// 从全局配置读取，单位是MB，需要转换为字节
+	maxSizeMB := global.APP_CONFIG.Upload.MaxAvatarSize
+	if maxSizeMB <= 0 {
+		// 如果配置无效，使用默认值 2MB
+		maxSizeMB = 2
+	}
+	return maxSizeMB * 1024 * 1024
+}
+
 // 文件上传配置
 var (
-	// 最大文件大小限制
-	MaxAvatarSize = int64(2 * 1024 * 1024)  // 2MB
-	MaxFileSize   = int64(10 * 1024 * 1024) // 10MB (通用文件)
-
-	// 允许的头像文件类型
+	// 允许的头像文件类型 - 仅支持 PNG 和 JPEG
 	AllowedAvatarTypes = map[string]bool{
 		"image/jpeg": true,
-		"image/jpg":  true,
 		"image/png":  true,
-		"image/webp": true,
 	}
 
-	// 允许的头像文件扩展名
+	// 允许的头像文件扩展名 - 仅支持 .png 和 .jpeg/.jpg
 	AllowedAvatarExts = map[string]bool{
 		".jpg":  true,
 		".jpeg": true,
 		".png":  true,
-		".webp": true,
-	}
-
-	// 危险文件扩展名黑名单
-	DangerousExts = map[string]bool{
-		".exe": true, ".bat": true, ".cmd": true, ".com": true,
-		".scr": true, ".pif": true, ".msi": true, ".dll": true,
-		".sh": true, ".bash": true, ".zsh": true, ".fish": true,
-		".ps1": true, ".vbs": true, ".js": true, ".jar": true,
-		".php": true, ".asp": true, ".jsp": true, ".py": true,
-		".rb": true, ".pl": true, ".cgi": true, ".htaccess": true,
 	}
 
 	// 获取存储服务实例并动态获取上传目录
@@ -98,17 +92,10 @@ func validateFile(file *multipart.FileHeader, allowedTypes map[string]bool, allo
 	ext := strings.ToLower(filepath.Ext(file.Filename))
 	result.Ext = ext
 
-	// 检查危险文件扩展名
-	if DangerousExts[ext] {
-		result.Valid = false
-		result.Error = "不允许上传的文件类型"
-		return result
-	}
-
 	// 验证扩展名白名单
-	if allowedExts != nil && !allowedExts[ext] {
+	if !allowedExts[ext] {
 		result.Valid = false
-		result.Error = "文件类型不被支持"
+		result.Error = "仅支持 PNG 和 JPEG 格式的图片文件"
 		return result
 	}
 
@@ -134,9 +121,9 @@ func validateFile(file *multipart.FileHeader, allowedTypes map[string]bool, allo
 	result.Type = mimeType
 
 	// 验证MIME类型白名单
-	if allowedTypes != nil && !allowedTypes[mimeType] {
+	if !allowedTypes[mimeType] {
 		result.Valid = false
-		result.Error = "文件MIME类型不被支持"
+		result.Error = "仅支持 PNG 和 JPEG 格式的图片文件"
 		return result
 	}
 
@@ -155,7 +142,7 @@ func generateSafeFilename(originalName string) string {
 
 // UploadAvatar 上传用户头像
 // @Summary 上传用户头像
-// @Description 上传用户头像图片，支持JPG、PNG、WEBP格式，最大2MB
+// @Description 上传用户头像图片，仅支持PNG和JPEG格式，最大2MB
 // @Tags 文件上传
 // @Accept multipart/form-data
 // @Produce json
@@ -183,7 +170,8 @@ func UploadAvatar(c *gin.Context) {
 	}
 
 	// 验证文件
-	validation := validateFile(file, AllowedAvatarTypes, AllowedAvatarExts, MaxAvatarSize)
+	maxSize := getMaxAvatarSize()
+	validation := validateFile(file, AllowedAvatarTypes, AllowedAvatarExts, maxSize)
 	if !validation.Valid {
 		code := common.CodeValidationError
 		if strings.Contains(validation.Error, "大小超过限制") {

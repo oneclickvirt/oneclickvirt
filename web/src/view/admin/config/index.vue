@@ -539,6 +539,67 @@
             </el-alert>
           </el-form>
         </el-tab-pane>
+
+        <!-- 其他配置 -->
+        <el-tab-pane
+          label="其他配置"
+          name="other"
+        >
+          <el-form
+            v-loading="loading"
+            :model="config"
+            label-width="140px"
+            class="config-form"
+          >
+            <el-alert
+              title="头像上传配置"
+              type="info"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 20px;"
+            >
+              配置用户头像上传的最大文件大小限制。仅支持 PNG 和 JPEG 格式的图片文件。
+            </el-alert>
+
+            <el-divider content-position="left">
+              头像上传设置
+            </el-divider>
+
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item label="头像最大大小">
+                  <el-input-number
+                    v-model="config.other.maxAvatarSize"
+                    :min="0.5"
+                    :max="10"
+                    :step="0.5"
+                    :precision="1"
+                    style="width: 100%"
+                  />
+                  <div class="form-item-hint">
+                    MB，建议设置为 1-5 MB 之间，默认 2 MB
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item label="支持的格式">
+                  <el-tag
+                    type="info"
+                    style="margin-right: 8px;"
+                  >
+                    PNG
+                  </el-tag>
+                  <el-tag type="info">
+                    JPEG
+                  </el-tag>
+                  <div class="form-item-hint">
+                    仅支持这两种格式，无法修改
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+          </el-form>
+        </el-tab-pane>
       </el-tabs>
 
       <!-- 底部操作按钮 -->
@@ -598,6 +659,9 @@ const config = ref({
   },
   inviteCode: {
     enabled: false
+  },
+  other: {
+    maxAvatarSize: 2 // MB
   }
 })
 
@@ -630,6 +694,14 @@ const loadConfig = async () => {
         config.value.inviteCode = {
           ...config.value.inviteCode,
           ...response.data.inviteCode
+        }
+      }
+
+      // 加载其他配置
+      if (response.data.other) {
+        config.value.other = {
+          ...config.value.other,
+          ...response.data.other
         }
       }
       

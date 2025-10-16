@@ -276,16 +276,6 @@ const routes = [
           requiresAuth: true,
           roles: ['admin']
         }
-      },
-      {
-        path: 'upload-config',
-        name: 'AdminUploadConfig',
-        component: () => import('@/view/admin/upload-config/index.vue'),
-        meta: {
-          title: '文件上传配置',
-          requiresAuth: true,
-          roles: ['admin']
-        }
       }
     ]
   },

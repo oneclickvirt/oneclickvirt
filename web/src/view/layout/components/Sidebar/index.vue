@@ -229,14 +229,6 @@ const userRoutes = computed(() => {
           title: '系统配置',
           icon: 'Setting'
         }
-      },
-      {
-        path: '/admin/upload-config',
-        name: 'AdminUploadConfig',
-        meta: {
-          title: '文件配置',
-          icon: 'Upload'
-        }
       }
     ]
   }

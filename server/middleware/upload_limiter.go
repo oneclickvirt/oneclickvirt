@@ -34,12 +34,7 @@ func UploadSizeLimit(maxSize int64) gin.HandlerFunc {
 	}
 }
 
-// AvatarUploadLimit 头像上传限制中间件 (2MB)
+// AvatarUploadLimit 头像上传限制中间件 (固定2MB)
 func AvatarUploadLimit() gin.HandlerFunc {
 	return UploadSizeLimit(2 * 1024 * 1024) // 2MB
-}
-
-// GeneralUploadLimit 通用文件上传限制中间件 (10MB)
-func GeneralUploadLimit() gin.HandlerFunc {
-	return UploadSizeLimit(10 * 1024 * 1024) // 10MB
 }

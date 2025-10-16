@@ -11,6 +11,7 @@ import (
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
+	"oneclickvirt/model/admin"
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/system"
 	"oneclickvirt/utils"
@@ -24,6 +25,7 @@ func InitSeedData() {
 	initDefaultRoles()
 	initDefaultAnnouncements()
 	initLevelConfigurations()
+	initOtherConfigurations()
 }
 
 func initDefaultRoles() {
@@ -581,4 +583,38 @@ func initInstanceTypePermissions() {
 		zap.Int("minLevelForDeleteVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM),
 		zap.Int("minLevelForResetContainer", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer),
 		zap.Int("minLevelForResetVM", global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM))
+}
+
+// initOtherConfigurations 初始化其他配置
+func initOtherConfigurations() {
+	global.APP_LOG.Info("开始初始化其他配置")
+
+	// 检查max_avatar_size配置是否已存在
+	var avatarSizeConfig admin.SystemConfig
+	result := global.APP_DB.Where("key = ?", "max_avatar_size").First(&avatarSizeConfig)
+
+	if result.Error != nil {
+		// 配置不存在，创建默认配置
+		defaultConfig := admin.SystemConfig{
+			Key:         "max_avatar_size",
+			Value:       "2", // 默认2MB
+			Description: "用户头像上传的最大文件大小限制（单位：MB），仅支持PNG和JPEG格式",
+			Category:    "other",
+			Type:        "number",
+			IsPublic:    false,
+		}
+
+		dbService := database.GetDatabaseService()
+		err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+			return tx.Create(&defaultConfig).Error
+		})
+
+		if err != nil {
+			global.APP_LOG.Error("创建max_avatar_size配置失败", zap.Error(err))
+		} else {
+			global.APP_LOG.Info("已创建max_avatar_size默认配置", zap.String("value", "2"))
+		}
+	} else {
+		global.APP_LOG.Info("max_avatar_size配置已存在，跳过初始化")
+	}
 }

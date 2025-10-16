@@ -496,38 +496,7 @@ export const updateInstanceTypePermissions = (data) => {
   })
 }
 
-// 获取上传配置
-export const getUploadConfig = () => {
-  return request({
-    url: '/v1/admin/upload/config',
-    method: 'get'
-  })
-}
 
-// 更新上传配置
-export const updateUploadConfig = (data) => {
-  return request({
-    url: '/v1/admin/upload/config',
-    method: 'put',
-    data
-  })
-}
-
-// 获取上传统计信息
-export const getUploadStats = () => {
-  return request({
-    url: '/v1/admin/upload/stats',
-    method: 'get'
-  })
-}
-
-// 清理过期文件
-export const cleanupExpiredFiles = () => {
-  return request({
-    url: '/v1/admin/upload/cleanup',
-    method: 'post'
-  })
-}
 
 // 端口映射管理API
 export const getPortMappings = (params) => {

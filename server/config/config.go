@@ -13,6 +13,7 @@ type Server struct {
 	Redis      Redis      `mapstructure:"redis" json:"redis" yaml:"redis"`
 	CDN        CDN        `mapstructure:"cdn" json:"cdn" yaml:"cdn"`
 	Task       Task       `mapstructure:"task" json:"task" yaml:"task"`
+	Upload     Upload     `mapstructure:"upload" json:"upload" yaml:"upload"`
 }
 
 type CORS struct {
@@ -124,4 +125,9 @@ type CDN struct {
 type Task struct {
 	DeleteRetryCount int `mapstructure:"delete-retry-count" json:"delete-retry-count" yaml:"delete-retry-count"` // 删除实例重试次数，默认3
 	DeleteRetryDelay int `mapstructure:"delete-retry-delay" json:"delete-retry-delay" yaml:"delete-retry-delay"` // 删除实例重试延迟（秒），默认2
+}
+
+// Upload 上传配置
+type Upload struct {
+	MaxAvatarSize int64 `mapstructure:"max-avatar-size" json:"max-avatar-size" yaml:"max-avatar-size"` // 头像最大大小（MB）
 }

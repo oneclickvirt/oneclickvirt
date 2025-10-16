@@ -114,12 +114,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/system-images/batch-delete", system.BatchDeleteSystemImages)
 		AdminGroup.PUT("/system-images/batch-status", system.BatchUpdateSystemImageStatus)
 
-		// 文件上传管理
-		AdminGroup.GET("/upload/config", system.GetUploadConfig)
-		AdminGroup.PUT("/upload/config", system.UpdateUploadConfig)
-		AdminGroup.GET("/upload/stats", system.GetUploadStats)
-		AdminGroup.POST("/upload/cleanup", system.CleanupExpiredFiles)
-
 		// 端口映射管理
 		AdminGroup.GET("/port-mappings", admin.GetPortMappingList)
 		AdminGroup.POST("/port-mappings", admin.CreatePortMapping)
