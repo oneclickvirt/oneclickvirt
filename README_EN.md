@@ -192,7 +192,6 @@ go run main.go
 After system initialization, the following default accounts will be generated:
 
 * Administrator account: `admin / Admin123!@#`
-* Regular user: `testuser / TestUser123!@#`
 
 > Tip: Please change the default passwords immediately after first login.
 

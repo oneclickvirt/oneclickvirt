@@ -1100,14 +1100,14 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 		UserType: "admin",
 		Status:   1,
 	}
-	// 创建示例用户
+	// 创建示例用户（默认禁用，防止未授权访问）
 	userPassword, _ := bcrypt.GenerateFromPassword([]byte("user123"), bcrypt.DefaultCost)
 	user := userModel.User{
 		Username: "user",
 		Password: string(userPassword),
 		Email:    "user@spiritlhl.net",
 		UserType: "user",
-		Status:   1,
+		Status:   0, // 默认禁用状态，需要管理员手动启用
 	}
 
 	// 使用数据库抽象层进行事务处理
@@ -1152,7 +1152,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 		Status:   1,
 	}
 
-	// 创建普通用户
+	// 创建普通用户（默认禁用，防止未授权访问）
 	userPassword, err := bcrypt.GenerateFromPassword([]byte(userInfo.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
@@ -1162,7 +1162,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 		Password: string(userPassword),
 		Email:    userInfo.Email,
 		UserType: "user",
-		Status:   1,
+		Status:   0, // 默认禁用状态，需要管理员手动启用
 	}
 
 	// 使用数据库服务处理事务
