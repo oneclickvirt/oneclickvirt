@@ -153,7 +153,7 @@ docker run -d \
 
 * Go 1.24.5
 * Node.js 22+
-* MySQL 8.0+
+* MySQL 5.7+
 * npm 或 yarn
 
 #### 环境部署
