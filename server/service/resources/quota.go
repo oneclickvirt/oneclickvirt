@@ -167,11 +167,10 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	}
 
 	// 5. 检查带宽限制
-	levelBandwidthLimit := s.getLevelBandwidthLimit(user.Level)
-	if requestedResources.Bandwidth > levelBandwidthLimit {
+	if requestedResources.Bandwidth > maxResources.Bandwidth {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("带宽超出等级限制：需要 %dMbps，等级 %d 最大允许 %dMbps",
-			requestedResources.Bandwidth, user.Level, levelBandwidthLimit)
+			requestedResources.Bandwidth, user.Level, maxResources.Bandwidth)
 		return result, nil
 	}
 
