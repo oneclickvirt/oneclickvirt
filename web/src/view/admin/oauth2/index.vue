@@ -1,5 +1,27 @@
 <template>
   <div class="oauth2-providers-container">
+    <!-- OAuth2 功能未启用提示 -->
+    <el-alert
+      v-if="!oauth2Enabled"
+      title="OAuth2 功能未启用"
+      type="warning"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 20px;"
+    >
+      <template #default>
+        <div>
+          当前 OAuth2 登录功能未启用。您可以在此管理 OAuth2 提供商配置，但这些配置不会在登录页面生效。
+          <br>
+          如需启用，请前往
+          <el-link type="primary" @click="goToConfig" :underline="false">
+            <strong>系统配置</strong>
+          </el-link>
+          页面开启 OAuth2 功能。
+        </div>
+      </template>
+    </el-alert>
+
     <el-card shadow="never" class="providers-card">
       <template #header>
         <div class="card-header">
@@ -472,6 +494,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Connection } from '@element-plus/icons-vue'
+import { useRouter } from 'vue-router'
 import {
   getAllOAuth2Providers,
   createOAuth2Provider,
@@ -479,7 +502,9 @@ import {
   deleteOAuth2Provider,
   resetOAuth2RegistrationCount
 } from '@/api/oauth2'
+import { getAdminConfig } from '@/api/config'
 
+const router = useRouter()
 const loading = ref(false)
 const providers = ref([])
 const dialogVisible = ref(false)
@@ -488,6 +513,7 @@ const isEdit = ref(false)
 const submitting = ref(false)
 const activeTab = ref('basic')
 const formRef = ref(null)
+const oauth2Enabled = ref(true) // 默认为true，加载后更新
 
 const mappingDialogVisible = ref(false)
 const newMapping = reactive({
@@ -556,7 +582,25 @@ const formRules = computed(() => ({
 
 onMounted(() => {
   loadProviders()
+  loadSystemConfig()
 })
+
+const loadSystemConfig = async () => {
+  try {
+    const res = await getAdminConfig()
+    if (res.data && res.data.auth) {
+      oauth2Enabled.value = res.data.auth.enableOAuth2 || false
+    }
+  } catch (error) {
+    console.error('加载系统配置失败:', error)
+    // 加载失败时默认显示警告
+    oauth2Enabled.value = false
+  }
+}
+
+const goToConfig = () => {
+  router.push('/admin/config')
+}
 
 const loadProviders = async () => {
   loading.value = true
