@@ -2,7 +2,6 @@
   <div class="admin-dashboard">
     <div class="dashboard-header">
       <h1>管理员仪表盘</h1>
-      <p>系统概览与监控</p>
     </div>
 
     <!-- 统计卡片 -->
@@ -14,9 +13,7 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon user-icon">
-              <el-icon :size="40">
-                <User />
-              </el-icon>
+              <i class="fas fa-users"></i>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -34,9 +31,7 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon server-icon">
-              <el-icon :size="40">
-                <Monitor />
-              </el-icon>
+              <i class="fas fa-server"></i>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -54,9 +49,7 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon vm-icon">
-              <el-icon :size="40">
-                <Cpu />
-              </el-icon>
+              <i class="fas fa-desktop"></i>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -74,9 +67,7 @@
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon container-icon">
-              <el-icon :size="40">
-                <Box />
-              </el-icon>
+              <i class="fas fa-box"></i>
             </div>
             <div class="stat-info">
               <div class="stat-number">
@@ -96,7 +87,6 @@
 <script setup>
 import { reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
-import { User, Monitor, Cpu, Box } from '@element-plus/icons-vue'
 import { getAdminDashboard } from '@/api/admin'
 
 const dashboardData = reactive({
@@ -184,6 +174,7 @@ onMounted(async () => {
   margin-right: 20px;
   color: white;
   flex-shrink: 0;
+  font-size: 32px;
 }
 
 .user-icon {
