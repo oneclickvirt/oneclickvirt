@@ -391,7 +391,7 @@ const formatDate = (dateString) => {
 }
 
 onMounted(async () => {
-  // 添加强制页面刷新监听器
+  // 强制页面刷新监听器
   window.addEventListener('force-page-refresh', handleForceRefresh)
   
   loading.value = true

@@ -106,7 +106,7 @@ func (s *PermissionService) calculateEffectivePermission(user *user.User, permis
 				}
 			}
 
-			// 添加到所有权限类型中（去重）
+			// 到所有权限类型中（去重）
 			found := false
 			for _, existingType := range effective.AllTypes {
 				if existingType == userType {

@@ -547,7 +547,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	l.sshClient.Execute(stopCmd)
 	time.Sleep(3 * time.Second)
 
-	// 添加IPv6网络设备
+	// IPv6网络设备
 	deviceCmd := fmt.Sprintf("lxc config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s",
 		config.ContainerName, ipv6NetworkName, containerIPv6)
 	_, err = l.sshClient.Execute(deviceCmd)
@@ -665,7 +665,7 @@ func (l *LXDProvider) handleIPv6Gateway(ctx context.Context, interfaceName strin
 			l.sshClient.Execute(createScriptCmd)
 			l.sshClient.Execute("chmod 777 /usr/local/bin/remove_route.sh")
 
-			// 添加到crontab
+			// 到crontab
 			checkCronCmd := "crontab -l | grep -q '/usr/local/bin/remove_route.sh'"
 			_, err := l.sshClient.Execute(checkCronCmd)
 			if err != nil {
@@ -835,14 +835,14 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		return "", fmt.Errorf("无可用IPv6地址，不进行自动映射")
 	}
 
-	// 添加IPv6地址到接口
+	// IPv6地址到接口
 	addAddrCmd := fmt.Sprintf("ip addr add %s/%s dev %s", mappedIPv6, ipv6Length, interfaceName)
 	_, err = l.sshClient.Execute(addAddrCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6地址失败: %w", err)
 	}
 
-	// 添加iptables NAT规则
+	// iptables NAT规则
 	natRuleCmd := fmt.Sprintf("ip6tables -t nat -A PREROUTING -d %s -j DNAT --to-destination %s", mappedIPv6, containerIPv6)
 	_, err = l.sshClient.Execute(natRuleCmd)
 	if err != nil {

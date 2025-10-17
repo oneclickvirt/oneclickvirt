@@ -411,7 +411,7 @@ func (s *MonitoringService) getSystemMemoryInfo() system.MemoryStats {
 	// 使用当前分配的内存作为已使用内存的基础
 	used := m.HeapAlloc + m.StackSys + m.MSpanSys + m.MCacheSys + m.OtherSys
 
-	// 添加一些系统开销估算
+	// 一些系统开销估算
 	systemOverhead := estimatedTotal / 10 // 10%的系统开销
 	used += systemOverhead
 

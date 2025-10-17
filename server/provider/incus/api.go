@@ -236,7 +236,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		instanceConfig["type"] = "container"
 	}
 
-	// 添加资源配置
+	// 资源配置
 	if config.CPU != "" {
 		instanceConfig["config"].(map[string]interface{})["limits.cpu"] = config.CPU
 	}

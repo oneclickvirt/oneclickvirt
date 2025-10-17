@@ -64,7 +64,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		cmd = fmt.Sprintf("incus init %s %s", config.Image, config.Name)
 	}
 
-	// 添加基础配置参数
+	// 基础配置参数
 	// 注意：始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
 	configParams := []string{}
 
@@ -77,7 +77,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
 	}
 
-	// 添加实例类型特定的配置
+	// 实例类型特定的配置
 	if config.InstanceType == "vm" {
 		// 虚拟机特定配置
 		configParams = append(configParams, "security.secureboot=false")
@@ -88,7 +88,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		configParams = append(configParams, "limits.memory.swap=true")
 	}
 
-	// 添加配置参数到命令
+	// 配置参数到命令
 	for _, param := range configParams {
 		cmd += fmt.Sprintf(" -c %s", param)
 	}

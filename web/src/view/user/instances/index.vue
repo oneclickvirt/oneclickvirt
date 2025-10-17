@@ -433,9 +433,9 @@ const handleRouterNavigation = (event) => {
 }
 
 onMounted(async () => {
-  // 添加自定义导航事件监听器
+  // 自定义导航事件监听器
   window.addEventListener('router-navigation', handleRouterNavigation)
-  // 添加强制页面刷新监听器
+  // 强制页面刷新监听器
   window.addEventListener('force-page-refresh', handleForceRefresh)
   
   loading.value = true

@@ -571,7 +571,7 @@ const showTrafficDetail = ref(false)
 const portMappings = ref([])
 const activeTab = ref('overview') // 默认显示概览标签页
 
-// 添加实例类型权限配置
+// 实例类型权限配置
 const instanceTypePermissions = ref({
   canCreateContainer: false,
   canCreateVM: false,

@@ -46,7 +46,7 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 	dashboard.Statistics.TotalProviders = int(totalProviders)
 	dashboard.Statistics.ActiveProviders = int(activeProviders)
 
-	// 添加系统监控状态
+	// 系统监控状态
 	monitoringService := &MonitoringService{}
 	systemStats := monitoringService.GetSystemStats()
 

@@ -54,12 +54,12 @@ func LoggerMiddleware() gin.HandlerFunc {
 			zap.String("user_agent", utils.TruncateString(userAgent, 100)),
 		}
 
-		// 添加查询参数（如果存在且不敏感）
+		// 查询参数（如果存在且不敏感）
 		if raw != "" && !containsSensitiveInfo(raw) {
 			fields = append(fields, zap.String("query", utils.TruncateString(raw, 200)))
 		}
 
-		// 添加请求体（仅对特定方法和非敏感内容）
+		// 请求体（仅对特定方法和非敏感内容）
 		if shouldLogRequestBody(method, path) && len(body) > 0 && len(body) < 1000 {
 			bodyStr := string(body)
 			if !containsSensitiveInfo(bodyStr) {
@@ -67,7 +67,7 @@ func LoggerMiddleware() gin.HandlerFunc {
 			}
 		}
 
-		// 添加错误信息（如果存在）
+		// 错误信息（如果存在）
 		if len(c.Errors) > 0 {
 			errorStr := strings.TrimRight(c.Errors.ByType(gin.ErrorTypePrivate).String(), "\n")
 			fields = append(fields, zap.String("errors", utils.TruncateString(errorStr, 200)))

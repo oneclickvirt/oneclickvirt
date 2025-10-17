@@ -84,6 +84,10 @@ type CreateProviderRequest struct {
 	// SSH连接配置
 	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
 	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
+
+	// 节点级别的等级限制配置
+	// 用于限制该节点上不同等级用户能创建的最大资源
+	LevelLimits map[int]map[string]interface{} `json:"levelLimits"` // 等级限制配置
 }
 
 type UpdateProviderRequest struct {
@@ -131,6 +135,10 @@ type UpdateProviderRequest struct {
 	// SSH连接配置
 	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
 	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
+
+	// 节点级别的等级限制配置
+	// 用于限制该节点上不同等级用户能创建的最大资源
+	LevelLimits map[int]map[string]interface{} `json:"levelLimits"` // 等级限制配置
 }
 
 type ProviderListRequest struct {

@@ -24,7 +24,7 @@ const refreshKey = ref(0)
 
 // 页面进入前
 const onBeforeEnter = () => {
-  // 添加加载状态指示
+  // 加载状态指示
   const appMain = document.querySelector('.app-main')
   if (appMain) {
     appMain.style.opacity = '0.7'

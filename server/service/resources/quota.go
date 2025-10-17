@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"oneclickvirt/service/database"
@@ -31,8 +32,9 @@ type ResourceRequest struct {
 	CPU          int
 	Memory       int64
 	Disk         int64
-	Bandwidth    int // 添加带宽字段
+	Bandwidth    int // 带宽字段
 	InstanceType string
+	ProviderID   uint //  Provider ID 用于节点级限制检查
 }
 
 // QuotaCheckResult 配额检查结果
@@ -43,7 +45,7 @@ type QuotaCheckResult struct {
 	MaxInstances      int
 	CurrentResources  ResourceUsage
 	MaxResources      ResourceUsage
-	MaxQuota          ResourceUsage // 添加MaxQuota字段
+	MaxQuota          ResourceUsage // MaxQuota字段
 	RequiredResources ResourceUsage
 }
 
@@ -52,7 +54,7 @@ type ResourceUsage struct {
 	CPU       int
 	Memory    int64
 	Disk      int64
-	Bandwidth int // 添加带宽字段
+	Bandwidth int // 带宽字段
 }
 
 // GetResourceUsage 计算资源使用量（标准化计算方式）
@@ -109,10 +111,34 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		}, nil
 	}
 
+	// 如果提供了 ProviderID，需要获取并合并 Provider 的等级限制
+	var providerLevelLimits *config.LevelLimitInfo
+	if req.ProviderID > 0 {
+		var err error
+		providerLevelLimits, err = s.getProviderLevelLimits(tx, req.ProviderID, user.Level)
+		if err != nil {
+			return nil, fmt.Errorf("获取 Provider 等级限制失败: %v", err)
+		}
+
+		// 如果 Provider 有等级限制配置，则取两者的最小值用于后续验证
+		if providerLevelLimits != nil {
+			levelLimits = s.mergeLevelLimits(levelLimits, *providerLevelLimits)
+		}
+	}
+
 	// 统计当前实例数量和资源使用
 	currentInstances, currentResources, err := s.getCurrentResourceUsage(tx, req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("获取当前资源使用情况失败: %v", err)
+	}
+
+	// 如果提供了 ProviderID，还需要检查该用户在此节点上的实例数量
+	var currentProviderInstances int
+	if req.ProviderID > 0 {
+		currentProviderInstances, err = s.getCurrentProviderInstanceCount(tx, req.UserID, req.ProviderID)
+		if err != nil {
+			return nil, fmt.Errorf("获取节点实例数量失败: %v", err)
+		}
 	}
 
 	// 计算请求的资源
@@ -135,11 +161,22 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		RequiredResources: requestedResources,
 	}
 
-	// 1. 检查实例数量限制
+	// 1. 检查用户全局实例数量限制
 	if currentInstances >= levelLimits.MaxInstances {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("实例数量已达上限：当前 %d/%d", currentInstances, levelLimits.MaxInstances)
 		return result, nil
+	}
+
+	// 1.5 如果有 Provider 限制，还需要检查用户在该节点的实例数量
+	if req.ProviderID > 0 && providerLevelLimits != nil {
+		// 注意：这里使用的是合并前的 providerLevelLimits，因为我们要检查节点本身的限制
+		if currentProviderInstances >= providerLevelLimits.MaxInstances {
+			result.Allowed = false
+			result.Reason = fmt.Sprintf("该节点实例数量已达上限：当前在此节点 %d/%d",
+				currentProviderInstances, providerLevelLimits.MaxInstances)
+			return result, nil
+		}
 	}
 
 	// 2. 检查CPU限制
@@ -212,6 +249,23 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 	}
 
 	return instanceCount, totalResources, nil
+}
+
+// getCurrentProviderInstanceCount 获取用户在指定 Provider 上的实例数量
+func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint, providerID uint) (int, error) {
+	var count int64
+
+	// 查询用户在该 Provider 上的非删除状态实例数量
+	err := tx.Model(&provider.Instance{}).
+		Where("user_id = ? AND provider_id = ? AND status != ? AND status != ?",
+			userID, providerID, "deleting", "deleted").
+		Count(&count).Error
+
+	if err != nil {
+		return 0, err
+	}
+
+	return int(count), nil
 }
 
 // getLevelMaxResources 获取等级最大资源限制
@@ -433,4 +487,97 @@ func (s *QuotaService) CheckUserQuota(req interface{}) error {
 	}
 
 	return nil
+}
+
+// getProviderLevelLimits 获取 Provider 的等级限制配置
+func (s *QuotaService) getProviderLevelLimits(tx *gorm.DB, providerID uint, userLevel int) (*config.LevelLimitInfo, error) {
+	var prov provider.Provider
+	if err := tx.First(&prov, providerID).Error; err != nil {
+		return nil, fmt.Errorf("Provider 不存在: %v", err)
+	}
+
+	// 如果 Provider 没有配置 LevelLimits，返回 nil
+	if prov.LevelLimits == "" {
+		return nil, nil
+	}
+
+	// 解析 JSON 格式的 LevelLimits
+	var providerLimits map[int]config.LevelLimitInfo
+	if err := json.Unmarshal([]byte(prov.LevelLimits), &providerLimits); err != nil {
+		return nil, fmt.Errorf("解析 Provider 等级限制失败: %v", err)
+	}
+
+	// 获取对应用户等级的限制
+	if limitInfo, exists := providerLimits[userLevel]; exists {
+		return &limitInfo, nil
+	}
+
+	// 如果没有配置该等级的限制，返回 nil
+	return nil, nil
+}
+
+// mergeLevelLimits 合并用户等级限制和 Provider 等级限制，取两者最小值
+func (s *QuotaService) mergeLevelLimits(userLimits, providerLimits config.LevelLimitInfo) config.LevelLimitInfo {
+	merged := config.LevelLimitInfo{
+		MaxInstances: userLimits.MaxInstances,
+		MaxResources: make(map[string]interface{}),
+		MaxTraffic:   userLimits.MaxTraffic,
+	}
+
+	// 取实例数量的最小值
+	if providerLimits.MaxInstances > 0 && providerLimits.MaxInstances < userLimits.MaxInstances {
+		merged.MaxInstances = providerLimits.MaxInstances
+	}
+
+	// 取流量限制的最小值
+	if providerLimits.MaxTraffic > 0 && providerLimits.MaxTraffic < userLimits.MaxTraffic {
+		merged.MaxTraffic = providerLimits.MaxTraffic
+	}
+
+	// 合并资源限制，取每项的最小值
+	resourceKeys := []string{"cpu", "memory", "disk", "bandwidth"}
+	for _, key := range resourceKeys {
+		userVal := s.getResourceValue(userLimits.MaxResources, key)
+		providerVal := s.getResourceValue(providerLimits.MaxResources, key)
+
+		// 如果 Provider 没有配置该资源，使用用户限制
+		if providerVal == 0 {
+			merged.MaxResources[key] = userVal
+		} else if userVal == 0 {
+			// 如果用户没有配置该资源（理论上不应该发生），使用 Provider 限制
+			merged.MaxResources[key] = providerVal
+		} else {
+			// 取两者最小值
+			if providerVal < userVal {
+				merged.MaxResources[key] = providerVal
+			} else {
+				merged.MaxResources[key] = userVal
+			}
+		}
+	}
+
+	return merged
+}
+
+// getResourceValue 从资源 map 中获取数值
+func (s *QuotaService) getResourceValue(resources map[string]interface{}, key string) int64 {
+	if resources == nil {
+		return 0
+	}
+
+	val, exists := resources[key]
+	if !exists {
+		return 0
+	}
+
+	switch v := val.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
 }

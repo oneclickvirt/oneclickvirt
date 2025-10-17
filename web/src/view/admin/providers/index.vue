@@ -1954,14 +1954,14 @@ const showAddDialog = ref(false)
 const addProviderLoading = ref(false)
 const addProviderFormRef = ref()
 const isEditing = ref(false)
-const activeConfigTab = ref('basic') // 添加标签页状态
+const activeConfigTab = ref('basic') // 标签页状态
 
 // 分页
 const currentPage = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 
-// 添加服务器表单
+// 服务器表单
 const addProviderForm = reactive({
   id: null,
   name: '',
@@ -2245,10 +2245,10 @@ const submitAddServer = async () => {
       countryCode: addProviderForm.countryCode,
       container_enabled: addProviderForm.containerEnabled,
       vm_enabled: addProviderForm.vmEnabled,
-      architecture: addProviderForm.architecture, // 添加架构字段
+      architecture: addProviderForm.architecture, // 架构字段
       totalQuota: 0,
       allowClaim: true,
-      expiresAt: addProviderForm.expiresAt || '', // 添加过期时间字段
+      expiresAt: addProviderForm.expiresAt || '', // 过期时间字段
       maxContainerInstances: addProviderForm.maxContainerInstances || 0, // 最大容器数
       maxVMInstances: addProviderForm.maxVMInstances || 0, // 最大虚拟机数
       allowConcurrentTasks: addProviderForm.allowConcurrentTasks, // 是否允许并发任务
@@ -2316,7 +2316,7 @@ const submitAddServer = async () => {
       await updateProvider(addProviderForm.id, serverData)
       ElMessage.success('服务器更新成功')
     } else {
-      // 添加服务器
+      // 服务器
       await createProvider(serverData)
       ElMessage.success('服务器添加成功')
     }
@@ -2367,9 +2367,9 @@ const editProvider = (provider) => {
     countryCode: provider.countryCode || '',
     containerEnabled: provider.container_enabled === true,
     vmEnabled: provider.vm_enabled === true,
-    architecture: provider.architecture || 'amd64', // 添加架构字段
+    architecture: provider.architecture || 'amd64', // 架构字段
     status: provider.status || 'active',
-    expiresAt: provider.expiresAt || '', // 添加过期时间字段
+    expiresAt: provider.expiresAt || '', // 过期时间字段
     maxContainerInstances: provider.maxContainerInstances || 0, // 最大容器数
     maxVMInstances: provider.maxVMInstances || 0, // 最大虚拟机数
     allowConcurrentTasks: provider.allowConcurrentTasks || false, // 是否允许并发任务
@@ -2890,7 +2890,7 @@ const viewTaskLog = async (taskId) => {
 
   try {
     const response = await getConfigurationTaskDetail(taskId)
-    console.log('任务详情API响应:', response) // 添加调试日志
+    console.log('任务详情API响应:', response) // 调试日志
     if (response.code === 0 || response.code === 200) {
       taskLogDialog.task = response.data
     } else {

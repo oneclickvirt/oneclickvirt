@@ -266,7 +266,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB
 		cmd = fmt.Sprintf("lxc init %s %s --vm", config.Image, config.Name)
 
-		// 添加资源配置参数
+		// 资源配置参数
 		if config.CPU != "" {
 			cmd += fmt.Sprintf(" -c limits.cpu=%s", config.CPU)
 		}
@@ -284,7 +284,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		// 容器创建命令格式
 		cmd = fmt.Sprintf("lxc init %s %s", config.Image, config.Name)
 
-		// 添加资源限制
+		// 资源限制
 		if config.CPU != "" || config.Memory != "" {
 			limits := []string{}
 			if config.CPU != "" {
@@ -299,7 +299,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			}
 		}
 
-		// 添加磁盘配置
+		// 磁盘配置
 		if config.Disk != "" {
 			diskFormatted := convertDiskFormat(config.Disk)
 			cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)

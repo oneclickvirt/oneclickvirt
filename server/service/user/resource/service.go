@@ -110,6 +110,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		Memory:       req.Memory,
 		Disk:         req.Disk,
 		InstanceType: req.InstanceType,
+		ProviderID:   req.ProviderID, //  Provider ID 用于节点级限制检查
 	}
 
 	// 验证配额

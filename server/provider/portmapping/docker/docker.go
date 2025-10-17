@@ -394,7 +394,7 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 	// 构建基础命令
 	cmd := fmt.Sprintf("docker run -d --name %s", instance.Name)
 
-	// 添加资源限制（如果有的话）
+	// 资源限制（如果有的话）
 	if len(configParts) >= 3 && configParts[2] != "0" {
 		cmd += fmt.Sprintf(" --memory=%s", configParts[2])
 	}
@@ -406,7 +406,7 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 		}
 	}
 
-	// 添加现有的端口映射
+	// 现有的端口映射
 	if existingPorts != "" {
 		lines := strings.Split(strings.TrimSpace(existingPorts), "\n")
 		for _, line := range lines {
@@ -427,13 +427,13 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 		}
 	}
 
-	// 添加新的端口映射 - 只映射IPv4端口
+	// 新的端口映射 - 只映射IPv4端口
 	cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/%s", newHostPort, newGuestPort, protocol)
 
-	// 添加必要的能力
+	// 必要的能力
 	cmd += " --cap-add=MKNOD"
 
-	// 添加镜像
+	// 镜像
 	cmd += fmt.Sprintf(" %s", image)
 
 	return cmd
@@ -559,7 +559,7 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 	// 构建基础命令
 	cmd := fmt.Sprintf("docker run -d --name %s", instance.Name)
 
-	// 添加资源限制
+	// 资源限制
 	if len(configParts) >= 3 && configParts[2] != "0" {
 		cmd += fmt.Sprintf(" --memory=%s", configParts[2])
 	}
@@ -567,7 +567,7 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 		cmd += fmt.Sprintf(" --cpus=%s", configParts[3])
 	}
 
-	// 添加过滤后的端口映射
+	// 过滤后的端口映射
 	for _, portLine := range filteredPorts {
 		if strings.Contains(portLine, "->") {
 			parts := strings.Split(portLine, "->")
@@ -584,10 +584,10 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 		}
 	}
 
-	// 添加必要的能力
+	// 必要的能力
 	cmd += " --cap-add=MKNOD"
 
-	// 添加镜像
+	// 镜像
 	cmd += fmt.Sprintf(" %s", image)
 
 	return cmd

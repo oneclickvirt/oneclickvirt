@@ -239,7 +239,7 @@ const userRoutes = computed(() => {
   return routes
 })
 
-// 添加生命周期钩子，检查DOM渲染
+// 生命周期钩子，检查DOM渲染
 onMounted(() => {
   console.log('侧边栏组件已挂载，组件ID:', Date.now())
   console.log('当前用户类型:', userStore.userType)

@@ -401,7 +401,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	i.sshClient.Execute(stopCmd)
 	time.Sleep(3 * time.Second)
 
-	// 添加IPv6网络设备
+	// IPv6网络设备
 	deviceCmd := fmt.Sprintf("incus config device add %s eth1 nic nictype=routed parent=%s ipv6.address=%s",
 		config.ContainerName, ipv6NetworkName, containerIPv6)
 	_, err = i.sshClient.Execute(deviceCmd)
@@ -513,7 +513,7 @@ func (i *IncusProvider) handleIPv6Gateway(ctx context.Context, interfaceName str
 			i.sshClient.Execute(createScriptCmd)
 			i.sshClient.Execute("chmod 777 /usr/local/bin/remove_route.sh")
 
-			// 添加到crontab
+			// 到crontab
 			checkCronCmd := "crontab -l | grep -q '/usr/local/bin/remove_route.sh'"
 			_, err := i.sshClient.Execute(checkCronCmd)
 			if err != nil {
@@ -709,20 +709,20 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		return "", fmt.Errorf("无可用IPv6地址，不进行自动映射")
 	}
 
-	// 添加IPv6地址到接口
+	// IPv6地址到接口
 	addAddrCmd := fmt.Sprintf("ip addr add %s/%s dev %s", mappedIPv6, ipv6Length, interfaceName)
 	_, err = i.sshClient.Execute(addAddrCmd)
 	if err != nil {
 		return "", fmt.Errorf("添加IPv6地址失败: %w", err)
 	}
 
-	// 添加防火墙/iptables规则
+	// 防火墙/iptables规则
 	if useFirewalld {
 		// 启用firewalld
 		i.sshClient.Execute("systemctl enable --now firewalld")
 		time.Sleep(3 * time.Second)
 
-		// 添加firewalld直接规则
+		// firewalld直接规则
 		natRuleCmd := fmt.Sprintf("firewall-cmd --permanent --direct --add-rule ipv6 nat PREROUTING 0 -d %s -j DNAT --to-destination %s", mappedIPv6, containerIPv6)
 		_, err = i.sshClient.Execute(natRuleCmd)
 		if err != nil {
@@ -735,7 +735,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 			return "", fmt.Errorf("重新加载firewalld失败: %w", err)
 		}
 	} else {
-		// 添加ip6tables NAT规则
+		// ip6tables NAT规则
 		natRuleCmd := fmt.Sprintf("ip6tables -t nat -A PREROUTING -d %s -j DNAT --to-destination %s", mappedIPv6, containerIPv6)
 		_, err = i.sshClient.Execute(natRuleCmd)
 		if err != nil {

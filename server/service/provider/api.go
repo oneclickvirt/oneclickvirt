@@ -49,6 +49,10 @@ type ConnectProviderRequest struct {
 	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小
+
+	// 节点级别的等级限制配置
+	// 用于限制该节点上不同等级用户能创建的最大资源
+	LevelLimits map[int]map[string]interface{} `json:"levelLimits"` // 等级限制配置
 }
 
 // CreateInstanceRequest 创建实例的请求结构

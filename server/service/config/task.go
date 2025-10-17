@@ -409,7 +409,7 @@ func (s *TaskService) convertToResponse(task admin.ConfigurationTask) admin.Conf
 		UpdatedAt:    task.UpdatedAt,
 	}
 
-	// 添加Provider信息
+	// Provider信息
 	if task.Provider != nil {
 		response.ProviderName = task.Provider.Name
 		response.ProviderType = task.Provider.Type

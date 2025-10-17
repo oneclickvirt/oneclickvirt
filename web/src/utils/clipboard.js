@@ -40,7 +40,7 @@ export async function copyToClipboard(text, successMessage = '已复制到剪贴
     textArea.style.opacity = '0'
     textArea.style.pointerEvents = 'none'
     
-    // 添加到DOM
+    // 到DOM
     document.body.appendChild(textArea)
     
     try {

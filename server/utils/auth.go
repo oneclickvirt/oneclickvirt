@@ -34,7 +34,7 @@ func GenerateToken(userID uint, username, userType string) (string, error) {
 		"exp":       now.Add(24 * time.Hour).Unix(),
 		"iat":       now.Unix(),
 		"nbf":       now.Unix(),
-		"jti":       generateTokenID(), // 添加唯一token ID
+		"jti":       generateTokenID(), // 唯一token ID
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)

@@ -343,7 +343,7 @@ const instanceTypePermissions = ref({
   }
 })
 
-// 添加规格配置数据
+// 规格配置数据
 const instanceConfig = ref({
   cpuSpecs: [],
   memorySpecs: [],
@@ -909,9 +909,9 @@ const handleRouterNavigation = (event) => {
 }
 
 onMounted(async () => {
-  // 添加自定义导航事件监听器
+  // 自定义导航事件监听器
   window.addEventListener('router-navigation', handleRouterNavigation)
-  // 添加强制页面刷新监听器
+  // 强制页面刷新监听器
   window.addEventListener('force-page-refresh', handleForceRefresh)
   
   // 优先加载核心数据，避免并发请求导致数据库锁定

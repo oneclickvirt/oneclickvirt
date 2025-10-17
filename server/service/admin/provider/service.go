@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"oneclickvirt/global"
@@ -174,6 +175,19 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		// SSH连接配置
 		SSHConnectTimeout: req.SSHConnectTimeout,
 		SSHExecuteTimeout: req.SSHExecuteTimeout,
+	}
+
+	// 节点级别等级限制配置
+	if req.LevelLimits != nil {
+		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
+		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
+		if err != nil {
+			global.APP_LOG.Error("序列化节点等级限制配置失败",
+				zap.String("providerName", req.Name),
+				zap.Error(err))
+			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+		}
+		provider.LevelLimits = string(levelLimitsJSON)
 	}
 
 	// 设置默认值
@@ -360,6 +374,19 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 	if req.SSHExecuteTimeout > 0 {
 		provider.SSHExecuteTimeout = req.SSHExecuteTimeout
+	}
+
+	// 节点级别等级限制配置更新
+	if req.LevelLimits != nil {
+		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
+		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
+		if err != nil {
+			global.APP_LOG.Error("序列化节点等级限制配置失败",
+				zap.Uint("providerID", req.ID),
+				zap.Error(err))
+			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+		}
+		provider.LevelLimits = string(levelLimitsJSON)
 	}
 
 	// 设置默认值
@@ -746,7 +773,7 @@ func (s *Service) GetProviderStatus(providerID uint) (*admin.ProviderStatusRespo
 		CertPath:        provider.CertPath,
 		KeyPath:         provider.KeyPath,
 		CertFingerprint: provider.CertFingerprint,
-		// 添加资源信息
+		// 资源信息
 		NodeCPUCores:     provider.NodeCPUCores,
 		NodeMemoryTotal:  provider.NodeMemoryTotal,
 		NodeDiskTotal:    provider.NodeDiskTotal,

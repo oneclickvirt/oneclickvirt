@@ -143,7 +143,7 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 		"type":             provider.GetProviderType(),
 	}
 
-	// 添加特定Provider的能力信息
+	// 特定Provider的能力信息
 	switch providerType {
 	case "docker":
 		capabilities["description"] = "Docker原生端口映射，端口在容器创建时固定"

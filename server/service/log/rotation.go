@@ -445,7 +445,7 @@ func (s *LogRotationService) GetLogFiles() ([]LogFileInfo, error) {
 				Size:    fileInfo.Size(),
 				ModTime: fileInfo.ModTime(),
 				IsGzip:  ext == ".gz",
-				Date:    dirName, // 添加日期信息
+				Date:    dirName, // 日期信息
 			}
 
 			logFiles = append(logFiles, logFile)
@@ -467,7 +467,7 @@ type LogFileInfo struct {
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
 	IsGzip  bool      `json:"is_gzip"`
-	Date    string    `json:"date"` // 添加日期字段，格式为 YYYY-MM-DD
+	Date    string    `json:"date"` // 日期字段，格式为 YYYY-MM-DD
 }
 
 // ReadLogFile 读取日志文件内容

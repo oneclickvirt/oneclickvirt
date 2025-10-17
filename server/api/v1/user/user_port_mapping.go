@@ -113,7 +113,7 @@ func GetInstancePorts(c *gin.Context) {
 		}
 	}
 
-	// 添加实例和Provider信息
+	// 实例和Provider信息
 	response := gin.H{
 		"list":     formattedPorts,
 		"total":    len(formattedPorts),

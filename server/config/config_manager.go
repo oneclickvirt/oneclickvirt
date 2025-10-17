@@ -149,7 +149,7 @@ func (cm *ConfigManager) initValidationRules() {
 		},
 	}
 
-	// 添加更多验证规则...
+	// 更多验证规则...
 }
 
 // GetConfig 获取配置

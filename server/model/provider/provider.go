@@ -140,6 +140,11 @@ type Provider struct {
 	AvailableCPUCores int   `json:"availableCpuCores" gorm:"default:0"` // 可用的CPU核心数（NodeCPUCores - UsedCPUCores）
 	AvailableMemory   int64 `json:"availableMemory" gorm:"default:0"`   // 可用的内存大小（NodeMemoryTotal - UsedMemory）
 	UsedInstances     int   `json:"usedInstances" gorm:"default:0"`     // 已使用的实例总数（ContainerCount + VMCount）
+
+	// 节点级别的等级限制配置（JSON格式存储）
+	// 用于限制该节点上不同等级用户能创建的最大资源，与全局等级配置类似但仅对当前节点生效
+	// 该字段会与用户全局等级限制进行比较，取两者的最小值作为实际限制
+	LevelLimits string `json:"levelLimits" gorm:"type:text"` // JSON格式: map[int]config.LevelLimitInfo
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {

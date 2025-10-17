@@ -1,16 +1,8 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
     enable-email: false
-    enable-oauth2: false
-    enable-public-registration: false
+    enable-public-registration: true
     enable-qq: false
     enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
 captcha:
     enabled: true
     expire-time: 300

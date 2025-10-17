@@ -6,6 +6,6 @@ import adminModel "oneclickvirt/model/admin"
 type TaskServiceInterface interface {
 	CreateTask(userID uint, providerID *uint, instanceID *uint, taskType string, taskData string, timeoutDuration int) (*adminModel.Task, error)
 
-	// 添加状态管理器访问方法
+	// 状态管理器访问方法
 	GetStateManager() TaskStateManagerInterface
 }

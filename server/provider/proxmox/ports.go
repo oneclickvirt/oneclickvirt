@@ -123,7 +123,7 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 		cleanInstanceIP = strings.Split(cleanInstanceIP, "/")[0]
 	}
 
-	// 添加DNAT规则 - 将外部请求转发到内部实例
+	// DNAT规则 - 将外部请求转发到内部实例
 	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -i vmbr0 -p %s --dport %d -j DNAT --to-destination %s:%d",
 		protocol, hostPort, cleanInstanceIP, guestPort)
 
@@ -132,7 +132,7 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 		return fmt.Errorf("添加DNAT规则失败: %w", err)
 	}
 
-	// 添加FORWARD规则 - 允许转发流量
+	// FORWARD规则 - 允许转发流量
 	forwardCmd := fmt.Sprintf("iptables -A FORWARD -d %s -p %s --dport %d -j ACCEPT",
 		cleanInstanceIP, protocol, guestPort)
 
@@ -141,7 +141,7 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 		return fmt.Errorf("添加FORWARD规则失败: %w", err)
 	}
 
-	// 添加MASQUERADE规则 - 处理返回流量
+	// MASQUERADE规则 - 处理返回流量
 	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -p %s --sport %d -j MASQUERADE",
 		cleanInstanceIP, protocol, guestPort)
 

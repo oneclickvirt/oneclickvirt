@@ -111,7 +111,7 @@ func (i *IncusHealthChecker) checkAPI(ctx context.Context) error {
 		}
 	}
 
-	// 添加认证头（如果有token）
+	// 认证头（如果有token）
 	if i.config.Token != "" {
 		// Incus使用客户端证书认证，这里只是一个占位符
 		req.Header.Set("Authorization", "Bearer "+i.config.Token)

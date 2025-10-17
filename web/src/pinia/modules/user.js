@@ -37,7 +37,7 @@ export const useUserStore = defineStore('user', {
 
     async userLogin(loginForm) {
       try {
-        // 添加必需的字段
+        // 必需的字段
         const loginData = {
           ...loginForm,
           loginType: 'username',
@@ -61,7 +61,7 @@ export const useUserStore = defineStore('user', {
 
     async adminLogin(loginForm) {
       try {
-        // 添加必需的字段
+        // 必需的字段
         const loginData = {
           ...loginForm,
           loginType: 'username',

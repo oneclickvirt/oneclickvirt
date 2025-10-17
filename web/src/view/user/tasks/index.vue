@@ -411,7 +411,7 @@ const groupedTasks = computed(() => {
     
     // 正在执行的任务（running 或 processing 状态）
     if (task.status === 'running' || task.status === 'processing') {
-      group.currentTasks.push(task) // 添加到数组中而不是覆盖
+      group.currentTasks.push(task) // 到数组中而不是覆盖
     } else if (task.status === 'pending') {
       group.pendingTasks.push(task)
     } else {
@@ -637,9 +637,9 @@ const handleRouterNavigation = (event) => {
 }
 
 onMounted(async () => {
-  // 添加自定义导航事件监听器
+  // 自定义导航事件监听器
   window.addEventListener('router-navigation', handleRouterNavigation)
-  // 添加强制页面刷新监听器
+  // 强制页面刷新监听器
   window.addEventListener('force-page-refresh', handleForceRefresh)
   
   // 使用Promise.allSettled确保即使某些API失败，页面也能正常显示

@@ -102,6 +102,6 @@ type Captcha struct {
 	Code      string         `json:"code" gorm:"not null;size:16"`
 	CreatedAt time.Time      `json:"createdAt"`
 	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"` // 添加软删除字段
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"` // 软删除字段
 	ExpiresAt time.Time      `json:"expiresAt" gorm:"index"`
 }

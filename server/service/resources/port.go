@@ -22,7 +22,7 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 
 	query := global.APP_DB.Model(&provider.Port{})
 
-	// 添加查询条件
+	// 查询条件
 	if req.ProviderID > 0 {
 		query = query.Where("provider_id = ?", req.ProviderID)
 	}

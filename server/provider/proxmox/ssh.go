@@ -1758,7 +1758,7 @@ func (p *ProxmoxProvider) configurePortForwarding(ctx context.Context, vmid int,
 			continue
 		}
 
-		// 添加iptables规则进行端口转发
+		// iptables规则进行端口转发
 		rule := fmt.Sprintf("iptables -t nat -A PREROUTING -i vmbr0 -p tcp --dport %s -j DNAT --to-destination %s:%s",
 			parts[0], userIP, parts[1])
 
@@ -2722,7 +2722,7 @@ func (p *ProxmoxProvider) setupNATMapping(ctx context.Context, vmInternalIPv6, h
 		return fmt.Errorf("创建IPv6 NAT规则文件失败: %w", err)
 	}
 
-	// 添加ip6tables规则
+	// ip6tables规则
 	dnatRule := fmt.Sprintf("ip6tables -t nat -A PREROUTING -d '%s' -j DNAT --to-destination '%s'", hostExternalIPv6, vmInternalIPv6)
 	snatRule := fmt.Sprintf("ip6tables -t nat -A POSTROUTING -s '%s' -j SNAT --to-source '%s'", vmInternalIPv6, hostExternalIPv6)
 

@@ -42,7 +42,7 @@ func (s *JWTBlacklistService) AddToBlacklist(tokenString string, userID uint, re
 		return err
 	}
 
-	// 添加到黑名单
+	// 到黑名单
 	blacklist := auth.JWTBlacklist{
 		JTI:       jti,
 		UserID:    userID,

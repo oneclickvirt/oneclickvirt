@@ -58,7 +58,7 @@ type AuditLog struct {
 	ID         uint           `json:"id" gorm:"primarykey"`
 	CreatedAt  time.Time      `json:"createdAt"`
 	UpdatedAt  time.Time      `json:"updatedAt"`
-	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"` // 添加软删除字段
+	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"` // 软删除字段
 	UserID     *uint          `json:"userId"`         // 改为可空，未登录用户可能没有UserID
 	Username   string         `json:"username" gorm:"size:64"`
 	Method     string         `json:"method" gorm:"size:16"`
@@ -82,5 +82,5 @@ type SystemConfig struct {
 	IsPublic    bool           `json:"isPublic" gorm:"not null;default:false"`      // 是否公开
 	CreatedAt   time.Time      `json:"createdAt"`
 	UpdatedAt   time.Time      `json:"updatedAt"`
-	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"` // 添加软删除字段
+	DeletedAt   gorm.DeletedAt `json:"-" gorm:"index"` // 软删除字段
 }

@@ -251,7 +251,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(80, "配置端口映射...")
-	// 添加端口映射参数 - 只映射IPv4端口
+	// 端口映射参数 - 只映射IPv4端口
 	for _, port := range config.Ports {
 		// 去掉协议部分（如果有的话）
 		portMapping := port
@@ -286,7 +286,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.Error(err))
 	} else if lxcfsAvailable && len(lxcfsVolumes) > 0 {
-		// 添加检测到的LXCFS卷挂载
+		// 检测到的LXCFS卷挂载
 		for _, volume := range lxcfsVolumes {
 			cmd += " " + volume
 		}
@@ -301,7 +301,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(90, "配置容器能力和环境变量...")
-	// 添加必要的能力
+	// 必要的能力
 	cmd += " --cap-add=MKNOD"
 
 	for key, value := range config.Env {

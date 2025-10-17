@@ -999,7 +999,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		Memory:       fmt.Sprintf("%dm", memorySpec.SizeMB), // 使用实际内存大小（MB格式）
 		Disk:         fmt.Sprintf("%dm", diskSpec.SizeMB),   // 使用实际磁盘大小（MB格式）
 		InstanceType: instance.InstanceType,
-		ImageURL:     systemImage.URL, // 添加镜像URL用于下载
+		ImageURL:     systemImage.URL, // 镜像URL用于下载
 		Metadata: map[string]string{
 			"user_level":               fmt.Sprintf("%d", user.Level),              // 用户等级，用于带宽限制配置
 			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpec.SpeedMbps), // 用户选择的带宽规格
@@ -1994,6 +1994,7 @@ func (s *Service) validateCreateTaskPermissions(userID uint, providerID uint, in
 		Disk:         disk,
 		Bandwidth:    bandwidth,
 		InstanceType: instanceType,
+		ProviderID:   providerID, //  Provider ID 用于节点级限制检查
 	}
 
 	quotaResult, err := quotaService.ValidateInstanceCreation(quotaReq)

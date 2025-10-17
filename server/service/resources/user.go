@@ -95,7 +95,7 @@ func (s *UserDashboardService) GetUserDashboard(userID uint) (*userModel.UserDas
 	dashboard.Instances.Containers = int(containers)
 	dashboard.Instances.VMs = int(vms)
 
-	// 添加详细的资源使用信息（包含预留资源）
+	// 详细的资源使用信息（包含预留资源）
 	dashboard.ResourceUsage = &userModel.ResourceUsageInfo{
 		CPU:              totalCPU,                      // 包含预留的CPU
 		Memory:           totalMemory,                   // 包含预留的内存

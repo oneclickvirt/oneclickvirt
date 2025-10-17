@@ -478,7 +478,7 @@ const loadAnnouncements = async () => {
   }
 }
 
-// 添加公告
+// 公告
 const addAnnouncement = () => {
   // 先重置表单，确保清空之前的数据
   resetForm()

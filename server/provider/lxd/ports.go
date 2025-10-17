@@ -423,7 +423,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 		return fmt.Errorf("获取实例IP失败: %w", err)
 	}
 
-	// 添加DNAT规则
+	// DNAT规则
 	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
 		protocol, hostPort, instanceIP, guestPort)
 
@@ -432,7 +432,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 		return fmt.Errorf("添加DNAT规则失败: %w", err)
 	}
 
-	// 添加FORWARD规则
+	// FORWARD规则
 	forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
 		protocol, instanceIP, guestPort)
 
@@ -441,7 +441,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 		return fmt.Errorf("添加FORWARD规则失败: %w", err)
 	}
 
-	// 添加MASQUERADE规则
+	// MASQUERADE规则
 	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
 		protocol, instanceIP, guestPort)
 
@@ -464,7 +464,7 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 		zap.String("instanceIP", instanceIP),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
-	// 添加DNAT规则
+	// DNAT规则
 	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
 		protocol, hostPort, instanceIP, guestPort)
 
@@ -473,7 +473,7 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 		return fmt.Errorf("添加DNAT规则失败: %w", err)
 	}
 
-	// 添加FORWARD规则
+	// FORWARD规则
 	forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
 		protocol, instanceIP, guestPort)
 
@@ -482,7 +482,7 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 		return fmt.Errorf("添加FORWARD规则失败: %w", err)
 	}
 
-	// 添加MASQUERADE规则
+	// MASQUERADE规则
 	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
 		protocol, instanceIP, guestPort)
 
