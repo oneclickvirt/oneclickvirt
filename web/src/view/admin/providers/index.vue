@@ -2096,7 +2096,7 @@ const addProviderForm = reactive({
   countryCode: '',
   containerEnabled: true,
   vmEnabled: false,
-  architecture: 'amd64', // 新增架构字段，默认amd64
+  architecture: 'amd64', // 架构字段，默认amd64
   status: 'active',
   expiresAt: '', // 过期时间
   maxContainerInstances: 0, // 最大容器数，0表示无限制

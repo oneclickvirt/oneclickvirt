@@ -106,6 +106,12 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 	global.APP_LOG.Debug("流量重置检查完成",
 		zap.Int("userCount", len(userIDs)),
 		zap.Int("providerCount", len(providerIDs)))
+
+	// 清理旧的流量记录（保留最近2个月）
+	trafficService := traffic.NewService()
+	if err := trafficService.CleanupOldTrafficRecords(); err != nil {
+		global.APP_LOG.Error("清理旧流量记录失败", zap.Error(err))
+	}
 }
 
 // InitializeUserTrafficQuotas 初始化所有用户的流量配额

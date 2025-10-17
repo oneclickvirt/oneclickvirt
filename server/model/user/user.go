@@ -94,27 +94,32 @@ type PasswordReset struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// TrafficRecord 流量记录表 - 用于跟踪用户在Provider上的流量使用
+// TrafficRecord 流量记录表 - 用于跟踪实例的流量使用
+// 按实例维度存储，用户和Provider的流量通过汇总计算
 type TrafficRecord struct {
-	ID        uint      `json:"id" gorm:"primarykey"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	ID        uint           `json:"id" gorm:"primarykey"`
+	CreatedAt time.Time      `json:"createdAt"`
+	UpdatedAt time.Time      `json:"updatedAt"`
+	DeletedAt gorm.DeletedAt `json:"deletedAt" gorm:"index"` // 软删除字段
 
 	// 关联信息
-	UserID     uint `json:"userId" gorm:"not null;index"`     // 用户ID
-	ProviderID uint `json:"providerId" gorm:"not null;index"` // Provider ID
-	InstanceID uint `json:"instanceId" gorm:"index"`          // 实例ID（可能为空，因为实例可能被删除）
+	UserID     uint `json:"userId" gorm:"not null;index"`                                         // 用户ID
+	ProviderID uint `json:"providerId" gorm:"not null;index"`                                     // Provider ID
+	InstanceID uint `json:"instanceId" gorm:"not null;index;uniqueIndex:idx_instance_year_month"` // 实例ID
 
 	// 时间范围
-	Year  int `json:"year" gorm:"not null;index"`  // 年份
-	Month int `json:"month" gorm:"not null;index"` // 月份
+	Year  int `json:"year" gorm:"not null;index;uniqueIndex:idx_instance_year_month"`  // 年份
+	Month int `json:"month" gorm:"not null;index;uniqueIndex:idx_instance_year_month"` // 月份
 
-	// 流量统计（MB为单位）
+	// 流量统计（MB为单位） - 累积值，从vnStat增量计算
 	TrafficIn  int64 `json:"trafficIn" gorm:"default:0"`  // 入站流量（MB）
 	TrafficOut int64 `json:"trafficOut" gorm:"default:0"` // 出站流量（MB）
 	TotalUsed  int64 `json:"totalUsed" gorm:"default:0"`  // 总使用流量（MB）
 
-	// vnstat相关
-	InterfaceName string     `json:"interfaceName" gorm:"size:32"` // 网络接口名称
-	LastSyncAt    *time.Time `json:"lastSyncAt"`                   // 最后同步时间
+	// vnstat追踪信息
+	InterfaceName  string     `json:"interfaceName" gorm:"size:32"`    // 网络接口名称
+	VnstatVersion  int        `json:"vnstatVersion" gorm:"default:0"`  // vnStat重置版本号
+	LastSyncAt     *time.Time `json:"lastSyncAt"`                      // 最后同步时间
+	LastVnstatRxMB int64      `json:"lastVnstatRxMB" gorm:"default:0"` // 上次vnStat入站值（MB）
+	LastVnstatTxMB int64      `json:"lastVnstatTxMB" gorm:"default:0"` // 上次vnStat出站值（MB）
 }

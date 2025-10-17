@@ -158,4 +158,5 @@ func RegisterTables(db *gorm.DB) {
 		global.APP_LOG.Error("register table failed", zap.Error(err))
 		return
 	}
+	global.APP_LOG.Info("数据库表注册成功")
 }

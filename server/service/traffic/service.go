@@ -97,6 +97,7 @@ func (s *Service) SyncInstanceTraffic(instanceID uint) error {
 }
 
 // SyncProviderTraffic 同步Provider流量统计
+// 从TrafficRecord汇总该Provider下所有实例的当月流量（包含已删除实例）
 func (s *Service) SyncProviderTraffic(providerID uint) error {
 	now := time.Now()
 	year := now.Year()
@@ -104,7 +105,9 @@ func (s *Service) SyncProviderTraffic(providerID uint) error {
 
 	// 统计该Provider当月所有实例的流量使用量
 	var totalUsed int64
+	// 使用 Unscoped() 包含已软删除的记录，确保累计值准确
 	err := global.APP_DB.Model(&userModel.TrafficRecord{}).
+		Unscoped(). // ← 关键：包含已删除的记录
 		Where("provider_id = ? AND year = ? AND month = ?", providerID, year, month).
 		Select("COALESCE(SUM(total_used), 0)").
 		Scan(&totalUsed).Error
@@ -112,6 +115,12 @@ func (s *Service) SyncProviderTraffic(providerID uint) error {
 	if err != nil {
 		return err
 	}
+
+	global.APP_LOG.Debug("从TrafficRecord同步Provider流量（含已删除实例）",
+		zap.Uint("providerID", providerID),
+		zap.Int("year", year),
+		zap.Int("month", month),
+		zap.Int64("totalUsed", totalUsed))
 
 	// 更新Provider的UsedTraffic字段
 	return global.APP_DB.Model(&provider.Provider{}).
@@ -298,52 +307,49 @@ func (s *Service) getInstanceMonthlyTrafficFromVnStat(instanceID uint, year, mon
 	return totalBytes / (1024 * 1024), nil
 }
 
-// updateTrafficRecord 更新流量记录
+// updateTrafficRecord 更新流量记录 - 按实例维度记录
 func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data *system.VnstatData) error {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
+	// 按实例维度查询流量记录
 	var record userModel.TrafficRecord
 	err := global.APP_DB.Where(
-		"user_id = ? AND provider_id = ? AND year = ? AND month = ?",
-		userID, providerID, year, month,
+		"instance_id = ? AND year = ? AND month = ?",
+		instanceID, year, month,
 	).First(&record).Error
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 创建新记录，以当前实例数据作为初始值
+			// 创建新记录，初始化为0，然后累加当前vnStat值作为增量
 			record = userModel.TrafficRecord{
-				UserID:        userID,
-				ProviderID:    providerID,
-				InstanceID:    instanceID,
-				Year:          year,
-				Month:         month,
-				TrafficIn:     data.RxMB,
-				TrafficOut:    data.TxMB,
-				TotalUsed:     data.TotalMB,
-				InterfaceName: data.Interface,
-				LastSyncAt:    &now,
+				UserID:         userID,
+				ProviderID:     providerID,
+				InstanceID:     instanceID,
+				Year:           year,
+				Month:          month,
+				TrafficIn:      data.RxMB, // 首次记录，直接使用vnStat当前值
+				TrafficOut:     data.TxMB,
+				TotalUsed:      data.TotalMB,
+				InterfaceName:  data.Interface,
+				VnstatVersion:  0,
+				LastSyncAt:     &now,
+				LastVnstatRxMB: data.RxMB, // 记录基准值
+				LastVnstatTxMB: data.TxMB,
 			}
 			return global.APP_DB.Create(&record).Error
 		}
 		return err
 	}
 
-	// 累积更新现有记录 - 确保流量跟随用户累积
-	// 处理vnstat重新初始化的边界条件
-	var currentInstance provider.Instance
-	if err := global.APP_DB.First(&currentInstance, instanceID).Error; err != nil {
-		return err
-	}
-
-	// 检查vnstat是否可能已重新初始化（当前vnstat数据小于上次记录的实例流量）
-	vnstatReset := data.RxMB < currentInstance.UsedTrafficIn || data.TxMB < currentInstance.UsedTrafficOut
+	// 检测vnStat是否重置：当前值小于上次记录的基准值
+	vnstatReset := data.RxMB < record.LastVnstatRxMB || data.TxMB < record.LastVnstatTxMB
 
 	var deltaIn, deltaOut, deltaTotal int64
 
 	if vnstatReset {
-		// vnstat已重新初始化，当前数据就是增量
+		// vnstat已重新初始化，递增版本号，当前值作为新的增量
 		deltaIn = data.RxMB
 		deltaOut = data.TxMB
 		deltaTotal = data.TotalMB
@@ -351,39 +357,49 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 		global.APP_LOG.Info("检测到vnstat重新初始化",
 			zap.Uint("instanceID", instanceID),
 			zap.String("interface", data.Interface),
-			zap.Int64("prevIn", currentInstance.UsedTrafficIn),
-			zap.Int64("prevOut", currentInstance.UsedTrafficOut),
-			zap.Int64("currentIn", data.RxMB),
-			zap.Int64("currentOut", data.TxMB))
+			zap.Int("oldVersion", record.VnstatVersion),
+			zap.Int("newVersion", record.VnstatVersion+1),
+			zap.Int64("lastRxMB", record.LastVnstatRxMB),
+			zap.Int64("lastTxMB", record.LastVnstatTxMB),
+			zap.Int64("currentRxMB", data.RxMB),
+			zap.Int64("currentTxMB", data.TxMB))
 	} else {
-		// 正常增量计算
-		deltaIn = data.RxMB - currentInstance.UsedTrafficIn
-		deltaOut = data.TxMB - currentInstance.UsedTrafficOut
-		deltaTotal = data.TotalMB - (currentInstance.UsedTrafficIn + currentInstance.UsedTrafficOut)
+		// 正常增量计算：当前值 - 上次基准值
+		deltaIn = data.RxMB - record.LastVnstatRxMB
+		deltaOut = data.TxMB - record.LastVnstatTxMB
+		deltaTotal = data.TotalMB - (record.LastVnstatRxMB + record.LastVnstatTxMB)
 	}
 
 	// 只有正增量才更新（防止异常数据）
 	if deltaIn > 0 || deltaOut > 0 || deltaTotal > 0 {
 		updates := map[string]interface{}{
-			"traffic_in":     record.TrafficIn + deltaIn,
-			"traffic_out":    record.TrafficOut + deltaOut,
-			"total_used":     record.TotalUsed + deltaTotal,
-			"instance_id":    instanceID, // 记录最后更新的实例ID
-			"interface_name": data.Interface,
-			"last_sync_at":   now,
+			"traffic_in":        record.TrafficIn + deltaIn,
+			"traffic_out":       record.TrafficOut + deltaOut,
+			"total_used":        record.TotalUsed + deltaTotal,
+			"interface_name":    data.Interface,
+			"last_sync_at":      now,
+			"last_vnstat_rx_mb": data.RxMB, // 更新基准值
+			"last_vnstat_tx_mb": data.TxMB,
+		}
+
+		// 如果检测到重置，递增版本号
+		if vnstatReset {
+			updates["vnstat_version"] = record.VnstatVersion + 1
 		}
 
 		if err := global.APP_DB.Model(&record).Updates(updates).Error; err != nil {
 			return err
 		}
 
-		global.APP_LOG.Debug("用户流量累积更新",
+		global.APP_LOG.Debug("实例流量累积更新",
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", instanceID),
 			zap.Int64("deltaIn", deltaIn),
 			zap.Int64("deltaOut", deltaOut),
 			zap.Int64("deltaTotal", deltaTotal),
-			zap.Bool("vnstatReset", vnstatReset))
+			zap.Bool("vnstatReset", vnstatReset),
+			zap.Int64("累计TrafficIn", record.TrafficIn+deltaIn),
+			zap.Int64("累计TrafficOut", record.TrafficOut+deltaOut))
 	} else {
 		global.APP_LOG.Debug("流量增量为零或负数，跳过更新",
 			zap.Uint("instanceID", instanceID),
@@ -392,12 +408,12 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 			zap.Int64("deltaTotal", deltaTotal))
 	}
 
-	// 更新实例的流量基准值，用于下次增量计算
+	// 同时更新实例表的流量基准值（用于兼容性和快速查询）
 	instanceUpdates := map[string]interface{}{
 		"used_traffic_in":  data.RxMB,
 		"used_traffic_out": data.TxMB,
 	}
-	if err := global.APP_DB.Model(&currentInstance).Updates(instanceUpdates).Error; err != nil {
+	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(instanceUpdates).Error; err != nil {
 		global.APP_LOG.Warn("更新实例流量基准失败",
 			zap.Uint("instanceID", instanceID),
 			zap.Error(err))
@@ -456,18 +472,31 @@ func (s *Service) CheckUserTrafficLimit(userID uint) (bool, error) {
 }
 
 // getUserMonthlyTrafficUsage 获取用户当月流量使用量
+// 从TrafficRecord按实例汇总（包含已删除实例，保证累计值准确）
 func (s *Service) getUserMonthlyTrafficUsage(userID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
 	var totalUsed int64
+	// 使用 Unscoped() 包含已软删除的记录，确保累计值准确
 	err := global.APP_DB.Model(&userModel.TrafficRecord{}).
+		Unscoped(). // ← 关键：包含已删除的记录
 		Where("user_id = ? AND year = ? AND month = ?", userID, year, month).
 		Select("COALESCE(SUM(total_used), 0)").
 		Scan(&totalUsed).Error
 
-	return totalUsed, err
+	if err != nil {
+		return 0, err
+	}
+
+	global.APP_LOG.Debug("从TrafficRecord获取用户月度流量（含已删除实例）",
+		zap.Uint("userID", userID),
+		zap.Int("year", year),
+		zap.Int("month", month),
+		zap.Int64("totalUsed", totalUsed))
+
+	return totalUsed, nil
 }
 
 // checkAndResetMonthlyTraffic 检查并重置月度流量
@@ -624,17 +653,12 @@ func (s *Service) startInstanceAfterTrafficReset(instanceID uint) {
 }
 
 // GetInstanceTrafficHistory 获取实例流量历史
+// 按实例ID查询，因为TrafficRecord现在是按实例维度存储的
 func (s *Service) GetInstanceTrafficHistory(instanceID uint) ([]userModel.TrafficRecord, error) {
-	var instance provider.Instance
-	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
-		return nil, err
-	}
-
 	var records []userModel.TrafficRecord
-	err := global.APP_DB.Where(
-		"user_id = ? AND provider_id = ? AND instance_id = ?",
-		instance.UserID, instance.ProviderID, instanceID,
-	).Order("year DESC, month DESC").Find(&records).Error
+	err := global.APP_DB.Where("instance_id = ?", instanceID).
+		Order("year DESC, month DESC").
+		Find(&records).Error
 
 	return records, err
 }
@@ -716,16 +740,24 @@ func (s *Service) SyncAllTrafficData() error {
 	return nil
 }
 
-// MarkInstanceTrafficDeleted 标记实例流量记录为已删除（用于实例删除时）
+// MarkInstanceTrafficDeleted 软删除实例的流量记录（用于实例删除时）
+// 使用软删除保留历史数据，确保用户和Provider的累计流量不受影响
+// 汇总查询时会自动排除已软删除的记录（如果使用 Unscoped 则包含）
 func (s *Service) MarkInstanceTrafficDeleted(instanceID uint) error {
-	// 更新相关流量记录，标记实例已删除但保留历史数据
-	updates := map[string]interface{}{
-		"instance_id": nil, // 清空实例ID关联，但保留历史记录
+	// 使用软删除，保留流量数据用于历史统计
+	// GORM会自动设置 deleted_at 字段，不会真正删除记录
+	result := global.APP_DB.Where("instance_id = ?", instanceID).
+		Delete(&userModel.TrafficRecord{})
+
+	if result.Error != nil {
+		return result.Error
 	}
 
-	return global.APP_DB.Model(&userModel.TrafficRecord{}).
-		Where("instance_id = ?", instanceID).
-		Updates(updates).Error
+	global.APP_LOG.Info("实例流量记录已软删除（保留累计值）",
+		zap.Uint("instanceID", instanceID),
+		zap.Int64("affectedRows", result.RowsAffected))
+
+	return nil
 }
 
 // ClearInstanceTrafficInterface 清理实例流量接口映射（用于实例重置时）
@@ -799,4 +831,40 @@ func (s *Service) AutoDetectVnstatInterface(instanceID uint) error {
 	}
 
 	return global.APP_DB.Model(&instance).Update("vnstat_interface", defaultInterface).Error
+}
+
+// CleanupOldTrafficRecords 清理旧的流量记录
+// 保留当月和上个月的数据，删除2个月前的数据（包括软删除记录）
+func (s *Service) CleanupOldTrafficRecords() error {
+	now := time.Now()
+	cutoffYear := now.Year()
+	cutoffMonth := int(now.Month()) - 2
+
+	// 处理跨年情况
+	if cutoffMonth <= 0 {
+		cutoffMonth += 12
+		cutoffYear--
+	}
+
+	global.APP_LOG.Info("开始清理旧流量记录",
+		zap.Int("截止年份", cutoffYear),
+		zap.Int("截止月份", cutoffMonth))
+
+	// 物理删除旧记录（包括软删除的记录）
+	// 删除条件：年份小于截止年份，或者年份相等但月份小于截止月份
+	result := global.APP_DB.Unscoped().
+		Where("year < ? OR (year = ? AND month < ?)",
+			cutoffYear, cutoffYear, cutoffMonth).
+		Delete(&userModel.TrafficRecord{})
+
+	if result.Error != nil {
+		global.APP_LOG.Error("清理旧流量记录失败", zap.Error(result.Error))
+		return result.Error
+	}
+
+	global.APP_LOG.Info("清理旧流量记录完成",
+		zap.Int64("删除记录数", result.RowsAffected),
+		zap.Int("保留月份", 2))
+
+	return nil
 }

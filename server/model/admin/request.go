@@ -396,7 +396,7 @@ type CreateInstanceTaskRequest struct {
 	DiskId      string `json:"diskId"`
 	BandwidthId string `json:"bandwidthId"`
 	Description string `json:"description"`
-	SessionId   string `json:"sessionId"` // 新增：会话ID，用于新的资源预留机制
+	SessionId   string `json:"sessionId"` // 会话ID，用于新的资源预留机制
 }
 
 // InstanceOperationTaskRequest 实例操作任务数据结构（启动、停止、重启、重置）

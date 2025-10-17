@@ -65,6 +65,9 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 		return fmt.Errorf("failed to get network interfaces: %w", err)
 	}
 
+	// 记录第一个成功初始化的接口，用于更新实例表
+	var primaryInterface string
+
 	// 为每个接口初始化vnStat和数据库记录
 	for _, iface := range interfaces {
 		if err := s.initVnStatForInterface(providerInstance, instance.Name, iface); err != nil {
@@ -89,13 +92,33 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 				zap.Uint("instance_id", instanceID),
 				zap.String("interface", iface),
 				zap.Error(err))
+		} else {
+			// 记录第一个成功创建的接口作为主接口
+			if primaryInterface == "" {
+				primaryInterface = iface
+			}
+		}
+	}
+
+	// 更新实例表中的vnstat_interface字段
+	if primaryInterface != "" {
+		if err := global.APP_DB.Model(&instance).Update("vnstat_interface", primaryInterface).Error; err != nil {
+			global.APP_LOG.Error("更新实例vnstat接口字段失败",
+				zap.Uint("instance_id", instanceID),
+				zap.String("interface", primaryInterface),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("更新实例vnstat接口字段成功",
+				zap.Uint("instance_id", instanceID),
+				zap.String("interface", primaryInterface))
 		}
 	}
 
 	global.APP_LOG.Info("vnStat初始化完成",
 		zap.Uint("instance_id", instanceID),
 		zap.String("instance_name", instance.Name),
-		zap.Int("interfaces_count", len(interfaces)))
+		zap.Int("interfaces_count", len(interfaces)),
+		zap.String("primary_interface", primaryInterface))
 
 	return nil
 }
@@ -403,6 +426,14 @@ func (s *Service) CleanupVnStatData(instanceID uint) error {
 	result := global.APP_DB.Where("instance_id = ?", instanceID).Delete(&monitoringModel.VnStatTrafficRecord{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete vnstat traffic records: %w", result.Error)
+	}
+
+	// 清空实例表中的vnstat_interface字段
+	if err := global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Update("vnstat_interface", "").Error; err != nil {
+		global.APP_LOG.Warn("清空实例vnstat接口字段失败",
+			zap.Uint("instance_id", instanceID),
+			zap.Error(err))
+		// 不返回错误，继续执行
 	}
 
 	global.APP_LOG.Info("vnStat数据清理完成",

@@ -526,13 +526,15 @@ func (tls *trafficLimitServiceAdapter) GetUserTrafficUsageWithVnStat(userID uint
 
 	trafficLimit := trafficService.GetUserTrafficLimitByLevel(user.Level)
 
-	// 简化的流量使用查询
+	// 简化的流量使用查询（包含已删除实例，保证累计值准确）
 	var totalUsed int64
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
+	// 使用 Unscoped() 包含已软删除的记录
 	err := global.APP_DB.Model(&userModel.TrafficRecord{}).
+		Unscoped(). // ← 关键：包含已删除的记录
 		Where("user_id = ? AND year = ? AND month = ?", userID, year, month).
 		Select("COALESCE(SUM(total_used), 0)").
 		Scan(&totalUsed).Error

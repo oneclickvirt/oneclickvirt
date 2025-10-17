@@ -37,7 +37,7 @@ type HealthResult struct {
 	ServiceStatus string                 `json:"service_status"`
 	Errors        []string               `json:"errors,omitempty"`
 	Details       map[string]interface{} `json:"details,omitempty"`
-	// 新增资源信息字段
+	// 资源信息字段
 	ResourceInfo *ResourceInfo `json:"resource_info,omitempty"`
 }
 

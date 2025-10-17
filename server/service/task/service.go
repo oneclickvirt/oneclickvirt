@@ -1403,6 +1403,30 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("更新实例信息失败: %v", err)
 	}
 
+	// 第四步：清理旧的vnstat接口记录并重新初始化
+	global.APP_LOG.Info("开始重新初始化vnstat监控",
+		zap.Uint("instanceId", instance.ID),
+		zap.String("instanceName", instance.Name))
+
+	// 清理旧的vnstat数据
+	vnstatService := vnstat.NewService()
+	if err := vnstatService.CleanupVnStatData(instance.ID); err != nil {
+		global.APP_LOG.Warn("清理旧的vnstat数据失败",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+	}
+
+	// 重新初始化vnstat监控
+	if err := vnstatService.InitializeVnStatForInstance(instance.ID); err != nil {
+		global.APP_LOG.Warn("重新初始化vnstat监控失败",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+		// 不影响重置流程，继续执行
+	} else {
+		global.APP_LOG.Info("vnstat监控重新初始化成功",
+			zap.Uint("instanceId", instance.ID))
+	}
+
 	global.APP_LOG.Info("用户实例重置成功",
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", instance.ID),

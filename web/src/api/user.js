@@ -181,7 +181,7 @@ export function updateNickname(data) {
   })
 }
 
-// 新增用户限制相关API
+// 用户限制相关API
 export function getUserLimits() {
   return request({
     url: '/v1/user/limits',
