@@ -740,8 +740,16 @@ func GetInstanceConfig(c *gin.Context) {
 		return
 	}
 
+	// 获取可选的 provider_id 参数
+	var providerID uint
+	if providerIDStr := c.Query("provider_id"); providerIDStr != "" {
+		if id, err := strconv.ParseUint(providerIDStr, 10, 32); err == nil {
+			providerID = uint(id)
+		}
+	}
+
 	userServiceInstance := userService.NewService()
-	config, err := userServiceInstance.GetInstanceConfig(userID)
+	config, err := userServiceInstance.GetInstanceConfig(userID, providerID)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例配置失败"))
 		return

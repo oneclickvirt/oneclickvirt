@@ -92,7 +92,7 @@
               <span>硬盘: {{ formatDiskSize(provider.disk || 0) }}</span>
             </div>
             <div class="info-item">
-              <span>可用实例: {{ provider.availableSlots }}</span>
+              <span>可用实例: {{ provider.availableSlots >= 999 ? '不限制' : provider.availableSlots }}</span>
             </div>
           </div>
         </div>
@@ -608,9 +608,9 @@ const loadProviderCapabilities = async (providerId) => {
 }
 
 // 获取实例配置选项
-const loadInstanceConfig = async () => {
+const loadInstanceConfig = async (providerId = null) => {
   try {
-    const response = await getInstanceConfig()
+    const response = await getInstanceConfig(providerId)
     if (response.code === 0 || response.code === 200) {
       Object.assign(instanceConfig.value, response.data)
     } else {
@@ -672,7 +672,8 @@ const selectProvider = async (provider) => {
     ElMessage.warning('该节点当前离线，无法选择')
     return
   }
-  if (provider.availableSlots <= 0) {
+  // 当 availableSlots >= 999 时表示不限制，允许选择
+  if (provider.availableSlots < 999 && provider.availableSlots <= 0) {
     ElMessage.warning('该节点资源不足，无法创建新实例')
     return
   }
@@ -681,6 +682,9 @@ const selectProvider = async (provider) => {
   
   // 加载节点支持能力
   await loadProviderCapabilities(provider.id)
+  
+  // 重新加载实例配置（根据节点的等级限制过滤）
+  await loadInstanceConfig(provider.id)
   
   // 检查当前选择的实例类型是否在新节点中可用
   const currentType = configForm.type

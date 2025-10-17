@@ -250,10 +250,15 @@ export function getProviderCapabilities(providerId) {
 }
 
 // 获取实例配置选项（包含预定义的规格配置）
-export function getInstanceConfig() {
+export function getInstanceConfig(providerId) {
+  const params = {}
+  if (providerId) {
+    params.provider_id = providerId
+  }
   return request({
     url: '/v1/user/instance-config',
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 

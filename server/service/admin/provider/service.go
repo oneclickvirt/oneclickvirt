@@ -178,7 +178,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	}
 
 	// 节点级别等级限制配置
-	if req.LevelLimits != nil {
+	if req.LevelLimits != nil && len(req.LevelLimits) > 0 {
 		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
 		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
 		if err != nil {
@@ -188,6 +188,30 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
 		}
 		provider.LevelLimits = string(levelLimitsJSON)
+	} else {
+		// 如果没有提供等级限制，设置默认等级1的限制
+		defaultLevelLimits := map[int]map[string]interface{}{
+			1: {
+				"maxInstances": 1,
+				"maxResources": map[string]interface{}{
+					"cpu":       1,
+					"memory":    350,
+					"disk":      1025,
+					"bandwidth": 100,
+				},
+				"maxTraffic": 102400,
+			},
+		}
+		levelLimitsJSON, err := json.Marshal(defaultLevelLimits)
+		if err != nil {
+			global.APP_LOG.Error("序列化默认节点等级限制配置失败",
+				zap.String("providerName", req.Name),
+				zap.Error(err))
+			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+		}
+		provider.LevelLimits = string(levelLimitsJSON)
+		global.APP_LOG.Info("使用默认节点等级限制配置",
+			zap.String("providerName", req.Name))
 	}
 
 	// 设置默认值

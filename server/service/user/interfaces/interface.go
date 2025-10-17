@@ -45,7 +45,7 @@ type ResourceServiceInterface interface {
 type ProviderServiceInterface interface {
 	GetAvailableProviders(userID uint) ([]userModel.AvailableProviderResponse, error)
 	GetSystemImages(userID uint, req userModel.SystemImagesRequest) ([]userModel.SystemImageResponse, error)
-	GetInstanceConfig(userID uint) (*userModel.InstanceConfigResponse, error)
+	GetInstanceConfig(userID uint, providerID uint) (*userModel.InstanceConfigResponse, error)
 	GetFilteredSystemImages(userID uint, providerID uint, instanceType string) ([]userModel.SystemImageResponse, error)
 	CreateUserInstance(userID uint, req userModel.CreateInstanceRequest) (*adminModel.Task, error)
 	GetProviderCapabilities(userID uint, providerID uint) (map[string]interface{}, error)

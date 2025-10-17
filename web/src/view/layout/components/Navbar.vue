@@ -19,8 +19,24 @@
         </div>
         <template #dropdown>
           <el-dropdown-menu>
-            <el-dropdown-item @click="logout">
-              <span style="display:block;">退出登录</span>
+            <!-- 管理员视图切换按钮 -->
+            <el-dropdown-item
+              v-if="userStore.canSwitchViewMode"
+              @click="toggleViewMode"
+            >
+              <el-icon style="margin-right: 8px;">
+                <Switch />
+              </el-icon>
+              <span>切换到{{ userStore.currentViewMode === 'admin' ? '用户' : '管理员' }}视图</span>
+            </el-dropdown-item>
+            <el-dropdown-item
+              @click="logout"
+              divided
+            >
+              <el-icon style="margin-right: 8px;">
+                <SwitchButton />
+              </el-icon>
+              <span>退出登录</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -32,13 +48,32 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { ElMessageBox } from 'element-plus'
+import { ElMessageBox, ElMessage } from 'element-plus'
+import { Switch, SwitchButton, User, CaretBottom } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 
 const router = useRouter()
 const userStore = useUserStore()
 
 const userInfo = computed(() => userStore.user || {})
+
+const toggleViewMode = () => {
+  if (!userStore.canSwitchViewMode) {
+    ElMessage.warning('只有管理员可以切换视图模式')
+    return
+  }
+  
+  const newMode = userStore.currentViewMode === 'admin' ? 'user' : 'admin'
+  const success = userStore.switchViewMode(newMode)
+  
+  if (success) {
+    ElMessage.success(`已切换到${newMode === 'admin' ? '管理员' : '用户'}视图`)
+    
+    // 跳转到对应的首页
+    const targetPath = newMode === 'admin' ? '/admin/dashboard' : '/user/dashboard'
+    router.push(targetPath)
+  }
+}
 
 const logout = async () => {
   try {

@@ -222,9 +222,13 @@ export function setupRouterGuards(router) {
       
       if (to.meta.roles && to.meta.roles.length > 0) {
         const userRole = userStore.userType
-        if (!to.meta.roles.includes(userRole)) {
+        // 管理员可以访问所有页面（包括用户页面）
+        // 用户只能访问标记为 'user' 角色的页面
+        const hasAccess = userRole === 'admin' || to.meta.roles.includes(userRole)
+        
+        if (!hasAccess) {
           console.log('用户角色不匹配，当前角色:', userRole, '需要角色:', to.meta.roles)
-          // 根据用户类型跳转到相应的首页，而不是404页面
+          // 根据用户类型跳转到相应的首页
           if (userRole === 'admin') {
             next('/admin/dashboard')
           } else if (userRole === 'user') {

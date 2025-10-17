@@ -7,14 +7,21 @@ export const useUserStore = defineStore('user', {
     token: sessionStorage.getItem('token') || '',
     user: null,
     userType: sessionStorage.getItem('userType') || 'user',
-    permissions: []
+    permissions: [],
+    // viewMode: 管理员可以切换视图模式（'admin' 或 'user'）
+    // 普通用户的 viewMode 始终跟随 userType
+    viewMode: sessionStorage.getItem('viewMode') || sessionStorage.getItem('userType') || 'user'
   }),
 
   getters: {
     isLoggedIn: (state) => !!state.token,
     isAdmin: (state) => state.userType === 'admin',
     isUser: (state) => state.userType === 'user',
-    userInfo: (state) => state.user || {}
+    userInfo: (state) => state.user || {},
+    // 当前视图模式（管理员可以切换为用户视图）
+    currentViewMode: (state) => state.viewMode,
+    // 是否可以切换视图模式（仅管理员可以）
+    canSwitchViewMode: (state) => state.userType === 'admin'
   },
 
   actions: {
@@ -28,6 +35,11 @@ export const useUserStore = defineStore('user', {
       if (user.userType) {
         this.userType = user.userType
         sessionStorage.setItem('userType', user.userType)
+        // 初始化 viewMode：管理员默认为 admin 视图，用户为 user 视图
+        if (!this.viewMode || this.viewMode === 'user') {
+          this.viewMode = user.userType
+          sessionStorage.setItem('viewMode', user.userType)
+        }
       }
     },
 
@@ -164,12 +176,42 @@ export const useUserStore = defineStore('user', {
       this.token = ''
       this.user = null
       this.userType = 'user'
+      this.viewMode = 'user'
       this.permissions = []
       sessionStorage.removeItem('token')
       sessionStorage.removeItem('userType')
+      sessionStorage.removeItem('viewMode')
       // 同时清除localStorage中的token，防止残留
       localStorage.removeItem('token')
       localStorage.removeItem('username')
+    },
+
+    // 切换视图模式（仅管理员可用）
+    switchViewMode(mode) {
+      if (this.userType !== 'admin') {
+        console.warn('只有管理员可以切换视图模式')
+        return false
+      }
+      
+      if (mode !== 'admin' && mode !== 'user') {
+        console.warn('无效的视图模式:', mode)
+        return false
+      }
+      
+      this.viewMode = mode
+      sessionStorage.setItem('viewMode', mode)
+      console.log('视图模式已切换为:', mode)
+      return true
+    },
+
+    // 切换到管理员视图
+    switchToAdminView() {
+      return this.switchViewMode('admin')
+    },
+
+    // 切换到用户视图
+    switchToUserView() {
+      return this.switchViewMode('user')
     },
 
     // 检查权限

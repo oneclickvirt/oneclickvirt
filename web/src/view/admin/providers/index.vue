@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>服务器提供商管理</span>
+          <span>节点管理</span>
           <el-button
             type="primary"
             @click="showAddDialog = true"
@@ -1473,6 +1473,125 @@
           </el-form>
         </el-tab-pane>
 
+        <!-- 等级限制配置 -->
+        <el-tab-pane
+          label="等级限制"
+          name="levelLimits"
+        >
+          <div class="level-limits-container">
+            <div style="margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center;">
+              <el-text
+                type="info"
+                size="small"
+              >
+                节点等级限制（实际限制 = min(全局限制, 节点限制)）
+              </el-text>
+              <el-button
+                type="primary"
+                size="small"
+                @click="resetLevelLimitsToDefault"
+              >
+                恢复默认值
+              </el-button>
+            </div>
+
+            <!-- 等级配置循环 -->
+            <div
+              v-for="level in 5"
+              :key="level"
+              class="level-config-card"
+            >
+              <div class="level-header">
+                <el-tag
+                  :type="getLevelTagType(level)"
+                  size="large"
+                >
+                  等级 {{ level }}
+                </el-tag>
+              </div>
+
+              <el-form
+                :model="addProviderForm.levelLimits[level]"
+                label-width="120px"
+                class="level-form"
+              >
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item label="最大实例数">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxInstances"
+                        :min="0"
+                        :max="100"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="最大流量(MB)">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxTraffic"
+                        :min="0"
+                        :max="10240000"
+                        :step="1024"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item label="最大CPU核心数">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxResources.cpu"
+                        :min="1"
+                        :max="128"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="最大内存(MB)">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxResources.memory"
+                        :min="128"
+                        :max="131072"
+                        :step="128"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+
+                <el-row :gutter="20">
+                  <el-col :span="12">
+                    <el-form-item label="最大磁盘(MB)">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxResources.disk"
+                        :min="1024"
+                        :max="1048576"
+                        :step="1024"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                  <el-col :span="12">
+                    <el-form-item label="最大带宽(Mbps)">
+                      <el-input-number
+                        v-model="addProviderForm.levelLimits[level].maxResources.bandwidth"
+                        :min="10"
+                        :max="10000"
+                        :step="10"
+                        style="width: 100%;"
+                      />
+                    </el-form-item>
+                  </el-col>
+                </el-row>
+              </el-form>
+            </div>
+          </div>
+        </el-tab-pane>
+
         <!-- 高级设置 -->
         <el-tab-pane
           label="高级设置"
@@ -2012,7 +2131,15 @@ const addProviderForm = reactive({
   // 虚拟机资源限制配置
   vmLimitCpu: true, // 虚拟机是否限制CPU，默认限制
   vmLimitMemory: true, // 虚拟机是否限制内存，默认限制
-  vmLimitDisk: true // 虚拟机是否限制硬盘，默认限制
+  vmLimitDisk: true, // 虚拟机是否限制硬盘，默认限制
+  // 节点级别等级限制配置
+  levelLimits: {
+    1: { maxInstances: 1, maxResources: { cpu: 1, memory: 350, disk: 1025, bandwidth: 100 }, maxTraffic: 102400 },
+    2: { maxInstances: 2, maxResources: { cpu: 2, memory: 512, disk: 2048, bandwidth: 200 }, maxTraffic: 102400 },
+    3: { maxInstances: 3, maxResources: { cpu: 3, memory: 1024, disk: 4096, bandwidth: 500 }, maxTraffic: 204800 },
+    4: { maxInstances: 4, maxResources: { cpu: 4, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 409600 },
+    5: { maxInstances: 5, maxResources: { cpu: 5, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 512000 }
+  }
 })
 
 // 流量单位转换：TB 转 MB (1TB = 1024 * 1024 MB = 1048576 MB)
@@ -2029,6 +2156,73 @@ const maxTrafficTB = computed({
     addProviderForm.maxTraffic = Math.round(value * TB_TO_MB)
   }
 })
+
+// 获取等级标签类型
+const getLevelTagType = (level) => {
+  const types = {
+    1: 'info',
+    2: 'success',
+    3: 'warning',
+    4: 'danger',
+    5: 'primary'
+  }
+  return types[level] || 'info'
+}
+
+// 恢复默认等级限制
+const resetLevelLimitsToDefault = () => {
+  ElMessageBox.confirm(
+    '确定要恢复所有等级的默认限制值吗？',
+    '确认操作',
+    {
+      confirmButtonText: '确定',
+      cancelButtonText: '取消',
+      type: 'warning'
+    }
+  ).then(() => {
+    // 恢复默认值
+    addProviderForm.levelLimits = {
+      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
+      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
+      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
+      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
+      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
+    }
+    ElMessage.success('已恢复默认等级限制')
+  }).catch(() => {
+    // 用户取消操作
+  })
+}
+
+// 解析等级限制配置
+const parseLevelLimits = (levelLimitsStr) => {
+  // 默认等级限制配置
+  const defaultLevelLimits = {
+    1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
+    2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
+    3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
+    4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
+    5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
+  }
+
+  if (!levelLimitsStr) {
+    return defaultLevelLimits
+  }
+
+  try {
+    const parsed = typeof levelLimitsStr === 'string' ? JSON.parse(levelLimitsStr) : levelLimitsStr
+    // 确保所有等级都有配置
+    for (let i = 1; i <= 5; i++) {
+      if (!parsed[i]) {
+        parsed[i] = defaultLevelLimits[i]
+      }
+    }
+    return parsed
+  } catch (e) {
+    console.error('解析等级限制配置失败:', e)
+    return defaultLevelLimits
+  }
+}
 
 // 表单验证规则
 const addProviderRules = {
@@ -2281,7 +2475,9 @@ const submitAddServer = async () => {
       // 虚拟机资源限制配置
       vmLimitCpu: addProviderForm.vmLimitCpu !== undefined ? addProviderForm.vmLimitCpu : true,
       vmLimitMemory: addProviderForm.vmLimitMemory !== undefined ? addProviderForm.vmLimitMemory : true,
-      vmLimitDisk: addProviderForm.vmLimitDisk !== undefined ? addProviderForm.vmLimitDisk : true
+      vmLimitDisk: addProviderForm.vmLimitDisk !== undefined ? addProviderForm.vmLimitDisk : true,
+      // 节点等级限制配置
+      levelLimits: addProviderForm.levelLimits || {}
     }
 
     // 根据Provider类型设置端口映射方式
@@ -2403,7 +2599,9 @@ const editProvider = (provider) => {
     // 虚拟机资源限制配置
     vmLimitCpu: provider.vmLimitCpu !== undefined ? provider.vmLimitCpu : true,
     vmLimitMemory: provider.vmLimitMemory !== undefined ? provider.vmLimitMemory : true,
-    vmLimitDisk: provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true
+    vmLimitDisk: provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true,
+    // 节点等级限制配置 - 从后端解析JSON或使用默认值
+    levelLimits: parseLevelLimits(provider.levelLimits)
   })
 
   // 根据Provider类型设置端口映射方式的默认值
@@ -3154,5 +3352,67 @@ const formatRelativeTime = (dateTime) => {
 
 .resource-limit-tip .el-icon {
   color: #409eff;
+}
+
+/* 等级限制配置样式 */
+.level-limits-container {
+  padding: 10px;
+  max-height: 450px;
+  overflow-y: auto;
+}
+
+/* 自定义滚动条样式 */
+.level-limits-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.level-limits-container::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+.level-limits-container::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 4px;
+}
+
+.level-limits-container::-webkit-scrollbar-thumb:hover {
+  background: #909399;
+}
+
+.level-config-card {
+  margin-bottom: 16px;
+  padding: 16px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #e4e7ed;
+  transition: all 0.3s;
+}
+
+.level-config-card:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  border-color: #c0c4cc;
+}
+
+.level-header {
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #e4e7ed;
+}
+
+.level-form {
+  margin-top: 8px;
+}
+
+.level-form .el-form-item {
+  margin-bottom: 12px;
+}
+
+.level-form .el-divider {
+  margin: 12px 0;
+}
+
+.level-form .form-tip {
+  margin-top: 2px;
 }
 </style>

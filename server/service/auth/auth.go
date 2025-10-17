@@ -1149,6 +1149,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 		Password: string(adminPassword),
 		Email:    adminInfo.Email,
 		UserType: "admin",
+		Level:    5, // 管理员等级设置为5（最高等级）
 		Status:   1,
 	}
 

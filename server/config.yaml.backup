@@ -50,13 +50,45 @@ quota:
     default-level: 1
     level-limits:
         "1":
-            max-instances: 1
+            max-instances: 6
             max-resources:
-                bandwidth: 10
-                cpu: 1
-                disk: 13020
+                bandwidth: 1000
+                cpu: 6
+                disk: 66024
+                memory: 6350
+            max-traffic: 1.024e+06
+        "2":
+            max-instances: 3
+            max-resources:
+                bandwidth: 200
+                cpu: 2
+                disk: 20480
                 memory: 1024
-            max-traffic: 1024
+            max-traffic: 204800
+        "3":
+            max-instances: 5
+            max-resources:
+                bandwidth: 500
+                cpu: 4
+                disk: 40960
+                memory: 2048
+            max-traffic: 307200
+        "4":
+            max-instances: 10
+            max-resources:
+                bandwidth: 1000
+                cpu: 8
+                disk: 81920
+                memory: 4096
+            max-traffic: 409600
+        "5":
+            max-instances: 20
+            max-resources:
+                bandwidth: 2000
+                cpu: 16
+                disk: 163840
+                memory: 8192
+            max-traffic: 512000
 redis:
     addr: ""
     db: 0

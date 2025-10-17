@@ -108,10 +108,9 @@ func (s *LimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool, strin
 
 // getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
 func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
-	// 获取用户所有实例
+	// 获取用户所有实例（包含软删除的实例，因为需要统计本月已产生的流量）
 	var instances []provider.Instance
-	err := global.APP_DB.Where("user_id = ? AND status != ? AND status != ?",
-		userID, "deleted", "deleting").Find(&instances).Error
+	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
@@ -226,10 +225,9 @@ func (s *LimitService) CheckProviderTrafficLimitWithVnStat(providerID uint) (boo
 
 // getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
 func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
-	// 获取Provider下所有实例
+	// 获取Provider下所有实例（包含软删除的实例，因为需要统计本月已产生的流量）
 	var instances []provider.Instance
-	err := global.APP_DB.Where("provider_id = ? AND status != ? AND status != ?",
-		providerID, "deleted", "deleting").Find(&instances).Error
+	err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取Provider实例列表失败: %w", err)
 	}
@@ -411,10 +409,9 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 
 // getUserYearlyTrafficFromVnStat 从vnStat数据获取用户年度流量使用量
 func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error) {
-	// 获取用户所有实例
+	// 获取用户所有实例（包含软删除的实例，因为需要统计本年已产生的流量）
 	var instances []provider.Instance
-	err := global.APP_DB.Where("user_id = ? AND status != ? AND status != ?",
-		userID, "deleted", "deleting").Find(&instances).Error
+	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
@@ -445,10 +442,9 @@ func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error
 
 // getUserTrafficHistoryFromVnStat 从vnStat数据获取用户流量历史
 func (s *LimitService) getUserTrafficHistoryFromVnStat(userID uint, months int) ([]map[string]interface{}, error) {
-	// 获取用户所有实例
+	// 获取用户所有实例（包含软删除的实例，因为需要统计历史流量）
 	var instances []provider.Instance
-	err := global.APP_DB.Where("user_id = ? AND status != ? AND status != ?",
-		userID, "deleted", "deleting").Find(&instances).Error
+	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
@@ -528,9 +524,9 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 		return nil, fmt.Errorf("获取Provider统计失败: %w", err)
 	}
 
-	// 获取实例数量
+	// 获取实例数量（排除软删除的实例）
 	var instanceCount int64
-	err = global.APP_DB.Table("instances").Count(&instanceCount).Error
+	err = global.APP_DB.Model(&provider.Instance{}).Count(&instanceCount).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取实例数量失败: %w", err)
 	}
@@ -586,16 +582,16 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 		usagePercent = float64(monthlyTraffic) / float64(p.MaxTraffic) * 100
 	}
 
-	// 获取Provider下的实例数量
+	// 获取Provider下的实例数量（排除软删除的实例 - 用于显示活跃实例数）
 	var instanceCount int64
-	err = global.APP_DB.Table("instances").Where("provider_id = ?", providerID).Count(&instanceCount).Error
+	err = global.APP_DB.Model(&provider.Instance{}).Where("provider_id = ?", providerID).Count(&instanceCount).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取Provider实例数量失败: %w", err)
 	}
 
-	// 获取受限实例数量
+	// 获取受限实例数量（排除软删除的实例 - 用于显示活跃受限实例数）
 	var limitedInstanceCount int64
-	err = global.APP_DB.Table("instances").
+	err = global.APP_DB.Model(&provider.Instance{}).
 		Where("provider_id = ? AND traffic_limited = ?", providerID, true).
 		Count(&limitedInstanceCount).Error
 	if err != nil {

@@ -3,7 +3,7 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>系统镜像管理</span>
+          <span>系统管理</span>
           <el-button
             type="primary"
             @click="handleCreate"

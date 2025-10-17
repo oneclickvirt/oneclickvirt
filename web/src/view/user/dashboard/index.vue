@@ -14,52 +14,18 @@
     <!-- 主要内容 -->
     <div v-else>
       <div class="dashboard-header">
-        <h1>欢迎回来，{{ userInfo?.nickname || userInfo?.username || '用户' }}！</h1>
+        <h1>
+          欢迎回来，{{ userInfo?.nickname || userInfo?.username || '用户' }}！
+          <el-tag
+            :type="getLevelTagType(userLimits.level)"
+            size="large"
+            effect="plain"
+            class="level-tag"
+          >
+            等级 {{ userLimits.level }} - {{ getLevelText(userLimits.level) }}
+          </el-tag>
+        </h1>
         <p>这里是您的个人控制面板</p>
-      </div>
-
-      <!-- 用户等级信息 -->
-      <div class="user-level-section">
-        <el-card class="level-card">
-          <template #header>
-            <div class="card-header">
-              <span>用户等级信息</span>
-              <el-tag
-                :type="getLevelTagType(userLimits.level)"
-                size="large"
-                effect="dark"
-              >
-                {{ getLevelText(userLimits.level) }}
-              </el-tag>
-            </div>
-          </template>
-          
-          <div class="level-content">
-            <div class="level-info">
-              <div class="level-display">
-                <div class="level-number">
-                  {{ userLimits.level }}
-                </div>
-                <div class="level-description">
-                  <h3>{{ getLevelText(userLimits.level) }}</h3>
-                  <p>{{ getLevelDescription(userLimits.level) }}</p>
-                </div>
-              </div>
-              
-              <div class="level-benefits">
-                <h4>等级权益</h4>
-                <ul>
-                  <li
-                    v-for="benefit in getLevelBenefits(userLimits.level)"
-                    :key="benefit"
-                  >
-                    {{ benefit }}
-                  </li>
-                </ul>
-              </div>
-            </div>
-          </div>
-        </el-card>
       </div>
 
       <!-- 资源限制信息 -->
@@ -290,65 +256,13 @@ const getLevelTagType = (level) => {
 }
 
 // 获取等级文本
-const getLevelText = (level) => {
-  const levelMap = {
-    1: '普通用户',
-    2: '高级用户',
-    3: 'VIP用户',
-    4: '超级用户'
-  }
-  return levelMap[level] || '未知等级'
+const getLevelText = () => {
+  return '普通用户'
 }
 
 // 获取等级描述
-const getLevelDescription = (level) => {
-  const descMap = {
-    1: '享受吧',
-    2: '享受吧',
-    3: '享受吧',
-    4: '享受吧'
-  }
-  return descMap[level] || '享受基础服务'
-}
-
-// 获取等级权益
-const getLevelBenefits = (level) => {
-  // 根据实际的配额限制动态生成权益列表
-  const benefits = []
-  
-  // 实例数量权益
-  if (userLimits.maxInstances > 0) {
-    benefits.push(`最多创建 ${userLimits.maxInstances} 个实例`)
-  } else {
-    benefits.push('无限制实例创建')
-  }
-  
-  // CPU权益
-  if (userLimits.maxCpu > 0) {
-    benefits.push(`最多使用 ${userLimits.maxCpu} 核心 CPU`)
-  }
-  
-  // 内存权益
-  if (userLimits.maxMemory > 0) {
-    benefits.push(`最多使用 ${formatMemory(userLimits.maxMemory)} 内存`)
-  }
-  
-  // 磁盘权益
-  if (userLimits.maxDisk > 0) {
-    benefits.push(`最多使用 ${formatStorage(userLimits.maxDisk)} 存储空间`)
-  }
-  
-  // 带宽权益
-  if (userLimits.maxBandwidth > 0) {
-    benefits.push(`最多使用 ${formatBandwidth(userLimits.maxBandwidth)} 带宽`)
-  }
-  
-  // 流量权益
-  if (userLimits.maxTraffic > 0) {
-    benefits.push(`每月最多使用 ${formatTraffic(userLimits.maxTraffic)} 流量`)
-  }
-  
-  return benefits.length > 0 ? benefits : ['暂无配额限制信息']
+const getLevelDescription = () => {
+  return '享受吧'
 }
 
 // 获取使用百分比
@@ -466,6 +380,10 @@ onUnmounted(() => {
   color: #1f2937;
   font-size: 28px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
 .dashboard-header p {
@@ -474,14 +392,9 @@ onUnmounted(() => {
   font-size: 16px;
 }
 
-/* 用户等级信息 */
-.user-level-section {
-  margin-bottom: 24px;
-}
-
-.level-card {
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.15);
-  border-left: 4px solid #10b981;
+.level-tag {
+  font-size: 14px;
+  font-weight: 500;
 }
 
 .card-header {
@@ -490,63 +403,6 @@ onUnmounted(() => {
   align-items: center;
   font-weight: 600;
   color: #1f2937;
-}
-
-.level-content {
-  padding: 16px 0;
-}
-
-.level-info {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 24px;
-}
-
-.level-display {
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-
-.level-number {
-  width: 60px;
-  height: 60px;
-  border-radius: 50%;
-  background: linear-gradient(135deg, #10b981, #059669);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 24px;
-  font-weight: bold;
-}
-
-.level-description h3 {
-  margin: 0 0 4px 0;
-  font-size: 18px;
-  color: #1f2937;
-}
-
-.level-description p {
-  margin: 0;
-  color: #6b7280;
-  font-size: 14px;
-}
-
-.level-benefits h4 {
-  margin: 0 0 12px 0;
-  font-size: 16px;
-  color: #1f2937;
-}
-
-.level-benefits ul {
-  margin: 0;
-  padding-left: 16px;
-  color: #4b5563;
-}
-
-.level-benefits li {
-  margin-bottom: 4px;
 }
 
 /* 资源限制信息 */
@@ -632,8 +488,8 @@ onUnmounted(() => {
 
 /* 响应式设计 */
 @media (max-width: 768px) {
-  .level-info {
-    grid-template-columns: 1fr;
+  .dashboard-header h1 {
+    font-size: 24px;
   }
   
   .limits-grid {

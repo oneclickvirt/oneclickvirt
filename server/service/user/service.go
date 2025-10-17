@@ -150,8 +150,8 @@ func (s *Service) GetSystemImages(userID uint, req userModel.SystemImagesRequest
 }
 
 // GetInstanceConfig 获取实例配置选项
-func (s *Service) GetInstanceConfig(userID uint) (*userModel.InstanceConfigResponse, error) {
-	return s.provider.GetInstanceConfig(userID)
+func (s *Service) GetInstanceConfig(userID uint, providerID uint) (*userModel.InstanceConfigResponse, error) {
+	return s.provider.GetInstanceConfig(userID, providerID)
 }
 
 // GetFilteredSystemImages 根据Provider和实例类型获取过滤后的系统镜像列表

@@ -113,16 +113,24 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 
 	// 如果提供了 ProviderID，需要获取并合并 Provider 的等级限制
 	var providerLevelLimits *config.LevelLimitInfo
+	var prov *provider.Provider
 	if req.ProviderID > 0 {
 		var err error
+		var providerModel provider.Provider
+		if err := tx.First(&providerModel, req.ProviderID).Error; err != nil {
+			return nil, fmt.Errorf("Provider 不存在: %v", err)
+		}
+		prov = &providerModel
+
 		providerLevelLimits, err = s.getProviderLevelLimits(tx, req.ProviderID, user.Level)
 		if err != nil {
 			return nil, fmt.Errorf("获取 Provider 等级限制失败: %v", err)
 		}
 
 		// 如果 Provider 有等级限制配置，则取两者的最小值用于后续验证
+		// 但需要考虑 Provider 的超分配设置
 		if providerLevelLimits != nil {
-			levelLimits = s.mergeLevelLimits(levelLimits, *providerLevelLimits)
+			levelLimits = s.mergeLevelLimitsWithOvercommit(levelLimits, *providerLevelLimits, prov, req.InstanceType)
 		}
 	}
 
@@ -169,7 +177,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	}
 
 	// 1.5 如果有 Provider 限制，还需要检查用户在该节点的实例数量
-	if req.ProviderID > 0 && providerLevelLimits != nil {
+	if req.ProviderID > 0 && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
 		// 注意：这里使用的是合并前的 providerLevelLimits，因为我们要检查节点本身的限制
 		if currentProviderInstances >= providerLevelLimits.MaxInstances {
 			result.Allowed = false
@@ -179,24 +187,51 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		}
 	}
 
-	// 2. 检查CPU限制
-	if currentResources.CPU+requestedResources.CPU > maxResources.CPU {
+	// 2. 检查CPU限制（考虑超分配设置）
+	shouldCheckCPU := true
+	if req.ProviderID > 0 && prov != nil {
+		switch req.InstanceType {
+		case "container":
+			shouldCheckCPU = prov.ContainerLimitCPU
+		case "vm":
+			shouldCheckCPU = prov.VMLimitCPU
+		}
+	}
+	if shouldCheckCPU && currentResources.CPU+requestedResources.CPU > maxResources.CPU {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("CPU资源不足：需要 %d，当前使用 %d，最大允许 %d",
 			requestedResources.CPU, currentResources.CPU, maxResources.CPU)
 		return result, nil
 	}
 
-	// 3. 检查内存限制
-	if currentResources.Memory+requestedResources.Memory > maxResources.Memory {
+	// 3. 检查内存限制（考虑超分配设置）
+	shouldCheckMemory := true
+	if req.ProviderID > 0 && prov != nil {
+		switch req.InstanceType {
+		case "container":
+			shouldCheckMemory = prov.ContainerLimitMemory
+		case "vm":
+			shouldCheckMemory = prov.VMLimitMemory
+		}
+	}
+	if shouldCheckMemory && currentResources.Memory+requestedResources.Memory > maxResources.Memory {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("内存资源不足：需要 %dMB，当前使用 %dMB，最大允许 %dMB",
 			requestedResources.Memory, currentResources.Memory, maxResources.Memory)
 		return result, nil
 	}
 
-	// 4. 检查磁盘限制
-	if currentResources.Disk+requestedResources.Disk > maxResources.Disk {
+	// 4. 检查磁盘限制（考虑超分配设置）
+	shouldCheckDisk := true
+	if req.ProviderID > 0 && prov != nil {
+		switch req.InstanceType {
+		case "container":
+			shouldCheckDisk = prov.ContainerLimitDisk
+		case "vm":
+			shouldCheckDisk = prov.VMLimitDisk
+		}
+	}
+	if shouldCheckDisk && currentResources.Disk+requestedResources.Disk > maxResources.Disk {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %dMB，当前使用 %dMB，最大允许 %dMB",
 			requestedResources.Disk, currentResources.Disk, maxResources.Disk)
@@ -552,6 +587,76 @@ func (s *QuotaService) mergeLevelLimits(userLimits, providerLimits config.LevelL
 				merged.MaxResources[key] = providerVal
 			} else {
 				merged.MaxResources[key] = userVal
+			}
+		}
+	}
+
+	return merged
+}
+
+// mergeLevelLimitsWithOvercommit 合并用户等级限制和 Provider 等级限制，同时考虑超分配设置
+// 如果 Provider 允许某资源超分配，则不应用 Provider 的该资源限制
+func (s *QuotaService) mergeLevelLimitsWithOvercommit(userLimits, providerLimits config.LevelLimitInfo, prov *provider.Provider, instanceType string) config.LevelLimitInfo {
+	merged := config.LevelLimitInfo{
+		MaxInstances: userLimits.MaxInstances,
+		MaxResources: make(map[string]interface{}),
+		MaxTraffic:   userLimits.MaxTraffic,
+	}
+
+	// 取实例数量的最小值
+	if providerLimits.MaxInstances > 0 && providerLimits.MaxInstances < userLimits.MaxInstances {
+		merged.MaxInstances = providerLimits.MaxInstances
+	}
+
+	// 取流量限制的最小值
+	if providerLimits.MaxTraffic > 0 && providerLimits.MaxTraffic < userLimits.MaxTraffic {
+		merged.MaxTraffic = providerLimits.MaxTraffic
+	}
+
+	// 根据实例类型和超分配设置合并资源限制
+	resourceKeys := []string{"cpu", "memory", "disk", "bandwidth"}
+	for _, key := range resourceKeys {
+		userVal := s.getResourceValue(userLimits.MaxResources, key)
+		providerVal := s.getResourceValue(providerLimits.MaxResources, key)
+
+		// 检查该资源是否允许超分配
+		allowOvercommit := false
+		if instanceType == "container" {
+			switch key {
+			case "cpu":
+				allowOvercommit = !prov.ContainerLimitCPU
+			case "memory":
+				allowOvercommit = !prov.ContainerLimitMemory
+			case "disk":
+				allowOvercommit = !prov.ContainerLimitDisk
+			}
+		} else if instanceType == "vm" {
+			switch key {
+			case "cpu":
+				allowOvercommit = !prov.VMLimitCPU
+			case "memory":
+				allowOvercommit = !prov.VMLimitMemory
+			case "disk":
+				allowOvercommit = !prov.VMLimitDisk
+			}
+		}
+
+		// 如果允许超分配，只使用用户限制，忽略 Provider 限制
+		if allowOvercommit {
+			merged.MaxResources[key] = userVal
+			global.APP_LOG.Debug(fmt.Sprintf("资源 %s 允许超分配，使用用户限制: %d", key, userVal))
+		} else {
+			// 否则取两者最小值
+			if providerVal == 0 {
+				merged.MaxResources[key] = userVal
+			} else if userVal == 0 {
+				merged.MaxResources[key] = providerVal
+			} else {
+				if providerVal < userVal {
+					merged.MaxResources[key] = providerVal
+				} else {
+					merged.MaxResources[key] = userVal
+				}
 			}
 		}
 	}

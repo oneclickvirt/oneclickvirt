@@ -450,16 +450,20 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 		}
 
 		// 计算最大实例数限制（基于容器和虚拟机的单独限制）
+		// 注意：0 表示无限制，不应该被处理成有限制的情况
 		maxInstances := 0
+		hasLimit := false
 		if provider.MaxContainerInstances > 0 {
 			maxInstances += provider.MaxContainerInstances
+			hasLimit = true
 		}
 		if provider.MaxVMInstances > 0 {
 			maxInstances += provider.MaxVMInstances
+			hasLimit = true
 		}
-		// 如果没有设置任何限制，使用默认值
-		if maxInstances == 0 {
-			maxInstances = 3 // 默认值为3个实例
+		// 如果没有设置任何限制（都为0，表示无限制），使用默认值仅用于显示
+		if !hasLimit {
+			maxInstances = 999999 // 使用一个很大的数字表示无限制，
 		}
 
 		updates := map[string]interface{}{

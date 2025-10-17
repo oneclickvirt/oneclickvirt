@@ -25,7 +25,7 @@
     <el-card shadow="never" class="providers-card">
       <template #header>
         <div class="card-header">
-          <span class="card-title">OAuth2 提供商管理</span>
+          <span class="card-title">OAuth2管理</span>
           <el-button
             type="primary"
             size="default"

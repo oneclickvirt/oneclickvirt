@@ -172,9 +172,9 @@ type AvailableProviderResponse struct {
 	CountryCode      string  `json:"countryCode"`
 	Status           string  `json:"status"`
 	CPU              int     `json:"cpu"`
-	Memory           int     `json:"memory"` // 总内存(MB)
-	Disk             int     `json:"disk"`   // 总硬盘空间(MB)
-	AvailableSlots   int     `json:"availableSlots"`
+	Memory           int     `json:"memory"`         // 总内存(MB)
+	Disk             int     `json:"disk"`           // 总硬盘空间(MB)
+	AvailableSlots   int     `json:"availableSlots"` // 可用实例槽位数，999表示不限制
 	CPUUsage         float64 `json:"cpuUsage"`
 	MemoryUsage      float64 `json:"memoryUsage"`
 	ContainerEnabled bool    `json:"containerEnabled"`

@@ -187,8 +187,10 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 			availableSlots := 0
 			availableContainerSlots := 0
 			availableVMSlots := 0
+			hasContainerLimit := provider.MaxContainerInstances > 0
+			hasVMLimit := provider.MaxVMInstances > 0
 
-			if provider.MaxContainerInstances > 0 {
+			if hasContainerLimit {
 				availableContainerSlots = provider.MaxContainerInstances - actualUsedContainers
 				if availableContainerSlots < 0 {
 					availableContainerSlots = 0
@@ -196,7 +198,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				availableSlots += availableContainerSlots
 			}
 
-			if provider.MaxVMInstances > 0 {
+			if hasVMLimit {
 				availableVMSlots = provider.MaxVMInstances - actualUsedVMs
 				if availableVMSlots < 0 {
 					availableVMSlots = 0
@@ -204,23 +206,21 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				availableSlots += availableVMSlots
 			}
 
-			if availableSlots == 0 && provider.MaxContainerInstances == 0 && provider.MaxVMInstances == 0 {
-				// 如果没有设置限制，基于资源动态计算
-				// 假设每个实例最少需要1核CPU和512MB内存
-				cpuBasedMax := availableCPU
-				memoryBasedMax := int(availableMemory / 512) // 512MB最低内存
+			// 如果两种类型都没有设置限制（都为0），表示无限制，返回999表示不限制
+			if !hasContainerLimit && !hasVMLimit {
+				availableSlots = 999
+			} else if !hasContainerLimit || !hasVMLimit {
+				// 如果只有一种类型没有限制，对于有限制的类型正常计算，无限制的类型加上999
+				if !hasContainerLimit && provider.ContainerEnabled {
+					// 容器没有限制，加上999表示该类型不限制
+					availableSlots += 999
+				}
 
-				if cpuBasedMax > 0 && memoryBasedMax > 0 {
-					if cpuBasedMax < memoryBasedMax {
-						availableSlots = cpuBasedMax
-					} else {
-						availableSlots = memoryBasedMax
-					}
-				} else {
-					availableSlots = 0 // 资源不足
+				if !hasVMLimit && provider.VirtualMachineEnabled {
+					// 虚拟机没有限制，加上999表示该类型不限制
+					availableSlots += 999
 				}
 			}
-
 			providerResp := userModel.AvailableProviderResponse{
 				ID:               provider.ID,
 				Name:             provider.Name,
@@ -295,13 +295,63 @@ func (s *Service) GetSystemImages(userID uint, req userModel.SystemImagesRequest
 	return response, nil
 }
 
-// GetInstanceConfig 获取实例配置选项 - 根据用户配额动态过滤
-func (s *Service) GetInstanceConfig(userID uint) (*userModel.InstanceConfigResponse, error) {
+// GetInstanceConfig 获取实例配置选项 - 根据用户配额和节点限制动态过滤
+func (s *Service) GetInstanceConfig(userID uint, providerID uint) (*userModel.InstanceConfigResponse, error) {
 	// 获取用户配额信息
 	quotaService := resources.NewQuotaService()
 	quotaInfo, err := quotaService.GetUserQuotaInfo(userID)
 	if err != nil {
 		return nil, fmt.Errorf("获取用户配额信息失败: %v", err)
+	}
+
+	// 计算用户剩余的全局配额
+	remainingGlobalCPU := quotaInfo.MaxQuota.CPU - quotaInfo.CurrentResources.CPU
+	remainingGlobalMemory := quotaInfo.MaxQuota.Memory - quotaInfo.CurrentResources.Memory
+	remainingGlobalDisk := quotaInfo.MaxQuota.Disk - quotaInfo.CurrentResources.Disk
+	remainingGlobalBandwidth := quotaInfo.MaxQuota.Bandwidth
+
+	// 获取节点的等级限制（如果指定了 providerID）
+	var providerLevelLimits map[string]interface{}
+	if providerID > 0 {
+		var provider providerModel.Provider
+		if err := global.APP_DB.First(&provider, providerID).Error; err == nil && provider.LevelLimits != "" {
+			// 解析节点的 levelLimits JSON
+			var allLevelLimits map[string]map[string]interface{}
+			if err := json.Unmarshal([]byte(provider.LevelLimits), &allLevelLimits); err == nil {
+				// 获取用户等级对应的限制
+				var user userModel.User
+				if err := global.APP_DB.First(&user, userID).Error; err == nil {
+					levelKey := fmt.Sprintf("%d", user.Level)
+					if limits, ok := allLevelLimits[levelKey]; ok {
+						providerLevelLimits = limits
+					}
+				}
+			}
+		}
+	}
+
+	// 计算最终可用的配额（取剩余全局配额和节点限制的最小值）
+	finalMaxCPU := remainingGlobalCPU
+	finalMaxMemory := remainingGlobalMemory
+	finalMaxDisk := remainingGlobalDisk
+	finalMaxBandwidth := remainingGlobalBandwidth
+
+	if providerLevelLimits != nil {
+		// 如果有节点限制，取最小值
+		if maxResources, ok := providerLevelLimits["maxResources"].(map[string]interface{}); ok {
+			if cpu, ok := maxResources["cpu"].(float64); ok && int(cpu) < finalMaxCPU {
+				finalMaxCPU = int(cpu)
+			}
+			if memory, ok := maxResources["memory"].(float64); ok && int64(memory) < finalMaxMemory {
+				finalMaxMemory = int64(memory)
+			}
+			if disk, ok := maxResources["disk"].(float64); ok && int64(disk) < finalMaxDisk {
+				finalMaxDisk = int64(disk)
+			}
+			if bandwidth, ok := maxResources["bandwidth"].(float64); ok && int(bandwidth) < finalMaxBandwidth {
+				finalMaxBandwidth = int(bandwidth)
+			}
+		}
 	}
 
 	// 获取所有预定义规格
@@ -310,31 +360,31 @@ func (s *Service) GetInstanceConfig(userID uint) (*userModel.InstanceConfigRespo
 	allDiskSpecs := constant.PredefinedDiskSpecs
 	allBandwidthSpecs := constant.PredefinedBandwidthSpecs
 
-	// 根据用户配额动态过滤规格
+	// 根据最终可用配额动态过滤规格
 	var availableCPUSpecs []constant.CPUSpec
 	for _, spec := range allCPUSpecs {
-		if quotaInfo.CurrentResources.CPU+spec.Cores <= quotaInfo.MaxQuota.CPU {
+		if spec.Cores <= finalMaxCPU {
 			availableCPUSpecs = append(availableCPUSpecs, spec)
 		}
 	}
 
 	var availableMemorySpecs []constant.MemorySpec
 	for _, spec := range allMemorySpecs {
-		if quotaInfo.CurrentResources.Memory+int64(spec.SizeMB) <= quotaInfo.MaxQuota.Memory {
+		if int64(spec.SizeMB) <= finalMaxMemory {
 			availableMemorySpecs = append(availableMemorySpecs, spec)
 		}
 	}
 
 	var availableDiskSpecs []constant.DiskSpec
 	for _, spec := range allDiskSpecs {
-		if quotaInfo.CurrentResources.Disk+int64(spec.SizeMB) <= quotaInfo.MaxQuota.Disk {
+		if int64(spec.SizeMB) <= finalMaxDisk {
 			availableDiskSpecs = append(availableDiskSpecs, spec)
 		}
 	}
 
 	var availableBandwidthSpecs []constant.BandwidthSpec
 	for _, spec := range allBandwidthSpecs {
-		if spec.SpeedMbps <= quotaInfo.MaxQuota.Bandwidth {
+		if spec.SpeedMbps <= finalMaxBandwidth {
 			availableBandwidthSpecs = append(availableBandwidthSpecs, spec)
 		}
 	}

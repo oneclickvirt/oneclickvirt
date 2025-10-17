@@ -84,8 +84,10 @@ const navigateTo = (path) => {
 
 // 根据用户类型获取对应的路由
 const userRoutes = computed(() => {
-  const userType = userStore.userType
-  console.log('侧边栏计算用户路由，当前用户类型:', userType)
+  // 使用 viewMode 来决定显示哪个视图的菜单
+  // 管理员可以切换视图，普通用户只能看到用户视图
+  const viewMode = userStore.currentViewMode || userStore.userType
+  console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '用户类型:', userStore.userType)
   
   // 用户特定路由
   const userTypeRoutes = {
@@ -162,7 +164,7 @@ const userRoutes = computed(() => {
         path: '/admin/providers',
         name: 'AdminProviders',
         meta: {
-          title: '服务器提供商',
+          title: '节点管理',
           icon: 'Monitor'
         }
       },
@@ -202,7 +204,7 @@ const userRoutes = computed(() => {
         path: '/admin/system-images',
         name: 'AdminSystemImages',
         meta: {
-          title: '系统镜像管理',
+          title: '系统管理',
           icon: 'Folder'
         }
       },
@@ -218,7 +220,7 @@ const userRoutes = computed(() => {
         path: '/admin/oauth2-providers',
         name: 'AdminOAuth2Providers',
         meta: {
-          title: 'OAuth2提供商',
+          title: 'OAuth2',
           icon: 'Connection'
         }
       },
@@ -233,8 +235,8 @@ const userRoutes = computed(() => {
     ]
   }
   
-  // 根据用户类型返回对应路由
-  const routes = userTypeRoutes[userType] || []
+  // 根据视图模式返回对应路由
+  const routes = userTypeRoutes[viewMode] || []
   console.log('生成的用户路由数量:', routes.length, '路由详情:', JSON.stringify(routes))
   return routes
 })
