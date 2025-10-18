@@ -127,25 +127,82 @@ jobs:
           git push
         fi
 
+    - name: Generate Changelog
+      id: changelog
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        TAG_NAME="v${{ steps.date.outputs.date }}"
+        
+        # Get the latest release tag (excluding pre-releases)
+        LAST_TAG=$(gh release list --limit 100 --exclude-drafts --exclude-pre-releases | grep -v "$TAG_NAME" | head -n 1 | awk '{print $1}')
+        
+        echo "Last release tag: $LAST_TAG"
+        echo "Current tag: $TAG_NAME"
+        
+        # Generate changelog
+        if [ -z "$LAST_TAG" ]; then
+          echo "No previous release found, generating changelog from all commits"
+          CHANGELOG=$(git log --pretty=format:"- %s (%h) - %an" --no-merges | head -n 50)
+        else
+          echo "Generating changelog from $LAST_TAG to HEAD"
+          CHANGELOG=$(git log ${LAST_TAG}..HEAD --pretty=format:"- %s (%h) - %an" --no-merges)
+        fi
+        
+        # Check if changelog is empty
+        if [ -z "$CHANGELOG" ]; then
+          CHANGELOG="- No changes since last release"
+        fi
+        
+        # Save changelog to file and environment
+        echo "$CHANGELOG" > /tmp/changelog.txt
+        
+        # Count commits
+        if [ -z "$LAST_TAG" ]; then
+          COMMIT_COUNT=$(git log --oneline --no-merges | head -n 50 | wc -l | tr -d ' ')
+        else
+          COMMIT_COUNT=$(git log ${LAST_TAG}..HEAD --oneline --no-merges | wc -l | tr -d ' ')
+        fi
+        
+        echo "commit_count=$COMMIT_COUNT" >> $GITHUB_OUTPUT
+        echo "last_tag=$LAST_TAG" >> $GITHUB_OUTPUT
+    
     - name: Create Release and Upload Assets
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       run: |
         TAG_NAME="v${{ steps.date.outputs.date }}"
+        LAST_TAG="${{ steps.changelog.outputs.last_tag }}"
+        COMMIT_COUNT="${{ steps.changelog.outputs.commit_count }}"
+        CHANGELOG=$(cat /tmp/changelog.txt)
+        
+        # Build release body with changelog
+        if [ -z "$LAST_TAG" ]; then
+          CHANGELOG_HEADER="## 更新日志 (All Commits - ${COMMIT_COUNT} commits)"
+        else
+          CHANGELOG_HEADER="## 更新日志 (${LAST_TAG} → ${TAG_NAME} - ${COMMIT_COUNT} commits)"
+        fi
+        
         RELEASE_BODY="## 自动构建发布 - ${{ steps.date.outputs.date }}
         
         ### 独立部署版本（需要分别部署前后端）
-        - server-linux-amd64.tar.gz - 后端 Linux AMD64 版本
-        - server-linux-arm64.tar.gz - 后端 Linux ARM64 版本  
-        - server-windows-amd64.zip - 后端 Windows AMD64 版本
-        - server-windows-arm64.zip - 后端 Windows ARM64 版本
-        - web-dist.zip - 前端静态文件
+        - \`server-linux-amd64.tar.gz\` - 后端 Linux AMD64 版本
+        - \`server-linux-arm64.tar.gz\` - 后端 Linux ARM64 版本  
+        - \`server-windows-amd64.zip\` - 后端 Windows AMD64 版本
+        - \`server-windows-arm64.zip\` - 后端 Windows ARM64 版本
+        - \`web-dist.zip\` - 前端静态文件
         
         ### 一体化部署版本（前端已内嵌，单二进制文件部署）
-        - server-allinone-linux-amd64.tar.gz - 一体化 Linux AMD64 版本
-        - server-allinone-linux-arm64.tar.gz - 一体化 Linux ARM64 版本
-        - server-allinone-windows-amd64.zip - 一体化 Windows AMD64 版本
-        - server-allinone-windows-arm64.zip - 一体化 Windows ARM64 版本"
+        - \`server-allinone-linux-amd64.tar.gz\` - 一体化 Linux AMD64 版本
+        - \`server-allinone-linux-arm64.tar.gz\` - 一体化 Linux ARM64 版本
+        - \`server-allinone-windows-amd64.zip\` - 一体化 Windows AMD64 版本
+        - \`server-allinone-windows-arm64.zip\` - 一体化 Windows ARM64 版本
+        
+        ---
+        
+        ${CHANGELOG_HEADER}
+        
+        ${CHANGELOG}"
         
         # Create release using GitHub CLI
         gh release create "$TAG_NAME" \

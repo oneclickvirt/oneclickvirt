@@ -1,14 +1,30 @@
 name: Build and Push Docker Images
 on:
-  workflow_dispatch:
+  workflow_run:
+    workflows: ["Build and Release oneclickvirt"]
+    types:
+      - completed
+    branches:
+      - main
 
 env:
   DOCKER_IMAGE: spiritlhl/oneclickvirt
   GHCR_IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  check-workflow-success:
+    runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    steps:
+      - name: Check previous workflow status
+        run: |
+          echo "Previous workflow completed successfully"
+          echo "Workflow: ${{ github.event.workflow_run.name }}"
+          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+
   build:
     runs-on: ${{ matrix.runner }}
+    needs: check-workflow-success
     permissions:
       contents: read
       packages: write
