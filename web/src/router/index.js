@@ -242,7 +242,7 @@ const routes = [
         name: 'AdminSystemImages',
         component: () => import('@/view/admin/system-images/index.vue'),
         meta: {
-          title: '系统管理',
+          title: '系统镜像',
           requiresAuth: true,
           roles: ['admin']
         }

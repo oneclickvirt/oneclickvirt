@@ -204,7 +204,7 @@ const userRoutes = computed(() => {
         path: '/admin/system-images',
         name: 'AdminSystemImages',
         meta: {
-          title: '系统管理',
+          title: '系统镜像',
           icon: 'Folder'
         }
       },

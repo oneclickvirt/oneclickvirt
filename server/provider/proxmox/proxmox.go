@@ -131,7 +131,31 @@ func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 }
 
 func (p *ProxmoxProvider) IsConnected() bool {
-	return p.connected
+	return p.connected && p.sshClient != nil && p.sshClient.IsHealthy()
+}
+
+// EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
+func (p *ProxmoxProvider) EnsureConnection() error {
+	if p.sshClient == nil {
+		return fmt.Errorf("SSH client not initialized")
+	}
+
+	if !p.sshClient.IsHealthy() {
+		global.APP_LOG.Warn("Proxmox Provider SSH连接不健康，尝试重连",
+			zap.String("host", utils.TruncateString(p.config.Host, 32)),
+			zap.Int("port", p.config.Port))
+
+		if err := p.sshClient.Reconnect(); err != nil {
+			p.connected = false
+			return fmt.Errorf("failed to reconnect SSH: %w", err)
+		}
+
+		global.APP_LOG.Info("Proxmox Provider SSH连接重建成功",
+			zap.String("host", utils.TruncateString(p.config.Host, 32)),
+			zap.Int("port", p.config.Port))
+	}
+
+	return nil
 }
 
 func (p *ProxmoxProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {

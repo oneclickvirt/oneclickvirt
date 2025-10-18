@@ -505,6 +505,36 @@
                 />
               </el-select>
             </el-form-item>
+            <el-form-item
+              label="架构"
+              prop="architecture"
+            >
+              <el-select
+                v-model="addProviderForm.architecture"
+                placeholder="请选择服务器架构"
+              >
+                <el-option
+                  label="amd64 (x86_64)"
+                  value="amd64"
+                />
+                <el-option
+                  label="arm64 (aarch64)"
+                  value="arm64"
+                />
+                <el-option
+                  label="s390x (IBM Z)"
+                  value="s390x"
+                />
+              </el-select>
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  选择服务器的CPU架构，影响可用的系统镜像
+                </el-text>
+              </div>
+            </el-form-item>
           </el-form>
         </el-tab-pane>
 
@@ -708,36 +738,6 @@
                   type="info"
                 >
                   选择服务器所在国家，中国地区将使用CDN加速下载GitHub镜像
-                </el-text>
-              </div>
-            </el-form-item>
-            <el-form-item
-              label="架构"
-              prop="architecture"
-            >
-              <el-select
-                v-model="addProviderForm.architecture"
-                placeholder="请选择服务器架构"
-              >
-                <el-option
-                  label="amd64 (x86_64)"
-                  value="amd64"
-                />
-                <el-option
-                  label="arm64 (aarch64)"
-                  value="arm64"
-                />
-                <el-option
-                  label="s390x (IBM Z)"
-                  value="s390x"
-                />
-              </el-select>
-              <div class="form-tip">
-                <el-text
-                  size="small"
-                  type="info"
-                >
-                  选择服务器的CPU架构，影响可用的系统镜像
                 </el-text>
               </div>
             </el-form-item>

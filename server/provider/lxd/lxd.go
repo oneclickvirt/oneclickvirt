@@ -141,7 +141,31 @@ func (l *LXDProvider) Disconnect(ctx context.Context) error {
 }
 
 func (l *LXDProvider) IsConnected() bool {
-	return l.connected
+	return l.connected && l.sshClient != nil && l.sshClient.IsHealthy()
+}
+
+// EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
+func (l *LXDProvider) EnsureConnection() error {
+	if l.sshClient == nil {
+		return fmt.Errorf("SSH client not initialized")
+	}
+
+	if !l.sshClient.IsHealthy() {
+		global.APP_LOG.Warn("LXD Provider SSH连接不健康，尝试重连",
+			zap.String("host", utils.TruncateString(l.config.Host, 50)),
+			zap.Int("port", l.config.Port))
+
+		if err := l.sshClient.Reconnect(); err != nil {
+			l.connected = false
+			return fmt.Errorf("failed to reconnect SSH: %w", err)
+		}
+
+		global.APP_LOG.Info("LXD Provider SSH连接重建成功",
+			zap.String("host", utils.TruncateString(l.config.Host, 50)),
+			zap.Int("port", l.config.Port))
+	}
+
+	return nil
 }
 
 func (l *LXDProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {

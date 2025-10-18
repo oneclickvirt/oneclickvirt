@@ -100,6 +100,34 @@ func (d *DockerProvider) Disconnect(ctx context.Context) error {
 	return nil
 }
 
+func (d *DockerProvider) IsConnected() bool {
+	return d.connected && d.sshClient != nil && d.sshClient.IsHealthy()
+}
+
+// EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
+func (d *DockerProvider) EnsureConnection() error {
+	if d.sshClient == nil {
+		return fmt.Errorf("SSH client not initialized")
+	}
+
+	if !d.sshClient.IsHealthy() {
+		global.APP_LOG.Warn("Docker Provider SSH连接不健康，尝试重连",
+			zap.String("host", utils.TruncateString(d.config.Host, 32)),
+			zap.Int("port", d.config.Port))
+
+		if err := d.sshClient.Reconnect(); err != nil {
+			d.connected = false
+			return fmt.Errorf("failed to reconnect SSH: %w", err)
+		}
+
+		global.APP_LOG.Info("Docker Provider SSH连接重建成功",
+			zap.String("host", utils.TruncateString(d.config.Host, 32)),
+			zap.Int("port", d.config.Port))
+	}
+
+	return nil
+}
+
 func (d *DockerProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if d.healthChecker == nil {
 		return nil, fmt.Errorf("health checker not initialized")
@@ -292,10 +320,6 @@ func (d *DockerProvider) DeleteImage(ctx context.Context, id string) error {
 	}
 
 	return d.sshDeleteImage(ctx, id)
-}
-
-func (d *DockerProvider) IsConnected() bool {
-	return d.connected
 }
 
 func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.Instance, error) {

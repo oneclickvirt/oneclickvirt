@@ -136,7 +136,31 @@ func (i *IncusProvider) Disconnect(ctx context.Context) error {
 }
 
 func (i *IncusProvider) IsConnected() bool {
-	return i.connected
+	return i.connected && i.sshClient != nil && i.sshClient.IsHealthy()
+}
+
+// EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
+func (i *IncusProvider) EnsureConnection() error {
+	if i.sshClient == nil {
+		return fmt.Errorf("SSH client not initialized")
+	}
+
+	if !i.sshClient.IsHealthy() {
+		global.APP_LOG.Warn("Incus Provider SSH连接不健康，尝试重连",
+			zap.String("host", utils.TruncateString(i.config.Host, 32)),
+			zap.Int("port", i.config.Port))
+
+		if err := i.sshClient.Reconnect(); err != nil {
+			i.connected = false
+			return fmt.Errorf("failed to reconnect SSH: %w", err)
+		}
+
+		global.APP_LOG.Info("Incus Provider SSH连接重建成功",
+			zap.String("host", utils.TruncateString(i.config.Host, 32)),
+			zap.Int("port", i.config.Port))
+	}
+
+	return nil
 }
 
 func (i *IncusProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
