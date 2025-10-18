@@ -135,7 +135,14 @@ jobs:
         TAG_NAME="v${{ steps.date.outputs.date }}"
         
         # Get the latest release tag (excluding pre-releases)
-        LAST_TAG=$(gh release list --limit 100 --exclude-drafts --exclude-pre-releases | grep -v "$TAG_NAME" | head -n 1 | awk '{print $1}')
+        # Try multiple methods to get the last tag
+        LAST_TAG=$(gh release list --limit 100 --exclude-drafts --exclude-pre-releases | grep -v "$TAG_NAME" | head -n 1 | awk '{print $NF}' | grep -E '^v[0-9]' || echo "")
+        
+        # Fallback: try to get the latest tag from git
+        if [ -z "$LAST_TAG" ] || [ "$LAST_TAG" = "Release" ]; then
+          echo "Fallback: Getting latest tag from git tags"
+          LAST_TAG=$(git tag --sort=-creatordate | grep -v "$TAG_NAME" | head -n 1 || echo "")
+        fi
         
         echo "Last release tag: $LAST_TAG"
         echo "Current tag: $TAG_NAME"
