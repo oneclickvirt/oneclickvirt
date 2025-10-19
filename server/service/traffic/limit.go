@@ -404,6 +404,10 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 		"is_limited":          u.TrafficLimited,
 		"reset_time":          u.TrafficResetAt,
 		"history":             history,
+		"formatted": map[string]string{
+			"current_usage": FormatTrafficMB(currentMonthUsage),
+			"total_limit":   FormatTrafficMB(int64(u.TotalTraffic)),
+		},
 	}, nil
 }
 
@@ -678,7 +682,7 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 			"is_limited":    rank.IsLimited,
 			"reset_time":    rank.ResetTime,
 			"formatted": map[string]string{
-				"month_usage": FormatTrafficMB(rank.MonthUsage),
+				"month_usage": FormatVnStatData(rank.MonthUsage),
 				"total_limit": FormatTrafficMB(int64(rank.TotalLimit)),
 			},
 		})
