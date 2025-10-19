@@ -4,13 +4,22 @@
       <template #header>
         <div class="header-row">
           <span>实例管理</span>
-          <el-button
-            type="primary"
-            :loading="loading"
-            @click="loadInstances"
-          >
-            刷新
-          </el-button>
+          <div class="header-actions">
+            <el-button
+              v-if="selectedInstances.length > 0"
+              type="danger"
+              @click="batchDeleteInstances"
+            >
+              批量删除 ({{ selectedInstances.length }})
+            </el-button>
+            <el-button
+              type="primary"
+              :loading="loading"
+              @click="loadInstances"
+            >
+              刷新
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -86,7 +95,12 @@
         :data="instances"
         style="width: 100%"
         row-key="id"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column
+          type="selection"
+          width="55"
+        />
         <el-table-column
           prop="name"
           label="实例名称"
@@ -419,6 +433,7 @@ const loading = ref(false)
 const detailDialogVisible = ref(false)
 const selectedInstance = ref(null)
 const showPassword = ref(false)
+const selectedInstances = ref([])
 
 // 筛选条件
 const filters = ref({
@@ -663,6 +678,63 @@ const deleteInstance = async (id) => {
   }
 }
 
+// 处理表格选择变化
+const handleSelectionChange = (selection) => {
+  selectedInstances.value = selection
+}
+
+// 批量删除实例
+const batchDeleteInstances = async () => {
+  if (selectedInstances.value.length === 0) {
+    ElMessage.warning('请先选择要删除的实例')
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定删除选中的 ${selectedInstances.value.length} 个实例吗？删除操作将以任务形式异步执行，请在任务列表中查看进度。`,
+      '批量删除实例',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning',
+      }
+    )
+
+    let successCount = 0
+    let failCount = 0
+    const errors = []
+
+    // 依次创建删除任务
+    for (const instance of selectedInstances.value) {
+      try {
+        await adminInstanceAction(instance.id, 'delete')
+        successCount++
+      } catch (error) {
+        failCount++
+        errors.push(`${instance.name}: ${error.message || '删除失败'}`)
+      }
+    }
+
+    // 显示结果
+    if (failCount === 0) {
+      ElMessage.success(`已成功为 ${successCount} 个实例创建删除任务，请查看任务列表了解进度`)
+    } else if (successCount === 0) {
+      ElMessage.error(`批量删除失败，所有实例删除任务创建失败`)
+    } else {
+      ElMessage.warning(`成功创建 ${successCount} 个删除任务，${failCount} 个失败`)
+    }
+
+    // 刷新列表
+    await loadInstances()
+    selectedInstances.value = []
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error('批量删除失败')
+    }
+  }
+}
+
 onMounted(() => {
   loadInstances()
 })
@@ -676,6 +748,12 @@ onMounted(() => {
 .header-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
 

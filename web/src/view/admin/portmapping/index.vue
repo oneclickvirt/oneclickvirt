@@ -4,12 +4,29 @@
       <template #header>
         <div class="card-header">
           <span>端口映射管理</span>
-          <el-button
-            type="primary"
-            @click="showBatchDialog = true"
-          >
-            批量操作
-          </el-button>
+          <div class="header-actions">
+            <el-button
+              v-if="selectedPortMappings.length > 0"
+              type="success"
+              @click="batchUpdateStatus('active')"
+            >
+              批量启用 ({{ selectedPortMappings.length }})
+            </el-button>
+            <el-button
+              v-if="selectedPortMappings.length > 0"
+              type="warning"
+              @click="batchUpdateStatus('inactive')"
+            >
+              批量停用 ({{ selectedPortMappings.length }})
+            </el-button>
+            <el-button
+              v-if="selectedPortMappings.length > 0"
+              type="danger"
+              @click="batchDeleteDirect"
+            >
+              批量删除 ({{ selectedPortMappings.length }})
+            </el-button>
+          </div>
         </div>
       </template>
       
@@ -272,43 +289,6 @@
         </span>
       </template>
     </el-dialog>
-
-    <!-- 批量操作对话框 -->
-    <el-dialog
-      v-model="showBatchDialog"
-      title="批量操作"
-      width="500px"
-    >
-      <div>
-        <p>已选择 {{ selectedPortMappings.length }} 个端口映射</p>
-        <el-button
-          type="danger"
-          :disabled="selectedPortMappings.length === 0"
-          @click="batchDelete"
-        >
-          批量删除
-        </el-button>
-        <el-button
-          type="warning"
-          :disabled="selectedPortMappings.length === 0"
-          @click="batchUpdateStatus('inactive')"
-        >
-          批量停用
-        </el-button>
-        <el-button
-          type="success"
-          :disabled="selectedPortMappings.length === 0"
-          @click="batchUpdateStatus('active')"
-        >
-          批量启用
-        </el-button>
-      </div>
-      <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showBatchDialog = false">关闭</el-button>
-        </span>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
@@ -361,9 +341,6 @@ const editRules = {
     { required: true, message: '请选择状态', trigger: 'change' }
   ]
 }
-
-// 批量操作对话框
-const showBatchDialog = ref(false)
 
 // 方法
 const loadPortMappings = async () => {
@@ -463,23 +440,28 @@ const deletePortMappingHandler = async (id) => {
   }
 }
 
-const batchDelete = async () => {
+// 批量删除
+const batchDeleteDirect = async () => {
   if (selectedPortMappings.value.length === 0) {
     ElMessage.warning('请选择要删除的端口映射')
     return
   }
   
   try {
-    await ElMessageBox.confirm(`确定要删除选中的 ${selectedPortMappings.value.length} 个端口映射吗？`, '警告', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      `确定要删除选中的 ${selectedPortMappings.value.length} 个端口映射吗？此操作不可恢复。`, 
+      '批量删除端口映射', 
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
     
     const ids = selectedPortMappings.value.map(item => item.id)
     await batchDeletePortMappings(ids)
-    ElMessage.success('批量删除成功')
-    showBatchDialog.value = false
+    ElMessage.success(`成功删除 ${selectedPortMappings.value.length} 个端口映射`)
+    selectedPortMappings.value = []
     loadPortMappings()
   } catch (error) {
     if (error !== 'cancel') {
@@ -489,23 +471,38 @@ const batchDelete = async () => {
   }
 }
 
+// 批量更新状态
 const batchUpdateStatus = async (status) => {
   if (selectedPortMappings.value.length === 0) {
     ElMessage.warning('请选择要操作的端口映射')
     return
   }
   
+  const actionText = status === 'active' ? '启用' : '停用'
+  
   try {
+    await ElMessageBox.confirm(
+      `确定要${actionText}选中的 ${selectedPortMappings.value.length} 个端口映射吗？`, 
+      `批量${actionText}端口映射`, 
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
+    
     const promises = selectedPortMappings.value.map(item => 
       updatePortMapping(item.id, { status })
     )
     await Promise.all(promises)
-    ElMessage.success(`批量${status === 'active' ? '启用' : '停用'}成功`)
-    showBatchDialog.value = false
+    ElMessage.success(`成功${actionText} ${selectedPortMappings.value.length} 个端口映射`)
+    selectedPortMappings.value = []
     loadPortMappings()
   } catch (error) {
-    ElMessage.error(`批量${status === 'active' ? '启用' : '停用'}失败`)
-    console.error(error)
+    if (error !== 'cancel') {
+      ElMessage.error(`批量${actionText}失败`)
+      console.error(error)
+    }
   }
 }
 
@@ -535,6 +532,12 @@ onMounted(() => {
 .card-header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
   align-items: center;
 }
 
