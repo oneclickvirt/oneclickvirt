@@ -165,21 +165,24 @@ type ResetPasswordResponse struct {
 
 // AvailableProviderResponse 可用服务器响应
 type AvailableProviderResponse struct {
-	ID               uint    `json:"id"`
-	Name             string  `json:"name"`
-	Type             string  `json:"type"`
-	Region           string  `json:"region"`
-	Country          string  `json:"country"`
-	CountryCode      string  `json:"countryCode"`
-	Status           string  `json:"status"`
-	CPU              int     `json:"cpu"`
-	Memory           int     `json:"memory"`         // 总内存(MB)
-	Disk             int     `json:"disk"`           // 总硬盘空间(MB)
-	AvailableSlots   int     `json:"availableSlots"` // 可用实例槽位数，999表示不限制
-	CPUUsage         float64 `json:"cpuUsage"`
-	MemoryUsage      float64 `json:"memoryUsage"`
-	ContainerEnabled bool    `json:"containerEnabled"`
-	VmEnabled        bool    `json:"vmEnabled"`
+	ID                      uint    `json:"id"`
+	Name                    string  `json:"name"`
+	Type                    string  `json:"type"`
+	Region                  string  `json:"region"`
+	Country                 string  `json:"country"`
+	CountryCode             string  `json:"countryCode"`
+	Status                  string  `json:"status"`
+	CPU                     int     `json:"cpu"`
+	Memory                  int     `json:"memory"`                  // 总内存(MB)
+	Disk                    int     `json:"disk"`                    // 总硬盘空间(MB)
+	AvailableContainerSlots int     `json:"availableContainerSlots"` // 可用容器槽位数，-1表示不限制
+	AvailableVMSlots        int     `json:"availableVMSlots"`        // 可用虚拟机槽位数，-1表示不限制
+	MaxContainerInstances   int     `json:"maxContainerInstances"`   // 最大容器数量，0表示不限制
+	MaxVMInstances          int     `json:"maxVMInstances"`          // 最大虚拟机数量，0表示不限制
+	CPUUsage                float64 `json:"cpuUsage"`
+	MemoryUsage             float64 `json:"memoryUsage"`
+	ContainerEnabled        bool    `json:"containerEnabled"`
+	VmEnabled               bool    `json:"vmEnabled"`
 }
 
 // SystemImageResponse 系统镜像响应

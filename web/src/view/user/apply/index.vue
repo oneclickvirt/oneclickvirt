@@ -91,8 +91,27 @@
             <div class="info-item">
               <span>硬盘: {{ formatDiskSize(provider.disk || 0) }}</span>
             </div>
-            <div class="info-item">
-              <span>可用实例: {{ provider.availableSlots >= 999 ? '不限制' : provider.availableSlots }}</span>
+            <div 
+              v-if="provider.containerEnabled && provider.vmEnabled"
+              class="info-item"
+            >
+              <span>
+                可用实例: 
+                容器{{ provider.availableContainerSlots === -1 ? '不限制' : provider.availableContainerSlots }} / 
+                虚拟机{{ provider.availableVMSlots === -1 ? '不限制' : provider.availableVMSlots }}
+              </span>
+            </div>
+            <div 
+              v-else-if="provider.containerEnabled"
+              class="info-item"
+            >
+              <span>可用容器: {{ provider.availableContainerSlots === -1 ? '不限制' : provider.availableContainerSlots }}</span>
+            </div>
+            <div 
+              v-else-if="provider.vmEnabled"
+              class="info-item"
+            >
+              <span>可用虚拟机: {{ provider.availableVMSlots === -1 ? '不限制' : provider.availableVMSlots }}</span>
             </div>
           </div>
         </div>
@@ -539,6 +558,49 @@ const autoSelectFirstAvailableSpecs = () => {
 // 当实例类型变化时，重新加载对应的镜像
 const onInstanceTypeChange = async () => {
   if (selectedProvider.value && configForm.type) {
+    // 检查节点是否支持该实例类型
+    if (configForm.type === 'container') {
+      if (!selectedProvider.value.containerEnabled) {
+        ElMessage.warning('该节点不支持容器类型')
+        configForm.type = 'vm'
+        return
+      }
+      // 检查容器槽位
+      if (selectedProvider.value.availableContainerSlots !== -1 && selectedProvider.value.availableContainerSlots <= 0) {
+        ElMessage.warning('该节点容器槽位不足')
+        // 尝试切换到虚拟机
+        if (selectedProvider.value.vmEnabled && (selectedProvider.value.availableVMSlots === -1 || selectedProvider.value.availableVMSlots > 0)) {
+          configForm.type = 'vm'
+          ElMessage.info('已自动切换到虚拟机类型')
+        } else {
+          // 取消选择该节点
+          selectedProvider.value = null
+          ElMessage.warning('该节点资源不足，请选择其他节点')
+          return
+        }
+      }
+    } else if (configForm.type === 'vm') {
+      if (!selectedProvider.value.vmEnabled) {
+        ElMessage.warning('该节点不支持虚拟机类型')
+        configForm.type = 'container'
+        return
+      }
+      // 检查虚拟机槽位
+      if (selectedProvider.value.availableVMSlots !== -1 && selectedProvider.value.availableVMSlots <= 0) {
+        ElMessage.warning('该节点虚拟机槽位不足')
+        // 尝试切换到容器
+        if (selectedProvider.value.containerEnabled && (selectedProvider.value.availableContainerSlots === -1 || selectedProvider.value.availableContainerSlots > 0)) {
+          configForm.type = 'container'
+          ElMessage.info('已自动切换到容器类型')
+        } else {
+          // 取消选择该节点
+          selectedProvider.value = null
+          ElMessage.warning('该节点资源不足，请选择其他节点')
+          return
+        }
+      }
+    }
+    
     await loadFilteredImages()
   }
   // 清空已选择的镜像
@@ -672,8 +734,12 @@ const selectProvider = async (provider) => {
     ElMessage.warning('该节点当前离线，无法选择')
     return
   }
-  // 当 availableSlots >= 999 时表示不限制，允许选择
-  if (provider.availableSlots < 999 && provider.availableSlots <= 0) {
+  
+  // 检查是否有可用的实例类型
+  const hasAvailableContainer = provider.containerEnabled && (provider.availableContainerSlots === -1 || provider.availableContainerSlots > 0)
+  const hasAvailableVM = provider.vmEnabled && (provider.availableVMSlots === -1 || provider.availableVMSlots > 0)
+  
+  if (!hasAvailableContainer && !hasAvailableVM) {
     ElMessage.warning('该节点资源不足，无法创建新实例')
     return
   }

@@ -10924,8 +10924,12 @@ const docTemplate = `{
         "user.AvailableProviderResponse": {
             "type": "object",
             "properties": {
-                "availableSlots": {
-                    "description": "可用实例槽位数，999表示不限制",
+                "availableContainerSlots": {
+                    "description": "可用容器槽位数，-1表示不限制",
+                    "type": "integer"
+                },
+                "availableVMSlots": {
+                    "description": "可用虚拟机槽位数，-1表示不限制",
                     "type": "integer"
                 },
                 "containerEnabled": {
@@ -10948,6 +10952,14 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "id": {
+                    "type": "integer"
+                },
+                "maxContainerInstances": {
+                    "description": "最大容器数量，0表示不限制",
+                    "type": "integer"
+                },
+                "maxVMInstances": {
+                    "description": "最大虚拟机数量，0表示不限制",
                     "type": "integer"
                 },
                 "memory": {

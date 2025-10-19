@@ -183,60 +183,43 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				memoryUsage = float64(actualUsedMemory) / float64(nodeMemory) * 100
 			}
 
-			// 计算可用实例槽位 - 基于容器和虚拟机的单独限制，考虑预留
-			availableSlots := 0
-			availableContainerSlots := 0
-			availableVMSlots := 0
-			hasContainerLimit := provider.MaxContainerInstances > 0
-			hasVMLimit := provider.MaxVMInstances > 0
+			// 计算可用实例槽位 - 基于容器和虚拟机的单独限制
+			availableContainerSlots := -1 // -1 表示不限制
+			availableVMSlots := -1        // -1 表示不限制
 
-			if hasContainerLimit {
+			if provider.MaxContainerInstances > 0 {
 				availableContainerSlots = provider.MaxContainerInstances - actualUsedContainers
 				if availableContainerSlots < 0 {
 					availableContainerSlots = 0
 				}
-				availableSlots += availableContainerSlots
 			}
 
-			if hasVMLimit {
+			if provider.MaxVMInstances > 0 {
 				availableVMSlots = provider.MaxVMInstances - actualUsedVMs
 				if availableVMSlots < 0 {
 					availableVMSlots = 0
 				}
-				availableSlots += availableVMSlots
 			}
 
-			// 如果两种类型都没有设置限制（都为0），表示无限制，返回999表示不限制
-			if !hasContainerLimit && !hasVMLimit {
-				availableSlots = 999
-			} else if !hasContainerLimit || !hasVMLimit {
-				// 如果只有一种类型没有限制，对于有限制的类型正常计算，无限制的类型加上999
-				if !hasContainerLimit && provider.ContainerEnabled {
-					// 容器没有限制，加上999表示该类型不限制
-					availableSlots += 999
-				}
-
-				if !hasVMLimit && provider.VirtualMachineEnabled {
-					// 虚拟机没有限制，加上999表示该类型不限制
-					availableSlots += 999
-				}
-			}
 			providerResp := userModel.AvailableProviderResponse{
-				ID:               provider.ID,
-				Name:             provider.Name,
-				Type:             provider.Type,
-				Region:           provider.Region,
-				Country:          provider.Country,
-				CountryCode:      provider.CountryCode,
-				Status:           provider.Status,
-				CPU:              nodeCPU,
-				Memory:           int(nodeMemory), // 返回MB单位
-				Disk:             int(nodeDisk),   // 返回MB单位
-				AvailableSlots:   availableSlots,
-				CPUUsage:         cpuUsage,
-				MemoryUsage:      memoryUsage,
-				ContainerEnabled: provider.ContainerEnabled,
-				VmEnabled:        provider.VirtualMachineEnabled,
+				ID:                      provider.ID,
+				Name:                    provider.Name,
+				Type:                    provider.Type,
+				Region:                  provider.Region,
+				Country:                 provider.Country,
+				CountryCode:             provider.CountryCode,
+				Status:                  provider.Status,
+				CPU:                     nodeCPU,
+				Memory:                  int(nodeMemory), // 返回MB单位
+				Disk:                    int(nodeDisk),   // 返回MB单位
+				AvailableContainerSlots: availableContainerSlots,
+				AvailableVMSlots:        availableVMSlots,
+				MaxContainerInstances:   provider.MaxContainerInstances,
+				MaxVMInstances:          provider.MaxVMInstances,
+				CPUUsage:                cpuUsage,
+				MemoryUsage:             memoryUsage,
+				ContainerEnabled:        provider.ContainerEnabled,
+				VmEnabled:               provider.VirtualMachineEnabled,
 			}
 			providers = append(providers, providerResp)
 		}
