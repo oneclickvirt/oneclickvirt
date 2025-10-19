@@ -102,14 +102,14 @@ func GetInstancePorts(c *gin.Context) {
 	formattedPorts := make([]map[string]interface{}, len(ports))
 	for i, port := range ports {
 		formattedPorts[i] = map[string]interface{}{
-			"id":           port.ID,
-			"publicPort":   port.HostPort,
-			"internalPort": port.GuestPort,
-			"protocol":     port.Protocol,
-			"status":       port.Status,
-			"description":  port.Description,
-			"isSSH":        port.IsSSH,
-			"createdAt":    port.CreatedAt,
+			"id":          port.ID,
+			"hostPort":    port.HostPort,  // 统一使用 hostPort
+			"guestPort":   port.GuestPort, // 统一使用 guestPort
+			"protocol":    port.Protocol,
+			"status":      port.Status,
+			"description": port.Description,
+			"isSSH":       port.IsSSH,
+			"createdAt":   port.CreatedAt,
 		}
 	}
 

@@ -107,12 +107,12 @@
           width="120"
         />
         <el-table-column
-          prop="publicPort"
+          prop="hostPort"
           label="公网端口"
           width="100"
         />
         <el-table-column
-          prop="internalPort"
+          prop="guestPort"
           label="内部端口"
           width="100"
         />
@@ -213,20 +213,20 @@
         </el-form-item>
         <el-form-item
           label="公网端口"
-          prop="publicPort"
+          prop="hostPort"
         >
           <el-input-number
-            v-model="editForm.publicPort"
+            v-model="editForm.hostPort"
             :min="1"
             :max="65535"
           />
         </el-form-item>
         <el-form-item
           label="内部端口"
-          prop="internalPort"
+          prop="guestPort"
         >
           <el-input-number
-            v-model="editForm.internalPort"
+            v-model="editForm.guestPort"
             :min="1"
             :max="65535"
           />
@@ -339,18 +339,18 @@ const editFormRef = ref()
 const editForm = reactive({
   id: '',
   instanceName: '',
-  publicPort: '',
-  internalPort: '',
+  hostPort: '',
+  guestPort: '',
   protocol: 'tcp',
   status: 'active'
 })
 
 const editRules = {
-  publicPort: [
+  hostPort: [
     { required: true, message: '请输入公网端口', trigger: 'blur' },
     { type: 'number', min: 1, max: 65535, message: '端口范围为1-65535', trigger: 'blur' }
   ],
-  internalPort: [
+  guestPort: [
     { required: true, message: '请输入内部端口', trigger: 'blur' },
     { type: 'number', min: 1, max: 65535, message: '端口范围为1-65535', trigger: 'blur' }
   ],
@@ -416,8 +416,8 @@ const editPortMapping = (row) => {
   Object.assign(editForm, {
     id: row.id,
     instanceName: row.instanceName,
-    publicPort: row.publicPort,
-    internalPort: row.internalPort,
+    hostPort: row.hostPort,
+    guestPort: row.guestPort,
     protocol: row.protocol,
     status: row.status
   })
@@ -430,8 +430,8 @@ const submitEdit = async () => {
   try {
     await editFormRef.value.validate()
     await updatePortMapping(editForm.id, {
-      publicPort: editForm.publicPort,
-      internalPort: editForm.internalPort,
+      hostPort: editForm.hostPort,
+      guestPort: editForm.guestPort,
       protocol: editForm.protocol,
       status: editForm.status
     })

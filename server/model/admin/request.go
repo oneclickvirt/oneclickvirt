@@ -350,6 +350,7 @@ type UpdateInstanceTypePermissionsRequest struct {
 // PortMappingListRequest 端口映射列表请求
 type PortMappingListRequest struct {
 	common.PageInfo
+	Keyword    string `json:"keyword" form:"keyword"` // 搜索关键字（实例名称）
 	ProviderID uint   `json:"providerId" form:"providerId"`
 	InstanceID uint   `json:"instanceId" form:"instanceId"`
 	Protocol   string `json:"protocol" form:"protocol"`
@@ -368,7 +369,8 @@ type CreatePortMappingRequest struct {
 // UpdatePortMappingRequest 更新端口映射请求
 type UpdatePortMappingRequest struct {
 	ID          uint   `json:"id" binding:"required"`
-	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`
+	HostPort    int    `json:"hostPort" binding:"required,min=1,max=65535"`  // 宿主机端口（公网端口）
+	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"` // 容器内部端口
 	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp"`
 	Description string `json:"description"`
 	Status      string `json:"status" binding:"required,oneof=active inactive"`

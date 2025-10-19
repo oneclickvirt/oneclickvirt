@@ -173,8 +173,8 @@
                     class="port-tag"
                     :type="port.isSSH ? 'warning' : 'primary'"
                   >
-                    <span v-if="port.isSSH">SSH: {{ port.publicPort }}</span>
-                    <span v-else>{{ port.publicPort }}:{{ port.internalPort }}/{{ port.protocol }}</span>
+                    <span v-if="port.isSSH">SSH: {{ port.hostPort }}</span>
+                    <span v-else>{{ port.hostPort }}:{{ port.guestPort }}/{{ port.protocol }}</span>
                   </el-tag>
                   <el-tag 
                     v-if="instance.portMappings.length > 3"

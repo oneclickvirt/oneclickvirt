@@ -351,12 +351,12 @@
               class="ports-table"
             >
               <el-table-column
-                prop="publicPort"
+                prop="hostPort"
                 label="公网端口"
                 width="120"
               />
               <el-table-column
-                prop="internalPort"
+                prop="guestPort"
                 label="内部端口"
                 width="120"
               />
@@ -400,14 +400,14 @@
                     >
                       <span 
                         class="command-text" 
-                        :title="`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.publicPort}`"
+                        :title="`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.hostPort}`"
                       >
-                        {{ formatSSHCommand(instance.username, instance.publicIP, row.publicPort) }}
+                        {{ formatSSHCommand(instance.username, instance.publicIP, row.hostPort) }}
                       </span>
                       <el-button 
                         size="small" 
                         text 
-                        @click="copyToClipboard(`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.publicPort}`)"
+                        @click="copyToClipboard(`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.hostPort}`)"
                       >
                         复制
                       </el-button>
@@ -418,14 +418,14 @@
                     >
                       <span 
                         class="command-text" 
-                        :title="`${instance.publicIP}:${row.publicPort}`"
+                        :title="`${instance.publicIP}:${row.hostPort}`"
                       >
-                        {{ formatIPPort(instance.publicIP, row.publicPort) }}
+                        {{ formatIPPort(instance.publicIP, row.hostPort) }}
                       </span>
                       <el-button 
                         size="small" 
                         text 
-                        @click="copyToClipboard(`${instance.publicIP}:${row.publicPort}`)"
+                        @click="copyToClipboard(`${instance.publicIP}:${row.hostPort}`)"
                       >
                         复制
                       </el-button>

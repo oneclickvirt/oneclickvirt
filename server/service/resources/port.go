@@ -22,7 +22,23 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 
 	query := global.APP_DB.Model(&provider.Port{})
 
-	// 查询条件
+	// 关键字搜索（实例名称）
+	if req.Keyword != "" {
+		// 子查询：查找名称匹配的实例ID列表
+		var instanceIDs []uint
+		if err := global.APP_DB.Model(&provider.Instance{}).
+			Where("name LIKE ?", "%"+req.Keyword+"%").
+			Pluck("id", &instanceIDs).Error; err != nil {
+			global.APP_LOG.Error("搜索实例失败", zap.Error(err))
+		} else if len(instanceIDs) > 0 {
+			query = query.Where("instance_id IN ?", instanceIDs)
+		} else {
+			// 没有匹配的实例，返回空结果
+			return []provider.Port{}, 0, nil
+		}
+	}
+
+	// 其他查询条件
 	if req.ProviderID > 0 {
 		query = query.Where("provider_id = ?", req.ProviderID)
 	}
@@ -138,7 +154,17 @@ func (s *PortMappingService) UpdatePortMapping(req admin.UpdatePortMappingReques
 		return fmt.Errorf("端口映射不存在")
 	}
 
+	// 如果要修改 HostPort，需要检查端口冲突
+	if req.HostPort != port.HostPort {
+		var existingPort provider.Port
+		if err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = 'active' AND id != ?",
+			port.ProviderID, req.HostPort, req.ID).First(&existingPort).Error; err == nil {
+			return fmt.Errorf("端口 %d 已被其他实例占用", req.HostPort)
+		}
+	}
+
 	// 更新字段
+	port.HostPort = req.HostPort
 	port.GuestPort = req.GuestPort
 	port.Protocol = req.Protocol
 	port.Description = req.Description
@@ -150,7 +176,10 @@ func (s *PortMappingService) UpdatePortMapping(req admin.UpdatePortMappingReques
 		return fmt.Errorf("更新端口映射失败: %v", err)
 	}
 
-	global.APP_LOG.Info("更新端口映射成功", zap.Uint("port_id", req.ID))
+	global.APP_LOG.Info("更新端口映射成功",
+		zap.Uint("port_id", req.ID),
+		zap.Int("host_port", req.HostPort),
+		zap.Int("guest_port", req.GuestPort))
 	return nil
 }
 

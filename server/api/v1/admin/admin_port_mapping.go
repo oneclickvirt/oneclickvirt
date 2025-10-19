@@ -36,6 +36,7 @@ func GetPortMappingList(c *gin.Context) {
 	// 解析查询参数
 	req.Page, _ = strconv.Atoi(c.DefaultQuery("page", "1"))
 	req.PageSize, _ = strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	req.Keyword = c.Query("keyword") // 搜索关键字
 
 	if providerID := c.Query("providerId"); providerID != "" {
 		if id, err := strconv.ParseUint(providerID, 10, 32); err == nil {
@@ -94,9 +95,9 @@ func GetPortMappingList(c *gin.Context) {
 			"instanceName": instanceName,
 			"providerId":   port.ProviderID,
 			"providerName": providerName,
-			"publicPort":   port.HostPort,
-			"internalPort": port.GuestPort,
-			"publicIP":     publicIP, // 仅IP地址，不含端口
+			"hostPort":     port.HostPort,  // 统一使用 hostPort
+			"guestPort":    port.GuestPort, // 统一使用 guestPort
+			"publicIP":     publicIP,       // 仅IP地址，不含端口
 			"protocol":     port.Protocol,
 			"status":       port.Status,
 			"description":  port.Description,

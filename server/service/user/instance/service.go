@@ -110,12 +110,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		var portMappings []map[string]interface{}
 		for _, port := range ports {
 			portMappings = append(portMappings, map[string]interface{}{
-				"id":           port.ID,
-				"publicPort":   port.HostPort,
-				"internalPort": port.GuestPort,
-				"protocol":     port.Protocol,
-				"description":  port.Description,
-				"isSSH":        port.IsSSH,
+				"id":          port.ID,
+				"hostPort":    port.HostPort,  // 统一使用 hostPort
+				"guestPort":   port.GuestPort, // 统一使用 guestPort
+				"protocol":    port.Protocol,
+				"description": port.Description,
+				"isSSH":       port.IsSSH,
 			})
 		}
 
