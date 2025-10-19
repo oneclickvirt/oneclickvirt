@@ -650,6 +650,24 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 
 		// 如果指定了节点，也检查节点级别的实例数量限制
 		if req.ProviderId > 0 {
+			// 获取Provider并加锁（防止并发超配）
+			var provider providerModel.Provider
+			if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&provider, req.ProviderId).Error; err != nil {
+				return fmt.Errorf("获取节点信息失败: %v", err)
+			}
+
+			// 检查节点本身的实例数量限制
+			if systemImage.InstanceType == "container" && provider.MaxContainerInstances > 0 {
+				if provider.ContainerCount >= provider.MaxContainerInstances {
+					return fmt.Errorf("节点容器数量已达上限：%d/%d", provider.ContainerCount, provider.MaxContainerInstances)
+				}
+			} else if systemImage.InstanceType == "vm" && provider.MaxVMInstances > 0 {
+				if provider.VMCount >= provider.MaxVMInstances {
+					return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", provider.VMCount, provider.MaxVMInstances)
+				}
+			}
+
+			// 检查节点级别的等级限制
 			providerLevelLimits, err := quotaService.GetProviderLevelLimitsInTx(tx, req.ProviderId, currentUser.Level)
 			if err == nil && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
 				currentProviderInstances, err := quotaService.GetCurrentProviderInstanceCountInTx(tx, userID, req.ProviderId)
