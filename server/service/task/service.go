@@ -67,6 +67,9 @@ type TaskService struct {
 	providerPools   map[uint]*ProviderWorkerPool // Provider工作池
 	poolMutex       sync.RWMutex                 // 保护providerPools的锁
 	shutdown        chan struct{}                // 系统关闭信号
+	wg              sync.WaitGroup               // 用于等待所有goroutine完成
+	ctx             context.Context              // 服务级别的context
+	cancel          context.CancelFunc           // 服务级别的cancel函数
 }
 
 var (
@@ -77,11 +80,14 @@ var (
 // GetTaskService 获取任务服务单例
 func GetTaskService() *TaskService {
 	taskServiceOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
 		taskService = &TaskService{
 			dbService:       database.GetDatabaseService(),
 			runningContexts: make(map[uint]*TaskContext),
 			providerPools:   make(map[uint]*ProviderWorkerPool),
 			shutdown:        make(chan struct{}),
+			ctx:             ctx,
+			cancel:          cancel,
 		}
 		// 设置全局任务锁释放器
 		// 使用channel池实现并发控制，无需额外的锁释放
@@ -144,6 +150,47 @@ func (s *TaskService) cleanupRunningTasksOnStartup() {
 	}
 
 	// 内存计数器从空开始，不需要额外初始化
+}
+
+// Shutdown 优雅关闭任务服务，等待所有goroutine完成
+func (s *TaskService) Shutdown() {
+	global.APP_LOG.Info("开始关闭任务服务，等待所有后台任务完成...")
+
+	// 发送关闭信号
+	if s.cancel != nil {
+		s.cancel()
+	}
+	select {
+	case <-s.shutdown:
+		// 已关闭
+	default:
+		close(s.shutdown)
+	}
+
+	// 关闭所有工作池
+	s.poolMutex.Lock()
+	for providerID, pool := range s.providerPools {
+		global.APP_LOG.Info("关闭Provider工作池", zap.Uint("providerId", providerID))
+		pool.Cancel()
+	}
+	s.poolMutex.Unlock()
+
+	// 等待所有goroutine完成
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+
+	// 等待最多30秒
+	select {
+	case <-done:
+		global.APP_LOG.Info("所有后台任务已完成")
+	case <-time.After(30 * time.Second):
+		global.APP_LOG.Warn("等待后台任务超时，强制退出")
+	}
+
+	global.APP_LOG.Info("TaskService关闭完成")
 }
 
 // CreateTask 创建任务
@@ -358,7 +405,11 @@ func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
 
 	// 任务取消成功后，如果是删除任务，触发资源释放
 	if err == nil {
-		go s.handleCancelledTaskCleanup(taskID)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleCancelledTaskCleanup(taskID)
+		}()
 	}
 
 	return err
@@ -380,7 +431,11 @@ func (s *TaskService) cancelPendingTask(tx *gorm.DB, taskID uint, reason string)
 	}
 
 	// 释放预留资源
-	go s.releaseTaskResources(taskID)
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.releaseTaskResources(taskID)
+	}()
 
 	return nil
 }
@@ -400,7 +455,9 @@ func (s *TaskService) cancelRunningTask(tx *gorm.DB, taskID uint, reason string)
 	}
 
 	// 2. 发送取消信号（异步处理，避免阻塞事务）
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		s.contextMutex.RLock()
 		if taskCtx, exists := s.runningContexts[taskID]; exists {
 			taskCtx.CancelFunc()
@@ -430,7 +487,9 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 	}
 
 	// 强制清理上下文（异步处理）
+	s.wg.Add(1)
 	go func() {
+		defer s.wg.Done()
 		// 获取任务信息以便记录日志
 		var task adminModel.Task
 		if err := global.APP_DB.First(&task, taskID).Error; err == nil {
@@ -802,7 +861,9 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	s.updateTaskProgress(task.ID, 80, "正在初始化监控服务...")
 
 	// 实例启动成功后，异步初始化vnStat监控和流量同步，完成后标记任务完成
+	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
+		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("启动实例后处理任务发生panic",
@@ -1053,7 +1114,9 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	s.updateTaskProgress(task.ID, 85, "正在重新初始化监控服务...")
 
 	// 实例重启成功后，异步重新初始化vnStat监控，完成后标记任务完成
+	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
+		defer s.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("重启实例后处理任务发生panic",
@@ -2027,27 +2090,4 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 	}
 
 	return nil
-}
-
-// Shutdown 优雅关闭工作池
-func (s *TaskService) Shutdown() {
-	global.APP_LOG.Info("开始关闭TaskService...")
-
-	// 发送关闭信号
-	close(s.shutdown)
-
-	// 关闭所有工作池
-	s.poolMutex.Lock()
-	for providerID, pool := range s.providerPools {
-		global.APP_LOG.Info("关闭Provider工作池", zap.Uint("providerId", providerID))
-		pool.Cancel()
-	}
-	s.poolMutex.Unlock()
-
-	// 使用定时器等待任务完成，而不是无条件阻塞
-	shutdownTimer := time.NewTimer(5 * time.Second)
-	defer shutdownTimer.Stop()
-
-	<-shutdownTimer.C
-	global.APP_LOG.Info("TaskService关闭完成")
 }

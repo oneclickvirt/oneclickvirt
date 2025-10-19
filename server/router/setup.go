@@ -1,6 +1,7 @@
 package router
 
 import (
+	"log"
 	"net/http"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/middleware"
@@ -78,7 +79,10 @@ func SetupRouter() *gin.Engine {
 	}
 
 	// 设置静态文件路由（如果启用了嵌入模式）
-	setupStaticRoutes(Router)
+	if err := setupStaticRoutes(Router); err != nil {
+		log.Printf("[ERROR] 设置静态文件路由失败: %v\n", err)
+		// 返回错误但不影响API服务启动
+	}
 
 	return Router
 }

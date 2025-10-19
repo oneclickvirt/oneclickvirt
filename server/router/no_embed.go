@@ -11,7 +11,8 @@ import (
 const embedEnabled = false
 
 // setupStaticRoutes 设置静态文件路由（非嵌入模式，什么都不做）
-func setupStaticRoutes(router *gin.Engine) {
+func setupStaticRoutes(router *gin.Engine) error {
 	// 非嵌入模式下不需要设置静态路由
 	// 前端将独立部署
+	return nil
 }

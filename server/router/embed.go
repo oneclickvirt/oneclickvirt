@@ -19,11 +19,11 @@ var FS embed.FS
 const embedEnabled = true
 
 // setupStaticRoutes 设置静态文件路由（嵌入模式）
-func setupStaticRoutes(router *gin.Engine) {
+func setupStaticRoutes(router *gin.Engine) error {
 	// 获取嵌入的文件系统，去掉 dist 前缀
 	staticFS, err := fs.Sub(FS, "dist")
 	if err != nil {
-		panic("Failed to load embedded web files: " + err.Error())
+		return err
 	}
 
 	// 创建 http.FileServer 来处理静态文件
@@ -62,4 +62,6 @@ func setupStaticRoutes(router *gin.Engine) {
 		c.Request.URL.Path = "/"
 		fileServer.ServeHTTP(c.Writer, c.Request)
 	})
+
+	return nil
 }
