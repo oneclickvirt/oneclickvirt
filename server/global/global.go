@@ -42,4 +42,6 @@ var (
 	APP_MONITORING_SCHEDULER MonitoringScheduler          // 监控调度器全局变量
 	APP_TASK_LOCK_RELEASER   TaskLockReleaser             // 任务锁释放器全局变量
 	APP_SYSTEM_INIT_CALLBACK SystemInitializationCallback // 系统初始化完成回调函数
+	APP_SHUTDOWN_CONTEXT     context.Context              // 系统关闭上下文
+	APP_SHUTDOWN_CANCEL      context.CancelFunc           // 系统关闭取消函数
 )

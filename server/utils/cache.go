@@ -1,8 +1,20 @@
 package utils
 
 import (
+	"errors"
 	"sync"
 	"time"
+)
+
+// 验证码缓存配置常量
+const (
+	// MaxCaptchaItems 验证码缓存最大数量，防止内存耗尽
+	MaxCaptchaItems = 10000
+)
+
+var (
+	// ErrCacheFull 缓存已满错误
+	ErrCacheFull = errors.New("验证码缓存已满，请稍后再试")
 )
 
 // CaptchaCache 验证码缓存接口
@@ -17,19 +29,22 @@ type CaptchaCache interface {
 
 // MemoryCaptchaCache 内存验证码缓存实现
 type MemoryCaptchaCache struct {
-	data  map[string]cacheItem
-	mutex sync.RWMutex
+	data     map[string]cacheItem
+	mutex    sync.RWMutex
+	maxItems int
 }
 
 type cacheItem struct {
 	value      string
 	expiration time.Time
+	createdAt  time.Time // 用于LRU淘汰策略
 }
 
 // NewMemoryCaptchaCache 创建新的内存验证码缓存
 func NewMemoryCaptchaCache() *MemoryCaptchaCache {
 	cache := &MemoryCaptchaCache{
-		data: make(map[string]cacheItem),
+		data:     make(map[string]cacheItem),
+		maxItems: MaxCaptchaItems,
 	}
 
 	// 启动定期清理过期缓存的协程
@@ -43,9 +58,27 @@ func (c *MemoryCaptchaCache) SetCaptcha(id string, code string, expiration time.
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
+	// 检查缓存容量
+	if len(c.data) >= c.maxItems {
+		// 缓存已满，先尝试清理过期项
+		c.cleanupExpiredLocked()
+
+		// 清理后仍然满，则淘汰最旧的项
+		if len(c.data) >= c.maxItems {
+			c.evictOldestLocked()
+		}
+
+		// 如果还是满（极端情况），返回错误
+		if len(c.data) >= c.maxItems {
+			return ErrCacheFull
+		}
+	}
+
+	now := time.Now()
 	c.data[id] = cacheItem{
 		value:      code,
-		expiration: time.Now().Add(expiration),
+		expiration: now.Add(expiration),
+		createdAt:  now,
 	}
 
 	return nil
@@ -92,11 +125,36 @@ func (c *MemoryCaptchaCache) cleanupLoop() {
 func (c *MemoryCaptchaCache) cleanup() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
+	c.cleanupExpiredLocked()
+}
 
+// cleanupExpiredLocked 清理过期缓存（需要持有锁）
+func (c *MemoryCaptchaCache) cleanupExpiredLocked() {
 	now := time.Now()
 	for key, item := range c.data {
 		if now.After(item.expiration) {
 			delete(c.data, key)
 		}
+	}
+}
+
+// evictOldestLocked 淘汰最旧的缓存项（需要持有锁）
+func (c *MemoryCaptchaCache) evictOldestLocked() {
+	var oldestKey string
+	var oldestTime time.Time
+
+	// 找到最旧的项
+	first := true
+	for key, item := range c.data {
+		if first || item.createdAt.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = item.createdAt
+			first = false
+		}
+	}
+
+	// 删除最旧的项
+	if oldestKey != "" {
+		delete(c.data, oldestKey)
 	}
 }

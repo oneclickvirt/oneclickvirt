@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
@@ -24,9 +25,10 @@ type SSHConfig struct {
 }
 
 type SSHClient struct {
-	client         *ssh.Client
-	config         SSHConfig
-	lastHealthTime time.Time // 上次健康检查时间
+	client          *ssh.Client
+	config          SSHConfig
+	lastHealthTime  time.Time          // 上次健康检查时间
+	keepaliveCancel context.CancelFunc // keepalive goroutine控制
 }
 
 func NewSSHClient(config SSHConfig) (*SSHClient, error) {
@@ -43,20 +45,21 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		zap.Duration("connectTimeout", config.ConnectTimeout),
 		zap.Duration("executeTimeout", config.ExecuteTimeout))
 
-	client, err := dialSSH(config)
+	client, keepaliveCancel, err := dialSSH(config)
 	if err != nil {
 		return nil, err
 	}
 
 	return &SSHClient{
-		client:         client,
-		config:         config,
-		lastHealthTime: time.Now(),
+		client:          client,
+		config:          config,
+		lastHealthTime:  time.Now(),
+		keepaliveCancel: keepaliveCancel,
 	}, nil
 }
 
 // dialSSH 建立SSH连接的内部方法
-func dialSSH(config SSHConfig) (*ssh.Client, error) {
+func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
 	sshConfig := &ssh.ClientConfig{
 		User: config.Username,
 		Auth: []ssh.AuthMethod{
@@ -78,22 +81,28 @@ func dialSSH(config SSHConfig) (*ssh.Client, error) {
 
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to connect to SSH server: %w", err)
+		return nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
-	// 启用 KeepAlive，保持连接活跃
+	// 启用 KeepAlive，保持连接活跃，使用context控制生命周期
+	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
-		for range ticker.C {
-			_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-			if err != nil {
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			case <-ticker.C:
+				_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+				if err != nil {
+					return
+				}
 			}
 		}
 	}()
 
-	return client, nil
+	return client, cancel, nil
 }
 
 // IsHealthy 检查SSH连接是否健康
@@ -127,18 +136,22 @@ func (c *SSHClient) Reconnect() error {
 		zap.String("host", c.config.Host),
 		zap.Int("port", c.config.Port))
 
-	// 关闭旧连接
+	// 关闭旧连接和keepalive goroutine
+	if c.keepaliveCancel != nil {
+		c.keepaliveCancel()
+	}
 	if c.client != nil {
 		c.client.Close()
 	}
 
 	// 建立新连接
-	client, err := dialSSH(c.config)
+	client, keepaliveCancel, err := dialSSH(c.config)
 	if err != nil {
 		return fmt.Errorf("failed to reconnect SSH: %w", err)
 	}
 
 	c.client = client
+	c.keepaliveCancel = keepaliveCancel
 	c.lastHealthTime = time.Now()
 
 	global.APP_LOG.Info("SSH连接重建成功",
@@ -234,6 +247,13 @@ func (c *SSHClient) executeCommand(command string) (string, error) {
 }
 
 func (c *SSHClient) Close() error {
+	// 先停止keepalive goroutine
+	if c.keepaliveCancel != nil {
+		c.keepaliveCancel()
+		c.keepaliveCancel = nil
+	}
+
+	// 再关闭SSH连接
 	if c.client != nil {
 		return c.client.Close()
 	}

@@ -26,6 +26,9 @@ func InitializeSystem() {
 
 	global.APP_LOG.Info("系统初始化开始")
 
+	// 创建系统级别的关闭上下文
+	global.APP_SHUTDOWN_CONTEXT, global.APP_SHUTDOWN_CANCEL = context.WithCancel(context.Background())
+
 	// 初始化存储目录结构
 	initializeStorage()
 
@@ -62,7 +65,7 @@ func initializeLogRotation() {
 	if global.APP_CONFIG.Zap.RetentionDay > 0 {
 		logRotationService := log.GetLogRotationService()
 
-		// 启动定时清理任务（每天凌晨3点执行）
+		// 启动定时清理任务（每天凌晨3点执行），支持优雅退出
 		go func() {
 			for {
 				now := time.Now()
@@ -77,21 +80,29 @@ func initializeLogRotation() {
 					zap.Time("nextRun", next),
 					zap.Duration("duration", duration))
 
-				time.Sleep(duration)
+				// 使用可取消的定时器等待
+				timer := time.NewTimer(duration)
+				select {
+				case <-timer.C:
+					// 执行日志清理
+					global.APP_LOG.Info("开始执行日志清理任务")
+					if err := logRotationService.CleanupOldLogs(); err != nil {
+						global.APP_LOG.Error("日志清理失败", zap.Error(err))
+					} else {
+						global.APP_LOG.Info("日志清理完成")
+					}
 
-				// 执行日志清理
-				global.APP_LOG.Info("开始执行日志清理任务")
-				if err := logRotationService.CleanupOldLogs(); err != nil {
-					global.APP_LOG.Error("日志清理失败", zap.Error(err))
-				} else {
-					global.APP_LOG.Info("日志清理完成")
-				}
-
-				// 压缩旧日志
-				if err := logRotationService.CompressOldLogs(); err != nil {
-					global.APP_LOG.Error("日志压缩失败", zap.Error(err))
-				} else {
-					global.APP_LOG.Info("日志压缩完成")
+					// 压缩旧日志
+					if err := logRotationService.CompressOldLogs(); err != nil {
+						global.APP_LOG.Error("日志压缩失败", zap.Error(err))
+					} else {
+						global.APP_LOG.Info("日志压缩完成")
+					}
+				case <-global.APP_SHUTDOWN_CONTEXT.Done():
+					// 系统关闭，停止日志轮转任务
+					timer.Stop()
+					global.APP_LOG.Info("日志轮转任务已停止")
+					return
 				}
 			}
 		}()

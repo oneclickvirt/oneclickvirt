@@ -29,6 +29,11 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 		<-quit
 		global.APP_LOG.Info("Shutdown Server ...")
 
+		// 触发系统级别的关闭信号，停止所有后台goroutine
+		if global.APP_SHUTDOWN_CANCEL != nil {
+			global.APP_SHUTDOWN_CANCEL()
+		}
+
 		// 停止调度器
 		if global.APP_SCHEDULER != nil {
 			global.APP_SCHEDULER.StopScheduler()

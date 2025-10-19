@@ -816,7 +816,17 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			}
 		}()
 
-		time.Sleep(30 * time.Second) // 等待实例完全启动
+		// 使用可取消的等待，而不是硬编码的Sleep
+		select {
+		case <-time.After(30 * time.Second):
+			// 等待完成，继续执行
+		case <-ctx.Done():
+			// 任务被取消，停止后续处理
+			global.APP_LOG.Info("启动实例后处理被取消",
+				zap.Uint("instanceId", instanceID),
+				zap.Uint("taskId", taskID))
+			return
+		}
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在初始化vnStat监控...")
@@ -909,8 +919,13 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	syncTrigger := traffic.NewSyncTriggerService()
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例停止前同步")
 
-	// 等待流量同步完成
-	time.Sleep(3 * time.Second)
+	// 使用可取消的等待，而不是硬编码的Sleep
+	select {
+	case <-time.After(3 * time.Second):
+		// 等待流量同步完成
+	case <-ctx.Done():
+		return fmt.Errorf("任务已取消")
+	}
 
 	// 更新进度
 	s.updateTaskProgress(task.ID, 70, "正在停止实例...")
@@ -998,8 +1013,13 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	syncTrigger := traffic.NewSyncTriggerService()
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例重启前同步")
 
-	// 等待流量同步完成
-	time.Sleep(3 * time.Second)
+	// 使用可取消的等待
+	select {
+	case <-time.After(3 * time.Second):
+		// 等待流量同步完成
+	case <-ctx.Done():
+		return fmt.Errorf("任务已取消")
+	}
 
 	// 更新进度
 	s.updateTaskProgress(task.ID, 60, "正在重启实例...")
@@ -1047,7 +1067,17 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			}
 		}()
 
-		time.Sleep(30 * time.Second) // 等待实例完全启动
+		// 使用可取消的等待
+		select {
+		case <-time.After(30 * time.Second):
+			// 等待实例完全启动
+		case <-ctx.Done():
+			// 任务被取消，停止后续处理
+			global.APP_LOG.Info("重启实例后处理被取消",
+				zap.Uint("instanceId", instanceID),
+				zap.Uint("taskId", taskID))
+			return
+		}
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在重新初始化vnStat监控...")
@@ -1145,8 +1175,13 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	syncTrigger := traffic.NewSyncTriggerService()
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例删除前最终同步")
 
-	// 等待流量同步完成
-	time.Sleep(5 * time.Second)
+	// 使用可取消的等待
+	select {
+	case <-time.After(5 * time.Second):
+		// 等待流量同步完成
+	case <-ctx.Done():
+		return fmt.Errorf("任务已取消")
+	}
 
 	// 更新进度
 	s.updateTaskProgress(task.ID, 60, "正在删除实例...")
@@ -1355,8 +1390,13 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 		// 对于重置操作，即使删除失败我们也继续，因为实例可能已经不存在
 	}
 
-	// 等待一段时间确保删除完成
-	time.Sleep(3 * time.Second)
+	// 使用可取消的等待确保删除完成
+	select {
+	case <-time.After(3 * time.Second):
+		// 等待删除完成
+	case <-ctx.Done():
+		return fmt.Errorf("任务已取消")
+	}
 
 	// 第二步：重新创建实例，使用 CreateInstanceByProviderID 方法以指定准确的Provider
 	createReq := provider2.CreateInstanceRequest{
@@ -1590,7 +1630,13 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 				zap.Int("maxRetries", maxRetries),
 				zap.Error(err))
 			if attempt < maxRetries {
-				time.Sleep(5 * time.Second) // 等待5秒后重试
+				// 使用可取消的等待
+				select {
+				case <-time.After(5 * time.Second):
+					// 等待5秒后重试
+				case <-ctx.Done():
+					return fmt.Errorf("任务已取消")
+				}
 			}
 		} else {
 			passwordSetSuccess = true
@@ -1998,8 +2044,10 @@ func (s *TaskService) Shutdown() {
 	}
 	s.poolMutex.Unlock()
 
-	// 等待一段时间让正在执行的任务完成
-	time.Sleep(5 * time.Second)
+	// 使用定时器等待任务完成，而不是无条件阻塞
+	shutdownTimer := time.NewTimer(5 * time.Second)
+	defer shutdownTimer.Stop()
 
+	<-shutdownTimer.C
 	global.APP_LOG.Info("TaskService关闭完成")
 }
