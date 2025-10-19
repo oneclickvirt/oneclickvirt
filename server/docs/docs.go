@@ -893,8 +893,8 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
-                        "description": "提供商筛选",
-                        "name": "provider",
+                        "description": "节点名称",
+                        "name": "providerName",
                         "in": "query"
                     }
                 ],
@@ -3447,223 +3447,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "内部错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/upload/cleanup": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "立即执行过期文件清理（排除头像文件）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "上传管理"
-                ],
-                "summary": "清理过期文件",
-                "responses": {
-                    "200": {
-                        "description": "清理成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "权限不足",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "清理失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/upload/config": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取当前的文件上传配置信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "上传管理"
-                ],
-                "summary": "获取文件上传配置",
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/config.UploadConfig"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "权限不足",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "更新文件上传相关配置",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "上传管理"
-                ],
-                "summary": "更新文件上传配置",
-                "parameters": [
-                    {
-                        "description": "上传配置",
-                        "name": "config",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/config.UploadConfig"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "更新成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "权限不足",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/upload/stats": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取文件上传相关统计数据",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "上传管理"
-                ],
-                "summary": "获取上传统计信息",
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "401": {
-                        "description": "未授权",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "权限不足",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -6519,7 +6302,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "上传用户头像图片，支持JPG、PNG、WEBP格式，最大2MB",
+                "description": "上传用户头像图片，仅支持PNG和JPEG格式，最大2MB",
                 "consumes": [
                     "multipart/form-data"
                 ],
@@ -7066,6 +6849,12 @@ const docTemplate = `{
                         "type": "string",
                         "description": "实例类型",
                         "name": "type",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "节点名称",
+                        "name": "providerName",
                         "in": "query"
                     }
                 ],
@@ -9238,6 +9027,14 @@ const docTemplate = `{
                     "description": "过期时间，格式: \"2006-01-02 15:04:05\"",
                     "type": "string"
                 },
+                "levelLimits": {
+                    "description": "节点级别的等级限制配置\n用于限制该节点上不同等级用户能创建的最大资源",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
                 "maxConcurrentTasks": {
                     "description": "最大并发任务数，默认1",
                     "type": "integer"
@@ -9692,6 +9489,7 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "guestPort",
+                "hostPort",
                 "id",
                 "protocol",
                 "status"
@@ -9701,6 +9499,13 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "guestPort": {
+                    "description": "容器内部端口",
+                    "type": "integer",
+                    "maximum": 65535,
+                    "minimum": 1
+                },
+                "hostPort": {
+                    "description": "宿主机端口（公网端口）",
                     "type": "integer",
                     "maximum": 65535,
                     "minimum": 1
@@ -10021,50 +9826,11 @@ const docTemplate = `{
                 }
             }
         },
-        "config.UploadConfig": {
-            "type": "object",
-            "properties": {
-                "allowed_types": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "cleanup_interval": {
-                    "description": "存储配置",
-                    "type": "integer"
-                },
-                "denied_exts": {
-                    "type": "array",
-                    "items": {
-                        "type": "string"
-                    }
-                },
-                "enable_security_scan": {
-                    "description": "安全配置",
-                    "type": "boolean"
-                },
-                "max_avatar_size": {
-                    "description": "基础配置",
-                    "type": "integer"
-                },
-                "max_file_size": {
-                    "type": "integer"
-                },
-                "retention_days": {
-                    "description": "文件保留天数",
-                    "type": "integer"
-                },
-                "upload_dir": {
-                    "type": "string"
-                }
-            }
-        },
         "log.LogFileInfo": {
             "type": "object",
             "properties": {
                 "date": {
-                    "description": "添加日期字段，格式为 YYYY-MM-DD",
+                    "description": "日期字段，格式为 YYYY-MM-DD",
                     "type": "string"
                 },
                 "is_gzip": {
@@ -10722,6 +10488,14 @@ const docTemplate = `{
                 "key_path": {
                     "type": "string"
                 },
+                "levelLimits": {
+                    "description": "节点级别的等级限制配置\n用于限制该节点上不同等级用户能创建的最大资源",
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "object",
+                        "additionalProperties": true
+                    }
+                },
                 "name": {
                     "type": "string"
                 },
@@ -11151,6 +10925,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "availableSlots": {
+                    "description": "可用实例槽位数，999表示不限制",
                     "type": "integer"
                 },
                 "containerEnabled": {
@@ -11705,7 +11480,7 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "localhost:8888",
+	Host:             "0.0.0.0:8888",
 	BasePath:         "/api/v1",
 	Schemes:          []string{"http", "https"},
 	Title:            "OneClickVirt API",

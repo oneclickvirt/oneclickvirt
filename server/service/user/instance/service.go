@@ -50,9 +50,9 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 	if req.Type != "" {
 		query = query.Where("instance_type = ?", req.Type)
 	}
-	// 支持Provider筛选
-	if req.ProviderID != 0 {
-		query = query.Where("provider_id = ?", req.ProviderID)
+	// 支持节点名称搜索
+	if req.ProviderName != "" {
+		query = query.Where("provider LIKE ?", "%"+req.ProviderName+"%")
 	}
 
 	if err := query.Count(&total).Error; err != nil {
@@ -74,6 +74,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		// 获取SSH端口（映射的公网端口）
 		var sshPort int
 		var publicIP string
+		var providerType string
 
 		// 查找SSH端口映射
 		for _, port := range ports {
@@ -83,10 +84,11 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			}
 		}
 
-		// 获取Provider信息以获取公网IP（不含端口）
+		// 获取Provider信息以获取公网IP（不含端口）和类型
 		if instance.ProviderID > 0 {
 			var providerInfo providerModel.Provider
 			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
+				providerType = providerInfo.Type
 				endpoint := providerInfo.Endpoint
 				if endpoint != "" {
 					// 移除端口号部分，只保留IP
@@ -136,6 +138,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			CanDelete:    instance.Status != "deleting",
 			PortMappings: portMappings,
 			PublicIP:     publicIP,
+			ProviderType: providerType,
 		}
 		userInstances = append(userInstances, userInstance)
 	}

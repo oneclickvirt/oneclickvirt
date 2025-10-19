@@ -76,7 +76,7 @@ func GetEnabledProviders(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "提供商ID"
-// @Success 200 {object} common.Response{data=oauth2Model.OAuth2Provider}
+// @Success 200 {object} common.Response{data=oauth2.OAuth2Provider}
 // @Router /oauth2/providers/{id} [get]
 func GetProvider(c *gin.Context) {
 	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
@@ -106,7 +106,7 @@ func GetProvider(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body oauth2Service.CreateProviderRequest true "提供商配置"
-// @Success 200 {object} common.Response{data=oauth2Model.OAuth2Provider}
+// @Success 200 {object} common.Response{data=oauth2.OAuth2Provider}
 // @Router /oauth2/providers [post]
 func CreateProvider(c *gin.Context) {
 	var req oauth2Service.CreateProviderRequest

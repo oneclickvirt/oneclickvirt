@@ -49,7 +49,7 @@ func GetAdminDashboard(c *gin.Context) {
 // @Param page query int false "页码" default(1)
 // @Param pageSize query int false "每页数量" default(10)
 // @Param status query string false "实例状态"
-// @Param provider query string false "提供商筛选"
+// @Param providerName query string false "节点名称"
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Failure 400 {object} common.Response "请求参数错误"
 // @Failure 500 {object} common.Response "服务器内部错误"

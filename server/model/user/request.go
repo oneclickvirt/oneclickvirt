@@ -22,8 +22,8 @@ type UserInstanceListRequest struct {
 	Name         string `json:"name"`
 	Status       string `json:"status"`
 	InstanceType string `json:"instanceType"`
-	Type         string `json:"type"`       // 实例类型筛选（和instanceType一样，兼容前端）
-	ProviderID   uint   `json:"providerId"` // Provider ID筛选
+	Type         string `json:"type"`         // 实例类型筛选（和instanceType一样，兼容前端）
+	ProviderName string `json:"providerName"` // 节点名称搜索
 }
 
 type AvailableResourcesRequest struct {

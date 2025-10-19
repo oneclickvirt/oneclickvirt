@@ -53,6 +53,7 @@ type UserInstanceResponse struct {
 	CanDelete    bool                     `json:"canDelete"`
 	PortMappings []map[string]interface{} `json:"portMappings"` // 端口映射列表
 	PublicIP     string                   `json:"publicIP"`     // 纯净的公网IP（不含端口）
+	ProviderType string                   `json:"providerType"` // Provider虚拟化类型：docker, lxd, incus, proxmox
 }
 
 // UserLimitsResponse 用户配额限制响应

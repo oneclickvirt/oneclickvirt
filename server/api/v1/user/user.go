@@ -150,6 +150,7 @@ func ClaimResource(c *gin.Context) {
 // @Param pageSize query int false "每页数量" default(10)
 // @Param status query string false "实例状态"
 // @Param type query string false "实例类型"
+// @Param providerName query string false "节点名称"
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"

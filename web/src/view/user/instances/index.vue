@@ -68,30 +68,20 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="服务器">
-            <el-select
-              v-model="filterForm.providerId"
-              placeholder="选择服务器"
+          <el-form-item label="节点">
+            <el-input
+              v-model="filterForm.providerName"
+              placeholder="按节点名称搜索"
               clearable
-            >
-              <el-option
-                label="全部"
-                value=""
-              />
-              <el-option 
-                v-for="provider in providers" 
-                :key="provider.id" 
-                :label="provider.name" 
-                :value="provider.id" 
-              />
-            </el-select>
+              style="width: 200px;"
+            />
           </el-form-item>
           <el-form-item>
             <el-button
               type="primary"
-              @click="() => loadInstances(true)"
+              @click="handleSearch"
             >
-              筛选
+              搜索
             </el-button>
             <el-button @click="resetFilter">
               重置
@@ -114,6 +104,13 @@
               <div class="instance-type">
                 <el-tag :type="instance.instance_type === 'vm' ? 'primary' : 'success'">
                   {{ instance.instance_type === 'vm' ? '虚拟机' : '容器' }}
+                </el-tag>
+                <el-tag 
+                  v-if="instance.providerType"
+                  :type="getProviderTypeColor(instance.providerType)"
+                  style="margin-left: 8px;"
+                >
+                  {{ getProviderTypeName(instance.providerType) }}
                 </el-tag>
               </div>
             </div>
@@ -265,7 +262,7 @@ import { ref, reactive, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, View } from '@element-plus/icons-vue'
-import { getUserInstances, getAvailableProviders } from '@/api/user'
+import { getUserInstances } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 
@@ -274,7 +271,6 @@ const route = useRoute()
 
 const loading = ref(false)
 const instances = ref([])
-const providers = ref([])
 const total = ref(0)
 
 // 流量详情对话框
@@ -286,13 +282,19 @@ const selectedInstanceForTraffic = ref(null)
 const filterForm = reactive({
   type: '',
   status: '',
-  providerId: ''
+  providerName: ''
 })
 
 const pagination = reactive({
   page: 1,
   pageSize: 10
 })
+
+// 处理搜索
+const handleSearch = () => {
+  pagination.page = 1
+  loadInstances(true)
+}
 
 // 获取实例列表
 const loadInstances = async (showSuccessMsg = false) => {
@@ -327,29 +329,12 @@ const loadInstances = async (showSuccessMsg = false) => {
   }
 }
 
-// 获取服务器列表
-const loadProviders = async () => {
-  try {
-    const response = await getAvailableProviders()
-    if (response.code === 200) {
-      providers.value = response.data.list || []
-    } else {
-      providers.value = []
-    }
-  } catch (error) {
-    console.error('获取可用节点失败:', error)
-    providers.value = []
-  }
-}
-
-
-
 // 重置筛选
 const resetFilter = () => {
   Object.assign(filterForm, {
     type: '',
     status: '',
-    providerId: ''
+    providerName: ''
   })
   pagination.page = 1
   loadInstances(true)
@@ -379,6 +364,28 @@ const getStatusText = (status) => {
     'failed': '创建失败'
   }
   return statusMap[status] || status
+}
+
+// 获取Provider类型名称
+const getProviderTypeName = (type) => {
+  const names = {
+    docker: 'Docker',
+    lxd: 'LXD',
+    incus: 'Incus',
+    proxmox: 'Proxmox'
+  }
+  return names[type] || type
+}
+
+// 获取Provider类型颜色
+const getProviderTypeColor = (type) => {
+  const colors = {
+    docker: 'info',
+    lxd: 'success',
+    incus: 'warning',
+    proxmox: ''
+  }
+  return colors[type] || ''
 }
 
 // 格式化日期
@@ -420,7 +427,6 @@ const showTrafficDetail = (instance) => {
 watch(() => route.path, (newPath, oldPath) => {
   if (newPath === '/user/instances' && oldPath !== newPath) {
     loadInstances()
-    loadProviders()
   }
 }, { immediate: false })
 
@@ -428,7 +434,6 @@ watch(() => route.path, (newPath, oldPath) => {
 const handleRouterNavigation = (event) => {
   if (event.detail && event.detail.path === '/user/instances') {
     loadInstances()
-    loadProviders()
   }
 }
 
@@ -440,18 +445,9 @@ onMounted(async () => {
   
   loading.value = true
   try {
-    // 使用Promise.allSettled确保即使某些API失败，页面也能正常显示
-    const results = await Promise.allSettled([
-      loadInstances(),
-      loadProviders()
-    ])
-    
-    results.forEach((result, index) => {
-      if (result.status === 'rejected') {
-        const apiNames = ['获取实例列表', '获取节点列表']
-        console.error(`${apiNames[index]}失败:`, result.reason)
-      }
-    })
+    await loadInstances()
+  } catch (error) {
+    console.error('获取实例列表失败:', error)
   } finally {
     loading.value = false
   }
@@ -461,10 +457,9 @@ onMounted(async () => {
 onActivated(async () => {
   loading.value = true
   try {
-    await Promise.allSettled([
-      loadInstances(),
-      loadProviders()
-    ])
+    await loadInstances()
+  } catch (error) {
+    console.error('获取实例列表失败:', error)
   } finally {
     loading.value = false
   }
@@ -475,10 +470,9 @@ const handleForceRefresh = async (event) => {
   if (event.detail && event.detail.path === '/user/instances') {
     loading.value = true
     try {
-      await Promise.allSettled([
-        loadInstances(),
-        loadProviders()
-      ])
+      await loadInstances()
+    } catch (error) {
+      console.error('获取实例列表失败:', error)
     } finally {
       loading.value = false
     }

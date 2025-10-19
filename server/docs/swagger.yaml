@@ -401,6 +401,14 @@ definitions:
       expiresAt:
         description: '过期时间，格式: "2006-01-02 15:04:05"'
         type: string
+      levelLimits:
+        additionalProperties:
+          additionalProperties: true
+          type: object
+        description: |-
+          节点级别的等级限制配置
+          用于限制该节点上不同等级用户能创建的最大资源
+        type: object
       maxConcurrentTasks:
         description: 最大并发任务数，默认1
         type: integer
@@ -727,6 +735,12 @@ definitions:
       description:
         type: string
       guestPort:
+        description: 容器内部端口
+        maximum: 65535
+        minimum: 1
+        type: integer
+      hostPort:
+        description: 宿主机端口（公网端口）
         maximum: 65535
         minimum: 1
         type: integer
@@ -744,6 +758,7 @@ definitions:
         type: string
     required:
     - guestPort
+    - hostPort
     - id
     - protocol
     - status
@@ -953,37 +968,10 @@ definitions:
       quota:
         $ref: '#/definitions/config.QuotaConfig'
     type: object
-  config.UploadConfig:
-    properties:
-      allowed_types:
-        items:
-          type: string
-        type: array
-      cleanup_interval:
-        description: 存储配置
-        type: integer
-      denied_exts:
-        items:
-          type: string
-        type: array
-      enable_security_scan:
-        description: 安全配置
-        type: boolean
-      max_avatar_size:
-        description: 基础配置
-        type: integer
-      max_file_size:
-        type: integer
-      retention_days:
-        description: 文件保留天数
-        type: integer
-      upload_dir:
-        type: string
-    type: object
   log.LogFileInfo:
     properties:
       date:
-        description: 添加日期字段，格式为 YYYY-MM-DD
+        description: 日期字段，格式为 YYYY-MM-DD
         type: string
       is_gzip:
         type: boolean
@@ -1424,6 +1412,14 @@ definitions:
         type: string
       key_path:
         type: string
+      levelLimits:
+        additionalProperties:
+          additionalProperties: true
+          type: object
+        description: |-
+          节点级别的等级限制配置
+          用于限制该节点上不同等级用户能创建的最大资源
+        type: object
       name:
         type: string
       networkType:
@@ -1735,6 +1731,7 @@ definitions:
   user.AvailableProviderResponse:
     properties:
       availableSlots:
+        description: 可用实例槽位数，999表示不限制
         type: integer
       containerEnabled:
         type: boolean
@@ -2113,7 +2110,7 @@ definitions:
         description: 已使用流量(MB)
         type: integer
     type: object
-host: localhost:8888
+host: 0.0.0.0:8888
 info:
   contact:
     email: support@swagger.io
@@ -2654,9 +2651,9 @@ paths:
         in: query
         name: status
         type: string
-      - description: 提供商筛选
+      - description: 节点名称
         in: query
-        name: provider
+        name: providerName
         type: string
       produces:
       - application/json
@@ -4234,135 +4231,6 @@ paths:
       summary: 手动同步用户所有实例的流量数据
       tags:
       - 管理员-流量同步
-  /admin/upload/cleanup:
-    post:
-      consumes:
-      - application/json
-      description: 立即执行过期文件清理（排除头像文件）
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 清理成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "403":
-          description: 权限不足
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 清理失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 清理过期文件
-      tags:
-      - 上传管理
-  /admin/upload/config:
-    get:
-      consumes:
-      - application/json
-      description: 获取当前的文件上传配置信息
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/config.UploadConfig'
-              type: object
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "403":
-          description: 权限不足
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取文件上传配置
-      tags:
-      - 上传管理
-    put:
-      consumes:
-      - application/json
-      description: 更新文件上传相关配置
-      parameters:
-      - description: 上传配置
-        in: body
-        name: config
-        required: true
-        schema:
-          $ref: '#/definitions/config.UploadConfig'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 更新成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "403":
-          description: 权限不足
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 更新文件上传配置
-      tags:
-      - 上传管理
-  /admin/upload/stats:
-    get:
-      consumes:
-      - application/json
-      description: 获取文件上传相关统计数据
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-        "401":
-          description: 未授权
-          schema:
-            $ref: '#/definitions/common.Response'
-        "403":
-          description: 权限不足
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取上传统计信息
-      tags:
-      - 上传管理
   /admin/users:
     get:
       consumes:
@@ -6107,7 +5975,7 @@ paths:
     post:
       consumes:
       - multipart/form-data
-      description: 上传用户头像图片，支持JPG、PNG、WEBP格式，最大2MB
+      description: 上传用户头像图片，仅支持PNG和JPEG格式，最大2MB
       parameters:
       - description: 头像文件
         in: formData
@@ -6433,6 +6301,10 @@ paths:
       - description: 实例类型
         in: query
         name: type
+        type: string
+      - description: 节点名称
+        in: query
+        name: providerName
         type: string
       produces:
       - application/json

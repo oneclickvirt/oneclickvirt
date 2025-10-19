@@ -17,18 +17,16 @@
       <!-- 筛选条件 -->
       <div class="filter-row">
         <el-input
-          v-model="filters.name"
-          placeholder="搜索实例名称"
+          v-model="filters.providerName"
+          placeholder="按节点名称搜索"
           style="width: 200px; margin-right: 10px;"
           clearable
-          @change="handleFilterChange"
         />
         <el-select
           v-model="filters.status"
           placeholder="状态筛选"
           style="width: 120px; margin-right: 10px;"
           clearable
-          @change="handleFilterChange"
         >
           <el-option
             label="运行中"
@@ -56,25 +54,10 @@
           />
         </el-select>
         <el-select
-          v-model="filters.provider"
-          placeholder="Provider筛选"
-          style="width: 150px; margin-right: 10px;"
-          clearable
-          @change="handleFilterChange"
-        >
-          <el-option
-            v-for="provider in providerList"
-            :key="provider"
-            :label="provider"
-            :value="provider"
-          />
-        </el-select>
-        <el-select
           v-model="filters.instanceType"
           placeholder="类型筛选"
-          style="width: 120px;"
+          style="width: 120px; margin-right: 10px;"
           clearable
-          @change="handleFilterChange"
         >
           <el-option
             label="容器"
@@ -85,6 +68,17 @@
             value="vm"
           />
         </el-select>
+        <el-button
+          type="primary"
+          @click="handleSearch"
+        >
+          搜索
+        </el-button>
+        <el-button
+          @click="handleReset"
+        >
+          重置
+        </el-button>
       </div>
 
       <el-table
@@ -428,9 +422,8 @@ const showPassword = ref(false)
 
 // 筛选条件
 const filters = ref({
-  name: '',
+  providerName: '',
   status: '',
-  provider: '',
   instanceType: ''
 })
 
@@ -441,26 +434,14 @@ const pagination = ref({
   total: 0
 })
 
-// Provider列表（用于筛选）
-const providerList = computed(() => {
-  const providers = new Set()
-  instances.value.forEach(instance => {
-    if (instance.providerName) {
-      providers.add(instance.providerName)
-    }
-  })
-  return Array.from(providers)
-})
-
 const loadInstances = async () => {
   loading.value = true
   try {
     const params = {
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
-      name: filters.value.name || undefined,
+      providerName: filters.value.providerName || undefined,
       status: filters.value.status || undefined,
-      provider: filters.value.provider || undefined,
       instance_type: filters.value.instanceType || undefined
     }
     
@@ -482,7 +463,15 @@ const loadInstances = async () => {
   }
 }
 
-const handleFilterChange = () => {
+const handleSearch = () => {
+  pagination.value.page = 1
+  loadInstances()
+}
+
+const handleReset = () => {
+  filters.value.providerName = ''
+  filters.value.status = ''
+  filters.value.instanceType = ''
   pagination.value.page = 1
   loadInstances()
 }

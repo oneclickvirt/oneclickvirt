@@ -209,8 +209,7 @@ type UpdateInstanceRequest struct {
 
 type InstanceListRequest struct {
 	common.PageInfo
-	Name         string `json:"name"`
-	Provider     string `json:"provider"`
+	ProviderName string `json:"providerName"` // 节点名称搜索
 	Status       string `json:"status"`
 	InstanceType string `json:"instance_type"`
 	UserID       uint   `json:"userId"`
