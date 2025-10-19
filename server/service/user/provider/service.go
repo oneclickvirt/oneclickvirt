@@ -599,16 +599,6 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, err
 	}
 
-	// 进行三重验证：用户配额、Provider资源、Provider并发限制
-	if err := s.validateCreateTaskPermissions(userID, req.ProviderId, systemImage.InstanceType,
-		cpuSpec.Cores, int64(memorySpec.SizeMB), int64(diskSpec.SizeMB), bandwidthSpec.SpeedMbps); err != nil {
-		global.APP_LOG.Error("任务创建验证失败",
-			zap.Uint("userID", userID),
-			zap.Uint("providerId", req.ProviderId),
-			zap.Error(err))
-		return nil, err
-	}
-
 	global.APP_LOG.Info("所有验证通过，开始创建实例",
 		zap.Uint("userID", userID),
 		zap.Uint("providerId", req.ProviderId),
@@ -617,15 +607,67 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 	// 生成会话ID
 	sessionID := resources.GenerateSessionID()
 
-	// 使用新的原子化创建流程
-	return s.createInstanceWithSessionReservation(userID, &req, sessionID, &systemImage, cpuSpec, memorySpec, diskSpec, bandwidthSpec)
+	// 使用优化的原子化创建流程（最小化事务范围）
+	return s.createInstanceWithMinimalTransaction(userID, &req, sessionID, &systemImage, cpuSpec, memorySpec, diskSpec, bandwidthSpec)
 }
 
-// createInstanceWithSessionReservation 原子化的实例创建流程（新机制）
-func (s *Service) createInstanceWithSessionReservation(userID uint, req *userModel.CreateInstanceRequest, sessionID string, systemImage *systemModel.SystemImage, cpuSpec *constant.CPUSpec, memorySpec *constant.MemorySpec, diskSpec *constant.DiskSpec, bandwidthSpec *constant.BandwidthSpec) (*adminModel.Task, error) {
-	// 使用事务确保原子性
+// createInstanceWithMinimalTransaction 优化的原子化实例创建流程
+// 只在真正需要原子性的操作中持有事务和行锁，最小化锁持有时间
+func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userModel.CreateInstanceRequest, sessionID string, systemImage *systemModel.SystemImage, cpuSpec *constant.CPUSpec, memorySpec *constant.MemorySpec, diskSpec *constant.DiskSpec, bandwidthSpec *constant.BandwidthSpec) (*adminModel.Task, error) {
+	// 使用事务确保原子性，但只在关键操作中持有锁
 	var task *adminModel.Task
 	err := database.GetDatabaseService().ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 【关键】在事务中再次快速验证实例数量（仅验证数量，其他已在事务外验证）
+		// 这是防止并发超配的关键检查，使用行锁保护
+		quotaService := resources.NewQuotaService()
+
+		// 获取用户记录并加锁（FOR UPDATE）
+		var currentUser userModel.User
+		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&currentUser, userID).Error; err != nil {
+			return fmt.Errorf("获取用户信息失败: %v", err)
+		}
+
+		// 快速检查用户状态
+		if currentUser.Status != 1 {
+			return fmt.Errorf("用户账户已被禁用")
+		}
+
+		// 获取用户等级限制
+		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[currentUser.Level]
+		if !exists {
+			return fmt.Errorf("用户等级 %d 没有配置资源限制", currentUser.Level)
+		}
+
+		// 【关键】只验证实例数量，避免重复执行其他已验证过的检查
+		currentInstances, _, err := quotaService.GetCurrentResourceUsageInTx(tx, userID)
+		if err != nil {
+			return fmt.Errorf("获取当前实例数量失败: %v", err)
+		}
+
+		if currentInstances >= levelLimits.MaxInstances {
+			return fmt.Errorf("实例数量已达上限：当前 %d/%d", currentInstances, levelLimits.MaxInstances)
+		}
+
+		// 如果指定了节点，也检查节点级别的实例数量限制
+		if req.ProviderId > 0 {
+			providerLevelLimits, err := quotaService.GetProviderLevelLimitsInTx(tx, req.ProviderId, currentUser.Level)
+			if err == nil && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
+				currentProviderInstances, err := quotaService.GetCurrentProviderInstanceCountInTx(tx, userID, req.ProviderId)
+				if err != nil {
+					return fmt.Errorf("获取节点实例数量失败: %v", err)
+				}
+
+				if currentProviderInstances >= providerLevelLimits.MaxInstances {
+					return fmt.Errorf("该节点实例数量已达上限：当前在此节点 %d/%d", currentProviderInstances, providerLevelLimits.MaxInstances)
+				}
+			}
+		}
+
+		global.APP_LOG.Info("事务内实例数量验证通过",
+			zap.Uint("userID", userID),
+			zap.Int("currentInstances", currentInstances),
+			zap.Int("maxInstances", levelLimits.MaxInstances))
+
 		// 1. 原子化预留并消费资源
 		reservationService := resources.GetResourceReservationService()
 
@@ -2031,6 +2073,75 @@ func (s *Service) validateInstanceMinimumRequirements(image *systemModel.SystemI
 	return nil
 }
 
+// validateCreateTaskPermissionsInTx 在事务中验证任务创建权限（三重验证）
+// 保持事务和行锁直到验证完成，防止并发创建导致超出配额
+func (s *Service) validateCreateTaskPermissionsInTx(tx *gorm.DB, userID uint, providerID uint, instanceType string,
+	cpu int, memory int64, disk int64, bandwidth int) error {
+
+	// 1. 用户配额验证（在同一事务中，保持行锁）
+	quotaService := resources.NewQuotaService()
+	quotaReq := resources.ResourceRequest{
+		UserID:       userID,
+		CPU:          cpu,
+		Memory:       memory,
+		Disk:         disk,
+		Bandwidth:    bandwidth,
+		InstanceType: instanceType,
+		ProviderID:   providerID, //  Provider ID 用于节点级限制检查
+	}
+
+	// 直接调用事务内的验证方法，保持行锁
+	quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
+	if err != nil {
+		return fmt.Errorf("用户配额验证失败: %v", err)
+	}
+
+	if !quotaResult.Allowed {
+		return fmt.Errorf("用户配额不足: %s", quotaResult.Reason)
+	}
+
+	// 2. Provider资源验证（在同一事务中）
+	resourceService := &resources.ResourceService{}
+	resourceReq := resourceModel.ResourceCheckRequest{
+		ProviderID:   providerID,
+		InstanceType: instanceType,
+		CPU:          cpu,
+		Memory:       memory,
+		Disk:         disk,
+	}
+
+	resourceResult, err := resourceService.CheckProviderResourcesWithTx(tx, resourceReq)
+	if err != nil {
+		return fmt.Errorf("Provider资源检查失败: %v", err)
+	}
+
+	if !resourceResult.Allowed {
+		return fmt.Errorf("Provider资源不足: %s", resourceResult.Reason)
+	}
+
+	// 3. Provider并发任务数验证（在同一事务中）
+	var provider providerModel.Provider
+	if err := tx.First(&provider, providerID).Error; err != nil {
+		return fmt.Errorf("查询Provider失败: %v", err)
+	}
+
+	// 检查Provider的并发任务限制
+	if err := s.validateProviderConcurrencyLimitInTx(tx, providerID, provider.MaxConcurrentTasks, provider.AllowConcurrentTasks); err != nil {
+		return fmt.Errorf("Provider并发限制验证失败: %v", err)
+	}
+
+	global.APP_LOG.Info("事务内任务创建三重验证通过",
+		zap.Uint("userID", userID),
+		zap.Uint("providerID", providerID),
+		zap.String("instanceType", instanceType),
+		zap.Int("cpu", cpu),
+		zap.Int64("memory", memory),
+		zap.Int64("disk", disk),
+		zap.Int("bandwidth", bandwidth))
+
+	return nil
+}
+
 // validateCreateTaskPermissions 验证任务创建权限（三重验证）
 func (s *Service) validateCreateTaskPermissions(userID uint, providerID uint, instanceType string,
 	cpu int, memory int64, disk int64, bandwidth int) error {
@@ -2094,6 +2205,49 @@ func (s *Service) validateCreateTaskPermissions(userID uint, providerID uint, in
 		zap.Int64("memory", memory),
 		zap.Int64("disk", disk),
 		zap.Int("bandwidth", bandwidth))
+
+	return nil
+}
+
+// validateProviderConcurrencyLimitInTx 在事务中验证Provider并发任务限制
+func (s *Service) validateProviderConcurrencyLimitInTx(tx *gorm.DB, providerID uint, maxConcurrentTasks int, allowConcurrentTasks bool) error {
+	// 分别统计running和pending任务数
+	var runningTaskCount int64
+	var pendingTaskCount int64
+
+	err := tx.Model(&adminModel.Task{}).
+		Where("provider_id = ? AND status = 'running'", providerID).
+		Count(&runningTaskCount).Error
+	if err != nil {
+		return fmt.Errorf("查询Provider当前running任务数失败: %v", err)
+	}
+
+	err = tx.Model(&adminModel.Task{}).
+		Where("provider_id = ? AND status = 'pending'", providerID).
+		Count(&pendingTaskCount).Error
+	if err != nil {
+		return fmt.Errorf("查询Provider当前pending任务数失败: %v", err)
+	}
+
+	// 确定最大允许并发执行任务数
+	var maxRunningTasks int
+	if allowConcurrentTasks {
+		maxRunningTasks = maxConcurrentTasks
+		if maxRunningTasks <= 0 {
+			maxRunningTasks = 1 // 默认值
+		}
+	} else {
+		maxRunningTasks = 1 // 串行模式只允许1个运行中的任务
+	}
+
+	// pending任务可以排队，可无限制排队
+
+	global.APP_LOG.Info("事务内Provider并发验证通过",
+		zap.Uint("providerID", providerID),
+		zap.Int64("runningTasks", runningTaskCount),
+		zap.Int64("pendingTasks", pendingTaskCount),
+		zap.Int("maxRunningTasks", maxRunningTasks),
+		zap.Bool("allowConcurrent", allowConcurrentTasks))
 
 	return nil
 }

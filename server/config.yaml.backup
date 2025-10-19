@@ -22,9 +22,6 @@ cors:
 invite-code:
     enabled: false
     required: false
-inviteCode:
-    enabled: true
-    required: true
 jwt:
     buffer-time: 1d
     expires-time: 7d

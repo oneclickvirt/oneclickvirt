@@ -86,8 +86,3 @@ func SetupRouter() *gin.Engine {
 
 	return Router
 }
-
-// Routers 保持向后兼容
-func Routers() *gin.Engine {
-	return SetupRouter()
-}

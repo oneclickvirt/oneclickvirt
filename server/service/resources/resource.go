@@ -62,6 +62,41 @@ func (s *ResourceService) CheckProviderResources(req resource.ResourceCheckReque
 	return result, err
 }
 
+// CheckProviderResourcesWithTx 在指定事务中检查Provider资源是否充足
+func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource.ResourceCheckRequest) (*resource.ResourceCheckResult, error) {
+	global.APP_LOG.Debug("在事务中开始检查Provider资源",
+		zap.Uint("providerId", req.ProviderID),
+		zap.String("instanceType", req.InstanceType),
+		zap.Int("cpu", req.CPU),
+		zap.Int64("memory", req.Memory),
+		zap.Int64("disk", req.Disk))
+
+	var provider providerModel.Provider
+	if err := tx.First(&provider, req.ProviderID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			global.APP_LOG.Warn("Provider不存在", zap.Uint("providerId", req.ProviderID))
+		} else {
+			global.APP_LOG.Error("查询Provider失败",
+				zap.Uint("providerId", req.ProviderID),
+				zap.String("error", utils.TruncateString(err.Error(), 200)))
+		}
+		return nil, fmt.Errorf("Provider不存在: %v", err)
+	}
+
+	result := s.checkProviderResourceAvailability(&provider, req)
+
+	if result.Allowed {
+		global.APP_LOG.Debug("事务中资源检查通过",
+			zap.Uint("providerId", req.ProviderID))
+	} else {
+		global.APP_LOG.Info("事务中资源检查未通过",
+			zap.Uint("providerId", req.ProviderID),
+			zap.String("reason", utils.TruncateString(result.Reason, 100)))
+	}
+
+	return result, nil
+}
+
 // checkResourcesInTransaction 在事务中检查资源
 func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheckRequest) (*resource.ResourceCheckResult, error) {
 	var provider providerModel.Provider
@@ -76,6 +111,12 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 		return nil, fmt.Errorf("Provider不存在: %v", err)
 	}
 
+	result := s.checkProviderResourceAvailability(&provider, req)
+	return result, nil
+}
+
+// checkProviderResourceAvailability 检查Provider资源可用性
+func (s *ResourceService) checkProviderResourceAvailability(provider *providerModel.Provider, req resource.ResourceCheckRequest) *resource.ResourceCheckResult {
 	result := &resource.ResourceCheckResult{
 		Allowed: true,
 	}
@@ -84,13 +125,13 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 	if req.InstanceType == "container" && !provider.ContainerEnabled {
 		result.Allowed = false
 		result.Reason = "该节点不支持容器类型"
-		return result, nil
+		return result
 	}
 
 	if req.InstanceType == "vm" && !provider.VirtualMachineEnabled {
 		result.Allowed = false
 		result.Reason = "该节点不支持虚拟机类型"
-		return result, nil
+		return result
 	}
 
 	// 计算可用资源（考虑Provider的资源限制配置）
@@ -109,60 +150,60 @@ func (s *ResourceService) checkResourcesInTransaction(req resource.ResourceCheck
 		if provider.MaxContainerInstances > 0 && provider.ContainerCount >= provider.MaxContainerInstances {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("容器数量已达上限：%d/%d", provider.ContainerCount, provider.MaxContainerInstances)
-			return result, nil
+			return result
 		}
 
 		// 容器CPU检查：如果ContainerLimitCPU为false，允许超分配（不检查）
 		if provider.ContainerLimitCPU && req.CPU > availableCPU {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("CPU资源不足：需要 %d 核，可用 %d 核", req.CPU, availableCPU)
-			return result, nil
+			return result
 		}
 
 		// 容器内存检查：如果ContainerLimitMemory为false，允许超分配（不检查）
 		if provider.ContainerLimitMemory && req.Memory > availableMemory {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("内存资源不足：需要 %d MB，可用 %d MB", req.Memory, availableMemory)
-			return result, nil
+			return result
 		}
 
 		// 容器磁盘检查：如果ContainerLimitDisk为false，允许超分配（不检查）
 		if provider.ContainerLimitDisk && req.Disk > availableDisk {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
-			return result, nil
+			return result
 		}
 	} else {
 		// 虚拟机数量限制
 		if provider.MaxVMInstances > 0 && provider.VMCount >= provider.MaxVMInstances {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("虚拟机数量已达上限：%d/%d", provider.VMCount, provider.MaxVMInstances)
-			return result, nil
+			return result
 		}
 
 		// 虚拟机CPU检查：如果VMLimitCPU为false，允许超分配（不检查）
 		if provider.VMLimitCPU && req.CPU > availableCPU {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("CPU资源不足：需要 %d 核，可用 %d 核", req.CPU, availableCPU)
-			return result, nil
+			return result
 		}
 
 		// 虚拟机内存检查：如果VMLimitMemory为false，允许超分配（不检查）
 		if provider.VMLimitMemory && req.Memory > availableMemory {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("内存资源不足：需要 %d MB，可用 %d MB", req.Memory, availableMemory)
-			return result, nil
+			return result
 		}
 
 		// 虚拟机磁盘检查：如果VMLimitDisk为false，允许超分配（不检查）
 		if provider.VMLimitDisk && req.Disk > availableDisk {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("磁盘资源不足：需要 %d MB，可用 %d MB", req.Disk, availableDisk)
-			return result, nil
+			return result
 		}
 	}
 
-	return result, nil
+	return result
 }
 
 // AllocateResourcesInTx 在事务中分配资源（不创建新事务，使用悲观锁）

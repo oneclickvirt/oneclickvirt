@@ -86,6 +86,11 @@ func (s *QuotaService) ValidateInstanceCreation(req ResourceRequest) (*QuotaChec
 	return result, err
 }
 
+// ValidateInTransaction 在事务中进行配额验证（公开方法）
+func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
+	return s.validateInTransaction(tx, req)
+}
+
 // validateInTransaction 在事务中进行配额验证
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
 	// 获取用户信息（使用行锁防止并发问题）
@@ -301,6 +306,21 @@ func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint,
 	}
 
 	return int(count), nil
+}
+
+// GetCurrentResourceUsageInTx 公开方法：在事务中获取当前资源使用情况
+func (s *QuotaService) GetCurrentResourceUsageInTx(tx *gorm.DB, userID uint) (int, ResourceUsage, error) {
+	return s.getCurrentResourceUsage(tx, userID)
+}
+
+// GetCurrentProviderInstanceCountInTx 公开方法：在事务中获取用户在指定 Provider 上的实例数量
+func (s *QuotaService) GetCurrentProviderInstanceCountInTx(tx *gorm.DB, userID uint, providerID uint) (int, error) {
+	return s.getCurrentProviderInstanceCount(tx, userID, providerID)
+}
+
+// GetProviderLevelLimitsInTx 公开方法：在事务中获取 Provider 的等级限制
+func (s *QuotaService) GetProviderLevelLimitsInTx(tx *gorm.DB, providerID uint, userLevel int) (*config.LevelLimitInfo, error) {
+	return s.getProviderLevelLimits(tx, providerID, userLevel)
 }
 
 // getLevelMaxResources 获取等级最大资源限制
