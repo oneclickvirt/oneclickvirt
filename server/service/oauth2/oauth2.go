@@ -307,20 +307,6 @@ func (s *Service) HandleCallback(providerID uint, code string) (*user.User, stri
 		return nil, "", err
 	}
 
-	// 检查注册限制
-	if provider.MaxRegistrations > 0 && provider.CurrentRegistrations >= provider.MaxRegistrations {
-		// 检查用户是否已存在
-		var existingUser user.User
-		err := global.APP_DB.Where(&user.User{OAuth2ProviderID: providerID}).First(&existingUser).Error
-		if err != nil {
-			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, "", common.NewError(common.CodeOAuth2RegistrationLimit, fmt.Sprintf("%s 注册已达限制", provider.DisplayName))
-			}
-			return nil, "", err
-		}
-		// 用户已存在，允许登录
-	}
-
 	// 交换授权码获取令牌
 	oauth2Cfg := s.GetOAuth2Config(provider)
 	token, err := oauth2Cfg.Exchange(context.Background(), code)
@@ -341,6 +327,16 @@ func (s *Service) HandleCallback(providerID uint, code string) (*user.User, stri
 	if err != nil {
 		global.APP_LOG.Error("提取OAuth2用户信息失败", zap.Error(err))
 		return nil, "", common.NewError(common.CodeOAuth2Failed, "用户信息格式错误")
+	}
+
+	// 检查用户是否已存在
+	var existingUser user.User
+	err = global.APP_DB.Where(&user.User{OAuth2ProviderID: providerID, OAuth2UID: userInfo.ID}).First(&existingUser).Error
+	isUserExists := err == nil
+
+	// 如果用户不存在且已达到注册限制，拒绝注册
+	if !isUserExists && provider.MaxRegistrations > 0 && provider.CurrentRegistrations >= provider.MaxRegistrations {
+		return nil, "", common.NewError(common.CodeOAuth2RegistrationLimit, fmt.Sprintf("%s 注册已达限制", provider.DisplayName))
 	}
 
 	// 查找或创建用户
