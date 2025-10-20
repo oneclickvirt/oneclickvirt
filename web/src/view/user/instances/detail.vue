@@ -351,19 +351,33 @@
               class="ports-table"
             >
               <el-table-column
+                prop="portType"
+                label="端口类型"
+                width="110"
+              >
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="row.portType === 'manual' ? 'warning' : 'success'"
+                  >
+                    {{ row.portType === 'manual' ? '手动添加' : '区间映射' }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
                 prop="hostPort"
                 label="公网端口"
-                width="120"
+                width="110"
               />
               <el-table-column
                 prop="guestPort"
                 label="内部端口"
-                width="120"
+                width="110"
               />
               <el-table-column
                 prop="protocol"
                 label="协议"
-                width="100"
+                width="90"
               >
                 <template #default="{ row }">
                   <el-tag
@@ -377,7 +391,7 @@
               <el-table-column
                 prop="status"
                 label="状态"
-                width="120"
+                width="100"
               >
                 <template #default="{ row }">
                   <el-tag

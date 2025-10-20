@@ -1,11 +1,13 @@
 package resources
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/utils"
 	"strings"
 
@@ -68,21 +70,27 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 	return ports, total, nil
 }
 
-// CreatePortMapping 创建端口映射
-func (s *PortMappingService) CreatePortMapping(req admin.CreatePortMappingRequest) error {
+// CreatePortMappingWithTask 手动创建端口映射（通过任务系统异步执行，仅支持 LXD/Incus/PVE，不支持 Docker）
+// 返回端口ID和任务数据（由调用者创建和启动任务）
+func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappingRequest) (uint, *admin.CreatePortMappingTaskRequest, error) {
 	// 获取实例信息
 	var instance provider.Instance
 	if err := global.APP_DB.Where("id = ?", req.InstanceID).First(&instance).Error; err != nil {
-		return fmt.Errorf("实例不存在")
+		return 0, nil, fmt.Errorf("实例不存在")
 	}
 
 	// 获取Provider信息
 	var providerInfo provider.Provider
 	if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
+		return 0, nil, fmt.Errorf("Provider不存在")
 	}
 
-	// 检查是否为独立IPv4模式或纯IPv6模式，如果是则不允许创建IPv4端口映射
+	// 只支持 LXD/Incus/Proxmox 手动添加端口
+	if providerInfo.Type != "lxd" && providerInfo.Type != "incus" && providerInfo.Type != "proxmox" {
+		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox")
+	}
+
+	// 检查是否为独立IPv4模式或纯IPv6模式
 	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" {
 		var reason string
 		switch providerInfo.NetworkType {
@@ -93,7 +101,7 @@ func (s *PortMappingService) CreatePortMapping(req admin.CreatePortMappingReques
 		case "ipv6_only":
 			reason = "纯IPv6模式下不允许IPv4端口映射，请使用IPv6直接访问"
 		}
-		return fmt.Errorf("%s", reason)
+		return 0, nil, fmt.Errorf("%s", reason)
 	}
 
 	// 分配主机端口
@@ -101,7 +109,7 @@ func (s *PortMappingService) CreatePortMapping(req admin.CreatePortMappingReques
 	if hostPort == 0 {
 		allocatedPort, err := s.allocateHostPort(providerInfo.ID, providerInfo.PortRangeStart, providerInfo.PortRangeEnd)
 		if err != nil {
-			return fmt.Errorf("端口分配失败: %v", err)
+			return 0, nil, fmt.Errorf("端口分配失败: %v", err)
 		}
 		hostPort = allocatedPort
 	} else {
@@ -109,28 +117,29 @@ func (s *PortMappingService) CreatePortMapping(req admin.CreatePortMappingReques
 		var existingPort provider.Port
 		if err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = 'active'",
 			providerInfo.ID, hostPort).First(&existingPort).Error; err == nil {
-			return fmt.Errorf("端口 %d 已被占用", hostPort)
+			return 0, nil, fmt.Errorf("端口 %d 已被占用", hostPort)
 		}
 	}
 
-	// 创建端口映射
+	// 先创建数据库记录（状态为 pending），明确设置 port_type 字段
 	port := provider.Port{
-		InstanceID:  req.InstanceID,
-		ProviderID:  providerInfo.ID,
-		HostPort:    hostPort,
-		GuestPort:   req.GuestPort,
-		Protocol:    req.Protocol,
-		Description: req.Description,
-		Status:      "active",
-		IsSSH:       req.GuestPort == 22,
-		IsAutomatic: req.HostPort == 0,
-		IPv6Enabled: providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
-		// IPv6Address: providerInfo.IPv6Address,
+		InstanceID:    req.InstanceID,
+		ProviderID:    providerInfo.ID,
+		HostPort:      hostPort,
+		GuestPort:     req.GuestPort,
+		Protocol:      req.Protocol,
+		Description:   req.Description,
+		Status:        "pending", // 初始状态为 pending
+		IsSSH:         req.GuestPort == 22,
+		IsAutomatic:   false,
+		PortType:      "manual", // 明确标记为手动添加
+		IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6",
+		MappingMethod: providerInfo.IPv4PortMappingMethod,
 	}
 
 	if err := global.APP_DB.Create(&port).Error; err != nil {
-		global.APP_LOG.Error("创建端口映射失败", zap.Error(err))
-		return fmt.Errorf("创建端口映射失败: %v", err)
+		global.APP_LOG.Error("创建端口映射数据库记录失败", zap.Error(err))
+		return 0, nil, fmt.Errorf("创建端口映射失败: %v", err)
 	}
 
 	// 更新Provider的下一个可用端口
@@ -138,72 +147,185 @@ func (s *PortMappingService) CreatePortMapping(req admin.CreatePortMappingReques
 		global.APP_DB.Model(&providerInfo).Update("next_available_port", hostPort+1)
 	}
 
-	global.APP_LOG.Info("创建端口映射成功",
+	// 创建任务数据
+	taskData := &admin.CreatePortMappingTaskRequest{
+		PortID:      port.ID,
+		InstanceID:  req.InstanceID,
+		ProviderID:  providerInfo.ID,
+		HostPort:    hostPort,
+		GuestPort:   req.GuestPort,
+		Protocol:    req.Protocol,
+		Description: req.Description,
+	}
+
+	global.APP_LOG.Info("端口映射记录已创建，准备创建任务",
+		zap.Uint("port_id", port.ID),
 		zap.Uint("instance_id", req.InstanceID),
 		zap.Int("host_port", hostPort),
-		zap.Int("guest_port", req.GuestPort),
-		zap.String("protocol", req.Protocol))
-
-	return nil
-}
-
-// UpdatePortMapping 更新端口映射
-func (s *PortMappingService) UpdatePortMapping(req admin.UpdatePortMappingRequest) error {
-	var port provider.Port
-	if err := global.APP_DB.Where("id = ?", req.ID).First(&port).Error; err != nil {
-		return fmt.Errorf("端口映射不存在")
-	}
-
-	// 如果要修改 HostPort，需要检查端口冲突
-	if req.HostPort != port.HostPort {
-		var existingPort provider.Port
-		if err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = 'active' AND id != ?",
-			port.ProviderID, req.HostPort, req.ID).First(&existingPort).Error; err == nil {
-			return fmt.Errorf("端口 %d 已被其他实例占用", req.HostPort)
-		}
-	}
-
-	// 更新字段
-	port.HostPort = req.HostPort
-	port.GuestPort = req.GuestPort
-	port.Protocol = req.Protocol
-	port.Description = req.Description
-	port.Status = req.Status
-	port.IsSSH = req.GuestPort == 22
-
-	if err := global.APP_DB.Save(&port).Error; err != nil {
-		global.APP_LOG.Error("更新端口映射失败", zap.Error(err))
-		return fmt.Errorf("更新端口映射失败: %v", err)
-	}
-
-	global.APP_LOG.Info("更新端口映射成功",
-		zap.Uint("port_id", req.ID),
-		zap.Int("host_port", req.HostPort),
 		zap.Int("guest_port", req.GuestPort))
-	return nil
+
+	return port.ID, taskData, nil
 }
 
-// DeletePortMapping 删除端口映射
+// executePortMappingCreation 执行远程端口映射创建（后台任务）
+func (s *PortMappingService) executePortMappingCreation(portID uint, instanceID uint, providerInfo provider.Provider) {
+	var port provider.Port
+	if err := global.APP_DB.Where("id = ?", portID).First(&port).Error; err != nil {
+		global.APP_LOG.Error("查找端口映射记录失败", zap.Uint("port_id", portID), zap.Error(err))
+		return
+	}
+
+	var instance provider.Instance
+	if err := global.APP_DB.Where("id = ?", instanceID).First(&instance).Error; err != nil {
+		global.APP_LOG.Error("查找实例失败", zap.Uint("instance_id", instanceID), zap.Error(err))
+		// 更新端口映射状态为失败
+		global.APP_DB.Model(&port).Updates(map[string]interface{}{
+			"status": "failed",
+		})
+		return
+	}
+
+	// 调用 portmapping provider 在远程服务器上创建端口映射
+	ctx := context.Background()
+	manager := portmapping.NewManager(&portmapping.ManagerConfig{
+		DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+	})
+
+	// 确定使用的 portmapping provider 类型
+	// Proxmox 使用 iptables 进行端口映射
+	portMappingType := providerInfo.Type
+	if portMappingType == "proxmox" {
+		portMappingType = "iptables"
+	}
+
+	portReq := &portmapping.PortMappingRequest{
+		InstanceID:    fmt.Sprintf("%d", instance.ID),
+		ProviderID:    providerInfo.ID,
+		Protocol:      port.Protocol,
+		HostPort:      port.HostPort,
+		GuestPort:     port.GuestPort,
+		Description:   port.Description,
+		MappingMethod: providerInfo.IPv4PortMappingMethod,
+	}
+
+	result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
+	if err != nil {
+		global.APP_LOG.Error("在远程服务器上创建端口映射失败",
+			zap.Uint("port_id", portID),
+			zap.Error(err))
+		// 更新端口映射状态为失败
+		global.APP_DB.Model(&port).Updates(map[string]interface{}{
+			"status": "failed",
+		})
+		return
+	}
+
+	// 更新端口映射状态为 active
+	global.APP_DB.Model(&port).Updates(map[string]interface{}{
+		"status":         "active",
+		"mapping_method": result.MappingMethod,
+	})
+
+	global.APP_LOG.Info("远程端口映射创建成功",
+		zap.Uint("port_id", portID),
+		zap.Uint("instance_id", instanceID),
+		zap.Int("host_port", port.HostPort),
+		zap.Int("guest_port", port.GuestPort),
+		zap.String("port_type", "manual"))
+}
+
+// DeletePortMapping 删除端口映射（仅支持删除手动添加的端口）
 func (s *PortMappingService) DeletePortMapping(id uint) error {
 	var port provider.Port
 	if err := global.APP_DB.Where("id = ?", id).First(&port).Error; err != nil {
 		return fmt.Errorf("端口映射不存在")
 	}
 
-	if err := global.APP_DB.Delete(&port).Error; err != nil {
-		global.APP_LOG.Error("删除端口映射失败", zap.Error(err))
+	// 只允许删除手动添加的端口
+	if port.PortType != "manual" {
+		return fmt.Errorf("不能删除区间映射的端口，此类端口随实例创建和删除")
+	}
+
+	// 获取实例和 Provider 信息
+	var instance provider.Instance
+	if err := global.APP_DB.Where("id = ?", port.InstanceID).First(&instance).Error; err != nil {
+		return fmt.Errorf("关联的实例不存在")
+	}
+
+	var providerInfo provider.Provider
+	if err := global.APP_DB.Where("id = ?", port.ProviderID).First(&providerInfo).Error; err != nil {
+		return fmt.Errorf("关联的 Provider 不存在")
+	}
+
+	// 调用 portmapping provider 在远程服务器上删除端口映射
+	ctx := context.Background()
+	manager := portmapping.NewManager(&portmapping.ManagerConfig{
+		DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+	})
+
+	// 确定使用的 portmapping provider 类型
+	// Proxmox 使用 iptables 进行端口映射
+	portMappingType := providerInfo.Type
+	if portMappingType == "proxmox" {
+		portMappingType = "iptables"
+	}
+
+	deleteReq := &portmapping.DeletePortMappingRequest{
+		ID:          port.ID,
+		InstanceID:  fmt.Sprintf("%d", instance.ID),
+		ForceDelete: false,
+	}
+
+	if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
+		global.APP_LOG.Error("从远程服务器删除端口映射失败", zap.Error(err))
 		return fmt.Errorf("删除端口映射失败: %v", err)
 	}
 
-	global.APP_LOG.Info("删除端口映射成功", zap.Uint("port_id", id))
+	// 从数据库删除
+	if err := global.APP_DB.Delete(&port).Error; err != nil {
+		global.APP_LOG.Error("从数据库删除端口映射失败", zap.Error(err))
+		return fmt.Errorf("删除端口映射失败: %v", err)
+	}
+
+	global.APP_LOG.Info("删除手动端口映射成功",
+		zap.Uint("port_id", id),
+		zap.Int("host_port", port.HostPort),
+		zap.Int("guest_port", port.GuestPort))
 	return nil
 }
 
-// BatchDeletePortMapping 批量删除端口映射
+// BatchDeletePortMapping 批量删除端口映射（仅支持删除手动添加的端口）
 func (s *PortMappingService) BatchDeletePortMapping(req admin.BatchDeletePortMappingRequest) error {
-	if err := global.APP_DB.Where("id IN ?", req.IDs).Delete(&provider.Port{}).Error; err != nil {
-		global.APP_LOG.Error("批量删除端口映射失败", zap.Error(err))
-		return fmt.Errorf("批量删除端口映射失败: %v", err)
+	// 获取所有要删除的端口
+	var ports []provider.Port
+	if err := global.APP_DB.Where("id IN ?", req.IDs).Find(&ports).Error; err != nil {
+		return fmt.Errorf("获取端口映射失败: %v", err)
+	}
+
+	if len(ports) == 0 {
+		return fmt.Errorf("未找到要删除的端口映射")
+	}
+
+	// 检查是否都是手动添加的端口
+	for _, port := range ports {
+		if port.PortType != "manual" {
+			return fmt.Errorf("端口 %d 是区间映射端口，不能删除", port.ID)
+		}
+	}
+
+	// 逐个删除
+	var failedIDs []uint
+	for _, port := range ports {
+		if err := s.DeletePortMapping(port.ID); err != nil {
+			global.APP_LOG.Error("删除端口映射失败",
+				zap.Uint("port_id", port.ID),
+				zap.Error(err))
+			failedIDs = append(failedIDs, port.ID)
+		}
+	}
+
+	if len(failedIDs) > 0 {
+		return fmt.Errorf("部分端口映射删除失败，失败的ID: %v", failedIDs)
 	}
 
 	global.APP_LOG.Info("批量删除端口映射成功", zap.Any("ids", req.IDs))
@@ -309,6 +431,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			Status:      "active",
 			IsSSH:       true,
 			IsAutomatic: true,
+			PortType:    "range_mapped", // 标记为区间映射
 			IPv6Enabled: providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
 		}
 
@@ -354,6 +477,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				Status:      "active",
 				IsSSH:       false,
 				IsAutomatic: true,
+				PortType:    "range_mapped", // 标记为区间映射
 				IPv6Enabled: providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
 			}
 

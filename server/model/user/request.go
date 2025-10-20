@@ -19,17 +19,17 @@ type InstanceActionRequest struct {
 
 type UserInstanceListRequest struct {
 	common.PageInfo
-	Name         string `json:"name"`
-	Status       string `json:"status"`
-	InstanceType string `json:"instanceType"`
-	Type         string `json:"type"`         // 实例类型筛选（和instanceType一样，兼容前端）
-	ProviderName string `json:"providerName"` // 节点名称搜索
+	Name         string `json:"name" form:"name"`
+	Status       string `json:"status" form:"status"`
+	InstanceType string `json:"instanceType" form:"instanceType"`
+	Type         string `json:"type" form:"type"`                 // 实例类型筛选（和instanceType一样，兼容前端）
+	ProviderName string `json:"providerName" form:"providerName"` // 节点名称搜索
 }
 
 type AvailableResourcesRequest struct {
 	common.PageInfo
-	Country      string `json:"country"`
-	InstanceType string `json:"instanceType"`
+	Country      string `json:"country" form:"country"`
+	InstanceType string `json:"instanceType" form:"instanceType"`
 }
 
 type UpdateProfileRequest struct {
@@ -57,17 +57,17 @@ type ResetInstancePasswordRequest struct {
 // UserTasksRequest 用户任务列表请求
 type UserTasksRequest struct {
 	common.PageInfo
-	ProviderId uint   `json:"providerId"`
-	TaskType   string `json:"taskType"`
-	Status     string `json:"status"`
+	ProviderId uint   `json:"providerId" form:"providerId"`
+	TaskType   string `json:"taskType" form:"taskType"`
+	Status     string `json:"status" form:"status"`
 }
 
 // SystemImagesRequest 获取系统镜像请求
 type SystemImagesRequest struct {
-	ProviderType string `json:"providerType"`
-	Architecture string `json:"architecture"`
-	OsType       string `json:"osType"`
-	InstanceType string `json:"instanceType"`
+	ProviderType string `json:"providerType" form:"providerType"`
+	Architecture string `json:"architecture" form:"architecture"`
+	OsType       string `json:"osType" form:"osType"`
+	InstanceType string `json:"instanceType" form:"instanceType"`
 }
 
 // CreateInstanceRequest 创建实例请求

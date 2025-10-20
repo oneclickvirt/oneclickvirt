@@ -507,6 +507,7 @@ export const getPortMappings = (params) => {
   })
 }
 
+// 创建端口映射（仅支持手动添加单个端口，仅支持 LXD/Incus/PVE）
 export const createPortMapping = (data) => {
   return request({
     url: '/v1/admin/port-mappings',
@@ -515,14 +516,7 @@ export const createPortMapping = (data) => {
   })
 }
 
-export const updatePortMapping = (id, data) => {
-  return request({
-    url: `/v1/admin/port-mappings/${id}`,
-    method: 'put',
-    data
-  })
-}
-
+// 删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
 export const deletePortMapping = (id) => {
   return request({
     url: `/v1/admin/port-mappings/${id}`,

@@ -143,9 +143,9 @@ type UpdateProviderRequest struct {
 
 type ProviderListRequest struct {
 	common.PageInfo
-	Name   string `json:"name"`
-	Type   string `json:"type"`
-	Status string `json:"status"`
+	Name   string `json:"name" form:"name"`
+	Type   string `json:"type" form:"type"`
+	Status string `json:"status" form:"status"`
 }
 
 type FreezeProviderRequest struct {
@@ -209,10 +209,10 @@ type UpdateInstanceRequest struct {
 
 type InstanceListRequest struct {
 	common.PageInfo
-	ProviderName string `json:"providerName"` // 节点名称搜索
-	Status       string `json:"status"`
-	InstanceType string `json:"instance_type"`
-	UserID       uint   `json:"userId"`
+	ProviderName string `json:"providerName" form:"providerName"` // 节点名称搜索
+	Status       string `json:"status" form:"status"`
+	InstanceType string `json:"instance_type" form:"instance_type"`
+	UserID       uint   `json:"userId" form:"userId"`
 }
 
 type InstanceActionRequest struct {
@@ -240,8 +240,8 @@ type BatchUpdateSystemConfigRequest struct {
 
 type SystemConfigListRequest struct {
 	common.PageInfo
-	Key      string `json:"key"`
-	Category string `json:"category"`
+	Key      string `json:"key" form:"key"`
+	Category string `json:"category" form:"category"`
 }
 
 type CreateAnnouncementRequest struct {
@@ -356,7 +356,7 @@ type PortMappingListRequest struct {
 	Status     string `json:"status" form:"status"`
 }
 
-// CreatePortMappingRequest 创建端口映射请求
+// CreatePortMappingRequest 创建端口映射请求（仅支持手动添加单个端口，仅支持 LXD/Incus/PVE）
 type CreatePortMappingRequest struct {
 	InstanceID  uint   `json:"instanceId" binding:"required"`
 	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`
@@ -365,17 +365,7 @@ type CreatePortMappingRequest struct {
 	HostPort    int    `json:"hostPort"` // 可选，不指定则自动分配
 }
 
-// UpdatePortMappingRequest 更新端口映射请求
-type UpdatePortMappingRequest struct {
-	ID          uint   `json:"id" binding:"required"`
-	HostPort    int    `json:"hostPort" binding:"required,min=1,max=65535"`  // 宿主机端口（公网端口）
-	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"` // 容器内部端口
-	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp"`
-	Description string `json:"description"`
-	Status      string `json:"status" binding:"required,oneof=active inactive"`
-}
-
-// BatchDeletePortMappingRequest 批量删除端口映射请求
+// BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）
 type BatchDeletePortMappingRequest struct {
 	IDs []uint `json:"ids" binding:"required"`
 }
@@ -417,4 +407,22 @@ type DeleteInstanceTaskRequest struct {
 type ResetPasswordTaskRequest struct {
 	InstanceId uint `json:"instanceId"`
 	ProviderId uint `json:"providerId"`
+}
+
+// CreatePortMappingTaskRequest 创建端口映射任务数据结构
+type CreatePortMappingTaskRequest struct {
+	PortID      uint   `json:"portId"`      // 端口映射ID
+	InstanceID  uint   `json:"instanceId"`  // 实例ID
+	ProviderID  uint   `json:"providerId"`  // Provider ID
+	HostPort    int    `json:"hostPort"`    // 主机端口
+	GuestPort   int    `json:"guestPort"`   // 容器端口
+	Protocol    string `json:"protocol"`    // 协议
+	Description string `json:"description"` // 描述
+}
+
+// DeletePortMappingTaskRequest 删除端口映射任务数据结构
+type DeletePortMappingTaskRequest struct {
+	PortID     uint `json:"portId"`     // 端口映射ID
+	InstanceID uint `json:"instanceId"` // 实例ID
+	ProviderID uint `json:"providerId"` // Provider ID
 }

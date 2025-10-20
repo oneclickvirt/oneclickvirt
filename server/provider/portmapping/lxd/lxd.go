@@ -2,11 +2,14 @@ package lxd
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
+	"oneclickvirt/utils"
 	"strconv"
+	"strings"
 
 	"go.uber.org/zap"
 )
@@ -89,7 +92,7 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 	if err := global.APP_DB.Create(portModel).Error; err != nil {
 		global.APP_LOG.Error("Failed to save port mapping to database", zap.Error(err))
 		// 尝试清理已创建的LXD proxy device
-		l.cleanupLXDProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol)
+		_ = l.removeLXDProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol)
 		return nil, fmt.Errorf("failed to save port mapping: %v", err)
 	}
 
@@ -275,39 +278,135 @@ func (l *LXDPortMapping) getPublicIP(providerInfo *provider.Provider) string {
 
 // createLXDProxyDevice 创建LXD proxy device
 func (l *LXDPortMapping) createLXDProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	// 这里应该调用LXD API来创建proxy device
 	global.APP_LOG.Info("Creating LXD proxy device",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol))
 
-	// TODO: 实现实际的LXD API调用
-	// 例如：lxc config device add <instance> proxy<hostPort> proxy listen=tcp:0.0.0.0:<hostPort> connect=tcp:127.0.0.1:<guestPort>
+	// 获取SSH客户端
+	sshClient, err := l.getSSHClient(providerInfo)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH client: %v", err)
+	}
+	defer sshClient.Close()
+
+	// 获取实例IP地址
+	instanceIPCmd := fmt.Sprintf("lxc list %s -c 4 --format csv", instance.Name)
+	instanceIP, err := sshClient.Execute(instanceIPCmd)
+	if err != nil || strings.TrimSpace(instanceIP) == "" {
+		return fmt.Errorf("failed to get instance IP: %v", err)
+	}
+	instanceIP = strings.TrimSpace(strings.Split(instanceIP, " ")[0])
+
+	// 创建proxy设备名称
+	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+
+	// 获取主机IP地址
+	hostIPCmd := "hostname -I | awk '{print $1}'"
+	hostIP, err := sshClient.Execute(hostIPCmd)
+	if err != nil {
+		return fmt.Errorf("failed to get host IP: %v", err)
+	}
+	hostIP = strings.TrimSpace(hostIP)
+
+	// 创建proxy设备
+	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
+		instance.Name, deviceName, protocol, hostIP, hostPort, protocol, instanceIP, guestPort)
+
+	_, err = sshClient.Execute(proxyCmd)
+	if err != nil {
+		return fmt.Errorf("failed to create proxy device: %v", err)
+	}
+
+	global.APP_LOG.Info("LXD proxy device created successfully",
+		zap.String("instance", instance.Name),
+		zap.String("device", deviceName))
 
 	return nil
 }
 
 // removeLXDProxyDevice 删除LXD proxy device
 func (l *LXDPortMapping) removeLXDProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	// 这里应该调用LXD API来删除proxy device
 	global.APP_LOG.Info("Removing LXD proxy device",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol))
 
-	// TODO: 实现实际的LXD API调用
-	// 例如：lxc config device remove <instance> proxy<hostPort>
+	// 获取Provider信息
+	providerInfo, err := l.getProvider(instance.ProviderID)
+	if err != nil {
+		return fmt.Errorf("failed to get provider: %v", err)
+	}
+
+	// 获取SSH客户端
+	sshClient, err := l.getSSHClient(providerInfo)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH client: %v", err)
+	}
+	defer sshClient.Close()
+
+	// 创建proxy设备名称
+	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+
+	// 删除proxy设备
+	removeCmd := fmt.Sprintf("lxc config device remove %s %s", instance.Name, deviceName)
+	_, err = sshClient.Execute(removeCmd)
+	if err != nil {
+		return fmt.Errorf("failed to remove proxy device: %v", err)
+	}
+
+	global.APP_LOG.Info("LXD proxy device removed successfully",
+		zap.String("instance", instance.Name),
+		zap.String("device", deviceName))
 
 	return nil
 }
 
-// cleanupLXDProxyDevice 清理LXD proxy device（在出错时调用）
-func (l *LXDPortMapping) cleanupLXDProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) {
-	if err := l.removeLXDProxyDevice(ctx, instance, hostPort, guestPort, protocol); err != nil {
-		global.APP_LOG.Error("Failed to cleanup LXD proxy device", zap.Error(err))
+// getSSHClient 获取SSH客户端
+func (l *LXDPortMapping) getSSHClient(providerInfo *provider.Provider) (*utils.SSHClient, error) {
+	// 解析AuthConfig
+	var authConfig provider.ProviderAuthConfig
+	if providerInfo.AuthConfig != "" {
+		if err := json.Unmarshal([]byte(providerInfo.AuthConfig), &authConfig); err == nil && authConfig.SSH != nil {
+			// 使用完整配置
+		} else {
+			authConfig = provider.ProviderAuthConfig{}
+		}
 	}
+
+	if authConfig.SSH == nil {
+		// 使用基础配置
+		authConfig = provider.ProviderAuthConfig{
+			SSH: &provider.SSHConfig{
+				Host:     strings.Split(providerInfo.Endpoint, ":")[0],
+				Port:     providerInfo.SSHPort,
+				Username: providerInfo.Username,
+				Password: providerInfo.Password,
+			},
+		}
+	}
+
+	if authConfig.SSH == nil {
+		return nil, fmt.Errorf("SSH configuration not found")
+	}
+
+	// 创建SSH配置
+	config := utils.SSHConfig{
+		Host:     authConfig.SSH.Host,
+		Port:     authConfig.SSH.Port,
+		Username: authConfig.SSH.Username,
+		Password: authConfig.SSH.Password,
+	}
+
+	// 创建SSH客户端
+	client, err := utils.NewSSHClient(config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH client: %v", err)
+	}
+
+	return client, nil
 }
 
 // determineMappingMethod 确定端口映射方法

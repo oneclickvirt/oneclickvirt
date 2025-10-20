@@ -755,7 +755,10 @@ const getTaskTypeText = (type) => {
     'stop': '停止实例',
     'restart': '重启实例',
     'reset': '重置系统',
-    'delete': '删除实例'
+    'delete': '删除实例',
+    'reset-password': '重置密码',
+    'create-port-mapping': '创建端口映射',
+    'delete-port-mapping': '删除端口映射'
   }
   return typeMap[type] || type
 }

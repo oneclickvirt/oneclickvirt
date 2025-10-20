@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/provider"
@@ -281,6 +282,10 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 		return s.executeResetInstanceTask(ctx, task)
 	case "reset-password":
 		return s.executeResetPasswordTask(ctx, task)
+	case "create-port-mapping":
+		return s.executeCreatePortMappingTask(ctx, task)
+	case "delete-port-mapping":
+		return s.executeDeletePortMappingTask(ctx, task)
 	default:
 		return fmt.Errorf("未知的任务类型: %s", task.TaskType)
 	}
@@ -319,7 +324,8 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 			"completed_at": &now,
 		}
 
-		if errorMessage != "" {
+		// 只在失败时设置 error_message，成功时不设置
+		if !success && errorMessage != "" {
 			updates["error_message"] = errorMessage
 		}
 
@@ -772,12 +778,15 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 // getDefaultTimeout 获取默认超时时间
 func (s *TaskService) getDefaultTimeout(taskType string) int {
 	timeouts := map[string]int{
-		"create":  1800, // 30分钟
-		"start":   300,  // 5分钟
-		"stop":    300,  // 5分钟
-		"restart": 600,  // 10分钟
-		"reset":   1200, // 20分钟
-		"delete":  600,  // 10分钟
+		"create":              1800, // 30分钟
+		"start":               300,  // 5分钟
+		"stop":                300,  // 5分钟
+		"restart":             600,  // 10分钟
+		"reset":               1200, // 20分钟
+		"delete":              600,  // 10分钟
+		"create-port-mapping": 600,  // 10分钟
+		"delete-port-mapping": 300,  // 5分钟
+		"reset-password":      600,  // 10分钟
 	}
 
 	if timeout, exists := timeouts[taskType]; exists {
@@ -1750,6 +1759,239 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 		zap.Uint("instanceId", instance.ID),
 		zap.String("instanceName", instance.Name),
 		zap.Uint("userId", instance.UserID))
+
+	return nil
+}
+
+// executeCreatePortMappingTask 执行创建端口映射任务
+func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *adminModel.Task) error {
+	// 初始化进度
+	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+
+	// 解析任务数据
+	var taskReq adminModel.CreatePortMappingTaskRequest
+	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		return fmt.Errorf("解析任务数据失败: %v", err)
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 20, "正在获取端口映射信息...")
+
+	// 获取端口映射记录
+	var port providerModel.Port
+	if err := global.APP_DB.First(&port, taskReq.PortID).Error; err != nil {
+		return fmt.Errorf("端口映射记录不存在")
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 30, "正在获取实例信息...")
+
+	// 获取实例信息
+	var instance providerModel.Instance
+	if err := global.APP_DB.First(&instance, taskReq.InstanceID).Error; err != nil {
+		// 更新端口状态为失败
+		global.APP_DB.Model(&port).Update("status", "failed")
+		return fmt.Errorf("实例不存在")
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 40, "正在获取Provider配置...")
+
+	// 获取Provider信息
+	var providerInfo providerModel.Provider
+	if err := global.APP_DB.First(&providerInfo, taskReq.ProviderID).Error; err != nil {
+		// 更新端口状态为失败
+		global.APP_DB.Model(&port).Update("status", "failed")
+		return fmt.Errorf("Provider不存在")
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 50, "正在配置端口映射...")
+
+	// 使用 portmapping manager 添加端口映射
+	manager := portmapping.NewManager(&portmapping.ManagerConfig{
+		DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+	})
+
+	// 确定使用的 portmapping provider 类型
+	portMappingType := providerInfo.Type
+	if portMappingType == "proxmox" {
+		portMappingType = "iptables"
+	}
+
+	portReq := &portmapping.PortMappingRequest{
+		InstanceID:    fmt.Sprintf("%d", instance.ID),
+		ProviderID:    providerInfo.ID,
+		Protocol:      port.Protocol,
+		HostPort:      port.HostPort,
+		GuestPort:     port.GuestPort,
+		Description:   port.Description,
+		MappingMethod: providerInfo.IPv4PortMappingMethod,
+	}
+
+	// 执行端口映射添加
+	s.updateTaskProgress(task.ID, 70, "正在远程服务器上配置端口映射...")
+
+	result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
+	if err != nil {
+		global.APP_LOG.Error("添加端口映射失败",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("portId", port.ID),
+			zap.Int("hostPort", port.HostPort),
+			zap.Int("guestPort", port.GuestPort),
+			zap.Error(err))
+
+		// 更新端口状态为失败
+		global.APP_DB.Model(&port).Update("status", "failed")
+
+		return fmt.Errorf("添加端口映射失败: %v", err)
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 90, "正在更新端口状态...")
+
+	// Provider 会创建一条新的数据库记录，我们需要删除它并更新我们原有的记录
+	if result.ID != 0 && result.ID != port.ID {
+		// 删除 provider 创建的重复记录
+		global.APP_DB.Delete(&providerModel.Port{}, result.ID)
+		global.APP_LOG.Info("删除 provider 创建的重复端口记录",
+			zap.Uint("duplicatePortId", result.ID),
+			zap.Uint("originalPortId", port.ID))
+	}
+
+	// 更新端口状态为active
+	if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
+		"status":         "active",
+		"mapping_method": result.MappingMethod,
+	}).Error; err != nil {
+		global.APP_LOG.Error("更新端口状态失败", zap.Error(err))
+		return fmt.Errorf("更新端口状态失败: %v", err)
+	}
+
+	// 标记任务完成
+	stateManager := GetTaskStateManager()
+	taskResult := map[string]interface{}{
+		"portId":    port.ID,
+		"hostPort":  port.HostPort,
+		"guestPort": port.GuestPort,
+		"protocol":  port.Protocol,
+	}
+	if err := stateManager.CompleteMainTask(task.ID, true, "端口映射创建成功", taskResult); err != nil {
+		global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+	}
+
+	global.APP_LOG.Info("端口映射创建成功",
+		zap.Uint("taskId", task.ID),
+		zap.Uint("portId", port.ID),
+		zap.Int("hostPort", port.HostPort),
+		zap.Int("guestPort", port.GuestPort))
+
+	return nil
+}
+
+// executeDeletePortMappingTask 执行删除端口映射任务
+func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *adminModel.Task) error {
+	// 初始化进度
+	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+
+	// 解析任务数据
+	var taskReq adminModel.DeletePortMappingTaskRequest
+	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		return fmt.Errorf("解析任务数据失败: %v", err)
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 20, "正在获取端口映射信息...")
+
+	// 获取端口映射记录
+	var port providerModel.Port
+	if err := global.APP_DB.First(&port, taskReq.PortID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 端口已不存在，标记任务完成
+			stateManager := GetTaskStateManager()
+			if err := stateManager.CompleteMainTask(task.ID, true, "端口映射已不存在，删除任务完成", nil); err != nil {
+				global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+			}
+			return nil
+		}
+		return fmt.Errorf("获取端口映射记录失败: %v", err)
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 30, "正在获取实例信息...")
+
+	// 获取实例信息（可能实例已被删除）
+	var instance providerModel.Instance
+	if err := global.APP_DB.First(&instance, port.InstanceID).Error; err != nil {
+		global.APP_LOG.Warn("实例不存在，继续删除端口映射记录",
+			zap.Uint("instanceId", port.InstanceID),
+			zap.Error(err))
+		instance.Name = "" // 清空实例名称
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 40, "正在获取Provider配置...")
+
+	// 获取Provider信息
+	var providerInfo providerModel.Provider
+	providerDeleteSuccess := true
+	if err := global.APP_DB.First(&providerInfo, port.ProviderID).Error; err != nil {
+		global.APP_LOG.Warn("Provider不存在，仅删除端口映射数据库记录",
+			zap.Uint("providerId", port.ProviderID),
+			zap.Error(err))
+		providerDeleteSuccess = false
+	} else {
+		// 只有Provider存在时才尝试从远程删除
+		s.updateTaskProgress(task.ID, 50, "正在从远程服务器删除端口映射...")
+
+		// 使用 portmapping manager 删除端口映射
+		manager := portmapping.NewManager(&portmapping.ManagerConfig{
+			DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+		})
+
+		portMappingType := providerInfo.Type
+		if portMappingType == "proxmox" {
+			portMappingType = "iptables"
+		}
+
+		deleteReq := &portmapping.DeletePortMappingRequest{
+			ID:         port.ID,
+			InstanceID: fmt.Sprintf("%d", instance.ID),
+		}
+
+		if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
+			global.APP_LOG.Warn("从远程服务器删除端口映射失败",
+				zap.Uint("portId", port.ID),
+				zap.Int("hostPort", port.HostPort),
+				zap.Error(err))
+			providerDeleteSuccess = false
+			// 继续执行，不阻止数据库记录删除
+		}
+	}
+
+	// 更新进度
+	s.updateTaskProgress(task.ID, 80, "正在删除数据库记录...")
+
+	// 删除数据库记录
+	if err := global.APP_DB.Delete(&port).Error; err != nil {
+		return fmt.Errorf("删除端口映射记录失败: %v", err)
+	}
+
+	// 标记任务完成
+	completionMessage := "端口映射删除成功"
+	if !providerDeleteSuccess {
+		completionMessage = "端口映射删除完成，远程删除可能失败但数据已清理"
+	}
+	stateManager := GetTaskStateManager()
+	if err := stateManager.CompleteMainTask(task.ID, true, completionMessage, nil); err != nil {
+		global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+	}
+
+	global.APP_LOG.Info("端口映射删除成功",
+		zap.Uint("taskId", task.ID),
+		zap.Uint("portId", port.ID),
+		zap.Int("hostPort", port.HostPort),
+		zap.Bool("providerDeleteSuccess", providerDeleteSuccess))
 
 	return nil
 }

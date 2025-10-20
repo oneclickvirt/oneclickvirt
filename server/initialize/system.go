@@ -14,6 +14,13 @@ import (
 	userProviderService "oneclickvirt/service/user/provider"
 	"oneclickvirt/service/vnstat"
 
+	// 导入端口映射 providers 以触发其 init() 函数进行注册
+	_ "oneclickvirt/provider/portmapping/docker"
+	_ "oneclickvirt/provider/portmapping/gost"
+	_ "oneclickvirt/provider/portmapping/incus"
+	_ "oneclickvirt/provider/portmapping/iptables"
+	_ "oneclickvirt/provider/portmapping/lxd"
+
 	"go.uber.org/zap"
 )
 

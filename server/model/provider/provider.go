@@ -223,15 +223,16 @@ type Port struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`       // 软删除时间
 
 	// 端口映射信息
-	InstanceID  uint   `json:"instanceId"`                           // 关联的实例ID
-	ProviderID  uint   `json:"providerId"`                           // 关联的Provider ID
-	HostPort    int    `json:"hostPort" gorm:"not null"`             // 宿主机端口
-	GuestPort   int    `json:"guestPort" gorm:"not null"`            // 容器/虚拟机内部端口
-	Protocol    string `json:"protocol" gorm:"default:tcp;size:8"`   // 协议类型：tcp, udp
-	Status      string `json:"status" gorm:"default:active;size:16"` // 映射状态：active, inactive
-	Description string `json:"description" gorm:"size:128"`          // 端口用途描述
-	IsSSH       bool   `json:"isSsh" gorm:"default:false"`           // 是否为SSH端口
-	IsAutomatic bool   `json:"isAutomatic" gorm:"default:true"`      // 是否为自动分配的端口
+	InstanceID  uint   `json:"instanceId"`                                   // 关联的实例ID
+	ProviderID  uint   `json:"providerId"`                                   // 关联的Provider ID
+	HostPort    int    `json:"hostPort" gorm:"not null"`                     // 宿主机端口
+	GuestPort   int    `json:"guestPort" gorm:"not null"`                    // 容器/虚拟机内部端口
+	Protocol    string `json:"protocol" gorm:"default:tcp;size:8"`           // 协议类型：tcp, udp
+	Status      string `json:"status" gorm:"default:active;size:16"`         // 映射状态：active, inactive
+	Description string `json:"description" gorm:"size:128"`                  // 端口用途描述
+	IsSSH       bool   `json:"isSsh" gorm:"default:false"`                   // 是否为SSH端口
+	IsAutomatic bool   `json:"isAutomatic" gorm:"default:true"`              // 是否为自动分配的端口
+	PortType    string `json:"portType" gorm:"default:range_mapped;size:16"` // 端口类型：range_mapped(区间映射), manual(手动添加)
 
 	// IPv6支持
 	IPv6Enabled   bool   `json:"ipv6Enabled" gorm:"default:false"`            // 是否启用IPv6映射

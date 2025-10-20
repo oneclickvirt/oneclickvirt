@@ -1,11 +1,14 @@
 package admin
 
 import (
+	"encoding/json"
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/task"
 	"strconv"
 	"strings"
 
@@ -102,6 +105,8 @@ func GetPortMappingList(c *gin.Context) {
 			"status":       port.Status,
 			"description":  port.Description,
 			"isSSH":        port.IsSSH,
+			"isAutomatic":  port.IsAutomatic,
+			"portType":     port.PortType, // 添加端口类型字段
 			"isIPv6":       port.IPv6Enabled,
 			"createdAt":    port.CreatedAt,
 		}
@@ -115,13 +120,13 @@ func GetPortMappingList(c *gin.Context) {
 
 // CreatePortMapping 创建端口映射
 // @Summary 创建端口映射
-// @Description 管理员创建新的端口映射
+// @Description 管理员创建新的端口映射（异步执行）
 // @Tags 端口映射管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param request body admin.CreatePortMappingRequest true "创建端口映射请求参数"
-// @Success 200 {object} common.Response "创建成功"
+// @Success 200 {object} common.Response{data=object} "创建成功，返回任务ID"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "创建失败"
 // @Router /admin/port-mappings [post]
@@ -132,60 +137,61 @@ func CreatePortMapping(c *gin.Context) {
 		return
 	}
 
+	// 获取当前管理员用户ID（使用认证上下文）
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
+		return
+	}
+
 	portMappingService := resources.PortMappingService{}
-	err := portMappingService.CreatePortMapping(req)
+	portID, taskData, err := portMappingService.CreatePortMappingWithTask(req)
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "创建端口映射成功")
+	// 序列化任务数据
+	taskDataJSON, err := json.Marshal(taskData)
+	if err != nil {
+		global.APP_LOG.Error("序列化任务数据失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		return
+	}
+
+	// 创建任务
+	taskService := task.GetTaskService()
+	newTask, err := taskService.CreateTask(
+		authCtx.UserID,
+		&taskData.ProviderID,
+		&taskData.InstanceID,
+		"create-port-mapping",
+		string(taskDataJSON),
+		600, // 10分钟超时
+	)
+	if err != nil {
+		global.APP_LOG.Error("创建端口映射任务失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		return
+	}
+
+	// 启动任务
+	if err := taskService.StartTask(newTask.ID); err != nil {
+		global.APP_LOG.Error("启动端口映射任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败"))
+		return
+	}
+
+	common.ResponseSuccess(c, map[string]interface{}{
+		"taskId": newTask.ID,
+		"portId": portID,
+	}, "端口映射任务已创建")
 }
 
-// UpdatePortMapping 更新端口映射
-// @Summary 更新端口映射
-// @Description 管理员更新端口映射信息
-// @Tags 端口映射管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param id path int true "端口映射ID"
-// @Param request body admin.UpdatePortMappingRequest true "更新端口映射请求参数"
-// @Success 200 {object} common.Response "更新成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "更新失败"
-// @Router /admin/port-mappings/{id} [put]
-func UpdatePortMapping(c *gin.Context) {
-	idStr := c.Param("id")
-	id, err := strconv.ParseUint(idStr, 10, 32)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的端口映射ID"))
-		return
-	}
-
-	var req admin.UpdatePortMappingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
-		return
-	}
-
-	req.ID = uint(id)
-
-	portMappingService := resources.PortMappingService{}
-	err = portMappingService.UpdatePortMapping(req)
-	if err != nil {
-		global.APP_LOG.Error("更新端口映射失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
-		return
-	}
-
-	common.ResponseSuccess(c, nil, "更新端口映射成功")
-}
-
-// DeletePortMapping 删除端口映射
+// DeletePortMapping 删除端口映射（仅支持删除手动添加的端口）
 // @Summary 删除端口映射
-// @Description 管理员删除端口映射
+// @Description 管理员删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
 // @Tags 端口映射管理
 // @Accept json
 // @Produce json
@@ -214,9 +220,9 @@ func DeletePortMapping(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "删除端口映射成功")
 }
 
-// BatchDeletePortMapping 批量删除端口映射
+// BatchDeletePortMapping 批量删除端口映射（仅支持删除手动添加的端口）
 // @Summary 批量删除端口映射
-// @Description 管理员批量删除端口映射
+// @Description 管理员批量删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
 // @Tags 端口映射管理
 // @Accept json
 // @Produce json
