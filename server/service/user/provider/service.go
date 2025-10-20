@@ -669,12 +669,12 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			zap.Int("currentInstances", currentInstances),
 			zap.Int("maxInstances", levelLimits.MaxInstances))
 
-		// 1. 原子化预留并消费资源
+		// 1. 只预留资源，不立即消费（等待实例创建成功后再消费）
 		reservationService := resources.GetResourceReservationService()
 
-		if err := reservationService.ReserveAndConsumeInTx(tx, userID, req.ProviderId, sessionID,
+		if err := reservationService.ReserveResourcesInTx(tx, userID, req.ProviderId, sessionID,
 			systemImage.InstanceType, cpuSpec.Cores, int64(memorySpec.SizeMB), int64(diskSpec.SizeMB), bandwidthSpec.SpeedMbps); err != nil {
-			global.APP_LOG.Error("原子化预留消费资源失败",
+			global.APP_LOG.Error("预留资源失败",
 				zap.Uint("userID", userID),
 				zap.Uint("providerId", req.ProviderId),
 				zap.String("sessionId", sessionID),
@@ -938,12 +938,20 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
 
-		// 新机制：不需要消费预留资源，因为在创建时已经原子化处理了
-		// 直接分配Provider资源（使用悲观锁）
+		// 分配Provider资源（使用悲观锁）
 		resourceService := &resources.ResourceService{}
 		if err := resourceService.AllocateResourcesInTx(tx, provider.ID, systemImage.InstanceType,
 			cpuSpec.Cores, int64(memorySpec.SizeMB), int64(diskSpec.SizeMB)); err != nil {
 			return fmt.Errorf("分配Provider资源失败: %v", err)
+		}
+
+		// 消费预留资源（实例已创建成功）
+		reservationService := resources.GetResourceReservationService()
+		if err := reservationService.ConsumeReservationBySessionInTx(tx, taskReq.SessionId); err != nil {
+			global.APP_LOG.Warn("消费预留资源失败（可能已过期）",
+				zap.String("sessionId", taskReq.SessionId),
+				zap.Error(err))
+			// 注意：这里不返回错误，因为实例已经创建成功，预留资源可能已过期
 		}
 
 		return nil

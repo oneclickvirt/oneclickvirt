@@ -129,6 +129,46 @@ func (s *ResourceReservationService) ReserveResources(userID uint, providerID ui
 	return reservation, nil
 }
 
+// ReserveResourcesInTx 在事务中预留资源（不立即消费）
+func (s *ResourceReservationService) ReserveResourcesInTx(tx *gorm.DB, userID uint, providerID uint, sessionID string,
+	instanceType string, cpu int, memory int64, disk int64, bandwidth int) error {
+
+	if sessionID == "" {
+		sessionID = GenerateSessionID()
+	}
+
+	// 预留时间设置为1小时，足够任务执行
+	expiresAt := time.Now().Add(1 * time.Hour)
+
+	reservation := &resource.ResourceReservation{
+		UserID:       userID,
+		ProviderID:   providerID,
+		SessionID:    sessionID,
+		InstanceType: instanceType,
+		CPU:          cpu,
+		Memory:       memory,
+		Disk:         disk,
+		Bandwidth:    bandwidth,
+		ExpiresAt:    expiresAt,
+	}
+
+	// 在事务中创建预留记录
+	if err := tx.Create(reservation).Error; err != nil {
+		global.APP_LOG.Error("事务中创建预留记录失败",
+			zap.Error(err),
+			zap.String("sessionId", sessionID))
+		return err
+	}
+
+	global.APP_LOG.Info("事务中预留资源成功",
+		zap.String("sessionId", sessionID),
+		zap.Uint("userId", userID),
+		zap.Uint("providerId", providerID),
+		zap.Time("expiresAt", expiresAt))
+
+	return nil
+}
+
 // ReserveAndConsumeInTx 在事务中原子化预留并立即消费资源
 func (s *ResourceReservationService) ReserveAndConsumeInTx(tx *gorm.DB, userID uint, providerID uint, sessionID string,
 	instanceType string, cpu int, memory int64, disk int64, bandwidth int) error {
@@ -207,6 +247,37 @@ func (s *ResourceReservationService) ConsumeReservationBySessionInTx(tx *gorm.DB
 	}
 
 	global.APP_LOG.Info("消费预留记录成功",
+		zap.String("sessionId", sessionID),
+		zap.Uint("userId", reservation.UserID),
+		zap.Uint("providerId", reservation.ProviderID))
+
+	return nil
+}
+
+// ReleaseReservationBySession 释放（删除）预留资源（用于任务取消或失败）
+func (s *ResourceReservationService) ReleaseReservationBySession(sessionID string) error {
+	var reservation resource.ResourceReservation
+
+	// 查找预留记录
+	if err := global.APP_DB.Where("session_id = ?", sessionID).First(&reservation).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// 预留记录不存在或已被消费，这是正常情况
+			global.APP_LOG.Debug("预留记录不存在或已消费", zap.String("sessionId", sessionID))
+			return nil
+		}
+		global.APP_LOG.Error("查询预留记录失败", zap.Error(err), zap.String("sessionId", sessionID))
+		return err
+	}
+
+	// 删除预留记录（释放资源）
+	if err := global.APP_DB.Unscoped().Delete(&reservation).Error; err != nil {
+		global.APP_LOG.Error("释放预留记录失败",
+			zap.Error(err),
+			zap.String("sessionId", sessionID))
+		return err
+	}
+
+	global.APP_LOG.Info("释放预留记录成功",
 		zap.String("sessionId", sessionID),
 		zap.Uint("userId", reservation.UserID),
 		zap.Uint("providerId", reservation.ProviderID))

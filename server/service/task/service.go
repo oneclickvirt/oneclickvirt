@@ -339,7 +339,14 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 		return err
 	}
 
-	// 注释：新机制中资源预留已在创建时被原子化消费，无需额外释放
+	// 如果任务失败且没有创建实例，释放预留资源
+	if !success && task.InstanceID == nil {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.releaseTaskResources(taskID)
+		}()
+	}
 
 	global.APP_LOG.Info("任务完成",
 		zap.Uint("taskId", taskID),
@@ -570,9 +577,38 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 
 // releaseTaskResources 释放任务资源
 func (s *TaskService) releaseTaskResources(taskID uint) {
-	// 注释：新机制中资源预留已在创建时被原子化消费，无需额外释放
+	// 获取任务信息以提取sessionId
+	var task adminModel.Task
+	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
+		global.APP_LOG.Error("获取任务信息失败", zap.Uint("taskId", taskID), zap.Error(err))
+		return
+	}
 
-	global.APP_LOG.Info("任务资源已释放", zap.Uint("taskId", taskID))
+	// 解析任务数据以获取sessionId
+	var taskData map[string]interface{}
+	if err := json.Unmarshal([]byte(task.TaskData), &taskData); err != nil {
+		global.APP_LOG.Error("解析任务数据失败", zap.Uint("taskId", taskID), zap.Error(err))
+		return
+	}
+
+	sessionID, ok := taskData["sessionId"].(string)
+	if !ok || sessionID == "" {
+		global.APP_LOG.Warn("任务数据中没有sessionId", zap.Uint("taskId", taskID))
+		return
+	}
+
+	// 释放预留资源
+	reservationService := resources.GetResourceReservationService()
+	if err := reservationService.ReleaseReservationBySession(sessionID); err != nil {
+		global.APP_LOG.Warn("释放预留资源失败",
+			zap.Uint("taskId", taskID),
+			zap.String("sessionId", sessionID),
+			zap.Error(err))
+	} else {
+		global.APP_LOG.Info("任务预留资源已释放",
+			zap.Uint("taskId", taskID),
+			zap.String("sessionId", sessionID))
+	}
 }
 
 // GetUserTasks 获取用户任务列表
