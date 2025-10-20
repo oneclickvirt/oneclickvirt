@@ -1,17 +1,15 @@
 <template>
+  <!-- 添加style属性确保可见性，并根据收缩状态添加class -->
   <div
     class="sidebar-container"
-    :class="{ 
-      'is-collapse': isCollapse && !isMobile,
-      'mobile': isMobile
-    }"
+    :class="{ 'is-collapse': isCollapse }"
+    style="display: block; visibility: visible;"
   >
     <div class="sidebar-logo">
-      <h1 v-show="!isCollapse || isMobile">OneClickVirt</h1>
+      <h1>OneClickVirt</h1>
       <el-button 
-        v-if="!isMobile"
         class="collapse-btn" 
-        :icon="isCollapse ? Expand : Fold" 
+        :icon="isCollapse ? 'Expand' : 'Fold'" 
         size="small" 
         circle 
         @click="toggleCollapse" 
@@ -20,22 +18,22 @@
     <el-scrollbar wrap-class="scrollbar-wrapper">
       <el-menu
         :default-active="activeMenu"
-        :collapse="isCollapse && !isMobile"
+        :collapse="isCollapse"
         :unique-opened="false"
         :collapse-transition="false"
         mode="vertical"
         background-color="#f0f9f4"
         text-color="#374151"
         active-text-color="#16a34a"
-        @select="handleMenuSelect"
       >
         <!-- 首页链接 - 仅在未登录时显示 -->
         <el-menu-item
           v-if="!userStore.isLoggedIn"
           index="/home"
+          @click="navigateTo('/home')"
         >
           <el-icon><HomeFilled /></el-icon>
-          <template #title>首页</template>
+          <span>首页</span>
         </el-menu-item>
         
         <!-- 动态生成的菜单项 -->
@@ -44,7 +42,7 @@
           :key="route.path"
           :item="route"
           :base-path="route.path"
-          :is-collapse="isCollapse && !isMobile"
+          :is-collapse="isCollapse"
         />
       </el-menu>
     </el-scrollbar>
@@ -63,22 +61,14 @@ const router = useRouter()
 const userStore = useUserStore()
 const isCollapse = ref(false)
 
-// 从父组件注入的状态和方法
+// 从父组件注入的方法
 const toggleSidebarCollapse = inject('toggleSidebarCollapse', null)
-const isMobile = inject('isMobile', ref(false))
-const closeSidebar = inject('closeSidebar', null)
 
 const toggleCollapse = () => {
   isCollapse.value = !isCollapse.value
+  // 通知父组件状态变化
   if (toggleSidebarCollapse) {
     toggleSidebarCollapse(isCollapse.value)
-  }
-}
-
-// 移动端点击菜单后关闭侧边栏
-const handleMenuSelect = () => {
-  if (isMobile.value && closeSidebar) {
-    closeSidebar()
   }
 }
 
@@ -388,41 +378,17 @@ watch(() => userStore.userType, (newType, oldType) => {
 
   // 收缩状态样式
   &.is-collapse {
-    width: var(--sidebar-width-collapsed);
+    width: var(--sidebar-width-collapsed) !important;
     
     .sidebar-logo {
+      h1 {
+        opacity: 0;
+      }
+      
       .collapse-btn {
         right: 50%;
         transform: translate(50%, -50%);
       }
-    }
-  }
-  
-  // 移动端样式
-  &.mobile {
-    width: var(--sidebar-width);
-    
-    .sidebar-logo {
-      .collapse-btn {
-        display: none;
-      }
-    }
-  }
-}
-
-/* 移动端适配 */
-@media (max-width: 768px) {
-  .sidebar-container {
-    .sidebar-logo {
-      h1 {
-        font-size: var(--font-size-base);
-      }
-    }
-    
-    :deep(.el-menu-item),
-    :deep(.el-sub-menu__title) {
-      height: 48px;
-      line-height: 48px;
     }
   }
 }

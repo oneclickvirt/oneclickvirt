@@ -1,5 +1,15 @@
 <template>
   <div class="navbar">
+    <!-- 移动端汉堡菜单按钮 -->
+    <div class="hamburger-container">
+      <el-button
+        class="hamburger-btn"
+        :icon="Menu"
+        circle
+        @click="toggleSidebar"
+      />
+    </div>
+    
     <div class="right-menu">
       <el-dropdown
         class="avatar-container"
@@ -49,13 +59,18 @@
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Switch, SwitchButton, User, CaretBottom } from '@element-plus/icons-vue'
+import { Switch, SwitchButton, User, CaretBottom, Menu } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 
+const emit = defineEmits(['toggle-sidebar'])
 const router = useRouter()
 const userStore = useUserStore()
 
 const userInfo = computed(() => userStore.user || {})
+
+const toggleSidebar = () => {
+  emit('toggle-sidebar')
+}
 
 const toggleViewMode = () => {
   if (!userStore.canSwitchViewMode) {
@@ -69,7 +84,6 @@ const toggleViewMode = () => {
   if (success) {
     ElMessage.success(`已切换到${newMode === 'admin' ? '管理员' : '用户'}视图`)
     
-    // 跳转到对应的首页
     const targetPath = newMode === 'admin' ? '/admin/dashboard' : '/user/dashboard'
     router.push(targetPath)
   }
@@ -92,22 +106,34 @@ const logout = async () => {
 
 <style lang="scss" scoped>
 .navbar {
-  height: 50px;
+  height: var(--navbar-height);
   overflow: hidden;
   position: relative;
   background: #fff;
   box-shadow: 0 1px 4px rgba(0,21,41,.08);
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  padding-right: 20px;
+  justify-content: space-between;
+  padding: 0 20px;
+
+  .hamburger-container {
+    display: none;
+    
+    .hamburger-btn {
+      color: var(--text-color-primary);
+      background: transparent;
+      border: none;
+      
+      &:hover {
+        background: var(--bg-color-hover);
+      }
+    }
+  }
 
   .right-menu {
-    float: right;
-    height: 100%;
-    line-height: 50px;
     display: flex;
     align-items: center;
+    margin-left: auto;
 
     &:focus {
       outline: none;
@@ -132,10 +158,7 @@ const logout = async () => {
     }
 
     .avatar-container {
-      margin-right: 30px;
-
       .avatar-wrapper {
-        margin-top: 5px;
         position: relative;
         display: flex;
         align-items: center;
@@ -144,19 +167,54 @@ const logout = async () => {
         .username {
           margin-left: 10px;
           margin-right: 5px;
+          font-size: var(--font-size-sm);
         }
 
         .el-icon-caret-bottom {
           cursor: pointer;
-          position: absolute;
-          right: -20px;
-          top: 25px;
           font-size: 12px;
+          margin-left: 4px;
         }
       }
     }
+  }
+}
+
+/* 平板和移动端适配 */
+@media (max-width: 1024px) {
+  .navbar {
+    .hamburger-container {
+      display: block;
+    }
     
-    /* 移除logout-button相关样式 */
+    .right-menu {
+      .avatar-container .avatar-wrapper .username {
+        display: none;
+      }
+    }
+  }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .navbar {
+    padding: 0 12px;
+    height: var(--navbar-height);
+    
+    .right-menu {
+      .avatar-container {
+        .avatar-wrapper {
+          .el-avatar {
+            width: 32px !important;
+            height: 32px !important;
+          }
+          
+          .el-icon-caret-bottom {
+            display: none;
+          }
+        }
+      }
+    }
   }
 }
 </style>

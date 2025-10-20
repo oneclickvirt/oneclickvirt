@@ -107,7 +107,7 @@
   --transition-all: all 0.3s ease;
   
   /* 布局尺寸 */
-  --navbar-height: 70px;
+  --navbar-height: 60px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
   --content-max-width: 1200px;
@@ -115,12 +115,22 @@
   
   /* Z-index层级 */
   --z-dropdown: 1000;
+  --z-sidebar: 1001;
+  --z-navbar: 1002;
+  --z-drawer-bg: 999;
   --z-sticky: 1020;
   --z-fixed: 1030;
   --z-modal-backdrop: 1040;
   --z-modal: 1050;
   --z-popover: 1060;
   --z-tooltip: 1070;
+  
+  /* 响应式断点 */
+  --breakpoint-xs: 480px;
+  --breakpoint-sm: 768px;
+  --breakpoint-md: 1024px;
+  --breakpoint-lg: 1280px;
+  --breakpoint-xl: 1536px;
 }
 
 /* 基础重置和通用样式 */
@@ -469,16 +479,13 @@ body {
 }
 
 /* 响应式断点 */
-@media (max-width: 1280px) {
-  :root {
-    --content-max-width: 1024px;
-  }
-}
-
+/* 平板端 (768px - 1024px) */
 @media (max-width: 1024px) {
   :root {
     --content-max-width: 768px;
     --container-padding: 20px;
+    --navbar-height: 56px;
+    --sidebar-width: 200px;
   }
   
   .grid-cols-4 {
@@ -490,15 +497,20 @@ body {
   }
 }
 
+/* 移动端 (max-width: 768px) */
 @media (max-width: 768px) {
   :root {
     --content-max-width: 100%;
     --container-padding: 16px;
+    --navbar-height: 56px;
+    --sidebar-width: 280px;
     --font-size-4xl: 32px;
     --font-size-3xl: 24px;
     --font-size-2xl: 20px;
+    --font-size-xl: 18px;
     --spacing-3xl: 48px;
     --spacing-2xl: 32px;
+    --spacing-xl: 24px;
   }
   
   .grid-cols-4,
@@ -512,25 +524,48 @@ body {
   }
   
   .btn {
-    padding: 14px 28px;
+    padding: 12px 24px;
+    font-size: var(--font-size-sm);
   }
   
   .btn-sm {
-    padding: 10px 20px;
+    padding: 8px 16px;
+    font-size: var(--font-size-xs);
   }
   
   .btn-lg {
-    padding: 16px 32px;
+    padding: 14px 28px;
+    font-size: var(--font-size-base);
+  }
+  
+  .card {
+    padding: var(--spacing-lg);
+  }
+  
+  .section-header h1,
+  .section-header h2 {
+    font-size: var(--font-size-3xl);
   }
 }
 
+/* 小屏移动端 (max-width: 480px) */
 @media (max-width: 480px) {
   :root {
     --container-padding: 12px;
     --font-size-4xl: 28px;
     --font-size-3xl: 22px;
+    --font-size-2xl: 18px;
     --spacing-2xl: 24px;
     --spacing-xl: 20px;
+    --spacing-lg: 16px;
+  }
+  
+  .btn {
+    padding: 10px 20px;
+  }
+  
+  .card {
+    padding: var(--spacing-md);
   }
 }
 

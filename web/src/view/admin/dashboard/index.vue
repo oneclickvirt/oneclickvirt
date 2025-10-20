@@ -9,7 +9,7 @@
       :gutter="20"
       class="stats-row"
     >
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon user-icon">
@@ -27,7 +27,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon server-icon">
@@ -45,7 +45,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon vm-icon">
@@ -63,7 +63,7 @@
         </el-card>
       </el-col>
       
-      <el-col :span="6">
+      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
         <el-card class="stat-card">
           <div class="stat-content">
             <div class="stat-icon container-icon">
@@ -214,5 +214,119 @@ onMounted(async () => {
   font-size: 14px;
   color: #909399;
   font-weight: 500;
+}
+
+/* 响应式适配 */
+/* 平板端适配 */
+@media (max-width: 1024px) {
+  .admin-dashboard {
+    padding: 20px;
+  }
+  
+  .dashboard-header h1 {
+    font-size: 24px;
+  }
+  
+  .stat-card {
+    height: 120px;
+    margin-bottom: 16px;
+  }
+  
+  .stat-icon {
+    width: 60px;
+    height: 60px;
+    font-size: 28px;
+    margin-right: 16px;
+  }
+  
+  .stat-number {
+    font-size: 28px;
+  }
+  
+  .stat-label {
+    font-size: 13px;
+  }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .admin-dashboard {
+    padding: 16px;
+  }
+  
+  .dashboard-header {
+    margin-bottom: 20px;
+  }
+  
+  .dashboard-header h1 {
+    font-size: 22px;
+  }
+  
+  .dashboard-header p {
+    font-size: 14px;
+  }
+  
+  .stats-row {
+    margin-bottom: 20px;
+  }
+  
+  .stat-card {
+    height: auto;
+    min-height: 100px;
+    margin-bottom: 12px;
+  }
+  
+  .stat-card:hover {
+    transform: none;
+  }
+  
+  .stat-content {
+    padding: 16px;
+  }
+  
+  .stat-icon {
+    width: 50px;
+    height: 50px;
+    font-size: 24px;
+    margin-right: 12px;
+  }
+  
+  .stat-number {
+    font-size: 24px;
+  }
+  
+  .stat-label {
+    font-size: 12px;
+  }
+}
+
+/* 小屏移动端适配 */
+@media (max-width: 480px) {
+  .admin-dashboard {
+    padding: 12px;
+  }
+  
+  .dashboard-header h1 {
+    font-size: 20px;
+  }
+  
+  .stat-content {
+    padding: 12px;
+  }
+  
+  .stat-icon {
+    width: 45px;
+    height: 45px;
+    font-size: 20px;
+    margin-right: 10px;
+  }
+  
+  .stat-number {
+    font-size: 20px;
+  }
+  
+  .stat-label {
+    font-size: 11px;
+  }
 }
 </style>

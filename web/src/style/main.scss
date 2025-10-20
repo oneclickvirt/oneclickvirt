@@ -144,13 +144,43 @@ html, body {
 }
 
 /* 响应式设计 */
-@media (max-width: 768px) {
-  .main-container {
-    margin-left: 0;
+/* 平板端适配 */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .sidebar-container:not(.mobile) {
+    width: var(--sidebar-width-collapsed) !important;
+  }
+  
+  .sidebar-container.is-collapse ~ .main-container {
+    margin-left: var(--sidebar-width-collapsed);
   }
   
   .fixed-header {
-    width: 100%;
+    width: calc(100% - var(--sidebar-width-collapsed));
+  }
+  
+  /* Element Plus 表格适配 */
+  :deep(.el-table) {
+    font-size: var(--font-size-sm);
+    
+    .el-table__cell {
+      padding: 8px 0;
+    }
+  }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  html {
+    font-size: 14px;
+  }
+  
+  .main-container {
+    margin-left: 0 !important;
+    padding-top: var(--navbar-height) !important;
+  }
+  
+  .fixed-header {
+    width: 100% !important;
   }
   
   .sidebar-container {
@@ -158,8 +188,85 @@ html, body {
     transition: transform var(--transition-normal);
   }
   
-  .sidebar-container.mobile-open {
+  .sidebar-container:not(.hidden) {
     transform: translateX(0);
+  }
+  
+  /* 移动端卡片间距调整 */
+  .el-card {
+    margin-bottom: var(--spacing-md);
+  }
+  
+  /* 移动端表格适配 */
+  :deep(.el-table) {
+    font-size: var(--font-size-xs);
+    
+    .el-table__cell {
+      padding: 6px 0;
+    }
+    
+    .cell {
+      padding-left: 8px;
+      padding-right: 8px;
+    }
+  }
+  
+  /* 移动端按钮组适配 */
+  .table-action-buttons {
+    gap: 2px;
+  }
+  
+  .table-action-link {
+    font-size: 12px;
+    padding: 1px 3px;
+  }
+  
+  /* 移动端表单适配 */
+  :deep(.el-form-item) {
+    margin-bottom: var(--spacing-md);
+  }
+  
+  :deep(.el-form-item__label) {
+    font-size: var(--font-size-sm);
+  }
+  
+  /* 移动端对话框适配 */
+  :deep(.el-dialog) {
+    width: 95% !important;
+    margin-top: 5vh !important;
+  }
+  
+  :deep(.el-drawer) {
+    width: 85% !important;
+  }
+}
+
+/* 小屏移动端适配 */
+@media (max-width: 480px) {
+  .el-row {
+    margin: 0 !important;
+  }
+  
+  .el-col {
+    padding: 0 6px !important;
+  }
+  
+  /* 小屏表格进一步精简 */
+  :deep(.el-table) {
+    .el-table__header-wrapper,
+    .el-table__body-wrapper {
+      overflow-x: auto;
+    }
+  }
+  
+  /* 小屏按钮适配 */
+  .el-button {
+    padding: 8px 12px;
+    font-size: var(--font-size-xs);
+  }
+  
+  .el-button--small {
+    padding: 6px 10px;
   }
 }
 

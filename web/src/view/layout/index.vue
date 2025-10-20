@@ -1,28 +1,43 @@
 <template>
-  <div class="app-wrapper">
+  <div class="app-wrapper" :class="{ 'mobile': isMobile }">
     <!-- 顶部栏公告 -->
     <TopbarAnnouncement />
     
+    <!-- 移动端遮罩层 -->
     <div
-      v-if="device === 'mobile' && sidebar.opened"
+      v-if="isMobile && sidebar.opened"
       class="drawer-bg"
-      @click="handleClickOutside"
+      @click="closeSidebar"
     />
+    
+    <!-- 侧边栏 -->
     <component
       :is="Sidebar"
       :key="userStore.userType"
       class="sidebar-container"
-      :class="{ 'is-collapse': isCollapse }"
+      :class="{ 
+        'is-collapse': isCollapse && !isMobile,
+        'mobile': isMobile,
+        'hidden': isMobile && !sidebar.opened
+      }"
     />
+    
+    <!-- 主容器 -->
     <div
       class="main-container"
-      :class="{ 'main-container-collapsed': isCollapse }"
+      :class="{ 
+        'main-container-collapsed': isCollapse && !isMobile,
+        'mobile': isMobile
+      }"
     >
       <div
         class="fixed-header"
-        :class="{ 'fixed-header-collapsed': isCollapse }"
+        :class="{ 
+          'fixed-header-collapsed': isCollapse && !isMobile,
+          'mobile': isMobile
+        }"
       >
-        <navbar />
+        <navbar @toggle-sidebar="toggleSidebar" />
       </div>
       <app-main />
     </div>
@@ -30,41 +45,80 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, nextTick, provide } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, nextTick, provide } from 'vue'
 import { Navbar, Sidebar, AppMain } from './components'
 import { useUserStore } from '@/pinia/modules/user'
 import TopbarAnnouncement from '@/components/TopbarAnnouncement.vue'
 
 const userStore = useUserStore()
-const device = ref('desktop')
+const isMobile = ref(false)
 const sidebar = ref({
   opened: true
 })
 const isCollapse = ref(false)
 
-// 提供给子组件的方法
-const toggleSidebarCollapse = (collapsed) => {
-  isCollapse.value = collapsed
+// 检测设备类型
+const checkDevice = () => {
+  const width = window.innerWidth
+  isMobile.value = width < 768
+  
+  // 移动端默认关闭侧边栏
+  if (isMobile.value) {
+    sidebar.value.opened = false
+    isCollapse.value = false
+  } else {
+    sidebar.value.opened = true
+    // 平板端默认收缩
+    if (width >= 768 && width < 1024) {
+      isCollapse.value = true
+    }
+  }
 }
 
-// 提供收缩状态给子组件
-provide('toggleSidebarCollapse', toggleSidebarCollapse)
+// 切换侧边栏
+const toggleSidebar = () => {
+  if (isMobile.value) {
+    sidebar.value.opened = !sidebar.value.opened
+  } else {
+    isCollapse.value = !isCollapse.value
+    if (toggleSidebarCollapse) {
+      toggleSidebarCollapse(isCollapse.value)
+    }
+  }
+}
 
-const sidebarWidth = computed(() => {
-  return isCollapse.value ? 'var(--sidebar-width-collapsed)' : 'var(--sidebar-width)'
-})
-
-const handleClickOutside = () => {
+// 关闭侧边栏（移动端）
+const closeSidebar = () => {
   sidebar.value.opened = false
 }
 
+// 提供给子组件的方法
+const toggleSidebarCollapse = (collapsed) => {
+  if (!isMobile.value) {
+    isCollapse.value = collapsed
+  }
+}
+
+// 提供收缩状态和移动端状态给子组件
+provide('toggleSidebarCollapse', toggleSidebarCollapse)
+provide('isMobile', computed(() => isMobile.value))
+provide('sidebarOpened', computed(() => sidebar.value.opened))
+provide('closeSidebar', closeSidebar)
+
 onMounted(() => {
+  checkDevice()
+  window.addEventListener('resize', checkDevice)
+  
   nextTick(() => {
     const sidebarEl = document.querySelector('.sidebar-container')
     if (!sidebarEl || sidebarEl.children.length === 0) {
       userStore.$patch({ userType: userStore.userType })
     }
   })
+})
+
+onBeforeUnmount(() => {
+  window.removeEventListener('resize', checkDevice)
 })
 </script>
 
@@ -75,27 +129,25 @@ onMounted(() => {
   width: 100%;
   background-color: var(--bg-color-primary);
 
-  &.mobile.openSidebar {
-    position: fixed;
-    top: 0;
+  &.mobile {
+    overflow-x: hidden;
   }
 }
 
 .drawer-bg {
-  background: #000;
-  opacity: 0.3;
+  background: rgba(0, 0, 0, 0.3);
   width: 100%;
   top: 0;
   height: 100%;
-  position: absolute;
-  z-index: 999;
+  position: fixed;
+  z-index: var(--z-drawer-bg);
 }
 
 .fixed-header {
   position: fixed;
   top: 0;
   right: 0;
-  z-index: 9;
+  z-index: var(--z-navbar);
   width: calc(100% - var(--sidebar-width));
   transition: width 0.28s;
   background-color: var(--bg-color-secondary);
@@ -105,15 +157,15 @@ onMounted(() => {
   &.fixed-header-collapsed {
     width: calc(100% - var(--sidebar-width-collapsed));
   }
+  
+  &.mobile {
+    width: 100%;
+  }
 }
 
-:deep(.sidebar-container.is-collapse) ~ .main-container .fixed-header {
-  width: calc(100% - var(--sidebar-width-collapsed));
-}
-
-:deep(.sidebar-container) {
-  transition: width 0.28s;
-  width: var(--sidebar-width) !important;
+.sidebar-container {
+  transition: transform 0.28s, width 0.28s;
+  width: var(--sidebar-width);
   background-color: var(--bg-color-sidebar);
   height: 100%;
   position: fixed;
@@ -121,14 +173,21 @@ onMounted(() => {
   top: 0;
   bottom: 0;
   left: 0;
-  z-index: 1001;
+  z-index: var(--z-sidebar);
   overflow: hidden;
   box-shadow: 2px 0 6px rgba(0, 0, 0, 0.1);
-  display: block !important;
-  visibility: visible !important;
   
   &.is-collapse {
-    width: var(--sidebar-width-collapsed) !important;
+    width: var(--sidebar-width-collapsed);
+  }
+  
+  &.mobile {
+    width: var(--sidebar-width);
+    transform: translateX(0);
+    
+    &.hidden {
+      transform: translateX(-100%);
+    }
   }
 }
 
@@ -137,17 +196,47 @@ onMounted(() => {
   transition: margin-left 0.28s;
   margin-left: var(--sidebar-width);
   position: relative;
-  padding-top: 50px;
+  padding-top: var(--navbar-height);
   display: flex;
   flex-direction: column;
   
   &.main-container-collapsed {
     margin-left: var(--sidebar-width-collapsed);
   }
+  
+  &.mobile {
+    margin-left: 0;
+    width: 100%;
+  }
 }
 
-/* 侧边栏收缩时调整主容器 */
-:deep(.sidebar-container.is-collapse) ~ .main-container {
-  margin-left: var(--sidebar-width-collapsed);
+/* 平板端适配 */
+@media (max-width: 1024px) and (min-width: 768px) {
+  .sidebar-container:not(.mobile) {
+    width: var(--sidebar-width-collapsed);
+  }
+  
+  .main-container:not(.mobile) {
+    margin-left: var(--sidebar-width-collapsed);
+  }
+  
+  .fixed-header:not(.mobile) {
+    width: calc(100% - var(--sidebar-width-collapsed));
+  }
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+  .sidebar-container {
+    width: var(--sidebar-width);
+  }
+  
+  .main-container {
+    margin-left: 0;
+  }
+  
+  .fixed-header {
+    width: 100%;
+  }
 }
 </style>
