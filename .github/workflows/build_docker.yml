@@ -120,17 +120,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Get current date
-        id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-      
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digests-full-*
-          merge-multiple: true
-          path: /tmp/digests
-      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
@@ -146,6 +135,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+      
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-full-*
+          merge-multiple: true
+          path: /tmp/digests
       
       - name: Extract metadata
         id: meta
@@ -194,17 +194,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      - name: Get current date
-        id: date
-        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
-      
-      - name: Download digests
-        uses: actions/download-artifact@v4
-        with:
-          pattern: digests-no-db-*
-          merge-multiple: true
-          path: /tmp/digests
-      
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
       
@@ -220,6 +209,17 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Get current date
+        id: date
+        run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
+      
+      - name: Download digests
+        uses: actions/download-artifact@v4
+        with:
+          pattern: digests-no-db-*
+          merge-multiple: true
+          path: /tmp/digests
       
       - name: Extract metadata
         id: meta
