@@ -53,6 +53,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 	// 管理员查看所有实例，不限制user_id
 	query := global.APP_DB.Model(&providerModel.Instance{})
 
+	if req.Name != "" {
+		query = query.Where("name LIKE ?", "%"+req.Name+"%")
+	}
 	if req.ProviderName != "" {
 		query = query.Where("provider LIKE ?", "%"+req.ProviderName+"%")
 	}

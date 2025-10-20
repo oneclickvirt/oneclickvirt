@@ -58,6 +58,7 @@
               v-model="searchForm.providerId"
               placeholder="选择Provider"
               clearable
+              style="width: 100%;"
             >
               <el-option
                 v-for="provider in providers"
@@ -72,6 +73,7 @@
               v-model="searchForm.status"
               placeholder="状态"
               clearable
+              style="width: 100%;"
             >
               <el-option
                 label="活跃"

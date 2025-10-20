@@ -26,6 +26,12 @@
       <!-- 筛选条件 -->
       <div class="filter-row">
         <el-input
+          v-model="filters.instanceName"
+          placeholder="按实例名称搜索"
+          style="width: 200px; margin-right: 10px;"
+          clearable
+        />
+        <el-input
           v-model="filters.providerName"
           placeholder="按节点名称搜索"
           style="width: 200px; margin-right: 10px;"
@@ -437,6 +443,7 @@ const selectedInstances = ref([])
 
 // 筛选条件
 const filters = ref({
+  instanceName: '',
   providerName: '',
   status: '',
   instanceType: ''
@@ -455,6 +462,7 @@ const loadInstances = async () => {
     const params = {
       page: pagination.value.page,
       pageSize: pagination.value.pageSize,
+      name: filters.value.instanceName || undefined,
       providerName: filters.value.providerName || undefined,
       status: filters.value.status || undefined,
       instance_type: filters.value.instanceType || undefined
@@ -484,6 +492,7 @@ const handleSearch = () => {
 }
 
 const handleReset = () => {
+  filters.value.instanceName = ''
   filters.value.providerName = ''
   filters.value.status = ''
   filters.value.instanceType = ''

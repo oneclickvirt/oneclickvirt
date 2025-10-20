@@ -59,6 +59,7 @@ type NodeConfigRequest struct {
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
 	Country               string   `json:"country"`
+	City                  string   `json:"city"`
 	Architecture          string   `json:"architecture"`
 	Type                  string   `json:"type" binding:"required"`
 	SupportedTypes        []string `json:"supported_types"`

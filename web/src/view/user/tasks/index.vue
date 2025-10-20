@@ -11,11 +11,12 @@
         :inline="true"
         :model="filterForm"
       >
-        <el-form-item label="节点">
+        <el-form-item>
           <el-select
             v-model="filterForm.providerId"
             placeholder="选择节点"
             clearable
+            style="width: 150px;"
           >
             <el-option
               label="全部"
@@ -29,11 +30,12 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="任务类型">
+        <el-form-item>
           <el-select
             v-model="filterForm.taskType"
             placeholder="选择任务类型"
             clearable
+            style="width: 150px;"
           >
             <el-option
               label="全部"
@@ -65,11 +67,12 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="任务状态">
+        <el-form-item>
           <el-select
             v-model="filterForm.status"
             placeholder="选择状态"
             clearable
+            style="width: 150px;"
           >
             <el-option
               label="全部"

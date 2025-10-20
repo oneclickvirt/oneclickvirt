@@ -208,6 +208,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				Region:                  provider.Region,
 				Country:                 provider.Country,
 				CountryCode:             provider.CountryCode,
+				City:                    provider.City,
 				Status:                  provider.Status,
 				CPU:                     nodeCPU,
 				Memory:                  int(nodeMemory), // 返回MB单位

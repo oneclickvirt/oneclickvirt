@@ -39,6 +39,7 @@ type AvailableResourceResponse struct {
 	Region                string `json:"region"`
 	Country               string `json:"country"`
 	CountryCode           string `json:"countryCode"`
+	City                  string `json:"city"`
 	ContainerEnabled      bool   `json:"containerEnabled"`
 	VirtualMachineEnabled bool   `json:"vmEnabled"`
 	AvailableQuota        int    `json:"availableQuota"`
@@ -171,6 +172,7 @@ type AvailableProviderResponse struct {
 	Region                  string  `json:"region"`
 	Country                 string  `json:"country"`
 	CountryCode             string  `json:"countryCode"`
+	City                    string  `json:"city"`
 	Status                  string  `json:"status"`
 	CPU                     int     `json:"cpu"`
 	Memory                  int     `json:"memory"`                  // 总内存(MB)

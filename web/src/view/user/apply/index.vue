@@ -79,7 +79,7 @@
                   v-if="provider.countryCode"
                   class="flag-icon"
                 >{{ getFlagEmoji(provider.countryCode) }}</span>
-                位置: {{ provider.country || provider.region || '-' }}
+                位置: {{ formatProviderLocation(provider) }}
               </span>
             </div>
             <div class="info-item">
@@ -502,6 +502,20 @@ const getProviderStatusText = (status) => {
     default:
       return status
   }
+}
+
+// 格式化Provider位置信息
+const formatProviderLocation = (provider) => {
+  const parts = []
+  if (provider.city) {
+    parts.push(provider.city)
+  }
+  if (provider.country) {
+    parts.push(provider.country)
+  } else if (provider.region) {
+    parts.push(provider.region)
+  }
+  return parts.length > 0 ? parts.join(', ') : '-'
 }
 
 // 检查是否可以选择指定规格（所有规格都已由后端根据配额过滤）

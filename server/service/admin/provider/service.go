@@ -142,6 +142,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		Region:                req.Region,
 		Country:               req.Country,
 		CountryCode:           req.CountryCode,
+		City:                  req.City,
 		Architecture:          req.Architecture,
 		ContainerEnabled:      req.ContainerEnabled,
 		VirtualMachineEnabled: req.VirtualMachineEnabled,
@@ -344,6 +345,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.Region = req.Region
 	provider.Country = req.Country
 	provider.CountryCode = req.CountryCode
+	provider.City = req.City
 	provider.Architecture = req.Architecture
 	provider.ContainerEnabled = req.ContainerEnabled
 	provider.VirtualMachineEnabled = req.VirtualMachineEnabled

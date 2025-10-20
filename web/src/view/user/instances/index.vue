@@ -24,11 +24,28 @@
           :inline="true"
           :model="filterForm"
         >
-          <el-form-item label="类型">
+          <el-form-item>
+            <el-input
+              v-model="filterForm.instanceName"
+              placeholder="按实例名称搜索"
+              clearable
+              style="width: 200px;"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-input
+              v-model="filterForm.providerName"
+              placeholder="按节点名称搜索"
+              clearable
+              style="width: 200px;"
+            />
+          </el-form-item>
+          <el-form-item>
             <el-select
               v-model="filterForm.type"
               placeholder="选择类型"
               clearable
+              style="width: 150px;"
             >
               <el-option
                 label="全部"
@@ -44,11 +61,12 @@
               />
             </el-select>
           </el-form-item>
-          <el-form-item label="状态">
+          <el-form-item>
             <el-select
               v-model="filterForm.status"
               placeholder="选择状态"
               clearable
+              style="width: 150px;"
             >
               <el-option
                 label="全部"
@@ -67,14 +85,6 @@
                 value="paused"
               />
             </el-select>
-          </el-form-item>
-          <el-form-item label="节点">
-            <el-input
-              v-model="filterForm.providerName"
-              placeholder="按节点名称搜索"
-              clearable
-              style="width: 200px;"
-            />
           </el-form-item>
           <el-form-item>
             <el-button
@@ -280,6 +290,7 @@ const selectedInstanceForTraffic = ref(null)
 
 
 const filterForm = reactive({
+  instanceName: '',
   type: '',
   status: '',
   providerName: ''
@@ -332,6 +343,7 @@ const loadInstances = async (showSuccessMsg = false) => {
 // 重置筛选
 const resetFilter = () => {
   Object.assign(filterForm, {
+    instanceName: '',
     type: '',
     status: '',
     providerName: ''

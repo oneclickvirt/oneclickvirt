@@ -115,6 +115,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		Token:                 dbProvider.Token,
 		UUID:                  dbProvider.UUID,
 		Country:               dbProvider.Country,
+		City:                  dbProvider.City,
 		Architecture:          dbProvider.Architecture,
 		ContainerEnabled:      dbProvider.ContainerEnabled,
 		VirtualMachineEnabled: dbProvider.VirtualMachineEnabled,

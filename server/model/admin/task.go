@@ -9,7 +9,7 @@ type AdminTaskListRequest struct {
 	Page         int    `json:"page" form:"page"`
 	PageSize     int    `json:"pageSize" form:"pageSize"`
 	ProviderID   uint   `json:"providerId" form:"providerId"`
-	UserID       uint   `json:"userId" form:"userId"`
+	Username     string `json:"username" form:"username"` // 用户名搜索
 	TaskType     string `json:"taskType" form:"taskType"`
 	Status       string `json:"status" form:"status"`
 	InstanceType string `json:"instanceType" form:"instanceType"` // container or vm

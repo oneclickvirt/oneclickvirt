@@ -23,11 +23,12 @@
         :model="filterForm"
         inline
       >
-        <el-form-item label="状态">
+        <el-form-item>
           <el-select
             v-model="filterForm.status"
             placeholder="选择状态"
             clearable
+            style="width: 150px;"
           >
             <el-option
               label="全部"
@@ -52,11 +53,12 @@
           </el-select>
         </el-form-item>
         
-        <el-form-item label="地区">
+        <el-form-item>
           <el-select
             v-model="filterForm.region"
             placeholder="选择地区"
             clearable
+            style="width: 150px;"
           >
             <el-option
               label="全部"

@@ -36,6 +36,7 @@
               placeholder="Provider类型"
               clearable
               @change="handleSearch"
+              style="width: 100%;"
             >
               <el-option
                 label="ProxmoxVE"
@@ -61,6 +62,7 @@
               placeholder="实例类型"
               clearable
               @change="handleSearch"
+              style="width: 100%;"
             >
               <el-option
                 label="虚拟机"
@@ -78,6 +80,7 @@
               placeholder="架构"
               clearable
               @change="handleSearch"
+              style="width: 100%;"
             >
               <el-option
                 label="amd64"
@@ -98,6 +101,7 @@
               v-model="searchForm.osType"
               placeholder="操作系统"
               clearable
+              style="width: 100%;"
               @change="handleSearch"
             >
               <el-option-group
@@ -120,6 +124,7 @@
               placeholder="状态"
               clearable
               @change="handleSearch"
+              style="width: 100%;"
             >
               <el-option
                 label="激活"

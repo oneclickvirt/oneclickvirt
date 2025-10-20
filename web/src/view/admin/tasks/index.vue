@@ -90,15 +90,15 @@
         :model="filterForm"
         class="filter-form"
       >
-        <el-form-item label="用户ID">
+        <el-form-item>
           <el-input
-            v-model="filterForm.userId"
-            placeholder="输入用户ID"
+            v-model="filterForm.username"
+            placeholder="输入用户名"
             clearable
             style="width: 120px"
           />
         </el-form-item>
-        <el-form-item label="节点">
+        <el-form-item>
           <el-select
             v-model="filterForm.providerId"
             placeholder="选择节点"
@@ -113,7 +113,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="任务类型">
+        <el-form-item>
           <el-select
             v-model="filterForm.taskType"
             placeholder="选择任务类型"
@@ -146,7 +146,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="任务状态">
+        <el-form-item>
           <el-select
             v-model="filterForm.status"
             placeholder="选择状态"
@@ -187,7 +187,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item label="实例类型">
+        <el-form-item>
           <el-select
             v-model="filterForm.instanceType"
             placeholder="选择实例类型"
@@ -579,7 +579,7 @@ const stats = reactive({
 })
 
 const filterForm = reactive({
-  userId: '',
+  username: '',
   providerId: '',
   taskType: '',
   status: '',
@@ -664,7 +664,7 @@ const loadProviders = async () => {
 // 重置筛选
 const resetFilter = () => {
   Object.assign(filterForm, {
-    userId: '',
+    username: '',
     providerId: '',
     taskType: '',
     status: '',

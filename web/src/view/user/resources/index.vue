@@ -10,11 +10,11 @@
       <el-card>
         <div class="filter-row">
           <div class="filter-item">
-            <label>地区筛选：</label>
             <el-select
               v-model="filters.country"
               placeholder="选择国家/地区"
               clearable
+              style="width: 200px;"
             >
               <el-option
                 v-for="country in countries"
@@ -35,11 +35,11 @@
           </div>
           
           <div class="filter-item">
-            <label>资源类型：</label>
             <el-select
               v-model="filters.type"
               placeholder="选择类型"
               clearable
+              style="width: 150px;"
             >
               <el-option
                 label="容器"
@@ -53,11 +53,11 @@
           </div>
           
           <div class="filter-item">
-            <label>配置规格：</label>
             <el-select
               v-model="filters.spec"
               placeholder="选择规格"
               clearable
+              style="width: 150px;"
             >
               <el-option
                 label="1核1G"

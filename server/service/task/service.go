@@ -713,8 +713,10 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 		if req.ProviderID != 0 {
 			query = query.Where("provider_id = ?", req.ProviderID)
 		}
-		if req.UserID != 0 {
-			query = query.Where("user_id = ?", req.UserID)
+		if req.Username != "" {
+			// 通过用户名搜索，需要连接 users 表
+			query = query.Joins("LEFT JOIN users ON users.id = tasks.user_id").
+				Where("users.username LIKE ?", "%"+req.Username+"%")
 		}
 		if req.TaskType != "" {
 			query = query.Where("task_type = ?", req.TaskType)

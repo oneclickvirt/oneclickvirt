@@ -52,6 +52,7 @@ type CreateProviderRequest struct {
 	Region                string `json:"region"`
 	Country               string `json:"country"`
 	CountryCode           string `json:"countryCode"`
+	City                  string `json:"city"`
 	Architecture          string `json:"architecture"`
 	ContainerEnabled      bool   `json:"container_enabled"`
 	VirtualMachineEnabled bool   `json:"vm_enabled"`
@@ -103,6 +104,7 @@ type UpdateProviderRequest struct {
 	Region                string `json:"region"`
 	Country               string `json:"country"`
 	CountryCode           string `json:"countryCode"`
+	City                  string `json:"city"`
 	Architecture          string `json:"architecture"`
 	ContainerEnabled      bool   `json:"container_enabled"`
 	VirtualMachineEnabled bool   `json:"vm_enabled"`
@@ -209,6 +211,7 @@ type UpdateInstanceRequest struct {
 
 type InstanceListRequest struct {
 	common.PageInfo
+	Name         string `json:"name" form:"name"`                 // 实例名称搜索
 	ProviderName string `json:"providerName" form:"providerName"` // 节点名称搜索
 	Status       string `json:"status" form:"status"`
 	InstanceType string `json:"instance_type" form:"instance_type"`

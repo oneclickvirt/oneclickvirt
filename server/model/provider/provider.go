@@ -29,6 +29,7 @@ type Provider struct {
 	Region      string `json:"region" gorm:"size:64"`                // 地区
 	Country     string `json:"country" gorm:"size:64"`               // 国家
 	CountryCode string `json:"countryCode" gorm:"size:8"`            // 国家代码
+	City        string `json:"city" gorm:"size:64"`                  // 城市（可选）
 
 	// 功能支持
 	ContainerEnabled      bool   `json:"container_enabled" gorm:"default:true"` // 是否支持容器实例
@@ -311,6 +312,7 @@ type ProviderNodeConfig struct {
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
 	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
+	City                  string   `json:"city"`                // Provider所在城市（可选）
 	Architecture          string   `json:"architecture"`        // 架构类型，如amd64, arm64等
 	Type                  string   `json:"type"`                // docker, lxd, incus, proxmox
 	SupportedTypes        []string `json:"supported_types"`     // 支持的实例类型: container, vm, both

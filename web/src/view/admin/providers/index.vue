@@ -13,6 +13,82 @@
         </div>
       </template>
       
+      <!-- 搜索过滤 -->
+      <div class="filter-container">
+        <el-row :gutter="20">
+          <el-col :span="6">
+            <el-input
+              v-model="searchForm.name"
+              placeholder="请输入节点名称搜索"
+              clearable
+              @clear="handleSearch"
+              @keyup.enter="handleSearch"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+          </el-col>
+          <el-col :span="4">
+            <el-select
+              v-model="searchForm.type"
+              placeholder="节点类型"
+              clearable
+              @change="handleSearch"
+            >
+              <el-option
+                label="ProxmoxVE"
+                value="proxmox"
+              />
+              <el-option
+                label="LXD"
+                value="lxd"
+              />
+              <el-option
+                label="Incus"
+                value="incus"
+              />
+              <el-option
+                label="Docker"
+                value="docker"
+              />
+            </el-select>
+          </el-col>
+          <el-col :span="4">
+            <el-select
+              v-model="searchForm.status"
+              placeholder="状态"
+              clearable
+              @change="handleSearch"
+            >
+              <el-option
+                label="活跃"
+                value="active"
+              />
+              <el-option
+                label="离线"
+                value="offline"
+              />
+              <el-option
+                label="冻结"
+                value="frozen"
+              />
+            </el-select>
+          </el-col>
+          <el-col :span="6">
+            <el-button
+              type="primary"
+              @click="handleSearch"
+            >
+              搜索
+            </el-button>
+            <el-button @click="handleReset">
+              重置
+            </el-button>
+          </el-col>
+        </el-row>
+      </div>
+      
       <el-table
         v-loading="loading"
         :data="providers"
@@ -41,7 +117,7 @@
                 v-if="scope.row.countryCode"
                 class="flag-icon"
               >{{ getFlagEmoji(scope.row.countryCode) }}</span>
-              <span>{{ scope.row.country || scope.row.region || '-' }}</span>
+              <span>{{ formatLocation(scope.row) }}</span>
             </div>
           </template>
         </el-table-column>
@@ -738,6 +814,24 @@
                   type="info"
                 >
                   选择服务器所在国家，中国地区将使用CDN加速下载GitHub镜像
+                </el-text>
+              </div>
+            </el-form-item>
+            <el-form-item
+              label="城市"
+              prop="city"
+            >
+              <el-input
+                v-model="addProviderForm.city"
+                placeholder="请输入城市（可选），如：上海、Los Angeles等"
+                clearable
+              />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  可选填写，用于更精确标识节点位置
                 </el-text>
               </div>
             </el-form-item>
@@ -2061,7 +2155,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin } from '@element-plus/icons-vue'
+import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin, Search } from '@element-plus/icons-vue'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { countries, getFlagEmoji, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { formatMemorySize, formatDiskSize } from '@/utils/unit-formatter'
@@ -2074,6 +2168,13 @@ const addProviderLoading = ref(false)
 const addProviderFormRef = ref()
 const isEditing = ref(false)
 const activeConfigTab = ref('basic') // 标签页状态
+
+// 搜索表单
+const searchForm = reactive({
+  name: '',
+  type: '',
+  status: ''
+})
 
 // 分页
 const currentPage = ref(1)
@@ -2094,6 +2195,7 @@ const addProviderForm = reactive({
   region: '',
   country: '',
   countryCode: '',
+  city: '',
   containerEnabled: true,
   vmEnabled: false,
   architecture: 'amd64', // 架构字段，默认amd64
@@ -2265,6 +2367,20 @@ const groupedCountries = ref(getCountriesByRegion())
 // 获取国旗 emoji (使用工具函数)
 // const getFlagEmoji 已从 utils/countries 导入
 
+// 格式化位置信息
+const formatLocation = (provider) => {
+  const parts = []
+  if (provider.city) {
+    parts.push(provider.city)
+  }
+  if (provider.country) {
+    parts.push(provider.country)
+  } else if (provider.region) {
+    parts.push(provider.region)
+  }
+  return parts.length > 0 ? parts.join(', ') : '-'
+}
+
 // 国家选择变化处理
 const onCountryChange = (countryName) => {
   const country = getCountryByName(countryName)
@@ -2280,10 +2396,23 @@ const onCountryChange = (countryName) => {
 const loadProviders = async () => {
   loading.value = true
   try {
-    const response = await getProviderList({
+    const params = {
       page: currentPage.value,
       pageSize: pageSize.value
-    })
+    }
+    
+    // 添加搜索参数
+    if (searchForm.name) {
+      params.name = searchForm.name
+    }
+    if (searchForm.type) {
+      params.type = searchForm.type
+    }
+    if (searchForm.status) {
+      params.status = searchForm.status
+    }
+    
+    const response = await getProviderList(params)
     providers.value = response.data.list || []
     total.value = response.data.total || 0
   } catch (error) {
@@ -2291,6 +2420,21 @@ const loadProviders = async () => {
   } finally {
     loading.value = false
   }
+}
+
+// 搜索处理
+const handleSearch = () => {
+  currentPage.value = 1
+  loadProviders()
+}
+
+// 重置搜索
+const handleReset = () => {
+  searchForm.name = ''
+  searchForm.type = ''
+  searchForm.status = ''
+  currentPage.value = 1
+  loadProviders()
 }
 
 // SSH连接测试相关
@@ -2376,6 +2520,7 @@ const cancelAddServer = () => {
     region: '',
     country: '',
     countryCode: '',
+    city: '',
     containerEnabled: true,
     vmEnabled: false,
     architecture: 'amd64', // 重置架构字段
@@ -2437,6 +2582,7 @@ const submitAddServer = async () => {
       region: addProviderForm.region,
       country: addProviderForm.country,
       countryCode: addProviderForm.countryCode,
+      city: addProviderForm.city,
       container_enabled: addProviderForm.containerEnabled,
       vm_enabled: addProviderForm.vmEnabled,
       architecture: addProviderForm.architecture, // 架构字段
@@ -2561,6 +2707,7 @@ const editProvider = (provider) => {
     region: provider.region || '',
     country: provider.country || '',
     countryCode: provider.countryCode || '',
+    city: provider.city || '',
     containerEnabled: provider.container_enabled === true,
     vmEnabled: provider.vm_enabled === true,
     architecture: provider.architecture || 'amd64', // 架构字段
@@ -3175,6 +3322,10 @@ const formatRelativeTime = (dateTime) => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+}
+
+.filter-container {
+  margin-bottom: 20px;
 }
 
 .pagination-wrapper {
