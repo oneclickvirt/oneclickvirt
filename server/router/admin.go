@@ -130,5 +130,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/traffic/user/:userId", adminTrafficAPI.GetUserTrafficStats)
 		AdminGroup.GET("/traffic/users/rank", adminTrafficAPI.GetAllUsersTrafficRank)
 		AdminGroup.POST("/traffic/manage", adminTrafficAPI.ManageTrafficLimits)
+		AdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
+		AdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
 	}
 }

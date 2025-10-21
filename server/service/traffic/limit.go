@@ -3,6 +3,7 @@ package traffic
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -621,7 +622,7 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 }
 
 // GetUsersTrafficRanking 获取用户流量排行榜
-func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface{}, error) {
+func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nickname string) ([]map[string]interface{}, int64, error) {
 	// 获取当前月份
 	now := time.Now()
 	year, month, _ := now.Date()
@@ -630,7 +631,7 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 	type UserTrafficRank struct {
 		UserID     uint       `gorm:"column:user_id"`
 		Username   string     `gorm:"column:username"`
-		Email      string     `gorm:"column:email"`
+		Nickname   string     `gorm:"column:nickname"`
 		MonthUsage int64      `gorm:"column:month_usage"`
 		TotalLimit uint64     `gorm:"column:total_limit"`
 		IsLimited  bool       `gorm:"column:is_limited"`
@@ -638,13 +639,48 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 	}
 
 	var rankings []UserTrafficRank
+	var total int64
 
-	// 复杂查询：通过用户的实例获取流量数据
+	// 构建查询条件
+	whereConditions := []string{}
+	whereArgs := []interface{}{}
+
+	if username != "" {
+		whereConditions = append(whereConditions, "u.username LIKE ?")
+		whereArgs = append(whereArgs, "%"+username+"%")
+	}
+	if nickname != "" {
+		whereConditions = append(whereConditions, "u.nickname LIKE ?")
+		whereArgs = append(whereArgs, "%"+nickname+"%")
+	}
+
+	whereClause := ""
+	if len(whereConditions) > 0 {
+		whereClause = " AND " + strings.Join(whereConditions, " AND ")
+	}
+
+	// 先获取总数
+	countQuery := `
+		SELECT COUNT(DISTINCT u.id)
+		FROM users u
+		LEFT JOIN instances i ON u.id = i.user_id
+		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id 
+			AND vr.year = ? AND vr.month = ?
+		WHERE 1=1` + whereClause
+
+	countArgs := append([]interface{}{year, int(month)}, whereArgs...)
+	err := global.APP_DB.Raw(countQuery, countArgs...).Scan(&total).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("获取用户流量总数失败: %w", err)
+	}
+
+	// 构建分页查询
+	offset := (page - 1) * pageSize
 	query := `
 		SELECT 
 			u.id as user_id,
 			u.username,
-			u.email,
+			u.nickname,
 			COALESCE(SUM(vr.total_bytes), 0) as month_usage,
 			u.total_traffic as total_limit,
 			u.traffic_limited as is_limited,
@@ -653,18 +689,24 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 		LEFT JOIN instances i ON u.id = i.user_id
 		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id 
 			AND vr.year = ? AND vr.month = ?
-		GROUP BY u.id, u.username, u.email, u.total_traffic, u.traffic_limited, u.traffic_reset_at
+		WHERE 1=1` + whereClause + `
+		GROUP BY u.id, u.username, u.nickname, u.total_traffic, u.traffic_limited, u.traffic_reset_at
 		ORDER BY month_usage DESC
-		LIMIT ?
+		LIMIT ? OFFSET ?
 	`
 
-	err := global.APP_DB.Raw(query, year, int(month), limit).Scan(&rankings).Error
+	queryArgs := append([]interface{}{year, int(month)}, whereArgs...)
+	queryArgs = append(queryArgs, pageSize, offset)
+
+	err = global.APP_DB.Raw(query, queryArgs...).Scan(&rankings).Error
 	if err != nil {
-		return nil, fmt.Errorf("获取用户流量排行失败: %w", err)
+		return nil, 0, fmt.Errorf("获取用户流量排行失败: %w", err)
 	}
 
 	// 格式化结果
 	result := make([]map[string]interface{}, 0, len(rankings))
+	// 计算起始排名
+	startRank := (page - 1) * pageSize
 	for i, rank := range rankings {
 		var usagePercent float64 = 0
 		if rank.TotalLimit > 0 {
@@ -675,10 +717,10 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 		}
 
 		result = append(result, map[string]interface{}{
-			"rank":          i + 1,
+			"rank":          startRank + i + 1,
 			"user_id":       rank.UserID,
 			"username":      rank.Username,
-			"email":         rank.Email,
+			"nickname":      rank.Nickname,
 			"month_usage":   rank.MonthUsage,
 			"total_limit":   rank.TotalLimit,
 			"usage_percent": usagePercent,
@@ -691,7 +733,7 @@ func (s *LimitService) GetUsersTrafficRanking(limit int) ([]map[string]interface
 		})
 	}
 
-	return result, nil
+	return result, total, nil
 }
 
 // SetUserTrafficLimit 设置用户流量限制

@@ -1885,7 +1885,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "管理员创建新的端口映射",
+                "description": "管理员创建新的端口映射（异步执行）",
                 "consumes": [
                     "application/json"
                 ],
@@ -1909,9 +1909,21 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "创建成功",
+                        "description": "创建成功，返回任务ID",
                         "schema": {
-                            "$ref": "#/definitions/common.Response"
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
                         }
                     },
                     "400": {
@@ -1936,7 +1948,7 @@
                         "BearerAuth": []
                     }
                 ],
-                "description": "管理员批量删除端口映射",
+                "description": "管理员批量删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）",
                 "consumes": [
                     "application/json"
                 ],
@@ -1981,69 +1993,13 @@
             }
         },
         "/admin/port-mappings/{id}": {
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "管理员更新端口映射信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "端口映射管理"
-                ],
-                "summary": "更新端口映射",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "端口映射ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "description": "更新端口映射请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.UpdatePortMappingRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "更新成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "更新失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
             "delete": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "管理员删除端口映射",
+                "description": "管理员删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）",
                 "consumes": [
                     "application/json"
                 ],
@@ -2949,9 +2905,9 @@
                         "in": "query"
                     },
                     {
-                        "type": "integer",
-                        "description": "用户ID",
-                        "name": "userId",
+                        "type": "string",
+                        "description": "用户名",
+                        "name": "username",
                         "in": "query"
                     },
                     {
@@ -4416,6 +4372,84 @@
                 }
             }
         },
+        "/api/v1/admin/traffic/batch-manage": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "批量设置或解除用户的流量限制",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "批量管理流量限制",
+                "parameters": [
+                    {
+                        "description": "批量流量限制管理请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/traffic.BatchManageTrafficLimitRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/traffic/batch-sync": {
+            "post": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "批量触发用户流量数据同步",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "批量同步用户流量",
+                "parameters": [
+                    {
+                        "description": "批量同步流量请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/traffic.BatchSyncTrafficRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/traffic/manage": {
             "post": {
                 "security": [
@@ -4564,7 +4598,7 @@
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "获取系统中所有用户的流量使用排行榜",
+                "description": "获取系统中所有用户的流量使用排行榜，支持分页和搜索",
                 "consumes": [
                     "application/json"
                 ],
@@ -4578,8 +4612,26 @@
                 "parameters": [
                     {
                         "type": "integer",
-                        "description": "返回结果数量限制，默认20",
-                        "name": "limit",
+                        "description": "页码，默认1",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页数量，默认10",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按用户名搜索",
+                        "name": "username",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "按昵称搜索",
+                        "name": "nickname",
                         "in": "query"
                     }
                 ],
@@ -8981,6 +9033,9 @@
                 "architecture": {
                     "type": "string"
                 },
+                "city": {
+                    "type": "string"
+                },
                 "config": {
                     "type": "string"
                 },
@@ -9480,50 +9535,6 @@
                     "type": "integer",
                     "maximum": 5,
                     "minimum": 1
-                }
-            }
-        },
-        "admin.UpdatePortMappingRequest": {
-            "type": "object",
-            "required": [
-                "guestPort",
-                "hostPort",
-                "id",
-                "protocol",
-                "status"
-            ],
-            "properties": {
-                "description": {
-                    "type": "string"
-                },
-                "guestPort": {
-                    "description": "容器内部端口",
-                    "type": "integer",
-                    "maximum": 65535,
-                    "minimum": 1
-                },
-                "hostPort": {
-                    "description": "宿主机端口（公网端口）",
-                    "type": "integer",
-                    "maximum": 65535,
-                    "minimum": 1
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "protocol": {
-                    "type": "string",
-                    "enum": [
-                        "tcp",
-                        "udp"
-                    ]
-                },
-                "status": {
-                    "type": "string",
-                    "enum": [
-                        "active",
-                        "inactive"
-                    ]
                 }
             }
         },
@@ -10893,6 +10904,43 @@
                 }
             }
         },
+        "traffic.BatchManageTrafficLimitRequest": {
+            "type": "object",
+            "required": [
+                "action",
+                "user_ids"
+            ],
+            "properties": {
+                "action": {
+                    "description": "\"limit\" 或 \"unlimit\"",
+                    "type": "string"
+                },
+                "reason": {
+                    "description": "限制原因（仅在action为limit时需要）",
+                    "type": "string"
+                },
+                "user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
+        "traffic.BatchSyncTrafficRequest": {
+            "type": "object",
+            "required": [
+                "user_ids"
+            ],
+            "properties": {
+                "user_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "traffic.ManageTrafficLimitRequest": {
             "type": "object",
             "required": [
@@ -10929,6 +10977,9 @@
                 "availableVMSlots": {
                     "description": "可用虚拟机槽位数，-1表示不限制",
                     "type": "integer"
+                },
+                "city": {
+                    "type": "string"
                 },
                 "containerEnabled": {
                     "type": "boolean"

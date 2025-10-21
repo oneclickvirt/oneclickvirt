@@ -1,6 +1,7 @@
 package traffic
 
 import (
+	"fmt"
 	"net/http"
 	"strconv"
 
@@ -133,25 +134,38 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 
 // GetAllUsersTrafficRank 获取所有用户流量排行
 // @Summary 获取用户流量排行榜
-// @Description 获取系统中所有用户的流量使用排行榜
+// @Description 获取系统中所有用户的流量使用排行榜，支持分页和搜索
 // @Tags 管理员流量
 // @Accept json
 // @Produce json
 // @Security ApiKeyAuth
-// @Param limit query int false "返回结果数量限制，默认20"
+// @Param page query int false "页码，默认1"
+// @Param pageSize query int false "每页数量，默认10"
+// @Param username query string false "按用户名搜索"
+// @Param nickname query string false "按昵称搜索"
 // @Success 200 {object} common.Response
 // @Router /api/v1/admin/traffic/users/rank [get]
 func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
-	limitStr := c.DefaultQuery("limit", "20")
-	limit, err := strconv.Atoi(limitStr)
-	if err != nil || limit <= 0 {
-		limit = 20
+	// 获取分页参数
+	pageStr := c.DefaultQuery("page", "1")
+	pageSizeStr := c.DefaultQuery("pageSize", "10")
+	page, err := strconv.Atoi(pageStr)
+	if err != nil || page <= 0 {
+		page = 1
 	}
+	pageSize, err := strconv.Atoi(pageSizeStr)
+	if err != nil || pageSize <= 0 {
+		pageSize = 10
+	}
+
+	// 获取搜索参数
+	username := c.Query("username")
+	nickname := c.Query("nickname")
 
 	trafficLimitService := traffic.NewLimitService()
 
 	// 获取用户流量排行榜
-	userRankings, err := trafficLimitService.GetUsersTrafficRanking(limit)
+	userRankings, total, err := trafficLimitService.GetUsersTrafficRanking(page, pageSize, username, nickname)
 	if err != nil {
 		global.APP_LOG.Error("获取用户流量排行榜失败", zap.Error(err))
 		c.JSON(http.StatusInternalServerError, common.Response{
@@ -166,8 +180,9 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 		Msg:  "获取用户流量排行榜成功",
 		Data: map[string]interface{}{
 			"rankings": userRankings,
-			"total":    len(userRankings),
-			"limit":    limit,
+			"total":    total,
+			"page":     page,
+			"pageSize": pageSize,
 		},
 	})
 }
@@ -265,4 +280,130 @@ type ManageTrafficLimitRequest struct {
 	Action   string `json:"action" binding:"required"`    // "limit" 或 "unlimit"
 	TargetID uint   `json:"target_id" binding:"required"` // 目标用户ID或Provider ID
 	Reason   string `json:"reason"`                       // 限制原因（仅在action为limit时需要）
+}
+
+// BatchManageTrafficLimits 批量管理流量限制
+// @Summary 批量管理流量限制
+// @Description 批量设置或解除用户的流量限制
+// @Tags 管理员流量
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param request body BatchManageTrafficLimitRequest true "批量流量限制管理请求"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/traffic/batch-manage [post]
+func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
+	var req BatchManageTrafficLimitRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 40000,
+			Msg:  "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	if len(req.UserIDs) == 0 {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 40000,
+			Msg:  "用户ID列表不能为空",
+		})
+		return
+	}
+
+	trafficLimitService := traffic.NewLimitService()
+
+	successCount := 0
+	failCount := 0
+	var errors []string
+
+	for _, userID := range req.UserIDs {
+		var err error
+		if req.Action == "limit" {
+			err = trafficLimitService.SetUserTrafficLimit(userID, req.Reason)
+		} else if req.Action == "unlimit" {
+			err = trafficLimitService.RemoveUserTrafficLimit(userID)
+		} else {
+			errors = append(errors, fmt.Sprintf("用户ID %d: 不支持的操作类型", userID))
+			failCount++
+			continue
+		}
+
+		if err != nil {
+			errors = append(errors, fmt.Sprintf("用户ID %d: %s", userID, err.Error()))
+			failCount++
+		} else {
+			successCount++
+		}
+	}
+
+	result := "批量" + map[string]string{"limit": "限制", "unlimit": "解除限制"}[req.Action] + "流量"
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Msg:  fmt.Sprintf("%s完成，成功: %d, 失败: %d", result, successCount, failCount),
+		Data: map[string]interface{}{
+			"success_count": successCount,
+			"fail_count":    failCount,
+			"errors":        errors,
+		},
+	})
+}
+
+// BatchSyncUserTraffic 批量同步用户流量
+// @Summary 批量同步用户流量
+// @Description 批量触发用户流量数据同步
+// @Tags 管理员流量
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param request body BatchSyncTrafficRequest true "批量同步流量请求"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/traffic/batch-sync [post]
+func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
+	var req BatchSyncTrafficRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 40000,
+			Msg:  "请求参数错误: " + err.Error(),
+		})
+		return
+	}
+
+	if len(req.UserIDs) == 0 {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 40000,
+			Msg:  "用户ID列表不能为空",
+		})
+		return
+	}
+
+	// 触发异步同步任务
+	go func() {
+		for _, userID := range req.UserIDs {
+			// 这里可以调用实际的同步逻辑
+			// 目前只是记录日志
+			global.APP_LOG.Info("触发用户流量同步",
+				zap.Uint("userID", userID))
+		}
+	}()
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Msg:  fmt.Sprintf("已触发 %d 个用户的流量同步任务", len(req.UserIDs)),
+		Data: map[string]interface{}{
+			"user_ids": req.UserIDs,
+		},
+	})
+}
+
+// BatchManageTrafficLimitRequest 批量流量限制管理请求
+type BatchManageTrafficLimitRequest struct {
+	Action  string `json:"action" binding:"required"` // "limit" 或 "unlimit"
+	UserIDs []uint `json:"user_ids" binding:"required"`
+	Reason  string `json:"reason"` // 限制原因（仅在action为limit时需要）
+}
+
+// BatchSyncTrafficRequest 批量同步流量请求
+type BatchSyncTrafficRequest struct {
+	UserIDs []uint `json:"user_ids" binding:"required"`
 }

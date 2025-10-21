@@ -569,17 +569,33 @@ export const getUserTrafficStats = (userId) => {
   })
 }
 
-export const getAllUsersTrafficRank = (limit = 20) => {
+export const getAllUsersTrafficRank = (params) => {
   return request({
     url: '/v1/admin/traffic/users/rank',
     method: 'get',
-    params: { limit }
+    params
   })
 }
 
 export const manageTrafficLimits = (data) => {
   return request({
     url: '/v1/admin/traffic/manage',
+    method: 'post',
+    data
+  })
+}
+
+export const batchManageTrafficLimits = (data) => {
+  return request({
+    url: '/v1/admin/traffic/batch-manage',
+    method: 'post',
+    data
+  })
+}
+
+export const batchSyncUserTraffic = (data) => {
+  return request({
+    url: '/v1/admin/traffic/batch-sync',
     method: 'post',
     data
   })

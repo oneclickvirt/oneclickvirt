@@ -93,29 +93,87 @@
         <template #header>
           <div class="card-header">
             <span>{{ $t('admin.traffic.trafficRanking') }}</span>
-            <div class="header-actions">
-              <el-select
-                v-model="rankingLimit"
-                size="small"
-                style="width: 100px; margin-right: 10px;"
-                @change="loadTrafficRanking"
-              >
-                <el-option label="Top 10" :value="10" />
-                <el-option label="Top 20" :value="20" />
-                <el-option label="Top 50" :value="50" />
-                <el-option label="Top 100" :value="100" />
-              </el-select>
-              <el-button
-                size="small"
-                :loading="rankingLoading"
-                @click="loadTrafficRanking"
-              >
-                <el-icon><Refresh /></el-icon>
-                {{ $t('common.refresh') }}
-              </el-button>
-            </div>
           </div>
         </template>
+
+        <!-- 搜索和批量操作工具栏 -->
+        <div class="toolbar">
+          <div class="search-section">
+            <el-input
+              v-model="searchParams.username"
+              :placeholder="$t('admin.traffic.searchByUsername')"
+              style="width: 200px;"
+              clearable
+              @keyup.enter="handleSearch"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-input
+              v-model="searchParams.nickname"
+              :placeholder="$t('admin.traffic.searchByNickname')"
+              style="width: 200px; margin-left: 10px;"
+              clearable
+              @keyup.enter="handleSearch"
+            >
+              <template #prefix>
+                <el-icon><Search /></el-icon>
+              </template>
+            </el-input>
+            <el-button 
+              type="primary" 
+              style="margin-left: 10px;"
+              @click="handleSearch"
+            >
+              {{ $t('common.search') }}
+            </el-button>
+            <el-button 
+              @click="resetSearch"
+            >
+              {{ $t('common.reset') }}
+            </el-button>
+            <el-button
+              size="default"
+              :loading="rankingLoading"
+              @click="loadTrafficRanking"
+            >
+              <el-icon><Refresh /></el-icon>
+              {{ $t('common.refresh') }}
+            </el-button>
+          </div>
+
+          <!-- 批量操作 -->
+          <div
+            v-if="selectedUsers.length > 0"
+            class="batch-actions"
+          >
+            <span class="selection-info">
+              {{ $t('admin.traffic.selected') }} {{ selectedUsers.length }} {{ $t('admin.traffic.users') }}
+            </span>
+            <el-button
+              size="small"
+              type="primary"
+              @click="handleBatchSync"
+            >
+              {{ $t('admin.traffic.batchSync') }}
+            </el-button>
+            <el-button
+              size="small"
+              type="warning"
+              @click="handleBatchLimit"
+            >
+              {{ $t('admin.traffic.batchLimit') }}
+            </el-button>
+            <el-button
+              size="small"
+              type="success"
+              @click="handleBatchUnlimit"
+            >
+              {{ $t('admin.traffic.batchUnlimit') }}
+            </el-button>
+          </div>
+        </div>
 
         <div v-if="rankingLoading" class="loading-container">
           <el-skeleton :rows="5" animated />
@@ -126,7 +184,13 @@
             :data="trafficRanking"
             stripe
             border
+            @selection-change="handleSelectionChange"
           >
+            <el-table-column
+              type="selection"
+              width="55"
+              align="center"
+            />
             <el-table-column :label="$t('admin.traffic.rank')" width="80" align="center">
               <template #default="{ row }">
                 <el-tag 
@@ -139,7 +203,7 @@
               </template>
             </el-table-column>
             <el-table-column prop="username" :label="$t('admin.traffic.username')" width="150" />
-            <el-table-column prop="email" :label="$t('admin.traffic.email')" />
+            <el-table-column prop="nickname" :label="$t('admin.traffic.nickname')" width="150" />
             <el-table-column :label="$t('admin.traffic.monthlyUsage')" width="120">
               <template #default="{ row }">
                 {{ row.formatted?.month_usage || formatBytes(row.month_usage) }}
@@ -208,6 +272,19 @@
               </template>
             </el-table-column>
           </el-table>
+
+          <!-- 分页 -->
+          <div class="pagination-wrapper">
+            <el-pagination
+              v-model:current-page="currentPage"
+              v-model:page-size="pageSize"
+              :page-sizes="[10, 20, 50, 100]"
+              :total="total"
+              layout="total, sizes, prev, pager, next, jumper"
+              @size-change="handleSizeChange"
+              @current-change="handleCurrentChange"
+            />
+          </div>
         </div>
 
         <div v-else class="empty-state">
@@ -317,13 +394,16 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   Refresh, 
   Calendar, 
-  Clock 
+  Clock,
+  Search
 } from '@element-plus/icons-vue'
 import { 
   getSystemTrafficOverview,
   getAllUsersTrafficRank,
   getUserTrafficStats,
   manageTrafficLimits,
+  batchManageTrafficLimits,
+  batchSyncUserTraffic,
   syncUserTraffic,
   syncAllTraffic
 } from '@/api/admin'
@@ -338,7 +418,15 @@ const syncingAllTraffic = ref(false)
 
 const rankingLoading = ref(false)
 const trafficRanking = ref([])
-const rankingLimit = ref(20)
+const currentPage = ref(1)
+const pageSize = ref(10)
+const total = ref(0)
+const selectedUsers = ref([])
+
+const searchParams = reactive({
+  username: '',
+  nickname: ''
+})
 
 const userTrafficDialogVisible = ref(false)
 const userTrafficLoading = ref(false)
@@ -384,9 +472,16 @@ const loadSystemOverview = async () => {
 const loadTrafficRanking = async () => {
   rankingLoading.value = true
   try {
-    const response = await getAllUsersTrafficRank(rankingLimit.value)
+    const params = {
+      page: currentPage.value,
+      pageSize: pageSize.value,
+      username: searchParams.username || undefined,
+      nickname: searchParams.nickname || undefined
+    }
+    const response = await getAllUsersTrafficRank(params)
     if (response.code === 0) {
       trafficRanking.value = response.data.rankings || []
+      total.value = response.data.total || 0
     } else {
       ElMessage.error(`${t('admin.traffic.loadRankingFailed')}: ${response.msg}`)
     }
@@ -395,6 +490,152 @@ const loadTrafficRanking = async () => {
     ElMessage.error(t('admin.traffic.loadRankingError'))
   } finally {
     rankingLoading.value = false
+  }
+}
+
+// 搜索处理
+const handleSearch = () => {
+  currentPage.value = 1
+  loadTrafficRanking()
+}
+
+// 重置搜索
+const resetSearch = () => {
+  searchParams.username = ''
+  searchParams.nickname = ''
+  currentPage.value = 1
+  loadTrafficRanking()
+}
+
+// 分页处理
+const handleSizeChange = (newSize) => {
+  pageSize.value = newSize
+  currentPage.value = 1
+  loadTrafficRanking()
+}
+
+const handleCurrentChange = (newPage) => {
+  currentPage.value = newPage
+  loadTrafficRanking()
+}
+
+// 选择处理
+const handleSelectionChange = (selection) => {
+  selectedUsers.value = selection
+}
+
+// 批量同步
+const handleBatchSync = async () => {
+  if (selectedUsers.value.length === 0) {
+    ElMessage.warning(t('admin.traffic.pleaseSelectUsers'))
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      t('admin.traffic.confirmBatchSync', { count: selectedUsers.value.length }),
+      t('common.warning'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+
+    const userIds = selectedUsers.value.map(user => user.user_id)
+    const response = await batchSyncUserTraffic({ user_ids: userIds })
+    
+    if (response.code === 0) {
+      ElMessage.success(t('admin.traffic.batchSyncSuccess'))
+      setTimeout(() => {
+        loadTrafficRanking()
+      }, 3000)
+    } else {
+      ElMessage.error(`${t('admin.traffic.batchSyncFailed')}: ${response.msg}`)
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('批量同步失败:', error)
+      ElMessage.error(t('admin.traffic.batchSyncError'))
+    }
+  }
+}
+
+// 批量限制
+const handleBatchLimit = async () => {
+  if (selectedUsers.value.length === 0) {
+    ElMessage.warning(t('admin.traffic.pleaseSelectUsers'))
+    return
+  }
+
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      t('admin.traffic.enterLimitReason'),
+      t('admin.traffic.batchLimit'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPattern: /.{5,}/,
+        inputErrorMessage: t('admin.traffic.limitReasonMinLength')
+      }
+    )
+
+    const userIds = selectedUsers.value.map(user => user.user_id)
+    const response = await batchManageTrafficLimits({
+      action: 'limit',
+      user_ids: userIds,
+      reason: reason
+    })
+    
+    if (response.code === 0) {
+      ElMessage.success(response.msg)
+      loadTrafficRanking()
+    } else {
+      ElMessage.error(`${t('admin.traffic.batchLimitFailed')}: ${response.msg}`)
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('批量限制失败:', error)
+      ElMessage.error(t('admin.traffic.batchLimitError'))
+    }
+  }
+}
+
+// 批量解除限制
+const handleBatchUnlimit = async () => {
+  if (selectedUsers.value.length === 0) {
+    ElMessage.warning(t('admin.traffic.pleaseSelectUsers'))
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      t('admin.traffic.confirmBatchUnlimit', { count: selectedUsers.value.length }),
+      t('common.warning'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+
+    const userIds = selectedUsers.value.map(user => user.user_id)
+    const response = await batchManageTrafficLimits({
+      action: 'unlimit',
+      user_ids: userIds
+    })
+    
+    if (response.code === 0) {
+      ElMessage.success(response.msg)
+      loadTrafficRanking()
+    } else {
+      ElMessage.error(`${t('admin.traffic.batchUnlimitFailed')}: ${response.msg}`)
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('批量解除限制失败:', error)
+      ElMessage.error(t('admin.traffic.batchUnlimitError'))
+    }
   }
 }
 
@@ -712,5 +953,38 @@ onMounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.toolbar {
+  margin-bottom: 16px;
+}
+
+.search-section {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.batch-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  background-color: #f0f9ff;
+  border: 1px solid #b3e0ff;
+  border-radius: 4px;
+}
+
+.selection-info {
+  font-size: 14px;
+  color: #409eff;
+  font-weight: 500;
+  margin-right: 10px;
+}
+
+.pagination-wrapper {
+  margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
 }
 </style>

@@ -369,6 +369,8 @@ definitions:
         type: boolean
       architecture:
         type: string
+      city:
+        type: string
       config:
         type: string
       container_enabled:
@@ -729,39 +731,6 @@ definitions:
         maximum: 5
         minimum: 1
         type: integer
-    type: object
-  admin.UpdatePortMappingRequest:
-    properties:
-      description:
-        type: string
-      guestPort:
-        description: 容器内部端口
-        maximum: 65535
-        minimum: 1
-        type: integer
-      hostPort:
-        description: 宿主机端口（公网端口）
-        maximum: 65535
-        minimum: 1
-        type: integer
-      id:
-        type: integer
-      protocol:
-        enum:
-        - tcp
-        - udp
-        type: string
-      status:
-        enum:
-        - active
-        - inactive
-        type: string
-    required:
-    - guestPort
-    - hostPort
-    - id
-    - protocol
-    - status
     type: object
   admin.UpdateSystemConfigRequest:
     properties:
@@ -1709,6 +1678,31 @@ definitions:
       timestamp:
         type: string
     type: object
+  traffic.BatchManageTrafficLimitRequest:
+    properties:
+      action:
+        description: '"limit" 或 "unlimit"'
+        type: string
+      reason:
+        description: 限制原因（仅在action为limit时需要）
+        type: string
+      user_ids:
+        items:
+          type: integer
+        type: array
+    required:
+    - action
+    - user_ids
+    type: object
+  traffic.BatchSyncTrafficRequest:
+    properties:
+      user_ids:
+        items:
+          type: integer
+        type: array
+    required:
+    - user_ids
+    type: object
   traffic.ManageTrafficLimitRequest:
     properties:
       action:
@@ -1736,6 +1730,8 @@ definitions:
       availableVMSlots:
         description: 可用虚拟机槽位数，-1表示不限制
         type: integer
+      city:
+        type: string
       containerEnabled:
         type: boolean
       country:
@@ -3269,7 +3265,7 @@ paths:
     post:
       consumes:
       - application/json
-      description: 管理员创建新的端口映射
+      description: 管理员创建新的端口映射（异步执行）
       parameters:
       - description: 创建端口映射请求参数
         in: body
@@ -3281,9 +3277,14 @@ paths:
       - application/json
       responses:
         "200":
-          description: 创建成功
+          description: 创建成功，返回任务ID
           schema:
-            $ref: '#/definitions/common.Response'
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
         "400":
           description: 参数错误
           schema:
@@ -3301,7 +3302,7 @@ paths:
     delete:
       consumes:
       - application/json
-      description: 管理员删除端口映射
+      description: 管理员删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
       parameters:
       - description: 端口映射ID
         in: path
@@ -3328,47 +3329,11 @@ paths:
       summary: 删除端口映射
       tags:
       - 端口映射管理
-    put:
-      consumes:
-      - application/json
-      description: 管理员更新端口映射信息
-      parameters:
-      - description: 端口映射ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - description: 更新端口映射请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.UpdatePortMappingRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 更新成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 更新失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 更新端口映射
-      tags:
-      - 端口映射管理
   /admin/port-mappings/batch-delete:
     post:
       consumes:
       - application/json
-      description: 管理员批量删除端口映射
+      description: 管理员批量删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
       parameters:
       - description: 批量删除端口映射请求参数
         in: body
@@ -3922,10 +3887,10 @@ paths:
         in: query
         name: providerId
         type: integer
-      - description: 用户ID
+      - description: 用户名
         in: query
-        name: userId
-        type: integer
+        name: username
+        type: string
       - description: 任务类型
         in: query
         name: taskType
@@ -4833,6 +4798,54 @@ paths:
       summary: 重新初始化存储目录
       tags:
       - System
+  /api/v1/admin/traffic/batch-manage:
+    post:
+      consumes:
+      - application/json
+      description: 批量设置或解除用户的流量限制
+      parameters:
+      - description: 批量流量限制管理请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.BatchManageTrafficLimitRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 批量管理流量限制
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/batch-sync:
+    post:
+      consumes:
+      - application/json
+      description: 批量触发用户流量数据同步
+      parameters:
+      - description: 批量同步流量请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/traffic.BatchSyncTrafficRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 批量同步用户流量
+      tags:
+      - 管理员流量
   /api/v1/admin/traffic/manage:
     post:
       consumes:
@@ -4924,12 +4937,24 @@ paths:
     get:
       consumes:
       - application/json
-      description: 获取系统中所有用户的流量使用排行榜
+      description: 获取系统中所有用户的流量使用排行榜，支持分页和搜索
       parameters:
-      - description: 返回结果数量限制，默认20
+      - description: 页码，默认1
         in: query
-        name: limit
+        name: page
         type: integer
+      - description: 每页数量，默认10
+        in: query
+        name: pageSize
+        type: integer
+      - description: 按用户名搜索
+        in: query
+        name: username
+        type: string
+      - description: 按昵称搜索
+        in: query
+        name: nickname
+        type: string
       produces:
       - application/json
       responses:
