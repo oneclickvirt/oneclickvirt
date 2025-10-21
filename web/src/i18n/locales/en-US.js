@@ -1578,6 +1578,11 @@ export default {
       dockerNotSupported: 'Docker instances do not support manually adding ports',
       onlyLxdIncusProxmoxSupported: 'Only LXD/Incus/Proxmox instances support manually adding ports',
       addPortTaskCreated: 'Port mapping task created, configuring remote server in background, please refresh later to check status',
+      addPortFailed: 'Failed to add port mapping',
+      totalInstancesFound: 'Found',
+      availableInstances: 'available instances',
+      showingFirst10: ', showing first 10 (use search to find more)',
+      instancesLoadedButNotSupported: 'Loaded {count} instances, but none are supported',
       addPortFailed: 'Failed to add port'
     },
     oauth2: {

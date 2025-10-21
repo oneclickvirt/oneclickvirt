@@ -1578,6 +1578,11 @@ export default {
       dockerNotSupported: 'Docker 实例不支持手动添加端口',
       onlyLxdIncusProxmoxSupported: '只支持 LXD/Incus/Proxmox 实例手动添加端口',
       addPortTaskCreated: '端口映射任务已创建，正在后台配置远程服务器，请稍后刷新查看状态',
+      addPortFailed: '添加端口映射失败',
+      totalInstancesFound: '共找到',
+      availableInstances: '个可用实例',
+      showingFirst10: '，显示前 10 个（请使用搜索功能查找更多）',
+      instancesLoadedButNotSupported: '已加载 {count} 个实例，但都不支持',
       addPortFailed: '添加端口失败'
     },
     oauth2: {

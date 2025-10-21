@@ -298,6 +298,7 @@
             @change="onInstanceChange"
             :filter-method="filterInstances"
             :no-data-text="instances.length === 0 ? $t('admin.portMapping.noInstanceData') : $t('admin.portMapping.noMatchingInstance')"
+            popper-class="instance-select-dropdown"
           >
             <el-option
               v-for="instance in filteredInstances"
@@ -308,6 +309,7 @@
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <span>
                   <strong>{{ instance.name || instance.id }}</strong>
+                  <span style="color: #909399; font-size: 12px; margin-left: 8px;">ID: {{ instance.id }}</span>
                 </span>
                 <span style="display: flex; align-items: center; gap: 8px;">
                   <el-tag 
@@ -328,10 +330,19 @@
             </el-option>
           </el-select>
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
-            <span v-if="selectedInstanceProvider !== '-'">
-              {{ $t('admin.portMapping.currentInstanceProvider') }}: <strong>{{ selectedInstanceProvider }}</strong>
+            <span v-if="filteredInstancesCount > 0">
+              {{ $t('admin.portMapping.totalInstancesFound') }} <strong>{{ filteredInstancesCount }}</strong> {{ $t('admin.portMapping.availableInstances') }}
+              <span v-if="filteredInstancesCount > 10">{{ $t('admin.portMapping.showingFirst10') }}</span>
             </span>
-            <span v-else>{{ $t('admin.portMapping.pleaseSelectInstance') }}</span>
+            <span v-else-if="supportedInstances.length === 0 && instances.length > 0" style="color: #e6a23c;">
+              ⚠️ {{ $t('admin.portMapping.noSupportedInstances') }}（{{ $t('admin.portMapping.instancesLoadedButNotSupported', { count: instances.length }) }}）
+            </span>
+            <span v-else style="color: #909399;">
+              {{ $t('admin.portMapping.pleaseSelectInstance') }}
+            </span>
+          </div>
+          <div v-if="selectedInstanceProvider !== '-'" style="color: #67c23a; font-size: 12px; margin-top: 3px;">
+            {{ $t('admin.portMapping.currentInstanceProvider') }}: <strong>{{ selectedInstanceProvider }}</strong>
           </div>
         </el-form-item>
         
@@ -468,17 +479,48 @@ const addRules = {
 
 // 获取实例对应的 Provider 类型
 const getInstanceProviderType = (instance) => {
-  if (!instance || !instance.providerId) return null
-  const provider = providers.value.find(p => p.id === instance.providerId)
-  return provider ? provider.type : null
+  if (!instance) return null
+  
+  // 优先使用 instance.provider 字段（后端返回的 provider 名称字段）
+  if (instance.provider) {
+    return instance.provider
+  }
+  
+  // 其次尝试使用 providerName 字段
+  if (instance.providerName) {
+    return instance.providerName
+  }
+  
+  // 最后尝试通过 providerId 从 providers 列表查找
+  if (instance.providerId && providers.value.length > 0) {
+    const provider = providers.value.find(p => p.id === instance.providerId)
+    if (provider) {
+      return provider.type
+    }
+  }
+  
+  return null
 }
 
 // 过滤支持的实例（仅 LXD/Incus/Proxmox）
 const supportedInstances = computed(() => {
+  if (instances.value.length === 0) {
+    return []
+  }
+  
   const filtered = instances.value.filter(instance => {
     const type = getInstanceProviderType(instance)?.toLowerCase()
-    return type === 'lxd' || type === 'incus' || type === 'proxmox'
+    const supported = type === 'lxd' || type === 'incus' || type === 'proxmox'
+    
+    // 调试日志（可以在控制台看到）
+    if (!supported && type) {
+      console.log(`实例 ${instance.name || instance.id} 的类型 ${type} 不支持手动添加端口`)
+    }
+    
+    return supported
   })
+  
+  console.log(`共 ${instances.value.length} 个实例，其中 ${filtered.length} 个支持手动添加端口`)
   return filtered
 })
 
@@ -493,7 +535,7 @@ const selectedInstanceProvider = computed(() => {
 
 // 实例过滤状态
 const instanceFilterText = ref('')
-const filteredInstances = computed(() => {
+const filteredInstancesAll = computed(() => {
   if (!instanceFilterText.value) {
     return supportedInstances.value
   }
@@ -505,6 +547,16 @@ const filteredInstances = computed(() => {
     const providerName = (instance.providerName || '').toLowerCase()
     return name.includes(searchText) || id.includes(searchText) || providerType.includes(searchText) || providerName.includes(searchText)
   })
+})
+
+// 限制显示前10个实例
+const filteredInstances = computed(() => {
+  return filteredInstancesAll.value.slice(0, 10)
+})
+
+// 计算总数
+const filteredInstancesCount = computed(() => {
+  return filteredInstancesAll.value.length
 })
 
 // 自定义过滤方法
@@ -813,5 +865,16 @@ onUnmounted(() => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+</style>
+
+<style>
+/* 实例选择下拉菜单样式 - 全局样式 */
+.instance-select-dropdown {
+  max-height: 400px !important;
+}
+
+.instance-select-dropdown .el-select-dropdown__list {
+  max-height: 380px !important;
 }
 </style>
