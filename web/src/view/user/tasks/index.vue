@@ -145,13 +145,13 @@
               type="warning"
               effect="dark"
             >
-              执行中: {{ serverGroup.currentTasks.length }}个任务
+              {{ t('user.tasks.executing') }}: {{ serverGroup.currentTasks.length }}{{ t('user.tasks.tasksCount') }}
             </el-tag>
             <el-tag 
               v-else
               type="success"
             >
-              空闲
+              {{ t('user.tasks.idle') }}
             </el-tag>
           </div>
         </div>
@@ -161,7 +161,7 @@
           v-if="serverGroup.currentTasks.length > 0"
           class="current-tasks"
         >
-          <h3>执行中的任务 ({{ serverGroup.currentTasks.length }})</h3>
+          <h3>{{ t('user.tasks.runningTasksTitle') }} ({{ serverGroup.currentTasks.length }})</h3>
           <div 
             v-for="currentTask in serverGroup.currentTasks" 
             :key="currentTask.id"
@@ -194,11 +194,11 @@
               </div>
               <div class="task-details">
                 <div class="detail-item">
-                  <span class="label">创建时间:</span>
+                  <span class="label">{{ t('user.tasks.createdTime') }}:</span>
                   <span class="value">{{ formatDate(currentTask.createdAt) }}</span>
                 </div>
                 <div class="detail-item">
-                  <span class="label">预计完成:</span>
+                  <span class="label">{{ t('user.tasks.estimatedCompletion') }}:</span>
                   <span class="value">{{ getEstimatedTime(currentTask) }}</span>
                 </div>
               </div>
@@ -211,7 +211,7 @@
           v-if="serverGroup.pendingTasks.length > 0"
           class="pending-tasks"
         >
-          <h3>等待队列 ({{ serverGroup.pendingTasks.length }})</h3>
+          <h3>{{ t('user.tasks.pendingQueueTitle') }} ({{ serverGroup.pendingTasks.length }})</h3>
           <div class="tasks-list">
             <div 
               v-for="(task, index) in serverGroup.pendingTasks" 
@@ -240,7 +240,7 @@
                   :disabled="!task.canCancel"
                   @click="cancelTask(task)"
                 >
-                  取消
+                  {{ t('user.tasks.cancel') }}
                 </el-button>
               </div>
             </div>
@@ -254,7 +254,7 @@
         >
           <el-collapse v-model="expandedHistory">
             <el-collapse-item 
-              :title="`历史任务 (${serverGroup.historyTasks.length})`"
+              :title="`${t('user.tasks.historyTasksTitle')} (${serverGroup.historyTasks.length})`"
               :name="serverGroup.providerId"
             >
               <div class="tasks-list">
@@ -278,7 +278,7 @@
                       v-if="task.completedAt"
                       class="task-duration"
                     >
-                      耗时: {{ calculateDuration(task.createdAt, task.completedAt) }}
+                      {{ t('user.tasks.duration') }}: {{ calculateDuration(task.createdAt, task.completedAt) }}
                     </div>
                   </div>
                   <div class="task-status">
@@ -308,7 +308,7 @@
                       type="warning"
                       size="small"
                     >
-                      取消原因: {{ task.cancelReason }}
+                      {{ t('user.tasks.cancelReason') }}: {{ task.cancelReason }}
                     </el-text>
                   </div>
                 </div>
@@ -456,7 +456,7 @@ const loadTasks = async (showSuccessMsg = false) => {
       })
       // 只有在明确刷新时才显示成功提示
       if (showSuccessMsg) {
-        ElMessage.success(`已刷新，共 ${total.value} 个任务`)
+        ElMessage.success(t('user.tasks.refreshedTotal', { count: total.value }))
       }
     } else {
       tasks.value = []

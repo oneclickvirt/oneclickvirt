@@ -64,6 +64,8 @@ export default {
     stopped: 'Stopped',
     unknown: 'Unknown',
     user: 'User',
+    admin: 'Administrator',
+    normalUser: 'Normal User',
     notSet: 'Not Set',
     questionMark: '?',
     comma: ', ',
@@ -395,7 +397,8 @@ export default {
       passwordCopied: 'Password copied to clipboard',
       copyFailed: 'Copy failed, please copy manually',
       confirmResetPasswordTitle: 'Confirm Reset Password',
-      confirmResetPasswordMessage: 'Are you sure you want to reset password? A new password will be automatically generated and sent to your connected communication channels.'
+      confirmResetPasswordMessage: 'Are you sure you want to reset password? A new password will be automatically generated and sent to your connected communication channels.',
+      deleteConfirmNote: 'This operation cannot be undone, please proceed with caution!'
     },
     instances: {
       title: 'My Instances',
@@ -435,7 +438,8 @@ export default {
       loadFailed: 'Failed to load instance list',
       loadFailedNetwork: 'Failed to load instance list, please check network connection',
       instanceInvalid: 'Invalid instance information',
-      cannotViewDetail: 'Instance is currently in "{status}" state and cannot view details. Please wait for the instance to enter running or stopped state.'
+      cannotViewDetail: 'Instance is currently in "{status}" state and cannot view details. Please wait for the instance to enter running or stopped state.',
+      cores: ' cores'
     },
     instanceDetail: {
       backToList: 'Back to List',
@@ -565,7 +569,19 @@ export default {
       operation: 'operation',
       taskCreated: 'task created',
       checkProgress: 'Please check progress in',
-      taskList: 'task list'
+      taskList: 'task list',
+      runningTasksTitle: 'Running Tasks',
+      pendingQueueTitle: 'Pending Queue',
+      historyTasksTitle: 'History Tasks',
+      createdTime: 'Created Time',
+      idle: 'Idle',
+      executing: 'Executing',
+      tasksCount: 'tasks',
+      refreshedTotal: 'Refreshed, total {count} tasks',
+      estimatedCompletion: 'Estimated Completion',
+      cancel: 'Cancel',
+      duration: 'Duration',
+      cancelReason: 'Cancel Reason'
     },
     trafficOverview: {
       title: 'Traffic Usage Statistics',
@@ -585,7 +601,12 @@ export default {
       viewDetails: 'View Details',
       hideDetails: 'Hide Details',
       noData: 'No traffic data available',
-      loadFailed: 'Failed to load traffic data'
+      loadFailed: 'Failed to load traffic data',
+      trafficStats: 'Traffic Statistics',
+      viewDetailedStats: 'View Detailed Statistics',
+      currentMonthUsage: 'Current Month Usage',
+      resetOn1st: 'Resets on 1st of each month',
+      historicalStats: 'Historical Statistics'
     },
     resources: {
       title: 'Resource Overview',
@@ -634,23 +655,23 @@ export default {
       selectInstanceType: 'Select instance type',
       systemImage: 'System Image',
       selectSystemImage: 'Select system image',
-      memorySpec: 'Memory Specification',
-      selectMemorySpec: 'Select memory specification',
-      diskSpec: 'Disk Specification',
-      selectDiskSpec: 'Select disk specification',
-      bandwidthSpec: 'Bandwidth Specification',
-      selectBandwidthSpec: 'Select bandwidth specification',
-      cpuSpec: 'CPU Specification',
-      selectCpuSpec: 'Select CPU specification',
+      memorySpec: 'Memory',
+      selectMemorySpec: 'Select memory',
+      diskSpec: 'Disk',
+      selectDiskSpec: 'Select disk',
+      bandwidthSpec: 'Bandwidth',
+      selectBandwidthSpec: 'Select bandwidth',
+      cpuSpec: 'CPU',
+      selectCpuSpec: 'Select CPU',
       remarks: 'Remarks',
       remarksPlaceholder: 'Enter remarks (optional)',
       submitApplication: 'Submit Application',
       pleaseSelectInstanceType: 'Please select instance type',
       pleaseSelectSystemImage: 'Please select system image',
-      pleaseSelectMemorySpec: 'Please select memory specification',
-      pleaseSelectDiskSpec: 'Please select disk specification',
-      pleaseSelectBandwidthSpec: 'Please select bandwidth specification',
-      pleaseSelectCpuSpec: 'Please select CPU specification',
+      pleaseSelectMemorySpec: 'Please select memory',
+      pleaseSelectDiskSpec: 'Please select disk',
+      pleaseSelectBandwidthSpec: 'Please select bandwidth',
+      pleaseSelectCpuSpec: 'Please select CPU',
       nodeNotSupportContainer: 'This node does not support container type',
       nodeContainerSlotsFull: 'Insufficient container slots on this node',
       autoSwitchToVM: 'Automatically switched to VM type',
@@ -670,6 +691,11 @@ export default {
       requestTimeout: 'Request timeout, please try again later or check the task page',
       pleaseSelectProvider: 'Please select a server first',
       nodeResourceInsufficient: 'Insufficient resources on this node, please select another node',
+      networkConfig: {
+        dedicatedIPv4: 'Dedicated IPv4',
+        dedicatedIPv6: 'Dedicated IPv6',
+        ipv6Only: 'IPv6 Only'
+      }
     }
   },
   admin: {

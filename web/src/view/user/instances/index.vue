@@ -141,7 +141,7 @@
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.configuration') }}:</span>
-              <span class="value">{{ instance.cpu }}核 / {{ formatMemorySize(instance.memory) }} / {{ formatDiskSize(instance.disk) }}</span>
+              <span class="value">{{ instance.cpu }}{{ t('user.instances.cores') }} / {{ formatMemorySize(instance.memory) }} / {{ formatDiskSize(instance.disk) }}</span>
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.bandwidth') }}:</span>

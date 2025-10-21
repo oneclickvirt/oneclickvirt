@@ -421,9 +421,25 @@ const configRules = computed(() => ({
 
 const formRef = ref()
 
+// 格式化 CPU 规格名称以支持国际化
+const formatCpuSpecName = (spec) => {
+  // 如果后端返回的 name 包含"核"字，说明是硬编码的中文，需要替换
+  if (spec.name && spec.name.includes('核')) {
+    // 移除"核"字，只保留数字
+    const coreCount = spec.cores || parseInt(spec.name)
+    return `${coreCount}${t('user.apply.cores')}`
+  }
+  return spec.name
+}
+
 // 基于用户配额过滤的可用选项（不使用硬编码等级限制）
 const availableCpuSpecs = computed(() => {
-  return instanceConfig.value.cpuSpecs || []
+  const specs = instanceConfig.value.cpuSpecs || []
+  // 格式化每个规格的名称以支持国际化
+  return specs.map(spec => ({
+    ...spec,
+    name: formatCpuSpecName(spec)
+  }))
 })
 
 const availableMemorySpecs = computed(() => {

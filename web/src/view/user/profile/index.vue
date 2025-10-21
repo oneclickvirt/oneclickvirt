@@ -42,7 +42,7 @@
             </p>
             <el-tag :type="getUserTypeTagType()">
               >
-              {{ userStore.getUserTypeText() }}
+              {{ getUserTypeText() }}
             </el-tag>
           </div>
         </div>
@@ -317,6 +317,17 @@ const getUserTypeTagType = () => {
       return 'danger'
     default:
       return 'primary'
+  }
+}
+
+const getUserTypeText = () => {
+  switch (userStore.userType) {
+    case 'admin':
+      return t('common.admin')
+    case 'user':
+      return t('common.normalUser')
+    default:
+      return t('common.unknown')
   }
 }
 

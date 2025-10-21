@@ -64,6 +64,8 @@ export default {
     stopped: '已停止',
     unknown: '未知',
     user: '用户',
+    admin: '管理员',
+    normalUser: '普通用户',
     notSet: '未设置',
     questionMark: '吗？',
     comma: '，',
@@ -395,7 +397,8 @@ export default {
       passwordCopied: '密码已复制到剪贴板',
       copyFailed: '复制失败，请手动复制',
       confirmResetPasswordTitle: '确认重置密码',
-      confirmResetPasswordMessage: '确定要重置密码吗？新密码将自动生成并发送到您绑定的通信渠道。'
+      confirmResetPasswordMessage: '确定要重置密码吗？新密码将自动生成并发送到您绑定的通信渠道。',
+      deleteConfirmNote: '此操作不可撤销，请谨慎操作！'
     },
     instances: {
       title: '我的实例',
@@ -435,7 +438,8 @@ export default {
       loadFailed: '获取实例列表失败',
       loadFailedNetwork: '获取实例列表失败，请检查网络连接',
       instanceInvalid: '实例信息无效',
-      cannotViewDetail: '实例当前状态为"{status}"，无法查看详情。请等待实例进入运行或停止状态。'
+      cannotViewDetail: '实例当前状态为"{status}"，无法查看详情。请等待实例进入运行或停止状态。',
+      cores: '核'
     },
     instanceDetail: {
       backToList: '返回列表',
@@ -565,7 +569,19 @@ export default {
       operation: '操作',
       taskCreated: '任务已创建',
       checkProgress: '请在',
-      taskList: '任务列表'
+      taskList: '任务列表',
+      runningTasksTitle: '执行中的任务',
+      pendingQueueTitle: '等待队列',
+      historyTasksTitle: '历史任务',
+      createdTime: '创建时间',
+      idle: '空闲',
+      executing: '执行中',
+      tasksCount: '个任务',
+      refreshedTotal: '已刷新，共 {count} 个任务',
+      estimatedCompletion: '预计完成',
+      cancel: '取消',
+      duration: '耗时',
+      cancelReason: '取消原因'
     },
     trafficOverview: {
       title: '流量使用统计',
@@ -585,7 +601,12 @@ export default {
       viewDetails: '查看详情',
       hideDetails: '收起详情',
       noData: '暂无流量数据',
-      loadFailed: '加载流量数据失败'
+      loadFailed: '加载流量数据失败',
+      trafficStats: '流量统计',
+      viewDetailedStats: '查看详细统计',
+      currentMonthUsage: '当月使用量',
+      resetOn1st: '每月1日重置',
+      historicalStats: '历史统计'
     },
     resources: {
       title: '资源概览',
@@ -634,23 +655,23 @@ export default {
       selectInstanceType: '选择实例类型',
       systemImage: '系统镜像',
       selectSystemImage: '选择系统镜像',
-      memorySpec: '内存规格',
-      selectMemorySpec: '选择内存规格',
-      diskSpec: '磁盘规格',
-      selectDiskSpec: '选择磁盘规格',
-      bandwidthSpec: '带宽规格',
-      selectBandwidthSpec: '选择带宽规格',
-      cpuSpec: 'CPU规格',
-      selectCpuSpec: '选择CPU规格',
+      memorySpec: '内存',
+      selectMemorySpec: '选择内存',
+      diskSpec: '磁盘',
+      selectDiskSpec: '选择磁盘',
+      bandwidthSpec: '带宽',
+      selectBandwidthSpec: '选择带宽',
+      cpuSpec: 'CPU',
+      selectCpuSpec: '选择CPU',
       remarks: '备注说明',
       remarksPlaceholder: '请输入备注说明（可选）',
       submitApplication: '提交申请',
       pleaseSelectInstanceType: '请选择实例类型',
       pleaseSelectSystemImage: '请选择系统镜像',
-      pleaseSelectMemorySpec: '请选择内存规格',
-      pleaseSelectDiskSpec: '请选择磁盘规格',
-      pleaseSelectBandwidthSpec: '请选择带宽规格',
-      pleaseSelectCpuSpec: '请选择CPU规格',
+      pleaseSelectMemorySpec: '请选择内存',
+      pleaseSelectDiskSpec: '请选择磁盘',
+      pleaseSelectBandwidthSpec: '请选择带宽',
+      pleaseSelectCpuSpec: '请选择CPU',
       nodeNotSupportContainer: '该节点不支持容器类型',
       nodeContainerSlotsFull: '该节点容器槽位不足',
       autoSwitchToVM: '已自动切换到虚拟机类型',
@@ -670,6 +691,11 @@ export default {
       requestTimeout: '请求超时，请稍后重试或查看任务页面',
       pleaseSelectProvider: '请先选择服务器',
       nodeResourceInsufficient: '该节点资源不足，请选择其他节点',
+      networkConfig: {
+        dedicatedIPv4: '独立IPv4',
+        dedicatedIPv6: '独立IPv6',
+        ipv6Only: '仅IPv6'
+      }
     }
   },
   admin: {
