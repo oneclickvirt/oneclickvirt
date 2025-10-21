@@ -724,14 +724,16 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.announcements-container {
-  padding: 20px;
-}
-
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .filter-container {

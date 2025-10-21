@@ -1,8 +1,11 @@
 <template>
   <div class="admin-dashboard">
-    <div class="dashboard-header">
-      <h1>{{ $t('admin.dashboard.title') }}</h1>
-    </div>
+    <el-card>
+      <template #header>
+        <div class="card-header">
+          <span>{{ $t('admin.dashboard.title') }}</span>
+        </div>
+      </template>
 
     <!-- 统计卡片 -->
     <el-row
@@ -81,6 +84,7 @@
         </el-card>
       </el-col>
     </el-row>
+    </el-card>
   </div>
 </template>
 
@@ -123,25 +127,16 @@ onMounted(async () => {
 </script>
 
 <style scoped>
-.admin-dashboard {
-  padding: 24px;
-}
-
-.dashboard-header {
-  margin-bottom: 30px;
-}
-
-.dashboard-header h1 {
-  margin: 0 0 10px 0;
-  color: #303133;
-  font-size: 28px;
-  font-weight: 600;
-}
-
-.dashboard-header p {
-  margin: 0;
-  color: #909399;
-  font-size: 16px;
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .stats-row {
@@ -222,14 +217,6 @@ onMounted(async () => {
 /* 响应式适配 */
 /* 平板端适配 */
 @media (max-width: 1024px) {
-  .admin-dashboard {
-    padding: 20px;
-  }
-  
-  .dashboard-header h1 {
-    font-size: 24px;
-  }
-  
   .stat-card {
     height: 120px;
     margin-bottom: 16px;
@@ -253,22 +240,6 @@ onMounted(async () => {
 
 /* 移动端适配 */
 @media (max-width: 768px) {
-  .admin-dashboard {
-    padding: 16px;
-  }
-  
-  .dashboard-header {
-    margin-bottom: 20px;
-  }
-  
-  .dashboard-header h1 {
-    font-size: 22px;
-  }
-  
-  .dashboard-header p {
-    font-size: 14px;
-  }
-  
   .stats-row {
     margin-bottom: 20px;
   }
@@ -305,14 +276,6 @@ onMounted(async () => {
 
 /* 小屏移动端适配 */
 @media (max-width: 480px) {
-  .admin-dashboard {
-    padding: 12px;
-  }
-  
-  .dashboard-header h1 {
-    font-size: 20px;
-  }
-  
   .stat-content {
     padding: 12px;
   }

@@ -753,14 +753,16 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.instances-container {
-  padding: 20px;
-}
-
 .header-row {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .header-actions {

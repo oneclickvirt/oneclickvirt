@@ -786,6 +786,12 @@ onUnmounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .header-actions {

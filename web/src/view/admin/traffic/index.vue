@@ -619,10 +619,6 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-traffic {
-  padding: 20px;
-}
-
 .page-header {
   margin-bottom: 20px;
 }
@@ -645,6 +641,12 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .header-actions {

@@ -25,7 +25,7 @@
     <el-card shadow="never" class="providers-card">
       <template #header>
         <div class="card-header">
-          <span class="card-title">{{ $t('admin.oauth2.title') }}</span>
+          <span>{{ $t('admin.oauth2.title') }}</span>
           <el-button
             type="primary"
             size="default"
@@ -852,27 +852,12 @@ const removeLevelMapping = (key) => {
 </script>
 
 <style scoped lang="scss">
-.oauth2-providers-container {
-  padding: 24px;
-  
-  .providers-card {
-    :deep(.el-card__header) {
-      padding: 20px 24px;
-      border-bottom: 1px solid #ebeef5;
-    }
-    
-    :deep(.el-card__body) {
-      padding: 24px;
-    }
-  }
-}
-
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   
-  .card-title {
+  > span {
     font-size: 18px;
     font-weight: 600;
     color: #303133;

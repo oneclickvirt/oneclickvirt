@@ -1,9 +1,12 @@
 <template>
   <div class="admin-tasks">
-    <div class="page-header">
-      <h1>{{ $t('admin.tasks.title') }}</h1>
-      <p>{{ $t('admin.tasks.subtitle') }}</p>
-    </div>
+    <el-card>
+      <template #header>
+        <div class="card-header">
+          <span>{{ $t('admin.tasks.title') }}</span>
+          <p class="header-subtitle">{{ $t('admin.tasks.subtitle') }}</p>
+        </div>
+      </template>
 
     <!-- 统计卡片 -->
     <div class="stats-cards">
@@ -554,6 +557,7 @@
         </el-descriptions>
       </div>
     </el-dialog>
+    </el-card>
   </div>
 </template>
 
@@ -835,25 +839,22 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.admin-tasks {
-  padding: 24px;
-}
-
-.page-header {
-  margin-bottom: 24px;
-}
-
-.page-header h1 {
-  margin: 0 0 8px 0;
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
-}
-
-.page-header p {
-  margin: 0;
-  color: #909399;
-  font-size: 14px;
+.card-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
+  
+  .header-subtitle {
+    margin: 8px 0 0 0;
+    color: #909399;
+    font-size: 14px;
+  }
 }
 
 .stats-cards {
@@ -913,12 +914,6 @@ onMounted(() => {
   background: #f5f5f5;
   padding: 20px;
   border-radius: 4px;
-}
-
-.tasks-card {
-  :deep(.el-card__body) {
-    padding: 24px;
-  }
 }
 
 .tasks-table {

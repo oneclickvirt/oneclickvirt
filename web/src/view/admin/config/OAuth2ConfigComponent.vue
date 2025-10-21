@@ -431,14 +431,16 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-.config-form {
-  padding: 20px 0;
-}
-
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .form-item-tip {

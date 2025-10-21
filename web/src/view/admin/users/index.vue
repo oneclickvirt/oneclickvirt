@@ -1088,8 +1088,6 @@ const handleCurrentChange = (page) => {
 
 <style scoped lang="scss">
 .users-container {
-  padding: 24px;
-  
   .el-card {
     :deep(.el-card__header) {
       padding: 20px 24px;

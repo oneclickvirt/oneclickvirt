@@ -858,14 +858,16 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.config-container {
-  padding: 20px;
-}
-
 .config-header {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  
+  > span {
+    font-size: 18px;
+    font-weight: 600;
+    color: #303133;
+  }
 }
 
 .config-tabs {
