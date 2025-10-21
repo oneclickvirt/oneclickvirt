@@ -1,7 +1,7 @@
 <template>
   <div class="admin-dashboard">
     <div class="dashboard-header">
-      <h1>管理员仪表盘</h1>
+      <h1>{{ $t('admin.dashboard.title') }}</h1>
     </div>
 
     <!-- 统计卡片 -->
@@ -20,7 +20,7 @@
                 {{ dashboardData.totalUsers }}
               </div>
               <div class="stat-label">
-                总用户数
+                {{ $t('admin.dashboard.totalUsers') }}
               </div>
             </div>
           </div>
@@ -38,7 +38,7 @@
                 {{ dashboardData.totalProviders }}
               </div>
               <div class="stat-label">
-                服务器数量
+                {{ $t('admin.dashboard.totalProviders') }}
               </div>
             </div>
           </div>
@@ -56,7 +56,7 @@
                 {{ dashboardData.totalVMs }}
               </div>
               <div class="stat-label">
-                虚拟机数量
+                {{ $t('admin.dashboard.totalVMs') }}
               </div>
             </div>
           </div>
@@ -74,7 +74,7 @@
                 {{ dashboardData.totalContainers }}
               </div>
               <div class="stat-label">
-                容器数量
+                {{ $t('admin.dashboard.totalContainers') }}
               </div>
             </div>
           </div>
@@ -87,7 +87,10 @@
 <script setup>
 import { reactive, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getAdminDashboard } from '@/api/admin'
+
+const { t } = useI18n()
 
 const dashboardData = reactive({
   totalUsers: 0,
@@ -109,7 +112,7 @@ const fetchDashboardData = async () => {
       }
     }
   } catch (error) {
-    ElMessage.error('获取仪表盘数据失败')
+    ElMessage.error(t('admin.dashboard.loadDataFailed'))
     console.error('Dashboard data fetch error:', error)
   }
 }

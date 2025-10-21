@@ -8,7 +8,7 @@
         @click="$router.back()"
       >
         <el-icon><ArrowLeft /></el-icon>
-        返回列表
+        {{ t('user.instanceDetail.backToList') }}
       </el-button>
     </div>
 
@@ -22,7 +22,7 @@
               <h1 class="server-name">{{ instance.name }}</h1>
               <div class="server-meta">
                 <el-tag :type="instance.instance_type === 'vm' ? 'primary' : 'success'" size="small">
-                  {{ instance.instance_type === 'vm' ? '虚拟机' : '容器' }}
+                  {{ instance.instance_type === 'vm' ? t('user.instanceDetail.vm') : t('user.instanceDetail.container') }}
                 </el-tag>
                 <span class="server-provider">{{ instance.providerName }}</span>
               </div>
@@ -48,7 +48,7 @@
               @click="performAction('start')"
             >
               <el-icon><VideoPlay /></el-icon>
-              启动
+              {{ t('user.instanceDetail.start') }}
             </el-button>
             <el-button 
               v-if="instance.status === 'running'"
@@ -58,7 +58,7 @@
               @click="performAction('stop')"
             >
               <el-icon><VideoPause /></el-icon>
-              停止
+              {{ t('user.instanceDetail.stop') }}
             </el-button>
             <el-button 
               v-if="instance.status === 'running' && instance.canRestart !== false"
@@ -67,7 +67,7 @@
               @click="performAction('restart')"
             >
               <el-icon><Refresh /></el-icon>
-              重启
+              {{ t('user.instanceDetail.restart') }}
             </el-button>
             <el-button 
               v-if="instanceTypePermissions.canResetInstance"
@@ -77,7 +77,7 @@
               @click="performAction('reset')"
             >
               <el-icon><Refresh /></el-icon>
-              重置系统
+              {{ t('user.instanceDetail.resetSystem') }}
             </el-button>
             <el-button 
               v-if="instance.status === 'running'"
@@ -86,7 +86,7 @@
               :loading="actionLoading"
               @click="showResetPasswordDialog"
             >
-              重置密码
+              {{ t('user.instanceDetail.resetPassword') }}
             </el-button>
             <!-- 删除按钮 - 根据权限显示 -->
             <el-button 
@@ -97,29 +97,29 @@
               @click="performAction('delete')"
             >
               <el-icon><Delete /></el-icon>
-              删除
+              {{ t('user.instanceDetail.delete') }}
             </el-button>
           </div>
         </div>
 
         <!-- 右侧：硬件信息 -->
         <div class="server-hardware">
-          <h3>硬件</h3>
+          <h3>{{ t('user.instanceDetail.hardware') }}</h3>
           <div class="hardware-grid">
             <div class="hardware-item">
-              <span class="label">CPU</span>
-              <span class="value">{{ instance.cpu }}核</span>
+              <span class="label">{{ t('user.instanceDetail.cpu') }}</span>
+              <span class="value">{{ instance.cpu }}{{ t('user.instanceDetail.core') }}</span>
             </div>
             <div class="hardware-item">
-              <span class="label">内存</span>
+              <span class="label">{{ t('user.instanceDetail.memory') }}</span>
               <span class="value">{{ formatMemorySize(instance.memory) }}</span>
             </div>
             <div class="hardware-item">
-              <span class="label">存储</span>
+              <span class="label">{{ t('user.instanceDetail.storage') }}</span>
               <span class="value">{{ formatDiskSize(instance.disk) }}</span>
             </div>
             <div class="hardware-item">
-              <span class="label">带宽</span>
+              <span class="label">{{ t('user.instanceDetail.bandwidth') }}</span>
               <span class="value">{{ instance.bandwidth }}Mbps</span>
             </div>
           </div>
@@ -131,20 +131,20 @@
     <el-card class="tabs-card">
       <el-tabs v-model="activeTab" type="border-card">
         <!-- 概览标签页 -->
-        <el-tab-pane label="概览" name="overview">
+        <el-tab-pane :label="t('user.instanceDetail.overview')" name="overview">
           <div class="overview-content">
             <!-- SSH连接信息 -->
             <div class="connection-section">
-              <h3>SSH连接</h3>
+              <h3>{{ t('user.instanceDetail.sshConnection') }}</h3>
               <div class="connection-grid">
                 <div class="connection-item">
-                  <span class="label">公网IPv4</span>
+                  <span class="label">{{ t('user.instanceDetail.publicIPv4') }}</span>
                   <div class="value-with-action">
                     <span 
                       class="value ip-value" 
-                      :title="instance.publicIP || '暂无'"
+                      :title="instance.publicIP || t('user.instanceDetail.none')"
                     >
-                      {{ truncateIP(instance.publicIP) || '暂无' }}
+                      {{ truncateIP(instance.publicIP) || t('user.instanceDetail.none') }}
                     </span>
                     <el-button 
                       v-if="instance.publicIP"
@@ -152,7 +152,7 @@
                       text 
                       @click="copyToClipboard(instance.publicIP)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
@@ -160,7 +160,7 @@
                   v-if="instance.privateIP"
                   class="connection-item"
                 >
-                  <span class="label">内网IPv4</span>
+                  <span class="label">{{ t('user.instanceDetail.publicIPv4') }}</span>
                   <div class="value-with-action">
                     <span 
                       class="value ip-value" 
@@ -173,7 +173,7 @@
                       text 
                       @click="copyToClipboard(instance.privateIP)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
@@ -181,7 +181,7 @@
                   v-if="instance.ipv6Address"
                   class="connection-item"
                 >
-                  <span class="label">内网IPv6</span>
+                  <span class="label">{{ t('user.instanceDetail.ipv6') }}</span>
                   <div class="value-with-action">
                     <span 
                       class="value ip-value" 
@@ -194,7 +194,7 @@
                       text 
                       @click="copyToClipboard(instance.ipv6Address)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
@@ -202,7 +202,7 @@
                   v-if="instance.publicIPv6"
                   class="connection-item"
                 >
-                  <span class="label">公网IPv6</span>
+                  <span class="label">{{ t('user.instanceDetail.ipv6') }}</span>
                   <div class="value-with-action">
                     <span 
                       class="value ip-value" 
@@ -215,12 +215,12 @@
                       text 
                       @click="copyToClipboard(instance.publicIPv6)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
                 <div class="connection-item">
-                  <span class="label">SSH端口</span>
+                  <span class="label">{{ t('user.instanceDetail.sshPort') }}</span>
                   <div class="value-with-action">
                     <span class="value">{{ instance.sshPort || 22 }}</span>
                     <el-button 
@@ -229,12 +229,12 @@
                       text 
                       @click="copyToClipboard(instance.sshPort.toString())"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
                 <div class="connection-item">
-                  <span class="label">用户名</span>
+                  <span class="label">{{ t('user.instanceDetail.username') }}</span>
                   <div class="value-with-action">
                     <span class="value">{{ instance.username || 'root' }}</span>
                     <el-button 
@@ -243,7 +243,7 @@
                       text 
                       @click="copyToClipboard(instance.username)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
@@ -251,7 +251,7 @@
                   v-if="instance.password"
                   class="connection-item"
                 >
-                  <span class="label">密码</span>
+                  <span class="label">{{ t('user.instanceDetail.password') }}</span>
                   <div class="value-with-action">
                     <span class="value">{{ showPassword ? instance.password : '••••••••' }}</span>
                     <el-button 
@@ -259,14 +259,14 @@
                       text 
                       @click="togglePassword"
                     >
-                      {{ showPassword ? '隐藏' : '显示' }}
+                      {{ showPassword ? t('user.instanceDetail.hide') : t('user.instanceDetail.show') }}
                     </el-button>
                     <el-button 
                       size="small" 
                       text 
                       @click="copyToClipboard(instance.password)"
                     >
-                      复制
+                      {{ t('user.instanceDetail.copy') }}
                     </el-button>
                   </div>
                 </div>
@@ -275,25 +275,25 @@
 
             <!-- 基本信息 -->
             <div class="basic-info-section">
-              <h3>基本信息</h3>
+              <h3>{{ t('user.instanceDetail.basicInfo') }}</h3>
               <div class="info-grid">
                 <div class="info-item">
-                  <span class="label">操作系统</span>
+                  <span class="label">{{ t('user.instanceDetail.os') }}</span>
                   <span class="value">{{ instance.osType }}</span>
                 </div>
                 <div class="info-item">
-                  <span class="label">创建时间</span>
+                  <span class="label">{{ t('user.instanceDetail.createdAt') }}</span>
                   <span class="value">{{ formatDate(instance.createdAt) }}</span>
                 </div>
                 <div class="info-item">
-                  <span class="label">到期时间</span>
+                  <span class="label">{{ t('user.instanceDetail.expiredAt') }}</span>
                   <span class="value">{{ formatDate(instance.expiredAt) }}</span>
                 </div>
                 <div
                   v-if="instance.networkType || instance.ipv4MappingType"
                   class="info-item"
                 >
-                  <span class="label">网络配置类型</span>
+                  <span class="label">{{ t('user.instanceDetail.networkType') }}</span>
                   <el-tag
                     size="small"
                     :type="getNetworkTypeTagType(instance.networkType || getNetworkTypeFromLegacy(instance.ipv4MappingType, instance.ipv6Address))"
@@ -321,16 +321,16 @@
         </el-tab-pane>
 
         <!-- 端口映射标签页 -->
-        <el-tab-pane label="端口映射" name="ports">
+        <el-tab-pane :label="t('user.instanceDetail.portMapping')" name="ports">
           <div class="ports-content">
             <div class="ports-header">
               <div class="ports-summary">
                 <div class="summary-item">
-                  <span class="label">公网IP:</span>
-                  <span class="value">{{ instance.publicIP || '暂无' }}</span>
+                  <span class="label">{{ t('user.instanceDetail.publicIP') }}:</span>
+                  <span class="value">{{ instance.publicIP || t('user.instanceDetail.none') }}</span>
                 </div>
                 <div class="summary-item">
-                  <span class="label">已分配端口:</span>
+                  <span class="label">{{ t('user.instances.portMapping') }}:</span>
                   <span class="value">{{ portMappings.length }}个</span>
                 </div>
               </div>
@@ -340,7 +340,7 @@
                 @click="refreshPortMappings"
               >
                 <el-icon><Refresh /></el-icon>
-                刷新
+                {{ t('user.instances.search') }}
               </el-button>
             </div>
             
@@ -352,7 +352,7 @@
             >
               <el-table-column
                 prop="portType"
-                label="端口类型"
+                :label="t('user.instanceDetail.portType')"
                 width="110"
               >
                 <template #default="{ row }">
@@ -360,23 +360,23 @@
                     size="small"
                     :type="row.portType === 'manual' ? 'warning' : 'success'"
                   >
-                    {{ row.portType === 'manual' ? '手动添加' : '区间映射' }}
+                    {{ row.portType === 'manual' ? t('user.instanceDetail.manualAdd') : t('user.instanceDetail.rangeMapping') }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
                 prop="hostPort"
-                label="公网端口"
+                :label="t('user.instanceDetail.publicPort')"
                 width="110"
               />
               <el-table-column
                 prop="guestPort"
-                label="内部端口"
+                :label="t('user.instanceDetail.internalPort')"
                 width="110"
               />
               <el-table-column
                 prop="protocol"
-                label="协议"
+                :label="t('user.instanceDetail.protocol')"
                 width="90"
               >
                 <template #default="{ row }">
@@ -390,7 +390,7 @@
               </el-table-column>
               <el-table-column
                 prop="status"
-                label="状态"
+                :label="t('user.instanceDetail.status')"
                 width="100"
               >
                 <template #default="{ row }">
@@ -398,12 +398,12 @@
                     size="small"
                     :type="row.status === 'active' ? 'success' : 'info'"
                   >
-                    {{ row.status === 'active' ? '活跃' : '未使用' }}
+                    {{ row.status === 'active' ? t('user.instanceDetail.active') : t('user.instanceDetail.unused') }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column
-                label="连接信息"
+                :label="t('user.instanceDetail.connectionInfo')"
                 min-width="300"
               >
                 <template #default="{ row }">
@@ -423,7 +423,7 @@
                         text 
                         @click="copyToClipboard(`ssh ${instance.username || 'root'}@${instance.publicIP} -p ${row.hostPort}`)"
                       >
-                        复制
+                        {{ t('user.instanceDetail.copy') }}
                       </el-button>
                     </div>
                     <div
@@ -441,7 +441,7 @@
                         text 
                         @click="copyToClipboard(`${instance.publicIP}:${row.hostPort}`)"
                       >
-                        复制
+                        {{ t('user.instanceDetail.copy') }}
                       </el-button>
                     </div>
                   </div>
@@ -453,41 +453,41 @@
               v-else
               class="no-ports"
             >
-              <p>暂无端口映射</p>
+              <p>{{ t('user.instances.portMapping') }}</p>
             </div>
           </div>
         </el-tab-pane>
 
         <!-- 统计标签页 -->
-        <el-tab-pane label="统计" name="stats">
+        <el-tab-pane :label="t('user.instanceDetail.statistics')" name="stats">
           <div class="stats-content">
 
 
             <!-- 流量统计 -->
             <div class="traffic-section">
               <div class="section-header">
-                <h3>流量统计</h3>
+                <h3>{{ t('user.trafficOverview.trafficStats') }}</h3>
                 <div class="section-actions">
                   <el-button
                     size="small"
                     @click="refreshMonitoring"
                   >
                     <el-icon><Refresh /></el-icon>
-                    刷新
+                    {{ t('user.instances.search') }}
                   </el-button>
                   <el-button
                     size="small"
                     type="primary"
                     @click="showTrafficDetail = true"
                   >
-                    查看详细统计
+                    {{ t('user.trafficOverview.viewDetailedStats') }}
                   </el-button>
                 </div>
               </div>
               <div class="traffic-stats">
                 <div class="traffic-usage">
                   <div class="usage-header">
-                    <span class="usage-label">当月流量使用</span>
+                    <span class="usage-label">{{ t('user.trafficOverview.currentMonthUsage') }}</span>
                     <span class="usage-info">
                       {{ formatTraffic(monitoring.trafficData?.currentMonth || 0) }} / 
                       {{ formatTraffic(monitoring.trafficData?.totalLimit || 102400) }}
@@ -501,9 +501,9 @@
                   />
                   <div class="usage-details">
                     <span :class="{ 'limited-text': monitoring.trafficData?.isLimited }">
-                      {{ monitoring.trafficData?.isLimited ? '⚠️ 已超限制' : '正常使用中' }}
+                      {{ monitoring.trafficData?.isLimited ? t('user.instanceDetail.trafficOverlimit') : t('user.instanceDetail.normalUsage') }}
                     </span>
-                    <span class="reset-info">下月1日自动重置</span>
+                    <span class="reset-info">{{ t('user.trafficOverview.resetOn1st') }}</span>
                   </div>
                 </div>
 
@@ -522,7 +522,7 @@
                   v-if="monitoring.trafficData?.history?.length"
                   class="traffic-breakdown"
                 >
-                  <h4>历史统计</h4>
+                  <h4>{{ t('user.trafficOverview.historicalStats') }}</h4>
                   <div class="history-list">
                     <div 
                       v-for="item in monitoring.trafficData.history.slice(0, 6)" 
@@ -556,6 +556,7 @@
 <script setup>
 import { ref, reactive, onMounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   ArrowLeft, 
@@ -577,6 +578,7 @@ import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 
 const loading = ref(false)
 const actionLoading = ref(false)
@@ -646,12 +648,12 @@ const getNetworkTypeFromLegacy = (ipv4MappingType, hasIPv6) => {
 const getNetworkTypeDisplayName = (networkType) => {
   const typeNames = {
     'nat_ipv4': 'NAT IPv4',
-    'nat_ipv4_ipv6': 'NAT IPv4 + 独立IPv6',
-    'dedicated_ipv4': '独立IPv4',
-    'dedicated_ipv4_ipv6': '独立IPv4 + 独立IPv6',
-    'ipv6_only': '纯IPv6'
+    'nat_ipv4_ipv6': `NAT IPv4 + ${t('user.apply.networkConfig.dedicatedIPv6')}`,
+    'dedicated_ipv4': t('user.apply.networkConfig.dedicatedIPv4'),
+    'dedicated_ipv4_ipv6': `${t('user.apply.networkConfig.dedicatedIPv4')} + ${t('user.apply.networkConfig.dedicatedIPv6')}`,
+    'ipv6_only': t('user.apply.networkConfig.ipv6Only')
   }
-  return typeNames[networkType] || '未知类型'
+  return typeNames[networkType] || t('user.instanceDetail.unknownType')
 }
 
 const getNetworkTypeTagType = (networkType) => {
@@ -670,7 +672,7 @@ const loadInstanceDetail = async () => {
   // 检查实例ID是否有效
   if (!route.params.id || route.params.id === 'undefined') {
     console.error('实例ID无效，返回实例列表')
-    ElMessage.error('实例ID无效')
+    ElMessage.error(t('user.instances.instanceInvalid'))
     router.push('/user/instances')
     return false
   }
@@ -687,7 +689,7 @@ const loadInstanceDetail = async () => {
     return false
   } catch (error) {
     console.error('获取实例详情失败:', error)
-    ElMessage.error('获取实例详情失败')
+    ElMessage.error(t('user.instanceDetail.getDetailFailed'))
     router.back()
     return false
   } finally {
@@ -734,7 +736,7 @@ const refreshMonitoring = async () => {
       
       // 如果流量已限制，显示警告
       if (monitoring.trafficData?.isLimited) {
-        ElMessage.warning('当前实例因流量超限已被限制使用')
+        ElMessage.warning(t('user.instanceDetail.trafficLimitWarning'))
       }
     }
   } catch (error) {
@@ -747,7 +749,7 @@ const refreshMonitoring = async () => {
       isLimited: false,
       history: []
     }
-    ElMessage.error('获取监控数据失败')
+    ElMessage.error(t('user.instanceDetail.getMonitoringFailed'))
   }
 }
 
@@ -802,24 +804,24 @@ const updateInstancePermissions = () => {
 // 执行实例操作
 const performAction = async (action) => {
   const actionText = {
-    'start': '启动',
-    'stop': '停止',
-    'restart': '重启',
-    'reset': '重置系统',
-    'delete': '删除'
+    'start': t('user.instanceDetail.actionStart'),
+    'stop': t('user.instanceDetail.actionStop'),
+    'restart': t('user.instanceDetail.actionRestart'),
+    'reset': t('user.instanceDetail.actionReset'),
+    'delete': t('user.instanceDetail.actionDelete')
   }[action]
 
   const confirmText = action === 'delete' 
-    ? `确定要删除实例 "${instance.value.name}" 吗？此操作不可恢复！`
-    : `确定要${actionText}实例 "${instance.value.name}" 吗？`
+    ? `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.delete')}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}${t('user.profile.deleteConfirmNote')}`
+    : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}`
 
   // 如果是启动操作且流量已限制，特殊提示
   if (action === 'start' && monitoring.trafficData?.isLimited) {
     const trafficLimitConfirm = await ElMessageBox.confirm(
-      `实例 "${instance.value.name}" 当前因流量超限被限制，无法启动。请等待下月重置或联系管理员。`,
-      '流量超限限制',
+      `${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.trafficLimitWarning')}${t('common.comma')}${t('user.instances.title')}${t('user.instanceDetail.actionStart')}${t('common.period')}`,
+      t('user.instanceDetail.trafficLimitNotice'),
       {
-        confirmButtonText: '我知道了',
+        confirmButtonText: t('user.instanceDetail.gotIt'),
         showCancelButton: false,
         type: 'warning'
       }
@@ -832,10 +834,10 @@ const performAction = async (action) => {
   try {
     await ElMessageBox.confirm(
       confirmText,
-      '确认操作',
+      t('user.instanceDetail.confirmOperation'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('user.instanceDetail.confirm'),
+        cancelButtonText: t('user.instanceDetail.cancel'),
         type: action === 'delete' ? 'error' : 'warning'
       }
     )
@@ -847,12 +849,12 @@ const performAction = async (action) => {
     })
 
     if (response.code === 0 || response.code === 200) {
-      ElMessage.success(`${actionText}请求已提交，正在处理中...`)
+      ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
       
       if (action === 'delete' || action === 'reset') {
         // 删除和重置系统后返回列表页，避免显示过期数据
         if (action === 'reset') {
-          ElMessage.info('重置系统需要一定时间，请在实例列表中等待实例状态变为"运行中"后再进入详情页面')
+          ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
         }
         router.push('/user/instances')
       } else {
@@ -863,7 +865,7 @@ const performAction = async (action) => {
   } catch (error) {
     if (error !== 'cancel') {
       console.error(`${actionText}实例失败:`, error)
-      ElMessage.error(`${actionText}实例失败`)
+      ElMessage.error(`${actionText}${t('user.instances.title')}${t('common.failed')}`)
     }
   } finally {
     actionLoading.value = false
@@ -874,11 +876,11 @@ const performAction = async (action) => {
 const showResetPasswordDialog = async () => {
   try {
     await ElMessageBox.confirm(
-      `确定要重置实例 "${instance.value.name}" 的密码吗？\n系统将创建异步任务来执行密码重置操作。`,
-      '重置实例密码',
+      `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.resetPassword')}${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.password')}${t('common.questionMark')}\n${t('user.tasks.system')}${t('user.tasks.willCreateTask')}${t('user.instanceDetail.resetPassword')}${t('user.tasks.operation')}${t('common.period')}`,
+      t('user.instanceDetail.resetPasswordTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('user.instanceDetail.confirm'),
+        cancelButtonText: t('user.instanceDetail.cancel'),
         type: 'warning'
       }
     )
@@ -892,17 +894,17 @@ const showResetPasswordDialog = async () => {
       if (response.code === 0 || response.code === 200) {
         const taskId = response.data.taskId
         
-        ElMessage.success(`密码重置任务已创建（任务ID: ${taskId}），请在任务列表中查看进度`)
+        ElMessage.success(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.checkProgress')}${t('user.tasks.taskList')}${t('common.inLocation')}`)
         
         // 可以选择跳转到任务列表或者在当前页面轮询任务状态
         // 这里简单显示成功消息，让用户去任务列表查看
         
       } else {
-        ElMessage.error(response.message || '创建密码重置任务失败')
+        ElMessage.error(response.message || t('user.instanceDetail.resetPasswordFailed'))
       }
     } catch (error) {
       console.error('创建密码重置任务失败:', error)
-      ElMessage.error('创建密码重置任务失败，请稍后重试')
+      ElMessage.error(t('user.instanceDetail.resetPasswordFailed'))
     }
   } catch (error) {
     // 用户取消操作
@@ -953,7 +955,7 @@ const formatIPPort = (ip, port) => {
 
 const copyToClipboard = async (text) => {
   if (!text) {
-    ElMessage.warning('没有可复制的内容')
+    ElMessage.warning(t('user.instanceDetail.nothingToCopy'))
     return
   }
   
@@ -961,7 +963,7 @@ const copyToClipboard = async (text) => {
     // 优先使用 Clipboard API
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text)
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
       return
     }
     
@@ -979,7 +981,7 @@ const copyToClipboard = async (text) => {
       // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
       const successful = document.execCommand('copy')
       if (successful) {
-        ElMessage.success('已复制到剪贴板')
+        ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
       } else {
         throw new Error('execCommand failed')
       }
@@ -988,7 +990,7 @@ const copyToClipboard = async (text) => {
     }
   } catch (error) {
     console.error('复制失败:', error)
-    ElMessage.error('复制失败，请手动复制')
+    ElMessage.error(t('user.profile.copyFailed'))
   }
 }
 
@@ -1006,10 +1008,10 @@ const getStatusType = (status) => {
 // 获取状态文本
 const getStatusText = (status) => {
   const statusMap = {
-    'running': '运行中',
-    'stopped': '已停止',
-    'paused': '暂停',
-    'error': '错误'
+    'running': t('user.instanceDetail.statusRunning'),
+    'stopped': t('user.instanceDetail.statusStopped'),
+    'paused': t('user.instanceDetail.statusPaused'),
+    'error': t('user.instanceDetail.statusError')
   }
   return statusMap[status] || status
 }
@@ -1040,13 +1042,13 @@ const getTrafficLimitTitle = () => {
   const limitType = monitoring?.trafficData?.limitType
   switch (limitType) {
     case 'user':
-      return '用户流量超限警告'
+      return t('user.instanceDetail.userTrafficWarning')
     case 'provider':
-      return 'Provider流量超限警告'
+      return t('user.instanceDetail.trafficWarning')
     case 'both':
-      return '双重流量超限警告'
+      return t('user.instanceDetail.dualTrafficWarning')
     default:
-      return '流量超限警告'
+      return t('user.instanceDetail.trafficWarning')
   }
 }
 

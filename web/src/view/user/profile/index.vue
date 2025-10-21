@@ -7,7 +7,7 @@
     >
       <el-loading-directive />
       <div class="loading-text">
-        加载个人信息中...
+        {{ t('user.profile.loadingProfile') }}
       </div>
     </div>
     
@@ -16,7 +16,7 @@
       <el-card class="profile-card">
         <template #header>
           <div class="card-header">
-            <span>个人中心</span>
+            <span>{{ t('user.profile.title') }}</span>
           </div>
         </template>
 
@@ -32,7 +32,7 @@
               size="small"
               @click="showAvatarDialog = true"
             >
-              更换头像
+              {{ t('user.profile.changeAvatar') }}
             </el-button>
           </div>
           <div class="user-info">
@@ -58,7 +58,7 @@
           >
             <!-- 基本信息标签页 -->
             <el-tab-pane
-              label="基本信息"
+              :label="t('user.profile.basicInfo')"
               name="basic"
             >
               <el-form
@@ -68,45 +68,45 @@
                 label-width="100px"
                 size="large"
               >
-                <el-form-item label="用户名">
+                <el-form-item :label="t('user.profile.username')">
                   <el-input
                     v-model="profileForm.username"
                     disabled
                   />
                   <div class="form-tip">
-                    用户名不可修改
+                    {{ t('user.profile.usernameCannotChange') }}
                   </div>
                 </el-form-item>
 
                 <el-form-item
-                  label="昵称"
+                  :label="t('user.profile.nickname')"
                   prop="nickname"
                 >
                   <el-input
                     v-model="profileForm.nickname"
-                    placeholder="请输入昵称"
+                    :placeholder="t('user.profile.pleaseEnterNickname')"
                     clearable
                   />
                 </el-form-item>
 
                 <el-form-item
-                  label="邮箱"
+                  :label="t('user.profile.email')"
                   prop="email"
                 >
                   <el-input
                     v-model="profileForm.email"
-                    placeholder="请输入邮箱地址"
+                    :placeholder="t('user.profile.pleaseEnterEmail')"
                     clearable
                   />
                 </el-form-item>
 
                 <el-form-item
-                  label="手机号"
+                  :label="t('user.profile.phone')"
                   prop="phone"
                 >
                   <el-input
                     v-model="profileForm.phone"
-                    placeholder="请输入手机号"
+                    :placeholder="t('user.profile.pleaseEnterPhone')"
                     clearable
                   />
                 </el-form-item>
@@ -117,10 +117,10 @@
                     :loading="updating"
                     @click="updateProfile"
                   >
-                    保存修改
+                    {{ t('user.profile.saveChanges') }}
                   </el-button>
                   <el-button @click="resetForm">
-                    重置
+                    {{ t('common.reset') }}
                   </el-button>
                 </el-form-item>
               </el-form>
@@ -128,24 +128,24 @@
 
             <!-- 密码管理标签页 -->
             <el-tab-pane
-              label="密码管理"
+              :label="t('user.profile.passwordManagement')"
               name="password"
             >
               <div class="password-section">
                 <!-- 自动重置密码 -->
                 <div class="password-reset-section">
-                  <h3>自动重置密码</h3>
+                  <h3>{{ t('user.profile.autoResetPassword') }}</h3>
                   <div class="reset-intro">
                     <el-alert
-                      title="密码自动重置"
+                      :title="t('user.profile.passwordAutoReset')"
                       type="warning"
                       :closable="false"
                       show-icon
                     >
                       <template #default>
-                        <p>如果您忘记了当前密码，可以使用此功能自动生成一个新的安全密码。</p>
-                        <p>新密码将显示在下方，并同时发送到您绑定的通信渠道。</p>
-                        <p><strong>请确保您至少绑定了一个通信渠道，以便备份接收新密码。</strong></p>
+                        <p>{{ t('user.profile.autoResetDescription1') }}</p>
+                        <p>{{ t('user.profile.autoResetDescription2') }}</p>
+                        <p><strong>{{ t('user.profile.autoResetDescription3') }}</strong></p>
                       </template>
                     </el-alert>
                   
@@ -156,8 +156,8 @@
                     >
                       <el-result
                         icon="success"
-                        title="密码重置成功"
-                        sub-title="已为您生成新密码，请复制并安全保管"
+                        :title="t('user.profile.passwordResetSuccess')"
+                        :sub-title="t('user.profile.newPasswordGenerated')"
                       >
                         <template #extra>
                           <div style="margin: 20px 0;">
@@ -165,7 +165,7 @@
                               type="info"
                               style="display: block; margin-bottom: 10px;"
                             >
-                              新密码：
+                              {{ t('user.profile.newPassword') }}：
                             </el-text>
                             <el-input
                               v-model="generatedPassword"
@@ -174,7 +174,7 @@
                             >
                               <template #append>
                                 <el-button @click="copyPassword">
-                                  复制
+                                  {{ t('common.copy') }}
                                 </el-button>
                               </template>
                             </el-input>
@@ -184,12 +184,12 @@
                               size="small"
                               type="warning"
                             >
-                              新密码已同时发送到您绑定的通信渠道，请妥善保管
+                              {{ t('user.profile.passwordSentToChannel') }}
                             </el-text>
                           </div>
                           <div style="margin-top: 20px;">
                             <el-button @click="closePasswordDialog">
-                              关闭
+                              {{ t('common.close') }}
                             </el-button>
                           </div>
                         </template>
@@ -206,7 +206,7 @@
                         :loading="resetPasswordLoading"
                         @click="confirmPasswordReset"
                       >
-                        重置密码
+                        {{ t('user.profile.resetPassword') }}
                       </el-button>
                     </div>
                   </div>
@@ -220,7 +220,7 @@
       <!-- 头像上传对话框 -->
       <el-dialog
         v-model="showAvatarDialog"
-        title="更换头像"
+        :title="t('user.profile.changeAvatar')"
         width="400px"
       >
         <el-upload
@@ -245,7 +245,7 @@
         </el-upload>
         <template #footer>
           <el-button @click="showAvatarDialog = false">
-            取消
+            {{ t('common.cancel') }}
           </el-button>
           <el-button
             type="primary"
@@ -262,12 +262,14 @@
 
 <script setup>
 import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 import { updateProfile as updateProfileApi, resetPassword } from '@/api/user'
 import { validateImageFileSecure } from '@/utils/uploadValidator'
 
+const { t } = useI18n()
 const userStore = useUserStore()
 
 // 当前活动标签页
@@ -337,13 +339,13 @@ const updateProfile = async () => {
     try {
       const response = await updateProfileApi(profileForm)
       if (response.code === 0 || response.code === 200) {
-        ElMessage.success('个人信息更新成功')
+        ElMessage.success(t('user.profile.updateSuccess'))
         await userStore.fetchUserInfo()
       } else {
-        ElMessage.error(response.msg || '更新失败')
+        ElMessage.error(response.msg || t('user.profile.updateFailed'))
       }
     } catch (error) {
-      ElMessage.error('更新失败，请重试')
+      ElMessage.error(t('user.profile.updateFailedRetry'))
     } finally {
       updating.value = false
     }
@@ -369,7 +371,7 @@ const beforeAvatarUpload = async (file) => {
     return validation.valid
   } catch (error) {
     console.error('头像验证异常:', error)
-    ElMessage.error('文件验证失败')
+    ElMessage.error(t('user.profile.fileValidationFailed'))
     return false
   }
 }
@@ -378,12 +380,12 @@ const handleAvatarSuccess = (response) => {
   if (response.code === 0 || response.code === 200) {
     newAvatar.value = response.data.url
   } else {
-    ElMessage.error('头像上传失败')
+    ElMessage.error(t('user.profile.avatarUploadFailed'))
   }
 }
 
 const confirmAvatar = () => {
-  ElMessage.success('头像更新成功')
+  ElMessage.success(t('user.profile.avatarUpdateSuccess'))
   showAvatarDialog.value = false
   newAvatar.value = ''
 }
@@ -392,11 +394,11 @@ const confirmAvatar = () => {
 const confirmPasswordReset = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要重置密码吗？新密码将自动生成并发送到您绑定的通信渠道。',
-      '确认重置密码',
+      t('user.profile.confirmResetPasswordMessage'),
+      t('user.profile.confirmResetPasswordTitle'),
       {
-        confirmButtonText: '确认重置',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
@@ -416,16 +418,16 @@ const resetUserPassword = async () => {
       // 获取返回的新密码
       if (response.data && response.data.newPassword) {
         generatedPassword.value = response.data.newPassword
-        ElMessage.success('密码重置成功，新密码已显示在下方并发送到您的通信渠道')
+        ElMessage.success(t('user.profile.passwordResetSuccessWithMessage'))
       } else {
-        ElMessage.success(response.msg || '密码重置成功，新密码已发送到您绑定的通信渠道')
+        ElMessage.success(response.msg || t('user.profile.passwordResetSuccessDefault'))
       }
     } else {
-      ElMessage.error(response.msg || '密码重置失败')
+      ElMessage.error(response.msg || t('user.profile.passwordResetFailed'))
     }
   } catch (error) {
     console.error('Password reset error:', error)
-    ElMessage.error('密码重置失败，请重试')
+    ElMessage.error(t('user.profile.passwordResetFailedRetry'))
   } finally {
     resetPasswordLoading.value = false
   }
@@ -434,7 +436,7 @@ const resetUserPassword = async () => {
 // 复制密码到剪贴板
 const copyPassword = async () => {
   if (!generatedPassword.value) {
-    ElMessage.warning('没有可复制的密码')
+    ElMessage.warning(t('user.profile.noPasswordToCopy'))
     return
   }
   
@@ -442,7 +444,7 @@ const copyPassword = async () => {
     // 优先使用 Clipboard API
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(generatedPassword.value)
-      ElMessage.success('密码已复制到剪贴板')
+      ElMessage.success(t('user.profile.passwordCopied'))
       return
     }
     
@@ -460,7 +462,7 @@ const copyPassword = async () => {
       // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
       const successful = document.execCommand('copy')
       if (successful) {
-        ElMessage.success('密码已复制到剪贴板')
+        ElMessage.success(t('user.profile.passwordCopied'))
       } else {
         throw new Error('execCommand failed')
       }
@@ -469,7 +471,7 @@ const copyPassword = async () => {
     }
   } catch (error) {
     console.error('复制失败:', error)
-    ElMessage.error('复制失败，请手动复制')
+    ElMessage.error(t('user.profile.copyFailed'))
   }
 }
 

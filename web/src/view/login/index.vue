@@ -1,9 +1,35 @@
 <template>
   <div class="login-container">
+    <!-- 顶部栏 -->
+    <header class="auth-header">
+      <div class="header-content">
+        <div class="logo">
+          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <h1>OneClickVirt</h1>
+        </div>
+        <nav class="nav-actions">
+          <button
+            class="nav-link language-btn"
+            @click="switchLanguage"
+          >
+            <el-icon><Operation /></el-icon>
+            {{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}
+          </button>
+          <router-link
+            to="/"
+            class="nav-link home-btn"
+          >
+            <el-icon><HomeFilled /></el-icon>
+            {{ t('common.backToHome') }}
+          </router-link>
+        </nav>
+      </div>
+    </header>
+
     <div class="login-form">
       <div class="login-header">
-        <h2>用户登录</h2>
-        <p>欢迎回来，请登录您的账号</p>
+        <h2>{{ t('login.title') }}</h2>
+        <p>{{ t('login.subtitle') }}</p>
       </div>
 
       <el-form
@@ -16,7 +42,7 @@
         <el-form-item prop="username">
           <el-input
             v-model="loginForm.username"
-            placeholder="请输入用户名"
+            :placeholder="t('login.pleaseEnterUsername')"
             prefix-icon="User"
             clearable
           />
@@ -26,7 +52,7 @@
           <el-input
             v-model="loginForm.password"
             type="password"
-            placeholder="请输入密码"
+            :placeholder="t('login.pleaseEnterPassword')"
             prefix-icon="Lock"
             show-password
             clearable
@@ -38,7 +64,7 @@
           <div class="captcha-container">
             <el-input
               v-model="loginForm.captcha"
-              placeholder="请输入验证码"
+              :placeholder="t('login.pleaseEnterCaptcha')"
             />
             <div
               class="captcha-image"
@@ -47,13 +73,13 @@
               <img
                 v-if="captchaImage"
                 :src="captchaImage"
-                alt="验证码"
+                :alt="t('login.captchaAlt')"
               >
               <div
                 v-else
                 class="captcha-loading"
               >
-                加载中...
+                {{ t('common.loading') }}
               </div>
             </div>
           </div>
@@ -61,13 +87,13 @@
 
         <div class="form-options">
           <el-checkbox v-model="loginForm.rememberMe">
-            记住我
+            {{ t('login.rememberMe') }}
           </el-checkbox>
           <router-link
             to="/forgot-password"
             class="forgot-link"
           >
-            忘记密码?
+            {{ t('login.forgotPassword') }}
           </router-link>
         </div>
 
@@ -78,14 +104,14 @@
             style="width: 100%;"
             @click="handleLogin"
           >
-            登录
+            {{ t('common.login') }}
           </el-button>
         </div>
 
         <div class="form-footer">
           <p>
-            还没有账号? <router-link to="/register">
-              立即注册
+            {{ t('login.noAccount') }} <router-link to="/register">
+              {{ t('login.registerNow') }}
             </router-link>
           </p>
         </div>
@@ -95,7 +121,7 @@
             to="/admin/login"
             class="admin-link"
           >
-            管理员登录
+            {{ t('login.adminLogin') }}
           </router-link>
         </div>
       </el-form>
@@ -105,7 +131,7 @@
         v-if="oauth2Enabled && oauth2Providers.length > 0"
         class="oauth2-login"
       >
-        <el-divider>第三方登录或注册</el-divider>
+        <el-divider>{{ t('login.thirdPartyLogin') }}</el-divider>
         <div class="oauth2-providers">
           <el-button
             v-for="provider in oauth2Providers"
@@ -123,18 +149,23 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
 import { getCaptcha } from '@/api/auth'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { getPublicConfig } from '@/api/public'
 import { getEnabledOAuth2Providers } from '@/api/oauth2'
-import { Connection } from '@element-plus/icons-vue'
+import { Connection, Operation, HomeFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { t, locale } = useI18n()
 const { executeAsync, handleSubmit } = useErrorHandler()
+const languageStore = useLanguageStore()
 
 const loginFormRef = ref()
 const loading = ref(false)
@@ -152,17 +183,17 @@ const loginForm = reactive({
   loginType: 'password'
 })
 
-const loginRules = reactive({
+const loginRules = computed(() => ({
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' }
+    { required: true, message: t('validation.usernameRequired'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' }
+    { required: true, message: t('validation.passwordRequired'), trigger: 'blur' }
   ],
   captcha: [
-    { required: true, message: '请输入验证码', trigger: 'blur' }
+    { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
   ]
-})
+}))
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
@@ -176,7 +207,7 @@ const handleLogin = async () => {
         captchaId: captchaId.value
       })
     }, {
-      successMessage: '登录成功',
+      successMessage: t('login.loginSuccess'),
       showLoading: false // 使用组件自己的loading
     })
 
@@ -219,8 +250,15 @@ const checkOAuth2Config = async () => {
       oauth2Providers.value = providersResponse.data || []
     }
   } catch (error) {
-    console.error('获取OAuth2配置失败:', error)
+    console.error(t('login.getOAuth2ConfigFailed'), error)
   }
+}
+
+// 切换语言
+const switchLanguage = () => {
+  const newLang = languageStore.toggleLanguage()
+  locale.value = newLang
+  ElMessage.success(t('navbar.languageSwitched'))
 }
 
 onMounted(() => {
@@ -232,8 +270,7 @@ onMounted(() => {
 <style scoped>
 .login-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   min-height: 100vh;
   background-color: #f5f7fa;
 }
@@ -251,7 +288,92 @@ onMounted(() => {
   z-index: -1;
 }
 
+/* 顶部栏样式 */
+.auth-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
+  border-bottom: 1px solid rgba(22, 163, 74, 0.1);
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 70px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-image {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.logo h1 {
+  font-size: 28px;
+  color: #16a34a;
+  margin: 0;
+  font-weight: 700;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-radius: 25px;
+  border: 1px solid #e5e7eb;
+  background: transparent;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+  transform: translateY(-2px);
+}
+
+.nav-link.home-btn {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.3);
+}
+
+.nav-link.home-btn:hover {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4);
+}
+
 .login-form {
+  margin: auto;
+  margin-top: 60px;
+  margin-bottom: 60px;
   width: 400px;
   padding: 40px;
   background-color: #fff;

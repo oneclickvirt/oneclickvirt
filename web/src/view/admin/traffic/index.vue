@@ -1,8 +1,8 @@
 <template>
   <div class="admin-traffic">
     <div class="page-header">
-      <h1>流量管理</h1>
-      <p>管理系统流量统计和用户流量限制</p>
+      <h1>{{ $t('admin.traffic.title') }}</h1>
+      <p>{{ $t('admin.traffic.subtitle') }}</p>
     </div>
 
     <!-- 系统流量概览 -->
@@ -10,7 +10,7 @@
       <el-card>
         <template #header>
           <div class="card-header">
-            <span>系统流量概览</span>
+            <span>{{ $t('admin.traffic.systemOverview') }}</span>
             <div class="header-actions">
               <el-button
                 size="small"
@@ -18,7 +18,7 @@
                 @click="loadSystemOverview"
               >
                 <el-icon><Refresh /></el-icon>
-                刷新
+                {{ $t('common.refresh') }}
               </el-button>
               <el-button
                 size="small"
@@ -26,7 +26,7 @@
                 :loading="syncingAllTraffic"
                 @click="syncAllTrafficData"
               >
-                同步全部流量
+                {{ $t('admin.traffic.syncAllTraffic') }}
               </el-button>
             </div>
           </div>
@@ -40,39 +40,39 @@
           <el-row :gutter="20">
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">本月总流量</div>
+                <div class="stat-title">{{ $t('admin.traffic.monthlyTotalTraffic') }}</div>
                 <div class="stat-value">{{ systemOverview.traffic?.formatted?.total_bytes || '0 B' }}</div>
                 <div class="stat-subtitle">
-                  上行: {{ systemOverview.traffic?.formatted?.total_tx || '0 B' }} / 
-                  下行: {{ systemOverview.traffic?.formatted?.total_rx || '0 B' }}
+                  {{ $t('admin.traffic.uplink') }}: {{ systemOverview.traffic?.formatted?.total_tx || '0 B' }} / 
+                  {{ $t('admin.traffic.downlink') }}: {{ systemOverview.traffic?.formatted?.total_rx || '0 B' }}
                 </div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">用户统计</div>
+                <div class="stat-title">{{ $t('admin.traffic.userStats') }}</div>
                 <div class="stat-value">{{ systemOverview.users?.total || 0 }}</div>
                 <div class="stat-subtitle">
-                  受限: {{ systemOverview.users?.limited || 0 }} 
+                  {{ $t('admin.traffic.limited') }}: {{ systemOverview.users?.limited || 0 }} 
                   ({{ (systemOverview.users?.limited_percent || 0).toFixed(1) }}%)
                 </div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">Provider统计</div>
+                <div class="stat-title">{{ $t('admin.traffic.providerStats') }}</div>
                 <div class="stat-value">{{ systemOverview.providers?.total || 0 }}</div>
                 <div class="stat-subtitle">
-                  受限: {{ systemOverview.providers?.limited || 0 }} 
+                  {{ $t('admin.traffic.limited') }}: {{ systemOverview.providers?.limited || 0 }} 
                   ({{ (systemOverview.providers?.limited_percent || 0).toFixed(1) }}%)
                 </div>
               </div>
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">实例总数</div>
+                <div class="stat-title">{{ $t('admin.traffic.totalInstances') }}</div>
                 <div class="stat-value">{{ systemOverview.instances || 0 }}</div>
-                <div class="stat-subtitle">活跃实例统计</div>
+                <div class="stat-subtitle">{{ $t('admin.traffic.activeInstanceStats') }}</div>
               </div>
             </el-col>
           </el-row>
@@ -80,7 +80,7 @@
           <div class="period-info">
             <el-text type="info" size="small">
               <el-icon><Calendar /></el-icon>
-              统计周期: {{ systemOverview.period }}
+              {{ $t('admin.traffic.statsPeriod') }}: {{ systemOverview.period }}
             </el-text>
           </div>
         </div>
@@ -92,7 +92,7 @@
       <el-card>
         <template #header>
           <div class="card-header">
-            <span>用户流量排行榜</span>
+            <span>{{ $t('admin.traffic.trafficRanking') }}</span>
             <div class="header-actions">
               <el-select
                 v-model="rankingLimit"
@@ -111,7 +111,7 @@
                 @click="loadTrafficRanking"
               >
                 <el-icon><Refresh /></el-icon>
-                刷新
+                {{ $t('common.refresh') }}
               </el-button>
             </div>
           </div>
@@ -127,7 +127,7 @@
             stripe
             border
           >
-            <el-table-column label="排名" width="80" align="center">
+            <el-table-column :label="$t('admin.traffic.rank')" width="80" align="center">
               <template #default="{ row }">
                 <el-tag 
                   :type="getRankTagType(row.rank)"
@@ -138,19 +138,19 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="username" label="用户名" width="150" />
-            <el-table-column prop="email" label="邮箱" />
-            <el-table-column label="本月使用" width="120">
+            <el-table-column prop="username" :label="$t('admin.traffic.username')" width="150" />
+            <el-table-column prop="email" :label="$t('admin.traffic.email')" />
+            <el-table-column :label="$t('admin.traffic.monthlyUsage')" width="120">
               <template #default="{ row }">
                 {{ row.formatted?.month_usage || formatBytes(row.month_usage) }}
               </template>
             </el-table-column>
-            <el-table-column label="总限额" width="120">
+            <el-table-column :label="$t('admin.traffic.totalLimit')" width="120">
               <template #default="{ row }">
                 {{ row.formatted?.total_limit || formatTrafficMB(row.total_limit) }}
               </template>
             </el-table-column>
-            <el-table-column label="使用率" width="120" align="center">
+            <el-table-column :label="$t('admin.traffic.usageRate')" width="120" align="center">
               <template #default="{ row }">
                 <el-progress
                   :percentage="Math.min(row.usage_percent || 0, 100)"
@@ -163,23 +163,23 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column label="状态" width="100" align="center">
+            <el-table-column :label="$t('common.status')" width="100" align="center">
               <template #default="{ row }">
                 <el-tag 
                   :type="row.is_limited ? 'danger' : 'success'"
                   size="small"
                 >
-                  {{ row.is_limited ? '已限制' : '正常' }}
+                  {{ row.is_limited ? $t('admin.traffic.limitedStatus') : $t('common.normal') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column label="操作" width="280" align="center">
+            <el-table-column :label="$t('common.actions')" width="280" align="center">
               <template #default="{ row }">
                 <el-button
                   size="small"
                   @click="viewUserTraffic(row.user_id)"
                 >
-                  查看详情
+                  {{ $t('admin.traffic.viewDetails') }}
                 </el-button>
                 <el-button
                   size="small"
@@ -187,7 +187,7 @@
                   :loading="syncingUsers.includes(row.user_id)"
                   @click="syncUserTrafficData(row.user_id)"
                 >
-                  同步流量
+                  {{ $t('admin.traffic.syncTraffic') }}
                 </el-button>
                 <el-button
                   v-if="!row.is_limited"
@@ -195,7 +195,7 @@
                   type="warning"
                   @click="limitUser(row)"
                 >
-                  限制流量
+                  {{ $t('admin.traffic.limitTraffic') }}
                 </el-button>
                 <el-button
                   v-else
@@ -203,7 +203,7 @@
                   type="success"
                   @click="unlimitUser(row)"
                 >
-                  解除限制
+                  {{ $t('admin.traffic.removeLimit') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -211,7 +211,7 @@
         </div>
 
         <div v-else class="empty-state">
-          <el-empty description="暂无流量数据" />
+          <el-empty :description="$t('admin.traffic.noTrafficData')" />
         </div>
       </el-card>
     </div>
@@ -219,7 +219,7 @@
     <!-- 用户流量详情对话框 -->
     <el-dialog
       v-model="userTrafficDialogVisible"
-      title="用户流量详情"
+      :title="$t('admin.traffic.userTrafficDetails')"
       width="600px"
     >
       <div v-if="userTrafficLoading" class="loading-container">
@@ -228,22 +228,22 @@
 
       <div v-else-if="selectedUserTraffic" class="user-traffic-detail">
         <el-descriptions :column="2" border>
-          <el-descriptions-item label="用户ID">{{ selectedUserTraffic.user_id }}</el-descriptions-item>
-          <el-descriptions-item label="数据源">
-            <el-tag type="success">vnStat实时数据</el-tag>
+          <el-descriptions-item :label="$t('admin.traffic.userId')">{{ selectedUserTraffic.user_id }}</el-descriptions-item>
+          <el-descriptions-item :label="$t('admin.traffic.dataSource')">
+            <el-tag type="success">{{ $t('admin.traffic.vnstatRealtime') }}</el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="本月使用">
+          <el-descriptions-item :label="$t('admin.traffic.monthlyUsage')">
             {{ selectedUserTraffic.formatted?.current_usage || formatTrafficMB(selectedUserTraffic.current_month_usage) }}
           </el-descriptions-item>
-          <el-descriptions-item label="总限额">
+          <el-descriptions-item :label="$t('admin.traffic.totalLimit')">
             {{ selectedUserTraffic.formatted?.total_limit || formatTrafficMB(selectedUserTraffic.total_limit) }}
           </el-descriptions-item>
-          <el-descriptions-item label="使用率">
+          <el-descriptions-item :label="$t('admin.traffic.usageRate')">
             {{ (selectedUserTraffic.usage_percent || 0).toFixed(2) }}%
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
+          <el-descriptions-item :label="$t('common.status')">
             <el-tag :type="selectedUserTraffic.is_limited ? 'danger' : 'success'">
-              {{ selectedUserTraffic.is_limited ? '已限制' : '正常' }}
+              {{ selectedUserTraffic.is_limited ? $t('admin.traffic.limitedStatus') : $t('common.normal') }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -251,7 +251,7 @@
         <div v-if="selectedUserTraffic.reset_time" style="margin-top: 15px;">
           <el-text type="info" size="small">
             <el-icon><Clock /></el-icon>
-            流量重置时间: {{ formatDate(selectedUserTraffic.reset_time) }}
+            {{ $t('admin.traffic.trafficResetTime') }}: {{ formatDate(selectedUserTraffic.reset_time) }}
           </el-text>
         </div>
       </div>
@@ -263,9 +263,9 @@
             :loading="syncingUserDetail"
             @click="syncUserTrafficFromDetail"
           >
-            立即同步
+            {{ $t('admin.traffic.syncNow') }}
           </el-button>
-          <el-button @click="userTrafficDialogVisible = false">关闭</el-button>
+          <el-button @click="userTrafficDialogVisible = false">{{ $t('common.close') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -273,7 +273,7 @@
     <!-- 流量限制对话框 -->
     <el-dialog
       v-model="limitDialogVisible"
-      :title="limitAction === 'limit' ? '限制用户流量' : '解除流量限制'"
+      :title="limitAction === 'limit' ? $t('admin.traffic.limitUserTraffic') : $t('admin.traffic.removeLimitTitle')"
       width="400px"
     >
       <el-form
@@ -282,28 +282,28 @@
         :rules="limitFormRules"
         label-width="80px"
       >
-        <el-form-item label="用户">
+        <el-form-item :label="$t('common.user')">
           <el-text>{{ selectedUser?.username }} ({{ selectedUser?.email }})</el-text>
         </el-form-item>
-        <el-form-item v-if="limitAction === 'limit'" label="限制原因" prop="reason">
+        <el-form-item v-if="limitAction === 'limit'" :label="$t('admin.traffic.limitReason')" prop="reason">
           <el-input
             v-model="limitForm.reason"
             type="textarea"
             :rows="3"
-            placeholder="请输入限制原因"
+            :placeholder="$t('admin.traffic.enterLimitReason')"
           />
         </el-form-item>
       </el-form>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="limitDialogVisible = false">取消</el-button>
+          <el-button @click="limitDialogVisible = false">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="limitSubmitting"
             @click="submitLimitAction"
           >
-            确认{{ limitAction === 'limit' ? '限制' : '解除' }}
+            {{ $t('common.confirm') }}{{ limitAction === 'limit' ? $t('admin.traffic.limit') : $t('admin.traffic.remove') }}
           </el-button>
         </span>
       </template>
@@ -327,6 +327,9 @@ import {
   syncUserTraffic,
   syncAllTraffic
 } from '@/api/admin'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 // 响应式数据
 const overviewLoading = ref(false)
@@ -354,8 +357,8 @@ const limitForm = reactive({
 
 const limitFormRules = {
   reason: [
-    { required: true, message: '请输入限制原因', trigger: 'blur' },
-    { min: 5, message: '限制原因至少5个字符', trigger: 'blur' }
+    { required: true, message: () => t('admin.traffic.enterLimitReason'), trigger: 'blur' },
+    { min: 5, message: () => t('admin.traffic.limitReasonMinLength'), trigger: 'blur' }
   ]
 }
 
@@ -367,11 +370,11 @@ const loadSystemOverview = async () => {
     if (response.code === 0) {
       systemOverview.value = response.data
     } else {
-      ElMessage.error(`获取系统概览失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.loadOverviewFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('获取系统概览失败:', error)
-    ElMessage.error('获取系统概览失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.loadOverviewError'))
   } finally {
     overviewLoading.value = false
   }
@@ -385,11 +388,11 @@ const loadTrafficRanking = async () => {
     if (response.code === 0) {
       trafficRanking.value = response.data.rankings || []
     } else {
-      ElMessage.error(`获取流量排行榜失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.loadRankingFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('获取流量排行榜失败:', error)
-    ElMessage.error('获取流量排行榜失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.loadRankingError'))
   } finally {
     rankingLoading.value = false
   }
@@ -404,12 +407,12 @@ const viewUserTraffic = async (userId) => {
     if (response.code === 0) {
       selectedUserTraffic.value = response.data
     } else {
-      ElMessage.error(`获取用户流量详情失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.loadUserDetailsFailed')}: ${response.msg}`)
       userTrafficDialogVisible.value = false
     }
   } catch (error) {
     console.error('获取用户流量详情失败:', error)
-    ElMessage.error('获取用户流量详情失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.loadUserDetailsError'))
     userTrafficDialogVisible.value = false
   } finally {
     userTrafficLoading.value = false
@@ -436,7 +439,7 @@ const submitLimitAction = async () => {
   if (limitAction.value === 'limit') {
     // 验证表单
     if (!limitForm.reason.trim()) {
-      ElMessage.error('请输入限制原因')
+      ElMessage.error(t('admin.traffic.enterLimitReason'))
       return
     }
   }
@@ -452,7 +455,7 @@ const submitLimitAction = async () => {
 
     const response = await manageTrafficLimits(data)
     if (response.code === 0) {
-      ElMessage.success(`${limitAction.value === 'limit' ? '限制' : '解除限制'}成功`)
+      ElMessage.success(t('admin.traffic.limitActionSuccess', { action: limitAction.value === 'limit' ? t('admin.traffic.limit') : t('admin.traffic.remove') }))
       limitDialogVisible.value = false
       
       // 更新列表中的状态
@@ -461,11 +464,11 @@ const submitLimitAction = async () => {
         trafficRanking.value[userIndex].is_limited = limitAction.value === 'limit'
       }
     } else {
-      ElMessage.error(`操作失败: ${response.msg}`)
+      ElMessage.error(`${t('message.operationFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('操作失败:', error)
-    ElMessage.error('操作失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.operationError'))
   } finally {
     limitSubmitting.value = false
   }
@@ -482,18 +485,18 @@ const syncUserTrafficData = async (userId) => {
   try {
     const response = await syncUserTraffic(userId)
     if (response.code === 0) {
-      ElMessage.success('流量同步已触发，数据将在后台更新')
+      ElMessage.success(t('admin.traffic.syncTriggered'))
       
       // 3秒后刷新排行榜数据
       setTimeout(() => {
         loadTrafficRanking()
       }, 3000)
     } else {
-      ElMessage.error(`同步失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('同步用户流量失败:', error)
-    ElMessage.error('同步失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.syncError'))
   } finally {
     // 从同步中列表移除
     const index = syncingUsers.value.indexOf(userId)
@@ -513,7 +516,7 @@ const syncUserTrafficFromDetail = async () => {
   try {
     const response = await syncUserTraffic(selectedUserTraffic.value.user_id)
     if (response.code === 0) {
-      ElMessage.success('流量同步已触发，数据将在后台更新')
+      ElMessage.success(t('admin.traffic.syncTriggered'))
       
       // 3秒后重新获取用户详情
       setTimeout(async () => {
@@ -521,11 +524,11 @@ const syncUserTrafficFromDetail = async () => {
         loadTrafficRanking() // 同时刷新列表
       }, 3000)
     } else {
-      ElMessage.error(`同步失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('同步用户流量失败:', error)
-    ElMessage.error('同步失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.syncError'))
   } finally {
     syncingUserDetail.value = false
   }
@@ -537,7 +540,7 @@ const syncAllTrafficData = async () => {
   try {
     const response = await syncAllTraffic()
     if (response.code === 0) {
-      ElMessage.success('全系统流量同步已触发，数据将在后台更新')
+      ElMessage.success(t('admin.traffic.syncAllTriggered'))
       
       // 5秒后刷新概览和排行榜数据
       setTimeout(() => {
@@ -545,11 +548,11 @@ const syncAllTrafficData = async () => {
         loadTrafficRanking()
       }, 5000)
     } else {
-      ElMessage.error(`同步失败: ${response.msg}`)
+      ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('同步全部流量失败:', error)
-    ElMessage.error('同步失败，请稍后重试')
+    ElMessage.error(t('admin.traffic.syncError'))
   } finally {
     syncingAllTraffic.value = false
   }

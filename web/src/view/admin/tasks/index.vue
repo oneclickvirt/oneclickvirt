@@ -1,8 +1,8 @@
 <template>
   <div class="admin-tasks">
     <div class="page-header">
-      <h1>任务管理</h1>
-      <p>管理所有用户的任务，可强制停止运行中的任务</p>
+      <h1>{{ $t('admin.tasks.title') }}</h1>
+      <p>{{ $t('admin.tasks.subtitle') }}</p>
     </div>
 
     <!-- 统计卡片 -->
@@ -15,7 +15,7 @@
                 {{ stats.totalTasks }}
               </div>
               <div class="stat-label">
-                总任务数
+                {{ $t('admin.tasks.totalTasks') }}
               </div>
             </div>
           </el-card>
@@ -27,7 +27,7 @@
                 {{ stats.pendingTasks }}
               </div>
               <div class="stat-label">
-                等待中
+                {{ $t('admin.tasks.pendingTasks') }}
               </div>
             </div>
           </el-card>
@@ -39,7 +39,7 @@
                 {{ stats.runningTasks }}
               </div>
               <div class="stat-label">
-                执行中
+                {{ $t('admin.tasks.runningTasks') }}
               </div>
             </div>
           </el-card>
@@ -51,7 +51,7 @@
                 {{ stats.completedTasks }}
               </div>
               <div class="stat-label">
-                已完成
+                {{ $t('admin.tasks.completedTasks') }}
               </div>
             </div>
           </el-card>
@@ -63,7 +63,7 @@
                 {{ stats.failedTasks }}
               </div>
               <div class="stat-label">
-                失败
+                {{ $t('admin.tasks.failedTasks') }}
               </div>
             </div>
           </el-card>
@@ -75,7 +75,7 @@
                 {{ stats.timeoutTasks }}
               </div>
               <div class="stat-label">
-                超时
+                {{ $t('admin.tasks.timeoutTasks') }}
               </div>
             </div>
           </el-card>
@@ -93,7 +93,7 @@
         <el-form-item>
           <el-input
             v-model="filterForm.username"
-            placeholder="输入用户名"
+            :placeholder="$t('admin.tasks.enterUsername')"
             clearable
             style="width: 120px"
           />
@@ -101,7 +101,7 @@
         <el-form-item>
           <el-select
             v-model="filterForm.providerId"
-            placeholder="选择节点"
+            :placeholder="$t('admin.tasks.selectProvider')"
             clearable
             style="width: 150px"
           >
@@ -116,32 +116,32 @@
         <el-form-item>
           <el-select
             v-model="filterForm.taskType"
-            placeholder="选择任务类型"
+            :placeholder="$t('admin.tasks.selectTaskType')"
             clearable
             style="width: 120px"
           >
             <el-option
-              label="创建实例"
+              :label="$t('admin.tasks.taskTypeCreate')"
               value="create"
             />
             <el-option
-              label="启动实例"
+              :label="$t('admin.tasks.taskTypeStart')"
               value="start"
             />
             <el-option
-              label="停止实例"
+              :label="$t('admin.tasks.taskTypeStop')"
               value="stop"
             />
             <el-option
-              label="重启实例"
+              :label="$t('admin.tasks.taskTypeRestart')"
               value="restart"
             />
             <el-option
-              label="重置系统"
+              :label="$t('admin.tasks.taskTypeReset')"
               value="reset"
             />
             <el-option
-              label="删除实例"
+              :label="$t('admin.tasks.taskTypeDelete')"
               value="delete"
             />
           </el-select>
@@ -149,40 +149,40 @@
         <el-form-item>
           <el-select
             v-model="filterForm.status"
-            placeholder="选择状态"
+            :placeholder="$t('admin.tasks.selectStatus')"
             clearable
             style="width: 120px"
           >
             <el-option
-              label="等待中"
+              :label="$t('admin.tasks.statusPending')"
               value="pending"
             />
             <el-option
-              label="处理中"
+              :label="$t('admin.tasks.statusProcessing')"
               value="processing"
             />
             <el-option
-              label="执行中"
+              :label="$t('admin.tasks.statusRunning')"
               value="running"
             />
             <el-option
-              label="已完成"
+              :label="$t('admin.tasks.statusCompleted')"
               value="completed"
             />
             <el-option
-              label="失败"
+              :label="$t('admin.tasks.statusFailed')"
               value="failed"
             />
             <el-option
-              label="已取消"
+              :label="$t('admin.tasks.statusCancelled')"
               value="cancelled"
             />
             <el-option
-              label="取消中"
+              :label="$t('admin.tasks.statusCancelling')"
               value="cancelling"
             />
             <el-option
-              label="超时"
+              :label="$t('admin.tasks.statusTimeout')"
               value="timeout"
             />
           </el-select>
@@ -190,16 +190,16 @@
         <el-form-item>
           <el-select
             v-model="filterForm.instanceType"
-            placeholder="选择实例类型"
+            :placeholder="$t('admin.tasks.selectInstanceType')"
             clearable
             style="width: 120px"
           >
             <el-option
-              label="容器"
+              :label="$t('admin.instances.typeContainer')"
               value="container"
             />
             <el-option
-              label="虚拟机"
+              :label="$t('admin.instances.typeVM')"
               value="vm"
             />
           </el-select>
@@ -209,17 +209,17 @@
             type="primary"
             @click="loadTasks"
           >
-            筛选
+            {{ $t('common.filter') }}
           </el-button>
           <el-button @click="resetFilter">
-            重置
+            {{ $t('common.reset') }}
           </el-button>
           <el-button 
             :loading="loading"
             @click="loadTasks"
           >
             <el-icon><Refresh /></el-icon>
-            刷新
+            {{ $t('common.refresh') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -245,13 +245,13 @@
         />
         <el-table-column
           prop="userName"
-          label="用户"
+          :label="$t('common.user')"
           width="140"
           show-overflow-tooltip
         />
         <el-table-column
           prop="taskType"
-          label="任务类型"
+          :label="$t('admin.tasks.taskType')"
           width="120"
           align="center"
         >
@@ -263,7 +263,7 @@
         </el-table-column>
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="110"
           align="center"
         >
@@ -278,7 +278,7 @@
         </el-table-column>
         <el-table-column
           prop="progress"
-          label="进度"
+          :label="$t('admin.tasks.progress')"
           width="140"
           align="center"
         >
@@ -294,13 +294,13 @@
         </el-table-column>
         <el-table-column
           prop="providerName"
-          label="节点"
+          :label="$t('admin.tasks.provider')"
           width="140"
           show-overflow-tooltip
         />
         <el-table-column
           prop="instanceName"
-          label="实例"
+          :label="$t('admin.tasks.instance')"
           min-width="180"
         >
           <template #default="{ row }">
@@ -311,7 +311,7 @@
                 size="small"
                 :type="row.instanceType === 'vm' ? 'warning' : 'info'"
               >
-                {{ row.instanceType === 'vm' ? '虚拟机' : '容器' }}
+                {{ row.instanceType === 'vm' ? $t('admin.instances.typeVM') : $t('admin.instances.typeContainer') }}
               </el-tag>
             </div>
             <span
@@ -322,7 +322,7 @@
         </el-table-column>
         <el-table-column
           prop="createdAt"
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="180"
           align="center"
           sortable
@@ -333,7 +333,7 @@
         </el-table-column>
         <el-table-column
           prop="remainingTime"
-          label="剩余时间"
+          :label="$t('admin.tasks.remainingTime')"
           width="110"
           align="center"
         >
@@ -348,7 +348,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="220"
           fixed="right"
           align="center"
@@ -361,7 +361,7 @@
                 size="small"
                 @click="showForceStopDialog(row)"
               >
-                强制停止
+                {{ $t('admin.tasks.forceStop') }}
               </el-button>
               <el-button
                 v-if="row.status === 'pending'"
@@ -369,13 +369,13 @@
                 size="small"
                 @click="cancelTask(row)"
               >
-                取消任务
+                {{ $t('admin.tasks.cancelTask') }}
               </el-button>
               <el-button
                 size="small"
                 @click="viewTaskDetail(row)"
               >
-                详情
+                {{ $t('common.details') }}
               </el-button>
             </div>
           </template>
@@ -399,7 +399,7 @@
     <!-- 强制停止任务对话框 -->
     <el-dialog
       v-model="forceStopDialog.visible"
-      title="强制停止任务"
+      :title="$t('admin.tasks.forceStopTask')"
       width="500px"
     >
       <el-form
@@ -408,37 +408,37 @@
         :rules="forceStopDialog.rules"
         label-width="80px"
       >
-        <el-form-item label="任务信息">
+        <el-form-item :label="$t('admin.tasks.taskInfo')">
           <div class="task-info">
             <p><strong>ID:</strong> {{ forceStopDialog.task?.id }}</p>
-            <p><strong>类型:</strong> {{ getTaskTypeText(forceStopDialog.task?.taskType) }}</p>
-            <p><strong>用户:</strong> {{ forceStopDialog.task?.userName }}</p>
-            <p><strong>实例:</strong> {{ forceStopDialog.task?.instanceName || '-' }}</p>
+            <p><strong>{{ $t('admin.tasks.taskType') }}:</strong> {{ getTaskTypeText(forceStopDialog.task?.taskType) }}</p>
+            <p><strong>{{ $t('common.user') }}:</strong> {{ forceStopDialog.task?.userName }}</p>
+            <p><strong>{{ $t('admin.tasks.instance') }}:</strong> {{ forceStopDialog.task?.instanceName || '-' }}</p>
           </div>
         </el-form-item>
         <el-form-item 
-          label="停止原因" 
+          :label="$t('admin.tasks.stopReason')" 
           prop="reason"
         >
           <el-input
             v-model="forceStopDialog.form.reason"
             type="textarea"
             :rows="3"
-            placeholder="请输入强制停止的原因"
+            :placeholder="$t('admin.tasks.enterStopReason')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="forceStopDialog.visible = false">
-            取消
+            {{ $t('common.cancel') }}
           </el-button>
           <el-button
             type="danger"
             :loading="forceStopDialog.loading"
             @click="confirmForceStop"
           >
-            强制停止
+            {{ $t('admin.tasks.forceStop') }}
           </el-button>
         </span>
       </template>
@@ -447,7 +447,7 @@
     <!-- 任务详情对话框 -->
     <el-dialog
       v-model="detailDialog.visible"
-      title="任务详情"
+      :title="$t('admin.tasks.taskDetails')"
       width="600px"
     >
       <div
@@ -458,27 +458,27 @@
           :column="2"
           border
         >
-          <el-descriptions-item label="任务ID">
+          <el-descriptions-item :label="$t('admin.tasks.taskId')">
             {{ detailDialog.task.id }}
           </el-descriptions-item>
           <el-descriptions-item label="UUID">
             {{ detailDialog.task.uuid }}
           </el-descriptions-item>
-          <el-descriptions-item label="任务类型">
+          <el-descriptions-item :label="$t('admin.tasks.taskType')">
             {{ getTaskTypeText(detailDialog.task.taskType) }}
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
+          <el-descriptions-item :label="$t('common.status')">
             <el-tag :type="getTaskStatusType(detailDialog.task.status)">
               {{ getTaskStatusText(detailDialog.task.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="用户">
+          <el-descriptions-item :label="$t('common.user')">
             {{ detailDialog.task.userName }} (ID: {{ detailDialog.task.userId }})
           </el-descriptions-item>
-          <el-descriptions-item label="节点">
+          <el-descriptions-item :label="$t('admin.tasks.provider')">
             {{ detailDialog.task.providerName }}
           </el-descriptions-item>
-          <el-descriptions-item label="实例">
+          <el-descriptions-item :label="$t('admin.tasks.instance')">
             <div v-if="detailDialog.task.instanceName">
               {{ detailDialog.task.instanceName }}
               <el-tag
@@ -486,12 +486,12 @@
                 size="mini"
                 :type="detailDialog.task.instanceType === 'vm' ? 'warning' : 'info'"
               >
-                {{ detailDialog.task.instanceType === 'vm' ? '虚拟机' : '容器' }}
+                {{ detailDialog.task.instanceType === 'vm' ? $t('admin.instances.typeVM') : $t('admin.instances.typeContainer') }}
               </el-tag>
             </div>
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item label="进度">
+          <el-descriptions-item :label="$t('admin.tasks.progress')">
             <el-progress
               v-if="detailDialog.task.status === 'running' || detailDialog.task.status === 'processing'"
               :percentage="detailDialog.task.progress"
@@ -499,36 +499,36 @@
             />
             <span v-else>-</span>
           </el-descriptions-item>
-          <el-descriptions-item label="超时时间">
+          <el-descriptions-item :label="$t('admin.tasks.timeoutDuration')">
             {{ formatDuration(detailDialog.task.timeoutDuration) }}
           </el-descriptions-item>
-          <el-descriptions-item label="剩余时间">
+          <el-descriptions-item :label="$t('admin.tasks.remainingTime')">
             <span v-if="detailDialog.task.status === 'running' && detailDialog.task.remainingTime > 0">
               {{ formatDuration(detailDialog.task.remainingTime) }}
             </span>
             <span v-else>-</span>
           </el-descriptions-item>
           <el-descriptions-item
-            label="创建时间"
+            :label="$t('common.createTime')"
             :span="2"
           >
             {{ formatDateTime(detailDialog.task.createdAt) }}
           </el-descriptions-item>
           <el-descriptions-item
-            label="开始时间"
+            :label="$t('admin.tasks.startTime')"
             :span="2"
           >
             {{ detailDialog.task.startedAt ? formatDateTime(detailDialog.task.startedAt) : '-' }}
           </el-descriptions-item>
           <el-descriptions-item
-            label="完成时间"
+            :label="$t('admin.tasks.completionTime')"
             :span="2"
           >
             {{ detailDialog.task.completedAt ? formatDateTime(detailDialog.task.completedAt) : '-' }}
           </el-descriptions-item>
           <el-descriptions-item
             v-if="detailDialog.task.errorMessage"
-            label="错误信息"
+            :label="$t('admin.tasks.errorMessage')"
             :span="2"
           >
             <el-text type="danger">
@@ -537,7 +537,7 @@
           </el-descriptions-item>
           <el-descriptions-item
             v-if="detailDialog.task.cancelReason"
-            label="取消原因"
+            :label="$t('admin.tasks.cancelReason')"
             :span="2"
           >
             <el-text type="warning">
@@ -546,7 +546,7 @@
           </el-descriptions-item>
           <el-descriptions-item
             v-if="detailDialog.task.statusMessage"
-            label="状态信息"
+            :label="$t('admin.tasks.statusMessage')"
             :span="2"
           >
             {{ detailDialog.task.statusMessage }}
@@ -563,6 +563,9 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { getAdminTasks, forceStopTask, getTaskStats, getTaskOverallStats, cancelUserTaskByAdmin } from '@/api/admin'
 import { getProviderList } from '@/api/admin'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const loading = ref(false)
 const tasks = ref([])
@@ -600,7 +603,7 @@ const forceStopDialog = reactive({
   },
   rules: {
     reason: [
-      { required: true, message: '请输入停止原因', trigger: 'blur' }
+      { required: true, message: () => t('admin.tasks.enterStopReason'), trigger: 'blur' }
     ]
   }
 })
@@ -627,11 +630,11 @@ const loadTasks = async () => {
       tasks.value = response.data.list || []
       total.value = response.data.total || 0
     } else {
-      ElMessage.error(response.message || '获取任务列表失败')
+      ElMessage.error(response.message || t('admin.tasks.loadFailed'))
     }
   } catch (error) {
     console.error('获取任务列表失败:', error)
-    ElMessage.error('获取任务列表失败')
+    ElMessage.error(t('admin.tasks.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -696,16 +699,16 @@ const confirmForceStop = async () => {
       })
 
       if (response.code === 0 || response.code === 200) {
-        ElMessage.success('任务已强制停止')
+        ElMessage.success(t('admin.tasks.forceStopSuccess'))
         forceStopDialog.visible = false
         loadTasks()
         loadStats()
       } else {
-        ElMessage.error(response.message || '操作失败')
+        ElMessage.error(response.message || t('message.operationFailed'))
       }
     } catch (error) {
       console.error('强制停止任务失败:', error)
-      ElMessage.error('操作失败')
+      ElMessage.error(t('message.operationFailed'))
     } finally {
       forceStopDialog.loading = false
     }
@@ -716,27 +719,27 @@ const confirmForceStop = async () => {
 const cancelTask = async (task) => {
   try {
     await ElMessageBox.confirm(
-      `确定要取消任务 "${getTaskTypeText(task.taskType)}" 吗？`,
-      '确认取消',
+      t('admin.tasks.cancelTaskConfirm', { taskType: getTaskTypeText(task.taskType) }),
+      t('admin.tasks.confirmCancel'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
 
     const response = await cancelUserTaskByAdmin(task.id)
     if (response.code === 0 || response.code === 200) {
-      ElMessage.success('任务已取消')
+      ElMessage.success(t('admin.tasks.cancelSuccess'))
       loadTasks()
       loadStats()
     } else {
-      ElMessage.error(response.message || '操作失败')
+      ElMessage.error(response.message || t('message.operationFailed'))
     }
   } catch (error) {
     if (error !== 'cancel') {
       console.error('取消任务失败:', error)
-      ElMessage.error('操作失败')
+      ElMessage.error(t('message.operationFailed'))
     }
   }
 }
@@ -750,15 +753,15 @@ const viewTaskDetail = (task) => {
 // 获取任务类型文本
 const getTaskTypeText = (type) => {
   const typeMap = {
-    'create': '创建实例',
-    'start': '启动实例',
-    'stop': '停止实例',
-    'restart': '重启实例',
-    'reset': '重置系统',
-    'delete': '删除实例',
-    'reset-password': '重置密码',
-    'create-port-mapping': '创建端口映射',
-    'delete-port-mapping': '删除端口映射'
+    'create': t('admin.tasks.taskTypeCreate'),
+    'start': t('admin.tasks.taskTypeStart'),
+    'stop': t('admin.tasks.taskTypeStop'),
+    'restart': t('admin.tasks.taskTypeRestart'),
+    'reset': t('admin.tasks.taskTypeReset'),
+    'delete': t('admin.tasks.taskTypeDelete'),
+    'reset-password': t('admin.tasks.taskTypeResetPassword'),
+    'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
+    'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping')
   }
   return typeMap[type] || type
 }
@@ -781,14 +784,14 @@ const getTaskStatusType = (status) => {
 // 获取任务状态文本
 const getTaskStatusText = (status) => {
   const statusMap = {
-    'pending': '等待中',
-    'processing': '处理中',
-    'running': '执行中',
-    'completed': '已完成',
-    'failed': '失败',
-    'cancelled': '已取消',
-    'cancelling': '取消中',
-    'timeout': '超时'
+    'pending': t('admin.tasks.statusPending'),
+    'processing': t('admin.tasks.statusProcessing'),
+    'running': t('admin.tasks.statusRunning'),
+    'completed': t('admin.tasks.statusCompleted'),
+    'failed': t('admin.tasks.statusFailed'),
+    'cancelled': t('admin.tasks.statusCancelled'),
+    'cancelling': t('admin.tasks.statusCancelling'),
+    'timeout': t('admin.tasks.statusTimeout')
   }
   return statusMap[status] || status
 }

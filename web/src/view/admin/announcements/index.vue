@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>公告管理</span>
+          <span>{{ $t('admin.announcements.title') }}</span>
           <div class="header-actions">
             <el-button 
               v-if="selectedRows.length > 0" 
@@ -11,7 +11,7 @@
               :disabled="selectedRows.length === 0"
               @click="handleBatchDelete"
             >
-              批量删除 ({{ selectedRows.length }})
+              {{ $t('admin.announcements.batchDelete') }} ({{ selectedRows.length }})
             </el-button>
             <el-button 
               v-if="selectedRows.length > 0" 
@@ -20,13 +20,13 @@
               :loading="batchUpdating"
               @click="handleBatchToggleStatus"
             >
-              批量切换状态 ({{ selectedRows.length }})
+              {{ $t('admin.announcements.batchToggleStatus') }} ({{ selectedRows.length }})
             </el-button>
             <el-button
               type="primary"
               @click="addAnnouncement"
             >
-              添加公告
+              {{ $t('admin.announcements.addAnnouncement') }}
             </el-button>
           </div>
         </div>
@@ -41,20 +41,20 @@
           <el-col :span="6">
             <el-select
               v-model="filterType"
-              placeholder="选择公告类型"
+              :placeholder="$t('admin.announcements.selectType')"
               clearable
               @change="loadAnnouncements"
             >
               <el-option
-                label="全部"
+                :label="$t('admin.announcements.all')"
                 value=""
               />
               <el-option
-                label="首页公告"
+                :label="$t('admin.announcements.homepageAnnouncement')"
                 value="homepage"
               />
               <el-option
-                label="顶部栏公告"
+                :label="$t('admin.announcements.topbarAnnouncement')"
                 value="topbar"
               />
             </el-select>
@@ -62,20 +62,20 @@
           <el-col :span="6">
             <el-select
               v-model="filterStatus"
-              placeholder="选择状态"
+              :placeholder="$t('admin.announcements.selectStatus')"
               clearable
               @change="loadAnnouncements"
             >
               <el-option
-                label="全部"
+                :label="$t('admin.announcements.all')"
                 :value="null"
               />
               <el-option
-                label="启用"
+                :label="$t('common.enabled')"
                 :value="1"
               />
               <el-option
-                label="禁用"
+                :label="$t('common.disabled')"
                 :value="0"
               />
             </el-select>
@@ -83,7 +83,7 @@
           <el-col :span="6">
             <el-input 
               v-model="filterTitle" 
-              placeholder="搜索标题" 
+              :placeholder="$t('admin.announcements.searchTitle')" 
               clearable 
               @clear="loadAnnouncements"
               @keyup.enter="loadAnnouncements"
@@ -98,7 +98,7 @@
           </el-col>
           <el-col :span="6">
             <el-button @click="resetFilters">
-              重置筛选
+              {{ $t('admin.announcements.resetFilters') }}
             </el-button>
           </el-col>
         </el-row>
@@ -116,28 +116,28 @@
         />
         <el-table-column
           prop="title"
-          label="标题"
+          :label="$t('admin.announcements.announcementTitle')"
           width="200"
         />
         <el-table-column
           prop="type"
-          label="类型"
+          :label="$t('common.name')"
           width="120"
         >
           <template #default="scope">
             <el-tag :type="scope.row.type === 'homepage' ? 'success' : 'warning'">
-              {{ scope.row.type === 'homepage' ? '首页公告' : '顶部栏公告' }}
+              {{ scope.row.type === 'homepage' ? $t('admin.announcements.homepage') : $t('admin.announcements.topbar') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="priority"
-          label="优先级"
+          :label="$t('admin.announcements.priority')"
           width="80"
         />
         <el-table-column
           prop="isSticky"
-          label="置顶"
+          :label="$t('admin.announcements.isSticky')"
           width="80"
         >
           <template #default="scope">
@@ -145,13 +145,13 @@
               :type="scope.row.isSticky ? 'danger' : 'info'"
               size="small"
             >
-              {{ scope.row.isSticky ? '是' : '否' }}
+              {{ scope.row.isSticky ? $t('common.yes') : $t('common.no') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="80"
         >
           <template #default="scope">
@@ -159,18 +159,18 @@
               :type="scope.row.status === 1 ? 'success' : 'danger'"
               size="small"
             >
-              {{ scope.row.status === 1 ? '启用' : '禁用' }}
+              {{ scope.row.status === 1 ? $t('common.enabled') : $t('common.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="content"
-          label="内容"
+          :label="$t('admin.announcements.content')"
           show-overflow-tooltip
         />
         <el-table-column
           prop="createdAt"
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="160"
         >
           <template #default="scope">
@@ -178,7 +178,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="200"
           fixed="right"
         >
@@ -187,21 +187,21 @@
               size="small"
               @click="editAnnouncement(scope.row)"
             >
-              编辑
+              {{ $t('common.edit') }}
             </el-button>
             <el-button 
               size="small" 
               :type="scope.row.status === 1 ? 'warning' : 'success'"
               @click="toggleAnnouncementStatus(scope.row)"
             >
-              {{ scope.row.status === 1 ? '禁用' : '启用' }}
+              {{ scope.row.status === 1 ? $t('common.disable') : $t('common.enable') }}
             </el-button>
             <el-button
               size="small"
               type="danger"
               @click="deleteAnnouncementHandler(scope.row.id)"
             >
-              删除
+              {{ $t('common.delete') }}
             </el-button>
           </template>
         </el-table-column>
@@ -211,7 +211,7 @@
     <!-- 添加/编辑公告对话框 -->
     <el-dialog 
       v-model="showAddDialog" 
-      :title="isEditing ? '编辑公告' : '添加公告'" 
+      :title="isEditing ? $t('admin.announcements.editAnnouncement') : $t('admin.announcements.addAnnouncement')" 
       width="800px"
       :append-to-body="true"
       class="announcement-dialog"
@@ -228,31 +228,31 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="公告标题"
+              :label="$t('admin.announcements.title')"
               prop="title"
             >
               <el-input
                 v-model="form.title"
-                placeholder="请输入公告标题"
+                :placeholder="$t('admin.announcements.titlePlaceholder')"
               />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="公告类型"
+              :label="$t('admin.announcements.type')"
               prop="type"
             >
               <el-select
                 v-model="form.type"
-                placeholder="请选择公告类型"
+                :placeholder="$t('admin.announcements.typePlaceholder')"
                 style="width: 100%"
               >
                 <el-option
-                  label="首页公告"
+                  :label="$t('admin.announcements.typeHomepage')"
                   value="homepage"
                 />
                 <el-option
-                  label="顶部栏公告"
+                  :label="$t('admin.announcements.typeTopbar')"
                   value="topbar"
                 />
               </el-select>
@@ -262,35 +262,36 @@
         
         <el-row :gutter="20">
           <el-col :span="8">
-            <el-form-item label="优先级">
+            <el-form-item :label="$t('admin.announcements.priority')">
               <el-input-number
                 v-model="form.priority"
                 :min="0"
                 :max="100"
+                :controls="false"
                 style="width: 100%"
               />
             </el-form-item>
           </el-col>
           <el-col :span="8">
-            <el-form-item label="是否置顶">
+            <el-form-item :label="$t('admin.announcements.isSticky')">
               <el-switch v-model="form.isSticky" />
             </el-form-item>
           </el-col>
           <el-col :span="8">
             <el-form-item
               v-if="isEditing"
-              label="状态"
+              :label="$t('common.status')"
             >
               <el-select
                 v-model="form.status"
                 style="width: 100%"
               >
                 <el-option
-                  label="启用"
+                  :label="$t('common.enabled')"
                   :value="1"
                 />
                 <el-option
-                  label="禁用"
+                  :label="$t('common.disabled')"
                   :value="0"
                 />
               </el-select>
@@ -299,7 +300,7 @@
         </el-row>
         
         <el-form-item
-          label="公告内容"
+          :label="$t('admin.announcements.content')"
           prop="content"
         >
           <QuillEditor
@@ -317,11 +318,11 @@
           :gutter="20"
         >
           <el-col :span="12">
-            <el-form-item label="开始时间">
+            <el-form-item :label="$t('admin.announcements.startTime')">
               <el-date-picker
                 v-model="startTime"
                 type="datetime"
-                placeholder="选择开始时间"
+                :placeholder="$t('admin.announcements.selectStartTime')"
                 format="YYYY-MM-DD HH:mm:ss"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
@@ -329,11 +330,11 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="结束时间">
+            <el-form-item :label="$t('admin.announcements.endTime')">
               <el-date-picker
                 v-model="endTime"
                 type="datetime"
-                placeholder="选择结束时间"
+                :placeholder="$t('admin.announcements.selectEndTime')"
                 format="YYYY-MM-DD HH:mm:ss"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 style="width: 100%"
@@ -345,14 +346,14 @@
       
       <template #footer>
         <el-button @click="handleDialogClose">
-          取消
+          {{ $t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           :loading="submitting"
           @click="saveAnnouncement"
         >
-          {{ isEditing ? '更新' : '保存' }}
+          {{ isEditing ? $t('common.update') : $t('common.save') }}
         </el-button>
       </template>
     </el-dialog>
@@ -362,9 +363,12 @@
 <script setup>
 import { ref, onMounted, reactive, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnouncement, batchDeleteAnnouncements, batchUpdateAnnouncementStatus } from '@/api/admin'
 import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
+
+const { t } = useI18n()
 
 const announcements = ref([])
 const showAddDialog = ref(false)
@@ -400,13 +404,13 @@ const form = ref({
 // 表单验证规则
 const rules = reactive({
   title: [
-    { required: true, message: '请输入公告标题', trigger: 'blur' }
+    { required: true, message: t('admin.announcements.titleRequired'), trigger: 'blur' }
   ],
   type: [
-    { required: true, message: '请选择公告类型', trigger: 'change' }
+    { required: true, message: t('admin.announcements.typeRequired'), trigger: 'change' }
   ],
   content: [
-    { required: true, message: '请输入公告内容', trigger: 'blur' }
+    { required: true, message: t('admin.announcements.contentRequired'), trigger: 'blur' }
   ]
 })
 
@@ -471,7 +475,7 @@ const loadAnnouncements = async () => {
     const response = await getAnnouncements(params)
     announcements.value = response.data.list || []
   } catch (error) {
-    ElMessage.error('加载公告列表失败')
+    ElMessage.error(t('admin.announcements.loadAnnouncementsFailed'))
     console.error('加载公告列表失败:', error)
   } finally {
     loading.value = false
@@ -524,12 +528,12 @@ const deleteAnnouncementHandler = async (id) => {
       type: 'warning',
     })
     
-    await deleteAnnouncement(id)
-    ElMessage.success('删除成功')
+    await deleteAnnouncement(row.id)
+    ElMessage.success(t('message.deleteSuccess'))
     await loadAnnouncements()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(t('message.deleteFailed'))
     }
   }
 }
@@ -561,10 +565,10 @@ const saveAnnouncement = async () => {
       if (endTime.value) data.endTime = endTime.value
       
       await updateAnnouncement(form.value.id, data)
-      ElMessage.success('更新成功')
+      ElMessage.success(t('message.updateSuccess'))
     } else {
       await createAnnouncement(data)
-      ElMessage.success('创建成功')
+      ElMessage.success(t('message.createSuccess'))
     }
     
     showAddDialog.value = false
@@ -572,7 +576,7 @@ const saveAnnouncement = async () => {
     // 确保对话框关闭后重置表单
     resetForm()
   } catch (error) {
-    ElMessage.error(isEditing.value ? '更新失败' : '创建失败')
+    ElMessage.error(isEditing.value ? t('message.updateFailed') : t('message.createFailed'))
   } finally {
     submitting.value = false
   }
@@ -614,29 +618,29 @@ const handleSelectionChange = (selection) => {
 // 批量删除
 const handleBatchDelete = async () => {
   if (selectedRows.value.length === 0) {
-    ElMessage.warning('请选择要删除的公告')
+    ElMessage.warning(t('admin.announcements.batchDelete'))
     return
   }
   
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${selectedRows.value.length} 条公告吗？`,
-      '批量删除公告',
+      `${t('admin.announcements.confirmBatchDelete')} ${selectedRows.value.length} ${t('admin.announcements.items')}`,
+      t('admin.announcements.batchDeleteTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const ids = selectedRows.value.map(row => row.id)
     await batchDeleteAnnouncements(ids)
-    ElMessage.success('批量删除成功')
+    ElMessage.success(t('message.deleteSuccess'))
     selectedRows.value = []
     await loadAnnouncements()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error(t('message.deleteFailed'))
     }
   }
 }
@@ -644,22 +648,22 @@ const handleBatchDelete = async () => {
 // 批量切换状态
 const handleBatchToggleStatus = async () => {
   if (selectedRows.value.length === 0) {
-    ElMessage.warning('请选择要切换状态的公告')
+    ElMessage.warning(t('admin.announcements.batchToggleStatus'))
     return
   }
 
   // 确定统一的状态：如果选中的所有公告都是启用状态，则全部禁用；否则全部启用
   const allEnabled = selectedRows.value.every(row => row.status === 1)
   const newStatus = allEnabled ? 0 : 1
-  const statusText = newStatus === 1 ? '启用' : '禁用'
+  const statusText = newStatus === 1 ? t('common.enable') : t('common.disable')
   
   try {
     await ElMessageBox.confirm(
-      `确定将选中的 ${selectedRows.value.length} 条公告${statusText}吗？`,
-      '批量状态切换',
+      `${t('admin.announcements.confirmBatchToggle')} ${selectedRows.value.length} ${t('admin.announcements.items')}${statusText}${t('common.question')}`,
+      t('admin.announcements.batchToggleTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
@@ -667,13 +671,13 @@ const handleBatchToggleStatus = async () => {
     batchUpdating.value = true
     const ids = selectedRows.value.map(row => row.id)
     await batchUpdateAnnouncementStatus(ids, newStatus)
-    ElMessage.success(`批量${statusText}成功`)
+    ElMessage.success(t('admin.announcements.batchToggleSuccess'))
     selectedRows.value = []
     await loadAnnouncements()
   } catch (error) {
     console.error('批量状态切换失败:', error)
     if (error !== 'cancel') {
-      ElMessage.error(`批量${statusText}失败`)
+      ElMessage.error(t('admin.announcements.batchToggleFailed'))
     }
   } finally {
     batchUpdating.value = false
@@ -683,25 +687,25 @@ const handleBatchToggleStatus = async () => {
 // 切换单个公告状态
 const toggleAnnouncementStatus = async (announcement) => {
   const newStatus = announcement.status === 1 ? 0 : 1
-  const statusText = newStatus === 1 ? '启用' : '禁用'
+  const statusText = newStatus === 1 ? t('common.enable') : t('common.disable')
   
   try {
     await ElMessageBox.confirm(
-      `确定${statusText}这条公告吗？`,
-      '状态切换',
+      `${t('admin.announcements.confirmToggle')}${statusText}${t('admin.announcements.thisAnnouncement')}${t('common.question')}`,
+      t('admin.announcements.toggleStatusTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await updateAnnouncement(announcement.id, { status: newStatus })
-    ElMessage.success(`${statusText}成功`)
+    ElMessage.success(t('admin.announcements.toggleSuccess'))
     await loadAnnouncements()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`${statusText}失败`)
+      ElMessage.error(t('admin.announcements.toggleFailed'))
     }
   }
 }

@@ -1,36 +1,36 @@
 <template>
   <div class="user-apply">
     <div class="page-header">
-      <h1>申请领取</h1>
-      <p>选择服务器并配置您的虚拟机或容器实例</p>
+      <h1>{{ t('user.apply.title') }}</h1>
+      <p>{{ t('user.apply.subtitle') }}</p>
     </div>
 
     <!-- 用户等级和限制信息 -->
     <el-card class="user-limits-card">
       <template #header>
         <div class="card-header">
-          <span>用户配额信息</span>
+          <span>{{ t('user.apply.userQuotaInfo') }}</span>
         </div>
       </template>
       <div class="limits-grid">
         <div class="limit-item">
-          <span class="label">最大实例数</span>
+          <span class="label">{{ t('user.apply.maxInstances') }}</span>
           <span class="value">{{ userLimits.usedInstances }} / {{ userLimits.maxInstances }}</span>
         </div>
         <div class="limit-item">
-          <span class="label">CPU核心限制</span>
-          <span class="value">{{ userLimits.usedCpu }} / {{ userLimits.maxCpu }}核</span>
+          <span class="label">{{ t('user.apply.cpuCoreLimit') }}</span>
+          <span class="value">{{ userLimits.usedCpu }} / {{ userLimits.maxCpu }}{{ t('user.apply.cores') }}</span>
         </div>
         <div class="limit-item">
-          <span class="label">内存限制</span>
+          <span class="label">{{ t('user.apply.memoryLimit') }}</span>
           <span class="value">{{ formatResourceUsage(userLimits.usedMemory, userLimits.maxMemory, 'memory') }}</span>
         </div>
         <div class="limit-item">
-          <span class="label">硬盘限制</span>
+          <span class="label">{{ t('user.apply.diskLimit') }}</span>
           <span class="value">{{ formatResourceUsage(userLimits.usedDisk, userLimits.maxDisk, 'disk') }}</span>
         </div>
         <div class="limit-item">
-          <span class="label">流量限制</span>
+          <span class="label">{{ t('user.apply.trafficLimit') }}</span>
           <span class="value">{{ formatResourceUsage(userLimits.usedTraffic, userLimits.maxTraffic, 'disk') }}</span>
         </div>
       </div>
@@ -40,13 +40,13 @@
     <el-card class="providers-card">
       <template #header>
         <div class="card-header">
-          <span>选择服务器</span>
+          <span>{{ t('user.apply.selectProvider') }}</span>
           <el-button
             size="small"
             @click="() => loadProviders(true)"
           >
             <el-icon><Refresh /></el-icon>
-            刷新
+            {{ t('user.apply.refresh') }}
           </el-button>
         </div>
       </template>
@@ -79,39 +79,39 @@
                   v-if="provider.countryCode"
                   class="flag-icon"
                 >{{ getFlagEmoji(provider.countryCode) }}</span>
-                位置: {{ formatProviderLocation(provider) }}
+                {{ t('user.apply.location') }}: {{ formatProviderLocation(provider) }}
               </span>
             </div>
             <div class="info-item">
-              <span>CPU: {{ provider.cpu }}核</span>
+              <span>CPU: {{ provider.cpu }}{{ t('user.apply.cores') }}</span>
             </div>
             <div class="info-item">
-              <span>内存: {{ formatMemorySize(provider.memory || 0) }}</span>
+              <span>{{ t('user.apply.memoryLimit') }}: {{ formatMemorySize(provider.memory || 0) }}</span>
             </div>
             <div class="info-item">
-              <span>硬盘: {{ formatDiskSize(provider.disk || 0) }}</span>
+              <span>{{ t('user.apply.diskLimit') }}: {{ formatDiskSize(provider.disk || 0) }}</span>
             </div>
             <div 
               v-if="provider.containerEnabled && provider.vmEnabled"
               class="info-item"
             >
               <span>
-                可用实例: 
-                容器{{ provider.availableContainerSlots === -1 ? '不限制' : provider.availableContainerSlots }} / 
-                虚拟机{{ provider.availableVMSlots === -1 ? '不限制' : provider.availableVMSlots }}
+                {{ t('user.apply.availableInstances') }}: 
+                {{ t('user.apply.container') }}{{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }} / 
+                {{ t('user.apply.vm') }}{{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}
               </span>
             </div>
             <div 
               v-else-if="provider.containerEnabled"
               class="info-item"
             >
-              <span>可用容器: {{ provider.availableContainerSlots === -1 ? '不限制' : provider.availableContainerSlots }}</span>
+              <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }}</span>
             </div>
             <div 
               v-else-if="provider.vmEnabled"
               class="info-item"
             >
-              <span>可用虚拟机: {{ provider.availableVMSlots === -1 ? '不限制' : provider.availableVMSlots }}</span>
+              <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}</span>
             </div>
           </div>
         </div>
@@ -125,7 +125,7 @@
     >
       <template #header>
         <div class="card-header">
-          <span>配置实例 - {{ selectedProvider.name }}</span>
+          <span>{{ t('user.apply.configInstance') }} - {{ selectedProvider.name }}</span>
         </div>
       </template>
       <el-form 
@@ -137,21 +137,21 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="实例类型"
+              :label="t('user.apply.instanceType')"
               prop="type"
             >
               <el-select
                 v-model="configForm.type"
-                placeholder="选择实例类型"
+                :placeholder="t('user.apply.selectInstanceType')"
                 @change="onInstanceTypeChange"
               >
                 <el-option 
-                  label="容器" 
+                  :label="t('user.apply.container')" 
                   value="container" 
                   :disabled="!canCreateInstanceType('container')"
                 />
                 <el-option 
-                  label="虚拟机" 
+                  :label="t('user.apply.vm')" 
                   value="vm" 
                   :disabled="!canCreateInstanceType('vm')"
                 />
@@ -160,12 +160,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="系统镜像"
+              :label="t('user.apply.systemImage')"
               prop="imageId"
             >
               <el-select
                 v-model="configForm.imageId"
-                placeholder="选择系统镜像"
+                :placeholder="t('user.apply.selectSystemImage')"
               >
                 <el-option 
                   v-for="image in availableImages" 
@@ -181,12 +181,12 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="CPU规格"
+              :label="t('user.apply.cpuSpec')"
               prop="cpuId"
             >
               <el-select
                 v-model="configForm.cpuId"
-                placeholder="选择CPU规格"
+                :placeholder="t('user.apply.selectCpuSpec')"
               >
                 <el-option 
                   v-for="cpu in availableCpuSpecs" 
@@ -200,12 +200,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="内存规格"
+              :label="t('user.apply.memorySpec')"
               prop="memoryId"
             >
               <el-select
                 v-model="configForm.memoryId"
-                placeholder="选择内存规格"
+                :placeholder="t('user.apply.selectMemorySpec')"
               >
                 <el-option 
                   v-for="memory in availableMemorySpecs" 
@@ -222,12 +222,12 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="磁盘规格"
+              :label="t('user.apply.diskSpec')"
               prop="diskId"
             >
               <el-select
                 v-model="configForm.diskId"
-                placeholder="选择磁盘规格"
+                :placeholder="t('user.apply.selectDiskSpec')"
               >
                 <el-option 
                   v-for="disk in availableDiskSpecs" 
@@ -241,12 +241,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="带宽规格"
+              :label="t('user.apply.bandwidthSpec')"
               prop="bandwidthId"
             >
               <el-select
                 v-model="configForm.bandwidthId"
-                placeholder="选择带宽规格"
+                :placeholder="t('user.apply.selectBandwidthSpec')"
               >
                 <el-option 
                   v-for="bandwidth in availableBandwidthSpecs" 
@@ -260,12 +260,12 @@
           </el-col>
         </el-row>
 
-        <el-form-item label="备注说明">
+        <el-form-item :label="t('user.apply.remarks')">
           <el-input 
             v-model="configForm.description"
             type="textarea"
             :rows="3"
-            placeholder="请输入备注说明（可选）"
+            :placeholder="t('user.apply.remarksPlaceholder')"
             maxlength="200"
             show-word-limit
           />
@@ -278,7 +278,7 @@
             size="large"
             @click="submitApplication"
           >
-            提交申请
+            {{ t('user.apply.submitApplication') }}
           </el-button>
           <el-button
             size="large"
@@ -293,19 +293,19 @@
     <!-- 空状态 -->
     <el-empty 
       v-if="providers.length === 0 && !loading"
-      description="暂无可用服务器节点"
+      :description="t('user.apply.noProvidersDescription')"
     >
       <template #description>
-        <p>当前没有可用的服务器节点</p>
+        <p>{{ t('user.apply.noProvidersMessage') }}</p>
         <p style="font-size: 12px; color: #909399; margin-top: 8px;">
-          可能原因：节点资源未同步、服务器离线或配置不完整
+          {{ t('user.apply.noProvidersHint') }}
         </p>
       </template>
       <el-button
         type="primary"
         @click="() => loadProviders(true)"
       >
-        刷新
+        {{ t('user.apply.refresh') }}
       </el-button>
     </el-empty>
 
@@ -325,6 +325,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { 
@@ -339,6 +340,7 @@ import {
 import { formatMemorySize, formatDiskSize, formatResourceUsage } from '@/utils/unit-formatter'
 import { getFlagEmoji } from '@/utils/countries'
 
+const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
 
@@ -396,26 +398,26 @@ const configForm = reactive({
   description: ''
 })
 
-const configRules = {
+const configRules = computed(() => ({
   type: [
-    { required: true, message: '请选择实例类型', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectInstanceType'), trigger: 'change' }
   ],
   imageId: [
-    { required: true, message: '请选择系统镜像', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectSystemImage'), trigger: 'change' }
   ],
   cpuId: [
-    { required: true, message: '请选择CPU规格', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectCpuSpec'), trigger: 'change' }
   ],
   memoryId: [
-    { required: true, message: '请选择内存规格', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectMemorySpec'), trigger: 'change' }
   ],
   diskId: [
-    { required: true, message: '请选择磁盘规格', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectDiskSpec'), trigger: 'change' }
   ],
   bandwidthId: [
-    { required: true, message: '请选择带宽规格', trigger: 'change' }
+    { required: true, message: t('user.apply.pleaseSelectBandwidthSpec'), trigger: 'change' }
   ]
-}
+}))
 
 const formRef = ref()
 
@@ -493,12 +495,12 @@ const getProviderStatusType = (status) => {
 const getProviderStatusText = (status) => {
   switch (status) {
     case 'active':
-      return '在线'
+      return t('user.apply.statusActive')
     case 'offline':
     case 'inactive':
-      return '离线'
+      return t('user.apply.statusOffline')
     case 'partial':
-      return '部分在线'
+      return t('user.apply.statusPartial')
     default:
       return status
   }
@@ -575,41 +577,41 @@ const onInstanceTypeChange = async () => {
     // 检查节点是否支持该实例类型
     if (configForm.type === 'container') {
       if (!selectedProvider.value.containerEnabled) {
-        ElMessage.warning('该节点不支持容器类型')
+        ElMessage.warning(t('user.apply.nodeNotSupportContainer'))
         configForm.type = 'vm'
         return
       }
       // 检查容器槽位
       if (selectedProvider.value.availableContainerSlots !== -1 && selectedProvider.value.availableContainerSlots <= 0) {
-        ElMessage.warning('该节点容器槽位不足')
+        ElMessage.warning(t('user.apply.nodeContainerSlotsFull'))
         // 尝试切换到虚拟机
         if (selectedProvider.value.vmEnabled && (selectedProvider.value.availableVMSlots === -1 || selectedProvider.value.availableVMSlots > 0)) {
           configForm.type = 'vm'
-          ElMessage.info('已自动切换到虚拟机类型')
+          ElMessage.info(t('user.apply.autoSwitchToVM'))
         } else {
           // 取消选择该节点
           selectedProvider.value = null
-          ElMessage.warning('该节点资源不足，请选择其他节点')
+          ElMessage.warning(t('user.apply.nodeResourceInsufficient'))
           return
         }
       }
     } else if (configForm.type === 'vm') {
       if (!selectedProvider.value.vmEnabled) {
-        ElMessage.warning('该节点不支持虚拟机类型')
+        ElMessage.warning(t('user.apply.nodeNotSupportVM'))
         configForm.type = 'container'
         return
       }
       // 检查虚拟机槽位
       if (selectedProvider.value.availableVMSlots !== -1 && selectedProvider.value.availableVMSlots <= 0) {
-        ElMessage.warning('该节点虚拟机槽位不足')
+        ElMessage.warning(t('user.apply.nodeVMSlotsFull'))
         // 尝试切换到容器
         if (selectedProvider.value.containerEnabled && (selectedProvider.value.availableContainerSlots === -1 || selectedProvider.value.availableContainerSlots > 0)) {
           configForm.type = 'container'
-          ElMessage.info('已自动切换到容器类型')
+          ElMessage.info(t('user.apply.autoSwitchToContainer'))
         } else {
           // 取消选择该节点
           selectedProvider.value = null
-          ElMessage.warning('该节点资源不足，请选择其他节点')
+          ElMessage.warning(t('user.apply.nodeResourceInsufficient'))
           return
         }
       }
@@ -634,10 +636,10 @@ const loadProviders = async (showSuccessMsg = false) => {
       
       // 如果没有可用的提供商，给出更明确的提示
       if (providers.value.length === 0) {
-        ElMessage.info('当前没有可用的服务器节点，请稍后再试或联系管理员')
+        ElMessage.info(t('user.apply.noProvidersRetry'))
         console.info('没有可用的Provider，可能原因：资源未同步、节点离线或配置不完整')
       } else if (showSuccessMsg) {
-        ElMessage.success(`已刷新，共 ${providers.value.length} 个可用服务器`)
+        ElMessage.success(t('user.apply.refreshedProviders', { count: providers.value.length }))
       }
     } else {
       providers.value = []
@@ -820,34 +822,34 @@ const resetForm = async () => {
 // 提交申请
 const submitApplication = async () => {
   if (!selectedProvider.value) {
-    ElMessage.warning('请先选择服务器')
+    ElMessage.warning(t('user.apply.pleaseSelectProvider'))
     return
   }
 
   // 检查实例类型是否支持
   if (!canCreateInstanceType(configForm.type)) {
-    ElMessage.error('该服务器不支持所选实例类型或用户等级不足')
+    ElMessage.error(t('user.apply.instanceTypeNotSupported'))
     return
   }
 
   // 检查资源规格是否已选择
   if (!configForm.cpuId) {
-    ElMessage.error('请选择CPU规格')
+    ElMessage.error(t('user.apply.pleaseSelectCpuSpec'))
     return
   }
 
   if (!configForm.memoryId) {
-    ElMessage.error('请选择内存规格')
+    ElMessage.error(t('user.apply.pleaseSelectMemorySpec'))
     return
   }
 
   if (!configForm.diskId) {
-    ElMessage.error('请选择磁盘规格')
+    ElMessage.error(t('user.apply.pleaseSelectDiskSpec'))
     return
   }
 
   if (!configForm.bandwidthId) {
-    ElMessage.error('请选择带宽规格')
+    ElMessage.error(t('user.apply.pleaseSelectBandwidthSpec'))
     return
   }
 
@@ -867,30 +869,30 @@ const submitApplication = async () => {
     
     const response = await createInstance(requestData)
     if (response.code === 0 || response.code === 200) {
-      ElMessage.success('实例创建申请已提交，正在后台处理...')
+      ElMessage.success(t('user.apply.instanceCreatedSuccess'))
       // 显示任务信息
       if (response.data && response.data.taskId) {
-        ElMessage.info(`任务ID: ${response.data.taskId}，您可以在任务管理页面查看进度`)
+        ElMessage.info(t('user.apply.taskIdInfo', { taskId: response.data.taskId }))
       }
       // 导航到任务页面
       router.push('/user/tasks')
     } else {
       // 检查是否是重复提交的情况
       if (response.message && response.message.includes('进行中')) {
-        ElMessage.warning('您已有实例创建任务正在进行中，请稍后再试或查看任务页面')
+        ElMessage.warning(t('user.apply.duplicateTaskWarning'))
         router.push('/user/tasks')
       } else {
-        ElMessage.error(response.message || '创建实例失败')
+        ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
       }
     }
   } catch (error) {
     if (error !== false) { // 表单验证失败时error为false
       console.error('提交申请失败:', error)
       if (error.message && error.message.includes('timeout')) {
-        ElMessage.error('请求超时，请稍后重试或查看任务页面')
+        ElMessage.error(t('user.apply.requestTimeout'))
         router.push('/user/tasks')
       } else {
-        ElMessage.error('提交申请失败，请稍后重试')
+        ElMessage.error(t('user.apply.submitFailed'))
       }
     }
   } finally {

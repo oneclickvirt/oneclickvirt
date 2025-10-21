@@ -1,5 +1,31 @@
 <template>
   <div class="register-container">
+    <!-- 顶部栏 -->
+    <header class="auth-header">
+      <div class="header-content">
+        <div class="logo">
+          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <h1>OneClickVirt</h1>
+        </div>
+        <nav class="nav-actions">
+          <button
+            class="nav-link language-btn"
+            @click="switchLanguage"
+          >
+            <el-icon><Operation /></el-icon>
+            {{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}
+          </button>
+          <router-link
+            to="/"
+            class="nav-link home-btn"
+          >
+            <el-icon><HomeFilled /></el-icon>
+            {{ t('common.backToHome') }}
+          </router-link>
+        </nav>
+      </div>
+    </header>
+
     <!-- 注册被禁用的提示 -->
     <div
       v-if="!registrationEnabled"
@@ -13,13 +39,13 @@
           >
             <Warning />
           </el-icon>
-          <h2>注册功能暂时关闭</h2>
-          <p>系统管理员已暂时关闭用户注册功能，请稍后再试。</p>
+          <h2>{{ t('register.disabled.title') }}</h2>
+          <p>{{ t('register.disabled.message') }}</p>
           <el-button
             type="primary"
             @click="router.push('/login')"
           >
-            返回登录
+            {{ t('register.disabled.backToLogin') }}
           </el-button>
         </div>
       </el-card>
@@ -31,35 +57,35 @@
       class="register-form"
     >
       <div class="register-header">
-        <h2>用户注册</h2>
-        <p>创建您的账号</p>
+        <h2>{{ t('register.title') }}</h2>
+        <p>{{ t('register.subtitle') }}</p>
       </div>
 
       <el-form 
         ref="registerFormRef"
         :model="registerForm"
         :rules="registerRules"
-        label-width="80px"
+        :label-width="locale === 'en-US' ? '140px' : '80px'"
         size="large"
       >
         <el-form-item
-          label="用户名"
+          :label="t('register.username')"
           prop="username"
         >
           <el-input 
             v-model="registerForm.username"
-            placeholder="请输入用户名"
+            :placeholder="t('register.pleaseEnterUsername')"
           />
         </el-form-item>
 
         <el-form-item
-          label="密码"
+          :label="t('register.password')"
           prop="password"
         >
           <el-input 
             v-model="registerForm.password"
             type="password"
-            placeholder="请输入密码"
+            :placeholder="t('register.pleaseEnterPassword')"
             show-password
           />
           <div class="password-hint">
@@ -67,31 +93,31 @@
               size="small"
               type="info"
             >
-              密码需要至少8位，包含大写字母、小写字母、数字和特殊字符
+              {{ t('register.passwordHint') }}
             </el-text>
           </div>
         </el-form-item>
 
         <el-form-item
-          label="确认密码"
+          :label="t('register.confirmPassword')"
           prop="confirmPassword"
         >
           <el-input 
             v-model="registerForm.confirmPassword"
             type="password"
-            placeholder="请再次输入密码"
+            :placeholder="t('register.pleaseConfirmPassword')"
             show-password
           />
         </el-form-item>
 
         <el-form-item
-          label="验证码"
+          :label="t('register.captcha')"
           prop="captcha"
         >
           <div class="captcha-container">
             <el-input 
               v-model="registerForm.captcha"
-              placeholder="请输入验证码"
+              :placeholder="t('register.pleaseEnterCaptcha')"
               style="width: 60%"
             />
             <div
@@ -101,13 +127,13 @@
               <img
                 v-if="captchaImage"
                 :src="captchaImage"
-                alt="验证码"
+                :alt="t('login.captchaAlt')"
               >
               <div
                 v-else
                 class="captcha-loading"
               >
-                加载中...
+                {{ t('common.loading') }}
               </div>
             </div>
           </div>
@@ -115,12 +141,12 @@
 
         <el-form-item
           v-if="showInviteCode"
-          label="邀请码"
+          :label="t('register.inviteCode')"
           prop="inviteCode"
         >
           <el-input 
             v-model="registerForm.inviteCode"
-            :placeholder="inviteCodeRequired ? '请输入邀请码（必填）' : '请输入邀请码（可选）'"
+            :placeholder="t('register.pleaseEnterInviteCode')"
           />
         </el-form-item>
 
@@ -131,14 +157,14 @@
             style="width: 100%;"
             @click="handleRegister"
           >
-            注册
+            {{ t('register.registerButton') }}
           </el-button>
         </el-form-item>
 
         <div class="form-footer">
           <p>
-            已有账户？<router-link to="/login">
-              立即登录
+            {{ t('register.hasAccount') }}<router-link to="/login">
+              {{ t('register.loginNow') }}
             </router-link>
           </p>
         </div>
@@ -148,15 +174,20 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { getCaptcha, register } from '@/api/auth'
 import { getRegisterConfig } from '@/api/config'
 import { useErrorHandler } from '@/composables/useErrorHandler'
-import { Warning } from '@element-plus/icons-vue'
+import { Warning, Operation, HomeFilled } from '@element-plus/icons-vue'
+import { ElMessage } from 'element-plus'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const router = useRouter()
+const { t, locale } = useI18n()
 const { executeAsync, handleSubmit } = useErrorHandler()
+const languageStore = useLanguageStore()
 const registerFormRef = ref()
 const loading = ref(false)
 const showInviteCode = ref(false)
@@ -176,7 +207,7 @@ const registerForm = reactive({
 
 const validateConfirmPassword = (rule, value, callback) => {
   if (value !== registerForm.password) {
-    callback(new Error('两次输入的密码不一致'))
+    callback(new Error(t('register.passwordMismatch')))
   } else {
     callback()
   }
@@ -184,32 +215,32 @@ const validateConfirmPassword = (rule, value, callback) => {
 
 const validateInviteCode = (rule, value, callback) => {
   if (inviteCodeRequired.value && (!value || value.trim() === '')) {
-    callback(new Error('请输入邀请码'))
+    callback(new Error(t('register.pleaseEnterInviteCode')))
   } else {
     callback()
   }
 }
 
-const registerRules = reactive({
+const registerRules = computed(() => ({
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
+    { required: true, message: t('register.pleaseEnterUsername'), trigger: 'blur' },
+    { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码长度至少为 8 个字符', trigger: 'blur' }
+    { required: true, message: t('register.pleaseEnterPassword'), trigger: 'blur' },
+    { min: 8, message: t('validation.passwordLength'), trigger: 'blur' }
   ],
   confirmPassword: [
-    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    { required: true, message: t('register.pleaseConfirmPassword'), trigger: 'blur' },
     { validator: validateConfirmPassword, trigger: 'blur' }
   ],
   captcha: [
-    { required: true, message: '请输入验证码', trigger: 'blur' }
+    { required: true, message: t('register.pleaseEnterCaptcha'), trigger: 'blur' }
   ],
   inviteCode: [
     { validator: validateInviteCode, trigger: 'blur' }
   ]
-})
+}))
 
 const refreshCaptcha = async () => {
   await executeAsync(async () => {
@@ -241,7 +272,7 @@ const handleRegister = async () => {
           registerType: registerForm.registerType
         })
       }, {
-        successMessage: '注册成功，正在跳转到仪表盘...',
+        successMessage: t('register.registerSuccess'),
         showLoading: false // 使用组件自己的loading
       })
 
@@ -296,6 +327,13 @@ const checkRegistrationEnabled = async () => {
   registrationEnabled.value = result.success ? result.data : true
 }
 
+// 切换语言
+const switchLanguage = () => {
+  const newLang = languageStore.toggleLanguage()
+  locale.value = newLang
+  ElMessage.success(t('navbar.languageSwitched'))
+}
+
 onMounted(async () => {
   await checkRegistrationEnabled()
   if (registrationEnabled.value) {
@@ -307,13 +345,97 @@ onMounted(async () => {
 <style scoped>
 .register-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   min-height: 100vh;
   background-color: #f5f7fa;
 }
 
+/* 顶部栏样式 */
+.auth-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
+  border-bottom: 1px solid rgba(22, 163, 74, 0.1);
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 70px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-image {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.logo h1 {
+  font-size: 28px;
+  color: #16a34a;
+  margin: 0;
+  font-weight: 700;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-radius: 25px;
+  border: 1px solid #e5e7eb;
+  background: transparent;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+  transform: translateY(-2px);
+}
+
+.nav-link.home-btn {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.3);
+}
+
+.nav-link.home-btn:hover {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4);
+}
+
 .register-form {
+  margin: auto;
+  margin-top: 60px;
+  margin-bottom: 60px;
   width: 500px;
   padding: 40px;
   background-color: #fff;
@@ -323,6 +445,9 @@ onMounted(async () => {
 
 .registration-disabled {
   width: 500px;
+  margin: auto;
+  margin-top: 60px;
+  margin-bottom: 60px;
 }
 
 .disabled-content {

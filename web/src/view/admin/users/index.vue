@@ -3,13 +3,13 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>用户管理</span>
+          <span>{{ $t('admin.users.title') }}</span>
           <div class="header-actions">
             <el-button
               type="primary"
               @click="showAddDialog = true"
             >
-              添加用户
+              {{ $t('admin.users.addUser') }}
             </el-button>
           </div>
         </div>
@@ -20,7 +20,7 @@
         <div class="search-section">
           <el-input
             v-model="searchUsername"
-            placeholder="输入用户名搜索"
+            :placeholder="$t('admin.users.searchByUsername')"
             style="width: 200px;"
             clearable
             @keyup.enter="handleSearch"
@@ -31,39 +31,39 @@
           </el-input>
           <el-select
             v-model="searchStatus"
-            placeholder="选择状态"
+            :placeholder="$t('admin.users.selectStatus')"
             style="width: 150px; margin-left: 10px;"
             clearable
           >
             <el-option
-              label="全部"
+              :label="$t('admin.users.all')"
               :value="null"
             />
             <el-option
-              label="正常"
+              :label="$t('admin.users.active')"
               :value="1"
             />
             <el-option
-              label="禁用"
+              :label="$t('admin.users.disabled')"
               :value="0"
             />
           </el-select>
           <el-select
             v-model="searchUserType"
-            placeholder="选择用户类型"
+            :placeholder="$t('admin.users.selectUserType')"
             style="width: 180px; margin-left: 10px;"
             clearable
           >
             <el-option
-              label="全部"
+              :label="$t('admin.users.all')"
               value=""
             />
             <el-option
-              label="普通用户"
+              :label="$t('admin.users.normalUser')"
               value="user"
             />
             <el-option
-              label="管理员"
+              :label="$t('admin.users.adminUser')"
               value="admin"
             />
           </el-select>
@@ -72,14 +72,14 @@
             style="margin-left: 10px;"
             @click="handleSearch"
           >
-            查询
+            {{ $t('admin.users.query') }}
           </el-button>
           <el-button 
             type="default" 
             style="margin-left: 10px;"
             @click="resetFilters"
           >
-            重置筛选
+            {{ $t('admin.users.resetFilters') }}
           </el-button>
         </div>
         
@@ -87,53 +87,53 @@
           v-if="multipleSelection.length > 0"
           class="batch-actions"
         >
-          <span class="selection-info">已选择 {{ multipleSelection.length }} 个用户</span>
+          <span class="selection-info">{{ $t('admin.users.selected') }} {{ multipleSelection.length }} {{ $t('admin.users.users') }}</span>
           <el-button
             size="small"
             type="danger"
             @click="handleBatchDelete"
           >
-            批量删除
+            {{ $t('admin.users.batchDelete') }}
           </el-button>
           <el-button
             size="small"
             type="warning"
             @click="handleBatchEnable"
           >
-            批量启用
+            {{ $t('admin.users.batchEnable') }}
           </el-button>
           <el-button
             size="small"
             type="info"
             @click="handleBatchDisable"
           >
-            批量禁用
+            {{ $t('admin.users.batchDisable') }}
           </el-button>
           <el-dropdown @command="handleBatchLevelCommand">
             <el-button
               size="small"
               type="primary"
             >
-              批量设置等级<el-icon class="el-icon--right">
+              {{ $t('admin.users.batchSetLevel') }}<el-icon class="el-icon--right">
                 <arrow-down />
               </el-icon>
             </el-button>
             <template #dropdown>
               <el-dropdown-menu>
                 <el-dropdown-item command="1">
-                  设置为等级1
+                  {{ $t('admin.users.setToLevel', { level: 1 }) }}
                 </el-dropdown-item>
                 <el-dropdown-item command="2">
-                  设置为等级2
+                  {{ $t('admin.users.setToLevel', { level: 2 }) }}
                 </el-dropdown-item>
                 <el-dropdown-item command="3">
-                  设置为等级3
+                  {{ $t('admin.users.setToLevel', { level: 3 }) }}
                 </el-dropdown-item>
                 <el-dropdown-item command="4">
-                  设置为等级4
+                  {{ $t('admin.users.setToLevel', { level: 4 }) }}
                 </el-dropdown-item>
                 <el-dropdown-item command="5">
-                  设置为等级5
+                  {{ $t('admin.users.setToLevel', { level: 5 }) }}
                 </el-dropdown-item>
               </el-dropdown-menu>
             </template>
@@ -163,37 +163,37 @@
         />
         <el-table-column
           prop="username"
-          label="用户名"
+          :label="$t('admin.users.username')"
           min-width="140"
           show-overflow-tooltip
         />
         <el-table-column
           prop="email"
-          label="邮箱"
+          :label="$t('admin.users.email')"
           min-width="180"
           show-overflow-tooltip
         />
         <el-table-column
           prop="nickname"
-          label="昵称"
+          :label="$t('admin.users.nickname')"
           min-width="140"
           show-overflow-tooltip
         />
         <el-table-column
           prop="level"
-          label="等级"
+          :label="$t('admin.users.level')"
           width="100"
           align="center"
         >
           <template #default="scope">
             <el-tag :type="getLevelTagType(scope.row.level)">
-              等级{{ scope.row.level }}
+              {{ $t('admin.users.levelTag', { level: scope.row.level }) }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="userType"
-          label="用户类型"
+          :label="$t('admin.users.userType')"
           width="120"
           align="center"
         >
@@ -205,18 +205,18 @@
         </el-table-column>
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="100"
           align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'">
-              {{ scope.row.status === 1 ? '正常' : '禁用' }}
+              {{ scope.row.status === 1 ? $t('admin.users.active') : $t('admin.users.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="250"
           fixed="right"
           align="center"
@@ -227,33 +227,33 @@
                 size="small"
                 @click="editUser(scope.row)"
               >
-                编辑
+                {{ $t('common.edit') }}
               </el-button>
               <el-dropdown @command="(level) => handleSetUserLevel(scope.row, level)">
                 <el-button
                   size="small"
                   type="primary"
                 >
-                  等级设置<el-icon class="el-icon--right">
+                  {{ $t('admin.users.levelSetting') }}<el-icon class="el-icon--right">
                     <arrow-down />
                   </el-icon>
                 </el-button>
                 <template #dropdown>
                   <el-dropdown-menu>
                     <el-dropdown-item :command="1">
-                      设置为等级1
+                      {{ $t('admin.users.setToLevel', { level: 1 }) }}
                     </el-dropdown-item>
                     <el-dropdown-item :command="2">
-                      设置为等级2
+                      {{ $t('admin.users.setToLevel', { level: 2 }) }}
                     </el-dropdown-item>
                     <el-dropdown-item :command="3">
-                      设置为等级3
+                      {{ $t('admin.users.setToLevel', { level: 3 }) }}
                     </el-dropdown-item>
                     <el-dropdown-item :command="4">
-                      设置为等级4
+                      {{ $t('admin.users.setToLevel', { level: 4 }) }}
                     </el-dropdown-item>
                     <el-dropdown-item :command="5">
-                      设置为等级5
+                      {{ $t('admin.users.setToLevel', { level: 5 }) }}
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -263,14 +263,14 @@
                 :type="scope.row.status === 1 ? 'danger' : 'success'"
                 @click="handleToggleUserStatus(scope.row)"
               >
-                {{ scope.row.status === 1 ? '禁用' : '启用' }}
+                {{ scope.row.status === 1 ? $t('admin.users.disable') : $t('admin.users.enable') }}
               </el-button>
               <el-button
                 size="small"
                 type="warning"
                 @click="handleResetPassword(scope.row)"
               >
-                重置密码
+                {{ $t('admin.users.resetPassword') }}
               </el-button>
             </div>
           </template>
@@ -294,7 +294,7 @@
     <!-- 添加/编辑用户对话框 -->
     <el-dialog
       v-model="showAddDialog"
-      :title="isEditing ? '编辑用户' : '添加用户'"
+      :title="isEditing ? $t('admin.users.editUser') : $t('admin.users.addUser')"
       width="600px"
       @close="cancelAddUser"
     >
@@ -307,7 +307,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="用户名"
+              :label="$t('admin.users.username')"
               prop="username"
             >
               <el-input
@@ -318,7 +318,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="昵称"
+              :label="$t('admin.users.nickname')"
               prop="nickname"
             >
               <el-input v-model="addUserForm.nickname" />
@@ -329,7 +329,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="邮箱"
+              :label="$t('admin.users.email')"
               prop="email"
             >
               <el-input v-model="addUserForm.email" />
@@ -337,7 +337,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="手机号"
+              :label="$t('user.profile.phone')"
               prop="phone"
             >
               <el-input v-model="addUserForm.phone" />
@@ -351,7 +351,7 @@
         >
           <el-col :span="12">
             <el-form-item
-              label="密码"
+              :label="$t('login.password')"
               prop="password"
             >
               <el-input
@@ -363,14 +363,14 @@
                   size="small"
                   type="info"
                 >
-                  密码需要至少8位，包含大写字母、小写字母、数字和特殊字符
+                  {{ $t('register.passwordHint') }}
                 </el-text>
               </div>
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="确认密码"
+              :label="$t('register.confirmPassword')"
               prop="confirmPassword"
             >
               <el-input
@@ -384,7 +384,7 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="用户类型"
+              :label="$t('admin.users.userType')"
               prop="userType"
             >
               <el-select
@@ -392,11 +392,11 @@
                 style="width: 100%"
               >
                 <el-option
-                  label="普通用户"
+                  :label="$t('admin.users.normalUser')"
                   value="user"
                 />
                 <el-option
-                  label="管理员"
+                  :label="$t('admin.users.adminUser')"
                   value="admin"
                 />
               </el-select>
@@ -404,7 +404,7 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="状态"
+              :label="$t('common.status')"
               prop="status"
             >
               <el-select
@@ -412,11 +412,11 @@
                 style="width: 100%"
               >
                 <el-option
-                  label="正常"
+                  :label="$t('admin.users.active')"
                   :value="1"
                 />
                 <el-option
-                  label="禁用"
+                  :label="$t('admin.users.disabled')"
                   :value="0"
                 />
               </el-select>
@@ -427,32 +427,32 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="等级"
+              :label="$t('admin.users.level')"
               prop="level"
             >
               <el-select
                 v-model="addUserForm.level"
-                placeholder="请选择等级"
+                :placeholder="$t('common.selectAll')"
                 style="width: 100%"
               >
                 <el-option
-                  label="等级1"
+                  :label="$t('admin.users.levelTag', { level: 1 })"
                   :value="1"
                 />
                 <el-option
-                  label="等级2"
+                  :label="$t('admin.users.levelTag', { level: 2 })"
                   :value="2"
                 />
                 <el-option
-                  label="等级3"
+                  :label="$t('admin.users.levelTag', { level: 3 })"
                   :value="3"
                 />
                 <el-option
-                  label="等级4"
+                  :label="$t('admin.users.levelTag', { level: 4 })"
                   :value="4"
                 />
                 <el-option
-                  label="等级5"
+                  :label="$t('admin.users.levelTag', { level: 5 })"
                   :value="5"
                 />
               </el-select>
@@ -464,14 +464,14 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="cancelAddUser">
-            取消
+            {{ $t('common.cancel') }}
           </el-button>
           <el-button
             type="primary"
             :loading="addUserLoading"
             @click="submitAddUser"
           >
-            {{ isEditing ? '更新' : '创建' }}
+            {{ isEditing ? $t('common.save') : $t('common.create') }}
           </el-button>
         </div>
       </template>
@@ -480,7 +480,7 @@
     <!-- 重置密码对话框 -->
     <el-dialog
       v-model="showResetPasswordDialog"
-      title="重置用户密码"
+      :title="$t('admin.users.resetPassword')"
       width="600px"
       @close="cancelResetPassword"
     >
@@ -492,7 +492,7 @@
           label-width="120px"
           style="max-width: 500px; margin: 0 auto;"
         >
-          <el-form-item label="用户名">
+          <el-form-item :label="$t('admin.users.username')">
             <el-input 
               v-model="resetPasswordForm.username" 
               disabled
@@ -503,7 +503,7 @@
         
         <div style="margin: 20px 0;">
           <el-text type="info">
-            点击下方按钮将为用户 <strong>{{ resetPasswordForm.username }}</strong> 生成一个符合安全策略的新密码
+            {{ $t('admin.users.passwordResetInfo') }} <strong>{{ resetPasswordForm.username }}</strong>
           </el-text>
         </div>
         
@@ -512,7 +512,7 @@
             size="small"
             type="warning"
           >
-            生成的密码将包含大写字母、小写字母、数字和特殊字符，长度为12位
+            {{ $t('register.passwordHint') }}
           </el-text>
         </div>
       </div>
@@ -524,8 +524,8 @@
       >
         <el-result
           icon="success"
-          title="密码重置成功"
-          sub-title="已为用户生成新密码，请复制并安全保管"
+          :title="$t('admin.users.resetPasswordSuccess')"
+          :sub-title="$t('admin.users.passwordResetInfo')"
         >
           <template #extra>
             <div style="margin: 20px 0;">
@@ -533,7 +533,7 @@
                 type="info"
                 style="display: block; margin-bottom: 10px;"
               >
-                新密码：
+                {{ $t('admin.users.newPassword') }}：
               </el-text>
               <el-input
                 v-model="generatedPassword"
@@ -542,7 +542,7 @@
               >
                 <template #append>
                   <el-button @click="copyPassword">
-                    复制
+                    {{ $t('common.copy') }}
                   </el-button>
                 </template>
               </el-input>
@@ -552,7 +552,7 @@
                 size="small"
                 type="warning"
               >
-                请立即将密码告知用户，并建议用户首次登录后修改密码
+                {{ $t('register.passwordHint') }}
               </el-text>
             </div>
           </template>
@@ -562,7 +562,7 @@
       <template #footer>
         <div class="dialog-footer">
           <el-button @click="cancelResetPassword">
-            {{ generatedPassword ? '关闭' : '取消' }}
+            {{ generatedPassword ? $t('common.close') : $t('common.cancel') }}
           </el-button>
           <el-button 
             v-if="!generatedPassword"
@@ -570,7 +570,7 @@
             :loading="resetPasswordLoading"
             @click="confirmResetPassword"
           >
-            生成新密码
+            {{ $t('admin.users.resetPassword') }}
           </el-button>
         </div>
       </template>
@@ -582,6 +582,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Search, ArrowDown } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { 
   getUserList, 
   createUser, 
@@ -593,6 +594,8 @@ import {
   updateUserLevel,
   resetUserPassword
 } from '@/api/admin'
+
+const { t } = useI18n()
 
 const users = ref([])
 const loading = ref(false)
@@ -643,26 +646,26 @@ const addUserForm = reactive({
 // 表单验证规则
 const addUserRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
+    { required: true, message: t('validation.usernameRequired'), trigger: 'blur' },
+    { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' }
   ],
   nickname: [
     // 昵称不是必填项
   ],
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
+    { required: true, message: t('validation.emailRequired'), trigger: 'blur' },
+    { type: 'email', message: t('validation.emailFormat'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入密码', trigger: 'blur' },
-    { min: 8, message: '密码长度不能少于8位', trigger: 'blur' }
+    { required: true, message: t('validation.passwordRequired'), trigger: 'blur' },
+    { min: 8, message: t('validation.passwordLength'), trigger: 'blur' }
   ],
   confirmPassword: [
-    { required: true, message: '请再次输入密码', trigger: 'blur' },
+    { required: true, message: t('register.pleaseConfirmPassword'), trigger: 'blur' },
     {
       validator: (rule, value, callback) => {
         if (value !== addUserForm.password) {
-          callback(new Error('两次输入的密码不一致'))
+          callback(new Error(t('validation.confirmPasswordMatch')))
         } else {
           callback()
         }
@@ -697,7 +700,7 @@ const loadUsers = async () => {
     users.value = response.data.list || []
     total.value = response.data.total || 0
   } catch (error) {
-    ElMessage.error('加载用户列表失败')
+    ElMessage.error(t('admin.users.loadUsersFailed'))
   } finally {
     loading.value = false
   }
@@ -726,29 +729,29 @@ const handleSelectionChange = (selection) => {
 // 批量删除
 const handleBatchDelete = async () => {
   if (multipleSelection.value.length === 0) {
-    ElMessage.warning('请选择要删除的用户')
+    ElMessage.warning(t('admin.users.batchDelete'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${multipleSelection.value.length} 个用户吗？此操作不可撤销。`,
-      '批量删除确认',
+      t('admin.users.confirmBatchDelete'),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const userIds = multipleSelection.value.map(user => user.id)
     await batchDeleteUsers(userIds)
-    ElMessage.success('批量删除成功')
+    ElMessage.success(t('admin.users.deleteSuccess'))
     await loadUsers()
     multipleSelection.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error(t('admin.users.deleteFailed'))
     }
   }
 }
@@ -756,29 +759,29 @@ const handleBatchDelete = async () => {
 // 批量启用
 const handleBatchEnable = async () => {
   if (multipleSelection.value.length === 0) {
-    ElMessage.warning('请选择要启用的用户')
+    ElMessage.warning(t('admin.users.batchEnable'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定启用选中的 ${multipleSelection.value.length} 个用户吗？`,
-      '批量启用确认',
+      t('admin.users.confirmToggleStatus', { action: t('admin.users.enable') }),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const userIds = multipleSelection.value.map(user => user.id)
     await batchUpdateUserStatus(userIds, 1)
-    ElMessage.success('批量启用成功')
+    ElMessage.success(t('admin.users.updateSuccess'))
     await loadUsers()
     multipleSelection.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量启用失败')
+      ElMessage.error(t('admin.users.updateFailed'))
     }
   }
 }
@@ -786,29 +789,29 @@ const handleBatchEnable = async () => {
 // 批量禁用
 const handleBatchDisable = async () => {
   if (multipleSelection.value.length === 0) {
-    ElMessage.warning('请选择要禁用的用户')
+    ElMessage.warning(t('admin.users.batchDisable'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定禁用选中的 ${multipleSelection.value.length} 个用户吗？禁用后用户将无法登录。`,
-      '批量禁用确认',
+      t('admin.users.confirmToggleStatus', { action: t('admin.users.disable') }),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const userIds = multipleSelection.value.map(user => user.id)
     await batchUpdateUserStatus(userIds, 0)
-    ElMessage.success('批量禁用成功')
+    ElMessage.success(t('admin.users.updateSuccess'))
     await loadUsers()
     multipleSelection.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量禁用失败')
+      ElMessage.error(t('admin.users.updateFailed'))
     }
   }
 }
@@ -816,29 +819,29 @@ const handleBatchDisable = async () => {
 // 批量设置等级命令处理
 const handleBatchLevelCommand = async (level) => {
   if (multipleSelection.value.length === 0) {
-    ElMessage.warning('请选择要设置等级的用户')
+    ElMessage.warning(t('admin.users.batchSetLevel'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定将选中的 ${multipleSelection.value.length} 个用户的等级设置为等级${level}吗？`,
-      '批量设置等级确认',
+      t('admin.users.confirmBatchDelete'),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const userIds = multipleSelection.value.map(user => user.id)
     await batchUpdateUserLevel(userIds, parseInt(level))
-    ElMessage.success(`批量设置用户等级为等级${level}成功`)
+    ElMessage.success(t('admin.users.updateSuccess'))
     await loadUsers()
     multipleSelection.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量设置等级失败')
+      ElMessage.error(t('admin.users.updateFailed'))
     }
   }
 }
@@ -847,21 +850,21 @@ const handleBatchLevelCommand = async (level) => {
 const handleSetUserLevel = async (user, level) => {
   try {
     await ElMessageBox.confirm(
-      `确定将用户 "${user.username}" 的等级设置为等级${level}吗？`,
-      '设置用户等级确认',
+      t('admin.users.confirmToggleStatus', { action: t('admin.users.setToLevel', { level }) }),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await updateUserLevel(user.id, parseInt(level))
-    ElMessage.success(`设置用户等级为等级${level}成功`)
+    ElMessage.success(t('admin.users.updateSuccess'))
     await loadUsers()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('设置用户等级失败')
+      ElMessage.error(t('admin.users.updateFailed'))
     }
   }
 }
@@ -881,10 +884,10 @@ const getLevelTagType = (level) => {
 // 获取用户类型标签文本
 const getUserTypeLabel = (userType) => {
   const labelMap = {
-    'user': '普通用户',
-    'admin': '管理员'
+    'user': t('admin.users.normalUser'),
+    'admin': t('admin.users.adminUser')
   }
-  return labelMap[userType] || '未知'
+  return labelMap[userType] || t('common.unknown')
 }
 
 // 获取用户类型标签样式
@@ -952,10 +955,10 @@ const submitAddUser = async () => {
         delete userData.password
       }
       await updateUser(userData.id, userData)
-      ElMessage.success('用户更新成功')
+      ElMessage.success(t('admin.users.updateSuccess'))
     } else {
       await createUser(userData)
-      ElMessage.success('用户创建成功')
+      ElMessage.success(t('message.createSuccess'))
     }
     
     showAddDialog.value = false
@@ -963,7 +966,7 @@ const submitAddUser = async () => {
     await loadUsers()
     cancelAddUser()
   } catch (error) {
-    ElMessage.error(isEditing.value ? '用户更新失败' : '用户创建失败')
+    ElMessage.error(isEditing.value ? t('admin.users.updateFailed') : t('message.createFailed'))
   } finally {
     addUserLoading.value = false
   }
@@ -971,24 +974,24 @@ const submitAddUser = async () => {
 
 // 切换用户状态
 const handleToggleUserStatus = async (user) => {
-  const action = user.status === 1 ? '禁用' : '启用'
+  const action = user.status === 1 ? t('admin.users.disable') : t('admin.users.enable')
   try {
     await ElMessageBox.confirm(
-      `确定${action}用户 "${user.username}" 吗？${user.status === 1 ? '禁用后用户将无法登录。' : ''}`,
-      `${action}用户`,
+      t('admin.users.confirmToggleStatus', { action }),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await toggleUserStatus(user.id, user.status === 1 ? 0 : 1)
-    ElMessage.success(`${action}成功`)
+    ElMessage.success(t('admin.users.updateSuccess'))
     await loadUsers()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`${action}失败`)
+      ElMessage.error(t('admin.users.updateFailed'))
     }
   }
 }
@@ -1009,13 +1012,13 @@ const confirmResetPassword = async () => {
     
     // 显示生成的密码
     generatedPassword.value = response.data.newPassword
-    ElMessage.success('密码重置成功')
+    ElMessage.success(t('admin.users.resetPasswordSuccess'))
     
     // 重新加载用户列表
     await loadUsers()
     
   } catch (error) {
-    ElMessage.error('重置密码失败：' + (error.response?.data?.message || error.message))
+    ElMessage.error(t('admin.users.resetPasswordFailed') + ': ' + (error.response?.data?.message || error.message))
   } finally {
     resetPasswordLoading.value = false
   }
@@ -1031,7 +1034,7 @@ const cancelResetPassword = () => {
 // 复制密码到剪贴板
 const copyPassword = async () => {
   if (!generatedPassword.value) {
-    ElMessage.warning('没有可复制的密码')
+    ElMessage.warning(t('user.profile.noPasswordToCopy'))
     return
   }
   
@@ -1039,7 +1042,7 @@ const copyPassword = async () => {
     // 优先使用 Clipboard API
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(generatedPassword.value)
-      ElMessage.success('密码已复制到剪贴板')
+      ElMessage.success(t('user.profile.passwordCopied'))
       return
     }
     
@@ -1057,7 +1060,7 @@ const copyPassword = async () => {
       // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
       const successful = document.execCommand('copy')
       if (successful) {
-        ElMessage.success('密码已复制到剪贴板')
+        ElMessage.success(t('user.profile.passwordCopied'))
       } else {
         throw new Error('execCommand failed')
       }
@@ -1066,7 +1069,7 @@ const copyPassword = async () => {
     }
   } catch (error) {
     console.error('复制失败:', error)
-    ElMessage.error('复制失败，请手动复制')
+    ElMessage.error(t('user.profile.copyFailed'))
   }
 }
 

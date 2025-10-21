@@ -7,15 +7,15 @@
     >
       <el-loading-directive />
       <div class="loading-text">
-        加载实例数据中...
+        {{ t('user.instances.loadingInstances') }}
       </div>
     </div>
     
     <!-- 主要内容 -->
     <div v-else>
       <div class="page-header">
-        <h1>我的实例</h1>
-        <p>管理您的虚拟机和容器实例</p>
+        <h1>{{ t('user.instances.title') }}</h1>
+        <p>{{ t('user.instances.subtitle') }}</p>
       </div>
 
       <!-- 筛选和搜索 -->
@@ -27,7 +27,7 @@
           <el-form-item>
             <el-input
               v-model="filterForm.instanceName"
-              placeholder="按实例名称搜索"
+              :placeholder="t('user.instances.searchByName')"
               clearable
               style="width: 200px;"
             />
@@ -35,7 +35,7 @@
           <el-form-item>
             <el-input
               v-model="filterForm.providerName"
-              placeholder="按节点名称搜索"
+              :placeholder="t('user.instances.searchByProvider')"
               clearable
               style="width: 200px;"
             />
@@ -43,20 +43,20 @@
           <el-form-item>
             <el-select
               v-model="filterForm.type"
-              placeholder="选择类型"
+              :placeholder="t('user.instances.selectType')"
               clearable
               style="width: 150px;"
             >
               <el-option
-                label="全部"
+                :label="t('user.instances.allTypes')"
                 value=""
               />
               <el-option
-                label="虚拟机"
+                :label="t('user.instances.vm')"
                 value="vm"
               />
               <el-option
-                label="容器"
+                :label="t('user.instances.container')"
                 value="container"
               />
             </el-select>
@@ -64,24 +64,24 @@
           <el-form-item>
             <el-select
               v-model="filterForm.status"
-              placeholder="选择状态"
+              :placeholder="t('user.instances.selectStatus')"
               clearable
               style="width: 150px;"
             >
               <el-option
-                label="全部"
+                :label="t('user.instances.allStatuses')"
                 value=""
               />
               <el-option
-                label="运行中"
+                :label="t('user.instances.statusRunning')"
                 value="running"
               />
               <el-option
-                label="已停止"
+                :label="t('user.instances.statusStopped')"
                 value="stopped"
               />
               <el-option
-                label="暂停"
+                :label="t('user.instances.statusPaused')"
                 value="paused"
               />
             </el-select>
@@ -91,10 +91,10 @@
               type="primary"
               @click="handleSearch"
             >
-              搜索
+              {{ t('user.instances.search') }}
             </el-button>
             <el-button @click="resetFilter">
-              重置
+              {{ t('user.instances.reset') }}
             </el-button>
           </el-form-item>
         </el-form>
@@ -113,7 +113,7 @@
               <h3>{{ instance.name }}</h3>
               <div class="instance-type">
                 <el-tag :type="instance.instance_type === 'vm' ? 'primary' : 'success'">
-                  {{ instance.instance_type === 'vm' ? '虚拟机' : '容器' }}
+                  {{ instance.instance_type === 'vm' ? t('user.instances.vm') : t('user.instances.container') }}
                 </el-tag>
                 <el-tag 
                   v-if="instance.providerType"
@@ -136,23 +136,23 @@
 
           <div class="instance-details">
             <div class="detail-item">
-              <span class="label">服务器:</span>
+              <span class="label">{{ t('user.instances.provider') }}:</span>
               <span class="value">{{ instance.providerName }}</span>
             </div>
             <div class="detail-item">
-              <span class="label">配置:</span>
+              <span class="label">{{ t('user.instances.configuration') }}:</span>
               <span class="value">{{ instance.cpu }}核 / {{ formatMemorySize(instance.memory) }} / {{ formatDiskSize(instance.disk) }}</span>
             </div>
             <div class="detail-item">
-              <span class="label">带宽:</span>
+              <span class="label">{{ t('user.instances.bandwidth') }}:</span>
               <span class="value">{{ instance.bandwidth || 100 }}Mbps</span>
             </div>
             <div class="detail-item">
-              <span class="label">系统:</span>
+              <span class="label">{{ t('user.instances.system') }}:</span>
               <span class="value">{{ instance.osType }}</span>
             </div>
             <div class="detail-item">
-              <span class="label">创建时间:</span>
+              <span class="label">{{ t('user.instances.createdAt') }}:</span>
               <span class="value">{{ formatDate(instance.createdAt) }}</span>
             </div>
             <!-- 端口映射信息 -->
@@ -160,14 +160,14 @@
               v-if="instance.portMappings && instance.portMappings.length > 0"
               class="detail-item port-info"
             >
-              <span class="label">端口映射:</span>
+              <span class="label">{{ t('user.instances.portMapping') }}:</span>
               <div class="port-mappings">
                 <div class="public-ip">
                   <el-tag
                     type="info"
                     size="small"
                   >
-                    公网IP: {{ instance.publicIP || '未分配' }}
+                    {{ t('user.instances.publicIP') }}: {{ instance.publicIP || t('user.instances.unassigned') }}
                   </el-tag>
                 </div>
                 <!-- 普通用户不显示端口区间 -->
@@ -189,7 +189,7 @@
                     type="info"
                     effect="plain"
                   >
-                    +{{ instance.portMappings.length - 3 }}个
+                    {{ t('user.instances.morePortsCount', { count: instance.portMappings.length - 3 }) }}
                   </el-tag>
                 </div>
               </div>
@@ -204,14 +204,14 @@
               @click="showTrafficDetail(instance)"
             >
               <el-icon><TrendCharts /></el-icon>
-              流量详情
+              {{ t('user.instances.trafficDetail') }}
             </el-button>
             <el-button
               size="small"
               @click="viewInstanceDetail(instance)"
             >
               <el-icon><View /></el-icon>
-              查看详情
+              {{ t('user.instances.viewDetail') }}
             </el-button>
           </div>
         </div>
@@ -220,13 +220,13 @@
       <!-- 空状态 -->
       <el-empty
         v-if="instances.length === 0 && !loading"
-        description="您还没有任何实例"
+        :description="t('user.instances.noInstances')"
       >
         <el-button
           type="primary"
           @click="$router.push('/user/apply')"
         >
-          立即申请
+          {{ t('user.instances.applyNow') }}
         </el-button>
       </el-empty>
 
@@ -270,12 +270,14 @@
 <script setup>
 import { ref, reactive, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { TrendCharts, View } from '@element-plus/icons-vue'
 import { getUserInstances } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 
+const { t, locale } = useI18n()
 const router = useRouter()
 const route = useRoute()
 
@@ -323,18 +325,18 @@ const loadInstances = async (showSuccessMsg = false) => {
       total.value = response.data.total || 0
       // 只有在明确刷新时才显示成功提示
       if (showSuccessMsg) {
-        ElMessage.success(`已刷新，共 ${total.value} 个实例`)
+        ElMessage.success(t('user.instances.refreshSuccess', { count: total.value }))
       }
     } else {
       instances.value = []
       total.value = 0
-      ElMessage.error(response.message || '获取实例列表失败')
+      ElMessage.error(response.message || t('user.instances.loadFailed'))
     }
   } catch (error) {
     console.error('获取实例列表失败:', error)
     instances.value = []
     total.value = 0
-    ElMessage.error('获取实例列表失败，请检查网络连接')
+    ElMessage.error(t('user.instances.loadFailedNetwork'))
   } finally {
     loading.value = false
   }
@@ -368,12 +370,12 @@ const getStatusType = (status) => {
 // 获取状态文本
 const getStatusText = (status) => {
   const statusMap = {
-    'running': '运行中',
-    'stopped': '已停止', 
-    'paused': '暂停',
-    'creating': '创建中',
-    'error': '错误',
-    'failed': '创建失败'
+    'running': t('user.instances.statusRunning'),
+    'stopped': t('user.instances.statusStopped'), 
+    'paused': t('user.instances.statusPaused'),
+    'creating': t('user.instances.statusCreating'),
+    'error': t('user.instances.statusError'),
+    'failed': t('user.instances.statusFailed')
   }
   return statusMap[status] || status
 }
@@ -402,14 +404,15 @@ const getProviderTypeColor = (type) => {
 
 // 格式化日期
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  const localeCode = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return new Date(dateString).toLocaleString(localeCode)
 }
 
 // 查看实例详情
 const viewInstanceDetail = (instance) => {
   if (!instance || !instance.id) {
     console.error('实例对象无效:', instance)
-    ElMessage.error('实例信息无效')
+    ElMessage.error(t('user.instances.instanceInvalid'))
     return
   }
   
@@ -417,7 +420,7 @@ const viewInstanceDetail = (instance) => {
   const allowedStatuses = ['running', 'stopped', 'stopping']
   if (!allowedStatuses.includes(instance.status)) {
     const statusText = getStatusText(instance.status)
-    ElMessage.warning(`实例当前状态为"${statusText}"，无法查看详情。请等待实例进入运行或停止状态。`)
+    ElMessage.warning(t('user.instances.cannotViewDetail', { status: statusText }))
     return
   }
   
@@ -428,7 +431,7 @@ const viewInstanceDetail = (instance) => {
 const showTrafficDetail = (instance) => {
   if (!instance || !instance.id) {
     console.error('实例对象无效:', instance)
-    ElMessage.error('实例信息无效')
+    ElMessage.error(t('user.instances.instanceInvalid'))
     return
   }
   selectedInstanceForTraffic.value = instance

@@ -3,7 +3,7 @@
     <!-- OAuth2 功能未启用提示 -->
     <el-alert
       v-if="!oauth2Enabled"
-      title="OAuth2 功能未启用"
+      :title="$t('admin.oauth2.notEnabled')"
       type="warning"
       :closable="false"
       show-icon
@@ -11,13 +11,13 @@
     >
       <template #default>
         <div>
-          当前 OAuth2 登录功能未启用。您可以在此管理 OAuth2 提供商配置，但这些配置不会在登录页面生效。
+          {{ $t('admin.oauth2.notEnabledHint') }}
           <br>
-          如需启用，请前往
+          {{ $t('admin.oauth2.enableHint') }}
           <el-link type="primary" @click="goToConfig" :underline="false">
-            <strong>系统配置</strong>
+            <strong>{{ $t('admin.oauth2.systemConfig') }}</strong>
           </el-link>
-          页面开启 OAuth2 功能。
+          {{ $t('admin.oauth2.enableHint2') }}
         </div>
       </template>
     </el-alert>
@@ -25,14 +25,14 @@
     <el-card shadow="never" class="providers-card">
       <template #header>
         <div class="card-header">
-          <span class="card-title">OAuth2管理</span>
+          <span class="card-title">{{ $t('admin.oauth2.title') }}</span>
           <el-button
             type="primary"
             size="default"
             @click="handleAdd"
           >
             <el-icon><Plus /></el-icon>
-            添加提供商
+            {{ $t('admin.oauth2.addProvider') }}
           </el-button>
         </div>
       </template>
@@ -53,16 +53,16 @@
         />
         <el-table-column
           prop="displayName"
-          label="显示名称"
+          :label="$t('admin.oauth2.displayName')"
           min-width="140"
         />
         <el-table-column
           prop="name"
-          label="标识名称"
+          :label="$t('admin.oauth2.identifierName')"
           min-width="140"
         />
         <el-table-column
-          label="状态"
+          :label="$t('common.status')"
           width="100"
           align="center"
         >
@@ -71,12 +71,12 @@
               :type="row.enabled ? 'success' : 'info'"
               size="default"
             >
-              {{ row.enabled ? '已启用' : '已禁用' }}
+              {{ row.enabled ? $t('common.enabled') : $t('common.disabled') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="注册统计"
+          :label="$t('admin.oauth2.registrationStats')"
           width="140"
           align="center"
         >
@@ -85,7 +85,7 @@
               {{ row.currentRegistrations }} / {{ row.maxRegistrations }}
             </span>
             <span v-else>
-              {{ row.totalUsers }} (无限制)
+              {{ row.totalUsers }} ({{ $t('admin.oauth2.unlimited') }})
             </span>
           </template>
         </el-table-column>
@@ -97,12 +97,12 @@
         />
         <el-table-column
           prop="redirectUrl"
-          label="回调地址"
+          :label="$t('admin.oauth2.callbackUrl')"
           min-width="200"
           show-overflow-tooltip
         />
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="300"
           fixed="right"
           align="center"
@@ -113,21 +113,21 @@
                 size="small"
                 @click="handleEdit(row)"
               >
-                编辑
+                {{ $t('common.edit') }}
               </el-button>
               <el-button
                 size="small"
                 type="warning"
                 @click="handleResetCount(row)"
               >
-                重置计数
+                {{ $t('admin.oauth2.resetCount') }}
               </el-button>
               <el-button
                 size="small"
                 type="danger"
                 @click="handleDelete(row)"
               >
-                删除
+                {{ $t('common.delete') }}
               </el-button>
             </div>
           </template>
@@ -152,7 +152,7 @@
               @click="applyLinuxDoPreset"
             >
               <el-icon><Connection /></el-icon>
-              Linux.do 预设
+              {{ $t('admin.oauth2.linuxDoPreset') }}
             </el-button>
             <el-button
               size="small"
@@ -160,7 +160,7 @@
               @click="applyIDCFlarePreset"
             >
               <el-icon><Connection /></el-icon>
-              IDCFlare 预设
+              {{ $t('admin.oauth2.idcFlarePreset') }}
             </el-button>
           </div>
         </div>
@@ -174,30 +174,30 @@
       >
         <el-tabs v-model="activeTab" class="oauth2-tabs">
           <el-tab-pane
-            label="基础配置"
+            :label="$t('admin.oauth2.basicConfig')"
             name="basic"
           >
             <div class="form-section">
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item
-                    label="显示名称"
+                    :label="$t('admin.oauth2.displayName')"
                     prop="displayName"
                   >
                     <el-input
                       v-model="formData.displayName"
-                      placeholder="例如: Linux.do"
+                      :placeholder="$t('admin.oauth2.displayNamePlaceholder')"
                     />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item
-                    label="标识名称"
+                    :label="$t('admin.oauth2.identifierName')"
                     prop="name"
                   >
                     <el-input
                       v-model="formData.name"
-                      placeholder="例如: linuxdo (唯一标识，不可重复)"
+                      :placeholder="$t('admin.oauth2.identifierNamePlaceholder')"
                       :disabled="isEdit"
                     />
                   </el-form-item>
@@ -206,32 +206,32 @@
 
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="启用状态">
+                  <el-form-item :label="$t('admin.oauth2.enableStatus')">
                     <el-switch
                       v-model="formData.enabled"
-                      active-text="启用"
-                      inactive-text="禁用"
+                      :active-text="$t('common.enable')"
+                      :inactive-text="$t('common.disable')"
                     />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item
-                    label="显示顺序"
+                    :label="$t('admin.oauth2.displayOrder')"
                     prop="sort"
                   >
                     <el-input-number
                       v-model="formData.sort"
                       :min="0"
                       :max="999"
-                      :controls-position="right"
+                      :controls="false"
                       style="width: 100%"
                     />
-                    <span class="form-tip">数字越小越靠前</span>
+                    <span class="form-tip">{{ $t('admin.oauth2.displayOrderHint') }}</span>
                   </el-form-item>
                 </el-col>
               </el-row>
 
-              <el-divider content-position="left">OAuth2 凭证</el-divider>
+              <el-divider content-position="left">{{ $t('admin.oauth2.oauth2Credentials') }}</el-divider>
 
               <el-form-item
                 label="Client ID"
@@ -250,7 +250,7 @@
                 <el-input
                   v-model="formData.clientSecret"
                   type="password"
-                  :placeholder="isEdit ? '留空表示不修改原有Secret' : 'OAuth2 Client Secret'"
+                  :placeholder="isEdit ? $t('admin.oauth2.secretPlaceholderEdit') : 'OAuth2 Client Secret'"
                   show-password
                 />
               </el-form-item>
@@ -258,7 +258,7 @@
           </el-tab-pane>
 
           <el-tab-pane
-            label="OAuth2端点"
+            :label="$t('admin.oauth2.oauth2Endpoints')"
             name="endpoints"
           >
             <el-form-item
@@ -311,91 +311,93 @@
               :closable="false"
               style="margin-bottom: 20px"
             >
-              <p>字段映射说明：</p>
-              <p>• 必需字段：userIdField（用户ID）、usernameField（用户名）</p>
-              <p>• 可选字段：emailField、avatarField、nicknameField、trustLevelField</p>
-              <p>• 支持嵌套字段，使用点号分隔，例如：user.profile.name</p>
-              <p>• 如果提供商不返回某些字段，系统会自动使用默认值</p>
+              <p>{{ $t('admin.oauth2.fieldMappingDesc') }}</p>
+              <p>• {{ $t('admin.oauth2.requiredFields') }}</p>
+              <p>• {{ $t('admin.oauth2.optionalFields') }}</p>
+              <p>• {{ $t('admin.oauth2.nestedFieldsSupport') }}</p>
+              <p>• {{ $t('admin.oauth2.defaultValuesInfo') }}</p>
             </el-alert>
 
             <el-form-item
-              label="用户ID字段"
+              :label="$t('admin.oauth2.userIdField')"
               prop="userIdField"
             >
               <el-input
                 v-model="formData.userIdField"
-                placeholder="默认: id"
+                :placeholder="$t('admin.oauth2.userIdFieldPlaceholder')"
               />
             </el-form-item>
 
             <el-form-item
-              label="用户名字段"
+              :label="$t('admin.oauth2.usernameField')"
               prop="usernameField"
             >
               <el-input
                 v-model="formData.usernameField"
-                placeholder="默认: username"
+                :placeholder="$t('admin.oauth2.usernameFieldPlaceholder')"
               />
             </el-form-item>
 
-            <el-form-item label="邮箱字段">
+            <el-form-item :label="$t('admin.oauth2.emailField')">
               <el-input
                 v-model="formData.emailField"
-                placeholder="默认: email"
+                :placeholder="$t('admin.oauth2.emailFieldPlaceholder')"
               />
             </el-form-item>
 
-            <el-form-item label="头像字段">
+            <el-form-item :label="$t('admin.oauth2.avatarField')">
               <el-input
                 v-model="formData.avatarField"
-                placeholder="默认: avatar"
+                :placeholder="$t('admin.oauth2.avatarFieldPlaceholder')"
               />
             </el-form-item>
 
-            <el-form-item label="昵称字段">
+            <el-form-item :label="$t('admin.oauth2.nicknameField')">
               <el-input
                 v-model="formData.nicknameField"
-                placeholder="可选，例如: name 或 nickname"
+                :placeholder="$t('admin.oauth2.nicknameFieldPlaceholder')"
               />
             </el-form-item>
 
-            <el-form-item label="信任等级字段">
+            <el-form-item :label="$t('admin.oauth2.trustLevelField')">
               <el-input
                 v-model="formData.trustLevelField"
-                placeholder="可选，例如: trust_level"
+                :placeholder="$t('admin.oauth2.trustLevelFieldPlaceholder')"
               />
-              <span class="form-tip">用于等级映射，如LinuxDo的trust_level</span>
+              <span class="form-tip">{{ $t('admin.oauth2.trustLevelFieldHint') }}</span>
             </el-form-item>
           </el-tab-pane>
 
           <el-tab-pane
-            label="等级与限制"
+            :label="$t('admin.oauth2.levelAndLimits')"
             name="level"
           >
             <el-form-item
-              label="默认用户等级"
+              :label="$t('admin.oauth2.defaultUserLevel')"
               prop="defaultLevel"
             >
               <el-input-number
                 v-model="formData.defaultLevel"
                 :min="1"
                 :max="10"
+                :controls="false"
               />
-              <span class="form-tip">当无法提取等级或无映射时使用此等级</span>
+              <span class="form-tip">{{ $t('admin.oauth2.defaultUserLevelHint') }}</span>
             </el-form-item>
 
-            <el-form-item label="等级映射配置">
+            <el-form-item :label="$t('admin.oauth2.levelMappingConfig')">
               <div class="level-mapping">
                 <div
                   v-for="(level, key) in formData.levelMapping"
                   :key="key"
                   class="mapping-item"
                 >
-                  <span>外部等级 {{ key }} →</span>
+                  <span>{{ $t('admin.oauth2.externalLevel') }} {{ key }} →</span>
                   <el-input-number
                     v-model="formData.levelMapping[key]"
                     :min="1"
                     :max="10"
+                    :controls="false"
                     size="small"
                   />
                   <el-button
@@ -404,7 +406,7 @@
                     text
                     @click="removeLevelMapping(key)"
                   >
-                    删除
+                    {{ $t('common.delete') }}
                   </el-button>
                 </div>
                 <el-button
@@ -412,27 +414,29 @@
                   @click="addLevelMapping"
                 >
                   <el-icon><Plus /></el-icon>
-                  添加映射
+                  {{ $t('admin.oauth2.addMapping') }}
                 </el-button>
               </div>
-              <span class="form-tip">将外部提供商的等级映射到系统用户等级</span>
+              <span class="form-tip">{{ $t('admin.oauth2.levelMappingHint') }}</span>
             </el-form-item>
 
-            <el-form-item label="注册数量限制">
+            <el-form-item :label="$t('admin.oauth2.registrationLimit')">
               <el-input-number
                 v-model="formData.maxRegistrations"
                 :min="0"
                 :max="999999"
+                :controls="false"
               />
-              <span class="form-tip">0 表示无限制</span>
+              <span class="form-tip">{{ $t('admin.oauth2.registrationLimitHint') }}</span>
             </el-form-item>
 
             <el-form-item
               v-if="isEdit"
-              label="当前注册数"
+              :label="$t('admin.oauth2.currentRegistrations')"
             >
               <el-input-number
                 v-model="formData.currentRegistrations"
+                :controls="false"
                 disabled
               />
             </el-form-item>
@@ -442,14 +446,14 @@
 
       <template #footer>
         <el-button @click="dialogVisible = false">
-          取消
+          {{ $t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="handleSubmit"
           :loading="submitting"
         >
-          确定
+          {{ $t('common.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -457,33 +461,34 @@
     <!-- 添加等级映射对话框 -->
     <el-dialog
       v-model="mappingDialogVisible"
-      title="添加等级映射"
+      :title="$t('admin.oauth2.addLevelMapping')"
       width="400px"
     >
       <el-form label-width="120px">
-        <el-form-item label="外部等级值">
+        <el-form-item :label="$t('admin.oauth2.externalLevelValue')">
           <el-input
             v-model="newMapping.externalLevel"
-            placeholder="例如: 0, 1, 2..."
+            :placeholder="$t('admin.oauth2.externalLevelPlaceholder')"
           />
         </el-form-item>
-        <el-form-item label="系统用户等级">
+        <el-form-item :label="$t('admin.oauth2.systemUserLevel')">
           <el-input-number
             v-model="newMapping.systemLevel"
             :min="1"
             :max="10"
+            :controls="false"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="mappingDialogVisible = false">
-          取消
+          {{ $t('common.cancel') }}
         </el-button>
         <el-button
           type="primary"
           @click="confirmAddMapping"
         >
-          确定
+          {{ $t('common.confirm') }}
         </el-button>
       </template>
     </el-dialog>
@@ -495,6 +500,7 @@ import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Connection } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import {
   getAllOAuth2Providers,
   createOAuth2Provider,
@@ -504,6 +510,7 @@ import {
 } from '@/api/oauth2'
 import { getAdminConfig } from '@/api/config'
 
+const { t } = useI18n()
 const router = useRouter()
 const loading = ref(false)
 const providers = ref([])
@@ -546,37 +553,37 @@ const formData = reactive({
 
 const formRules = computed(() => ({
   name: [
-    { required: true, message: '请输入标识名称', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationName'), trigger: 'blur' }
   ],
   displayName: [
-    { required: true, message: '请输入显示名称', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationDisplayName'), trigger: 'blur' }
   ],
   clientId: [
-    { required: true, message: '请输入Client ID', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationClientId'), trigger: 'blur' }
   ],
   clientSecret: [
-    { required: !isEdit.value, message: '请输入Client Secret', trigger: 'blur' }
+    { required: !isEdit.value, message: t('admin.oauth2.validationClientSecret'), trigger: 'blur' }
   ],
   redirectUrl: [
-    { required: true, message: '请输入回调地址', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationRedirectUrl'), trigger: 'blur' }
   ],
   authUrl: [
-    { required: true, message: '请输入授权地址', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationAuthUrl'), trigger: 'blur' }
   ],
   tokenUrl: [
-    { required: true, message: '请输入令牌地址', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationTokenUrl'), trigger: 'blur' }
   ],
   userInfoUrl: [
-    { required: true, message: '请输入用户信息地址', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationUserInfoUrl'), trigger: 'blur' }
   ],
   userIdField: [
-    { required: true, message: '请输入用户ID字段', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationUserIdField'), trigger: 'blur' }
   ],
   usernameField: [
-    { required: true, message: '请输入用户名字段', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationUsernameField'), trigger: 'blur' }
   ],
   defaultLevel: [
-    { required: true, message: '请设置默认等级', trigger: 'blur' }
+    { required: true, message: t('admin.oauth2.validationDefaultLevel'), trigger: 'blur' }
   ]
 }))
 
@@ -608,7 +615,7 @@ const loadProviders = async () => {
     const res = await getAllOAuth2Providers()
     providers.value = res.data || []
   } catch (error) {
-    ElMessage.error('加载提供商列表失败')
+    ElMessage.error(t('admin.oauth2.loadProvidersFailed'))
   } finally {
     loading.value = false
   }
@@ -656,7 +663,7 @@ const applyLinuxDoPreset = () => {
     trustLevelField: 'trust_level',
     defaultLevel: 1
   })
-  ElMessage.success('已应用 Linux.do 预设配置，请填写 Client ID 和 Client Secret')
+  ElMessage.success(t('admin.oauth2.linuxDoPresetApplied'))
 }
 
 // IDCFlare 预设
@@ -675,13 +682,13 @@ const applyIDCFlarePreset = () => {
     trustLevelField: 'trust_level',
     defaultLevel: 1
   })
-  ElMessage.success('已应用 IDCFlare 预设配置，请填写 Client ID 和 Client Secret')
+  ElMessage.success(t('admin.oauth2.idcFlarePresetApplied'))
 }
 
 const handleAdd = () => {
   resetForm()
   isEdit.value = false
-  dialogTitle.value = '添加OAuth2提供商'
+  dialogTitle.value = t('admin.oauth2.addProvider')
   dialogVisible.value = true
 }
 
@@ -695,7 +702,7 @@ const handleEdit = (row) => {
       levelMapping = JSON.parse(row.levelMapping)
     }
   } catch (e) {
-    console.error('解析levelMapping失败:', e)
+    console.error(t('admin.oauth2.parseLevelMappingFailed'), e)
   }
 
   Object.assign(formData, {
@@ -723,7 +730,7 @@ const handleEdit = (row) => {
   })
 
   isEdit.value = true
-  dialogTitle.value = '编辑OAuth2提供商'
+  dialogTitle.value = t('admin.oauth2.editProvider')
   dialogVisible.value = true
 }
 
@@ -763,16 +770,16 @@ const handleSubmit = async () => {
 
       if (isEdit.value) {
         await updateOAuth2Provider(formData.id, data)
-        ElMessage.success('更新成功')
+        ElMessage.success(t('common.updateSuccess'))
       } else {
         await createOAuth2Provider(data)
-        ElMessage.success('创建成功')
+        ElMessage.success(t('common.createSuccess'))
       }
 
       dialogVisible.value = false
       loadProviders()
     } catch (error) {
-      ElMessage.error(error.response?.data?.message || '操作失败')
+      ElMessage.error(error.response?.data?.message || t('common.operationFailed'))
     } finally {
       submitting.value = false
     }
@@ -782,21 +789,21 @@ const handleSubmit = async () => {
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm(
-      `确定要删除提供商 "${row.displayName}" 吗？如果有用户正在使用此提供商，将无法删除。`,
-      '警告',
+      t('admin.oauth2.deleteConfirm', { name: row.displayName }),
+      t('common.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
 
     await deleteOAuth2Provider(row.id)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('common.deleteSuccess'))
     loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '删除失败')
+      ElMessage.error(error.response?.data?.message || t('common.deleteFailed'))
     }
   }
 }
@@ -804,21 +811,21 @@ const handleDelete = async (row) => {
 const handleResetCount = async (row) => {
   try {
     await ElMessageBox.confirm(
-      `确定要重置提供商 "${row.displayName}" 的注册计数吗？`,
-      '确认',
+      t('admin.oauth2.resetCountConfirm', { name: row.displayName }),
+      t('common.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
 
     await resetOAuth2RegistrationCount(row.id)
-    ElMessage.success('重置成功')
+    ElMessage.success(t('admin.oauth2.resetSuccess'))
     loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.response?.data?.message || '重置失败')
+      ElMessage.error(error.response?.data?.message || t('admin.oauth2.resetFailed'))
     }
   }
 }
@@ -831,7 +838,7 @@ const addLevelMapping = () => {
 
 const confirmAddMapping = () => {
   if (!newMapping.externalLevel) {
-    ElMessage.warning('请输入外部等级值')
+    ElMessage.warning(t('admin.oauth2.enterExternalLevel'))
     return
   }
 

@@ -35,7 +35,7 @@
           index="/home"
         >
           <el-icon><HomeFilled /></el-icon>
-          <template #title>首页</template>
+          <template #title>{{ t('navbar.home') }}</template>
         </el-menu-item>
         
         <!-- 动态生成的菜单项 -->
@@ -54,12 +54,14 @@
 <script setup>
 import { computed, onMounted, ref, watch, nextTick, inject } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
 import { HomeFilled, Expand, Fold } from '@element-plus/icons-vue'
 import SidebarItem from './SidebarItem.vue'
 
 const route = useRoute()
 const router = useRouter()
+const { t, locale } = useI18n()
 const userStore = useUserStore()
 const isCollapse = ref(false)
 
@@ -99,6 +101,9 @@ const userRoutes = computed(() => {
   const viewMode = userStore.currentViewMode || userStore.userType
   console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '用户类型:', userStore.userType)
   
+  // 强制依赖 locale，确保语言切换时重新计算
+  const currentLocale = locale.value
+  
   // 用户特定路由
   const userTypeRoutes = {
     // 普通用户路由
@@ -107,7 +112,7 @@ const userRoutes = computed(() => {
         path: '/user/dashboard',
         name: 'UserDashboard',
         meta: {
-          title: '仪表盘',
+          title: t('sidebar.dashboard'),
           icon: 'Odometer'
         }
       },
@@ -115,7 +120,7 @@ const userRoutes = computed(() => {
         path: '/user/instances',
         name: 'UserInstances',
         meta: {
-          title: '我的实例',
+          title: t('sidebar.myInstances'),
           icon: 'Box'
         }
       },
@@ -123,7 +128,7 @@ const userRoutes = computed(() => {
         path: '/user/apply',
         name: 'UserApply',
         meta: {
-          title: '申请领取',
+          title: t('sidebar.apply'),
           icon: 'Plus'
         }
       },
@@ -131,7 +136,7 @@ const userRoutes = computed(() => {
         path: '/user/tasks',
         name: 'UserTasks',
         meta: {
-          title: '任务列表',
+          title: t('sidebar.taskList'),
           icon: 'List'
         }
       },
@@ -139,7 +144,7 @@ const userRoutes = computed(() => {
         path: '/user/profile',
         name: 'UserProfile',
         meta: {
-          title: '个人中心',
+          title: t('sidebar.personalCenter'),
           icon: 'User'
         }
       }
@@ -150,7 +155,7 @@ const userRoutes = computed(() => {
         path: '/admin/dashboard',
         name: 'AdminDashboard',
         meta: {
-          title: '仪表盘',
+          title: t('sidebar.dashboard'),
           icon: 'Odometer'
         }
       },
@@ -158,7 +163,7 @@ const userRoutes = computed(() => {
         path: '/admin/users',
         name: 'AdminUsers',
         meta: {
-          title: '用户管理',
+          title: t('sidebar.userManagement'),
           icon: 'User'
         }
       },
@@ -166,7 +171,7 @@ const userRoutes = computed(() => {
         path: '/admin/invite-codes',
         name: 'AdminInviteCodes',
         meta: {
-          title: '邀请码管理',
+          title: t('sidebar.inviteCodeManagement'),
           icon: 'Ticket'
         }
       },
@@ -174,7 +179,7 @@ const userRoutes = computed(() => {
         path: '/admin/providers',
         name: 'AdminProviders',
         meta: {
-          title: '节点管理',
+          title: t('sidebar.providerManagement'),
           icon: 'Monitor'
         }
       },
@@ -182,7 +187,7 @@ const userRoutes = computed(() => {
         path: '/admin/tasks',
         name: 'AdminTasks',
         meta: {
-          title: '任务管理',
+          title: t('sidebar.taskManagement'),
           icon: 'List'
         }
       },
@@ -190,7 +195,7 @@ const userRoutes = computed(() => {
         path: '/admin/instances',
         name: 'AdminInstances',
         meta: {
-          title: '实例管理',
+          title: t('sidebar.instanceManagement'),
           icon: 'Box'
         }
       },
@@ -198,7 +203,7 @@ const userRoutes = computed(() => {
         path: '/admin/traffic',
         name: 'AdminTraffic',
         meta: {
-          title: '流量管理',
+          title: t('sidebar.trafficManagement'),
           icon: 'TrendCharts'
         }
       },
@@ -206,7 +211,7 @@ const userRoutes = computed(() => {
         path: '/admin/port-mappings',
         name: 'AdminPortMappings',
         meta: {
-          title: '端口管理',
+          title: t('sidebar.portManagement'),
           icon: 'Connection'
         }
       },
@@ -214,7 +219,7 @@ const userRoutes = computed(() => {
         path: '/admin/system-images',
         name: 'AdminSystemImages',
         meta: {
-          title: '系统镜像',
+          title: t('sidebar.systemImages'),
           icon: 'Folder'
         }
       },
@@ -222,7 +227,7 @@ const userRoutes = computed(() => {
         path: '/admin/announcements',
         name: 'AdminAnnouncements',
         meta: {
-          title: '公告管理',
+          title: t('sidebar.announcementManagement'),
           icon: 'Bell'
         }
       },
@@ -238,7 +243,7 @@ const userRoutes = computed(() => {
         path: '/admin/config',
         name: 'AdminConfig',
         meta: {
-          title: '系统配置',
+          title: t('sidebar.systemConfiguration'),
           icon: 'Setting'
         }
       }
@@ -247,7 +252,7 @@ const userRoutes = computed(() => {
   
   // 根据视图模式返回对应路由
   const routes = userTypeRoutes[viewMode] || []
-  console.log('生成的用户路由数量:', routes.length, '路由详情:', JSON.stringify(routes))
+  console.log('当前语言:', currentLocale, '生成的用户路由数量:', routes.length)
   return routes
 })
 

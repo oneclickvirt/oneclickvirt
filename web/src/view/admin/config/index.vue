@@ -3,7 +3,7 @@
     <el-card>
       <template #header>
         <div class="config-header">
-          <span>系统配置</span>
+          <span>{{ $t('admin.config.title') }}</span>
         </div>
       </template>
       
@@ -15,7 +15,7 @@
       >
         <!-- 基础认证配置 -->
         <el-tab-pane
-          label="基础认证"
+          :label="$t('admin.config.basicAuth')"
           name="auth"
         >
           <el-form
@@ -26,17 +26,17 @@
           >
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="邮箱登录">
+                <el-form-item :label="$t('admin.config.emailLogin')">
                   <el-switch v-model="config.auth.enableEmail" />
                   <div class="form-item-hint">
-                    启用后，用户可通过邮箱验证码登录
+                    {{ $t('admin.config.emailLoginHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item
-                  label="公开注册"
-                  help="是否允许无邀请码注册"
+                  :label="$t('admin.config.publicRegistration')"
+                  :help="$t('admin.config.publicRegistrationHelp')"
                 >
                   <el-switch v-model="config.auth.enablePublicRegistration" />
                 </el-form-item>
@@ -44,18 +44,18 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="Telegram登录">
+                <el-form-item :label="$t('admin.config.telegramLogin')">
                   <el-switch v-model="config.auth.enableTelegram" />
                   <div class="form-item-hint">
-                    启用后，用户可通过Telegram验证码登录
+                    {{ $t('admin.config.telegramLoginHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="QQ登录">
+                <el-form-item :label="$t('admin.config.qqLogin')">
                   <el-switch v-model="config.auth.enableQQ" />
                   <div class="form-item-hint">
-                    启用后，用户可通过QQ验证码登录
+                    {{ $t('admin.config.qqLoginHint') }}
                   </div>
                 </el-form-item>
               </el-col>
@@ -66,15 +66,15 @@
                 <el-form-item label="OAuth2">
                   <el-switch v-model="config.auth.enableOAuth2" />
                   <div class="form-item-hint">
-                    启用后，用户可通过OAuth2提供商注册或登录
+                    {{ $t('admin.config.oauth2Hint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="邀请码系统">
+                <el-form-item :label="$t('admin.config.inviteCodeSystem')">
                   <el-switch v-model="config.inviteCode.enabled" />
                   <div class="form-item-hint">
-                    启用后，新用户注册需要提供有效的邀请码
+                    {{ $t('admin.config.inviteCodeSystemHint') }}
                   </div>
                 </el-form-item>
               </el-col>
@@ -84,7 +84,7 @@
 
         <!-- 邮箱SMTP配置 -->
         <el-tab-pane
-          label="邮箱配置"
+          :label="$t('admin.config.emailConfig')"
           name="email"
         >
           <el-form
@@ -94,30 +94,31 @@
             class="config-form"
           >
             <el-alert
-              title="SMTP配置说明"
+              :title="$t('admin.config.smtpConfigDesc')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置SMTP服务用于发送邮箱验证码和系统通知
+              {{ $t('admin.config.smtpConfigHint') }}
             </el-alert>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="SMTP主机">
+                <el-form-item :label="$t('admin.config.smtpHost')">
                   <el-input
                     v-model="config.auth.emailSMTPHost"
-                    placeholder="例如：smtp.gmail.com"
+                    :placeholder="$t('admin.config.smtpHostPlaceholder')"
                   />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="SMTP端口">
+                <el-form-item :label="$t('admin.config.smtpPort')">
                   <el-input-number
                     v-model="config.auth.emailSMTPPort"
                     :min="1"
                     :max="65535"
-                    placeholder="常用：587或465"
+                    :controls="false"
+                    :placeholder="$t('admin.config.smtpPortPlaceholder')"
                     style="width: 100%"
                   />
                 </el-form-item>
@@ -125,19 +126,19 @@
             </el-row>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="邮箱用户名">
+                <el-form-item :label="$t('admin.config.emailUsername')">
                   <el-input
                     v-model="config.auth.emailUsername"
-                    placeholder="发送邮件的邮箱地址"
+                    :placeholder="$t('admin.config.emailUsernamePlaceholder')"
                   />
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="邮箱密码/授权码">
+                <el-form-item :label="$t('admin.config.emailPassword')">
                   <el-input
                     v-model="config.auth.emailPassword"
                     type="password"
-                    placeholder="邮箱密码或应用专用密码"
+                    :placeholder="$t('admin.config.emailPasswordPlaceholder')"
                     show-password
                   />
                 </el-form-item>
@@ -148,7 +149,7 @@
 
         <!-- 第三方登录配置 -->
         <el-tab-pane
-          label="第三方登录"
+          :label="$t('admin.config.thirdPartyLogin')"
           name="oauth"
         >
           <el-form
@@ -164,14 +165,14 @@
             >
               <template #header>
                 <div class="oauth-header">
-                  <span>Telegram 配置</span>
+                  <span>{{ $t('admin.config.telegramConfig') }}</span>
                   <el-switch v-model="config.auth.enableTelegram" />
                 </div>
               </template>
               <el-form-item label="Bot Token">
                 <el-input
                   v-model="config.auth.telegramBotToken"
-                  placeholder="请输入 Telegram Bot Token"
+                  :placeholder="$t('admin.config.telegramBotTokenPlaceholder')"
                   :disabled="!config.auth.enableTelegram"
                 />
               </el-form-item>
@@ -184,7 +185,7 @@
             >
               <template #header>
                 <div class="oauth-header">
-                  <span>QQ 配置</span>
+                  <span>{{ $t('admin.config.qqConfig') }}</span>
                   <el-switch v-model="config.auth.enableQQ" />
                 </div>
               </template>
@@ -193,7 +194,7 @@
                   <el-form-item label="App ID">
                     <el-input
                       v-model="config.auth.qqAppID"
-                      placeholder="请输入 QQ App ID"
+                      :placeholder="$t('admin.config.qqAppIdPlaceholder')"
                       :disabled="!config.auth.enableQQ"
                     />
                   </el-form-item>
@@ -202,7 +203,7 @@
                   <el-form-item label="App Key">
                     <el-input
                       v-model="config.auth.qqAppKey"
-                      placeholder="请输入 QQ App Key"
+                      :placeholder="$t('admin.config.qqAppKeyPlaceholder')"
                       :disabled="!config.auth.enableQQ"
                     />
                   </el-form-item>
@@ -214,7 +215,7 @@
 
         <!-- 用户等级配置 -->
         <el-tab-pane
-          label="用户等级"
+          :label="$t('admin.config.userLevel')"
           name="quota"
         >
           <el-form
@@ -224,40 +225,40 @@
             class="config-form"
           >
             <el-alert
-              title="用户等级说明"
+              :title="$t('admin.config.userLevelDesc')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              <div>配置不同用户等级的资源限制，等级越高可用资源越多。</div>
+              <div>{{ $t('admin.config.userLevelHint') }}</div>
               <div style="margin-top: 8px; color: #67C23A;">
                 <i class="el-icon-check"></i>
-                配置保存时会自动同步所有用户的资源限制到对应等级配置，无需手动操作。
+                {{ $t('admin.config.autoSyncHint') }}
               </div>
               <div style="margin-top: 8px; color: #E6A23C;">
                 <i class="el-icon-warning"></i>
-                注意：所有资源限制值不能为空或小于等于0，清空输入框将无法保存配置。
+                {{ $t('admin.config.resourceLimitWarning') }}
               </div>
             </el-alert>
             
-            <el-form-item label="新用户默认等级">
+            <el-form-item :label="$t('admin.config.newUserDefaultLevel')">
               <el-select
                 v-model="config.quota.defaultLevel"
-                placeholder="请选择默认用户等级"
+                :placeholder="$t('admin.config.selectDefaultLevel')"
                 style="width: 200px"
               >
                 <el-option
                   v-for="level in 5"
                   :key="level"
-                  :label="`等级${level}`"
+                  :label="$t('admin.config.levelN', { level })"
                   :value="level"
                 />
               </el-select>
             </el-form-item>
 
             <el-divider content-position="left">
-              等级限制配置
+              {{ $t('admin.config.levelLimitsConfig') }}
             </el-divider>
             
             <!-- 等级限制配置 -->
@@ -275,60 +276,60 @@
                 >
                   <template #header>
                     <div class="level-header">
-                      <span class="level-title">等级{{ level }}限制</span>
+                      <span class="level-title">{{ $t('admin.config.levelNLimits', { level }) }}</span>
                       <el-tag
                         v-if="config.quota.defaultLevel === level"
                         type="success"
                         size="small"
                       >
-                        默认等级
+                        {{ $t('admin.config.defaultLevel') }}
                       </el-tag>
                     </div>
                   </template>
                   <el-row :gutter="20">
                     <el-col :span="6">
-                      <el-form-item label="最大实例数">
+                      <el-form-item :label="$t('admin.config.maxInstances')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxInstances']" 
                           :min="1" 
                           :max="100"
-                          :controls="true"
+                          :controls="false"
                           :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
                     </el-col>
                     <el-col :span="6">
-                      <el-form-item label="最大CPU核心">
+                      <el-form-item :label="$t('admin.config.maxCPU')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['cpu']" 
                           :min="1" 
                           :max="64"
-                          :controls="true"
+                          :controls="false"
                           :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
                     </el-col>
                     <el-col :span="6">
-                      <el-form-item label="最大内存(MB)">
+                      <el-form-item :label="$t('admin.config.maxMemoryMB')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['memory']" 
                           :min="128" 
                           :max="65536"
-                          :controls="true"
+                          :controls="false"
                           :step="128"
                           style="width: 100%" 
                         />
                       </el-form-item>
                     </el-col>
                     <el-col :span="6">
-                      <el-form-item label="最大磁盘(MB)">
+                      <el-form-item :label="$t('admin.config.maxDiskMB')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['disk']" 
                           :min="512" 
                           :max="102400"
-                          :controls="true"
+                          :controls="false"
                           :step="512"
                           style="width: 100%" 
                         />
@@ -337,24 +338,24 @@
                   </el-row>
                   <el-row :gutter="20">
                     <el-col :span="6">
-                      <el-form-item label="最大带宽(Mbps)">
+                      <el-form-item :label="$t('admin.config.maxBandwidthMbps')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['bandwidth']" 
                           :min="1" 
                           :max="10000"
-                          :controls="true"
+                          :controls="false"
                           :step="1"
                           style="width: 100%" 
                         />
                       </el-form-item>
                     </el-col>
                     <el-col :span="6">
-                      <el-form-item label="流量限制(MB)">
+                      <el-form-item :label="$t('admin.config.trafficLimitMB')">
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxTraffic']" 
                           :min="1024" 
                           :max="10485760"
-                          :controls="true"
+                          :controls="false"
                           :step="1024"
                           style="width: 100%" 
                         />
@@ -369,7 +370,7 @@
 
         <!-- 实例类型权限配置 -->
         <el-tab-pane
-          label="实例权限"
+          :label="$t('admin.config.instancePermissions')"
           name="instancePermissions"
         >
           <el-form
@@ -379,55 +380,55 @@
             class="config-form"
           >
             <el-alert
-              title="实例类型权限说明"
+              :title="$t('admin.config.instancePermissionsDesc')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置不同实例类型和操作的最低用户等级要求。可以分别设置容器和虚拟机的创建、删除和重置系统操作的最低等级。
+              {{ $t('admin.config.instancePermissionsHint') }}
             </el-alert>
             
             <!-- 创建权限 -->
             <el-divider content-position="left">
-              <el-icon><Plus /></el-icon> 创建权限
+              <el-icon><Plus /></el-icon> {{ $t('admin.config.createPermissions') }}
             </el-divider>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="容器创建最低等级">
+                <el-form-item :label="$t('admin.config.containerCreateMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForContainer"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    容器资源占用较少，建议设置较低门槛
+                    {{ $t('admin.config.containerCreateHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="虚拟机创建最低等级">
+                <el-form-item :label="$t('admin.config.vmCreateMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForVM"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    虚拟机需要更多资源，建议设置适当门槛
+                    {{ $t('admin.config.vmCreateHint') }}
                   </div>
                 </el-form-item>
               </el-col>
@@ -435,44 +436,44 @@
 
             <!-- 删除权限 -->
             <el-divider content-position="left">
-              <el-icon><Delete /></el-icon> 删除权限
+              <el-icon><Delete /></el-icon> {{ $t('admin.config.deletePermissions') }}
             </el-divider>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="容器删除最低等级">
+                <el-form-item :label="$t('admin.config.containerDeleteMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForDeleteContainer"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    容器删除操作权限等级要求
+                    {{ $t('admin.config.containerDeleteHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="虚拟机删除最低等级">
+                <el-form-item :label="$t('admin.config.vmDeleteMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForDeleteVM"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    虚拟机删除操作权限等级要求
+                    {{ $t('admin.config.vmDeleteHint') }}
                   </div>
                 </el-form-item>
               </el-col>
@@ -480,61 +481,61 @@
 
             <!-- 重置系统权限 -->
             <el-divider content-position="left">
-              <el-icon><Refresh /></el-icon> 重置系统权限
+              <el-icon><Refresh /></el-icon> {{ $t('admin.config.resetPermissions') }}
             </el-divider>
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="容器重置系统最低等级">
+                <el-form-item :label="$t('admin.config.containerResetMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForResetContainer"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    容器重置系统操作权限等级要求
+                    {{ $t('admin.config.containerResetHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="虚拟机重置系统最低等级">
+                <el-form-item :label="$t('admin.config.vmResetMinLevel')">
                   <el-select
                     v-model="instanceTypePermissions.minLevelForResetVM"
-                    placeholder="选择等级"
+                    :placeholder="$t('admin.config.selectLevel')"
                     style="width: 100%"
                   >
                     <el-option
                       v-for="level in [1, 2, 3, 4, 5]"
                       :key="level"
-                      :label="`等级 ${level}`"
+                      :label="$t('admin.config.levelN', { level })"
                       :value="level"
                     />
                   </el-select>
                   <div class="form-item-hint">
-                    虚拟机重置系统操作权限等级要求
+                    {{ $t('admin.config.vmResetHint') }}
                   </div>
                 </el-form-item>
               </el-col>
             </el-row>
 
             <el-alert
-              title="权限设置建议"
+              :title="$t('admin.config.permissionsSuggestions')"
               type="warning"
               :closable="false"
               show-icon
               style="margin-top: 20px;"
             >
               <ul style="margin: 0; padding-left: 20px;">
-                <li>容器创建：资源占用较少，建议等级1即可创建</li>
-                <li>虚拟机创建：资源占用较大，建议设置等级2-3以上</li>
-                <li>容器删除/重置：建议等级1-2，相对安全</li>
-                <li>虚拟机删除/重置：建议设置等级2以上，避免误操作</li>
+                <li>{{ $t('admin.config.containerCreateSuggestion') }}</li>
+                <li>{{ $t('admin.config.vmCreateSuggestion') }}</li>
+                <li>{{ $t('admin.config.containerDeleteResetSuggestion') }}</li>
+                <li>{{ $t('admin.config.vmDeleteResetSuggestion') }}</li>
               </ul>
             </el-alert>
           </el-form>
@@ -542,7 +543,7 @@
 
         <!-- 其他配置 -->
         <el-tab-pane
-          label="其他配置"
+          :label="$t('admin.config.otherConfig')"
           name="other"
         >
           <el-form
@@ -552,37 +553,38 @@
             class="config-form"
           >
             <el-alert
-              title="头像上传配置"
+              :title="$t('admin.config.avatarUploadConfig')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置用户头像上传的最大文件大小限制。仅支持 PNG 和 JPEG 格式的图片文件。
+              {{ $t('admin.config.avatarUploadDesc') }}
             </el-alert>
 
             <el-divider content-position="left">
-              头像上传设置
+              {{ $t('admin.config.avatarUploadSettings') }}
             </el-divider>
 
             <el-row :gutter="20">
               <el-col :span="12">
-                <el-form-item label="头像最大大小">
+                <el-form-item :label="$t('admin.config.maxAvatarSize')">
                   <el-input-number
                     v-model="config.other.maxAvatarSize"
                     :min="0.5"
                     :max="10"
                     :step="0.5"
                     :precision="1"
+                    :controls="false"
                     style="width: 100%"
                   />
                   <div class="form-item-hint">
-                    MB，建议设置为 1-5 MB 之间，默认 2 MB
+                    {{ $t('admin.config.maxAvatarSizeHint') }}
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
-                <el-form-item label="支持的格式">
+                <el-form-item :label="$t('admin.config.supportedFormats')">
                   <el-tag
                     type="info"
                     style="margin-right: 8px;"
@@ -593,7 +595,7 @@
                     JPEG
                   </el-tag>
                   <div class="form-item-hint">
-                    仅支持这两种格式，无法修改
+                    {{ $t('admin.config.supportedFormatsHint') }}
                   </div>
                 </el-form-item>
               </el-col>
@@ -610,13 +612,13 @@
           :loading="loading"
           @click="saveConfig"
         >
-          保存当前配置
+          {{ $t('admin.config.saveCurrentConfig') }}
         </el-button>
         <el-button 
           size="large"
           @click="resetConfig"
         >
-          重置配置
+          {{ $t('admin.config.resetConfig') }}
         </el-button>
       </div>
     </el-card>
@@ -626,8 +628,11 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
+
+const { t } = useI18n()
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -740,7 +745,7 @@ const loadConfig = async () => {
     }
   } catch (error) {
     console.error('加载配置失败:', error)
-    ElMessage.error('加载配置失败')
+    ElMessage.error(t('admin.config.loadConfigFailed'))
   } finally {
     loading.value = false
   }
@@ -762,7 +767,7 @@ const loadInstanceTypePermissions = async () => {
     }
   } catch (error) {
     console.error('加载实例类型权限配置失败:', error)
-    ElMessage.error('加载实例类型权限配置失败')
+    ElMessage.error(t('admin.config.loadPermissionsFailed'))
   }
 }
 
@@ -771,44 +776,44 @@ const saveConfig = async () => {
   for (let level = 1; level <= 5; level++) {
     const limit = config.value.quota.levelLimits[level]
     if (!limit) {
-      ElMessage.error(`等级${level}的配置不能为空`)
+      ElMessage.error(t('admin.config.levelConfigEmpty', { level }))
       return
     }
     
     // 验证必填字段
     if (!limit.maxInstances || limit.maxInstances <= 0) {
-      ElMessage.error(`等级${level}的最大实例数不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.maxInstancesInvalid', { level }))
       return
     }
     
     if (!limit.maxTraffic || limit.maxTraffic <= 0) {
-      ElMessage.error(`等级${level}的流量限制不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.trafficLimitInvalid', { level }))
       return
     }
     
     if (!limit.maxResources) {
-      ElMessage.error(`等级${level}的资源配置不能为空`)
+      ElMessage.error(t('admin.config.resourceConfigEmpty', { level }))
       return
     }
     
     // 验证各项资源限制
     if (!limit.maxResources.cpu || limit.maxResources.cpu <= 0) {
-      ElMessage.error(`等级${level}的最大CPU核心数不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.maxCPUInvalid', { level }))
       return
     }
     
     if (!limit.maxResources.memory || limit.maxResources.memory <= 0) {
-      ElMessage.error(`等级${level}的最大内存不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.maxMemoryInvalid', { level }))
       return
     }
     
     if (!limit.maxResources.disk || limit.maxResources.disk <= 0) {
-      ElMessage.error(`等级${level}的最大磁盘不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.maxDiskInvalid', { level }))
       return
     }
     
     if (!limit.maxResources.bandwidth || limit.maxResources.bandwidth <= 0) {
-      ElMessage.error(`等级${level}的最大带宽不能为空或小于等于0`)
+      ElMessage.error(t('admin.config.maxBandwidthInvalid', { level }))
       return
     }
   }
@@ -827,14 +832,14 @@ const saveConfig = async () => {
     const permissionsResult = await updateInstanceTypePermissions(instanceTypePermissions.value)
     console.log('实例类型权限配置保存结果:', permissionsResult)
     
-    ElMessage.success('配置保存成功，已自动同步用户资源限制')
+    ElMessage.success(t('admin.config.saveSuccess'))
     
     // 保存成功后重新加载配置，确保显示最新数据
     await loadConfig()
     await loadInstanceTypePermissions()
   } catch (error) {
     console.error('保存配置失败:', error)
-    ElMessage.error('配置保存失败: ' + (error.message || '未知错误'))
+    ElMessage.error(t('admin.config.saveFailed', { error: error.message || t('common.unknownError') }))
   } finally {
     loading.value = false
   }
@@ -843,7 +848,7 @@ const saveConfig = async () => {
 const resetConfig = async () => {
   await loadConfig()
   await loadInstanceTypePermissions()
-  ElMessage.success('配置已重置')
+  ElMessage.success(t('admin.config.configReset'))
 }
 
 onMounted(() => {

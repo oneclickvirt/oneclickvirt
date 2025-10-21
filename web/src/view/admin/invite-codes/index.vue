@@ -3,19 +3,19 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>邀请码管理</span>
+          <span>{{ $t('admin.inviteCodes.title') }}</span>
           <div>
             <el-button
               type="success"
               @click="showCreateDialog = true"
             >
-              创建自定义邀请码
+              {{ $t('admin.inviteCodes.createCustomCode') }}
             </el-button>
             <el-button
               type="primary"
               @click="showGenerateDialog = true"
             >
-              批量生成邀请码
+              {{ $t('admin.inviteCodes.batchGenerate') }}
             </el-button>
           </div>
         </div>
@@ -24,29 +24,29 @@
       <!-- 筛选栏 -->
       <div class="filter-bar">
         <el-form :inline="true">
-          <el-form-item label="使用状态">
+          <el-form-item :label="$t('admin.inviteCodes.usageStatus')">
             <el-select
               v-model="filterForm.isUsed"
-              placeholder="全部"
+              :placeholder="$t('common.all')"
               clearable
               style="width: 120px"
               @change="handleFilterChange"
             >
-              <el-option label="全部" :value="null" />
-              <el-option label="未使用" :value="false" />
-              <el-option label="已使用" :value="true" />
+              <el-option :label="$t('common.all')" :value="null" />
+              <el-option :label="$t('admin.inviteCodes.unused')" :value="false" />
+              <el-option :label="$t('admin.inviteCodes.used')" :value="true" />
             </el-select>
           </el-form-item>
-          <el-form-item label="状态">
+          <el-form-item :label="$t('common.status')">
             <el-select
               v-model="filterForm.status"
-              placeholder="全部"
+              :placeholder="$t('common.all')"
               clearable
               style="width: 120px"
               @change="handleFilterChange"
             >
-              <el-option label="全部" :value="0" />
-              <el-option label="可用" :value="1" />
+              <el-option :label="$t('common.all')" :value="0" />
+              <el-option :label="$t('admin.inviteCodes.available')" :value="1" />
             </el-select>
           </el-form-item>
         </el-form>
@@ -61,13 +61,13 @@
           type="primary"
           @click="handleBatchExport"
         >
-          导出选中 ({{ selectedCodes.length }})
+          {{ $t('admin.inviteCodes.exportSelected') }} ({{ selectedCodes.length }})
         </el-button>
         <el-button
           type="danger"
           @click="handleBatchDelete"
         >
-          删除选中 ({{ selectedCodes.length }})
+          {{ $t('admin.inviteCodes.deleteSelected') }} ({{ selectedCodes.length }})
         </el-button>
       </div>
       
@@ -88,45 +88,45 @@
         />
         <el-table-column
           prop="code"
-          label="邀请码"
+          :label="$t('admin.inviteCodes.code')"
         />
         <el-table-column
           prop="maxUses"
-          label="最大使用次数"
+          :label="$t('admin.inviteCodes.maxUses')"
           width="120"
         >
           <template #default="scope">
-            {{ scope.row.maxUses === 0 ? '无限制' : scope.row.maxUses }}
+            {{ scope.row.maxUses === 0 ? $t('admin.inviteCodes.unlimited') : scope.row.maxUses }}
           </template>
         </el-table-column>
         <el-table-column
           prop="usedCount"
-          label="已使用次数"
+          :label="$t('admin.inviteCodes.usedCount')"
           width="120"
         />
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="100"
         >
           <template #default="scope">
             <el-tag :type="scope.row.status === 1 ? 'success' : 'info'">
-              {{ scope.row.status === 1 ? '可用' : '已失效' }}
+              {{ scope.row.status === 1 ? $t('admin.inviteCodes.available') : $t('admin.inviteCodes.expired') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="expiresAt"
-          label="过期时间"
+          :label="$t('admin.inviteCodes.expiryDate')"
           width="160"
         >
           <template #default="scope">
-            {{ scope.row.expiresAt ? new Date(scope.row.expiresAt).toLocaleString() : '永不过期' }}
+            {{ scope.row.expiresAt ? new Date(scope.row.expiresAt).toLocaleString() : $t('admin.inviteCodes.neverExpires') }}
           </template>
         </el-table-column>
         <el-table-column
           prop="createdAt"
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="160"
         >
           <template #default="scope">
@@ -134,7 +134,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="120"
         >
           <template #default="scope">
@@ -143,7 +143,7 @@
               type="danger"
               @click="deleteCode(scope.row.id)"
             >
-              删除
+              {{ $t('common.delete') }}
             </el-button>
           </template>
         </el-table-column>
@@ -166,7 +166,7 @@
     <!-- 创建自定义邀请码对话框 -->
     <el-dialog 
       v-model="showCreateDialog" 
-      title="创建自定义邀请码" 
+      :title="$t('admin.inviteCodes.createCustomCode')" 
       width="500px"
     >
       <el-form 
@@ -176,67 +176,68 @@
         label-width="120px"
       >
         <el-form-item
-          label="邀请码"
+          :label="$t('admin.inviteCodes.code')"
           prop="code"
         >
           <el-input 
             v-model="createForm.code" 
-            placeholder="请输入自定义邀请码"
+            :placeholder="$t('admin.inviteCodes.codeInputPlaceholder')"
             maxlength="50"
             show-word-limit
           />
           <div class="form-tip">
-            邀请码只能包含数字和英文大写字母
+            {{ $t('admin.inviteCodes.codeFormatTip') }}
           </div>
         </el-form-item>
         <el-form-item
-          label="最大使用次数"
+          :label="$t('admin.inviteCodes.maxUses')"
           prop="maxUses"
         >
           <el-input-number
             v-model="createForm.maxUses"
             :min="0"
+            :controls="false"
           />
           <div class="form-tip">
-            设置为0表示无限制使用
+            {{ $t('admin.inviteCodes.maxUsesTip') }}
           </div>
         </el-form-item>
         <el-form-item
-          label="过期时间"
+          :label="$t('admin.inviteCodes.expiryDate')"
           prop="expiresAt"
         >
           <el-date-picker
             v-model="createForm.expiresAt"
             type="datetime"
-            placeholder="选择过期时间"
+            :placeholder="$t('admin.inviteCodes.selectExpiryDate')"
             format="YYYY-MM-DD HH:mm:ss"
             value-format="YYYY-MM-DD HH:mm:ss"
             style="width: 100%"
           />
           <div class="form-tip">
-            不设置表示永不过期
+            {{ $t('admin.inviteCodes.expiryDateTip') }}
           </div>
         </el-form-item>
         <el-form-item
-          label="描述"
+          :label="$t('common.description')"
           prop="description"
         >
           <el-input 
             v-model="createForm.description" 
             type="textarea" 
             :rows="3"
-            placeholder="邀请码用途描述"
+            :placeholder="$t('admin.inviteCodes.descriptionPlaceholder')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="cancelCreate">取消</el-button>
+          <el-button @click="cancelCreate">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="createLoading"
             @click="submitCreate"
-          >创建</el-button>
+          >{{ $t('common.create') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -244,7 +245,7 @@
     <!-- 生成邀请码对话框 -->
     <el-dialog 
       v-model="showGenerateDialog" 
-      title="批量生成邀请码" 
+      :title="$t('admin.inviteCodes.batchGenerate')" 
       width="500px"
     >
       <el-form 
@@ -254,63 +255,65 @@
         label-width="120px"
       >
         <el-form-item
-          label="生成数量"
+          :label="$t('admin.inviteCodes.generateCount')"
           prop="count"
         >
           <el-input-number
             v-model="generateForm.count"
             :min="1"
             :max="100"
+            :controls="false"
           />
         </el-form-item>
         <el-form-item
-          label="最大使用次数"
+          :label="$t('admin.inviteCodes.maxUses')"
           prop="maxUses"
         >
           <el-input-number
             v-model="generateForm.maxUses"
             :min="0"
+            :controls="false"
           />
           <div class="form-tip">
-            设置为0表示无限制使用
+            {{ $t('admin.inviteCodes.maxUsesTip') }}
           </div>
         </el-form-item>
         <el-form-item
-          label="过期时间"
+          :label="$t('admin.inviteCodes.expiryDate')"
           prop="expiresAt"
         >
           <el-date-picker
             v-model="generateForm.expiresAt"
             type="datetime"
-            placeholder="选择过期时间"
+            :placeholder="$t('admin.inviteCodes.selectExpiryDate')"
             format="YYYY-MM-DD HH:mm:ss"
             value-format="YYYY-MM-DD HH:mm:ss"
             style="width: 100%"
           />
           <div class="form-tip">
-            不设置表示永不过期
+            {{ $t('admin.inviteCodes.expiryDateTip') }}
           </div>
         </el-form-item>
         <el-form-item
-          label="描述"
+          :label="$t('common.description')"
           prop="description"
         >
           <el-input 
             v-model="generateForm.description" 
             type="textarea" 
             :rows="3"
-            placeholder="邀请码用途描述"
+            :placeholder="$t('admin.inviteCodes.descriptionPlaceholder')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="cancelGenerate">取消</el-button>
+          <el-button @click="cancelGenerate">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="generateLoading"
             @click="submitGenerate"
-          >生成</el-button>
+          >{{ $t('admin.inviteCodes.generate') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -318,7 +321,7 @@
     <!-- 导出邀请码对话框 -->
     <el-dialog
       v-model="showExportDialog"
-      title="导出邀请码"
+      :title="$t('admin.inviteCodes.exportCodes')"
       width="600px"
     >
       <div class="export-content">
@@ -331,11 +334,11 @@
       </div>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="showExportDialog = false">关闭</el-button>
+          <el-button @click="showExportDialog = false">{{ $t('common.close') }}</el-button>
           <el-button
             type="primary"
             @click="copyExportedCodes"
-          >复制</el-button>
+          >{{ $t('common.copy') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -345,7 +348,10 @@
 <script setup>
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import { getInviteCodes, createInviteCode, generateInviteCodes, deleteInviteCode, batchDeleteInviteCodes, exportInviteCodes } from '@/api/admin'
+
+const { t } = useI18n()
 
 const inviteCodes = ref([])
 const loading = ref(false)
@@ -381,12 +387,12 @@ const createForm = reactive({
 // 创建表单验证规则
 const createRules = {
   code: [
-    { required: true, message: '请输入邀请码', trigger: 'blur' },
-    { min: 3, max: 50, message: '邀请码长度为3-50个字符', trigger: 'blur' },
-    { pattern: /^[0-9A-Z]+$/, message: '邀请码只能包含数字和英文大写字母', trigger: 'blur' }
+    { required: true, message: t('admin.inviteCodes.codeRequired'), trigger: 'blur' },
+    { min: 3, max: 50, message: t('admin.inviteCodes.codeLengthError'), trigger: 'blur' },
+    { pattern: /^[0-9A-Z]+$/, message: t('admin.inviteCodes.codeFormatError'), trigger: 'blur' }
   ],
   maxUses: [
-    { required: true, message: '请输入最大使用次数', trigger: 'blur' }
+    { required: true, message: t('admin.inviteCodes.maxUsesRequired'), trigger: 'blur' }
   ]
 }
 
@@ -401,10 +407,10 @@ const generateForm = reactive({
 // 表单验证规则
 const generateRules = {
   count: [
-    { required: true, message: '请输入生成数量', trigger: 'blur' }
+    { required: true, message: t('admin.inviteCodes.countRequired'), trigger: 'blur' }
   ],
   maxUses: [
-    { required: true, message: '请输入最大使用次数', trigger: 'blur' }
+    { required: true, message: t('admin.inviteCodes.maxUsesRequired'), trigger: 'blur' }
   ]
 }
 
@@ -427,7 +433,7 @@ const loadInviteCodes = async () => {
     inviteCodes.value = response.data.list || []
     total.value = response.data.total || 0
   } catch (error) {
-    ElMessage.error('加载邀请码列表失败')
+    ElMessage.error(t('admin.inviteCodes.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -444,7 +450,7 @@ const handleSelectionChange = (selection) => {
 
 const handleBatchExport = async () => {
   if (selectedCodes.value.length === 0) {
-    ElMessage.warning('请选择要导出的邀请码')
+    ElMessage.warning(t('admin.inviteCodes.selectToExport'))
     return
   }
   
@@ -454,41 +460,41 @@ const handleBatchExport = async () => {
     exportedCodes.value = response.data.join('\n')
     showExportDialog.value = true
   } catch (error) {
-    ElMessage.error('导出邀请码失败')
+    ElMessage.error(t('admin.inviteCodes.exportFailed'))
   }
 }
 
 const handleBatchDelete = async () => {
   if (selectedCodes.value.length === 0) {
-    ElMessage.warning('请选择要删除的邀请码')
+    ElMessage.warning(t('admin.inviteCodes.selectToDelete'))
     return
   }
   
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${selectedCodes.value.length} 个邀请码吗？此操作不可恢复。`,
-      '批量删除邀请码',
+      t('admin.inviteCodes.batchDeleteConfirm', { count: selectedCodes.value.length }),
+      t('admin.inviteCodes.batchDeleteTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     const ids = selectedCodes.value.map(item => item.id)
     await batchDeleteInviteCodes({ ids })
-    ElMessage.success('批量删除成功')
+    ElMessage.success(t('admin.inviteCodes.batchDeleteSuccess'))
     await loadInviteCodes()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error(t('admin.inviteCodes.batchDeleteFailed'))
     }
   }
 }
 
 const copyExportedCodes = async () => {
   if (!exportedCodes.value) {
-    ElMessage.warning('没有可复制的内容')
+    ElMessage.warning(t('admin.inviteCodes.nothingToCopy'))
     return
   }
   
@@ -496,7 +502,7 @@ const copyExportedCodes = async () => {
     // 优先使用 Clipboard API
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(exportedCodes.value)
-      ElMessage.success('已复制到剪贴板')
+      ElMessage.success(t('admin.inviteCodes.copiedToClipboard'))
       return
     }
     
@@ -514,7 +520,7 @@ const copyExportedCodes = async () => {
       // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
       const successful = document.execCommand('copy')
       if (successful) {
-        ElMessage.success('已复制到剪贴板')
+        ElMessage.success(t('admin.inviteCodes.copiedToClipboard'))
       } else {
         throw new Error('execCommand failed')
       }
@@ -523,7 +529,7 @@ const copyExportedCodes = async () => {
     }
   } catch (error) {
     console.error('复制失败:', error)
-    ElMessage.error('复制失败，请手动复制')
+    ElMessage.error(t('admin.inviteCodes.copyFailed'))
   }
 }
 
@@ -552,14 +558,14 @@ const submitCreate = async () => {
     }
 
     await createInviteCode(data)
-    ElMessage.success('自定义邀请码创建成功')
+    ElMessage.success(t('admin.inviteCodes.createSuccess'))
     cancelCreate()
     await loadInviteCodes()
   } catch (error) {
     if (error.response?.data?.msg) {
       ElMessage.error(error.response.data.msg)
     } else {
-      ElMessage.error('邀请码创建失败')
+      ElMessage.error(t('admin.inviteCodes.createFailed'))
     }
   } finally {
     createLoading.value = false
@@ -590,11 +596,11 @@ const submitGenerate = async () => {
     }
 
     await generateInviteCodes(data)
-    ElMessage.success('邀请码生成成功')
+    ElMessage.success(t('admin.inviteCodes.generateSuccess'))
     cancelGenerate()
     await loadInviteCodes()
   } catch (error) {
-    ElMessage.error('邀请码生成失败')
+    ElMessage.error(t('admin.inviteCodes.generateFailed'))
   } finally {
     generateLoading.value = false
   }
@@ -603,21 +609,21 @@ const submitGenerate = async () => {
 const deleteCode = async (id) => {
   try {
     await ElMessageBox.confirm(
-      '确定删除该邀请码吗？此操作不可恢复。',
-      '删除邀请码',
+      t('admin.inviteCodes.deleteConfirm'),
+      t('admin.inviteCodes.deleteTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await deleteInviteCode(id)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('admin.inviteCodes.deleteSuccess'))
     await loadInviteCodes()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(t('admin.inviteCodes.deleteFailed'))
     }
   }
 }

@@ -3,7 +3,7 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>端口映射管理</span>
+          <span>{{ $t('admin.portMapping.title') }}</span>
           <div class="header-actions">
             <el-alert
               type="info"
@@ -13,7 +13,7 @@
             >
               <template #title>
                 <span style="font-size: 12px;">
-                  区间映射端口随实例创建，不可删除；手动添加的端口可以删除
+                  {{ $t('admin.portMapping.rangePortInfo') }}
                 </span>
               </template>
             </el-alert>
@@ -22,14 +22,14 @@
               @click="openAddDialog"
             >
               <el-icon><Plus /></el-icon>
-              手动添加端口
+              {{ $t('admin.portMapping.addManualPort') }}
             </el-button>
             <el-button
               v-if="selectedPortMappings.length > 0"
               type="danger"
               @click="batchDeleteDirect"
             >
-              批量删除 ({{ selectedPortMappings.length }})
+              {{ $t('admin.portMapping.batchDelete') }} ({{ selectedPortMappings.length }})
             </el-button>
           </div>
         </div>
@@ -41,7 +41,7 @@
           <el-col :span="6">
             <el-input 
               v-model="searchForm.keyword" 
-              placeholder="搜索实例名称"
+              :placeholder="$t('admin.portMapping.searchInstance')"
               clearable
               @keyup.enter="searchPortMappings"
             >
@@ -56,7 +56,7 @@
           <el-col :span="6">
             <el-select
               v-model="searchForm.providerId"
-              placeholder="选择Provider"
+              :placeholder="$t('admin.portMapping.selectProvider')"
               clearable
               style="width: 100%;"
             >
@@ -71,16 +71,16 @@
           <el-col :span="6">
             <el-select
               v-model="searchForm.status"
-              placeholder="状态"
+              :placeholder="$t('common.status')"
               clearable
               style="width: 100%;"
             >
               <el-option
-                label="活跃"
+                :label="$t('admin.portMapping.statusActive')"
                 value="active"
               />
               <el-option
-                label="未使用"
+                :label="$t('admin.portMapping.statusInactive')"
                 value="inactive"
               />
             </el-select>
@@ -90,10 +90,10 @@
               type="primary"
               @click="searchPortMappings"
             >
-              搜索
+              {{ $t('common.search') }}
             </el-button>
             <el-button @click="resetSearch">
-              重置
+              {{ $t('common.reset') }}
             </el-button>
           </el-col>
         </el-row>
@@ -118,18 +118,18 @@
         />
         <el-table-column
           prop="portType"
-          label="端口类型"
+          :label="$t('admin.portMapping.portType')"
           width="120"
         >
           <template #default="{ row }">
             <el-tag :type="row.portType === 'manual' ? 'warning' : 'success'">
-              {{ row.portType === 'manual' ? '手动添加' : '区间映射' }}
+              {{ row.portType === 'manual' ? $t('admin.portMapping.manualPort') : $t('admin.portMapping.rangePort') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="instanceName"
-          label="实例名称"
+          :label="$t('admin.portMapping.instanceName')"
           width="150"
         />
         <el-table-column
@@ -139,27 +139,27 @@
         />
         <el-table-column
           prop="publicIP"
-          label="公网IP"
+          :label="$t('admin.portMapping.publicIP')"
           width="120"
         />
         <el-table-column
           prop="hostPort"
-          label="公网端口"
+          :label="$t('admin.portMapping.publicPort')"
           width="100"
         />
         <el-table-column
           prop="guestPort"
-          label="内部端口"
+          :label="$t('admin.portMapping.internalPort')"
           width="100"
         />
         <el-table-column
           prop="protocol"
-          label="协议"
+          :label="$t('admin.portMapping.protocol')"
           width="80"
         />
         <el-table-column
           prop="description"
-          label="描述"
+          :label="$t('common.description')"
           width="120"
         />
         <el-table-column
@@ -169,13 +169,13 @@
         >
           <template #default="{ row }">
             <el-tag :type="row.isIPv6 ? 'success' : 'info'">
-              {{ row.isIPv6 ? '是' : '否' }}
+              {{ row.isIPv6 ? $t('common.yes') : $t('common.no') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="120"
         >
           <template #default="{ row }">
@@ -183,32 +183,32 @@
               v-if="row.status === 'active'" 
               type="success"
             >
-              活跃
+              {{ $t('admin.portMapping.statusActive') }}
             </el-tag>
             <el-tag 
               v-else-if="row.status === 'creating'" 
               type="warning"
             >
               <el-icon class="is-loading"><Loading /></el-icon>
-              创建中
+              {{ $t('admin.portMapping.statusCreating') }}
             </el-tag>
             <el-tag 
               v-else-if="row.status === 'failed'" 
               type="danger"
             >
-              失败
+              {{ $t('admin.portMapping.statusFailed') }}
             </el-tag>
             <el-tag 
               v-else 
               type="info"
             >
-              {{ row.status || '未知' }}
+              {{ row.status || $t('common.unknown') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="createdAt"
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="150"
         >
           <template #default="{ row }">
@@ -216,7 +216,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="120"
           fixed="right"
         >
@@ -227,11 +227,11 @@
               size="small"
               @click="deletePortMappingHandler(row.id)"
             >
-              删除
+              {{ $t('common.delete') }}
             </el-button>
             <el-tooltip
               v-else
-              content="区间映射端口不可删除"
+              :content="$t('admin.portMapping.rangePortNotDeletable')"
               placement="top"
             >
               <el-button
@@ -239,7 +239,7 @@
                 size="small"
                 disabled
               >
-                不可删除
+                {{ $t('admin.portMapping.notDeletable') }}
               </el-button>
             </el-tooltip>
           </template>
@@ -263,7 +263,7 @@
     <!-- 手动添加端口对话框 -->
     <el-dialog
       v-model="addDialogVisible"
-      title="手动添加端口映射"
+      :title="$t('admin.portMapping.addPortDialog')"
       width="600px"
     >
       <el-alert
@@ -274,7 +274,7 @@
       >
         <template #title>
           <span style="font-size: 13px;">
-            仅支持为 LXD/Incus/Proxmox 实例手动添加端口，Docker 不支持
+            {{ $t('admin.portMapping.onlyLxdIncusProxmox') }}
           </span>
         </template>
       </el-alert>
@@ -286,18 +286,18 @@
         label-width="120px"
       >
         <el-form-item
-          label="选择实例"
+          :label="$t('admin.portMapping.selectInstance')"
           prop="instanceId"
         >
           <el-select
             v-model="addForm.instanceId"
-            placeholder="请输入实例名称或ID搜索"
+            :placeholder="$t('admin.portMapping.searchInstancePlaceholder')"
             filterable
             clearable
             style="width: 100%"
             @change="onInstanceChange"
             :filter-method="filterInstances"
-            :no-data-text="instances.length === 0 ? '暂无实例数据' : '没有匹配的实例'"
+            :no-data-text="instances.length === 0 ? $t('admin.portMapping.noInstanceData') : $t('admin.portMapping.noMatchingInstance')"
           >
             <el-option
               v-for="instance in filteredInstances"
@@ -329,43 +329,45 @@
           </el-select>
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
             <span v-if="selectedInstanceProvider !== '-'">
-              当前实例 Provider: <strong>{{ selectedInstanceProvider }}</strong>
+              {{ $t('admin.portMapping.currentInstanceProvider') }}: <strong>{{ selectedInstanceProvider }}</strong>
             </span>
-            <span v-else>请选择一个实例</span>
+            <span v-else>{{ $t('admin.portMapping.pleaseSelectInstance') }}</span>
           </div>
         </el-form-item>
         
         <el-form-item
-          label="内部端口"
+          :label="$t('admin.portMapping.internalPort')"
           prop="guestPort"
         >
           <el-input-number
             v-model="addForm.guestPort"
             :min="1"
             :max="65535"
-            placeholder="请输入容器/虚拟机内部端口"
+            :controls="false"
+            :placeholder="$t('admin.portMapping.internalPortPlaceholder')"
             style="width: 100%"
           />
         </el-form-item>
         
         <el-form-item
-          label="公网端口"
+          :label="$t('admin.portMapping.publicPort')"
           prop="hostPort"
         >
           <el-input-number
             v-model="addForm.hostPort"
             :min="0"
             :max="65535"
-            placeholder="0 表示自动分配"
+            :controls="false"
+            :placeholder="$t('admin.portMapping.autoAssignPort')"
             style="width: 100%"
           />
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
-            留空或填0将自动分配可用端口
+            {{ $t('admin.portMapping.autoAssignPortHint') }}
           </div>
         </el-form-item>
         
         <el-form-item
-          label="协议"
+          :label="$t('admin.portMapping.protocol')"
           prop="protocol"
         >
           <el-radio-group v-model="addForm.protocol">
@@ -375,12 +377,12 @@
         </el-form-item>
         
         <el-form-item
-          label="描述"
+          :label="$t('common.description')"
           prop="description"
         >
           <el-input
             v-model="addForm.description"
-            placeholder="端口用途说明（可选）"
+            :placeholder="$t('admin.portMapping.descriptionPlaceholder')"
             maxlength="128"
             show-word-limit
           />
@@ -389,13 +391,13 @@
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="addDialogVisible = false">取消</el-button>
+          <el-button @click="addDialogVisible = false">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="addLoading"
             @click="submitAdd"
           >
-            确定添加
+            {{ $t('admin.portMapping.confirmAdd') }}
           </el-button>
         </span>
       </template>
@@ -407,6 +409,7 @@
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Loading } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { 
   getPortMappings, 
   createPortMapping,
@@ -415,6 +418,8 @@ import {
   getProviderList,
   getAllInstances
 } from '@/api/admin'
+
+const { t } = useI18n()
 
 // 响应式数据
 const loading = ref(false)
@@ -450,14 +455,14 @@ const addForm = reactive({
 
 const addRules = {
   instanceId: [
-    { required: true, message: '请选择实例', trigger: 'change' }
+    { required: true, message: t('admin.portMapping.pleaseSelectInstance'), trigger: 'change' }
   ],
   guestPort: [
-    { required: true, message: '请输入内部端口', trigger: 'blur' },
-    { type: 'number', min: 1, max: 65535, message: '端口范围为1-65535', trigger: 'blur' }
+    { required: true, message: t('admin.portMapping.pleaseEnterInternalPort'), trigger: 'blur' },
+    { type: 'number', min: 1, max: 65535, message: t('admin.portMapping.portRangeError'), trigger: 'blur' }
   ],
   protocol: [
-    { required: true, message: '请选择协议', trigger: 'change' }
+    { required: true, message: t('admin.portMapping.pleaseSelectProtocol'), trigger: 'change' }
   ]
 }
 
@@ -540,7 +545,7 @@ const loadPortMappings = async () => {
     // 检查是否有正在创建的端口，如果有则启动自动刷新
     checkAndStartAutoRefresh()
   } catch (error) {
-    ElMessage.error('加载端口映射列表失败')
+    ElMessage.error(t('admin.portMapping.loadListFailed'))
     console.error(error)
   } finally {
     loading.value = false
@@ -554,7 +559,7 @@ const checkAndStartAutoRefresh = () => {
   if (hasCreatingPorts) {
     // 如果有正在创建的端口，启动自动刷新（每5秒刷新一次）
     if (!autoRefreshTimer) {
-      console.log('检测到创建中的端口，启动自动刷新')
+      console.log(t('admin.portMapping.autoRefreshStarted'))
       autoRefreshTimer = setInterval(() => {
         loadPortMappings()
       }, 5000)
@@ -562,7 +567,7 @@ const checkAndStartAutoRefresh = () => {
   } else {
     // 没有正在创建的端口，停止自动刷新
     if (autoRefreshTimer) {
-      console.log('所有端口已完成，停止自动刷新')
+      console.log(t('admin.portMapping.autoRefreshStopped'))
       clearInterval(autoRefreshTimer)
       autoRefreshTimer = null
     }
@@ -574,7 +579,7 @@ const loadProviders = async () => {
     const response = await getProviderList({ page: 1, pageSize: 1000 })
     providers.value = response.data.list || []
   } catch (error) {
-    ElMessage.error('加载Provider列表失败')
+    ElMessage.error(t('admin.portMapping.loadProvidersFailed'))
   }
 }
 
@@ -583,7 +588,7 @@ const loadInstances = async () => {
     const response = await getAllInstances({ page: 1, pageSize: 1000 })
     instances.value = response.data.list || []
   } catch (error) {
-    ElMessage.error('加载实例列表失败')
+    ElMessage.error(t('admin.portMapping.loadInstancesFailed'))
   }
 }
 
@@ -613,21 +618,21 @@ const handleSelectionChange = (selection) => {
 const deletePortMappingHandler = async (id) => {
   try {
     await ElMessageBox.confirm(
-      '确定要删除这个手动添加的端口映射吗？删除后将从远程服务器上移除端口映射。', 
-      '警告', 
+      t('admin.portMapping.deleteConfirm'), 
+      t('common.warning'), 
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     await deletePortMapping(id)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('common.deleteSuccess'))
     loadPortMappings()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || '删除失败')
+      ElMessage.error(error.message || t('common.deleteFailed'))
     }
   }
 }
@@ -635,36 +640,36 @@ const deletePortMappingHandler = async (id) => {
 // 批量删除（仅删除手动添加的端口）
 const batchDeleteDirect = async () => {
   if (selectedPortMappings.value.length === 0) {
-    ElMessage.warning('请选择要删除的端口映射')
+    ElMessage.warning(t('admin.portMapping.selectPortsToDelete'))
     return
   }
   
   // 检查是否都是手动添加的端口
   const hasRangeMappedPort = selectedPortMappings.value.some(item => item.portType !== 'manual')
   if (hasRangeMappedPort) {
-    ElMessage.warning('只能删除手动添加的端口，区间映射端口不能删除')
+    ElMessage.warning(t('admin.portMapping.onlyManualPortsCanDelete'))
     return
   }
   
   try {
     await ElMessageBox.confirm(
-      `确定要删除选中的 ${selectedPortMappings.value.length} 个手动添加的端口映射吗？删除后将从远程服务器上移除端口映射，此操作不可恢复。`, 
-      '批量删除端口映射', 
+      t('admin.portMapping.batchDeleteConfirm', { count: selectedPortMappings.value.length }), 
+      t('admin.portMapping.batchDeleteTitle'), 
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     const ids = selectedPortMappings.value.map(item => item.id)
     await batchDeletePortMappings(ids)
-    ElMessage.success(`成功删除 ${selectedPortMappings.value.length} 个端口映射`)
+    ElMessage.success(t('admin.portMapping.batchDeleteSuccess', { count: selectedPortMappings.value.length }))
     selectedPortMappings.value = []
     loadPortMappings()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || '批量删除失败')
+      ElMessage.error(error.message || t('admin.portMapping.batchDeleteFailed'))
     }
   }
 }
@@ -701,7 +706,7 @@ const openAddDialog = async () => {
   }
   
   if (supportedInstances.value.length === 0) {
-    ElMessage.warning('暂无可用的 LXD/Incus/Proxmox 实例')
+    ElMessage.warning(t('admin.portMapping.noSupportedInstances'))
   }
   
   addDialogVisible.value = true
@@ -722,18 +727,18 @@ const submitAdd = async () => {
     // 检查选中的实例是否支持
     const instance = instances.value.find(i => i.id === addForm.instanceId)
     if (!instance) {
-      ElMessage.error('未找到选中的实例')
+      ElMessage.error(t('admin.portMapping.instanceNotFound'))
       return
     }
     
     const providerType = getInstanceProviderType(instance)?.toLowerCase()
     if (providerType === 'docker') {
-      ElMessage.error('Docker 实例不支持手动添加端口')
+      ElMessage.error(t('admin.portMapping.dockerNotSupported'))
       return
     }
     
     if (!['lxd', 'incus', 'proxmox'].includes(providerType)) {
-      ElMessage.error('只支持 LXD/Incus/Proxmox 实例手动添加端口')
+      ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported'))
       return
     }
     
@@ -748,12 +753,12 @@ const submitAdd = async () => {
     }
     
     const response = await createPortMapping(data)
-    ElMessage.success('端口映射任务已创建，正在后台配置远程服务器，请稍后刷新查看状态')
+    ElMessage.success(t('admin.portMapping.addPortTaskCreated'))
     addDialogVisible.value = false
     loadPortMappings()
     loadPortMappings()
   } catch (error) {
-    ElMessage.error(error.message || '添加端口失败')
+    ElMessage.error(error.message || t('admin.portMapping.addPortFailed'))
   } finally {
     addLoading.value = false
   }

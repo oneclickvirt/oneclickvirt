@@ -1,9 +1,35 @@
 <template>
   <div class="forgot-password-container">
+    <!-- 顶部栏 -->
+    <header class="auth-header">
+      <div class="header-content">
+        <div class="logo">
+          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <h1>OneClickVirt</h1>
+        </div>
+        <nav class="nav-actions">
+          <button
+            class="nav-link language-btn"
+            @click="switchLanguage"
+          >
+            <el-icon><Operation /></el-icon>
+            {{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}
+          </button>
+          <router-link
+            to="/"
+            class="nav-link home-btn"
+          >
+            <el-icon><HomeFilled /></el-icon>
+            {{ t('common.backToHome') }}
+          </router-link>
+        </nav>
+      </div>
+    </header>
+
     <div class="forgot-password-form">
       <div v-if="!emailSent">
-        <h2>找回密码</h2>
-        <p>请输入您的注册邮箱，我们将发送密码重置链接</p>
+        <h2>{{ t('forgotPassword.title') }}</h2>
+        <p>{{ t('forgotPassword.subtitle') }}</p>
 
         <el-form
           ref="forgotFormRef"
@@ -15,7 +41,7 @@
           <el-form-item prop="email">
             <el-input
               v-model="forgotForm.email"
-              placeholder="请输入邮箱"
+              :placeholder="t('forgotPassword.pleaseEnterEmail')"
               prefix-icon="Message"
             />
           </el-form-item>
@@ -24,7 +50,7 @@
             <div class="captcha-container">
               <el-input
                 v-model="forgotForm.captcha"
-                placeholder="请输入验证码"
+                :placeholder="t('login.pleaseEnterCaptcha')"
                 style="width: 60%"
               />
               <div
@@ -34,13 +60,13 @@
                 <img
                   v-if="captchaImage"
                   :src="captchaImage"
-                  alt="验证码"
+                  :alt="t('login.captchaAlt')"
                 >
                 <div
                   v-else
                   class="captcha-loading"
                 >
-                  加载中...
+                  {{ t('common.loading') }}
                 </div>
               </div>
             </div>
@@ -53,13 +79,13 @@
               style="width: 100%;"
               @click="handleForgotPassword"
             >
-              发送重置链接
+              {{ t('forgotPassword.sendResetLink') }}
             </el-button>
           </el-form-item>
 
           <div class="form-footer">
             <router-link to="/login">
-              返回登录
+              {{ t('forgotPassword.backToLogin') }}
             </router-link>
           </div>
         </el-form>
@@ -71,15 +97,15 @@
       >
         <el-result
           icon="success"
-          title="邮件已发送"
-          sub-title="请检查您的邮箱，点击邮件中的链接重置密码"
+          :title="t('forgotPassword.emailSent')"
+          :sub-title="t('forgotPassword.checkEmail')"
         >
           <template #extra>
             <el-button
               type="primary"
               @click="goToLogin"
             >
-              返回登录
+              {{ t('forgotPassword.backToLogin') }}
             </el-button>
           </template>
         </el-result>
@@ -89,13 +115,18 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { forgotPassword } from '@/api/auth'
 import { getCaptcha } from '@/api/auth'
+import { Operation, HomeFilled } from '@element-plus/icons-vue'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const router = useRouter()
+const { t, locale } = useI18n()
+const languageStore = useLanguageStore()
 const forgotFormRef = ref()
 const loading = ref(false)
 const emailSent = ref(false)
@@ -107,15 +138,15 @@ const forgotForm = reactive({
   captcha: ''
 })
 
-const forgotRules = reactive({
+const forgotRules = computed(() => ({
   email: [
-    { required: true, message: '请输入邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+    { required: true, message: t('validation.emailRequired'), trigger: 'blur' },
+    { type: 'email', message: t('validation.emailFormat'), trigger: 'blur' }
   ],
   captcha: [
-    { required: true, message: '请输入验证码', trigger: 'blur' }
+    { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
   ]
-})
+}))
 
 const handleForgotPassword = async () => {
   if (!forgotFormRef.value) return
@@ -135,8 +166,8 @@ const handleForgotPassword = async () => {
         emailSent.value = true
       }
     } catch (error) {
-      console.error('发送重置邮件失败', error)
-      ElMessage.error('发送重置邮件失败，请稍后重试')
+      console.error(t('forgotPassword.resetFailed'), error)
+      ElMessage.error(t('forgotPassword.resetFailed'))
       refreshCaptcha()
     } finally {
       loading.value = false
@@ -153,12 +184,19 @@ const refreshCaptcha = async () => {
       forgotForm.captcha = ''
     }
   } catch (error) {
-    console.error('获取验证码失败', error)
+    console.error(t('login.captchaFailed'), error)
   }
 }
 
 const goToLogin = () => {
   router.push('/login')
+}
+
+// 切换语言
+const switchLanguage = () => {
+  const newLang = languageStore.toggleLanguage()
+  locale.value = newLang
+  ElMessage.success(t('navbar.languageSwitched'))
 }
 
 onMounted(() => {
@@ -169,13 +207,97 @@ onMounted(() => {
 <style scoped>
 .forgot-password-container {
   display: flex;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
   min-height: 100vh;
   background-color: #f5f7fa;
 }
 
+/* 顶部栏样式 */
+.auth-header {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
+  border-bottom: 1px solid rgba(22, 163, 74, 0.1);
+}
+
+.header-content {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  height: 70px;
+}
+
+.logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo-image {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
+.logo h1 {
+  font-size: 28px;
+  color: #16a34a;
+  margin: 0;
+  font-weight: 700;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.nav-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.nav-link {
+  text-decoration: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 12px 24px;
+  border-radius: 25px;
+  border: 1px solid #e5e7eb;
+  background: transparent;
+  color: #374151;
+  font-size: 16px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.nav-link:hover {
+  background: rgba(22, 163, 74, 0.1);
+  color: #16a34a;
+  transform: translateY(-2px);
+}
+
+.nav-link.home-btn {
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: white;
+  border: none;
+  box-shadow: 0 4px 15px rgba(22, 163, 74, 0.3);
+}
+
+.nav-link.home-btn:hover {
+  background: linear-gradient(135deg, #15803d, #16a34a);
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(22, 163, 74, 0.4);
+}
+
 .forgot-password-form {
+  margin: auto;
+  margin-top: 60px;
+  margin-bottom: 60px;
   width: 400px;
   padding: 40px;
   background-color: #fff;

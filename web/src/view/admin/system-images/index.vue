@@ -3,13 +3,13 @@
     <el-card class="box-card">
       <template #header>
         <div class="card-header">
-          <span>系统镜像</span>
+          <span>{{ $t('admin.systemImages.title') }}</span>
           <el-button
             type="primary"
             @click="handleCreate"
           >
             <el-icon><Plus /></el-icon>
-            添加镜像
+            {{ $t('admin.systemImages.addImage') }}
           </el-button>
         </div>
       </template>
@@ -20,7 +20,7 @@
           <el-col :span="6">
             <el-input
               v-model="searchForm.search"
-              placeholder="请输入镜像名称、描述或操作系统"
+              :placeholder="$t('admin.systemImages.searchPlaceholder')"
               clearable
               @clear="handleSearch"
               @keyup.enter="handleSearch"
@@ -33,7 +33,7 @@
           <el-col :span="4">
             <el-select
               v-model="searchForm.providerType"
-              placeholder="Provider类型"
+              :placeholder="$t('admin.systemImages.providerType')"
               clearable
               @change="handleSearch"
               style="width: 100%;"
@@ -59,17 +59,17 @@
           <el-col :span="3">
             <el-select
               v-model="searchForm.instanceType"
-              placeholder="实例类型"
+              :placeholder="$t('admin.systemImages.instanceType')"
               clearable
               @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
-                label="虚拟机"
+                :label="$t('admin.systemImages.vm')"
                 value="vm"
               />
               <el-option
-                label="容器"
+                :label="$t('admin.systemImages.container')"
                 value="container"
               />
             </el-select>
@@ -77,7 +77,7 @@
           <el-col :span="3">
             <el-select
               v-model="searchForm.architecture"
-              placeholder="架构"
+              :placeholder="$t('admin.systemImages.architecture')"
               clearable
               @change="handleSearch"
               style="width: 100%;"
@@ -99,7 +99,7 @@
           <el-col :span="3">
             <el-select
               v-model="searchForm.osType"
-              placeholder="操作系统"
+              :placeholder="$t('admin.systemImages.osType')"
               clearable
               style="width: 100%;"
               @change="handleSearch"
@@ -121,17 +121,17 @@
           <el-col :span="3">
             <el-select
               v-model="searchForm.status"
-              placeholder="状态"
+              :placeholder="$t('common.status')"
               clearable
               @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
-                label="激活"
+                :label="$t('admin.systemImages.active')"
                 value="active"
               />
               <el-option
-                label="禁用"
+                :label="$t('admin.systemImages.inactive')"
                 value="inactive"
               />
             </el-select>
@@ -141,10 +141,10 @@
               type="primary"
               @click="handleSearch"
             >
-              搜索
+              {{ $t('common.search') }}
             </el-button>
             <el-button @click="handleReset">
-              重置
+              {{ $t('common.reset') }}
             </el-button>
           </el-col>
         </el-row>
@@ -156,7 +156,7 @@
         class="batch-actions"
       >
         <el-alert
-          :title="`已选择 ${selectedRows.length} 项`"
+          :title="$t('admin.systemImages.selectedCount', { count: selectedRows.length })"
           type="info"
           show-icon
           :closable="false"
@@ -167,21 +167,21 @@
               size="small"
               @click="handleBatchStatus('active')"
             >
-              批量激活
+              {{ $t('admin.systemImages.batchActivate') }}
             </el-button>
             <el-button
               type="warning"
               size="small"
               @click="handleBatchStatus('inactive')"
             >
-              批量禁用
+              {{ $t('admin.systemImages.batchDisable') }}
             </el-button>
             <el-button
               type="danger"
               size="small"
               @click="handleBatchDelete"
             >
-              批量删除
+              {{ $t('admin.systemImages.batchDelete') }}
             </el-button>
           </template>
         </el-alert>
@@ -206,12 +206,12 @@
         />
         <el-table-column
           prop="name"
-          label="镜像名称"
+          :label="$t('admin.systemImages.imageName')"
           min-width="140"
           show-overflow-tooltip
         />
         <el-table-column
-          label="Provider类型"
+          :label="$t('admin.systemImages.providerType')"
           width="130"
           align="center"
         >
@@ -222,25 +222,25 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="实例类型"
+          :label="$t('admin.systemImages.instanceType')"
           width="110"
           align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.instanceType === 'vm' ? 'primary' : 'success'">
-              {{ scope.row.instanceType === 'vm' ? '虚拟机' : '容器' }}
+              {{ scope.row.instanceType === 'vm' ? $t('admin.systemImages.vm') : $t('admin.systemImages.container') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="architecture"
-          label="架构"
+          :label="$t('admin.systemImages.architecture')"
           width="100"
           align="center"
           show-overflow-tooltip
         />
         <el-table-column
-          label="操作系统"
+          :label="$t('admin.systemImages.osType')"
           width="140"
           show-overflow-tooltip
         >
@@ -250,7 +250,7 @@
         </el-table-column>
         <el-table-column
           prop="osVersion"
-          label="版本"
+          :label="$t('admin.systemImages.version')"
           width="120"
           show-overflow-tooltip
         />
@@ -264,7 +264,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="大小"
+          :label="$t('admin.systemImages.size')"
           width="100"
           align="center"
         >
@@ -273,18 +273,18 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="状态"
+          :label="$t('common.status')"
           width="100"
           align="center"
         >
           <template #default="scope">
             <el-tag :type="scope.row.status === 'active' ? 'success' : 'danger'">
-              {{ scope.row.status === 'active' ? '激活' : '禁用' }}
+              {{ scope.row.status === 'active' ? $t('admin.systemImages.active') : $t('admin.systemImages.inactive') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="180"
           align="center"
         >
@@ -293,7 +293,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="240"
           fixed="right"
           align="center"
@@ -305,21 +305,21 @@
                 size="small"
                 @click="handleEdit(scope.row)"
               >
-                编辑
+                {{ $t('common.edit') }}
               </el-button>
               <el-button
                 :type="scope.row.status === 'active' ? 'warning' : 'success'"
                 size="small"
                 @click="handleToggleStatus(scope.row)"
               >
-                {{ scope.row.status === 'active' ? '禁用' : '激活' }}
+                {{ scope.row.status === 'active' ? $t('common.disable') : $t('admin.systemImages.activate') }}
               </el-button>
               <el-button
                 type="danger"
                 size="small"
                 @click="handleDelete(scope.row)"
               >
-                删除
+                {{ $t('common.delete') }}
               </el-button>
             </div>
           </template>
@@ -356,23 +356,23 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="镜像名称"
+              :label="$t('admin.systemImages.imageName')"
               prop="name"
             >
               <el-input
                 v-model="form.name"
-                placeholder="请输入镜像名称"
+                :placeholder="$t('admin.systemImages.imageNamePlaceholder')"
               />
             </el-form-item>
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="Provider类型"
+              :label="$t('admin.systemImages.providerType')"
               prop="providerType"
             >
               <el-select
                 v-model="form.providerType"
-                placeholder="请选择Provider类型"
+                :placeholder="$t('admin.systemImages.selectProviderType')"
                 @change="handleProviderTypeChange"
               >
                 <el-option
@@ -398,20 +398,20 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="实例类型"
+              :label="$t('admin.systemImages.instanceType')"
               prop="instanceType"
             >
               <el-select
                 v-model="form.instanceType"
-                placeholder="请选择实例类型"
+                :placeholder="$t('admin.systemImages.selectInstanceType')"
                 @change="handleInstanceTypeChange"
               >
                 <el-option
-                  label="虚拟机"
+                  :label="$t('admin.systemImages.vm')"
                   value="vm"
                 />
                 <el-option
-                  label="容器"
+                  :label="$t('admin.systemImages.container')"
                   value="container"
                 />
               </el-select>
@@ -419,12 +419,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="架构"
+              :label="$t('admin.systemImages.architecture')"
               prop="architecture"
             >
               <el-select
                 v-model="form.architecture"
-                placeholder="请选择架构"
+                :placeholder="$t('admin.systemImages.selectArchitecture')"
               >
                 <el-option
                   label="amd64"
@@ -443,12 +443,12 @@
           </el-col>
         </el-row>
         <el-form-item
-          label="镜像地址"
+          :label="$t('admin.systemImages.imageUrl')"
           prop="url"
         >
           <el-input
             v-model="form.url"
-            placeholder="请输入镜像下载地址"
+            :placeholder="$t('admin.systemImages.imageUrlPlaceholder')"
           />
           <div class="form-hint">
             <template v-if="getUrlHint()">
@@ -459,12 +459,12 @@
         <el-row :gutter="20">
           <el-col :span="12">
             <el-form-item
-              label="操作系统"
+              :label="$t('admin.systemImages.osType')"
               prop="osType"
             >
               <el-select 
                 v-model="form.osType" 
-                placeholder="请选择操作系统"
+                :placeholder="$t('admin.systemImages.selectOsType')"
                 filterable
                 @change="handleOsTypeChange"
               >
@@ -485,12 +485,12 @@
           </el-col>
           <el-col :span="12">
             <el-form-item
-              label="操作系统版本"
+              :label="$t('admin.systemImages.osVersion')"
               prop="osVersion"
             >
               <el-select 
                 v-model="form.osVersion" 
-                placeholder="请选择或输入版本"
+                :placeholder="$t('admin.systemImages.selectOsVersion')"
                 filterable
                 allow-create
                 default-first-option
@@ -507,47 +507,47 @@
         </el-row>
         <el-row :gutter="20">
           <el-col :span="12">
-            <el-form-item label="文件大小(字节)">
+            <el-form-item :label="$t('admin.systemImages.fileSize')">
               <el-input
                 v-model.number="form.size"
                 type="number"
-                placeholder="可选"
+                :placeholder="$t('admin.systemImages.optional')"
               />
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item label="校验和">
+            <el-form-item :label="$t('admin.systemImages.checksum')">
               <el-input
                 v-model="form.checksum"
-                placeholder="文件校验和(可选)"
+                :placeholder="$t('admin.systemImages.checksumPlaceholder')"
               />
             </el-form-item>
           </el-col>
         </el-row>
-        <el-form-item label="标签">
+        <el-form-item :label="$t('admin.systemImages.tags')">
           <el-input
             v-model="form.tags"
-            placeholder="多个标签用逗号分隔"
+            :placeholder="$t('admin.systemImages.tagsPlaceholder')"
           />
         </el-form-item>
-        <el-form-item label="描述">
+        <el-form-item :label="$t('common.description')">
           <el-input
             v-model="form.description"
             type="textarea"
             :rows="3"
-            placeholder="请输入镜像描述"
+            :placeholder="$t('admin.systemImages.descriptionPlaceholder')"
           />
         </el-form-item>
       </el-form>
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="handleDialogClose">取消</el-button>
+          <el-button @click="handleDialogClose">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="submitting"
             @click="handleSubmit"
           >
-            确认
+            {{ $t('common.confirm') }}
           </el-button>
         </span>
       </template>
@@ -559,12 +559,15 @@
 import { ref, reactive, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Search } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { systemImageApi } from '@/api/admin'
 import { 
   getOperatingSystemsByCategory, 
   getCommonVersions,
   getDisplayName 
 } from '@/utils/operating-systems'
+
+const { t } = useI18n()
 
 // 响应式数据
 const loading = ref(false)
@@ -617,25 +620,25 @@ const groupedOperatingSystems = ref(getOperatingSystemsByCategory())
 const availableVersions = ref([])
 
 // 计算属性
-const dialogTitle = computed(() => isEdit.value ? '编辑镜像' : '添加镜像')
+const dialogTitle = computed(() => isEdit.value ? t('admin.systemImages.editImage') : t('admin.systemImages.addImage'))
 
 // 表单验证规则
 const rules = {
   name: [
-    { required: true, message: '请输入镜像名称', trigger: 'blur' }
+    { required: true, message: t('admin.systemImages.imageNameRequired'), trigger: 'blur' }
   ],
   providerType: [
-    { required: true, message: '请选择Provider类型', trigger: 'change' }
+    { required: true, message: t('admin.systemImages.providerTypeRequired'), trigger: 'change' }
   ],
   instanceType: [
-    { required: true, message: '请选择实例类型', trigger: 'change' }
+    { required: true, message: t('admin.systemImages.instanceTypeRequired'), trigger: 'change' }
   ],
   architecture: [
-    { required: true, message: '请选择架构', trigger: 'change' }
+    { required: true, message: t('admin.systemImages.architectureRequired'), trigger: 'change' }
   ],
   url: [
-    { required: true, message: '请输入镜像地址', trigger: 'blur' },
-    { type: 'url', message: '请输入有效的URL地址', trigger: 'blur' }
+    { required: true, message: t('admin.systemImages.urlRequired'), trigger: 'blur' },
+    { type: 'url', message: t('admin.systemImages.urlInvalid'), trigger: 'blur' }
   ]
 }
 
@@ -655,7 +658,7 @@ const fetchData = async () => {
       pagination.total = response.data.total || 0
     }
   } catch (error) {
-    ElMessage.error('获取数据失败: ' + error.message)
+    ElMessage.error(t('admin.systemImages.loadFailed') + ': ' + error.message)
   } finally {
     loading.value = false
   }
@@ -731,10 +734,10 @@ const handleSubmit = async () => {
     
     if (isEdit.value) {
       await systemImageApi.update(editId.value, data)
-      ElMessage.success('更新成功')
+      ElMessage.success(t('admin.systemImages.updateSuccess'))
     } else {
       await systemImageApi.create(data)
-      ElMessage.success('创建成功')
+      ElMessage.success(t('admin.systemImages.createSuccess'))
     }
     
     dialogVisible.value = false
@@ -752,21 +755,21 @@ const handleSubmit = async () => {
 const handleDelete = async (row) => {
   try {
     await ElMessageBox.confirm(
-      `确认删除镜像 "${row.name}" 吗？`,
-      '警告',
+      t('admin.systemImages.deleteConfirm', { name: row.name }),
+      t('admin.systemImages.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     await systemImageApi.delete(row.id)
-    ElMessage.success('删除成功')
+    ElMessage.success(t('admin.systemImages.deleteSuccess'))
     fetchData()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败: ' + error.message)
+      ElMessage.error(t('admin.systemImages.deleteFailed') + ': ' + error.message)
     }
   }
 }
@@ -774,25 +777,25 @@ const handleDelete = async (row) => {
 // 切换状态
 const handleToggleStatus = async (row) => {
   const newStatus = row.status === 'active' ? 'inactive' : 'active'
-  const action = newStatus === 'active' ? '激活' : '禁用'
+  const action = newStatus === 'active' ? t('admin.systemImages.activate') : t('common.disable')
   
   try {
     await ElMessageBox.confirm(
-      `确认${action}镜像 "${row.name}" 吗？`,
-      '确认',
+      t('admin.systemImages.toggleStatusConfirm', { action, name: row.name }),
+      t('admin.systemImages.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     await systemImageApi.update(row.id, { status: newStatus })
-    ElMessage.success(`${action}成功`)
+    ElMessage.success(t('admin.systemImages.toggleStatusSuccess', { action }))
     fetchData()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`${action}失败: ` + error.message)
+      ElMessage.error(t('admin.systemImages.toggleStatusFailed', { action }) + ': ' + error.message)
     }
   }
 }
@@ -801,50 +804,50 @@ const handleToggleStatus = async (row) => {
 const handleBatchDelete = async () => {
   try {
     await ElMessageBox.confirm(
-      `确认删除选中的 ${selectedRows.value.length} 个镜像吗？`,
-      '警告',
+      t('admin.systemImages.batchDeleteConfirm', { count: selectedRows.value.length }),
+      t('admin.systemImages.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     const ids = selectedRows.value.map(row => row.id)
     await systemImageApi.batchDelete({ ids })
-    ElMessage.success('批量删除成功')
+    ElMessage.success(t('admin.systemImages.batchDeleteSuccess'))
     selectedRows.value = []
     fetchData()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败: ' + error.message)
+      ElMessage.error(t('admin.systemImages.batchDeleteFailed') + ': ' + error.message)
     }
   }
 }
 
 // 批量状态
 const handleBatchStatus = async (status) => {
-  const action = status === 'active' ? '激活' : '禁用'
+  const action = status === 'active' ? t('admin.systemImages.activate') : t('common.disable')
   
   try {
     await ElMessageBox.confirm(
-      `确认${action}选中的 ${selectedRows.value.length} 个镜像吗？`,
-      '确认',
+      t('admin.systemImages.batchStatusConfirm', { action, count: selectedRows.value.length }),
+      t('admin.systemImages.confirm'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
     
     const ids = selectedRows.value.map(row => row.id)
     await systemImageApi.batchUpdateStatus({ ids, status })
-    ElMessage.success(`批量${action}成功`)
+    ElMessage.success(t('admin.systemImages.batchStatusSuccess', { action }))
     selectedRows.value = []
     fetchData()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`批量${action}失败: ` + error.message)
+      ElMessage.error(t('admin.systemImages.batchStatusFailed', { action }) + ': ' + error.message)
     }
   }
 }

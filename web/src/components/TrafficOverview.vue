@@ -3,14 +3,14 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>流量使用统计</span>
+          <span>{{ t('user.trafficOverview.title') }}</span>
           <el-button
             size="small"
             :loading="loading"
             @click="loadTrafficData"
           >
             <el-icon><Refresh /></el-icon>
-            刷新
+            {{ t('user.trafficOverview.refresh') }}
           </el-button>
         </div>
       </template>
@@ -26,14 +26,14 @@
             :type="trafficData.vnstat_available ? 'success' : 'warning'"
             size="small"
           >
-            {{ trafficData.vnstat_available ? 'vnStat实时数据' : '基础数据' }}
+            {{ trafficData.vnstat_available ? t('user.trafficOverview.vnstatRealtime') : t('user.trafficOverview.basicData') }}
           </el-tag>
         </div>
 
         <!-- 流量使用进度 -->
         <div class="traffic-usage">
           <div class="usage-header">
-            <span class="usage-title">本月流量使用</span>
+            <span class="usage-title">{{ t('user.trafficOverview.monthlyUsage') }}</span>
             <span class="usage-values">
               {{ formatTraffic(trafficData.current_month_usage) }} / 
               {{ formatTraffic(trafficData.total_limit) }}
@@ -52,7 +52,7 @@
               class="limit-warning"
             >
               <el-icon><Warning /></el-icon>
-              流量已超限
+              {{ t('user.trafficOverview.limitExceeded') }}
             </span>
           </div>
         </div>
@@ -61,24 +61,24 @@
         <div v-if="trafficData.reset_time" class="reset-info">
           <el-text type="info" size="small">
             <el-icon><Clock /></el-icon>
-            流量重置时间: {{ formatDate(trafficData.reset_time) }}
+            {{ t('user.trafficOverview.resetTime') }}: {{ formatDate(trafficData.reset_time) }}
           </el-text>
         </div>
 
         <!-- vnStat详细数据 -->
         <div v-if="trafficData.vnstat_available && showDetails" class="vnstat-details">
-          <el-divider content-position="left">详细统计</el-divider>
+          <el-divider content-position="left">{{ t('user.trafficOverview.detailedStats') }}</el-divider>
           <div class="details-grid">
             <div class="detail-item">
-              <span class="detail-label">今日使用</span>
+              <span class="detail-label">{{ t('user.trafficOverview.todayUsage') }}</span>
               <span class="detail-value">{{ formatTraffic(trafficData.today_usage || 0) }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">本周使用</span>
+              <span class="detail-label">{{ t('user.trafficOverview.weekUsage') }}</span>
               <span class="detail-value">{{ formatTraffic(trafficData.week_usage || 0) }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">历史总量</span>
+              <span class="detail-label">{{ t('user.trafficOverview.monthUsage') }}</span>
               <span class="detail-value">{{ formatTraffic(trafficData.alltime_usage || 0) }}</span>
             </div>
           </div>
@@ -91,14 +91,14 @@
             size="small"
             @click="showDetails = !showDetails"
           >
-            {{ showDetails ? '收起详情' : '查看详情' }}
+            {{ showDetails ? t('user.trafficOverview.hideDetails') : t('user.trafficOverview.viewDetails') }}
             <el-icon><ArrowDown v-if="!showDetails" /><ArrowUp v-else /></el-icon>
           </el-button>
         </div>
       </div>
 
       <div v-else class="error-state">
-        <el-empty description="暂无流量数据" />
+        <el-empty :description="t('user.trafficOverview.noData')" />
       </div>
     </el-card>
   </div>
@@ -106,10 +106,12 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { getUserTrafficOverview } from '@/api/user'
 import { ElMessage } from 'element-plus'
 import { Refresh, Warning, Clock, ArrowDown, ArrowUp } from '@element-plus/icons-vue'
 
+const { t, locale } = useI18n()
 const loading = ref(false)
 const trafficData = ref(null)
 const showDetails = ref(false)
@@ -121,11 +123,11 @@ const loadTrafficData = async () => {
     if (response.code === 0) {
       trafficData.value = response.data
     } else {
-      ElMessage.error(`获取流量数据失败: ${response.msg}`)
+      ElMessage.error(`${t('user.trafficOverview.loadFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('获取流量数据失败:', error)
-    ElMessage.error('获取流量数据失败，请稍后重试')
+    ElMessage.error(t('user.trafficOverview.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -156,8 +158,9 @@ const getProgressColor = (percentage) => {
 }
 
 const formatDate = (dateString) => {
-  if (!dateString) return '未设置'
-  return new Date(dateString).toLocaleString('zh-CN')
+  if (!dateString) return t('common.notSet')
+  const localeCode = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return new Date(dateString).toLocaleString(localeCode)
 }
 
 onMounted(() => {

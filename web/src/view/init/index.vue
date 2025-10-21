@@ -2,8 +2,8 @@
   <div class="init-container">
     <div class="init-form">
       <div class="form-header">
-        <h2>系统初始化</h2>
-        <p>首次使用需要初始化系统</p>
+        <h2>{{ t('init.title') }}</h2>
+        <p>{{ t('init.subtitle') }}</p>
       </div>
 
       <!-- 统一的配置标签页 -->
@@ -15,7 +15,7 @@
         >
           <!-- 数据库配置标签页 -->
           <el-tab-pane
-            label="数据库配置"
+            :label="t('init.database.tabLabel')"
             name="database"
           >
             <el-form 
@@ -26,7 +26,7 @@
               size="large"
             >
               <el-form-item
-                label="数据库类型"
+                :label="t('init.database.type')"
                 prop="type"
               >
                 <el-radio-group
@@ -34,10 +34,10 @@
                   @change="onDatabaseTypeChange"
                 >
                   <el-radio label="mysql">
-                    MySQL（推荐AMD64架构使用）
+                    {{ t('init.database.mysqlRecommended') }}
                   </el-radio>
                   <el-radio label="mariadb">
-                    MariaDB（推荐ARM64架构使用）
+                    {{ t('init.database.mariadbRecommended') }}
                   </el-radio>
                 </el-radio-group>
                 <div class="database-type-hint">
@@ -46,14 +46,14 @@
                     size="small"
                     type="success"
                   >
-                    {{ dbRecommendation.reason }} (架构: {{ dbRecommendation.architecture }})
+                    {{ dbRecommendation.reason }} ({{ t('init.database.architecture') }}: {{ dbRecommendation.architecture }})
                   </el-text>
                   <el-text
                     v-else
                     size="small"
                     type="info"
                   >
-                    系统会根据架构自动选择合适的数据库类型，您也可以手动选择
+                    {{ t('init.database.autoSelectHint') }}
                   </el-text>
                 </div>
               </el-form-item>
@@ -64,7 +64,7 @@
                 class="database-config"
               >
                 <el-form-item
-                  label="数据库地址"
+                  :label="t('init.database.host')"
                   prop="host"
                 >
                   <el-input
@@ -73,7 +73,7 @@
                   />
                 </el-form-item>
                 <el-form-item
-                  label="数据库端口"
+                  :label="t('init.database.port')"
                   prop="port"
                 >
                   <el-input
@@ -82,7 +82,7 @@
                   />
                 </el-form-item>
                 <el-form-item
-                  label="数据库名称"
+                  :label="t('init.database.dbName')"
                   prop="database"
                 >
                   <el-input
@@ -91,7 +91,7 @@
                   />
                 </el-form-item>
                 <el-form-item
-                  label="用户名"
+                  :label="t('init.database.username')"
                   prop="username"
                 >
                   <el-input
@@ -100,13 +100,13 @@
                   />
                 </el-form-item>
                 <el-form-item
-                  label="密码"
+                  :label="t('init.database.password')"
                   prop="password"
                 >
                   <el-input
                     v-model="databaseForm.password"
                     type="password"
-                    placeholder="数据库密码"
+                    :placeholder="t('init.database.passwordPlaceholder')"
                     show-password
                   />
                 </el-form-item>
@@ -118,7 +118,7 @@
                     :loading="testingConnection"
                     @click="testDatabaseConnection"
                   >
-                    测试数据库连接
+                    {{ t('init.database.testConnection') }}
                   </el-button>
                   <span
                     v-if="connectionTestResult"
@@ -133,7 +133,7 @@
 
           <!-- 管理员设置标签页 -->
           <el-tab-pane
-            label="管理员设置"
+            :label="t('init.admin.tabLabel')"
             name="admin"
           >
             <el-form
@@ -144,23 +144,23 @@
               size="large"
             >
               <el-form-item
-                label="管理员用户名"
+                :label="t('init.admin.username')"
                 prop="username"
               >
                 <el-input
                   v-model="initForm.admin.username"
-                  placeholder="请输入管理员用户名"
+                  :placeholder="t('init.admin.usernamePlaceholder')"
                   clearable
                 />
               </el-form-item>
               <el-form-item
-                label="管理员密码"
+                :label="t('init.admin.password')"
                 prop="password"
               >
                 <el-input
                   v-model="initForm.admin.password"
                   type="password"
-                  placeholder="请输入管理员密码"
+                  :placeholder="t('init.admin.passwordPlaceholder')"
                   show-password
                   clearable
                 />
@@ -169,29 +169,29 @@
                     size="small"
                     type="info"
                   >
-                    密码需要至少8位，包含大写字母、小写字母、数字和特殊字符(!@#$%^&*等)
+                    {{ t('init.admin.passwordHint') }}
                   </el-text>
                 </div>
               </el-form-item>
               <el-form-item
-                label="确认密码"
+                :label="t('init.admin.confirmPassword')"
                 prop="confirmPassword"
               >
                 <el-input
                   v-model="initForm.admin.confirmPassword"
                   type="password"
-                  placeholder="请再次输入密码"
+                  :placeholder="t('init.admin.confirmPasswordPlaceholder')"
                   show-password
                   clearable
                 />
               </el-form-item>
               <el-form-item
-                label="管理员邮箱"
+                :label="t('init.admin.email')"
                 prop="email"
               >
                 <el-input
                   v-model="initForm.admin.email"
-                  placeholder="请输入管理员邮箱"
+                  :placeholder="t('init.admin.emailPlaceholder')"
                   clearable
                 />
               </el-form-item>
@@ -200,7 +200,7 @@
           
           <!-- 普通用户设置标签页 -->
           <el-tab-pane
-            label="普通用户设置"
+            :label="t('init.user.tabLabel')"
             name="user"
           >
             <el-form
@@ -211,23 +211,23 @@
               size="large"
             >
               <el-form-item
-                label="用户名"
+                :label="t('init.user.username')"
                 prop="username"
               >
                 <el-input
                   v-model="initForm.user.username"
-                  placeholder="请输入用户名"
+                  :placeholder="t('init.user.usernamePlaceholder')"
                   clearable
                 />
               </el-form-item>
               <el-form-item
-                label="用户密码"
+                :label="t('init.user.password')"
                 prop="password"
               >
                 <el-input
                   v-model="initForm.user.password"
                   type="password"
-                  placeholder="请输入用户密码"
+                  :placeholder="t('init.user.passwordPlaceholder')"
                   show-password
                   clearable
                 />
@@ -236,29 +236,29 @@
                     size="small"
                     type="info"
                   >
-                    密码需要至少8位，包含大写字母、小写字母、数字和特殊字符(!@#$%^&*等)
+                    {{ t('init.user.passwordHint') }}
                   </el-text>
                 </div>
               </el-form-item>
               <el-form-item
-                label="确认密码"
+                :label="t('init.user.confirmPassword')"
                 prop="confirmPassword"
               >
                 <el-input
                   v-model="initForm.user.confirmPassword"
                   type="password"
-                  placeholder="请再次输入密码"
+                  :placeholder="t('init.user.confirmPasswordPlaceholder')"
                   show-password
                   clearable
                 />
               </el-form-item>
               <el-form-item
-                label="用户邮箱"
+                :label="t('init.user.email')"
                 prop="email"
               >
                 <el-input
                   v-model="initForm.user.email"
-                  placeholder="请输入用户邮箱"
+                  :placeholder="t('init.user.emailPlaceholder')"
                   clearable
                 />
               </el-form-item>
@@ -273,7 +273,7 @@
           style="width: 48%"
           @click="fillDefaultData"
         >
-          一键填入默认信息
+          {{ t('init.fillDefaults') }}
         </el-button>
         <el-button
           type="primary"
@@ -281,23 +281,23 @@
           style="width: 48%"
           @click="handleInit"
         >
-          初始化系统
+          {{ t('init.initSystem') }}
         </el-button>
       </div>
 
       <div class="init-info">
         <el-alert
-          title="初始化说明"
+          :title="t('init.infoTitle')"
           type="info"
           :closable="false"
           show-icon
         >
           <template #default>
-            <p>系统初始化需要配置以下信息：</p>
+            <p>{{ t('init.infoDescription') }}</p>
             <ul>
-              <li><strong>数据库配置：</strong>设置MySQL或MariaDB数据库连接信息</li>
-              <li><strong>管理员设置：</strong>创建拥有系统最高权限的管理员账户</li>
-              <li><strong>普通用户设置：</strong>创建具有基础功能使用权限的普通用户账户</li>
+              <li><strong>{{ t('init.database.tabLabel') }}：</strong>{{ t('init.infoDatabaseDesc') }}</li>
+              <li><strong>{{ t('init.admin.tabLabel') }}：</strong>{{ t('init.infoAdminDesc') }}</li>
+              <li><strong>{{ t('init.user.tabLabel') }}：</strong>{{ t('init.infoUserDesc') }}</li>
             </ul>
           </template>
         </el-alert>
@@ -309,11 +309,13 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { post, get } from '@/utils/request'
 import { checkSystemInit } from '@/api/init'
 
 const router = useRouter()
+const { t } = useI18n()
 const adminFormRef = ref()
 const userFormRef = ref()
 const databaseFormRef = ref()
@@ -557,14 +559,14 @@ const fillDefaultData = () => {
   initForm.user.password = 'TestUser123!@#'
   initForm.user.confirmPassword = 'TestUser123!@#'
   initForm.user.email = 'user@spiritlhl.net'
-  ElMessage.success('已填入默认信息')
+  ElMessage.success(t('init.messages.defaultsFilled'))
 }
 
 const testDatabaseConnection = async () => {
   try {
     // 先验证数据库表单
     if (!databaseFormRef.value) {
-      ElMessage.error('数据库配置表单未准备好')
+      ElMessage.error(t('init.messages.formNotReady'))
       return
     }
     
@@ -588,23 +590,23 @@ const testDatabaseConnection = async () => {
     if (response.code === 0 || response.code === 200) {
       connectionTestResult.value = {
         success: true,
-        message: '✅ 数据库连接成功'
+        message: '✅ ' + t('init.messages.dbConnSuccess')
       }
-      ElMessage.success('数据库连接测试成功')
+      ElMessage.success(t('init.messages.dbTestSuccess'))
     } else {
       connectionTestResult.value = {
         success: false,
-        message: '❌ ' + (response.msg || '数据库连接失败')
+        message: '❌ ' + (response.msg || t('init.messages.dbConnFailed'))
       }
-      ElMessage.error(response.msg || '数据库连接测试失败')
+      ElMessage.error(response.msg || t('init.messages.dbTestFailed'))
     }
   } catch (error) {
-    console.error('数据库连接测试失败:', error)
+    console.error(t('init.messages.dbTestFailed') + ':', error)
     connectionTestResult.value = {
       success: false,
-      message: '❌ ' + (error.response?.data?.msg || error.message || '数据库连接测试失败')
+      message: '❌ ' + (error.response?.data?.msg || error.message || t('init.messages.dbTestFailed'))
     }
-    ElMessage.error(error.response?.data?.msg || error.message || '数据库连接测试失败')
+    ElMessage.error(error.response?.data?.msg || error.message || t('init.messages.dbTestFailed'))
   } finally {
     testingConnection.value = false
   }
@@ -645,17 +647,17 @@ const handleInit = async () => {
     const response = await post('/v1/public/init', requestData)
 
     if (response.code === 0 || response.code === 200) {
-      ElMessage.success('系统初始化成功！正在跳转到首页...')
+      ElMessage.success(t('init.messages.initSuccess'))
       setTimeout(() => {
         router.push('/home')
       }, 1500)
     } else {
-      ElMessage.error(response.msg || '系统初始化失败')
+      ElMessage.error(response.msg || t('init.messages.initFailed'))
       startPolling()
     }
   } catch (error) {
-    console.error('初始化失败:', error)
-    ElMessage.error('系统初始化失败，请重试')
+    console.error(t('init.messages.initFailed') + ':', error)
+    ElMessage.error(t('init.messages.initRetry'))
     startPolling()
   } finally {
     loading.value = false
@@ -663,7 +665,7 @@ const handleInit = async () => {
 }
 
 onMounted(async () => {
-  console.log('Init页面已挂载，启动轮询检查')
+  console.log(t('init.debug.pageMounted'))
   
   // 自动检测并设置数据库类型
   const detection = await detectDatabaseType()

@@ -7,7 +7,7 @@
     >
       <el-loading-directive />
       <div class="loading-text">
-        加载中...
+        {{ t('common.loading') }}
       </div>
     </div>
     
@@ -15,17 +15,17 @@
     <div v-else>
       <div class="dashboard-header">
         <h1>
-          欢迎回来，{{ userInfo?.nickname || userInfo?.username || '用户' }}！
+          {{ t('user.dashboard.welcome', { name: userInfo?.nickname || userInfo?.username || t('common.user') }) }}
           <el-tag
             :type="getLevelTagType(userLimits.level)"
             size="large"
             effect="plain"
             class="level-tag"
           >
-            等级 {{ userLimits.level }} - {{ getLevelText(userLimits.level) }}
+            {{ t('user.dashboard.levelTag', { level: userLimits.level, text: getLevelText(userLimits.level) }) }}
           </el-tag>
         </h1>
-        <p>这里是您的个人控制面板</p>
+        <p>{{ t('user.dashboard.subtitle') }}</p>
       </div>
 
       <!-- 资源限制信息 -->
@@ -33,13 +33,13 @@
         <el-card>
           <template #header>
             <div class="card-header">
-              <span>资源配额限制</span>
+              <span>{{ t('user.dashboard.resourceQuota') }}</span>
               <el-button
                 size="small"
                 @click="loadUserLimits"
               >
                 <el-icon><Refresh /></el-icon>
-                刷新
+                {{ t('common.refresh') }}
               </el-button>
             </div>
           </template>
@@ -48,7 +48,7 @@
             <!-- 实例数量限制 -->
             <div class="limit-item">
               <div class="limit-header">
-                <span class="limit-title">实例数量</span>
+                <span class="limit-title">{{ t('user.dashboard.instanceCount') }}</span>
                 <span class="limit-usage">{{ userLimits.usedInstances }} / {{ userLimits.maxInstances }}</span>
               </div>
               <el-progress 
@@ -57,15 +57,15 @@
                 :stroke-width="8"
               />
               <div class="limit-description">
-                可创建的虚拟机和容器总数
+                {{ t('user.dashboard.instanceCountDesc') }}
               </div>
             </div>
 
             <!-- CPU核心限制 -->
             <div class="limit-item">
               <div class="limit-header">
-                <span class="limit-title">CPU核心</span>
-                <span class="limit-usage">{{ userLimits.usedCpu }} / {{ userLimits.maxCpu }}核</span>
+                <span class="limit-title">{{ t('user.dashboard.cpuCores') }}</span>
+                <span class="limit-usage">{{ userLimits.usedCpu }} / {{ userLimits.maxCpu }}{{ t('user.dashboard.cores') }}</span>
               </div>
               <el-progress 
                 :percentage="getUsagePercentage(userLimits.usedCpu, userLimits.maxCpu)"
@@ -73,14 +73,14 @@
                 :stroke-width="8"
               />
               <div class="limit-description">
-                所有实例CPU核心总数
+                {{ t('user.dashboard.cpuCoresDesc') }}
               </div>
             </div>
 
             <!-- 内存限制 -->
             <div class="limit-item">
               <div class="limit-header">
-                <span class="limit-title">内存大小</span>
+                <span class="limit-title">{{ t('user.dashboard.memorySize') }}</span>
                 <span class="limit-usage">{{ formatMemory(userLimits.usedMemory) }} / {{ formatMemory(userLimits.maxMemory) }}</span>
               </div>
               <el-progress 
@@ -89,14 +89,14 @@
                 :stroke-width="8"
               />
               <div class="limit-description">
-                所有实例内存总量
+                {{ t('user.dashboard.memorySizeDesc') }}
               </div>
             </div>
 
             <!-- 存储空间限制 -->
             <div class="limit-item">
               <div class="limit-header">
-                <span class="limit-title">存储空间</span>
+                <span class="limit-title">{{ t('user.dashboard.storageSpace') }}</span>
                 <span class="limit-usage">{{ formatStorage(userLimits.usedDisk) }} / {{ formatStorage(userLimits.maxDisk) }}</span>
               </div>
               <el-progress 
@@ -105,16 +105,16 @@
                 :stroke-width="8"
               />
               <div class="limit-description">
-                所有实例存储空间总量
+                {{ t('user.dashboard.storageSpaceDesc') }}
               </div>
             </div>
 
             <!-- 流量限制 -->
             <div class="limit-item">
               <div class="limit-header">
-                <span class="limit-title">流量限制</span>
+                <span class="limit-title">{{ t('user.dashboard.trafficLimit') }}</span>
                 <span class="limit-usage">
-                  {{ userLimits.maxTraffic > 0 ? `${formatTraffic(userLimits.usedTraffic)} / ${formatTraffic(userLimits.maxTraffic)}` : '无限制' }}
+                  {{ userLimits.maxTraffic > 0 ? `${formatTraffic(userLimits.usedTraffic)} / ${formatTraffic(userLimits.maxTraffic)}` : t('user.dashboard.unlimited') }}
                 </span>
               </div>
               <el-progress 
@@ -124,10 +124,10 @@
                 :stroke-width="8"
               />
               <div v-else class="unlimited-badge">
-                <el-tag type="success" size="small">无流量限制</el-tag>
+                <el-tag type="success" size="small">{{ t('user.dashboard.unlimitedTraffic') }}</el-tag>
               </div>
               <div class="limit-description">
-                {{ userLimits.maxTraffic > 0 ? '当月流量配额使用情况' : '当前等级享有无限流量' }}
+                {{ userLimits.maxTraffic > 0 ? t('user.dashboard.trafficLimitDesc') : t('user.dashboard.unlimitedTrafficDesc') }}
               </div>
             </div>
           </div>
@@ -145,7 +145,7 @@
         <el-card>
           <template #header>
             <div class="card-header">
-              <span>系统公告</span>
+              <span>{{ t('user.dashboard.systemAnnouncements') }}</span>
             </div>
           </template>
         
@@ -174,6 +174,7 @@
 
 <script setup>
 import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { 
   Refresh
@@ -184,6 +185,7 @@ import { useUserStore } from '@/pinia/modules/user'
 import { formatMemorySize, formatDiskSize, formatBandwidthSpeed } from '@/utils/unit-formatter'
 import TrafficOverview from '@/components/TrafficOverview.vue'
 
+const { t, locale } = useI18n()
 const userStore = useUserStore()
 const userInfo = userStore.user || {}
 const loading = ref(true)
@@ -209,7 +211,7 @@ const announcements = ref([])
 // 获取用户限制信息
 const loadUserLimits = async () => {
   const loadingMsg = ElMessage({
-    message: '正在刷新配额信息...',
+    message: t('user.dashboard.refreshingQuota'),
     type: 'info',
     duration: 0, // 不自动关闭
     showClose: false
@@ -220,15 +222,15 @@ const loadUserLimits = async () => {
     if (response.code === 0 || response.code === 200) {
       Object.assign(userLimits, response.data)
       loadingMsg.close()
-      ElMessage.success('配额信息已刷新')
+      ElMessage.success(t('user.dashboard.quotaRefreshed'))
     } else {
       loadingMsg.close()
-      ElMessage.error(response.message || '加载用户配额信息失败')
+      ElMessage.error(response.message || t('user.dashboard.loadQuotaFailed'))
     }
   } catch (error) {
-    console.error('获取用户限制失败:', error)
+    console.error(t('user.dashboard.getUserLimitsFailed'), error)
     loadingMsg.close()
-    ElMessage.error('加载用户配额信息失败')
+    ElMessage.error(t('user.dashboard.loadQuotaFailed'))
   }
 }
 
@@ -240,7 +242,7 @@ const loadAnnouncements = async () => {
       announcements.value = response.data.list || []
     }
   } catch (error) {
-    console.error('获取公告失败:', error)
+    console.error(t('user.dashboard.getAnnouncementsFailed'), error)
   }
 }
 
@@ -257,12 +259,12 @@ const getLevelTagType = (level) => {
 
 // 获取等级文本
 const getLevelText = () => {
-  return '普通用户'
+  return t('user.dashboard.normalUser')
 }
 
 // 获取等级描述
 const getLevelDescription = () => {
-  return '享受吧'
+  return t('user.dashboard.enjoyIt')
 }
 
 // 获取使用百分比
@@ -301,7 +303,7 @@ const formatTraffic = (traffic) => {
 
 // 格式化日期
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleDateString('zh-CN')
+  return new Date(dateString).toLocaleDateString(locale.value === 'en-US' ? 'en-US' : 'zh-CN')
 }
 
 onMounted(async () => {

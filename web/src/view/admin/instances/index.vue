@@ -3,21 +3,21 @@
     <el-card>
       <template #header>
         <div class="header-row">
-          <span>实例管理</span>
+          <span>{{ $t('admin.instances.title') }}</span>
           <div class="header-actions">
             <el-button
               v-if="selectedInstances.length > 0"
               type="danger"
               @click="batchDeleteInstances"
             >
-              批量删除 ({{ selectedInstances.length }})
+              {{ $t('admin.instances.batchDelete') }} ({{ selectedInstances.length }})
             </el-button>
             <el-button
               type="primary"
               :loading="loading"
               @click="loadInstances"
             >
-              刷新
+              {{ $t('common.refresh') }}
             </el-button>
           </div>
         </div>
@@ -27,59 +27,59 @@
       <div class="filter-row">
         <el-input
           v-model="filters.instanceName"
-          placeholder="按实例名称搜索"
+          :placeholder="$t('admin.instances.searchByInstanceName')"
           style="width: 200px; margin-right: 10px;"
           clearable
         />
         <el-input
           v-model="filters.providerName"
-          placeholder="按节点名称搜索"
+          :placeholder="$t('admin.instances.searchByProviderName')"
           style="width: 200px; margin-right: 10px;"
           clearable
         />
         <el-select
           v-model="filters.status"
-          placeholder="状态筛选"
+          :placeholder="$t('admin.instances.filterByStatus')"
           style="width: 120px; margin-right: 10px;"
           clearable
         >
           <el-option
-            label="运行中"
+            :label="$t('admin.instances.statusRunning')"
             value="running"
           />
           <el-option
-            label="已停止"
+            :label="$t('admin.instances.statusStopped')"
             value="stopped"
           />
           <el-option
-            label="创建中"
+            :label="$t('admin.instances.statusCreating')"
             value="creating"
           />
           <el-option
-            label="启动中"
+            :label="$t('admin.instances.statusStarting')"
             value="starting"
           />
           <el-option
-            label="停止中"
+            :label="$t('admin.instances.statusStopping')"
             value="stopping"
           />
           <el-option
-            label="错误"
+            :label="$t('admin.instances.statusError')"
             value="error"
           />
         </el-select>
         <el-select
           v-model="filters.instanceType"
-          placeholder="类型筛选"
+          :placeholder="$t('admin.instances.filterByType')"
           style="width: 120px; margin-right: 10px;"
           clearable
         >
           <el-option
-            label="容器"
+            :label="$t('admin.instances.typeContainer')"
             value="container"
           />
           <el-option
-            label="虚拟机"
+            :label="$t('admin.instances.typeVM')"
             value="vm"
           />
         </el-select>
@@ -87,12 +87,12 @@
           type="primary"
           @click="handleSearch"
         >
-          搜索
+          {{ $t('common.search') }}
         </el-button>
         <el-button
           @click="handleReset"
         >
-          重置
+          {{ $t('common.reset') }}
         </el-button>
       </div>
 
@@ -109,13 +109,13 @@
         />
         <el-table-column
           prop="name"
-          label="实例名称"
+          :label="$t('admin.instances.instanceName')"
           min-width="140"
           show-overflow-tooltip
         />
         <el-table-column
           prop="userName"
-          label="所有者"
+          :label="$t('admin.instances.owner')"
           width="100"
         />
         <el-table-column
@@ -126,7 +126,7 @@
         />
         <el-table-column
           prop="instance_type"
-          label="类型"
+          :label="$t('admin.instances.instanceType')"
           width="80"
         >
           <template #default="scope">
@@ -134,13 +134,13 @@
               :type="scope.row.instance_type === 'container' ? 'primary' : 'success'"
               size="small"
             >
-              {{ scope.row.instance_type === 'container' ? '容器' : '虚拟机' }}
+              {{ scope.row.instance_type === 'container' ? $t('admin.instances.typeContainer') : $t('admin.instances.typeVM') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="status"
-          label="状态"
+          :label="$t('common.status')"
           width="100"
         >
           <template #default="scope">
@@ -153,35 +153,35 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="规格"
+          :label="$t('admin.instances.specifications')"
           width="120"
         >
           <template #default="scope">
             <div style="font-size: 12px;">
-              <div>CPU: {{ scope.row.cpu }}核</div>
-              <div>内存: {{ formatMemory(scope.row.memory) }}</div>
-              <div>磁盘: {{ formatDisk(scope.row.disk) }}</div>
+              <div>CPU: {{ scope.row.cpu }}{{ $t('admin.instances.cores') }}</div>
+              <div>{{ $t('admin.instances.memory') }}: {{ formatMemory(scope.row.memory) }}</div>
+              <div>{{ $t('admin.instances.disk') }}: {{ formatDisk(scope.row.disk) }}</div>
             </div>
           </template>
         </el-table-column>
         <el-table-column
           prop="ipAddress"
-          label="IP地址"
+          :label="$t('admin.instances.ipAddress')"
           width="130"
           show-overflow-tooltip
         />
         <el-table-column
           prop="sshPort"
-          label="SSH端口"
+          :label="$t('admin.instances.sshPort')"
           width="80"
         />
         <el-table-column
           prop="osType"
-          label="系统"
+          :label="$t('admin.instances.system')"
           width="80"
         />
         <el-table-column
-          label="流量状态"
+          :label="$t('admin.instances.trafficStatus')"
           width="100"
         >
           <template #default="scope">
@@ -190,20 +190,20 @@
               type="danger"
               size="small"
             >
-              已限制
+              {{ $t('admin.instances.limited') }}
             </el-tag>
             <el-tag
               v-else
               type="success"
               size="small"
             >
-              正常
+              {{ $t('common.normal') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           prop="createdAt"
-          label="创建时间"
+          :label="$t('common.createTime')"
           width="140"
         >
           <template #default="scope">
@@ -212,7 +212,7 @@
         </el-table-column>
         <el-table-column
           prop="expiredAt"
-          label="到期时间"
+          :label="$t('admin.instances.expiryTime')"
           width="140"
         >
           <template #default="scope">
@@ -222,7 +222,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="220"
           fixed="right"
         >
@@ -233,21 +233,21 @@
                 :disabled="scope.row.status === 'running' || scope.row.status === 'starting'"
                 @click="manageInstance(scope.row, 'start')"
               >
-                启动
+                {{ $t('common.start') }}
               </el-button>
               <el-button
                 size="small"
                 :disabled="scope.row.status === 'stopped' || scope.row.status === 'stopping'"
                 @click="manageInstance(scope.row, 'stop')"
               >
-                停止
+                {{ $t('common.stop') }}
               </el-button>
               <el-button
                 size="small"
                 :disabled="scope.row.status !== 'running'"
                 @click="manageInstance(scope.row, 'restart')"
               >
-                重启
+                {{ $t('common.restart') }}
               </el-button>
               <el-button
                 size="small"
@@ -255,21 +255,21 @@
                 :disabled="scope.row.status !== 'running'"
                 @click="showResetPasswordDialog(scope.row)"
               >
-                重置密码
+                {{ $t('admin.instances.resetPassword') }}
               </el-button>
               <el-button
                 size="small"
                 type="primary"
                 @click="viewInstanceDetail(scope.row)"
               >
-                详情
+                {{ $t('common.details') }}
               </el-button>
               <el-button
                 size="small"
                 type="danger"
                 @click="deleteInstance(scope.row.id)"
               >
-                删除
+                {{ $t('common.delete') }}
               </el-button>
             </div>
           </template>
@@ -293,7 +293,7 @@
     <!-- 实例详情对话框 -->
     <el-dialog
       v-model="detailDialogVisible"
-      title="实例详情"
+      :title="$t('admin.instances.instanceDetails')"
       width="60%"
     >
       <div
@@ -304,105 +304,105 @@
           :column="2"
           border
         >
-          <el-descriptions-item label="实例名称">
+          <el-descriptions-item :label="$t('admin.instances.instanceName')">
             {{ selectedInstance.name }}
           </el-descriptions-item>
           <el-descriptions-item label="UUID">
             {{ selectedInstance.uuid }}
           </el-descriptions-item>
-          <el-descriptions-item label="所有者">
+          <el-descriptions-item :label="$t('admin.instances.owner')">
             {{ selectedInstance.userName }}
           </el-descriptions-item>
           <el-descriptions-item label="Provider">
             {{ selectedInstance.providerName }}
           </el-descriptions-item>
-          <el-descriptions-item label="实例类型">
+          <el-descriptions-item :label="$t('admin.instances.instanceType')">
             <el-tag :type="selectedInstance.instance_type === 'container' ? 'primary' : 'success'">
-              {{ selectedInstance.instance_type === 'container' ? '容器' : '虚拟机' }}
+              {{ selectedInstance.instance_type === 'container' ? $t('admin.instances.typeContainer') : $t('admin.instances.typeVM') }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="状态">
+          <el-descriptions-item :label="$t('common.status')">
             <el-tag :type="getStatusType(selectedInstance.status)">
               {{ getStatusText(selectedInstance.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="镜像">
+          <el-descriptions-item :label="$t('admin.instances.image')">
             {{ selectedInstance.image }}
           </el-descriptions-item>
-          <el-descriptions-item label="操作系统">
+          <el-descriptions-item :label="$t('admin.instances.operatingSystem')">
             {{ selectedInstance.osType }}
           </el-descriptions-item>
           <el-descriptions-item label="CPU">
-            {{ selectedInstance.cpu }}核
+            {{ selectedInstance.cpu }}{{ $t('admin.instances.cores') }}
           </el-descriptions-item>
-          <el-descriptions-item label="内存">
+          <el-descriptions-item :label="$t('admin.instances.memory')">
             {{ formatMemory(selectedInstance.memory) }}
           </el-descriptions-item>
-          <el-descriptions-item label="磁盘">
+          <el-descriptions-item :label="$t('admin.instances.disk')">
             {{ formatDisk(selectedInstance.disk) }}
           </el-descriptions-item>
-          <el-descriptions-item label="带宽">
+          <el-descriptions-item :label="$t('admin.instances.bandwidth')">
             {{ selectedInstance.bandwidth }}Mbps
           </el-descriptions-item>
-          <el-descriptions-item label="公网IPv4">
-            {{ selectedInstance.publicIP || '未分配' }}
+          <el-descriptions-item :label="$t('admin.instances.publicIPv4')">
+            {{ selectedInstance.publicIP || $t('admin.instances.unassigned') }}
           </el-descriptions-item>
-          <el-descriptions-item label="内网IPv4">
-            {{ selectedInstance.privateIP || '未分配' }}
+          <el-descriptions-item :label="$t('admin.instances.privateIPv4')">
+            {{ selectedInstance.privateIP || $t('admin.instances.unassigned') }}
           </el-descriptions-item>
-          <el-descriptions-item label="内网IPv6" v-if="selectedInstance.ipv6Address">
+          <el-descriptions-item :label="$t('admin.instances.privateIPv6')" v-if="selectedInstance.ipv6Address">
             {{ selectedInstance.ipv6Address }}
           </el-descriptions-item>
-          <el-descriptions-item label="公网IPv6" v-if="selectedInstance.publicIPv6">
+          <el-descriptions-item :label="$t('admin.instances.publicIPv6')" v-if="selectedInstance.publicIPv6">
             {{ selectedInstance.publicIPv6 }}
           </el-descriptions-item>
-          <el-descriptions-item label="SSH端口">
+          <el-descriptions-item :label="$t('admin.instances.sshPort')">
             {{ selectedInstance.sshPort }}
           </el-descriptions-item>
-          <el-descriptions-item label="用户名">
+          <el-descriptions-item :label="$t('admin.instances.username')">
             {{ selectedInstance.username }}
           </el-descriptions-item>
-          <el-descriptions-item label="密码">
+          <el-descriptions-item :label="$t('admin.instances.password')">
             <span v-if="showPassword">{{ selectedInstance.password }}</span>
             <span v-else>••••••••</span>
             <el-button
               link
               @click="showPassword = !showPassword"
             >
-              {{ showPassword ? '隐藏' : '显示' }}
+              {{ showPassword ? $t('admin.instances.hide') : $t('admin.instances.show') }}
             </el-button>
           </el-descriptions-item>
-          <el-descriptions-item label="流量限制">
+          <el-descriptions-item :label="$t('admin.instances.trafficLimit')">
             <el-tag
               v-if="selectedInstance.trafficLimited"
               type="danger"
             >
-              已限制
+              {{ $t('admin.instances.limited') }}
             </el-tag>
             <el-tag
               v-else
               type="success"
             >
-              正常
+              {{ $t('common.normal') }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item label="vnstat接口">
-            {{ selectedInstance.vnstatInterface || '未设置' }}
+          <el-descriptions-item :label="$t('admin.instances.vnstatInterface')">
+            {{ selectedInstance.vnstatInterface || $t('admin.instances.notSet') }}
           </el-descriptions-item>
-          <el-descriptions-item label="创建时间">
+          <el-descriptions-item :label="$t('common.createTime')">
             {{ formatDate(selectedInstance.createdAt) }}
           </el-descriptions-item>
-          <el-descriptions-item label="更新时间">
+          <el-descriptions-item :label="$t('common.updatedAt')">
             {{ formatDate(selectedInstance.updatedAt) }}
           </el-descriptions-item>
-          <el-descriptions-item label="到期时间">
+          <el-descriptions-item :label="$t('admin.instances.expiryTime')">
             <span :class="{ 'expired': isExpired(selectedInstance.expiredAt), 'expiring-soon': isExpiringSoon(selectedInstance.expiredAt) }">
               {{ formatDate(selectedInstance.expiredAt) }}
             </span>
           </el-descriptions-item>
-          <el-descriptions-item label="健康状态">
+          <el-descriptions-item :label="$t('admin.instances.healthStatus')">
             <el-tag :type="selectedInstance.healthStatus === 'healthy' ? 'success' : 'danger'">
-              {{ selectedInstance.healthStatus === 'healthy' ? '健康' : '异常' }}
+              {{ selectedInstance.healthStatus === 'healthy' ? $t('admin.instances.healthy') : $t('admin.instances.unhealthy') }}
             </el-tag>
           </el-descriptions-item>
         </el-descriptions>
@@ -411,15 +411,15 @@
           class="traffic-info"
           style="margin-top: 20px;"
         >
-          <h4>流量使用情况</h4>
+          <h4>{{ $t('admin.instances.trafficUsage') }}</h4>
           <el-descriptions
             :column="2"
             border
           >
-            <el-descriptions-item label="入站流量">
+            <el-descriptions-item :label="$t('admin.instances.inboundTraffic')">
               {{ formatTraffic(selectedInstance.usedTrafficIn) }}
             </el-descriptions-item>
-            <el-descriptions-item label="出站流量">
+            <el-descriptions-item :label="$t('admin.instances.outboundTraffic')">
               {{ formatTraffic(selectedInstance.usedTrafficOut) }}
             </el-descriptions-item>
           </el-descriptions>
@@ -433,6 +433,9 @@
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { getAllInstances, deleteInstance as deleteInstanceApi, adminInstanceAction, resetInstancePassword } from '@/api/admin'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const instances = ref([])
 const loading = ref(false)
@@ -479,7 +482,7 @@ const loadInstances = async () => {
     instances.value = response.data.list || []
     pagination.value.total = response.data.total || 0
   } catch (error) {
-    ElMessage.error('加载实例列表失败')
+    ElMessage.error(t('admin.instances.loadFailed'))
     console.error('Load instances error:', error)
   } finally {
     loading.value = false
@@ -534,21 +537,21 @@ const getStatusType = (status) => {
 
 const getStatusText = (status) => {
   const texts = {
-    running: '运行中',
-    stopped: '已停止',
-    error: '错误',
-    failed: '创建失败',
-    starting: '启动中',
-    stopping: '停止中',
-    creating: '创建中',
-    restarting: '重启中',
-    deleting: '删除中'
+    running: t('admin.instances.statusRunning'),
+    stopped: t('admin.instances.statusStopped'),
+    error: t('admin.instances.statusError'),
+    failed: t('admin.instances.statusFailed'),
+    starting: t('admin.instances.statusStarting'),
+    stopping: t('admin.instances.statusStopping'),
+    creating: t('admin.instances.statusCreating'),
+    restarting: t('admin.instances.statusRestarting'),
+    deleting: t('admin.instances.statusDeleting')
   }
   return texts[status] || status
 }
 
 const formatDate = (dateString) => {
-  if (!dateString) return '未设置'
+  if (!dateString) return t('admin.instances.notSet')
   const date = new Date(dateString)
   return date.toLocaleString('zh-CN', {
     year: 'numeric',
@@ -603,29 +606,29 @@ const isExpiringSoon = (expiredAt) => {
 
 const manageInstance = async (instance, action) => {
   const actionText = {
-    'start': '启动',
-    'stop': '停止',
-    'restart': '重启',
-    'reset': '重置'
+    'start': t('common.start'),
+    'stop': t('common.stop'),
+    'restart': t('common.restart'),
+    'reset': t('common.reset')
   }[action]
   
   try {
     await ElMessageBox.confirm(
-      `确定${actionText}实例 "${instance.name}" 吗？操作将以任务形式异步执行。`,
-      `${actionText}实例`,
+      t('admin.instances.manageConfirm', { action: actionText, name: instance.name }),
+      t('admin.instances.manageTitle', { action: actionText }),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await adminInstanceAction(instance.id, action)
-    ElMessage.success(`${actionText}任务已创建`)
+    ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
     await loadInstances()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(`${actionText}失败`)
+      ElMessage.error(t('admin.instances.actionFailed', { action: actionText }))
     }
   }
 }
@@ -634,11 +637,11 @@ const manageInstance = async (instance, action) => {
 const showResetPasswordDialog = async (instance) => {
   try {
     await ElMessageBox.confirm(
-      `确定要重置实例 "${instance.name}" 的密码吗？\n系统将创建异步任务来执行密码重置操作。`,
-      '重置实例密码',
+      t('admin.instances.resetPasswordConfirm', { name: instance.name }),
+      t('admin.instances.resetPasswordTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
@@ -649,16 +652,16 @@ const showResetPasswordDialog = async (instance) => {
       if (response.code === 0 || response.code === 200) {
         const taskId = response.data.taskId
         
-        ElMessage.success(`密码重置任务已创建（任务ID: ${taskId}），请在任务列表中查看进度`)
+        ElMessage.success(t('admin.instances.resetPasswordSuccess', { taskId }))
         
         // 刷新实例列表
         await loadInstances()
       } else {
-        ElMessage.error(response.message || '创建密码重置任务失败')
+        ElMessage.error(response.message || t('admin.instances.resetPasswordFailed'))
       }
     } catch (error) {
       console.error('创建密码重置任务失败:', error)
-      ElMessage.error('创建密码重置任务失败，请稍后重试')
+      ElMessage.error(t('admin.instances.resetPasswordError'))
     }
   } catch (error) {
     // 用户取消操作
@@ -668,21 +671,21 @@ const showResetPasswordDialog = async (instance) => {
 const deleteInstance = async (id) => {
   try {
     await ElMessageBox.confirm(
-      '确定删除该实例吗？删除操作将以任务形式异步执行，请在任务列表中查看进度。',
-      '删除实例',
+      t('admin.instances.deleteConfirm'),
+      t('admin.instances.deleteTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
     
     await adminInstanceAction(id, 'delete')
-    ElMessage.success('删除任务已创建，请查看任务列表了解进度')
+    ElMessage.success(t('admin.instances.deleteSuccess'))
     await loadInstances()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+      ElMessage.error(t('common.deleteFailed'))
     }
   }
 }
@@ -695,17 +698,17 @@ const handleSelectionChange = (selection) => {
 // 批量删除实例
 const batchDeleteInstances = async () => {
   if (selectedInstances.value.length === 0) {
-    ElMessage.warning('请先选择要删除的实例')
+    ElMessage.warning(t('admin.instances.selectDeleteWarning'))
     return
   }
 
   try {
     await ElMessageBox.confirm(
-      `确定删除选中的 ${selectedInstances.value.length} 个实例吗？删除操作将以任务形式异步执行，请在任务列表中查看进度。`,
-      '批量删除实例',
+      t('admin.instances.batchDeleteConfirm', { count: selectedInstances.value.length }),
+      t('admin.instances.batchDeleteTitle'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning',
       }
     )
@@ -721,17 +724,17 @@ const batchDeleteInstances = async () => {
         successCount++
       } catch (error) {
         failCount++
-        errors.push(`${instance.name}: ${error.message || '删除失败'}`)
+        errors.push(`${instance.name}: ${error.message || t('common.deleteFailed')}`)
       }
     }
 
     // 显示结果
     if (failCount === 0) {
-      ElMessage.success(`已成功为 ${successCount} 个实例创建删除任务，请查看任务列表了解进度`)
+      ElMessage.success(t('admin.instances.batchDeleteSuccess', { count: successCount }))
     } else if (successCount === 0) {
-      ElMessage.error(`批量删除失败，所有实例删除任务创建失败`)
+      ElMessage.error(t('admin.instances.batchDeleteAllFailed'))
     } else {
-      ElMessage.warning(`成功创建 ${successCount} 个删除任务，${failCount} 个失败`)
+      ElMessage.warning(t('admin.instances.batchDeletePartialSuccess', { success: successCount, fail: failCount }))
     }
 
     // 刷新列表
@@ -739,7 +742,7 @@ const batchDeleteInstances = async () => {
     selectedInstances.value = []
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('批量删除失败')
+      ElMessage.error(t('admin.instances.batchDeleteFailed'))
     }
   }
 }

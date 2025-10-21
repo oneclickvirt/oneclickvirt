@@ -11,6 +11,7 @@ import router from './router'
 import { createPinia } from 'pinia'
 import App from './App.vue'
 import { initUserStatusMonitor } from '@/utils/userStatusMonitor'
+import i18n from './i18n'
 
 const app = createApp(App)
 app.config.productionTip = false
@@ -20,7 +21,7 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 }
 
 const pinia = createPinia()
-app.use(ElementPlus).use(pinia).use(router)
+app.use(ElementPlus).use(pinia).use(i18n).use(router)
 
 // 初始化用户状态监控器
 initUserStatusMonitor()

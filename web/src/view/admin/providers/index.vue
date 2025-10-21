@@ -3,12 +3,12 @@
     <el-card>
       <template #header>
         <div class="card-header">
-          <span>节点管理</span>
+          <span>{{ $t('admin.providers.title') }}</span>
           <el-button
             type="primary"
             @click="showAddDialog = true"
           >
-            添加服务器
+            {{ $t('admin.providers.addProvider') }}
           </el-button>
         </div>
       </template>
@@ -19,7 +19,7 @@
           <el-col :span="6">
             <el-input
               v-model="searchForm.name"
-              placeholder="请输入节点名称搜索"
+              :placeholder="$t('admin.providers.searchByName')"
               clearable
               @clear="handleSearch"
               @keyup.enter="handleSearch"
@@ -32,24 +32,24 @@
           <el-col :span="4">
             <el-select
               v-model="searchForm.type"
-              placeholder="节点类型"
+              :placeholder="$t('admin.providers.selectType')"
               clearable
               @change="handleSearch"
             >
               <el-option
-                label="ProxmoxVE"
+                :label="$t('admin.providers.proxmox')"
                 value="proxmox"
               />
               <el-option
-                label="LXD"
+                :label="$t('admin.providers.lxd')"
                 value="lxd"
               />
               <el-option
-                label="Incus"
+                :label="$t('admin.providers.incus')"
                 value="incus"
               />
               <el-option
-                label="Docker"
+                :label="$t('admin.providers.docker')"
                 value="docker"
               />
             </el-select>
@@ -57,20 +57,20 @@
           <el-col :span="4">
             <el-select
               v-model="searchForm.status"
-              placeholder="状态"
+              :placeholder="$t('admin.providers.selectStatus')"
               clearable
               @change="handleSearch"
             >
               <el-option
-                label="活跃"
+                :label="$t('admin.providers.statusActive')"
                 value="active"
               />
               <el-option
-                label="离线"
+                :label="$t('admin.providers.statusOffline')"
                 value="offline"
               />
               <el-option
-                label="冻结"
+                :label="$t('admin.providers.statusFrozen')"
                 value="frozen"
               />
             </el-select>
@@ -80,10 +80,10 @@
               type="primary"
               @click="handleSearch"
             >
-              搜索
+              {{ $t('admin.providers.search') }}
             </el-button>
             <el-button @click="handleReset">
-              重置
+              {{ $t('admin.providers.reset') }}
             </el-button>
           </el-col>
         </el-row>
@@ -101,14 +101,14 @@
         />
         <el-table-column
           prop="name"
-          label="名称"
+          :label="$t('common.name')"
         />
         <el-table-column
           prop="type"
-          label="类型"
+          :label="$t('admin.providers.providerType')"
         />
         <el-table-column
-          label="位置"
+          :label="$t('admin.providers.location')"
           width="120"
         >
           <template #default="scope">
@@ -122,7 +122,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="主机地址"
+          :label="$t('admin.providers.apiEndpoint')"
           width="140"
         >
           <template #default="scope">
@@ -130,7 +130,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="SSH端口"
+          :label="$t('admin.providers.sshPort')"
           width="80"
         >
           <template #default="scope">
@@ -138,7 +138,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="支持类型"
+          :label="$t('admin.providers.supportTypes')"
           width="120"
         >
           <template #default="scope">
@@ -148,21 +148,21 @@
                 size="small"
                 type="primary"
               >
-                容器
+                {{ $t('admin.providers.container') }}
               </el-tag>
               <el-tag
                 v-if="scope.row.vm_enabled"
                 size="small"
                 type="success"
               >
-                虚拟机
+                {{ $t('admin.providers.vm') }}
               </el-tag>
             </div>
           </template>
         </el-table-column>
         <el-table-column
           prop="architecture"
-          label="架构"
+          :label="$t('admin.providers.architecture')"
           width="80"
         >
           <template #default="scope">
@@ -175,7 +175,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="存储池"
+          :label="$t('admin.providers.storagePool')"
           width="100"
         >
           <template #default="scope">
@@ -192,7 +192,7 @@
               size="small"
               type="info"
             >
-              未配置
+              {{ $t('admin.providers.notConfigured') }}
             </el-text>
             <el-text
               v-else
@@ -204,7 +204,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="连接状态"
+          :label="$t('admin.providers.connectionStatus')"
           width="90"
         >
           <template #default="scope">
@@ -229,7 +229,7 @@
           </template>
         </el-table-column>
         <el-table-column
-          label="过期时间"
+          :label="$t('admin.providers.expiryTime')"
           width="120"
         >
           <template #default="scope">
@@ -246,12 +246,12 @@
               size="small"
               type="info"
             >
-              永不过期
+              {{ $t('admin.providers.neverExpires') }}
             </el-text>
           </template>
         </el-table-column>
         <el-table-column
-          label="流量使用"
+          :label="$t('admin.providers.trafficUsage')"
           width="130"
         >
           <template #default="scope">
@@ -277,14 +277,14 @@
                   type="danger"
                   size="small"
                 >
-                  已超限
+                  {{ $t('admin.providers.trafficExceeded') }}
                 </el-tag>
               </div>
             </div>
           </template>
         </el-table-column>
         <el-table-column
-          label="服务器状态"
+          :label="$t('admin.providers.serverStatus')"
           width="100"
         >
           <template #default="scope">
@@ -293,26 +293,26 @@
               type="danger"
               size="small"
             >
-              已冻结
+              {{ $t('admin.providers.frozen') }}
             </el-tag>
             <el-tag
               v-else-if="isExpired(scope.row.expiresAt)"
               type="warning"
               size="small"
             >
-              已过期
+              {{ $t('admin.providers.expired') }}
             </el-tag>
             <el-tag
               v-else
               type="success"
               size="small"
             >
-              正常
+              {{ $t('common.normal') }}
             </el-tag>
           </template>
         </el-table-column>
         <el-table-column
-          label="节点资源"
+          :label="$t('admin.providers.nodeResources')"
           width="120"
         >
           <template #default="scope">
@@ -322,7 +322,7 @@
             >
               <div class="resource-item">
                 <el-icon><Cpu /></el-icon>
-                <span>{{ scope.row.nodeCpuCores || 0 }} 核</span>
+                <span>{{ scope.row.nodeCpuCores || 0 }} {{ $t('admin.providers.cores') }}</span>
               </div>
               <div class="resource-item">
                 <el-icon><Monitor /></el-icon>
@@ -331,7 +331,7 @@
               </div>
               <div class="resource-item">
                 <el-icon><FolderOpened /></el-icon>
-                <span>{{ formatDiskSize(scope.row.nodeDiskTotal) }} 总空间</span>
+                <span>{{ formatDiskSize(scope.row.nodeDiskTotal) }} {{ $t('admin.providers.totalSpace') }}</span>
               </div>
               <div class="sync-time">
                 <el-text
@@ -351,25 +351,25 @@
                 type="info"
               >
                 <el-icon><Loading /></el-icon>
-                未同步
+                {{ $t('admin.providers.notSynced') }}
               </el-text>
             </div>
           </template>
         </el-table-column>
         <el-table-column
-          label="任务状态"
+          :label="$t('admin.providers.taskStatus')"
           width="120"
         >
           <template #default="scope">
             <div class="task-status">
               <div style="margin-bottom: 4px;">
                 <el-text size="small">
-                  实例: {{ scope.row.instanceCount || 0 }}
+                  {{ $t('admin.providers.instances') }}: {{ scope.row.instanceCount || 0 }}
                 </el-text>
               </div>
               <div style="margin-bottom: 4px;">
                 <el-text size="small">
-                  运行任务: {{ scope.row.runningTasksCount || 0 }}
+                  {{ $t('admin.providers.runningTasks') }}: {{ scope.row.runningTasksCount || 0 }}
                 </el-text>
               </div>
               <div>
@@ -378,14 +378,14 @@
                   type="success"
                   size="small"
                 >
-                  并发 ({{ scope.row.maxConcurrentTasks }})
+                  {{ $t('admin.providers.concurrent') }} ({{ scope.row.maxConcurrentTasks }})
                 </el-tag>
                 <el-tag
                   v-else
                   type="warning"
                   size="small"
                 >
-                  串行
+                  {{ $t('admin.providers.serial') }}
                 </el-tag>
               </div>
               <div style="margin-top: 4px;">
@@ -394,21 +394,21 @@
                   type="primary"
                   size="small"
                 >
-                  轮询 {{ scope.row.taskPollInterval }}s
+                  {{ $t('admin.providers.polling') }} {{ scope.row.taskPollInterval }}s
                 </el-tag>
                 <el-tag
                   v-else
                   type="info"
                   size="small"
                 >
-                  已禁用轮询
+                  {{ $t('admin.providers.pollingDisabled') }}
                 </el-tag>
               </div>
             </div>
           </template>
         </el-table-column>
         <el-table-column
-          label="操作"
+          :label="$t('common.actions')"
           width="290"
           fixed="right"
         >
@@ -418,40 +418,40 @@
                 class="table-action-link"
                 @click="editProvider(scope.row)"
               >
-                编辑
+                {{ $t('common.edit') }}
               </a>
               <a 
                 v-if="(scope.row.type === 'lxd' || scope.row.type === 'incus' || scope.row.type === 'proxmox')" 
                 class="table-action-link" 
                 @click="autoConfigureAPI(scope.row)"
               >
-                自动配置API
+                {{ $t('admin.providers.autoConfigureAPI') }}
               </a>
               <a 
                 class="table-action-link" 
                 @click="checkHealth(scope.row.id)"
               >
-                健康检查
+                {{ $t('admin.providers.healthCheck') }}
               </a>
               <a 
                 v-if="scope.row.isFrozen" 
                 class="table-action-link success" 
                 @click="unfreezeServer(scope.row)"
               >
-                解冻
+                {{ $t('admin.providers.unfreeze') }}
               </a>
               <a 
                 v-else 
                 class="table-action-link warning" 
                 @click="freezeServer(scope.row.id)"
               >
-                冻结
+                {{ $t('admin.providers.freeze') }}
               </a>
               <a
                 class="table-action-link danger"
                 @click="handleDeleteProvider(scope.row.id)"
               >
-                删除
+                {{ $t('common.delete') }}
               </a>
             </div>
           </template>
@@ -475,7 +475,7 @@
     <!-- 添加/编辑服务器对话框 -->
     <el-dialog 
       v-model="showAddDialog" 
-      :title="isEditing ? '编辑服务器' : '添加服务器'" 
+      :title="isEditing ? $t('admin.providers.editServer') : $t('admin.providers.addServer')" 
       width="800px"
       :close-on-click-modal="false"
     >
@@ -488,7 +488,7 @@
       >
         <!-- 基本信息 -->
         <el-tab-pane
-          label="基本信息"
+          :label="$t('admin.providers.basicInfo')"
           name="basic"
         >
           <el-form
@@ -499,21 +499,21 @@
             class="server-form"
           >
             <el-form-item
-              label="服务器名称"
+              :label="$t('admin.providers.serverName')"
               prop="name"
             >
               <el-input
                 v-model="addProviderForm.name"
-                placeholder="请输入服务器名称"
+                :placeholder="$t('admin.providers.serverNamePlaceholder')"
               />
             </el-form-item>
             <el-form-item
-              label="服务器类型"
+              :label="$t('admin.providers.serverType')"
               prop="type"
             >
               <el-select
                 v-model="addProviderForm.type"
-                placeholder="请选择服务器类型"
+                :placeholder="$t('admin.providers.serverTypePlaceholder')"
               >
                 <el-option
                   label="Docker"
@@ -534,60 +534,61 @@
               </el-select>
             </el-form-item>
             <el-form-item
-              label="主机地址"
+              :label="$t('admin.providers.hostAddress')"
               prop="host"
             >
               <el-input
                 v-model="addProviderForm.host"
-                placeholder="请输入主机IP或域名"
+                :placeholder="$t('admin.providers.hostPlaceholder')"
               />
             </el-form-item>
             <el-form-item
-              label="端口"
+              :label="$t('admin.providers.port')"
               prop="port"
             >
               <el-input-number
                 v-model="addProviderForm.port"
                 :min="1"
                 :max="65535"
+                :controls="false"
               />
             </el-form-item>
             <el-form-item
-              label="描述"
+              :label="$t('common.description')"
               prop="description"
             >
               <el-input 
                 v-model="addProviderForm.description" 
                 type="textarea" 
                 :rows="3"
-                placeholder="服务器描述信息"
+                :placeholder="$t('admin.providers.descriptionPlaceholder')"
               />
             </el-form-item>
             <el-form-item
-              label="状态"
+              :label="$t('common.status')"
               prop="status"
             >
               <el-select
                 v-model="addProviderForm.status"
-                placeholder="请选择状态"
+                :placeholder="$t('admin.providers.statusPlaceholder')"
               >
                 <el-option
-                  label="启用"
+                  :label="$t('common.enabled')"
                   value="active"
                 />
                 <el-option
-                  label="禁用"
+                  :label="$t('common.disabled')"
                   value="inactive"
                 />
               </el-select>
             </el-form-item>
             <el-form-item
-              label="架构"
+              :label="$t('admin.providers.architecture')"
               prop="architecture"
             >
               <el-select
                 v-model="addProviderForm.architecture"
-                placeholder="请选择服务器架构"
+                :placeholder="$t('admin.providers.architecturePlaceholder')"
               >
                 <el-option
                   label="amd64 (x86_64)"
@@ -607,7 +608,7 @@
                   size="small"
                   type="info"
                 >
-                  选择服务器的CPU架构，影响可用的系统镜像
+                  {{ $t('admin.providers.architectureTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -616,7 +617,7 @@
 
         <!-- 连接配置 -->
         <el-tab-pane
-          label="连接配置"
+          :label="$t('admin.providers.connectionConfig')"
           name="connection"
         >
           <el-form
@@ -625,22 +626,22 @@
             class="server-form"
           >
             <el-form-item
-              label="用户名"
+              :label="$t('admin.providers.username')"
               prop="username"
             >
               <el-input
                 v-model="addProviderForm.username"
-                placeholder="请输入连接用户名"
+                :placeholder="$t('admin.providers.usernamePlaceholder')"
               />
             </el-form-item>
             <el-form-item
-              label="密码"
+              :label="$t('admin.providers.password')"
               prop="password"
             >
               <el-input 
                 v-model="addProviderForm.password" 
                 type="password" 
-                :placeholder="isEditing ? '不修改请留空' : '请输入连接密码'" 
+                :placeholder="isEditing ? $t('admin.providers.passwordEditPlaceholder') : $t('admin.providers.passwordPlaceholder')" 
                 show-password 
               />
               <div
@@ -651,28 +652,28 @@
                   size="small"
                   type="info"
                 >
-                  留空表示不修改当前密码
+                  {{ $t('admin.providers.passwordKeepTip') }}
                 </el-text>
               </div>
             </el-form-item>
             <el-form-item
-              label="SSH密钥"
+              :label="$t('admin.providers.sshKey')"
               prop="sshKey"
             >
               <el-input 
                 v-model="addProviderForm.sshKey" 
                 type="textarea" 
                 :rows="4"
-                placeholder="可选：SSH私钥内容"
+                :placeholder="$t('admin.providers.sshKeyPlaceholder')"
               />
             </el-form-item>
             
             <el-divider content-position="left">
-              SSH超时配置
+              {{ $t('admin.providers.sshTimeoutConfig') }}
             </el-divider>
             
             <el-form-item
-              label="连接超时"
+              :label="$t('admin.providers.connectTimeout')"
               prop="sshConnectTimeout"
             >
               <el-input-number
@@ -680,21 +681,22 @@
                 :min="5"
                 :max="300"
                 :step="5"
+                :controls="false"
                 placeholder="30"
               />
-              <span style="margin-left: 10px;">秒</span>
+              <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
               <div class="form-tip">
                 <el-text
                   size="small"
                   type="info"
                 >
-                  SSH连接建立的超时时间，Docker环境建议设置较大值（30秒以上）
+                  {{ $t('admin.providers.connectTimeoutTip') }}
                 </el-text>
               </div>
             </el-form-item>
             
             <el-form-item
-              label="执行超时"
+              :label="$t('admin.providers.executeTimeout')"
               prop="sshExecuteTimeout"
             >
               <el-input-number
@@ -702,20 +704,21 @@
                 :min="30"
                 :max="3600"
                 :step="30"
+                :controls="false"
                 placeholder="300"
               />
-              <span style="margin-left: 10px;">秒</span>
+              <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
               <div class="form-tip">
                 <el-text
                   size="small"
                   type="info"
                 >
-                  SSH命令执行的超时时间，复杂操作建议设置300秒以上
+                  {{ $t('admin.providers.executeTimeoutTip') }}
                 </el-text>
               </div>
             </el-form-item>
             
-            <el-form-item label="连接测试">
+            <el-form-item :label="$t('admin.providers.connectionTest')">
               <el-button
                 type="primary"
                 :loading="testingConnection"
@@ -725,7 +728,7 @@
                 <el-icon v-if="!testingConnection">
                   <Connection />
                 </el-icon>
-                {{ testingConnection ? '测试中...' : '测试SSH连接' }}
+                {{ testingConnection ? $t('admin.providers.testing') : $t('admin.providers.testSSH') }}
               </el-button>
               <div
                 v-if="connectionTestResult"
@@ -740,12 +743,12 @@
                 >
                   <template v-if="connectionTestResult.success">
                     <div style="margin-top: 8px;">
-                      <p><strong>测试结果：</strong></p>
-                      <p>最小延迟: {{ connectionTestResult.minLatency }}ms</p>
-                      <p>最大延迟: {{ connectionTestResult.maxLatency }}ms</p>
-                      <p>平均延迟: {{ connectionTestResult.avgLatency }}ms</p>
+                      <p><strong>{{ $t('admin.providers.testResults') }}:</strong></p>
+                      <p>{{ $t('admin.providers.minLatency') }}: {{ connectionTestResult.minLatency }}ms</p>
+                      <p>{{ $t('admin.providers.maxLatency') }}: {{ connectionTestResult.maxLatency }}ms</p>
+                      <p>{{ $t('admin.providers.avgLatency') }}: {{ connectionTestResult.avgLatency }}ms</p>
                       <p style="margin-top: 8px;">
-                        <strong>推荐超时时间: {{ connectionTestResult.recommendedTimeout }}秒</strong>
+                        <strong>{{ $t('admin.providers.recommendedTimeout') }}: {{ connectionTestResult.recommendedTimeout }}{{ $t('common.seconds') }}</strong>
                       </p>
                       <el-button
                         type="primary"
@@ -753,7 +756,7 @@
                         style="margin-top: 8px;"
                         @click="applyRecommendedTimeout"
                       >
-                        应用推荐值
+                        {{ $t('admin.providers.applyRecommended') }}
                       </el-button>
                     </div>
                   </template>
@@ -768,7 +771,7 @@
 
         <!-- 地理位置 -->
         <el-tab-pane
-          label="地理位置"
+          :label="$t('admin.providers.location')"
           name="location"
         >
           <el-form
@@ -777,21 +780,21 @@
             class="server-form"
           >
             <el-form-item
-              label="地区"
+              :label="$t('admin.providers.region')"
               prop="region"
             >
               <el-input
                 v-model="addProviderForm.region"
-                placeholder="请输入地区，如：华东、美西等"
+                :placeholder="$t('admin.providers.regionPlaceholder')"
               />
             </el-form-item>
             <el-form-item
-              label="国家"
+              :label="$t('admin.providers.country')"
               prop="country"
             >
               <el-select 
                 v-model="addProviderForm.country" 
-                placeholder="请选择国家"
+                :placeholder="$t('admin.providers.countryPlaceholder')"
                 filterable
                 @change="onCountryChange"
               >
@@ -813,17 +816,17 @@
                   size="small"
                   type="info"
                 >
-                  选择服务器所在国家，中国地区将使用CDN加速下载GitHub镜像
+                  {{ $t('admin.providers.countryTip') }}
                 </el-text>
               </div>
             </el-form-item>
             <el-form-item
-              label="城市"
+              :label="$t('admin.providers.city')"
               prop="city"
             >
               <el-input
                 v-model="addProviderForm.city"
-                placeholder="请输入城市（可选），如：上海、Los Angeles等"
+                :placeholder="$t('admin.providers.cityPlaceholder')"
                 clearable
               />
               <div class="form-tip">
@@ -831,7 +834,7 @@
                   size="small"
                   type="info"
                 >
-                  可选填写，用于更精确标识节点位置
+                  {{ $t('admin.providers.cityTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -840,7 +843,7 @@
 
         <!-- 虚拟化配置 -->
         <el-tab-pane
-          label="虚拟化配置"
+          :label="$t('admin.providers.virtualizationConfig')"
           name="virtualization"
         >
           <el-form
@@ -851,7 +854,7 @@
             <!-- 虚拟化配置 -->
             <el-divider content-position="left">
               <el-icon><Monitor /></el-icon>
-              <span style="margin-left: 8px;">虚拟化配置</span>
+              <span style="margin-left: 8px;">{{ $t('admin.providers.virtualizationConfig') }}</span>
             </el-divider>
 
             <el-row :gutter="20" style="margin-bottom: 20px;">
@@ -860,13 +863,13 @@
                   <template #header>
                     <div style="display: flex; align-items: center; font-weight: 600;">
                       <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
-                      <span>支持类型</span>
+                      <span>{{ $t('admin.providers.supportTypes') }}</span>
                     </div>
                   </template>
                   <div class="support-type-group" style="padding: 10px 0;">
                     <el-checkbox v-model="addProviderForm.containerEnabled" style="margin-right: 30px;">
-                      <span style="font-size: 14px;">支持容器</span>
-                      <el-tooltip content="支持Docker、LXC等容器技术" placement="top">
+                      <span style="font-size: 14px;">{{ $t('admin.providers.supportContainer') }}</span>
+                      <el-tooltip :content="$t('admin.providers.containerTech')" placement="top">
                         <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </el-checkbox>
@@ -874,15 +877,15 @@
                       v-model="addProviderForm.vmEnabled"
                       :disabled="addProviderForm.type === 'docker'"
                     >
-                      <span style="font-size: 14px;">支持虚拟机</span>
-                      <el-tooltip content="支持KVM、Xen等虚拟化技术" placement="top">
+                      <span style="font-size: 14px;">{{ $t('admin.providers.supportVM') }}</span>
+                      <el-tooltip :content="$t('admin.providers.vmTech')" placement="top">
                         <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
                       </el-tooltip>
                     </el-checkbox>
                   </div>
                   <div class="form-tip" style="margin-top: 10px;">
                     <el-text size="small" type="info">
-                      {{ addProviderForm.type === 'docker' ? 'Docker只支持容器；Incus/LXD支持容器和虚拟机；ProxmoxVE只支持虚拟机' : '至少选择一种支持的虚拟化类型' }}
+                      {{ addProviderForm.type === 'docker' ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtType') }}
                     </el-text>
                   </div>
                 </el-card>
@@ -892,37 +895,39 @@
                   <template #header>
                     <div style="display: flex; align-items: center; font-weight: 600;">
                       <el-icon size="18" style="margin-right: 8px;"><DocumentCopy /></el-icon>
-                      <span>实例数限制</span>
+                      <span>{{ $t('admin.providers.instanceLimits') }}</span>
                     </div>
                   </template>
                   <div style="padding: 5px 0;">
-                    <el-form-item label="最大容器数" label-width="100px" style="margin-bottom: 15px;">
+                    <el-form-item :label="$t('admin.providers.maxContainers')" label-width="100px" style="margin-bottom: 15px;">
                       <el-input-number
                         v-model="addProviderForm.maxContainerInstances"
                         :min="0"
                         :max="1000"
                         :step="1"
-                        placeholder="0=无限制"
+                        :controls="false"
+                        :placeholder="$t('admin.providers.zeroUnlimited')"
                         size="small"
                         style="width: 100%"
                       />
                       <div class="form-tip" style="margin-top: 5px;">
-                        <el-text size="small" type="info">设置最大容器数量，0表示无限制</el-text>
+                        <el-text size="small" type="info">{{ $t('admin.providers.maxContainersTip') }}</el-text>
                       </div>
                     </el-form-item>
                     
-                    <el-form-item label="最大虚拟机数" label-width="100px" style="margin-bottom: 0;">
+                    <el-form-item :label="$t('admin.providers.maxVMs')" label-width="100px" style="margin-bottom: 0;">
                       <el-input-number
                         v-model="addProviderForm.maxVMInstances"
                         :min="0"
                         :max="1000"
                         :step="1"
-                        placeholder="0=无限制"
+                        :controls="false"
+                        :placeholder="$t('admin.providers.zeroUnlimited')"
                         size="small"
                         style="width: 100%"
                       />
                       <div class="form-tip" style="margin-top: 5px;">
-                        <el-text size="small" type="info">设置最大虚拟机数量，0表示无限制</el-text>
+                        <el-text size="small" type="info">{{ $t('admin.providers.maxVMsTip') }}</el-text>
                       </div>
                     </el-form-item>
                   </div>
@@ -937,7 +942,7 @@
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; font-weight: 600;">
                       <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
-                      <span>容器资源限制配置</span>
+                      <span>{{ $t('admin.providers.containerResourceLimits') }}</span>
                     </div>
                     <el-tag size="small" type="info">Container</el-tag>
                   </div>
@@ -949,11 +954,11 @@
                   style="margin-bottom: 20px;"
                 >
                   <template #title>
-                    <span style="font-size: 13px;">配置说明</span>
+                    <span style="font-size: 13px;">{{ $t('admin.providers.configDescription') }}</span>
                   </template>
                   <div style="font-size: 12px; line-height: 1.8;">
-                    启用限制：该资源计入Provider总量，执行严格的配额管理<br/>
-                    不限制：该资源不计入Provider总量，允许超分配，但实例本身仍会被设置资源限制
+                    {{ $t('admin.providers.enableLimitTip') }}<br/>
+                    {{ $t('admin.providers.noLimitTip') }}
                   </div>
                 </el-alert>
                 <el-row :gutter="20">
@@ -961,18 +966,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Cpu /></el-icon>
-                        <span>限制CPU</span>
+                        <span>{{ $t('admin.providers.limitCPU') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.containerLimitCpu"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认不限制CPU核心数</span>
+                        <span>{{ $t('admin.providers.defaultNoLimitCPU') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -980,18 +985,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Memo /></el-icon>
-                        <span>限制内存</span>
+                        <span>{{ $t('admin.providers.limitMemory') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.containerLimitMemory"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认不限制内存大小</span>
+                        <span>{{ $t('admin.providers.defaultNoLimitMemory') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -999,18 +1004,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Coin /></el-icon>
-                        <span>限制硬盘</span>
+                        <span>{{ $t('admin.providers.limitDisk') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.containerLimitDisk"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认限制硬盘大小</span>
+                        <span>{{ $t('admin.providers.defaultLimitDisk') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -1025,7 +1030,7 @@
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; font-weight: 600;">
                       <el-icon size="18" style="margin-right: 8px;"><Monitor /></el-icon>
-                      <span>虚拟机资源限制配置</span>
+                      <span>{{ $t('admin.providers.vmResourceLimits') }}</span>
                     </div>
                     <el-tag size="small" type="success">Virtual Machine</el-tag>
                   </div>
@@ -1037,11 +1042,11 @@
                   style="margin-bottom: 20px;"
                 >
                   <template #title>
-                    <span style="font-size: 13px;">配置说明</span>
+                    <span style="font-size: 13px;">{{ $t('admin.providers.configDescription') }}</span>
                   </template>
                   <div style="font-size: 12px; line-height: 1.8;">
-                    启用限制：该资源计入Provider总量，执行严格的配额管理<br/>
-                    不限制：该资源不计入Provider总量，允许超分配，但实例本身仍会被设置资源限制
+                    {{ $t('admin.providers.enableLimitTip') }}<br/>
+                    {{ $t('admin.providers.noLimitTip') }}
                   </div>
                 </el-alert>
                 <el-row :gutter="20">
@@ -1049,18 +1054,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Cpu /></el-icon>
-                        <span>限制CPU</span>
+                        <span>{{ $t('admin.providers.limitCPU') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.vmLimitCpu"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认限制CPU核心数</span>
+                        <span>{{ $t('admin.providers.defaultLimitCPU') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -1068,18 +1073,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Memo /></el-icon>
-                        <span>限制内存</span>
+                        <span>{{ $t('admin.providers.limitMemory') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.vmLimitMemory"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认限制内存大小</span>
+                        <span>{{ $t('admin.providers.defaultLimitMemory') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -1087,18 +1092,18 @@
                     <div class="resource-limit-item">
                       <div class="resource-limit-label">
                         <el-icon><Coin /></el-icon>
-                        <span>限制硬盘</span>
+                        <span>{{ $t('admin.providers.limitDisk') }}</span>
                       </div>
                       <el-switch
                         v-model="addProviderForm.vmLimitDisk"
-                        active-text="限制"
-                        inactive-text="不限制"
+                        :active-text="$t('admin.providers.limited')"
+                        :inactive-text="$t('admin.providers.unlimited')"
                         inline-prompt
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
                         <el-icon size="12"><InfoFilled /></el-icon>
-                        <span>默认限制硬盘大小</span>
+                        <span>{{ $t('admin.providers.defaultLimitDisk') }}</span>
                       </div>
                     </div>
                   </el-col>
@@ -1109,12 +1114,12 @@
             <!-- ProxmoxVE存储配置 -->
             <el-form-item
               v-if="addProviderForm.type === 'proxmox'"
-              label="存储池"
+              :label="$t('admin.providers.storagePool')"
               prop="storagePool"
             >
               <el-input
                 v-model="addProviderForm.storagePool"
-                placeholder="请输入存储池名称"
+                :placeholder="$t('admin.providers.storagePoolPlaceholder')"
                 maxlength="64"
                 show-word-limit
               >
@@ -1127,7 +1132,7 @@
                   size="small"
                   type="info"
                 >
-                  ProxmoxVE存储池名称，用于存储虚拟机磁盘和容器，如：local、local-lvm、nfs-storage等
+                  {{ $t('admin.providers.proxmoxStorageTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1136,7 +1141,7 @@
 
         <!-- IP映射配置 -->
         <el-tab-pane
-          label="IP映射配置"
+          :label="$t('admin.providers.ipMappingConfig')"
           name="mapping"
         >
           <el-form
@@ -1145,17 +1150,17 @@
             class="server-form"
           >
             <el-alert
-              title="端口映射配置说明"
+              :title="$t('admin.providers.portMappingConfigTitle')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置该服务器的端口映射策略和IP地址分配方式，决定实例如何对外提供服务。
+              {{ $t('admin.providers.portMappingConfigMessage') }}
             </el-alert>
 
             <el-form-item
-              label="默认端口数量"
+              :label="$t('admin.providers.defaultPortCount')"
               prop="defaultPortCount"
             >
               <el-input-number
@@ -1163,6 +1168,7 @@
                 :min="1"
                 :max="50"
                 :step="1"
+                :controls="false"
                 placeholder="10"
                 style="width: 200px"
               />
@@ -1171,7 +1177,7 @@
                   size="small"
                   type="info"
                 >
-                  每个实例默认分配的端口映射数量（包括SSH端口）
+                  {{ $t('admin.providers.defaultPortCountTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1179,7 +1185,7 @@
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item
-                  label="端口范围起始"
+                  :label="$t('admin.providers.portRangeStart')"
                   prop="portRangeStart"
                 >
                   <el-input-number
@@ -1187,6 +1193,7 @@
                     :min="1024"
                     :max="65535"
                     :step="1"
+                    :controls="false"
                     placeholder="10000"
                     style="width: 100%"
                   />
@@ -1195,14 +1202,14 @@
                       size="small"
                       type="info"
                     >
-                      端口映射范围的起始端口号
+                      {{ $t('admin.providers.portRangeStartTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item
-                  label="端口范围结束"
+                  :label="$t('admin.providers.portRangeEnd')"
                   prop="portRangeEnd"
                 >
                   <el-input-number
@@ -1210,6 +1217,7 @@
                     :min="1024"
                     :max="65535"
                     :step="1"
+                    :controls="false"
                     placeholder="65535"
                     style="width: 100%"
                   />
@@ -1218,7 +1226,7 @@
                       size="small"
                       type="info"
                     >
-                      端口映射范围的结束端口号
+                      {{ $t('admin.providers.portRangeEndTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
@@ -1226,32 +1234,32 @@
             </el-row>
 
             <el-form-item
-              label="网络配置类型"
+              :label="$t('admin.providers.networkType')"
               prop="networkType"
             >
               <el-select
                 v-model="addProviderForm.networkType"
-                placeholder="请选择网络配置类型"
+                :placeholder="$t('admin.providers.networkTypePlaceholder')"
                 style="width: 100%"
               >
                 <el-option
-                  label="NAT IPv4"
+                  :label="$t('admin.providers.natIPv4')"
                   value="nat_ipv4"
                 />
                 <el-option
-                  label="NAT IPv4 + 独立IPv6"
+                  :label="$t('admin.providers.natIPv4IPv6')"
                   value="nat_ipv4_ipv6"
                 />
                 <el-option
-                  label="独立IPv4"
+                  :label="$t('admin.providers.dedicatedIPv4')"
                   value="dedicated_ipv4"
                 />
                 <el-option
-                  label="独立IPv4 + 独立IPv6"
+                  :label="$t('admin.providers.dedicatedIPv4IPv6')"
                   value="dedicated_ipv4_ipv6"
                 />
                 <el-option
-                  label="纯IPv6"
+                  :label="$t('admin.providers.ipv6Only')"
                   value="ipv6_only"
                 />
               </el-select>
@@ -1260,7 +1268,7 @@
                   size="small"
                   type="info"
                 >
-                  NAT IPv4：多个实例共享公网IPv4；独立IPv4：每个实例独立IPv4；纯IPv6：仅配置IPv6地址
+                  {{ $t('admin.providers.networkTypeTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1268,16 +1276,16 @@
             <!-- IPv4端口映射方式 -->
             <el-form-item
               v-if="(addProviderForm.type === 'lxd' || addProviderForm.type === 'incus') && addProviderForm.networkType !== 'ipv6_only'"
-              label="IPv4端口映射方式"
+              :label="$t('admin.providers.ipv4PortMappingMethod')"
               prop="ipv4PortMappingMethod"
             >
               <el-select
                 v-model="addProviderForm.ipv4PortMappingMethod"
-                placeholder="请选择IPv4端口映射方式"
+                :placeholder="$t('admin.providers.ipv4PortMappingMethodPlaceholder')"
                 style="width: 100%"
               >
                 <el-option
-                  label="Device Proxy（推荐）"
+                  :label="$t('admin.providers.deviceProxyRecommended')"
                   value="device_proxy"
                 />
                 <el-option
@@ -1290,7 +1298,7 @@
                   size="small"
                   type="info"
                 >
-                  IPv4端口映射的实现方式，device_proxy性能更好但需要较新版本的LXD/Incus
+                  {{ $t('admin.providers.ipv4PortMappingMethodTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1298,16 +1306,16 @@
             <!-- IPv6端口映射方式 -->
             <el-form-item
               v-if="(addProviderForm.type === 'lxd' || addProviderForm.type === 'incus') && (addProviderForm.networkType === 'nat_ipv4_ipv6' || addProviderForm.networkType === 'dedicated_ipv4_ipv6' || addProviderForm.networkType === 'ipv6_only')"
-              label="IPv6端口映射方式"
+              :label="$t('admin.providers.ipv6PortMappingMethod')"
               prop="ipv6PortMappingMethod"
             >
               <el-select
                 v-model="addProviderForm.ipv6PortMappingMethod"
-                placeholder="请选择IPv6端口映射方式"
+                :placeholder="$t('admin.providers.ipv6PortMappingMethodPlaceholder')"
                 style="width: 100%"
               >
                 <el-option
-                  label="Device Proxy（推荐）"
+                  :label="$t('admin.providers.deviceProxyRecommended')"
                   value="device_proxy"
                 />
                 <el-option
@@ -1320,7 +1328,7 @@
                   size="small"
                   type="info"
                 >
-                  IPv6端口映射的实现方式，device_proxy性能更好但需要较新版本的LXD/Incus
+                  {{ $t('admin.providers.ipv6PortMappingMethodTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1328,17 +1336,17 @@
             <!-- Proxmox IPv4端口映射方式 -->
             <el-form-item
               v-if="addProviderForm.type === 'proxmox' && addProviderForm.networkType !== 'ipv6_only'"
-              label="IPv4端口映射方式"
+              :label="$t('admin.providers.ipv4PortMappingMethod')"
               prop="ipv4PortMappingMethod"
             >
               <el-select
                 v-model="addProviderForm.ipv4PortMappingMethod"
-                placeholder="请选择IPv4端口映射方式"
+                :placeholder="$t('admin.providers.ipv4PortMappingMethodPlaceholder')"
                 style="width: 100%"
               >
                 <el-option
                   v-if="addProviderForm.networkType === 'dedicated_ipv4' || addProviderForm.networkType === 'dedicated_ipv4_ipv6'"
-                  label="原生实现（推荐）"
+                  :label="$t('admin.providers.nativeRecommended')"
                   value="native"
                 />
                 <el-option
@@ -1351,7 +1359,7 @@
                   size="small"
                   type="info"
                 >
-                  NAT模式下只能使用iptables，独立IP模式下推荐使用原生实现
+                  {{ $t('admin.providers.proxmoxIPv4MappingTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1359,16 +1367,16 @@
             <!-- Proxmox IPv6端口映射方式 -->
             <el-form-item
               v-if="addProviderForm.type === 'proxmox' && (addProviderForm.networkType === 'nat_ipv4_ipv6' || addProviderForm.networkType === 'dedicated_ipv4_ipv6' || addProviderForm.networkType === 'ipv6_only')"
-              label="IPv6端口映射方式"
+              :label="$t('admin.providers.ipv6PortMappingMethod')"
               prop="ipv6PortMappingMethod"
             >
               <el-select
                 v-model="addProviderForm.ipv6PortMappingMethod"
-                placeholder="请选择IPv6端口映射方式"
+                :placeholder="$t('admin.providers.ipv6PortMappingMethodPlaceholder')"
                 style="width: 100%"
               >
                 <el-option
-                  label="原生实现（推荐）"
+                  :label="$t('admin.providers.nativeRecommended')"
                   value="native"
                 />
                 <el-option
@@ -1381,25 +1389,25 @@
                   size="small"
                   type="info"
                 >
-                  IPv6默认使用原生实现，性能更好
+                  {{ $t('admin.providers.proxmoxIPv6MappingTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <el-alert
-              title="映射类型说明"
+              :title="$t('admin.providers.mappingTypeDescription')"
               type="warning"
               :closable="false"
               show-icon
               style="margin-top: 20px;"
             >
               <ul style="margin: 0; padding-left: 20px;">
-                <li><strong>NAT映射：</strong>多个实例共享宿主机的IPv4地址，通过不同端口访问</li>
-                <li><strong>独立映射：</strong>每个实例分配独立公网IPv4地址</li>
-                <li><strong>IPv6支持：</strong>开设的实例自动分配独立的IPv6地址</li>
-                <li><strong>Docker：</strong>IPv4/IPv6都使用原生实现，不可选择</li>
-                <li><strong>LXD/Incus：</strong>IPv4默认Device Proxy；IPv6默认Device Proxy，可选Iptables</li>
-                <li><strong>Proxmox VE：</strong>IPv4 NAT模式默认Iptables，独立IP模式默认原生实现；IPv6默认原生实现</li>
+                <li><strong>{{ $t('admin.providers.natMapping') }}:</strong> {{ $t('admin.providers.natMappingDesc') }}</li>
+                <li><strong>{{ $t('admin.providers.dedicatedMapping') }}:</strong> {{ $t('admin.providers.dedicatedMappingDesc') }}</li>
+                <li><strong>{{ $t('admin.providers.ipv6Support') }}:</strong> {{ $t('admin.providers.ipv6SupportDesc') }}</li>
+                <li><strong>Docker:</strong> {{ $t('admin.providers.dockerMappingDesc') }}</li>
+                <li><strong>LXD/Incus:</strong> {{ $t('admin.providers.lxdIncusMappingDesc') }}</li>
+                <li><strong>Proxmox VE:</strong> {{ $t('admin.providers.proxmoxMappingDesc') }}</li>
               </ul>
             </el-alert>
           </el-form>
@@ -1407,7 +1415,7 @@
 
         <!-- 带宽配置 -->
         <el-tab-pane
-          label="带宽配置"
+          :label="$t('admin.providers.bandwidthConfig')"
           name="bandwidth"
         >
           <el-form
@@ -1416,19 +1424,19 @@
             class="server-form"
           >
             <el-alert
-              title="带宽配置说明"
+              :title="$t('admin.providers.bandwidthConfigTitle')"
               type="info"
               :closable="false"
               show-icon
               style="margin-bottom: 20px;"
             >
-              配置该服务器的默认带宽限制，实例创建时将根据用户等级和这些配置自动应用合适的带宽限制。
+              {{ $t('admin.providers.bandwidthConfigDesc') }}
             </el-alert>
 
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item
-                  label="默认入站带宽"
+                  :label="$t('admin.providers.defaultInboundBandwidth')"
                   prop="defaultInboundBandwidth"
                 >
                   <el-input-number
@@ -1436,6 +1444,7 @@
                     :min="1"
                     :max="10000"
                     :step="50"
+                    :controls="false"
                     placeholder="300"
                     style="width: 100%"
                   />
@@ -1444,14 +1453,14 @@
                       size="small"
                       type="info"
                     >
-                      默认入站带宽限制（Mbps），实例创建时的默认值
+                      {{ $t('admin.providers.defaultInboundBandwidthTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item
-                  label="默认出站带宽"
+                  :label="$t('admin.providers.defaultOutboundBandwidth')"
                   prop="defaultOutboundBandwidth"
                 >
                   <el-input-number
@@ -1459,6 +1468,7 @@
                     :min="1"
                     :max="10000"
                     :step="50"
+                    :controls="false"
                     placeholder="300"
                     style="width: 100%"
                   />
@@ -1467,7 +1477,7 @@
                       size="small"
                       type="info"
                     >
-                      默认出站带宽限制（Mbps），实例创建时的默认值
+                      {{ $t('admin.providers.defaultOutboundBandwidthTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
@@ -1477,7 +1487,7 @@
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item
-                  label="最大入站带宽"
+                  :label="$t('admin.providers.maxInboundBandwidth')"
                   prop="maxInboundBandwidth"
                 >
                   <el-input-number
@@ -1485,6 +1495,7 @@
                     :min="1"
                     :max="10000"
                     :step="50"
+                    :controls="false"
                     placeholder="1000"
                     style="width: 100%"
                   />
@@ -1493,14 +1504,14 @@
                       size="small"
                       type="info"
                     >
-                      最大入站带宽限制（Mbps），实例不能超过此值
+                      {{ $t('admin.providers.maxInboundBandwidthTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item
-                  label="最大出站带宽"
+                  :label="$t('admin.providers.maxOutboundBandwidth')"
                   prop="maxOutboundBandwidth"
                 >
                   <el-input-number
@@ -1508,6 +1519,7 @@
                     :min="1"
                     :max="10000"
                     :step="50"
+                    :controls="false"
                     placeholder="1000"
                     style="width: 100%"
                   />
@@ -1516,7 +1528,7 @@
                       size="small"
                       type="info"
                     >
-                      最大出站带宽限制（Mbps），实例不能超过此值
+                      {{ $t('admin.providers.maxOutboundBandwidthTip') }}
                     </el-text>
                   </div>
                 </el-form-item>
@@ -1524,11 +1536,11 @@
             </el-row>
 
             <el-divider content-position="left">
-              <span style="color: #666; font-size: 14px;">流量配置</span>
+              <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficConfig') }}</span>
             </el-divider>
 
             <el-form-item
-              label="最大流量限制"
+              :label="$t('admin.providers.maxTraffic')"
               prop="maxTraffic"
             >
               <el-input-number
@@ -1537,6 +1549,7 @@
                 :max="10"
                 :step="0.1"
                 :precision="3"
+                :controls="false"
                 placeholder="1"
                 style="width: 100%"
               />
@@ -1545,23 +1558,23 @@
                   size="small"
                   type="info"
                 >
-                  最大流量限制（TB），支持小数点，默认1TB，每月1号自动重置
+                  {{ $t('admin.providers.maxTrafficTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <el-alert
-              title="带宽限制机制说明"
+              :title="$t('admin.providers.bandwidthMechanismTitle')"
               type="warning"
               :closable="false"
               show-icon
               style="margin-top: 20px;"
             >
               <ul style="margin: 0; padding-left: 20px;">
-                <li><strong>默认带宽：</strong>实例创建时的初始带宽限制，会结合用户等级进行调整</li>
-                <li><strong>最大带宽：</strong>该服务器上任何实例都不能超过的带宽上限</li>
-                <li><strong>用户等级：</strong>最终带宽 = min(用户等级限制, 默认带宽, 最大带宽)</li>
-                <li><strong>流量限制：</strong>每月1号自动重置，超过限制后Provider将被限流</li>
+                <li><strong>{{ $t('admin.providers.defaultBandwidth') }}:</strong> {{ $t('admin.providers.defaultBandwidthDesc') }}</li>
+                <li><strong>{{ $t('admin.providers.maxBandwidth') }}:</strong> {{ $t('admin.providers.maxBandwidthDesc') }}</li>
+                <li><strong>{{ $t('admin.providers.userLevel') }}:</strong> {{ $t('admin.providers.userLevelDesc') }}</li>
+                <li><strong>{{ $t('admin.providers.trafficLimit') }}:</strong> {{ $t('admin.providers.trafficLimitDesc') }}</li>
               </ul>
             </el-alert>
           </el-form>
@@ -1569,7 +1582,7 @@
 
         <!-- 等级限制配置 -->
         <el-tab-pane
-          label="等级限制"
+          :label="$t('admin.providers.levelLimits')"
           name="levelLimits"
         >
           <div class="level-limits-container">
@@ -1578,14 +1591,14 @@
                 type="info"
                 size="small"
               >
-                节点等级限制（实际限制 = min(全局限制, 节点限制)）
+                {{ $t('admin.providers.levelLimitsTip') }}
               </el-text>
               <el-button
                 type="primary"
                 size="small"
                 @click="resetLevelLimitsToDefault"
               >
-                恢复默认值
+                {{ $t('admin.providers.resetToDefault') }}
               </el-button>
             </div>
 
@@ -1600,7 +1613,7 @@
                   :type="getLevelTagType(level)"
                   size="large"
                 >
-                  等级 {{ level }}
+                  {{ $t('admin.providers.level') }} {{ level }}
                 </el-tag>
               </div>
 
@@ -1611,22 +1624,24 @@
               >
                 <el-row :gutter="20">
                   <el-col :span="12">
-                    <el-form-item label="最大实例数">
+                    <el-form-item :label="$t('admin.providers.maxInstances')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxInstances"
                         :min="0"
                         :max="100"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="最大流量(MB)">
+                    <el-form-item :label="$t('admin.providers.maxTrafficMB')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxTraffic"
                         :min="0"
                         :max="10240000"
                         :step="1024"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
@@ -1635,22 +1650,24 @@
 
                 <el-row :gutter="20">
                   <el-col :span="12">
-                    <el-form-item label="最大CPU核心数">
+                    <el-form-item :label="$t('admin.providers.maxCPU')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxResources.cpu"
                         :min="1"
                         :max="128"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="最大内存(MB)">
+                    <el-form-item :label="$t('admin.providers.maxMemoryMB')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxResources.memory"
                         :min="128"
                         :max="131072"
                         :step="128"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
@@ -1659,23 +1676,25 @@
 
                 <el-row :gutter="20">
                   <el-col :span="12">
-                    <el-form-item label="最大磁盘(MB)">
+                    <el-form-item :label="$t('admin.providers.maxDiskMB')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxResources.disk"
                         :min="1024"
                         :max="1048576"
                         :step="1024"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
                   </el-col>
                   <el-col :span="12">
-                    <el-form-item label="最大带宽(Mbps)">
+                    <el-form-item :label="$t('admin.providers.maxBandwidthMbps')">
                       <el-input-number
                         v-model="addProviderForm.levelLimits[level].maxResources.bandwidth"
                         :min="10"
                         :max="10000"
                         :step="10"
+                        :controls="false"
                         style="width: 100%;"
                       />
                     </el-form-item>
@@ -1688,7 +1707,7 @@
 
         <!-- 高级设置 -->
         <el-tab-pane
-          label="高级设置"
+          :label="$t('admin.providers.advancedSettings')"
           name="advanced"
         >
           <el-form
@@ -1697,13 +1716,13 @@
             class="server-form"
           >
             <el-form-item
-              label="过期时间"
+              :label="$t('admin.providers.expiresAt')"
               prop="expiresAt"
             >
               <el-date-picker
                 v-model="addProviderForm.expiresAt"
                 type="datetime"
-                placeholder="请选择过期时间"
+                :placeholder="$t('admin.providers.expiresAtPlaceholder')"
                 format="YYYY-MM-DD HH:mm:ss"
                 value-format="YYYY-MM-DD HH:mm:ss"
                 :disabled-date="(time) => time.getTime() < Date.now() - 8.64e7"
@@ -1713,38 +1732,38 @@
                   size="small"
                   type="info"
                 >
-                  不设置则默认31天后过期，过期后服务器将被冻结
+                  {{ $t('admin.providers.expiresAtTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <!-- 并发控制设置 -->
             <el-divider content-position="left">
-              <span style="color: #666; font-size: 14px;">任务并发控制</span>
+              <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.concurrencyControl') }}</span>
             </el-divider>
             
             <el-form-item
-              label="允许并发任务"
+              :label="$t('admin.providers.allowConcurrentTasks')"
               prop="allowConcurrentTasks"
             >
               <el-switch
                 v-model="addProviderForm.allowConcurrentTasks"
-                active-text="是"
-                inactive-text="否"
+                :active-text="$t('common.yes')"
+                :inactive-text="$t('common.no')"
               />
               <div class="form-tip">
                 <el-text
                   size="small"
                   type="info"
                 >
-                  是否允许在同一个Provider上并发执行多个任务（创建、删除、操作实例等）
+                  {{ $t('admin.providers.allowConcurrentTasksTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <el-form-item
               v-if="addProviderForm.allowConcurrentTasks"
-              label="最大并发任务数"
+              :label="$t('admin.providers.maxConcurrentTasks')"
               prop="maxConcurrentTasks"
             >
               <el-input-number
@@ -1752,6 +1771,7 @@
                 :min="1"
                 :max="10"
                 :step="1"
+                :controls="false"
                 placeholder="1"
                 style="width: 200px"
               />
@@ -1760,38 +1780,38 @@
                   size="small"
                   type="info"
                 >
-                  同时执行的任务数量上限，建议根据服务器性能设置
+                  {{ $t('admin.providers.maxConcurrentTasksTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <!-- 任务轮询设置 -->
             <el-divider content-position="left">
-              <span style="color: #666; font-size: 14px;">任务轮询设置</span>
+              <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.taskPollingSettings') }}</span>
             </el-divider>
             
             <el-form-item
-              label="启用任务轮询"
+              :label="$t('admin.providers.enableTaskPolling')"
               prop="enableTaskPolling"
             >
               <el-switch
                 v-model="addProviderForm.enableTaskPolling"
-                active-text="是"
-                inactive-text="否"
+                :active-text="$t('common.yes')"
+                :inactive-text="$t('common.no')"
               />
               <div class="form-tip">
                 <el-text
                   size="small"
                   type="info"
                 >
-                  是否启用该Provider的任务轮询检测，关闭后任务将不会自动执行
+                  {{ $t('admin.providers.enableTaskPollingTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <el-form-item
               v-if="addProviderForm.enableTaskPolling"
-              label="轮询间隔"
+              :label="$t('admin.providers.taskPollInterval')"
               prop="taskPollInterval"
             >
               <el-input-number
@@ -1799,54 +1819,55 @@
                 :min="5"
                 :max="300"
                 :step="5"
+                :controls="false"
                 placeholder="60"
                 style="width: 200px"
               />
-              <span style="margin-left: 10px; color: #666;">秒</span>
+              <span style="margin-left: 10px; color: #666;">{{ $t('common.seconds') }}</span>
               <div class="form-tip">
                 <el-text
                   size="small"
                   type="info"
                 >
-                  检测待处理任务的间隔时间，范围 5-300 秒，默认60秒，频繁轮询会增加系统负载
+                  {{ $t('admin.providers.taskPollIntervalTip') }}
                 </el-text>
               </div>
             </el-form-item>
 
             <!-- 操作执行规则设置 -->
             <el-divider content-position="left">
-              <span style="color: #666; font-size: 14px;">操作执行规则</span>
+              <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.executionRules') }}</span>
             </el-divider>
             
             <el-form-item
-              label="执行规则"
+              :label="$t('admin.providers.executionRule')"
               prop="executionRule"
             >
               <el-select
                 v-model="addProviderForm.executionRule"
-                placeholder="请选择操作轮转规则"
+                :placeholder="$t('admin.providers.executionRulePlaceholder')"
                 style="width: 200px"
               >
                 <el-option
-                  label="自动切换"
+                  :label="$t('admin.providers.executionRuleAuto')"
                   value="auto"
                 >
-                  <span>自动切换</span>
-                  <span style="float: right; color: #8492a6; font-size: 12px;">API不可用时自动切换SSH</span>
+                  <span>{{ $t('admin.providers.executionRuleAuto') }}</span>
+                  <span style="float: right; color: #8492a6; font-size: 12px;">{{ $t('admin.providers.executionRuleAutoTip') }}</span>
                 </el-option>
                 <el-option
-                  label="仅API执行"
+                  :label="$t('admin.providers.executionRuleAPIOnly')"
                   value="api_only"
                 >
-                  <span>仅API执行</span>
-                  <span style="float: right; color: #8492a6; font-size: 12px;">只使用API接口</span>
+                  <span>{{ $t('admin.providers.executionRuleAPIOnly') }}</span>
+                  <span style="float: right; color: #8492a6; font-size: 12px;">{{ $t('admin.providers.executionRuleAPIOnlyTip') }}</span>
                 </el-option>
                 <el-option
-                  label="仅SSH执行"
+                  :label="$t('admin.providers.executionRuleSSHOnly')"
                   value="ssh_only"
                 >
-                  <span>仅SSH执行</span>
-                  <span style="float: right; color: #8492a6; font-size: 12px;">只使用SSH连接</span>
+                  <span>{{ $t('admin.providers.executionRuleSSHOnly') }}</span>
+                  <span style="float: right; color: #8492a6; font-size: 12px;">{{ $t('admin.providers.executionRuleSSHOnlyTip') }}</span>
                 </el-option>
               </el-select>
               <div class="form-tip">
@@ -1854,7 +1875,7 @@
                   size="small"
                   type="info"
                 >
-                  选择Provider执行任务和操作的方式（除健康检测外）。自动切换：API不可用时自动使用SSH；仅API：只使用API接口；仅SSH：只使用SSH连接
+                  {{ $t('admin.providers.executionRuleTip') }}
                 </el-text>
               </div>
             </el-form-item>
@@ -1864,12 +1885,12 @@
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="cancelAddServer">取消</el-button>
+          <el-button @click="cancelAddServer">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="addProviderLoading"
             @click="submitAddServer"
-          >确定</el-button>
+          >{{ $t('common.save') }}</el-button>
         </span>
       </template>
     </el-dialog>
@@ -1877,7 +1898,7 @@
     <!-- 自动配置结果对话框 -->
     <el-dialog 
       v-model="configDialog.visible" 
-      title="API 自动配置" 
+      :title="$t('admin.providers.autoConfigAPI')" 
       width="900px"
       :close-on-click-modal="false"
       :close-on-press-escape="false"
@@ -1886,14 +1907,14 @@
         <!-- 历史记录视图 -->
         <div v-if="configDialog.showHistory">
           <el-alert
-            :title="`${configDialog.provider.type.toUpperCase()} 配置历史`"
+            :title="$t('admin.providers.configHistory', { type: configDialog.provider.type.toUpperCase() })"
             type="info"
             :closable="false"
             show-icon
             style="margin-bottom: 20px;"
           >
             <template #default>
-              <p>检测到该Provider的配置历史记录，请选择操作：</p>
+              <p>{{ $t('admin.providers.configHistoryMessage') }}</p>
             </template>
           </el-alert>
 
@@ -1903,22 +1924,22 @@
             style="margin-bottom: 20px;"
           >
             <el-alert
-              title="有正在运行的配置任务"
+              :title="$t('admin.providers.runningConfigTask')"
               type="warning"
               :closable="false"
               show-icon
             >
               <template #default>
-                <p>任务ID: {{ configDialog.runningTask.id }}</p>
-                <p>开始时间: {{ new Date(configDialog.runningTask.startedAt).toLocaleString() }}</p>
-                <p>执行者: {{ configDialog.runningTask.executorName }}</p>
+                <p>{{ $t('admin.providers.taskID') }}: {{ configDialog.runningTask.id }}</p>
+                <p>{{ $t('admin.providers.startTime') }}: {{ new Date(configDialog.runningTask.startedAt).toLocaleString() }}</p>
+                <p>{{ $t('admin.providers.executor') }}: {{ configDialog.runningTask.executorName }}</p>
               </template>
             </el-alert>
           </div>
 
           <!-- 历史任务列表 -->
           <div v-if="configDialog.historyTasks.length > 0">
-            <h4>配置历史记录</h4>
+            <h4>{{ $t('admin.providers.configHistoryRecords') }}</h4>
             <el-table
               :data="configDialog.historyTasks"
               size="small"
@@ -1926,11 +1947,11 @@
             >
               <el-table-column
                 prop="id"
-                label="任务ID"
+                :label="$t('admin.providers.taskID')"
                 width="70"
               />
               <el-table-column
-                label="状态"
+                :label="$t('admin.providers.status')"
                 width="80"
               >
                 <template #default="{ row }">
@@ -1943,7 +1964,7 @@
                 </template>
               </el-table-column>
               <el-table-column
-                label="执行时间"
+                :label="$t('admin.providers.executionTime')"
                 width="140"
               >
                 <template #default="{ row }">
@@ -1952,32 +1973,32 @@
               </el-table-column>
               <el-table-column
                 prop="executorName"
-                label="执行者"
+                :label="$t('admin.providers.executor')"
                 width="80"
               />
               <el-table-column
                 prop="duration"
-                label="耗时"
+                :label="$t('admin.providers.duration')"
                 width="70"
               />
               <el-table-column
-                label="结果"
+                :label="$t('admin.providers.result')"
                 show-overflow-tooltip
               >
                 <template #default="{ row }">
                   <span
                     v-if="row.success"
                     style="color: #67C23A;"
-                  >✅ 成功</span>
+                  >✅ {{ $t('common.success') }}</span>
                   <span
                     v-else-if="row.status === 'failed'"
                     style="color: #F56C6C;"
-                  >❌ {{ row.errorMessage || '失败' }}</span>
+                  >❌ {{ row.errorMessage || $t('common.failed') }}</span>
                   <span v-else>{{ row.logSummary || '-' }}</span>
                 </template>
               </el-table-column>
               <el-table-column
-                label="操作"
+                :label="$t('common.actions')"
                 width="100"
               >
                 <template #default="{ row }">
@@ -1986,7 +2007,7 @@
                     size="small"
                     @click="viewTaskLog(row.id)"
                   >
-                    查看日志
+                    {{ $t('admin.providers.viewLog') }}
                   </el-button>
                 </template>
               </el-table-column>
@@ -2000,16 +2021,16 @@
               type="primary"
               @click="viewRunningTask"
             >
-              查看运行中任务日志
+              {{ $t('admin.providers.viewRunningTaskLog') }}
             </el-button>
             <el-button 
               type="warning"
               @click="rerunConfiguration"
             >
-              重新执行配置
+              {{ $t('admin.providers.rerunConfig') }}
             </el-button>
             <el-button @click="configDialog.visible = false">
-              关闭
+              {{ $t('common.close') }}
             </el-button>
           </div>
         </div>
@@ -2019,7 +2040,7 @@
     <!-- 任务日志查看对话框 -->
     <el-dialog
       v-model="taskLogDialog.visible"
-      title="任务执行日志"
+      :title="$t('admin.providers.taskLog')"
       width="80%"
       style="max-width: 1000px;"
       :close-on-click-modal="false"
@@ -2035,7 +2056,7 @@
           <loading />
         </el-icon>
         <p style="margin-top: 16px;">
-          正在加载任务日志...
+          {{ $t('admin.providers.loadingTaskLog') }}
         </p>
       </div>
       <div
@@ -2056,36 +2077,36 @@
           style="margin-bottom: 20px;"
         >
           <template #header>
-            <span>任务信息</span>
+            <span>{{ $t('admin.providers.taskInfo') }}</span>
           </template>
           <el-descriptions
             :column="2"
             border
           >
-            <el-descriptions-item label="任务ID">
+            <el-descriptions-item :label="$t('admin.providers.taskID')">
               {{ taskLogDialog.task.id }}
             </el-descriptions-item>
             <el-descriptions-item label="Provider">
               {{ taskLogDialog.task.providerName }}
             </el-descriptions-item>
-            <el-descriptions-item label="任务类型">
+            <el-descriptions-item :label="$t('admin.providers.taskType')">
               {{ taskLogDialog.task.taskType }}
             </el-descriptions-item>
-            <el-descriptions-item label="状态">
+            <el-descriptions-item :label="$t('admin.providers.status')">
               <el-tag :type="getTaskStatusType(taskLogDialog.task.status)">
                 {{ getTaskStatusText(taskLogDialog.task.status) }}
               </el-tag>
             </el-descriptions-item>
-            <el-descriptions-item label="执行者">
+            <el-descriptions-item :label="$t('admin.providers.executor')">
               {{ taskLogDialog.task.executorName }}
             </el-descriptions-item>
-            <el-descriptions-item label="执行时长">
+            <el-descriptions-item :label="$t('admin.providers.duration')">
               {{ taskLogDialog.task.duration }}
             </el-descriptions-item>
-            <el-descriptions-item label="开始时间">
+            <el-descriptions-item :label="$t('admin.providers.startTime')">
               {{ taskLogDialog.task.startedAt ? new Date(taskLogDialog.task.startedAt).toLocaleString() : '-' }}
             </el-descriptions-item>
-            <el-descriptions-item label="完成时间">
+            <el-descriptions-item :label="$t('admin.providers.completionTime')">
               {{ taskLogDialog.task.completedAt ? new Date(taskLogDialog.task.completedAt).toLocaleString() : '-' }}
             </el-descriptions-item>
           </el-descriptions>
@@ -2106,13 +2127,13 @@
         <el-card>
           <template #header>
             <div style="display: flex; justify-content: space-between; align-items: center;">
-              <span>执行日志</span>
+              <span>{{ $t('admin.providers.executionLog') }}</span>
               <el-button 
                 v-if="taskLogDialog.task && taskLogDialog.task.logOutput" 
                 size="small"
                 @click="copyTaskLog"
               >
-                复制日志
+                {{ $t('admin.providers.copyLog') }}
               </el-button>
             </div>
           </template>
@@ -2156,10 +2177,13 @@
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin, Search } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { countries, getFlagEmoji, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { formatMemorySize, formatDiskSize } from '@/utils/unit-formatter'
 import { useUserStore } from '@/pinia/modules/user'
+
+const { t } = useI18n()
 
 const providers = ref([])
 const loading = ref(false)
@@ -2290,7 +2314,7 @@ const resetLevelLimitsToDefault = () => {
       4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
       5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
     }
-    ElMessage.success('已恢复默认等级限制')
+    ElMessage.success(t('admin.providers.levelLimitsRestored'))
   }).catch(() => {
     // 用户取消操作
   })
@@ -2354,7 +2378,7 @@ const addProviderRules = {
 // 验证至少选择一种虚拟化类型
 const validateVirtualizationType = () => {
   if (!addProviderForm.containerEnabled && !addProviderForm.vmEnabled) {
-    ElMessage.warning('请至少选择一种虚拟化类型（容器或虚拟机）')
+    ElMessage.warning(t('admin.providers.selectVirtualizationType'))
     return false
   }
   return true
@@ -2416,7 +2440,7 @@ const loadProviders = async () => {
     providers.value = response.data.list || []
     total.value = response.data.total || 0
   } catch (error) {
-    ElMessage.error('加载提供商列表失败')
+    ElMessage.error(t('admin.providers.loadProvidersFailed'))
   } finally {
     loading.value = false
   }
@@ -2444,7 +2468,7 @@ const connectionTestResult = ref(null)
 // 测试SSH连接
 const testSSHConnection = async () => {
   if (!addProviderForm.host || !addProviderForm.username || !addProviderForm.password) {
-    ElMessage.warning('请先填写主机地址、用户名和密码')
+    ElMessage.warning(t('admin.providers.fillHostUserPassword'))
     return
   }
 
@@ -2487,7 +2511,7 @@ const testSSHConnection = async () => {
       type: 'error',
       error: error.message || '网络请求失败'
     }
-    ElMessage.error('测试失败: ' + error.message)
+    ElMessage.error(t('admin.providers.testFailed') + ': ' + error.message)
   } finally {
     testingConnection.value = false
   }
@@ -2498,7 +2522,7 @@ const applyRecommendedTimeout = () => {
   if (connectionTestResult.value && connectionTestResult.value.success) {
     addProviderForm.sshConnectTimeout = connectionTestResult.value.recommendedTimeout
     addProviderForm.sshExecuteTimeout = Math.max(300, connectionTestResult.value.recommendedTimeout * 10)
-    ElMessage.success('已应用推荐的超时配置')
+    ElMessage.success(t('admin.providers.timeoutApplied'))
   }
 }
 
@@ -2656,18 +2680,18 @@ const submitAddServer = async () => {
       // 编辑服务器时需要添加 status 字段
       serverData.status = addProviderForm.status
       await updateProvider(addProviderForm.id, serverData)
-      ElMessage.success('服务器更新成功')
+      ElMessage.success(t('admin.providers.serverUpdateSuccess'))
     } else {
       // 服务器
       await createProvider(serverData)
-      ElMessage.success('服务器添加成功')
+      ElMessage.success(t('admin.providers.serverAddSuccess'))
     }
     
     cancelAddServer()
     await loadProviders()
   } catch (error) {
     console.error('Provider操作失败:', error)
-    const errorMsg = error.response?.data?.msg || error.message || (isEditing.value ? '服务器更新失败' : '服务器添加失败')
+    const errorMsg = error.response?.data?.msg || error.message || (isEditing.value ? t('admin.providers.serverUpdateFailed') : t('admin.providers.serverAddFailed'))
     ElMessage.error(errorMsg)
   } finally {
     addProviderLoading.value = false
@@ -2790,11 +2814,11 @@ const handleDeleteProvider = async (id) => {
     )
 
     await deleteProvider(id)
-    ElMessage.success('服务器删除成功')
+    ElMessage.success(t('admin.providers.serverDeleteSuccess'))
     await loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('服务器删除失败')
+      ElMessage.error(t('admin.providers.serverDeleteFailed'))
     }
   }
 }
@@ -2812,11 +2836,11 @@ const freezeServer = async (id) => {
     )
 
     await freezeProvider(id)
-    ElMessage.success('服务器已冻结')
+    ElMessage.success(t('admin.providers.serverFrozen'))
     await loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('服务器冻结失败')
+      ElMessage.error(t('admin.providers.serverFreezeFailed'))
     }
   }
 }
@@ -2836,11 +2860,11 @@ const unfreezeServer = async (server) => {
     )
 
     await unfreezeProvider(server.id, expiresAt || '')
-    ElMessage.success('服务器已解冻')
+    ElMessage.success(t('admin.providers.serverUnfrozen'))
     await loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('服务器解冻失败')
+      ElMessage.error(t('admin.providers.serverUnfreezeFailed'))
     }
   }
 }
@@ -3029,7 +3053,7 @@ const autoConfigureAPI = async (provider, force = false) => {
       
       // 如果有正在运行的任务，直接查看任务日志
       if (result.runningTask) {
-        ElMessage.info('有正在运行的任务，将显示任务日志')
+        ElMessage.info(t('admin.providers.showTaskLog'))
         await viewTaskLog(result.runningTask.id)
         return
       }
@@ -3042,7 +3066,7 @@ const autoConfigureAPI = async (provider, force = false) => {
 
   } catch (error) {
     console.error('检查配置状态失败:', error)
-    ElMessage.error('检查配置状态失败: ' + (error.message || '未知错误'))
+    ElMessage.error(t('admin.providers.checkConfigFailed') + ': ' + (error.message || t('common.unknownError')))
   }
 }
 
@@ -3109,7 +3133,7 @@ const startNewConfiguration = async (provider, force = false) => {
   } catch (error) {
     if (error !== 'cancel') {
       console.error('启动配置失败:', error)
-      ElMessage.error('启动配置失败: ' + (error.message || '未知错误'))
+      ElMessage.error(t('admin.providers.startConfigFailed') + ': ' + (error.message || t('common.unknownError')))
     }
   }
 }
@@ -3191,11 +3215,11 @@ const checkHealth = async (providerId) => {
     
     if (result.code === 200) {
       console.log('健康检查成功，显示成功消息')
-      ElMessage.success('健康检查完成')
+      ElMessage.success(t('admin.providers.healthCheckComplete'))
       await loadProviders() // 重新加载提供商列表以更新状态
     } else {
       console.log('健康检查失败，code:', result.code, 'msg:', result.msg)
-      ElMessage.error(result.msg || '健康检查失败')
+      ElMessage.error(result.msg || t('admin.providers.healthCheckFailed'))
     }
   } catch (error) {
     loadingMessage.close() // 确保关闭加载消息
@@ -3253,7 +3277,7 @@ const viewTaskLog = async (taskId) => {
 const copyTaskLog = async () => {
   const logOutput = taskLogDialog.task?.logOutput
   if (!logOutput) {
-    ElMessage.warning('没有可复制的日志')
+    ElMessage.warning(t('admin.providers.noLogToCopy'))
     return
   }
   
@@ -3261,7 +3285,7 @@ const copyTaskLog = async () => {
     // 优先使用 Clipboard API
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(logOutput)
-      ElMessage.success('日志已复制到剪贴板')
+      ElMessage.success(t('admin.providers.logCopied'))
       return
     }
     
@@ -3279,7 +3303,7 @@ const copyTaskLog = async () => {
       // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
       const successful = document.execCommand('copy')
       if (successful) {
-        ElMessage.success('日志已复制到剪贴板')
+        ElMessage.success(t('admin.providers.logCopied'))
       } else {
         throw new Error('execCommand failed')
       }
@@ -3288,7 +3312,7 @@ const copyTaskLog = async () => {
     }
   } catch (error) {
     console.error('复制失败:', error)
-    ElMessage.error('复制失败')
+    ElMessage.error(t('admin.providers.copyFailed'))
   }
 }
 

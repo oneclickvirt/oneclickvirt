@@ -4,17 +4,17 @@
       <div class="error-code">
         404
       </div>
-      <h1>页面不存在</h1>
-      <p>抱歉，您访问的页面不存在或已被删除。</p>
+      <h1>{{ t('notFound.title') }}</h1>
+      <p>{{ t('notFound.message') }}</p>
       <div class="actions">
         <el-button
           type="primary"
           @click="goHome"
         >
-          返回首页
+          {{ t('notFound.goHome') }}
         </el-button>
         <el-button @click="goBack">
-          返回上页
+          {{ t('notFound.goBack') }}
         </el-button>
       </div>
     </div>
@@ -23,8 +23,10 @@
 
 <script setup>
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 
 const router = useRouter()
+const { t } = useI18n()
 
 const goHome = () => {
   router.push('/')

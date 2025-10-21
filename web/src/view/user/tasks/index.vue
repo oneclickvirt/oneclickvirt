@@ -1,8 +1,8 @@
 <template>
   <div class="user-tasks">
     <div class="page-header">
-      <h1>任务列表</h1>
-      <p>查看您的实例操作任务状态</p>
+      <h1>{{ t('user.tasks.title') }}</h1>
+      <p>{{ t('user.tasks.subtitle') }}</p>
     </div>
 
     <!-- 筛选器 -->
@@ -14,12 +14,12 @@
         <el-form-item>
           <el-select
             v-model="filterForm.providerId"
-            placeholder="选择节点"
+            :placeholder="t('user.tasks.selectNode')"
             clearable
             style="width: 150px;"
           >
             <el-option
-              label="全部"
+              :label="t('user.tasks.all')"
               value=""
             />
             <el-option 
@@ -33,36 +33,36 @@
         <el-form-item>
           <el-select
             v-model="filterForm.taskType"
-            placeholder="选择任务类型"
+            :placeholder="t('user.tasks.selectTaskType')"
             clearable
             style="width: 150px;"
           >
             <el-option
-              label="全部"
+              :label="t('user.tasks.all')"
               value=""
             />
             <el-option
-              label="创建实例"
+              :label="t('user.tasks.taskTypeCreate')"
               value="create"
             />
             <el-option
-              label="启动实例"
+              :label="t('user.tasks.taskTypeStart')"
               value="start"
             />
             <el-option
-              label="停止实例"
+              :label="t('user.tasks.taskTypeStop')"
               value="stop"
             />
             <el-option
-              label="重启实例"
+              :label="t('user.tasks.taskTypeRestart')"
               value="restart"
             />
             <el-option
-              label="重置系统"
+              :label="t('user.tasks.taskTypeReset')"
               value="reset"
             />
             <el-option
-              label="删除实例"
+              :label="t('user.tasks.taskTypeDelete')"
               value="delete"
             />
           </el-select>
@@ -70,44 +70,44 @@
         <el-form-item>
           <el-select
             v-model="filterForm.status"
-            placeholder="选择状态"
+            :placeholder="t('user.tasks.selectStatus')"
             clearable
             style="width: 150px;"
           >
             <el-option
-              label="全部"
+              :label="t('user.tasks.all')"
               value=""
             />
             <el-option
-              label="等待中"
+              :label="t('user.tasks.statusPending')"
               value="pending"
             />
             <el-option
-              label="处理中"
+              :label="t('user.tasks.statusProcessing')"
               value="processing"
             />
             <el-option
-              label="执行中"
+              :label="t('user.tasks.statusRunning')"
               value="running"
             />
             <el-option
-              label="已完成"
+              :label="t('user.tasks.statusCompleted')"
               value="completed"
             />
             <el-option
-              label="失败"
+              :label="t('user.tasks.statusFailed')"
               value="failed"
             />
             <el-option
-              label="已取消"
+              :label="t('user.tasks.statusCancelled')"
               value="cancelled"
             />
             <el-option
-              label="取消中"
+              :label="t('user.tasks.statusCancelling')"
               value="cancelling"
             />
             <el-option
-              label="超时"
+              :label="t('user.tasks.statusTimeout')"
               value="timeout"
             />
           </el-select>
@@ -117,14 +117,14 @@
             type="primary"
             @click="() => loadTasks(true)"
           >
-            筛选
+            {{ t('user.tasks.filter') }}
           </el-button>
           <el-button @click="resetFilter">
-            重置
+            {{ t('user.tasks.reset') }}
           </el-button>
           <el-button @click="() => loadTasks(true)">
             <el-icon><Refresh /></el-icon>
-            刷新
+            {{ t('user.tasks.refresh') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -171,7 +171,7 @@
               <div class="task-header">
                 <div class="task-info">
                   <h3>{{ getTaskTypeText(currentTask.taskType) }}</h3>
-                  <span class="task-target">{{ currentTask.instanceName || '新实例' }}</span>
+                  <span class="task-target">{{ currentTask.instanceName || t('user.tasks.newInstance') }}</span>
                 </div>
                 <div class="task-status">
                   <el-tag
@@ -226,7 +226,7 @@
                   {{ getTaskTypeText(task.taskType) }}
                 </div>
                 <div class="task-target">
-                  {{ task.instanceName || '新实例' }}
+                  {{ task.instanceName || t('user.tasks.newInstance') }}
                 </div>
                 <div class="task-time">
                   {{ formatDate(task.createdAt) }}
@@ -269,7 +269,7 @@
                       {{ getTaskTypeText(task.taskType) }}
                     </div>
                     <div class="task-target">
-                      {{ task.instanceName || '新实例' }}
+                      {{ task.instanceName || t('user.tasks.newInstance') }}
                     </div>
                     <div class="task-time">
                       {{ formatDate(task.createdAt) }}
@@ -320,7 +320,7 @@
         <!-- 空状态 -->
         <el-empty 
           v-if="serverGroup.pendingTasks.length === 0 && serverGroup.historyTasks.length === 0 && serverGroup.currentTasks.length === 0"
-          description="该服务器暂无任务"
+          :description="t('user.tasks.noTasksForProvider')"
         />
       </div>
     </div>
@@ -328,13 +328,13 @@
     <!-- 全局空状态 -->
     <el-empty 
       v-if="tasks.length === 0 && !loading"
-      description="暂无任务记录"
+      :description="t('user.tasks.noTasksDescription')"
     >
       <el-button
         type="primary"
         @click="$router.push('/user/apply')"
       >
-        创建实例
+        {{ t('user.tasks.createInstance') }}
       </el-button>
     </el-empty>
 
@@ -370,10 +370,12 @@
 <script setup>
 import { ref, reactive, computed, onMounted, onUnmounted, watch, onActivated } from 'vue'
 import { useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { getUserTasks, cancelUserTask, getAvailableProviders } from '@/api/user'
 
+const { t, locale } = useI18n()
 const route = useRoute()
 
 const loading = ref(false)
@@ -501,24 +503,24 @@ const resetFilter = () => {
 const cancelTask = async (task) => {
   try {
     await ElMessageBox.confirm(
-      `确定要取消任务 "${getTaskTypeText(task.taskType)}" 吗？`,
-      '确认取消',
+      `${t('user.tasks.confirmCancel')} "${getTaskTypeText(task.taskType)}"?`,
+      t('user.tasks.confirmCancel'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
 
     const response = await cancelUserTask(task.id)
     if (response.code === 0 || response.code === 200) {
-      ElMessage.success('任务已取消')
+      ElMessage.success(t('user.tasks.taskCancelled'))
       loadTasks()
     }
   } catch (error) {
     if (error !== 'cancel') {
       console.error('取消任务失败:', error)
-      ElMessage.error('取消任务失败')
+      ElMessage.error(t('user.tasks.cancelTaskFailed'))
     }
   }
 }
@@ -526,12 +528,12 @@ const cancelTask = async (task) => {
 // 获取任务类型文本
 const getTaskTypeText = (type) => {
   const typeMap = {
-    'create': '创建实例',
-    'start': '启动实例',
-    'stop': '停止实例',
-    'restart': '重启实例',
-    'reset': '重置系统',
-    'delete': '删除实例'
+    'create': t('user.tasks.taskTypeCreate'),
+    'start': t('user.tasks.taskTypeStart'),
+    'stop': t('user.tasks.taskTypeStop'),
+    'restart': t('user.tasks.taskTypeRestart'),
+    'reset': t('user.tasks.taskTypeReset'),
+    'delete': t('user.tasks.taskTypeDelete')
   }
   return typeMap[type] || type
 }
@@ -554,14 +556,14 @@ const getTaskStatusType = (status) => {
 // 获取任务状态文本
 const getTaskStatusText = (status) => {
   const statusMap = {
-    'pending': '等待中',
-    'processing': '处理中',
-    'running': '执行中',
-    'completed': '已完成',
-    'failed': '失败',
-    'cancelled': '已取消',
-    'cancelling': '取消中',
-    'timeout': '超时'
+    'pending': t('user.tasks.statusPending'),
+    'processing': t('user.tasks.statusProcessing'),
+    'running': t('user.tasks.statusRunning'),
+    'completed': t('user.tasks.statusCompleted'),
+    'failed': t('user.tasks.statusFailed'),
+    'cancelled': t('user.tasks.statusCancelled'),
+    'cancelling': t('user.tasks.statusCancelling'),
+    'timeout': t('user.tasks.statusTimeout')
   }
   return statusMap[status] || status
 }
@@ -584,12 +586,13 @@ const formatDate = (dateString) => {
 
 // 获取预计完成时间
 const getEstimatedTime = (task) => {
-  if (!task.estimatedDuration) return '未知'
+  if (!task.estimatedDuration) return t('user.tasks.unknown')
   
   const startTime = new Date(task.startedAt || task.createdAt)
   const estimatedEnd = new Date(startTime.getTime() + task.estimatedDuration * 1000)
   
-  return estimatedEnd.toLocaleTimeString('zh-CN')
+  const localeCode = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return estimatedEnd.toLocaleTimeString(localeCode)
 }
 
 // 计算任务持续时间

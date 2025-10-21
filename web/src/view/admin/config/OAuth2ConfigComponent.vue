@@ -192,6 +192,7 @@
           <el-input-number
             v-model="formData.maxRegistrations"
             :min="0"
+            :controls="false"
             placeholder="0表示无限制"
             style="width: 100%"
           />
@@ -206,6 +207,7 @@
           <el-input-number
             v-model="formData.currentRegistrations"
             :min="0"
+            :controls="false"
             disabled
             style="width: 100%"
           />

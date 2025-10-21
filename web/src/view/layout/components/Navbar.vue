@@ -11,6 +11,17 @@
     </div>
     
     <div class="right-menu">
+      <!-- 语言切换按钮 -->
+      <div class="language-switcher">
+        <el-button
+          @click="switchLanguage"
+          :title="t('navbar.switchLanguage')"
+        >
+          <el-icon><Operation /></el-icon>
+          <span class="language-text">{{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}</span>
+        </el-button>
+      </div>
+
       <el-dropdown
         class="avatar-container"
         trigger="click"
@@ -37,7 +48,7 @@
               <el-icon style="margin-right: 8px;">
                 <Switch />
               </el-icon>
-              <span>切换到{{ userStore.currentViewMode === 'admin' ? '用户' : '管理员' }}视图</span>
+              <span>{{ t('navbar.switchTo') }}{{ userStore.currentViewMode === 'admin' ? t('navbar.userView') : t('navbar.adminView') }}</span>
             </el-dropdown-item>
             <el-dropdown-item
               @click="logout"
@@ -46,7 +57,7 @@
               <el-icon style="margin-right: 8px;">
                 <SwitchButton />
               </el-icon>
-              <span>退出登录</span>
+              <span>{{ t('common.logout') }}</span>
             </el-dropdown-item>
           </el-dropdown-menu>
         </template>
@@ -58,13 +69,17 @@
 <script setup>
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Switch, SwitchButton, User, CaretBottom, Menu } from '@element-plus/icons-vue'
+import { Switch, SwitchButton, User, CaretBottom, Menu, Operation } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const emit = defineEmits(['toggle-sidebar'])
 const router = useRouter()
 const userStore = useUserStore()
+const languageStore = useLanguageStore()
+const { t, locale } = useI18n()
 
 const userInfo = computed(() => userStore.user || {})
 
@@ -72,9 +87,15 @@ const toggleSidebar = () => {
   emit('toggle-sidebar')
 }
 
+const switchLanguage = () => {
+  const newLang = languageStore.toggleLanguage()
+  locale.value = newLang
+  ElMessage.success(t('navbar.languageSwitched'))
+}
+
 const toggleViewMode = () => {
   if (!userStore.canSwitchViewMode) {
-    ElMessage.warning('只有管理员可以切换视图模式')
+    ElMessage.warning(t('navbar.onlyAdminCanSwitch'))
     return
   }
   
@@ -82,7 +103,8 @@ const toggleViewMode = () => {
   const success = userStore.switchViewMode(newMode)
   
   if (success) {
-    ElMessage.success(`已切换到${newMode === 'admin' ? '管理员' : '用户'}视图`)
+    const viewName = newMode === 'admin' ? t('navbar.adminView') : t('navbar.userView')
+    ElMessage.success(`${t('navbar.switchedTo')}${viewName}`)
     
     const targetPath = newMode === 'admin' ? '/admin/dashboard' : '/user/dashboard'
     router.push(targetPath)
@@ -91,9 +113,9 @@ const toggleViewMode = () => {
 
 const logout = async () => {
   try {
-    await ElMessageBox.confirm('确定注销并退出系统吗？', '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm(t('navbar.confirmLogout'), t('navbar.tip'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       type: 'warning'
     })
     
@@ -133,10 +155,36 @@ const logout = async () => {
   .right-menu {
     display: flex;
     align-items: center;
+    gap: 12px;
     margin-left: auto;
 
     &:focus {
       outline: none;
+    }
+
+    .language-switcher {
+      display: flex;
+      align-items: center;
+
+      .el-button {
+        color: var(--text-color-primary);
+        background: transparent;
+        border: 1px solid var(--border-color-base);
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 8px 15px;
+        
+        &:hover {
+          background: var(--bg-color-hover);
+          border-color: var(--el-color-primary);
+        }
+
+        .language-text {
+          font-size: 14px;
+          font-weight: 500;
+        }
+      }
     }
 
     .right-menu-item {
@@ -202,6 +250,8 @@ const logout = async () => {
     height: var(--navbar-height);
     
     .right-menu {
+      gap: 8px;
+
       .avatar-container {
         .avatar-wrapper {
           .el-avatar {

@@ -5,7 +5,7 @@
         <el-icon class="is-loading" :size="50">
           <Loading />
         </el-icon>
-        <p class="loading-text">正在处理登录信息...</p>
+        <p class="loading-text">{{ t('oauth2Callback.processing') }}</p>
       </div>
       
       <div v-else-if="error" class="error-container">
@@ -13,14 +13,14 @@
           <CircleClose />
         </el-icon>
         <p class="error-text">{{ errorMessage }}</p>
-        <el-button type="primary" @click="goToLogin">返回登录</el-button>
+        <el-button type="primary" @click="goToLogin">{{ t('oauth2Callback.backToLogin') }}</el-button>
       </div>
       
       <div v-else class="success-container">
         <el-icon :size="50" color="#67c23a">
           <CircleCheck />
         </el-icon>
-        <p class="success-text">登录成功！正在跳转...</p>
+        <p class="success-text">{{ t('oauth2Callback.loginSuccess') }}</p>
       </div>
     </el-card>
   </div>
@@ -29,12 +29,14 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { Loading, CircleClose, CircleCheck } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 
 const router = useRouter()
 const userStore = useUserStore()
+const { t } = useI18n()
 
 const loading = ref(true)
 const error = ref(false)
@@ -48,7 +50,7 @@ onMounted(async () => {
     const username = urlParams.get('user')
     
     if (!token) {
-      throw new Error('未获取到登录凭证')
+      throw new Error(t('oauth2Callback.noTokenError'))
     }
     
     // 保存token到localStorage
@@ -58,7 +60,7 @@ onMounted(async () => {
     await userStore.GetUserInfo()
     
     // 显示成功消息
-    ElMessage.success(`欢迎回来，${username || '用户'}！`)
+    ElMessage.success(t('oauth2Callback.welcomeBack', { username: username || t('oauth2Callback.user') }))
     
     loading.value = false
     
@@ -73,10 +75,10 @@ onMounted(async () => {
     }, 1000)
     
   } catch (err) {
-    console.error('OAuth2回调处理失败:', err)
+    console.error(t('oauth2Callback.callbackError'), err)
     loading.value = false
     error.value = true
-    errorMessage.value = err.message || '登录处理失败，请重试'
+    errorMessage.value = err.message || t('oauth2Callback.loginFailed')
     ElMessage.error(errorMessage.value)
   }
 })

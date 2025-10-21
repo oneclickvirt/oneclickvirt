@@ -4,21 +4,29 @@
     <header class="home-header">
       <div class="header-content">
         <div class="logo">
-          <h1>OneClickVirt</h1>
-          <span>一键虚拟化平台</span>
+          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <h1>{{ t('home.title') }}</h1>
         </div>
         <nav class="nav-menu">
+          <!-- 语言切换按钮 -->
+          <button
+            class="nav-link language-btn"
+            @click="switchLanguage"
+          >
+            <el-icon><Operation /></el-icon>
+            {{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}
+          </button>
           <router-link
             to="/login"
             class="nav-link"
           >
-            登录
+            {{ t('home.nav.login') }}
           </router-link>
           <router-link
             to="/register"
             class="nav-link primary"
           >
-            注册
+            {{ t('home.nav.register') }}
           </router-link>
         </nav>
       </div>
@@ -30,23 +38,23 @@
       <section class="hero-section">
         <div class="hero-content">
           <h1 class="hero-title">
-            开源虚拟化管理平台
+            {{ t('home.hero.title') }}
           </h1>
           <p class="hero-description">
-            OneClickVirt 提供开源简单易用的虚拟机和容器管理，支持多种虚拟化开设。
+            {{ t('home.hero.description') }}
           </p>
           <div class="hero-actions">
             <router-link
               to="/login"
               class="btn btn-primary"
             >
-              帐户登录
+              {{ t('home.hero.loginButton') }}
             </router-link>
             <router-link
               to="/register"
               class="btn btn-secondary"
             >
-              注册使用
+              {{ t('home.hero.registerButton') }}
             </router-link>
           </div>
         </div>
@@ -56,22 +64,22 @@
               <div class="card-icon">
                 <i class="fas fa-server"></i>
               </div>
-              <h3>虚拟机管理</h3>
-              <p>快速创建和管理虚拟机实例</p>
+              <h3>{{ t('home.features.vm.title') }}</h3>
+              <p>{{ t('home.features.vm.description') }}</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
                 <i class="fas fa-box"></i>
               </div>
-              <h3>容器管理</h3>
-              <p>快速创建和管理容器实例</p>
+              <h3>{{ t('home.features.container.title') }}</h3>
+              <p>{{ t('home.features.container.description') }}</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
                 <i class="fas fa-chart-bar"></i>
               </div>
-              <h3>监控面板</h3>
-              <p>实时监控资源使用情况</p>
+              <h3>{{ t('home.features.monitoring.title') }}</h3>
+              <p>{{ t('home.features.monitoring.description') }}</p>
             </div>
           </div>
         </div>
@@ -80,8 +88,8 @@
       <!-- 支持的虚拟化平台 -->
       <section class="platforms-section">
         <div class="section-header">
-          <h2>支持的虚拟化平台</h2>
-          <p>一键对接多种主流虚拟化技术</p>
+          <h2>{{ t('home.platforms.title') }}</h2>
+          <p>{{ t('home.platforms.description') }}</p>
         </div>
         <div class="platforms-grid">
           <div class="platform-item">
@@ -140,7 +148,7 @@
         class="announcements-section"
       >
         <div class="section-header">
-          <h2>系统公告</h2>
+          <h2>{{ t('home.announcements.title') }}</h2>
         </div>
         <div class="announcements-list">
           <div
@@ -155,7 +163,7 @@
                   :type="announcement.type === 'homepage' ? 'success' : 'warning'"
                   size="small"
                 >
-                  {{ announcement.type === 'homepage' ? '首页公告' : '顶部栏公告' }}
+                  {{ announcement.type === 'homepage' ? t('home.announcements.typeHomepage') : t('home.announcements.typeTopbar') }}
                 </el-tag>
                 <span class="announcement-date">{{ formatDate(announcement.createdAt) }}</span>
               </div>
@@ -196,7 +204,7 @@
           </div>
         </div>
         <div class="footer-section">
-          <h4>核心项目</h4>
+          <h4>{{ t('home.footer.coreProjects') }}</h4>
           <ul>
             <li>
               <a
@@ -215,7 +223,7 @@
           </ul>
         </div>
         <div class="footer-section">
-          <h4>相关项目</h4>
+          <h4>{{ t('home.footer.relatedProjects') }}</h4>
           <ul>
             <li>
               <a
@@ -250,39 +258,39 @@
                 href="https://github.com/oneclickvirt"
                 target="_blank"
                 rel="noopener noreferrer"
-              >更多项目</a>
+              >{{ t('home.footer.moreProjects') }}</a>
             </li>
           </ul>
         </div>
         <div class="footer-section">
-          <h4>支持与文档</h4>
+          <h4>{{ t('home.footer.supportAndDocs') }}</h4>
           <ul>
             <li>
               <a
                 href="https://www.spiritlhl.net/"
                 target="_blank"
                 rel="noopener noreferrer"
-              >使用文档</a>
+              >{{ t('home.footer.documentation') }}</a>
             </li>
             <li>
               <a
                 href="https://github.com/oneclickvirt/oneclickvirt/issues"
                 target="_blank"
                 rel="noopener noreferrer"
-              >问题反馈</a>
+              >{{ t('home.footer.feedback') }}</a>
             </li>
           </ul>
         </div>
       </div>
       <div class="footer-bottom">
         <p>
-          &copy; 2026 OneClickVirt. All rights reserved. |
+          &copy; 2026 OneClickVirt. {{ t('home.footer.allRightsReserved') }} |
           <a
             href="https://github.com/oneclickvirt"
             target="_blank"
             rel="noopener noreferrer"
           >
-            一键虚拟化旗下开源项目
+            {{ t('home.footer.openSourceProject') }}
           </a>
         </p>
       </div>
@@ -293,15 +301,26 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { getPublicAnnouncements } from '@/api/public'
 import { checkSystemInit } from '@/api/init'
-import { ElTag } from 'element-plus'
+import { ElTag, ElMessage } from 'element-plus'
+import { Operation } from '@element-plus/icons-vue'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const router = useRouter()
+const { t, locale } = useI18n()
+const languageStore = useLanguageStore()
 const announcements = ref([])
 
+const switchLanguage = () => {
+  const newLang = languageStore.toggleLanguage()
+  locale.value = newLang
+  ElMessage.success(t('navbar.languageSwitched'))
+}
+
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleDateString('zh-CN')
+  return new Date(dateString).toLocaleDateString(locale.value === 'zh-CN' ? 'zh-CN' : 'en-US')
 }
 
 const fetchAnnouncements = async () => {
@@ -312,25 +331,25 @@ const fetchAnnouncements = async () => {
       announcements.value = response.data.slice(0, 3) // 只显示最新3条
     }
   } catch (error) {
-    console.error('获取公告失败:', error)
+    console.error(t('home.errors.fetchAnnouncementsFailed'), error)
   }
 }
 
 const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
-    console.log('首页检查初始化状态:', response)
+    console.log(t('home.debug.checkingInit'), response)
     if (response && response.code === 0 && response.data && response.data.needInit === true) {
-      console.log('系统需要初始化，跳转到初始化页面')
+      console.log(t('home.debug.needInitRedirect'))
       router.push('/init')
     }
   } catch (error) {
-    console.error('检查系统初始化状态失败:', error)
+    console.error(t('home.errors.checkInitFailed'), error)
     // 如果是网络错误或服务器错误，可能是数据库未初始化导致的
     if (error.message.includes('Network Error') || 
         error.response?.status >= 500 || 
         error.code === 'ECONNREFUSED') {
-      console.warn('服务器连接失败，可能需要初始化，跳转到初始化页面')
+      console.warn(t('home.debug.serverConnectionFailed'))
       router.push('/init')
     }
   }
@@ -382,6 +401,12 @@ onMounted(() => {
   gap: 12px;
 }
 
+.logo-image {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+}
+
 .logo h1 {
   font-size: 28px;
   color: #16a34a;
@@ -391,12 +416,6 @@ onMounted(() => {
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
-}
-
-.logo span {
-  font-size: 14px;
-  color: #6b7280;
-  font-weight: 500;
 }
 
 .nav-menu {
@@ -414,6 +433,17 @@ onMounted(() => {
   margin-left: 12px;
   position: relative;
   overflow: hidden;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.nav-link.language-btn {
+  border: 1px solid #e5e7eb;
 }
 
 .nav-link:hover {
