@@ -2630,19 +2630,6 @@ func (s *TaskService) CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.T
 	return count1, count2
 }
 
-// CleanupProviderTaskCount 清理指定Provider的任务计数（简化版本，无需操作）
-func (s *TaskService) CleanupProviderTaskCount(providerID uint) {
-	// 基于数据库查询的方案不需要清理任何内存状态
-	global.APP_LOG.Info("清理Provider资源（基于数据库查询，无需操作）",
-		zap.Uint("providerId", providerID))
-}
-
-// SyncProviderTaskCounts 同步Provider任务计数（不再需要，保留为空函数以兼容）
-func (s *TaskService) SyncProviderTaskCounts() {
-	// 基于数据库查询的方案不需要同步内存计数器
-	global.APP_LOG.Info("SyncProviderTaskCounts调用（基于数据库查询，无需同步）")
-}
-
 // GetStateManager 获取任务状态管理器
 func (s *TaskService) GetStateManager() interfaces.TaskStateManagerInterface {
 	return GetTaskStateManager()

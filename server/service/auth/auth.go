@@ -359,11 +359,6 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	return transactionErr
 }
 
-// Register 兼容旧接口，使用默认IP和UserAgent
-func (s *AuthService) Register(req auth.RegisterRequest) error {
-	return s.RegisterWithContext(req, "127.0.0.1", "API Registration")
-}
-
 // RegisterAndLogin 注册并自动登录
 func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, userAgent string) (*userModel.User, string, error) {
 	// 先执行注册

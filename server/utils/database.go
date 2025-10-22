@@ -90,23 +90,9 @@ func SafeTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
 	}, 5) // 增加重试次数
 }
 
-// SafeTransactionWithTimeout 带超时的安全事务执行
-func SafeTransactionWithTimeout(timeout time.Duration, fn func(tx *gorm.DB) error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return SafeTransaction(ctx, fn)
-}
-
 // SafeQuery 安全的查询操作
 func SafeQuery(ctx context.Context, fn func() error) error {
 	return RetryableDBOperation(ctx, fn, 5) // 增加重试次数
-}
-
-// SafeQueryWithTimeout 带超时的安全查询操作
-func SafeQueryWithTimeout(timeout time.Duration, fn func() error) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
-	return SafeQuery(ctx, fn)
 }
 
 // GetDBStats 获取数据库连接池统计信息
