@@ -228,7 +228,7 @@ type Port struct {
 	ProviderID  uint   `json:"providerId"`                                   // 关联的Provider ID
 	HostPort    int    `json:"hostPort" gorm:"not null"`                     // 宿主机端口
 	GuestPort   int    `json:"guestPort" gorm:"not null"`                    // 容器/虚拟机内部端口
-	Protocol    string `json:"protocol" gorm:"default:tcp;size:8"`           // 协议类型：tcp, udp
+	Protocol    string `json:"protocol" gorm:"default:both;size:8"`          // 协议类型：tcp, udp, both
 	Status      string `json:"status" gorm:"default:active;size:16"`         // 映射状态：active, inactive
 	Description string `json:"description" gorm:"size:128"`                  // 端口用途描述
 	IsSSH       bool   `json:"isSsh" gorm:"default:false"`                   // 是否为SSH端口

@@ -363,7 +363,7 @@ type PortMappingListRequest struct {
 type CreatePortMappingRequest struct {
 	InstanceID  uint   `json:"instanceId" binding:"required"`
 	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`
-	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp"`
+	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"`
 	Description string `json:"description"`
 	HostPort    int    `json:"hostPort"` // 可选，不指定则自动分配
 }

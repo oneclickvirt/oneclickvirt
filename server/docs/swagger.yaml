@@ -354,6 +354,7 @@ definitions:
         enum:
         - tcp
         - udp
+        - both
         type: string
     required:
     - guestPort

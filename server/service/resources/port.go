@@ -366,7 +366,7 @@ func (s *PortMappingService) UpdateProviderPortConfig(providerID uint, req admin
 	return nil
 }
 
-// CreateDefaultPortMappings 为实例创建默认端口映射 - 增强版本，防止端口冲突
+// CreateDefaultPortMappings 为实例创建默认端口映射
 func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, providerID uint) error {
 	// 获取Provider配置
 	var providerInfo provider.Provider
@@ -425,8 +425,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			InstanceID:  instanceID,
 			ProviderID:  providerID,
 			HostPort:    sshHostPort,
-			GuestPort:   22, // SSH端口固定为22
-			Protocol:    "tcp",
+			GuestPort:   22,     // SSH端口固定为22
+			Protocol:    "both", // SSH 使用 TCP/UDP 通用协议
 			Description: "SSH",
 			Status:      "active",
 			IsSSH:       true,
@@ -471,8 +471,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 				InstanceID:  instanceID,
 				ProviderID:  providerID,
 				HostPort:    port,
-				GuestPort:   port, // 内外端口完全相同
-				Protocol:    "tcp",
+				GuestPort:   port,   // 内外端口完全相同
+				Protocol:    "both", // 区间映射使用 TCP/UDP 通用协议
 				Description: fmt.Sprintf("端口%d", port),
 				Status:      "active",
 				IsSSH:       false,

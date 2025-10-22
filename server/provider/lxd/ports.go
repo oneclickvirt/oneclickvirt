@@ -89,11 +89,14 @@ func (l *LXDProvider) setupPortRangeMappingWithIP(instanceName string, ports []p
 	// 按协议和端口号排序，尝试找到连续的端口范围
 	var tcpPorts []providerModel.Port
 	var udpPorts []providerModel.Port
+	var bothPorts []providerModel.Port
 	for _, port := range ports {
 		if port.Protocol == "tcp" {
 			tcpPorts = append(tcpPorts, port)
 		} else if port.Protocol == "udp" {
 			udpPorts = append(udpPorts, port)
+		} else if port.Protocol == "both" {
+			bothPorts = append(bothPorts, port)
 		}
 	}
 	// 处理TCP端口
@@ -106,6 +109,16 @@ func (l *LXDProvider) setupPortRangeMappingWithIP(instanceName string, ports []p
 	// 处理UDP端口
 	if len(udpPorts) > 0 {
 		if err := l.setupPortRangeByProtocol(instanceName, udpPorts, "udp", method, instanceIP); err != nil {
+			return fmt.Errorf("设置UDP端口范围失败: %w", err)
+		}
+	}
+
+	// 处理Both端口 - 同时创建TCP和UDP映射
+	if len(bothPorts) > 0 {
+		if err := l.setupPortRangeByProtocol(instanceName, bothPorts, "tcp", method, instanceIP); err != nil {
+			return fmt.Errorf("设置TCP端口范围失败: %w", err)
+		}
+		if err := l.setupPortRangeByProtocol(instanceName, bothPorts, "udp", method, instanceIP); err != nil {
 			return fmt.Errorf("设置UDP端口范围失败: %w", err)
 		}
 	}
@@ -172,33 +185,69 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		zap.Int("endPort", endPort),
 		zap.String("protocol", protocol))
 
-	// 创建设备名称
-	deviceName := fmt.Sprintf("%s-range-%d-%d", protocol, startPort, endPort)
-
 	// 获取主机IP地址
 	hostIP, err := l.getHostIP()
 	if err != nil {
 		return fmt.Errorf("获取主机IP失败: %w", err)
 	}
 
-	// 创建LXD device proxy区间映射
-	// 格式：lxc config device add <instance> <device-name> proxy listen=tcp:<host-ip>:<start-port>-<end-port> connect=tcp:<guest-ip>:<start-port>-<end-port>
-	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
-		instanceName, deviceName, protocol, hostIP, startPort, endPort, protocol, instanceIP, startPort, endPort)
+	// 如果协议是both，需要创建两个设备（TCP和UDP）
+	if protocol == "both" {
+		// 创建TCP区间映射
+		tcpDeviceName := fmt.Sprintf("tcp-range-%d-%d", startPort, endPort)
+		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
+			instanceName, tcpDeviceName, "tcp", hostIP, startPort, endPort, "tcp", instanceIP, startPort, endPort)
 
-	global.APP_LOG.Info("执行LXD端口区间映射命令",
-		zap.String("command", proxyCmd))
+		global.APP_LOG.Info("执行TCP端口区间映射命令",
+			zap.String("command", tcpProxyCmd))
 
-	_, err = l.sshClient.Execute(proxyCmd)
-	if err != nil {
-		return fmt.Errorf("创建LXD端口区间映射失败: %w", err)
+		_, err = l.sshClient.Execute(tcpProxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建TCP端口区间映射失败: %w", err)
+		}
+
+		// 创建UDP区间映射
+		udpDeviceName := fmt.Sprintf("udp-range-%d-%d", startPort, endPort)
+		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
+			instanceName, udpDeviceName, "udp", hostIP, startPort, endPort, "udp", instanceIP, startPort, endPort)
+
+		global.APP_LOG.Info("执行UDP端口区间映射命令",
+			zap.String("command", udpProxyCmd))
+
+		_, err = l.sshClient.Execute(udpProxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建UDP端口区间映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("LXD端口区间映射设置成功(TCP+UDP)",
+			zap.String("instance", instanceName),
+			zap.String("tcpDevice", tcpDeviceName),
+			zap.String("udpDevice", udpDeviceName),
+			zap.Int("startPort", startPort),
+			zap.Int("endPort", endPort))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("%s-range-%d-%d", protocol, startPort, endPort)
+
+		// 创建LXD device proxy区间映射
+		// 格式：lxc config device add <instance> <device-name> proxy listen=tcp:<host-ip>:<start-port>-<end-port> connect=tcp:<guest-ip>:<start-port>-<end-port>
+		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
+			instanceName, deviceName, protocol, hostIP, startPort, endPort, protocol, instanceIP, startPort, endPort)
+
+		global.APP_LOG.Info("执行LXD端口区间映射命令",
+			zap.String("command", proxyCmd))
+
+		_, err = l.sshClient.Execute(proxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建LXD端口区间映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("LXD端口区间映射设置成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName),
+			zap.Int("startPort", startPort),
+			zap.Int("endPort", endPort))
 	}
-
-	global.APP_LOG.Info("LXD端口区间映射设置成功",
-		zap.String("instance", instanceName),
-		zap.String("device", deviceName),
-		zap.Int("startPort", startPort),
-		zap.Int("endPort", endPort))
 
 	return nil
 }
@@ -368,11 +417,9 @@ func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, gue
 
 // setupDeviceProxyMappingWithIP 使用指定的实例IP设置LXD device proxy端口映射
 func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-
 	global.APP_LOG.Info("设置Device proxy端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
-		zap.String("device", deviceName),
+		zap.String("protocol", protocol),
 		zap.String("instanceIP", instanceIP))
 
 	// 从instanceIP中提取纯IP地址（去除接口名称等信息）
@@ -396,21 +443,58 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		return fmt.Errorf("获取主机IP失败: %w", err)
 	}
 
-	// 创建proxy设备 - 使用与buildct.sh脚本相同的格式
-	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-		instanceName, deviceName, protocol, hostIP, hostPort, protocol, cleanInstanceIP, guestPort)
+	// 如果协议是both，需要创建两个设备（TCP和UDP）
+	if protocol == "both" {
+		// 创建TCP设备
+		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
+		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
+			instanceName, tcpDeviceName, "tcp", hostIP, hostPort, "tcp", cleanInstanceIP, guestPort)
 
-	global.APP_LOG.Info("执行端口映射命令",
-		zap.String("command", proxyCmd))
+		global.APP_LOG.Info("执行TCP端口映射命令",
+			zap.String("command", tcpProxyCmd))
 
-	_, err = l.sshClient.Execute(proxyCmd)
-	if err != nil {
-		return fmt.Errorf("创建proxy设备失败: %w", err)
+		_, err = l.sshClient.Execute(tcpProxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建TCP proxy设备失败: %w", err)
+		}
+
+		// 创建UDP设备
+		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
+		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
+			instanceName, udpDeviceName, "udp", hostIP, hostPort, "udp", cleanInstanceIP, guestPort)
+
+		global.APP_LOG.Info("执行UDP端口映射命令",
+			zap.String("command", udpProxyCmd))
+
+		_, err = l.sshClient.Execute(udpProxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建UDP proxy设备失败: %w", err)
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射设置成功(TCP+UDP)",
+			zap.String("instance", instanceName),
+			zap.String("tcpDevice", tcpDeviceName),
+			zap.String("udpDevice", udpDeviceName))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+
+		// 创建proxy设备 - 使用与buildct.sh脚本相同的格式
+		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
+			instanceName, deviceName, protocol, hostIP, hostPort, protocol, cleanInstanceIP, guestPort)
+
+		global.APP_LOG.Info("执行端口映射命令",
+			zap.String("command", proxyCmd))
+
+		_, err = l.sshClient.Execute(proxyCmd)
+		if err != nil {
+			return fmt.Errorf("创建proxy设备失败: %w", err)
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射设置成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName))
 	}
-
-	global.APP_LOG.Info("Device proxy端口映射设置成功",
-		zap.String("instance", instanceName),
-		zap.String("device", deviceName))
 
 	return nil
 }
@@ -462,38 +546,48 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 	global.APP_LOG.Info("设置Iptables端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("instanceIP", instanceIP),
+		zap.String("protocol", protocol),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
-	// DNAT规则
-	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-		protocol, hostPort, instanceIP, guestPort)
-
-	_, err := l.sshClient.Execute(dnatCmd)
-	if err != nil {
-		return fmt.Errorf("添加DNAT规则失败: %w", err)
+	// 如果协议是both，需要同时创建TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
 	}
 
-	// FORWARD规则
-	forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-		protocol, instanceIP, guestPort)
+	for _, proto := range protocols {
+		// DNAT规则
+		dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
+			proto, hostPort, instanceIP, guestPort)
 
-	_, err = l.sshClient.Execute(forwardCmd)
-	if err != nil {
-		return fmt.Errorf("添加FORWARD规则失败: %w", err)
+		_, err := l.sshClient.Execute(dnatCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s DNAT规则失败: %w", proto, err)
+		}
+
+		// FORWARD规则
+		forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, guestPort)
+
+		_, err = l.sshClient.Execute(forwardCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s FORWARD规则失败: %w", proto, err)
+		}
+
+		// MASQUERADE规则
+		masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
+			proto, instanceIP, guestPort)
+
+		_, err = l.sshClient.Execute(masqueradeCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s MASQUERADE规则失败: %w", proto, err)
+		}
+
+		global.APP_LOG.Info("Iptables端口映射设置成功",
+			zap.String("instance", instanceName),
+			zap.String("protocol", proto),
+			zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 	}
-
-	// MASQUERADE规则
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-		protocol, instanceIP, guestPort)
-
-	_, err = l.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		return fmt.Errorf("添加MASQUERADE规则失败: %w", err)
-	}
-
-	global.APP_LOG.Info("Iptables端口映射设置成功",
-		zap.String("instance", instanceName),
-		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
 	return nil
 }

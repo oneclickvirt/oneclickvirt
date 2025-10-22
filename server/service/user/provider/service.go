@@ -1143,8 +1143,15 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				var ports []string
 				for _, port := range portMappings {
 					// 格式: "0.0.0.0:公网端口:容器端口/协议"
-					portMapping := fmt.Sprintf("0.0.0.0:%d:%d/%s", port.HostPort, port.GuestPort, port.Protocol)
-					ports = append(ports, portMapping)
+					// 如果协议是 both，需要创建两个端口映射（tcp 和 udp）
+					if port.Protocol == "both" {
+						tcpMapping := fmt.Sprintf("0.0.0.0:%d:%d/tcp", port.HostPort, port.GuestPort)
+						udpMapping := fmt.Sprintf("0.0.0.0:%d:%d/udp", port.HostPort, port.GuestPort)
+						ports = append(ports, tcpMapping, udpMapping)
+					} else {
+						portMapping := fmt.Sprintf("0.0.0.0:%d:%d/%s", port.HostPort, port.GuestPort, port.Protocol)
+						ports = append(ports, portMapping)
+					}
 				}
 				instanceConfig.Ports = ports
 

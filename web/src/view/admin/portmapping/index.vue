@@ -155,8 +155,15 @@
         <el-table-column
           prop="protocol"
           :label="$t('admin.portMapping.protocol')"
-          width="80"
-        />
+          width="100"
+        >
+          <template #default="{ row }">
+            <el-tag v-if="row.protocol === 'both'" type="info" size="small">TCP/UDP</el-tag>
+            <el-tag v-else-if="row.protocol === 'tcp'" type="success" size="small">TCP</el-tag>
+            <el-tag v-else-if="row.protocol === 'udp'" type="warning" size="small">UDP</el-tag>
+            <span v-else>{{ row.protocol }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="description"
           :label="$t('common.description')"
@@ -384,6 +391,7 @@
           <el-radio-group v-model="addForm.protocol">
             <el-radio label="tcp">TCP</el-radio>
             <el-radio label="udp">UDP</el-radio>
+            <el-radio label="both">TCP/UDP</el-radio>
           </el-radio-group>
         </el-form-item>
         
@@ -460,7 +468,7 @@ const addForm = reactive({
   instanceId: '',
   guestPort: null,
   hostPort: 0,
-  protocol: 'tcp',
+  protocol: 'both',
   description: ''
 })
 
@@ -748,7 +756,7 @@ const openAddDialog = async () => {
     instanceId: '',
     guestPort: null,
     hostPort: 0,
-    protocol: 'tcp',
+    protocol: 'both',
     description: ''
   })
   

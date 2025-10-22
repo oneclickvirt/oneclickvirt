@@ -434,7 +434,13 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 	}
 
 	// 新的端口映射 - 只映射IPv4端口
-	cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/%s", newHostPort, newGuestPort, protocol)
+	// 如果协议是 both，需要创建两个端口映射（tcp 和 udp）
+	if protocol == "both" {
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/tcp", newHostPort, newGuestPort)
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/udp", newHostPort, newGuestPort)
+	} else {
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/%s", newHostPort, newGuestPort, protocol)
+	}
 
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"

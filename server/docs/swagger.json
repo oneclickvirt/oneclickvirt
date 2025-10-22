@@ -9011,7 +9011,8 @@
                     "type": "string",
                     "enum": [
                         "tcp",
-                        "udp"
+                        "udp",
+                        "both"
                     ]
                 }
             }
