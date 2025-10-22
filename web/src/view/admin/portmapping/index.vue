@@ -37,23 +37,20 @@
       
       <!-- 搜索和筛选 -->
       <div class="search-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
+        <el-row :gutter="12">
+          <el-col :span="5">
             <el-input 
               v-model="searchForm.keyword" 
               :placeholder="$t('admin.portMapping.searchInstance')"
               clearable
               @keyup.enter="searchPortMappings"
             >
-              <template #append>
-                <el-button
-                  icon="Search"
-                  @click="searchPortMappings"
-                />
+              <template #prefix>
+                <el-icon><Search /></el-icon>
               </template>
             </el-input>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="4">
             <el-select
               v-model="searchForm.providerId"
               :placeholder="$t('admin.portMapping.selectProvider')"
@@ -68,7 +65,19 @@
               />
             </el-select>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="4">
+            <el-select
+              v-model="searchForm.protocol"
+              :placeholder="$t('admin.portMapping.protocol')"
+              clearable
+              style="width: 100%;"
+            >
+              <el-option label="TCP" value="tcp" />
+              <el-option label="UDP" value="udp" />
+              <el-option label="TCP/UDP" value="both" />
+            </el-select>
+          </el-col>
+          <el-col :span="4">
             <el-select
               v-model="searchForm.status"
               :placeholder="$t('common.status')"
@@ -85,7 +94,7 @@
               />
             </el-select>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="7">
             <el-button
               type="primary"
               @click="searchPortMappings"
@@ -427,7 +436,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Loading } from '@element-plus/icons-vue'
+import { Plus, Loading, Search } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { 
   getPortMappings, 
@@ -457,6 +466,7 @@ let autoRefreshTimer = null
 const searchForm = reactive({
   keyword: '',
   providerId: '',
+  protocol: '',
   status: ''
 })
 
@@ -661,6 +671,7 @@ const resetSearch = () => {
   Object.assign(searchForm, {
     keyword: '',
     providerId: '',
+    protocol: '',
     status: ''
   })
   searchPortMappings()

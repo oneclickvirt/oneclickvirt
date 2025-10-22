@@ -404,9 +404,9 @@
                 <template #default="{ row }">
                   <el-tag
                     size="small"
-                    :type="row.protocol === 'tcp' ? 'primary' : 'success'"
+                    :type="row.protocol === 'tcp' ? 'primary' : row.protocol === 'udp' ? 'success' : 'info'"
                   >
-                    {{ row.protocol.toUpperCase() }}
+                    {{ row.protocol === 'both' ? 'TCP/UDP' : row.protocol.toUpperCase() }}
                   </el-tag>
                 </template>
               </el-table-column>
