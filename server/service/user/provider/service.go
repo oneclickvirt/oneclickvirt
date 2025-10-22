@@ -273,6 +273,9 @@ func (s *Service) GetSystemImages(userID uint, req userModel.SystemImagesRequest
 			ImageURL:     img.URL,
 			Description:  img.Description,
 			IsActive:     img.Status == "active",
+			MinMemoryMB:  img.MinMemoryMB,
+			MinDiskMB:    img.MinDiskMB,
+			UseCDN:       img.UseCDN,
 		})
 	}
 
@@ -464,6 +467,9 @@ func (s *Service) GetFilteredSystemImages(userID uint, providerID uint, instance
 			ImageURL:     img.URL,
 			Description:  img.Description,
 			IsActive:     img.Status == "active",
+			MinMemoryMB:  img.MinMemoryMB,
+			MinDiskMB:    img.MinDiskMB,
+			UseCDN:       img.UseCDN,
 		})
 	}
 
@@ -1708,7 +1714,7 @@ func (s *Service) markTaskFailed(taskID uint, errorMessage string) {
 
 // generateInstanceName 生成实例名称
 func (s *Service) generateInstanceName(providerName string) string {
-	// 生成格式: provider-name-4位随机字符 (如: ifast-d73a)
+	// 生成格式: provider-name-4位随机字符 (如: docker-d73a)
 	randomStr := fmt.Sprintf("%04x", rand.Intn(65536)) // 生成4位16进制随机字符
 
 	// 清理provider名称，移除特殊字符
@@ -2031,23 +2037,13 @@ func (s *Service) validateInstanceMinimumRequirements(image *systemModel.SystemI
 		return fmt.Errorf("镜像信息不能为空")
 	}
 
-	var minMemoryMB, minDiskMB int
+	// 使用镜像自身的最低硬件要求
+	minMemoryMB := image.MinMemoryMB
+	minDiskMB := image.MinDiskMB
 
-	if image.InstanceType == "vm" {
-		// 虚拟机统一要求：512MB内存，5GB硬盘
-		minMemoryMB = 512
-		minDiskMB = 5000 // 5000MB
-	} else if image.InstanceType == "container" {
-		// 容器统一要求：128MB内存，基础1GB硬盘
-		minMemoryMB = 128
-		minDiskMB = 1000 // 1000MB
-
-		// Proxmox容器特殊要求：4GB硬盘
-		if provider != nil && provider.Type == "proxmox" {
-			minDiskMB = 4000 // 4000MB
-		}
-	} else {
-		return fmt.Errorf("未知的实例类型: %s", image.InstanceType)
+	// 验证镜像是否设置了最低要求
+	if minMemoryMB <= 0 || minDiskMB <= 0 {
+		return fmt.Errorf("镜像未设置最低硬件要求，请联系管理员")
 	}
 
 	// 验证内存要求
@@ -2056,19 +2052,18 @@ func (s *Service) validateInstanceMinimumRequirements(image *systemModel.SystemI
 		if image.InstanceType == "container" {
 			instanceTypeDesc = "容器"
 		}
-		return fmt.Errorf("%s最少需要%dMB内存，当前选择%dMB不足",
-			instanceTypeDesc, minMemoryMB, memorySpec.SizeMB)
+		return fmt.Errorf("%s镜像 %s 最少需要%dMB内存，当前选择%dMB不足",
+			instanceTypeDesc, image.Name, minMemoryMB, memorySpec.SizeMB)
 	}
 
 	// 验证磁盘要求
 	if diskSpec.SizeMB < minDiskMB {
-		diskGB := minDiskMB / 1024
 		instanceTypeDesc := "虚拟机"
 		if image.InstanceType == "container" {
 			instanceTypeDesc = "容器"
 		}
-		return fmt.Errorf("%s最少需要%dGB硬盘，当前选择%dMB不足",
-			instanceTypeDesc, diskGB, diskSpec.SizeMB)
+		return fmt.Errorf("%s镜像 %s 最少需要%dMB硬盘，当前选择%dMB不足",
+			instanceTypeDesc, image.Name, minDiskMB, diskSpec.SizeMB)
 	}
 
 	global.APP_LOG.Info("实例最低硬件要求验证通过",

@@ -67,6 +67,12 @@ func (g *GostPortMapping) CreatePortMapping(ctx context.Context, req *portmappin
 		return nil, fmt.Errorf("failed to create GOST tunnel: %v", err)
 	}
 
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
+	}
+
 	// 保存到数据库
 	result := &portmapping.PortMappingResult{
 		InstanceID:    req.InstanceID,
@@ -80,7 +86,7 @@ func (g *GostPortMapping) CreatePortMapping(ctx context.Context, req *portmappin
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "gost-tunnel",
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 

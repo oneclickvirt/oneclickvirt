@@ -48,13 +48,14 @@ type AvailableResourceResponse struct {
 
 type UserInstanceResponse struct {
 	providerModel.Instance
-	CanStart     bool                     `json:"canStart"`
-	CanStop      bool                     `json:"canStop"`
-	CanRestart   bool                     `json:"canRestart"`
-	CanDelete    bool                     `json:"canDelete"`
-	PortMappings []map[string]interface{} `json:"portMappings"` // 端口映射列表
-	PublicIP     string                   `json:"publicIP"`     // 纯净的公网IP（不含端口）
-	ProviderType string                   `json:"providerType"` // Provider虚拟化类型：docker, lxd, incus, proxmox
+	CanStart       bool                     `json:"canStart"`
+	CanStop        bool                     `json:"canStop"`
+	CanRestart     bool                     `json:"canRestart"`
+	CanDelete      bool                     `json:"canDelete"`
+	PortMappings   []map[string]interface{} `json:"portMappings"`   // 端口映射列表
+	PublicIP       string                   `json:"publicIP"`       // 纯净的公网IP（不含端口）
+	ProviderType   string                   `json:"providerType"`   // Provider虚拟化类型：docker, lxd, incus, proxmox
+	ProviderStatus string                   `json:"providerStatus"` // Provider状态：active, inactive, partial
 }
 
 // UserLimitsResponse 用户配额限制响应
@@ -119,6 +120,7 @@ type UserInstanceDetailResponse struct {
 	Username        string    `json:"username"`
 	Password        string    `json:"password"`
 	ProviderName    string    `json:"providerName"`
+	ProviderStatus  string    `json:"providerStatus"`  // Provider状态：active, inactive, partial
 	PortRangeStart  int       `json:"portRangeStart"`  // 端口范围起始
 	PortRangeEnd    int       `json:"portRangeEnd"`    // 端口范围结束
 	IPv4MappingType string    `json:"ipv4MappingType"` // IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
@@ -200,6 +202,9 @@ type SystemImageResponse struct {
 	ImageURL     string `json:"imageUrl"`
 	Description  string `json:"description"`
 	IsActive     bool   `json:"isActive"`
+	MinMemoryMB  int    `json:"minMemoryMB"`
+	MinDiskMB    int    `json:"minDiskMB"`
+	UseCDN       bool   `json:"useCdn"`
 }
 
 // InstanceConfigResponse 实例配置响应

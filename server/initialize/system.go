@@ -197,6 +197,11 @@ func initializeSchedulers() {
 	monitoringSchedulerService := scheduler.NewMonitoringSchedulerService(vnstatService)
 	global.APP_MONITORING_SCHEDULER = monitoringSchedulerService
 	monitoringSchedulerService.Start(context.Background())
+
+	// 启动Provider健康检查调度器
+	providerHealthSchedulerService := scheduler.NewProviderHealthSchedulerService()
+	global.APP_PROVIDER_HEALTH_SCHEDULER = providerHealthSchedulerService
+	providerHealthSchedulerService.Start(context.Background())
 }
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化

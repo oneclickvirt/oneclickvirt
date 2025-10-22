@@ -172,8 +172,19 @@
                   :key="image.id" 
                   :label="image.name" 
                   :value="image.id"
-                />
+                >
+                  <span>{{ image.name }}</span>
+                  <span style="float: right; color: #8492a6; font-size: 12px; margin-left: 10px">
+                    {{ formatImageRequirements(image) }}
+                  </span>
+                </el-option>
               </el-select>
+              <div v-if="selectedImageInfo" class="form-hint" style="margin-top: 5px; font-size: 12px; color: #909399;">
+                {{ t('user.apply.imageRequirements', { 
+                  memory: selectedImageInfo.minMemoryMB, 
+                  disk: Math.round(selectedImageInfo.minDiskMB / 1024 * 10) / 10 
+                }) }}
+              </div>
             </el-form-item>
           </el-col>
         </el-row>
@@ -442,20 +453,28 @@ const availableCpuSpecs = computed(() => {
   }))
 })
 
+// 当前选中的镜像信息
+const selectedImageInfo = computed(() => {
+  if (!configForm.imageId) return null
+  return availableImages.value.find(img => img.id === configForm.imageId)
+})
+
+// 格式化镜像硬件要求
+const formatImageRequirements = (image) => {
+  if (!image.minMemoryMB || !image.minDiskMB) return ''
+  const memoryMB = image.minMemoryMB
+  const diskGB = Math.round(image.minDiskMB / 1024 * 10) / 10
+  return `≥${memoryMB}MB / ${diskGB}GB`
+}
+
 const availableMemorySpecs = computed(() => {
   const allSpecs = instanceConfig.value.memorySpecs || []
   
-  // 根据实例类型过滤
+  // 根据镜像的最低内存要求过滤
   if (configForm.imageId) {
     const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
-    if (selectedImage) {
-      let minMemoryMB = 128 // 容器默认128MB
-      
-      if (configForm.type === 'vm') {
-        minMemoryMB = 512 // 虚拟机统一512MB
-      }
-      
-      return allSpecs.filter(spec => spec.sizeMB >= minMemoryMB)
+    if (selectedImage && selectedImage.minMemoryMB) {
+      return allSpecs.filter(spec => spec.sizeMB >= selectedImage.minMemoryMB)
     }
   }
   
@@ -465,23 +484,11 @@ const availableMemorySpecs = computed(() => {
 const availableDiskSpecs = computed(() => {
   const allSpecs = instanceConfig.value.diskSpecs || []
   
-  // 根据实例类型和Provider类型过滤
-  if (configForm.imageId && selectedProvider.value) {
+  // 根据镜像的最低硬盘要求过滤
+  if (configForm.imageId) {
     const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
-    if (selectedImage) {
-      let minDiskMB = 1024 // 默认1GB
-      
-      if (configForm.type === 'vm') {
-        minDiskMB = 5120 // 虚拟机统一5GB
-      } else if (configForm.type === 'container') {
-        if (selectedProvider.value.type === 'proxmox') {
-          minDiskMB = 4096 // Proxmox容器4GB
-        } else {
-          minDiskMB = 1024 // 其他容器1GB
-        }
-      }
-      
-      return allSpecs.filter(spec => spec.sizeMB >= minDiskMB)
+    if (selectedImage && selectedImage.minDiskMB) {
+      return allSpecs.filter(spec => spec.sizeMB >= selectedImage.minDiskMB)
     }
   }
   
@@ -930,23 +937,9 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
   if (newImageId !== oldImageId && newImageId) {
     // 获取当前选择的镜像
     const selectedImage = availableImages.value.find(img => img.id === newImageId)
-    if (selectedImage) {
-      let minMemoryMB = 128 // 默认最低内存（容器）
-      let minDiskMB = 1024 // 默认最低硬盘（容器1GB）
-      
-      if (configForm.type === 'vm') {
-        // 虚拟机类型：统一要求
-        minMemoryMB = 512
-        minDiskMB = 5120
-      } else if (configForm.type === 'container' && selectedProvider.value) {
-        // 容器类型：根据Provider类型判断硬盘要求
-        minMemoryMB = 128
-        if (selectedProvider.value.type === 'proxmox') {
-          minDiskMB = 4096 // Proxmox容器需要4GB
-        } else {
-          minDiskMB = 1024 // 其他Provider容器需要1GB
-        }
-      }
+    if (selectedImage && selectedImage.minMemoryMB && selectedImage.minDiskMB) {
+      const minMemoryMB = selectedImage.minMemoryMB
+      const minDiskMB = selectedImage.minDiskMB
       
       let needAutoSelect = false
       
@@ -978,23 +971,20 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
   }
 })
 
-// 监听Provider选择变化，检查容器磁盘要求变化
+// 监听Provider选择变化，重新验证规格
 watch(() => selectedProvider.value?.type, (newProviderType, oldProviderType) => {
-  if (newProviderType !== oldProviderType && configForm.type === 'container' && configForm.diskId) {
-    // 检查当前选择的磁盘是否符合新Provider的最低要求
-    let minDiskMB = 1024 // 默认容器最低硬盘1GB
-    
-    if (newProviderType === 'proxmox') {
-      minDiskMB = 4096 // Proxmox容器需要4GB
-    }
-    
-    const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
-    if (currentDisk && currentDisk.sizeMB < minDiskMB) {
-      configForm.diskId = ''
-      ElMessage.warning(`Provider变更，当前磁盘规格不符合新Provider的最低要求，已自动选择合适的规格`)
-      // 自动选择第一个可用的磁盘规格
-      if (availableDiskSpecs.value.length > 0) {
-        configForm.diskId = availableDiskSpecs.value[0].id
+  if (newProviderType !== oldProviderType && configForm.imageId) {
+    // Provider变化时，重新检查镜像的硬件要求（通过computed自动处理）
+    const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
+    if (selectedImage && selectedImage.minDiskMB) {
+      const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
+      if (currentDisk && currentDisk.sizeMB < selectedImage.minDiskMB) {
+        configForm.diskId = ''
+        ElMessage.warning(`Provider变更，当前磁盘规格不符合镜像的最低要求，已自动重置`)
+        // 自动选择第一个可用的磁盘规格
+        if (availableDiskSpecs.value.length > 0) {
+          configForm.diskId = availableDiskSpecs.value[0].id
+        }
       }
     }
   }

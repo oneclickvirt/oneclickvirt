@@ -102,6 +102,48 @@ type ImageInfo struct {
 	Description  string
 }
 
+// getMinHardwareRequirements 根据操作系统类型和实例类型获取最低硬件要求
+// 返回值：minMemoryMB, minDiskMB
+func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
+	osTypeLower := strings.ToLower(osType)
+
+	// 容器的最低要求
+	containerRequirements := map[string]struct{ memory, disk int }{
+		"centos":     {512, 2048}, // 512MB, 2GB
+		"almalinux":  {350, 1536}, // 350MB, 1.5GB
+		"debian":     {128, 1024}, // 128MB, 1GB
+		"kali":       {256, 1024}, // 256MB, 1GB
+		"rockylinux": {350, 1536}, // 350MB, 1.5GB
+		"alpine":     {64, 200},   // 64MB, 200MB
+	}
+
+	// 虚拟机的最低要求（取容器要求和当前硬编码的最大值）
+	// 当前硬编码：VM 512MB内存，5GB硬盘
+	vmRequirements := map[string]struct{ memory, disk int }{
+		"centos":     {512, 5120}, // max(512, 512)=512MB, max(2048, 5120)=5120MB
+		"almalinux":  {512, 5120}, // max(350, 512)=512MB, max(1536, 5120)=5120MB
+		"debian":     {512, 5120}, // max(128, 512)=512MB, max(1024, 5120)=5120MB
+		"kali":       {512, 5120}, // max(256, 512)=512MB, max(1024, 5120)=5120MB
+		"rockylinux": {512, 5120}, // max(350, 512)=512MB, max(1536, 5120)=5120MB
+		"alpine":     {512, 5120}, // max(64, 512)=512MB, max(200, 5120)=5120MB
+	}
+
+	if instanceType == "vm" {
+		if req, ok := vmRequirements[osTypeLower]; ok {
+			return req.memory, req.disk
+		}
+		// 其他系统默认值：512MB, 5GB
+		return 512, 5120
+	} else {
+		// container
+		if req, ok := containerRequirements[osTypeLower]; ok {
+			return req.memory, req.disk
+		}
+		// 其他系统默认值：128MB, 1GB
+		return 128, 1024
+	}
+}
+
 // SeedSystemImages 从远程URL获取镜像列表并添加到数据库
 func SeedSystemImages() {
 	global.APP_LOG.Info("开始同步系统镜像列表")
@@ -191,6 +233,9 @@ func SeedSystemImages() {
 					imageStatus = "active"
 				}
 
+				// 获取最低硬件要求
+				minMemoryMB, minDiskMB := getMinHardwareRequirements(imageInfo.OSType, imageInfo.InstanceType)
+
 				// 创建新镜像记录
 				systemImage := system.SystemImage{
 					Name:         imageInfo.Name,
@@ -202,7 +247,10 @@ func SeedSystemImages() {
 					Description:  imageInfo.Description,
 					OSType:       imageInfo.OSType,
 					OSVersion:    imageInfo.OSVersion,
-					CreatedBy:    nil, // 系统创建，设为nil
+					MinMemoryMB:  minMemoryMB,
+					MinDiskMB:    minDiskMB,
+					UseCDN:       true, // 系统镜像默认使用CDN加速
+					CreatedBy:    nil,  // 系统创建，设为nil
 				}
 
 				dbService := database.GetDatabaseService()

@@ -289,6 +289,7 @@ type ProviderInstanceConfig struct {
 	Image        string            `json:"image"`
 	ImageURL     string            `json:"image_url"`  // 镜像下载URL
 	ImagePath    string            `json:"image_path"` // 镜像文件路径
+	UseCDN       bool              `json:"use_cdn"`    // 是否使用CDN加速下载镜像
 	CPU          string            `json:"cpu"`
 	Memory       string            `json:"memory"`
 	Disk         string            `json:"disk"`

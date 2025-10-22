@@ -70,6 +70,12 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 		return nil, fmt.Errorf("failed to create iptables rule: %v", err)
 	}
 
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
+	}
+
 	// 保存到数据库
 	result := &portmapping.PortMappingResult{
 		InstanceID:    req.InstanceID,
@@ -83,7 +89,7 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "iptables-nat",
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 

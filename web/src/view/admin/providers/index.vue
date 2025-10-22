@@ -505,6 +505,8 @@
               <el-input
                 v-model="addProviderForm.name"
                 :placeholder="$t('admin.providers.serverNamePlaceholder')"
+                maxlength="7"
+                show-word-limit
               />
             </el-form-item>
             <el-form-item
@@ -2353,25 +2355,27 @@ const parseLevelLimits = (levelLimitsStr) => {
 // 表单验证规则
 const addProviderRules = {
   name: [
-    { required: true, message: '请输入服务器名称', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.serverNameRequired'), trigger: 'blur' },
+    { pattern: /^[a-zA-Z0-9]+$/, message: () => t('admin.providers.validation.serverNamePattern'), trigger: 'blur' },
+    { max: 7, message: () => t('admin.providers.validation.serverNameMaxLength'), trigger: 'blur' }
   ],
   type: [
-    { required: true, message: '请选择服务器类型', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.serverTypeRequired'), trigger: 'change' }
   ],
   host: [
-    { required: true, message: '请输入主机地址', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.hostRequired'), trigger: 'blur' }
   ],
   port: [
-    { required: true, message: '请输入端口', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.portRequired'), trigger: 'blur' }
   ],
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.usernameRequired'), trigger: 'blur' }
   ],
   architecture: [
-    { required: true, message: '请选择服务器架构', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.architectureRequired'), trigger: 'change' }
   ],
   status: [
-    { required: true, message: '请选择状态', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.statusRequired'), trigger: 'change' }
   ]
 }
 
@@ -2854,7 +2858,7 @@ const unfreezeServer = async (server) => {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
-        inputErrorMessage: '请输入正确的日期格式或留空',
+        inputErrorMessage: t('admin.providers.validation.dateFormatError'),
         inputPlaceholder: '如：2024-12-31 23:59:59 或留空'
       }
     )
@@ -3096,7 +3100,7 @@ const startNewConfiguration = async (provider, force = false) => {
 
     // 显示加载提示
     const loadingMessage = ElMessage({
-      message: '正在执行自动配置，请稍候...',
+      message: t('admin.providers.validation.autoConfiguring'),
       type: 'info',
       duration: 0,
       showClose: false
@@ -3200,7 +3204,7 @@ const debugAuthStatus = () => {
 // 健康检查
 const checkHealth = async (providerId) => {
   const loadingMessage = ElMessage({
-    message: '正在进行健康检查，请稍候...',
+    message: t('admin.providers.validation.healthChecking'),
     type: 'info',
     duration: 0, // 不自动关闭
     showClose: false

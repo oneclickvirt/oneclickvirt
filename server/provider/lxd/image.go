@@ -41,10 +41,11 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 	if config.ImageURL != "" {
 		global.APP_LOG.Info("开始在远程服务器下载LXD"+imageTypeStr+"镜像",
 			zap.String("imageURL", utils.TruncateString(config.ImageURL, 200)),
-			zap.String("type", config.InstanceType))
+			zap.String("type", config.InstanceType),
+			zap.Bool("useCDN", config.UseCDN))
 
 		// 直接在远程服务器上下载镜像
-		imagePath, err := l.downloadImageToRemote(config.ImageURL, originalImageName, l.config.Country, l.config.Architecture, config.InstanceType)
+		imagePath, err := l.downloadImageToRemote(config.ImageURL, originalImageName, l.config.Country, l.config.Architecture, config.InstanceType, config.UseCDN)
 		if err != nil {
 			return fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
 		}
@@ -74,7 +75,7 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 				// 虚拟机镜像导入
 				if strings.HasSuffix(config.ImagePath, ".zip") {
 					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("cd /tmp && unzip -o %s -d %s", config.ImagePath, extractDir)
+					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
 					_, err := l.sshClient.Execute(unzipCmd)
 					if err != nil {
 						return fmt.Errorf("解压LXD虚拟机镜像失败: %w", err)
@@ -112,12 +113,11 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 				// 容器镜像导入
 				if strings.HasSuffix(config.ImagePath, ".zip") {
 					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("cd /tmp && unzip -o %s -d %s", config.ImagePath, extractDir)
+					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
 					_, err := l.sshClient.Execute(unzipCmd)
 					if err != nil {
 						return fmt.Errorf("解压LXD容器镜像失败: %w", err)
 					}
-
 					// 查找解压后的文件
 					lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 					rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
@@ -211,12 +211,15 @@ func (l *LXDProvider) queryAndSetSystemImage(ctx context.Context, config *provid
 		return fmt.Errorf("未找到匹配的系统镜像: %w", err)
 	}
 
-	// 设置镜像配置
+	// 设置镜像配置，不在这里添加CDN前缀
+	// CDN前缀应该在实际下载时根据可用性和UseCDN设置动态添加
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
+		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
 		global.APP_LOG.Info("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
-			zap.String("downloadURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.Bool("useCDN", systemImage.UseCDN),
 			zap.String("osType", systemImage.OSType),
 			zap.String("osVersion", systemImage.OSVersion),
 			zap.String("architecture", systemImage.Architecture),
@@ -245,7 +248,7 @@ func (l *LXDProvider) imageExists(alias string) bool {
 }
 
 // downloadImageToRemote 在远程服务器上下载LXD镜像
-func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture, instanceType string) (string, error) {
+func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture, instanceType string, useCDN bool) (string, error) {
 	// 根据实例类型确定远程下载目录
 	var downloadDir string
 	if instanceType == "vm" {
@@ -274,14 +277,15 @@ func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry
 		return remotePath, nil
 	}
 
-	// 确定下载URL
-	downloadURL := l.getDownloadURL(imageURL, providerCountry)
+	// 确定下载URL，传递 useCDN 参数
+	downloadURL := l.getDownloadURL(imageURL, providerCountry, useCDN)
 
 	global.APP_LOG.Info("开始在远程服务器下载LXD镜像",
 		zap.String("imageName", imageName),
 		zap.String("downloadURL", downloadURL),
 		zap.String("remotePath", remotePath),
-		zap.String("instanceType", instanceType))
+		zap.String("instanceType", instanceType),
+		zap.Bool("useCDN", useCDN))
 
 	// 在远程服务器上下载文件
 	if err := l.downloadFileToRemote(downloadURL, remotePath); err != nil {
@@ -341,22 +345,12 @@ func (l *LXDProvider) generateRemoteFileName(imageName, imageURL, architecture, 
 }
 
 // isRemoteFileValid 检查远程文件是否存在且完整
+// isRemoteFileValid 检查远程文件是否有效
 func (l *LXDProvider) isRemoteFileValid(remotePath string) bool {
-	// 检查文件是否存在
-	cmd := fmt.Sprintf("test -f %s", remotePath)
+	// 检查文件是否存在且大小大于0
+	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
 	_, err := l.sshClient.Execute(cmd)
-	if err != nil {
-		return false
-	}
-
-	// 检查文件大小是否大于0
-	cmd = fmt.Sprintf("test -s %s", remotePath)
-	_, err = l.sshClient.Execute(cmd)
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
@@ -366,65 +360,43 @@ func (l *LXDProvider) removeRemoteFile(remotePath string) error {
 	return err
 }
 
-// getDownloadURL 确定下载URL
-func (l *LXDProvider) getDownloadURL(originalURL, providerCountry string) string {
-	// 默认随机尝试CDN，不再限制地区
-	if cdnURL := l.getCDNURL(originalURL); cdnURL != "" {
-		return cdnURL
-	}
-	return originalURL
-}
-
-// getCDNURL 获取CDN URL - 随机测试可用性
-func (l *LXDProvider) getCDNURL(originalURL string) string {
-	cdnEndpoints := utils.GetCDNEndpoints()
-
-	// 随机测试CDN端点，找到第一个可用的就使用
-	for _, endpoint := range cdnEndpoints {
-		cdnURL := endpoint + originalURL
-		// 测试CDN可用性 - 使用更短的超时时间进行快速检测
-		testCmd := fmt.Sprintf("curl -4 -sL -k --max-time 6 '%s' | head -c 1 >/dev/null 2>&1", cdnURL)
-		if _, err := l.sshClient.Execute(testCmd); err == nil {
-			global.APP_LOG.Info("找到可用CDN，使用CDN下载LXD镜像",
-				zap.String("originalURL", utils.TruncateString(originalURL, 100)),
-				zap.String("cdnURL", utils.TruncateString(cdnURL, 100)),
-				zap.String("cdnEndpoint", endpoint))
-			return cdnURL
-		}
-		// 短暂延迟避免过于频繁的请求
-		// 注意：在Go中我们不能直接sleep，但SSH执行会有自然的延迟
-	}
-
-	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
-		zap.String("originalURL", utils.TruncateString(originalURL, 100)))
-	return ""
-}
-
+// downloadFileToRemote 在远程服务器上下载文件
 // downloadFileToRemote 在远程服务器上下载文件
 func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 	// 使用curl在远程服务器上下载文件
 	tmpPath := remotePath + ".tmp"
 
-	// 构建curl命令，包含超时和重试机制
+	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -L --max-time 1800 --retry 3 --retry-delay 5 -o %s %s && mv %s %s",
-		tmpPath, url, tmpPath, remotePath,
+		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		tmpPath, url,
 	)
 
 	global.APP_LOG.Info("执行远程下载命令",
-		zap.String("command", utils.TruncateString(curlCmd, 200)))
+		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := l.sshClient.Execute(curlCmd)
 	if err != nil {
+		// 清理临时文件
+		l.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
 			zap.String("remotePath", remotePath),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-
-		// 清理临时文件
-		l.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
 		return fmt.Errorf("远程下载失败: %w", err)
+	}
+
+	// 移动文件到最终位置
+	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	_, err = l.sshClient.Execute(mvCmd)
+	if err != nil {
+		global.APP_LOG.Error("移动文件失败",
+			zap.String("tmpPath", tmpPath),
+			zap.String("remotePath", remotePath),
+			zap.Error(err))
+		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
 	global.APP_LOG.Info("远程下载成功",

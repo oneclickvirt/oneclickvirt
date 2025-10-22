@@ -524,6 +524,48 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <el-row :gutter="20">
+          <el-col :span="12">
+            <el-form-item
+              :label="$t('admin.systemImages.minMemoryMB')"
+              prop="minMemoryMB"
+            >
+              <el-input
+                v-model.number="form.minMemoryMB"
+                type="number"
+                :placeholder="$t('admin.systemImages.minMemoryPlaceholder')"
+              />
+              <div class="form-hint">
+                {{ $t('admin.systemImages.minMemoryHint') }}
+              </div>
+            </el-form-item>
+          </el-col>
+          <el-col :span="12">
+            <el-form-item
+              :label="$t('admin.systemImages.minDiskMB')"
+              prop="minDiskMB"
+            >
+              <el-input
+                v-model.number="form.minDiskMB"
+                type="number"
+                :placeholder="$t('admin.systemImages.minDiskPlaceholder')"
+              />
+              <div class="form-hint">
+                {{ $t('admin.systemImages.minDiskHint') }}
+              </div>
+            </el-form-item>
+          </el-col>
+        </el-row>
+        <el-form-item :label="$t('admin.systemImages.useCdn')">
+          <el-switch
+            v-model="form.useCdn"
+            :active-text="$t('admin.systemImages.useCdnActive')"
+            :inactive-text="$t('admin.systemImages.useCdnInactive')"
+          />
+          <div class="form-hint">
+            {{ $t('admin.systemImages.useCdnHint') }}
+          </div>
+        </el-form-item>
         <el-form-item :label="$t('admin.systemImages.tags')">
           <el-input
             v-model="form.tags"
@@ -605,7 +647,10 @@ const form = reactive({
   description: '',
   osType: '',
   osVersion: '',
-  tags: ''
+  tags: '',
+  minMemoryMB: null,
+  minDiskMB: null,
+  useCdn: true
 })
 
 // 表单引用
@@ -639,6 +684,14 @@ const rules = {
   url: [
     { required: true, message: t('admin.systemImages.urlRequired'), trigger: 'blur' },
     { type: 'url', message: t('admin.systemImages.urlInvalid'), trigger: 'blur' }
+  ],
+  minMemoryMB: [
+    { required: true, message: t('admin.systemImages.minMemoryRequired'), trigger: 'blur' },
+    { type: 'number', min: 1, message: t('admin.systemImages.minMemoryInvalid'), trigger: 'blur' }
+  ],
+  minDiskMB: [
+    { required: true, message: t('admin.systemImages.minDiskRequired'), trigger: 'blur' },
+    { type: 'number', min: 1, message: t('admin.systemImages.minDiskInvalid'), trigger: 'blur' }
   ]
 }
 
@@ -711,7 +764,10 @@ const handleEdit = (row) => {
     description: row.description || '',
     osType: row.osType || '',
     osVersion: row.osVersion || '',
-    tags: row.tags || ''
+    tags: row.tags || '',
+    minMemoryMB: row.minMemoryMB || null,
+    minDiskMB: row.minDiskMB || null,
+    useCdn: row.useCdn !== undefined ? row.useCdn : true
   })
   
   // 设置可用版本
@@ -886,7 +942,10 @@ const resetForm = () => {
     description: '',
     osType: '',
     osVersion: '',
-    tags: ''
+    tags: '',
+    minMemoryMB: null,
+    minDiskMB: null,
+    useCdn: true
   })
 }
 

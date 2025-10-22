@@ -277,6 +277,9 @@ import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Right } from '@element-plus/icons-vue'
 import { getOAuth2Config, updateOAuth2Config, resetOAuth2RegistrationCount } from '@/api/config'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const formRef = ref()
 const loading = ref(false)
@@ -310,22 +313,22 @@ const formData = reactive({
 
 const rules = reactive({
   clientId: [
-    { required: true, message: '请输入Client ID', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationClientId'), trigger: 'blur' }
   ],
   clientSecret: [
-    { required: true, message: '请输入Client Secret', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationClientSecret'), trigger: 'blur' }
   ],
   redirectUrl: [
-    { required: true, message: '请输入Redirect URL', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationRedirectUrl'), trigger: 'blur' }
   ],
   authUrl: [
-    { required: true, message: '请输入授权地址', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationAuthUrl'), trigger: 'blur' }
   ],
   tokenUrl: [
-    { required: true, message: '请输入令牌地址', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationTokenUrl'), trigger: 'blur' }
   ],
   userinfoUrl: [
-    { required: true, message: '请输入用户信息地址', trigger: 'blur' }
+    { required: true, message: () => t('admin.oauth2.validationUserInfoUrl'), trigger: 'blur' }
   ]
 })
 

@@ -98,10 +98,20 @@ func (s *ImageService) isImageCompatible(systemImage system.SystemImage, provide
 // getImageDownloadURL 获取镜像下载URL
 func (s *ImageService) getImageDownloadURL(systemImage system.SystemImage, architecture string) string {
 	// 检查架构是否匹配
-	if systemImage.Architecture == architecture {
-		return systemImage.URL
+	if systemImage.Architecture != architecture {
+		return ""
 	}
-	return ""
+
+	// 处理CDN加速
+	imageURL := systemImage.URL
+	if systemImage.UseCDN {
+		baseCDN := utils.GetBaseCDNEndpoint()
+		if baseCDN != "" {
+			imageURL = baseCDN + systemImage.URL
+		}
+	}
+
+	return imageURL
 }
 
 // GetImageDownloadPath 获取镜像下载路径
@@ -237,12 +247,27 @@ func (s *ImageService) PrepareImageForInstance(req image.DownloadImageRequest) (
 		return "", fmt.Errorf("镜像未激活")
 	}
 
+	// 处理镜像URL，根据UseCDN字段决定是否使用CDN加速
+	imageURL := systemImage.URL
+	if systemImage.UseCDN {
+		// 如果启用CDN，添加CDN前缀
+		baseCDN := utils.GetBaseCDNEndpoint()
+		if baseCDN != "" {
+			imageURL = baseCDN + systemImage.URL
+			global.APP_LOG.Info("使用CDN加速镜像下载",
+				zap.Uint("imageId", req.ImageID),
+				zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
+				zap.String("cdnURL", utils.TruncateString(imageURL, 100)))
+		}
+	}
+
 	global.APP_LOG.Info("镜像信息准备完成",
 		zap.Uint("imageId", req.ImageID),
-		zap.String("imageURL", utils.TruncateString(systemImage.URL, 200)))
+		zap.String("imageURL", utils.TruncateString(imageURL, 200)),
+		zap.Bool("useCDN", systemImage.UseCDN))
 
-	// 直接返回镜像URL，让各个Provider自己处理下载
-	return systemImage.URL, nil
+	// 返回处理后的镜像URL，让各个Provider自己处理下载
+	return imageURL, nil
 }
 
 // GetAvailableImages 获取可用镜像列表

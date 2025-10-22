@@ -13,7 +13,7 @@ import (
 )
 
 // downloadImageToRemote 在远程服务器上下载镜像
-func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string) (string, error) {
+func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	// 根据provider类型确定远程下载目录
 	downloadDir := "/usr/local/bin/docker_ct_images"
 
@@ -36,13 +36,14 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 		return remotePath, nil
 	}
 
-	// 确定下载URL
-	downloadURL := d.getDownloadURL(imageURL, providerCountry)
+	// 确定下载URL，传递 useCDN 参数
+	downloadURL := d.getDownloadURL(imageURL, providerCountry, useCDN)
 
 	global.APP_LOG.Info("开始在远程服务器下载镜像",
 		zap.String("imageName", imageName),
 		zap.String("downloadURL", downloadURL),
-		zap.String("remotePath", remotePath))
+		zap.String("remotePath", remotePath),
+		zap.Bool("useCDN", useCDN))
 
 	// 在远程服务器上下载文件
 	if err := d.downloadFileToRemote(downloadURL, remotePath); err != nil {
@@ -86,21 +87,10 @@ func (d *DockerProvider) generateRemoteFileName(imageName, imageURL, architectur
 
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (d *DockerProvider) isRemoteFileValid(remotePath string) bool {
-	// 检查文件是否存在
-	cmd := fmt.Sprintf("test -f %s", remotePath)
+	// 检查文件是否存在且大小大于0
+	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
 	_, err := d.sshClient.Execute(cmd)
-	if err != nil {
-		return false
-	}
-
-	// 检查文件大小是否大于0
-	cmd = fmt.Sprintf("test -s %s", remotePath)
-	_, err = d.sshClient.Execute(cmd)
-	if err != nil {
-		return false
-	}
-
-	return true
+	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
@@ -110,65 +100,42 @@ func (d *DockerProvider) removeRemoteFile(remotePath string) error {
 	return err
 }
 
-// getDownloadURL 确定下载URL
-func (d *DockerProvider) getDownloadURL(originalURL, providerCountry string) string {
-	// 默认随机尝试CDN，不再限制地区
-	if cdnURL := d.getCDNURL(originalURL); cdnURL != "" {
-		return cdnURL
-	}
-	return originalURL
-}
-
-// getCDNURL 获取CDN URL - 随机测试可用性
-func (d *DockerProvider) getCDNURL(originalURL string) string {
-	cdnEndpoints := utils.GetCDNEndpoints()
-
-	// 随机测试CDN端点，找到第一个可用的就使用
-	for _, endpoint := range cdnEndpoints {
-		cdnURL := endpoint + originalURL
-		// 测试CDN可用性 - 使用更短的超时时间进行快速检测
-		testCmd := fmt.Sprintf("curl -4 -sL -k --max-time 6 '%s' | head -c 1 >/dev/null 2>&1", cdnURL)
-		if _, err := d.sshClient.Execute(testCmd); err == nil {
-			global.APP_LOG.Info("找到可用CDN，使用CDN下载镜像",
-				zap.String("originalURL", utils.TruncateString(originalURL, 100)),
-				zap.String("cdnURL", utils.TruncateString(cdnURL, 100)),
-				zap.String("cdnEndpoint", endpoint))
-			return cdnURL
-		}
-		// 短暂延迟避免过于频繁的请求
-		// 注意：在Go中我们不能直接sleep，但SSH执行会有自然的延迟
-	}
-
-	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
-		zap.String("originalURL", utils.TruncateString(originalURL, 100)))
-	return ""
-}
-
 // downloadFileToRemote 在远程服务器上下载文件
 func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 	// 使用curl在远程服务器上下载文件
 	tmpPath := remotePath + ".tmp"
 
-	// 构建curl命令，包含超时和重试机制
+	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -L --max-time 1800 --retry 3 --retry-delay 5 -o %s %s && mv %s %s",
-		tmpPath, url, tmpPath, remotePath,
+		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		tmpPath, url,
 	)
 
 	global.APP_LOG.Info("执行远程下载命令",
-		zap.String("command", utils.TruncateString(curlCmd, 200)))
+		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := d.sshClient.Execute(curlCmd)
 	if err != nil {
+		// 清理临时文件
+		d.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+
 		global.APP_LOG.Error("远程下载失败",
 			zap.String("url", utils.TruncateString(url, 100)),
 			zap.String("remotePath", remotePath),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-
-		// 清理临时文件
-		d.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
 		return fmt.Errorf("远程下载失败: %w", err)
+	}
+
+	// 移动文件到最终位置
+	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	_, err = d.sshClient.Execute(mvCmd)
+	if err != nil {
+		global.APP_LOG.Error("移动文件失败",
+			zap.String("tmpPath", tmpPath),
+			zap.String("remotePath", remotePath),
+			zap.Error(err))
+		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
 	global.APP_LOG.Info("远程下载成功",

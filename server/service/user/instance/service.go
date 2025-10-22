@@ -75,6 +75,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		var sshPort int
 		var publicIP string
 		var providerType string
+		var providerStatus string
 
 		// 查找SSH端口映射
 		for _, port := range ports {
@@ -84,11 +85,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			}
 		}
 
-		// 获取Provider信息以获取公网IP（不含端口）和类型
+		// 获取Provider信息以获取公网IP（不含端口）、类型和状态
 		if instance.ProviderID > 0 {
 			var providerInfo providerModel.Provider
 			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
 				providerType = providerInfo.Type
+				providerStatus = providerInfo.Status
 				endpoint := providerInfo.Endpoint
 				if endpoint != "" {
 					// 移除端口号部分，只保留IP
@@ -104,6 +106,15 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 					} else {
 						publicIP = endpoint
 					}
+				}
+
+				// 如果实例状态是unavailable，检查provider是否已经恢复
+				// 如果provider恢复但实例仍是unavailable，保持状态不变（让用户手动处理）
+				if instance.Status == "unavailable" && providerInfo.Status == "active" {
+					global.APP_LOG.Debug("实例处于unavailable状态但provider已恢复",
+						zap.Uint("instance_id", instance.ID),
+						zap.String("instance_name", instance.Name),
+						zap.String("provider_status", providerInfo.Status))
 				}
 			}
 		}
@@ -131,14 +142,15 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		}
 
 		userInstance := userModel.UserInstanceResponse{
-			Instance:     modifiedInstance,
-			CanStart:     instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
-			CanStop:      instance.Status == "running",
-			CanRestart:   instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
-			CanDelete:    instance.Status != "deleting",
-			PortMappings: portMappings,
-			PublicIP:     publicIP,
-			ProviderType: providerType,
+			Instance:       modifiedInstance,
+			CanStart:       instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
+			CanStop:        instance.Status == "running" || instance.Status == "unavailable",
+			CanRestart:     instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
+			CanDelete:      instance.Status != "deleting",
+			PortMappings:   portMappings,
+			PublicIP:       publicIP,
+			ProviderType:   providerType,
+			ProviderStatus: providerStatus,
 		}
 		userInstances = append(userInstances, userInstance)
 	}
@@ -326,6 +338,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	var provider providerModel.Provider
 	if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
 		detail.ProviderName = provider.Name
+		detail.ProviderStatus = provider.Status
 		// 只有当实例没有公网IP时，才使用Provider的endpoint作为fallback
 		if detail.PublicIP == "" {
 			detail.PublicIP = s.extractIPFromEndpoint(provider.Endpoint)

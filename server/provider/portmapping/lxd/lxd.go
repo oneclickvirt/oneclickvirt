@@ -2,14 +2,11 @@ package lxd
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
-	"oneclickvirt/utils"
 	"strconv"
-	"strings"
 
 	"go.uber.org/zap"
 )
@@ -44,12 +41,6 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 		return nil, fmt.Errorf("invalid request: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := l.getInstance(req.InstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %v", err)
-	}
-
 	// 获取Provider信息
 	providerInfo, err := l.getProvider(req.ProviderID)
 	if err != nil {
@@ -65,9 +56,13 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 		}
 	}
 
-	// 使用LXD原生端口映射方法 (proxy device)
-	if err := l.createLXDProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol, providerInfo); err != nil {
-		return nil, fmt.Errorf("failed to create LXD proxy device: %v", err)
+	// 注意：LXD端口映射（proxy device）由provider层的configurePortMappingsWithIP函数处理
+	// 这里只负责数据库记录的管理
+
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
 	}
 
 	// 保存到数据库
@@ -83,7 +78,7 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: l.determineMappingMethod(req, providerInfo),
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 
@@ -91,8 +86,6 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 	portModel := l.BaseProvider.ToDBModel(result)
 	if err := global.APP_DB.Create(portModel).Error; err != nil {
 		global.APP_LOG.Error("Failed to save port mapping to database", zap.Error(err))
-		// 尝试清理已创建的LXD proxy device
-		_ = l.removeLXDProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol)
 		return nil, fmt.Errorf("failed to save port mapping: %v", err)
 	}
 
@@ -120,19 +113,7 @@ func (l *LXDPortMapping) DeletePortMapping(ctx context.Context, req *portmapping
 		return fmt.Errorf("port mapping not found: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := l.getInstance(req.InstanceID)
-	if err != nil {
-		return fmt.Errorf("failed to get instance: %v", err)
-	}
-
-	// 删除LXD proxy device
-	if err := l.removeLXDProxyDevice(ctx, instance, portModel.HostPort, portModel.GuestPort, portModel.Protocol); err != nil {
-		if !req.ForceDelete {
-			return fmt.Errorf("failed to remove LXD proxy device: %v", err)
-		}
-		global.APP_LOG.Warn("Failed to remove LXD proxy device, but force delete is enabled", zap.Error(err))
-	}
+	// 注意：LXD proxy device的删除由provider层处理，这里只管理数据库记录
 
 	// 从数据库删除
 	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
@@ -153,30 +134,14 @@ func (l *LXDPortMapping) UpdatePortMapping(ctx context.Context, req *portmapping
 		return nil, fmt.Errorf("port mapping not found: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := l.getInstance(req.InstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %v", err)
-	}
-
 	// 获取Provider信息
 	providerInfo, err := l.getProvider(portModel.ProviderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	// 如果端口发生变化，需要重新创建proxy device
-	if req.HostPort != portModel.HostPort || req.GuestPort != portModel.GuestPort || req.Protocol != portModel.Protocol {
-		// 删除旧的proxy device
-		if err := l.removeLXDProxyDevice(ctx, instance, portModel.HostPort, portModel.GuestPort, portModel.Protocol); err != nil {
-			global.APP_LOG.Warn("Failed to remove old LXD proxy device", zap.Error(err))
-		}
-
-		// 创建新的proxy device
-		if err := l.createLXDProxyDevice(ctx, instance, req.HostPort, req.GuestPort, req.Protocol, providerInfo); err != nil {
-			return nil, fmt.Errorf("failed to create new LXD proxy device: %v", err)
-		}
-	}
+	// 注意：如果端口发生变化，LXD proxy device的重建由provider层处理
+	// 这里只更新数据库记录
 
 	// 更新数据库记录
 	updates := map[string]interface{}{
@@ -274,139 +239,6 @@ func (l *LXDPortMapping) getProvider(providerID uint) (*provider.Provider, error
 func (l *LXDPortMapping) getPublicIP(providerInfo *provider.Provider) string {
 	// 对于LXD，使用Provider的endpoint作为公网IP
 	return providerInfo.Endpoint
-}
-
-// createLXDProxyDevice 创建LXD proxy device
-func (l *LXDPortMapping) createLXDProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	global.APP_LOG.Info("Creating LXD proxy device",
-		zap.String("instance", instance.Name),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort),
-		zap.String("protocol", protocol))
-
-	// 获取SSH客户端
-	sshClient, err := l.getSSHClient(providerInfo)
-	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %v", err)
-	}
-	defer sshClient.Close()
-
-	// 获取实例IP地址
-	instanceIPCmd := fmt.Sprintf("lxc list %s -c 4 --format csv", instance.Name)
-	instanceIP, err := sshClient.Execute(instanceIPCmd)
-	if err != nil || strings.TrimSpace(instanceIP) == "" {
-		return fmt.Errorf("failed to get instance IP: %v", err)
-	}
-	instanceIP = strings.TrimSpace(strings.Split(instanceIP, " ")[0])
-
-	// 创建proxy设备名称
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-
-	// 获取主机IP地址
-	hostIPCmd := "hostname -I | awk '{print $1}'"
-	hostIP, err := sshClient.Execute(hostIPCmd)
-	if err != nil {
-		return fmt.Errorf("failed to get host IP: %v", err)
-	}
-	hostIP = strings.TrimSpace(hostIP)
-
-	// 创建proxy设备
-	proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
-		instance.Name, deviceName, protocol, hostIP, hostPort, protocol, instanceIP, guestPort)
-
-	_, err = sshClient.Execute(proxyCmd)
-	if err != nil {
-		return fmt.Errorf("failed to create proxy device: %v", err)
-	}
-
-	global.APP_LOG.Info("LXD proxy device created successfully",
-		zap.String("instance", instance.Name),
-		zap.String("device", deviceName))
-
-	return nil
-}
-
-// removeLXDProxyDevice 删除LXD proxy device
-func (l *LXDPortMapping) removeLXDProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	global.APP_LOG.Info("Removing LXD proxy device",
-		zap.String("instance", instance.Name),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort),
-		zap.String("protocol", protocol))
-
-	// 获取Provider信息
-	providerInfo, err := l.getProvider(instance.ProviderID)
-	if err != nil {
-		return fmt.Errorf("failed to get provider: %v", err)
-	}
-
-	// 获取SSH客户端
-	sshClient, err := l.getSSHClient(providerInfo)
-	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %v", err)
-	}
-	defer sshClient.Close()
-
-	// 创建proxy设备名称
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
-
-	// 删除proxy设备
-	removeCmd := fmt.Sprintf("lxc config device remove %s %s", instance.Name, deviceName)
-	_, err = sshClient.Execute(removeCmd)
-	if err != nil {
-		return fmt.Errorf("failed to remove proxy device: %v", err)
-	}
-
-	global.APP_LOG.Info("LXD proxy device removed successfully",
-		zap.String("instance", instance.Name),
-		zap.String("device", deviceName))
-
-	return nil
-}
-
-// getSSHClient 获取SSH客户端
-func (l *LXDPortMapping) getSSHClient(providerInfo *provider.Provider) (*utils.SSHClient, error) {
-	// 解析AuthConfig
-	var authConfig provider.ProviderAuthConfig
-	if providerInfo.AuthConfig != "" {
-		if err := json.Unmarshal([]byte(providerInfo.AuthConfig), &authConfig); err == nil && authConfig.SSH != nil {
-			// 使用完整配置
-		} else {
-			authConfig = provider.ProviderAuthConfig{}
-		}
-	}
-
-	if authConfig.SSH == nil {
-		// 使用基础配置
-		authConfig = provider.ProviderAuthConfig{
-			SSH: &provider.SSHConfig{
-				Host:     strings.Split(providerInfo.Endpoint, ":")[0],
-				Port:     providerInfo.SSHPort,
-				Username: providerInfo.Username,
-				Password: providerInfo.Password,
-			},
-		}
-	}
-
-	if authConfig.SSH == nil {
-		return nil, fmt.Errorf("SSH configuration not found")
-	}
-
-	// 创建SSH配置
-	config := utils.SSHConfig{
-		Host:     authConfig.SSH.Host,
-		Port:     authConfig.SSH.Port,
-		Username: authConfig.SSH.Username,
-		Password: authConfig.SSH.Password,
-	}
-
-	// 创建SSH客户端
-	client, err := utils.NewSSHClient(config)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create SSH client: %v", err)
-	}
-
-	return client, nil
 }
 
 // determineMappingMethod 确定端口映射方法

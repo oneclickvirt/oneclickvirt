@@ -1172,11 +1172,10 @@ func (p *ProxmoxProvider) generateRemoteFileName(imageName, imageURL, architectu
 
 // isRemoteFileValid 检查远程文件是否存在且完整
 func (p *ProxmoxProvider) isRemoteFileValid(remotePath string) bool {
-	output, err := p.sshClient.Execute(fmt.Sprintf("test -f %s && echo 'exists'", remotePath))
-	if err != nil {
-		return false
-	}
-	return strings.TrimSpace(output) == "exists"
+	// 检查文件是否存在且大小大于0
+	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
+	_, err := p.sshClient.Execute(cmd)
+	return err == nil
 }
 
 // removeRemoteFile 删除远程文件
@@ -1221,12 +1220,15 @@ func (p *ProxmoxProvider) queryAndSetSystemImage(ctx context.Context, config *pr
 		return fmt.Errorf("未找到匹配的系统镜像: %w", err)
 	}
 
-	// 设置镜像配置
+	// 设置镜像配置，不在这里添加CDN前缀
+	// CDN前缀应该在实际下载时根据可用性和UseCDN设置动态添加
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
+		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
 		global.APP_LOG.Info("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
-			zap.String("downloadURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.Bool("useCDN", systemImage.UseCDN),
 			zap.String("osType", systemImage.OSType),
 			zap.String("osVersion", systemImage.OSVersion),
 			zap.String("architecture", systemImage.Architecture),
@@ -1270,15 +1272,21 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 			return fmt.Errorf("创建缓存目录失败: %v", err)
 		}
 
+		// 确定下载URL（支持CDN）
+		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+		global.APP_LOG.Info("下载容器镜像",
+			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
+			zap.Bool("useCDN", config.UseCDN))
+
 		// 下载镜像文件
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
+		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, downloadURL)
 		_, err = p.sshClient.Execute(downloadCmd)
 		if err != nil {
 			return fmt.Errorf("下载镜像失败: %v", err)
 		}
 		global.APP_LOG.Info("容器镜像下载完成",
 			zap.String("image_path", localImagePath),
-			zap.String("url", systemConfig.ImageURL))
+			zap.String("url", downloadURL))
 	}
 
 	updateProgress(50, "创建LXC容器...")
@@ -1386,8 +1394,14 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 			return fmt.Errorf("创建qcow目录失败: %v", err)
 		}
 
+		// 确定下载URL（支持CDN）
+		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+		global.APP_LOG.Info("下载虚拟机镜像",
+			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
+			zap.Bool("useCDN", config.UseCDN))
+
 		// 下载镜像文件
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, systemConfig.ImageURL)
+		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, downloadURL)
 		_, err = p.sshClient.Execute(downloadCmd)
 		if err != nil {
 			return fmt.Errorf("下载镜像失败: %v", err)
