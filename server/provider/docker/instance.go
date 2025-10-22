@@ -253,24 +253,32 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(80, "配置端口映射...")
 	// 端口映射参数 - 只映射IPv4端口
 	for _, port := range config.Ports {
-		// 去掉协议部分（如果有的话）
+		// 保留完整的端口映射格式（包括协议）
 		portMapping := port
-		if strings.Contains(port, "/") {
-			portMapping = strings.Split(port, "/")[0]
-		}
 
 		// 检查端口映射格式，确保只映射IPv4
 		if strings.HasPrefix(portMapping, "0.0.0.0:") {
-			// 已经是IPv4格式，直接使用
+			// 已经是IPv4格式（可能包含/tcp或/udp协议），直接使用
 			cmd += fmt.Sprintf(" -p %s", portMapping)
 		} else if strings.Contains(portMapping, ":") {
 			// 如果端口映射中包含冒号但没有IPv4前缀，强制使用0.0.0.0绑定
-			portParts := strings.Split(portMapping, ":")
+			// 需要保留协议部分（如果有）
+			protocol := ""
+			baseMapping := portMapping
+			if strings.Contains(portMapping, "/") {
+				parts := strings.Split(portMapping, "/")
+				baseMapping = parts[0]
+				if len(parts) > 1 {
+					protocol = "/" + parts[1]
+				}
+			}
+
+			portParts := strings.Split(baseMapping, ":")
 			if len(portParts) >= 2 {
-				// 重新构建为IPv4-only格式
+				// 重新构建为IPv4-only格式，保留协议
 				hostPort := portParts[len(portParts)-2]
 				guestPort := portParts[len(portParts)-1]
-				cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s", hostPort, guestPort)
+				cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
 			}
 		} else {
 			// 如果是简单的端口映射格式（如"8080"），假设内外端口相同，添加IPv4前缀
