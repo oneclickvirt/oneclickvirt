@@ -35,22 +35,22 @@ jobs:
             runner: ubuntu-latest
             platform: linux/amd64
             variant: full
-            dockerfile: nginx.dockerfile
+            dockerfile: Dockerfile
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
             variant: full
-            dockerfile: nginx.dockerfile
+            dockerfile: Dockerfile
           - arch: amd64
             runner: ubuntu-latest
             platform: linux/amd64
             variant: no-db
-            dockerfile: nginx.dockerfile.no-db
+            dockerfile: Dockerfile
           - arch: arm64
             runner: ubuntu-24.04-arm
             platform: linux/arm64
             variant: no-db
-            dockerfile: nginx.dockerfile.no-db
+            dockerfile: Dockerfile
     
     steps:
       - name: Checkout
