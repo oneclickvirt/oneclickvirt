@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"oneclickvirt/provider/incus"
+	"oneclickvirt/provider/lxd"
 	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
@@ -1842,25 +1844,9 @@ CreateNewInstance:
 				failCount += failedCount
 			}
 
-			// 处理Both端口（需要分别创建TCP和UDP映射）
+			// 处理Both端口（保持协议为both，在实际映射时会分别创建TCP和UDP）
 			if len(bothPorts) > 0 {
-				// 将both端口转换为tcp端口进行处理
-				tcpVersionPorts := make([]providerModel.Port, len(bothPorts))
-				for i, port := range bothPorts {
-					tcpVersionPorts[i] = port
-					tcpVersionPorts[i].Protocol = "tcp"
-				}
-				processedCount, failedCount := s.restorePortMappingsOptimized(ctx, tcpVersionPorts, instance, provider, manager, portMappingType)
-				successCount += processedCount
-				failCount += failedCount
-
-				// 将both端口转换为udp端口进行处理
-				udpVersionPorts := make([]providerModel.Port, len(bothPorts))
-				for i, port := range bothPorts {
-					udpVersionPorts[i] = port
-					udpVersionPorts[i].Protocol = "udp"
-				}
-				processedCount, failedCount = s.restorePortMappingsOptimized(ctx, udpVersionPorts, instance, provider, manager, portMappingType)
+				processedCount, failedCount := s.restorePortMappingsOptimized(ctx, bothPorts, instance, provider, manager, portMappingType)
 				successCount += processedCount
 				failCount += failedCount
 			}
@@ -2398,6 +2384,56 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			zap.Uint("originalPortId", port.ID))
 	}
 
+	// 对于 LXD/Incus，还需要在远程服务器上实际创建 proxy device
+	if providerInfo.Type == "lxd" || providerInfo.Type == "incus" {
+		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
+
+		// 获取 Provider 实例
+		providerApiService := &provider2.ProviderApiService{}
+		prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+		if err != nil {
+			global.APP_LOG.Error("获取Provider实例失败",
+				zap.Uint("providerId", providerInfo.ID),
+				zap.Error(err))
+			// 更新端口状态为失败
+			global.APP_DB.Model(&port).Update("status", "failed")
+			return fmt.Errorf("获取Provider实例失败: %v", err)
+		}
+
+		// 调用 provider 层的方法在远程服务器上创建实际映射
+		switch providerInfo.Type {
+		case "lxd":
+			lxdProv, ok := prov.(*lxd.LXDProvider)
+			if !ok {
+				return fmt.Errorf("Provider类型断言失败")
+			}
+			// 调用内部方法创建端口映射
+			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, instance.PrivateIP)
+
+		case "incus":
+			incusProv, ok := prov.(*incus.IncusProvider)
+			if !ok {
+				return fmt.Errorf("Provider类型断言失败")
+			}
+			// 调用内部方法创建端口映射
+			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, instance.PrivateIP)
+		}
+
+		if err != nil {
+			global.APP_LOG.Error("在远程服务器上创建端口映射失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("portId", port.ID),
+				zap.Error(err))
+			// 更新端口状态为失败
+			global.APP_DB.Model(&port).Update("status", "failed")
+			return fmt.Errorf("在远程服务器上创建端口映射失败: %v", err)
+		}
+
+		global.APP_LOG.Info("已在远程服务器上应用端口映射",
+			zap.Uint("portId", port.ID),
+			zap.String("providerType", providerInfo.Type))
+	}
+
 	// 更新端口状态为active
 	if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
 		"status":         "active",
@@ -2499,12 +2535,57 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		}
 
 		if err := manager.DeletePortMapping(ctx, portMappingType, deleteReq); err != nil {
-			global.APP_LOG.Warn("从远程服务器删除端口映射失败",
+			global.APP_LOG.Warn("从portmapping manager删除端口映射失败",
 				zap.Uint("portId", port.ID),
 				zap.Int("hostPort", port.HostPort),
 				zap.Error(err))
 			providerDeleteSuccess = false
 			// 继续执行，不阻止数据库记录删除
+		}
+
+		// 对于 LXD/Incus，还需要在远程服务器上实际删除 proxy device
+		if (providerInfo.Type == "lxd" || providerInfo.Type == "incus") && instance.Name != "" {
+			s.updateTaskProgress(task.ID, 70, "正在从远程服务器删除端口映射...")
+
+			// 获取 Provider 实例
+			providerApiService := &provider2.ProviderApiService{}
+			prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+			if err != nil {
+				global.APP_LOG.Warn("获取Provider实例失败，跳过远程删除",
+					zap.Uint("providerId", providerInfo.ID),
+					zap.Error(err))
+				providerDeleteSuccess = false
+			} else {
+				// 调用 provider 层的方法在远程服务器上删除实际映射
+				var deleteErr error
+				switch providerInfo.Type {
+				case "lxd":
+					if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
+						deleteErr = lxdProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, providerInfo.IPv4PortMappingMethod)
+					} else {
+						deleteErr = fmt.Errorf("Provider类型断言失败")
+					}
+
+				case "incus":
+					if incusProv, ok := prov.(*incus.IncusProvider); ok {
+						deleteErr = incusProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, providerInfo.IPv4PortMappingMethod)
+					} else {
+						deleteErr = fmt.Errorf("Provider类型断言失败")
+					}
+				}
+
+				if deleteErr != nil {
+					global.APP_LOG.Warn("从远程服务器删除端口映射失败",
+						zap.Uint("portId", port.ID),
+						zap.String("providerType", providerInfo.Type),
+						zap.Error(deleteErr))
+					providerDeleteSuccess = false
+				} else {
+					global.APP_LOG.Info("已从远程服务器删除端口映射",
+						zap.Uint("portId", port.ID),
+						zap.String("providerType", providerInfo.Type))
+				}
+			}
 		}
 	}
 

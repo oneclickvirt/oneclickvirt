@@ -510,3 +510,116 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 
 	return nil
 }
+
+// removePortMapping 移除端口映射
+func (i *IncusProvider) removePortMapping(instanceName string, hostPort int, protocol string, method string) error {
+	global.APP_LOG.Info("移除端口映射",
+		zap.String("instance", instanceName),
+		zap.Int("hostPort", hostPort),
+		zap.String("protocol", protocol),
+		zap.String("method", method))
+
+	switch method {
+	case "device_proxy":
+		return i.removeDeviceProxyMapping(instanceName, hostPort, protocol)
+	case "iptables":
+		return i.removeIptablesMappingByPort(instanceName, hostPort, protocol)
+	default:
+		// 默认使用device proxy方式
+		return i.removeDeviceProxyMapping(instanceName, hostPort, protocol)
+	}
+}
+
+// removeDeviceProxyMapping 移除Incus device proxy映射
+func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort int, protocol string) error {
+	// 如果是both协议，需要删除TCP和UDP两个设备
+	if protocol == "both" {
+		// 删除TCP设备
+		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
+		tcpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, tcpDeviceName)
+		_, err := i.sshClient.Execute(tcpRemoveCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除TCP proxy设备失败",
+				zap.String("instance", instanceName),
+				zap.String("device", tcpDeviceName),
+				zap.Error(err))
+		}
+
+		// 删除UDP设备
+		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
+		udpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, udpDeviceName)
+		_, err = i.sshClient.Execute(udpRemoveCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除UDP proxy设备失败",
+				zap.String("instance", instanceName),
+				zap.String("device", udpDeviceName),
+				zap.Error(err))
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射移除成功(TCP+UDP)",
+			zap.String("instance", instanceName),
+			zap.Int("hostPort", hostPort))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+		removeCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, deviceName)
+		_, err := i.sshClient.Execute(removeCmd)
+		if err != nil {
+			return fmt.Errorf("移除proxy设备失败: %w", err)
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射移除成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName))
+	}
+
+	return nil
+}
+
+// removeIptablesMappingByPort 移除iptables端口映射（通过端口号）
+func (i *IncusProvider) removeIptablesMappingByPort(instanceName string, hostPort int, protocol string) error {
+	// 获取实例IP
+	instanceIP, err := i.getInstanceIP(instanceName)
+	if err != nil {
+		return fmt.Errorf("获取实例IP失败: %w", err)
+	}
+
+	// 如果是both协议，需要删除TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+
+	for _, proto := range protocols {
+		// 移除DNAT规则
+		dnatCmd := fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s",
+			proto, hostPort, instanceIP)
+
+		_, err = i.sshClient.Execute(dnatCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除DNAT规则失败",
+				zap.String("instance", instanceName),
+				zap.String("protocol", proto),
+				zap.Error(err))
+		}
+
+		// 移除FORWARD规则
+		forwardCmd := fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, hostPort)
+
+		_, err = i.sshClient.Execute(forwardCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除FORWARD规则失败",
+				zap.String("instance", instanceName),
+				zap.String("protocol", proto),
+				zap.Error(err))
+		}
+	}
+
+	global.APP_LOG.Info("Iptables端口映射移除成功",
+		zap.String("instance", instanceName),
+		zap.Int("hostPort", hostPort),
+		zap.String("protocol", protocol))
+
+	return nil
+}

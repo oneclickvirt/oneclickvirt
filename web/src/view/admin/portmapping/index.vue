@@ -202,11 +202,18 @@
               {{ $t('admin.portMapping.statusActive') }}
             </el-tag>
             <el-tag 
-              v-else-if="row.status === 'creating'" 
+              v-else-if="row.status === 'creating' || row.status === 'pending'" 
               type="warning"
             >
               <el-icon class="is-loading"><Loading /></el-icon>
-              {{ $t('admin.portMapping.statusCreating') }}
+              {{ row.status === 'creating' ? $t('admin.portMapping.statusCreating') : $t('admin.portMapping.statusPending') }}
+            </el-tag>
+            <el-tag 
+              v-else-if="row.status === 'deleting'" 
+              type="warning"
+            >
+              <el-icon class="is-loading"><Loading /></el-icon>
+              {{ $t('admin.portMapping.statusDeleting') }}
             </el-tag>
             <el-tag 
               v-else-if="row.status === 'failed'" 
@@ -629,10 +636,13 @@ const loadPortMappings = async () => {
 
 // 检查是否需要自动刷新
 const checkAndStartAutoRefresh = () => {
-  const hasCreatingPorts = portMappings.value.some(port => port.status === 'creating')
+  // 检查是否有正在处理的端口（创建中、删除中、等待中）
+  const hasProcessingPorts = portMappings.value.some(port => 
+    port.status === 'creating' || port.status === 'deleting' || port.status === 'pending'
+  )
   
-  if (hasCreatingPorts) {
-    // 如果有正在创建的端口，启动自动刷新（每5秒刷新一次）
+  if (hasProcessingPorts) {
+    // 如果有正在处理的端口，启动自动刷新（每5秒刷新一次）
     if (!autoRefreshTimer) {
       console.log(t('admin.portMapping.autoRefreshStarted'))
       autoRefreshTimer = setInterval(() => {
@@ -640,7 +650,7 @@ const checkAndStartAutoRefresh = () => {
       }, 5000)
     }
   } else {
-    // 没有正在创建的端口，停止自动刷新
+    // 没有正在处理的端口，停止自动刷新
     if (autoRefreshTimer) {
       console.log(t('admin.portMapping.autoRefreshStopped'))
       clearInterval(autoRefreshTimer)
@@ -703,12 +713,13 @@ const deletePortMappingHandler = async (id) => {
       }
     )
     
-    await deletePortMapping(id)
-    ElMessage.success(t('common.deleteSuccess'))
+    const response = await deletePortMapping(id)
+    // 后端现在返回任务ID，显示任务已创建的消息
+    ElMessage.success(t('admin.portMapping.deletePortTaskCreated'))
     loadPortMappings()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || t('common.deleteFailed'))
+      ElMessage.error(error.message || t('admin.portMapping.deletePortFailed'))
     }
   }
 }
@@ -739,8 +750,24 @@ const batchDeleteDirect = async () => {
     )
     
     const ids = selectedPortMappings.value.map(item => item.id)
-    await batchDeletePortMappings(ids)
-    ElMessage.success(t('admin.portMapping.batchDeleteSuccess', { count: selectedPortMappings.value.length }))
+    const response = await batchDeletePortMappings(ids)
+    
+    // 后端现在返回任务IDs和可能的失败端口
+    const data = response.data || {}
+    const taskIds = data.taskIds || []
+    const failedPorts = data.failedPorts || []
+    
+    if (failedPorts.length > 0) {
+      // 部分成功
+      ElMessage.warning(t('admin.portMapping.batchDeletePartialSuccess', { 
+        success: taskIds.length, 
+        failed: failedPorts.length 
+      }))
+    } else {
+      // 全部成功
+      ElMessage.success(t('admin.portMapping.batchDeleteTasksCreated', { count: taskIds.length }))
+    }
+    
     selectedPortMappings.value = []
     loadPortMappings()
   } catch (error) {

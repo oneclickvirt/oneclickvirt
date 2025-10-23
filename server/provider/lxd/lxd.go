@@ -593,6 +593,16 @@ func (l *LXDProvider) shouldFallbackToSSH() bool {
 	}
 }
 
+// SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
+func (l *LXDProvider) SetupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	return l.setupPortMappingWithIP(instanceName, hostPort, guestPort, protocol, method, instanceIP)
+}
+
+// RemovePortMapping 公开的方法：从远程服务器上删除端口映射（用于手动删除端口）
+func (l *LXDProvider) RemovePortMapping(instanceName string, hostPort int, protocol string, method string) error {
+	return l.removePortMapping(instanceName, hostPort, protocol, method)
+}
+
 func init() {
 	provider.RegisterProvider("lxd", NewLXDProvider)
 }

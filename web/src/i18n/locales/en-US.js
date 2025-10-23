@@ -1644,11 +1644,17 @@ export default {
       onlyLxdIncusProxmoxSupported: 'Only LXD/Incus/Proxmox instances support manually adding ports',
       addPortTaskCreated: 'Port mapping task created, configuring remote server in background, please refresh later to check status',
       addPortFailed: 'Failed to add port mapping',
+      deletePortTaskCreated: 'Port deletion task created, removing port mapping from remote server in background',
+      deletePortSuccess: 'Port deletion task created',
+      deletePortFailed: 'Failed to delete port',
+      batchDeleteTasksCreated: 'Created {count} deletion tasks',
+      batchDeletePartialSuccess: 'Created {success} deletion tasks, {failed} failed',
       totalInstancesFound: 'Found',
       availableInstances: 'available instances',
       showingFirst10: ', showing first 10 (use search to find more)',
       instancesLoadedButNotSupported: 'Loaded {count} instances, but none are supported',
-      addPortFailed: 'Failed to add port'
+      statusDeleting: 'Deleting',
+      statusPending: 'Pending'
     },
     oauth2: {
       title: 'OAuth2 Management',

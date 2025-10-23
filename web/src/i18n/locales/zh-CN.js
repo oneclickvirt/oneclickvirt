@@ -1644,11 +1644,17 @@ export default {
       onlyLxdIncusProxmoxSupported: '只支持 LXD/Incus/Proxmox 实例手动添加端口',
       addPortTaskCreated: '端口映射任务已创建，正在后台配置远程服务器，请稍后刷新查看状态',
       addPortFailed: '添加端口映射失败',
+      deletePortTaskCreated: '端口删除任务已创建，正在后台从远程服务器移除端口映射',
+      deletePortSuccess: '端口删除任务已创建',
+      deletePortFailed: '删除端口失败',
+      batchDeleteTasksCreated: '已创建 {count} 个删除任务',
+      batchDeletePartialSuccess: '已创建 {success} 个删除任务，{failed} 个失败',
       totalInstancesFound: '共找到',
       availableInstances: '个可用实例',
       showingFirst10: '，显示前 10 个（请使用搜索功能查找更多）',
       instancesLoadedButNotSupported: '已加载 {count} 个实例，但都不支持',
-      addPortFailed: '添加端口失败'
+      statusDeleting: '删除中',
+      statusPending: '等待中'
     },
     oauth2: {
       title: 'OAuth2管理',
