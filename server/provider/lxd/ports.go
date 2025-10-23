@@ -115,10 +115,19 @@ func (l *LXDProvider) setupPortRangeMappingWithIP(instanceName string, ports []p
 
 	// 处理Both端口 - 同时创建TCP和UDP映射
 	if len(bothPorts) > 0 {
-		if err := l.setupPortRangeByProtocol(instanceName, bothPorts, "tcp", method, instanceIP); err != nil {
+		// 拆分为tcp和udp端口组
+		tcpVersionPorts := make([]providerModel.Port, len(bothPorts))
+		udpVersionPorts := make([]providerModel.Port, len(bothPorts))
+		for i, port := range bothPorts {
+			tcpVersionPorts[i] = port
+			tcpVersionPorts[i].Protocol = "tcp"
+			udpVersionPorts[i] = port
+			udpVersionPorts[i].Protocol = "udp"
+		}
+		if err := l.setupPortRangeByProtocol(instanceName, tcpVersionPorts, "tcp", method, instanceIP); err != nil {
 			return fmt.Errorf("设置TCP端口范围失败: %w", err)
 		}
-		if err := l.setupPortRangeByProtocol(instanceName, bothPorts, "udp", method, instanceIP); err != nil {
+		if err := l.setupPortRangeByProtocol(instanceName, udpVersionPorts, "udp", method, instanceIP); err != nil {
 			return fmt.Errorf("设置UDP端口范围失败: %w", err)
 		}
 	}

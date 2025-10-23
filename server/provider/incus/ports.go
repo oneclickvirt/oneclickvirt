@@ -370,22 +370,60 @@ func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports [
 		if len(portRange) == 1 {
 			// 单个端口
 			port := portRange[0]
-			err := i.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, port.Protocol, method, instanceIP)
-			if err != nil {
-				global.APP_LOG.Warn("单个端口映射失败",
-					zap.Int("port", port.HostPort),
-					zap.Error(err))
+			if port.Protocol == "both" {
+				// 分别映射 tcp 和 udp
+				tcpPort := port
+				tcpPort.Protocol = "tcp"
+				err := i.setupPortMappingWithIP(instanceName, tcpPort.HostPort, tcpPort.GuestPort, "tcp", method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败(tcp)",
+						zap.Int("port", tcpPort.HostPort),
+						zap.Error(err))
+				}
+				udpPort := port
+				udpPort.Protocol = "udp"
+				err = i.setupPortMappingWithIP(instanceName, udpPort.HostPort, udpPort.GuestPort, "udp", method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败(udp)",
+						zap.Int("port", udpPort.HostPort),
+						zap.Error(err))
+				}
+			} else {
+				err := i.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, port.Protocol, method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败",
+						zap.Int("port", port.HostPort),
+						zap.Error(err))
+				}
 			}
 		} else {
 			// 端口范围
 			startPort := portRange[0]
 			endPort := portRange[len(portRange)-1]
-			err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, startPort.Protocol)
-			if err != nil {
-				global.APP_LOG.Warn("端口范围映射失败",
-					zap.Int("startPort", startPort.HostPort),
-					zap.Int("endPort", endPort.HostPort),
-					zap.Error(err))
+			if startPort.Protocol == "both" {
+				// 分别映射 tcp 和 udp
+				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "tcp")
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败(tcp)",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
+				err = i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "udp")
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败(udp)",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
+			} else {
+				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, startPort.Protocol)
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
 			}
 		}
 	}

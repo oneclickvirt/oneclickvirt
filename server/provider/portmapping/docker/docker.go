@@ -538,8 +538,13 @@ func (d *DockerPortMapping) filterPortMappings(existingPorts string, excludeHost
 							if len(guestParts) == 2 {
 								guestPortStr := guestParts[0]
 								protocol := guestParts[1]
-								if guestPortStr == strconv.Itoa(excludeGuestPort) && protocol == excludeProtocol {
-									shouldExclude = true
+								// 如果 excludeProtocol 是 "both"，需要排除 tcp 和 udp 两条规则
+								if guestPortStr == strconv.Itoa(excludeGuestPort) {
+									if excludeProtocol == "both" {
+										shouldExclude = (protocol == "tcp" || protocol == "udp")
+									} else if protocol == excludeProtocol {
+										shouldExclude = true
+									}
 								}
 							}
 						} else if guestPart == strconv.Itoa(excludeGuestPort) {
