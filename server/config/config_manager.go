@@ -568,8 +568,30 @@ func (cm *ConfigManager) saveConfigToDB(key string, value interface{}) error {
 
 // saveConfigToDBWithTx 使用事务保存配置到数据库
 func (cm *ConfigManager) saveConfigToDBWithTx(tx *gorm.DB, key string, value interface{}) error {
-	// 将value转换为字符串
-	valueStr := fmt.Sprintf("%v", value)
+	// 将value转换为字符串，处理nil值
+	var valueStr string
+	if value == nil {
+		// 对于nil值，记录警告并跳过保存
+		cm.logger.Warn("尝试保存nil配置值", zap.String("key", key))
+		return fmt.Errorf("cannot save nil value for key: %s", key)
+	}
+
+	// 对于空字符串、空切片等，也需要特别处理
+	switch v := value.(type) {
+	case string:
+		valueStr = v
+	case int, int8, int16, int32, int64:
+		valueStr = fmt.Sprintf("%d", v)
+	case uint, uint8, uint16, uint32, uint64:
+		valueStr = fmt.Sprintf("%d", v)
+	case float32, float64:
+		valueStr = fmt.Sprintf("%v", v)
+	case bool:
+		valueStr = fmt.Sprintf("%t", v)
+	default:
+		// 对于复杂类型，使用fmt.Sprintf，但此时已经排除了nil
+		valueStr = fmt.Sprintf("%v", v)
+	}
 
 	config := SystemConfig{
 		Key:   key,
@@ -713,6 +735,11 @@ func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
 
 // setNodeValue 设置节点的值
 func setNodeValue(node *yaml.Node, value interface{}) error {
+	// 处理nil值 - 不应该将nil写入配置文件
+	if value == nil {
+		return fmt.Errorf("cannot set nil value to YAML node")
+	}
+
 	switch v := value.(type) {
 	case string:
 		node.Kind = yaml.ScalarNode
