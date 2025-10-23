@@ -2672,14 +2672,19 @@ const submitAddServer = async () => {
       return
     }
     
-    // 验证SSH认证方式（创建和编辑都需要验证）
-    if (addProviderForm.authMethod === 'password' && !addProviderForm.password) {
-      ElMessage.error(t('admin.providers.passwordRequired'))
-      return
-    }
-    if (addProviderForm.authMethod === 'sshKey' && !addProviderForm.sshKey) {
-      ElMessage.error(t('admin.providers.sshKeyRequired'))
-      return
+    // 验证SSH认证方式
+    // 创建模式：必须提供认证信息
+    // 编辑模式：留空表示不修改，只有在切换认证方式时才需要验证
+    if (!isEditing.value) {
+      // 创建模式：必须提供认证信息
+      if (addProviderForm.authMethod === 'password' && !addProviderForm.password) {
+        ElMessage.error(t('admin.providers.passwordRequired'))
+        return
+      }
+      if (addProviderForm.authMethod === 'sshKey' && !addProviderForm.sshKey) {
+        ElMessage.error(t('admin.providers.sshKeyRequired'))
+        return
+      }
     }
     
     addProviderLoading.value = true
@@ -2761,24 +2766,22 @@ const submitAddServer = async () => {
       serverData.ipv6PortMappingMethod = addProviderForm.ipv6PortMappingMethod || 'device_proxy'
     }
 
-    // 密码和SSH密钥的处理逻辑：根据当前选择的认证方式决定发送哪个字段
-    if (addProviderForm.authMethod === 'password') {
-      // 选择密码认证：发送密码，清空SSH密钥
+    // 密码和SSH密钥的处理逻辑
+    if (isEditing.value) {
+      // 编辑模式：只有实际填写了内容才发送对应字段
+      // 如果留空，则不发送该字段（后端会保持原值）
       if (addProviderForm.password) {
         serverData.password = addProviderForm.password
       }
-      // 编辑模式下如果要切换到密码认证，需要明确清空SSH密钥
-      if (isEditing.value) {
-        serverData.sshKey = '' // 明确清空SSH密钥
-      }
-    } else if (addProviderForm.authMethod === 'sshKey') {
-      // 选择SSH密钥认证：发送SSH密钥，清空密码
       if (addProviderForm.sshKey) {
         serverData.sshKey = addProviderForm.sshKey
       }
-      // 编辑模式下如果要切换到SSH密钥认证，需要明确清空密码
-      if (isEditing.value) {
-        serverData.password = '' // 明确清空密码
+    } else {
+      // 创建模式：根据认证方式发送对应字段
+      if (addProviderForm.authMethod === 'password') {
+        serverData.password = addProviderForm.password
+      } else if (addProviderForm.authMethod === 'sshKey') {
+        serverData.sshKey = addProviderForm.sshKey
       }
     }
 

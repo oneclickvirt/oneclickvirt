@@ -350,37 +350,49 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.Username = req.Username
 
 	// 密码和SSH密钥的更新逻辑（使用指针以区分"未提供"和"空值"）：
-	// - nil: 不修改（前端未提供该字段）
+	// - nil: 不修改（前端未提供该字段，保持原值）
 	// - 指向空字符串: 清空该字段（切换到另一种认证方式）
 	// - 指向非空字符串: 更新为新值
 
-	// 临时保存当前值，用于验证
+	// 临时保存更新后的值，用于验证
 	newPassword := provider.Password
 	newSSHKey := provider.SSHKey
 
+	// 是否修改了密码
+	passwordChanged := false
 	if req.Password != nil {
 		newPassword = *req.Password
+		passwordChanged = true
 		global.APP_LOG.Debug("更新Provider密码",
 			zap.Uint("providerID", req.ID),
 			zap.Bool("isEmpty", *req.Password == ""))
 	}
+
+	// 是否修改了SSH密钥
+	sshKeyChanged := false
 	if req.SSHKey != nil {
 		newSSHKey = *req.SSHKey
+		sshKeyChanged = true
 		global.APP_LOG.Debug("更新Provider SSH密钥",
 			zap.Uint("providerID", req.ID),
 			zap.Bool("isEmpty", *req.SSHKey == ""))
 	}
 
 	// 验证：更新后必须至少保留一种认证方式
-	if newPassword == "" && newSSHKey == "" {
+	// 只有在实际修改了认证字段时才进行验证
+	if (passwordChanged || sshKeyChanged) && newPassword == "" && newSSHKey == "" {
 		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
 			zap.Uint("providerID", req.ID))
 		return fmt.Errorf("必须保留至少一种SSH认证方式（密码或密钥）")
 	}
 
-	// 应用更新
-	provider.Password = newPassword
-	provider.SSHKey = newSSHKey
+	// 应用更新（只有在字段被修改时才更新）
+	if passwordChanged {
+		provider.Password = newPassword
+	}
+	if sshKeyChanged {
+		provider.SSHKey = newSSHKey
+	}
 	provider.Token = req.Token
 	provider.Config = req.Config
 	provider.Region = req.Region
