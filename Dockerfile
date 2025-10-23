@@ -44,7 +44,8 @@ RUN mkdir -p /var/lib/mysql /var/log/mysql /var/run/mysqld /var/log/supervisor \
     && mkdir -p /etc/mysql/conf.d
 
 COPY --from=backend-builder /app/server/main ./main
-COPY --from=backend-builder /app/server/config.yaml ./config.yaml
+COPY --from=backend-builder /app/server/config.yaml ./config.yaml.default
+RUN if [ ! -f /app/config.yaml ]; then mv /app/config.yaml.default /app/config.yaml; else rm /app/config.yaml.default; fi
 COPY --from=frontend-builder /app/web/dist /var/www/html
 
 RUN mkdir -p /var/run/mysqld && \

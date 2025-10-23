@@ -17,9 +17,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20251023` | 一体化版本特定日期版本 | 需要固定版本 |
+| `spiritlhl/oneclickvirt:20251016` | 一体化版本特定日期版本 | 需要固定版本 |
 | `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20251023` | 独立数据库版本特定日期 | 不内置数据库 |
+| `spiritlhl/oneclickvirt:no-db-20251016` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 
@@ -34,6 +34,7 @@ docker run -d \
   -p 80:80 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:latest
 ```
@@ -49,6 +50,7 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:latest
 ```
@@ -62,6 +64,7 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
@@ -84,6 +87,7 @@ docker run -d \
   -e DB_USER="root" \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:no-db
 ```
@@ -118,6 +122,7 @@ docker run -d \
   -p 80:80 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   oneclickvirt
 ```
@@ -138,6 +143,7 @@ docker run -d \
   -e DB_USER="root" \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```

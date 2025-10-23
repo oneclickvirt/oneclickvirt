@@ -17,9 +17,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20251023` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20251016` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20251023` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20251016` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -34,6 +34,7 @@ docker run -d \
   -p 80:80 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:latest
 ```
@@ -49,6 +50,7 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:latest
 ```
@@ -62,6 +64,7 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
@@ -84,6 +87,7 @@ docker run -d \
   -e DB_USER="root" \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   spiritlhl/oneclickvirt:no-db
 ```
@@ -118,6 +122,7 @@ docker run -d \
   -p 80:80 \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   oneclickvirt
 ```
@@ -138,6 +143,7 @@ docker run -d \
   -e DB_USER="root" \
   -e DB_PASSWORD="your-password" \
   -v oneclickvirt-storage:/app/storage \
+  -v oneclickvirt-config:/app/config.yaml \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```
