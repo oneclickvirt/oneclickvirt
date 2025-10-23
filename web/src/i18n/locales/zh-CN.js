@@ -223,6 +223,30 @@ export default {
       email: '用户邮箱',
       emailPlaceholder: '请输入用户邮箱'
     },
+    validation: {
+      passwordMismatch: '两次输入的密码不一致',
+      passwordRequired: '请输入密码',
+      passwordMinLength: '密码长度至少8位',
+      passwordUppercase: '密码必须包含大写字母',
+      passwordLowercase: '密码必须包含小写字母',
+      passwordNumber: '密码必须包含数字',
+      passwordSpecialChar: '密码必须包含特殊字符(!@#$%^&*等)',
+      adminUsernameRequired: '请输入管理员用户名',
+      userUsernameRequired: '请输入用户名',
+      usernameLength: '用户名长度在 3 到 20 个字符',
+      adminPasswordRequired: '请输入管理员密码',
+      userPasswordRequired: '请输入用户密码',
+      confirmPasswordRequired: '请确认密码',
+      adminEmailRequired: '请输入管理员邮箱',
+      userEmailRequired: '请输入用户邮箱',
+      emailFormat: '请输入正确的邮箱格式',
+      dbTypeRequired: '请选择数据库类型',
+      dbHostRequired: '请输入数据库地址',
+      dbPortRequired: '请输入数据库端口',
+      dbPortNumber: '端口必须为数字',
+      dbNameRequired: '请输入数据库名称',
+      dbUsernameRequired: '请输入数据库用户名'
+    },
     messages: {
       defaultsFilled: '已填入默认信息',
       formNotReady: '数据库配置表单未准备好',
@@ -232,10 +256,22 @@ export default {
       dbTestFailed: '数据库连接测试失败',
       initSuccess: '系统初始化成功！正在跳转到首页...',
       initFailed: '系统初始化失败',
-      initRetry: '系统初始化失败，请重试'
+      initRetry: '系统初始化失败，请重试',
+      alreadyInitialized: '系统已完成初始化，正在跳转到首页...'
     },
     debug: {
-      pageMounted: 'Init页面已挂载，启动轮询检查'
+      pageMounted: 'Init页面已挂载，启动轮询检查',
+      checkingStatus: '检查初始化状态:',
+      alreadyInitialized: '系统已初始化，跳转到首页',
+      checkStatusFailed: '检查初始化状态失败:',
+      dbTypeChanged: '数据库类型变更为:',
+      serverRecommendedDb: '服务器推荐的数据库类型:',
+      recommendedDbFailed: '获取推荐数据库类型失败，使用客户端检测:',
+      armRecommendMariadb: 'ARM64架构推荐使用MariaDB',
+      amdRecommendMysql: 'AMD64架构推荐使用MySQL',
+      defaultMysql: '默认推荐使用MySQL',
+      detectedDbType: '检测到的数据库类型:',
+      pageUnmounted: 'Init页面卸载，清除轮询'
     }
   },
   home: {
@@ -1793,21 +1829,6 @@ export default {
     noData: '暂无数据',
     loadingData: '正在加载数据...',
     pleaseWait: '请稍候...'
-  },
-  init: {
-    title: '系统初始化',
-    welcome: '欢迎使用 OneClickVirt',
-    description: '请完成以下步骤初始化系统',
-    step1: '数据库配置',
-    step2: '管理员账号',
-    step3: '系统设置',
-    step4: '完成',
-    next: '下一步',
-    previous: '上一步',
-    finish: '完成初始化',
-    initializing: '正在初始化...',
-    initSuccess: '系统初始化成功',
-    initFailed: '系统初始化失败'
   },
   notFound: {
     title: '404',

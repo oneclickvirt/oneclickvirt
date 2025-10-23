@@ -353,7 +353,7 @@ const initForm = reactive({
 
 const validateAdminConfirmPassword = (rule, value, callback) => {
   if (value !== initForm.admin.password) {
-    callback(new Error('两次输入的密码不一致'))
+    callback(new Error(t('init.validation.passwordMismatch')))
   } else {
     callback()
   }
@@ -361,7 +361,7 @@ const validateAdminConfirmPassword = (rule, value, callback) => {
 
 const validateUserConfirmPassword = (rule, value, callback) => {
   if (value !== initForm.user.password) {
-    callback(new Error('两次输入的密码不一致'))
+    callback(new Error(t('init.validation.passwordMismatch')))
   } else {
     callback()
   }
@@ -369,32 +369,32 @@ const validateUserConfirmPassword = (rule, value, callback) => {
 
 const validatePassword = (rule, value, callback) => {
   if (!value) {
-    callback(new Error('请输入密码'))
+    callback(new Error(t('init.validation.passwordRequired')))
     return
   }
   
   if (value.length < 8) {
-    callback(new Error('密码长度至少8位'))
+    callback(new Error(t('init.validation.passwordMinLength')))
     return
   }
   
   if (!/[A-Z]/.test(value)) {
-    callback(new Error('密码必须包含大写字母'))
+    callback(new Error(t('init.validation.passwordUppercase')))
     return
   }
   
   if (!/[a-z]/.test(value)) {
-    callback(new Error('密码必须包含小写字母'))
+    callback(new Error(t('init.validation.passwordLowercase')))
     return
   }
   
   if (!/[0-9]/.test(value)) {
-    callback(new Error('密码必须包含数字'))
+    callback(new Error(t('init.validation.passwordNumber')))
     return
   }
   
   if (!/[!@#$%^&*()_+\-=\[\]{};':"\\|,.<>\/?]/.test(value)) {
-    callback(new Error('密码必须包含特殊字符(!@#$%^&*等)'))
+    callback(new Error(t('init.validation.passwordSpecialChar')))
     return
   }
   
@@ -403,59 +403,59 @@ const validatePassword = (rule, value, callback) => {
 
 const adminRules = {
   username: [
-    { required: true, message: '请输入管理员用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
+    { required: true, message: t('init.validation.adminUsernameRequired'), trigger: 'blur' },
+    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入管理员密码', trigger: 'blur' },
+    { required: true, message: t('init.validation.adminPasswordRequired'), trigger: 'blur' },
     { validator: validatePassword, trigger: 'blur' }
   ],
   confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
+    { required: true, message: t('init.validation.confirmPasswordRequired'), trigger: 'blur' },
     { validator: validateAdminConfirmPassword, trigger: 'blur' }
   ],
   email: [
-    { required: true, message: '请输入管理员邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+    { required: true, message: t('init.validation.adminEmailRequired'), trigger: 'blur' },
+    { type: 'email', message: t('init.validation.emailFormat'), trigger: 'blur' }
   ]
 }
 
 const userRules = {
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' },
-    { min: 3, max: 20, message: '用户名长度在 3 到 20 个字符', trigger: 'blur' }
+    { required: true, message: t('init.validation.userUsernameRequired'), trigger: 'blur' },
+    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' }
   ],
   password: [
-    { required: true, message: '请输入用户密码', trigger: 'blur' },
+    { required: true, message: t('init.validation.userPasswordRequired'), trigger: 'blur' },
     { validator: validatePassword, trigger: 'blur' }
   ],
   confirmPassword: [
-    { required: true, message: '请确认密码', trigger: 'blur' },
+    { required: true, message: t('init.validation.confirmPasswordRequired'), trigger: 'blur' },
     { validator: validateUserConfirmPassword, trigger: 'blur' }
   ],
   email: [
-    { required: true, message: '请输入用户邮箱', trigger: 'blur' },
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+    { required: true, message: t('init.validation.userEmailRequired'), trigger: 'blur' },
+    { type: 'email', message: t('init.validation.emailFormat'), trigger: 'blur' }
   ]
 }
 
 // 数据库配置验证规则
 const databaseRules = {
   type: [
-    { required: true, message: '请选择数据库类型', trigger: 'change' }
+    { required: true, message: t('init.validation.dbTypeRequired'), trigger: 'change' }
   ],
   host: [
-    { required: true, message: '请输入数据库地址', trigger: 'blur' }
+    { required: true, message: t('init.validation.dbHostRequired'), trigger: 'blur' }
   ],
   port: [
-    { required: true, message: '请输入数据库端口', trigger: 'blur' },
-    { pattern: /^\d+$/, message: '端口必须为数字', trigger: 'blur' }
+    { required: true, message: t('init.validation.dbPortRequired'), trigger: 'blur' },
+    { pattern: /^\d+$/, message: t('init.validation.dbPortNumber'), trigger: 'blur' }
   ],
   database: [
-    { required: true, message: '请输入数据库名称', trigger: 'blur' }
+    { required: true, message: t('init.validation.dbNameRequired'), trigger: 'blur' }
   ],
   username: [
-    { required: true, message: '请输入数据库用户名', trigger: 'blur' }
+    { required: true, message: t('init.validation.dbUsernameRequired'), trigger: 'blur' }
   ]
 }
 
@@ -464,16 +464,16 @@ const databaseRules = {
 const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
-    console.log('检查初始化状态:', response)
+    console.log(t('init.debug.checkingStatus'), response)
 
     if (response && response.code === 0 && response.data && response.data.needInit === false) {
-      console.log('系统已初始化，跳转到首页')
-      ElMessage.info('系统已完成初始化，正在跳转到首页...')
+      console.log(t('init.debug.alreadyInitialized'))
+      ElMessage.info(t('init.messages.alreadyInitialized'))
       clearPolling()
       router.push('/home')
     }
   } catch (error) {
-    console.error('检查初始化状态失败:', error)
+    console.error(t('init.debug.checkStatusFailed'), error)
   }
 }
 
@@ -498,7 +498,7 @@ const handleTabClick = (tab) => {
 
 // 数据库类型变化处理
 const onDatabaseTypeChange = (type) => {
-  console.log('数据库类型变更为:', type)
+  console.log(t('init.debug.dbTypeChanged'), type)
   // 根据数据库类型调整默认端口
   if (type === 'mysql' || type === 'mariadb') {
     databaseForm.port = '3306'
@@ -511,7 +511,7 @@ const detectDatabaseType = async () => {
     // 尝试从后端API获取推荐的数据库类型
     const response = await get('/v1/public/recommended-db-type')
     if (response && response.code === 0 && response.data) {
-      console.log('服务器推荐的数据库类型:', response.data)
+      console.log(t('init.debug.serverRecommendedDb'), response.data)
       return {
         type: response.data.recommendedType,
         reason: response.data.reason,
@@ -519,7 +519,7 @@ const detectDatabaseType = async () => {
       }
     }
   } catch (error) {
-    console.warn('获取推荐数据库类型失败，使用客户端检测:', error)
+    console.warn(t('init.debug.recommendedDbFailed'), error)
   }
   
   // 如果API调用失败，回退到客户端检测
@@ -530,13 +530,13 @@ const detectDatabaseType = async () => {
   if (platform.includes('arm') || platform.includes('aarch64')) {
     return {
       type: 'mariadb',
-      reason: 'ARM64架构推荐使用MariaDB',
+      reason: t('init.debug.armRecommendMariadb'),
       architecture: 'ARM64'
     }
   } else if (platform.includes('x86') || platform.includes('intel') || platform.includes('amd64')) {
     return {
       type: 'mysql', 
-      reason: 'AMD64架构推荐使用MySQL',
+      reason: t('init.debug.amdRecommendMysql'),
       architecture: 'AMD64'
     }
   }
@@ -544,7 +544,7 @@ const detectDatabaseType = async () => {
   // 默认使用MySQL
   return {
     type: 'mysql',
-    reason: '默认推荐使用MySQL',
+    reason: t('init.debug.defaultMysql'),
     architecture: 'Unknown'
   }
 }
@@ -669,7 +669,7 @@ onMounted(async () => {
   
   // 自动检测并设置数据库类型
   const detection = await detectDatabaseType()
-  console.log('检测到的数据库类型:', detection)
+  console.log(t('init.debug.detectedDbType'), detection)
   databaseForm.type = detection.type
   dbRecommendation.value = detection
   
@@ -677,7 +677,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  console.log('Init页面卸载，清除轮询')
+  console.log(t('init.debug.pageUnmounted'))
   clearPolling()
 })
 </script>

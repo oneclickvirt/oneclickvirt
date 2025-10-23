@@ -223,6 +223,30 @@ export default {
       email: 'User Email',
       emailPlaceholder: 'Enter user email'
     },
+    validation: {
+      passwordMismatch: 'Passwords do not match',
+      passwordRequired: 'Please enter password',
+      passwordMinLength: 'Password must be at least 8 characters',
+      passwordUppercase: 'Password must contain uppercase letters',
+      passwordLowercase: 'Password must contain lowercase letters',
+      passwordNumber: 'Password must contain numbers',
+      passwordSpecialChar: 'Password must contain special characters (!@#$%^&*, etc.)',
+      adminUsernameRequired: 'Please enter admin username',
+      userUsernameRequired: 'Please enter username',
+      usernameLength: 'Username length must be between 3 and 20 characters',
+      adminPasswordRequired: 'Please enter admin password',
+      userPasswordRequired: 'Please enter user password',
+      confirmPasswordRequired: 'Please confirm password',
+      adminEmailRequired: 'Please enter admin email',
+      userEmailRequired: 'Please enter user email',
+      emailFormat: 'Please enter a valid email format',
+      dbTypeRequired: 'Please select database type',
+      dbHostRequired: 'Please enter database host',
+      dbPortRequired: 'Please enter database port',
+      dbPortNumber: 'Port must be a number',
+      dbNameRequired: 'Please enter database name',
+      dbUsernameRequired: 'Please enter database username'
+    },
     messages: {
       defaultsFilled: 'Default information filled',
       formNotReady: 'Database configuration form not ready',
@@ -232,10 +256,22 @@ export default {
       dbTestFailed: 'Database connection test failed',
       initSuccess: 'System initialization successful! Redirecting to homepage...',
       initFailed: 'System initialization failed',
-      initRetry: 'System initialization failed, please try again'
+      initRetry: 'System initialization failed, please try again',
+      alreadyInitialized: 'System initialization complete, redirecting to homepage...'
     },
     debug: {
-      pageMounted: 'Init page mounted, starting polling check'
+      pageMounted: 'Init page mounted, starting polling check',
+      checkingStatus: 'Checking initialization status:',
+      alreadyInitialized: 'System already initialized, redirecting to homepage',
+      checkStatusFailed: 'Failed to check initialization status:',
+      dbTypeChanged: 'Database type changed to:',
+      serverRecommendedDb: 'Server recommended database type:',
+      recommendedDbFailed: 'Failed to get recommended database type, using client detection:',
+      armRecommendMariadb: 'ARM64 architecture recommended to use MariaDB',
+      amdRecommendMysql: 'AMD64 architecture recommended to use MySQL',
+      defaultMysql: 'Default recommended to use MySQL',
+      detectedDbType: 'Detected database type:',
+      pageUnmounted: 'Init page unmounted, clearing polling'
     }
   },
   home: {
@@ -1793,21 +1829,6 @@ export default {
     noData: 'No data',
     loadingData: 'Loading data...',
     pleaseWait: 'Please wait...'
-  },
-  init: {
-    title: 'System Initialization',
-    welcome: 'Welcome to OneClickVirt',
-    description: 'Please complete the following steps to initialize the system',
-    step1: 'Database Configuration',
-    step2: 'Admin Account',
-    step3: 'System Settings',
-    step4: 'Complete',
-    next: 'Next',
-    previous: 'Previous',
-    finish: 'Finish Initialization',
-    initializing: 'Initializing...',
-    initSuccess: 'System initialization successful',
-    initFailed: 'System initialization failed'
   },
   notFound: {
     title: '404',
