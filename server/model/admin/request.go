@@ -47,6 +47,7 @@ type CreateProviderRequest struct {
 	SSHPort               int    `json:"sshPort"`
 	Username              string `json:"username"`
 	Password              string `json:"password"`
+	SSHKey                string `json:"sshKey"` // SSH私钥，优先于密码使用
 	Token                 string `json:"token"`
 	Config                string `json:"config"`
 	Region                string `json:"region"`
@@ -92,32 +93,33 @@ type CreateProviderRequest struct {
 }
 
 type UpdateProviderRequest struct {
-	ID                    uint   `json:"id"`
-	Name                  string `json:"name"`
-	Type                  string `json:"type"`
-	Endpoint              string `json:"endpoint"`
-	SSHPort               int    `json:"sshPort"`
-	Username              string `json:"username"`
-	Password              string `json:"password"`
-	Token                 string `json:"token"`
-	Config                string `json:"config"`
-	Region                string `json:"region"`
-	Country               string `json:"country"`
-	CountryCode           string `json:"countryCode"`
-	City                  string `json:"city"`
-	Architecture          string `json:"architecture"`
-	ContainerEnabled      bool   `json:"container_enabled"`
-	VirtualMachineEnabled bool   `json:"vm_enabled"`
-	TotalQuota            int    `json:"totalQuota"`
-	AllowClaim            bool   `json:"allowClaim"`
-	Status                string `json:"status"`
-	ExpiresAt             string `json:"expiresAt"`             // 过期时间，格式: "2006-01-02 15:04:05"
-	MaxContainerInstances int    `json:"maxContainerInstances"` // 最大容器数量限制
-	MaxVMInstances        int    `json:"maxVMInstances"`        // 最大虚拟机数量限制
-	AllowConcurrentTasks  bool   `json:"allowConcurrentTasks"`  // 是否允许并发任务，默认false
-	MaxConcurrentTasks    int    `json:"maxConcurrentTasks"`    // 最大并发任务数，默认1
-	TaskPollInterval      int    `json:"taskPollInterval"`      // 任务轮询间隔（秒），默认60秒
-	EnableTaskPolling     bool   `json:"enableTaskPolling"`     // 是否启用任务轮询，默认true
+	ID                    uint    `json:"id"`
+	Name                  string  `json:"name"`
+	Type                  string  `json:"type"`
+	Endpoint              string  `json:"endpoint"`
+	SSHPort               int     `json:"sshPort"`
+	Username              string  `json:"username"`
+	Password              *string `json:"password,omitempty"` // 使用指针以区分"未提供"和"空值"
+	SSHKey                *string `json:"sshKey,omitempty"`   // SSH私钥，使用指针以区分"未提供"和"空值"
+	Token                 string  `json:"token"`
+	Config                string  `json:"config"`
+	Region                string  `json:"region"`
+	Country               string  `json:"country"`
+	CountryCode           string  `json:"countryCode"`
+	City                  string  `json:"city"`
+	Architecture          string  `json:"architecture"`
+	ContainerEnabled      bool    `json:"container_enabled"`
+	VirtualMachineEnabled bool    `json:"vm_enabled"`
+	TotalQuota            int     `json:"totalQuota"`
+	AllowClaim            bool    `json:"allowClaim"`
+	Status                string  `json:"status"`
+	ExpiresAt             string  `json:"expiresAt"`             // 过期时间，格式: "2006-01-02 15:04:05"
+	MaxContainerInstances int     `json:"maxContainerInstances"` // 最大容器数量限制
+	MaxVMInstances        int     `json:"maxVMInstances"`        // 最大虚拟机数量限制
+	AllowConcurrentTasks  bool    `json:"allowConcurrentTasks"`  // 是否允许并发任务，默认false
+	MaxConcurrentTasks    int     `json:"maxConcurrentTasks"`    // 最大并发任务数，默认1
+	TaskPollInterval      int     `json:"taskPollInterval"`      // 任务轮询间隔（秒），默认60秒
+	EnableTaskPolling     bool    `json:"enableTaskPolling"`     // 是否启用任务轮询，默认true
 	// 存储配置（ProxmoxVE专用）
 	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器
 	// 操作执行配置

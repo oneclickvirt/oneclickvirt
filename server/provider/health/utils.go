@@ -279,11 +279,45 @@ func (phc *ProviderHealthChecker) CheckAPIConnection(ctx context.Context, provid
 
 // GetSystemResourceInfo 通过SSH获取系统资源信息
 func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, host, username, password string, port int) (*ResourceInfo, error) {
+	return phc.GetSystemResourceInfoWithKey(ctx, host, username, password, "", port)
+}
+
+// GetSystemResourceInfoWithKey 通过SSH获取系统资源信息（支持SSH密钥）
+func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, host, username, password, privateKey string, port int) (*ResourceInfo, error) {
+	// 构建认证方法：优先使用SSH密钥，否则使用密码
+	var authMethods []ssh.AuthMethod
+
+	// 如果提供了SSH私钥，优先使用密钥认证
+	if privateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+		if err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+			if phc.logger != nil {
+				phc.logger.Debug("使用SSH密钥认证获取资源信息", zap.String("host", host))
+			}
+		} else if phc.logger != nil {
+			phc.logger.Warn("SSH私钥解析失败，将尝试使用密码认证",
+				zap.String("host", host),
+				zap.Error(err))
+		}
+	}
+
+	// 如果没有密钥或密钥解析失败，且提供了密码，使用密码认证
+	if len(authMethods) == 0 && password != "" {
+		authMethods = append(authMethods, ssh.Password(password))
+		if phc.logger != nil {
+			phc.logger.Debug("使用SSH密码认证获取资源信息", zap.String("host", host))
+		}
+	}
+
+	// 如果既没有密钥也没有密码，返回错误
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
+	}
+
 	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
+		User:            username,
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         30 * time.Second,
 	}

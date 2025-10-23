@@ -75,6 +75,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 		Port:           config.Port,
 		Username:       config.Username,
 		Password:       config.Password,
+		PrivateKey:     config.PrivateKey,
 		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
 		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
 	}
@@ -99,6 +100,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 		Port:          config.Port,
 		Username:      config.Username,
 		Password:      config.Password,
+		PrivateKey:    config.PrivateKey,
 		APIEnabled:    p.hasAPIAccess(),
 		APIPort:       8006,
 		APIScheme:     "https",

@@ -21,6 +21,7 @@ type Provider struct {
 	SSHPort  int    `json:"sshPort" gorm:"default:22"`                // SSH连接端口
 	Username string `json:"username" gorm:"size:128"`                 // SSH连接用户名
 	Password string `json:"-" gorm:"size:255"`                        // SSH连接密码（不返回给前端）
+	SSHKey   string `json:"-" gorm:"type:text"`                       // SSH私钥（不返回给前端，优先于密码使用）
 	Token    string `json:"-" gorm:"size:255"`                        // API访问令牌（不返回给前端）
 	Config   string `json:"config" gorm:"type:text"`                  // 额外配置信息（JSON格式）
 
@@ -151,6 +152,20 @@ type Provider struct {
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 	p.UUID = uuid.New().String()
 	return nil
+}
+
+// GetAuthMethod 返回当前使用的认证方式
+// 返回 "password" 或 "sshKey"
+func (p *Provider) GetAuthMethod() string {
+	// SSH密钥优先
+	if p.SSHKey != "" {
+		return "sshKey"
+	}
+	if p.Password != "" {
+		return "password"
+	}
+	// 默认返回password（理论上不应该出现两者都为空的情况）
+	return "password"
 }
 
 // Instance 实例模型
@@ -308,8 +323,9 @@ type ProviderNodeConfig struct {
 	Port                  int      `json:"port"`
 	Username              string   `json:"username"`
 	Password              string   `json:"password"`
-	Token                 string   `json:"token"`    // API Token Secret，用于ProxmoxVE等
-	TokenID               string   `json:"token_id"` // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
+	PrivateKey            string   `json:"private_key"` // SSH私钥内容，优先于密码使用
+	Token                 string   `json:"token"`       // API Token Secret，用于ProxmoxVE等
+	TokenID               string   `json:"token_id"`    // API Token ID，用于ProxmoxVE等 (USER@REALM!TOKENID)
 	CertPath              string   `json:"cert_path"`
 	KeyPath               string   `json:"key_path"`
 	Country               string   `json:"country"`             // Provider所在国家，用于CDN选择
@@ -333,4 +349,19 @@ type ProviderNodeConfig struct {
 	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量，默认限制
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小，默认限制
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小，默认限制
+}
+
+// ProviderResponse 用于返回给前端的Provider响应结构
+// 包含认证方式标识，但不包含敏感的密码和SSH密钥内容
+type ProviderResponse struct {
+	Provider
+	AuthMethod string `json:"authMethod"` // 当前使用的认证方式: "password" 或 "sshKey"
+}
+
+// ToResponse 将Provider转换为ProviderResponse
+func (p *Provider) ToResponse() ProviderResponse {
+	return ProviderResponse{
+		Provider:   *p,
+		AuthMethod: p.GetAuthMethod(),
+	}
 }

@@ -91,6 +91,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		Port:           config.Port,
 		Username:       config.Username,
 		Password:       config.Password,
+		PrivateKey:     config.PrivateKey,
 		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
 		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
 	}
@@ -107,6 +108,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		Port:          config.Port,
 		Username:      config.Username,
 		Password:      config.Password,
+		PrivateKey:    config.PrivateKey,
 		APIEnabled:    config.CertPath != "" && config.KeyPath != "",
 		APIPort:       8443,
 		APIScheme:     "https",

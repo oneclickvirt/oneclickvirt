@@ -636,7 +636,28 @@
                 :placeholder="$t('admin.providers.usernamePlaceholder')"
               />
             </el-form-item>
+            
+            <!-- 认证方式选择（创建和编辑都显示） -->
             <el-form-item
+              :label="$t('admin.providers.authMethod')"
+              prop="authMethod"
+            >
+              <el-radio-group 
+                v-model="addProviderForm.authMethod"
+                @change="handleAuthMethodChange"
+              >
+                <el-radio-button label="password">
+                  {{ $t('admin.providers.usePassword') }}
+                </el-radio-button>
+                <el-radio-button label="sshKey">
+                  {{ $t('admin.providers.useSSHKey') }}
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            
+            <!-- 密码认证 -->
+            <el-form-item
+              v-if="addProviderForm.authMethod === 'password'"
               :label="$t('admin.providers.password')"
               prop="password"
             >
@@ -646,7 +667,7 @@
                 :placeholder="isEditing ? $t('admin.providers.passwordEditPlaceholder') : $t('admin.providers.passwordPlaceholder')" 
                 show-password 
               />
-              <div
+              <div 
                 v-if="isEditing"
                 class="form-tip"
               >
@@ -658,7 +679,10 @@
                 </el-text>
               </div>
             </el-form-item>
+            
+            <!-- SSH密钥认证 -->
             <el-form-item
+              v-if="addProviderForm.authMethod === 'sshKey'"
               :label="$t('admin.providers.sshKey')"
               prop="sshKey"
             >
@@ -666,8 +690,19 @@
                 v-model="addProviderForm.sshKey" 
                 type="textarea" 
                 :rows="4"
-                :placeholder="$t('admin.providers.sshKeyPlaceholder')"
+                :placeholder="isEditing ? $t('admin.providers.sshKeyEditPlaceholder') : $t('admin.providers.sshKeyPlaceholder')"
               />
+              <div 
+                v-if="isEditing"
+                class="form-tip"
+              >
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.sshKeyEditTip') }}
+                </el-text>
+              </div>
             </el-form-item>
             
             <el-divider content-position="left">
@@ -2217,6 +2252,7 @@ const addProviderForm = reactive({
   username: '',
   password: '',
   sshKey: '',
+  authMethod: 'password', // 认证方式：'password' 或 'sshKey'
   description: '',
   region: '',
   country: '',
@@ -2530,6 +2566,16 @@ const applyRecommendedTimeout = () => {
   }
 }
 
+// 认证方式切换处理
+const handleAuthMethodChange = (newMethod) => {
+  // 切换认证方式时，清空被隐藏的字段
+  if (newMethod === 'password') {
+    addProviderForm.sshKey = ''
+  } else if (newMethod === 'sshKey') {
+    addProviderForm.password = ''
+  }
+}
+
 const cancelAddServer = () => {
   showAddDialog.value = false
   isEditing.value = false
@@ -2544,6 +2590,7 @@ const cancelAddServer = () => {
     username: '',
     password: '',
     sshKey: '',
+    authMethod: 'password', // 重置认证方式
     description: '',
     region: '',
     country: '',
@@ -2598,6 +2645,16 @@ const submitAddServer = async () => {
       return
     }
     
+    // 验证SSH认证方式（创建和编辑都需要验证）
+    if (addProviderForm.authMethod === 'password' && !addProviderForm.password) {
+      ElMessage.error(t('admin.providers.passwordRequired'))
+      return
+    }
+    if (addProviderForm.authMethod === 'sshKey' && !addProviderForm.sshKey) {
+      ElMessage.error(t('admin.providers.sshKeyRequired'))
+      return
+    }
+    
     addProviderLoading.value = true
 
     const serverData = {
@@ -2606,7 +2663,8 @@ const submitAddServer = async () => {
       endpoint: addProviderForm.host, // 只存储主机地址
       sshPort: addProviderForm.port, // 单独存储SSH端口
       username: addProviderForm.username,
-      config: addProviderForm.sshKey ? JSON.stringify({ ssh_key: addProviderForm.sshKey }) : '',
+      sshKey: addProviderForm.sshKey, // SSH密钥作为独立字段
+      config: '',
       region: addProviderForm.region,
       country: addProviderForm.country,
       countryCode: addProviderForm.countryCode,
@@ -2675,9 +2733,25 @@ const submitAddServer = async () => {
       serverData.ipv6PortMappingMethod = addProviderForm.ipv6PortMappingMethod || 'device_proxy'
     }
 
-    // 只有在非编辑模式或者输入了密码时才包含密码
-    if (!isEditing.value || addProviderForm.password) {
-      serverData.password = addProviderForm.password
+    // 密码和SSH密钥的处理逻辑：根据当前选择的认证方式决定发送哪个字段
+    if (addProviderForm.authMethod === 'password') {
+      // 选择密码认证：发送密码，清空SSH密钥
+      if (addProviderForm.password) {
+        serverData.password = addProviderForm.password
+      }
+      // 编辑模式下如果要切换到密码认证，需要明确清空SSH密钥
+      if (isEditing.value) {
+        serverData.sshKey = '' // 明确清空SSH密钥
+      }
+    } else if (addProviderForm.authMethod === 'sshKey') {
+      // 选择SSH密钥认证：发送SSH密钥，清空密码
+      if (addProviderForm.sshKey) {
+        serverData.sshKey = addProviderForm.sshKey
+      }
+      // 编辑模式下如果要切换到SSH密钥认证，需要明确清空密码
+      if (isEditing.value) {
+        serverData.password = '' // 明确清空密码
+      }
     }
 
     if (isEditing.value) {
@@ -2712,15 +2786,6 @@ const editProvider = (provider) => {
   // 使用数据库中的sshPort字段，如果没有则默认为22
   const port = provider.sshPort || 22
   
-  // 解析config获取SSH key
-  let sshKey = ''
-  try {
-    const config = JSON.parse(provider.config || '{}')
-    sshKey = config.ssh_key || ''
-  } catch (e) {
-    // ignore parsing error
-  }
-  
   // 填充表单数据
   Object.assign(addProviderForm, {
     id: provider.id,
@@ -2729,8 +2794,9 @@ const editProvider = (provider) => {
     host: host,
     port: parseInt(port) || 22,
     username: provider.username || '',
-    password: '', // 编辑时不显示密码
-    sshKey: sshKey,
+    password: '', // 编辑时不显示密码，留空表示不修改
+    sshKey: '', // 编辑时不显示SSH密钥，留空表示不修改
+    authMethod: provider.authMethod || 'password', // 使用后端返回的认证方式
     description: provider.description || '',
     region: provider.region || '',
     country: provider.country || '',

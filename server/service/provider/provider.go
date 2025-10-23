@@ -112,6 +112,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		Port:                  sshPort,
 		Username:              dbProvider.Username,
 		Password:              dbProvider.Password,
+		PrivateKey:            dbProvider.SSHKey,
 		Token:                 dbProvider.Token,
 		UUID:                  dbProvider.UUID,
 		Country:               dbProvider.Country,
