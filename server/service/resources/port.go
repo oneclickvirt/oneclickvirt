@@ -131,7 +131,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		IsSSH:         req.GuestPort == 22,
 		IsAutomatic:   false,
 		PortType:      "manual", // 明确标记为手动添加
-		IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6",
+		IPv6Enabled:   false,    // 手动添加的端口映射默认不启用IPv6（因为是通过IPv4 hostPort访问）
 		MappingMethod: providerInfo.IPv4PortMappingMethod,
 	}
 
