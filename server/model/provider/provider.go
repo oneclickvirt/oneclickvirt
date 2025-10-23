@@ -17,7 +17,8 @@ type Provider struct {
 	// 基本信息
 	Name     string `json:"name" gorm:"uniqueIndex;not null;size:64"` // Provider名称（唯一）
 	Type     string `json:"type" gorm:"not null;size:32"`             // Provider类型：docker, lxd, incus, proxmox
-	Endpoint string `json:"endpoint" gorm:"size:255"`                 // 连接端点地址
+	Endpoint string `json:"endpoint" gorm:"size:255"`                 // SSH连接端点地址
+	PortIP   string `json:"portIP" gorm:"size:255"`                   // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
 	SSHPort  int    `json:"sshPort" gorm:"default:22"`                // SSH连接端口
 	Username string `json:"username" gorm:"size:128"`                 // SSH连接用户名
 	Password string `json:"-" gorm:"size:255"`                        // SSH连接密码（不返回给前端）

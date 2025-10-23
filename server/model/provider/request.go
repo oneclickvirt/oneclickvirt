@@ -51,6 +51,7 @@ type NodeConfigRequest struct {
 	UUID                  string   `json:"uuid"`
 	Name                  string   `json:"name" binding:"required"`
 	Host                  string   `json:"host" binding:"required"`
+	PortIP                string   `json:"portIP"` // 端口映射使用的公网IP（非必填）
 	Port                  int      `json:"port"`
 	Username              string   `json:"username"`
 	Password              string   `json:"password"`

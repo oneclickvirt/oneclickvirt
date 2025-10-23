@@ -261,8 +261,12 @@ func (d *DockerPortMapping) getProvider(providerID uint) (*provider.Provider, er
 
 // getPublicIP 获取公网IP
 func (d *DockerPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于Docker，通常使用Provider的endpoint作为公网IP
-	endpoint := providerInfo.Endpoint
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	endpoint := providerInfo.PortIP
+	if endpoint == "" {
+		endpoint = providerInfo.Endpoint
+	}
+
 	if endpoint == "" {
 		return ""
 	}

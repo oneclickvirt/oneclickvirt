@@ -44,6 +44,7 @@ type CreateProviderRequest struct {
 	Name                  string `json:"name" binding:"required"`
 	Type                  string `json:"type" binding:"required"`
 	Endpoint              string `json:"endpoint"`
+	PortIP                string `json:"portIP"` // 端口映射使用的公网IP
 	SSHPort               int    `json:"sshPort"`
 	Username              string `json:"username"`
 	Password              string `json:"password"`
@@ -97,6 +98,7 @@ type UpdateProviderRequest struct {
 	Name                  string  `json:"name"`
 	Type                  string  `json:"type"`
 	Endpoint              string  `json:"endpoint"`
+	PortIP                string  `json:"portIP"` // 端口映射使用的公网IP
 	SSHPort               int     `json:"sshPort"`
 	Username              string  `json:"username"`
 	Password              *string `json:"password,omitempty"` // 使用指针以区分"未提供"和"空值"

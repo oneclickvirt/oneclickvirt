@@ -143,6 +143,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		Name:                  req.Name,
 		Type:                  req.Type,
 		Endpoint:              req.Endpoint,
+		PortIP:                req.PortIP,
 		SSHPort:               req.SSHPort,
 		Username:              req.Username,
 		Password:              req.Password,
@@ -344,6 +345,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.Name = req.Name
 	provider.Type = req.Type
 	provider.Endpoint = req.Endpoint
+	provider.PortIP = req.PortIP
 	provider.SSHPort = req.SSHPort
 	provider.Username = req.Username
 

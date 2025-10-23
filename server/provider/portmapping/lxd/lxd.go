@@ -237,7 +237,10 @@ func (l *LXDPortMapping) getProvider(providerID uint) (*provider.Provider, error
 
 // getPublicIP 获取公网IP
 func (l *LXDPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于LXD，使用Provider的endpoint作为公网IP
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	if providerInfo.PortIP != "" {
+		return providerInfo.PortIP
+	}
 	return providerInfo.Endpoint
 }
 

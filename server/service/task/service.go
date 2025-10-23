@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/provider/portmapping"
+	"oneclickvirt/provider/proxmox"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/provider"
@@ -1665,9 +1666,87 @@ CreateNewInstance:
 	time.Sleep(15 * time.Second)
 
 	// 更新进度
+	s.updateTaskProgress(task.ID, 66, "正在获取实例最新内网IP地址...")
+
+	// 第三步：获取实例最新的内网IP地址（关键步骤，避免后续端口映射失败）
+	var newPrivateIP string
+
+	// 获取Provider实例以调用getInstanceIP方法
+	prov, _, err := providerApiService.GetProviderByID(provider.ID)
+	if err != nil {
+		global.APP_LOG.Error("获取Provider实例失败",
+			zap.Uint("providerId", provider.ID),
+			zap.Error(err))
+	} else {
+		// 根据不同的Provider类型获取内网IP
+		switch provider.Type {
+		case "lxd":
+			if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
+				if ip, err := lxdProv.GetInstanceIPv4(instance.Name); err == nil {
+					newPrivateIP = ip
+					global.APP_LOG.Info("成功获取LXD实例最新内网IP",
+						zap.String("instanceName", instance.Name),
+						zap.String("privateIP", newPrivateIP))
+				} else {
+					global.APP_LOG.Warn("获取LXD实例内网IP失败，将在后续重试",
+						zap.String("instanceName", instance.Name),
+						zap.Error(err))
+				}
+			}
+		case "incus":
+			if incusProv, ok := prov.(*incus.IncusProvider); ok {
+				if ip, err := incusProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
+					newPrivateIP = ip
+					global.APP_LOG.Info("成功获取Incus实例最新内网IP",
+						zap.String("instanceName", instance.Name),
+						zap.String("privateIP", newPrivateIP))
+				} else {
+					global.APP_LOG.Warn("获取Incus实例内网IP失败，将在后续重试",
+						zap.String("instanceName", instance.Name),
+						zap.Error(err))
+				}
+			}
+		case "proxmox":
+			if proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider); ok {
+				if ip, err := proxmoxProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
+					newPrivateIP = ip
+					global.APP_LOG.Info("成功获取Proxmox实例最新内网IP",
+						zap.String("instanceName", instance.Name),
+						zap.String("privateIP", newPrivateIP))
+				} else {
+					global.APP_LOG.Warn("获取Proxmox实例内网IP失败，将在后续重试",
+						zap.String("instanceName", instance.Name),
+						zap.Error(err))
+				}
+			}
+		case "docker":
+			// Docker通常不需要内网IP映射，跳过
+			global.APP_LOG.Debug("Docker实例跳过内网IP获取")
+		}
+
+		// 如果成功获取到新的内网IP，立即更新到数据库
+		if newPrivateIP != "" && newPrivateIP != instance.PrivateIP {
+			if err := global.APP_DB.Model(&instance).Update("private_ip", newPrivateIP).Error; err != nil {
+				global.APP_LOG.Error("更新实例内网IP到数据库失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("oldPrivateIP", instance.PrivateIP),
+					zap.String("newPrivateIP", newPrivateIP),
+					zap.Error(err))
+			} else {
+				// 更新内存中的实例对象，确保后续使用最新IP
+				instance.PrivateIP = newPrivateIP
+				global.APP_LOG.Info("实例内网IP已更新到数据库",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("oldPrivateIP", instance.PrivateIP),
+					zap.String("newPrivateIP", newPrivateIP))
+			}
+		}
+	}
+
+	// 更新进度
 	s.updateTaskProgress(task.ID, 68, "正在生成并设置新密码...")
 
-	// 第三步：生成新密码并设置到实例
+	// 第四步：生成新密码并设置到实例
 	newPassword := utils.GenerateStrongPassword(12)
 
 	global.APP_LOG.Info("开始设置实例新密码",
@@ -2331,6 +2410,93 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度
+	s.updateTaskProgress(task.ID, 45, "正在获取实例最新内网IP地址...")
+
+	// 关键修复：获取实例最新的内网IP地址，避免使用过期的数据库记录
+	var currentPrivateIP string
+	providerApiService := &provider2.ProviderApiService{}
+	prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+	if err != nil {
+		global.APP_LOG.Error("获取Provider实例失败",
+			zap.Uint("providerId", providerInfo.ID),
+			zap.Error(err))
+		// 更新端口状态为失败
+		global.APP_DB.Model(&port).Update("status", "failed")
+		return fmt.Errorf("获取Provider实例失败: %v", err)
+	}
+
+	// 根据不同的Provider类型获取内网IP
+	switch providerInfo.Type {
+	case "lxd":
+		if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
+			if ip, err := lxdProv.GetInstanceIPv4(instance.Name); err == nil {
+				currentPrivateIP = ip
+				global.APP_LOG.Info("成功获取LXD实例最新内网IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("privateIP", currentPrivateIP))
+			} else {
+				global.APP_LOG.Warn("获取LXD实例内网IP失败，使用数据库中的IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("dbPrivateIP", instance.PrivateIP),
+					zap.Error(err))
+				currentPrivateIP = instance.PrivateIP
+			}
+		}
+	case "incus":
+		if incusProv, ok := prov.(*incus.IncusProvider); ok {
+			if ip, err := incusProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
+				currentPrivateIP = ip
+				global.APP_LOG.Info("成功获取Incus实例最新内网IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("privateIP", currentPrivateIP))
+			} else {
+				global.APP_LOG.Warn("获取Incus实例内网IP失败，使用数据库中的IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("dbPrivateIP", instance.PrivateIP),
+					zap.Error(err))
+				currentPrivateIP = instance.PrivateIP
+			}
+		}
+	case "proxmox":
+		if proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider); ok {
+			if ip, err := proxmoxProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
+				currentPrivateIP = ip
+				global.APP_LOG.Info("成功获取Proxmox实例最新内网IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("privateIP", currentPrivateIP))
+			} else {
+				global.APP_LOG.Warn("获取Proxmox实例内网IP失败，使用数据库中的IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("dbPrivateIP", instance.PrivateIP),
+					zap.Error(err))
+				currentPrivateIP = instance.PrivateIP
+			}
+		}
+	case "docker":
+		// Docker通常不需要内网IP映射
+		currentPrivateIP = instance.PrivateIP
+	default:
+		currentPrivateIP = instance.PrivateIP
+	}
+
+	// 如果获取到新的内网IP且与数据库不一致，更新数据库
+	if currentPrivateIP != "" && currentPrivateIP != instance.PrivateIP {
+		if err := global.APP_DB.Model(&instance).Update("private_ip", currentPrivateIP).Error; err != nil {
+			global.APP_LOG.Error("更新实例内网IP到数据库失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.String("oldPrivateIP", instance.PrivateIP),
+				zap.String("newPrivateIP", currentPrivateIP),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("实例内网IP已更新到数据库",
+				zap.Uint("instanceId", instance.ID),
+				zap.String("oldPrivateIP", instance.PrivateIP),
+				zap.String("newPrivateIP", currentPrivateIP))
+			instance.PrivateIP = currentPrivateIP
+		}
+	}
+
+	// 更新进度
 	s.updateTaskProgress(task.ID, 50, "正在配置端口映射...")
 
 	// 使用 portmapping manager 添加端口映射
@@ -2384,39 +2550,35 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			zap.Uint("originalPortId", port.ID))
 	}
 
-	// 对于 LXD/Incus，还需要在远程服务器上实际创建 proxy device
-	if providerInfo.Type == "lxd" || providerInfo.Type == "incus" {
+	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上实际创建端口映射
+	if providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" {
 		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
 
-		// 获取 Provider 实例
-		providerApiService := &provider2.ProviderApiService{}
-		prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
-		if err != nil {
-			global.APP_LOG.Error("获取Provider实例失败",
-				zap.Uint("providerId", providerInfo.ID),
-				zap.Error(err))
-			// 更新端口状态为失败
-			global.APP_DB.Model(&port).Update("status", "failed")
-			return fmt.Errorf("获取Provider实例失败: %v", err)
-		}
-
-		// 调用 provider 层的方法在远程服务器上创建实际映射
+		// 调用 provider 层的方法在远程服务器上创建实际映射（使用最新获取的内网IP）
 		switch providerInfo.Type {
 		case "lxd":
 			lxdProv, ok := prov.(*lxd.LXDProvider)
 			if !ok {
 				return fmt.Errorf("Provider类型断言失败")
 			}
-			// 调用内部方法创建端口映射
-			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, instance.PrivateIP)
+			// 调用内部方法创建端口映射，使用最新的内网IP
+			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
 
 		case "incus":
 			incusProv, ok := prov.(*incus.IncusProvider)
 			if !ok {
 				return fmt.Errorf("Provider类型断言失败")
 			}
-			// 调用内部方法创建端口映射
-			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, instance.PrivateIP)
+			// 调用内部方法创建端口映射，使用最新的内网IP
+			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
+
+		case "proxmox":
+			proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider)
+			if !ok {
+				return fmt.Errorf("Provider类型断言失败")
+			}
+			// 调用内部方法创建端口映射，使用最新的内网IP
+			err = proxmoxProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
 		}
 
 		if err != nil {

@@ -278,7 +278,10 @@ func (i *IptablesPortMapping) getProvider(providerID uint) (*provider.Provider, 
 
 // getPublicIP 获取公网IP
 func (i *IptablesPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于iptables，使用Provider的endpoint作为公网IP
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	if providerInfo.PortIP != "" {
+		return providerInfo.PortIP
+	}
 	return providerInfo.Endpoint
 }
 

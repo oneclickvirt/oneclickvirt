@@ -313,3 +313,9 @@ func (p *ProxmoxProvider) getInstancePrivateIP(ctx context.Context, instanceName
 
 	return "", fmt.Errorf("无法获取实例 %s 的IP地址", instanceName)
 }
+
+// SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
+// 保持与LXD/Incus的API一致性
+func (p *ProxmoxProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	return p.setupPortMappingWithIP(ctx, instanceName, hostPort, guestPort, protocol, method, instanceIP)
+}

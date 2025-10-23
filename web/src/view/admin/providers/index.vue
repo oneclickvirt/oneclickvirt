@@ -543,6 +543,31 @@
                 v-model="addProviderForm.host"
                 :placeholder="$t('admin.providers.hostPlaceholder')"
               />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.hostTip') }}
+                </el-text>
+              </div>
+            </el-form-item>
+            <el-form-item
+              :label="$t('admin.providers.portIP')"
+              prop="portIP"
+            >
+              <el-input
+                v-model="addProviderForm.portIP"
+                :placeholder="$t('admin.providers.portIPPlaceholder')"
+              />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.portIPTip') }}
+                </el-text>
+              </div>
             </el-form-item>
             <el-form-item
               :label="$t('admin.providers.port')"
@@ -2248,6 +2273,7 @@ const addProviderForm = reactive({
   name: '',
   type: '',
   host: '',
+  portIP: '', // 端口映射使用的公网IP
   port: 22,
   username: '',
   password: '',
@@ -2586,6 +2612,7 @@ const cancelAddServer = () => {
     name: '',
     type: '',
     host: '',
+    portIP: '', // 重置端口IP
     port: 22,
     username: '',
     password: '',
@@ -2661,6 +2688,7 @@ const submitAddServer = async () => {
       name: addProviderForm.name,
       type: addProviderForm.type,
       endpoint: addProviderForm.host, // 只存储主机地址
+      portIP: addProviderForm.portIP, // 端口映射使用的公网IP
       sshPort: addProviderForm.port, // 单独存储SSH端口
       username: addProviderForm.username,
       sshKey: addProviderForm.sshKey, // SSH密钥作为独立字段
@@ -2792,6 +2820,7 @@ const editProvider = (provider) => {
     name: provider.name,
     type: provider.type,
     host: host,
+    portIP: provider.portIP || '', // 端口IP
     port: parseInt(port) || 22,
     username: provider.username || '',
     password: '', // 编辑时不显示密码，留空表示不修改
