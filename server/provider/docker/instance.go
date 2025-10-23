@@ -258,8 +258,15 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 		// 检查端口映射格式，确保只映射IPv4
 		if strings.HasPrefix(portMapping, "0.0.0.0:") {
-			// 已经是IPv4格式（可能包含/tcp或/udp协议），直接使用
-			cmd += fmt.Sprintf(" -p %s", portMapping)
+			// 已经是IPv4格式（可能包含/tcp或/udp协议）
+			// 检查是否包含 /both 协议，Docker不支持both，需要拆分
+			if strings.HasSuffix(portMapping, "/both") {
+				baseMapping := strings.TrimSuffix(portMapping, "/both")
+				cmd += fmt.Sprintf(" -p %s/tcp", baseMapping)
+				cmd += fmt.Sprintf(" -p %s/udp", baseMapping)
+			} else {
+				cmd += fmt.Sprintf(" -p %s", portMapping)
+			}
 		} else if strings.Contains(portMapping, ":") {
 			// 如果端口映射中包含冒号但没有IPv4前缀，强制使用0.0.0.0绑定
 			// 需要保留协议部分（如果有）
@@ -275,10 +282,17 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 			portParts := strings.Split(baseMapping, ":")
 			if len(portParts) >= 2 {
-				// 重新构建为IPv4-only格式，保留协议
+				// 重新构建为IPv4-only格式，处理协议
 				hostPort := portParts[len(portParts)-2]
 				guestPort := portParts[len(portParts)-1]
-				cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
+
+				// 如果协议是both，需要创建两个端口映射（tcp和udp）
+				if protocol == "/both" {
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/tcp", hostPort, guestPort)
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/udp", hostPort, guestPort)
+				} else {
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
+				}
 			}
 		} else {
 			// 如果是简单的端口映射格式（如"8080"），假设内外端口相同，添加IPv4前缀

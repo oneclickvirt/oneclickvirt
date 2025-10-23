@@ -1817,11 +1817,14 @@ CreateNewInstance:
 			// 按协议分组端口映射
 			tcpPorts := make([]providerModel.Port, 0)
 			udpPorts := make([]providerModel.Port, 0)
+			bothPorts := make([]providerModel.Port, 0)
 			for _, oldPort := range oldPortMappings {
 				if oldPort.Protocol == "tcp" {
 					tcpPorts = append(tcpPorts, oldPort)
 				} else if oldPort.Protocol == "udp" {
 					udpPorts = append(udpPorts, oldPort)
+				} else if oldPort.Protocol == "both" {
+					bothPorts = append(bothPorts, oldPort)
 				}
 			}
 
@@ -1835,6 +1838,29 @@ CreateNewInstance:
 			// 处理UDP端口
 			if len(udpPorts) > 0 {
 				processedCount, failedCount := s.restorePortMappingsOptimized(ctx, udpPorts, instance, provider, manager, portMappingType)
+				successCount += processedCount
+				failCount += failedCount
+			}
+
+			// 处理Both端口（需要分别创建TCP和UDP映射）
+			if len(bothPorts) > 0 {
+				// 将both端口转换为tcp端口进行处理
+				tcpVersionPorts := make([]providerModel.Port, len(bothPorts))
+				for i, port := range bothPorts {
+					tcpVersionPorts[i] = port
+					tcpVersionPorts[i].Protocol = "tcp"
+				}
+				processedCount, failedCount := s.restorePortMappingsOptimized(ctx, tcpVersionPorts, instance, provider, manager, portMappingType)
+				successCount += processedCount
+				failCount += failedCount
+
+				// 将both端口转换为udp端口进行处理
+				udpVersionPorts := make([]providerModel.Port, len(bothPorts))
+				for i, port := range bothPorts {
+					udpVersionPorts[i] = port
+					udpVersionPorts[i].Protocol = "udp"
+				}
+				processedCount, failedCount = s.restorePortMappingsOptimized(ctx, udpVersionPorts, instance, provider, manager, portMappingType)
 				successCount += processedCount
 				failCount += failedCount
 			}
