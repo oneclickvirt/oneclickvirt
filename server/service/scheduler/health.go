@@ -147,57 +147,44 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 			zap.String("old_api", oldAPIStatus),
 			zap.String("new_api", updatedProvider.APIStatus))
 
-		// 如果Provider变为不可用状态，更新该Provider下所有实例的状态
+		// 根据Provider健康状态更新allow_claim字段，控制是否允许申领新实例
+		// 不修改现有实例的状态，保持用户操作意图和实例实际状态
 		if (updatedProvider.Status == "inactive" || updatedProvider.Status == "partial") &&
 			(oldStatus == "active" || oldStatus == "") {
-			s.syncInstanceStatusOnProviderDown(provider.ID)
+			// Provider变为不可用，禁止申领新实例
+			s.updateProviderAllowClaim(provider.ID, false)
 		} else if updatedProvider.Status == "active" && oldStatus != "active" {
-			// Provider恢复在线，记录日志但不自动更新实例状态
-			// 因为实例可能在离线期间被用户停止，需要保持用户操作的意图
-			global.APP_LOG.Info("Provider恢复在线，实例状态保持不变",
+			// Provider恢复在线，允许申领新实例
+			s.updateProviderAllowClaim(provider.ID, true)
+			global.APP_LOG.Info("Provider恢复在线，允许申领新实例",
 				zap.Uint("provider_id", provider.ID),
 				zap.String("provider_name", provider.Name))
 		}
 	}
 }
 
-// syncInstanceStatusOnProviderDown 当Provider下线时同步实例状态
-func (s *ProviderHealthSchedulerService) syncInstanceStatusOnProviderDown(providerID uint) {
-	// 查找该Provider下所有状态为running的实例
-	var instances []providerModel.Instance
-	err := global.APP_DB.Where("provider_id = ? AND status = ?", providerID, "running").
-		Find(&instances).Error
+// updateProviderAllowClaim 更新Provider的allow_claim字段
+// 此方法仅控制是否允许在该Provider上申领新实例
+// 不影响现有实例的状态，保持实例的实际运行状态和用户操作意图
+func (s *ProviderHealthSchedulerService) updateProviderAllowClaim(providerID uint, allowClaim bool) {
+	err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", providerID).
+		Update("allow_claim", allowClaim).Error
 
 	if err != nil {
-		global.APP_LOG.Error("获取Provider实例列表失败",
+		global.APP_LOG.Error("更新Provider的allow_claim状态失败",
 			zap.Uint("provider_id", providerID),
+			zap.Bool("allow_claim", allowClaim),
 			zap.Error(err))
 		return
 	}
 
-	if len(instances) == 0 {
-		return
+	statusMsg := "禁止申领新实例"
+	if allowClaim {
+		statusMsg = "允许申领新实例"
 	}
-
-	global.APP_LOG.Info("Provider下线，更新实例状态",
+	global.APP_LOG.Info("Provider申领状态已更新",
 		zap.Uint("provider_id", providerID),
-		zap.Int("instance_count", len(instances)))
-
-	// 将所有running实例标记为unavailable
-	for _, instance := range instances {
-		err := global.APP_DB.Model(&providerModel.Instance{}).
-			Where("id = ?", instance.ID).
-			Update("status", "unavailable").Error
-
-		if err != nil {
-			global.APP_LOG.Error("更新实例状态失败",
-				zap.Uint("instance_id", instance.ID),
-				zap.String("instance_name", instance.Name),
-				zap.Error(err))
-		} else {
-			global.APP_LOG.Debug("实例状态已更新为unavailable",
-				zap.Uint("instance_id", instance.ID),
-				zap.String("instance_name", instance.Name))
-		}
-	}
+		zap.Bool("allow_claim", allowClaim),
+		zap.String("message", statusMsg))
 }
