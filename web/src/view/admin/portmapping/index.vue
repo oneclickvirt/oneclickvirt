@@ -496,27 +496,32 @@ const addRules = {
 }
 
 // 获取实例对应的 Provider 类型
+// 优先通过 providerId 在已加载的 providers 列表中查找 provider.type（后端返回的 instance.provider 常为 Provider 名称而非类型）
 const getInstanceProviderType = (instance) => {
   if (!instance) return null
-  
-  // 优先使用 instance.provider 字段（后端返回的 provider 名称字段）
+
+  // 1) 优先通过 providerId 查找 providers 列表中的类型
+  if (instance.providerId && providers.value.length > 0) {
+    const prov = providers.value.find(p => p.id === instance.providerId)
+    if (prov && prov.type) return prov.type
+  }
+
+  // 2) 如果实例对象包含明确的 type 或 providerType 字段，使用它
+  if (instance.type) return instance.type
+  if (instance.providerType) return instance.providerType
+
+  // 3) 作为回退，尝试解析 instance.provider 或 instance.providerName（有可能就是类型字符串）
   if (instance.provider) {
+    const lower = String(instance.provider).toLowerCase()
+    if (['lxd', 'incus', 'proxmox', 'docker'].includes(lower)) return lower
     return instance.provider
   }
-  
-  // 其次尝试使用 providerName 字段
   if (instance.providerName) {
+    const lower = String(instance.providerName).toLowerCase()
+    if (['lxd', 'incus', 'proxmox', 'docker'].includes(lower)) return lower
     return instance.providerName
   }
-  
-  // 最后尝试通过 providerId 从 providers 列表查找
-  if (instance.providerId && providers.value.length > 0) {
-    const provider = providers.value.find(p => p.id === instance.providerId)
-    if (provider) {
-      return provider.type
-    }
-  }
-  
+
   return null
 }
 

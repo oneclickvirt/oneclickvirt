@@ -58,6 +58,7 @@ type InstanceManageResponse struct {
 	provider.Instance
 	UserName     string `json:"userName"`
 	ProviderName string `json:"providerName"`
+	ProviderType string `json:"providerType"`
 	HealthStatus string `json:"healthStatus"`
 }
 
