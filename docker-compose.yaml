@@ -1,0 +1,37 @@
+services:
+  web:
+    build:
+      context: .
+      dockerfile: deploy/nginx.dockerfile
+    container_name: web
+    ports:
+      - "8888:80"
+    networks:
+      - default
+
+  api:
+    build:
+      context: .
+      dockerfile: deploy/server.dockerfile
+    container_name: api
+    volumes:
+      - ./data/app/:/app/storage
+    networks:
+      - default
+
+  mysql:
+    image: mysql:5.7
+    container_name: mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+        MYSQL_ALLOW_EMPTY_PASSWORD:  "yes"
+        MYSQL_DATABASE: oneclickvirt
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    networks:
+      - default
+
+networks:
+  default:
