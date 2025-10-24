@@ -168,7 +168,8 @@ type TestSSHConnectionRequest struct {
 	Host      string `json:"host" binding:"required"`     // SSH服务器地址
 	Port      int    `json:"port" binding:"required"`     // SSH端口
 	Username  string `json:"username" binding:"required"` // SSH用户名
-	Password  string `json:"password" binding:"required"` // SSH密码
+	Password  string `json:"password"`                    // SSH密码（使用密码认证时必填）
+	SSHKey    string `json:"sshKey"`                      // SSH私钥（使用密钥认证时必填）
 	TestCount int    `json:"testCount"`                   // 测试次数，默认3次
 }
 

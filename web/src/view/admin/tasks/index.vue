@@ -147,6 +147,10 @@
               :label="$t('admin.tasks.taskTypeDelete')"
               value="delete"
             />
+            <el-option
+              :label="$t('admin.tasks.taskTypeResetPassword')"
+              value="reset-password"
+            />
           </el-select>
         </el-form-item>
         <el-form-item>

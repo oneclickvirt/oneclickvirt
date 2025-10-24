@@ -784,7 +784,7 @@
               <el-button
                 type="primary"
                 :loading="testingConnection"
-                :disabled="!addProviderForm.host || !addProviderForm.username || !addProviderForm.password"
+                :disabled="!addProviderForm.host || !addProviderForm.username || (addProviderForm.authMethod === 'password' ? !addProviderForm.password : !addProviderForm.sshKey)"
                 @click="testSSHConnection"
               >
                 <el-icon v-if="!testingConnection">
@@ -2533,8 +2533,19 @@ const connectionTestResult = ref(null)
 
 // 测试SSH连接
 const testSSHConnection = async () => {
-  if (!addProviderForm.host || !addProviderForm.username || !addProviderForm.password) {
+  // 根据认证方式进行验证
+  if (!addProviderForm.host || !addProviderForm.username) {
     ElMessage.warning(t('admin.providers.fillHostUserPassword'))
+    return
+  }
+
+  if (addProviderForm.authMethod === 'password' && !addProviderForm.password) {
+    ElMessage.warning(t('admin.providers.fillHostUserPassword'))
+    return
+  }
+
+  if (addProviderForm.authMethod === 'sshKey' && !addProviderForm.sshKey) {
+    ElMessage.warning('请填写SSH密钥')
     return
   }
 
@@ -2542,13 +2553,22 @@ const testSSHConnection = async () => {
   connectionTestResult.value = null
 
   try {
-    const result = await testSSHConnectionAPI({
+    // 根据认证方式构建请求数据
+    const requestData = {
       host: addProviderForm.host,
       port: addProviderForm.port || 22,
       username: addProviderForm.username,
-      password: addProviderForm.password,
       testCount: 3
-    })
+    }
+
+    // 添加对应的认证信息
+    if (addProviderForm.authMethod === 'password') {
+      requestData.password = addProviderForm.password
+    } else if (addProviderForm.authMethod === 'sshKey') {
+      requestData.sshKey = addProviderForm.sshKey
+    }
+
+    const result = await testSSHConnectionAPI(requestData)
 
     if (result.code === 200 && result.data.success) {
       connectionTestResult.value = {
@@ -2696,7 +2716,7 @@ const submitAddServer = async () => {
       portIP: addProviderForm.portIP, // 端口映射使用的公网IP
       sshPort: addProviderForm.port, // 单独存储SSH端口
       username: addProviderForm.username,
-      sshKey: addProviderForm.sshKey, // SSH密钥作为独立字段
+      // 注意：密码和SSH密钥根据认证方式在后面单独处理，这里不设置
       config: '',
       region: addProviderForm.region,
       country: addProviderForm.country,
@@ -2768,20 +2788,34 @@ const submitAddServer = async () => {
 
     // 密码和SSH密钥的处理逻辑
     if (isEditing.value) {
-      // 编辑模式：只有实际填写了内容才发送对应字段
-      // 如果留空，则不发送该字段（后端会保持原值）
-      if (addProviderForm.password) {
-        serverData.password = addProviderForm.password
-      }
-      if (addProviderForm.sshKey) {
-        serverData.sshKey = addProviderForm.sshKey
+      // 编辑模式：根据当前选择的认证方式和是否填写了新凭证来决定
+      const originalAuthMethod = addProviderForm.authMethod // 当前选择的认证方式
+      
+      if (originalAuthMethod === 'password') {
+        // 当前选择密码认证
+        if (addProviderForm.password) {
+          // 填写了新密码，更新密码
+          serverData.password = addProviderForm.password
+        }
+        // 如果原来是SSH密钥认证，但现在切换到密码，需要确保填写了密码
+        // 不主动清空SSH密钥，让后端根据优先级处理
+      } else if (originalAuthMethod === 'sshKey') {
+        // 当前选择SSH密钥认证
+        if (addProviderForm.sshKey) {
+          // 填写了新SSH密钥，更新SSH密钥
+          serverData.sshKey = addProviderForm.sshKey
+        }
+        // 如果原来是密码认证，但现在切换到SSH密钥，需要确保填写了SSH密钥
+        // 不主动清空密码，让后端根据优先级处理（SSH密钥优先于密码）
       }
     } else {
-      // 创建模式：根据认证方式发送对应字段
+      // 创建模式：根据认证方式发送对应字段，确保只发送一种
       if (addProviderForm.authMethod === 'password') {
         serverData.password = addProviderForm.password
+        // 创建时不发送sshKey，避免发送空字符串
       } else if (addProviderForm.authMethod === 'sshKey') {
         serverData.sshKey = addProviderForm.sshKey
+        // 创建时不发送password，避免发送空字符串
       }
     }
 

@@ -64,6 +64,14 @@
             value="stopping"
           />
           <el-option
+            :label="$t('admin.instances.statusRestarting')"
+            value="restarting"
+          />
+          <el-option
+            :label="$t('admin.instances.statusResetting')"
+            value="resetting"
+          />
+          <el-option
             :label="$t('admin.instances.statusError')"
             value="error"
           />
@@ -120,7 +128,7 @@
         />
         <el-table-column
           prop="providerName"
-          label="Provider"
+          :label="$t('admin.instances.provider')"
           width="120"
           show-overflow-tooltip
         />
@@ -307,13 +315,13 @@
           <el-descriptions-item :label="$t('admin.instances.instanceName')">
             {{ selectedInstance.name }}
           </el-descriptions-item>
-          <el-descriptions-item label="UUID">
+          <el-descriptions-item :label="$t('admin.instances.uuid')">
             {{ selectedInstance.uuid }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.owner')">
             {{ selectedInstance.userName }}
           </el-descriptions-item>
-          <el-descriptions-item label="Provider">
+          <el-descriptions-item :label="$t('admin.instances.provider')">
             {{ selectedInstance.providerName }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.instanceType')">
@@ -332,7 +340,7 @@
           <el-descriptions-item :label="$t('admin.instances.operatingSystem')">
             {{ selectedInstance.osType }}
           </el-descriptions-item>
-          <el-descriptions-item label="CPU">
+          <el-descriptions-item :label="$t('admin.instances.cpu')">
             {{ selectedInstance.cpu }}{{ $t('admin.instances.cores') }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.memory')">

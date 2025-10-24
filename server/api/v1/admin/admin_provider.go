@@ -523,12 +523,22 @@ func TestSSHConnection(c *gin.Context) {
 		zap.String("username", req.Username),
 		zap.Int("testCount", req.TestCount))
 
+	// 验证认证方式：必须提供密码或SSH密钥其中一种
+	if req.Password == "" && req.SSHKey == "" {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "必须提供SSH密码或SSH密钥其中一种认证方式",
+		})
+		return
+	}
+
 	// 导入 utils 包
 	sshConfig := utils.SSHConfig{
-		Host:     req.Host,
-		Port:     req.Port,
-		Username: req.Username,
-		Password: req.Password,
+		Host:       req.Host,
+		Port:       req.Port,
+		Username:   req.Username,
+		Password:   req.Password,
+		PrivateKey: req.SSHKey,
 	}
 
 	// 执行测试
