@@ -32,3 +32,5 @@ server/.DS_Store*
 web/.DS_Store*
 test/.DS_Store*
 .back/DS_Store*
+data
+.idea

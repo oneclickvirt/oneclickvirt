@@ -329,7 +329,7 @@ const dbRecommendation = ref(null)
 // 数据库配置表单
 const databaseForm = reactive({
   type: 'mysql',
-  host: '127.0.0.1',
+  host: 'mysql',
   port: '3306',
   database: 'oneclickvirt',
   username: 'root',
