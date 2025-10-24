@@ -318,8 +318,9 @@ func updateYAMLNodeValue(node *yaml.Node, path string, value interface{}) error 
 				found = true
 				if i == len(keys)-1 {
 					// 到达目标节点，更新值
-					valueNode.Kind = yaml.ScalarNode
-					valueNode.Value = fmt.Sprintf("%v", value)
+					if err := setYAMLNodeValue(valueNode, value); err != nil {
+						return err
+					}
 					return nil
 				} else {
 					current = valueNode
@@ -330,6 +331,84 @@ func updateYAMLNodeValue(node *yaml.Node, path string, value interface{}) error 
 
 		if !found {
 			return fmt.Errorf("key not found: %s", key)
+		}
+	}
+
+	return nil
+}
+
+// setYAMLNodeValue 设置YAML节点的值（类型安全）
+func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
+	// 处理nil值
+	if value == nil {
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!null"
+		node.Value = ""
+		return nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		// 空字符串使用null表示
+		if v == "" {
+			node.Kind = yaml.ScalarNode
+			node.Tag = "!!null"
+			node.Value = ""
+		} else {
+			node.Kind = yaml.ScalarNode
+			node.Tag = "!!str"
+			node.Value = v
+		}
+	case int:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!int"
+		node.Value = fmt.Sprintf("%d", v)
+	case int64:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!int"
+		node.Value = fmt.Sprintf("%d", v)
+	case float64:
+		node.Kind = yaml.ScalarNode
+		if v == float64(int64(v)) {
+			node.Tag = "!!int"
+			node.Value = fmt.Sprintf("%d", int64(v))
+		} else {
+			node.Tag = "!!float"
+			node.Value = fmt.Sprintf("%g", v)
+		}
+	case bool:
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!bool"
+		if v {
+			node.Value = "true"
+		} else {
+			node.Value = "false"
+		}
+	case map[string]interface{}:
+		// 对于复杂类型，序列化为YAML子结构
+		subYAML, err := yaml.Marshal(v)
+		if err != nil {
+			return err
+		}
+		var subNode yaml.Node
+		if err := yaml.Unmarshal(subYAML, &subNode); err != nil {
+			return err
+		}
+		if subNode.Kind == yaml.DocumentNode && len(subNode.Content) > 0 {
+			*node = *subNode.Content[0]
+		}
+	default:
+		// 其他类型尝试序列化
+		subYAML, err := yaml.Marshal(v)
+		if err != nil {
+			return fmt.Errorf("unsupported value type: %T", v)
+		}
+		var subNode yaml.Node
+		if err := yaml.Unmarshal(subYAML, &subNode); err != nil {
+			return err
+		}
+		if subNode.Kind == yaml.DocumentNode && len(subNode.Content) > 0 {
+			*node = *subNode.Content[0]
 		}
 	}
 
