@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -555,7 +556,8 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		}
 
 		for _, config := range configs {
-			cm.configCache[config.Key] = config.Value
+			// 尝试反序列化JSON值
+			cm.configCache[config.Key] = parseConfigValue(config.Value)
 		}
 		cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
 	}
@@ -571,26 +573,44 @@ func (cm *ConfigManager) saveConfigToDBWithTx(tx *gorm.DB, key string, value int
 	// 将value转换为字符串，处理nil值
 	var valueStr string
 	if value == nil {
-		// 对于nil值，记录警告并跳过保存
-		cm.logger.Warn("尝试保存nil配置值", zap.String("key", key))
-		return fmt.Errorf("cannot save nil value for key: %s", key)
-	}
-
-	// 对于空字符串、空切片等，也需要特别处理
-	switch v := value.(type) {
-	case string:
-		valueStr = v
-	case int, int8, int16, int32, int64:
-		valueStr = fmt.Sprintf("%d", v)
-	case uint, uint8, uint16, uint32, uint64:
-		valueStr = fmt.Sprintf("%d", v)
-	case float32, float64:
-		valueStr = fmt.Sprintf("%v", v)
-	case bool:
-		valueStr = fmt.Sprintf("%t", v)
-	default:
-		// 对于复杂类型，使用fmt.Sprintf，但此时已经排除了nil
-		valueStr = fmt.Sprintf("%v", v)
+		// 对于nil值，保存为空字符串，表示键存在但值为空
+		valueStr = ""
+		cm.logger.Debug("保存nil配置值为空字符串", zap.String("key", key))
+	} else {
+		// 对于非nil值，根据类型进行序列化
+		switch v := value.(type) {
+		case string:
+			valueStr = v
+		case int, int8, int16, int32, int64:
+			valueStr = fmt.Sprintf("%d", v)
+		case uint, uint8, uint16, uint32, uint64:
+			valueStr = fmt.Sprintf("%d", v)
+		case float32, float64:
+			valueStr = fmt.Sprintf("%v", v)
+		case bool:
+			valueStr = fmt.Sprintf("%t", v)
+		case map[string]interface{}, []interface{}, []string, []int, []map[string]interface{}:
+			// 对于复杂类型（map、slice等），使用JSON序列化
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				cm.logger.Error("序列化配置值失败", zap.String("key", key), zap.Error(err))
+				return fmt.Errorf("failed to marshal value for key %s: %w", key, err)
+			}
+			valueStr = string(jsonBytes)
+		default:
+			// 对于其他复杂类型，尝试JSON序列化
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				// 如果JSON序列化失败，记录警告并使用fmt.Sprintf作为降级方案
+				cm.logger.Warn("无法JSON序列化配置值，使用字符串表示",
+					zap.String("key", key),
+					zap.String("type", fmt.Sprintf("%T", v)),
+					zap.Error(err))
+				valueStr = fmt.Sprintf("%v", v)
+			} else {
+				valueStr = string(jsonBytes)
+			}
+		}
 	}
 
 	config := SystemConfig{
@@ -735,16 +755,26 @@ func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
 
 // setNodeValue 设置节点的值
 func setNodeValue(node *yaml.Node, value interface{}) error {
-	// 处理nil值 - 不应该将nil写入配置文件
+	// 处理nil值 - 写入空值（null）
 	if value == nil {
-		return fmt.Errorf("cannot set nil value to YAML node")
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!null"
+		node.Value = ""
+		return nil
 	}
 
 	switch v := value.(type) {
 	case string:
-		node.Kind = yaml.ScalarNode
-		node.Tag = "!!str"
-		node.Value = v
+		// 空字符串也使用空值表示
+		if v == "" {
+			node.Kind = yaml.ScalarNode
+			node.Tag = "!!null"
+			node.Value = ""
+		} else {
+			node.Kind = yaml.ScalarNode
+			node.Tag = "!!str"
+			node.Value = v
+		}
 	case int:
 		node.Kind = yaml.ScalarNode
 		node.Tag = "!!int"
@@ -993,6 +1023,24 @@ func (cm *ConfigManager) markConfigAsModified() error {
 	return nil
 }
 
+// parseConfigValue 解析配置值，尝试将JSON字符串反序列化为原始类型
+func parseConfigValue(valueStr string) interface{} {
+	// 如果为空字符串，返回空字符串（在YAML中会显示为空值）
+	if valueStr == "" {
+		return ""
+	}
+
+	// 尝试JSON反序列化
+	var jsonValue interface{}
+	if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
+		// 如果成功反序列化，返回反序列化后的值
+		return jsonValue
+	}
+
+	// 如果不是有效的JSON，返回原始字符串
+	return valueStr
+}
+
 // RestoreConfigFromDatabase 从数据库恢复配置到YAML文件
 func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 	cm.mu.Lock()
@@ -1030,7 +1078,10 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 
 	// 使用Node API更新每个配置值
 	for _, config := range configs {
-		if err := updateYAMLNode(&node, config.Key, config.Value); err != nil {
+		// 尝试反序列化JSON值
+		value := parseConfigValue(config.Value)
+
+		if err := updateYAMLNode(&node, config.Key, value); err != nil {
 			cm.logger.Warn("更新配置失败",
 				zap.String("key", config.Key),
 				zap.Error(err))

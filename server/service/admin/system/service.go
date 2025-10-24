@@ -2,6 +2,7 @@ package system
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"oneclickvirt/service/database"
@@ -113,8 +114,39 @@ func (s *Service) processConfigSection(tx *gorm.DB, prefix string, configData ma
 				return err
 			}
 		default:
-			// 处理基本值
-			valueStr := fmt.Sprintf("%v", v)
+			// 处理基本值 - 使用JSON序列化复杂类型
+			var valueStr string
+			if v == nil {
+				valueStr = ""
+			} else {
+				switch val := v.(type) {
+				case string:
+					valueStr = val
+				case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+					valueStr = fmt.Sprintf("%d", val)
+				case float32, float64:
+					valueStr = fmt.Sprintf("%v", val)
+				case bool:
+					valueStr = fmt.Sprintf("%t", val)
+				case []interface{}, []string, []int, []map[string]interface{}:
+					// 对于切片类型，使用JSON序列化
+					jsonBytes, err := json.Marshal(val)
+					if err != nil {
+						return fmt.Errorf("序列化配置值失败 (key: %s): %w", fullKey, err)
+					}
+					valueStr = string(jsonBytes)
+				default:
+					// 其他复杂类型尝试JSON序列化
+					jsonBytes, err := json.Marshal(val)
+					if err != nil {
+						// JSON序列化失败，使用字符串表示作为降级
+						global.APP_LOG.Warn(fmt.Sprintf("配置值JSON序列化失败，使用字符串表示 (key: %s, type: %T)", fullKey, val))
+						valueStr = fmt.Sprintf("%v", val)
+					} else {
+						valueStr = string(jsonBytes)
+					}
+				}
+			}
 
 			var config admin.SystemConfig
 			if err := tx.Where("key = ?", fullKey).First(&config).Error; err != nil {
