@@ -535,8 +535,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	}
 
 	// 直接从数据库获取Provider配置
+	// 允许 active 和 partial 状态的Provider执行任务（与GetAvailableProviders保持一致）
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("name = ? AND status = ?", instance.Provider, "active").First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND (status = ? OR status = ?)", instance.Provider, "active", "partial").First(&dbProvider).Error; err != nil {
 		err := fmt.Errorf("Provider %s 不存在或不可用", instance.Provider)
 		global.APP_LOG.Error("Provider不存在", zap.Uint("taskId", task.ID), zap.String("provider", instance.Provider), zap.Error(err))
 		return err

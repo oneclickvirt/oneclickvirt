@@ -63,10 +63,11 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 		return
 	}
 
-	// 获取所有活跃Provider
+	// 获取所有活跃Provider（包括 active 和 partial 状态）
+	// partial 状态的Provider也需要进行流量监控
 	var providerIDs []uint
 	if err := global.APP_DB.Model(&provider.Provider{}).
-		Where("status = ?", "active").
+		Where("status = ? OR status = ?", "active", "partial").
 		Pluck("id", &providerIDs).Error; err != nil {
 		global.APP_LOG.Error("获取Provider列表失败", zap.Error(err))
 		return
@@ -113,5 +114,3 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 		global.APP_LOG.Error("清理旧流量记录失败", zap.Error(err))
 	}
 }
-
-// checkMonthlyTrafficReset 检查每月流量重置，如果需要则重置所有用户的已用流量

@@ -27,7 +27,8 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 
 	// 统计服务器 (Provider表)
 	global.APP_DB.Model(&providerModel.Provider{}).Count(&totalProviders)
-	global.APP_DB.Model(&providerModel.Provider{}).Where("status = ?", "active").Count(&activeProviders)
+	// 统计活跃Provider（包括 active 和 partial 状态，因为它们都可以被用户使用）
+	global.APP_DB.Model(&providerModel.Provider{}).Where("status = ? OR status = ?", "active", "partial").Count(&activeProviders)
 
 	// 统计运行中的实例
 	var runningInstances int64

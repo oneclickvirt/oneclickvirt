@@ -63,8 +63,9 @@ type CreateInstanceRequest struct {
 
 // GetProviderByName 从数据库获取Provider配置并创建实例
 func (s *ProviderApiService) GetProviderByName(providerName string) (*ProviderWithStatus, error) {
+	// 允许 active 和 partial 状态的Provider（与GetAvailableProviders保持一致）
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("name = ? AND status = ?", providerName, "active").First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND (status = ? OR status = ?)", providerName, "active", "partial").First(&dbProvider).Error; err != nil {
 		return nil, fmt.Errorf("Provider %s 不存在或不可用", providerName)
 	}
 

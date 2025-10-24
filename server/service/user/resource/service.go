@@ -30,7 +30,8 @@ func (s *Service) GetAvailableResources(req userModel.AvailableResourcesRequest)
 	var providers []providerModel.Provider
 	var total int64
 
-	query := global.APP_DB.Model(&providerModel.Provider{}).Where("status = ? AND allow_claim = ?", "active", true)
+	// 允许 active 和 partial 状态的Provider（与GetAvailableProviders保持一致）
+	query := global.APP_DB.Model(&providerModel.Provider{}).Where("(status = ? OR status = ?) AND allow_claim = ?", "active", "partial", true)
 
 	if req.Country != "" {
 		query = query.Where("country = ?", req.Country)
