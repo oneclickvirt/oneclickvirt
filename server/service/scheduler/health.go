@@ -115,13 +115,15 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 	oldStatus := provider.Status
 
 	// 执行健康检查
+	// 注意：即使检查失败（超时、网络错误等），状态也已经被更新到数据库
+	// 因此我们需要继续处理，而不是直接返回
 	err := s.providerService.CheckProviderHealth(provider.ID)
 	if err != nil {
-		global.APP_LOG.Warn("Provider健康检查失败",
+		global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
 			zap.Uint("provider_id", provider.ID),
 			zap.String("provider_name", provider.Name),
 			zap.Error(err))
-		return
+		// 不要return，继续获取更新后的状态
 	}
 
 	// 重新获取Provider以获得最新状态
@@ -148,17 +150,34 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 			zap.String("new_api", updatedProvider.APIStatus))
 
 		// 根据Provider健康状态更新allow_claim字段，控制是否允许申领新实例
-		// 不修改现有实例的状态，保持用户操作意图和实例实际状态
-		if (updatedProvider.Status == "inactive" || updatedProvider.Status == "partial") &&
-			(oldStatus == "active" || oldStatus == "") {
-			// Provider变为不可用，禁止申领新实例
+		// 重要原则：
+		// 1. 健康检查仅影响新实例的申领（allow_claim字段）
+		// 2. 不影响已在进行中的任务和已创建的实例
+		// 3. 只有完全offline (inactive)时才禁止申领，partial状态仍允许申领
+		// 4. 健康检查超时或网络问题不应该直接禁止申领
+		if updatedProvider.Status == "inactive" && oldStatus != "inactive" {
+			// Provider变为完全离线，禁止申领新实例
+			// 但不取消已在进行中的任务
 			s.updateProviderAllowClaim(provider.ID, false)
+			global.APP_LOG.Warn("Provider完全离线，禁止申领新实例（不影响进行中的任务）",
+				zap.Uint("provider_id", provider.ID),
+				zap.String("provider_name", provider.Name),
+				zap.String("ssh_status", updatedProvider.SSHStatus),
+				zap.String("api_status", updatedProvider.APIStatus))
 		} else if updatedProvider.Status == "active" && oldStatus != "active" {
 			// Provider恢复在线，允许申领新实例
 			s.updateProviderAllowClaim(provider.ID, true)
 			global.APP_LOG.Info("Provider恢复在线，允许申领新实例",
 				zap.Uint("provider_id", provider.ID),
 				zap.String("provider_name", provider.Name))
+		} else if updatedProvider.Status == "partial" && oldStatus == "inactive" {
+			// Provider从完全离线恢复到部分在线，也应该允许申领
+			s.updateProviderAllowClaim(provider.ID, true)
+			global.APP_LOG.Info("Provider部分恢复在线，允许申领新实例",
+				zap.Uint("provider_id", provider.ID),
+				zap.String("provider_name", provider.Name),
+				zap.String("ssh_status", updatedProvider.SSHStatus),
+				zap.String("api_status", updatedProvider.APIStatus))
 		}
 	}
 }

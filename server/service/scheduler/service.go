@@ -210,19 +210,63 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 
 	// 检查Provider是否可用（基础检查）
 	var provider provider.Provider
-	err := global.APP_DB.Where("id = ? AND allow_claim = ?", *task.ProviderID, true).
+	err := global.APP_DB.Where("id = ?", *task.ProviderID).
 		First(&provider).Error
 
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			// Provider不可用，取消任务
-			s.taskService.CancelTaskByAdmin(task.ID, "Provider not available")
+			// Provider不存在，取消任务
+			s.taskService.CancelTaskByAdmin(task.ID, "Provider not found")
 		} else {
 			global.APP_LOG.Error("Failed to fetch provider",
 				zap.Uint("provider_id", *task.ProviderID),
 				zap.Error(err))
 		}
 		return
+	}
+
+	// 检查Provider的实际状态，而不仅仅是allow_claim标志
+	// allow_claim可能因临时健康检查失败而被误设为false
+	// 但如果Provider实际上是active状态且未冻结，应该允许任务继续执行
+	if provider.IsFrozen {
+		global.APP_LOG.Warn("Provider is frozen, cancelling task",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.Uint("task_id", task.ID))
+		s.taskService.CancelTaskByAdmin(task.ID, "Provider is frozen")
+		return
+	}
+
+	// 检查Provider是否过期
+	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
+		global.APP_LOG.Warn("Provider has expired, cancelling task",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.Uint("task_id", task.ID))
+		s.taskService.CancelTaskByAdmin(task.ID, "Provider has expired")
+		return
+	}
+
+	// 如果Provider状态为inactive，才取消任务
+	// partial状态表示部分在线（如SSH在线但API离线），仍然可以尝试执行任务
+	if provider.Status == "inactive" {
+		global.APP_LOG.Warn("Provider is inactive, cancelling task",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.String("ssh_status", provider.SSHStatus),
+			zap.String("api_status", provider.APIStatus),
+			zap.Uint("task_id", task.ID))
+		s.taskService.CancelTaskByAdmin(task.ID, "Provider is inactive")
+		return
+	}
+
+	// 记录当前allow_claim状态，但不阻止任务执行
+	if !provider.AllowClaim {
+		global.APP_LOG.Info("Provider allow_claim is false, but provider is active, allowing task to proceed",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.String("status", provider.Status),
+			zap.Uint("task_id", task.ID))
 	}
 
 	// 尝试启动任务 - 让TaskService处理所有并发控制逻辑
