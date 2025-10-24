@@ -124,8 +124,15 @@ func (s *Service) processConfigSection(tx *gorm.DB, prefix string, configData ma
 					valueStr = val
 				case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
 					valueStr = fmt.Sprintf("%d", val)
-				case float32, float64:
-					valueStr = fmt.Sprintf("%v", val)
+				case float32:
+					valueStr = fmt.Sprintf("%g", val)
+				case float64:
+					// 如果是整数，显示为整数
+					if val == float64(int64(val)) {
+						valueStr = fmt.Sprintf("%d", int64(val))
+					} else {
+						valueStr = fmt.Sprintf("%g", val)
+					}
 				case bool:
 					valueStr = fmt.Sprintf("%t", val)
 				case []interface{}, []string, []int, []map[string]interface{}:
@@ -135,16 +142,22 @@ func (s *Service) processConfigSection(tx *gorm.DB, prefix string, configData ma
 						return fmt.Errorf("序列化配置值失败 (key: %s): %w", fullKey, err)
 					}
 					valueStr = string(jsonBytes)
+				case map[string]interface{}:
+					// 对于map类型，使用JSON序列化
+					jsonBytes, err := json.Marshal(val)
+					if err != nil {
+						return fmt.Errorf("序列化配置值失败 (key: %s): %w", fullKey, err)
+					}
+					valueStr = string(jsonBytes)
 				default:
 					// 其他复杂类型尝试JSON序列化
 					jsonBytes, err := json.Marshal(val)
 					if err != nil {
-						// JSON序列化失败，使用字符串表示作为降级
-						global.APP_LOG.Warn(fmt.Sprintf("配置值JSON序列化失败，使用字符串表示 (key: %s, type: %T)", fullKey, val))
-						valueStr = fmt.Sprintf("%v", val)
-					} else {
-						valueStr = string(jsonBytes)
+						// JSON序列化失败，记录错误并返回
+						global.APP_LOG.Error(fmt.Sprintf("配置值JSON序列化失败 (key: %s, type: %T): %v", fullKey, val, err))
+						return fmt.Errorf("不支持的配置值类型 (key: %s, type: %T)", fullKey, val)
 					}
+					valueStr = string(jsonBytes)
 				}
 			}
 
