@@ -947,7 +947,7 @@
                   </div>
                   <div class="form-tip" style="margin-top: 10px;">
                     <el-text size="small" type="info">
-                      {{ addProviderForm.type === 'docker' ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtType') }}
+                      {{ addProviderForm.type === 'docker' ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtualizationType') }}
                     </el-text>
                   </div>
                 </el-card>

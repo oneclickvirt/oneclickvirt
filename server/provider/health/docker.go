@@ -57,15 +57,16 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 	}
 
 	// 构建认证方法：优先使用SSH密钥，否则使用密码
+	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
 	var authMethods []ssh.AuthMethod
 
-	// 如果提供了SSH私钥，优先使用密钥认证
+	// 如果提供了SSH私钥，添加密钥认证
 	if d.config.PrivateKey != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(d.config.PrivateKey))
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if d.logger != nil {
-				d.logger.Debug("使用SSH密钥认证", zap.String("host", d.config.Host))
+				d.logger.Debug("已添加SSH密钥认证方法", zap.String("host", d.config.Host))
 			}
 		} else if d.logger != nil {
 			d.logger.Warn("SSH私钥解析失败，将尝试使用密码认证",
@@ -74,11 +75,11 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 		}
 	}
 
-	// 如果没有密钥或密钥解析失败，且提供了密码，使用密码认证
-	if len(authMethods) == 0 && d.config.Password != "" {
+	// 如果提供了密码，添加密码认证（无论是否有密钥，都添加作为备用方案）
+	if d.config.Password != "" {
 		authMethods = append(authMethods, ssh.Password(d.config.Password))
 		if d.logger != nil {
-			d.logger.Debug("使用SSH密码认证", zap.String("host", d.config.Host))
+			d.logger.Debug("已添加SSH密码认证方法", zap.String("host", d.config.Host))
 		}
 	}
 

@@ -1,16 +1,8 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
     enable-email: false
-    enable-oauth2: false
-    enable-public-registration: false
+    enable-public-registration: true
     enable-qq: false
     enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
 captcha:
     enabled: true
     expire-time: 300
@@ -41,35 +33,28 @@ mysql:
     db-name: oneclickvirt
     engine: InnoDB
     log-mode: error
-    log-zap: false
-    max-idle-conns: 10
-    max-lifetime: 3600
-    max-open-conns: 100
+    log-zap: "false"
+    max-idle-conns: "10"
+    max-lifetime: "3600"
+    max-open-conns: "100"
     password: ""
-    path:
-    port:
+    path: 127.0.0.1
+    port: "3306"
     prefix: ""
-    singular: false
+    singular: "false"
     username: root
 quota:
     default-level: 1
-    instance-type-permissions:
-        min-level-for-container: 1
-        min-level-for-delete-container: 2
-        min-level-for-delete-vm: 3
-        min-level-for-reset-container: 1
-        min-level-for-reset-vm: 3
-        min-level-for-vm: 3
     level-limits:
-        1:
-            max-instances: 1
+        "1":
+            max-instances: 6
             max-resources:
-                bandwidth: 100
-                cpu: 1
-                disk: 1025
-                memory: 350
-            max-traffic: 102400
-        2:
+                bandwidth: 1000
+                cpu: 6
+                disk: 66024
+                memory: 6350
+            max-traffic: 1.024e+06
+        "2":
             max-instances: 3
             max-resources:
                 bandwidth: 200
@@ -77,7 +62,7 @@ quota:
                 disk: 20480
                 memory: 1024
             max-traffic: 204800
-        3:
+        "3":
             max-instances: 5
             max-resources:
                 bandwidth: 500
@@ -85,7 +70,7 @@ quota:
                 disk: 40960
                 memory: 2048
             max-traffic: 307200
-        4:
+        "4":
             max-instances: 10
             max-resources:
                 bandwidth: 1000
@@ -93,7 +78,7 @@ quota:
                 disk: 81920
                 memory: 4096
             max-traffic: 409600
-        5:
+        "5":
             max-instances: 20
             max-resources:
                 bandwidth: 2000
@@ -110,13 +95,13 @@ sysm:
 system:
     addr: 8888
     db-type: mysql
-    env: production
+    env: development
     iplimit-count: 15000
     iplimit-time: 3600
     oss-type: local
     use-multipoint: false
     use-redis: false
-    frontend-url: ""
+    frontend-url: "http://beta.spiritlhl.net/"
 task:
     delete-retry-count: 3
     delete-retry-delay: 2

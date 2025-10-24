@@ -451,7 +451,7 @@ func (s *Service) CleanupOldVnStatData(retentionDays int) error {
 
 	cutoffTime := time.Now().AddDate(0, 0, -retentionDays)
 
-	// 只清理日度记录，保留月度和总计记录
+	// 只清理日度记录（day > 0），保留月度（day = 0, month > 0）和总计（year = 0）记录
 	result := global.APP_DB.Where("record_time < ? AND day > 0", cutoffTime).Delete(&monitoringModel.VnStatTrafficRecord{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to cleanup old vnstat data: %w", result.Error)
@@ -461,6 +461,17 @@ func (s *Service) CleanupOldVnStatData(retentionDays int) error {
 		zap.Int("retention_days", retentionDays),
 		zap.Time("cutoff_time", cutoffTime),
 		zap.Int64("deleted_records", result.RowsAffected))
+
+	// 额外：清理过期的月度记录（保留最近12个月的月度数据）
+	cutoffMonth := time.Now().AddDate(0, -12, 0)
+	monthResult := global.APP_DB.Where("record_time < ? AND day = 0 AND month > 0 AND year > 0", cutoffMonth).
+		Delete(&monitoringModel.VnStatTrafficRecord{})
+	if monthResult.Error != nil {
+		global.APP_LOG.Error("清理过期月度数据失败", zap.Error(monthResult.Error))
+	} else if monthResult.RowsAffected > 0 {
+		global.APP_LOG.Info("清理过期月度数据",
+			zap.Int64("deleted_records", monthResult.RowsAffected))
+	}
 
 	return nil
 }
@@ -509,7 +520,8 @@ func (s *Service) GetVnStatSummaryByInstanceID(instanceID uint, interfaceName st
 	}
 
 	// 执行vnstat命令获取摘要信息
-	cmd := fmt.Sprintf("vnstat -i %s --json", interfaceName)
+	// 限制查询范围：最近30天的数据，减少传输量
+	cmd := fmt.Sprintf("vnstat -i %s -d 30 --json", interfaceName)
 	output, err := providerInstance.ExecuteSSHCommand(context.Background(), cmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get vnstat summary: %w", err)
@@ -565,17 +577,21 @@ func (s *Service) QueryVnStatData(instanceID uint, interfaceName, dateRange stri
 		}
 	}
 
-	// 根据日期范围构建vnstat命令
+	// 根据日期范围构建vnstat命令，限制返回数据量
 	var cmd string
 	switch dateRange {
 	case "hourly":
-		cmd = fmt.Sprintf("vnstat -i %s -h --json", interfaceName)
+		// 只返回最近24小时的数据
+		cmd = fmt.Sprintf("vnstat -i %s -h 24 --json", interfaceName)
 	case "daily":
-		cmd = fmt.Sprintf("vnstat -i %s -d --json", interfaceName)
+		// 只返回最近30天的数据
+		cmd = fmt.Sprintf("vnstat -i %s -d 30 --json", interfaceName)
 	case "monthly":
-		cmd = fmt.Sprintf("vnstat -i %s -m --json", interfaceName)
+		// 只返回最近12个月的数据
+		cmd = fmt.Sprintf("vnstat -i %s -m 12 --json", interfaceName)
 	default:
-		cmd = fmt.Sprintf("vnstat -i %s --json", interfaceName)
+		// 默认返回最近30天的数据（包含月度统计）
+		cmd = fmt.Sprintf("vnstat -i %s -d 30 --json", interfaceName)
 	}
 
 	output, err := providerInstance.ExecuteSSHCommand(context.Background(), cmd)
@@ -660,7 +676,8 @@ func (s *Service) GetVnStatDashboardData(instanceID uint) (interface{}, error) {
 	dashboardData["interfaces"] = interfaces
 
 	for _, iface := range interfaces {
-		cmd := fmt.Sprintf("vnstat -i %s --json", iface)
+		// 限制查询范围：最近30天的数据，减少传输量
+		cmd := fmt.Sprintf("vnstat -i %s -d 30 --json", iface)
 		output, err := providerInstance.ExecuteSSHCommand(context.Background(), cmd)
 		if err != nil {
 			global.APP_LOG.Warn("获取接口vnstat数据失败",

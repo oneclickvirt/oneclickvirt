@@ -61,10 +61,10 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 
 // dialSSH 建立SSH连接的内部方法
 func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
-	// 构建认证方法：优先使用SSH密钥，否则使用密码
+	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
 	var authMethods []ssh.AuthMethod
 
-	// 如果提供了SSH私钥，优先使用密钥认证
+	// 如果提供了SSH私钥，添加密钥认证
 	if config.PrivateKey != "" {
 		signer, err := ssh.ParsePrivateKey([]byte(config.PrivateKey))
 		if err != nil {
@@ -73,15 +73,15 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
 				zap.Error(err))
 		} else {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
-			global.APP_LOG.Debug("使用SSH密钥认证",
+			global.APP_LOG.Debug("已添加SSH密钥认证方法",
 				zap.String("host", config.Host))
 		}
 	}
 
-	// 如果没有密钥或密钥解析失败，且提供了密码，使用密码认证
-	if len(authMethods) == 0 && config.Password != "" {
+	// 如果提供了密码，添加密码认证（无论是否有密钥，都添加作为备用方案）
+	if config.Password != "" {
 		authMethods = append(authMethods, ssh.Password(config.Password))
-		global.APP_LOG.Debug("使用SSH密码认证",
+		global.APP_LOG.Debug("已添加SSH密码认证方法",
 			zap.String("host", config.Host))
 	}
 

@@ -932,8 +932,9 @@ func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringMod
 // getVnStatJSON 获取vnStat的JSON格式数据
 func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName, interfaceName string) (string, error) {
 	// 统一在宿主机上执行vnstat命令，监控veth/桥接接口
-	// 与initVnStatForInterface的逻辑保持一致
-	vnstatCmd := fmt.Sprintf("vnstat -i %s --json", interfaceName)
+	// 限制查询范围以减少数据传输量：最近3个月的月度数据 + 最近30天的日度数据
+	// 使用 -d 30 限制只返回最近30天的数据（包含月度统计）
+	vnstatCmd := fmt.Sprintf("vnstat -i %s -d 30 --json", interfaceName)
 
 	global.APP_LOG.Debug("获取vnStat数据（宿主机接口）",
 		zap.String("provider_type", providerInstance.GetType()),
@@ -973,6 +974,79 @@ func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName
 		zap.Int("data_length", len(output)))
 
 	return output, nil
+}
+
+// compactVnStatJSON 精简vnStat JSON数据，只保留最近的记录以减少存储空间
+// 保留策略：最近3个月的月度数据 + 最近30天的日度数据 + 总流量
+func (s *Service) compactVnStatJSON(vnstatData *monitoringModel.VnStatResponse, interfaceName string) string {
+	// 查找目标接口
+	var targetInterface *monitoringModel.VnStatInterfaceData
+	for i := range vnstatData.Interfaces {
+		if vnstatData.Interfaces[i].Name == interfaceName {
+			targetInterface = &vnstatData.Interfaces[i]
+			break
+		}
+	}
+
+	if targetInterface == nil {
+		// 如果找不到接口，返回空JSON
+		return "{}"
+	}
+
+	// 获取标准化数据
+	normalized := targetInterface.Traffic.GetNormalizedTrafficData()
+
+	// 只保留最近3个月的月度数据
+	recentMonths := normalized.Months
+	if len(recentMonths) > 3 {
+		recentMonths = recentMonths[len(recentMonths)-3:]
+	}
+
+	// 只保留最近30天的日度数据
+	recentDays := normalized.Days
+	if len(recentDays) > 30 {
+		recentDays = recentDays[len(recentDays)-30:]
+	}
+
+	// 构建精简的响应结构
+	compactedData := monitoringModel.VnStatResponse{
+		VnStatVersion: vnstatData.VnStatVersion,
+		JsonVersion:   vnstatData.JsonVersion,
+		Interfaces: []monitoringModel.VnStatInterfaceData{
+			{
+				Name:    targetInterface.Name,
+				Alias:   targetInterface.Alias,
+				Created: targetInterface.Created,
+				Updated: targetInterface.Updated,
+				Traffic: monitoringModel.VnStatTrafficData{
+					Total:  normalized.Total,
+					Month:  recentMonths, // v1格式
+					Months: recentMonths, // v2格式
+					Day:    recentDays,   // v1格式
+					Days:   recentDays,   // v2格式
+					// 不保留小时数据和Top数据，它们太详细且占用空间
+				},
+			},
+		},
+	}
+
+	// 序列化为JSON
+	compactedJSON, err := json.Marshal(compactedData)
+	if err != nil {
+		global.APP_LOG.Error("精简vnStat JSON失败",
+			zap.String("interface", interfaceName),
+			zap.Error(err))
+		// 如果精简失败，返回空JSON而不是原始数据
+		return "{}"
+	}
+
+	global.APP_LOG.Debug("成功精简vnStat JSON",
+		zap.String("interface", interfaceName),
+		zap.Int("compacted_size", len(compactedJSON)),
+		zap.Int("months_kept", len(recentMonths)),
+		zap.Int("days_kept", len(recentDays)))
+
+	return string(compactedJSON)
 }
 
 // parseAndSaveVnStatData 解析并保存vnStat数据
@@ -1016,6 +1090,9 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 		providerType = "unknown"
 	}
 
+	// 精简原始JSON数据，只保留最近的记录以减少存储空间
+	compactedJSON := s.compactVnStatJSON(&vnstatData, iface.Interface)
+
 	// 保存总流量数据
 	totalRecord := &monitoringModel.VnStatTrafficRecord{
 		InstanceID:   iface.InstanceID,
@@ -1029,7 +1106,7 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 		Month:        0,
 		Day:          0,
 		Hour:         0,
-		RawData:      jsonData,
+		RawData:      compactedJSON,
 		RecordTime:   time.Now(),
 	}
 

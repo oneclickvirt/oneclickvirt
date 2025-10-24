@@ -26,7 +26,7 @@ type VnStatTrafficRecord struct {
 	Hour  int `json:"hour"`  // 小时 (0表示日度统计)
 
 	// vnStat原始数据
-	RawData string `json:"raw_data" gorm:"type:text"` // vnStat原始JSON数据
+	RawData string `json:"raw_data" gorm:"type:mediumtext"` // vnStat原始JSON数据（最大16MB）
 
 	// 时间戳
 	RecordTime time.Time      `json:"record_time"` // 记录时间
