@@ -58,6 +58,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 		Port:           config.Port,
 		Username:       config.Username,
 		Password:       config.Password,
+		PrivateKey:     config.PrivateKey,
 		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
 		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
 	}
@@ -75,6 +76,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 		Port:          config.Port,
 		Username:      config.Username,
 		Password:      config.Password,
+		PrivateKey:    config.PrivateKey,
 		APIEnabled:    false, // Docker Provider 不使用 API
 		SSHEnabled:    true,
 		Timeout:       30 * time.Second,

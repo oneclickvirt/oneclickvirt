@@ -136,10 +136,6 @@
 
           <div class="instance-details">
             <div class="detail-item">
-              <span class="label">{{ t('user.instances.provider') }}:</span>
-              <span class="value">{{ instance.providerName }}</span>
-            </div>
-            <div class="detail-item">
               <span class="label">{{ t('user.instances.configuration') }}:</span>
               <span class="value">{{ instance.cpu }}{{ t('user.instances.cores') }} / {{ formatMemorySize(instance.memory) }} / {{ formatDiskSize(instance.disk) }}</span>
             </div>
@@ -361,6 +357,11 @@ const getStatusType = (status) => {
     'stopped': 'info',
     'paused': 'warning',
     'creating': 'warning',
+    'starting': 'warning',
+    'stopping': 'warning',
+    'restarting': 'warning',
+    'resetting': 'warning',
+    'unavailable': 'danger',
     'error': 'danger',
     'failed': 'danger'
   }
@@ -374,6 +375,11 @@ const getStatusText = (status) => {
     'stopped': t('user.instances.statusStopped'), 
     'paused': t('user.instances.statusPaused'),
     'creating': t('user.instances.statusCreating'),
+    'starting': t('user.instances.statusStarting'),
+    'stopping': t('user.instances.statusStopping'),
+    'restarting': t('user.instances.statusRestarting'),
+    'resetting': t('user.instances.statusResetting'),
+    'unavailable': t('user.instances.statusUnavailable'),
     'error': t('user.instances.statusError'),
     'failed': t('user.instances.statusFailed')
   }

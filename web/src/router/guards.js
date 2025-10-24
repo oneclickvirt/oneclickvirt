@@ -1,5 +1,7 @@
 import { useUserStore } from '@/pinia/modules/user'
 import { checkSystemInit } from '@/api/init'
+import { ElMessage } from 'element-plus'
+import i18n from '@/i18n'
 import NProgress from 'nprogress'
 import 'nprogress/nprogress.css'
 
@@ -43,17 +45,21 @@ export function setupRouterGuards(router) {
         console.log('OAuth2登录成功，用户信息已加载:', {
           user: userStore.user,
           userType: userStore.userType,
+          viewMode: userStore.viewMode,
           userInfo: userStore.userInfo
         })
         
-        // 根据用户类型跳转到相应页面
-        const userType = userStore.userInfo?.userType || userStore.userType
-        console.log('OAuth2登录完成，用户类型:', userType)
+        // 根据用户类型和视图模式跳转到相应页面
+        const userType = userStore.userType
+        const viewMode = userStore.viewMode || userType
+        console.log('OAuth2登录完成，用户类型:', userType, '视图模式:', viewMode)
         
-        if (userType === 'admin') {
+        // 只有管理员可以访问管理员界面，且只有管理员可以切换视图
+        if (userType === 'admin' && viewMode === 'admin') {
           next('/admin')
           return
-        } else if (userType === 'user') {
+        } else {
+          // 普通用户只能访问用户界面
           next('/user')
           return
         }
@@ -95,17 +101,22 @@ export function setupRouterGuards(router) {
         console.log('OAuth2登录成功，用户信息已加载:', {
           user: userStore.user,
           userType: userStore.userType,
+          viewMode: userStore.viewMode,
           userInfo: userStore.userInfo
         })
         
-        // 如果在首页且已登录，跳转到用户主页
+        // 如果在首页且已登录，根据用户类型和视图模式跳转
         if (to.path === '/' || to.path === '/home') {
-          const userType = userStore.userInfo?.userType || userStore.userType
-          console.log('从首页跳转，用户类型:', userType)
-          if (userType === 'admin') {
+          const userType = userStore.userType
+          const viewMode = userStore.viewMode || userType
+          console.log('从首页跳转，用户类型:', userType, '视图模式:', viewMode)
+          
+          // 只有管理员可以访问管理员界面
+          if (userType === 'admin' && viewMode === 'admin') {
             next('/admin')
             return
-          } else if (userType === 'user') {
+          } else {
+            // 普通用户或管理员切换到用户视图时，进入用户界面
             next('/user')
             return
           }
@@ -220,6 +231,14 @@ export function setupRouterGuards(router) {
         }
       }
       
+      // 严格检查：普通用户不能访问管理员路由
+      if (to.path.startsWith('/admin/') && userStore.userType !== 'admin') {
+        console.log('普通用户尝试访问管理员页面，拒绝访问')
+        ElMessage.warning(i18n.global.t('navbar.noPermission'))
+        next('/user/dashboard')
+        return
+      }
+      
       if (to.meta.roles && to.meta.roles.length > 0) {
         const userRole = userStore.userType
         // 管理员可以访问所有页面（包括用户页面）
@@ -242,11 +261,16 @@ export function setupRouterGuards(router) {
     }
     
     if (to.path === '/' && token) {
+      // 根据用户类型和视图模式跳转
       const userType = userStore.userType
-      if (userType === 'admin') {
+      const viewMode = userStore.viewMode || userType
+      
+      // 只有管理员可以访问管理员界面
+      if (userType === 'admin' && viewMode === 'admin') {
         next('/admin/dashboard')
         return
-      } else if (userType === 'user') {
+      } else {
+        // 普通用户或管理员切换到用户视图时，进入用户界面
         next('/user/dashboard')
         return
       }

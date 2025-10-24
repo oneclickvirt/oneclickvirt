@@ -56,12 +56,41 @@ func (p *ProxmoxHealthChecker) checkSSH(ctx context.Context) error {
 		}
 	}
 
+	// 构建认证方法：优先使用SSH密钥，否则使用密码
+	var authMethods []ssh.AuthMethod
+
+	// 如果提供了SSH私钥，优先使用密钥认证
+	if p.config.PrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(p.config.PrivateKey))
+		if err == nil {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+			if p.logger != nil {
+				p.logger.Debug("使用SSH密钥认证", zap.String("host", p.config.Host))
+			}
+		} else if p.logger != nil {
+			p.logger.Warn("SSH私钥解析失败，将尝试使用密码认证",
+				zap.String("host", p.config.Host),
+				zap.Error(err))
+		}
+	}
+
+	// 如果没有密钥或密钥解析失败，且提供了密码，使用密码认证
+	if len(authMethods) == 0 && p.config.Password != "" {
+		authMethods = append(authMethods, ssh.Password(p.config.Password))
+		if p.logger != nil {
+			p.logger.Debug("使用SSH密码认证", zap.String("host", p.config.Host))
+		}
+	}
+
+	// 如果既没有密钥也没有密码，返回错误
+	if len(authMethods) == 0 {
+		return fmt.Errorf("no authentication method available: neither SSH key nor password provided")
+	}
+
 	// 建立新连接
 	config := &ssh.ClientConfig{
-		User: p.config.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(p.config.Password),
-		},
+		User:            p.config.Username,
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         p.config.Timeout,
 	}

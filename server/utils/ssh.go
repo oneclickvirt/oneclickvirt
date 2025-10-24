@@ -20,6 +20,7 @@ type SSHConfig struct {
 	Port           int
 	Username       string
 	Password       string
+	PrivateKey     string // SSH私钥内容，优先于密码使用
 	ConnectTimeout time.Duration
 	ExecuteTimeout time.Duration
 }
@@ -60,11 +61,38 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 
 // dialSSH 建立SSH连接的内部方法
 func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
+	// 构建认证方法：优先使用SSH密钥，否则使用密码
+	var authMethods []ssh.AuthMethod
+
+	// 如果提供了SSH私钥，优先使用密钥认证
+	if config.PrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(config.PrivateKey))
+		if err != nil {
+			global.APP_LOG.Warn("SSH私钥解析失败，将尝试使用密码认证",
+				zap.String("host", config.Host),
+				zap.Error(err))
+		} else {
+			authMethods = append(authMethods, ssh.PublicKeys(signer))
+			global.APP_LOG.Debug("使用SSH密钥认证",
+				zap.String("host", config.Host))
+		}
+	}
+
+	// 如果没有密钥或密钥解析失败，且提供了密码，使用密码认证
+	if len(authMethods) == 0 && config.Password != "" {
+		authMethods = append(authMethods, ssh.Password(config.Password))
+		global.APP_LOG.Debug("使用SSH密码认证",
+			zap.String("host", config.Host))
+	}
+
+	// 如果既没有密钥也没有密码，返回错误
+	if len(authMethods) == 0 {
+		return nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
+	}
+
 	sshConfig := &ssh.ClientConfig{
-		User: config.Username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(config.Password),
-		},
+		User:            config.Username,
+		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         config.ConnectTimeout,
 	}

@@ -470,7 +470,7 @@ const loadTasks = async (showSuccessMsg = false) => {
     console.error('获取任务列表失败:', error)
     tasks.value = []
     total.value = 0
-    ElMessage.error('获取任务列表失败，请检查网络连接')
+    ElMessage.error(t('user.tasks.loadFailedNetwork'))
   } finally {
     loading.value = false
   }
@@ -571,17 +571,18 @@ const getTaskStatusText = (status) => {
 // 获取默认状态消息
 const getDefaultStatusMessage = (status) => {
   const messageMap = {
-    'pending': '等待调度中...',
-    'processing': '正在准备中...',
-    'running': '正在执行中...',
-    'cancelling': '正在取消中...'
+    'pending': t('user.tasks.statusMessagePending'),
+    'processing': t('user.tasks.statusMessageProcessing'),
+    'running': t('user.tasks.statusMessageRunning'),
+    'cancelling': t('user.tasks.statusMessageCancelling')
   }
-  return messageMap[status] || '处理中...'
+  return messageMap[status] || t('user.tasks.statusMessageDefault')
 }
 
 // 格式化日期
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  const localeCode = locale.value === 'zh-CN' ? 'zh-CN' : 'en-US'
+  return new Date(dateString).toLocaleString(localeCode)
 }
 
 // 获取预计完成时间
@@ -601,9 +602,9 @@ const calculateDuration = (startTime, endTime) => {
   const end = new Date(endTime)
   const duration = Math.floor((end - start) / 1000)
   
-  if (duration < 60) return `${duration}秒`
-  if (duration < 3600) return `${Math.floor(duration / 60)}分钟`
-  return `${Math.floor(duration / 3600)}小时${Math.floor((duration % 3600) / 60)}分钟`
+  if (duration < 60) return `${duration}${t('user.tasks.seconds')}`
+  if (duration < 3600) return `${Math.floor(duration / 60)}${t('user.tasks.minutes')}`
+  return `${Math.floor(duration / 3600)}${t('user.tasks.hours')}${Math.floor((duration % 3600) / 60)}${t('user.tasks.minutes')}`
 }
 
 // 设置定时刷新
@@ -656,7 +657,7 @@ onMounted(async () => {
   
   results.forEach((result, index) => {
     if (result.status === 'rejected') {
-      const apiNames = ['获取任务列表', '获取提供商列表']
+      const apiNames = [t('user.tasks.apiLoadTasks'), t('user.tasks.apiLoadProviders')]
       console.error(`${apiNames[index]}失败:`, result.reason)
     }
   })

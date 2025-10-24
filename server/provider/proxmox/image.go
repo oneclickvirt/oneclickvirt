@@ -159,19 +159,30 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 
-	// 构建下载命令，优先使用wget，失败则使用curl
+	// 下载文件，支持断点续传，优先使用wget，失败则使用curl
 	downloadCmds := []string{
-		fmt.Sprintf("wget --no-check-certificate --timeout=1800 -O %s %s && mv %s %s", tmpPath, url, tmpPath, remotePath),
-		fmt.Sprintf("curl -L -k --max-time 1800 --retry 3 --retry-delay 5 -o %s %s && mv %s %s", tmpPath, url, tmpPath, remotePath),
+		fmt.Sprintf("wget --no-check-certificate -c -O %s '%s'", tmpPath, url),
+		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
 	}
 
 	var lastErr error
 	for _, cmd := range downloadCmds {
 		global.APP_LOG.Info("执行下载命令",
-			zap.String("command", utils.TruncateString(cmd, 200)))
+			zap.String("url", utils.TruncateString(url, 100)))
 
 		output, err := p.sshClient.Execute(cmd)
 		if err == nil {
+			// 下载成功，移动文件到最终位置
+			mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+			_, err = p.sshClient.Execute(mvCmd)
+			if err != nil {
+				global.APP_LOG.Error("移动文件失败",
+					zap.String("tmpPath", tmpPath),
+					zap.String("remotePath", remotePath),
+					zap.Error(err))
+				return fmt.Errorf("移动文件失败: %w", err)
+			}
+
 			global.APP_LOG.Info("下载成功",
 				zap.String("url", utils.TruncateString(url, 100)),
 				zap.String("remotePath", remotePath))
@@ -180,7 +191,6 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 
 		lastErr = err
 		global.APP_LOG.Warn("下载命令失败，尝试下一个",
-			zap.String("command", utils.TruncateString(cmd, 100)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 

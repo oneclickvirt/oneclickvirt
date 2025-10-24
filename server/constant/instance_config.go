@@ -55,24 +55,6 @@ const (
 	NetworkTypeIPv6Only          NetworkType = "ipv6_only"           // 纯IPv6
 )
 
-// GetNetworkTypeFromLegacy 从旧的IPv4MappingType和EnableIPv6字段转换为新的NetworkType
-func GetNetworkTypeFromLegacy(ipv4MappingType string, enableIPv6 bool) NetworkType {
-	switch ipv4MappingType {
-	case "nat":
-		if enableIPv6 {
-			return NetworkTypeNATIPv4IPv6
-		}
-		return NetworkTypeNATIPv4
-	case "dedicated":
-		if enableIPv6 {
-			return NetworkTypeDedicatedIPv4IPv6
-		}
-		return NetworkTypeDedicatedIPv4
-	default:
-		return NetworkTypeNATIPv4 // 默认值
-	}
-}
-
 // HasIPv4 检查网络类型是否包含IPv4
 func (nt NetworkType) HasIPv4() bool {
 	return nt != NetworkTypeIPv6Only
@@ -119,30 +101,6 @@ const (
 	ExecutionRuleAPIOnly ExecutionRule = "api_only" // 仅API执行
 	ExecutionRuleSSHOnly ExecutionRule = "ssh_only" // 仅SSH执行
 )
-
-// IsValidExecutionRule 验证操作轮转规则是否有效
-func IsValidExecutionRule(rule string) bool {
-	switch ExecutionRule(rule) {
-	case ExecutionRuleAuto, ExecutionRuleAPIOnly, ExecutionRuleSSHOnly:
-		return true
-	default:
-		return false
-	}
-}
-
-// GetExecutionRuleDescription 获取操作轮转规则的描述
-func GetExecutionRuleDescription(rule ExecutionRule) string {
-	switch rule {
-	case ExecutionRuleAuto:
-		return "自动切换（API不可用时自动切换SSH执行）"
-	case ExecutionRuleAPIOnly:
-		return "仅API执行"
-	case ExecutionRuleSSHOnly:
-		return "仅SSH执行"
-	default:
-		return "未知规则"
-	}
-}
 
 // CPUSpec CPU规格配置
 type CPUSpec struct {

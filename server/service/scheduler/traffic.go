@@ -114,30 +114,4 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 	}
 }
 
-// InitializeUserTrafficQuotas 初始化所有用户的流量配额
-func (s *SchedulerService) InitializeUserTrafficQuotas() {
-	global.APP_LOG.Debug("开始初始化用户流量配额")
-
-	var users []user.User
-	if err := global.APP_DB.Where("total_traffic = 0 OR total_traffic IS NULL").Find(&users).Error; err != nil {
-		global.APP_LOG.Error("获取需要初始化流量配额的用户失败", zap.Error(err))
-		return
-	}
-
-	if len(users) == 0 {
-		return // 没有用户需要初始化，不记录日志
-	}
-
-	// 使用流量服务初始化用户流量配额
-	trafficService := traffic.NewTrafficService()
-	for _, u := range users {
-		if err := trafficService.InitUserTrafficQuota(u.ID); err != nil {
-			global.APP_LOG.Error("初始化用户流量配额失败",
-				zap.Uint("userID", u.ID),
-				zap.Error(err))
-		}
-	}
-
-	global.APP_LOG.Info("用户流量配额初始化完成",
-		zap.Int("userCount", len(users)))
-}
+// checkMonthlyTrafficReset 检查每月流量重置，如果需要则重置所有用户的已用流量

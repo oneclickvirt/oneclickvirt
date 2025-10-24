@@ -278,8 +278,8 @@ jobs:
           DATE_TAG="${{ steps.date.outputs.date }}"
           
           # Update English README
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version specific date |/g" README_EN.md
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Independent database version specific date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Independent database version specific date |/g" README_EN.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" README_EN.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" README_EN.md
           
           echo "Updated README_EN.md with tag: ${DATE_TAG}"
       
@@ -321,8 +321,8 @@ jobs:
           DOC_FILE="docs-repo/docs/en/guide/oneclickvirt/oneclickvirt_install.md"
           
           # Update the image tag table
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version specific date |/g" "$DOC_FILE"
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Independent database version specific date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Independent database version specific date |/g" "$DOC_FILE"
+          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" "$DOC_FILE"
+          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" "$DOC_FILE"
           
           echo "Updated English documentation with tag: ${DATE_TAG}"
       

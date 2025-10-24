@@ -163,7 +163,16 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 			Instance:     modifiedInstance,
 			UserName:     userName,
 			ProviderName: providerName,
+			ProviderType: "",
 			HealthStatus: "healthy",
+		}
+
+		// 如果关联了 ProviderID，尝试查找 Provider 的类型并填充
+		if instance.ProviderID > 0 {
+			var prov providerModel.Provider
+			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&prov).Error; err == nil {
+				instanceResponse.ProviderType = prov.Type
+			}
 		}
 		instanceResponses = append(instanceResponses, instanceResponse)
 	}

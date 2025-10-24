@@ -45,7 +45,7 @@ timeout   cancelling
 
 ## 并发控制
 
-### 🛡️ 并发模式
+### 并发模式
 
 - **串行模式**: `AllowConcurrentTasks = false` (默认)
 - **并发模式**: `AllowConcurrentTasks = true` + `MaxConcurrentTasks` 配置
@@ -364,10 +364,272 @@ func (s *TaskService) Shutdown()
 - 自动垃圾回收，避免内存泄漏
 - 任务批量查询优化数据库访问
 
-## 架构设计
+## 文件结构
 
+### 核心文件
+
+#### service.go
+**职责**: 任务服务的核心入口和生命周期管理
+
+**主要功能:**
+- `TaskService` 结构体定义 - 包含所有服务依赖和状态
+- 单例模式实现 - `GetTaskService()` 确保全局唯一实例
+- 服务初始化 - 数据库连接、工作池初始化
+- 启动时恢复 - `cleanupRunningTasksOnStartup()` 清理异常状态
+- 优雅关闭 - `Shutdown()` 等待所有任务完成
+- 任务启动入口 - `StartTask()` 委托给工作池处理
+- 状态管理器接口 - `GetStateManager()` 获取状态管理器
+
+**关键方法:**
+```go
+GetTaskService() *TaskService           // 获取单例
+cleanupRunningTasksOnStartup()          // 启动时清理
+Shutdown()                              // 优雅关闭
+StartTask(taskID uint) error            // 启动任务
+executeCreateInstanceTask()             // 创建实例任务
+executeResetInstanceTask()              // 重置实例任务
+GetStateManager()                       // 获取状态管理器
 ```
-server/service/task/
-├── service.go          # 任务服务主实现
-└── state_manager.go    # 任务状态管理器
+
+---
+
+#### worker_pool.go
+**职责**: 基于 Channel 的工作池实现，提供并发控制和任务调度
+
+**主要功能:**
+- Provider 级别工作池管理 - 每个云服务商独立的工作池
+- 动态并发控制 - 支持运行时调整工作者数量
+- 任务队列管理 - Channel 实现的无锁队列
+- 工作者生命周期 - worker goroutine 的启动和退出
+- 任务执行编排 - 状态更新、超时控制、结果回传
+
+**关键方法:**
+```go
+getOrCreateProviderPool()               // 获取或创建工作池
+worker(workerID int)                    // 工作者 goroutine
+executeTask(taskReq TaskRequest)        // 执行单个任务
+StartTaskWithPool(taskID uint) error    // 将任务发送到工作池
+```
+
+**特性:**
+- 队列缓冲: 并发数 × 2
+- 幂等性保证: 检查任务状态避免重复执行
+- 超时保护: Context 超时自动取消
+- 资源清理: 自动清理任务上下文
+
+---
+
+#### manager.go
+**职责**: 任务的 CRUD 操作和查询管理
+
+**主要功能:**
+- 任务创建 - 验证参数、设置默认值、持久化
+- 用户任务查询 - 分页、筛选、权限控制
+- 管理员任务查询 - 全局视图、多维度筛选
+- 统计信息 - 任务数量、状态分布、性能指标
+
+**关键方法:**
+```go
+CreateTask()                            // 创建新任务
+GetUserTasks()                          // 获取用户任务列表
+GetAdminTasks()                         // 获取管理员任务列表
+GetTaskStats()                          // 获取任务统计
+GetTaskOverallStats()                   // 获取总体统计
+```
+
+**查询功能:**
+- 按 Provider 筛选
+- 按任务类型筛选
+- 按状态筛选
+- 按用户名搜索
+- 按实例类型筛选
+- 分页和排序
+
+---
+
+#### control.go
+**职责**: 任务控制和取消逻辑，包括用户取消和管理员强制停止
+
+**主要功能:**
+- 任务完成处理 - 更新状态、记录结果、清理资源
+- 用户取消 - 权限验证、状态检查、Context 取消
+- 管理员取消 - 强制停止、记录原因
+- 强制终止 - 处理无法正常取消的任务
+- 资源释放 - Provider 资源配额、任务锁释放
+
+**关键方法:**
+```go
+CompleteTask()                          // 完成任务
+CancelTask()                            // 用户取消任务
+CancelTaskByAdmin()                     // 管理员取消任务
+ForceStopTask()                         // 强制停止任务
+ReleaseTaskLocks()                      // 释放任务锁
+cancelPendingTask()                     // 取消等待中任务
+cancelRunningTask()                     // 取消运行中任务
+forceStopRunningTask()                  // 强制停止运行中任务
+handleCancelledTaskCleanup()            // 清理已取消任务
+releaseTaskResources()                  // 释放任务资源
+```
+
+**状态流转:**
+```
+pending → cancelled (直接取消)
+running → cancelling → cancelled (需要等待)
+```
+
+---
+
+#### state_manager.go
+**职责**: 统一的任务状态管理，确保跨表状态一致性
+
+**主要功能:**
+- 状态同步 - 任务表和实例表状态同步
+- 事务安全 - 所有状态更新在事务中执行
+- 状态验证 - 检查状态流转的合法性
+- 错误处理 - 统一的错误记录和回滚
+
+**关键方法:**
+```go
+InitTaskStateManager()                  // 初始化状态管理器
+GetTaskStateManager()                   // 获取单例实例
+UpdateTaskState()                       // 更新任务状态
+SyncTaskStatusToInstance()              // 同步状态到实例
+```
+
+**支持的状态:**
+- `pending` - 等待执行
+- `running` - 执行中
+- `completed` - 已完成
+- `failed` - 失败
+- `cancelled` - 已取消
+- `cancelling` - 取消中
+- `timeout` - 超时
+
+---
+
+### 任务执行文件
+
+#### instance_operations.go
+**职责**: 实例生命周期操作任务的执行逻辑
+
+**主要功能:**
+- 启动实例 - 调用 Provider API 启动虚拟机
+- 停止实例 - 优雅停止或强制停止
+- 重启实例 - 停止后重新启动
+- 重置密码 - 修改实例 root 密码
+
+**关键方法:**
+```go
+executeStartInstanceTask()              // 执行启动任务
+executeStopInstanceTask()               // 执行停止任务
+executeRestartInstanceTask()            // 执行重启任务
+executeResetPasswordTask()              // 执行重置密码任务
+```
+
+**特性:**
+- 进度实时更新 (0% → 100%)
+- 状态同步到实例表
+- 错误详细记录
+- Provider API 集成
+- 流量统计服务集成 (vnstat)
+
+**支持的 Provider:**
+- LXD
+- Incus
+- Proxmox
+- Docker
+
+---
+
+#### delete_task.go
+**职责**: 实例删除任务，包含重试机制和资源清理
+
+**主要功能:**
+- 删除实例 - 调用 Provider API 删除虚拟机
+- 指数退避重试 - 最多重试 3 次
+- 资源配额释放 - CPU、内存、存储
+- 数据库清理 - 删除实例记录
+
+**关键方法:**
+```go
+executeDeleteInstanceTask()             // 执行删除任务
+```
+
+**重试策略:**
+```
+1. 首次尝试
+2. 等待 2 秒后重试
+3. 等待 4 秒后重试
+4. 等待 8 秒后重试
+```
+
+**清理内容:**
+- 虚拟机实例
+- 存储卷
+- 网络配置
+- 数据库记录
+- 资源配额
+
+---
+
+#### port_mapping_tasks.go
+**职责**: 端口映射的创建和删除任务
+
+**主要功能:**
+- 创建端口映射 - 配置 NAT 规则
+- 删除端口映射 - 清理 NAT 规则
+- IP 地址刷新 - 更新实例 IP 信息
+- 多 Provider 支持 - LXD/Incus/Proxmox
+
+**关键方法:**
+```go
+executeCreatePortMappingTask()          // 执行创建端口映射任务
+executeDeletePortMappingTask()          // 执行删除端口映射任务
+```
+
+**端口映射类型:**
+- TCP 端口映射
+- UDP 端口映射
+- 端口范围映射
+- 动态端口分配
+
+**特性:**
+- 端口冲突检测
+- 自动分配可用端口
+- 实例 IP 自动刷新
+- Provider API 适配
+
+---
+
+### 辅助文件
+
+#### helpers.go
+**职责**: 通用辅助函数和任务路由
+
+**主要功能:**
+- 默认超时配置 - 各任务类型的超时时间
+- 进度更新 - 统一的进度更新接口
+- 任务路由 - 根据类型分发到对应的执行函数
+- 超时清理 - 定期清理超时任务
+
+**关键方法:**
+```go
+getDefaultTimeout()                     // 获取默认超时时间
+updateTaskProgress()                    // 更新任务进度
+markTaskCompleted()                     // 标记任务完成
+executeTaskLogic()                      // 任务路由器
+CleanupTimeoutTasksWithLockRelease()    // 清理超时任务
+```
+
+**超时配置:**
+```go
+create:         1800s (30分钟)
+start:          300s  (5分钟)
+stop:           300s  (5分钟)
+restart:        600s  (10分钟)
+delete:         600s  (10分钟)
+reset:          1200s (20分钟)
+reset-password: 300s  (5分钟)
+create-port:    300s  (5分钟)
+delete-port:    300s  (5分钟)
 ```

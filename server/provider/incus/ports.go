@@ -171,13 +171,20 @@ func (i *IncusProvider) hasUfw() bool {
 // configureFirewalldPorts 配置firewalld端口
 func (i *IncusProvider) configureFirewalldPorts(portMappings []providerModel.Port) error {
 	for _, port := range portMappings {
-		cmd := fmt.Sprintf("firewall-cmd --permanent --add-port=%d/%s", port.HostPort, strings.ToLower(port.Protocol))
-		_, err := i.sshClient.Execute(cmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置firewalld端口失败",
-				zap.Int("port", port.HostPort),
-				zap.String("protocol", port.Protocol),
-				zap.Error(err))
+		protocols := []string{port.Protocol}
+		if port.Protocol == "both" {
+			protocols = []string{"tcp", "udp"}
+		}
+
+		for _, proto := range protocols {
+			cmd := fmt.Sprintf("firewall-cmd --permanent --add-port=%d/%s", port.HostPort, strings.ToLower(proto))
+			_, err := i.sshClient.Execute(cmd)
+			if err != nil {
+				global.APP_LOG.Warn("配置firewalld端口失败",
+					zap.Int("port", port.HostPort),
+					zap.String("protocol", proto),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -189,13 +196,20 @@ func (i *IncusProvider) configureFirewalldPorts(portMappings []providerModel.Por
 // configureUfwPorts 配置ufw端口
 func (i *IncusProvider) configureUfwPorts(portMappings []providerModel.Port) error {
 	for _, port := range portMappings {
-		cmd := fmt.Sprintf("ufw allow %d/%s", port.HostPort, strings.ToLower(port.Protocol))
-		_, err := i.sshClient.Execute(cmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置ufw端口失败",
-				zap.Int("port", port.HostPort),
-				zap.String("protocol", port.Protocol),
-				zap.Error(err))
+		protocols := []string{port.Protocol}
+		if port.Protocol == "both" {
+			protocols = []string{"tcp", "udp"}
+		}
+
+		for _, proto := range protocols {
+			cmd := fmt.Sprintf("ufw allow %d/%s", port.HostPort, strings.ToLower(proto))
+			_, err := i.sshClient.Execute(cmd)
+			if err != nil {
+				global.APP_LOG.Warn("配置ufw端口失败",
+					zap.Int("port", port.HostPort),
+					zap.String("protocol", proto),
+					zap.Error(err))
+			}
 		}
 	}
 
@@ -235,32 +249,62 @@ func (i *IncusProvider) setupPortMappingWithIP(instanceName string, hostPort, gu
 
 // setupDeviceProxyMappingWithIP 使用Incus device proxy设置端口映射
 func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPort, guestPort int, protocol string) error {
-	deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
 	hostIP, err := i.getHostIP()
 	if err != nil {
 		hostIP = "0.0.0.0" // 回退方案
 	}
 
-	cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
-		instanceName, deviceName, strings.ToLower(protocol), hostIP, hostPort, strings.ToLower(protocol), guestPort)
+	// 如果协议是both，需要创建两个设备（TCP和UDP）
+	if protocol == "both" {
+		// 创建TCP设备
+		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
+		tcpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
+			instanceName, tcpDeviceName, "tcp", hostIP, hostPort, "tcp", guestPort)
 
-	_, err = i.sshClient.Execute(cmd)
-	if err != nil {
-		return fmt.Errorf("设置device proxy映射失败: %w", err)
+		_, err = i.sshClient.Execute(tcpCmd)
+		if err != nil {
+			return fmt.Errorf("设置TCP device proxy映射失败: %w", err)
+		}
+
+		// 创建UDP设备
+		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
+		udpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
+			instanceName, udpDeviceName, "udp", hostIP, hostPort, "udp", guestPort)
+
+		_, err = i.sshClient.Execute(udpCmd)
+		if err != nil {
+			return fmt.Errorf("设置UDP device proxy映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("device proxy端口映射配置成功(TCP+UDP)",
+			zap.String("instanceName", instanceName),
+			zap.String("tcpDeviceName", tcpDeviceName),
+			zap.String("udpDeviceName", udpDeviceName),
+			zap.Int("hostPort", hostPort),
+			zap.Int("guestPort", guestPort))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+		cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d connect=%s:0.0.0.0:%d nat=true",
+			instanceName, deviceName, strings.ToLower(protocol), hostIP, hostPort, strings.ToLower(protocol), guestPort)
+
+		_, err = i.sshClient.Execute(cmd)
+		if err != nil {
+			return fmt.Errorf("设置device proxy映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("device proxy端口映射配置成功",
+			zap.String("instanceName", instanceName),
+			zap.String("deviceName", deviceName),
+			zap.Int("hostPort", hostPort),
+			zap.Int("guestPort", guestPort))
 	}
-
-	global.APP_LOG.Info("device proxy端口映射配置成功",
-		zap.String("instanceName", instanceName),
-		zap.String("deviceName", deviceName),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort))
 
 	return nil
 }
 
 // setupIptablesMappingWithIP 使用iptables设置端口映射
 func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	// 这里实现iptables端口映射逻辑
 	global.APP_LOG.Info("使用iptables设置端口映射",
 		zap.String("instanceName", instanceName),
 		zap.Int("hostPort", hostPort),
@@ -268,8 +312,44 @@ func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort
 		zap.String("protocol", protocol),
 		zap.String("instanceIP", instanceIP))
 
-	// TODO: 实现iptables端口映射
-	return fmt.Errorf("iptables端口映射尚未实现")
+	// 如果协议是both，需要同时创建TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+
+	for _, proto := range protocols {
+		// DNAT规则
+		dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
+			proto, hostPort, instanceIP, guestPort)
+		_, err := i.sshClient.Execute(dnatCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s DNAT规则失败: %w", proto, err)
+		}
+
+		// FORWARD规则
+		forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, guestPort)
+		_, err = i.sshClient.Execute(forwardCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s FORWARD规则失败: %w", proto, err)
+		}
+
+		// MASQUERADE规则
+		masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
+			proto, instanceIP, guestPort)
+		_, err = i.sshClient.Execute(masqueradeCmd)
+		if err != nil {
+			return fmt.Errorf("添加%s MASQUERADE规则失败: %w", proto, err)
+		}
+
+		global.APP_LOG.Info("Iptables端口映射设置成功",
+			zap.String("instanceName", instanceName),
+			zap.String("protocol", proto),
+			zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
+	}
+
+	return nil
 }
 
 // setupPortRangeMappingWithIP 设置端口范围映射
@@ -290,22 +370,60 @@ func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports [
 		if len(portRange) == 1 {
 			// 单个端口
 			port := portRange[0]
-			err := i.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, port.Protocol, method, instanceIP)
-			if err != nil {
-				global.APP_LOG.Warn("单个端口映射失败",
-					zap.Int("port", port.HostPort),
-					zap.Error(err))
+			if port.Protocol == "both" {
+				// 分别映射 tcp 和 udp
+				tcpPort := port
+				tcpPort.Protocol = "tcp"
+				err := i.setupPortMappingWithIP(instanceName, tcpPort.HostPort, tcpPort.GuestPort, "tcp", method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败(tcp)",
+						zap.Int("port", tcpPort.HostPort),
+						zap.Error(err))
+				}
+				udpPort := port
+				udpPort.Protocol = "udp"
+				err = i.setupPortMappingWithIP(instanceName, udpPort.HostPort, udpPort.GuestPort, "udp", method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败(udp)",
+						zap.Int("port", udpPort.HostPort),
+						zap.Error(err))
+				}
+			} else {
+				err := i.setupPortMappingWithIP(instanceName, port.HostPort, port.GuestPort, port.Protocol, method, instanceIP)
+				if err != nil {
+					global.APP_LOG.Warn("单个端口映射失败",
+						zap.Int("port", port.HostPort),
+						zap.Error(err))
+				}
 			}
 		} else {
 			// 端口范围
 			startPort := portRange[0]
 			endPort := portRange[len(portRange)-1]
-			err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, startPort.Protocol)
-			if err != nil {
-				global.APP_LOG.Warn("端口范围映射失败",
-					zap.Int("startPort", startPort.HostPort),
-					zap.Int("endPort", endPort.HostPort),
-					zap.Error(err))
+			if startPort.Protocol == "both" {
+				// 分别映射 tcp 和 udp
+				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "tcp")
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败(tcp)",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
+				err = i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, "udp")
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败(udp)",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
+			} else {
+				err := i.setupPortRangeMapping(instanceName, startPort.HostPort, endPort.HostPort, startPort.Protocol)
+				if err != nil {
+					global.APP_LOG.Warn("端口范围映射失败",
+						zap.Int("startPort", startPort.HostPort),
+						zap.Int("endPort", endPort.HostPort),
+						zap.Error(err))
+				}
 			}
 		}
 	}
@@ -339,25 +457,169 @@ func (i *IncusProvider) findPortRanges(ports []providerModel.Port) [][]providerM
 
 // setupPortRangeMapping 设置端口范围映射
 func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, endPort int, protocol string) error {
-	deviceName := fmt.Sprintf("proxy-%s-%d-%d", protocol, startPort, endPort)
 	hostIP, err := i.getHostIP()
 	if err != nil {
 		hostIP = "0.0.0.0" // 回退方案
 	}
 
-	cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
-		instanceName, deviceName, strings.ToLower(protocol), hostIP, startPort, endPort, strings.ToLower(protocol), startPort, endPort)
+	// 如果协议是both，需要创建两个设备（TCP和UDP）
+	if protocol == "both" {
+		// 创建TCP范围映射
+		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d-%d", startPort, endPort)
+		tcpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
+			instanceName, tcpDeviceName, "tcp", hostIP, startPort, endPort, "tcp", startPort, endPort)
 
-	_, err = i.sshClient.Execute(cmd)
-	if err != nil {
-		return fmt.Errorf("设置端口范围映射失败: %w", err)
+		_, err = i.sshClient.Execute(tcpCmd)
+		if err != nil {
+			return fmt.Errorf("设置TCP端口范围映射失败: %w", err)
+		}
+
+		// 创建UDP范围映射
+		udpDeviceName := fmt.Sprintf("proxy-udp-%d-%d", startPort, endPort)
+		udpCmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
+			instanceName, udpDeviceName, "udp", hostIP, startPort, endPort, "udp", startPort, endPort)
+
+		_, err = i.sshClient.Execute(udpCmd)
+		if err != nil {
+			return fmt.Errorf("设置UDP端口范围映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("端口范围映射配置成功(TCP+UDP)",
+			zap.String("instanceName", instanceName),
+			zap.String("tcpDeviceName", tcpDeviceName),
+			zap.String("udpDeviceName", udpDeviceName),
+			zap.Int("startPort", startPort),
+			zap.Int("endPort", endPort))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("proxy-%s-%d-%d", protocol, startPort, endPort)
+		cmd := fmt.Sprintf("incus config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:0.0.0.0:%d-%d nat=true",
+			instanceName, deviceName, strings.ToLower(protocol), hostIP, startPort, endPort, strings.ToLower(protocol), startPort, endPort)
+
+		_, err = i.sshClient.Execute(cmd)
+		if err != nil {
+			return fmt.Errorf("设置端口范围映射失败: %w", err)
+		}
+
+		global.APP_LOG.Info("端口范围映射配置成功",
+			zap.String("instanceName", instanceName),
+			zap.String("deviceName", deviceName),
+			zap.Int("startPort", startPort),
+			zap.Int("endPort", endPort))
 	}
 
-	global.APP_LOG.Info("端口范围映射配置成功",
-		zap.String("instanceName", instanceName),
-		zap.String("deviceName", deviceName),
-		zap.Int("startPort", startPort),
-		zap.Int("endPort", endPort))
+	return nil
+}
+
+// removePortMapping 移除端口映射
+func (i *IncusProvider) removePortMapping(instanceName string, hostPort int, protocol string, method string) error {
+	global.APP_LOG.Info("移除端口映射",
+		zap.String("instance", instanceName),
+		zap.Int("hostPort", hostPort),
+		zap.String("protocol", protocol),
+		zap.String("method", method))
+
+	switch method {
+	case "device_proxy":
+		return i.removeDeviceProxyMapping(instanceName, hostPort, protocol)
+	case "iptables":
+		return i.removeIptablesMappingByPort(instanceName, hostPort, protocol)
+	default:
+		// 默认使用device proxy方式
+		return i.removeDeviceProxyMapping(instanceName, hostPort, protocol)
+	}
+}
+
+// removeDeviceProxyMapping 移除Incus device proxy映射
+func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort int, protocol string) error {
+	// 如果是both协议，需要删除TCP和UDP两个设备
+	if protocol == "both" {
+		// 删除TCP设备
+		tcpDeviceName := fmt.Sprintf("proxy-tcp-%d", hostPort)
+		tcpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, tcpDeviceName)
+		_, err := i.sshClient.Execute(tcpRemoveCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除TCP proxy设备失败",
+				zap.String("instance", instanceName),
+				zap.String("device", tcpDeviceName),
+				zap.Error(err))
+		}
+
+		// 删除UDP设备
+		udpDeviceName := fmt.Sprintf("proxy-udp-%d", hostPort)
+		udpRemoveCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, udpDeviceName)
+		_, err = i.sshClient.Execute(udpRemoveCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除UDP proxy设备失败",
+				zap.String("instance", instanceName),
+				zap.String("device", udpDeviceName),
+				zap.Error(err))
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射移除成功(TCP+UDP)",
+			zap.String("instance", instanceName),
+			zap.Int("hostPort", hostPort))
+	} else {
+		// 单一协议
+		deviceName := fmt.Sprintf("proxy-%s-%d", protocol, hostPort)
+		removeCmd := fmt.Sprintf("incus config device remove %s %s", instanceName, deviceName)
+		_, err := i.sshClient.Execute(removeCmd)
+		if err != nil {
+			return fmt.Errorf("移除proxy设备失败: %w", err)
+		}
+
+		global.APP_LOG.Info("Device proxy端口映射移除成功",
+			zap.String("instance", instanceName),
+			zap.String("device", deviceName))
+	}
+
+	return nil
+}
+
+// removeIptablesMappingByPort 移除iptables端口映射（通过端口号）
+func (i *IncusProvider) removeIptablesMappingByPort(instanceName string, hostPort int, protocol string) error {
+	// 获取实例IP
+	instanceIP, err := i.getInstanceIP(instanceName)
+	if err != nil {
+		return fmt.Errorf("获取实例IP失败: %w", err)
+	}
+
+	// 如果是both协议，需要删除TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+
+	for _, proto := range protocols {
+		// 移除DNAT规则
+		dnatCmd := fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s",
+			proto, hostPort, instanceIP)
+
+		_, err = i.sshClient.Execute(dnatCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除DNAT规则失败",
+				zap.String("instance", instanceName),
+				zap.String("protocol", proto),
+				zap.Error(err))
+		}
+
+		// 移除FORWARD规则
+		forwardCmd := fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, hostPort)
+
+		_, err = i.sshClient.Execute(forwardCmd)
+		if err != nil {
+			global.APP_LOG.Warn("移除FORWARD规则失败",
+				zap.String("instance", instanceName),
+				zap.String("protocol", proto),
+				zap.Error(err))
+		}
+	}
+
+	global.APP_LOG.Info("Iptables端口映射移除成功",
+		zap.String("instance", instanceName),
+		zap.Int("hostPort", hostPort),
+		zap.String("protocol", protocol))
 
 	return nil
 }

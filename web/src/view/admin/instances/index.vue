@@ -530,6 +530,7 @@ const getStatusType = (status) => {
     stopping: 'warning',
     creating: 'warning',
     restarting: 'warning',
+    resetting: 'warning',
     deleting: 'danger'
   }
   return types[status] || 'info'
@@ -545,6 +546,7 @@ const getStatusText = (status) => {
     stopping: t('admin.instances.statusStopping'),
     creating: t('admin.instances.statusCreating'),
     restarting: t('admin.instances.statusRestarting'),
+    resetting: t('admin.instances.statusResetting'),
     deleting: t('admin.instances.statusDeleting')
   }
   return texts[status] || status

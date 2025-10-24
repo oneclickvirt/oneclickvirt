@@ -41,12 +41,6 @@ func (i *IncusPortMapping) CreatePortMapping(ctx context.Context, req *portmappi
 		return nil, fmt.Errorf("invalid request: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := i.getInstance(req.InstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %v", err)
-	}
-
 	// 获取Provider信息
 	providerInfo, err := i.getProvider(req.ProviderID)
 	if err != nil {
@@ -62,9 +56,13 @@ func (i *IncusPortMapping) CreatePortMapping(ctx context.Context, req *portmappi
 		}
 	}
 
-	// 使用Incus原生端口映射方法 (proxy device)
-	if err := i.createIncusProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol, providerInfo); err != nil {
-		return nil, fmt.Errorf("failed to create Incus proxy device: %v", err)
+	// 注意：Incus端口映射（proxy device）由provider层的configurePortMappingsWithIP函数处理
+	// 这里只负责数据库记录的管理
+
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
 	}
 
 	// 保存到数据库
@@ -80,7 +78,7 @@ func (i *IncusPortMapping) CreatePortMapping(ctx context.Context, req *portmappi
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: i.determineMappingMethod(req, providerInfo),
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 
@@ -88,8 +86,6 @@ func (i *IncusPortMapping) CreatePortMapping(ctx context.Context, req *portmappi
 	portModel := i.BaseProvider.ToDBModel(result)
 	if err := global.APP_DB.Create(portModel).Error; err != nil {
 		global.APP_LOG.Error("Failed to save port mapping to database", zap.Error(err))
-		// 尝试清理已创建的Incus proxy device
-		i.cleanupIncusProxyDevice(ctx, instance, hostPort, req.GuestPort, req.Protocol)
 		return nil, fmt.Errorf("failed to save port mapping: %v", err)
 	}
 
@@ -117,19 +113,7 @@ func (i *IncusPortMapping) DeletePortMapping(ctx context.Context, req *portmappi
 		return fmt.Errorf("port mapping not found: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := i.getInstance(req.InstanceID)
-	if err != nil {
-		return fmt.Errorf("failed to get instance: %v", err)
-	}
-
-	// 删除Incus proxy device
-	if err := i.removeIncusProxyDevice(ctx, instance, portModel.HostPort, portModel.GuestPort, portModel.Protocol); err != nil {
-		if !req.ForceDelete {
-			return fmt.Errorf("failed to remove Incus proxy device: %v", err)
-		}
-		global.APP_LOG.Warn("Failed to remove Incus proxy device, but force delete is enabled", zap.Error(err))
-	}
+	// 注意：Incus proxy device的删除由provider层处理，这里只管理数据库记录
 
 	// 从数据库删除
 	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
@@ -150,30 +134,14 @@ func (i *IncusPortMapping) UpdatePortMapping(ctx context.Context, req *portmappi
 		return nil, fmt.Errorf("port mapping not found: %v", err)
 	}
 
-	// 获取实例信息
-	instance, err := i.getInstance(req.InstanceID)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get instance: %v", err)
-	}
-
 	// 获取Provider信息
 	providerInfo, err := i.getProvider(portModel.ProviderID)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	// 如果端口发生变化，需要重新创建proxy device
-	if req.HostPort != portModel.HostPort || req.GuestPort != portModel.GuestPort || req.Protocol != portModel.Protocol {
-		// 删除旧的proxy device
-		if err := i.removeIncusProxyDevice(ctx, instance, portModel.HostPort, portModel.GuestPort, portModel.Protocol); err != nil {
-			global.APP_LOG.Warn("Failed to remove old Incus proxy device", zap.Error(err))
-		}
-
-		// 创建新的proxy device
-		if err := i.createIncusProxyDevice(ctx, instance, req.HostPort, req.GuestPort, req.Protocol, providerInfo); err != nil {
-			return nil, fmt.Errorf("failed to create new Incus proxy device: %v", err)
-		}
-	}
+	// 注意：如果端口发生变化，Incus proxy device的重建由provider层处理
+	// 这里只更新数据库记录
 
 	// 更新数据库记录
 	updates := map[string]interface{}{
@@ -269,45 +237,11 @@ func (i *IncusPortMapping) getProvider(providerID uint) (*provider.Provider, err
 
 // getPublicIP 获取公网IP
 func (i *IncusPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于Incus，使用Provider的endpoint作为公网IP
-	return providerInfo.Endpoint
-}
-
-// createIncusProxyDevice 创建Incus proxy device
-func (i *IncusPortMapping) createIncusProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	// 这里应该调用Incus API来创建proxy device
-	global.APP_LOG.Info("Creating Incus proxy device",
-		zap.String("instance", instance.Name),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort),
-		zap.String("protocol", protocol))
-
-	// TODO: 实现实际的Incus API调用
-	// 例如：incus config device add <instance> proxy<hostPort> proxy listen=tcp:0.0.0.0:<hostPort> connect=tcp:127.0.0.1:<guestPort>
-
-	return nil
-}
-
-// removeIncusProxyDevice 删除Incus proxy device
-func (i *IncusPortMapping) removeIncusProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	// 这里应该调用Incus API来删除proxy device
-	global.APP_LOG.Info("Removing Incus proxy device",
-		zap.String("instance", instance.Name),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort),
-		zap.String("protocol", protocol))
-
-	// TODO: 实现实际的Incus API调用
-	// 例如：incus config device remove <instance> proxy<hostPort>
-
-	return nil
-}
-
-// cleanupIncusProxyDevice 清理Incus proxy device（在出错时调用）
-func (i *IncusPortMapping) cleanupIncusProxyDevice(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) {
-	if err := i.removeIncusProxyDevice(ctx, instance, hostPort, guestPort, protocol); err != nil {
-		global.APP_LOG.Error("Failed to cleanup Incus proxy device", zap.Error(err))
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	if providerInfo.PortIP != "" {
+		return providerInfo.PortIP
 	}
+	return providerInfo.Endpoint
 }
 
 // determineMappingMethod 确定端口映射方法

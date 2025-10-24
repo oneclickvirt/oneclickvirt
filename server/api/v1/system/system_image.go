@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
-	"gorm.io/gorm"
 	"oneclickvirt/global"
 	systemModel "oneclickvirt/model/system"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // SystemImageResponse 系统镜像响应结构
@@ -34,6 +35,9 @@ type CreateSystemImageRequest struct {
 	OSType       string `json:"osType"`
 	OSVersion    string `json:"osVersion"`
 	Tags         string `json:"tags"`
+	MinMemoryMB  int    `json:"minMemoryMB" binding:"required,min=1"`
+	MinDiskMB    int    `json:"minDiskMB" binding:"required,min=1"`
+	UseCDN       bool   `json:"useCdn"`
 }
 
 // UpdateSystemImageRequest 更新系统镜像请求
@@ -50,6 +54,9 @@ type UpdateSystemImageRequest struct {
 	OSType       string `json:"osType"`
 	OSVersion    string `json:"osVersion"`
 	Tags         string `json:"tags"`
+	MinMemoryMB  *int   `json:"minMemoryMB" binding:"omitempty,min=1"`
+	MinDiskMB    *int   `json:"minDiskMB" binding:"omitempty,min=1"`
+	UseCDN       *bool  `json:"useCdn"`
 }
 
 // GetSystemImageList 获取系统镜像列表
@@ -209,6 +216,9 @@ func CreateSystemImage(c *gin.Context) {
 		OSType:       req.OSType,
 		OSVersion:    req.OSVersion,
 		Tags:         req.Tags,
+		MinMemoryMB:  req.MinMemoryMB,
+		MinDiskMB:    req.MinDiskMB,
+		UseCDN:       req.UseCDN,
 		CreatedBy:    func() *uint { id := userID.(uint); return &id }(),
 	}
 
@@ -330,6 +340,15 @@ func UpdateSystemImage(c *gin.Context) {
 	}
 	if req.Tags != "" {
 		updates["tags"] = req.Tags
+	}
+	if req.MinMemoryMB != nil {
+		updates["min_memory_mb"] = *req.MinMemoryMB
+	}
+	if req.MinDiskMB != nil {
+		updates["min_disk_mb"] = *req.MinDiskMB
+	}
+	if req.UseCDN != nil {
+		updates["use_cdn"] = *req.UseCDN
 	}
 	updates["updated_at"] = time.Now()
 

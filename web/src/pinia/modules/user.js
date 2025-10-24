@@ -35,10 +35,25 @@ export const useUserStore = defineStore('user', {
       if (user.userType) {
         this.userType = user.userType
         sessionStorage.setItem('userType', user.userType)
-        // 初始化 viewMode：管理员默认为 admin 视图，用户为 user 视图
-        if (!this.viewMode || this.viewMode === 'user') {
-          this.viewMode = user.userType
-          sessionStorage.setItem('viewMode', user.userType)
+        
+        // 初始化 viewMode：只在首次登录或 viewMode 未设置时初始化
+        const savedViewMode = sessionStorage.getItem('viewMode')
+        
+        // 普通用户的 viewMode 始终为 'user'，不允许切换
+        if (user.userType === 'user') {
+          this.viewMode = 'user'
+          sessionStorage.setItem('viewMode', 'user')
+        } else if (user.userType === 'admin') {
+          // 管理员可以切换视图
+          if (!savedViewMode) {
+            // 首次登录：管理员默认为 admin 视图
+            this.viewMode = 'admin'
+            sessionStorage.setItem('viewMode', 'admin')
+          } else if (!this.viewMode) {
+            // 如果 state 中的 viewMode 为空但 sessionStorage 中有值，恢复它
+            this.viewMode = savedViewMode
+          }
+          // 如果 this.viewMode 已有值，说明管理员已切换视图，保持不变
         }
       }
     },

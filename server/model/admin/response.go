@@ -47,6 +47,8 @@ type ProviderManageResponse struct {
 	ResourceSyncedAt *time.Time `json:"resourceSyncedAt"`
 	// 当前运行任务数
 	RunningTasksCount int `json:"runningTasksCount"`
+	// 当前使用的认证方式
+	AuthMethod string `json:"authMethod"` // "password" 或 "sshKey"
 }
 
 type InviteCodeResponse struct {
@@ -58,6 +60,7 @@ type InstanceManageResponse struct {
 	provider.Instance
 	UserName     string `json:"userName"`
 	ProviderName string `json:"providerName"`
+	ProviderType string `json:"providerType"`
 	HealthStatus string `json:"healthStatus"`
 }
 

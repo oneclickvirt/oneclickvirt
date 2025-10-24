@@ -6,20 +6,6 @@ import (
 	"strings"
 )
 
-// StructToJSON 将结构体转换为JSON字符串
-func StructToJSON(v interface{}) string {
-	data, err := json.Marshal(v)
-	if err != nil {
-		return ""
-	}
-	return string(data)
-}
-
-// JSONToStruct 将JSON字符串转换为结构体
-func JSONToStruct(jsonStr string, v interface{}) error {
-	return json.Unmarshal([]byte(jsonStr), v)
-}
-
 const (
 	// 最大日志长度限制
 	MaxLogLength = 1000
@@ -98,25 +84,6 @@ func truncateValue(value interface{}, depth int) interface{} {
 	default:
 		return v
 	}
-}
-
-// LogMessage 格式化日志消息，去除多余空格和换行
-func LogMessage(msg string, args ...interface{}) string {
-	if len(args) > 0 {
-		msg = fmt.Sprintf(msg, args...)
-	}
-
-	// 去除多余的空格和换行
-	msg = strings.ReplaceAll(msg, "\n", " ")
-	msg = strings.ReplaceAll(msg, "\r", " ")
-	msg = strings.ReplaceAll(msg, "\t", " ")
-
-	// 压缩多个连续空格为一个
-	for strings.Contains(msg, "  ") {
-		msg = strings.ReplaceAll(msg, "  ", " ")
-	}
-
-	return strings.TrimSpace(msg)
 }
 
 // SanitizeUserInput 清理用户输入，防止日志注入

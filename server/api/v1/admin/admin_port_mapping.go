@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
@@ -189,7 +190,7 @@ func CreatePortMapping(c *gin.Context) {
 	}, "端口映射任务已创建")
 }
 
-// DeletePortMapping 删除端口映射（仅支持删除手动添加的端口）
+// DeletePortMapping 删除端口映射（仅支持删除手动添加的端口，通过异步任务执行）
 // @Summary 删除端口映射
 // @Description 管理员删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
 // @Tags 端口映射管理
@@ -197,9 +198,9 @@ func CreatePortMapping(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "端口映射ID"
-// @Success 200 {object} common.Response "删除成功"
+// @Success 200 {object} common.Response "删除任务已创建"
 // @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "删除失败"
+// @Failure 500 {object} common.Response "创建任务失败"
 // @Router /admin/port-mappings/{id} [delete]
 func DeletePortMapping(c *gin.Context) {
 	idStr := c.Param("id")
@@ -209,18 +210,59 @@ func DeletePortMapping(c *gin.Context) {
 		return
 	}
 
+	// 获取当前管理员用户ID
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
+		return
+	}
+
 	portMappingService := resources.PortMappingService{}
-	err = portMappingService.DeletePortMapping(uint(id))
+	taskData, err := portMappingService.DeletePortMappingWithTask(uint(id))
 	if err != nil {
-		global.APP_LOG.Error("删除端口映射失败", zap.Error(err))
+		global.APP_LOG.Error("创建端口删除任务数据失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "删除端口映射成功")
+	// 序列化任务数据
+	taskDataJSON, err := json.Marshal(taskData)
+	if err != nil {
+		global.APP_LOG.Error("序列化任务数据失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		return
+	}
+
+	// 创建任务
+	taskService := task.GetTaskService()
+	newTask, err := taskService.CreateTask(
+		authCtx.UserID,
+		&taskData.ProviderID,
+		&taskData.InstanceID,
+		"delete-port-mapping",
+		string(taskDataJSON),
+		600, // 10分钟超时
+	)
+	if err != nil {
+		global.APP_LOG.Error("创建端口删除任务失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		return
+	}
+
+	// 启动任务
+	if err := taskService.StartTask(newTask.ID); err != nil {
+		global.APP_LOG.Error("启动端口删除任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败"))
+		return
+	}
+
+	common.ResponseSuccess(c, map[string]interface{}{
+		"taskId": newTask.ID,
+		"portId": taskData.PortID,
+	}, "端口删除任务已创建")
 }
 
-// BatchDeletePortMapping 批量删除端口映射（仅支持删除手动添加的端口）
+// BatchDeletePortMapping 批量删除端口映射（仅支持删除手动添加的端口，通过异步任务执行）
 // @Summary 批量删除端口映射
 // @Description 管理员批量删除端口映射（仅支持删除手动添加的端口，区间映射的端口不能删除）
 // @Tags 端口映射管理
@@ -228,9 +270,9 @@ func DeletePortMapping(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param request body admin.BatchDeletePortMappingRequest true "批量删除端口映射请求参数"
-// @Success 200 {object} common.Response "删除成功"
+// @Success 200 {object} common.Response "删除任务已创建"
 // @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "删除失败"
+// @Failure 500 {object} common.Response "创建任务失败"
 // @Router /admin/port-mappings/batch-delete [post]
 func BatchDeletePortMapping(c *gin.Context) {
 	var req admin.BatchDeletePortMappingRequest
@@ -239,15 +281,77 @@ func BatchDeletePortMapping(c *gin.Context) {
 		return
 	}
 
+	// 获取当前管理员用户ID
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
+		return
+	}
+
 	portMappingService := resources.PortMappingService{}
-	err := portMappingService.BatchDeletePortMapping(req)
+	taskDataList, err := portMappingService.BatchDeletePortMappingWithTask(req)
 	if err != nil {
-		global.APP_LOG.Error("批量删除端口映射失败", zap.Error(err))
+		global.APP_LOG.Error("创建批量端口删除任务数据失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	common.ResponseSuccess(c, nil, "批量删除端口映射成功")
+	// 为每个端口创建一个删除任务
+	taskService := task.GetTaskService()
+	var taskIDs []uint
+	var failedPorts []uint
+
+	for _, taskData := range taskDataList {
+		// 序列化任务数据
+		taskDataJSON, err := json.Marshal(taskData)
+		if err != nil {
+			global.APP_LOG.Error("序列化任务数据失败",
+				zap.Uint("portId", taskData.PortID),
+				zap.Error(err))
+			failedPorts = append(failedPorts, taskData.PortID)
+			continue
+		}
+
+		// 创建任务
+		newTask, err := taskService.CreateTask(
+			authCtx.UserID,
+			&taskData.ProviderID,
+			&taskData.InstanceID,
+			"delete-port-mapping",
+			string(taskDataJSON),
+			600, // 10分钟超时
+		)
+		if err != nil {
+			global.APP_LOG.Error("创建端口删除任务失败",
+				zap.Uint("portId", taskData.PortID),
+				zap.Error(err))
+			failedPorts = append(failedPorts, taskData.PortID)
+			continue
+		}
+
+		// 启动任务
+		if err := taskService.StartTask(newTask.ID); err != nil {
+			global.APP_LOG.Error("启动端口删除任务失败",
+				zap.Uint("taskId", newTask.ID),
+				zap.Uint("portId", taskData.PortID),
+				zap.Error(err))
+			failedPorts = append(failedPorts, taskData.PortID)
+			continue
+		}
+
+		taskIDs = append(taskIDs, newTask.ID)
+	}
+
+	if len(failedPorts) > 0 {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"taskIds":     taskIDs,
+			"failedPorts": failedPorts,
+		}, fmt.Sprintf("已创建 %d 个删除任务，%d 个端口创建任务失败", len(taskIDs), len(failedPorts)))
+	} else {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"taskIds": taskIDs,
+		}, fmt.Sprintf("已创建 %d 个端口删除任务", len(taskIDs)))
+	}
 }
 
 // UpdateProviderPortConfig 更新Provider端口配置

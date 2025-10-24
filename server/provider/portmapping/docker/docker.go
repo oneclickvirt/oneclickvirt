@@ -70,6 +70,12 @@ func (d *DockerPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 		return nil, fmt.Errorf("failed to create docker port mapping: %v", err)
 	}
 
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
+	}
+
 	// 保存到数据库
 	result := &portmapping.PortMappingResult{
 		InstanceID:    req.InstanceID,
@@ -83,7 +89,7 @@ func (d *DockerPortMapping) CreatePortMapping(ctx context.Context, req *portmapp
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "docker-native",
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 
@@ -255,8 +261,12 @@ func (d *DockerPortMapping) getProvider(providerID uint) (*provider.Provider, er
 
 // getPublicIP 获取公网IP
 func (d *DockerPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于Docker，通常使用Provider的endpoint作为公网IP
-	endpoint := providerInfo.Endpoint
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	endpoint := providerInfo.PortIP
+	if endpoint == "" {
+		endpoint = providerInfo.Endpoint
+	}
+
 	if endpoint == "" {
 		return ""
 	}
@@ -428,7 +438,13 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 	}
 
 	// 新的端口映射 - 只映射IPv4端口
-	cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/%s", newHostPort, newGuestPort, protocol)
+	// 如果协议是 both，需要创建两个端口映射（tcp 和 udp）
+	if protocol == "both" {
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/tcp", newHostPort, newGuestPort)
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/udp", newHostPort, newGuestPort)
+	} else {
+		cmd += fmt.Sprintf(" -p 0.0.0.0:%d:%d/%s", newHostPort, newGuestPort, protocol)
+	}
 
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"
@@ -526,8 +542,13 @@ func (d *DockerPortMapping) filterPortMappings(existingPorts string, excludeHost
 							if len(guestParts) == 2 {
 								guestPortStr := guestParts[0]
 								protocol := guestParts[1]
-								if guestPortStr == strconv.Itoa(excludeGuestPort) && protocol == excludeProtocol {
-									shouldExclude = true
+								// 如果 excludeProtocol 是 "both"，需要排除 tcp 和 udp 两条规则
+								if guestPortStr == strconv.Itoa(excludeGuestPort) {
+									if excludeProtocol == "both" {
+										shouldExclude = (protocol == "tcp" || protocol == "udp")
+									} else if protocol == excludeProtocol {
+										shouldExclude = true
+									}
 								}
 							}
 						} else if guestPart == strconv.Itoa(excludeGuestPort) {

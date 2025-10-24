@@ -41,10 +41,11 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 	if config.ImageURL != "" {
 		global.APP_LOG.Info("开始在远程服务器下载Incus"+imageTypeStr+"镜像",
 			zap.String("imageURL", utils.TruncateString(config.ImageURL, 200)),
-			zap.String("type", config.InstanceType))
+			zap.String("type", config.InstanceType),
+			zap.Bool("useCDN", config.UseCDN))
 
 		// 直接在远程服务器上下载镜像
-		imagePath, err := i.downloadImageToRemote(config.ImageURL, originalImageName, i.config.Architecture)
+		imagePath, err := i.downloadImageToRemote(config.ImageURL, originalImageName, i.config.Architecture, config.InstanceType, config.UseCDN)
 		if err != nil {
 			return fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
 		}
@@ -74,7 +75,7 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 				// 虚拟机镜像导入
 				if strings.HasSuffix(config.ImagePath, ".zip") {
 					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("cd /tmp && unzip -o %s -d %s", config.ImagePath, extractDir)
+					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
 					_, err := i.sshClient.Execute(unzipCmd)
 					if err != nil {
 						return fmt.Errorf("解压Incus虚拟机镜像失败: %w", err)
@@ -112,7 +113,7 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 				// 容器镜像导入
 				if strings.HasSuffix(config.ImagePath, ".zip") {
 					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("cd /tmp && unzip -o %s -d %s", config.ImagePath, extractDir)
+					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
 					_, err := i.sshClient.Execute(unzipCmd)
 					if err != nil {
 						return fmt.Errorf("解压Incus容器镜像失败: %w", err)
@@ -154,7 +155,7 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 
 			// 导入成功后删除远程镜像文件
 			if config.ImageURL != "" {
-				if err := i.cleanupRemoteImage(originalImageName, config.ImageURL, i.config.Architecture); err != nil {
+				if err := i.cleanupRemoteImage(originalImageName, config.ImageURL, i.config.Architecture, config.InstanceType); err != nil {
 					global.APP_LOG.Warn("删除Incus远程"+imageTypeStr+"镜像文件失败",
 						zap.String("imagePath", utils.TruncateString(config.ImagePath, 100)),
 						zap.String("type", config.InstanceType),
@@ -211,12 +212,15 @@ func (i *IncusProvider) queryAndSetSystemImage(ctx context.Context, config *prov
 		return fmt.Errorf("未找到匹配的系统镜像: %w", err)
 	}
 
-	// 设置镜像配置
+	// 设置镜像配置，不在这里添加CDN前缀
+	// CDN前缀应该在实际下载时根据可用性和UseCDN设置动态添加
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
+		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
 		global.APP_LOG.Info("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
-			zap.String("downloadURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
+			zap.Bool("useCDN", systemImage.UseCDN),
 			zap.String("osType", systemImage.OSType),
 			zap.String("osVersion", systemImage.OSVersion),
 			zap.String("architecture", systemImage.Architecture),
@@ -244,19 +248,25 @@ func (i *IncusProvider) imageExists(alias string) bool {
 	return strings.TrimSpace(output) != ""
 }
 
-// isRemoteFileValid 检查远程文件是否存在且完整
+// isRemoteFileValid 检查远程文件是否存在
 func (i *IncusProvider) isRemoteFileValid(remotePath string) bool {
-	output, err := i.sshClient.Execute(fmt.Sprintf("test -f %s && echo 'exists'", remotePath))
-	if err != nil {
+	// 检查文件是否存在且大小大于 0
+	output, err := i.sshClient.Execute(fmt.Sprintf("test -f %s -a -s %s && echo 'exists'", remotePath, remotePath))
+	if err != nil || strings.TrimSpace(output) != "exists" {
 		return false
 	}
-	return strings.TrimSpace(output) == "exists"
+	return true
 }
 
 // downloadImageToRemote 在远程服务器上下载镜像
-func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture string) (string, error) {
-	// 根据provider类型确定远程下载目录
-	downloadDir := "/usr/local/bin/incus_images"
+func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture, instanceType string, useCDN bool) (string, error) {
+	// 根据实例类型确定远程下载目录
+	var downloadDir string
+	if instanceType == "vm" {
+		downloadDir = "/usr/local/bin/incus_vm_images"
+	} else {
+		downloadDir = "/usr/local/bin/incus_ct_images"
+	}
 
 	// 在远程服务器上创建下载目录
 	cmd := fmt.Sprintf("mkdir -p %s", downloadDir)
@@ -266,7 +276,7 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture 
 	}
 
 	// 生成文件名
-	fileName := i.generateRemoteFileName(imageName, imageURL, architecture)
+	fileName := i.generateRemoteFileName(imageName, imageURL, architecture, instanceType)
 	remotePath := filepath.Join(downloadDir, fileName)
 
 	// 检查远程文件是否已存在
@@ -277,13 +287,17 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture 
 		return remotePath, nil
 	}
 
-	// 确定下载URL
-	downloadURL := i.getDownloadURL(imageURL)
+	// 如果文件存在但无效，先删除它
+	i.sshClient.Execute(fmt.Sprintf("test -f %s && rm -f %s || true", remotePath, remotePath))
+
+	// 确定下载URL，传递 useCDN 参数
+	downloadURL := i.getDownloadURL(imageURL, useCDN)
 
 	global.APP_LOG.Info("开始在远程服务器下载镜像",
 		zap.String("imageName", imageName),
 		zap.String("downloadURL", downloadURL),
-		zap.String("remotePath", remotePath))
+		zap.String("remotePath", remotePath),
+		zap.Bool("useCDN", useCDN))
 
 	// 在远程服务器上下载文件
 	if err := i.downloadFileToRemote(downloadURL, remotePath); err != nil {
@@ -299,10 +313,12 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture 
 	return remotePath, nil
 }
 
+// downloadFileToRemote 在远程服务器上下载文件
+
 // generateRemoteFileName 生成远程文件名
-func (i *IncusProvider) generateRemoteFileName(imageName, imageURL, architecture string) string {
-	// 组合字符串
-	combined := fmt.Sprintf("%s_%s_%s", imageName, imageURL, architecture)
+func (i *IncusProvider) generateRemoteFileName(imageName, imageURL, architecture, instanceType string) string {
+	// 组合字符串，包含实例类型以区分容器和虚拟机
+	combined := fmt.Sprintf("%s_%s_%s_%s", imageName, imageURL, architecture, instanceType)
 
 	// 计算MD5
 	hasher := md5.New()
@@ -323,53 +339,19 @@ func (i *IncusProvider) removeRemoteFile(remotePath string) error {
 	return err
 }
 
-// getDownloadURL 确定下载URL
-func (i *IncusProvider) getDownloadURL(originalURL string) string {
-	// 默认随机尝试CDN，不再限制地区
-	if cdnURL := i.getCDNURL(originalURL); cdnURL != "" {
-		return cdnURL
-	}
-	return originalURL
-}
-
-// getCDNURL 获取CDN URL - 随机测试可用性
-func (i *IncusProvider) getCDNURL(originalURL string) string {
-	cdnEndpoints := utils.GetCDNEndpoints()
-
-	// 随机测试CDN端点，找到第一个可用的就使用
-	for _, endpoint := range cdnEndpoints {
-		cdnURL := endpoint + originalURL
-		// 测试CDN可用性 - 使用更短的超时时间进行快速检测
-		testCmd := fmt.Sprintf("curl -4 -sL -k --max-time 6 '%s' | head -c 1 >/dev/null 2>&1", cdnURL)
-		if _, err := i.sshClient.Execute(testCmd); err == nil {
-			global.APP_LOG.Info("找到可用CDN，使用CDN下载镜像",
-				zap.String("originalURL", utils.TruncateString(originalURL, 100)),
-				zap.String("cdnURL", utils.TruncateString(cdnURL, 100)),
-				zap.String("cdnEndpoint", endpoint))
-			return cdnURL
-		}
-		// 短暂延迟避免过于频繁的请求
-		// 注意：在Go中我们不能直接sleep，但SSH执行会有自然的延迟
-	}
-
-	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
-		zap.String("originalURL", utils.TruncateString(originalURL, 100)))
-	return ""
-}
-
 // downloadFileToRemote 在远程服务器上下载文件
 func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 	// 使用curl在远程服务器上下载文件
 	tmpPath := remotePath + ".tmp"
 
-	// 构建curl命令，包含超时和重试机制
+	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -L --max-time 1800 --retry 3 --retry-delay 5 -o %s %s && mv %s %s",
-		tmpPath, url, tmpPath, remotePath,
+		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		tmpPath, url,
 	)
 
 	global.APP_LOG.Info("执行远程下载命令",
-		zap.String("command", utils.TruncateString(curlCmd, 200)))
+		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := i.sshClient.Execute(curlCmd)
 	if err != nil {
@@ -384,6 +366,17 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 		return fmt.Errorf("远程下载失败: %w", err)
 	}
 
+	// 移动文件到最终位置
+	mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)
+	_, err = i.sshClient.Execute(mvCmd)
+	if err != nil {
+		global.APP_LOG.Error("移动文件失败",
+			zap.String("tmpPath", tmpPath),
+			zap.String("remotePath", remotePath),
+			zap.Error(err))
+		return fmt.Errorf("移动文件失败: %w", err)
+	}
+
 	global.APP_LOG.Info("远程下载成功",
 		zap.String("url", utils.TruncateString(url, 100)),
 		zap.String("remotePath", remotePath))
@@ -392,9 +385,16 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 }
 
 // cleanupRemoteImage 清理远程镜像文件
-func (i *IncusProvider) cleanupRemoteImage(imageName, imageURL, architecture string) error {
-	downloadDir := "/usr/local/bin/incus_images"
-	fileName := i.generateRemoteFileName(imageName, imageURL, architecture)
+func (i *IncusProvider) cleanupRemoteImage(imageName, imageURL, architecture, instanceType string) error {
+	// 根据实例类型确定目录
+	var downloadDir string
+	if instanceType == "vm" {
+		downloadDir = "/usr/local/bin/incus_vm_images"
+	} else {
+		downloadDir = "/usr/local/bin/incus_ct_images"
+	}
+
+	fileName := i.generateRemoteFileName(imageName, imageURL, architecture, instanceType)
 	remotePath := filepath.Join(downloadDir, fileName)
 
 	return i.removeRemoteFile(remotePath)

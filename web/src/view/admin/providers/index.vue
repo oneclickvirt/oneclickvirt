@@ -505,6 +505,8 @@
               <el-input
                 v-model="addProviderForm.name"
                 :placeholder="$t('admin.providers.serverNamePlaceholder')"
+                maxlength="7"
+                show-word-limit
               />
             </el-form-item>
             <el-form-item
@@ -541,6 +543,31 @@
                 v-model="addProviderForm.host"
                 :placeholder="$t('admin.providers.hostPlaceholder')"
               />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.hostTip') }}
+                </el-text>
+              </div>
+            </el-form-item>
+            <el-form-item
+              :label="$t('admin.providers.portIP')"
+              prop="portIP"
+            >
+              <el-input
+                v-model="addProviderForm.portIP"
+                :placeholder="$t('admin.providers.portIPPlaceholder')"
+              />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.portIPTip') }}
+                </el-text>
+              </div>
             </el-form-item>
             <el-form-item
               :label="$t('admin.providers.port')"
@@ -634,7 +661,28 @@
                 :placeholder="$t('admin.providers.usernamePlaceholder')"
               />
             </el-form-item>
+            
+            <!-- 认证方式选择（创建和编辑都显示） -->
             <el-form-item
+              :label="$t('admin.providers.authMethod')"
+              prop="authMethod"
+            >
+              <el-radio-group 
+                v-model="addProviderForm.authMethod"
+                @change="handleAuthMethodChange"
+              >
+                <el-radio-button label="password">
+                  {{ $t('admin.providers.usePassword') }}
+                </el-radio-button>
+                <el-radio-button label="sshKey">
+                  {{ $t('admin.providers.useSSHKey') }}
+                </el-radio-button>
+              </el-radio-group>
+            </el-form-item>
+            
+            <!-- 密码认证 -->
+            <el-form-item
+              v-if="addProviderForm.authMethod === 'password'"
               :label="$t('admin.providers.password')"
               prop="password"
             >
@@ -644,7 +692,7 @@
                 :placeholder="isEditing ? $t('admin.providers.passwordEditPlaceholder') : $t('admin.providers.passwordPlaceholder')" 
                 show-password 
               />
-              <div
+              <div 
                 v-if="isEditing"
                 class="form-tip"
               >
@@ -656,7 +704,10 @@
                 </el-text>
               </div>
             </el-form-item>
+            
+            <!-- SSH密钥认证 -->
             <el-form-item
+              v-if="addProviderForm.authMethod === 'sshKey'"
               :label="$t('admin.providers.sshKey')"
               prop="sshKey"
             >
@@ -664,8 +715,19 @@
                 v-model="addProviderForm.sshKey" 
                 type="textarea" 
                 :rows="4"
-                :placeholder="$t('admin.providers.sshKeyPlaceholder')"
+                :placeholder="isEditing ? $t('admin.providers.sshKeyEditPlaceholder') : $t('admin.providers.sshKeyPlaceholder')"
               />
+              <div 
+                v-if="isEditing"
+                class="form-tip"
+              >
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.sshKeyEditTip') }}
+                </el-text>
+              </div>
             </el-form-item>
             
             <el-divider content-position="left">
@@ -2211,10 +2273,12 @@ const addProviderForm = reactive({
   name: '',
   type: '',
   host: '',
+  portIP: '', // 端口映射使用的公网IP
   port: 22,
   username: '',
   password: '',
   sshKey: '',
+  authMethod: 'password', // 认证方式：'password' 或 'sshKey'
   description: '',
   region: '',
   country: '',
@@ -2353,25 +2417,27 @@ const parseLevelLimits = (levelLimitsStr) => {
 // 表单验证规则
 const addProviderRules = {
   name: [
-    { required: true, message: '请输入服务器名称', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.serverNameRequired'), trigger: 'blur' },
+    { pattern: /^[a-zA-Z0-9]+$/, message: () => t('admin.providers.validation.serverNamePattern'), trigger: 'blur' },
+    { max: 7, message: () => t('admin.providers.validation.serverNameMaxLength'), trigger: 'blur' }
   ],
   type: [
-    { required: true, message: '请选择服务器类型', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.serverTypeRequired'), trigger: 'change' }
   ],
   host: [
-    { required: true, message: '请输入主机地址', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.hostRequired'), trigger: 'blur' }
   ],
   port: [
-    { required: true, message: '请输入端口', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.portRequired'), trigger: 'blur' }
   ],
   username: [
-    { required: true, message: '请输入用户名', trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.usernameRequired'), trigger: 'blur' }
   ],
   architecture: [
-    { required: true, message: '请选择服务器架构', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.architectureRequired'), trigger: 'change' }
   ],
   status: [
-    { required: true, message: '请选择状态', trigger: 'change' }
+    { required: true, message: () => t('admin.providers.validation.statusRequired'), trigger: 'change' }
   ]
 }
 
@@ -2526,6 +2592,16 @@ const applyRecommendedTimeout = () => {
   }
 }
 
+// 认证方式切换处理
+const handleAuthMethodChange = (newMethod) => {
+  // 切换认证方式时，清空被隐藏的字段
+  if (newMethod === 'password') {
+    addProviderForm.sshKey = ''
+  } else if (newMethod === 'sshKey') {
+    addProviderForm.password = ''
+  }
+}
+
 const cancelAddServer = () => {
   showAddDialog.value = false
   isEditing.value = false
@@ -2536,10 +2612,12 @@ const cancelAddServer = () => {
     name: '',
     type: '',
     host: '',
+    portIP: '', // 重置端口IP
     port: 22,
     username: '',
     password: '',
     sshKey: '',
+    authMethod: 'password', // 重置认证方式
     description: '',
     region: '',
     country: '',
@@ -2594,15 +2672,32 @@ const submitAddServer = async () => {
       return
     }
     
+    // 验证SSH认证方式
+    // 创建模式：必须提供认证信息
+    // 编辑模式：留空表示不修改，只有在切换认证方式时才需要验证
+    if (!isEditing.value) {
+      // 创建模式：必须提供认证信息
+      if (addProviderForm.authMethod === 'password' && !addProviderForm.password) {
+        ElMessage.error(t('admin.providers.passwordRequired'))
+        return
+      }
+      if (addProviderForm.authMethod === 'sshKey' && !addProviderForm.sshKey) {
+        ElMessage.error(t('admin.providers.sshKeyRequired'))
+        return
+      }
+    }
+    
     addProviderLoading.value = true
 
     const serverData = {
       name: addProviderForm.name,
       type: addProviderForm.type,
       endpoint: addProviderForm.host, // 只存储主机地址
+      portIP: addProviderForm.portIP, // 端口映射使用的公网IP
       sshPort: addProviderForm.port, // 单独存储SSH端口
       username: addProviderForm.username,
-      config: addProviderForm.sshKey ? JSON.stringify({ ssh_key: addProviderForm.sshKey }) : '',
+      sshKey: addProviderForm.sshKey, // SSH密钥作为独立字段
+      config: '',
       region: addProviderForm.region,
       country: addProviderForm.country,
       countryCode: addProviderForm.countryCode,
@@ -2671,9 +2766,23 @@ const submitAddServer = async () => {
       serverData.ipv6PortMappingMethod = addProviderForm.ipv6PortMappingMethod || 'device_proxy'
     }
 
-    // 只有在非编辑模式或者输入了密码时才包含密码
-    if (!isEditing.value || addProviderForm.password) {
-      serverData.password = addProviderForm.password
+    // 密码和SSH密钥的处理逻辑
+    if (isEditing.value) {
+      // 编辑模式：只有实际填写了内容才发送对应字段
+      // 如果留空，则不发送该字段（后端会保持原值）
+      if (addProviderForm.password) {
+        serverData.password = addProviderForm.password
+      }
+      if (addProviderForm.sshKey) {
+        serverData.sshKey = addProviderForm.sshKey
+      }
+    } else {
+      // 创建模式：根据认证方式发送对应字段
+      if (addProviderForm.authMethod === 'password') {
+        serverData.password = addProviderForm.password
+      } else if (addProviderForm.authMethod === 'sshKey') {
+        serverData.sshKey = addProviderForm.sshKey
+      }
     }
 
     if (isEditing.value) {
@@ -2708,25 +2817,18 @@ const editProvider = (provider) => {
   // 使用数据库中的sshPort字段，如果没有则默认为22
   const port = provider.sshPort || 22
   
-  // 解析config获取SSH key
-  let sshKey = ''
-  try {
-    const config = JSON.parse(provider.config || '{}')
-    sshKey = config.ssh_key || ''
-  } catch (e) {
-    // ignore parsing error
-  }
-  
   // 填充表单数据
   Object.assign(addProviderForm, {
     id: provider.id,
     name: provider.name,
     type: provider.type,
     host: host,
+    portIP: provider.portIP || '', // 端口IP
     port: parseInt(port) || 22,
     username: provider.username || '',
-    password: '', // 编辑时不显示密码
-    sshKey: sshKey,
+    password: '', // 编辑时不显示密码，留空表示不修改
+    sshKey: '', // 编辑时不显示SSH密钥，留空表示不修改
+    authMethod: provider.authMethod || 'password', // 使用后端返回的认证方式
     description: provider.description || '',
     region: provider.region || '',
     country: provider.country || '',
@@ -2854,7 +2956,7 @@ const unfreezeServer = async (server) => {
         confirmButtonText: '确定',
         cancelButtonText: '取消',
         inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
-        inputErrorMessage: '请输入正确的日期格式或留空',
+        inputErrorMessage: t('admin.providers.validation.dateFormatError'),
         inputPlaceholder: '如：2024-12-31 23:59:59 或留空'
       }
     )
@@ -3096,7 +3198,7 @@ const startNewConfiguration = async (provider, force = false) => {
 
     // 显示加载提示
     const loadingMessage = ElMessage({
-      message: '正在执行自动配置，请稍候...',
+      message: t('admin.providers.validation.autoConfiguring'),
       type: 'info',
       duration: 0,
       showClose: false
@@ -3200,7 +3302,7 @@ const debugAuthStatus = () => {
 // 健康检查
 const checkHealth = async (providerId) => {
   const loadingMessage = ElMessage({
-    message: '正在进行健康检查，请稍候...',
+    message: t('admin.providers.validation.healthChecking'),
     type: 'info',
     duration: 0, // 不自动关闭
     showClose: false

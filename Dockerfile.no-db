@@ -32,7 +32,8 @@ RUN mkdir -p /var/log/supervisor \
     && mkdir -p /app/storage/{cache,certs,configs,exports,logs,temp,uploads}
 
 COPY --from=backend-builder /app/server/main ./main
-COPY --from=backend-builder /app/server/config.yaml ./config.yaml
+COPY --from=backend-builder /app/server/config.yaml ./config.yaml.default
+RUN if [ ! -f /app/config.yaml ]; then mv /app/config.yaml.default /app/config.yaml; else rm /app/config.yaml.default; fi
 COPY --from=frontend-builder /app/web/dist /var/www/html
 
 RUN chown -R www-data:www-data /var/www/html && \

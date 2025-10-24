@@ -68,6 +68,13 @@ type SystemImage struct {
 	OSVersion string `json:"osVersion" gorm:"size:32"` // 操作系统版本号
 	Tags      string `json:"tags" gorm:"size:255"`     // 标签列表（用逗号分隔）
 
+	// 硬件要求
+	MinMemoryMB int `json:"minMemoryMB" gorm:"default:0"` // 最低内存要求（MB）
+	MinDiskMB   int `json:"minDiskMB" gorm:"default:0"`   // 最低硬盘要求（MB）
+
+	// 下载配置
+	UseCDN bool `json:"useCdn" gorm:"default:true"` // 是否使用CDN加速下载
+
 	// 管理信息
 	CreatedBy *uint `json:"createdBy"` // 创建者用户ID（可为空，系统镜像）
 }

@@ -70,6 +70,12 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 		return nil, fmt.Errorf("failed to create iptables rule: %v", err)
 	}
 
+	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
+	isSSH := req.GuestPort == 22
+	if req.IsSSH != nil {
+		isSSH = *req.IsSSH
+	}
+
 	// 保存到数据库
 	result := &portmapping.PortMappingResult{
 		InstanceID:    req.InstanceID,
@@ -83,7 +89,7 @@ func (i *IptablesPortMapping) CreatePortMapping(ctx context.Context, req *portma
 		Status:        "active",
 		Description:   req.Description,
 		MappingMethod: "iptables-nat",
-		IsSSH:         req.GuestPort == 22,
+		IsSSH:         isSSH,
 		IsAutomatic:   req.HostPort == 0,
 	}
 
@@ -241,7 +247,7 @@ func (i *IptablesPortMapping) validateRequest(req *portmapping.PortMappingReques
 		return fmt.Errorf("invalid host port: %d", req.HostPort)
 	}
 	if req.Protocol == "" {
-		req.Protocol = "tcp"
+		req.Protocol = "both"
 	}
 	return portmapping.ValidateProtocol(req.Protocol)
 }
@@ -272,7 +278,10 @@ func (i *IptablesPortMapping) getProvider(providerID uint) (*provider.Provider, 
 
 // getPublicIP 获取公网IP
 func (i *IptablesPortMapping) getPublicIP(providerInfo *provider.Provider) string {
-	// 对于iptables，使用Provider的endpoint作为公网IP
+	// 优先使用PortIP（端口映射专用IP），如果为空则使用Endpoint（SSH地址）
+	if providerInfo.PortIP != "" {
+		return providerInfo.PortIP
+	}
 	return providerInfo.Endpoint
 }
 
@@ -290,22 +299,33 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 		return fmt.Errorf("instance private IP address not found for %s", instance.Name)
 	}
 
-	// 创建PREROUTING DNAT规则 - 将外部端口转发到内部实例
-	dnatRule := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-		protocol, hostPort, instanceIP, guestPort)
+	// 如果协议是both，需要同时创建TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
 
-	// 创建FORWARD规则 - 允许转发到实例
-	forwardRule := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-		protocol, instanceIP, guestPort)
+	var allCommands []string
 
-	// 创建POSTROUTING MASQUERADE规则 - 对来自实例的响应进行SNAT
-	masqueradeRule := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-		protocol, instanceIP, guestPort)
+	for _, proto := range protocols {
+		// 创建PREROUTING DNAT规则 - 将外部端口转发到内部实例
+		dnatRule := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
+			proto, hostPort, instanceIP, guestPort)
+
+		// 创建FORWARD规则 - 允许转发到实例
+		forwardRule := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, guestPort)
+
+		// 创建POSTROUTING MASQUERADE规则 - 对来自实例的响应进行SNAT
+		masqueradeRule := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
+			proto, instanceIP, guestPort)
+
+		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
+	}
 
 	global.APP_LOG.Info("Executing iptables commands",
-		zap.String("dnat", dnatRule),
-		zap.String("forward", forwardRule),
-		zap.String("masquerade", masqueradeRule))
+		zap.String("protocol", protocol),
+		zap.Int("commandCount", len(allCommands)))
 
 	// 创建SSH客户端连接到provider主机执行iptables命令
 	sshClient, err := i.createSSHClient(providerInfo)
@@ -315,8 +335,7 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 	defer sshClient.Close()
 
 	// 执行iptables命令
-	commands := []string{dnatRule, forwardRule, masqueradeRule}
-	for _, cmd := range commands {
+	for _, cmd := range allCommands {
 		_, err := sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Error("Failed to execute iptables command",
@@ -355,22 +374,33 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 		return fmt.Errorf("instance private IP address not found for %s", instance.Name)
 	}
 
-	// 删除PREROUTING DNAT规则
-	dnatRule := fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-		protocol, hostPort, instanceIP, guestPort)
+	// 如果协议是both，需要同时删除TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
 
-	// 删除FORWARD规则
-	forwardRule := fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT",
-		protocol, instanceIP, guestPort)
+	var allCommands []string
 
-	// 删除POSTROUTING MASQUERADE规则
-	masqueradeRule := fmt.Sprintf("iptables -t nat -D POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-		protocol, instanceIP, guestPort)
+	for _, proto := range protocols {
+		// 删除PREROUTING DNAT规则
+		dnatRule := fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
+			proto, hostPort, instanceIP, guestPort)
+
+		// 删除FORWARD规则
+		forwardRule := fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT",
+			proto, instanceIP, guestPort)
+
+		// 删除POSTROUTING MASQUERADE规则
+		masqueradeRule := fmt.Sprintf("iptables -t nat -D POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
+			proto, instanceIP, guestPort)
+
+		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
+	}
 
 	global.APP_LOG.Info("Executing iptables removal commands",
-		zap.String("dnat", dnatRule),
-		zap.String("forward", forwardRule),
-		zap.String("masquerade", masqueradeRule))
+		zap.String("protocol", protocol),
+		zap.Int("commandCount", len(allCommands)))
 
 	// 获取provider信息以创建SSH连接
 	var providerInfo *provider.Provider
@@ -389,8 +419,7 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 	defer sshClient.Close()
 
 	// 执行iptables删除命令
-	commands := []string{dnatRule, forwardRule, masqueradeRule}
-	for _, cmd := range commands {
+	for _, cmd := range allCommands {
 		_, err := sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to execute iptables removal command",

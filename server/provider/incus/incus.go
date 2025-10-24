@@ -91,6 +91,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		Port:           config.Port,
 		Username:       config.Username,
 		Password:       config.Password,
+		PrivateKey:     config.PrivateKey,
 		ConnectTimeout: time.Duration(sshConnectTimeout) * time.Second,
 		ExecuteTimeout: time.Duration(sshExecuteTimeout) * time.Second,
 	}
@@ -107,6 +108,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		Port:          config.Port,
 		Username:      config.Username,
 		Password:      config.Password,
+		PrivateKey:    config.PrivateKey,
 		APIEnabled:    config.CertPath != "" && config.KeyPath != "",
 		APIPort:       8443,
 		APIScheme:     "https",
@@ -491,6 +493,16 @@ func (i *IncusProvider) shouldFallbackToSSH() bool {
 	default:
 		return true
 	}
+}
+
+// SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
+func (i *IncusProvider) SetupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	return i.setupPortMappingWithIP(instanceName, hostPort, guestPort, protocol, method, instanceIP)
+}
+
+// RemovePortMapping 公开的方法：从远程服务器上删除端口映射（用于手动删除端口）
+func (i *IncusProvider) RemovePortMapping(instanceName string, hostPort int, protocol string, method string) error {
+	return i.removePortMapping(instanceName, hostPort, protocol, method)
 }
 
 func init() {

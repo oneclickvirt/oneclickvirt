@@ -83,6 +83,8 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			NodeDiskTotal:    provider.NodeDiskTotal,
 			ResourceSynced:   provider.ResourceSynced,
 			ResourceSyncedAt: provider.ResourceSyncedAt,
+			// 添加认证方式标识
+			AuthMethod: provider.GetAuthMethod(),
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}
@@ -130,13 +132,22 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		expiresAt = &defaultExpiry
 	}
 
+	// 验证：必须提供密码或SSH密钥其中一种
+	if req.Password == "" && req.SSHKey == "" {
+		global.APP_LOG.Warn("Provider创建失败：未提供SSH认证方式",
+			zap.String("name", utils.TruncateString(req.Name, 32)))
+		return fmt.Errorf("必须提供SSH密码或SSH密钥其中一种认证方式")
+	}
+
 	provider := providerModel.Provider{
 		Name:                  req.Name,
 		Type:                  req.Type,
 		Endpoint:              req.Endpoint,
+		PortIP:                req.PortIP,
 		SSHPort:               req.SSHPort,
 		Username:              req.Username,
 		Password:              req.Password,
+		SSHKey:                req.SSHKey,
 		Token:                 req.Token,
 		Config:                req.Config,
 		Region:                req.Region,
@@ -179,7 +190,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	}
 
 	// 节点级别等级限制配置
-	if req.LevelLimits != nil && len(req.LevelLimits) > 0 {
+	if len(req.LevelLimits) > 0 {
 		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
 		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
 		if err != nil {
@@ -334,11 +345,53 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.Name = req.Name
 	provider.Type = req.Type
 	provider.Endpoint = req.Endpoint
+	provider.PortIP = req.PortIP
 	provider.SSHPort = req.SSHPort
 	provider.Username = req.Username
-	// 只有当传递了非空密码时才更新密码
-	if req.Password != "" {
-		provider.Password = req.Password
+
+	// 密码和SSH密钥的更新逻辑（使用指针以区分"未提供"和"空值"）：
+	// - nil: 不修改（前端未提供该字段，保持原值）
+	// - 指向空字符串: 清空该字段（切换到另一种认证方式）
+	// - 指向非空字符串: 更新为新值
+
+	// 临时保存更新后的值，用于验证
+	newPassword := provider.Password
+	newSSHKey := provider.SSHKey
+
+	// 是否修改了密码
+	passwordChanged := false
+	if req.Password != nil {
+		newPassword = *req.Password
+		passwordChanged = true
+		global.APP_LOG.Debug("更新Provider密码",
+			zap.Uint("providerID", req.ID),
+			zap.Bool("isEmpty", *req.Password == ""))
+	}
+
+	// 是否修改了SSH密钥
+	sshKeyChanged := false
+	if req.SSHKey != nil {
+		newSSHKey = *req.SSHKey
+		sshKeyChanged = true
+		global.APP_LOG.Debug("更新Provider SSH密钥",
+			zap.Uint("providerID", req.ID),
+			zap.Bool("isEmpty", *req.SSHKey == ""))
+	}
+
+	// 验证：更新后必须至少保留一种认证方式
+	// 只有在实际修改了认证字段时才进行验证
+	if (passwordChanged || sshKeyChanged) && newPassword == "" && newSSHKey == "" {
+		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
+			zap.Uint("providerID", req.ID))
+		return fmt.Errorf("必须保留至少一种SSH认证方式（密码或密钥）")
+	}
+
+	// 应用更新（只有在字段被修改时才更新）
+	if passwordChanged {
+		provider.Password = newPassword
+	}
+	if sshKeyChanged {
+		provider.SSHKey = newSSHKey
 	}
 	provider.Token = req.Token
 	provider.Config = req.Config

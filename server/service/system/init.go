@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -15,6 +16,8 @@ import (
 	"oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/utils"
+
+	configManager "oneclickvirt/config"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
@@ -195,51 +198,84 @@ func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
 
 // UpdateDatabaseConfig 更新数据库配置
 func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error {
-	// 读取当前配置文件
+	// 使用 ConfigManager 来更新配置，保持原有格式
+	cm := configManager.GetConfigManager()
+	if cm != nil {
+		// 使用 ConfigManager 更新配置
+		updates := make(map[string]interface{})
+
+		// 更新系统配置
+		updates["system.db-type"] = dbConfig.Type
+
+		// 对于MySQL和MariaDB，都使用相同的配置结构
+		if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
+			updates["mysql.path"] = dbConfig.Host
+			updates["mysql.port"] = strconv.Itoa(dbConfig.Port)
+			updates["mysql.db-name"] = dbConfig.Database
+			updates["mysql.username"] = dbConfig.Username
+			updates["mysql.password"] = dbConfig.Password
+			updates["mysql.config"] = "charset=utf8mb4&parseTime=True&loc=Local"
+			updates["mysql.prefix"] = ""
+			updates["mysql.singular"] = false
+			updates["mysql.engine"] = "InnoDB"
+			updates["mysql.max-idle-conns"] = 10
+			updates["mysql.max-open-conns"] = 100
+			updates["mysql.log-mode"] = "error"
+			updates["mysql.log-zap"] = false
+			updates["mysql.max-lifetime"] = 3600
+			updates["mysql.auto-create"] = true
+		}
+
+		return cm.UpdateConfig(updates)
+	}
+
+	// 降级方案：直接操作文件（保持向后兼容）
 	configPath := "./config.yaml"
 	configData, err := os.ReadFile(configPath)
 	if err != nil {
 		return fmt.Errorf("读取配置文件失败: %v", err)
 	}
 
-	// 解析配置
-	var c map[string]interface{}
-	if err := yaml.Unmarshal(configData, &c); err != nil {
+	// 使用 Node API 解析，保持原有格式
+	var node yaml.Node
+	if err := yaml.Unmarshal(configData, &node); err != nil {
 		return fmt.Errorf("解析配置文件失败: %v", err)
 	}
 
 	// 更新系统配置
-	if system, ok := c["system"].(map[string]interface{}); ok {
-		system["db-type"] = dbConfig.Type
-	} else {
-		c["system"] = map[string]interface{}{
-			"db-type": dbConfig.Type,
-		}
+	if err := updateYAMLNodeValue(&node, "system.db-type", dbConfig.Type); err != nil {
+		global.APP_LOG.Warn("更新 system.db-type 失败", zap.Error(err))
 	}
 
-	// 对于MySQL和MariaDB，都使用相同的配置结构（因为它们兼容MySQL协议）
+	// 对于MySQL和MariaDB，更新配置
 	if dbConfig.Type == "mysql" || dbConfig.Type == "mariadb" {
-		c["mysql"] = map[string]interface{}{
-			"path":           dbConfig.Host,
-			"port":           strconv.Itoa(dbConfig.Port),
-			"db-name":        dbConfig.Database,
-			"username":       dbConfig.Username,
-			"password":       dbConfig.Password,
-			"config":         "charset=utf8mb4&parseTime=True&loc=Local",
-			"prefix":         "",
-			"singular":       false,
-			"engine":         "InnoDB",
-			"max-idle-conns": 10,
-			"max-open-conns": 100,
-			"log-mode":       "error",
-			"log-zap":        false,
-			"max-lifetime":   3600,
-			"auto-create":    true,
+		mysqlUpdates := map[string]interface{}{
+			"mysql.path":           dbConfig.Host,
+			"mysql.port":           strconv.Itoa(dbConfig.Port),
+			"mysql.db-name":        dbConfig.Database,
+			"mysql.username":       dbConfig.Username,
+			"mysql.password":       dbConfig.Password,
+			"mysql.config":         "charset=utf8mb4&parseTime=True&loc=Local",
+			"mysql.prefix":         "",
+			"mysql.singular":       "false",
+			"mysql.engine":         "InnoDB",
+			"mysql.max-idle-conns": "10",
+			"mysql.max-open-conns": "100",
+			"mysql.log-mode":       "error",
+			"mysql.log-zap":        "false",
+			"mysql.max-lifetime":   "3600",
+			"mysql.auto-create":    "true",
+		}
+
+		for key, value := range mysqlUpdates {
+			if err := updateYAMLNodeValue(&node, key, value); err != nil {
+				global.APP_LOG.Warn("更新配置失败", zap.String("key", key), zap.Error(err))
+			}
 		}
 	}
 
-	// 保存配置文件
-	newConfigData, err := yaml.Marshal(c)
+	// 序列化并保存
+	newConfigData, err := yaml.Marshal(&node)
 	if err != nil {
 		return fmt.Errorf("序列化配置失败: %v", err)
 	}
@@ -253,6 +289,48 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 	// 写入新配置
 	if err := os.WriteFile(configPath, newConfigData, 0644); err != nil {
 		return fmt.Errorf("写入配置文件失败: %v", err)
+	}
+
+	return nil
+}
+
+// updateYAMLNodeValue 更新YAML节点的值（辅助函数）
+func updateYAMLNodeValue(node *yaml.Node, path string, value interface{}) error {
+	if node.Kind != yaml.DocumentNode || len(node.Content) == 0 {
+		return fmt.Errorf("invalid document node")
+	}
+
+	keys := strings.Split(path, ".")
+	current := node.Content[0]
+
+	for i := 0; i < len(keys); i++ {
+		key := keys[i]
+		if current.Kind != yaml.MappingNode {
+			return fmt.Errorf("expected mapping node at key: %s", key)
+		}
+
+		found := false
+		for j := 0; j < len(current.Content); j += 2 {
+			keyNode := current.Content[j]
+			valueNode := current.Content[j+1]
+
+			if keyNode.Value == key {
+				found = true
+				if i == len(keys)-1 {
+					// 到达目标节点，更新值
+					valueNode.Kind = yaml.ScalarNode
+					valueNode.Value = fmt.Sprintf("%v", value)
+					return nil
+				} else {
+					current = valueNode
+				}
+				break
+			}
+		}
+
+		if !found {
+			return fmt.Errorf("key not found: %s", key)
+		}
 	}
 
 	return nil

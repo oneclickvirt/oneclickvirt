@@ -37,23 +37,20 @@
       
       <!-- 搜索和筛选 -->
       <div class="search-bar">
-        <el-row :gutter="20">
-          <el-col :span="6">
+        <el-row :gutter="12">
+          <el-col :span="5">
             <el-input 
               v-model="searchForm.keyword" 
               :placeholder="$t('admin.portMapping.searchInstance')"
               clearable
               @keyup.enter="searchPortMappings"
             >
-              <template #append>
-                <el-button
-                  icon="Search"
-                  @click="searchPortMappings"
-                />
+              <template #prefix>
+                <el-icon><Search /></el-icon>
               </template>
             </el-input>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="4">
             <el-select
               v-model="searchForm.providerId"
               :placeholder="$t('admin.portMapping.selectProvider')"
@@ -68,7 +65,19 @@
               />
             </el-select>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="4">
+            <el-select
+              v-model="searchForm.protocol"
+              :placeholder="$t('admin.portMapping.protocol')"
+              clearable
+              style="width: 100%;"
+            >
+              <el-option label="TCP" value="tcp" />
+              <el-option label="UDP" value="udp" />
+              <el-option label="TCP/UDP" value="both" />
+            </el-select>
+          </el-col>
+          <el-col :span="4">
             <el-select
               v-model="searchForm.status"
               :placeholder="$t('common.status')"
@@ -85,7 +94,7 @@
               />
             </el-select>
           </el-col>
-          <el-col :span="6">
+          <el-col :span="7">
             <el-button
               type="primary"
               @click="searchPortMappings"
@@ -155,8 +164,15 @@
         <el-table-column
           prop="protocol"
           :label="$t('admin.portMapping.protocol')"
-          width="80"
-        />
+          width="100"
+        >
+          <template #default="{ row }">
+            <el-tag v-if="row.protocol === 'both'" type="info" size="small">TCP/UDP</el-tag>
+            <el-tag v-else-if="row.protocol === 'tcp'" type="success" size="small">TCP</el-tag>
+            <el-tag v-else-if="row.protocol === 'udp'" type="warning" size="small">UDP</el-tag>
+            <span v-else>{{ row.protocol }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="description"
           :label="$t('common.description')"
@@ -186,11 +202,18 @@
               {{ $t('admin.portMapping.statusActive') }}
             </el-tag>
             <el-tag 
-              v-else-if="row.status === 'creating'" 
+              v-else-if="row.status === 'creating' || row.status === 'pending'" 
               type="warning"
             >
               <el-icon class="is-loading"><Loading /></el-icon>
-              {{ $t('admin.portMapping.statusCreating') }}
+              {{ row.status === 'creating' ? $t('admin.portMapping.statusCreating') : $t('admin.portMapping.statusPending') }}
+            </el-tag>
+            <el-tag 
+              v-else-if="row.status === 'deleting'" 
+              type="warning"
+            >
+              <el-icon class="is-loading"><Loading /></el-icon>
+              {{ $t('admin.portMapping.statusDeleting') }}
             </el-tag>
             <el-tag 
               v-else-if="row.status === 'failed'" 
@@ -384,6 +407,7 @@
           <el-radio-group v-model="addForm.protocol">
             <el-radio label="tcp">TCP</el-radio>
             <el-radio label="udp">UDP</el-radio>
+            <el-radio label="both">TCP/UDP</el-radio>
           </el-radio-group>
         </el-form-item>
         
@@ -419,7 +443,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Loading } from '@element-plus/icons-vue'
+import { Plus, Loading, Search } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { 
   getPortMappings, 
@@ -449,6 +473,7 @@ let autoRefreshTimer = null
 const searchForm = reactive({
   keyword: '',
   providerId: '',
+  protocol: '',
   status: ''
 })
 
@@ -460,7 +485,7 @@ const addForm = reactive({
   instanceId: '',
   guestPort: null,
   hostPort: 0,
-  protocol: 'tcp',
+  protocol: 'both',
   description: ''
 })
 
@@ -478,27 +503,32 @@ const addRules = {
 }
 
 // 获取实例对应的 Provider 类型
+// 优先通过 providerId 在已加载的 providers 列表中查找 provider.type（后端返回的 instance.provider 常为 Provider 名称而非类型）
 const getInstanceProviderType = (instance) => {
   if (!instance) return null
-  
-  // 优先使用 instance.provider 字段（后端返回的 provider 名称字段）
+
+  // 1) 优先通过 providerId 查找 providers 列表中的类型
+  if (instance.providerId && providers.value.length > 0) {
+    const prov = providers.value.find(p => p.id === instance.providerId)
+    if (prov && prov.type) return prov.type
+  }
+
+  // 2) 如果实例对象包含明确的 type 或 providerType 字段，使用它
+  if (instance.type) return instance.type
+  if (instance.providerType) return instance.providerType
+
+  // 3) 作为回退，尝试解析 instance.provider 或 instance.providerName（有可能就是类型字符串）
   if (instance.provider) {
+    const lower = String(instance.provider).toLowerCase()
+    if (['lxd', 'incus', 'proxmox', 'docker'].includes(lower)) return lower
     return instance.provider
   }
-  
-  // 其次尝试使用 providerName 字段
   if (instance.providerName) {
+    const lower = String(instance.providerName).toLowerCase()
+    if (['lxd', 'incus', 'proxmox', 'docker'].includes(lower)) return lower
     return instance.providerName
   }
-  
-  // 最后尝试通过 providerId 从 providers 列表查找
-  if (instance.providerId && providers.value.length > 0) {
-    const provider = providers.value.find(p => p.id === instance.providerId)
-    if (provider) {
-      return provider.type
-    }
-  }
-  
+
   return null
 }
 
@@ -606,10 +636,13 @@ const loadPortMappings = async () => {
 
 // 检查是否需要自动刷新
 const checkAndStartAutoRefresh = () => {
-  const hasCreatingPorts = portMappings.value.some(port => port.status === 'creating')
+  // 检查是否有正在处理的端口（创建中、删除中、等待中）
+  const hasProcessingPorts = portMappings.value.some(port => 
+    port.status === 'creating' || port.status === 'deleting' || port.status === 'pending'
+  )
   
-  if (hasCreatingPorts) {
-    // 如果有正在创建的端口，启动自动刷新（每5秒刷新一次）
+  if (hasProcessingPorts) {
+    // 如果有正在处理的端口，启动自动刷新（每5秒刷新一次）
     if (!autoRefreshTimer) {
       console.log(t('admin.portMapping.autoRefreshStarted'))
       autoRefreshTimer = setInterval(() => {
@@ -617,7 +650,7 @@ const checkAndStartAutoRefresh = () => {
       }, 5000)
     }
   } else {
-    // 没有正在创建的端口，停止自动刷新
+    // 没有正在处理的端口，停止自动刷新
     if (autoRefreshTimer) {
       console.log(t('admin.portMapping.autoRefreshStopped'))
       clearInterval(autoRefreshTimer)
@@ -653,6 +686,7 @@ const resetSearch = () => {
   Object.assign(searchForm, {
     keyword: '',
     providerId: '',
+    protocol: '',
     status: ''
   })
   searchPortMappings()
@@ -679,12 +713,13 @@ const deletePortMappingHandler = async (id) => {
       }
     )
     
-    await deletePortMapping(id)
-    ElMessage.success(t('common.deleteSuccess'))
+    const response = await deletePortMapping(id)
+    // 后端现在返回任务ID，显示任务已创建的消息
+    ElMessage.success(t('admin.portMapping.deletePortTaskCreated'))
     loadPortMappings()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(error.message || t('common.deleteFailed'))
+      ElMessage.error(error.message || t('admin.portMapping.deletePortFailed'))
     }
   }
 }
@@ -715,8 +750,24 @@ const batchDeleteDirect = async () => {
     )
     
     const ids = selectedPortMappings.value.map(item => item.id)
-    await batchDeletePortMappings(ids)
-    ElMessage.success(t('admin.portMapping.batchDeleteSuccess', { count: selectedPortMappings.value.length }))
+    const response = await batchDeletePortMappings(ids)
+    
+    // 后端现在返回任务IDs和可能的失败端口
+    const data = response.data || {}
+    const taskIds = data.taskIds || []
+    const failedPorts = data.failedPorts || []
+    
+    if (failedPorts.length > 0) {
+      // 部分成功
+      ElMessage.warning(t('admin.portMapping.batchDeletePartialSuccess', { 
+        success: taskIds.length, 
+        failed: failedPorts.length 
+      }))
+    } else {
+      // 全部成功
+      ElMessage.success(t('admin.portMapping.batchDeleteTasksCreated', { count: taskIds.length }))
+    }
+    
     selectedPortMappings.value = []
     loadPortMappings()
   } catch (error) {
@@ -748,7 +799,7 @@ const openAddDialog = async () => {
     instanceId: '',
     guestPort: null,
     hostPort: 0,
-    protocol: 'tcp',
+    protocol: 'both',
     description: ''
   })
   

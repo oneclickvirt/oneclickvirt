@@ -14,6 +14,28 @@
 
     <!-- 实例概览卡片 -->
     <el-card class="overview-card">
+      <!-- Provider离线警告 -->
+      <el-alert
+        v-if="instance.providerStatus && (instance.providerStatus === 'inactive' || instance.providerStatus === 'partial')"
+        :title="t('user.instanceDetail.providerOfflineWarning')"
+        type="error"
+        :description="t('user.instanceDetail.providerOfflineDesc')"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 20px;"
+      />
+      
+      <!-- 实例不可用警告 -->
+      <el-alert
+        v-if="instance.status === 'unavailable'"
+        :title="t('user.instanceDetail.instanceUnavailableWarning')"
+        type="warning"
+        :description="t('user.instanceDetail.instanceUnavailableDesc')"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 20px;"
+      />
+      
       <div class="server-overview">
         <!-- 左侧：实例基本信息 -->
         <div class="server-basic-info">
@@ -382,9 +404,9 @@
                 <template #default="{ row }">
                   <el-tag
                     size="small"
-                    :type="row.protocol === 'tcp' ? 'primary' : 'success'"
+                    :type="row.protocol === 'tcp' ? 'primary' : row.protocol === 'udp' ? 'success' : 'info'"
                   >
-                    {{ row.protocol.toUpperCase() }}
+                    {{ row.protocol === 'both' ? 'TCP/UDP' : row.protocol.toUpperCase() }}
                   </el-tag>
                 </template>
               </el-table-column>
@@ -554,7 +576,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, nextTick, watch } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -1000,6 +1022,7 @@ const getStatusType = (status) => {
     'running': 'success',
     'stopped': 'info',
     'paused': 'warning',
+    'unavailable': 'danger',
     'error': 'danger'
   }
   return statusMap[status] || 'info'
@@ -1011,6 +1034,7 @@ const getStatusText = (status) => {
     'running': t('user.instanceDetail.statusRunning'),
     'stopped': t('user.instanceDetail.statusStopped'),
     'paused': t('user.instanceDetail.statusPaused'),
+    'unavailable': t('user.instanceDetail.statusUnavailable'),
     'error': t('user.instanceDetail.statusError')
   }
   return statusMap[status] || status
@@ -1095,6 +1119,9 @@ watch(activeTab, (newTab) => {
   }
 })
 
+// 定时器引用
+let monitoringTimer = null
+
 onMounted(async () => {
   // 等待下一个tick，确保路由参数已经加载
   await nextTick()
@@ -1110,12 +1137,15 @@ onMounted(async () => {
     refreshPortMappings()
     
     // 定时刷新监控数据
-    const timer = setInterval(refreshMonitoring, 30000)
-    
-    // 组件卸载时清除定时器
-    return () => {
-      clearInterval(timer)
-    }
+    monitoringTimer = setInterval(refreshMonitoring, 30000)
+  }
+})
+
+// 组件卸载时清除定时器
+onUnmounted(() => {
+  if (monitoringTimer) {
+    clearInterval(monitoringTimer)
+    monitoringTimer = null
   }
 })
 </script>

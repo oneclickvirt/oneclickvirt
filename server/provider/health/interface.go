@@ -55,10 +55,11 @@ type ResourceInfo struct {
 // HealthConfig 健康检查配置
 type HealthConfig struct {
 	// 基础连接配置
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password"`
+	PrivateKey string `json:"private_key"` // SSH私钥，优先于密码使用
 
 	// API配置
 	APIEnabled    bool   `json:"api_enabled"`

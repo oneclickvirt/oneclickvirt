@@ -98,6 +98,31 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 		zap.String("method", method),
 		zap.String("instanceIP", instanceIP))
 
+	// 如果协议是both，需要同时创建TCP和UDP规则
+	protocols := []string{protocol}
+	if protocol == "both" {
+		protocols = []string{"tcp", "udp"}
+	}
+
+	for _, proto := range protocols {
+		if err := p.setupSinglePortMapping(ctx, instanceName, hostPort, guestPort, proto, method, instanceIP); err != nil {
+			return fmt.Errorf("设置%s端口映射失败: %w", proto, err)
+		}
+	}
+
+	return nil
+}
+
+// setupSinglePortMapping 设置单个协议的端口映射
+func (p *ProxmoxProvider) setupSinglePortMapping(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	global.APP_LOG.Info("设置单个协议端口映射",
+		zap.String("instance", instanceName),
+		zap.Int("hostPort", hostPort),
+		zap.Int("guestPort", guestPort),
+		zap.String("protocol", protocol),
+		zap.String("method", method),
+		zap.String("instanceIP", instanceIP))
+
 	switch method {
 	case "iptables":
 		return p.setupIptablesMappingWithIP(ctx, instanceName, hostPort, guestPort, protocol, instanceIP)
@@ -287,4 +312,10 @@ func (p *ProxmoxProvider) getInstancePrivateIP(ctx context.Context, instanceName
 	}
 
 	return "", fmt.Errorf("无法获取实例 %s 的IP地址", instanceName)
+}
+
+// SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
+// 保持与LXD/Incus的API一致性
+func (p *ProxmoxProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+	return p.setupPortMappingWithIP(ctx, instanceName, hostPort, guestPort, protocol, method, instanceIP)
 }

@@ -211,7 +211,7 @@ func ValidateIP(ip string) error {
 // ValidateProtocol 验证协议
 func ValidateProtocol(protocol string) error {
 	switch protocol {
-	case "tcp", "udp", "TCP", "UDP":
+	case "tcp", "udp", "both", "TCP", "UDP", "BOTH":
 		return nil
 	default:
 		return fmt.Errorf("unsupported protocol: %s", protocol)

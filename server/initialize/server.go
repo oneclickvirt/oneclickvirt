@@ -44,6 +44,11 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 			global.APP_MONITORING_SCHEDULER.Stop()
 		}
 
+		// 停止Provider健康检查调度器
+		if global.APP_PROVIDER_HEALTH_SCHEDULER != nil {
+			global.APP_PROVIDER_HEALTH_SCHEDULER.Stop()
+		}
+
 		// 关闭数据库连接
 		if global.APP_DB != nil {
 			if sqlDB, err := global.APP_DB.DB(); err == nil {

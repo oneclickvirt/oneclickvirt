@@ -97,7 +97,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		if config.ImageURL != "" {
 			updateProgress(30, "下载镜像到远程服务器...")
 			// 在远程服务器上下载镜像
-			remotePath, err := d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture)
+			remotePath, err := d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture, config.UseCDN)
 			if err != nil {
 				return fmt.Errorf("下载镜像失败: %w", err)
 			}
@@ -116,7 +116,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 				updateProgress(40, "重新下载镜像...")
 				// 重新下载
-				remotePath, err = d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture)
+				remotePath, err = d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture, config.UseCDN)
 				if err != nil {
 					return fmt.Errorf("重新下载镜像失败: %w", err)
 				}
@@ -253,24 +253,46 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(80, "配置端口映射...")
 	// 端口映射参数 - 只映射IPv4端口
 	for _, port := range config.Ports {
-		// 去掉协议部分（如果有的话）
+		// 保留完整的端口映射格式（包括协议）
 		portMapping := port
-		if strings.Contains(port, "/") {
-			portMapping = strings.Split(port, "/")[0]
-		}
 
 		// 检查端口映射格式，确保只映射IPv4
 		if strings.HasPrefix(portMapping, "0.0.0.0:") {
-			// 已经是IPv4格式，直接使用
-			cmd += fmt.Sprintf(" -p %s", portMapping)
+			// 已经是IPv4格式（可能包含/tcp或/udp协议）
+			// 检查是否包含 /both 协议，Docker不支持both，需要拆分
+			if strings.HasSuffix(portMapping, "/both") {
+				baseMapping := strings.TrimSuffix(portMapping, "/both")
+				cmd += fmt.Sprintf(" -p %s/tcp", baseMapping)
+				cmd += fmt.Sprintf(" -p %s/udp", baseMapping)
+			} else {
+				cmd += fmt.Sprintf(" -p %s", portMapping)
+			}
 		} else if strings.Contains(portMapping, ":") {
 			// 如果端口映射中包含冒号但没有IPv4前缀，强制使用0.0.0.0绑定
-			portParts := strings.Split(portMapping, ":")
+			// 需要保留协议部分（如果有）
+			protocol := ""
+			baseMapping := portMapping
+			if strings.Contains(portMapping, "/") {
+				parts := strings.Split(portMapping, "/")
+				baseMapping = parts[0]
+				if len(parts) > 1 {
+					protocol = "/" + parts[1]
+				}
+			}
+
+			portParts := strings.Split(baseMapping, ":")
 			if len(portParts) >= 2 {
-				// 重新构建为IPv4-only格式
+				// 重新构建为IPv4-only格式，处理协议
 				hostPort := portParts[len(portParts)-2]
 				guestPort := portParts[len(portParts)-1]
-				cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s", hostPort, guestPort)
+
+				// 如果协议是both，需要创建两个端口映射（tcp和udp）
+				if protocol == "/both" {
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/tcp", hostPort, guestPort)
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s/udp", hostPort, guestPort)
+				} else {
+					cmd += fmt.Sprintf(" -p 0.0.0.0:%s:%s%s", hostPort, guestPort, protocol)
+				}
 			}
 		} else {
 			// 如果是简单的端口映射格式（如"8080"），假设内外端口相同，添加IPv4前缀
@@ -460,6 +482,25 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 	global.APP_LOG.Info("开始删除Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)))
 
+	// 预清理：先尝试删除所有同名的已停止容器（Exited状态）
+	// 这可以解决重置实例时遗留死容器的问题
+	cleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ --filter status=exited -q | xargs -r docker rm -f", id)
+	global.APP_LOG.Debug("清理已停止的同名容器",
+		zap.String("id", utils.TruncateString(id, 32)),
+		zap.String("command", cleanupCmd))
+
+	cleanupOutput, cleanupErr := d.sshClient.Execute(cleanupCmd)
+	if cleanupErr != nil {
+		global.APP_LOG.Debug("清理已停止容器失败（可忽略）",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("output", utils.TruncateString(cleanupOutput, 200)),
+			zap.Error(cleanupErr))
+	} else {
+		global.APP_LOG.Debug("已清理已停止的同名容器",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("output", utils.TruncateString(cleanupOutput, 200)))
+	}
+
 	// 定义多种删除策略，按优先级顺序执行
 	deleteStrategies := []struct {
 		name        string
@@ -607,6 +648,23 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		}
 	}
 
+	// 最后的强制清理：尝试删除所有同名的已停止容器
+	global.APP_LOG.Info("执行最终清理，删除所有同名已停止容器",
+		zap.String("id", utils.TruncateString(id, 32)))
+
+	finalCleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ -q | xargs -r docker rm -f", id)
+	finalOutput, finalErr := d.sshClient.Execute(finalCleanupCmd)
+	if finalErr != nil {
+		global.APP_LOG.Debug("最终清理失败（可忽略）",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("output", utils.TruncateString(finalOutput, 200)),
+			zap.Error(finalErr))
+	} else {
+		global.APP_LOG.Debug("最终清理执行完成",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("output", utils.TruncateString(finalOutput, 200)))
+	}
+
 	// 最后再次验证容器是否被删除
 	if d.verifyContainerDeleted(ctx, id) {
 		global.APP_LOG.Info("Docker实例最终确认删除成功", zap.String("id", utils.TruncateString(id, 32)))
@@ -641,9 +699,9 @@ func (d *DockerProvider) isAcceptableError(err error, output string) bool {
 	return false
 }
 
-// verifyContainerDeleted 验证容器是否真的被删除
+// verifyContainerDeleted 验证容器是否真的被删除（包括已停止的容器）
 func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) bool {
-	// 尝试检查容器状态
+	// 方法1：检查运行中的容器
 	checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id)
 	output, err := d.sshClient.Execute(checkCmd)
 
@@ -653,20 +711,54 @@ func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) 
 		if strings.Contains(outputStr, "no such object") ||
 			strings.Contains(outputStr, "no such container") ||
 			strings.Contains(outputStr, "not found") {
-			return true
+			// 继续检查是否有已停止的同名容器
+			global.APP_LOG.Debug("inspect未找到容器，继续验证",
+				zap.String("id", utils.TruncateString(id, 32)))
+		} else {
+			global.APP_LOG.Warn("验证容器删除时inspect出错",
+				zap.String("id", utils.TruncateString(id, 32)),
+				zap.String("output", utils.TruncateString(output, 100)),
+				zap.Error(err))
+			return false
+		}
+	} else {
+		// inspect成功，说明容器还在
+		global.APP_LOG.Warn("容器仍然存在",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("status", strings.TrimSpace(output)))
+		return false
+	}
+
+	// 方法2：通过docker ps -a检查所有状态的容器（包括已停止的）
+	// 使用精确匹配的name filter
+	listByNameCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ --format '{{.Names}}:{{.Status}}'", id)
+	listByNameOutput, listByNameErr := d.sshClient.Execute(listByNameCmd)
+
+	if listByNameErr == nil {
+		trimmedOutput := strings.TrimSpace(listByNameOutput)
+		if trimmedOutput != "" {
+			// 找到了同名容器，即使已停止也算删除失败
+			global.APP_LOG.Warn("发现同名容器（可能已停止）",
+				zap.String("id", utils.TruncateString(id, 32)),
+				zap.String("details", utils.TruncateString(trimmedOutput, 100)))
+			return false
 		}
 	}
 
-	// 也尝试用 docker ps -a 检查
+	// 方法3：用ID进行filter检查
 	listCmd := fmt.Sprintf("docker ps -a --filter id=%s --format '{{.ID}}'", id)
 	listOutput, listErr := d.sshClient.Execute(listCmd)
 
-	if listErr == nil && strings.TrimSpace(listOutput) == "" {
-		// 没有找到任何匹配的容器
-		return true
+	if listErr == nil && strings.TrimSpace(listOutput) != "" {
+		// 通过ID找到了容器
+		global.APP_LOG.Warn("通过ID找到容器",
+			zap.String("id", utils.TruncateString(id, 32)),
+			zap.String("foundId", utils.TruncateString(strings.TrimSpace(listOutput), 32)))
+		return false
 	}
 
-	return false
+	// 所有检查都通过，容器已被删除
+	return true
 }
 
 // checkStorageDriver 检查Docker存储驱动并判断是否支持硬盘大小限制
