@@ -105,7 +105,7 @@ docker run -d \
 <details>
 <summary>View Docker Compose Deployment</summary>
 
-Use Docker Compose to deploy the complete development environment with one command, including frontend, backend, and database:
+Use Docker Compose to deploy the complete development environment with one command, using **multi-container deployment** architecture with separate frontend, backend, and database containers:
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -121,6 +121,15 @@ docker-compose up -d --build
 - Data persistence:
   - Database data: `./data/mysql`
   - Application storage: `./data/app/`
+
+**Initialization Configuration:**
+
+When accessing for the first time, you will enter the initialization interface. Please fill in the database configuration as follows:
+- Database Host: `mysql` (container name, not 127.0.0.1)
+- Database Port: `3306`
+- Database Name: `oneclickvirt`
+- Database User: `root`
+- Database Password: Leave empty (no password)
 
 **Custom Port (Optional):**
 

@@ -106,7 +106,7 @@ docker run -d \
 <details>
 <summary>展开查看 Docker Compose 部署</summary>
 
-使用 Docker Compose 可以一键部署完整的开发环境，包括前端、后端和数据库：
+使用 Docker Compose 可以一键部署完整的开发环境，采用**分容器部署**架构，包括独立的前端容器、后端容器和数据库容器：
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -122,6 +122,15 @@ docker-compose up -d --build
 - 数据持久化：
   - 数据库数据：`./data/mysql`
   - 应用存储：`./data/app/`
+
+**初始化配置：**
+
+首次访问时会进入初始化界面，数据库配置请填写：
+- 数据库地址：`mysql`（容器名称，不是 127.0.0.1）
+- 数据库端口：`3306`
+- 数据库名称：`oneclickvirt`
+- 数据库用户：`root`
+- 数据库密码：留空（无密码）
 
 **自定义端口（可选）：**
 
