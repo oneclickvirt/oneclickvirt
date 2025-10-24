@@ -8,7 +8,7 @@ An extensible universal virtualization management platform that supports LXD, In
 
 ## Quick Deployment
 
-### Method 1: Using Pre-built Images (Recommended)
+### Method 1: Using Pre-built Images
 
 Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture.
 
@@ -17,9 +17,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20251024` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20251023` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20251024` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20251023` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
@@ -100,7 +100,61 @@ docker run -d \
 
 > **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
 
-### Method 2: Build from Source
+### Method 2: Using Docker Compose (Recommended for Development)
+
+<details>
+<summary>View Docker Compose Deployment</summary>
+
+Use Docker Compose to deploy the complete development environment with one command, including frontend, backend, and database:
+
+```bash
+git clone https://github.com/oneclickvirt/oneclickvirt.git
+cd oneclickvirt
+docker-compose up -d --build
+```
+
+**Default Configuration:**
+
+- Frontend service: `http://localhost:8888`
+- Backend API: Accessed via frontend proxy
+- MySQL Database: Port 3306, database name `oneclickvirt`, no password
+- Data persistence:
+  - Database data: `./data/mysql`
+  - Application storage: `./data/app/`
+
+**Custom Port (Optional):**
+
+To modify the frontend access port, edit the ports configuration in `docker-compose.yaml`:
+
+```yaml
+services:
+  web:
+    ports:
+      - "your-port:80"  # e.g., "80:80" or "8080:80"
+```
+
+**Stop Services:**
+
+```bash
+docker-compose down
+```
+
+**View Logs:**
+
+```bash
+docker-compose logs -f
+```
+
+**Clean Data:**
+
+```bash
+docker-compose down
+rm -rf ./data
+```
+
+</details>
+
+### Method 3: Build from Source
 
 <details>
 <summary>View Build Instructions</summary>
