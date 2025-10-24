@@ -212,7 +212,7 @@
     <el-dialog 
       v-model="showAddDialog" 
       :title="isEditing ? $t('admin.announcements.editAnnouncement') : $t('admin.announcements.addAnnouncement')" 
-      width="800px"
+      width="1200px"
       :append-to-body="true"
       class="announcement-dialog"
       :close-on-click-modal="false"
@@ -303,14 +303,15 @@
           :label="$t('admin.announcements.content')"
           prop="content"
         >
-          <QuillEditor
-            v-model:content="form.content"
-            content-type="html"
-            theme="snow"
-            style="height: 300px;"
-            :options="editorOptions"
-            @update:content="handleContentChange"
-          />
+          <div class="quill-editor-wrapper">
+            <QuillEditor
+              v-model:content="form.content"
+              content-type="html"
+              theme="snow"
+              :options="editorOptions"
+              @update:content="handleContentChange"
+            />
+          </div>
         </el-form-item>
         
         <el-row
@@ -416,6 +417,7 @@ const rules = reactive({
 
 // 富文本编辑器配置
 const editorOptions = {
+  placeholder: '请输入公告内容...',
   modules: {
     toolbar: [
       ['bold', 'italic', 'underline', 'strike'],
@@ -433,8 +435,7 @@ const editorOptions = {
       ['clean'],
       ['link', 'image']
     ]
-  },
-  placeholder: '请输入公告内容...'
+  }
 }
 
 // 格式化日期
@@ -740,12 +741,33 @@ onMounted(() => {
   margin-bottom: 20px;
 }
 
-:deep(.ql-editor) {
-  min-height: 200px;
+/* 富文本编辑器容器固定大小 */
+.quill-editor-wrapper {
+  width: 100%;
+  height: 400px;
+  border: 1px solid #ccc;
+  border-radius: 4px;
 }
 
-:deep(.ql-container) {
+:deep(.quill-editor-wrapper .ql-container) {
+  height: calc(100% - 42px);
   font-size: 14px;
+}
+
+:deep(.quill-editor-wrapper .ql-editor) {
+  min-height: 100%;
+  max-height: 100%;
+  overflow-y: auto;
+}
+
+:deep(.quill-editor-wrapper .ql-toolbar) {
+  border-top-left-radius: 4px;
+  border-top-right-radius: 4px;
+}
+
+:deep(.quill-editor-wrapper .ql-container) {
+  border-bottom-left-radius: 4px;
+  border-bottom-right-radius: 4px;
 }
 
 /* 确保对话框宽度固定 */
