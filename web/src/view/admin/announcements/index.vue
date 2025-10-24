@@ -528,7 +528,7 @@ const deleteAnnouncementHandler = async (id) => {
       type: 'warning',
     })
     
-    await deleteAnnouncement(row.id)
+    await deleteAnnouncement(id)
     ElMessage.success(t('message.deleteSuccess'))
     await loadAnnouncements()
   } catch (error) {
