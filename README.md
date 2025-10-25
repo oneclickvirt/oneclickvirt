@@ -2,9 +2,17 @@
 
 一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker 和 Proxmox VE。
 
+---
+
+## **语言**
+
+[中文文档](README.md) | [English Docs](README_EN.md)
+
+---
+
 ## 详细说明
 
-[www.spiritlhl.net](https://www.spiritlhl.net/)
+[www.spiritlhl.net](https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_precheck.html)
 
 ## 快速部署
 

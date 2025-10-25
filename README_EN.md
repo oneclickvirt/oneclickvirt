@@ -2,9 +2,17 @@
 
 An extensible universal virtualization management platform that supports LXD, Incus, Docker, and Proxmox VE.
 
+---
+
+## **Language**
+
+[中文文档](README.md) | [English Docs](README_EN.md)
+
+---
+
 ## Detailed Description
 
-[www.spiritlhl.net](https://www.spiritlhl.net/)
+[www.spiritlhl.net](https://www.spiritlhl.net/en/guide/oneclickvirt/oneclickvirt_precheck.html)
 
 ## Quick Deployment
 
