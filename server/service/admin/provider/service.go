@@ -741,14 +741,14 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 		if configErr == nil {
 			// 使用认证配置执行完整健康检查（包含API检查）
 			sshStatus, apiStatus, err = images.CheckProviderHealthWithConfig(
-				ctx, provider.Type, host, provider.Username, provider.Password, sshPort, authConfig)
+				ctx, provider.Type, host, provider.Username, provider.Password, provider.SSHKey, sshPort, authConfig)
 		} else {
 			// 配置加载失败，只进行SSH检查
 			global.APP_LOG.Warn("加载Provider配置失败，仅进行SSH检查",
 				zap.String("provider", provider.Name),
 				zap.Error(configErr))
 
-			if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, sshPort); sshErr != nil {
+			if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort); sshErr != nil {
 				sshStatus = "offline"
 			} else {
 				sshStatus = "online"
@@ -757,7 +757,7 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 		}
 	} else {
 		// 未自动配置的Provider，只进行SSH检查
-		if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, sshPort); sshErr != nil {
+		if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort); sshErr != nil {
 			sshStatus = "offline"
 		} else {
 			sshStatus = "online"
@@ -783,7 +783,7 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 	if sshStatus == "online" && !provider.ResourceSynced {
 		global.APP_LOG.Info("开始同步节点资源信息", zap.String("provider", provider.Name))
 
-		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfo(ctx, host, provider.Username, provider.Password, sshPort)
+		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort)
 		if resourceErr != nil {
 			global.APP_LOG.Warn("获取系统资源信息失败",
 				zap.String("provider", provider.Name),

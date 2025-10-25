@@ -8,9 +8,11 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/log"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/service/scheduler"
 	"oneclickvirt/service/storage"
 	"oneclickvirt/service/task"
+	"oneclickvirt/service/traffic"
 	userProviderService "oneclickvirt/service/user/provider"
 	"oneclickvirt/service/vnstat"
 
@@ -180,12 +182,81 @@ func initializeJWTService() {
 	}
 }
 
+// syncProvidersDataOnStartup 启动时同步Provider层面的数据
+func syncProvidersDataOnStartup() {
+	global.APP_LOG.Info("开始同步Provider层面的数据（资源和流量统计）")
+
+	// 获取所有Provider
+	var providers []struct {
+		ID   uint
+		Name string
+	}
+
+	if err := global.APP_DB.Model(&struct {
+		ID   uint   `gorm:"column:id"`
+		Name string `gorm:"column:name"`
+	}{}).Table("providers").
+		Where("status IN (?)", []string{"active", "partial"}).
+		Select("id, name").
+		Find(&providers).Error; err != nil {
+		global.APP_LOG.Error("获取Provider列表失败", zap.Error(err))
+		return
+	}
+
+	if len(providers) == 0 {
+		global.APP_LOG.Debug("没有需要同步的Provider")
+		return
+	}
+
+	global.APP_LOG.Info("找到需要同步的Provider", zap.Int("count", len(providers)))
+
+	// 同步每个Provider的数据
+	successCount := 0
+	resourceService := &resources.ResourceService{}
+	trafficService := traffic.NewService()
+
+	for _, prov := range providers {
+		// 1. 同步资源使用情况（基于数据库中的实例记录）
+		if err := resourceService.SyncProviderResources(prov.ID); err != nil {
+			global.APP_LOG.Warn("同步Provider资源失败",
+				zap.Uint("providerID", prov.ID),
+				zap.String("providerName", prov.Name),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Debug("Provider资源同步成功",
+				zap.Uint("providerID", prov.ID),
+				zap.String("providerName", prov.Name))
+		}
+
+		// 2. 同步流量统计（基于TrafficRecord表）
+		if err := trafficService.SyncProviderTraffic(prov.ID); err != nil {
+			global.APP_LOG.Warn("同步Provider流量失败",
+				zap.Uint("providerID", prov.ID),
+				zap.String("providerName", prov.Name),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Debug("Provider流量同步成功",
+				zap.Uint("providerID", prov.ID),
+				zap.String("providerName", prov.Name))
+		}
+
+		successCount++
+	}
+
+	global.APP_LOG.Info("Provider数据同步完成",
+		zap.Int("total", len(providers)),
+		zap.Int("success", successCount))
+}
+
 // initializeSchedulers 初始化调度器服务
 func initializeSchedulers() {
 	// 初始化任务服务（只有在数据库已初始化时才创建）
 	taskService := task.GetTaskService()
 	// 设置全局任务服务实例，避免循环依赖
 	userProviderService.SetGlobalTaskService(taskService)
+
+	// 启动前先同步Provider层面的数据（资源和流量统计）
+	syncProvidersDataOnStartup()
 
 	// 启动调度器服务
 	schedulerService := scheduler.NewSchedulerService(taskService)

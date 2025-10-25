@@ -457,10 +457,11 @@ func (s *ProviderConfigService) CreateAuthConfigFromCertInfo(provider *providerM
 		Type:     provider.Type,
 		Endpoint: endpoint,
 		SSH: &providerModel.SSHConfig{
-			Host:     ExtractHostFromEndpoint(provider.Endpoint),
-			Port:     provider.SSHPort,
-			Username: provider.Username,
-			Password: provider.Password,
+			Host:       ExtractHostFromEndpoint(provider.Endpoint),
+			Port:       provider.SSHPort,
+			Username:   provider.Username,
+			Password:   provider.Password,
+			KeyContent: provider.SSHKey,
 		},
 		Certificate: &providerModel.CertConfig{
 			CertPath:        certInfo.CertPath,
@@ -478,10 +479,11 @@ func (s *ProviderConfigService) CreateAuthConfigFromTokenInfo(provider *provider
 		Type:     provider.Type,
 		Endpoint: endpoint,
 		SSH: &providerModel.SSHConfig{
-			Host:     ExtractHostFromEndpoint(provider.Endpoint),
-			Port:     provider.SSHPort,
-			Username: provider.Username,
-			Password: provider.Password,
+			Host:       ExtractHostFromEndpoint(provider.Endpoint),
+			Port:       provider.SSHPort,
+			Username:   provider.Username,
+			Password:   provider.Password,
+			KeyContent: provider.SSHKey,
 		},
 		Token: &providerModel.TokenConfig{
 			TokenID:     tokenInfo.TokenID,

@@ -554,13 +554,14 @@ func (s *PortMappingService) isGenericPortAvailable(providerInfo *provider.Provi
 		return false
 	}
 
-	// 如果有SSH连接信息，尝试通过SSH检查端口
-	if providerInfo.Endpoint != "" && providerInfo.Username != "" && providerInfo.Password != "" {
+	// 如果有SSH连接信息，尝试通过SSH检查端口（支持密码或密钥认证）
+	if providerInfo.Endpoint != "" && providerInfo.Username != "" && (providerInfo.Password != "" || providerInfo.SSHKey != "") {
 		sshConfig := utils.SSHConfig{
-			Host:     providerInfo.Endpoint,
-			Port:     providerInfo.SSHPort,
-			Username: providerInfo.Username,
-			Password: providerInfo.Password,
+			Host:       providerInfo.Endpoint,
+			Port:       providerInfo.SSHPort,
+			Username:   providerInfo.Username,
+			Password:   providerInfo.Password,
+			PrivateKey: providerInfo.SSHKey,
 		}
 
 		sshClient, err := utils.NewSSHClient(sshConfig)

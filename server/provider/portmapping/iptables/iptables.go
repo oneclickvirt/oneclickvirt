@@ -461,6 +461,7 @@ func (i *IptablesPortMapping) createSSHClient(providerInfo *provider.Provider) (
 		Port:           port,
 		Username:       providerInfo.Username,
 		Password:       providerInfo.Password,
+		PrivateKey:     providerInfo.SSHKey,
 		ConnectTimeout: 10 * time.Second,
 		ExecuteTimeout: 60 * time.Second,
 	}

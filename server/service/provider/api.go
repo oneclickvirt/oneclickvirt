@@ -33,7 +33,8 @@ type ConnectProviderRequest struct {
 	SSHPort               int    `json:"sshPort"` // 新的sshPort字段
 	Username              string `json:"username" binding:"required"`
 	Password              string `json:"password" binding:"required"`
-	Token                 string `json:"token"` // API Token，用于ProxmoxVE等
+	SSHKey                string `json:"sshKey"` // SSH私钥内容，优先于密码使用
+	Token                 string `json:"token"`  // API Token，用于ProxmoxVE等
 	ContainerEnabled      bool   `json:"container_enabled"`
 	VirtualMachineEnabled bool   `json:"vm_enabled"`
 	CertPath              string `json:"cert_path"`
@@ -116,6 +117,7 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 		Port:                  sshPort,
 		Username:              req.Username,
 		Password:              req.Password,
+		PrivateKey:            req.SSHKey,
 		Token:                 req.Token,
 		ContainerEnabled:      req.ContainerEnabled,
 		VirtualMachineEnabled: req.VirtualMachineEnabled,

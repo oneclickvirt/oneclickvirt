@@ -14,9 +14,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// 配置标志文件路径
+// 配置标志文件路径和配置状态常量
 const (
-	ConfigModifiedFlagFile = "./storage/.config_modified"
+	ConfigModifiedFlagFile = "./storage/.config_modified" // 配置已通过API修改的标志文件
 )
 
 // SystemConfig 系统配置模型（避免循环导入）
@@ -91,11 +91,30 @@ func GetConfigManager() *ConfigManager {
 	return configManager
 }
 
+// PreInitializeConfigManager 预初始化配置管理器并注册回调（在InitializeConfigManager之前调用）
+func PreInitializeConfigManager(db *gorm.DB, logger *zap.Logger, callback ConfigChangeCallback) {
+	// 如果配置管理器还不存在，创建它但不加载配置
+	if configManager == nil {
+		configManager = NewConfigManager(db, logger)
+		configManager.initValidationRules()
+	}
+
+	// 注册回调
+	if callback != nil {
+		configManager.RegisterChangeCallback(callback)
+		logger.Info("配置变更回调已提前注册")
+	}
+}
+
 // InitializeConfigManager 初始化配置管理器
 func InitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 	once.Do(func() {
-		configManager = NewConfigManager(db, logger)
-		configManager.initValidationRules()
+		// 如果配置管理器还不存在，创建它
+		if configManager == nil {
+			configManager = NewConfigManager(db, logger)
+			configManager.initValidationRules()
+		}
+		// 加载配置（此时回调已经注册好了）
 		configManager.loadConfigFromDB()
 	})
 }
@@ -109,9 +128,17 @@ func ReInitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
-	// 直接重新创建配置管理器实例，绕过 sync.Once 限制
-	configManager = NewConfigManager(db, logger)
-	configManager.initValidationRules()
+	// 直接重新创建配置管理器实例（如果不存在）或更新现有实例
+	if configManager == nil {
+		configManager = NewConfigManager(db, logger)
+		configManager.initValidationRules()
+	} else {
+		// 更新数据库和日志记录器引用
+		configManager.db = db
+		configManager.logger = logger
+	}
+
+	// 重新加载配置（此时回调应该已经注册好了）
 	configManager.loadConfigFromDB()
 
 	logger.Info("配置管理器重新初始化完成")
@@ -520,47 +547,172 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		return
 	}
 
+	// 检查是否存在数据库配置数据
+	var configCount int64
+	if err := cm.db.Model(&SystemConfig{}).Count(&configCount).Error; err != nil {
+		cm.logger.Warn("查询数据库配置数量失败，可能是首次启动", zap.Error(err))
+		configCount = 0
+	}
+
 	// 检查配置修改标志
 	configModified := cm.isConfigModified()
-	cm.logger.Info("配置加载策略检查", zap.Bool("configModified", configModified))
 
-	if configModified {
-		// 标志文件存在：以数据库为权威，恢复到YAML文件
-		cm.logger.Info("检测到配置修改标志，将从数据库恢复配置到YAML文件")
-		if err := cm.RestoreConfigFromDatabase(); err != nil {
-			cm.logger.Error("从数据库恢复配置失败", zap.Error(err))
-		} else {
-			cm.logger.Info("配置已从数据库恢复到YAML文件")
-		}
+	// 边界条件判断策略
+	cm.logger.Info("配置加载策略分析",
+		zap.Bool("configModified", configModified),
+		zap.Int64("dbConfigCount", configCount))
 
-		// 同步到全局配置
-		if err := cm.syncDatabaseConfigToGlobal(); err != nil {
-			cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
-		} else {
-			cm.logger.Info("数据库配置已成功同步到全局配置")
+	// 场景1：数据库有配置 + 标志文件存在 = 升级场景或API修改后重启
+	// 策略：以数据库为准，恢复到YAML并同步到global
+	if configCount > 0 && configModified {
+		cm.logger.Info("场景：已修改配置的重启或升级（数据库优先）")
+		if err := cm.handleDatabaseFirst(); err != nil {
+			cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
 		}
-	} else {
-		// 标志文件不存在：首次启动或未修改过配置，以YAML为权威
-		cm.logger.Info("首次启动或配置未修改，将YAML配置同步到数据库")
-		if err := cm.syncYAMLConfigToDatabase(); err != nil {
-			cm.logger.Error("同步YAML配置到数据库失败", zap.Error(err))
-		} else {
-			cm.logger.Info("YAML配置已同步到数据库")
-		}
-
-		// 重新从数据库加载以确保缓存一致
-		var configs []SystemConfig
-		if err := cm.db.Find(&configs).Error; err != nil {
-			cm.logger.Error("重新加载配置失败", zap.Error(err))
-			return
-		}
-
-		for _, config := range configs {
-			// 尝试反序列化JSON值
-			cm.configCache[config.Key] = parseConfigValue(config.Value)
-		}
-		cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
+		return
 	}
+
+	// 场景2：数据库有配置 + 标志文件不存在 = 可能是升级后首次启动，标志文件丢失
+	// 策略：智能判断 - 对比数据库和YAML的时间戳或内容
+	if configCount > 0 && !configModified {
+		cm.logger.Info("场景：数据库有配置但无标志文件（可能是升级场景）")
+		shouldUseDatabaseConfig := cm.shouldPreferDatabaseConfig()
+
+		if shouldUseDatabaseConfig {
+			cm.logger.Info("判断：数据库配置更新，优先使用数据库配置")
+			// 重新创建标志文件
+			if err := cm.markConfigAsModified(); err != nil {
+				cm.logger.Warn("重新创建标志文件失败", zap.Error(err))
+			}
+			if err := cm.handleDatabaseFirst(); err != nil {
+				cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
+			}
+		} else {
+			cm.logger.Info("判断：YAML配置为初始配置，同步YAML到数据库")
+			if err := cm.handleYAMLFirst(); err != nil {
+				cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
+			}
+		}
+		return
+	}
+
+	// 场景3：数据库无配置 + 标志文件存在 = 异常情况，清除标志文件
+	if configCount == 0 && configModified {
+		cm.logger.Warn("场景：异常 - 标志文件存在但数据库无配置，清除标志文件")
+		if err := cm.clearConfigModifiedFlag(); err != nil {
+			cm.logger.Warn("清除标志文件失败", zap.Error(err))
+		}
+		// 继续按首次启动处理
+	}
+
+	// 场景4：数据库无配置 + 标志文件不存在 = 全新安装首次启动
+	cm.logger.Info("场景：首次启动（YAML优先）")
+	if err := cm.handleYAMLFirst(); err != nil {
+		cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
+	}
+}
+
+// handleDatabaseFirst 处理数据库优先的策略
+func (cm *ConfigManager) handleDatabaseFirst() error {
+	cm.logger.Info("执行策略：数据库 → YAML → global")
+
+	// 1. 从数据库恢复到YAML文件
+	if err := cm.RestoreConfigFromDatabase(); err != nil {
+		cm.logger.Error("从数据库恢复配置失败", zap.Error(err))
+		return err
+	}
+	cm.logger.Info("配置已从数据库恢复到YAML文件")
+
+	// 2. 同步到全局配置（触发回调）
+	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
+		cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
+		return err
+	}
+	cm.logger.Info("数据库配置已成功同步到全局配置")
+
+	return nil
+}
+
+// handleYAMLFirst 处理YAML优先的策略
+func (cm *ConfigManager) handleYAMLFirst() error {
+	cm.logger.Info("执行策略：YAML → 数据库 → global")
+
+	// 1. 同步YAML配置到数据库
+	if err := cm.syncYAMLConfigToDatabase(); err != nil {
+		cm.logger.Error("同步YAML配置到数据库失败", zap.Error(err))
+		return err
+	}
+	cm.logger.Info("YAML配置已同步到数据库")
+
+	// 2. 重新从数据库加载以确保缓存一致
+	var configs []SystemConfig
+	if err := cm.db.Find(&configs).Error; err != nil {
+		cm.logger.Error("重新加载配置失败", zap.Error(err))
+		return err
+	}
+
+	for _, config := range configs {
+		cm.configCache[config.Key] = parseConfigValue(config.Value)
+	}
+	cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
+
+	// 3. 同步到全局配置（触发回调）
+	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
+		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
+		return err
+	}
+	cm.logger.Info("配置已同步到全局配置")
+
+	return nil
+}
+
+// shouldPreferDatabaseConfig 智能判断是否应该优先使用数据库配置
+// 用于处理升级场景：数据库有配置但标志文件丢失的情况
+func (cm *ConfigManager) shouldPreferDatabaseConfig() bool {
+	// 策略1：检查数据库中是否有非默认配置（说明用户修改过）
+	var configs []SystemConfig
+	if err := cm.db.Find(&configs).Error; err != nil {
+		cm.logger.Warn("查询数据库配置失败，默认使用YAML", zap.Error(err))
+		return false
+	}
+
+	if len(configs) == 0 {
+		return false
+	}
+
+	// 策略2：检查数据库配置的更新时间
+	// 如果最近有更新，说明是用户修改过的配置
+	var latestConfig SystemConfig
+	if err := cm.db.Order("updated_at DESC").First(&latestConfig).Error; err == nil {
+		// 如果最近24小时内有更新，优先使用数据库
+		if time.Since(latestConfig.UpdatedAt) < 24*time.Hour {
+			cm.logger.Info("数据库配置最近有更新，优先使用数据库",
+				zap.Time("lastUpdate", latestConfig.UpdatedAt))
+			return true
+		}
+	}
+
+	// 策略3：对比数据库配置数量
+	// 如果数据库配置数量较多（>10），说明已经初始化过
+	if len(configs) > 10 {
+		cm.logger.Info("数据库中有大量配置，判断为已初始化环境",
+			zap.Int("configCount", len(configs)))
+		return true
+	}
+
+	// 策略4：检查是否有system_configs表的数据
+	// 如果表存在且有数据，说明之前运行过
+	var count int64
+	cm.db.Model(&SystemConfig{}).Count(&count)
+	if count > 0 {
+		cm.logger.Info("数据库system_configs表存在且有数据，优先使用数据库",
+			zap.Int64("count", count))
+		return true
+	}
+
+	// 默认情况：使用YAML配置
+	cm.logger.Info("判断为首次启动，使用YAML配置")
+	return false
 }
 
 // saveConfigToDB 保存配置到数据库
@@ -1020,6 +1172,24 @@ func (cm *ConfigManager) markConfigAsModified() error {
 	}
 
 	cm.logger.Info("配置修改标志文件已创建", zap.String("file", ConfigModifiedFlagFile))
+	return nil
+}
+
+// clearConfigModifiedFlag 清除配置修改标志文件
+func (cm *ConfigManager) clearConfigModifiedFlag() error {
+	if _, err := os.Stat(ConfigModifiedFlagFile); err != nil {
+		if os.IsNotExist(err) {
+			// 文件不存在，无需清除
+			return nil
+		}
+		return fmt.Errorf("检查标志文件失败: %v", err)
+	}
+
+	if err := os.Remove(ConfigModifiedFlagFile); err != nil {
+		return fmt.Errorf("删除标志文件失败: %v", err)
+	}
+
+	cm.logger.Info("配置修改标志文件已清除", zap.String("file", ConfigModifiedFlagFile))
 	return nil
 }
 

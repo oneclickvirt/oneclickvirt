@@ -50,6 +50,7 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 			Port:        providerInfo.SSHPort,
 			Username:    providerInfo.Username,
 			Password:    providerInfo.Password,
+			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
 		}
@@ -388,6 +389,7 @@ func (s *Service) CleanupVnStatData(instanceID uint) error {
 							Port:        providerInfo.SSHPort,
 							Username:    providerInfo.Username,
 							Password:    providerInfo.Password,
+							PrivateKey:  providerInfo.SSHKey,
 							Type:        providerInfo.Type,
 							NetworkType: providerInfo.NetworkType,
 						}
@@ -510,6 +512,7 @@ func (s *Service) GetVnStatSummaryByInstanceID(instanceID uint, interfaceName st
 			Port:        providerInfo.SSHPort,
 			Username:    providerInfo.Username,
 			Password:    providerInfo.Password,
+			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
 		}
@@ -568,6 +571,7 @@ func (s *Service) QueryVnStatData(instanceID uint, interfaceName, dateRange stri
 			Port:        providerInfo.SSHPort,
 			Username:    providerInfo.Username,
 			Password:    providerInfo.Password,
+			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
 		}
@@ -661,6 +665,7 @@ func (s *Service) GetVnStatDashboardData(instanceID uint) (interface{}, error) {
 			Port:        providerInfo.SSHPort,
 			Username:    providerInfo.Username,
 			Password:    providerInfo.Password,
+			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
 		}

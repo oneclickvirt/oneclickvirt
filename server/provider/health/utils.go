@@ -50,12 +50,13 @@ type TokenInfo interface {
 }
 
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查
-func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerType, host, username, password string, port int, authConfig ProviderAuthConfig) (string, string, error) {
+func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, error) {
 	config := HealthConfig{
 		Host:          host,
 		Port:          port,
 		Username:      username,
 		Password:      password,
+		PrivateKey:    privateKey,
 		SSHEnabled:    true,
 		APIEnabled:    true,
 		SkipTLSVerify: true,
@@ -188,12 +189,13 @@ func (phc *ProviderHealthChecker) CheckProviderHealthFromConfig(ctx context.Cont
 }
 
 // CheckSSHConnection 单独检查SSH连接
-func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, host, username, password string, port int) error {
+func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, host, username, password, privateKey string, port int) error {
 	config := HealthConfig{
 		Host:       host,
 		Port:       port,
 		Username:   username,
 		Password:   password,
+		PrivateKey: privateKey,
 		SSHEnabled: true,
 		APIEnabled: false,
 		Timeout:    30 * time.Second,

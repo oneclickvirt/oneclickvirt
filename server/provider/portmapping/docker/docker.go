@@ -362,10 +362,11 @@ func (d *DockerPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 		// 使用基础配置
 		authConfig = provider.ProviderAuthConfig{
 			SSH: &provider.SSHConfig{
-				Host:     strings.Split(providerInfo.Endpoint, ":")[0], // 从endpoint提取host
-				Port:     providerInfo.SSHPort,
-				Username: providerInfo.Username,
-				Password: providerInfo.Password,
+				Host:       strings.Split(providerInfo.Endpoint, ":")[0], // 从endpoint提取host
+				Port:       providerInfo.SSHPort,
+				Username:   providerInfo.Username,
+				Password:   providerInfo.Password,
+				KeyContent: providerInfo.SSHKey,
 			},
 		}
 	}
@@ -376,10 +377,11 @@ func (d *DockerPortMapping) getSSHClient(providerInfo *provider.Provider) (*util
 
 	// 创建SSH配置
 	config := utils.SSHConfig{
-		Host:     authConfig.SSH.Host,
-		Port:     authConfig.SSH.Port,
-		Username: authConfig.SSH.Username,
-		Password: authConfig.SSH.Password,
+		Host:       authConfig.SSH.Host,
+		Port:       authConfig.SSH.Port,
+		Username:   authConfig.SSH.Username,
+		Password:   authConfig.SSH.Password,
+		PrivateKey: authConfig.SSH.KeyContent,
 	}
 
 	// 创建SSH客户端

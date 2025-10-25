@@ -9,10 +9,21 @@ import (
 
 // InitializeConfigManager 初始化配置管理器
 func InitializeConfigManager() {
+	// 先注册回调，再初始化配置管理器
+	// 这样在 loadConfigFromDB 时就能触发回调同步到 global.APP_CONFIG
+	configManager := config.GetConfigManager()
+	if configManager == nil {
+		// 如果配置管理器还未创建，先创建一个临时的来注册回调
+		config.PreInitializeConfigManager(global.APP_DB, global.APP_LOG, syncConfigToGlobal)
+	} else {
+		configManager.RegisterChangeCallback(syncConfigToGlobal)
+	}
+
+	// 正式初始化配置管理器（会调用 loadConfigFromDB）
 	config.InitializeConfigManager(global.APP_DB, global.APP_LOG)
 
-	// 注册配置同步回调
-	configManager := config.GetConfigManager()
+	// 再次确保回调已注册
+	configManager = config.GetConfigManager()
 	if configManager != nil {
 		configManager.RegisterChangeCallback(syncConfigToGlobal)
 	}
@@ -25,7 +36,10 @@ func ReInitializeConfigManager() {
 		return
 	}
 
-	// 重新初始化配置管理器
+	// 先注册回调，再重新初始化配置管理器
+	config.PreInitializeConfigManager(global.APP_DB, global.APP_LOG, syncConfigToGlobal)
+
+	// 重新初始化配置管理器（会重新加载数据库配置）
 	config.ReInitializeConfigManager(global.APP_DB, global.APP_LOG)
 
 	// 注册配置同步回调
@@ -33,9 +47,73 @@ func ReInitializeConfigManager() {
 	if configManager != nil {
 		configManager.RegisterChangeCallback(syncConfigToGlobal)
 		global.APP_LOG.Info("配置管理器重新初始化完成并注册回调")
+
+		// 立即同步一次配置确保 global.APP_CONFIG 是最新的
+		allConfig := configManager.GetAllConfig()
+		if len(allConfig) > 0 {
+			// 将扁平配置转换为嵌套结构
+			nestedConfig := make(map[string]interface{})
+			for key, value := range allConfig {
+				setNestedValue(nestedConfig, key, value)
+			}
+			// 同步到 global.APP_CONFIG
+			for key, value := range nestedConfig {
+				syncConfigToGlobal(key, nil, value)
+			}
+			global.APP_LOG.Info("配置已同步到全局变量", zap.Int("configCount", len(nestedConfig)))
+		}
 	} else {
 		global.APP_LOG.Error("配置管理器重新初始化后仍为空")
 	}
+}
+
+// setNestedValue 递归设置嵌套配置值（辅助函数）
+func setNestedValue(config map[string]interface{}, key string, value interface{}) {
+	keys := splitKey(key)
+	if len(keys) == 0 {
+		return
+	}
+
+	// 递归找到最后一层的map
+	current := config
+	for i := 0; i < len(keys)-1; i++ {
+		k := keys[i]
+		if next, ok := current[k].(map[string]interface{}); ok {
+			current = next
+		} else {
+			// 如果中间层不存在或不是map，创建新map
+			newMap := make(map[string]interface{})
+			current[k] = newMap
+			current = newMap
+		}
+	}
+
+	// 设置最后一层的值
+	lastKey := keys[len(keys)-1]
+	current[lastKey] = value
+}
+
+// splitKey 分割点分隔的key
+func splitKey(key string) []string {
+	var result []string
+	var current string
+
+	for _, ch := range key {
+		if ch == '.' {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+		} else {
+			current += string(ch)
+		}
+	}
+
+	if current != "" {
+		result = append(result, current)
+	}
+
+	return result
 }
 
 // syncConfigToGlobal 同步配置到全局变量

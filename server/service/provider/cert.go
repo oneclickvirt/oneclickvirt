@@ -451,6 +451,7 @@ func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script,
 		Port:           port,
 		Username:       provider.Username,
 		Password:       provider.Password,
+		PrivateKey:     provider.SSHKey,
 		ConnectTimeout: 10 * time.Second,
 		ExecuteTimeout: 300 * time.Second,
 	}
@@ -486,6 +487,7 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 		Port:           port,
 		Username:       provider.Username,
 		Password:       provider.Password,
+		PrivateKey:     provider.SSHKey,
 		ConnectTimeout: 10 * time.Second,
 		ExecuteTimeout: 300 * time.Second,
 	}
@@ -814,6 +816,7 @@ func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, us
 		Port:           port,
 		Username:       provider.Username,
 		Password:       provider.Password,
+		PrivateKey:     provider.SSHKey,
 		ConnectTimeout: 12 * time.Second,
 		ExecuteTimeout: 60 * time.Second,
 	}

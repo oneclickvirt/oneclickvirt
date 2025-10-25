@@ -900,6 +900,7 @@ func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringMod
 			Port:        providerInfo.SSHPort,
 			Username:    providerInfo.Username,
 			Password:    providerInfo.Password,
+			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
 		}

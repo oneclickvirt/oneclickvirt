@@ -84,7 +84,7 @@ func (t *TokenConfigAdapter) GetTokenSecret() string {
 }
 
 // CheckProviderHealthWithConfig 使用配置进行健康检查
-func CheckProviderHealthWithConfig(ctx context.Context, providerType, host, username, password string, port int, authConfig *provider.ProviderAuthConfig) (string, string, error) {
+func CheckProviderHealthWithConfig(ctx context.Context, providerType, host, username, password, sshKey string, port int, authConfig *provider.ProviderAuthConfig) (string, string, error) {
 	// 使用全局logger，如果没有则传nil
 	var logger *zap.Logger
 	if global.APP_LOG != nil {
@@ -93,5 +93,5 @@ func CheckProviderHealthWithConfig(ctx context.Context, providerType, host, user
 
 	healthChecker := health.NewProviderHealthChecker(logger)
 	adapter := NewHealthConfigAdapter(authConfig)
-	return healthChecker.CheckProviderHealthWithAuthConfig(ctx, providerType, host, username, password, port, adapter)
+	return healthChecker.CheckProviderHealthWithAuthConfig(ctx, providerType, host, username, password, sshKey, port, adapter)
 }

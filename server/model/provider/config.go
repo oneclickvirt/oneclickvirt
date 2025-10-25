@@ -29,11 +29,12 @@ type ProviderAuthConfig struct {
 
 // SSHConfig SSH连接配置
 type SSHConfig struct {
-	Host     string `json:"host"`
-	Port     int    `json:"port"`
-	Username string `json:"username"`
-	Password string `json:"password,omitempty"`
-	KeyPath  string `json:"keyPath,omitempty"`
+	Host       string `json:"host"`
+	Port       int    `json:"port"`
+	Username   string `json:"username"`
+	Password   string `json:"password,omitempty"`
+	KeyPath    string `json:"keyPath,omitempty"`
+	KeyContent string `json:"keyContent,omitempty"` // SSH私钥内容
 }
 
 // CertConfig 证书配置
