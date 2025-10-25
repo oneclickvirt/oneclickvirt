@@ -241,8 +241,6 @@ func (cm *ConfigManager) SetConfig(key string, value interface{}) error {
 // UpdateConfig 批量更新配置
 func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
 	// 将驼峰格式转换为连接符格式，以保持与YAML一致
 	kebabConfig := convertMapKeysToKebab(config)
 	cm.logger.Info("转换配置格式",
@@ -253,6 +251,7 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	flatConfig := cm.flattenConfig(kebabConfig, "")
 	for key, value := range flatConfig {
 		if err := cm.validateConfig(key, value); err != nil {
+			cm.mu.Unlock()
 			return fmt.Errorf("配置 %s 验证失败: %v", key, err)
 		}
 	}
@@ -281,32 +280,49 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 			for k, v := range oldValues {
 				cm.configCache[k] = v
 			}
+			cm.mu.Unlock()
 			return fmt.Errorf("保存配置 %s 失败: %v", key, err)
 		}
 	}
 
-	// 提交事务
-	if err := tx.Commit().Error; err != nil {
+	// 在提交事务前先创建标志文件
+	// 如果标志文件创建失败，回滚整个事务
+	if err := cm.markConfigAsModified(); err != nil {
+		tx.Rollback()
 		// 恢复配置
 		for k, v := range oldValues {
 			cm.configCache[k] = v
 		}
+		cm.logger.Error("创建配置修改标志文件失败，已回滚事务", zap.Error(err))
+		cm.mu.Unlock()
+		return fmt.Errorf("创建配置修改标志文件失败: %v", err)
+	}
+
+	// 提交事务
+	if err := tx.Commit().Error; err != nil {
+		// 事务提交失败，清除标志文件
+		cm.clearConfigModifiedFlag()
+		// 恢复配置
+		for k, v := range oldValues {
+			cm.configCache[k] = v
+		}
+		cm.mu.Unlock()
 		return fmt.Errorf("提交配置事务失败: %v", err)
 	}
 
 	cm.lastUpdate = time.Now()
 
-	// 标记配置已被修改（创建标志文件）
-	if err := cm.markConfigAsModified(); err != nil {
-		cm.logger.Warn("创建配置修改标志文件失败，但配置已保存", zap.Error(err))
-	}
+	// 释放锁，准备执行可能耗时的操作
+	cm.mu.Unlock()
 
 	// 同步配置到全局配置 - 使用连接符格式的配置
+	// 注意：这里在锁外执行，避免持锁时间过长
 	if err := cm.syncToGlobalConfig(kebabConfig); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
 	}
 
 	// 触发回调 - 使用连接符格式的配置
+	// 注意：这里在锁外执行，避免回调函数执行时间过长阻塞其他读取操作
 	for key, newValue := range kebabConfig {
 		oldValue := oldValues[key]
 		for _, callback := range cm.changeCallbacks {
@@ -487,7 +503,7 @@ func (cm *ConfigManager) flattenConfig(config map[string]interface{}, prefix str
 	return result
 }
 
-// createSnapshot 创建配置快照
+// createSnapshot 创建配置快照（深拷贝）
 func (cm *ConfigManager) createSnapshot() {
 	snapshot := ConfigSnapshot{
 		Timestamp: time.Now(),
@@ -495,8 +511,9 @@ func (cm *ConfigManager) createSnapshot() {
 		Version:   fmt.Sprintf("v%d", time.Now().Unix()),
 	}
 
+	// 深拷贝配置值，避免引用类型被修改
 	for k, v := range cm.configCache {
-		snapshot.Config[k] = v
+		snapshot.Config[k] = deepCopyValue(v)
 	}
 
 	cm.rollbackVersions = append(cm.rollbackVersions, snapshot)
@@ -504,6 +521,43 @@ func (cm *ConfigManager) createSnapshot() {
 	// 限制快照数量
 	if len(cm.rollbackVersions) > cm.maxRollbackCount {
 		cm.rollbackVersions = cm.rollbackVersions[1:]
+	}
+}
+
+// deepCopyValue 深拷贝配置值
+func deepCopyValue(v interface{}) interface{} {
+	if v == nil {
+		return nil
+	}
+
+	switch val := v.(type) {
+	case map[string]interface{}:
+		// 深拷贝 map
+		copyMap := make(map[string]interface{}, len(val))
+		for k, v := range val {
+			copyMap[k] = deepCopyValue(v)
+		}
+		return copyMap
+	case []interface{}:
+		// 深拷贝 slice
+		copySlice := make([]interface{}, len(val))
+		for i, v := range val {
+			copySlice[i] = deepCopyValue(v)
+		}
+		return copySlice
+	case []string:
+		// 深拷贝字符串 slice
+		copyStrings := make([]string, len(val))
+		copy(copyStrings, val)
+		return copyStrings
+	case []int:
+		// 深拷贝 int slice
+		copyInts := make([]int, len(val))
+		copy(copyInts, val)
+		return copyInts
+	default:
+		// 基本类型（string, int, bool, float等）直接返回
+		return v
 	}
 }
 
@@ -651,12 +705,15 @@ func (cm *ConfigManager) handleYAMLFirst() error {
 		return err
 	}
 
+	// 3. 加锁更新内存缓存
+	cm.mu.Lock()
 	for _, config := range configs {
 		cm.configCache[config.Key] = parseConfigValue(config.Value)
 	}
+	cm.mu.Unlock()
 	cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
 
-	// 3. 同步到全局配置（触发回调）
+	// 4. 同步到全局配置（触发回调）
 	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
 		return err
