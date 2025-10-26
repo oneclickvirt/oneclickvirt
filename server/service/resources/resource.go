@@ -507,6 +507,7 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 			maxInstances = 999999 // 使用一个很大的数字表示无限制，
 		}
 
+		now := time.Now()
 		updates := map[string]interface{}{
 			"used_cpu_cores":      int(vmCPU), // 只有虚拟机占用CPU核心
 			"used_memory":         vmMemory + containerMemory,
@@ -517,7 +518,7 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 			"available_memory":    availableMemory,
 			"used_instances":      totalInstances,
 			"resource_synced":     true,
-			"resource_synced_at":  "NOW()",
+			"resource_synced_at":  &now,
 		}
 
 		return tx.Model(&provider).Updates(updates).Error

@@ -874,25 +874,30 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 
 // collectInterfaceData 收集单个接口的vnStat数据
 func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringModel.VnStatInterface) error {
-	// 获取实例信息
 	var instance providerModel.Instance
-	if err := global.APP_DB.First(&instance, iface.InstanceID).Error; err != nil {
+	var providerInfo providerModel.Provider
+
+	err := global.APP_DB.Model(&providerModel.Instance{}).
+		Select("name").
+		Where("id = ?", iface.InstanceID).
+		First(&instance).Error
+	if err != nil {
 		return fmt.Errorf("failed to get instance: %w", err)
 	}
 
-	// 获取Provider信息
-	var providerInfo providerModel.Provider
-	if err := global.APP_DB.First(&providerInfo, iface.ProviderID).Error; err != nil {
+	err = global.APP_DB.Model(&providerModel.Provider{}).
+		Select("name, type, endpoint, ssh_port, username, password, ssh_key, network_type").
+		Where("id = ?", iface.ProviderID).
+		First(&providerInfo).Error
+	if err != nil {
 		return fmt.Errorf("failed to get provider: %w", err)
 	}
 
-	// 获取Provider实例
 	providerInstance, err := provider.GetProvider(providerInfo.Type)
 	if err != nil {
 		return fmt.Errorf("failed to get provider instance: %w", err)
 	}
 
-	// 检查Provider连接
 	if !providerInstance.IsConnected() {
 		nodeConfig := provider.NodeConfig{
 			Name:        providerInfo.Name,
@@ -910,21 +915,23 @@ func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringMod
 		}
 	}
 
-	// 获取vnStat数据
 	vnstatData, err := s.getVnStatJSON(providerInstance, instance.Name, iface.Interface)
 	if err != nil {
 		return fmt.Errorf("failed to get vnstat data: %w", err)
 	}
 
-	// 解析并保存数据
 	if err := s.parseAndSaveVnStatData(iface, vnstatData); err != nil {
 		return fmt.Errorf("failed to parse and save vnstat data: %w", err)
 	}
 
-	// 更新接口的最后同步时间
-	iface.LastSync = time.Now()
-	if err := global.APP_DB.Save(iface).Error; err != nil {
-		global.APP_LOG.Error("更新接口同步时间失败", zap.Error(err))
+	updateErr := utils.RetryableDBOperation(ctx, func() error {
+		return global.APP_DB.Model(&monitoringModel.VnStatInterface{}).
+			Where("id = ?", iface.ID).
+			Update("last_sync", time.Now()).Error
+	}, 3)
+
+	if updateErr != nil {
+		global.APP_LOG.Error("更新接口同步时间失败", zap.Error(updateErr))
 	}
 
 	return nil
@@ -932,18 +939,14 @@ func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringMod
 
 // getVnStatJSON 获取vnStat的JSON格式数据
 func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName, interfaceName string) (string, error) {
-	// 统一在宿主机上执行vnstat命令，监控veth/桥接接口
-	// 限制查询范围以减少数据传输量：最近3个月的月度数据 + 最近30天的日度数据
-	// 使用 -d 30 限制只返回最近30天的数据（包含月度统计）
 	vnstatCmd := fmt.Sprintf("vnstat -i %s -d 30 --json", interfaceName)
 
-	global.APP_LOG.Debug("获取vnStat数据（宿主机接口）",
+	global.APP_LOG.Debug("获取vnStat数据",
 		zap.String("provider_type", providerInstance.GetType()),
 		zap.String("instance", instanceName),
 		zap.String("interface", interfaceName),
 		zap.String("command", vnstatCmd))
 
-	// 直接在Provider宿主机上执行SSH命令
 	output, err := providerInstance.ExecuteSSHCommand(context.Background(), vnstatCmd)
 	if err != nil {
 		global.APP_LOG.Error("获取vnStat数据失败",
@@ -956,7 +959,6 @@ func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName
 		return "", fmt.Errorf("failed to get vnstat data: %w", err)
 	}
 
-	// 验证JSON格式
 	var testData interface{}
 	if err := json.Unmarshal([]byte(output), &testData); err != nil {
 		global.APP_LOG.Error("vnStat返回的数据不是有效的JSON",
@@ -977,10 +979,8 @@ func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName
 	return output, nil
 }
 
-// compactVnStatJSON 精简vnStat JSON数据，只保留最近的记录以减少存储空间
-// 保留策略：最近3个月的月度数据 + 最近30天的日度数据 + 总流量
+// compactVnStatJSON 精简vnStat JSON数据
 func (s *Service) compactVnStatJSON(vnstatData *monitoringModel.VnStatResponse, interfaceName string) string {
-	// 查找目标接口
 	var targetInterface *monitoringModel.VnStatInterfaceData
 	for i := range vnstatData.Interfaces {
 		if vnstatData.Interfaces[i].Name == interfaceName {
@@ -990,26 +990,21 @@ func (s *Service) compactVnStatJSON(vnstatData *monitoringModel.VnStatResponse, 
 	}
 
 	if targetInterface == nil {
-		// 如果找不到接口，返回空JSON
 		return "{}"
 	}
 
-	// 获取标准化数据
 	normalized := targetInterface.Traffic.GetNormalizedTrafficData()
 
-	// 只保留最近3个月的月度数据
 	recentMonths := normalized.Months
 	if len(recentMonths) > 3 {
 		recentMonths = recentMonths[len(recentMonths)-3:]
 	}
 
-	// 只保留最近30天的日度数据
 	recentDays := normalized.Days
 	if len(recentDays) > 30 {
 		recentDays = recentDays[len(recentDays)-30:]
 	}
 
-	// 构建精简的响应结构
 	compactedData := monitoringModel.VnStatResponse{
 		VnStatVersion: vnstatData.VnStatVersion,
 		JsonVersion:   vnstatData.JsonVersion,
@@ -1021,23 +1016,20 @@ func (s *Service) compactVnStatJSON(vnstatData *monitoringModel.VnStatResponse, 
 				Updated: targetInterface.Updated,
 				Traffic: monitoringModel.VnStatTrafficData{
 					Total:  normalized.Total,
-					Month:  recentMonths, // v1格式
-					Months: recentMonths, // v2格式
-					Day:    recentDays,   // v1格式
-					Days:   recentDays,   // v2格式
-					// 不保留小时数据和Top数据，它们太详细且占用空间
+					Month:  recentMonths,
+					Months: recentMonths,
+					Day:    recentDays,
+					Days:   recentDays,
 				},
 			},
 		},
 	}
 
-	// 序列化为JSON
 	compactedJSON, err := json.Marshal(compactedData)
 	if err != nil {
 		global.APP_LOG.Error("精简vnStat JSON失败",
 			zap.String("interface", interfaceName),
 			zap.Error(err))
-		// 如果精简失败，返回空JSON而不是原始数据
 		return "{}"
 	}
 
@@ -1057,13 +1049,11 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 		return fmt.Errorf("failed to parse vnstat json: %w", err)
 	}
 
-	// 根据 jsonversion 进行版本兼容处理
 	global.APP_LOG.Debug("解析vnStat数据",
 		zap.String("vnstatversion", vnstatData.VnStatVersion),
 		zap.String("jsonversion", vnstatData.JsonVersion),
 		zap.String("interface", iface.Interface))
 
-	// 查找对应的接口数据
 	var interfaceData *monitoringModel.VnStatInterfaceData
 	for i := range vnstatData.Interfaces {
 		if vnstatData.Interfaces[i].Name == iface.Interface {
@@ -1076,147 +1066,111 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 		return fmt.Errorf("interface %s not found in vnstat data", iface.Interface)
 	}
 
-	// 获取标准化的流量数据
 	normalizedData := interfaceData.Traffic.GetNormalizedTrafficData()
 
-	// 获取Provider类型
-	var providerInfo providerModel.Provider
-	if err := global.APP_DB.First(&providerInfo, iface.ProviderID).Error; err != nil {
-		global.APP_LOG.Warn("获取Provider信息失败，使用默认类型",
+	var providerType string
+	err := global.APP_DB.Model(&providerModel.Provider{}).
+		Select("type").
+		Where("id = ?", iface.ProviderID).
+		Pluck("type", &providerType).Error
+
+	if err != nil {
+		global.APP_LOG.Warn("获取Provider类型失败，使用默认类型",
 			zap.Uint("provider_id", iface.ProviderID),
 			zap.Error(err))
-	}
-	providerType := providerInfo.Type
-	if providerType == "" {
 		providerType = "unknown"
 	}
 
-	// 精简原始JSON数据，只保留最近的记录以减少存储空间
 	compactedJSON := s.compactVnStatJSON(&vnstatData, iface.Interface)
 
-	// 保存总流量数据
-	totalRecord := &monitoringModel.VnStatTrafficRecord{
-		InstanceID:   iface.InstanceID,
-		ProviderID:   iface.ProviderID,
-		ProviderType: providerType,
-		Interface:    iface.Interface,
-		RxBytes:      normalizedData.Total.Rx,
-		TxBytes:      normalizedData.Total.Tx,
-		TotalBytes:   normalizedData.Total.Rx + normalizedData.Total.Tx,
-		Year:         0, // 0表示总计
-		Month:        0,
-		Day:          0,
-		Hour:         0,
-		RawData:      compactedJSON,
-		RecordTime:   time.Now(),
-	}
+	return utils.RetryableDBOperation(context.Background(), func() error {
+		return global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			now := time.Now()
 
-	// 保存或更新总流量记录
-	var existingTotal monitoringModel.VnStatTrafficRecord
-	err := global.APP_DB.Where("instance_id = ? AND interface = ? AND year = 0 AND month = 0 AND day = 0 AND hour = 0",
-		iface.InstanceID, iface.Interface).First(&existingTotal).Error
-
-	if err == gorm.ErrRecordNotFound {
-		if err := global.APP_DB.Create(totalRecord).Error; err != nil {
-			return fmt.Errorf("failed to create total traffic record: %w", err)
-		}
-	} else if err == nil {
-		existingTotal.RxBytes = totalRecord.RxBytes
-		existingTotal.TxBytes = totalRecord.TxBytes
-		existingTotal.TotalBytes = totalRecord.TotalBytes
-		existingTotal.RawData = totalRecord.RawData
-		existingTotal.RecordTime = totalRecord.RecordTime
-		if err := global.APP_DB.Save(&existingTotal).Error; err != nil {
-			return fmt.Errorf("failed to update total traffic record: %w", err)
-		}
-	}
-
-	// 保存月度流量数据
-	for _, monthData := range normalizedData.Months {
-		monthRecord := &monitoringModel.VnStatTrafficRecord{
-			InstanceID:   iface.InstanceID,
-			ProviderID:   iface.ProviderID,
-			ProviderType: providerType,
-			Interface:    iface.Interface,
-			RxBytes:      monthData.Rx,
-			TxBytes:      monthData.Tx,
-			TotalBytes:   monthData.Rx + monthData.Tx,
-			Year:         monthData.Date.Year,
-			Month:        monthData.Date.Month,
-			Day:          0,
-			Hour:         0,
-			RawData:      "",
-			RecordTime:   time.Now(),
-		}
-
-		// 检查是否已存在
-		var existing monitoringModel.VnStatTrafficRecord
-		err := global.APP_DB.Where("instance_id = ? AND interface = ? AND year = ? AND month = ? AND day = 0 AND hour = 0",
-			iface.InstanceID, iface.Interface, monthRecord.Year, monthRecord.Month).First(&existing).Error
-
-		if err == gorm.ErrRecordNotFound {
-			if err := global.APP_DB.Create(monthRecord).Error; err != nil {
-				global.APP_LOG.Error("保存月度流量记录失败", zap.Error(err))
+			totalRecord := &monitoringModel.VnStatTrafficRecord{
+				InstanceID:   iface.InstanceID,
+				ProviderID:   iface.ProviderID,
+				ProviderType: providerType,
+				Interface:    iface.Interface,
+				RxBytes:      normalizedData.Total.Rx,
+				TxBytes:      normalizedData.Total.Tx,
+				TotalBytes:   normalizedData.Total.Rx + normalizedData.Total.Tx,
+				Year:         0,
+				Month:        0,
+				Day:          0,
+				Hour:         0,
+				RawData:      compactedJSON,
+				RecordTime:   now,
 			}
-		} else if err == nil {
-			existing.RxBytes = monthRecord.RxBytes
-			existing.TxBytes = monthRecord.TxBytes
-			existing.TotalBytes = monthRecord.TotalBytes
-			existing.RecordTime = monthRecord.RecordTime
-			if err := global.APP_DB.Save(&existing).Error; err != nil {
-				global.APP_LOG.Error("更新月度流量记录失败", zap.Error(err))
+
+			if err := tx.Exec(`
+				INSERT INTO vnstat_traffic_records 
+				(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
+				 year, month, day, hour, raw_data, record_time, created_at, updated_at)
+				VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, NOW(), NOW())
+				ON DUPLICATE KEY UPDATE
+					rx_bytes = VALUES(rx_bytes),
+					tx_bytes = VALUES(tx_bytes),
+					total_bytes = VALUES(total_bytes),
+					raw_data = VALUES(raw_data),
+					record_time = VALUES(record_time),
+					updated_at = NOW()
+			`, totalRecord.InstanceID, totalRecord.ProviderID, totalRecord.ProviderType,
+				totalRecord.Interface, totalRecord.RxBytes, totalRecord.TxBytes, totalRecord.TotalBytes,
+				totalRecord.RawData, totalRecord.RecordTime).Error; err != nil {
+				return fmt.Errorf("failed to save total traffic record: %w", err)
 			}
-		}
-	}
 
-	// 保存日度流量数据
-	for _, dayData := range normalizedData.Days {
-		dayRecord := &monitoringModel.VnStatTrafficRecord{
-			InstanceID:   iface.InstanceID,
-			ProviderID:   iface.ProviderID,
-			ProviderType: providerType,
-			Interface:    iface.Interface,
-			RxBytes:      dayData.Rx,
-			TxBytes:      dayData.Tx,
-			TotalBytes:   dayData.Rx + dayData.Tx,
-			Year:         dayData.Date.Year,
-			Month:        dayData.Date.Month,
-			Day:          dayData.Date.Day,
-			Hour:         0,
-			RawData:      "",
-			RecordTime:   time.Now(),
-		}
-
-		// 检查是否已存在
-		var existing monitoringModel.VnStatTrafficRecord
-		err := global.APP_DB.Where("instance_id = ? AND interface = ? AND year = ? AND month = ? AND day = ? AND hour = 0",
-			iface.InstanceID, iface.Interface, dayRecord.Year, dayRecord.Month, dayRecord.Day).First(&existing).Error
-
-		if err == gorm.ErrRecordNotFound {
-			if err := global.APP_DB.Create(dayRecord).Error; err != nil {
-				global.APP_LOG.Error("保存日度流量记录失败", zap.Error(err))
+			for _, monthData := range normalizedData.Months {
+				if err := tx.Exec(`
+					INSERT INTO vnstat_traffic_records 
+					(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
+					 year, month, day, hour, record_time, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW(), NOW())
+					ON DUPLICATE KEY UPDATE
+						rx_bytes = VALUES(rx_bytes),
+						tx_bytes = VALUES(tx_bytes),
+						total_bytes = VALUES(total_bytes),
+						record_time = VALUES(record_time),
+						updated_at = NOW()
+				`, iface.InstanceID, iface.ProviderID, providerType, iface.Interface,
+					monthData.Rx, monthData.Tx, monthData.Rx+monthData.Tx,
+					monthData.Date.Year, monthData.Date.Month, now).Error; err != nil {
+					global.APP_LOG.Error("保存月度流量记录失败", zap.Error(err))
+				}
 			}
-		} else if err == nil {
-			existing.RxBytes = dayRecord.RxBytes
-			existing.TxBytes = dayRecord.TxBytes
-			existing.TotalBytes = dayRecord.TotalBytes
-			existing.RecordTime = dayRecord.RecordTime
-			if err := global.APP_DB.Save(&existing).Error; err != nil {
-				global.APP_LOG.Error("更新日度流量记录失败", zap.Error(err))
+
+			for _, dayData := range normalizedData.Days {
+				if err := tx.Exec(`
+					INSERT INTO vnstat_traffic_records 
+					(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
+					 year, month, day, hour, record_time, created_at, updated_at)
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), NOW())
+					ON DUPLICATE KEY UPDATE
+						rx_bytes = VALUES(rx_bytes),
+						tx_bytes = VALUES(tx_bytes),
+						total_bytes = VALUES(total_bytes),
+						record_time = VALUES(record_time),
+						updated_at = NOW()
+				`, iface.InstanceID, iface.ProviderID, providerType, iface.Interface,
+					dayData.Rx, dayData.Tx, dayData.Rx+dayData.Tx,
+					dayData.Date.Year, dayData.Date.Month, dayData.Date.Day, now).Error; err != nil {
+					global.APP_LOG.Error("保存日度流量记录失败", zap.Error(err))
+				}
 			}
-		}
-	}
 
-	global.APP_LOG.Debug("vnStat数据保存完成",
-		zap.Uint("instance_id", iface.InstanceID),
-		zap.String("interface", iface.Interface),
-		zap.String("provider_type", providerType),
-		zap.String("vnstat_version", vnstatData.VnStatVersion),
-		zap.String("json_version", vnstatData.JsonVersion),
-		zap.Int("months_count", len(normalizedData.Months)),
-		zap.Int("days_count", len(normalizedData.Days)))
+			global.APP_LOG.Debug("vnStat数据保存完成",
+				zap.Uint("instance_id", iface.InstanceID),
+				zap.String("interface", iface.Interface),
+				zap.String("provider_type", providerType),
+				zap.String("vnstat_version", vnstatData.VnStatVersion),
+				zap.String("json_version", vnstatData.JsonVersion),
+				zap.Int("months_count", len(normalizedData.Months)),
+				zap.Int("days_count", len(normalizedData.Days)))
 
-	return nil
+			return nil
+		})
+	}, 3)
 }
 
 // removeVnStatInterface 从vnstat系统中删除指定的网络接口

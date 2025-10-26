@@ -42,9 +42,9 @@ mysql:
     engine: InnoDB
     log-mode: error
     log-zap: false
-    max-idle-conns: 10
-    max-lifetime: 3600
-    max-open-conns: 100
+    max-idle-conns: 20
+    max-lifetime: 1800
+    max-open-conns: 200
     password: ""
     path:
     port:
@@ -117,6 +117,8 @@ system:
     use-multipoint: false
     use-redis: false
     frontend-url: ""
+    provider-inactive-hours: 72
+    oauth2-state-token-minutes: 15
 task:
     delete-retry-count: 3
     delete-retry-delay: 2

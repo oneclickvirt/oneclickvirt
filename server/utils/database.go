@@ -34,7 +34,29 @@ func IsDeadlockError(err error) bool {
 		strings.Contains(errMsg, "database lock") ||
 		strings.Contains(errMsg, "busy") ||
 		strings.Contains(errMsg, "foreign key constraint failed") ||
-		strings.Contains(errMsg, "constraint failed")
+		strings.Contains(errMsg, "constraint failed") ||
+		strings.Contains(errMsg, "lock wait timeout exceeded") ||
+		strings.Contains(errMsg, "error 1205")
+}
+
+// IsConnectionError 检查是否是连接错误
+func IsConnectionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "invalid connection") ||
+		strings.Contains(errMsg, "bad connection") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "broken pipe") ||
+		strings.Contains(errMsg, "connection lost") ||
+		errors.Is(err, gorm.ErrInvalidDB)
+}
+
+// IsRetryableError 检查是否是可重试的错误
+func IsRetryableError(err error) bool {
+	return IsDeadlockError(err) || IsConnectionError(err)
 }
 
 // RetryableDBOperation 可重试的数据库操作
@@ -51,6 +73,17 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 		default:
 		}
 
+		// 在重试前检查数据库连接健康
+		if i > 0 {
+			if err := CheckDBHealth(); err != nil {
+				global.APP_LOG.Warn("数据库健康检查失败",
+					zap.Int("retry", i),
+					zap.Error(err))
+				// 短暂等待后继续
+				time.Sleep(time.Duration(i) * 100 * time.Millisecond)
+			}
+		}
+
 		err := operation()
 		if err == nil {
 			if i > 0 {
@@ -60,14 +93,28 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 		}
 
 		lastErr = err
-		if !IsDeadlockError(err) {
-			// 非死锁错误，不重试
+		// 检查是否是可重试的错误
+		if !IsRetryableError(err) {
+			// 非可重试错误，直接返回
 			return err
 		}
 
 		if i < maxRetries {
-			delay := time.Duration(i+1) * 50 * time.Millisecond // 减少重试延迟
-			global.APP_LOG.Warn("数据库死锁检测到，准备重试",
+			// 指数退避策略
+			delay := time.Duration(i+1) * 100 * time.Millisecond
+			if delay > 2*time.Second {
+				delay = 2 * time.Second
+			}
+
+			errorType := "未知"
+			if IsDeadlockError(err) {
+				errorType = "死锁/锁等待超时"
+			} else if IsConnectionError(err) {
+				errorType = "连接错误"
+			}
+
+			global.APP_LOG.Warn("数据库操作失败，准备重试",
+				zap.String("错误类型", errorType),
 				zap.Error(err),
 				zap.Int("retry", i+1),
 				zap.Int("max_retries", maxRetries),

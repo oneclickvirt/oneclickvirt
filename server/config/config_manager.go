@@ -885,14 +885,13 @@ func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error
 		zap.Int("originalCount", len(updates)),
 		zap.Int("convertedCount", len(kebabUpdates)))
 
-	// 使用Node API更新值，保持原有key格式不变
+	// 使用Node API更新值,保持原有key格式不变
 	for key, value := range kebabUpdates {
 		if err := updateYAMLNode(&node, key, value); err != nil {
-			cm.logger.Warn("更新YAML节点失败", zap.String("key", key), zap.Error(err))
+			// 只在debug级别记录配置键不存在的警告，避免日志噪音
+			cm.logger.Debug("更新YAML节点失败", zap.String("key", key), zap.Error(err))
 		}
-	}
-
-	// 序列化Node，这样可以保持原有的key格式
+	} // 序列化Node，这样可以保持原有的key格式
 	out, err := yaml.Marshal(&node)
 	if err != nil {
 		cm.logger.Error("序列化YAML失败", zap.Error(err))
@@ -1309,7 +1308,8 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 		value := parseConfigValue(config.Value)
 
 		if err := updateYAMLNode(&node, config.Key, value); err != nil {
-			cm.logger.Warn("更新配置失败",
+			// 只在debug级别记录配置键不存在的警告，避免日志噪音
+			cm.logger.Debug("更新配置失败",
 				zap.String("key", config.Key),
 				zap.Error(err))
 		}

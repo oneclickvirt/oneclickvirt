@@ -75,20 +75,22 @@ func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 	// 设置连接池参数
 	maxIdle := m.MaxIdleConns
 	if maxIdle <= 0 {
-		maxIdle = 10
+		maxIdle = 20 // 增加默认空闲连接数
 	}
 	maxOpen := m.MaxOpenConns
 	if maxOpen <= 0 {
-		maxOpen = 100
+		maxOpen = 200 // 增加默认最大连接数
 	}
 	maxLifetime := m.MaxLifetime
 	if maxLifetime <= 0 {
-		maxLifetime = 3600 // 默认1小时
+		maxLifetime = 1800 // 默认30分钟，避免MySQL 8小时超时
 	}
 
 	sqlDB.SetMaxIdleConns(maxIdle)
 	sqlDB.SetMaxOpenConns(maxOpen)
 	sqlDB.SetConnMaxLifetime(time.Duration(maxLifetime) * time.Second)
+	// 设置连接最大空闲时间，避免空闲连接被MySQL服务器关闭
+	sqlDB.SetConnMaxIdleTime(10 * time.Minute)
 
 	return db, nil
 }

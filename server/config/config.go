@@ -58,15 +58,17 @@ type LevelLimitInfo struct {
 }
 
 type System struct {
-	Env           string `mapstructure:"env" json:"env" yaml:"env"`                                  // 环境值
-	Addr          int    `mapstructure:"addr" json:"addr" yaml:"addr"`                               // 端口值
-	DbType        string `mapstructure:"db-type" json:"db-type" yaml:"db-type"`                      // 数据库类型:mysql(默认)|mariadb
-	OssType       string `mapstructure:"oss-type" json:"oss-type" yaml:"oss-type"`                   // Oss类型
-	UseMultipoint bool   `mapstructure:"use-multipoint" json:"use-multipoint" yaml:"use-multipoint"` // 多点登录拦截
-	UseRedis      bool   `mapstructure:"use-redis" json:"use-redis" yaml:"use-redis"`                // 使用redis
-	LimitCountIP  int    `mapstructure:"iplimit-count" json:"iplimit-count" yaml:"iplimit-count"`
-	LimitTimeIP   int    `mapstructure:"iplimit-time" json:"iplimit-time" yaml:"iplimit-time"`
-	FrontendURL   string `mapstructure:"frontend-url" json:"frontend-url" yaml:"frontend-url"` // 前端URL，用于OAuth2回调跳转
+	Env                     string `mapstructure:"env" json:"env" yaml:"env"`                                                                      // 环境值
+	Addr                    int    `mapstructure:"addr" json:"addr" yaml:"addr"`                                                                   // 端口值
+	DbType                  string `mapstructure:"db-type" json:"db-type" yaml:"db-type"`                                                          // 数据库类型:mysql(默认)|mariadb
+	OssType                 string `mapstructure:"oss-type" json:"oss-type" yaml:"oss-type"`                                                       // Oss类型
+	UseMultipoint           bool   `mapstructure:"use-multipoint" json:"use-multipoint" yaml:"use-multipoint"`                                     // 多点登录拦截
+	UseRedis                bool   `mapstructure:"use-redis" json:"use-redis" yaml:"use-redis"`                                                    // 使用redis
+	LimitCountIP            int    `mapstructure:"iplimit-count" json:"iplimit-count" yaml:"iplimit-count"`                                        // IP限流计数
+	LimitTimeIP             int    `mapstructure:"iplimit-time" json:"iplimit-time" yaml:"iplimit-time"`                                           // IP限流时间
+	FrontendURL             string `mapstructure:"frontend-url" json:"frontend-url" yaml:"frontend-url"`                                           // 前端URL，用于OAuth2回调跳转
+	ProviderInactiveHours   int    `mapstructure:"provider-inactive-hours" json:"provider-inactive-hours" yaml:"provider-inactive-hours"`          // Provider不活动阈值（小时），默认72小时
+	OAuth2StateTokenMinutes int    `mapstructure:"oauth2-state-token-minutes" json:"oauth2-state-token-minutes" yaml:"oauth2-state-token-minutes"` // OAuth2 State令牌有效期（分钟），默认15分钟
 }
 
 type JWT struct {

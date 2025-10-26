@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"context"
 	"time"
 
 	"oneclickvirt/global"
@@ -8,6 +9,7 @@ import (
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/service/system"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -79,18 +81,60 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 		global.APP_LOG.Debug("数据库未初始化，跳过Provider清理")
 		return
 	}
+
+	// 从配置读取不活动阈值，默认72小时（3天）
+	inactiveHours := global.APP_CONFIG.System.ProviderInactiveHours
+	if inactiveHours <= 0 {
+		inactiveHours = 72 // 默认72小时
+	}
+
 	// 标记长时间未活动的Provider为不可用
-	inactiveThreshold := time.Now().Add(-24 * time.Hour)
+	inactiveThreshold := time.Now().Add(-time.Duration(inactiveHours) * time.Hour)
 
-	result := global.APP_DB.Model(&provider.Provider{}).
-		Where("allow_claim = ? AND updated_at < ?", true, inactiveThreshold).
-		Update("allow_claim", false)
+	// 使用带重试的批量更新操作，避免长时间锁表
+	err := utils.RetryableDBOperation(context.Background(), func() error {
+		// 分批处理，每次最多处理100条记录
+		var providers []provider.Provider
 
-	if result.Error != nil {
-		global.APP_LOG.Error("Failed to cleanup inactive provider", zap.Error(result.Error))
-	} else if result.RowsAffected > 0 {
-		global.APP_LOG.Info("Disabled inactive provider",
-			zap.Int64("count", result.RowsAffected))
+		// 首先查找需要更新的Provider（使用较短的锁超时）
+		if err := global.APP_DB.
+			Where("allow_claim = ? AND updated_at < ?", true, inactiveThreshold).
+			Limit(100).
+			Find(&providers).Error; err != nil {
+			return err
+		}
+
+		if len(providers) == 0 {
+			return nil
+		}
+
+		// 收集需要更新的ID
+		var providerIDs []uint
+		for _, p := range providers {
+			providerIDs = append(providerIDs, p.ID)
+		}
+
+		// 批量更新，使用IN查询减少锁定时间
+		result := global.APP_DB.
+			Model(&provider.Provider{}).
+			Where("id IN ?", providerIDs).
+			Update("allow_claim", false)
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		if result.RowsAffected > 0 {
+			global.APP_LOG.Info("禁用不活动的Provider",
+				zap.Int64("count", result.RowsAffected),
+				zap.Int("inactive_hours", inactiveHours))
+		}
+
+		return nil
+	}, 3)
+
+	if err != nil {
+		global.APP_LOG.Error("Failed to cleanup inactive provider", zap.Error(err))
 	}
 }
 

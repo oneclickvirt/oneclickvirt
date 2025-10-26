@@ -65,13 +65,27 @@ func (s *Service) GenerateStateToken(providerID uint) (string, error) {
 	}
 	state := base64.URLEncoding.EncodeToString(b)
 
-	// 存储state，有效期5分钟
+	// 从配置读取state令牌有效期，默认15分钟
+	stateTokenMinutes := global.APP_CONFIG.System.OAuth2StateTokenMinutes
+	if stateTokenMinutes <= 0 {
+		stateTokenMinutes = 15 // 默认15分钟
+	}
+
+	expiryDuration := time.Duration(stateTokenMinutes) * time.Minute
+	expiry := time.Now().Add(expiryDuration)
+
 	s.mu.Lock()
 	s.states[state] = &StateInfo{
 		ProviderID: providerID,
-		Expiry:     time.Now().Add(5 * time.Minute),
+		Expiry:     expiry,
 	}
 	s.mu.Unlock()
+
+	global.APP_LOG.Debug("生成OAuth2 state令牌",
+		zap.Uint("provider_id", providerID),
+		zap.String("state", state[:16]+"..."), // 只记录部分state用于调试
+		zap.Time("expiry", expiry),
+		zap.Duration("valid_for", expiryDuration))
 
 	// 清理过期的state
 	go s.cleanExpiredStates()
@@ -82,6 +96,7 @@ func (s *Service) GenerateStateToken(providerID uint) (string, error) {
 // ValidateStateToken 验证OAuth2 state令牌
 func (s *Service) ValidateStateToken(state string) (uint, bool) {
 	if state == "" {
+		global.APP_LOG.Warn("收到空的state令牌")
 		return 0, false
 	}
 
@@ -90,6 +105,8 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 	s.mu.RUnlock()
 
 	if !exists {
+		global.APP_LOG.Warn("state令牌不存在（可能已过期或已使用）",
+			zap.String("state", state[:16]+"..."))
 		return 0, false
 	}
 
@@ -98,6 +115,11 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 		s.mu.Lock()
 		delete(s.states, state)
 		s.mu.Unlock()
+
+		global.APP_LOG.Warn("state令牌已过期",
+			zap.String("state", state[:16]+"..."),
+			zap.Time("expiry", info.Expiry),
+			zap.Duration("过期时长", time.Since(info.Expiry)))
 		return 0, false
 	}
 
@@ -105,6 +127,10 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 	s.mu.Lock()
 	delete(s.states, state)
 	s.mu.Unlock()
+
+	global.APP_LOG.Debug("state令牌验证成功",
+		zap.Uint("provider_id", info.ProviderID),
+		zap.String("state", state[:16]+"..."))
 
 	return info.ProviderID, true
 }
@@ -445,7 +471,12 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 	// 根据用户等级设置配额
 	s.SetUserQuotaByLevel(usr)
 
-	if err := global.APP_DB.Create(usr).Error; err != nil {
+	// 使用带重试的数据库操作创建用户
+	err = utils.RetryableDBOperation(context.Background(), func() error {
+		return global.APP_DB.Create(usr).Error
+	}, 3)
+
+	if err != nil {
 		global.APP_LOG.Error("创建OAuth2用户失败", zap.Error(err))
 		return nil, false, common.NewError(common.CodeInternalError, "创建用户失败")
 	}

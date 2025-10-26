@@ -11,6 +11,7 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -76,7 +77,10 @@ func (s *LimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool, strin
 		}
 	}
 	// 更新用户已使用流量
-	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error; err != nil {
+	err = utils.RetryableDBOperation(context.Background(), func() error {
+		return global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error
+	}, 3)
+	if err != nil {
 		return false, "", fmt.Errorf("更新用户流量使用量失败: %w", err)
 	}
 	// 检查是否超限（仅在有有效的流量限制时进行检查）

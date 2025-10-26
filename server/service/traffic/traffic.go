@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
 	"oneclickvirt/service/vnstat"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -165,7 +166,10 @@ func (s *TrafficLimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool
 	}
 
 	// 更新用户已使用流量
-	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error; err != nil {
+	err = utils.RetryableDBOperation(context.Background(), func() error {
+		return global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error
+	}, 3)
+	if err != nil {
 		return false, "", fmt.Errorf("更新用户流量使用量失败: %w", err)
 	}
 
@@ -248,7 +252,7 @@ func (s *TrafficLimitService) CheckProviderTrafficLimitWithVnStat(providerID uin
 func (s *TrafficLimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
 	// 获取用户的所有实例
 	var instances []provider.Instance
-	err := global.APP_DB.Where("user_id = ? AND status != ? AND status != ?", 
+	err := global.APP_DB.Where("user_id = ? AND status != ? AND status != ?",
 		userID, "deleted", "deleting").Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取用户实例失败: %w", err)
@@ -257,9 +261,9 @@ func (s *TrafficLimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int6
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
-	
+
 	var totalTraffic int64 = 0
-	
+
 	// 累加所有实例的当月流量
 	for _, instance := range instances {
 		instanceTraffic, err := s.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
@@ -279,7 +283,7 @@ func (s *TrafficLimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int6
 func (s *TrafficLimitService) getInstanceMonthlyTrafficFromVnStat(instanceID uint, year, month int) (int64, error) {
 	// 从vnStat记录表中获取实例的月度流量数据
 	var totalBytes int64
-	
+
 	// 查询当月的汇总记录（day=0, hour=0表示月度汇总）
 	err := global.APP_DB.Model(&monitoring.VnStatTrafficRecord{}).
 		Where("instance_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0",
@@ -299,7 +303,7 @@ func (s *TrafficLimitService) getInstanceMonthlyTrafficFromVnStat(instanceID uin
 func (s *TrafficLimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
 	// 获取Provider的所有实例
 	var instances []provider.Instance
-	err := global.APP_DB.Where("provider_id = ? AND status != ? AND status != ?", 
+	err := global.APP_DB.Where("provider_id = ? AND status != ? AND status != ?",
 		providerID, "deleted", "deleting").Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取Provider实例失败: %w", err)
@@ -308,9 +312,9 @@ func (s *TrafficLimitService) getProviderMonthlyTrafficFromVnStat(providerID uin
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
-	
+
 	var totalTraffic int64 = 0
-	
+
 	// 累加所有实例的当月流量
 	for _, instance := range instances {
 		instanceTraffic, err := s.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
