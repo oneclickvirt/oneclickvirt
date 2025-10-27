@@ -1,4 +1,6 @@
 # OneClickVirt 虚拟化管理平台
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield)
+
 
 一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker 和 Proxmox VE。
 
@@ -306,3 +308,6 @@ go run main.go
 ![](./.back/5.png)
 ![](./.back/6.png)
 ![](./.back/7.png)
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_large)
