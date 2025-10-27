@@ -1104,20 +1104,20 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 			}
 
 			if err := tx.Exec(`
-				INSERT INTO vnstat_traffic_records 
-				(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
-				 year, month, day, hour, raw_data, record_time, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, NOW(), NOW())
-				ON DUPLICATE KEY UPDATE
-					rx_bytes = VALUES(rx_bytes),
-					tx_bytes = VALUES(tx_bytes),
-					total_bytes = VALUES(total_bytes),
-					raw_data = VALUES(raw_data),
-					record_time = VALUES(record_time),
-					updated_at = NOW()
-			`, totalRecord.InstanceID, totalRecord.ProviderID, totalRecord.ProviderType,
+			INSERT INTO vnstat_traffic_records 
+			(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
+			 year, month, day, hour, raw_data, record_time, created_at, updated_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, 0, 0, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE
+				rx_bytes = VALUES(rx_bytes),
+				tx_bytes = VALUES(tx_bytes),
+				total_bytes = VALUES(total_bytes),
+				raw_data = VALUES(raw_data),
+				record_time = VALUES(record_time),
+				updated_at = ?
+		`, totalRecord.InstanceID, totalRecord.ProviderID, totalRecord.ProviderType,
 				totalRecord.Interface, totalRecord.RxBytes, totalRecord.TxBytes, totalRecord.TotalBytes,
-				totalRecord.RawData, totalRecord.RecordTime).Error; err != nil {
+				totalRecord.RawData, totalRecord.RecordTime, now, now, now).Error; err != nil {
 				return fmt.Errorf("failed to save total traffic record: %w", err)
 			}
 
@@ -1126,16 +1126,16 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 					INSERT INTO vnstat_traffic_records 
 					(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
 					 year, month, day, hour, record_time, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW(), NOW())
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, ?, ?)
 					ON DUPLICATE KEY UPDATE
 						rx_bytes = VALUES(rx_bytes),
 						tx_bytes = VALUES(tx_bytes),
 						total_bytes = VALUES(total_bytes),
 						record_time = VALUES(record_time),
-						updated_at = NOW()
+						updated_at = ?
 				`, iface.InstanceID, iface.ProviderID, providerType, iface.Interface,
 					monthData.Rx, monthData.Tx, monthData.Rx+monthData.Tx,
-					monthData.Date.Year, monthData.Date.Month, now).Error; err != nil {
+					monthData.Date.Year, monthData.Date.Month, now, now, now, now).Error; err != nil {
 					global.APP_LOG.Error("保存月度流量记录失败", zap.Error(err))
 				}
 			}
@@ -1145,16 +1145,16 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 					INSERT INTO vnstat_traffic_records 
 					(instance_id, provider_id, provider_type, interface, rx_bytes, tx_bytes, total_bytes, 
 					 year, month, day, hour, record_time, created_at, updated_at)
-					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NOW(), NOW())
+					VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?)
 					ON DUPLICATE KEY UPDATE
 						rx_bytes = VALUES(rx_bytes),
 						tx_bytes = VALUES(tx_bytes),
 						total_bytes = VALUES(total_bytes),
 						record_time = VALUES(record_time),
-						updated_at = NOW()
+						updated_at = ?
 				`, iface.InstanceID, iface.ProviderID, providerType, iface.Interface,
 					dayData.Rx, dayData.Tx, dayData.Rx+dayData.Tx,
-					dayData.Date.Year, dayData.Date.Month, dayData.Date.Day, now).Error; err != nil {
+					dayData.Date.Year, dayData.Date.Month, dayData.Date.Day, now, now, now, now).Error; err != nil {
 					global.APP_LOG.Error("保存日度流量记录失败", zap.Error(err))
 				}
 			}
