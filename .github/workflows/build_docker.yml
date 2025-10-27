@@ -15,13 +15,18 @@ env:
 jobs:
   check-workflow-success:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     steps:
-      - name: Check previous workflow status
+      - name: Check trigger type and status
         run: |
-          echo "Previous workflow completed successfully"
-          echo "Workflow: ${{ github.event.workflow_run.name }}"
-          echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          echo "Event name: ${{ github.event_name }}"
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Manually triggered workflow"
+          else
+            echo "Triggered by workflow_run event"
+            echo "Previous workflow: ${{ github.event.workflow_run.name }}"
+            echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
+          fi
 
   build:
     runs-on: ${{ matrix.runner }}
