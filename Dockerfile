@@ -25,19 +25,16 @@ RUN apt-get update && \
         gnupg2 wget lsb-release procps nginx supervisor ca-certificates && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Installing MySQL for AMD64..." && \
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.33-1_all.deb && \
-        DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.33-1_all.deb && \
-        rm -rf mysql-apt-config_0.8.33-1_all.deb && \
-        echo "deb [trusted=yes] http://repo.mysql.com/apt/debian/ bookworm mysql-8.0" > /etc/apt/sources.list.d/mysql.list && \
+        gpg --keyserver keyserver.ubuntu.com --recv-keys B7B3B788A8D3785C && \
+        gpg --export B7B3B788A8D3785C > /usr/share/keyrings/mysql.gpg && \
+        echo "deb [signed-by=/usr/share/keyrings/mysql.gpg] http://repo.mysql.com/apt/debian bookworm mysql-8.0" > /etc/apt/sources.list.d/mysql.list && \
         apt-get update && \
-        DEBIAN_FRONTEND=noninteractive apt-get install -y --allow-unauthenticated mysql-server mysql-client && \
-        rm -f /var/lib/mysql/* /var/log/mysql/*; \
+        DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client; \
     else \
         echo "Installing MariaDB for ARM64..." && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client; \
     fi && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
+    apt-get clean
 
 ENV TZ=Asia/Shanghai
 WORKDIR /app
