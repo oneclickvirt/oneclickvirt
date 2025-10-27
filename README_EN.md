@@ -300,7 +300,7 @@ The main configuration file is located at `server/config.yaml`
 
 Thank the following platforms for providing testing:
 
-<a href="https://www.jetbrains.com/go/" target="_blank">
+<a href="https://fossvps.org/" target="_blank">
   <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="goland" style="height: 50px;">
 </a>
 
