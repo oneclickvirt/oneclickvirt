@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
@@ -76,31 +77,58 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 	// 使用流量限制服务检查流量
 	trafficLimitService := traffic.NewTrafficLimitService()
 
-	// 检查用户流量限制
-	for _, userID := range userIDs {
-		isLimited, reason, err := trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
-		if err != nil {
-			global.APP_LOG.Error("检查用户流量限制失败",
-				zap.Uint("userID", userID),
-				zap.Error(err))
-		} else if isLimited {
-			global.APP_LOG.Info("用户流量超限",
-				zap.Uint("userID", userID),
-				zap.String("reason", reason))
+	// 批量检查用户流量限制，每批10个，避免同时创建太多数据库连接
+	batchSize := 10
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+
+		for j := i; j < end; j++ {
+			userID := userIDs[j]
+			isLimited, reason, err := trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
+			if err != nil {
+				global.APP_LOG.Error("检查用户流量限制失败",
+					zap.Uint("userID", userID),
+					zap.Error(err))
+			} else if isLimited {
+				global.APP_LOG.Info("用户流量超限",
+					zap.Uint("userID", userID),
+					zap.String("reason", reason))
+			}
+		}
+
+		// 批次间短暂延迟，让数据库连接有时间释放
+		if end < len(userIDs) {
+			time.Sleep(1 * time.Second)
 		}
 	}
 
-	// 检查Provider流量限制
-	for _, providerID := range providerIDs {
-		isLimited, reason, err := trafficLimitService.CheckProviderTrafficLimitWithVnStat(providerID)
-		if err != nil {
-			global.APP_LOG.Error("检查Provider流量限制失败",
-				zap.Uint("providerID", providerID),
-				zap.Error(err))
-		} else if isLimited {
-			global.APP_LOG.Info("Provider流量超限",
-				zap.Uint("providerID", providerID),
-				zap.String("reason", reason))
+	// 批量检查Provider流量限制
+	for i := 0; i < len(providerIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(providerIDs) {
+			end = len(providerIDs)
+		}
+
+		for j := i; j < end; j++ {
+			providerID := providerIDs[j]
+			isLimited, reason, err := trafficLimitService.CheckProviderTrafficLimitWithVnStat(providerID)
+			if err != nil {
+				global.APP_LOG.Error("检查Provider流量限制失败",
+					zap.Uint("providerID", providerID),
+					zap.Error(err))
+			} else if isLimited {
+				global.APP_LOG.Info("Provider流量超限",
+					zap.Uint("providerID", providerID),
+					zap.String("reason", reason))
+			}
+		}
+
+		// 批次间短暂延迟
+		if end < len(providerIDs) {
+			time.Sleep(1 * time.Second)
 		}
 	}
 

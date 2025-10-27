@@ -110,12 +110,12 @@ func (s *SchedulerService) StopScheduler() {
 func (s *SchedulerService) runTaskScheduler() {
 	defer s.wg.Done()
 
-	// 创建定时器
-	taskTicker := time.NewTicker(5 * time.Second)        // 任务处理
-	cleanupTicker := time.NewTicker(30 * time.Second)    // 超时清理
-	maintenanceTicker := time.NewTicker(5 * time.Minute) // 系统维护
-	trafficTicker := time.NewTicker(1 * time.Hour)       // 流量同步
-	trafficResetTicker := time.NewTicker(1 * time.Hour)  // 流量重置检查
+	// 创建定时器，错开执行时间避免并发峰值
+	taskTicker := time.NewTicker(5 * time.Second)         // 任务处理
+	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理
+	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护
+	trafficTicker := time.NewTicker(2 * time.Hour)        // 流量同步
+	trafficResetTicker := time.NewTicker(3 * time.Hour)   // 流量重置检查
 
 	defer func() {
 		taskTicker.Stop()

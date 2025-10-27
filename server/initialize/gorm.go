@@ -1,6 +1,8 @@
 package initialize
 
 import (
+	"time"
+
 	"oneclickvirt/global"
 	"oneclickvirt/initialize/internal"
 	adminModel "oneclickvirt/model/admin"
@@ -101,7 +103,56 @@ func validateDatabaseConnection(db *gorm.DB) error {
 		zap.Int("in_use", stats.InUse),
 		zap.Int("idle", stats.Idle))
 
+	// 启动连接池监控（每5分钟检查一次）
+	go monitorConnectionPool(db)
+
 	return nil
+}
+
+// monitorConnectionPool 监控数据库连接池状态
+func monitorConnectionPool(db *gorm.DB) {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		if db == nil {
+			return
+		}
+
+		sqlDB, err := db.DB()
+		if err != nil {
+			global.APP_LOG.Error("获取数据库连接池失败", zap.Error(err))
+			continue
+		}
+
+		// 检查连接是否正常
+		if err := sqlDB.Ping(); err != nil {
+			global.APP_LOG.Error("数据库连接检查失败", zap.Error(err))
+			continue
+		}
+
+		// 获取连接池统计信息
+		stats := sqlDB.Stats()
+		usagePercent := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
+
+		// 如果使用率超过80%，记录警告
+		if usagePercent > 80 {
+			global.APP_LOG.Warn("数据库连接池使用率过高",
+				zap.Int("open_connections", stats.OpenConnections),
+				zap.Int("max_open_connections", stats.MaxOpenConnections),
+				zap.Float64("usage_percent", usagePercent),
+				zap.Int("in_use", stats.InUse),
+				zap.Int("idle", stats.Idle),
+				zap.Int64("wait_count", stats.WaitCount),
+				zap.Duration("wait_duration", stats.WaitDuration))
+		} else {
+			// 正常情况下记录debug日志
+			global.APP_LOG.Debug("数据库连接池状态",
+				zap.Int("open_connections", stats.OpenConnections),
+				zap.Int("max_open_connections", stats.MaxOpenConnections),
+				zap.Float64("usage_percent", usagePercent))
+		}
+	}
 }
 
 // RegisterTables 注册数据库表专用

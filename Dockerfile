@@ -57,41 +57,20 @@ RUN mkdir -p /var/run/mysqld && \
     chmod 750 /app/storage && \
     chmod -R 750 /app/storage/*
 
-# Create database configuration based on architecture
+# Copy optimized database configuration files
+COPY deploy/mysql.cnf /tmp/mysql.cnf
+COPY deploy/mariadb.cnf /tmp/mariadb.cnf
+
+# Install database configuration based on architecture
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
-        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
-        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'authentication_policy=mysql_native_password' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'max_connections=100' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_buffer_pool_size=128M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_redo_log_capacity=67108864' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
+        echo "Installing MySQL 5.7 optimized configuration..." && \
+        cp /tmp/mysql.cnf /etc/mysql/conf.d/custom.cnf; \
     else \
-        echo '[mysqld]' > /etc/mysql/conf.d/custom.cnf && \
-        echo 'datadir=/var/lib/mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'socket=/var/run/mysqld/mysqld.sock' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'user=mysql' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'pid-file=/var/run/mysqld/mysqld.pid' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'bind-address=0.0.0.0' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'port=3306' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'character-set-server=utf8mb4' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'collation-server=utf8mb4_unicode_ci' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'max_connections=100' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'skip-name-resolve' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'secure-file-priv=""' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_buffer_pool_size=128M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_log_file_size=64M' >> /etc/mysql/conf.d/custom.cnf && \
-        echo 'innodb_force_recovery=0' >> /etc/mysql/conf.d/custom.cnf; \
-    fi
+        echo "Installing MariaDB optimized configuration..." && \
+        cp /tmp/mariadb.cnf /etc/mysql/conf.d/custom.cnf; \
+    fi && \
+    rm -f /tmp/mysql.cnf /tmp/mariadb.cnf && \
+    chmod 644 /etc/mysql/conf.d/custom.cnf
 
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \

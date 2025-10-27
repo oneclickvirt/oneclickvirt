@@ -133,18 +133,52 @@ func (s *Service) CollectVnStatData(ctx context.Context) error {
 		return fmt.Errorf("failed to get vnstat interfaces: %w", err)
 	}
 
+	if len(interfaces) == 0 {
+		global.APP_LOG.Debug("没有启用的vnStat接口")
+		return nil
+	}
+
 	global.APP_LOG.Info("开始收集vnStat数据", zap.Int("interfaces_count", len(interfaces)))
 
-	for _, iface := range interfaces {
-		if err := s.collectInterfaceData(ctx, &iface); err != nil {
-			global.APP_LOG.Error("收集接口vnStat数据失败",
-				zap.Uint("instance_id", iface.InstanceID),
-				zap.String("interface", iface.Interface),
-				zap.Error(err))
-			continue
+	// 批量处理接口，避免同时创建太多数据库连接
+	batchSize := 5 // 每批处理5个接口
+	for i := 0; i < len(interfaces); i += batchSize {
+		end := i + batchSize
+		if end > len(interfaces) {
+			end = len(interfaces)
+		}
+
+		// 检查上下文是否已取消
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		// 处理当前批次
+		for j := i; j < end; j++ {
+			iface := interfaces[j]
+
+			// 为每个接口设置超时
+			collectCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+
+			if err := s.collectInterfaceData(collectCtx, &iface); err != nil {
+				global.APP_LOG.Error("收集接口vnStat数据失败",
+					zap.Uint("instance_id", iface.InstanceID),
+					zap.String("interface", iface.Interface),
+					zap.Error(err))
+			}
+
+			cancel() // 立即释放资源
+		}
+
+		// 批次间增加短暂延迟，让数据库连接有时间释放
+		if end < len(interfaces) {
+			time.Sleep(3 * time.Second)
 		}
 	}
 
+	global.APP_LOG.Info("vnStat数据收集完成")
 	return nil
 }
 
