@@ -10,6 +10,8 @@ socket = /var/run/mysqld/mysqld.sock
 datadir = /var/lib/mysql
 user = mysql
 pid-file = /var/run/mysqld/mysqld.pid
+lc-messages-dir = /usr/share/mysql
+lc-messages = en_US
 
 # Character Set
 character-set-server = utf8mb4
