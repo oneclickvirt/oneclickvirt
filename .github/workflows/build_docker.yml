@@ -28,7 +28,7 @@ jobs:
             echo "Conclusion: ${{ github.event.workflow_run.conclusion }}"
           fi
 
-  build:
+  build-dockerhub:
     runs-on: ${{ matrix.runner }}
     needs: check-workflow-success
     permissions:
@@ -77,29 +77,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
       
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      
       - name: Extract metadata for Docker Hub
         if: steps.login-dockerhub.outcome == 'success'
         id: meta-dockerhub
         uses: docker/metadata-action@v5
         with:
           images: ${{ env.DOCKER_IMAGE }}
-          tags: |
-            type=raw,value=${{ matrix.variant == 'no-db' && 'no-db' || 'latest' }}
-          flavor: |
-            suffix=-${{ matrix.arch }}
-      
-      - name: Extract metadata for GHCR
-        id: meta-ghcr
-        uses: docker/metadata-action@v5
-        with:
-          images: ${{ env.GHCR_IMAGE }}
           tags: |
             type=raw,value=${{ matrix.variant == 'no-db' && 'no-db' || 'latest' }}
           flavor: |
@@ -119,6 +102,80 @@ jobs:
             type=gha,scope=dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
       
+      - name: Export Docker Hub digest
+        if: steps.build-dockerhub.outcome == 'success'
+        run: |
+          mkdir -p /tmp/digests-dockerhub
+          digest="${{ steps.build-dockerhub.outputs.digest }}"
+          touch "/tmp/digests-dockerhub/${digest#sha256:}"
+      
+      - name: Upload Docker Hub digest
+        if: steps.build-dockerhub.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: digests-dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
+          path: /tmp/digests-dockerhub/*
+          if-no-files-found: error
+          retention-days: 1
+
+  build-ghcr:
+    runs-on: ${{ matrix.runner }}
+    needs: check-workflow-success
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+            variant: full
+            dockerfile: Dockerfile
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            variant: full
+            dockerfile: Dockerfile
+          - arch: amd64
+            runner: ubuntu-latest
+            platform: linux/amd64
+            variant: no-db
+            dockerfile: Dockerfile.no-db
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            platform: linux/arm64
+            variant: no-db
+            dockerfile: Dockerfile.no-db
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver-opts: |
+            image=moby/buildkit:latest
+            network=host
+      
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      - name: Extract metadata for GHCR
+        id: meta-ghcr
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.GHCR_IMAGE }}
+          tags: |
+            type=raw,value=${{ matrix.variant == 'no-db' && 'no-db' || 'latest' }}
+          flavor: |
+            suffix=-${{ matrix.arch }}
+      
       - name: Build and push to GHCR
         id: build-ghcr
         uses: docker/build-push-action@v5
@@ -131,28 +188,12 @@ jobs:
             type=gha,scope=ghcr-${{ matrix.variant }}-${{ matrix.arch }}
           cache-to: type=gha,mode=max,scope=ghcr-${{ matrix.variant }}-${{ matrix.arch }}
       
-      - name: Export Docker Hub digest
-        if: steps.build-dockerhub.outcome == 'success'
-        run: |
-          mkdir -p /tmp/digests-dockerhub
-          digest="${{ steps.build-dockerhub.outputs.digest }}"
-          touch "/tmp/digests-dockerhub/${digest#sha256:}"
-      
       - name: Export GHCR digest
         if: steps.build-ghcr.outcome == 'success'
         run: |
           mkdir -p /tmp/digests-ghcr
           digest="${{ steps.build-ghcr.outputs.digest }}"
           touch "/tmp/digests-ghcr/${digest#sha256:}"
-      
-      - name: Upload Docker Hub digest
-        if: steps.build-dockerhub.outcome == 'success'
-        uses: actions/upload-artifact@v4
-        with:
-          name: digests-dockerhub-${{ matrix.variant }}-${{ matrix.arch }}
-          path: /tmp/digests-dockerhub/*
-          if-no-files-found: error
-          retention-days: 1
       
       - name: Upload GHCR digest
         if: steps.build-ghcr.outcome == 'success'
@@ -165,7 +206,7 @@ jobs:
 
   merge-full-dockerhub:
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-dockerhub
     if: always()
     permissions:
       contents: read
@@ -236,7 +277,7 @@ jobs:
 
   merge-full-ghcr:
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-ghcr
     if: always()
     permissions:
       contents: read
@@ -289,7 +330,7 @@ jobs:
 
   merge-no-db-dockerhub:
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-dockerhub
     if: always()
     permissions:
       contents: read
@@ -350,7 +391,7 @@ jobs:
 
   merge-no-db-ghcr:
     runs-on: ubuntu-latest
-    needs: build
+    needs: build-ghcr
     if: always()
     permissions:
       contents: read
