@@ -22,22 +22,24 @@ ARG TARGETARCH
 # Install database and other services based on architecture
 RUN apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y \
-        gnupg2 wget lsb-release procps nginx supervisor && \
+        gnupg2 wget lsb-release procps nginx supervisor ca-certificates && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Installing MySQL for AMD64..." && \
+        mkdir -p /etc/apt/keyrings && \
+        wget -O /etc/apt/keyrings/mysql.gpg https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 && \
+        chmod 644 /etc/apt/keyrings/mysql.gpg && \
         wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
         DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
-        rm -f /etc/apt/trusted.gpg.d/mysql.asc /etc/apt/trusted.gpg.d/mysql.gpg && \
-        wget -O /etc/apt/trusted.gpg.d/mysql.gpg https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 && \
-        DEBIAN_FRONTEND=noninteractive apt-get update && \
+        rm -rf mysql-apt-config_0.8.29-1_all.deb && \
+        apt-get update && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
-        rm -rf mysql-apt-config_0.8.29-1_all.deb; \
+        rm -f /var/lib/mysql/* /var/log/mysql/*; \
     else \
         echo "Installing MariaDB for ARM64..." && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mariadb-server mariadb-client; \
     fi && \
     apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && rm -rf /var/lib/mysql/*
+    rm -rf /var/lib/apt/lists/*
 
 ENV TZ=Asia/Shanghai
 WORKDIR /app
