@@ -30,7 +30,6 @@ services:
         MYSQL_DATABASE: oneclickvirt
     volumes:
       - ./data/mysql:/var/lib/mysql
-      - ./deploy/mysql.cnf:/etc/mysql/conf.d/custom.cnf:ro
     networks:
       - default
 

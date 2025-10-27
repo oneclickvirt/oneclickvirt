@@ -64,13 +64,15 @@ COPY deploy/mariadb.cnf /tmp/mariadb.cnf
 # Install database configuration based on architecture
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Installing MySQL 5.7 optimized configuration..." && \
-        cp /tmp/mysql.cnf /etc/mysql/conf.d/custom.cnf; \
+        cp /tmp/mysql.cnf /etc/mysql/conf.d/custom.cnf && \
+        sed -i 's|^\s*lc-messages-dir\s*=.*|lc-messages-dir = /usr/share/mysql-8.0/english|' /etc/mysql/conf.d/custom.cnf; \
     else \
         echo "Installing MariaDB optimized configuration..." && \
         cp /tmp/mariadb.cnf /etc/mysql/conf.d/custom.cnf; \
     fi && \
     rm -f /tmp/mysql.cnf /tmp/mariadb.cnf && \
-    chmod 644 /etc/mysql/conf.d/custom.cnf
+    chmod 644 /etc/mysql/conf.d/custom.cnf && \
+    ln -s /usr/share/mysql-8.0 /usr/share/mysql || true
 
 RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo 'worker_processes auto;' >> /etc/nginx/nginx.conf && \
