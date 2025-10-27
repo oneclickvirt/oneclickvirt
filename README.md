@@ -1,14 +1,18 @@
 # OneClickVirt 虚拟化管理平台
 
-一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker 和 Proxmox VE。
+[![Build and Release oneclickvirt](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml)
 
----
+[![Build and Push Docker Images](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml)
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=license)
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=security)
+
+一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker 和 Proxmox VE。
 
 ## **语言**
 
 [中文文档](README.md) | [English Docs](README_EN.md)
-
----
 
 ## 详细说明
 
@@ -296,6 +300,18 @@ go run main.go
 ## 配置文件
 
 主要配置文件位于 `server/config.yaml`
+
+## 致谢
+
+感谢以下平台提供测试：
+
+<a href="https://www.jetbrains.com/go/" target="_blank">
+  <img src="https://lowendspirit.com/uploads/userpics/793/nHSR7IOVIBO84.png" alt="goland" style="height: 50px;">
+</a>
+
+## LICENSE
+
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=large&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_large&issueType=license)
 
 ## 演示截图
 
