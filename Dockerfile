@@ -25,12 +25,10 @@ RUN apt-get update && \
         gnupg2 wget lsb-release procps nginx supervisor ca-certificates && \
     if [ "$TARGETARCH" = "amd64" ]; then \
         echo "Installing MySQL for AMD64..." && \
-        mkdir -p /etc/apt/keyrings && \
-        wget -O /etc/apt/keyrings/mysql.gpg https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 && \
-        chmod 644 /etc/apt/keyrings/mysql.gpg && \
-        wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
-        DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
-        rm -rf mysql-apt-config_0.8.29-1_all.deb && \
+        wget -O /tmp/mysql-key.asc https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 && \
+        gpg --dearmor < /tmp/mysql-key.asc > /usr/share/keyrings/mysql-archive-keyring.gpg && \
+        rm /tmp/mysql-key.asc && \
+        echo "deb [signed-by=/usr/share/keyrings/mysql-archive-keyring.gpg] http://repo.mysql.com/apt/debian/ bookworm mysql-8.0" > /etc/apt/sources.list.d/mysql.list && \
         apt-get update && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
         rm -f /var/lib/mysql/* /var/log/mysql/*; \
