@@ -15,12 +15,15 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: 1.24.5
+        cache: true
         cache-dependency-path: server/go.sum
 
     - name: Set up Node.js
       uses: actions/setup-node@v4
       with:
         node-version: '22'
+        cache: 'npm'
+        cache-dependency-path: web/package-lock.json
 
     - name: Get current date
       id: date
@@ -31,15 +34,34 @@ jobs:
         mkdir -p build
         ls -la
 
+    - name: Cache npm dependencies
+      uses: actions/cache@v3
+      with:
+        path: web/node_modules
+        key: ${{ runner.os }}-npm-${{ hashFiles('web/package-lock.json') }}
+        restore-keys: |
+          ${{ runner.os }}-npm-
+
     - name: Build Vue web application
       run: |
         cd web
-        rm -rf node_modules package-lock.json
-        npm install --no-optional
-        npm install @rollup/rollup-linux-x64-gnu --save-dev
+        if [ ! -d "node_modules" ]; then
+          npm install --no-optional
+          npm install @rollup/rollup-linux-x64-gnu --save-dev
+        fi
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
 
     - name: Build Go server binaries (Standalone - without embedded frontend)
       working-directory: ./server
