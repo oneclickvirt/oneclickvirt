@@ -278,7 +278,7 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'SUPEREND' >> /start.sh && \
     echo '' >> /start.sh && \
     echo 'if [ "$DB_TYPE" = "mysql" ]; then' >> /start.sh && \
-    echo '    echo "command=/usr/sbin/mysqld --defaults-file=/etc/mysql/conf.d/custom.cnf" >> /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
+    echo '    echo "command=/usr/sbin/mysqld --defaults-file=/etc/mysql/conf.d/custom.cnf --lc-messages=en_US" >> /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
     echo 'else' >> /start.sh && \
     echo '    echo "command=/usr/sbin/mariadbd --defaults-file=/etc/mysql/conf.d/custom.cnf" >> /etc/supervisor/conf.d/supervisord.conf' >> /start.sh && \
     echo 'fi' >> /start.sh && \
