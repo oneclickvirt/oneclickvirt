@@ -27,6 +27,10 @@ RUN apt-get update && \
         echo "Installing MySQL for AMD64..." && \
         wget https://dev.mysql.com/get/mysql-apt-config_0.8.29-1_all.deb && \
         DEBIAN_FRONTEND=noninteractive dpkg -i mysql-apt-config_0.8.29-1_all.deb && \
+        wget -O /tmp/mysql_pubkey.asc https://repo.mysql.com/RPM-GPG-KEY-mysql-2023 && \
+        gpg --import /tmp/mysql_pubkey.asc && \
+        gpg --export -a B7B3B788A8D3785C > /etc/apt/trusted.gpg.d/mysql.asc && \
+        rm /tmp/mysql_pubkey.asc && \
         DEBIAN_FRONTEND=noninteractive apt-get update && \
         DEBIAN_FRONTEND=noninteractive apt-get install -y mysql-server mysql-client && \
         rm -rf mysql-apt-config_0.8.29-1_all.deb; \
