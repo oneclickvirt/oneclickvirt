@@ -11,105 +11,43 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
-	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
-// LimitService 流量限制服务 - 集成vnStat数据进行流量控制
+// LimitService 流量统计查询服务
+// 注意：流量检查和限制功能已移至 three_tier_limit.go
+// 本服务只负责流量数据的统计和查询
 type LimitService struct {
 	service *Service
 }
 
-// NewLimitService 创建流量限制服务
+// NewLimitService 创建流量统计查询服务
 func NewLimitService() *LimitService {
 	return &LimitService{
 		service: NewService(),
 	}
 }
 
-// CheckUserTrafficLimitWithVnStat 使用vnStat数据检查用户流量限制
-func (s *LimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool, string, error) {
-	var u user.User
-	if err := global.APP_DB.First(&u, userID).Error; err != nil {
-		return false, "", fmt.Errorf("获取用户信息失败: %w", err)
-	}
-
-	// 自动同步用户流量限额：如果TotalTraffic为0，从等级配置中获取
-	if u.TotalTraffic == 0 {
-		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[u.Level]
-		if exists && levelLimits.MaxTraffic > 0 {
-			// 更新数据库中的TotalTraffic字段
-			if err := global.APP_DB.Model(&u).Update("total_traffic", levelLimits.MaxTraffic).Error; err != nil {
-				global.APP_LOG.Warn("自动同步用户流量限额失败",
-					zap.Uint("userID", userID),
-					zap.Error(err))
-			} else {
-				u.TotalTraffic = levelLimits.MaxTraffic
-				global.APP_LOG.Info("自动同步用户流量限额",
-					zap.Uint("userID", userID),
-					zap.Int("level", u.Level),
-					zap.Int64("maxTraffic", levelLimits.MaxTraffic))
-			}
-		}
-	}
-
-	// 检查是否需要重置流量
-	if err := s.service.checkAndResetMonthlyTraffic(userID); err != nil {
-		global.APP_LOG.Error("检查月度流量重置失败",
-			zap.Uint("userID", userID),
-			zap.Error(err))
-	}
-	// 重新加载用户数据
-	if err := global.APP_DB.First(&u, userID).Error; err != nil {
-		return false, "", fmt.Errorf("重新加载用户信息失败: %w", err)
-	}
-	// 使用vnStat数据计算当月总流量使用量
-	totalUsed, err := s.getUserMonthlyTrafficFromVnStat(userID)
-	if err != nil {
-		global.APP_LOG.Error("从vnStat获取用户月度流量失败",
-			zap.Uint("userID", userID),
-			zap.Error(err))
-		// 降级到旧方法
-		totalUsed, err = s.service.getUserMonthlyTrafficUsage(userID)
-		if err != nil {
-			return false, "", fmt.Errorf("获取用户流量使用量失败: %w", err)
-		}
-	}
-	// 更新用户已使用流量
-	err = utils.RetryableDBOperation(context.Background(), func() error {
-		return global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error
-	}, 3)
-	if err != nil {
-		return false, "", fmt.Errorf("更新用户流量使用量失败: %w", err)
-	}
-	// 检查是否超限（仅在有有效的流量限制时进行检查）
-	if u.TotalTraffic > 0 && totalUsed >= u.TotalTraffic {
-		// 超限，标记用户为受限状态
-		if err := global.APP_DB.Model(&u).Update("traffic_limited", true).Error; err != nil {
-			return false, "", fmt.Errorf("标记用户流量受限失败: %w", err)
-		}
-		limitReason := fmt.Sprintf("用户流量已超限：使用 %dMB，限制 %dMB",
-			totalUsed, u.TotalTraffic)
-		global.APP_LOG.Info("用户流量超限",
-			zap.Uint("userID", userID),
-			zap.Int64("usedTraffic", totalUsed),
-			zap.Int64("totalTraffic", u.TotalTraffic))
-
-		return true, limitReason, nil
-	}
-	// 未超限，确保用户不处于受限状态
-	if u.TrafficLimited {
-		if err := global.APP_DB.Model(&u).Update("traffic_limited", false).Error; err != nil {
-			return false, "", fmt.Errorf("取消用户流量限制状态失败: %w", err)
-		}
-		global.APP_LOG.Info("用户流量限制已解除",
-			zap.Uint("userID", userID),
-			zap.Int64("usedTraffic", totalUsed),
-			zap.Int64("totalTraffic", u.TotalTraffic))
-	}
-	return false, "", nil
+// SyncAllTrafficLimitsWithVnStat 委托给 TrafficLimitService 实现
+func (s *LimitService) SyncAllTrafficLimitsWithVnStat(ctx context.Context) error {
+	trafficLimitService := NewTrafficLimitService()
+	return trafficLimitService.SyncAllTrafficLimitsWithVnStat(ctx)
 }
+
+// CheckUserTrafficLimitWithVnStat 委托给 TrafficLimitService 实现
+func (s *LimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool, string, error) {
+	trafficLimitService := NewTrafficLimitService()
+	return trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
+}
+
+// CheckProviderTrafficLimitWithVnStat 委托给 TrafficLimitService 实现
+func (s *LimitService) CheckProviderTrafficLimitWithVnStat(providerID uint) (bool, string, error) {
+	trafficLimitService := NewTrafficLimitService()
+	return trafficLimitService.CheckProviderTrafficLimitWithVnStat(providerID)
+}
+
+// ============ 原有统计查询方法 ============
 
 // getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
 func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
@@ -152,82 +90,6 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 	return totalTraffic, nil
 }
 
-// CheckProviderTrafficLimitWithVnStat 使用vnStat数据检查Provider流量限制
-func (s *LimitService) CheckProviderTrafficLimitWithVnStat(providerID uint) (bool, string, error) {
-	var p provider.Provider
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		return false, "", fmt.Errorf("获取Provider信息失败: %w", err)
-	}
-
-	// 检查是否需要重置流量
-	if err := s.service.checkAndResetProviderMonthlyTraffic(providerID); err != nil {
-		global.APP_LOG.Error("检查Provider月度流量重置失败",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
-	}
-
-	// 重新加载Provider数据
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		return false, "", fmt.Errorf("重新加载Provider信息失败: %w", err)
-	}
-
-	// 使用vnStat数据计算Provider当月总流量使用量
-	totalUsed, err := s.getProviderMonthlyTrafficFromVnStat(providerID)
-	if err != nil {
-		global.APP_LOG.Error("从vnStat获取Provider月度流量失败",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
-		// 降级到旧方法
-		isLimited, err := s.service.CheckProviderTrafficLimit(providerID)
-		if err != nil {
-			return false, "", err
-		}
-		if isLimited {
-			return true, "Provider流量超限（使用旧方法检测）", nil
-		}
-		return false, "", nil
-	}
-
-	// 更新Provider已使用流量
-	if err := global.APP_DB.Model(&p).Update("used_traffic", totalUsed).Error; err != nil {
-		return false, "", fmt.Errorf("更新Provider流量使用量失败: %w", err)
-	}
-
-	// 检查是否超限（仅在有有效的流量限制时进行检查）
-	if p.MaxTraffic > 0 && totalUsed >= p.MaxTraffic {
-		// 超限，标记Provider为受限状态
-		if err := global.APP_DB.Model(&p).Update("traffic_limited", true).Error; err != nil {
-			return false, "", fmt.Errorf("标记Provider流量受限失败: %w", err)
-		}
-
-		limitReason := fmt.Sprintf("Provider流量已超限：使用 %dMB，限制 %dMB",
-			totalUsed, p.MaxTraffic)
-
-		global.APP_LOG.Info("Provider流量超限",
-			zap.Uint("providerID", providerID),
-			zap.String("providerName", p.Name),
-			zap.Int64("usedTraffic", totalUsed),
-			zap.Int64("maxTraffic", p.MaxTraffic))
-
-		return true, limitReason, nil
-	}
-
-	// 未超限，确保Provider不处于受限状态
-	if p.TrafficLimited {
-		if err := global.APP_DB.Model(&p).Update("traffic_limited", false).Error; err != nil {
-			return false, "", fmt.Errorf("取消Provider流量限制状态失败: %w", err)
-		}
-
-		global.APP_LOG.Info("Provider流量限制已解除",
-			zap.Uint("providerID", providerID),
-			zap.String("providerName", p.Name),
-			zap.Int64("usedTraffic", totalUsed),
-			zap.Int64("maxTraffic", p.MaxTraffic))
-	}
-
-	return false, "", nil
-}
-
 // getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
 func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
 	// 获取Provider下所有实例（包含软删除的实例，因为需要统计本月已产生的流量）
@@ -267,96 +129,6 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 		zap.Int64("totalTraffic", totalTraffic))
 
 	return totalTraffic, nil
-}
-
-// SyncAllTrafficLimitsWithVnStat 同步所有流量限制状态（使用vnStat数据）
-func (s *LimitService) SyncAllTrafficLimitsWithVnStat(ctx context.Context) error {
-	global.APP_LOG.Info("开始同步所有流量限制状态（基于vnStat数据）")
-
-	// 同步所有用户的流量限制
-	var users []user.User
-	if err := global.APP_DB.Find(&users).Error; err != nil {
-		return fmt.Errorf("获取用户列表失败: %w", err)
-	}
-
-	userLimitCount := 0
-	for _, u := range users {
-		select {
-		case <-ctx.Done():
-			global.APP_LOG.Info("流量限制同步被取消")
-			return ctx.Err()
-		default:
-		}
-
-		isLimited, reason, err := s.CheckUserTrafficLimitWithVnStat(u.ID)
-		if err != nil {
-			global.APP_LOG.Error("检查用户流量限制失败",
-				zap.Uint("userID", u.ID),
-				zap.Error(err))
-			continue
-		}
-
-		if isLimited {
-			userLimitCount++
-			global.APP_LOG.Info("用户流量受限",
-				zap.Uint("userID", u.ID),
-				zap.String("reason", reason))
-
-			// 停止用户的实例
-			if err := s.service.StopUserInstancesForTrafficLimit(u.ID); err != nil {
-				global.APP_LOG.Error("停止用户受限实例失败",
-					zap.Uint("userID", u.ID),
-					zap.Error(err))
-			}
-		}
-	}
-
-	// 同步所有Provider的流量限制
-	var providers []provider.Provider
-	if err := global.APP_DB.Find(&providers).Error; err != nil {
-		return fmt.Errorf("获取Provider列表失败: %w", err)
-	}
-
-	providerLimitCount := 0
-	for _, p := range providers {
-		select {
-		case <-ctx.Done():
-			global.APP_LOG.Info("流量限制同步被取消")
-			return ctx.Err()
-		default:
-		}
-
-		isLimited, reason, err := s.CheckProviderTrafficLimitWithVnStat(p.ID)
-		if err != nil {
-			global.APP_LOG.Error("检查Provider流量限制失败",
-				zap.Uint("providerID", p.ID),
-				zap.Error(err))
-			continue
-		}
-
-		if isLimited {
-			providerLimitCount++
-			global.APP_LOG.Info("Provider流量受限",
-				zap.Uint("providerID", p.ID),
-				zap.String("providerName", p.Name),
-				zap.String("reason", reason))
-
-			// 停止Provider的实例
-			if err := s.service.StopProviderInstancesForTrafficLimit(p.ID); err != nil {
-				global.APP_LOG.Error("停止Provider受限实例失败",
-					zap.Uint("providerID", p.ID),
-					zap.Error(err))
-			}
-		}
-	}
-
-	global.APP_LOG.Info("流量限制同步完成",
-		zap.Int("checkedUsers", len(users)),
-		zap.Int("limitedUsers", userLimitCount),
-		zap.Int("checkedProviders", len(providers)),
-		zap.Int("limitedProviders", providerLimitCount))
-
-	return nil
 }
 
 // GetUserTrafficUsageWithVnStat 获取用户流量使用情况（基于vnStat数据）

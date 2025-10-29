@@ -211,10 +211,13 @@ type Instance struct {
 	Region string `json:"region" gorm:"size:64"` // 所在地区
 
 	// 流量统计（MB为单位）
-	UsedTrafficIn   int64  `json:"usedTrafficIn" gorm:"default:0"`      // 入站流量（MB）
-	UsedTrafficOut  int64  `json:"usedTrafficOut" gorm:"default:0"`     // 出站流量（MB）
-	TrafficLimited  bool   `json:"trafficLimited" gorm:"default:false"` // 是否因流量超限被停机
-	VnstatInterface string `json:"vnstatInterface" gorm:"size:32"`      // vnstat监控的网络接口名称
+	UsedTrafficIn      int64  `json:"usedTrafficIn" gorm:"default:0"`               // 入站流量（MB）
+	UsedTrafficOut     int64  `json:"usedTrafficOut" gorm:"default:0"`              // 出站流量（MB）
+	UsedTraffic        int64  `json:"usedTraffic" gorm:"default:0"`                 // 实例当月总流量（MB）= UsedTrafficIn + UsedTrafficOut
+	MaxTraffic         int64  `json:"maxTraffic" gorm:"default:0"`                  // 实例流量限制（MB），0表示不限制，从用户等级继承
+	TrafficLimited     bool   `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被停机
+	TrafficLimitReason string `json:"trafficLimitReason" gorm:"size:16;default:''"` // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
+	VnstatInterface    string `json:"vnstatInterface" gorm:"size:32"`               // vnstat监控的网络接口名称
 
 	// 生命周期
 	ExpiredAt time.Time `json:"expiredAt" gorm:"column:expired_at"` // 实例到期时间

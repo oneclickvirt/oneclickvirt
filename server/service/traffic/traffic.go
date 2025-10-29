@@ -118,28 +118,21 @@ func (s *TrafficService) InitUserTrafficQuota(userID uint) error {
 	return nil
 }
 
-// SyncAllTrafficLimitsWithVnStat 使用vnStat同步所有流量限制
+// SyncAllTrafficLimitsWithVnStat 使用vnStat同步所有流量限制（已迁移到 ThreeTierLimitService）
+// 此方法保留用于向后兼容，实际调用新的三层级限制服务
 func (s *TrafficLimitService) SyncAllTrafficLimitsWithVnStat(ctx context.Context) error {
-	global.APP_LOG.Debug("开始使用vnStat同步流量限制")
+	global.APP_LOG.Info("调用三层级流量限制服务进行同步检查")
 
-	// 获取所有活跃用户
-	var users []user.User
-	err := global.APP_DB.Where("status = ?", 1).Find(&users).Error
-	if err != nil {
-		return fmt.Errorf("获取用户列表失败: %w", err)
+	// 使用新的三层级限制服务
+	threeTierService := NewThreeTierLimitService()
+
+	// 直接调用统一的检查方法
+	if err := threeTierService.CheckAllTrafficLimits(ctx); err != nil {
+		global.APP_LOG.Error("三层级流量限制检查失败", zap.Error(err))
+		return err
 	}
 
-	// 为每个用户检查流量限制
-	for _, u := range users {
-		_, _, err := s.CheckUserTrafficLimitWithVnStat(u.ID)
-		if err != nil {
-			global.APP_LOG.Error("检查用户流量限制失败",
-				zap.Uint("userID", u.ID),
-				zap.Error(err))
-		}
-	}
-
-	global.APP_LOG.Debug("vnStat流量限制同步完成", zap.Int("userCount", len(users)))
+	global.APP_LOG.Info("三层级流量限制同步完成")
 	return nil
 }
 

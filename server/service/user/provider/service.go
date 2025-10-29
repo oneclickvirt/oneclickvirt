@@ -99,6 +99,15 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, errors.New("服务器不可用")
 	}
 
+	// 检查Provider是否因流量超限被限制
+	if provider.TrafficLimited {
+		global.APP_LOG.Error("Provider因流量超限被限制，禁止申请新实例",
+			zap.Uint("providerId", req.ProviderId),
+			zap.String("providerName", provider.Name),
+			zap.Bool("trafficLimited", provider.TrafficLimited))
+		return nil, errors.New("该服务器因流量超限暂时不可用，请选择其他服务器或联系管理员")
+	}
+
 	var systemImage systemModel.SystemImage
 	if err := global.APP_DB.Where("id = ?", req.ImageId).First(&systemImage).Error; err != nil {
 		global.APP_LOG.Error("无效的镜像ID", zap.Uint("imageId", req.ImageId), zap.Error(err))
@@ -448,20 +457,23 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 
 		// 创建实例记录
 		instance = providerModel.Instance{
-			Name:           instanceName,
-			Provider:       provider.Name,
-			ProviderID:     provider.ID,
-			Image:          systemImage.Name,
-			CPU:            cpuSpec.Cores,
-			Memory:         int64(memorySpec.SizeMB),
-			Disk:           int64(diskSpec.SizeMB),
-			Bandwidth:      bandwidthSpec.SpeedMbps,
-			InstanceType:   systemImage.InstanceType,
-			UserID:         task.UserID,
-			Status:         "creating",
-			OSType:         systemImage.OSType,
-			ExpiredAt:      expiredAt,
-			TrafficLimited: false, // 显式设置为false，确保不会因流量误判为超限
+			Name:               instanceName,
+			Provider:           provider.Name,
+			ProviderID:         provider.ID,
+			Image:              systemImage.Name,
+			CPU:                cpuSpec.Cores,
+			Memory:             int64(memorySpec.SizeMB),
+			Disk:               int64(diskSpec.SizeMB),
+			Bandwidth:          bandwidthSpec.SpeedMbps,
+			InstanceType:       systemImage.InstanceType,
+			UserID:             task.UserID,
+			Status:             "creating",
+			OSType:             systemImage.OSType,
+			ExpiredAt:          expiredAt,
+			MaxTraffic:         0,     // 默认为0，表示继承用户等级限制，不单独限制实例
+			UsedTraffic:        0,     // 初始已用流量为0
+			TrafficLimited:     false, // 显式设置为false，确保不会因流量误判为超限
+			TrafficLimitReason: "",    // 初始无限制原因
 		}
 
 		// 创建实例

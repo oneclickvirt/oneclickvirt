@@ -2,11 +2,8 @@ package scheduler
 
 import (
 	"context"
-	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/model/provider"
-	"oneclickvirt/model/user"
 	"oneclickvirt/service/traffic"
 
 	"go.uber.org/zap"
@@ -47,7 +44,7 @@ func (s *SchedulerService) syncAllTrafficData() {
 	}
 }
 
-// checkMonthlyTrafficReset 检查月度流量重置（使用vnStat）
+// checkMonthlyTrafficReset 检查月度流量重置（使用三层级流量限制）
 func (s *SchedulerService) checkMonthlyTrafficReset() {
 	// 检查数据库是否已初始化
 	if global.APP_DB == nil {
@@ -55,86 +52,17 @@ func (s *SchedulerService) checkMonthlyTrafficReset() {
 		return
 	}
 
-	// 获取所有活跃用户
-	var userIDs []uint
-	if err := global.APP_DB.Model(&user.User{}).
-		Where("status = ?", 1).
-		Pluck("id", &userIDs).Error; err != nil {
-		global.APP_LOG.Error("获取用户列表失败", zap.Error(err))
-		return
+	global.APP_LOG.Debug("开始三层级流量限制检查")
+
+	// 使用新的三层级流量限制服务
+	threeTierService := traffic.NewThreeTierLimitService()
+
+	ctx := context.Background()
+	if err := threeTierService.CheckAllTrafficLimits(ctx); err != nil {
+		global.APP_LOG.Error("三层级流量限制检查失败", zap.Error(err))
 	}
 
-	// 获取所有活跃Provider（包括 active 和 partial 状态）
-	// partial 状态的Provider也需要进行流量监控
-	var providerIDs []uint
-	if err := global.APP_DB.Model(&provider.Provider{}).
-		Where("status = ? OR status = ?", "active", "partial").
-		Pluck("id", &providerIDs).Error; err != nil {
-		global.APP_LOG.Error("获取Provider列表失败", zap.Error(err))
-		return
-	}
-
-	// 使用流量限制服务检查流量
-	trafficLimitService := traffic.NewTrafficLimitService()
-
-	// 批量检查用户流量限制，每批10个，避免同时创建太多数据库连接
-	batchSize := 10
-	for i := 0; i < len(userIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(userIDs) {
-			end = len(userIDs)
-		}
-
-		for j := i; j < end; j++ {
-			userID := userIDs[j]
-			isLimited, reason, err := trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
-			if err != nil {
-				global.APP_LOG.Error("检查用户流量限制失败",
-					zap.Uint("userID", userID),
-					zap.Error(err))
-			} else if isLimited {
-				global.APP_LOG.Info("用户流量超限",
-					zap.Uint("userID", userID),
-					zap.String("reason", reason))
-			}
-		}
-
-		// 批次间短暂延迟，让数据库连接有时间释放
-		if end < len(userIDs) {
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	// 批量检查Provider流量限制
-	for i := 0; i < len(providerIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(providerIDs) {
-			end = len(providerIDs)
-		}
-
-		for j := i; j < end; j++ {
-			providerID := providerIDs[j]
-			isLimited, reason, err := trafficLimitService.CheckProviderTrafficLimitWithVnStat(providerID)
-			if err != nil {
-				global.APP_LOG.Error("检查Provider流量限制失败",
-					zap.Uint("providerID", providerID),
-					zap.Error(err))
-			} else if isLimited {
-				global.APP_LOG.Info("Provider流量超限",
-					zap.Uint("providerID", providerID),
-					zap.String("reason", reason))
-			}
-		}
-
-		// 批次间短暂延迟
-		if end < len(providerIDs) {
-			time.Sleep(1 * time.Second)
-		}
-	}
-
-	global.APP_LOG.Debug("流量重置检查完成",
-		zap.Int("userCount", len(userIDs)),
-		zap.Int("providerCount", len(providerIDs)))
+	global.APP_LOG.Debug("三层级流量限制检查完成")
 
 	// 清理旧的流量记录（保留最近2个月）
 	trafficService := traffic.NewService()

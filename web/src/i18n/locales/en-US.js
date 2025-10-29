@@ -101,7 +101,7 @@ export default {
     adminLogin: 'Admin Login',
     userLogin: 'User Login',
     backToUserLogin: 'Back to User Login',
-    thirdPartyLogin: 'Third-party Login or Register',
+    thirdPartyLogin: 'Third-party Login',
     pleaseEnterUsername: 'Please enter username',
     pleaseEnterPassword: 'Please enter password',
     pleaseEnterAdminUsername: 'Please enter admin username',

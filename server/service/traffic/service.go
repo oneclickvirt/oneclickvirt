@@ -2,9 +2,11 @@ package traffic
 
 import (
 	"errors"
+	"fmt"
 	"time"
 
 	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/monitoring"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/system"
@@ -175,8 +177,20 @@ func (s *Service) checkAndResetProviderMonthlyTraffic(providerID uint) error {
 
 	now := time.Now()
 
-	// 检查是否到了重置时间
-	if p.TrafficResetAt != nil && now.After(*p.TrafficResetAt) {
+	// 初始化TrafficResetAt（新Provider或数据迁移）
+	if p.TrafficResetAt == nil {
+		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+		p.TrafficResetAt = &nextReset
+		if err := global.APP_DB.Model(&p).Update("traffic_reset_at", nextReset).Error; err != nil {
+			global.APP_LOG.Error("初始化Provider流量重置时间失败",
+				zap.Uint("providerID", providerID),
+				zap.Error(err))
+		}
+		return nil // 本月不重置，等下个月
+	}
+
+	// 检查是否到了重置时间（使用 >= 判断，确保整点00:00:00立即触发）
+	if !now.Before(*p.TrafficResetAt) {
 		// 重置流量
 		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
 
@@ -198,6 +212,7 @@ func (s *Service) checkAndResetProviderMonthlyTraffic(providerID uint) error {
 }
 
 // resumeProviderInstances 恢复Provider上的受限实例
+// 使用乐观锁防止并发场景下重复处理同一实例
 func (s *Service) resumeProviderInstances(providerID uint) error {
 	var instances []provider.Instance
 	err := global.APP_DB.Where("provider_id = ? AND traffic_limited = ?", providerID, true).Find(&instances).Error
@@ -205,21 +220,60 @@ func (s *Service) resumeProviderInstances(providerID uint) error {
 		return err
 	}
 
+	global.APP_LOG.Info("开始恢复Provider受限实例",
+		zap.Uint("providerID", providerID),
+		zap.Int("实例数量", len(instances)))
+
+	successCount := 0
 	for _, instance := range instances {
-		// 恢复实例状态
-		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
-			"traffic_limited": false,
-			"status":          "running",
-		}).Error; err != nil {
+		// 使用乐观锁：只更新traffic_limited=true的实例
+		// 如果并发任务已处理，RowsAffected会是0
+		result := global.APP_DB.Model(&provider.Instance{}).
+			Where("id = ? AND traffic_limited = ?", instance.ID, true).
+			Updates(map[string]interface{}{
+				"traffic_limited": false,
+				"status":          "running",
+			})
+
+		if result.Error != nil {
 			global.APP_LOG.Error("恢复Provider实例状态失败",
 				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
+				zap.Error(result.Error))
 			continue
 		}
 
-		// 启动实例
-		go s.startInstanceAfterTrafficReset(instance.ID)
+		if result.RowsAffected == 0 {
+			// 已被其他任务处理，跳过
+			global.APP_LOG.Debug("实例已被其他任务恢复，跳过",
+				zap.Uint("instanceID", instance.ID))
+			continue
+		}
+
+		// 成功更新状态，创建启动任务
+		if err := s.createStartTaskForInstance(instance.ID, instance.UserID, instance.ProviderID); err != nil {
+			global.APP_LOG.Error("创建实例启动任务失败",
+				zap.Uint("instanceID", instance.ID),
+				zap.Error(err))
+			// 回滚状态更新
+			global.APP_DB.Model(&provider.Instance{}).
+				Where("id = ?", instance.ID).
+				Updates(map[string]interface{}{
+					"traffic_limited": true,
+					"status":          "stopped",
+				})
+			continue
+		}
+
+		successCount++
+		global.APP_LOG.Info("已创建实例启动任务",
+			zap.Uint("instanceID", instance.ID),
+			zap.String("instanceName", instance.Name))
 	}
+
+	global.APP_LOG.Info("Provider实例恢复完成",
+		zap.Uint("providerID", providerID),
+		zap.Int("成功数量", successCount),
+		zap.Int("总数量", len(instances)))
 
 	return nil
 }
@@ -233,15 +287,22 @@ func (s *Service) getVnstatData(instance provider.Instance) (*system.VnstatData,
 
 	monthlyTrafficMB, err := s.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
 	if err != nil {
-		global.APP_LOG.Warn("获取vnstat月度数据失败，返回零值",
+		// 严重错误：无法获取vnstat数据
+		// 使用上次记录的基准值，保持流量不变（不增不减）
+		global.APP_LOG.Error("获取vnstat月度数据失败，使用上次基准值避免流量统计中断",
 			zap.Uint("instanceID", instance.ID),
-			zap.Error(err))
-		// 返回零值而不是模拟数据
+			zap.Int64("lastRxMB", instance.UsedTrafficIn),
+			zap.Int64("lastTxMB", instance.UsedTrafficOut),
+			zap.Error(err),
+			zap.String("影响", "本次不更新流量，等待下次同步"))
+
+		// 返回上次的基准值（从Instance表获取）
+		// 这样updateTrafficRecord会计算出0增量，不会更新
 		return &system.VnstatData{
-			Interface: "all", // 聚合所有接口
-			RxMB:      0,
-			TxMB:      0,
-			TotalMB:   0,
+			Interface: instance.VnstatInterface,
+			RxMB:      instance.UsedTrafficIn,
+			TxMB:      instance.UsedTrafficOut,
+			TotalMB:   instance.UsedTrafficIn + instance.UsedTrafficOut,
 		}, nil
 	}
 
@@ -322,20 +383,77 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			// 创建新记录，初始化为0，然后累加当前vnStat值作为增量
+			// 查询上个月的记录，获取基准值
+			var lastMonthRecord userModel.TrafficRecord
+			lastMonth := now.AddDate(0, -1, 0)
+			lastYear := lastMonth.Year()
+			lastMonthNum := int(lastMonth.Month())
+
+			lastMonthErr := global.APP_DB.Where(
+				"instance_id = ? AND year = ? AND month = ?",
+				instanceID, lastYear, lastMonthNum,
+			).First(&lastMonthRecord).Error
+
+			var baseRxMB, baseTxMB int64 = 0, 0
+			var initialTrafficIn, initialTrafficOut, initialTotalUsed int64 = 0, 0, 0
+
+			if lastMonthErr == nil {
+				// 找到上个月的记录，使用上个月的LastVnstat值作为本月基准
+				baseRxMB = lastMonthRecord.LastVnstatRxMB
+				baseTxMB = lastMonthRecord.LastVnstatTxMB
+
+				// 计算本月已产生的增量
+				if data.RxMB >= baseRxMB && data.TxMB >= baseTxMB {
+					initialTrafficIn = data.RxMB - baseRxMB
+					initialTrafficOut = data.TxMB - baseTxMB
+					initialTotalUsed = initialTrafficIn + initialTrafficOut // 使用 RxMB + TxMB 统一计算
+				} else {
+					// vnStat重置了，当前值就是本月增量
+					initialTrafficIn = data.RxMB
+					initialTrafficOut = data.TxMB
+					initialTotalUsed = data.RxMB + data.TxMB // 使用 RxMB + TxMB 统一计算
+					baseRxMB = 0
+					baseTxMB = 0
+				}
+
+				global.APP_LOG.Info("月度切换，从上月基准计算增量",
+					zap.Uint("instanceID", instanceID),
+					zap.Int("上月年份", lastYear),
+					zap.Int("上月月份", lastMonthNum),
+					zap.Int64("上月基准RxMB", baseRxMB),
+					zap.Int64("上月基准TxMB", baseTxMB),
+					zap.Int64("当前vnStat RxMB", data.RxMB),
+					zap.Int64("当前vnStat TxMB", data.TxMB),
+					zap.Int64("本月增量In", initialTrafficIn),
+					zap.Int64("本月增量Out", initialTrafficOut),
+					zap.Int64("本月TotalUsed", initialTotalUsed))
+			} else {
+				// 没有上个月的记录（新实例），直接使用当前vnStat值
+				initialTrafficIn = data.RxMB
+				initialTrafficOut = data.TxMB
+				initialTotalUsed = data.RxMB + data.TxMB // 使用 RxMB + TxMB 统一计算
+
+				global.APP_LOG.Info("新实例或首次记录，使用vnStat当前值",
+					zap.Uint("instanceID", instanceID),
+					zap.Int64("初始RxMB", initialTrafficIn),
+					zap.Int64("初始TxMB", initialTrafficOut),
+					zap.Int64("初始TotalUsed", initialTotalUsed))
+			}
+
+			// 创建新记录
 			record = userModel.TrafficRecord{
 				UserID:         userID,
 				ProviderID:     providerID,
 				InstanceID:     instanceID,
 				Year:           year,
 				Month:          month,
-				TrafficIn:      data.RxMB, // 首次记录，直接使用vnStat当前值
-				TrafficOut:     data.TxMB,
-				TotalUsed:      data.TotalMB,
+				TrafficIn:      initialTrafficIn,  // 使用计算后的增量
+				TrafficOut:     initialTrafficOut, // 使用计算后的增量
+				TotalUsed:      initialTotalUsed,  // 使用计算后的增量
 				InterfaceName:  data.Interface,
 				VnstatVersion:  0,
 				LastSyncAt:     &now,
-				LastVnstatRxMB: data.RxMB, // 记录基准值
+				LastVnstatRxMB: data.RxMB, // 记录当前vnStat值作为基准
 				LastVnstatTxMB: data.TxMB,
 			}
 			return global.APP_DB.Create(&record).Error
@@ -343,8 +461,15 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 		return err
 	}
 
-	// 检测vnStat是否重置：当前值小于上次记录的基准值
-	vnstatReset := data.RxMB < record.LastVnstatRxMB || data.TxMB < record.LastVnstatTxMB
+	// 检测vnStat是否重置：更严格的重置检测
+	// 两者都下降，且下降幅度超过10%才判定为重置（即当前值小于上次的90%）
+	// 同时要求基准值足够大（大于10MB），避免误判小流量波动
+	const resetThreshold = 0.9     // 保留90%，下降超过10%才算重置
+	const minBaselineForReset = 10 // 基准值至少10MB才检测重置
+
+	rxDecreased := record.LastVnstatRxMB > minBaselineForReset && float64(data.RxMB) < float64(record.LastVnstatRxMB)*resetThreshold
+	txDecreased := record.LastVnstatTxMB > minBaselineForReset && float64(data.TxMB) < float64(record.LastVnstatTxMB)*resetThreshold
+	vnstatReset := rxDecreased && txDecreased // 两者都下降才判定为重置
 
 	var deltaIn, deltaOut, deltaTotal int64
 
@@ -352,9 +477,9 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 		// vnstat已重新初始化，递增版本号，当前值作为新的增量
 		deltaIn = data.RxMB
 		deltaOut = data.TxMB
-		deltaTotal = data.TotalMB
+		deltaTotal = data.RxMB + data.TxMB // 使用 RxMB + TxMB 统一计算
 
-		global.APP_LOG.Info("检测到vnstat重新初始化",
+		global.APP_LOG.Warn("检测到vnstat重新初始化（严格模式：两者都下降>10%）",
 			zap.Uint("instanceID", instanceID),
 			zap.String("interface", data.Interface),
 			zap.Int("oldVersion", record.VnstatVersion),
@@ -362,61 +487,89 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 			zap.Int64("lastRxMB", record.LastVnstatRxMB),
 			zap.Int64("lastTxMB", record.LastVnstatTxMB),
 			zap.Int64("currentRxMB", data.RxMB),
-			zap.Int64("currentTxMB", data.TxMB))
+			zap.Int64("currentTxMB", data.TxMB),
+			zap.Float64("rxDecreaseRatio", float64(data.RxMB)/float64(record.LastVnstatRxMB)),
+			zap.Float64("txDecreaseRatio", float64(data.TxMB)/float64(record.LastVnstatTxMB)))
 	} else {
 		// 正常增量计算：当前值 - 上次基准值
 		deltaIn = data.RxMB - record.LastVnstatRxMB
 		deltaOut = data.TxMB - record.LastVnstatTxMB
-		deltaTotal = data.TotalMB - (record.LastVnstatRxMB + record.LastVnstatTxMB)
+		deltaTotal = deltaIn + deltaOut // 使用增量和统一计算，避免依赖 data.TotalMB
 	}
 
 	// 只有正增量才更新（防止异常数据）
 	if deltaIn > 0 || deltaOut > 0 || deltaTotal > 0 {
-		updates := map[string]interface{}{
-			"traffic_in":        record.TrafficIn + deltaIn,
-			"traffic_out":       record.TrafficOut + deltaOut,
-			"total_used":        record.TotalUsed + deltaTotal,
-			"interface_name":    data.Interface,
-			"last_sync_at":      now,
-			"last_vnstat_rx_mb": data.RxMB, // 更新基准值
-			"last_vnstat_tx_mb": data.TxMB,
+		// 使用原子更新避免并发竞态条件
+		// 直接在SQL中累加，而不是先读取再更新
+		err := global.APP_DB.Exec(`
+			UPDATE traffic_records 
+			SET traffic_in = traffic_in + ?,
+				traffic_out = traffic_out + ?,
+				total_used = total_used + ?,
+				interface_name = ?,
+				last_sync_at = ?,
+				last_vnstat_rx_mb = ?,
+				last_vnstat_tx_mb = ?,
+				vnstat_version = CASE 
+					WHEN ? THEN vnstat_version + 1 
+					ELSE vnstat_version 
+				END
+			WHERE id = ?
+		`, deltaIn, deltaOut, deltaTotal, data.Interface, now, data.RxMB, data.TxMB, vnstatReset, record.ID).Error
+
+		if err != nil {
+			return fmt.Errorf("原子更新流量记录失败: %w", err)
 		}
 
-		// 如果检测到重置，递增版本号
-		if vnstatReset {
-			updates["vnstat_version"] = record.VnstatVersion + 1
-		}
-
-		if err := global.APP_DB.Model(&record).Updates(updates).Error; err != nil {
-			return err
-		}
-
-		global.APP_LOG.Debug("实例流量累积更新",
+		global.APP_LOG.Debug("实例流量累积更新（原子操作）",
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", instanceID),
 			zap.Int64("deltaIn", deltaIn),
 			zap.Int64("deltaOut", deltaOut),
 			zap.Int64("deltaTotal", deltaTotal),
 			zap.Bool("vnstatReset", vnstatReset),
-			zap.Int64("累计TrafficIn", record.TrafficIn+deltaIn),
-			zap.Int64("累计TrafficOut", record.TrafficOut+deltaOut))
+			zap.Int64("新TrafficIn", record.TrafficIn+deltaIn),
+			zap.Int64("新TrafficOut", record.TrafficOut+deltaOut))
 	} else {
-		global.APP_LOG.Debug("流量增量为零或负数，跳过更新",
-			zap.Uint("instanceID", instanceID),
-			zap.Int64("deltaIn", deltaIn),
-			zap.Int64("deltaOut", deltaOut),
-			zap.Int64("deltaTotal", deltaTotal))
+		// 负增量或零增量的警告
+		if deltaIn < 0 || deltaOut < 0 {
+			global.APP_LOG.Warn("检测到负流量增量，可能是vnStat异常或时钟回退",
+				zap.Uint("instanceID", instanceID),
+				zap.Int64("deltaIn", deltaIn),
+				zap.Int64("deltaOut", deltaOut),
+				zap.Int64("deltaTotal", deltaTotal),
+				zap.Int64("currentRx", data.RxMB),
+				zap.Int64("lastRx", record.LastVnstatRxMB),
+				zap.Int64("currentTx", data.TxMB),
+				zap.Int64("lastTx", record.LastVnstatTxMB),
+				zap.String("可能原因", "vnStat数据库损坏/NTP时钟回退/网卡流量计数器异常"))
+		} else {
+			global.APP_LOG.Debug("流量增量为零，跳过更新",
+				zap.Uint("instanceID", instanceID),
+				zap.Int64("deltaIn", deltaIn),
+				zap.Int64("deltaOut", deltaOut),
+				zap.Int64("deltaTotal", deltaTotal))
+		}
 	}
 
-	// 同时更新实例表的流量基准值（用于兼容性和快速查询）
+	// 同步更新实例表的vnStat基准值（用于快速查询和API展示）
+	// 注意：这里存储的是vnStat的累计值，而非TrafficRecord的月度增量
+	// 如果更新失败，不影响TrafficRecord的准确性，TrafficRecord是权威数据源
 	instanceUpdates := map[string]interface{}{
-		"used_traffic_in":  data.RxMB,
-		"used_traffic_out": data.TxMB,
+		"used_traffic_in":  data.RxMB, // vnStat累计接收流量（MB）
+		"used_traffic_out": data.TxMB, // vnStat累计发送流量（MB）
 	}
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(instanceUpdates).Error; err != nil {
-		global.APP_LOG.Warn("更新实例流量基准失败",
+	if err := global.APP_DB.Model(&provider.Instance{}).
+		Where("id = ?", instanceID).
+		Updates(instanceUpdates).Error; err != nil {
+		// 提升为Error级别：这会导致Instance表和TrafficRecord不一致
+		global.APP_LOG.Error("更新实例vnStat基准值失败，可能导致API显示不准确",
 			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
+			zap.Int64("vnstatRxMB", data.RxMB),
+			zap.Int64("vnstatTxMB", data.TxMB),
+			zap.Error(err),
+			zap.String("说明", "TrafficRecord仍然准确，仅影响Instance表查询"))
+		// 不返回错误，因为TrafficRecord已成功更新
 	}
 
 	return nil
@@ -508,8 +661,20 @@ func (s *Service) checkAndResetMonthlyTraffic(userID uint) error {
 
 	now := time.Now()
 
-	// 检查是否到了重置时间
-	if u.TrafficResetAt != nil && now.After(*u.TrafficResetAt) {
+	// 初始化TrafficResetAt（新用户或数据迁移）
+	if u.TrafficResetAt == nil {
+		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+		u.TrafficResetAt = &nextReset
+		if err := global.APP_DB.Model(&u).Update("traffic_reset_at", nextReset).Error; err != nil {
+			global.APP_LOG.Error("初始化用户流量重置时间失败",
+				zap.Uint("userID", userID),
+				zap.Error(err))
+		}
+		return nil // 本月不重置，等下个月
+	}
+
+	// 检查是否到了重置时间（使用 >= 判断，确保整点00:00:00立即触发）
+	if !now.Before(*u.TrafficResetAt) {
 		// 重置流量
 		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
 
@@ -531,6 +696,7 @@ func (s *Service) checkAndResetMonthlyTraffic(userID uint) error {
 }
 
 // resumeUserInstances 恢复用户的受限实例
+// 使用乐观锁防止并发场景下重复处理同一实例
 func (s *Service) resumeUserInstances(userID uint) error {
 	var instances []provider.Instance
 	err := global.APP_DB.Where("user_id = ? AND traffic_limited = ?", userID, true).Find(&instances).Error
@@ -538,118 +704,89 @@ func (s *Service) resumeUserInstances(userID uint) error {
 		return err
 	}
 
+	global.APP_LOG.Info("开始恢复用户受限实例",
+		zap.Uint("userID", userID),
+		zap.Int("实例数量", len(instances)))
+
+	successCount := 0
 	for _, instance := range instances {
-		// 恢复实例状态
-		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
-			"traffic_limited": false,
-			"status":          "running",
-		}).Error; err != nil {
+		// 使用乐观锁：只更新traffic_limited=true的实例
+		// 如果并发任务已处理，RowsAffected会是0
+		result := global.APP_DB.Model(&provider.Instance{}).
+			Where("id = ? AND traffic_limited = ?", instance.ID, true).
+			Updates(map[string]interface{}{
+				"traffic_limited": false,
+				"status":          "running",
+			})
+
+		if result.Error != nil {
 			global.APP_LOG.Error("恢复实例状态失败",
 				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
+				zap.Error(result.Error))
 			continue
 		}
 
-		// 启动实例
-		go s.startInstanceAfterTrafficReset(instance.ID)
-	}
-
-	return nil
-}
-
-// StopProviderInstancesForTrafficLimit 因Provider流量超限停止所有实例
-func (s *Service) StopProviderInstancesForTrafficLimit(providerID uint) error {
-	var instances []provider.Instance
-	err := global.APP_DB.Where("provider_id = ? AND status = ? AND traffic_limited = ?",
-		providerID, "running", false).Find(&instances).Error
-	if err != nil {
-		return err
-	}
-
-	for _, instance := range instances {
-		// 标记实例为流量受限
-		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
-			"traffic_limited": true,
-			"status":          "stopped",
-		}).Error; err != nil {
-			global.APP_LOG.Error("标记Provider实例为流量受限失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
+		if result.RowsAffected == 0 {
+			// 已被其他任务处理，跳过
+			global.APP_LOG.Debug("实例已被其他任务恢复，跳过",
+				zap.Uint("instanceID", instance.ID))
 			continue
 		}
 
-		// 执行停止操作 - 这里需要调用用户服务
-		if err := s.performInstanceAction(instance.UserID, userModel.InstanceActionRequest{
-			InstanceID: instance.ID,
-			Action:     "stop",
-		}); err != nil {
-			global.APP_LOG.Error("停止Provider实例失败",
+		// 成功更新状态，创建启动任务
+		if err := s.createStartTaskForInstance(instance.ID, instance.UserID, instance.ProviderID); err != nil {
+			global.APP_LOG.Error("创建实例启动任务失败",
 				zap.Uint("instanceID", instance.ID),
 				zap.Error(err))
-		}
-	}
-
-	return nil
-}
-
-// StopUserInstancesForTrafficLimit 因用户流量超限停止用户的所有实例
-func (s *Service) StopUserInstancesForTrafficLimit(userID uint) error {
-	var instances []provider.Instance
-	err := global.APP_DB.Where("user_id = ? AND status = ? AND traffic_limited = ?",
-		userID, "running", false).Find(&instances).Error
-	if err != nil {
-		return err
-	}
-
-	for _, instance := range instances {
-		// 标记实例为流量受限
-		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
-			"traffic_limited": true,
-			"status":          "stopped",
-		}).Error; err != nil {
-			global.APP_LOG.Error("标记用户实例为流量受限失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
+			// 回滚状态更新
+			global.APP_DB.Model(&provider.Instance{}).
+				Where("id = ?", instance.ID).
+				Updates(map[string]interface{}{
+					"traffic_limited": true,
+					"status":          "stopped",
+				})
 			continue
 		}
 
-		// 执行停止操作
-		if err := s.performInstanceAction(userID, userModel.InstanceActionRequest{
-			InstanceID: instance.ID,
-			Action:     "stop",
-		}); err != nil {
-			global.APP_LOG.Error("停止用户实例失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-		}
+		successCount++
+		global.APP_LOG.Info("已创建实例启动任务",
+			zap.Uint("instanceID", instance.ID),
+			zap.String("instanceName", instance.Name))
 	}
 
-	return nil
-}
-
-// performInstanceAction 执行实例操作（内部方法，避免循环依赖）
-func (s *Service) performInstanceAction(userID uint, req userModel.InstanceActionRequest) error {
-	// 这里应该调用用户服务的实例操作方法
-	// 由于避免循环依赖，这里使用简化实现
-	// 在实际使用中，应该通过接口或事件机制来处理
-	global.APP_LOG.Info("执行实例操作",
+	global.APP_LOG.Info("用户实例恢复完成",
 		zap.Uint("userID", userID),
-		zap.Uint("instanceID", req.InstanceID),
-		zap.String("action", req.Action))
+		zap.Int("成功数量", successCount),
+		zap.Int("总数量", len(instances)))
+
 	return nil
 }
 
-// startInstanceAfterTrafficReset 流量重置后启动实例
-func (s *Service) startInstanceAfterTrafficReset(instanceID uint) {
-	err := s.performInstanceAction(0, userModel.InstanceActionRequest{
-		InstanceID: instanceID,
-		Action:     "start",
-	})
-	if err != nil {
-		global.APP_LOG.Error("流量重置后启动实例失败",
-			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
+// createStartTaskForInstance 创建实例启动任务（同步方法，不使用goroutine）
+func (s *Service) createStartTaskForInstance(instanceID, userID, providerID uint) error {
+	task := &adminModel.Task{
+		TaskType:         "start",
+		Status:           "pending",
+		Progress:         0,
+		StatusMessage:    "流量重置后自动启动实例",
+		UserID:           userID,
+		ProviderID:       &providerID,
+		InstanceID:       &instanceID,
+		TimeoutDuration:  600,
+		IsForceStoppable: true,
+		CanForceStop:     false,
 	}
+
+	if err := global.APP_DB.Create(task).Error; err != nil {
+		return fmt.Errorf("创建启动任务失败: %w", err)
+	}
+
+	// 触发调度器处理任务
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+
+	return nil
 }
 
 // GetInstanceTrafficHistory 获取实例流量历史
@@ -664,75 +801,42 @@ func (s *Service) GetInstanceTrafficHistory(instanceID uint) ([]userModel.Traffi
 }
 
 // SyncAllTrafficData 同步所有流量数据（用户级和Provider级）
+// 注意：此方法仅同步流量数据，不执行流量限制检查
+// 流量限制检查由 ThreeTierLimitService 负责
 func (s *Service) SyncAllTrafficData() error {
-	global.APP_LOG.Debug("开始同步所有流量数据")
+	global.APP_LOG.Debug("开始同步流量数据")
 
-	// 1. 首先同步所有实例的流量数据
+	// 获取所有实例（包括软删除的，用于月度切换时的基准迁移）
+	// 使用 Unscoped() 可以确保月初被删除的实例也能完成基准迁移
 	var instances []provider.Instance
-	err := global.APP_DB.Where("status IN ?", []string{"running", "stopped"}).Find(&instances).Error
-	if err != nil {
-		return err
+	if err := global.APP_DB.Unscoped().
+		Where("status NOT IN ?", []string{"deleting"}).
+		Find(&instances).Error; err != nil {
+		return fmt.Errorf("获取实例列表失败: %w", err)
 	}
 
-	// 收集需要处理的用户和Provider
-	userMap := make(map[uint]bool)
+	global.APP_LOG.Debug("获取实例列表",
+		zap.Int("实例总数", len(instances)))
+
+	// 用于收集唯一的Provider
 	providerMap := make(map[uint]bool)
 
 	for _, instance := range instances {
+		// 同步每个实例的流量（包括软删除的，用于基准迁移）
 		if err := s.SyncInstanceTraffic(instance.ID); err != nil {
 			global.APP_LOG.Error("同步实例流量失败",
 				zap.Uint("instanceID", instance.ID),
 				zap.Error(err))
-			continue
 		}
-		userMap[instance.UserID] = true
 		providerMap[instance.ProviderID] = true
 	}
 
-	// 2. 同步Provider流量统计
+	// 同步Provider流量（汇总所有实例的流量）
 	for providerID := range providerMap {
 		if err := s.SyncProviderTraffic(providerID); err != nil {
 			global.APP_LOG.Error("同步Provider流量失败",
 				zap.Uint("providerID", providerID),
 				zap.Error(err))
-		}
-	}
-
-	// 3. 检查Provider流量限制并处理超限
-	for providerID := range providerMap {
-		limited, err := s.CheckProviderTrafficLimit(providerID)
-		if err != nil {
-			global.APP_LOG.Error("检查Provider流量限制失败",
-				zap.Uint("providerID", providerID),
-				zap.Error(err))
-			continue
-		}
-
-		if limited {
-			if err := s.StopProviderInstancesForTrafficLimit(providerID); err != nil {
-				global.APP_LOG.Error("因Provider流量超限停止实例失败",
-					zap.Uint("providerID", providerID),
-					zap.Error(err))
-			}
-		}
-	}
-
-	// 4. 检查用户流量限制
-	for userID := range userMap {
-		limited, err := s.CheckUserTrafficLimit(userID)
-		if err != nil {
-			global.APP_LOG.Error("检查用户流量限制失败",
-				zap.Uint("userID", userID),
-				zap.Error(err))
-			continue
-		}
-
-		if limited {
-			if err := s.StopUserInstancesForTrafficLimit(userID); err != nil {
-				global.APP_LOG.Error("因用户流量超限停止实例失败",
-					zap.Uint("userID", userID),
-					zap.Error(err))
-			}
 		}
 	}
 
