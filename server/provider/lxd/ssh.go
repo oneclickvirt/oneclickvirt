@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -417,13 +418,52 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 }
 
 func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
+	// 执行启动命令
 	_, err := l.sshClient.Execute(fmt.Sprintf("lxc start %s", id))
 	if err != nil {
+		// 如果错误提示实例已在运行，不视为错误
+		if strings.Contains(err.Error(), "already running") ||
+			strings.Contains(err.Error(), "The instance is already running") {
+			global.APP_LOG.Info("LXD实例已在运行", zap.String("id", id))
+			return nil
+		}
 		return fmt.Errorf("failed to start instance: %w", err)
 	}
 
-	global.APP_LOG.Info("通过SSH成功启动LXD实例", zap.String("id", utils.TruncateString(id, 50)))
-	return nil
+	global.APP_LOG.Info("已发送启动命令，等待实例启动", zap.String("id", id))
+
+	// 等待实例真正启动 - 最多等待90秒
+	maxWaitTime := 90 * time.Second
+	checkInterval := 10 * time.Second
+	startTime := time.Now()
+
+	for {
+		// 检查是否超时
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待实例启动超时 (90秒)")
+		}
+
+		// 等待一段时间后再检查
+		time.Sleep(checkInterval)
+
+		// 检查实例状态
+		statusOutput, err := l.sshClient.Execute(fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", id))
+		if err == nil {
+			status := strings.TrimSpace(statusOutput)
+			if status == "RUNNING" || status == "Running" {
+				// 实例已经启动，再等待额外的时间确保系统完全就绪
+				time.Sleep(3 * time.Second)
+				global.APP_LOG.Info("LXD实例已成功启动并就绪",
+					zap.String("id", utils.TruncateString(id, 50)),
+					zap.Duration("wait_time", time.Since(startTime)))
+				return nil
+			}
+		}
+
+		global.APP_LOG.Debug("等待实例启动",
+			zap.String("id", id),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
 }
 
 func (l *LXDProvider) sshStopInstance(ctx context.Context, id string) error {

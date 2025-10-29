@@ -288,17 +288,3 @@ func (p *ProxmoxProvider) getNetworkConfigFromProvider(ctx context.Context) (ena
 
 	return hasIPv6, providerInfo.IPv6PortMappingMethod, providerInfo.IPv4PortMappingMethod
 }
-
-// configureNetworkLimits 配置网络限速（占位实现）
-func (p *ProxmoxProvider) configureNetworkLimits(ctx context.Context, instanceName string, networkConfig NetworkConfig) error {
-	global.APP_LOG.Info("配置网络限速（Proxmox占位实现）",
-		zap.String("instanceName", instanceName),
-		zap.Int("inSpeed", networkConfig.InSpeed),
-		zap.Int("outSpeed", networkConfig.OutSpeed))
-
-	// TODO: 实现Proxmox网络限速配置
-	// 这里需要根据Proxmox API实现真正的带宽限制
-	global.APP_LOG.Warn("Proxmox网络限速配置暂未实现，需要后续完善")
-
-	return nil
-}

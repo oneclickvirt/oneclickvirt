@@ -2,10 +2,7 @@ package proxmox
 
 import (
 	"context"
-	"crypto/sha256"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
@@ -62,79 +59,6 @@ func (p *ProxmoxProvider) getCDNURL(originalURL string) string {
 	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
 		zap.String("originalURL", utils.TruncateString(originalURL, 100)))
 	return ""
-}
-
-// handleImageDownloadAndImport 处理镜像下载和导入的通用逻辑
-func (p *ProxmoxProvider) handleImageDownloadAndImport(ctx context.Context, config *provider.InstanceConfig) error {
-	// 为镜像名称添加前缀
-	originalImageName := config.Image
-	imageNameWithPrefix := "oneclickvirt_" + config.Image
-
-	// 根据实例类型确定镜像类型和存储路径
-	var imageTypeStr string
-	var targetDir string
-	if config.InstanceType == "container" {
-		imageTypeStr = "容器"
-		targetDir = "/var/lib/vz/template/cache" // LXC容器模板路径
-	} else {
-		imageTypeStr = "虚拟机"
-		targetDir = "/var/lib/vz/template/iso" // ISO镜像路径
-	}
-
-	// 如果有镜像URL，先下载镜像到指定路径
-	if config.ImageURL != "" {
-		global.APP_LOG.Info("ProxmoxVE"+imageTypeStr+"镜像将通过sshPullImage直接下载到远程服务器",
-			zap.String("imageURL", config.ImageURL),
-			zap.String("type", config.InstanceType),
-			zap.String("targetDir", targetDir))
-
-		// 设置镜像路径为目标位置
-		imageName := filepath.Base(config.ImageURL)
-		config.ImagePath = fmt.Sprintf("%s/%s", targetDir, imageName)
-
-		global.APP_LOG.Info("ProxmoxVE"+imageTypeStr+"镜像路径设置",
-			zap.String("imagePath", config.ImagePath),
-			zap.String("type", config.InstanceType))
-
-		// 实际下载镜像到指定路径
-		if _, err := p.sshPullImageToPath(ctx, config.ImageURL, config.ImagePath); err != nil {
-			return fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
-		}
-
-		// 生成基于URL、架构和实例类型的唯一别名，避免重复
-		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + p.generateImageAlias(config.ImageURL, originalImageName, p.config.Architecture)[len(originalImageName)+1:]
-	} else {
-		config.Image = imageNameWithPrefix + "_" + config.InstanceType
-	}
-
-	// 如果有镜像文件路径，确保文件存在即可（ProxmoxVE暂时只需要保证文件存在）
-	if config.ImagePath != "" {
-		global.APP_LOG.Info("ProxmoxVE"+imageTypeStr+"镜像文件已准备",
-			zap.String("imagePath", config.ImagePath),
-			zap.String("imageName", config.Image),
-			zap.String("type", config.InstanceType))
-
-		// 检查文件是否存在
-		if _, err := os.Stat(config.ImagePath); err != nil {
-			return fmt.Errorf("ProxmoxVE%s镜像文件不存在: %w", imageTypeStr, err)
-		}
-
-		global.APP_LOG.Info("ProxmoxVE"+imageTypeStr+"镜像文件验证成功",
-			zap.String("imagePath", config.ImagePath),
-			zap.String("imageName", config.Image),
-			zap.String("type", config.InstanceType))
-	}
-
-	return nil
-}
-
-// generateImageAlias 生成基于URL、镜像名和架构的唯一别名
-func (p *ProxmoxProvider) generateImageAlias(imageURL, imageName, architecture string) string {
-	// 使用URL和架构的哈希值来生成唯一标识
-	hashInput := fmt.Sprintf("%s_%s", imageURL, architecture)
-	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(hashInput)))
-	// 取前8位哈希值，组合镜像名和架构
-	return fmt.Sprintf("%s-%s-%s", imageName, architecture, hash[:8])
 }
 
 // convertMemoryFormat 转换内存格式为Proxmox VE支持的格式
@@ -278,11 +202,12 @@ func (p *ProxmoxProvider) checkVMCTStatus(ctx context.Context, id string, instan
 	maxAttempts := 5
 	for i := 1; i <= maxAttempts; i++ {
 		var cmd string
-		if instanceType == "vm" {
+		switch instanceType {
+		case "vm":
 			cmd = fmt.Sprintf("qm status %s 2>/dev/null | grep -w 'status:' | awk '{print $2}'", id)
-		} else if instanceType == "container" {
+		case "container":
 			cmd = fmt.Sprintf("pct status %s 2>/dev/null | grep -w 'status:' | awk '{print $2}'", id)
-		} else {
+		default:
 			return fmt.Errorf("unknown instance type: %s", instanceType)
 		}
 
@@ -597,4 +522,323 @@ func (p *ProxmoxProvider) cleanupVnStatMonitoring(ctx context.Context, vmid stri
 	}
 
 	return nil
+}
+
+// isPrivateIPv6 检查是否为私有IPv6地址
+func (p *ProxmoxProvider) isPrivateIPv6(address string) bool {
+	if address == "" || !strings.Contains(address, ":") {
+		return true
+	}
+
+	// 私有IPv6地址范围检查
+	privateRanges := []string{
+		"fe80:",        // 链路本地地址
+		"fc00:",        // 唯一本地地址
+		"fd00:",        // 唯一本地地址
+		"2001:db8:",    // 文档用途（注意：只有2001:db8:才是私有的）
+		"::1",          // 回环地址
+		"::ffff:",      // IPv4映射地址
+		"fd42:",        // Docker等使用的私有地址
+		"2001:db8:1::", // 我们在NAT映射中使用的内部地址
+	}
+
+	for _, prefix := range privateRanges {
+		if strings.HasPrefix(address, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
+// countContainers 计算容器数量的辅助函数
+func countContainers(instances []provider.Instance) int {
+	count := 0
+	for _, instance := range instances {
+		if instance.Type == "container" {
+			count++
+		}
+	}
+	return count
+}
+
+// detectContainerPackageManager 检测容器包管理器类型
+func (p *ProxmoxProvider) detectContainerPackageManager(vmid int) string {
+	// 定义包管理器检测命令列表
+	packageManagers := []struct {
+		name    string
+		command string
+	}{
+		{"apk", "command -v apk"},
+		{"opkg", "command -v opkg"},
+		{"pacman", "command -v pacman"},
+		{"apt-get", "command -v apt-get"},
+		{"apt", "command -v apt"},
+		{"dnf", "command -v dnf"},
+		{"yum", "command -v yum"},
+		{"zypper", "command -v zypper"},
+	}
+
+	// 尝试检测每个包管理器
+	for _, pm := range packageManagers {
+		checkCmd := fmt.Sprintf("pct exec %d -- sh -c \"%s >/dev/null 2>&1 && echo 'found'\"", vmid, pm.command)
+		output, err := p.sshClient.Execute(checkCmd)
+		if err == nil && strings.TrimSpace(output) == "found" {
+			global.APP_LOG.Info("检测到包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pm.name))
+			return pm.name
+		}
+	}
+
+	// 如果没有检测到任何包管理器，返回unknown
+	global.APP_LOG.Warn("未检测到任何已知的包管理器", zap.Int("vmid", vmid))
+	return "unknown"
+}
+
+// configureContainerDNS 配置容器DNS
+func (p *ProxmoxProvider) configureContainerDNS(vmid int) {
+	dnsCommands := []string{
+		"sh -c \"if [ -f /etc/resolv.conf ]; then cp /etc/resolv.conf /etc/resolv.conf.bak; fi\"",
+		"sh -c \"echo 'nameserver 8.8.8.8' | tee -a /etc/resolv.conf >/dev/null\"",
+		"sh -c \"echo 'nameserver 8.8.4.4' | tee -a /etc/resolv.conf >/dev/null\"",
+	}
+
+	for _, cmd := range dnsCommands {
+		fullCmd := fmt.Sprintf("pct exec %d -- %s", vmid, cmd)
+		_, err := p.sshClient.Execute(fullCmd)
+		if err != nil {
+			global.APP_LOG.Warn("配置DNS失败", zap.Int("vmid", vmid), zap.Error(err))
+		}
+	}
+}
+
+// configureAlpineSSH 配置Alpine容器SSH
+func (p *ProxmoxProvider) configureAlpineSSH(vmid int) {
+	commands := []string{
+		// 更新包管理器
+		"apk update",
+		// 安装必要软件
+		"apk add --no-cache openssh-server",
+		"apk add --no-cache sshpass",
+		"apk add --no-cache openssh-keygen",
+		"apk add --no-cache bash",
+		"apk add --no-cache curl",
+		"apk add --no-cache wget",
+		// 生成SSH密钥
+		"sh -c \"cd /etc/ssh && ssh-keygen -A\"",
+		// 配置sshd_config - 使用chattr解锁
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i '/^#PermitRootLogin\\|PermitRootLogin/c PermitRootLogin yes' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i '/^#AddressFamily\\|AddressFamily/c AddressFamily any' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?\\(Port\\).*/\\1 22/' /etc/ssh/sshd_config",
+		"sed -i '/^#UsePAM\\|UsePAM/c #UsePAM no' /etc/ssh/sshd_config",
+		// 配置cloud-init
+		"sed -E -i 's/preserve_hostname:[[:space:]]*false/preserve_hostname: true/g' /etc/cloud/cloud.cfg 2>/dev/null || true",
+		"sed -E -i 's/disable_root:[[:space:]]*true/disable_root: false/g' /etc/cloud/cloud.cfg 2>/dev/null || true",
+		"sed -E -i 's/ssh_pwauth:[[:space:]]*false/ssh_pwauth:   true/g' /etc/cloud/cloud.cfg 2>/dev/null || true",
+		// 启动SSH服务
+		"/usr/sbin/sshd",
+		"rc-update add sshd default",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+	}
+
+	p.executeContainerCommands(vmid, commands, "Alpine")
+}
+
+// configureOpenWrtSSH 配置OpenWrt容器SSH
+func (p *ProxmoxProvider) configureOpenWrtSSH(vmid int) {
+	commands := []string{
+		// 更新包管理器
+		"opkg update",
+		// 安装必要软件
+		"opkg install openssh-server",
+		"opkg install bash",
+		"opkg install openssh-keygen",
+		"opkg install shadow-chpasswd",
+		"opkg install chattr",
+		// 生成SSH密钥
+		"sh -c \"cd /etc/ssh && ssh-keygen -A\"",
+		// 配置sshd_config
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i 's/^#\\?Port.*/Port 22/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
+		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		// 启动SSH服务
+		"/etc/init.d/sshd enable",
+		"/etc/init.d/sshd start",
+	}
+
+	p.executeContainerCommands(vmid, commands, "OpenWrt")
+}
+
+// configureArchSSH 配置Arch容器SSH
+func (p *ProxmoxProvider) configureArchSSH(vmid int) {
+	commands := []string{
+		// 初始化GPG密钥
+		"sh -c \"rm -rf /etc/pacman.d/gnupg/\"",
+		"pacman-key --init",
+		"pacman-key --populate archlinux",
+		// 更新系统
+		"pacman -Syyuu --noconfirm",
+		// 安装必要软件
+		"pacman -Sy --needed --noconfirm openssh",
+		"pacman -Sy --needed --noconfirm bash",
+		// 配置sshd_config
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i 's/^#\\?Port.*/Port 22/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
+		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		// 启动SSH服务
+		"systemctl enable sshd",
+		"systemctl start sshd",
+	}
+
+	p.executeContainerCommands(vmid, commands, "Arch")
+}
+
+// configureDebianBasedSSH 配置Debian/Ubuntu等基于APT的系统SSH
+func (p *ProxmoxProvider) configureDebianBasedSSH(vmid int) {
+	commands := []string{
+		// 检查并修复APT
+		"sh -c \"apt-get update 2>&1 | tee /tmp/apt_fix.txt\"",
+		"sh -c \"if grep -q 'NO_PUBKEY' /tmp/apt_fix.txt; then public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' /tmp/apt_fix.txt | awk '{ print $2 }' | paste -sd ' '); apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $public_keys; apt-get update; fi\"",
+		// 修复损坏的包
+		"apt-get --fix-broken install -y",
+		// 更新包列表
+		"apt-get update -y",
+		// 安装必要软件
+		"apt-get install -y openssh-server sshpass curl",
+		// 生成SSH密钥
+		"ssh-keygen -A",
+		// 配置sshd_config
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i 's/^#\\?Port.*/Port 22/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
+		"sed -i '/^#UsePAM\\|UsePAM/c #UsePAM no' /etc/ssh/sshd_config",
+		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
+		// 处理sshd_config.d目录中的配置文件
+		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		// 启动SSH服务
+		"systemctl enable ssh 2>/dev/null || systemctl enable sshd 2>/dev/null || true",
+		"systemctl start ssh 2>/dev/null || systemctl start sshd 2>/dev/null || service ssh start || service sshd start",
+		// 配置IPv6优先级
+		"sed -i 's/.*precedence ::ffff:0:0\\/96.*/precedence ::ffff:0:0\\/96  100/g' /etc/gai.conf",
+		// 设置motd
+		"sh -c \"if [ -f /etc/motd ]; then echo '' > /etc/motd; echo 'Related repo https://github.com/oneclickvirt/pve' >> /etc/motd; echo '--by https://t.me/spiritlhl' >> /etc/motd; fi\"",
+	}
+
+	p.executeContainerCommands(vmid, commands, "Debian-based")
+}
+
+// configureRHELBasedSSH 配置RHEL/CentOS/Fedora等基于YUM/DNF的系统SSH
+func (p *ProxmoxProvider) configureRHELBasedSSH(vmid int) {
+	// 检测使用yum还是dnf
+	checkDnfCmd := fmt.Sprintf("pct exec %d -- sh -c \"command -v dnf >/dev/null 2>&1 && echo 'dnf' || echo 'yum'\"", vmid)
+	output, _ := p.sshClient.Execute(checkDnfCmd)
+	pkgCmd := strings.TrimSpace(output)
+	if pkgCmd == "" {
+		pkgCmd = "yum" // 默认使用yum
+	}
+
+	commands := []string{
+		// 更新包管理器
+		fmt.Sprintf("%s -y update", pkgCmd),
+		// 安装必要软件
+		fmt.Sprintf("%s -y install openssh-server curl", pkgCmd),
+		// 生成SSH密钥
+		"ssh-keygen -A",
+		// 停止防火墙服务
+		"service iptables stop 2>/dev/null || true",
+		"chkconfig iptables off 2>/dev/null || true",
+		// 禁用SELinux
+		"sh -c \"if [ -f /etc/sysconfig/selinux ]; then sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/sysconfig/selinux; fi\"",
+		"sh -c \"if [ -f /etc/selinux/config ]; then sed -i.bak '/^SELINUX=/cSELINUX=disabled' /etc/selinux/config; fi\"",
+		"setenforce 0 2>/dev/null || true",
+		// 配置sshd_config
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i 's/^#\\?Port.*/Port 22/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
+		"sed -i '/^#UsePAM\\|UsePAM/c #UsePAM no' /etc/ssh/sshd_config",
+		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
+		// 处理sshd_config.d目录中的配置文件
+		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		// 启动SSH服务
+		"systemctl enable sshd 2>/dev/null || service sshd enable 2>/dev/null || true",
+		"systemctl start sshd 2>/dev/null || service sshd start",
+		// 配置IPv6优先级
+		"sed -i 's/.*precedence ::ffff:0:0\\/96.*/precedence ::ffff:0:0\\/96  100/g' /etc/gai.conf",
+		// 设置motd
+		"sh -c \"if [ -f /etc/motd ]; then echo '' > /etc/motd; echo 'Related repo https://github.com/oneclickvirt/pve' >> /etc/motd; echo '--by https://t.me/spiritlhl' >> /etc/motd; fi\"",
+	}
+
+	p.executeContainerCommands(vmid, commands, "RHEL-based")
+}
+
+// configureOpenSUSESSH 配置openSUSE系统SSH
+func (p *ProxmoxProvider) configureOpenSUSESSH(vmid int) {
+	commands := []string{
+		// 更新包管理器
+		"zypper update -y",
+		// 安装必要软件
+		"zypper install -y openssh-server curl",
+		// 生成SSH密钥
+		"ssh-keygen -A",
+		// 配置sshd_config
+		"sh -c \"chattr -i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		"sed -i 's/^#\\?Port.*/Port 22/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PermitRootLogin.*/PermitRootLogin yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PasswordAuthentication.*/PasswordAuthentication yes/g' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress 0.0.0.0/ListenAddress 0.0.0.0/' /etc/ssh/sshd_config",
+		"sed -i 's/#ListenAddress ::/ListenAddress ::/' /etc/ssh/sshd_config",
+		"sed -i 's/#AddressFamily any/AddressFamily any/' /etc/ssh/sshd_config",
+		"sed -i 's/^#\\?PubkeyAuthentication.*/PubkeyAuthentication no/g' /etc/ssh/sshd_config",
+		"sed -i '/^#UsePAM\\|UsePAM/c #UsePAM no' /etc/ssh/sshd_config",
+		"sed -i '/^AuthorizedKeysFile/s/^/#/' /etc/ssh/sshd_config",
+		"sed -i 's/^#[[:space:]]*KbdInteractiveAuthentication.*\\|^KbdInteractiveAuthentication.*/KbdInteractiveAuthentication yes/' /etc/ssh/sshd_config",
+		// 处理sshd_config.d目录中的配置文件
+		"sh -c \"if [ -d /etc/ssh/sshd_config.d ]; then for file in /etc/ssh/sshd_config.d/*; do if [ -f \\\"$file\\\" ] && grep -q 'PasswordAuthentication no' \\\"$file\\\"; then sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/g' \\\"$file\\\"; fi; done; fi\"",
+		// 锁定配置文件
+		"sh -c \"chattr +i /etc/ssh/sshd_config 2>/dev/null || true\"",
+		// 启动SSH服务
+		"systemctl enable sshd",
+		"systemctl start sshd",
+		// 配置IPv6优先级
+		"sed -i 's/.*precedence ::ffff:0:0\\/96.*/precedence ::ffff:0:0\\/96  100/g' /etc/gai.conf",
+		// 设置motd
+		"sh -c \"if [ -f /etc/motd ]; then echo '' > /etc/motd; echo 'Related repo https://github.com/oneclickvirt/pve' >> /etc/motd; echo '--by https://t.me/spiritlhl' >> /etc/motd; fi\"",
+	}
+
+	p.executeContainerCommands(vmid, commands, "openSUSE")
 }

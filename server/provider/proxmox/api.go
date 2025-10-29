@@ -16,6 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
+// apiListInstances 通过API方式获取Proxmox实例列表
 func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Instance, error) {
 	var instances []provider.Instance
 
@@ -118,10 +119,12 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 	return instances, nil
 }
 
+// apiCreateInstance 通过API方式创建Proxmox实例
 func (p *ProxmoxProvider) apiCreateInstance(ctx context.Context, config provider.InstanceConfig) error {
 	return p.apiCreateInstanceWithProgress(ctx, config, nil)
 }
 
+// apiCreateInstanceWithProgress 通过API方式创建Proxmox实例，并支持进度回调
 func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
@@ -205,8 +208,25 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	return nil
 }
 
+// apiStartInstance 通过API方式启动Proxmox实例
 func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error {
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/start", p.config.Host, p.node, id)
+	// 先查找实例的VMID和类型，以便确定正确的API端点
+	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
+	if err != nil {
+		return fmt.Errorf("failed to find instance %s: %w", id, err)
+	}
+
+	// 根据实例类型构建正确的URL
+	var url string
+	switch instanceType {
+	case "vm":
+		url = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/start", p.config.Host, p.node, vmid)
+	case "container":
+		url = fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/start", p.config.Host, p.node, vmid)
+	default:
+		return fmt.Errorf("unknown instance type: %s", instanceType)
+	}
+
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
 	if err != nil {
 		return err
@@ -222,12 +242,56 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("failed to start VM: %d", resp.StatusCode)
+		return fmt.Errorf("failed to start %s: %d", instanceType, resp.StatusCode)
 	}
 
-	return nil
+	global.APP_LOG.Info("已发送启动命令，等待实例启动",
+		zap.String("id", id),
+		zap.String("vmid", vmid),
+		zap.String("type", instanceType))
+
+	// 等待实例真正启动 - 最多等待60秒
+	maxWaitTime := 60 * time.Second
+	checkInterval := 2 * time.Second
+	startTime := time.Now()
+
+	for {
+		// 检查是否超时
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待实例启动超时 (60秒)")
+		}
+
+		// 等待一段时间后再检查
+		time.Sleep(checkInterval)
+
+		// 使用SSH检查实例状态
+		var statusCmd string
+		switch instanceType {
+		case "vm":
+			statusCmd = fmt.Sprintf("qm status %s", vmid)
+		case "container":
+			statusCmd = fmt.Sprintf("pct status %s", vmid)
+		}
+
+		statusOutput, err := p.sshClient.Execute(statusCmd)
+		if err == nil && strings.Contains(statusOutput, "status: running") {
+			// 实例已经启动，再等待额外的时间确保系统完全就绪
+			time.Sleep(5 * time.Second)
+			global.APP_LOG.Info("Proxmox实例已成功启动并就绪",
+				zap.String("id", id),
+				zap.String("vmid", vmid),
+				zap.String("type", instanceType),
+				zap.Duration("wait_time", time.Since(startTime)))
+			return nil
+		}
+
+		global.APP_LOG.Debug("等待实例启动",
+			zap.String("vmid", vmid),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
 }
 
+// apiStopInstance 通过API方式停止Proxmox实例
 func (p *ProxmoxProvider) apiStopInstance(ctx context.Context, id string) error {
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/stop", p.config.Host, p.node, id)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
@@ -251,6 +315,7 @@ func (p *ProxmoxProvider) apiStopInstance(ctx context.Context, id string) error 
 	return nil
 }
 
+// apiRestartInstance 通过API方式重启Proxmox实例
 func (p *ProxmoxProvider) apiRestartInstance(ctx context.Context, id string) error {
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/reboot", p.config.Host, p.node, id)
 	req, err := http.NewRequestWithContext(ctx, "POST", url, nil)
@@ -274,6 +339,7 @@ func (p *ProxmoxProvider) apiRestartInstance(ctx context.Context, id string) err
 	return nil
 }
 
+// apiDeleteInstance 通过API方式删除Proxmox实例
 func (p *ProxmoxProvider) apiDeleteInstance(ctx context.Context, id string) error {
 	// 先通过SSH查找实例信息（API可能无法直接获取所有必要信息）
 	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
@@ -473,6 +539,7 @@ func (p *ProxmoxProvider) performPostDeletionCleanup(ctx context.Context, vmctid
 	return nil
 }
 
+// apiListImages 通过API方式获取Proxmox镜像列表
 func (p *ProxmoxProvider) apiListImages(ctx context.Context) ([]provider.Image, error) {
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/storage/local/content", p.config.Host, p.node)
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
@@ -514,12 +581,14 @@ func (p *ProxmoxProvider) apiListImages(ctx context.Context) ([]provider.Image, 
 	return images, nil
 }
 
+// apiPullImage 通过API方式拉取Proxmox镜像
 func (p *ProxmoxProvider) apiPullImage(ctx context.Context, image string) error {
 	// Proxmox API 拉取镜像与SSH方式一致，都是直接下载文件到文件系统
 	// 因为Proxmox没有独立的镜像仓库API，所以使用SSH方式下载
 	return p.sshPullImage(ctx, image)
 }
 
+// apiDeleteImage 通过API方式删除Proxmox镜像
 func (p *ProxmoxProvider) apiDeleteImage(ctx context.Context, id string) error {
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/storage/local/content/%s", p.config.Host, p.node, id)
 	req, err := http.NewRequestWithContext(ctx, "DELETE", url, nil)

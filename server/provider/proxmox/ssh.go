@@ -2,7 +2,6 @@ package proxmox
 
 import (
 	"context"
-	"crypto/md5"
 	"fmt"
 	"path/filepath"
 	"strconv"
@@ -11,7 +10,6 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
-	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
 	"oneclickvirt/service/traffic"
 	"oneclickvirt/service/vnstat"
@@ -122,17 +120,6 @@ func (p *ProxmoxProvider) sshListInstances(ctx context.Context) ([]provider.Inst
 		zap.Int("vmCount", len(instances)-countContainers(instances)),
 		zap.Int("containerCount", countContainers(instances)))
 	return instances, nil
-}
-
-// countContainers 计算容器数量的辅助函数
-func countContainers(instances []provider.Instance) int {
-	count := 0
-	for _, instance := range instances {
-		if instance.Type == "container" {
-			count++
-		}
-	}
-	return count
 }
 
 func (p *ProxmoxProvider) sshCreateInstance(ctx context.Context, config provider.InstanceConfig) error {
@@ -271,11 +258,42 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("failed to start %s %s: %w", instanceType, vmid, err)
 	}
 
-	global.APP_LOG.Info("通过SSH成功启动Proxmox实例",
+	global.APP_LOG.Info("已发送启动命令，等待实例启动",
 		zap.String("id", utils.TruncateString(id, 50)),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
-	return nil
+
+	// 等待实例真正启动 - 最多等待90秒
+	maxWaitTime := 90 * time.Second
+	checkInterval := 10 * time.Second
+	startTime := time.Now()
+
+	for {
+		// 检查是否超时
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待实例启动超时 (90秒)")
+		}
+
+		// 等待一段时间后再检查
+		time.Sleep(checkInterval)
+
+		// 检查实例状态
+		statusOutput, err := p.sshClient.Execute(statusCommand)
+		if err == nil && strings.Contains(statusOutput, "status: running") {
+			// 实例已经启动，再等待额外的时间确保系统完全就绪
+			time.Sleep(5 * time.Second)
+			global.APP_LOG.Info("Proxmox实例已成功启动并就绪",
+				zap.String("id", utils.TruncateString(id, 50)),
+				zap.String("vmid", vmid),
+				zap.String("type", instanceType),
+				zap.Duration("wait_time", time.Since(startTime)))
+			return nil
+		}
+
+		global.APP_LOG.Debug("等待实例启动",
+			zap.String("vmid", vmid),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
 }
 
 func (p *ProxmoxProvider) sshStopInstance(ctx context.Context, id string) error {
@@ -988,256 +1006,6 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	return nil
 }
 
-// prepareImage 准备镜像，确保镜像存在且可用
-func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceType string) error {
-	global.APP_LOG.Info("准备Proxmox镜像",
-		zap.String("image", imageName),
-		zap.String("type", instanceType))
-
-	// 创建配置结构
-	config := &provider.InstanceConfig{
-		Image:        imageName,
-		InstanceType: instanceType,
-	}
-
-	// 首先从数据库查询匹配的系统镜像
-	if err := p.queryAndSetSystemImage(ctx, config); err != nil {
-		global.APP_LOG.Warn("从数据库查询系统镜像失败，使用原有镜像配置",
-			zap.String("image", imageName),
-			zap.Error(err))
-	}
-
-	// 如果有ImageURL，使用下载逻辑
-	if config.ImageURL != "" {
-		global.APP_LOG.Info("从数据库获取到镜像下载URL，开始下载",
-			zap.String("imageURL", utils.TruncateString(config.ImageURL, 100)))
-
-		return p.downloadImageFromURL(ctx, config.ImageURL, imageName, instanceType)
-	}
-
-	// 否则使用原有的模板检查逻辑
-	if instanceType == "container" {
-		global.APP_LOG.Warn("数据库中未找到镜像配置，无法准备容器镜像",
-			zap.String("image", imageName))
-
-		return fmt.Errorf("数据库中未找到镜像 %s 的配置，请联系管理员添加镜像", imageName)
-	} else {
-		// 对于VM，如果没有数据库配置，检查本地ISO文件
-		global.APP_LOG.Warn("数据库中未找到VM镜像配置",
-			zap.String("image", imageName))
-
-		// 检查VM ISO文件是否存在
-		checkCmd := fmt.Sprintf("ls /var/lib/vz/template/iso/ | grep -i %s", imageName)
-
-		output, err := p.sshClient.Execute(checkCmd)
-		if err != nil || strings.TrimSpace(output) == "" {
-			// 镜像不存在，尝试下载
-			return p.downloadImage(ctx, imageName, instanceType)
-		}
-
-		global.APP_LOG.Info("Proxmox VM镜像已存在",
-			zap.String("image", imageName),
-			zap.String("type", instanceType))
-		return nil
-	}
-}
-
-// downloadImage 下载镜像
-func (p *ProxmoxProvider) downloadImage(ctx context.Context, imageName, instanceType string) error {
-	global.APP_LOG.Info("开始下载Proxmox镜像",
-		zap.String("image", imageName),
-		zap.String("type", instanceType))
-
-	// 检查是否有ImageURL配置
-	config := &provider.InstanceConfig{
-		Image:        imageName,
-		InstanceType: instanceType,
-	}
-
-	// 从数据库查询镜像配置
-	if err := p.queryAndSetSystemImage(ctx, config); err != nil {
-		global.APP_LOG.Warn("从数据库查询镜像配置失败，回退到默认逻辑",
-			zap.String("image", imageName),
-			zap.Error(err))
-
-		// 回退到原有的模板映射逻辑
-		return p.downloadImageByTemplate(ctx, imageName, instanceType)
-	}
-
-	// 如果有ImageURL，使用下载逻辑
-	if config.ImageURL != "" {
-		return p.downloadImageFromURL(ctx, config.ImageURL, imageName, instanceType)
-	}
-
-	// 否则回退到模板逻辑
-	return p.downloadImageByTemplate(ctx, imageName, instanceType)
-}
-
-// downloadImageFromURL 从URL下载镜像到远程服务器
-func (p *ProxmoxProvider) downloadImageFromURL(ctx context.Context, imageURL, imageName, instanceType string) error {
-	// 根据provider类型确定远程下载目录
-	var downloadDir string
-	if instanceType == "container" {
-		downloadDir = "/var/lib/vz/template/cache"
-	} else {
-		downloadDir = "/var/lib/vz/template/iso"
-	}
-
-	// 生成远程文件名
-	fileName := p.generateRemoteFileName(imageName, imageURL, p.config.Architecture)
-	remotePath := filepath.Join(downloadDir, fileName)
-
-	// 检查远程文件是否已存在且完整
-	if p.isRemoteFileValid(remotePath) {
-		global.APP_LOG.Info("远程镜像文件已存在且完整，跳过下载",
-			zap.String("imageName", imageName),
-			zap.String("remotePath", remotePath))
-		return nil
-	}
-
-	global.APP_LOG.Info("开始在远程服务器下载镜像",
-		zap.String("imageName", imageName),
-		zap.String("downloadURL", imageURL),
-		zap.String("remotePath", remotePath))
-
-	// 在远程服务器上下载文件
-	if err := p.downloadFileToRemote(imageURL, remotePath); err != nil {
-		// 下载失败，删除不完整的文件
-		p.removeRemoteFile(remotePath)
-		return fmt.Errorf("远程下载镜像失败: %w", err)
-	}
-
-	global.APP_LOG.Info("远程镜像下载完成",
-		zap.String("imageName", imageName),
-		zap.String("remotePath", remotePath))
-
-	return nil
-}
-
-// downloadImageByTemplate 使用模板映射下载镜像（保留原逻辑作为回退）
-func (p *ProxmoxProvider) downloadImageByTemplate(ctx context.Context, imageName, instanceType string) error {
-	if instanceType == "container" {
-		// 对于容器，先列出可用模板
-		availableCmd := "pveam available --section system"
-		availableOutput, err := p.sshClient.Execute(availableCmd)
-		if err != nil {
-			global.APP_LOG.Warn("无法获取可用模板列表", zap.Error(err))
-		} else {
-			global.APP_LOG.Debug("可用模板列表", zap.String("output", availableOutput))
-		}
-
-		global.APP_LOG.Warn("数据库中未找到容器镜像配置，无法下载",
-			zap.String("image", imageName),
-			zap.String("type", instanceType))
-
-		return fmt.Errorf("数据库中未找到镜像 %s 的配置，请联系管理员添加镜像", imageName)
-	} else {
-		// 对于VM镜像
-		global.APP_LOG.Warn("数据库中未找到VM镜像配置，无法下载",
-			zap.String("image", imageName),
-			zap.String("type", instanceType))
-
-		return fmt.Errorf("数据库中未找到VM镜像 %s 的配置，请联系管理员添加镜像", imageName)
-	}
-}
-
-// generateRemoteFileName 生成远程文件名
-func (p *ProxmoxProvider) generateRemoteFileName(imageName, imageURL, architecture string) string {
-	// 组合字符串
-	combined := fmt.Sprintf("%s_%s_%s", imageName, imageURL, architecture)
-
-	// 计算MD5
-	hasher := md5.New()
-	hasher.Write([]byte(combined))
-	md5Hash := fmt.Sprintf("%x", hasher.Sum(nil))
-
-	// 使用镜像名称和MD5的前8位作为文件名，保持可读性
-	safeName := strings.ReplaceAll(imageName, "/", "_")
-	safeName = strings.ReplaceAll(safeName, ":", "_")
-
-	// 根据URL中的文件扩展名决定下载后的文件扩展名
-	if strings.Contains(imageURL, ".qcow2") {
-		return fmt.Sprintf("%s_%s.qcow2", safeName, md5Hash[:8])
-	} else if strings.Contains(imageURL, ".iso") {
-		return fmt.Sprintf("%s_%s.iso", safeName, md5Hash[:8])
-	} else if strings.Contains(imageURL, ".tar.xz") {
-		return fmt.Sprintf("%s_%s.tar.xz", safeName, md5Hash[:8])
-	} else if strings.Contains(imageURL, ".zip") {
-		return fmt.Sprintf("%s_%s.zip", safeName, md5Hash[:8])
-	} else {
-		// 默认使用通用扩展名
-		return fmt.Sprintf("%s_%s.img", safeName, md5Hash[:8])
-	}
-}
-
-// isRemoteFileValid 检查远程文件是否存在且完整
-func (p *ProxmoxProvider) isRemoteFileValid(remotePath string) bool {
-	// 检查文件是否存在且大小大于0
-	cmd := fmt.Sprintf("test -f %s -a -s %s", remotePath, remotePath)
-	_, err := p.sshClient.Execute(cmd)
-	return err == nil
-}
-
-// removeRemoteFile 删除远程文件
-func (p *ProxmoxProvider) removeRemoteFile(remotePath string) error {
-	_, err := p.sshClient.Execute(fmt.Sprintf("rm -f %s", remotePath))
-	return err
-}
-
-// queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中
-func (p *ProxmoxProvider) queryAndSetSystemImage(ctx context.Context, config *provider.InstanceConfig) error {
-	// 构建查询条件
-	var systemImage systemModel.SystemImage
-	query := global.APP_DB.WithContext(ctx).Where("provider_type = ?", "proxmox")
-
-	// 按实例类型筛选
-	if config.InstanceType == "vm" {
-		query = query.Where("instance_type = ?", "vm")
-	} else {
-		query = query.Where("instance_type = ?", "container")
-	}
-
-	// 按操作系统匹配（如果配置中有指定）
-	if config.Image != "" {
-		// 尝试从镜像名中提取操作系统信息
-		imageLower := strings.ToLower(config.Image)
-		query = query.Where("LOWER(os_type) LIKE ? OR LOWER(name) LIKE ?", "%"+imageLower+"%", "%"+imageLower+"%")
-	}
-
-	// 按架构筛选
-	if p.config.Architecture != "" {
-		query = query.Where("architecture = ?", p.config.Architecture)
-	} else {
-		// 默认使用amd64
-		query = query.Where("architecture = ?", "amd64")
-	}
-
-	// 优先获取启用状态的镜像
-	query = query.Where("status = ?", "active").Order("created_at DESC")
-
-	err := query.First(&systemImage).Error
-	if err != nil {
-		return fmt.Errorf("未找到匹配的系统镜像: %w", err)
-	}
-
-	// 设置镜像配置，不在这里添加CDN前缀
-	// CDN前缀应该在实际下载时根据可用性和UseCDN设置动态添加
-	if systemImage.URL != "" {
-		config.ImageURL = systemImage.URL
-		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
-		global.APP_LOG.Info("从数据库获取到系统镜像配置",
-			zap.String("imageName", systemImage.Name),
-			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
-			zap.Bool("useCDN", systemImage.UseCDN),
-			zap.String("osType", systemImage.OSType),
-			zap.String("osVersion", systemImage.OSVersion),
-			zap.String("architecture", systemImage.Architecture),
-			zap.String("instanceType", systemImage.InstanceType))
-	}
-
-	return nil
-}
-
 // createContainer 创建LXC容器
 func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config provider.InstanceConfig, updateProgress func(int, string)) error {
 	updateProgress(10, "准备容器系统镜像...")
@@ -1478,7 +1246,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		net1Bridge = "vmbr2"
 	}
 
-	// 创建虚拟机（参考脚本 create_vm），包含IPv6网络接口
+	// 创建虚拟机，包含IPv6网络接口
 	createCmd := fmt.Sprintf(
 		"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
 		vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
@@ -1797,23 +1565,47 @@ func (p *ProxmoxProvider) configureContainerSSH(ctx context.Context, vmid int) {
 	// 等待容器完全启动
 	time.Sleep(3 * time.Second)
 
-	// 安装并配置SSH
-	sshCommands := []string{
-		"apt-get update -y",
-		"apt-get install -y openssh-server curl",
-		"systemctl enable ssh",
-		"systemctl start ssh",
-		"sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config",
-		"sed -i 's/#PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config",
-		"systemctl restart ssh",
+	global.APP_LOG.Info("开始配置容器SSH", zap.Int("vmid", vmid))
+
+	// 检测容器包管理器类型
+	pkgManager := p.detectContainerPackageManager(vmid)
+	global.APP_LOG.Info("检测到容器包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
+
+	// 备份并配置DNS
+	p.configureContainerDNS(vmid)
+
+	// 根据包管理器类型配置SSH
+	switch pkgManager {
+	case "apk":
+		p.configureAlpineSSH(vmid)
+	case "opkg":
+		p.configureOpenWrtSSH(vmid)
+	case "pacman":
+		p.configureArchSSH(vmid)
+	case "apt-get", "apt":
+		p.configureDebianBasedSSH(vmid)
+	case "yum", "dnf":
+		p.configureRHELBasedSSH(vmid)
+	case "zypper":
+		p.configureOpenSUSESSH(vmid)
+	default:
+		// 默认尝试Debian-based配置
+		global.APP_LOG.Warn("未知的包管理器，尝试使用Debian-based配置", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
+		p.configureDebianBasedSSH(vmid)
 	}
 
-	for _, cmd := range sshCommands {
+	global.APP_LOG.Info("容器SSH配置完成", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
+}
+
+// executeContainerCommands 执行容器命令的辅助函数
+func (p *ProxmoxProvider) executeContainerCommands(vmid int, commands []string, osType string) {
+	for _, cmd := range commands {
 		fullCmd := fmt.Sprintf("pct exec %d -- %s", vmid, cmd)
 		_, err := p.sshClient.Execute(fullCmd)
 		if err != nil {
 			global.APP_LOG.Warn("配置容器SSH命令失败",
 				zap.Int("vmid", vmid),
+				zap.String("osType", osType),
 				zap.String("command", cmd),
 				zap.Error(err))
 		}
@@ -1822,6 +1614,65 @@ func (p *ProxmoxProvider) configureContainerSSH(ctx context.Context, vmid int) {
 
 // initializeVnStatMonitoring 初始化vnstat流量监控
 func (p *ProxmoxProvider) initializeVnStatMonitoring(ctx context.Context, vmid int, instanceName string) error {
+	// 首先检查实例状态，确保实例正在运行
+	vmidStr := fmt.Sprintf("%d", vmid)
+
+	// 查找实例类型
+	_, instanceType, err := p.findVMIDByNameOrID(ctx, vmidStr)
+	if err != nil {
+		global.APP_LOG.Warn("查找实例类型失败，跳过vnstat初始化",
+			zap.String("instance_name", instanceName),
+			zap.Int("vmid", vmid),
+			zap.Error(err))
+		return err
+	}
+
+	// 检查实例状态
+	var statusCmd string
+	if instanceType == "container" {
+		statusCmd = fmt.Sprintf("pct status %s", vmidStr)
+	} else {
+		statusCmd = fmt.Sprintf("qm status %s", vmidStr)
+	}
+
+	// 等待实例运行 - 最多等待30秒
+	maxWaitTime := 30 * time.Second
+	checkInterval := 6 * time.Second
+	startTime := time.Now()
+	isRunning := false
+
+	for {
+		if time.Since(startTime) > maxWaitTime {
+			global.APP_LOG.Warn("等待实例运行超时，跳过vnstat初始化",
+				zap.String("instance_name", instanceName),
+				zap.Int("vmid", vmid))
+			return fmt.Errorf("等待实例运行超时")
+		}
+
+		statusOutput, err := p.sshClient.Execute(statusCmd)
+		if err == nil && strings.Contains(statusOutput, "status: running") {
+			isRunning = true
+			global.APP_LOG.Info("实例已确认运行，准备初始化vnstat",
+				zap.String("instance_name", instanceName),
+				zap.Int("vmid", vmid),
+				zap.Duration("wait_time", time.Since(startTime)))
+			break
+		}
+
+		global.APP_LOG.Debug("等待实例启动以初始化vnstat",
+			zap.Int("vmid", vmid),
+			zap.Duration("elapsed", time.Since(startTime)))
+
+		time.Sleep(checkInterval)
+	}
+
+	if !isRunning {
+		global.APP_LOG.Warn("实例未运行，跳过vnstat初始化",
+			zap.String("instance_name", instanceName),
+			zap.Int("vmid", vmid))
+		return fmt.Errorf("instance not running")
+	}
+
 	// 查找实例ID用于vnstat初始化
 	var instanceID uint
 	var instance providerModel.Instance
@@ -1877,9 +1728,6 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 	// 生成随机密码
 	password := p.generateRandomPassword()
 
-	// 等待实例完全启动
-	time.Sleep(5 * time.Second)
-
 	// 从metadata中获取密码，如果有的话
 	if config.Metadata != nil {
 		if metadataPassword, ok := config.Metadata["password"]; ok && metadataPassword != "" {
@@ -1887,8 +1735,50 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 		}
 	}
 
-	// 设置SSH密码，使用vmid而不是名称
+	// 等待实例完全启动并确认状态 - 最多等待90秒
+	maxWaitTime := 90 * time.Second
+	checkInterval := 10 * time.Second
+	startTime := time.Now()
 	vmidStr := fmt.Sprintf("%d", vmid)
+
+	// 确定实例类型
+	var statusCmd string
+	if config.InstanceType == "container" {
+		statusCmd = fmt.Sprintf("pct status %s", vmidStr)
+	} else {
+		statusCmd = fmt.Sprintf("qm status %s", vmidStr)
+	}
+
+	// 循环检查实例状态
+	isRunning := false
+	for {
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待实例启动超时，无法设置密码")
+		}
+
+		statusOutput, err := p.sshClient.Execute(statusCmd)
+		if err == nil && strings.Contains(statusOutput, "status: running") {
+			isRunning = true
+			global.APP_LOG.Info("实例已确认运行，准备设置密码",
+				zap.String("instanceName", config.Name),
+				zap.Int("vmid", vmid),
+				zap.Duration("wait_time", time.Since(startTime)))
+			break
+		}
+
+		global.APP_LOG.Debug("等待实例启动以设置密码",
+			zap.Int("vmid", vmid),
+			zap.Duration("elapsed", time.Since(startTime)))
+
+		time.Sleep(checkInterval)
+	}
+
+	// 如果是容器，额外等待一些时间确保SSH服务就绪
+	if config.InstanceType == "container" && isRunning {
+		time.Sleep(3 * time.Second)
+	}
+
+	// 设置SSH密码，使用vmid而不是名称
 	if err := p.SetInstancePassword(ctx, vmidStr, password); err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),
@@ -1913,1039 +1803,4 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 	}
 
 	return nil
-}
-
-// configureInstanceSSHPassword 专门用于设置Proxmox实例的SSH密码
-func (p *ProxmoxProvider) configureInstanceSSHPassword(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置Proxmox实例SSH密码",
-		zap.String("instanceName", config.Name))
-
-	// 生成随机密码
-	password := p.generateRandomPassword()
-
-	// 等待实例完全启动
-	time.Sleep(5 * time.Second)
-
-	// 从metadata中获取密码，如果有的话
-	if config.Metadata != nil {
-		if metadataPassword, ok := config.Metadata["password"]; ok && metadataPassword != "" {
-			password = metadataPassword
-		}
-	}
-
-	// 设置SSH密码
-	if err := p.SetInstancePassword(ctx, config.Name, password); err != nil {
-		global.APP_LOG.Error("设置实例密码失败",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-		return fmt.Errorf("设置实例密码失败: %w", err)
-	}
-
-	global.APP_LOG.Info("Proxmox实例SSH密码配置成功",
-		zap.String("instanceName", config.Name))
-
-	// 更新数据库中的密码记录，确保数据库与实际密码一致
-	err := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("name = ?", config.Name).
-		Update("password", password).Error
-	if err != nil {
-		global.APP_LOG.Warn("更新实例密码到数据库失败",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-	} else {
-		global.APP_LOG.Info("实例密码已同步到数据库",
-			zap.String("instanceName", config.Name))
-	}
-
-	return nil
-}
-
-// configureInstancePortMappings 配置实例端口映射
-func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, config provider.InstanceConfig, vmid int) error {
-	// 等待实例完全启动
-	time.Sleep(3 * time.Second)
-
-	global.APP_LOG.Info("开始配置PVE实例端口映射",
-		zap.String("instance", config.Name),
-		zap.Int("vmid", vmid))
-
-	// 确定实例类型
-	instanceType := config.InstanceType
-	if instanceType == "" {
-		instanceType = "vm" // 默认为虚拟机
-	}
-
-	// 获取实例的内网IP地址，使用vmid而不是名称
-	vmidStr := fmt.Sprintf("%d", vmid)
-	instanceIP, err := p.getInstanceIPAddress(ctx, vmidStr, instanceType)
-	if err != nil {
-		global.APP_LOG.Error("获取实例内网IP失败",
-			zap.String("instance", config.Name),
-			zap.Int("vmid", vmid),
-			zap.Error(err))
-		return fmt.Errorf("获取实例内网IP失败: %w", err)
-	}
-
-	if instanceIP == "" {
-		global.APP_LOG.Error("获取到空的实例IP地址",
-			zap.String("instance", config.Name),
-			zap.Int("vmid", vmid))
-		return fmt.Errorf("无法获取实例 %s 的IP地址", config.Name)
-	}
-
-	global.APP_LOG.Info("获取到实例内网IP",
-		zap.String("instance", config.Name),
-		zap.Int("vmid", vmid),
-		zap.String("instanceIP", instanceIP))
-
-	// 解析网络配置
-	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-
-	// 调用现有的端口映射配置函数（使用ports.go中的实现）
-	err = p.configurePortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP)
-	if err != nil {
-		global.APP_LOG.Error("配置端口映射失败",
-			zap.String("instance", config.Name),
-			zap.Error(err))
-		return fmt.Errorf("配置端口映射失败: %w", err)
-	}
-
-	global.APP_LOG.Info("PVE实例端口映射配置成功",
-		zap.String("instance", config.Name),
-		zap.Int("vmid", vmid))
-
-	return nil
-}
-
-// cleanupInstancePortMappings 清理实例的端口映射
-func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid string, instanceType string) error {
-	global.APP_LOG.Info("开始清理实例端口映射",
-		zap.String("vmid", vmid),
-		zap.String("instanceType", instanceType))
-
-	// 1. 查找通过vmid对应的实例名称
-	instances, err := p.ListInstances(ctx)
-	if err != nil {
-		global.APP_LOG.Warn("获取实例列表失败，尝试通过vmid清理端口映射", zap.String("vmid", vmid), zap.Error(err))
-		// 即使获取实例列表失败，也要尝试清理端口映射
-	}
-
-	var instanceName string
-	for _, instance := range instances {
-		// 从实例ID中提取vmid（假设ID格式是vmid或包含vmid）
-		if instance.ID == vmid || strings.Contains(instance.ID, vmid) {
-			instanceName = instance.Name
-			break
-		}
-	}
-
-	// 2. 如果找到了实例名称，尝试从数据库获取端口映射进行清理
-	if instanceName != "" {
-		global.APP_LOG.Info("找到实例名称，开始清理数据库中的端口映射",
-			zap.String("vmid", vmid),
-			zap.String("instanceName", instanceName))
-
-		// 从数据库获取实例的端口映射
-		var instance providerModel.Instance
-		if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
-			global.APP_LOG.Warn("从数据库获取实例信息失败", zap.String("instanceName", instanceName), zap.Error(err))
-		} else {
-			// 获取实例的所有端口映射
-			var portMappings []providerModel.Port
-			if err := global.APP_DB.Where("instance_id = ? AND status = 'active'", instance.ID).Find(&portMappings).Error; err != nil {
-				global.APP_LOG.Warn("获取端口映射失败", zap.String("instanceName", instanceName), zap.Error(err))
-			} else {
-				// 清理每个端口映射
-				for _, port := range portMappings {
-					if err := p.removePortMapping(ctx, instanceName, port.HostPort, port.Protocol, port.MappingMethod); err != nil {
-						global.APP_LOG.Warn("移除端口映射失败",
-							zap.String("instanceName", instanceName),
-							zap.Int("hostPort", port.HostPort),
-							zap.String("protocol", port.Protocol),
-							zap.Error(err))
-					} else {
-						global.APP_LOG.Info("端口映射清理成功",
-							zap.String("instanceName", instanceName),
-							zap.Int("hostPort", port.HostPort),
-							zap.String("protocol", port.Protocol))
-					}
-				}
-			}
-		}
-	}
-
-	// 3. 尝试基于推断的IP地址清理iptables规则（针对虚拟机的标准IP分配规则）
-	if instanceType == "vm" {
-		vmidInt, err := strconv.Atoi(vmid)
-		if err == nil && vmidInt > 0 && vmidInt < 255 {
-			inferredIP := fmt.Sprintf("172.16.1.%d", vmidInt)
-			global.APP_LOG.Info("尝试基于推断IP清理iptables规则",
-				zap.String("vmid", vmid),
-				zap.String("inferredIP", inferredIP))
-
-			// 清理常见的端口映射规则
-			if err := p.cleanupIptablesRulesForIP(ctx, inferredIP); err != nil {
-				global.APP_LOG.Warn("清理推断IP的iptables规则失败",
-					zap.String("inferredIP", inferredIP),
-					zap.Error(err))
-			}
-		}
-	}
-
-	global.APP_LOG.Info("实例端口映射清理完成",
-		zap.String("vmid", vmid),
-		zap.String("instanceType", instanceType))
-
-	return nil
-}
-
-// cleanupIptablesRulesForIP 清理指定IP地址的iptables规则
-func (p *ProxmoxProvider) cleanupIptablesRulesForIP(ctx context.Context, ipAddress string) error {
-	global.APP_LOG.Info("清理IP地址的iptables规则", zap.String("ipAddress", ipAddress))
-
-	// 清理DNAT规则
-	dnatCmd := fmt.Sprintf("iptables -t nat -S PREROUTING | grep 'DNAT.*%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
-	_, err := p.sshClient.Execute(dnatCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理DNAT规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 清理FORWARD规则
-	forwardCmd := fmt.Sprintf("iptables -S FORWARD | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables $line 2>/dev/null || true; done", ipAddress)
-	_, err = p.sshClient.Execute(forwardCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理FORWARD规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 清理MASQUERADE规则
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -S POSTROUTING | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
-	_, err = p.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理MASQUERADE规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 保存iptables规则
-	_, err = p.sshClient.Execute("iptables-save > /etc/iptables/rules.v4 2>/dev/null || true")
-	if err != nil {
-		global.APP_LOG.Warn("保存iptables规则失败", zap.Error(err))
-	}
-
-	return nil
-}
-
-// configureInstanceIPv6 配置实例IPv6网络（参考buildvm_onlyv6.sh脚本）
-func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string) error {
-	// 解析网络配置
-	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-
-	global.APP_LOG.Info("开始配置实例IPv6网络",
-		zap.Int("vmid", vmid),
-		zap.String("instance", config.Name),
-		zap.String("type", instanceType),
-		zap.String("networkType", networkConfig.NetworkType))
-
-	// 检查是否需要配置IPv6
-	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
-		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
-		networkConfig.NetworkType == "ipv6_only"
-
-	if !hasIPv6 {
-		global.APP_LOG.Info("网络类型不包含IPv6，跳过IPv6配置",
-			zap.Int("vmid", vmid),
-			zap.String("networkType", networkConfig.NetworkType))
-		return nil
-	}
-
-	// 检查IPv6环境和配置
-	if err := p.checkIPv6Environment(ctx); err != nil {
-		// IPv6环境检查失败，如果是ipv6_only模式则返回错误，否则记录警告
-		if networkConfig.NetworkType == "ipv6_only" {
-			return fmt.Errorf("IPv6环境检查失败（ipv6_only模式要求IPv6环境）: %w", err)
-		}
-		global.APP_LOG.Warn("IPv6环境检查失败，跳过IPv6配置", zap.Error(err))
-		return nil
-	}
-
-	// 获取IPv6基础信息
-	ipv6Info, err := p.getIPv6Info(ctx)
-	if err != nil {
-		if networkConfig.NetworkType == "ipv6_only" {
-			return fmt.Errorf("获取IPv6信息失败（ipv6_only模式要求IPv6信息）: %w", err)
-		}
-		global.APP_LOG.Warn("获取IPv6信息失败，跳过IPv6配置", zap.Error(err))
-		return nil
-	}
-
-	// 根据网络类型配置IPv6
-	switch networkConfig.NetworkType {
-	case "nat_ipv4_ipv6":
-		// NAT模式的IPv4+IPv6
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, false)
-	case "dedicated_ipv4_ipv6":
-		// 独立的IPv4+IPv6
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, false)
-	case "ipv6_only":
-		// 纯IPv6模式
-		return p.configureIPv6Network(ctx, vmid, config, instanceType, ipv6Info, true)
-	}
-
-	return nil
-}
-
-// IPv6Info IPv6配置信息
-type IPv6Info struct {
-	HostIPv6Address      string // 主机IPv6地址
-	IPv6AddressPrefix    string // IPv6地址前缀
-	IPv6PrefixLen        string // IPv6前缀长度
-	IPv6Gateway          string // IPv6网关
-	HasAppendedAddresses bool   // 是否存在额外的IPv6地址
-}
-
-// checkIPv6Environment 检查IPv6环境（参考脚本check_environment函数）
-func (p *ProxmoxProvider) checkIPv6Environment(ctx context.Context) error {
-	appendedFile := "/usr/local/bin/pve_appended_content.txt"
-
-	// 检查是否有appended_content文件
-	checkCmd := fmt.Sprintf("[ -s '%s' ]", appendedFile)
-	_, err := p.sshClient.Execute(checkCmd)
-
-	if err != nil {
-		// 如果没有appended_content文件，检查基础IPv6环境
-		if err := p.checkBasicIPv6Environment(ctx); err != nil {
-			return err
-		}
-	} else {
-		global.APP_LOG.Info("检测到额外的IPv6地址用于NAT映射")
-	}
-
-	return nil
-}
-
-// checkBasicIPv6Environment 检查基础IPv6环境
-func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
-	// 检查IPv6地址文件是否存在
-	checkIPv6Cmd := "[ -f /usr/local/bin/pve_check_ipv6 ]"
-	_, err := p.sshClient.Execute(checkIPv6Cmd)
-	if err != nil {
-		return fmt.Errorf("没有IPv6地址用于开设带独立IPv6地址的服务")
-	}
-
-	// 检查vmbr2网桥是否存在
-	checkVmbrCmd := "grep -q 'vmbr2' /etc/network/interfaces"
-	_, err = p.sshClient.Execute(checkVmbrCmd)
-	if err != nil {
-		return fmt.Errorf("没有vmbr2网桥用于开设带独立IPv6地址的服务")
-	}
-
-	// 检查ndpresponder服务状态
-	checkServiceCmd := "systemctl is-active ndpresponder.service"
-	output, err := p.sshClient.Execute(checkServiceCmd)
-	if err != nil || strings.TrimSpace(output) != "active" {
-		return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
-	}
-
-	global.APP_LOG.Info("ndpresponder服务运行正常，可以开设带独立IPv6地址的服务")
-	return nil
-}
-
-// getIPv6Info 获取IPv6配置信息（参考脚本get_ipv6_info函数）
-func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
-	info := &IPv6Info{}
-
-	// 检查是否存在额外的IPv6地址
-	appendedFile := "/usr/local/bin/pve_appended_content.txt"
-	checkCmd := fmt.Sprintf("[ -s '%s' ]", appendedFile)
-	_, err := p.sshClient.Execute(checkCmd)
-	info.HasAppendedAddresses = (err == nil)
-
-	// 获取主机IPv6地址
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
-		if err == nil {
-			info.HostIPv6Address = strings.TrimSpace(output)
-			// 生成IPv6地址前缀
-			if info.HostIPv6Address != "" {
-				parts := strings.Split(info.HostIPv6Address, ":")
-				if len(parts) > 1 {
-					info.IPv6AddressPrefix = strings.Join(parts[:len(parts)-1], ":") + ":"
-				}
-			}
-		}
-	}
-
-	// 获取IPv6前缀长度
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
-		if err == nil {
-			info.IPv6PrefixLen = strings.TrimSpace(output)
-		}
-	}
-
-	// 获取IPv6网关
-	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
-		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
-		if err == nil {
-			info.IPv6Gateway = strings.TrimSpace(output)
-		}
-	}
-
-	return info, nil
-}
-
-// configureIPv6Network 配置IPv6网络（合并NAT和直接映射逻辑）
-func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string, ipv6Info *IPv6Info, ipv6Only bool) error {
-	// 选择网桥和配置模式
-	var bridgeName string
-	var useNATMapping bool
-
-	if ipv6Info.HasAppendedAddresses {
-		// 有额外IPv6地址，使用NAT映射模式
-		bridgeName = "vmbr1"
-		useNATMapping = true
-	} else {
-		// 使用直接分配模式
-		bridgeName = "vmbr2"
-		useNATMapping = false
-	}
-
-	global.APP_LOG.Info("配置IPv6网络",
-		zap.Int("vmid", vmid),
-		zap.String("instanceType", instanceType),
-		zap.String("bridge", bridgeName),
-		zap.Bool("useNAT", useNATMapping),
-		zap.Bool("ipv6Only", ipv6Only))
-
-	if instanceType == "vm" {
-		return p.configureVMIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Info, ipv6Only)
-	} else {
-		return p.configureContainerIPv6(ctx, vmid, config, bridgeName, useNATMapping, ipv6Info, ipv6Only)
-	}
-}
-
-// configureVMIPv6 配置虚拟机IPv6
-func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, ipv6Only bool) error {
-	if useNATMapping {
-		// NAT映射模式
-		vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%d", vmid)
-
-		if ipv6Only {
-			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=%s,firewall=0", vmid, bridgeName)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s/64',gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// IPv4+IPv6: net1为IPv6
-			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, bridgeName)
-			_, err := p.sshClient.Execute(netCmd)
-			if err != nil {
-				global.APP_LOG.Warn("添加虚拟机net1接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s/64',gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-
-		// 获取可用的外部IPv6地址并设置NAT映射
-		hostExternalIPv6, err := p.getAvailableVmbr1IPv6(ctx)
-		if err != nil {
-			return fmt.Errorf("没有可用的IPv6地址用于NAT映射: %w", err)
-		}
-
-		return p.setupNATMapping(ctx, vmInternalIPv6, hostExternalIPv6)
-
-	} else {
-		// 直接分配模式
-		vmExternalIPv6 := fmt.Sprintf("%s%d", ipv6Info.IPv6AddressPrefix, vmid)
-
-		if ipv6Only {
-			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=%s,firewall=0", vmid, bridgeName)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s/128',gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// IPv4+IPv6: net1为IPv6
-			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, bridgeName)
-			_, err := p.sshClient.Execute(netCmd)
-			if err != nil {
-				global.APP_LOG.Warn("添加虚拟机net1接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s/128',gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-	}
-
-	return nil
-}
-
-// configureContainerIPv6 配置容器IPv6
-func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, ipv6Only bool) error {
-	if useNATMapping {
-		// NAT映射模式
-		vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%d", vmid)
-
-		if ipv6Only {
-			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmid, vmInternalIPv6, bridgeName)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// IPv4+IPv6: net0为IPv4，net1为IPv6
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmid, vmInternalIPv6, bridgeName)
-			_, err = p.sshClient.Execute(net1Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-
-		// 配置DNS
-		var dnsCmd string
-		if ipv6Only {
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver '2001:4860:4860::8888 2001:4860:4860::8844'", vmid)
-		} else {
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver '8.8.8.8 8.8.4.4 2001:4860:4860::8888 2001:4860:4860::8844'", vmid)
-		}
-		_, err := p.sshClient.Execute(dnsCmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置容器DNS失败", zap.Int("vmid", vmid), zap.Error(err))
-		}
-
-		// 获取可用的外部IPv6地址并设置NAT映射
-		hostExternalIPv6, err := p.getAvailableVmbr1IPv6(ctx)
-		if err != nil {
-			return fmt.Errorf("没有可用的IPv6地址用于NAT映射: %w", err)
-		}
-
-		return p.setupNATMapping(ctx, vmInternalIPv6, hostExternalIPv6)
-
-	} else {
-		// 直接分配模式
-		vmExternalIPv6 := fmt.Sprintf("%s%d", ipv6Info.IPv6AddressPrefix, vmid)
-
-		if ipv6Only {
-			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/128',bridge=%s,gw6='%s'", vmid, vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// IPv4+IPv6: net0为IPv4，net1为IPv6
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/128',bridge=%s,gw6='%s'", vmid, vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(net1Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-
-		// 配置DNS
-		var dnsCmd string
-		if ipv6Only {
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver '2001:4860:4860::8888 2001:4860:4860::8844'", vmid)
-		} else {
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver '8.8.8.8 8.8.4.4 2001:4860:4860::8888 2001:4860:4860::8844'", vmid)
-		}
-		_, err := p.sshClient.Execute(dnsCmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置容器DNS失败", zap.Int("vmid", vmid), zap.Error(err))
-		}
-	}
-
-	return nil
-}
-
-// configureIPv6WithNAT 使用NAT方式配置IPv6（参考脚本中的NAT映射逻辑）
-func (p *ProxmoxProvider) configureIPv6WithNAT(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string, ipv6Info *IPv6Info, ipv6Only bool) error {
-	// 配置内部IPv6地址
-	vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%d", vmid)
-
-	if instanceType == "vm" {
-		// 虚拟机：根据模式配置网络接口
-		var netBridge string
-		if ipv6Info.HasAppendedAddresses {
-			netBridge = "vmbr1"
-		} else {
-			netBridge = "vmbr2"
-		}
-
-		if ipv6Only {
-			// ipv6_only模式：只配置IPv6，net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=%s,firewall=0", vmid, netBridge)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置IPv6地址
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s/64',gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// nat_ipv4_ipv6模式：IPv6在net1接口
-			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, netBridge)
-			_, err := p.sshClient.Execute(netCmd)
-			if err != nil {
-				global.APP_LOG.Warn("添加虚拟机net1接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置IPv6地址
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s/64',gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-	} else {
-		// 容器：根据模式配置网络接口
-		if ipv6Only {
-			// ipv6_only模式：只配置IPv6，net0为IPv6（如onlyv6脚本）
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/64',bridge=vmbr1,gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// nat_ipv4_ipv6模式：net0为IPv4，net1为IPv6（如常规脚本）
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-
-			// 配置net0为IPv4接口
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置net1为IPv6接口
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/64',bridge=vmbr1,gw6='2001:db8:1::1'", vmid, vmInternalIPv6)
-			_, err = p.sshClient.Execute(net1Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-
-		// 配置DNS
-		var dnsCmd string
-		if ipv6Only {
-			// IPv6-only模式只配置IPv6 DNS
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver 2001:4860:4860::8888 --nameserver 2001:4860:4860::8844", vmid)
-		} else {
-			// 混合模式配置IPv4+IPv6 DNS
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver 8.8.8.8,2001:4860:4860::8888 --nameserver 8.8.4.4,2001:4860:4860::8844", vmid)
-		}
-		_, err := p.sshClient.Execute(dnsCmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置容器DNS失败", zap.Int("vmid", vmid), zap.Error(err))
-		}
-	}
-
-	// 获取可用的外部IPv6地址
-	hostExternalIPv6, err := p.getAvailableVmbr1IPv6(ctx)
-	if err != nil {
-		return fmt.Errorf("没有可用的IPv6地址用于NAT映射: %w", err)
-	}
-
-	// 设置NAT映射
-	if err := p.setupNATMapping(ctx, vmInternalIPv6, hostExternalIPv6); err != nil {
-		return fmt.Errorf("设置IPv6 NAT映射失败: %w", err)
-	}
-
-	global.APP_LOG.Info("IPv6 NAT映射配置完成",
-		zap.Int("vmid", vmid),
-		zap.String("internal", vmInternalIPv6),
-		zap.String("external", hostExternalIPv6),
-		zap.Bool("ipv6Only", ipv6Only))
-
-	return nil
-} // configureIPv6WithDirectMapping 使用直接映射方式配置IPv6（参考脚本中的直接分配逻辑）
-func (p *ProxmoxProvider) configureIPv6WithDirectMapping(ctx context.Context, vmid int, config provider.InstanceConfig, instanceType string, ipv6Info *IPv6Info, ipv6Only bool) error {
-	if ipv6Info.IPv6AddressPrefix == "" || ipv6Info.HostIPv6Address == "" {
-		return fmt.Errorf("IPv6地址信息不完整")
-	}
-
-	// 生成虚拟机的外部IPv6地址
-	vmExternalIPv6 := fmt.Sprintf("%s%d", ipv6Info.IPv6AddressPrefix, vmid)
-
-	// 根据实例类型配置IPv6
-	if instanceType == "vm" {
-		if ipv6Only {
-			// ipv6_only模式：只配置IPv6，net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=vmbr2,firewall=0", vmid)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置IPv6地址
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig0 ip6='%s/128',gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// dedicated_ipv4_ipv6模式：IPv6在net1接口
-			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=vmbr2,firewall=0", vmid)
-			_, err := p.sshClient.Execute(netCmd)
-			if err != nil {
-				global.APP_LOG.Warn("添加虚拟机net1接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置IPv6地址
-			ipv6Cmd := fmt.Sprintf("qm set %d --ipconfig1 ip6='%s/128',gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(ipv6Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置虚拟机IPv6失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-	} else {
-		// 容器：根据模式配置网络接口
-		if ipv6Only {
-			// ipv6_only模式：只配置IPv6，net0为IPv6（如onlyv6脚本）
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/128',bridge=vmbr2,gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		} else {
-			// dedicated_ipv4_ipv6模式：net0为IPv4，net1为IPv6（如常规脚本）
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-
-			// 配置net0为IPv4接口
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
-			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-
-			// 配置net1为IPv6接口
-			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/128',bridge=vmbr2,gw6='%s'", vmid, vmExternalIPv6, ipv6Info.HostIPv6Address)
-			_, err = p.sshClient.Execute(net1Cmd)
-			if err != nil {
-				global.APP_LOG.Warn("配置容器IPv6接口失败", zap.Int("vmid", vmid), zap.Error(err))
-			}
-		}
-
-		// 配置DNS
-		var dnsCmd string
-		if ipv6Only {
-			// IPv6-only模式只配置IPv6 DNS
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver 2001:4860:4860::8888 --nameserver 2001:4860:4860::8844", vmid)
-		} else {
-			// 混合模式配置IPv4+IPv6 DNS
-			dnsCmd = fmt.Sprintf("pct set %d --nameserver 8.8.8.8,2001:4860:4860::8888 --nameserver 8.8.4.4,2001:4860:4860::8844", vmid)
-		}
-		_, err := p.sshClient.Execute(dnsCmd)
-		if err != nil {
-			global.APP_LOG.Warn("配置容器DNS失败", zap.Int("vmid", vmid), zap.Error(err))
-		}
-	}
-
-	global.APP_LOG.Info("IPv6直接映射配置完成",
-		zap.Int("vmid", vmid),
-		zap.String("ipv6", vmExternalIPv6),
-		zap.String("gateway", ipv6Info.HostIPv6Address),
-		zap.Bool("ipv6Only", ipv6Only))
-
-	return nil
-}
-
-// getAvailableVmbr1IPv6 获取可用的vmbr1 IPv6地址（参考脚本中的get_available_vmbr1_ipv6函数）
-func (p *ProxmoxProvider) getAvailableVmbr1IPv6(ctx context.Context) (string, error) {
-	appendedFile := "/usr/local/bin/pve_appended_content.txt"
-	usedIPsFile := "/usr/local/bin/pve_used_vmbr1_ips.txt"
-
-	// 读取可用的IPv6地址
-	output, err := p.sshClient.Execute(fmt.Sprintf("cat '%s' 2>/dev/null || true", appendedFile))
-	if err != nil || strings.TrimSpace(output) == "" {
-		return "", fmt.Errorf("没有可用的IPv6地址")
-	}
-
-	availableIPs := strings.Split(strings.TrimSpace(output), "\n")
-
-	// 读取已使用的IPv6地址
-	usedOutput, _ := p.sshClient.Execute(fmt.Sprintf("cat '%s' 2>/dev/null || true", usedIPsFile))
-	usedIPs := make(map[string]bool)
-	if usedOutput != "" {
-		for _, ip := range strings.Split(strings.TrimSpace(usedOutput), "\n") {
-			usedIPs[strings.TrimSpace(ip)] = true
-		}
-	}
-
-	// 查找第一个可用的IPv6地址
-	for _, ip := range availableIPs {
-		ip = strings.TrimSpace(ip)
-		if ip != "" && !usedIPs[ip] {
-			// 标记为已使用
-			_, err := p.sshClient.Execute(fmt.Sprintf("echo '%s' >> '%s'", ip, usedIPsFile))
-			if err != nil {
-				global.APP_LOG.Warn("标记IPv6地址为已使用失败", zap.String("ip", ip), zap.Error(err))
-			}
-			return ip, nil
-		}
-	}
-
-	return "", fmt.Errorf("没有可用的IPv6地址")
-}
-
-// setupNATMapping 设置IPv6 NAT映射（参考脚本中的setup_nat_mapping函数）
-func (p *ProxmoxProvider) setupNATMapping(ctx context.Context, vmInternalIPv6, hostExternalIPv6 string) error {
-	rulesFile := "/usr/local/bin/ipv6_nat_rules.sh"
-
-	// 确保规则文件存在
-	_, err := p.sshClient.Execute(fmt.Sprintf("touch '%s'", rulesFile))
-	if err != nil {
-		return fmt.Errorf("创建IPv6 NAT规则文件失败: %w", err)
-	}
-
-	// ip6tables规则
-	dnatRule := fmt.Sprintf("ip6tables -t nat -A PREROUTING -d '%s' -j DNAT --to-destination '%s'", hostExternalIPv6, vmInternalIPv6)
-	snatRule := fmt.Sprintf("ip6tables -t nat -A POSTROUTING -s '%s' -j SNAT --to-source '%s'", vmInternalIPv6, hostExternalIPv6)
-
-	// 执行规则
-	_, err = p.sshClient.Execute(dnatRule)
-	if err != nil {
-		global.APP_LOG.Warn("添加IPv6 DNAT规则失败", zap.Error(err))
-	}
-
-	_, err = p.sshClient.Execute(snatRule)
-	if err != nil {
-		global.APP_LOG.Warn("添加IPv6 SNAT规则失败", zap.Error(err))
-	}
-
-	// 将规则写入文件以便持久化
-	rulesContent := fmt.Sprintf("%s\n%s\n", dnatRule, snatRule)
-	_, err = p.sshClient.Execute(fmt.Sprintf("echo '%s' >> '%s'", rulesContent, rulesFile))
-	if err != nil {
-		global.APP_LOG.Warn("保存IPv6 NAT规则到文件失败", zap.Error(err))
-	}
-
-	// 重启相关服务
-	_, _ = p.sshClient.Execute("systemctl daemon-reload")
-	_, _ = p.sshClient.Execute("systemctl restart ipv6nat.service 2>/dev/null || true")
-
-	global.APP_LOG.Info("IPv6 NAT映射规则配置完成",
-		zap.String("internal", vmInternalIPv6),
-		zap.String("external", hostExternalIPv6))
-
-	return nil
-}
-
-// GetInstanceIPv6 获取实例的内网IPv6地址 (公开方法)
-func (p *ProxmoxProvider) GetInstanceIPv6(ctx context.Context, instanceName string) (string, error) {
-	// 先查找实例的VMID和类型
-	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, instanceName)
-	if err != nil {
-		return "", fmt.Errorf("failed to find instance %s: %w", instanceName, err)
-	}
-
-	return p.getInstanceIPv6ByVMID(ctx, vmid, instanceType)
-}
-
-// GetInstanceIPv4 获取实例的内网IPv4地址 (公开方法)
-func (p *ProxmoxProvider) GetInstanceIPv4(ctx context.Context, instanceName string) (string, error) {
-	// 复用已有的getInstanceIPAddress方法来获取内网IPv4地址
-	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, instanceName)
-	if err != nil {
-		return "", fmt.Errorf("failed to find instance %s: %w", instanceName, err)
-	}
-
-	return p.getInstanceIPAddress(ctx, vmid, instanceType)
-}
-
-// GetInstancePublicIPv6 获取实例的公网IPv6地址
-func (p *ProxmoxProvider) GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error) {
-	// 先查找实例的VMID和类型
-	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, instanceName)
-	if err != nil {
-		return "", fmt.Errorf("failed to find instance %s: %w", instanceName, err)
-	}
-
-	// 尝试从保存的IPv6文件中读取公网IPv6地址
-	publicIPv6Cmd := fmt.Sprintf("cat %s_v6 2>/dev/null | tail -1", instanceName)
-	publicIPv6Output, err := p.sshClient.Execute(publicIPv6Cmd)
-	if err == nil {
-		publicIPv6 := strings.TrimSpace(publicIPv6Output)
-		if publicIPv6 != "" && !p.isPrivateIPv6(publicIPv6) {
-			global.APP_LOG.Info("从文件获取到公网IPv6地址",
-				zap.String("instanceName", instanceName),
-				zap.String("publicIPv6", publicIPv6))
-			return publicIPv6, nil
-		}
-	}
-
-	// 如果文件中没有，尝试获取实例配置中的IPv6地址
-	return p.getInstancePublicIPv6ByVMID(ctx, vmid, instanceType)
-}
-
-// getInstanceIPv6ByVMID 根据VMID获取实例内网IPv6地址
-func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string, instanceType string) (string, error) {
-	var cmd string
-
-	if instanceType == "container" {
-		// 对于容器，尝试从配置中获取IPv6地址
-		// 支持 net0, net1 等多个网络接口的IPv6配置
-		cmd = fmt.Sprintf("pct config %s | grep -E 'net[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
-		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			ipv6 := strings.TrimSpace(output)
-			if ipv6 != "auto" && ipv6 != "dhcp" {
-				return ipv6, nil
-			}
-		}
-
-		// 如果没有静态IPv6，尝试从容器内部获取
-		cmd = fmt.Sprintf("pct exec %s -- ip -6 addr show | grep 'inet6.*global' | awk '{print $2}' | cut -d'/' -f1 | head -1 || true", vmid)
-	} else {
-		// 对于虚拟机，尝试从配置中获取IPv6地址
-		// 支持 ipconfig0, ipconfig1 等多个网络接口的IPv6配置
-		cmd = fmt.Sprintf("qm config %s | grep -E 'ipconfig[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
-		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			ipv6 := strings.TrimSpace(output)
-			if ipv6 != "auto" && ipv6 != "dhcp" {
-				return ipv6, nil
-			}
-		}
-
-		// 如果没有静态IPv6配置，尝试通过guest agent获取IPv6
-		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -o '\"ip-address\":[[:space:]]*\"[^\"]*:' | sed 's/.*\"\\([^\"]*\\)\".*/\\1/' | head -1 || true", vmid)
-		output, err = p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			return strings.TrimSpace(output), nil
-		}
-
-		// 最后尝试从虚拟机内部获取IPv6地址
-		cmd = fmt.Sprintf("qm guest exec %s -- ip -6 addr show | grep 'inet6.*global' | awk '{print $2}' | cut -d'/' -f1 | head -1 2>/dev/null || true", vmid)
-	}
-
-	output, err := p.sshClient.Execute(cmd)
-	if err != nil {
-		return "", err
-	}
-
-	ipv6 := strings.TrimSpace(output)
-	if ipv6 == "" {
-		return "", fmt.Errorf("no IPv6 address found for %s %s", instanceType, vmid)
-	}
-
-	return ipv6, nil
-}
-
-// getInstancePublicIPv6ByVMID 根据VMID获取实例公网IPv6地址
-func (p *ProxmoxProvider) getInstancePublicIPv6ByVMID(ctx context.Context, vmid string, instanceType string) (string, error) {
-	// 首先尝试直接从配置中获取IPv6地址（通常这就是公网IPv6地址）
-	ipv6Address, err := p.getInstanceIPv6ByVMID(ctx, vmid, instanceType)
-	if err == nil && ipv6Address != "" && !p.isPrivateIPv6(ipv6Address) {
-		// 如果获取到的IPv6地址不是私有地址，则认为它是公网地址
-		return ipv6Address, nil
-	}
-
-	// 获取IPv6信息进行进一步判断
-	ipv6Info, err := p.getIPv6Info(ctx)
-	if err != nil {
-		return "", fmt.Errorf("获取IPv6信息失败: %w", err)
-	}
-
-	if ipv6Info.HasAppendedAddresses {
-		// NAT映射模式，从映射文件中查找外部IPv6地址
-		return p.getNATMappedIPv6(ctx, vmid)
-	} else {
-		// 直接分配模式，优先返回从配置中获取的IPv6地址
-		if ipv6Address != "" {
-			return ipv6Address, nil
-		}
-
-		// 如果配置中没有，尝试计算外部IPv6地址
-		vmidInt, err := strconv.Atoi(vmid)
-		if err == nil && vmidInt > 0 && ipv6Info.IPv6AddressPrefix != "" {
-			publicIPv6 := fmt.Sprintf("%s%d", ipv6Info.IPv6AddressPrefix, vmidInt)
-			return publicIPv6, nil
-		}
-	}
-
-	return "", fmt.Errorf("无法获取实例公网IPv6地址")
-}
-
-// getNATMappedIPv6 获取NAT映射的外部IPv6地址
-func (p *ProxmoxProvider) getNATMappedIPv6(ctx context.Context, vmid string) (string, error) {
-	// 从IPv6 NAT规则文件中查找映射
-	cmd := fmt.Sprintf("grep -E 'DNAT.*2001:db8:1::%s' /usr/local/bin/ipv6_nat_rules.sh 2>/dev/null | grep -oP '\\-d\\s+\\K[^\\s]+' | head -1 || true", vmid)
-	output, err := p.sshClient.Execute(cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		return strings.TrimSpace(output), nil
-	}
-
-	// 如果没有找到，从ip6tables规则中查找
-	cmd = fmt.Sprintf("ip6tables -t nat -L PREROUTING -n | grep 'DNAT.*2001:db8:1::%s' | awk '{print $4}' | head -1 || true", vmid)
-	output, err = p.sshClient.Execute(cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		return strings.TrimSpace(output), nil
-	}
-
-	return "", fmt.Errorf("未找到IPv6 NAT映射")
-}
-
-// isPrivateIPv6 检查是否为私有IPv6地址
-func (p *ProxmoxProvider) isPrivateIPv6(address string) bool {
-	if address == "" || !strings.Contains(address, ":") {
-		return true
-	}
-
-	// 私有IPv6地址范围检查
-	privateRanges := []string{
-		"fe80:",        // 链路本地地址
-		"fc00:",        // 唯一本地地址
-		"fd00:",        // 唯一本地地址
-		"2001:db8:",    // 文档用途（注意：只有2001:db8:才是私有的）
-		"::1",          // 回环地址
-		"::ffff:",      // IPv4映射地址
-		"fd42:",        // Docker等使用的私有地址
-		"2001:db8:1::", // 我们在NAT映射中使用的内部地址
-	}
-
-	for _, prefix := range privateRanges {
-		if strings.HasPrefix(address, prefix) {
-			return true
-		}
-	}
-	return false
 }

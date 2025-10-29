@@ -3,17 +3,199 @@ package proxmox
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/provider"
 
 	"go.uber.org/zap"
 )
 
-// configurePortMappings 配置端口映射
-func (p *ProxmoxProvider) configurePortMappings(ctx context.Context, instanceName string, networkConfig NetworkConfig, instanceIP string) error {
-	return p.configurePortMappingsWithIP(ctx, instanceName, networkConfig, instanceIP)
+// configureInstancePortMappings 配置实例端口映射
+func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, config provider.InstanceConfig, vmid int) error {
+	// 等待实例完全启动
+	time.Sleep(3 * time.Second)
+
+	global.APP_LOG.Info("开始配置PVE实例端口映射",
+		zap.String("instance", config.Name),
+		zap.Int("vmid", vmid))
+
+	// 确定实例类型
+	instanceType := config.InstanceType
+	if instanceType == "" {
+		instanceType = "vm" // 默认为虚拟机
+	}
+
+	// 获取实例的内网IP地址，使用vmid而不是名称
+	vmidStr := fmt.Sprintf("%d", vmid)
+	instanceIP, err := p.getInstanceIPAddress(ctx, vmidStr, instanceType)
+	if err != nil {
+		global.APP_LOG.Error("获取实例内网IP失败",
+			zap.String("instance", config.Name),
+			zap.Int("vmid", vmid),
+			zap.Error(err))
+		return fmt.Errorf("获取实例内网IP失败: %w", err)
+	}
+
+	if instanceIP == "" {
+		global.APP_LOG.Error("获取到空的实例IP地址",
+			zap.String("instance", config.Name),
+			zap.Int("vmid", vmid))
+		return fmt.Errorf("无法获取实例 %s 的IP地址", config.Name)
+	}
+
+	global.APP_LOG.Info("获取到实例内网IP",
+		zap.String("instance", config.Name),
+		zap.Int("vmid", vmid),
+		zap.String("instanceIP", instanceIP))
+
+	// 解析网络配置
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+
+	// 调用现有的端口映射配置函数（使用ports.go中的实现）
+	err = p.configurePortMappingsWithIP(ctx, config.Name, networkConfig, instanceIP)
+	if err != nil {
+		global.APP_LOG.Error("配置端口映射失败",
+			zap.String("instance", config.Name),
+			zap.Error(err))
+		return fmt.Errorf("配置端口映射失败: %w", err)
+	}
+
+	global.APP_LOG.Info("PVE实例端口映射配置成功",
+		zap.String("instance", config.Name),
+		zap.Int("vmid", vmid))
+
+	return nil
+}
+
+// cleanupInstancePortMappings 清理实例的端口映射
+func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid string, instanceType string) error {
+	global.APP_LOG.Info("开始清理实例端口映射",
+		zap.String("vmid", vmid),
+		zap.String("instanceType", instanceType))
+
+	// 1. 查找通过vmid对应的实例名称
+	instances, err := p.ListInstances(ctx)
+	if err != nil {
+		global.APP_LOG.Warn("获取实例列表失败，尝试通过vmid清理端口映射", zap.String("vmid", vmid), zap.Error(err))
+		// 即使获取实例列表失败，也要尝试清理端口映射
+	}
+
+	var instanceName string
+	for _, instance := range instances {
+		// 从实例ID中提取vmid（假设ID格式是vmid或包含vmid）
+		if instance.ID == vmid || strings.Contains(instance.ID, vmid) {
+			instanceName = instance.Name
+			break
+		}
+	}
+
+	// 2. 如果找到了实例名称，尝试从数据库获取端口映射进行清理
+	if instanceName != "" {
+		global.APP_LOG.Info("找到实例名称，开始清理数据库中的端口映射",
+			zap.String("vmid", vmid),
+			zap.String("instanceName", instanceName))
+
+		// 从数据库获取实例的端口映射
+		var instance providerModel.Instance
+		if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+			global.APP_LOG.Warn("从数据库获取实例信息失败", zap.String("instanceName", instanceName), zap.Error(err))
+		} else {
+			// 获取实例的所有端口映射
+			var portMappings []providerModel.Port
+			if err := global.APP_DB.Where("instance_id = ? AND status = 'active'", instance.ID).Find(&portMappings).Error; err != nil {
+				global.APP_LOG.Warn("获取端口映射失败", zap.String("instanceName", instanceName), zap.Error(err))
+			} else {
+				// 清理每个端口映射
+				for _, port := range portMappings {
+					if err := p.removePortMapping(ctx, instanceName, port.HostPort, port.Protocol, port.MappingMethod); err != nil {
+						global.APP_LOG.Warn("移除端口映射失败",
+							zap.String("instanceName", instanceName),
+							zap.Int("hostPort", port.HostPort),
+							zap.String("protocol", port.Protocol),
+							zap.Error(err))
+					} else {
+						global.APP_LOG.Info("端口映射清理成功",
+							zap.String("instanceName", instanceName),
+							zap.Int("hostPort", port.HostPort),
+							zap.String("protocol", port.Protocol))
+					}
+				}
+			}
+		}
+	}
+
+	// 3. 尝试基于推断的IP地址清理iptables规则（针对虚拟机的标准IP分配规则）
+	if instanceType == "vm" {
+		vmidInt, err := strconv.Atoi(vmid)
+		if err == nil && vmidInt > 0 && vmidInt < 255 {
+			inferredIP := fmt.Sprintf("172.16.1.%d", vmidInt)
+			global.APP_LOG.Info("尝试基于推断IP清理iptables规则",
+				zap.String("vmid", vmid),
+				zap.String("inferredIP", inferredIP))
+
+			// 清理常见的端口映射规则
+			if err := p.cleanupIptablesRulesForIP(ctx, inferredIP); err != nil {
+				global.APP_LOG.Warn("清理推断IP的iptables规则失败",
+					zap.String("inferredIP", inferredIP),
+					zap.Error(err))
+			}
+		}
+	}
+
+	global.APP_LOG.Info("实例端口映射清理完成",
+		zap.String("vmid", vmid),
+		zap.String("instanceType", instanceType))
+
+	return nil
+}
+
+// cleanupIptablesRulesForIP 清理指定IP地址的iptables规则
+func (p *ProxmoxProvider) cleanupIptablesRulesForIP(ctx context.Context, ipAddress string) error {
+	global.APP_LOG.Info("清理IP地址的iptables规则", zap.String("ipAddress", ipAddress))
+
+	// 清理DNAT规则
+	dnatCmd := fmt.Sprintf("iptables -t nat -S PREROUTING | grep 'DNAT.*%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
+	_, err := p.sshClient.Execute(dnatCmd)
+	if err != nil {
+		global.APP_LOG.Warn("清理DNAT规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
+	}
+
+	// 清理FORWARD规则
+	forwardCmd := fmt.Sprintf("iptables -S FORWARD | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables $line 2>/dev/null || true; done", ipAddress)
+	_, err = p.sshClient.Execute(forwardCmd)
+	if err != nil {
+		global.APP_LOG.Warn("清理FORWARD规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
+	}
+
+	// 清理MASQUERADE规则
+	masqueradeCmd := fmt.Sprintf("iptables -t nat -S POSTROUTING | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
+	_, err = p.sshClient.Execute(masqueradeCmd)
+	if err != nil {
+		global.APP_LOG.Warn("清理MASQUERADE规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
+	}
+
+	// 保存iptables规则
+	_, err = p.sshClient.Execute("iptables-save > /etc/iptables/rules.v4 2>/dev/null || true")
+	if err != nil {
+		global.APP_LOG.Warn("保存iptables规则失败", zap.Error(err))
+	}
+
+	return nil
+}
+
+// GetInstanceIPv4 获取实例的内网IPv4地址 (公开方法)
+func (p *ProxmoxProvider) GetInstanceIPv4(ctx context.Context, instanceName string) (string, error) {
+	// 复用已有的getInstanceIPAddress方法来获取内网IPv4地址
+	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, instanceName)
+	if err != nil {
+		return "", fmt.Errorf("failed to find instance %s: %w", instanceName, err)
+	}
+
+	return p.getInstanceIPAddress(ctx, vmid, instanceType)
 }
 
 // configurePortMappingsWithIP 使用指定的实例IP配置端口映射

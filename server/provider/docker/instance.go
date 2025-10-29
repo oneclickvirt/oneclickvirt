@@ -348,9 +348,45 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 
-	// 等待容器完全启动
+	// 等待容器完全启动并验证状态
 	updateProgress(96, "等待容器完全启动...")
-	time.Sleep(3 * time.Second)
+
+	maxWaitTime := 30 * time.Second
+	checkInterval := 6 * time.Second
+	startTime := time.Now()
+	isRunning := false
+
+	for {
+		if time.Since(startTime) > maxWaitTime {
+			global.APP_LOG.Warn("等待容器启动超时，但继续执行",
+				zap.String("name", utils.TruncateString(config.Name, 32)))
+			break
+		}
+
+		time.Sleep(checkInterval)
+
+		// 检查容器状态
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", config.Name))
+		if err == nil {
+			status := strings.ToLower(strings.TrimSpace(statusOutput))
+			if status == "running" {
+				isRunning = true
+				global.APP_LOG.Info("Docker容器已确认运行",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.Duration("wait_time", time.Since(startTime)))
+				break
+			}
+		}
+
+		global.APP_LOG.Debug("等待容器启动",
+			zap.String("name", config.Name),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
+
+	if !isRunning {
+		global.APP_LOG.Warn("无法确认容器运行状态，继续执行后续操作",
+			zap.String("name", utils.TruncateString(config.Name, 32)))
+	}
 
 	// 配置SSH密码
 	updateProgress(97, "配置SSH密码...")
@@ -389,10 +425,15 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 		global.APP_LOG.Info("检测到容器为Exited状态，使用restart命令",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("status", status))
+	} else if strings.Contains(status, "running") {
+		global.APP_LOG.Info("容器已在运行", zap.String("id", utils.TruncateString(id, 32)))
+		return nil
 	}
+
 	global.APP_LOG.Info("开始启动Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", startCmd))
+
 	output, err := d.sshClient.Execute(startCmd)
 	if err != nil {
 		global.APP_LOG.Error("Docker实例启动失败",
@@ -402,8 +443,39 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 			zap.Error(err))
 		return fmt.Errorf("failed to start container: %w", err)
 	}
-	global.APP_LOG.Info("Docker实例启动成功", zap.String("id", utils.TruncateString(id, 32)))
-	return nil
+
+	// 等待容器真正启动 - 最多等待30秒
+	maxWaitTime := 30 * time.Second
+	checkInterval := 2 * time.Second
+	startTime := time.Now()
+
+	for {
+		// 检查是否超时
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待容器启动超时 (30秒)")
+		}
+
+		// 等待一段时间后再检查
+		time.Sleep(checkInterval)
+
+		// 检查容器状态
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id))
+		if err == nil {
+			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
+			if currentStatus == "running" {
+				// 容器已经启动，再等待额外的时间确保服务完全就绪
+				time.Sleep(2 * time.Second)
+				global.APP_LOG.Info("Docker容器已成功启动并就绪",
+					zap.String("id", utils.TruncateString(id, 32)),
+					zap.Duration("wait_time", time.Since(startTime)))
+				return nil
+			}
+		}
+
+		global.APP_LOG.Debug("等待容器启动",
+			zap.String("id", id),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
 }
 
 // sshStopInstance 停止实例

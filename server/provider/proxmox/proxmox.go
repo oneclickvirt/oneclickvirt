@@ -221,48 +221,6 @@ func (p *ProxmoxProvider) setAPIAuth(req *http.Request) {
 	}
 }
 
-// shouldUseAPI 根据执行规则判断是否应该使用API
-func (p *ProxmoxProvider) shouldUseAPI() bool {
-	switch p.config.ExecutionRule {
-	case "api_only":
-		return p.hasAPIAccess()
-	case "ssh_only":
-		return false
-	case "auto":
-		fallthrough
-	default:
-		return p.hasAPIAccess()
-	}
-}
-
-// shouldUseSSH 根据执行规则判断是否应该使用SSH
-func (p *ProxmoxProvider) shouldUseSSH() bool {
-	switch p.config.ExecutionRule {
-	case "api_only":
-		return false
-	case "ssh_only":
-		return true
-	case "auto":
-		fallthrough
-	default:
-		return true
-	}
-}
-
-// shouldFallbackToSSH 根据执行规则判断API失败时是否可以回退到SSH
-func (p *ProxmoxProvider) shouldFallbackToSSH() bool {
-	switch p.config.ExecutionRule {
-	case "api_only":
-		return false
-	case "ssh_only":
-		return false
-	case "auto":
-		fallthrough
-	default:
-		return true
-	}
-}
-
 func init() {
 	provider.RegisterProvider("proxmox", NewProxmoxProvider)
 }

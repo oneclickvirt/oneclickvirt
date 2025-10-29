@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -471,6 +472,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		return nil
 	}
 
+	// 执行启动命令
 	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", id))
 	if err != nil {
 		// 如果错误信息提示实例已在运行，则不视为错误
@@ -482,8 +484,40 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		return fmt.Errorf("failed to start instance: %w", err)
 	}
 
-	global.APP_LOG.Info("通过 SSH 成功启动 Incus 实例", zap.String("id", id))
-	return nil
+	global.APP_LOG.Info("已发送启动命令，等待实例启动", zap.String("id", id))
+
+	// 等待实例真正启动 - 最多等待60秒
+	maxWaitTime := 90 * time.Second
+	checkInterval := 10 * time.Second
+	startTime := time.Now()
+
+	for {
+		// 检查是否超时
+		if time.Since(startTime) > maxWaitTime {
+			return fmt.Errorf("等待实例启动超时 (90秒)")
+		}
+
+		// 等待一段时间后再检查
+		time.Sleep(checkInterval)
+
+		// 检查实例状态
+		statusOutput, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", id))
+		if err == nil {
+			status := strings.TrimSpace(statusOutput)
+			if status == "RUNNING" || status == "Running" {
+				// 实例已经启动，再等待额外的时间确保系统完全就绪
+				time.Sleep(3 * time.Second)
+				global.APP_LOG.Info("Incus实例已成功启动并就绪",
+					zap.String("id", id),
+					zap.Duration("wait_time", time.Since(startTime)))
+				return nil
+			}
+		}
+
+		global.APP_LOG.Debug("等待实例启动",
+			zap.String("id", id),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
 }
 
 func (i *IncusProvider) sshStopInstance(id string) error {
