@@ -2,7 +2,7 @@
 # from https://github.com/oneclickvirt/oneclickvirt
 # 2025.09.27
 
-VERSION="v20251030-104043"
+VERSION="v20251030-131751"
 REPO="oneclickvirt/oneclickvirt"
 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
 cdn_urls="https://cdn0.spiritlhl.top/ http://cdn3.spiritlhl.net/ http://cdn1.spiritlhl.net/ http://cdn2.spiritlhl.net/"
