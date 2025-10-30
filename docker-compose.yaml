@@ -16,6 +16,7 @@ services:
     container_name: api
     volumes:
       - ./data/app/:/app/storage
+      - ./server/config.yaml:/app/config.yaml:rw
     networks:
       - default
 
@@ -29,9 +30,14 @@ services:
         MYSQL_ALLOW_EMPTY_PASSWORD:  "yes"
         MYSQL_DATABASE: oneclickvirt
     volumes:
-      - ./data/mysql:/var/lib/mysql
+      - mysql_data:/var/lib/mysql
+      - ./deploy/my.cnf:/etc/mysql/conf.d/custom.cnf
     networks:
       - default
 
+volumes:
+  mysql_data:
+
 networks:
   default:
+    driver: bridge
