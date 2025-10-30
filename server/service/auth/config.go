@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
+	"oneclickvirt/model/admin"
 	configModel "oneclickvirt/model/config"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 type ConfigService struct{}
@@ -116,6 +119,12 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 	}
 	configUpdates["inviteCode"] = inviteCodeConfig
 
+	// 其他配置 - 使用统一的系统配置服务保存到 system_configs 表
+	if err := s.updateOtherConfigs(req.Other); err != nil {
+		global.APP_LOG.Error("更新其他配置失败", zap.Error(err))
+		return fmt.Errorf("更新其他配置失败: %v", err)
+	}
+
 	// 通过配置管理器批量更新配置
 	if err := configManager.UpdateConfig(configUpdates); err != nil {
 		global.APP_LOG.Error("配置更新失败", zap.Error(err))
@@ -153,7 +162,119 @@ func (s *ConfigService) GetConfig() map[string]interface{} {
 		global.APP_LOG.Info("转换后的auth配置", zap.Any("auth", auth))
 	}
 
+	// 从 system_configs 表读取 other 配置
+	otherConfig, err := s.getOtherConfigs()
+	if err != nil {
+		global.APP_LOG.Warn("获取其他配置失败", zap.Error(err))
+	} else {
+		result["other"] = otherConfig
+	}
+
 	return result
+}
+
+// getOtherConfigs 从 system_configs 表获取其他配置
+func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
+	var configs []struct {
+		Key   string `gorm:"column:key"`
+		Value string `gorm:"column:value"`
+	}
+
+	err := global.APP_DB.Table("system_configs").
+		Select("key, value").
+		Where("category = ? AND deleted_at IS NULL", "other").
+		Find(&configs).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[string]interface{})
+	for _, cfg := range configs {
+		switch cfg.Key {
+		case "max_avatar_size":
+			// 转换为 float64
+			var size float64
+			fmt.Sscanf(cfg.Value, "%f", &size)
+			result["maxAvatarSize"] = size
+		case "default_language":
+			result["defaultLanguage"] = cfg.Value
+		}
+	}
+
+	return result, nil
+}
+
+// updateOtherConfigs 更新其他配置到 system_configs 表
+func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error {
+	// 使用 admin system service 的方法来更新配置
+	adminSystemService := &struct {
+		UpdateSystemConfig func(req interface{}) error
+	}{}
+
+	// 更新 max_avatar_size
+	if other.MaxAvatarSize > 0 {
+		var existingConfig admin.SystemConfig
+		err := global.APP_DB.Where("key = ?", "max_avatar_size").First(&existingConfig).Error
+
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return err
+		}
+
+		valueStr := fmt.Sprintf("%.1f", other.MaxAvatarSize)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 创建新配置
+			newConfig := admin.SystemConfig{
+				Key:         "max_avatar_size",
+				Value:       valueStr,
+				Description: "用户头像上传的最大文件大小限制（单位：MB）",
+				Category:    "other",
+				Type:        "number",
+				IsPublic:    false,
+			}
+			if err := global.APP_DB.Create(&newConfig).Error; err != nil {
+				return err
+			}
+		} else {
+			// 更新配置
+			existingConfig.Value = valueStr
+			if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	// 更新 default_language
+	var existingConfig admin.SystemConfig
+	err := global.APP_DB.Where("key = ?", "default_language").First(&existingConfig).Error
+
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return err
+	}
+
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		// 创建新配置
+		newConfig := admin.SystemConfig{
+			Key:         "default_language",
+			Value:       other.DefaultLanguage,
+			Description: "系统默认语言设置，支持zh-CN（中文）和en-US（英文）。留空则根据浏览器语言自动选择",
+			Category:    "other",
+			Type:        "string",
+			IsPublic:    true,
+		}
+		if err := global.APP_DB.Create(&newConfig).Error; err != nil {
+			return err
+		}
+	} else {
+		// 更新配置
+		existingConfig.Value = other.DefaultLanguage
+		if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
+			return err
+		}
+	}
+
+	_ = adminSystemService
+	return nil
 }
 
 // unflattenConfig 将扁平化配置转换为嵌套结构

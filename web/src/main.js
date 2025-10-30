@@ -12,6 +12,8 @@ import { createPinia } from 'pinia'
 import App from './App.vue'
 import { initUserStatusMonitor } from '@/utils/userStatusMonitor'
 import i18n from './i18n'
+import { getPublicSystemConfig } from '@/api/public'
+import { useLanguageStore } from '@/pinia/modules/language'
 
 const app = createApp(App)
 app.config.productionTip = false
@@ -23,9 +25,31 @@ for (const [key, component] of Object.entries(ElementPlusIconsVue)) {
 const pinia = createPinia()
 app.use(ElementPlus).use(pinia).use(i18n).use(router)
 
-// 初始化用户状态监控器
-initUserStatusMonitor()
+// 初始化语言设置
+const initLanguage = async () => {
+  const languageStore = useLanguageStore()
+  
+  try {
+    // 尝试获取系统配置的默认语言
+    const response = await getPublicSystemConfig()
+    if (response.data && response.data.default_language) {
+      languageStore.setSystemConfigLanguage(response.data.default_language)
+    }
+  } catch (error) {
+    console.warn('获取系统语言配置失败，使用浏览器语言:', error)
+  }
+  
+  // 初始化语言
+  const effectiveLanguage = languageStore.initLanguage()
+  i18n.global.locale.value = effectiveLanguage
+}
 
-app.mount('#app')
+// 初始化语言设置后再挂载应用
+initLanguage().then(() => {
+  // 初始化用户状态监控器
+  initUserStatusMonitor()
+  
+  app.mount('#app')
+})
 
 export default app

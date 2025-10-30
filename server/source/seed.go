@@ -637,32 +637,46 @@ func initInstanceTypePermissions() {
 func initOtherConfigurations() {
 	global.APP_LOG.Info("开始初始化其他配置")
 
-	// 检查max_avatar_size配置是否已存在
-	var avatarSizeConfig admin.SystemConfig
-	result := global.APP_DB.Where("key = ?", "max_avatar_size").First(&avatarSizeConfig)
-
-	if result.Error != nil {
-		// 配置不存在，创建默认配置
-		defaultConfig := admin.SystemConfig{
+	// 定义需要初始化的配置项
+	configs := []admin.SystemConfig{
+		{
 			Key:         "max_avatar_size",
 			Value:       "2", // 默认2MB
 			Description: "用户头像上传的最大文件大小限制（单位：MB），仅支持PNG和JPEG格式",
 			Category:    "other",
 			Type:        "number",
 			IsPublic:    false,
-		}
+		},
+		{
+			Key:         "default_language",
+			Value:       "", // 空字符串表示使用浏览器语言
+			Description: "系统默认语言设置，支持zh-CN（中文）和en-US（英文）。留空则根据浏览器语言自动选择，非中文时显示英文，检测不到时默认显示中文",
+			Category:    "other",
+			Type:        "string",
+			IsPublic:    true, // 公开配置，登录前也可访问
+		},
+	}
 
-		dbService := database.GetDatabaseService()
-		err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Create(&defaultConfig).Error
-		})
+	dbService := database.GetDatabaseService()
 
-		if err != nil {
-			global.APP_LOG.Error("创建max_avatar_size配置失败", zap.Error(err))
+	// 遍历配置项，检查并创建
+	for _, config := range configs {
+		var existingConfig admin.SystemConfig
+		result := global.APP_DB.Where("key = ?", config.Key).First(&existingConfig)
+
+		if result.Error != nil {
+			// 配置不存在，创建默认配置
+			err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+				return tx.Create(&config).Error
+			})
+
+			if err != nil {
+				global.APP_LOG.Error(fmt.Sprintf("创建%s配置失败", config.Key), zap.Error(err))
+			} else {
+				global.APP_LOG.Info(fmt.Sprintf("已创建%s默认配置", config.Key), zap.String("value", config.Value))
+			}
 		} else {
-			global.APP_LOG.Info("已创建max_avatar_size默认配置", zap.String("value", "2"))
+			global.APP_LOG.Info(fmt.Sprintf("%s配置已存在，跳过初始化", config.Key))
 		}
-	} else {
-		global.APP_LOG.Info("max_avatar_size配置已存在，跳过初始化")
 	}
 }

@@ -102,6 +102,8 @@ system:
     use-multipoint: false
     use-redis: false
     frontend-url: "http://beta.spiritlhl.net/"
+    provider-inactive-hours: 24
+    oauth2-state-token-minutes: 15
 task:
     delete-retry-count: 3
     delete-retry-delay: 2

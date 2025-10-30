@@ -600,6 +600,39 @@
                 </el-form-item>
               </el-col>
             </el-row>
+
+            <el-divider content-position="left">
+              {{ $t('admin.config.languageSettings') }}
+            </el-divider>
+
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.defaultLanguage')">
+                  <el-select
+                    v-model="config.other.defaultLanguage"
+                    :placeholder="$t('admin.config.selectDefaultLanguage')"
+                    style="width: 100%"
+                    clearable
+                  >
+                    <el-option
+                      value=""
+                      :label="$t('admin.config.browserLanguage')"
+                    />
+                    <el-option
+                      value="zh-CN"
+                      label="中文"
+                    />
+                    <el-option
+                      value="en-US"
+                      label="English"
+                    />
+                  </el-select>
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.defaultLanguageHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </el-form>
         </el-tab-pane>
       </el-tabs>
@@ -666,7 +699,8 @@ const config = ref({
     enabled: false
   },
   other: {
-    maxAvatarSize: 2 // MB
+    maxAvatarSize: 2, // MB
+    defaultLanguage: '' // 默认语言，空字符串表示使用浏览器语言
   }
 })
 

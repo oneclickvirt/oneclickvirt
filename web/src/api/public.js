@@ -34,6 +34,14 @@ export const getPublicConfig = () => {
   })
 }
 
+// 获取公开的系统配置（如默认语言等）
+export const getPublicSystemConfig = () => {
+  return request({
+    url: '/v1/public/system-config',
+    method: 'get'
+  })
+}
+
 // 获取可用的系统镜像列表
 export const getAvailableSystemImages = (params) => {
   return request({

@@ -909,6 +909,11 @@ export default {
       maxInboundBandwidth: 'Max Inbound Bandwidth',
       maxOutboundBandwidth: 'Max Outbound Bandwidth',
       maxTraffic: 'Max Traffic Limit',
+      trafficCountMode: 'Traffic Count Mode',
+      trafficMultiplier: 'Traffic Billing Multiplier',
+      trafficCountModeBoth: 'Both Directions (Inbound+Outbound)',
+      trafficCountModeOut: 'Outbound Only',
+      trafficCountModeIn: 'Inbound Only',
       
       serverNamePlaceholder: 'Please enter server name',
       serverTypePlaceholder: 'Please select server type',
@@ -957,6 +962,9 @@ export default {
       maxInboundBandwidthTip: 'Maximum inbound bandwidth limit (Mbps), instances cannot exceed this value',
       maxOutboundBandwidthTip: 'Maximum outbound bandwidth limit (Mbps), instances cannot exceed this value',
       maxTrafficTip: 'Maximum traffic limit (TB), supports decimals, default 1TB, automatically resets on the 1st of each month',
+      trafficCountModeTip: 'Choose traffic counting method: both counts inbound+outbound, single direction only counts specified direction',
+      trafficMultiplierTip: 'Traffic billing multiplier for adjusting traffic consumption calculation, default 1.0 is actual traffic, 2.0 means double billing',
+      selectTrafficCountMode: 'Please select traffic count mode',
       proxmoxStorageTip: 'ProxmoxVE storage pool name, used to store VM disks and containers, e.g.: local, local-lvm, nfs-storage',
       
       basicInfo: 'Basic Info',
@@ -1247,6 +1255,13 @@ export default {
       maxAvatarSizeHint: 'MB, recommended to set between 1-5 MB, default 2 MB',
       supportedFormats: 'Supported Formats',
       supportedFormatsHint: 'Only these two formats are supported, cannot be modified',
+      
+      // Language Settings
+      languageSettings: 'Language Settings',
+      defaultLanguage: 'Default System Language',
+      selectDefaultLanguage: 'Select Default Language',
+      browserLanguage: 'Follow Browser Language',
+      defaultLanguageHint: 'Set the default language for the system. When left empty, it will automatically follow the browser language (display English for non-Chinese, default to Chinese if detection fails). Users can manually switch language in personal settings',
       
       // Buttons
       saveCurrentConfig: 'Save Current Configuration',

@@ -348,6 +348,40 @@ func GetRegisterConfig(c *gin.Context) {
 	c.JSON(http.StatusOK, common.Success(config))
 }
 
+// GetPublicSystemConfig 获取公开的系统配置信息
+// @Summary 获取公开的系统配置信息
+// @Description 获取系统公开配置信息（不需要认证），如默认语言等
+// @Tags 系统配置
+// @Accept json
+// @Produce json
+// @Success 200 {object} common.Response{data=object} "获取成功"
+// @Router /public/system-config [get]
+func GetPublicSystemConfig(c *gin.Context) {
+	// 从数据库查询公开的系统配置
+	var configs []struct {
+		Key   string `json:"key"`
+		Value string `json:"value"`
+	}
+
+	if err := global.APP_DB.Table("system_configs").
+		Select("key, value").
+		Where("is_public = ? AND deleted_at IS NULL", true).
+		Find(&configs).Error; err != nil {
+		global.APP_LOG.Warn("获取公开系统配置失败", zap.Error(err))
+		// 返回空配置而不是错误，确保前端能正常工作
+		c.JSON(http.StatusOK, common.Success(map[string]interface{}{}))
+		return
+	}
+
+	// 转换为map格式返回
+	result := make(map[string]interface{})
+	for _, config := range configs {
+		result[config.Key] = config.Value
+	}
+
+	c.JSON(http.StatusOK, common.Success(result))
+}
+
 // GetRecommendedDatabaseType 获取推荐的数据库类型
 // @Summary 获取推荐的数据库类型
 // @Description 根据系统架构获取推荐的数据库类型

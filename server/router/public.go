@@ -17,6 +17,7 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 		PublicRouter.POST("init", public.InitSystem)
 		PublicRouter.POST("test-db-connection", public.TestDatabaseConnection)
 		PublicRouter.GET("register-config", public.GetRegisterConfig)
+		PublicRouter.GET("system-config", public.GetPublicSystemConfig)
 		PublicRouter.GET("recommended-db-type", public.GetRecommendedDatabaseType)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
 	}

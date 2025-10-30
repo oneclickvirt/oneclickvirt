@@ -1635,15 +1635,15 @@
                 style="width: 100%"
               >
                 <el-option
-                  label="双向流量（入站+出站）"
+                  :label="$t('admin.providers.trafficCountModeBoth')"
                   value="both"
                 />
                 <el-option
-                  label="仅出站流量"
+                  :label="$t('admin.providers.trafficCountModeOut')"
                   value="out"
                 />
                 <el-option
-                  label="仅入站流量"
+                  :label="$t('admin.providers.trafficCountModeIn')"
                   value="in"
                 />
               </el-select>

@@ -4,6 +4,7 @@ type UpdateConfigRequest struct {
 	Auth       AuthConfig       `json:"auth"`
 	Quota      QuotaConfig      `json:"quota"`
 	InviteCode InviteCodeConfig `json:"inviteCode"`
+	Other      OtherConfig      `json:"other"`
 }
 
 type AuthConfig struct {
@@ -24,6 +25,11 @@ type AuthConfig struct {
 type InviteCodeConfig struct {
 	Enabled  bool `json:"enabled"`  // 是否启用邀请码系统
 	Required bool `json:"required"` // 是否必须邀请码（兼容旧字段）
+}
+
+type OtherConfig struct {
+	MaxAvatarSize   float64 `json:"maxAvatarSize"`   // 头像最大大小(MB)
+	DefaultLanguage string  `json:"defaultLanguage"` // 系统默认语言，空字符串表示使用浏览器语言
 }
 
 type QuotaConfig struct {

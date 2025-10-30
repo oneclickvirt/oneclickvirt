@@ -909,6 +909,11 @@ export default {
       maxInboundBandwidth: '最大入站带宽',
       maxOutboundBandwidth: '最大出站带宽',
       maxTraffic: '最大流量限制',
+      trafficCountMode: '流量统计模式',
+      trafficMultiplier: '流量计费倍率',
+      trafficCountModeBoth: '双向流量（入站+出站）',
+      trafficCountModeOut: '仅出站流量',
+      trafficCountModeIn: '仅入站流量',
       
       serverNamePlaceholder: '请输入服务器名称',
       serverTypePlaceholder: '请选择服务器类型',
@@ -957,6 +962,9 @@ export default {
       maxInboundBandwidthTip: '最大入站带宽限制（Mbps），实例不能超过此值',
       maxOutboundBandwidthTip: '最大出站带宽限制（Mbps），实例不能超过此值',
       maxTrafficTip: '最大流量限制（TB），支持小数点，默认1TB，每月1号自动重置',
+      trafficCountModeTip: '选择流量统计方式，双向流量统计入站+出站，单向只统计指定方向',
+      trafficMultiplierTip: '流量计费倍率，用于调整流量消耗计算，默认1.0表示实际流量，设置为2.0表示双倍计费',
+      selectTrafficCountMode: '请选择流量统计模式',
       proxmoxStorageTip: 'ProxmoxVE存储池名称，用于存储虚拟机磁盘和容器，如：local、local-lvm、nfs-storage等',
       
       basicInfo: '基本信息',
@@ -1247,6 +1255,13 @@ export default {
       maxAvatarSizeHint: 'MB，建议设置为 1-5 MB 之间，默认 2 MB',
       supportedFormats: '支持的格式',
       supportedFormatsHint: '仅支持这两种格式，无法修改',
+      
+      // 语言设置
+      languageSettings: '语言设置',
+      defaultLanguage: '系统默认语言',
+      selectDefaultLanguage: '选择默认语言',
+      browserLanguage: '跟随浏览器语言',
+      defaultLanguageHint: '设置系统的默认语言。留空时将根据浏览器语言自动选择（非中文时显示英文，检测不到时默认显示中文）。用户可以在个人设置中手动切换语言',
       
       // 按钮
       saveCurrentConfig: '保存当前配置',
