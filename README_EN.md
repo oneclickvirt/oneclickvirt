@@ -108,7 +108,7 @@ docker run -d \
 
 > **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
 
-### Method 2: Using Docker Compose (Recommended for Development)
+### Method 2: Using Docker Compose
 
 <details>
 <summary>View Docker Compose Deployment</summary>

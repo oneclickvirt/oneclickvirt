@@ -51,84 +51,76 @@ func (s *LimitService) CheckProviderTrafficLimitWithVnStat(providerID uint) (boo
 
 // getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
 func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
-	// 获取用户所有实例（包含软删除的实例，因为需要统计本月已产生的流量）
-	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
-	if err != nil {
-		return 0, fmt.Errorf("获取用户实例列表失败: %w", err)
-	}
-
-	if len(instances) == 0 {
-		return 0, nil // 用户没有实例
-	}
-
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	var totalTraffic int64
+	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
+	var totalTrafficMB int64
+	query := `
+		SELECT COALESCE(SUM(
+			CASE 
+				WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+			END
+		), 0) / 1048576
+		FROM instances i
+		LEFT JOIN providers p ON i.provider_id = p.id
+		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id
+			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
+		WHERE i.user_id = ?
+	`
 
-	// 遍历每个实例，从vnStat记录中获取当月流量
-	for _, instance := range instances {
-		instanceTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
-		if err != nil {
-			global.APP_LOG.Warn("获取实例vnStat月度流量失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-			continue
-		}
-		totalTraffic += instanceTraffic
+	err := global.APP_DB.Raw(query, year, month, userID).Scan(&totalTrafficMB).Error
+	if err != nil {
+		return 0, fmt.Errorf("获取用户月度流量失败: %w", err)
 	}
 
 	global.APP_LOG.Debug("计算用户vnStat月度流量",
 		zap.Uint("userID", userID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Int("instancesCount", len(instances)),
-		zap.Int64("totalTraffic", totalTraffic))
+		zap.Int64("totalTrafficMB", totalTrafficMB))
 
-	return totalTraffic, nil
+	return totalTrafficMB, nil
 }
 
 // getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
 func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
-	// 获取Provider下所有实例（包含软删除的实例，因为需要统计本月已产生的流量）
-	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Find(&instances).Error
-	if err != nil {
-		return 0, fmt.Errorf("获取Provider实例列表失败: %w", err)
-	}
-
-	if len(instances) == 0 {
-		return 0, nil // Provider下没有实例
-	}
-
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	var totalTraffic int64
+	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
+	var totalTrafficMB int64
+	query := `
+		SELECT COALESCE(SUM(
+			CASE 
+				WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+			END
+		), 0) / 1048576
+		FROM instances i
+		LEFT JOIN providers p ON i.provider_id = p.id
+		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id
+			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
+		WHERE i.provider_id = ?
+	`
 
-	// 遍历每个实例，从vnStat记录中获取当月流量
-	for _, instance := range instances {
-		instanceTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
-		if err != nil {
-			global.APP_LOG.Warn("获取实例vnStat月度流量失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-			continue
-		}
-		totalTraffic += instanceTraffic
+	err := global.APP_DB.Raw(query, year, month, providerID).Scan(&totalTrafficMB).Error
+	if err != nil {
+		return 0, fmt.Errorf("获取Provider月度流量失败: %w", err)
 	}
 
 	global.APP_LOG.Debug("计算Provider vnStat月度流量",
 		zap.Uint("providerID", providerID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Int("instancesCount", len(instances)),
-		zap.Int64("totalTraffic", totalTraffic))
+		zap.Int64("totalTrafficMB", totalTrafficMB))
 
-	return totalTraffic, nil
+	return totalTrafficMB, nil
 }
 
 // GetUserTrafficUsageWithVnStat 获取用户流量使用情况（基于vnStat数据）
@@ -146,8 +138,8 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 		}
 	}
 
-	// 获取当月流量使用量
-	currentMonthUsage, err := s.getUserMonthlyTrafficFromVnStat(userID)
+	// 获取当月流量使用量（MB 单位）
+	currentMonthUsageMB, err := s.getUserMonthlyTrafficFromVnStat(userID)
 	if err != nil {
 		return nil, fmt.Errorf("获取当月流量使用量失败: %w", err)
 	}
@@ -162,7 +154,7 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 	// 计算使用百分比
 	var usagePercent float64
 	if u.TotalTraffic > 0 {
-		usagePercent = float64(currentMonthUsage) / float64(u.TotalTraffic) * 100
+		usagePercent = float64(currentMonthUsageMB) / float64(u.TotalTraffic) * 100
 	}
 
 	// 获取最近6个月的流量历史
@@ -174,7 +166,7 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 
 	return map[string]interface{}{
 		"user_id":             userID,
-		"current_month_usage": currentMonthUsage,
+		"current_month_usage": currentMonthUsageMB, // 返回 MB 单位
 		"yearly_usage":        yearlyUsage,
 		"total_limit":         u.TotalTraffic,
 		"usage_percent":       usagePercent,
@@ -182,7 +174,7 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 		"reset_time":          u.TrafficResetAt,
 		"history":             history,
 		"formatted": map[string]string{
-			"current_usage": FormatTrafficMB(currentMonthUsage),
+			"current_usage": FormatTrafficMB(currentMonthUsageMB),
 			"total_limit":   FormatTrafficMB(int64(u.TotalTraffic)),
 		},
 	}, nil
@@ -348,19 +340,19 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 获取当前月份的流量使用
-	monthlyTraffic, err := s.getProviderMonthlyTrafficFromVnStat(providerID)
+	// 获取当前月份的流量使用（MB 单位）
+	monthlyTrafficMB, err := s.getProviderMonthlyTrafficFromVnStat(providerID)
 	if err != nil {
 		global.APP_LOG.Warn("获取Provider vnStat月度流量失败，使用默认值",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
-		monthlyTraffic = 0
+		monthlyTrafficMB = 0
 	}
 
 	// 计算使用百分比
 	var usagePercent float64 = 0
 	if p.MaxTraffic > 0 {
-		usagePercent = float64(monthlyTraffic) / float64(p.MaxTraffic) * 100
+		usagePercent = float64(monthlyTrafficMB) / float64(p.MaxTraffic) * 100
 	}
 
 	// 获取Provider下的实例数量（排除软删除的实例 - 用于显示活跃实例数）
@@ -382,7 +374,7 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 	return map[string]interface{}{
 		"provider_id":            providerID,
 		"provider_name":          p.Name,
-		"current_month_usage":    monthlyTraffic,
+		"current_month_usage":    monthlyTrafficMB, // 返回 MB 单位
 		"total_limit":            p.MaxTraffic,
 		"usage_percent":          usagePercent,
 		"is_limited":             p.TrafficLimited,
@@ -391,7 +383,7 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 		"limited_instance_count": limitedInstanceCount,
 		"data_source":            "vnstat",
 		"formatted": map[string]string{
-			"current_usage": FormatTrafficMB(monthlyTraffic),
+			"current_usage": FormatTrafficMB(monthlyTrafficMB),
 			"total_limit":   FormatTrafficMB(p.MaxTraffic),
 		},
 	}, nil
@@ -409,7 +401,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 		Username   string     `gorm:"column:username"`
 		Nickname   string     `gorm:"column:nickname"`
 		MonthUsage int64      `gorm:"column:month_usage"`
-		TotalLimit uint64     `gorm:"column:total_limit"`
+		TotalLimit int64      `gorm:"column:total_limit"`
 		IsLimited  bool       `gorm:"column:is_limited"`
 		ResetTime  *time.Time `gorm:"column:reset_time"`
 	}
@@ -451,20 +443,31 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	}
 
 	// 构建分页查询
+	// 根据 Provider 的流量模式计算流量：
+	// - both: rx_bytes + tx_bytes（乘以倍率）
+	// - out: tx_bytes（乘以倍率）
+	// - in: rx_bytes（乘以倍率）
 	offset := (page - 1) * pageSize
 	query := `
 		SELECT 
 			u.id as user_id,
 			u.username,
 			u.nickname,
-			COALESCE(SUM(vr.total_bytes), 0) as month_usage,
+			COALESCE(SUM(
+				CASE 
+					WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+					WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+					ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+				END
+			), 0) / 1048576 as month_usage,
 			u.total_traffic as total_limit,
 			u.traffic_limited as is_limited,
 			u.traffic_reset_at as reset_time
 		FROM users u
 		LEFT JOIN instances i ON u.id = i.user_id
+		LEFT JOIN providers p ON i.provider_id = p.id
 		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id 
-			AND vr.year = ? AND vr.month = ?
+			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
 		WHERE 1=1` + whereClause + `
 		GROUP BY u.id, u.username, u.nickname, u.total_traffic, u.traffic_limited, u.traffic_reset_at
 		ORDER BY month_usage DESC
@@ -486,10 +489,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	for i, rank := range rankings {
 		var usagePercent float64 = 0
 		if rank.TotalLimit > 0 {
-			// MonthUsage 是字节数，TotalLimit 是 MB，需要统一单位
-			// 将字节转换为 MB: bytes / (1024 * 1024)
-			monthUsageMB := float64(rank.MonthUsage) / (1024 * 1024)
-			usagePercent = (monthUsageMB / float64(rank.TotalLimit)) * 100
+			usagePercent = (float64(rank.MonthUsage) / float64(rank.TotalLimit)) * 100
 		}
 
 		result = append(result, map[string]interface{}{
@@ -497,14 +497,14 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 			"user_id":       rank.UserID,
 			"username":      rank.Username,
 			"nickname":      rank.Nickname,
-			"month_usage":   rank.MonthUsage,
+			"month_usage":   rank.MonthUsage * 1024 * 1024, // 转换为字节以保持前端兼容性
 			"total_limit":   rank.TotalLimit,
 			"usage_percent": usagePercent,
 			"is_limited":    rank.IsLimited,
 			"reset_time":    rank.ResetTime,
 			"formatted": map[string]string{
-				"month_usage": FormatVnStatData(rank.MonthUsage),
-				"total_limit": FormatTrafficMB(int64(rank.TotalLimit)),
+				"month_usage": FormatTrafficMB(rank.MonthUsage),
+				"total_limit": FormatTrafficMB(rank.TotalLimit),
 			},
 		})
 	}

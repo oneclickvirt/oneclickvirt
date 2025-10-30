@@ -280,42 +280,39 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		return false, nil
 	}
 
-	// 使用批量查询获取用户当月总流量
+	// 使用批量查询获取用户当月总流量（应用流量模式和倍率）
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用SQL聚合查询，一次性获取用户所有实例的流量总和
-	// 避免N+1查询问题
+	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
 	var totalUsed int64
-	err := global.APP_DB.Table("vnstat_traffic_records AS vtr").
-		Select("COALESCE(SUM(vtr.total_bytes), 0) / 1024 / 1024").
-		Joins("INNER JOIN instances AS i ON vtr.instance_id = i.id").
-		Where("i.user_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0",
-			userID, year, month).
-		Scan(&totalUsed).Error
+	query := `
+		SELECT COALESCE(SUM(
+			CASE 
+				WHEN p.traffic_count_mode = 'out' THEN vtr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN vtr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (vtr.rx_bytes + vtr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+			END
+		), 0) / 1048576
+		FROM vnstat_traffic_records AS vtr
+		INNER JOIN instances AS i ON vtr.instance_id = i.id
+		LEFT JOIN providers AS p ON i.provider_id = p.id
+		WHERE i.user_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0
+	`
+
+	err := global.APP_DB.Raw(query, userID, year, month).Scan(&totalUsed).Error
 
 	if err != nil {
 		global.APP_LOG.Warn("批量查询用户流量失败，降级到逐个查询",
 			zap.Uint("userID", userID),
 			zap.Error(err))
 
-		// 降级方案：逐个查询（保留原有逻辑）
-		var instances []provider.Instance
-		if err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error; err != nil {
-			return false, fmt.Errorf("获取用户实例列表失败: %w", err)
-		}
-
-		totalUsed = 0
-		for _, instance := range instances {
-			instanceTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
-			if err != nil {
-				global.APP_LOG.Warn("获取实例流量失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.Error(err))
-				continue
-			}
-			totalUsed += instanceTraffic
+		// 降级方案：使用 LimitService 的方法（已支持流量模式）
+		limitService := NewLimitService()
+		totalUsed, err = limitService.getUserMonthlyTrafficFromVnStat(userID)
+		if err != nil {
+			return false, fmt.Errorf("获取用户流量失败: %w", err)
 		}
 	}
 
@@ -484,42 +481,39 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 		return false, nil
 	}
 
-	// 使用批量查询获取Provider当月总流量
+	// 使用批量查询获取Provider当月总流量（应用流量模式和倍率）
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用SQL聚合查询，一次性获取Provider所有实例的流量总和
-	// 避免N+1查询问题
+	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
 	var totalUsed int64
-	err := global.APP_DB.Table("vnstat_traffic_records AS vtr").
-		Select("COALESCE(SUM(vtr.total_bytes), 0) / 1024 / 1024").
-		Joins("INNER JOIN instances AS i ON vtr.instance_id = i.id").
-		Where("i.provider_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0",
-			providerID, year, month).
-		Scan(&totalUsed).Error
+	query := `
+		SELECT COALESCE(SUM(
+			CASE 
+				WHEN p.traffic_count_mode = 'out' THEN vtr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN vtr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (vtr.rx_bytes + vtr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+			END
+		), 0) / 1048576
+		FROM vnstat_traffic_records AS vtr
+		INNER JOIN instances AS i ON vtr.instance_id = i.id
+		LEFT JOIN providers AS p ON i.provider_id = p.id
+		WHERE i.provider_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0
+	`
+
+	err := global.APP_DB.Raw(query, providerID, year, month).Scan(&totalUsed).Error
 
 	if err != nil {
 		global.APP_LOG.Warn("批量查询Provider流量失败，降级到逐个查询",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
 
-		// 降级方案：逐个查询（保留原有逻辑）
-		var instances []provider.Instance
-		if err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Find(&instances).Error; err != nil {
-			return false, fmt.Errorf("获取Provider实例列表失败: %w", err)
-		}
-
-		totalUsed = 0
-		for _, instance := range instances {
-			instanceTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
-			if err != nil {
-				global.APP_LOG.Warn("获取实例流量失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.Error(err))
-				continue
-			}
-			totalUsed += instanceTraffic
+		// 降级方案：使用 LimitService 的方法（已支持流量模式）
+		limitService := NewLimitService()
+		totalUsed, err = limitService.getProviderMonthlyTrafficFromVnStat(providerID)
+		if err != nil {
+			return false, fmt.Errorf("获取Provider流量失败: %w", err)
 		}
 	}
 

@@ -109,7 +109,7 @@ docker run -d \
 
 > **说明**：`FRONTEND_URL` 用于配置前端访问地址，影响 CORS、OAuth2 回调等功能。系统会自动检测 HTTP/HTTPS 协议并调整相应配置，协议头可以是http或https。
 
-### 方式二：使用 Docker Compose（推荐开发和测试）
+### 方式二：使用 Docker Compose
 
 <details>
 <summary>展开查看 Docker Compose 部署</summary>

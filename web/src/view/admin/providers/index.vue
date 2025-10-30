@@ -1625,6 +1625,62 @@
               </div>
             </el-form-item>
 
+            <el-form-item
+              :label="$t('admin.providers.trafficCountMode')"
+              prop="trafficCountMode"
+            >
+              <el-select
+                v-model="addProviderForm.trafficCountMode"
+                :placeholder="$t('admin.providers.selectTrafficCountMode')"
+                style="width: 100%"
+              >
+                <el-option
+                  label="双向流量（入站+出站）"
+                  value="both"
+                />
+                <el-option
+                  label="仅出站流量"
+                  value="out"
+                />
+                <el-option
+                  label="仅入站流量"
+                  value="in"
+                />
+              </el-select>
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.trafficCountModeTip') }}
+                </el-text>
+              </div>
+            </el-form-item>
+
+            <el-form-item
+              :label="$t('admin.providers.trafficMultiplier')"
+              prop="trafficMultiplier"
+            >
+              <el-input-number
+                v-model="addProviderForm.trafficMultiplier"
+                :min="0.1"
+                :max="10"
+                :step="0.1"
+                :precision="2"
+                :controls="false"
+                placeholder="1.0"
+                style="width: 100%"
+              />
+              <div class="form-tip">
+                <el-text
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.providers.trafficMultiplierTip') }}
+                </el-text>
+              </div>
+            </el-form-item>
+
             <el-alert
               :title="$t('admin.providers.bandwidthMechanismTitle')"
               type="warning"
@@ -2309,6 +2365,8 @@ const addProviderForm = reactive({
   maxOutboundBandwidth: 1000, // 最大出站带宽限制（Mbps）
   // 流量配置
   maxTraffic: 1048576, // 最大流量限制（MB），默认1TB
+  trafficCountMode: 'both', // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+  trafficMultiplier: 1.0, // 流量计费倍率，默认1.0
   ipv4PortMappingMethod: 'device_proxy', // IPv4端口映射方式：device_proxy, iptables, native
   ipv6PortMappingMethod: 'device_proxy',  // IPv6端口映射方式：device_proxy, iptables, native
   executionRule: 'auto', // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
@@ -2666,6 +2724,8 @@ const cancelAddServer = () => {
     maxOutboundBandwidth: 1000,
     // 重置流量配置 (1TB = 1048576 MB)
     maxTraffic: 1048576,
+    trafficCountMode: 'both', // 重置流量统计模式
+    trafficMultiplier: 1.0, // 重置流量倍率
     ipv4PortMappingMethod: 'device_proxy',
     ipv6PortMappingMethod: 'device_proxy',
     // 重置SSH超时配置
@@ -2894,6 +2954,8 @@ const editProvider = (provider) => {
     maxOutboundBandwidth: provider.maxOutboundBandwidth || 1000,
     // 流量配置
     maxTraffic: provider.maxTraffic || 1048576,
+    trafficCountMode: provider.trafficCountMode || 'both', // 流量统计模式
+    trafficMultiplier: provider.trafficMultiplier || 1.0, // 流量倍率
     // 操作执行规则
     executionRule: provider.executionRule || 'auto', // 默认自动切换
     // SSH超时配置

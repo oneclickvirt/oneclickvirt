@@ -352,7 +352,9 @@ func (s *Service) getVnstatData(instance provider.Instance) (*system.VnstatData,
 	}, nil
 }
 
-// getInstanceMonthlyTrafficFromVnStat 获取实例月度流量数据
+// getInstanceMonthlyTrafficFromVnStat 获取实例月度流量数据（MB）
+// 注意：此函数直接统计双向流量，不考虑 Provider 的流量模式
+// 流量模式的处理应在上层调用时通过 SQL 完成
 func (s *Service) getInstanceMonthlyTrafficFromVnStat(instanceID uint, year, month int) (int64, error) {
 	var totalBytes int64
 	err := global.APP_DB.Model(&monitoring.VnStatTrafficRecord{}).
