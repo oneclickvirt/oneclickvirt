@@ -18,36 +18,45 @@ export const useLanguageStore = defineStore('language', () => {
     return 'en-US'
   }
 
-  // 获取应该使用的语言（优先级：localStorage > 系统配置 > 浏览器语言 > 默认中文）
+  // 获取应该使用的语言（优先级：localStorage(用户手动切换) > 系统配置 > 浏览器语言 > 默认中文）
   const getEffectiveLanguage = () => {
-    // 1. 如果用户手动设置过语言（localStorage有值），优先使用
+    console.log('[Language] 计算有效语言...')
+    console.log('[Language] localStorage语言:', localStorage.getItem('language'))
+    console.log('[Language] 系统配置语言:', systemConfigLanguage.value)
+    
+    // 1. 如果用户手动设置过语言（localStorage有值），优先使用用户的选择
     const storedLang = localStorage.getItem('language')
     if (storedLang) {
+      console.log('[Language] 使用用户手动设置的语言:', storedLang)
       return storedLang
     }
 
-    // 2. 如果系统配置了默认语言，使用系统配置
-    if (systemConfigLanguage.value) {
+    // 2. 如果系统配置了默认语言（非空字符串），使用系统配置
+    if (systemConfigLanguage.value && systemConfigLanguage.value !== '') {
+      console.log('[Language] 使用系统配置语言:', systemConfigLanguage.value)
       return systemConfigLanguage.value
     }
 
     // 3. 尝试检测浏览器语言
     try {
-      return detectBrowserLanguage()
+      const browserLang = detectBrowserLanguage()
+      console.log('[Language] 使用浏览器语言:', browserLang)
+      return browserLang
     } catch (e) {
       console.warn('检测浏览器语言失败:', e)
       // 4. 检测失败时默认显示中文
+      console.log('[Language] 使用默认语言: zh-CN')
       return 'zh-CN'
     }
   }
 
   // 设置系统配置的默认语言
   const setSystemConfigLanguage = (lang) => {
+    console.log('[Language] 设置系统配置语言:', lang)
     systemConfigLanguage.value = lang
-    // 如果用户没有手动设置过语言，则使用系统配置
-    if (!localStorage.getItem('language')) {
-      currentLanguage.value = getEffectiveLanguage()
-    }
+    // 重新计算有效语言（会优先使用用户手动设置）
+    currentLanguage.value = getEffectiveLanguage()
+    console.log('[Language] 当前语言已设置为:', currentLanguage.value)
   }
 
   // 初始化语言

@@ -605,6 +605,18 @@
               {{ $t('admin.config.languageSettings') }}
             </el-divider>
 
+            <el-alert
+              type="warning"
+              :closable="false"
+              show-icon
+              style="margin-bottom: 20px;"
+            >
+              <template #title>
+                <strong>{{ $t('admin.config.languageForceNote') || '强制语言设置说明' }}</strong>
+              </template>
+              {{ $t('admin.config.languageForceDesc') || '当设置了系统默认语言（选择中文或English）后，所有用户将被强制使用该语言，用户的手动语言切换将被覆盖。留空时将根据用户浏览器语言自动选择。' }}
+            </el-alert>
+
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item :label="$t('admin.config.defaultLanguage')">
@@ -720,6 +732,7 @@ const loadConfig = async () => {
   try {
     const response = await getAdminConfig()
     console.log('加载配置响应:', response)
+    console.log('配置数据:', response.data)
     if (response.code === 0 && response.data) {
       // 合并配置，确保所有字段都有默认值
       if (response.data.auth) {
@@ -738,10 +751,12 @@ const loadConfig = async () => {
 
       // 加载其他配置
       if (response.data.other) {
+        console.log('加载其他配置:', response.data.other)
         config.value.other = {
           ...config.value.other,
           ...response.data.other
         }
+        console.log('合并后的其他配置:', config.value.other)
       }
       
       // 加载等级配置
@@ -857,6 +872,7 @@ const saveConfig = async () => {
     console.log('开始保存配置...')
     console.log('基础配置:', config.value)
     console.log('实例类型权限配置:', instanceTypePermissions.value)
+    console.log('语言配置:', config.value.other.defaultLanguage)
     
     // 保存基础配置
     const configResult = await updateAdminConfig(config.value)

@@ -1261,7 +1261,9 @@ export default {
       defaultLanguage: 'Default System Language',
       selectDefaultLanguage: 'Select Default Language',
       browserLanguage: 'Follow Browser Language',
-      defaultLanguageHint: 'Set the default language for the system. When left empty, it will automatically follow the browser language (display English for non-Chinese, default to Chinese if detection fails). Users can manually switch language in personal settings',
+      defaultLanguageHint: 'Set the default language for the system. When left empty, it will automatically follow the browser language (display English for non-Chinese, default to Chinese if detection fails)',
+      languageForceNote: 'Language Setting Notice',
+      languageForceDesc: 'The system default language only applies to users who have not manually switched languages. Once a user manually switches the language, their choice will be prioritized. When "Follow Browser Language" is selected, new users will see the interface in their browser language',
       
       // Buttons
       saveCurrentConfig: 'Save Current Configuration',

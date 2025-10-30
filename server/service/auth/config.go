@@ -189,8 +189,11 @@ func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
 		return nil, err
 	}
 
+	global.APP_LOG.Info("从数据库读取其他配置", zap.Int("count", len(configs)))
+
 	result := make(map[string]interface{})
 	for _, cfg := range configs {
+		global.APP_LOG.Info("配置项", zap.String("key", cfg.Key), zap.String("value", cfg.Value))
 		switch cfg.Key {
 		case "max_avatar_size":
 			// 转换为 float64
@@ -202,11 +205,16 @@ func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
 		}
 	}
 
+	global.APP_LOG.Info("返回其他配置", zap.Any("result", result))
 	return result, nil
 }
 
 // updateOtherConfigs 更新其他配置到 system_configs 表
 func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error {
+	global.APP_LOG.Info("开始更新其他配置",
+		zap.Float64("maxAvatarSize", other.MaxAvatarSize),
+		zap.String("defaultLanguage", other.DefaultLanguage))
+
 	// 使用 admin system service 的方法来更新配置
 	adminSystemService := &struct {
 		UpdateSystemConfig func(req interface{}) error
@@ -235,12 +243,14 @@ func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error 
 			if err := global.APP_DB.Create(&newConfig).Error; err != nil {
 				return err
 			}
+			global.APP_LOG.Info("创建max_avatar_size配置", zap.String("value", valueStr))
 		} else {
 			// 更新配置
 			existingConfig.Value = valueStr
 			if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
 				return err
 			}
+			global.APP_LOG.Info("更新max_avatar_size配置", zap.String("value", valueStr))
 		}
 	}
 
@@ -265,12 +275,16 @@ func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error 
 		if err := global.APP_DB.Create(&newConfig).Error; err != nil {
 			return err
 		}
+		global.APP_LOG.Info("创建default_language配置", zap.String("value", other.DefaultLanguage))
 	} else {
 		// 更新配置
 		existingConfig.Value = other.DefaultLanguage
 		if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
 			return err
 		}
+		global.APP_LOG.Info("更新default_language配置",
+			zap.String("oldValue", existingConfig.Value),
+			zap.String("newValue", other.DefaultLanguage))
 	}
 
 	_ = adminSystemService
