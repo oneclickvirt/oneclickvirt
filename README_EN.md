@@ -169,31 +169,6 @@ docker-compose down
 rm -rf ./data
 ```
 
-**Upgrade Services:**
-
-If you need to upgrade to the latest version, follow these steps:
-
-```bash
-# 1. Backup configuration file (Important!)
-docker cp api:/app/config.yaml ./config.yaml.backup
-
-# 2. Stop and remove containers (keep data volumes)
-docker-compose down
-
-# 3. Pull latest code and rebuild
-git pull
-docker-compose up -d --build
-
-# 4. Restore configuration file
-docker cp ./config.yaml.backup api:/app/config.yaml
-docker-compose restart api
-```
-
-> **Important Notes**:
-> - The configuration file `config.yaml` is stored inside the container at `/app/config.yaml` and is **NOT mounted to the host**
-> - Rebuilding the container will overwrite it with the default config from source code, so **backup and restore are required**
-> - Database data (`./data/mysql`) and application storage (`./data/app/`) are persisted through volume mounts
-
 </details>
 
 ### Method 3: Build from Source

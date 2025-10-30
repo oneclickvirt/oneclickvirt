@@ -170,31 +170,6 @@ docker-compose down
 rm -rf ./data
 ```
 
-**升级服务：**
-
-如果需要升级到最新版本，执行以下步骤：
-
-```bash
-# 1. 备份配置文件（重要！）
-docker cp api:/app/config.yaml ./config.yaml.backup
-
-# 2. 停止并删除容器（保留数据卷）
-docker-compose down
-
-# 3. 拉取最新代码并重新构建
-git pull
-docker-compose up -d --build
-
-# 4. 恢复配置文件
-docker cp ./config.yaml.backup api:/app/config.yaml
-docker-compose restart api
-```
-
-> **重要说明**：
-> - 配置文件 `config.yaml` 存储在容器内 `/app/config.yaml`，并**未挂载到宿主机**
-> - 重新构建容器时会使用源码中的默认配置文件覆盖，因此**必须备份和恢复配置文件**
-> - 数据库数据（`./data/mysql`）和应用存储（`./data/app/`）会通过数据卷持久化保留
-
 </details>
 
 ### 方式三：自己编译打包
