@@ -232,26 +232,6 @@ type ResetInstancePasswordRequest struct {
 	// 不需要传递任何参数，由后端自动生成新密码
 }
 
-type UpdateSystemConfigRequest struct {
-	Key      string `json:"key" binding:"required"`
-	Value    string `json:"value"`
-	Type     string `json:"type"`
-	Category string `json:"category"`
-	Remark   string `json:"remark"`
-}
-
-// BatchUpdateSystemConfigRequest 批量更新系统配置请求
-type BatchUpdateSystemConfigRequest struct {
-	Scope  string                 `json:"scope"`  // 配置作用域，如"global"
-	Config map[string]interface{} `json:"config"` // 嵌套配置数据
-}
-
-type SystemConfigListRequest struct {
-	common.PageInfo
-	Key      string `json:"key" form:"key"`
-	Category string `json:"category" form:"category"`
-}
-
 type CreateAnnouncementRequest struct {
 	Title       string `json:"title" binding:"required"`
 	Content     string `json:"content" binding:"required"`

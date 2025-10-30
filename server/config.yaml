@@ -122,6 +122,11 @@ system:
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
+upload:
+    max-avatar-size: 2
+other:
+    default-language: zh-CN
+    max-avatar-size: 2
 zap:
     compress-logs: true
     director: storage/logs

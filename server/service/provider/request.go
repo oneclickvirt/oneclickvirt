@@ -59,20 +59,3 @@ func (s *RequestProcessService) ProcessInstanceListRequest(c *gin.Context, req *
 
 	return nil
 }
-
-// ProcessSystemConfigListRequest 处理系统配置列表请求参数
-func (s *RequestProcessService) ProcessSystemConfigListRequest(c *gin.Context, req *admin.SystemConfigListRequest) error {
-	if err := c.ShouldBindQuery(req); err != nil {
-		return err
-	}
-
-	// 设置默认值
-	if req.Page <= 0 {
-		req.Page = 1
-	}
-	if req.PageSize <= 0 {
-		req.PageSize = 10
-	}
-
-	return nil
-}

@@ -5,7 +5,7 @@ auth:
     email-username: root
     enable-email: false
     enable-o-auth2: false
-    enable-public-registration: true
+    enable-public-registration: false
     enable-qq: false
     enable-telegram: false
     qq-app-id: ""

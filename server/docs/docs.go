@@ -348,123 +348,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/admin/config": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取系统的配置列表",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "系统管理"
-                ],
-                "summary": "获取系统配置",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 1,
-                        "description": "页码",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 10,
-                        "description": "每页数量",
-                        "name": "pageSize",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "put": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "更新系统的配置参数，支持单个配置项和批量配置",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "系统管理"
-                ],
-                "summary": "更新系统配置",
-                "parameters": [
-                    {
-                        "description": "更新配置请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.UpdateSystemConfigRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "更新成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "更新失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/configuration-tasks": {
             "get": {
                 "security": [
@@ -1974,7 +1857,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "删除成功",
+                        "description": "删除任务已创建",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -1986,7 +1869,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "删除失败",
+                        "description": "创建任务失败",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -2023,7 +1906,7 @@ const docTemplate = `{
                 ],
                 "responses": {
                     "200": {
-                        "description": "删除成功",
+                        "description": "删除任务已创建",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -2035,7 +1918,7 @@ const docTemplate = `{
                         }
                     },
                     "500": {
-                        "description": "删除失败",
+                        "description": "创建任务失败",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -6250,6 +6133,41 @@ const docTemplate = `{
                 }
             }
         },
+        "/public/system-config": {
+            "get": {
+                "description": "获取系统公开配置信息（不需要认证），如默认语言等",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统配置"
+                ],
+                "summary": "获取公开的系统配置信息",
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
         "/public/test-db-connection": {
             "post": {
                 "description": "测试数据库连接是否可用，用于初始化前验证数据库配置",
@@ -9013,7 +8931,8 @@ const docTemplate = `{
                     "type": "string",
                     "enum": [
                         "tcp",
-                        "udp"
+                        "udp",
+                        "both"
                     ]
                 }
             }
@@ -9131,6 +9050,10 @@ const docTemplate = `{
                 "password": {
                     "type": "string"
                 },
+                "portIP": {
+                    "description": "端口映射使用的公网IP",
+                    "type": "string"
+                },
                 "portRangeEnd": {
                     "description": "端口映射范围结束，默认65535",
                     "type": "integer"
@@ -9149,6 +9072,10 @@ const docTemplate = `{
                 "sshExecuteTimeout": {
                     "description": "SSH命令执行超时时间（秒），默认300秒",
                     "type": "integer"
+                },
+                "sshKey": {
+                    "description": "SSH私钥，优先于密码使用",
+                    "type": "string"
                 },
                 "sshPort": {
                     "type": "integer"
@@ -9406,7 +9333,6 @@ const docTemplate = `{
             "type": "object",
             "required": [
                 "host",
-                "password",
                 "port",
                 "username"
             ],
@@ -9416,12 +9342,16 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "password": {
-                    "description": "SSH密码",
+                    "description": "SSH密码（使用密码认证时必填）",
                     "type": "string"
                 },
                 "port": {
                     "description": "SSH端口",
                     "type": "integer"
+                },
+                "sshKey": {
+                    "description": "SSH私钥（使用密钥认证时必填）",
+                    "type": "string"
                 },
                 "testCount": {
                     "description": "测试次数，默认3次",
@@ -9537,29 +9467,6 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 5,
                     "minimum": 1
-                }
-            }
-        },
-        "admin.UpdateSystemConfigRequest": {
-            "type": "object",
-            "required": [
-                "key"
-            ],
-            "properties": {
-                "category": {
-                    "type": "string"
-                },
-                "key": {
-                    "type": "string"
-                },
-                "remark": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "value": {
-                    "type": "string"
                 }
             }
         },
@@ -9792,6 +9699,19 @@ const docTemplate = `{
                 }
             }
         },
+        "config.OtherConfig": {
+            "type": "object",
+            "properties": {
+                "defaultLanguage": {
+                    "description": "系统默认语言，空字符串表示使用浏览器语言",
+                    "type": "string"
+                },
+                "maxAvatarSize": {
+                    "description": "头像最大大小(MB)",
+                    "type": "number"
+                }
+            }
+        },
         "config.QuotaConfig": {
             "type": "object",
             "properties": {
@@ -9831,6 +9751,9 @@ const docTemplate = `{
                 },
                 "inviteCode": {
                     "$ref": "#/definitions/config.InviteCodeConfig"
+                },
+                "other": {
+                    "$ref": "#/definitions/config.OtherConfig"
                 },
                 "quota": {
                     "$ref": "#/definitions/config.QuotaConfig"
@@ -10521,6 +10444,10 @@ const docTemplate = `{
                     "description": "兼容旧的port字段",
                     "type": "integer"
                 },
+                "sshKey": {
+                    "description": "SSH私钥内容，优先于密码使用",
+                    "type": "string"
+                },
                 "sshPort": {
                     "description": "新的sshPort字段",
                     "type": "integer"
@@ -10606,6 +10533,10 @@ const docTemplate = `{
                 "systemImageId": {
                     "description": "系统镜像ID",
                     "type": "integer"
+                },
+                "use_cdn": {
+                    "description": "是否使用CDN加速下载镜像",
+                    "type": "boolean"
                 }
             }
         },
@@ -10692,6 +10623,8 @@ const docTemplate = `{
             "required": [
                 "architecture",
                 "instanceType",
+                "minDiskMB",
+                "minMemoryMB",
                 "name",
                 "providerType",
                 "url"
@@ -10717,6 +10650,14 @@ const docTemplate = `{
                         "vm",
                         "container"
                     ]
+                },
+                "minDiskMB": {
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "minMemoryMB": {
+                    "type": "integer",
+                    "minimum": 1
                 },
                 "name": {
                     "type": "string"
@@ -10744,6 +10685,9 @@ const docTemplate = `{
                 },
                 "url": {
                     "type": "string"
+                },
+                "useCdn": {
+                    "type": "boolean"
                 }
             }
         },
@@ -11298,6 +11242,12 @@ const docTemplate = `{
                 "isActive": {
                     "type": "boolean"
                 },
+                "minDiskMB": {
+                    "type": "integer"
+                },
+                "minMemoryMB": {
+                    "type": "integer"
+                },
                 "name": {
                     "type": "string"
                 },
@@ -11306,6 +11256,9 @@ const docTemplate = `{
                 },
                 "providerType": {
                     "type": "string"
+                },
+                "useCdn": {
+                    "type": "boolean"
                 },
                 "version": {
                     "type": "string"
@@ -11452,6 +11405,10 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "providerName": {
+                    "type": "string"
+                },
+                "providerStatus": {
+                    "description": "Provider状态：active, inactive, partial",
                     "type": "string"
                 },
                 "publicIP": {

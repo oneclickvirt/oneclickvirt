@@ -444,6 +444,9 @@ definitions:
         type: string
       password:
         type: string
+      portIP:
+        description: 端口映射使用的公网IP
+        type: string
       portRangeEnd:
         description: 端口映射范围结束，默认65535
         type: integer
@@ -458,6 +461,9 @@ definitions:
       sshExecuteTimeout:
         description: SSH命令执行超时时间（秒），默认300秒
         type: integer
+      sshKey:
+        description: SSH私钥，优先于密码使用
+        type: string
       sshPort:
         type: integer
       status:
@@ -639,11 +645,14 @@ definitions:
         description: SSH服务器地址
         type: string
       password:
-        description: SSH密码
+        description: SSH密码（使用密码认证时必填）
         type: string
       port:
         description: SSH端口
         type: integer
+      sshKey:
+        description: SSH私钥（使用密钥认证时必填）
+        type: string
       testCount:
         description: 测试次数，默认3次
         type: integer
@@ -652,7 +661,6 @@ definitions:
         type: string
     required:
     - host
-    - password
     - port
     - username
     type: object
@@ -732,21 +740,6 @@ definitions:
         maximum: 5
         minimum: 1
         type: integer
-    type: object
-  admin.UpdateSystemConfigRequest:
-    properties:
-      category:
-        type: string
-      key:
-        type: string
-      remark:
-        type: string
-      type:
-        type: string
-      value:
-        type: string
-    required:
-    - key
     type: object
   admin.UpdateUserLevelRequest:
     properties:
@@ -908,6 +901,15 @@ definitions:
         description: 是否必须邀请码（兼容旧字段）
         type: boolean
     type: object
+  config.OtherConfig:
+    properties:
+      defaultLanguage:
+        description: 系统默认语言，空字符串表示使用浏览器语言
+        type: string
+      maxAvatarSize:
+        description: 头像最大大小(MB)
+        type: number
+    type: object
   config.QuotaConfig:
     properties:
       defaultLevel:
@@ -935,6 +937,8 @@ definitions:
         $ref: '#/definitions/config.AuthConfig'
       inviteCode:
         $ref: '#/definitions/config.InviteCodeConfig'
+      other:
+        $ref: '#/definitions/config.OtherConfig'
       quota:
         $ref: '#/definitions/config.QuotaConfig'
     type: object
@@ -1400,6 +1404,9 @@ definitions:
       port:
         description: 兼容旧的port字段
         type: integer
+      sshKey:
+        description: SSH私钥内容，优先于密码使用
+        type: string
       sshPort:
         description: 新的sshPort字段
         type: integer
@@ -1466,6 +1473,9 @@ definitions:
       systemImageId:
         description: 系统镜像ID
         type: integer
+      use_cdn:
+        description: 是否使用CDN加速下载镜像
+        type: boolean
     type: object
   resource.ResourceReservation:
     properties:
@@ -1540,6 +1550,12 @@ definitions:
         - vm
         - container
         type: string
+      minDiskMB:
+        minimum: 1
+        type: integer
+      minMemoryMB:
+        minimum: 1
+        type: integer
       name:
         type: string
       osType:
@@ -1559,9 +1575,13 @@ definitions:
         type: string
       url:
         type: string
+      useCdn:
+        type: boolean
     required:
     - architecture
     - instanceType
+    - minDiskMB
+    - minMemoryMB
     - name
     - providerType
     - url
@@ -1952,12 +1972,18 @@ definitions:
         type: string
       isActive:
         type: boolean
+      minDiskMB:
+        type: integer
+      minMemoryMB:
+        type: integer
       name:
         type: string
       osType:
         type: string
       providerType:
         type: string
+      useCdn:
+        type: boolean
       version:
         type: string
     type: object
@@ -2061,6 +2087,9 @@ definitions:
         description: 内网IPv4地址
         type: string
       providerName:
+        type: string
+      providerStatus:
+        description: Provider状态：active, inactive, partial
         type: string
       publicIP:
         description: 公网IPv4地址
@@ -2333,78 +2362,6 @@ paths:
       summary: 批量更新公告状态
       tags:
       - 管理员管理
-  /admin/config:
-    get:
-      consumes:
-      - application/json
-      description: 获取系统的配置列表
-      parameters:
-      - default: 1
-        description: 页码
-        in: query
-        name: page
-        type: integer
-      - default: 10
-        description: 每页数量
-        in: query
-        name: pageSize
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 获取失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取系统配置
-      tags:
-      - 系统管理
-    put:
-      consumes:
-      - application/json
-      description: 更新系统的配置参数，支持单个配置项和批量配置
-      parameters:
-      - description: 更新配置请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.UpdateSystemConfigRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 更新成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 更新失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 更新系统配置
-      tags:
-      - 系统管理
   /admin/configuration-tasks:
     get:
       consumes:
@@ -3314,7 +3271,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: 删除成功
+          description: 删除任务已创建
           schema:
             $ref: '#/definitions/common.Response'
         "400":
@@ -3322,7 +3279,7 @@ paths:
           schema:
             $ref: '#/definitions/common.Response'
         "500":
-          description: 删除失败
+          description: 创建任务失败
           schema:
             $ref: '#/definitions/common.Response'
       security:
@@ -3346,7 +3303,7 @@ paths:
       - application/json
       responses:
         "200":
-          description: 删除成功
+          description: 删除任务已创建
           schema:
             $ref: '#/definitions/common.Response'
         "400":
@@ -3354,7 +3311,7 @@ paths:
           schema:
             $ref: '#/definitions/common.Response'
         "500":
-          description: 删除失败
+          description: 创建任务失败
           schema:
             $ref: '#/definitions/common.Response'
       security:
@@ -5942,6 +5899,26 @@ paths:
       summary: 获取注册配置信息
       tags:
       - 系统初始化
+  /public/system-config:
+    get:
+      consumes:
+      - application/json
+      description: 获取系统公开配置信息（不需要认证），如默认语言等
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+      summary: 获取公开的系统配置信息
+      tags:
+      - 系统配置
   /public/test-db-connection:
     post:
       consumes:

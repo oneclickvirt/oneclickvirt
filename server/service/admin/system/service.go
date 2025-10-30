@@ -2,16 +2,12 @@ package system
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"oneclickvirt/service/database"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
-	"oneclickvirt/model/common"
 	"oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 
@@ -24,169 +20,6 @@ type Service struct{}
 // NewService 创建系统管理服务
 func NewService() *Service {
 	return &Service{}
-}
-
-// GetSystemConfigList 获取系统配置列表
-func (s *Service) GetSystemConfigList(req admin.SystemConfigListRequest) ([]admin.SystemConfigResponse, int64, error) {
-	var configs []admin.SystemConfig
-	var total int64
-
-	query := global.APP_DB.Model(&admin.SystemConfig{})
-
-	if req.Key != "" {
-		query = query.Where("key LIKE ?", "%"+req.Key+"%")
-	}
-	if req.Category != "" {
-		query = query.Where("category = ?", req.Category)
-	}
-
-	if err := query.Count(&total).Error; err != nil {
-		return nil, 0, err
-	}
-
-	offset := (req.Page - 1) * req.PageSize
-	if err := query.Offset(offset).Limit(req.PageSize).Find(&configs).Error; err != nil {
-		return nil, 0, err
-	}
-
-	var configResponses []admin.SystemConfigResponse
-	for _, config := range configs {
-		configResponse := admin.SystemConfigResponse{
-			SystemConfig: config,
-		}
-		configResponses = append(configResponses, configResponse)
-	}
-
-	return configResponses, total, nil
-}
-
-// UpdateSystemConfig 更新系统配置
-func (s *Service) UpdateSystemConfig(req admin.UpdateSystemConfigRequest) error {
-	var config admin.SystemConfig
-	if err := global.APP_DB.Where("key = ?", req.Key).First(&config).Error; err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			config = admin.SystemConfig{
-				Key:         req.Key,
-				Value:       req.Value,
-				Description: req.Remark,
-				Category:    req.Category,
-			}
-			dbService := database.GetDatabaseService()
-			return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Create(&config).Error
-			})
-		}
-		return err
-	}
-
-	config.Value = req.Value
-	config.Description = req.Remark
-	config.Category = req.Category
-
-	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&config).Error
-	})
-}
-
-// UpdateSystemConfigBatch 批量更新系统配置
-func (s *Service) UpdateSystemConfigBatch(req admin.BatchUpdateSystemConfigRequest) error {
-	if req.Config == nil {
-		return common.NewError(common.CodeValidationError, "配置数据不能为空")
-	}
-
-	// 递归处理嵌套配置，直接使用全局数据库连接
-	return s.processConfigSection(global.APP_DB, "", req.Config)
-}
-
-// processConfigSection 递归处理配置节
-func (s *Service) processConfigSection(tx *gorm.DB, prefix string, configData map[string]interface{}) error {
-	for key, value := range configData {
-		fullKey := key
-		if prefix != "" {
-			fullKey = prefix + "." + key
-		}
-
-		switch v := value.(type) {
-		case map[string]interface{}:
-			// 递归处理嵌套对象
-			if err := s.processConfigSection(tx, fullKey, v); err != nil {
-				return err
-			}
-		default:
-			// 处理基本值 - 使用JSON序列化复杂类型
-			var valueStr string
-			if v == nil {
-				valueStr = ""
-			} else {
-				switch val := v.(type) {
-				case string:
-					valueStr = val
-				case int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
-					valueStr = fmt.Sprintf("%d", val)
-				case float32:
-					valueStr = fmt.Sprintf("%g", val)
-				case float64:
-					// 如果是整数，显示为整数
-					if val == float64(int64(val)) {
-						valueStr = fmt.Sprintf("%d", int64(val))
-					} else {
-						valueStr = fmt.Sprintf("%g", val)
-					}
-				case bool:
-					valueStr = fmt.Sprintf("%t", val)
-				case []interface{}, []string, []int, []map[string]interface{}:
-					// 对于切片类型，使用JSON序列化
-					jsonBytes, err := json.Marshal(val)
-					if err != nil {
-						return fmt.Errorf("序列化配置值失败 (key: %s): %w", fullKey, err)
-					}
-					valueStr = string(jsonBytes)
-				case map[string]interface{}:
-					// 对于map类型，使用JSON序列化
-					jsonBytes, err := json.Marshal(val)
-					if err != nil {
-						return fmt.Errorf("序列化配置值失败 (key: %s): %w", fullKey, err)
-					}
-					valueStr = string(jsonBytes)
-				default:
-					// 其他复杂类型尝试JSON序列化
-					jsonBytes, err := json.Marshal(val)
-					if err != nil {
-						// JSON序列化失败，记录错误并返回
-						global.APP_LOG.Error(fmt.Sprintf("配置值JSON序列化失败 (key: %s, type: %T): %v", fullKey, val, err))
-						return fmt.Errorf("不支持的配置值类型 (key: %s, type: %T)", fullKey, val)
-					}
-					valueStr = string(jsonBytes)
-				}
-			}
-
-			var config admin.SystemConfig
-			if err := tx.Where("key = ?", fullKey).First(&config).Error; err != nil {
-				if errors.Is(err, gorm.ErrRecordNotFound) {
-					// 创建新配置
-					config = admin.SystemConfig{
-						Key:         fullKey,
-						Value:       valueStr,
-						Category:    strings.Split(fullKey, ".")[0], // 使用第一段作为分类
-						Description: fmt.Sprintf("自动创建的配置项: %s", fullKey),
-					}
-					if err := tx.Create(&config).Error; err != nil {
-						return err
-					}
-				} else {
-					return err
-				}
-			} else {
-				// 更新现有配置
-				config.Value = valueStr
-				if err := tx.Save(&config).Error; err != nil {
-					return err
-				}
-			}
-		}
-	}
-	return nil
 }
 
 // GetAnnouncementList 获取公告列表

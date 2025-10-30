@@ -1,7 +1,6 @@
 package system
 
 import (
-	"encoding/json"
 	"net/http"
 	"oneclickvirt/service/provider"
 	"strconv"
@@ -18,117 +17,6 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
-
-// GetSystemConfig 获取系统配置
-// @Summary 获取系统配置
-// @Description 获取系统的配置列表
-// @Tags 系统管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param page query int false "页码" default(1)
-// @Param pageSize query int false "每页数量" default(10)
-// @Success 200 {object} common.Response{data=object} "获取成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "获取失败"
-// @Router /admin/config [get]
-func GetSystemConfig(c *gin.Context) {
-	var req admin.SystemConfigListRequest
-
-	// 使用请求处理服务处理参数
-	requestProcessService := provider.RequestProcessService{}
-	if err := requestProcessService.ProcessSystemConfigListRequest(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
-		return
-	}
-
-	systemService := adminSystem.NewService()
-	configs, total, err := systemService.GetSystemConfigList(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取系统配置失败",
-		})
-		return
-	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  configs,
-			"total": total,
-		},
-	})
-}
-
-// UpdateSystemConfig 更新系统配置
-// @Summary 更新系统配置
-// @Description 更新系统的配置参数，支持单个配置项和批量配置
-// @Tags 系统管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param request body admin.UpdateSystemConfigRequest true "更新配置请求参数"
-// @Success 200 {object} common.Response "更新成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 500 {object} common.Response "更新失败"
-// @Router /admin/config [put]
-func UpdateSystemConfig(c *gin.Context) {
-	// 先读取原始JSON数据
-	body, err := c.GetRawData()
-	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无法读取请求体",
-		})
-		return
-	}
-
-	// 尝试解析为批量配置请求
-	var batchReq admin.BatchUpdateSystemConfigRequest
-	if err := json.Unmarshal(body, &batchReq); err == nil && batchReq.Config != nil {
-		// 处理批量配置更新
-		systemService := adminSystem.NewService()
-		if err := systemService.UpdateSystemConfigBatch(batchReq); err != nil {
-			c.JSON(http.StatusInternalServerError, common.Response{
-				Code: 500,
-				Msg:  err.Error(),
-			})
-			return
-		}
-		c.JSON(http.StatusOK, common.Response{
-			Code: 200,
-			Msg:  "批量更新系统配置成功",
-		})
-		return
-	}
-
-	// 回退到单个配置项更新
-	var req admin.UpdateSystemConfigRequest
-	if err := json.Unmarshal(body, &req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
-		return
-	}
-	systemService := adminSystem.NewService()
-	err = systemService.UpdateSystemConfig(req)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
-		return
-	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "更新系统配置成功",
-	})
-}
 
 func GetAnnouncement(c *gin.Context) {
 	// 获取查询参数
