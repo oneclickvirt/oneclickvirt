@@ -32,20 +32,21 @@ const initLanguage = async () => {
   try {
     // 尝试获取系统配置的默认语言
     const response = await getPublicSystemConfig()
-    console.log('获取系统配置响应:', response)
-    console.log('系统默认语言配置:', response.data?.default_language)
-    
-    if (response.data && response.data.default_language !== undefined) {
-      console.log('设置系统配置语言:', response.data.default_language)
-      languageStore.setSystemConfigLanguage(response.data.default_language)
+    // 检查响应数据
+    if (response && response.data) {
+      const defaultLang = response.data.default_language
+      // 只有当后端明确返回了语言设置时才设置（包括空字符串）
+      // 如果API返回空对象（没有default_language字段），将使用浏览器语言检测
+      if (defaultLang !== undefined) {
+        languageStore.setSystemConfigLanguage(defaultLang)
+      }
     }
   } catch (error) {
-    console.warn('获取系统语言配置失败，使用浏览器语言:', error)
+    console.warn('获取系统语言配置失败，将使用浏览器语言检测:', error)
   }
   
-  // 初始化语言
+  // 初始化语言（会根据优先级自动选择：用户设置 > 系统配置 > 浏览器语言）
   const effectiveLanguage = languageStore.initLanguage()
-  console.log('应用语言:', effectiveLanguage)
   i18n.global.locale.value = effectiveLanguage
 }
 

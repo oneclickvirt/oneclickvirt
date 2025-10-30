@@ -416,6 +416,21 @@ func syncConfigToGlobalViaService(configData map[string]interface{}) error {
 		}
 	}
 
+	// 同步其他配置
+	if otherData, exists := configData["other"]; exists {
+		if otherMap, ok := otherData.(map[string]interface{}); ok {
+			if v, ok := otherMap["maxAvatarSize"].(float64); ok {
+				global.APP_CONFIG.Other.MaxAvatarSize = v
+			}
+			if v, ok := otherMap["defaultLanguage"].(string); ok {
+				global.APP_CONFIG.Other.DefaultLanguage = v
+			}
+			global.APP_LOG.Info("其他配置已同步到全局配置",
+				zap.Float64("maxAvatarSize", global.APP_CONFIG.Other.MaxAvatarSize),
+				zap.String("defaultLanguage", global.APP_CONFIG.Other.DefaultLanguage))
+		}
+	}
+
 	return nil
 }
 
@@ -520,6 +535,12 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 	result["quota"] = map[string]interface{}{
 		"defaultLevel": global.APP_CONFIG.Quota.DefaultLevel,
 		"levelLimits":  levelLimits,
+	}
+
+	// 其他配置
+	result["other"] = map[string]interface{}{
+		"maxAvatarSize":   global.APP_CONFIG.Other.MaxAvatarSize,
+		"defaultLanguage": global.APP_CONFIG.Other.DefaultLanguage,
 	}
 
 	return result

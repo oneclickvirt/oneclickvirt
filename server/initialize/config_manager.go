@@ -151,6 +151,10 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 		if uploadConfig, ok := newValue.(map[string]interface{}); ok {
 			syncUploadConfig(uploadConfig)
 		}
+	case "other":
+		if otherConfig, ok := newValue.(map[string]interface{}); ok {
+			syncOtherConfig(otherConfig)
+		}
 	}
 	return nil
 }
@@ -617,4 +621,24 @@ func syncUploadConfig(uploadConfig map[string]interface{}) {
 
 	global.APP_LOG.Info("上传配置同步完成",
 		zap.Int64("MaxAvatarSize", global.APP_CONFIG.Upload.MaxAvatarSize))
+}
+
+// syncOtherConfig 同步其他配置
+func syncOtherConfig(otherConfig map[string]interface{}) {
+	// 支持驼峰和kebab-case两种格式
+	if maxAvatarSize, ok := otherConfig["maxAvatarSize"].(float64); ok {
+		global.APP_CONFIG.Other.MaxAvatarSize = maxAvatarSize
+	} else if maxAvatarSize, ok := otherConfig["max-avatar-size"].(float64); ok {
+		global.APP_CONFIG.Other.MaxAvatarSize = maxAvatarSize
+	}
+
+	if defaultLanguage, ok := otherConfig["defaultLanguage"].(string); ok {
+		global.APP_CONFIG.Other.DefaultLanguage = defaultLanguage
+	} else if defaultLanguage, ok := otherConfig["default-language"].(string); ok {
+		global.APP_CONFIG.Other.DefaultLanguage = defaultLanguage
+	}
+
+	global.APP_LOG.Info("其他配置同步完成",
+		zap.Float64("MaxAvatarSize", global.APP_CONFIG.Other.MaxAvatarSize),
+		zap.String("DefaultLanguage", global.APP_CONFIG.Other.DefaultLanguage))
 }

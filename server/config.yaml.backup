@@ -1,8 +1,16 @@
 auth:
+    email-password: ""
+    email-smtp-host: ""
+    email-smtp-port: "3306"
+    email-username: root
     enable-email: false
+    enable-o-auth2: false
     enable-public-registration: true
     enable-qq: false
     enable-telegram: false
+    qq-app-id: ""
+    qq-app-key: ""
+    telegram-bot-token: ""
 captcha:
     enabled: true
     expire-time: 300
@@ -83,7 +91,7 @@ quota:
             max-resources:
                 bandwidth: 2000
                 cpu: 16
-                disk: 163840
+                disk: 102400
                 memory: 8192
             max-traffic: 512000
 redis:
@@ -107,6 +115,11 @@ system:
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
+upload:
+    max-avatar-size: 2
+other:
+    default-language: en-US
+    max-avatar-size: 3
 zap:
     compress-logs: true
     director: storage/logs

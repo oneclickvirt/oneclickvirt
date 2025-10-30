@@ -364,7 +364,7 @@ func GetPublicSystemConfig(c *gin.Context) {
 	}
 
 	if err := global.APP_DB.Table("system_configs").
-		Select("key, value").
+		Select("`key`, `value`").
 		Where("is_public = ? AND deleted_at IS NULL", true).
 		Find(&configs).Error; err != nil {
 		global.APP_LOG.Warn("获取公开系统配置失败", zap.Error(err))
@@ -373,10 +373,25 @@ func GetPublicSystemConfig(c *gin.Context) {
 		return
 	}
 
-	// 转换为map格式返回
+	global.APP_LOG.Info("查询到的公开配置数量", zap.Int("count", len(configs)))
+
+	// 转换为map格式返回，并进行字段映射以适配前端
 	result := make(map[string]interface{})
 	for _, config := range configs {
-		result[config.Key] = config.Value
+		global.APP_LOG.Info("公开配置项", zap.String("key", config.Key), zap.String("value", config.Value))
+
+		// 字段映射：将后端的配置键转换为前端期望的格式
+		switch config.Key {
+		case "other.default-language":
+			// 前端期望使用 default_language（下划线命名）
+			result["default_language"] = config.Value
+		case "other.max-avatar-size":
+			// 前端期望使用 max_avatar_size（下划线命名）
+			result["max_avatar_size"] = config.Value
+		default:
+			// 其他配置保持原样
+			result[config.Key] = config.Value
+		}
 	}
 
 	c.JSON(http.StatusOK, common.Success(result))

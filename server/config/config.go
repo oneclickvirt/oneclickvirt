@@ -14,6 +14,12 @@ type Server struct {
 	CDN        CDN        `mapstructure:"cdn" json:"cdn" yaml:"cdn"`
 	Task       Task       `mapstructure:"task" json:"task" yaml:"task"`
 	Upload     Upload     `mapstructure:"upload" json:"upload" yaml:"upload"`
+	Other      Other      `mapstructure:"other" json:"other" yaml:"other"`
+}
+
+type Other struct {
+	MaxAvatarSize   float64 `mapstructure:"max-avatar-size" json:"max-avatar-size" yaml:"max-avatar-size"`    // 头像最大大小（MB）
+	DefaultLanguage string  `mapstructure:"default-language" json:"default-language" yaml:"default-language"` // 默认语言
 }
 
 type CORS struct {

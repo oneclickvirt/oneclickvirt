@@ -19,6 +19,13 @@ const (
 	ConfigModifiedFlagFile = "./storage/.config_modified" // 配置已通过API修改的标志文件
 )
 
+// 公开配置键列表（不需要认证即可访问）
+var publicConfigKeys = map[string]bool{
+	"auth.enable-public-registration": true,
+	"other.default-language":          true,
+	"other.max-avatar-size":           true,
+}
+
 // SystemConfig 系统配置模型（避免循环导入）
 type SystemConfig struct {
 	ID          uint           `json:"id" gorm:"primarykey"`
@@ -249,6 +256,16 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	// 展开嵌套配置并验证
 	flatConfig := cm.flattenConfig(kebabConfig, "")
+	cm.logger.Info("扁平化后的配置",
+		zap.Int("count", len(flatConfig)),
+		zap.Any("keys", func() []string {
+			keys := make([]string, 0, len(flatConfig))
+			for k := range flatConfig {
+				keys = append(keys, k)
+			}
+			return keys
+		}()))
+
 	for key, value := range flatConfig {
 		if err := cm.validateConfig(key, value); err != nil {
 			cm.mu.Unlock()
@@ -822,12 +839,36 @@ func (cm *ConfigManager) saveConfigToDBWithTx(tx *gorm.DB, key string, value int
 		}
 	}
 
+	// 判断该配置是否为公开配置
+	isPublic := publicConfigKeys[key]
+
+	cm.logger.Info("保存配置到数据库",
+		zap.String("key", key),
+		zap.String("value", valueStr),
+		zap.Bool("isPublic", isPublic))
+
 	config := SystemConfig{
-		Key:   key,
-		Value: valueStr,
+		Key:      key,
+		Value:    valueStr,
+		IsPublic: isPublic,
 	}
 
-	return tx.Where("`key` = ?", key).Assign(config).FirstOrCreate(&config).Error
+	// 先尝试查找已存在的配置
+	var existingConfig SystemConfig
+	err := tx.Where("`key` = ?", key).First(&existingConfig).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			// 记录不存在，创建新记录
+			return tx.Create(&config).Error
+		}
+		return err
+	}
+
+	// 记录已存在，更新所有字段（包括 is_public）
+	return tx.Model(&existingConfig).Updates(map[string]interface{}{
+		"value":     valueStr,
+		"is_public": isPublic,
+	}).Error
 }
 
 // RegisterChangeCallback 注册配置变更回调
