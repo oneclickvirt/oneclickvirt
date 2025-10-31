@@ -5,7 +5,9 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/vnstat"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -49,7 +51,11 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 	global.APP_LOG.Warn("发现旧的失败实例，可能即时清理机制未生效",
 		zap.Int("count", len(failedInstances)))
 
+	// 收集需要清理流量记录的实例ID
+	var instanceIDs []uint
 	for _, instance := range failedInstances {
+		instanceIDs = append(instanceIDs, instance.ID)
+
 		if err := s.cleanupSingleFailedInstance(&instance); err != nil {
 			global.APP_LOG.Error("清理旧失败实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
@@ -57,6 +63,11 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 				zap.Error(err))
 			// 继续清理其他实例
 		}
+	}
+
+	// 批量清理流量记录
+	if len(instanceIDs) > 0 {
+		s.batchCleanupTrafficRecords(instanceIDs)
 	}
 
 	global.APP_LOG.Info("旧失败实例清理完成", zap.Int("processedCount", len(failedInstances)))
@@ -148,7 +159,11 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 
 	global.APP_LOG.Info("开始清理过期实例", zap.Int("count", len(expiredInstances)))
 
+	// 收集需要清理流量记录的实例ID
+	var instanceIDs []uint
 	for _, instance := range expiredInstances {
+		instanceIDs = append(instanceIDs, instance.ID)
+
 		if err := s.cleanupSingleExpiredInstance(&instance); err != nil {
 			global.APP_LOG.Error("清理过期实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
@@ -158,8 +173,44 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 		}
 	}
 
+	// 批量清理流量记录，避免在事务中逐个删除导致锁表时间过长
+	if len(instanceIDs) > 0 {
+		s.batchCleanupTrafficRecords(instanceIDs)
+	}
+
 	global.APP_LOG.Info("过期实例清理完成", zap.Int("processedCount", len(expiredInstances)))
 	return nil
+}
+
+// batchCleanupTrafficRecords 批量清理流量记录
+func (s *InstanceCleanupService) batchCleanupTrafficRecords(instanceIDs []uint) {
+	// 分批处理，每批最多100条，避免一次性删除过多导致数据库压力
+	batchSize := 100
+	for i := 0; i < len(instanceIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(instanceIDs) {
+			end = len(instanceIDs)
+		}
+		batch := instanceIDs[i:end]
+
+		// 物理删除流量记录（包括软删除的记录）
+		result := global.APP_DB.Unscoped().Where("instance_id IN ?", batch).Delete(&userModel.TrafficRecord{})
+		if result.Error != nil {
+			global.APP_LOG.Error("批量删除流量记录失败",
+				zap.Int("batchStart", i),
+				zap.Int("batchEnd", end),
+				zap.Error(result.Error))
+		} else if result.RowsAffected > 0 {
+			global.APP_LOG.Info("批量删除流量记录成功",
+				zap.Int("instanceCount", len(batch)),
+				zap.Int64("deletedRecords", result.RowsAffected))
+		}
+
+		// 每批处理后短暂休眠，避免对数据库造成瞬时压力
+		if end < len(instanceIDs) {
+			time.Sleep(100 * time.Millisecond)
+		}
+	}
 }
 
 // cleanupSingleExpiredInstance 清理单个过期实例
@@ -176,6 +227,25 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		// 2. 清理实例相关资源
 		global.APP_LOG.Debug("清理过期实例资源",
 			zap.Uint("instanceId", instance.ID))
+
+		// 删除实例的端口映射
+		portMappingService := resources.PortMappingService{}
+		if err := portMappingService.DeleteInstancePortMappings(instance.ID); err != nil {
+			global.APP_LOG.Warn("删除过期实例端口映射失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("成功删除过期实例端口映射",
+				zap.Uint("instanceId", instance.ID))
+		}
+
+		// 清理实例vnStat数据
+		vnstatService := vnstat.NewService()
+		if err := vnstatService.CleanupVnStatData(instance.ID); err != nil {
+			global.APP_LOG.Warn("清理过期实例vnStat数据失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		}
 
 		// 获取Provider信息并更新使用配额
 		var provider providerModel.Provider

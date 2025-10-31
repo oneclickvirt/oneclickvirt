@@ -1130,6 +1130,7 @@ export default {
       serverUpdateSuccess: '服务器更新成功',
       serverAddSuccess: '服务器添加成功',
       serverDeleteSuccess: '服务器删除成功',
+      serverDeleteFailed: '服务器删除失败',
       serverFrozen: '服务器已冻结',
       serverUnfrozen: '服务器已解冻',
       healthCheckComplete: '健康检查完成',

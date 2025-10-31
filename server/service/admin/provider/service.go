@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
+	"oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/model/user"
 	"oneclickvirt/provider/health"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
@@ -507,40 +509,159 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	})
 }
 
-// DeleteProvider 删除Provider
+// DeleteProvider 删除Provider（级联硬删除所有相关数据）
 func (s *Service) DeleteProvider(providerID uint) error {
-	global.APP_LOG.Debug("开始删除Provider", zap.Uint("providerID", providerID))
+	global.APP_LOG.Info("开始删除Provider及其所有关联数据", zap.Uint("providerID", providerID))
 
-	// 检查是否还有相关的实例
-	var instanceCount int64
-	global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ?", providerID).Count(&instanceCount)
-	if instanceCount > 0 {
-		global.APP_LOG.Warn("Provider删除失败：Provider还有实例",
+	// 检查是否还有运行中的实例（不包括已软删除的）
+	var runningInstanceCount int64
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Where("provider_id = ? AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
+		Count(&runningInstanceCount)
+
+	if runningInstanceCount > 0 {
+		global.APP_LOG.Warn("Provider删除失败：Provider还有运行中的实例",
 			zap.Uint("providerID", providerID),
-			zap.Int64("instanceCount", instanceCount))
-		return errors.New("提供商还有实例，无法删除")
+			zap.Int64("runningInstanceCount", runningInstanceCount))
+		return errors.New("提供商还有运行中的实例，无法删除。请先停止或删除所有实例")
 	}
 
-	// 检查是否还有相关的端口映射
-	var portCount int64
-	global.APP_DB.Model(&providerModel.Port{}).Where("provider_id = ?", providerID).Count(&portCount)
-	if portCount > 0 {
-		global.APP_LOG.Warn("Provider删除失败：Provider还有端口映射",
-			zap.Uint("providerID", providerID),
-			zap.Int64("portCount", portCount))
-		return errors.New("提供商还有端口映射，无法删除")
-	}
+	// 获取所有关联的实例ID（包括软删除的）
+	var instanceIDs []uint
+	global.APP_DB.Unscoped().Model(&providerModel.Instance{}).
+		Where("provider_id = ?", providerID).
+		Pluck("id", &instanceIDs)
 
 	dbService := database.GetDatabaseService()
-	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&providerModel.Provider{}, providerID).Error
-	}); err != nil {
-		global.APP_LOG.Error("Provider删除失败", zap.Uint("providerID", providerID), zap.Error(err))
+	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 1. 硬删除所有关联的端口映射（包括软删除的）
+		portResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Port{})
+		if portResult.Error != nil {
+			global.APP_LOG.Error("删除Provider端口映射失败", zap.Error(portResult.Error))
+			return portResult.Error
+		}
+		if portResult.RowsAffected > 0 {
+			global.APP_LOG.Info("成功删除Provider端口映射",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", portResult.RowsAffected))
+		}
+
+		// 2. 硬删除所有关联的任务（包括软删除的）
+		taskResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&admin.Task{})
+		if taskResult.Error != nil {
+			global.APP_LOG.Error("删除Provider任务失败", zap.Error(taskResult.Error))
+			return taskResult.Error
+		}
+		if taskResult.RowsAffected > 0 {
+			global.APP_LOG.Info("成功删除Provider任务",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", taskResult.RowsAffected))
+		}
+
+		// 3. 硬删除配置任务（包括软删除的）
+		configTaskResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&admin.ConfigurationTask{})
+		if configTaskResult.Error != nil {
+			global.APP_LOG.Error("删除Provider配置任务失败", zap.Error(configTaskResult.Error))
+			return configTaskResult.Error
+		}
+		if configTaskResult.RowsAffected > 0 {
+			global.APP_LOG.Info("成功删除Provider配置任务",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", configTaskResult.RowsAffected))
+		}
+
+		// 4. 硬删除所有实例记录（包括软删除的）
+		instanceResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Instance{})
+		if instanceResult.Error != nil {
+			global.APP_LOG.Error("删除Provider实例记录失败", zap.Error(instanceResult.Error))
+			return instanceResult.Error
+		}
+		if instanceResult.RowsAffected > 0 {
+			global.APP_LOG.Info("成功删除Provider实例记录",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", instanceResult.RowsAffected))
+		}
+
+		// 5. 硬删除Provider本身
+		if err := tx.Unscoped().Delete(&providerModel.Provider{}, providerID).Error; err != nil {
+			global.APP_LOG.Error("删除Provider记录失败", zap.Error(err))
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		global.APP_LOG.Error("Provider删除事务失败", zap.Uint("providerID", providerID), zap.Error(err))
 		return err
 	}
 
-	global.APP_LOG.Info("Provider删除成功", zap.Uint("providerID", providerID))
+	// 6. 事务外批量删除流量相关数据（避免长时间锁表）
+	s.batchCleanupProviderTrafficData(providerID, instanceIDs)
+
+	global.APP_LOG.Info("Provider及所有关联数据删除成功",
+		zap.Uint("providerID", providerID),
+		zap.Int("instanceCount", len(instanceIDs)))
 	return nil
+}
+
+// batchCleanupProviderTrafficData 批量清理Provider的流量相关数据
+func (s *Service) batchCleanupProviderTrafficData(providerID uint, instanceIDs []uint) {
+	// 1. 批量删除流量记录（TrafficRecord）
+	if len(instanceIDs) > 0 {
+		batchSize := 100
+		for i := 0; i < len(instanceIDs); i += batchSize {
+			end := i + batchSize
+			if end > len(instanceIDs) {
+				end = len(instanceIDs)
+			}
+			batch := instanceIDs[i:end]
+
+			result := global.APP_DB.Unscoped().Where("instance_id IN ?", batch).Delete(&user.TrafficRecord{})
+			if result.Error != nil {
+				global.APP_LOG.Error("批量删除流量记录失败",
+					zap.Uint("providerID", providerID),
+					zap.Int("batchStart", i),
+					zap.Error(result.Error))
+			} else if result.RowsAffected > 0 {
+				global.APP_LOG.Info("批量删除流量记录成功",
+					zap.Uint("providerID", providerID),
+					zap.Int("instanceCount", len(batch)),
+					zap.Int64("deletedRecords", result.RowsAffected))
+			}
+
+			// 每批处理后短暂休眠
+			if end < len(instanceIDs) {
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+	}
+
+	// 2. 删除Provider的vnStat流量记录
+	vnstatResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
+		Delete(&monitoring.VnStatTrafficRecord{})
+	if vnstatResult.Error != nil {
+		global.APP_LOG.Error("删除Provider vnStat流量记录失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(vnstatResult.Error))
+	} else if vnstatResult.RowsAffected > 0 {
+		global.APP_LOG.Info("成功删除Provider vnStat流量记录",
+			zap.Uint("providerID", providerID),
+			zap.Int64("count", vnstatResult.RowsAffected))
+	}
+
+	// 3. 删除Provider的vnStat接口记录
+	interfaceResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
+		Delete(&monitoring.VnStatInterface{})
+	if interfaceResult.Error != nil {
+		global.APP_LOG.Error("删除Provider vnStat接口记录失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(interfaceResult.Error))
+	} else if interfaceResult.RowsAffected > 0 {
+		global.APP_LOG.Info("成功删除Provider vnStat接口记录",
+			zap.Uint("providerID", providerID),
+			zap.Int64("count", interfaceResult.RowsAffected))
+	}
 }
 
 // FreezeProvider 冻结Provider

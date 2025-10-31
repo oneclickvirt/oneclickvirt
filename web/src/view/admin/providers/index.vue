@@ -3016,7 +3016,9 @@ const handleDeleteProvider = async (id) => {
     await loadProviders()
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error(t('admin.providers.serverDeleteFailed'))
+      // 显示后端返回的具体错误信息
+      const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.serverDeleteFailed')
+      ElMessage.error(errorMsg)
     }
   }
 }

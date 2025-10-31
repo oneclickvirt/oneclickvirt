@@ -1130,6 +1130,7 @@ export default {
       serverUpdateSuccess: 'Server updated successfully',
       serverAddSuccess: 'Server added successfully',
       serverDeleteSuccess: 'Server deleted successfully',
+      serverDeleteFailed: 'Failed to delete server',
       serverFrozen: 'Server frozen',
       serverUnfrozen: 'Server unfrozen',
       healthCheckComplete: 'Health check completed',
