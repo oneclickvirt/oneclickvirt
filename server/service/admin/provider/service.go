@@ -74,6 +74,12 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		var runningTasksCount int64
 		global.APP_DB.Model(&admin.Task{}).Where("provider_id = ? AND status = ?", provider.ID, "running").Count(&runningTasksCount)
 
+		// Docker 类型固定使用 native 端口映射方式
+		if provider.Type == "docker" {
+			provider.IPv4PortMappingMethod = "native"
+			provider.IPv6PortMappingMethod = "native"
+		}
+
 		providerResponse := admin.ProviderManageResponse{
 			Provider:          provider,
 			InstanceCount:     int(instanceCount),

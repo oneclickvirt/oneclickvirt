@@ -82,6 +82,14 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		return nil, err
 	}
 
+	// Docker 类型固定使用 native 端口映射方式
+	ipv4Method := dbProvider.IPv4PortMappingMethod
+	ipv6Method := dbProvider.IPv6PortMappingMethod
+	if dbProvider.Type == "docker" {
+		ipv4Method = "native"
+		ipv6Method = "native"
+	}
+
 	status := map[string]interface{}{
 		"id":                    dbProvider.ID,
 		"name":                  dbProvider.Name,
@@ -104,8 +112,11 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		"portRangeStart":        dbProvider.PortRangeStart,
 		"portRangeEnd":          dbProvider.PortRangeEnd,
 		"defaultPortCount":      dbProvider.DefaultPortCount,
-		"ipv4PortMappingMethod": dbProvider.IPv4PortMappingMethod,
-		"ipv6PortMappingMethod": dbProvider.IPv6PortMappingMethod,
+		"ipv4PortMappingMethod": ipv4Method,
+		"ipv6PortMappingMethod": ipv6Method,
+		"maxTraffic":            dbProvider.MaxTraffic,
+		"trafficCountMode":      dbProvider.TrafficCountMode,
+		"trafficMultiplier":     dbProvider.TrafficMultiplier,
 	}
 
 	if dbProvider.ExpiresAt != nil {
@@ -127,6 +138,14 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		return nil, err
 	}
 
+	// Docker 类型固定使用 native 端口映射方式
+	ipv4Method := dbProvider.IPv4PortMappingMethod
+	ipv6Method := dbProvider.IPv6PortMappingMethod
+	if dbProvider.Type == "docker" {
+		ipv4Method = "native"
+		ipv6Method = "native"
+	}
+
 	capabilities := map[string]interface{}{
 		"id":                    dbProvider.ID,
 		"name":                  dbProvider.Name,
@@ -141,12 +160,16 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		"region":                dbProvider.Region,
 		"country":               dbProvider.Country,
 		"status":                dbProvider.Status,
-		"ipv4PortMappingMethod": dbProvider.IPv4PortMappingMethod,
-		"ipv6PortMappingMethod": dbProvider.IPv6PortMappingMethod,
+		"ipv4PortMappingMethod": ipv4Method,
+		"ipv6PortMappingMethod": ipv6Method,
 		"maxContainerInstances": dbProvider.MaxContainerInstances,
 		"maxVMInstances":        dbProvider.MaxVMInstances,
 		"allowConcurrentTasks":  dbProvider.AllowConcurrentTasks,
 		"maxConcurrentTasks":    dbProvider.MaxConcurrentTasks,
+		// 流量配置
+		"maxTraffic":        dbProvider.MaxTraffic,
+		"trafficCountMode":  dbProvider.TrafficCountMode,
+		"trafficMultiplier": dbProvider.TrafficMultiplier,
 	}
 
 	return capabilities, nil
