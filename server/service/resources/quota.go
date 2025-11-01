@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
+
 	"oneclickvirt/service/database"
 
 	"oneclickvirt/config"
@@ -66,11 +68,17 @@ func (r ResourceUsage) GetResourceUsage() int {
 
 // ValidateInstanceCreation 验证实例创建请求
 func (s *QuotaService) ValidateInstanceCreation(req ResourceRequest) (*QuotaCheckResult, error) {
-	// 在事务中进行完整的配额检查，依赖数据库事务保证原子性
+	// 使用可序列化隔离级别的事务，防止幻读和并发超配
 	var result *QuotaCheckResult
 	var err error
 
+	// 开启串行化事务隔离级别（最高级别，完全避免并发问题）
 	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 设置事务隔离级别为 SERIALIZABLE
+		if err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").Error; err != nil {
+			return fmt.Errorf("设置事务隔离级别失败: %v", err)
+		}
+
 		result, err = s.validateInTransaction(tx, req)
 		if err != nil {
 			return err
@@ -91,11 +99,15 @@ func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	return s.validateInTransaction(tx, req)
 }
 
-// validateInTransaction 在事务中进行配额验证
+// validateInTransaction 在事务中进行配额验证（增强版，防止并发竞争）
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
-	// 获取用户信息（使用行锁防止并发问题）
+	// 使用 SELECT FOR UPDATE 锁定用户记录，防止并发修改
+	// NOWAIT 选项：如果无法立即获取锁，直接返回错误，避免长时间等待
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, req.UserID).Error; err != nil {
+	if err := tx.Set("gorm:query_option", "FOR UPDATE NOWAIT").First(&user, req.UserID).Error; err != nil {
+		if strings.Contains(err.Error(), "Lock wait timeout") || strings.Contains(err.Error(), "NOWAIT") {
+			return nil, fmt.Errorf("系统繁忙，请稍后重试")
+		}
 		return nil, fmt.Errorf("用户不存在: %v", err)
 	}
 
@@ -263,12 +275,15 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	return result, nil
 }
 
-// getCurrentResourceUsage 获取当前资源使用情况
+// getCurrentResourceUsage 获取当前资源使用情况（增强版，使用共享锁防止幻读）
 func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, ResourceUsage, error) {
 	var instances []provider.Instance
 
-	// 查询非删除状态的实例
-	err := tx.Where("user_id = ? AND status != ? AND status != ?", userID, "deleting", "deleted").Find(&instances).Error
+	// 使用 FOR SHARE 共享锁，允许其他事务读取但不允许修改
+	// 这样可以防止在统计过程中有新实例被创建（防止幻读）
+	err := tx.Set("gorm:query_option", "FOR SHARE").
+		Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed"}).
+		Find(&instances).Error
 	if err != nil {
 		return 0, ResourceUsage{}, err
 	}
@@ -291,14 +306,15 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 	return instanceCount, totalResources, nil
 }
 
-// getCurrentProviderInstanceCount 获取用户在指定 Provider 上的实例数量
+// getCurrentProviderInstanceCount 获取用户在指定 Provider 上的实例数量（增强版）
 func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint, providerID uint) (int, error) {
 	var count int64
 
-	// 查询用户在该 Provider 上的非删除状态实例数量
+	// 使用 FOR SHARE 共享锁，防止幻读
 	err := tx.Model(&provider.Instance{}).
-		Where("user_id = ? AND provider_id = ? AND status != ? AND status != ?",
-			userID, providerID, "deleting", "deleted").
+		Set("gorm:query_option", "FOR SHARE").
+		Where("user_id = ? AND provider_id = ? AND status NOT IN (?)",
+			userID, providerID, []string{"deleting", "deleted", "failed"}).
 		Count(&count).Error
 
 	if err != nil {

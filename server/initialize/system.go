@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/scheduler"
 	"oneclickvirt/service/storage"
+	"oneclickvirt/service/system"
 	"oneclickvirt/service/task"
 	"oneclickvirt/service/traffic"
 	userProviderService "oneclickvirt/service/user/provider"
@@ -162,6 +163,9 @@ func InitializeFullSystem() {
 	InitializeConfigManager()
 	global.APP_LOG.Debug("数据库连接和表注册完成")
 
+	// 初始化JWT密钥（从数据库加载或生成新密钥）
+	initializeJWTSecret()
+
 	// 初始化JWT密钥管理服务
 	initializeJWTService()
 
@@ -170,6 +174,20 @@ func InitializeFullSystem() {
 
 	// 初始化调度器服务
 	initializeSchedulers()
+}
+
+// initializeJWTSecret 初始化JWT密钥（从数据库持久化加载）
+func initializeJWTSecret() {
+	jwtSecretService := system.GetJWTSecretService()
+	if err := jwtSecretService.InitializeJWTSecret(global.APP_DB); err != nil {
+		global.APP_LOG.Error("JWT密钥初始化失败", zap.Error(err))
+		// 使用配置文件中的默认密钥作为后备
+		global.APP_JWT_SECRET = global.APP_CONFIG.JWT.SigningKey
+	} else {
+		// 更新全局变量
+		global.APP_JWT_SECRET = jwtSecretService.GetSecretKey()
+		global.APP_LOG.Info("JWT密钥初始化成功")
+	}
 }
 
 // initializeJWTService 初始化JWT密钥管理服务

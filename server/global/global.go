@@ -52,4 +52,5 @@ var (
 	APP_SYSTEM_INIT_CALLBACK      SystemInitializationCallback // 系统初始化完成回调函数
 	APP_SHUTDOWN_CONTEXT          context.Context              // 系统关闭上下文
 	APP_SHUTDOWN_CANCEL           context.CancelFunc           // 系统关闭取消函数
+	APP_JWT_SECRET                string                       // JWT密钥（从数据库加载，重启后保持不变）
 )

@@ -14,14 +14,19 @@ import (
 )
 
 // GetJWTKey 获取JWT密钥
-// 优先级：环境变量 > 自动生成的随机密钥
+// 优先级：环境变量 > 全局缓存密钥
 func GetJWTKey() string {
 	// 优先使用环境变量（用于多实例部署时统一密钥）
 	if key := os.Getenv("JWT_SIGNING_KEY"); key != "" {
 		return key
 	}
 
-	// 使用自动生成的随机密钥（在core/viper.go中生成）
+	// 使用全局缓存的密钥（从数据库加载）
+	if global.APP_JWT_SECRET != "" {
+		return global.APP_JWT_SECRET
+	}
+
+	// 兜底使用配置文件中的密钥
 	return global.APP_CONFIG.JWT.SigningKey
 }
 

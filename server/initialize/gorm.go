@@ -185,6 +185,7 @@ func RegisterTables(db *gorm.DB) {
 		&systemModel.Announcement{}, // 系统公告表
 		&systemModel.SystemImage{},  // 系统镜像模板表
 		&systemModel.Captcha{},      // 图形验证码表
+		&systemModel.JWTSecret{},    // JWT密钥表
 
 		// 邀请码相关表
 		&systemModel.InviteCode{},      // 邀请码表

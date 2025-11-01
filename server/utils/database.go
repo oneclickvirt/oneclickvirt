@@ -59,13 +59,16 @@ func IsRetryableError(err error) bool {
 	return IsDeadlockError(err) || IsConnectionError(err)
 }
 
-// RetryableDBOperation 可重试的数据库操作
+// RetryableDBOperation 可重试的数据库操作（使用指数退避算法）
 func RetryableDBOperation(ctx context.Context, operation func() error, maxRetries int) error {
 	if maxRetries <= 0 {
-		maxRetries = 5 // 增加重试次数以应对WAL模式下的并发冲突
+		maxRetries = 5 // 默认最大重试次数
 	}
 
 	var lastErr error
+	baseDelay := 50 * time.Millisecond // 基础延迟时间
+	maxDelay := 5 * time.Second        // 最大延迟时间
+
 	for i := 0; i <= maxRetries; i++ {
 		select {
 		case <-ctx.Done():
@@ -73,26 +76,27 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 		default:
 		}
 
-		// 在重试前检查数据库连接健康
+		// 在重试前检查数据库连接健康（第一次除外）
 		if i > 0 {
 			if err := CheckDBHealth(); err != nil {
 				global.APP_LOG.Warn("数据库健康检查失败",
 					zap.Int("retry", i),
 					zap.Error(err))
-				// 短暂等待后继续
-				time.Sleep(time.Duration(i) * 100 * time.Millisecond)
 			}
 		}
 
 		err := operation()
 		if err == nil {
 			if i > 0 {
-				global.APP_LOG.Info("数据库操作重试成功", zap.Int("retry_count", i))
+				global.APP_LOG.Info("数据库操作重试成功",
+					zap.Int("retry_count", i),
+					zap.Int("total_attempts", i+1))
 			}
 			return nil
 		}
 
 		lastErr = err
+
 		// 检查是否是可重试的错误
 		if !IsRetryableError(err) {
 			// 非可重试错误，直接返回
@@ -100,10 +104,18 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 		}
 
 		if i < maxRetries {
-			// 指数退避策略
-			delay := time.Duration(i+1) * 100 * time.Millisecond
-			if delay > 2*time.Second {
-				delay = 2 * time.Second
+			// 指数退避策略：delay = baseDelay * 2^i + jitter
+			// 使用位移操作计算 2^i，更高效
+			delay := baseDelay * time.Duration(1<<uint(i))
+
+			// 添加随机抖动（jitter），避免惊群效应
+			// jitter范围为 0-25% 的延迟时间
+			jitter := time.Duration(float64(delay) * 0.25 * (0.5 + 0.5*float64(i%2)))
+			delay += jitter
+
+			// 限制最大延迟时间
+			if delay > maxDelay {
+				delay = maxDelay
 			}
 
 			errorType := "未知"
@@ -113,33 +125,44 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 				errorType = "连接错误"
 			}
 
-			global.APP_LOG.Warn("数据库操作失败，准备重试",
+			global.APP_LOG.Warn("数据库操作失败，使用指数退避重试",
 				zap.String("错误类型", errorType),
-				zap.Error(err),
-				zap.Int("retry", i+1),
-				zap.Int("max_retries", maxRetries),
-				zap.Duration("delay", delay))
-			time.Sleep(delay)
+				zap.String("错误信息", err.Error()),
+				zap.Int("当前重试", i+1),
+				zap.Int("最大重试", maxRetries),
+				zap.Duration("退避延迟", delay),
+				zap.String("退避策略", "exponential backoff with jitter"))
+
+			// 使用可取消的延迟等待
+			select {
+			case <-time.After(delay):
+				// 继续重试
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		}
 	}
 
-	global.APP_LOG.Error("数据库操作最终失败", zap.Error(lastErr), zap.Int("max_retries", maxRetries))
+	global.APP_LOG.Error("数据库操作最终失败，已达最大重试次数",
+		zap.Error(lastErr),
+		zap.Int("max_retries", maxRetries),
+		zap.Int("total_attempts", maxRetries+1))
 	return lastErr
 }
 
-// SafeTransaction 安全的事务执行
+// SafeTransaction 安全的事务执行（使用指数退避重试）
 func SafeTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
 	return RetryableDBOperation(ctx, func() error {
 		// MySQL 支持并发的数据库直接使用事务
 		return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 			return fn(tx)
 		})
-	}, 5) // 增加重试次数
+	}, 8) // 增加到8次重试，配合指数退避可以处理更长时间的锁等待
 }
 
-// SafeQuery 安全的查询操作
+// SafeQuery 安全的查询操作（使用指数退避重试）
 func SafeQuery(ctx context.Context, fn func() error) error {
-	return RetryableDBOperation(ctx, fn, 5) // 增加重试次数
+	return RetryableDBOperation(ctx, fn, 6) // 查询操作重试6次
 }
 
 // GetDBStats 获取数据库连接池统计信息
