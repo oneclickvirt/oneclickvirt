@@ -2829,7 +2829,7 @@ const submitAddServer = async () => {
       // 流量配置
       maxTraffic: addProviderForm.maxTraffic || 1048576,
       trafficCountMode: addProviderForm.trafficCountMode || 'both', // 流量统计模式
-      trafficMultiplier: addProviderForm.trafficMultiplier || 1.0, // 流量计费倍率
+      trafficMultiplier: addProviderForm.trafficMultiplier !== undefined && addProviderForm.trafficMultiplier !== null ? addProviderForm.trafficMultiplier : 1.0, // 流量计费倍率
       // 操作执行规则
       executionRule: addProviderForm.executionRule || 'auto', // 操作轮转规则
       // SSH超时配置

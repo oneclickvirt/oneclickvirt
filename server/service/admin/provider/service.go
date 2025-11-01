@@ -493,8 +493,8 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.TrafficCountMode != "" {
 		provider.TrafficCountMode = req.TrafficCountMode
 	}
-	// 流量计费倍率更新
-	if req.TrafficMultiplier > 0 {
+	// 流量计费倍率更新（允许 0.1 到 10.0 之间的任何值）
+	if req.TrafficMultiplier >= 0.1 && req.TrafficMultiplier <= 10.0 {
 		provider.TrafficMultiplier = req.TrafficMultiplier
 	}
 	// 端口映射方式更新
