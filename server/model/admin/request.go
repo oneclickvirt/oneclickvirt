@@ -83,10 +83,23 @@ type CreateProviderRequest struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
-	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
+	MaxTraffic        int64   `json:"maxTraffic"`        // 最大流量限制（MB），默认1TB=1048576MB
+	TrafficCountMode  string  `json:"trafficCountMode"`  // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier float64 `json:"trafficMultiplier"` // 流量计费倍率，默认1.0
+	// 端口映射方式配置
+	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
+	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native
 	// SSH连接配置
 	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
 	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
+	// 容器资源限制配置
+	ContainerLimitCpu    bool `json:"containerLimitCpu"`    // 容器CPU是否计入总量预算
+	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器内存是否计入总量预算
+	ContainerLimitDisk   bool `json:"containerLimitDisk"`   // 容器硬盘是否计入总量预算
+	// 虚拟机资源限制配置
+	VMLimitCpu    bool `json:"vmLimitCpu"`    // 虚拟机CPU是否计入总量预算
+	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机内存是否计入总量预算
+	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机硬盘是否计入总量预算
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -137,10 +150,23 @@ type UpdateProviderRequest struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
-	MaxTraffic int64 `json:"maxTraffic"` // 最大流量限制（MB），默认1TB=1048576MB
+	MaxTraffic        int64   `json:"maxTraffic"`        // 最大流量限制（MB），默认1TB=1048576MB
+	TrafficCountMode  string  `json:"trafficCountMode"`  // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier float64 `json:"trafficMultiplier"` // 流量计费倍率，默认1.0
+	// 端口映射方式配置
+	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
+	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native
 	// SSH连接配置
 	SSHConnectTimeout int `json:"sshConnectTimeout"` // SSH连接超时时间（秒），默认30秒
 	SSHExecuteTimeout int `json:"sshExecuteTimeout"` // SSH命令执行超时时间（秒），默认300秒
+	// 容器资源限制配置
+	ContainerLimitCpu    bool `json:"containerLimitCpu"`    // 容器CPU是否计入总量预算
+	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器内存是否计入总量预算
+	ContainerLimitDisk   bool `json:"containerLimitDisk"`   // 容器硬盘是否计入总量预算
+	// 虚拟机资源限制配置
+	VMLimitCpu    bool `json:"vmLimitCpu"`    // 虚拟机CPU是否计入总量预算
+	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机内存是否计入总量预算
+	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机硬盘是否计入总量预算
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源

@@ -2808,6 +2808,8 @@ const submitAddServer = async () => {
       maxOutboundBandwidth: addProviderForm.maxOutboundBandwidth || 1000,
       // 流量配置
       maxTraffic: addProviderForm.maxTraffic || 1048576,
+      trafficCountMode: addProviderForm.trafficCountMode || 'both', // 流量统计模式
+      trafficMultiplier: addProviderForm.trafficMultiplier || 1.0, // 流量计费倍率
       // 操作执行规则
       executionRule: addProviderForm.executionRule || 'auto', // 操作轮转规则
       // SSH超时配置
@@ -2826,14 +2828,15 @@ const submitAddServer = async () => {
     }
 
     // 根据Provider类型设置端口映射方式
+    // 优先使用用户配置的值，如果没有则使用类型默认值
     if (addProviderForm.type === 'docker') {
-      // Docker使用原生实现，不可选择
-      serverData.ipv4PortMappingMethod = 'native'
-      serverData.ipv6PortMappingMethod = 'native'
+      // Docker使用原生实现
+      serverData.ipv4PortMappingMethod = addProviderForm.ipv4PortMappingMethod || 'native'
+      serverData.ipv6PortMappingMethod = addProviderForm.ipv6PortMappingMethod || 'native'
     } else if (addProviderForm.type === 'proxmox') {
       // Proxmox IPv4: NAT情况下默认iptables，独立IP情况下可选
       if (addProviderForm.networkType === 'nat_ipv4' || addProviderForm.networkType === 'nat_ipv4_ipv6') {
-        serverData.ipv4PortMappingMethod = 'iptables'
+        serverData.ipv4PortMappingMethod = addProviderForm.ipv4PortMappingMethod || 'iptables'
       } else {
         serverData.ipv4PortMappingMethod = addProviderForm.ipv4PortMappingMethod || 'native'
       }
@@ -2973,10 +2976,10 @@ const editProvider = (provider) => {
     levelLimits: parseLevelLimits(provider.levelLimits)
   })
 
-  // 根据Provider类型设置端口映射方式的默认值
+  // 根据Provider类型设置端口映射方式，优先使用数据库中保存的值，没有时使用类型默认值
   if (provider.type === 'docker') {
-    addProviderForm.ipv4PortMappingMethod = 'native' // Docker使用原生实现
-    addProviderForm.ipv6PortMappingMethod = 'native'
+    addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'native' // Docker默认使用原生实现
+    addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'native'
   } else if (provider.type === 'proxmox') {
     addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
     addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'native'

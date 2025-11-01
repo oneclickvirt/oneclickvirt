@@ -185,10 +185,23 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		MaxInboundBandwidth:      req.MaxInboundBandwidth,
 		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
 		// 流量管理
-		MaxTraffic: req.MaxTraffic,
+		MaxTraffic:        req.MaxTraffic,
+		TrafficCountMode:  req.TrafficCountMode,
+		TrafficMultiplier: req.TrafficMultiplier,
+		// 端口映射方式
+		IPv4PortMappingMethod: req.IPv4PortMappingMethod,
+		IPv6PortMappingMethod: req.IPv6PortMappingMethod,
 		// SSH连接配置
 		SSHConnectTimeout: req.SSHConnectTimeout,
 		SSHExecuteTimeout: req.SSHExecuteTimeout,
+		// 容器资源限制配置
+		ContainerLimitCPU:    req.ContainerLimitCpu,
+		ContainerLimitMemory: req.ContainerLimitMemory,
+		ContainerLimitDisk:   req.ContainerLimitDisk,
+		// 虚拟机资源限制配置
+		VMLimitCPU:    req.VMLimitCpu,
+		VMLimitMemory: req.VMLimitMemory,
+		VMLimitDisk:   req.VMLimitDisk,
 	}
 
 	// 节点级别等级限制配置
@@ -272,6 +285,21 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	// 流量限制默认值：1TB
 	if provider.MaxTraffic <= 0 {
 		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
+	}
+	// 流量统计模式默认值
+	if provider.TrafficCountMode == "" {
+		provider.TrafficCountMode = "both" // 默认双向统计
+	}
+	// 流量计费倍率默认值
+	if provider.TrafficMultiplier == 0 {
+		provider.TrafficMultiplier = 1.0 // 默认1.0倍
+	}
+	// 端口映射方式默认值
+	if provider.IPv4PortMappingMethod == "" {
+		provider.IPv4PortMappingMethod = "device_proxy" // 默认device_proxy
+	}
+	if provider.IPv6PortMappingMethod == "" {
+		provider.IPv6PortMappingMethod = "device_proxy" // 默认device_proxy
 	}
 	// SSH超时默认值
 	if provider.SSHConnectTimeout <= 0 {
@@ -449,6 +477,21 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.MaxTraffic > 0 {
 		provider.MaxTraffic = req.MaxTraffic
 	}
+	// 流量统计模式更新
+	if req.TrafficCountMode != "" {
+		provider.TrafficCountMode = req.TrafficCountMode
+	}
+	// 流量计费倍率更新
+	if req.TrafficMultiplier > 0 {
+		provider.TrafficMultiplier = req.TrafficMultiplier
+	}
+	// 端口映射方式更新
+	if req.IPv4PortMappingMethod != "" {
+		provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
+	}
+	if req.IPv6PortMappingMethod != "" {
+		provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
+	}
 	// SSH超时配置更新
 	if req.SSHConnectTimeout > 0 {
 		provider.SSHConnectTimeout = req.SSHConnectTimeout
@@ -456,6 +499,14 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.SSHExecuteTimeout > 0 {
 		provider.SSHExecuteTimeout = req.SSHExecuteTimeout
 	}
+	// 容器资源限制配置更新
+	provider.ContainerLimitCPU = req.ContainerLimitCpu
+	provider.ContainerLimitMemory = req.ContainerLimitMemory
+	provider.ContainerLimitDisk = req.ContainerLimitDisk
+	// 虚拟机资源限制配置更新
+	provider.VMLimitCPU = req.VMLimitCpu
+	provider.VMLimitMemory = req.VMLimitMemory
+	provider.VMLimitDisk = req.VMLimitDisk
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {
