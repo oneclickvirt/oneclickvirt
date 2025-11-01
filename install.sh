@@ -492,6 +492,50 @@ create_symlink() {
     fi
 }
 
+upgrade_server() {
+    if [ ! -f "/opt/oneclickvirt/server/oneclickvirt-server" ]; then
+        log_error "未检测到已安装的版本，请使用 install 选项进行全新安装"
+        exit 1
+    fi
+    
+    log_info "开始升级到版本: $VERSION"
+    
+    # 检查服务是否正在运行
+    local service_was_running=false
+    if systemctl is-active --quiet oneclickvirt 2>/dev/null; then
+        log_info "停止 oneclickvirt 服务..."
+        systemctl stop oneclickvirt
+        service_was_running=true
+    fi
+    
+    # 升级服务器二进制文件
+    log_info "升级服务器二进制文件..."
+    install_server
+    
+    # 升级Web文件
+    log_info "升级Web应用文件..."
+    install_web
+    
+    # 重新启动服务
+    if [ "$service_was_running" = true ]; then
+        log_info "重新启动 oneclickvirt 服务..."
+        systemctl start oneclickvirt
+        sleep 2
+        if systemctl is-active --quiet oneclickvirt; then
+            log_success "服务已成功重启"
+        else
+            log_error "服务启动失败，请检查日志: journalctl -u oneclickvirt -n 50"
+        fi
+    fi
+    
+    log_success "升级完成!"
+    log_info "版本: $VERSION"
+    log_info "配置文件保持不变: /opt/oneclickvirt/server/config.yaml"
+    if [ "$service_was_running" = false ]; then
+        log_warning "服务未自动启动，请手动启动: systemctl start oneclickvirt"
+    fi
+}
+
 check_memory_warning() {
     local mem_size
     mem_size=$(get_memory_size)
@@ -549,6 +593,7 @@ OneClickVirt 安装脚本
 选项:
   env                   仅检查和准备环境
   install              完整安装 (默认)
+  upgrade              升级已安装的版本
   help                 显示此帮助信息
   
 环境变量:
@@ -558,6 +603,7 @@ OneClickVirt 安装脚本
 示例:
   $0                   # 完整安装
   $0 env              # 仅环境检查
+  $0 upgrade          # 升级现有安装
   CN=true $0          # 使用中国镜像安装
   noninteractive=true $0  # 非交互安装
 EOF
@@ -580,6 +626,11 @@ main() {
             create_systemd_service
             create_symlink
             show_info
+            ;;
+        "upgrade")
+            check_root
+            env_check
+            upgrade_server
             ;;
         "help"|"-h"|"--help")
             show_help
