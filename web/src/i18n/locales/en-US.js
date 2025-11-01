@@ -1029,12 +1029,14 @@ export default {
       
       ipv4PortMappingMethod: 'IPv4 Port Mapping Method',
       ipv6PortMappingMethod: 'IPv6 Port Mapping Method',
+      portMappingMethod: 'Port Mapping Method',
       ipv4PortMappingMethodPlaceholder: 'Please select IPv4 port mapping method',
       ipv6PortMappingMethodPlaceholder: 'Please select IPv6 port mapping method',
       deviceProxyRecommended: 'Device Proxy (Recommended)',
       nativeRecommended: 'Native Implementation (Recommended)',
       ipv4PortMappingMethodTip: 'IPv4 port mapping implementation, device_proxy has better performance but requires newer LXD/Incus version',
       ipv6PortMappingMethodTip: 'IPv6 port mapping implementation, device_proxy has better performance but requires newer LXD/Incus version',
+      dockerNativeMappingTip: 'Docker uses fixed native port mapping implementation, both IPv4 and IPv6 use Native method, cannot be changed',
       proxmoxIPv4MappingTip: 'NAT mode can only use iptables, dedicated IP mode recommends native implementation',
       proxmoxIPv6MappingTip: 'IPv6 uses native implementation by default, better performance',
       

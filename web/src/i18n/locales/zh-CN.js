@@ -1029,12 +1029,14 @@ export default {
       
       ipv4PortMappingMethod: 'IPv4端口映射方式',
       ipv6PortMappingMethod: 'IPv6端口映射方式',
+      portMappingMethod: '端口映射方式',
       ipv4PortMappingMethodPlaceholder: '请选择IPv4端口映射方式',
       ipv6PortMappingMethodPlaceholder: '请选择IPv6端口映射方式',
       deviceProxyRecommended: 'Device Proxy（推荐）',
       nativeRecommended: '原生实现（推荐）',
       ipv4PortMappingMethodTip: 'IPv4端口映射的实现方式，device_proxy性能更好但需要较新版本的LXD/Incus',
       ipv6PortMappingMethodTip: 'IPv6端口映射的实现方式，device_proxy性能更好但需要较新版本的LXD/Incus',
+      dockerNativeMappingTip: 'Docker 固定使用原生端口映射实现，IPv4和IPv6都是 Native 方式，不可更改',
       proxmoxIPv4MappingTip: 'NAT模式下只能使用iptables，独立IP模式下推荐使用原生实现',
       proxmoxIPv6MappingTip: 'IPv6默认使用原生实现，性能更好',
       

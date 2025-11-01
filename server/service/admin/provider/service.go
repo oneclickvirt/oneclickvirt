@@ -295,11 +295,17 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		provider.TrafficMultiplier = 1.0 // 默认1.0倍
 	}
 	// 端口映射方式默认值
-	if provider.IPv4PortMappingMethod == "" {
-		provider.IPv4PortMappingMethod = "device_proxy" // 默认device_proxy
-	}
-	if provider.IPv6PortMappingMethod == "" {
-		provider.IPv6PortMappingMethod = "device_proxy" // 默认device_proxy
+	// Docker 类型固定使用 native
+	if provider.Type == "docker" {
+		provider.IPv4PortMappingMethod = "native"
+		provider.IPv6PortMappingMethod = "native"
+	} else {
+		if provider.IPv4PortMappingMethod == "" {
+			provider.IPv4PortMappingMethod = "device_proxy" // 默认device_proxy
+		}
+		if provider.IPv6PortMappingMethod == "" {
+			provider.IPv6PortMappingMethod = "device_proxy" // 默认device_proxy
+		}
 	}
 	// SSH超时默认值
 	if provider.SSHConnectTimeout <= 0 {
@@ -486,11 +492,17 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.TrafficMultiplier = req.TrafficMultiplier
 	}
 	// 端口映射方式更新
-	if req.IPv4PortMappingMethod != "" {
-		provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
-	}
-	if req.IPv6PortMappingMethod != "" {
-		provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
+	// Docker 类型固定使用 native，忽略前端传入的值
+	if provider.Type == "docker" {
+		provider.IPv4PortMappingMethod = "native"
+		provider.IPv6PortMappingMethod = "native"
+	} else {
+		if req.IPv4PortMappingMethod != "" {
+			provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
+		}
+		if req.IPv6PortMappingMethod != "" {
+			provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
+		}
 	}
 	// SSH超时配置更新
 	if req.SSHConnectTimeout > 0 {
