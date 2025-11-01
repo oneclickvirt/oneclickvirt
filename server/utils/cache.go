@@ -9,7 +9,7 @@ import (
 // 验证码缓存配置常量
 const (
 	// MaxCaptchaItems 验证码缓存最大数量，防止内存耗尽
-	MaxCaptchaItems = 10000
+	MaxCaptchaItems = 5000
 )
 
 var (
@@ -32,6 +32,8 @@ type MemoryCaptchaCache struct {
 	data     map[string]cacheItem
 	mutex    sync.RWMutex
 	maxItems int
+	stopChan chan struct{} // 用于停止清理goroutine
+	stopped  bool
 }
 
 type cacheItem struct {
@@ -45,6 +47,8 @@ func NewMemoryCaptchaCache() *MemoryCaptchaCache {
 	cache := &MemoryCaptchaCache{
 		data:     make(map[string]cacheItem),
 		maxItems: MaxCaptchaItems,
+		stopChan: make(chan struct{}),
+		stopped:  false,
 	}
 
 	// 启动定期清理过期缓存的协程
@@ -116,8 +120,25 @@ func (c *MemoryCaptchaCache) cleanupLoop() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		c.cleanup()
+	for {
+		select {
+		case <-ticker.C:
+			c.cleanup()
+		case <-c.stopChan:
+			// 收到停止信号，退出goroutine
+			return
+		}
+	}
+}
+
+// Stop 停止清理goroutine
+func (c *MemoryCaptchaCache) Stop() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	if !c.stopped {
+		c.stopped = true
+		close(c.stopChan)
 	}
 }
 

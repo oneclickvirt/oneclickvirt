@@ -15,11 +15,30 @@ import (
 )
 
 // Service VnStat服务
-type Service struct{}
+type Service struct {
+	ctx        context.Context // 服务级别的context，用于传递到所有操作
+	providerID uint            // 当前操作的ProviderID，用于获取超时配置
+}
 
 // NewService 创建VnStat服务实例
 func NewService() *Service {
-	return &Service{}
+	return &Service{
+		ctx:        context.Background(), // 默认使用Background，但会在需要时传递可取消的context
+		providerID: 0,
+	}
+}
+
+// NewServiceWithContext 使用指定context创建VnStat服务实例
+func NewServiceWithContext(ctx context.Context) *Service {
+	return &Service{
+		ctx:        ctx,
+		providerID: 0,
+	}
+}
+
+// SetProviderID 设置当前操作的ProviderID
+func (s *Service) SetProviderID(providerID uint) {
+	s.providerID = providerID
 }
 
 // InitializeVnStatForInstance 为实例初始化vnStat监控
@@ -36,6 +55,9 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 		return fmt.Errorf("failed to get provider: %w", err)
 	}
 
+	// 设置当前操作的ProviderID，用于获取超时配置
+	s.SetProviderID(providerInfo.ID)
+
 	// 获取Provider实例
 	providerInstance, err := provider.GetProvider(providerInfo.Type)
 	if err != nil {
@@ -45,17 +67,21 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 	// 检查Provider连接
 	if !providerInstance.IsConnected() {
 		nodeConfig := provider.NodeConfig{
-			Name:        providerInfo.Name,
-			Host:        providerService.ExtractHostFromEndpoint(providerInfo.Endpoint),
-			Port:        providerInfo.SSHPort,
-			Username:    providerInfo.Username,
-			Password:    providerInfo.Password,
-			PrivateKey:  providerInfo.SSHKey,
-			Type:        providerInfo.Type,
-			NetworkType: providerInfo.NetworkType,
+			Name:              providerInfo.Name,
+			Host:              providerService.ExtractHostFromEndpoint(providerInfo.Endpoint),
+			Port:              providerInfo.SSHPort,
+			Username:          providerInfo.Username,
+			Password:          providerInfo.Password,
+			PrivateKey:        providerInfo.SSHKey,
+			Type:              providerInfo.Type,
+			NetworkType:       providerInfo.NetworkType,
+			SSHConnectTimeout: providerInfo.SSHConnectTimeout,
+			SSHExecuteTimeout: providerInfo.SSHExecuteTimeout,
 		}
 
-		if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
+		ctx, cancel := s.getContextWithTimeout(providerInfo.ID, false)
+		defer cancel()
+		if err := providerInstance.Connect(ctx, nodeConfig); err != nil {
 			return fmt.Errorf("failed to connect to provider: %w", err)
 		}
 	}

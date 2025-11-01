@@ -119,7 +119,10 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在初始化vnStat监控...")
 
-		vnstatService := vnstat.NewService()
+		// 创建带超时的context给vnstat服务使用
+		vnstatCtx, vnstatCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer vnstatCancel()
+		vnstatService := vnstat.NewServiceWithContext(vnstatCtx)
 		vnstatSuccess := true
 		if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
 			global.APP_LOG.Warn("启动实例后初始化vnStat监控失败",
@@ -369,7 +372,10 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在重新初始化vnStat监控...")
 
-		vnstatService := vnstat.NewService()
+		// 创建带超时的context给vnstat服务使用
+		vnstatCtx, vnstatCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer vnstatCancel()
+		vnstatService := vnstat.NewServiceWithContext(vnstatCtx)
 		vnstatSuccess := true
 		if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
 			global.APP_LOG.Warn("重启实例后重新初始化vnStat监控失败",

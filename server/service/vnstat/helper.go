@@ -18,6 +18,39 @@ import (
 	"gorm.io/gorm"
 )
 
+// getContextWithTimeout 根据provider配置创建带超时的context
+func (s *Service) getContextWithTimeout(providerID uint, isLongRunning bool) (context.Context, context.CancelFunc) {
+	// 查询provider的SSH超时配置
+	var providerInfo providerModel.Provider
+	timeout := 30 * time.Second // 默认超时
+
+	if providerID > 0 {
+		if err := global.APP_DB.Select("ssh_execute_timeout").First(&providerInfo, providerID).Error; err == nil {
+			if providerInfo.SSHExecuteTimeout > 0 {
+				timeout = time.Duration(providerInfo.SSHExecuteTimeout) * time.Second
+			}
+		}
+	}
+
+	// 对于长时间运行的操作（如安装软件），使用更长的超时
+	if isLongRunning {
+		timeout = timeout * 2
+	}
+
+	if s.ctx != nil {
+		return context.WithTimeout(s.ctx, timeout)
+	}
+	return context.WithTimeout(context.Background(), timeout)
+}
+
+// getContext 获取默认context（用于不需要特殊超时的简单操作）
+func (s *Service) getContext() context.Context {
+	if s.ctx != nil {
+		return s.ctx
+	}
+	return context.Background()
+}
+
 // getInstanceNetworkInterfaces 获取实例的网络接口列表
 func (s *Service) getInstanceNetworkInterfaces(providerInstance provider.Provider, instanceName string) ([]string, error) {
 	// 根据Provider类型执行不同的命令获取网络接口
@@ -114,7 +147,9 @@ func (s *Service) getAllDockerVethInterfaces(providerInstance provider.Provider,
 func (s *Service) findAdditionalDockerVeths(providerInstance provider.Provider, containerName string) ([]string, error) {
 	// 获取容器的网络信息
 	inspectCmd := fmt.Sprintf("docker inspect %s", containerName)
-	inspectOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), inspectCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	inspectOutput, err := providerInstance.ExecuteSSHCommand(ctx, inspectCmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
@@ -137,7 +172,9 @@ func (s *Service) getDockerVethByPID(providerInstance provider.Provider, contain
 		zap.String("container", containerName),
 		zap.String("command", getPidCmd))
 
-	pidOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), getPidCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	pidOutput, err := providerInstance.ExecuteSSHCommand(ctx, getPidCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get container PID: %w", err)
 	}
@@ -155,7 +192,9 @@ func (s *Service) getDockerVethByPID(providerInstance provider.Provider, contain
 		zap.String("pid", pid),
 		zap.String("command", getPeerCmd))
 
-	peerOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), getPeerCmd)
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	peerOutput, err := providerInstance.ExecuteSSHCommand(ctx2, getPeerCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get peer interface index: %w", err)
 	}
@@ -173,7 +212,9 @@ func (s *Service) getDockerVethByPID(providerInstance provider.Provider, contain
 		zap.String("peer_index", peerIndex),
 		zap.String("command", findVethCmd))
 
-	vethOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), findVethCmd)
+	ctx3, cancel3 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel3()
+	vethOutput, err := providerInstance.ExecuteSSHCommand(ctx3, findVethCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to find veth interface by index: %w", err)
 	}
@@ -203,7 +244,9 @@ func (s *Service) getLXDNetworkInterfaces(providerInstance provider.Provider, in
 func (s *Service) getLXDVethInterface(providerInstance provider.Provider, instanceName string) (string, error) {
 	// 首先尝试从 lxc info 获取 Host interface 信息
 	infoCmd := fmt.Sprintf("lxc info %s", instanceName)
-	infoOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), infoCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	infoOutput, err := providerInstance.ExecuteSSHCommand(ctx, infoCmd)
 	if err != nil {
 		global.APP_LOG.Warn("获取LXD实例info失败，使用备用方法",
 			zap.String("instance", instanceName),
@@ -278,7 +321,9 @@ func (s *Service) getAllLXDVethInterfaces(providerInstance provider.Provider, in
 func (s *Service) findAdditionalLXDInterfaces(providerInstance provider.Provider, instanceName string) ([]string, error) {
 	// 获取实例的网络状态信息，查找所有Host interfaces
 	listCmd := fmt.Sprintf("lxc list %s --format json", instanceName)
-	listOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), listCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	listOutput, err := providerInstance.ExecuteSSHCommand(ctx, listCmd)
 	if err != nil {
 		global.APP_LOG.Warn("获取LXD实例网络状态失败",
 			zap.String("instance", instanceName),
@@ -312,7 +357,9 @@ func (s *Service) getIncusNetworkInterfaces(providerInstance provider.Provider, 
 func (s *Service) getIncusVethInterface(providerInstance provider.Provider, instanceName string) (string, error) {
 	// 方法1: 从 incus info 获取 Host interface 信息
 	infoCmd := fmt.Sprintf("incus info %s", instanceName)
-	infoOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), infoCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	infoOutput, err := providerInstance.ExecuteSSHCommand(ctx, infoCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get Incus instance info: %w", err)
 	}
@@ -384,7 +431,9 @@ func (s *Service) getAllIncusVethInterfaces(providerInstance provider.Provider, 
 func (s *Service) findAdditionalIncusInterfaces(providerInstance provider.Provider, instanceName string) ([]string, error) {
 	// 获取实例的网络状态信息，查找所有Host interfaces
 	listCmd := fmt.Sprintf("incus list %s --format json", instanceName)
-	listOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), listCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	listOutput, err := providerInstance.ExecuteSSHCommand(ctx, listCmd)
 	if err != nil {
 		global.APP_LOG.Warn("获取Incus实例网络状态失败",
 			zap.String("instance", instanceName),
@@ -464,7 +513,9 @@ func (s *Service) getAllProxmoxContainerInterfaces(providerInstance provider.Pro
 
 	// 获取容器配置，查找所有网络接口
 	configCmd := fmt.Sprintf("pct config %s | grep -E '^net[0-9]+:'", vmid)
-	configOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), configCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	configOutput, err := providerInstance.ExecuteSSHCommand(ctx, configCmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container config: %w", err)
 	}
@@ -502,7 +553,9 @@ func (s *Service) getAllProxmoxVMInterfaces(providerInstance provider.Provider, 
 
 	// 获取虚拟机配置，查找所有网络接口
 	configCmd := fmt.Sprintf("qm config %s | grep -E '^net[0-9]+:'", vmid)
-	configOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), configCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	configOutput, err := providerInstance.ExecuteSSHCommand(ctx, configCmd)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get VM config: %w", err)
 	}
@@ -539,7 +592,9 @@ func (s *Service) getProxmoxContainerVethByConfig(providerInstance provider.Prov
 	// 使用现有的方法获取veth接口
 	// 这里可以根据具体的网络配置进行优化
 	vethCmd := fmt.Sprintf(`VMID=%s; bridge link | grep veth$VMID | awk '{print $2}' | cut -d'@' -f1 | head -1`, vmid)
-	vethOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), vethCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	vethOutput, err := providerInstance.ExecuteSSHCommand(ctx, vethCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to find veth interface for container VMID %s: %w", vmid, err)
 	}
@@ -569,7 +624,9 @@ func (s *Service) getProxmoxVMTapByConfig(providerInstance provider.Provider, vm
 
 	// 查找与虚拟机关联的tap接口
 	tapCmd := fmt.Sprintf("bridge link | grep %s | grep tap%si | awk '{print $2}' | cut -d'@' -f1", bridge, vmid)
-	tapOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), tapCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	tapOutput, err := providerInstance.ExecuteSSHCommand(ctx, tapCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to find tap interface for VM VMID %s: %w", vmid, err)
 	}
@@ -597,7 +654,9 @@ func (s *Service) getProxmoxContainerInterface(providerInstance provider.Provide
 
 	// 使用VMID获取容器配置
 	configCmd := fmt.Sprintf("pct config %s | grep net0", vmid)
-	configOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), configCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	configOutput, err := providerInstance.ExecuteSSHCommand(ctx, configCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get container config: %w", err)
 	}
@@ -612,11 +671,15 @@ func (s *Service) getProxmoxContainerInterface(providerInstance provider.Provide
 
 	// 使用你提供的方法获取准确的veth接口
 	vethCmd := fmt.Sprintf(`VMID=%s; CIDX=$(pct exec $VMID -- bash -c "ip -o link | awk -F': ' '/@/ {print \$1\":\"\$2}'" | awk -F'@' '{print $2}' | head -1); bridge link | grep veth$VMID | awk -v cidx=$CIDX '{print $2}' | cut -d'@' -f1`, ctid)
-	vethOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), vethCmd)
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	vethOutput, err := providerInstance.ExecuteSSHCommand(ctx2, vethCmd)
 	if err != nil {
 		// 如果精确查找失败，尝试简单方法
 		fallbackCmd := fmt.Sprintf("bridge link | grep veth%s | awk '{print $2}' | cut -d'@' -f1 | head -1", ctid)
-		vethOutput, err = providerInstance.ExecuteSSHCommand(context.Background(), fallbackCmd)
+		ctx3, cancel3 := s.getContextWithTimeout(s.providerID, false)
+		defer cancel3()
+		vethOutput, err = providerInstance.ExecuteSSHCommand(ctx3, fallbackCmd)
 		if err != nil {
 			return "", fmt.Errorf("failed to find veth interface for container %s (VMID: %s): %w", instanceName, ctid, err)
 		}
@@ -650,7 +713,9 @@ func (s *Service) getProxmoxVMInterface(providerInstance provider.Provider, inst
 
 	// 使用VMID获取虚拟机配置
 	configCmd := fmt.Sprintf("qm config %s | grep net0", vmid)
-	configOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), configCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	configOutput, err := providerInstance.ExecuteSSHCommand(ctx, configCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to get VM config: %w", err)
 	}
@@ -674,7 +739,9 @@ func (s *Service) getProxmoxVMInterface(providerInstance provider.Provider, inst
 
 	// 查找与虚拟机关联的tap接口（使用已获取的VMID）
 	tapCmd := fmt.Sprintf("ip link show | grep 'tap%s' | head -1 | awk '{print $2}' | cut -d':' -f1", vmid)
-	tapOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), tapCmd)
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	tapOutput, err := providerInstance.ExecuteSSHCommand(ctx2, tapCmd)
 	if err != nil {
 		// 如果直接查找失败，返回桥接接口
 		global.APP_LOG.Warn("无法找到具体的tap接口，使用bridge接口",
@@ -697,7 +764,9 @@ func (s *Service) getProxmoxVMInterface(providerInstance provider.Provider, inst
 func (s *Service) findVethByBridge(providerInstance provider.Provider, bridge, ctid string) (string, error) {
 	// 查找连接到指定bridge的veth接口
 	bridgeCmd := fmt.Sprintf("bridge link show | grep %s | grep veth | head -1 | awk '{print $2}' | cut -d':' -f1", bridge)
-	bridgeOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), bridgeCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	bridgeOutput, err := providerInstance.ExecuteSSHCommand(ctx, bridgeCmd)
 	if err != nil {
 		return "", fmt.Errorf("failed to find veth by bridge: %w", err)
 	}
@@ -713,7 +782,9 @@ func (s *Service) findVethByBridge(providerInstance provider.Provider, bridge, c
 // findVMIDByInstanceName 通过实例名称查找VMID和实例类型
 func (s *Service) findVMIDByInstanceName(providerInstance provider.Provider, instanceName string) (string, string, error) {
 	// 首先尝试从容器列表中查找
-	output, err := providerInstance.ExecuteSSHCommand(context.Background(), "pct list")
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	output, err := providerInstance.ExecuteSSHCommand(ctx, "pct list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
@@ -743,7 +814,9 @@ func (s *Service) findVMIDByInstanceName(providerInstance provider.Provider, ins
 	}
 
 	// 然后尝试从虚拟机列表中查找
-	output, err = providerInstance.ExecuteSSHCommand(context.Background(), "qm list")
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	output, err = providerInstance.ExecuteSSHCommand(ctx2, "qm list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(output), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
@@ -773,7 +846,9 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 
 	// 确保宿主机有vnstat
 	checkCmd := "which vnstat || (apt-get update && apt-get install -y vnstat) || (yum install -y vnstat) || (apk add --no-cache vnstat)"
-	if _, err := providerInstance.ExecuteSSHCommand(context.Background(), checkCmd); err != nil {
+	ctx, cancel := s.getContextWithTimeout(s.providerID, true) // 安装可能需要更长时间
+	defer cancel()
+	if _, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd); err != nil {
 		global.APP_LOG.Warn("检查或安装vnstat失败",
 			zap.String("instance", instanceName),
 			zap.String("interface", interfaceName),
@@ -782,7 +857,9 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 	}
 
 	// 检测vnstat版本以确定正确的初始化参数
-	versionOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), "vnstat --version")
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	versionOutput, err := providerInstance.ExecuteSSHCommand(ctx2, "vnstat --version")
 	var initCmd string
 	var isV2 bool
 
@@ -813,7 +890,9 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 		zap.Bool("is_v2", isV2))
 
 	// 执行初始化命令
-	output, err := providerInstance.ExecuteSSHCommand(context.Background(), initCmd)
+	ctx3, cancel3 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel3()
+	output, err := providerInstance.ExecuteSSHCommand(ctx3, initCmd)
 	if err != nil {
 		// 如果主要命令失败，尝试备用方案
 		var fallbackCmd string
@@ -833,7 +912,9 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 				zap.Error(err))
 		}
 
-		output, err = providerInstance.ExecuteSSHCommand(context.Background(), fallbackCmd)
+		ctx4, cancel4 := s.getContextWithTimeout(s.providerID, false)
+		defer cancel4()
+		output, err = providerInstance.ExecuteSSHCommand(ctx4, fallbackCmd)
 		if err != nil {
 			// 如果两种方式都失败，尝试直接运行 vnstat 让它自动初始化
 			global.APP_LOG.Warn("所有参数都失败，尝试自动初始化",
@@ -842,7 +923,9 @@ func (s *Service) initVnStatForInterface(providerInstance provider.Provider, ins
 				zap.Error(err))
 
 			autoInitCmd := fmt.Sprintf("vnstat -i %s", interfaceName)
-			output, err = providerInstance.ExecuteSSHCommand(context.Background(), autoInitCmd)
+			ctx5, cancel5 := s.getContextWithTimeout(s.providerID, false)
+			defer cancel5()
+			output, err = providerInstance.ExecuteSSHCommand(ctx5, autoInitCmd)
 			if err != nil {
 				global.APP_LOG.Error("vnstat接口初始化失败",
 					zap.String("instance", instanceName),
@@ -947,7 +1030,9 @@ func (s *Service) getVnStatJSON(providerInstance provider.Provider, instanceName
 		zap.String("interface", interfaceName),
 		zap.String("command", vnstatCmd))
 
-	output, err := providerInstance.ExecuteSSHCommand(context.Background(), vnstatCmd)
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	output, err := providerInstance.ExecuteSSHCommand(ctx, vnstatCmd)
 	if err != nil {
 		global.APP_LOG.Error("获取vnStat数据失败",
 			zap.String("provider_type", providerInstance.GetType()),
@@ -1083,7 +1168,9 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 
 	compactedJSON := s.compactVnStatJSON(&vnstatData, iface.Interface)
 
-	return utils.RetryableDBOperation(context.Background(), func() error {
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	return utils.RetryableDBOperation(ctx, func() error {
 		return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 			now := time.Now()
 
@@ -1176,7 +1263,9 @@ func (s *Service) parseAndSaveVnStatData(iface *monitoringModel.VnStatInterface,
 // removeVnStatInterface 从vnstat系统中删除指定的网络接口
 func (s *Service) removeVnStatInterface(providerInstance provider.Provider, interfaceName string) error {
 	// 检测vnstat版本以确定正确的删除参数
-	versionOutput, err := providerInstance.ExecuteSSHCommand(context.Background(), "vnstat --version")
+	ctx, cancel := s.getContextWithTimeout(s.providerID, false)
+	defer cancel()
+	versionOutput, err := providerInstance.ExecuteSSHCommand(ctx, "vnstat --version")
 	var removeCmd string
 	var isV2 bool
 
@@ -1208,7 +1297,9 @@ func (s *Service) removeVnStatInterface(providerInstance provider.Provider, inte
 		zap.Bool("is_v2", isV2))
 
 	// 执行删除命令
-	output, err := providerInstance.ExecuteSSHCommand(context.Background(), removeCmd)
+	ctx2, cancel2 := s.getContextWithTimeout(s.providerID, false)
+	defer cancel2()
+	output, err := providerInstance.ExecuteSSHCommand(ctx2, removeCmd)
 	if err != nil {
 		// 如果主要命令失败，尝试备用方案
 		var fallbackCmd string
@@ -1226,7 +1317,9 @@ func (s *Service) removeVnStatInterface(providerInstance provider.Provider, inte
 				zap.Error(err))
 		}
 
-		output, err = providerInstance.ExecuteSSHCommand(context.Background(), fallbackCmd)
+		ctx3, cancel3 := s.getContextWithTimeout(s.providerID, false)
+		defer cancel3()
+		output, err = providerInstance.ExecuteSSHCommand(ctx3, fallbackCmd)
 		if err != nil {
 			// 检查错误是否因为接口已经不存在
 			if strings.Contains(strings.ToLower(output), "no such") ||
