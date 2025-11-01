@@ -489,9 +489,8 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	for i, rank := range rankings {
 		var usagePercent float64 = 0
 		if rank.TotalLimit > 0 {
-			// rank.MonthUsage 已经是 MB 单位了，需要转换为字节再计算百分比
-			monthUsageBytes := rank.MonthUsage * 1024 * 1024
-			usagePercent = (monthUsageBytes / float64(rank.TotalLimit)) * 100
+			// rank.MonthUsage 和 rank.TotalLimit 都是 MB 单位，直接计算百分比
+			usagePercent = (rank.MonthUsage / float64(rank.TotalLimit)) * 100
 		}
 
 		result = append(result, map[string]interface{}{
