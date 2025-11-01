@@ -306,7 +306,7 @@ func (s *Service) UpdateUserStatus(userID uint, status int) error {
 
 	// 如果禁用用户，撤销其所有Token
 	if status == 0 {
-		blacklistService := auth2.JWTBlacklistService{}
+		blacklistService := auth2.GetJWTBlacklistService()
 		if err := blacklistService.RevokeUserTokens(userID, "disable", adminUserID); err != nil {
 			global.APP_LOG.Error("撤销用户Token失败",
 				zap.Uint("userID", userID),
@@ -363,7 +363,7 @@ func (s *Service) BatchUpdateUserStatus(userIDs []uint, status int) error {
 
 	// 如果禁用用户，撤销其所有Token
 	if status == 0 {
-		blacklistService := auth2.JWTBlacklistService{}
+		blacklistService := auth2.GetJWTBlacklistService()
 		adminUserID := s.getCurrentAdminID() // 从上下文获取当前管理员ID
 
 		for _, userID := range userIDs {

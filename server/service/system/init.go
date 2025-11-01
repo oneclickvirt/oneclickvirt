@@ -144,7 +144,6 @@ func (s *InitService) AutoMigrateTables() error {
 		// 认证相关表
 		&userModel.VerifyCode{},    // 验证码表（邮箱/短信）
 		&userModel.PasswordReset{}, // 密码重置令牌表
-		&auth.JWTBlacklist{},       // JWT黑名单表
 
 		// 系统配置表
 		&adminModel.SystemConfig{}, // 系统配置表

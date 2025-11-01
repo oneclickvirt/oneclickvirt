@@ -214,7 +214,7 @@ func Logout(c *gin.Context) {
 	}
 
 	// 将Token添加到黑名单
-	blacklistService := auth2.JWTBlacklistService{}
+	blacklistService := auth2.GetJWTBlacklistService()
 	if err := blacklistService.AddToBlacklist(token, authCtx.UserID, "logout", authCtx.UserID); err != nil {
 		global.APP_LOG.Error("添加Token到黑名单失败",
 			zap.Error(err),

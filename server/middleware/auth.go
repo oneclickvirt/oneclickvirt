@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 )
 
@@ -36,7 +37,7 @@ func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 		}
 
 		// 验证JWT Token并获取最新权限
-		authCtx, err := validateJWTToken(c)
+		authCtx, claims, err := validateJWTTokenWithClaims(c)
 		if err != nil {
 			respondAuthError(c, err)
 			return
@@ -60,6 +61,24 @@ func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 			})
 			c.Abort()
 			return
+		}
+
+		// 检查token是否需要刷新（滑动过期机制）
+		if utils.ShouldRefreshToken(claims) {
+			// 生成新token
+			newToken, err := utils.GenerateToken(authCtx.UserID, authCtx.Username, authCtx.UserType)
+			if err != nil {
+				global.APP_LOG.Error("生成刷新token失败",
+					zap.Uint("userID", authCtx.UserID),
+					zap.Error(err))
+			} else {
+				// 通过响应头返回新token
+				c.Header("X-New-Token", newToken)
+				c.Header("X-Token-Refreshed", "true")
+				global.APP_LOG.Debug("Token自动刷新",
+					zap.Uint("userID", authCtx.UserID),
+					zap.String("username", authCtx.Username))
+			}
 		}
 
 		// 设置认证上下文
@@ -117,11 +136,11 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 	}
 }
 
-// validateJWTToken 验证JWT Token并获取最新用户权限
-func validateJWTToken(c *gin.Context) (*auth.AuthContext, error) {
+// validateJWTTokenWithClaims 验证JWT Token并获取最新用户权限（返回claims用于刷新检查）
+func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClaims, error) {
 	token := c.GetHeader("Authorization")
 	if token == "" {
-		return nil, common.NewError(common.CodeUnauthorized, "未提供认证令牌")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "未提供认证令牌")
 	}
 
 	if after, ok := strings.CutPrefix(token, "Bearer "); ok {
@@ -131,7 +150,7 @@ func validateJWTToken(c *gin.Context) (*auth.AuthContext, error) {
 	// 使用JWT验证逻辑
 	claims, err := utils.ValidateToken(token)
 	if err != nil {
-		return nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌")
 	}
 
 	// 提取JWT Token ID (JTI)用于黑名单检查
@@ -139,30 +158,36 @@ func validateJWTToken(c *gin.Context) (*auth.AuthContext, error) {
 	if !ok || jti == "" {
 		global.APP_LOG.Warn("Token缺少JTI字段",
 			zap.Any("claims", *claims))
-		return nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌格式")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌格式")
 	}
 
 	// 检查Token是否在黑名单中
-	blacklistService := auth2.JWTBlacklistService{}
+	blacklistService := auth2.GetJWTBlacklistService()
 	if blacklistService.IsBlacklisted(jti) {
 		global.APP_LOG.Warn("尝试使用已撤销的Token",
 			zap.String("jti", jti))
-		return nil, common.NewError(common.CodeUnauthorized, "认证令牌已失效")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "认证令牌已失效")
 	}
 
 	// 提取用户ID
 	userID, ok := (*claims)["user_id"].(float64)
 	if !ok {
-		return nil, common.NewError(common.CodeUnauthorized, "无效的用户信息")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的用户信息")
 	}
 
 	// 从数据库获取用户当前状态和权限（不依赖JWT中的用户类型）
 	userAuth, err := getUserAuthInfo(uint(userID))
 	if err != nil {
-		return nil, common.NewError(common.CodeUnauthorized, "获取用户权限失败")
+		return nil, nil, common.NewError(common.CodeUnauthorized, "获取用户权限失败")
 	}
 
-	return userAuth, nil
+	return userAuth, claims, nil
+}
+
+// validateJWTToken 验证JWT Token并获取最新用户权限（向后兼容）
+func validateJWTToken(c *gin.Context) (*auth.AuthContext, error) {
+	authCtx, _, err := validateJWTTokenWithClaims(c)
+	return authCtx, err
 }
 
 // getUserAuthInfo 从数据库获取用户认证信息和权限

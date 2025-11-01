@@ -1,21 +1,69 @@
 package auth
 
 import (
-	"context"
 	"fmt"
-	"oneclickvirt/service/database"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
-	"oneclickvirt/model/auth"
-	"oneclickvirt/utils"
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
-type JWTBlacklistService struct{}
+// blacklistItem 黑名单项
+type blacklistItem struct {
+	userID    uint
+	expiresAt time.Time
+	reason    string
+	revokedBy uint
+}
+
+// JWTBlacklistService 基于内存的JWT黑名单服务
+type JWTBlacklistService struct {
+	data          map[string]*blacklistItem
+	mutex         sync.RWMutex
+	cleanupTicker *time.Ticker
+	stopCleanup   chan struct{}
+}
+
+var (
+	blacklistService     *JWTBlacklistService
+	blacklistServiceOnce sync.Once
+)
+
+// GetJWTBlacklistService 获取JWT黑名单服务单例
+func GetJWTBlacklistService() *JWTBlacklistService {
+	blacklistServiceOnce.Do(func() {
+		blacklistService = &JWTBlacklistService{
+			data:        make(map[string]*blacklistItem),
+			stopCleanup: make(chan struct{}),
+		}
+		blacklistService.startCleanup()
+	})
+	return blacklistService
+}
+
+// startCleanup 启动自动清理过期Token
+func (s *JWTBlacklistService) startCleanup() {
+	s.cleanupTicker = time.NewTicker(5 * time.Minute)
+	go func() {
+		for {
+			select {
+			case <-s.cleanupTicker.C:
+				s.CleanExpiredTokens()
+			case <-s.stopCleanup:
+				s.cleanupTicker.Stop()
+				return
+			}
+		}
+	}()
+}
+
+// Stop 停止清理任务
+func (s *JWTBlacklistService) Stop() {
+	close(s.stopCleanup)
+}
 
 // AddToBlacklist 将Token添加到黑名单
 func (s *JWTBlacklistService) AddToBlacklist(tokenString string, userID uint, reason string, revokedBy uint) error {
@@ -25,112 +73,71 @@ func (s *JWTBlacklistService) AddToBlacklist(tokenString string, userID uint, re
 		return fmt.Errorf("解析Token失败: %w", err)
 	}
 
-	// 检查是否已在黑名单中
-	var existing auth.JWTBlacklist
-	err = global.APP_DB.Where("jti = ?", jti).First(&existing).Error
-	if err == nil {
-		// 已存在，更新原因和撤销者
-		existing.Reason = reason
-		existing.RevokedBy = revokedBy
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
 
-		dbService := database.GetDatabaseService()
-		return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Save(&existing).Error
-		})
-	}
-	if err != gorm.ErrRecordNotFound {
-		return err
+	s.data[jti] = &blacklistItem{
+		userID:    userID,
+		expiresAt: expiresAt,
+		reason:    reason,
+		revokedBy: revokedBy,
 	}
 
-	// 到黑名单
-	blacklist := auth.JWTBlacklist{
-		JTI:       jti,
-		UserID:    userID,
-		ExpiresAt: expiresAt,
-		Reason:    reason,
-		RevokedBy: revokedBy,
-	}
-
-	dbService := database.GetDatabaseService()
-	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Create(&blacklist).Error
-	}); err != nil {
-		return err
-	}
-
-	global.APP_LOG.Debug("Token已加入黑名单", zap.String("jti", jti), zap.Uint("userID", userID), zap.String("reason", reason))
+	global.APP_LOG.Debug("Token已加入内存黑名单",
+		zap.String("jti", jti),
+		zap.Uint("userID", userID),
+		zap.String("reason", reason))
 
 	return nil
 }
 
 // IsBlacklisted 检查Token是否在黑名单中
 func (s *JWTBlacklistService) IsBlacklisted(jti string) bool {
-	var count int64
-	err := global.APP_DB.Model(&auth.JWTBlacklist{}).
-		Where("jti = ? AND expires_at > ?", jti, time.Now()).
-		Count(&count).Error
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
 
-	if err != nil {
-		global.APP_LOG.Error("检查Token黑名单状态失败", zap.String("error", utils.FormatError(err)), zap.String("jti", jti))
-		// 出错时采用安全策略，视为已被撤销
-		return true
+	item, exists := s.data[jti]
+	if !exists {
+		return false
 	}
 
-	return count > 0
+	// 检查是否过期
+	if time.Now().After(item.expiresAt) {
+		return false
+	}
+
+	return true
 }
 
 // RevokeUserTokens 撤销指定用户的所有Token
 func (s *JWTBlacklistService) RevokeUserTokens(userID uint, reason string, revokedBy uint) error {
-	// 由于我们无法获取所有已签发的Token，这里只能标记用户状态改变的时间点
+	// 由于无法枚举所有已签发的Token，这里只记录撤销意图
 	// 实际的Token验证会在中间件中通过检查用户状态来实现
-
-	global.APP_LOG.Debug("用户所有Token被标记为撤销", zap.Uint("userID", userID), zap.String("reason", reason), zap.Uint("revokedBy", revokedBy))
-
-	return nil
-}
-
-// RevokeTokenByJTI 通过JTI撤销特定Token
-func (s *JWTBlacklistService) RevokeTokenByJTI(jti string, reason string, revokedBy uint) error {
-	// 更新现有记录或创建新记录
-	result := global.APP_DB.Model(&auth.JWTBlacklist{}).
-		Where("jti = ?", jti).
-		Updates(map[string]interface{}{
-			"reason":     reason,
-			"revoked_by": revokedBy,
-			"created_at": time.Now(),
-		})
-
-	if result.Error != nil {
-		return result.Error
-	}
-
-	// 如果没有更新任何记录，说明Token不在黑名单中，需要创建
-	if result.RowsAffected == 0 {
-		blacklist := auth.JWTBlacklist{
-			JTI:       jti,
-			ExpiresAt: time.Now().Add(24 * time.Hour), // 假设24小时过期
-			Reason:    reason,
-			RevokedBy: revokedBy,
-		}
-
-		dbService := database.GetDatabaseService()
-		return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Create(&blacklist).Error
-		})
-	}
+	global.APP_LOG.Debug("用户所有Token被标记为撤销",
+		zap.Uint("userID", userID),
+		zap.String("reason", reason),
+		zap.Uint("revokedBy", revokedBy))
 
 	return nil
 }
 
 // CleanExpiredTokens 清理过期的黑名单Token
 func (s *JWTBlacklistService) CleanExpiredTokens() error {
-	result := global.APP_DB.Where("expires_at <= ?", time.Now()).Delete(&auth.JWTBlacklist{})
-	if result.Error != nil {
-		return result.Error
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+
+	now := time.Now()
+	count := 0
+
+	for jti, item := range s.data {
+		if now.After(item.expiresAt) {
+			delete(s.data, jti)
+			count++
+		}
 	}
 
-	if result.RowsAffected > 0 {
-		global.APP_LOG.Debug("清理过期黑名单Token", zap.Int64("count", result.RowsAffected))
+	if count > 0 {
+		global.APP_LOG.Debug("清理过期内存黑名单Token", zap.Int("count", count))
 	}
 
 	return nil

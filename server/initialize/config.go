@@ -29,7 +29,7 @@ func getDefaultConfig() config.Server {
 			UseRedis:      false,
 		},
 		JWT: config.JWT{
-			SigningKey:  "oneclickvirt",
+			// SigningKey 会在 core/viper.go 中自动生成，无需配置
 			ExpiresTime: "7d",
 			BufferTime:  "1d",
 			Issuer:      "oneclickvirt",
@@ -285,10 +285,7 @@ func validateConfig(cfg *config.Server) error {
 		return fmt.Errorf("无效的端口号: %d", cfg.System.Addr)
 	}
 
-	// 验证JWT配置
-	if cfg.JWT.SigningKey == "" {
-		return fmt.Errorf("JWT签名密钥不能为空")
-	}
+	// JWT签名密钥会在 core/viper.go 中自动生成，这里无需验证
 
 	// 验证数据库配置
 	if cfg.System.DbType == "" {

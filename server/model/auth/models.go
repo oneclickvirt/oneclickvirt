@@ -6,28 +6,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// JWTBlacklist JWT Token 黑名单模型
-type JWTBlacklist struct {
-	ID        uint           `json:"id" gorm:"primarykey"`
-	CreatedAt time.Time      `json:"createdAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
-	JTI       string         `json:"jti" gorm:"uniqueIndex;not null;size:128"` // JWT Token ID
-	UserID    uint           `json:"userId" gorm:"not null;index"`             // 用户ID
-	ExpiresAt time.Time      `json:"expiresAt" gorm:"not null;index"`          // Token原始过期时间
-	Reason    string         `json:"reason" gorm:"size:100"`                   // 撤销原因：logout, disable, security, admin
-	RevokedBy uint           `json:"revokedBy" gorm:"default:0"`               // 撤销操作者ID，0表示系统自动
-}
-
-// TableName 指定表名
-func (JWTBlacklist) TableName() string {
-	return "jwt_blacklist"
-}
-
-// IsExpired 检查Token是否已过期（过期的Token无需在黑名单中保留）
-func (jb *JWTBlacklist) IsExpired() bool {
-	return time.Now().After(jb.ExpiresAt)
-}
-
 // Role 角色模型
 type Role struct {
 	// 基础字段

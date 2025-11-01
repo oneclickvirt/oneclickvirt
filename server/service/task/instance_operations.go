@@ -100,15 +100,21 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			}
 		}()
 
-		// 使用可取消的等待
-		select {
-		case <-time.After(30 * time.Second):
-		case <-ctx.Done():
-			global.APP_LOG.Info("启动实例后处理被取消",
+		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
+		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
+		defer waitCancel()
+
+		<-waitCtx.Done()
+
+		// 检查是服务关闭还是正常超时
+		if s.ctx.Err() != nil {
+			// 服务正在关闭
+			global.APP_LOG.Info("启动实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
 			return
 		}
+		// 正常超时，继续执行
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在初始化vnStat监控...")
@@ -344,15 +350,21 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			}
 		}()
 
-		// 使用可取消的等待
-		select {
-		case <-time.After(30 * time.Second):
-		case <-ctx.Done():
-			global.APP_LOG.Info("重启实例后处理被取消",
+		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
+		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
+		defer waitCancel()
+
+		<-waitCtx.Done()
+
+		// 检查是服务关闭还是正常超时
+		if s.ctx.Err() != nil {
+			// 服务正在关闭
+			global.APP_LOG.Info("重启实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
 			return
 		}
+		// 正常超时，继续执行
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 90, "正在重新初始化vnStat监控...")

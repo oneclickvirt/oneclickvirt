@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // getOrCreateProviderPool 获取或创建Provider工作池
@@ -103,11 +104,13 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		pool.TaskService.contextMutex.Unlock()
 	}()
 
-	// 更新任务状态为运行中 - 带幂等性检查
+	// 更新任务状态为运行中 - 使用SELECT FOR UPDATE确保原子性
 	err := pool.TaskService.dbService.ExecuteTransaction(taskCtx, func(tx *gorm.DB) error {
-		// 先检查任务当前状态，避免重复处理
+		// 使用行锁查询任务，确保原子性
 		var currentTask adminModel.Task
-		if err := tx.First(&currentTask, task.ID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", task.ID).
+			First(&currentTask).Error; err != nil {
 			return fmt.Errorf("查询任务状态失败: %v", err)
 		}
 
@@ -116,12 +119,24 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 			return fmt.Errorf("任务状态已变更，当前状态: %s", currentTask.Status)
 		}
 
-		// 只有在pending状态时才更新为running
-		return tx.Model(&adminModel.Task{}).Where("id = ? AND status = ?", task.ID, "pending").
+		// 使用WHERE条件确保只有pending状态才会被更新
+		result := tx.Model(&adminModel.Task{}).
+			Where("id = ? AND status = ?", task.ID, "pending").
 			Updates(map[string]interface{}{
 				"status":     "running",
 				"started_at": time.Now(),
-			}).Error
+			})
+
+		if result.Error != nil {
+			return result.Error
+		}
+
+		// 检查是否真的更新了记录
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("任务状态更新失败，可能已被其他worker处理")
+		}
+
+		return nil
 	})
 
 	if err != nil {
