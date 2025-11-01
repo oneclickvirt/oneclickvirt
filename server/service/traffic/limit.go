@@ -1,14 +1,12 @@
 package traffic
 
 import (
-	"context"
 	"fmt"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	dashboardModel "oneclickvirt/model/dashboard"
-	monitoringModel "oneclickvirt/model/monitoring"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
 
@@ -29,25 +27,7 @@ func NewLimitService() *LimitService {
 	}
 }
 
-// SyncAllTrafficLimitsWithVnStat 委托给 TrafficLimitService 实现
-func (s *LimitService) SyncAllTrafficLimitsWithVnStat(ctx context.Context) error {
-	trafficLimitService := NewTrafficLimitService()
-	return trafficLimitService.SyncAllTrafficLimitsWithVnStat(ctx)
-}
-
-// CheckUserTrafficLimitWithVnStat 委托给 TrafficLimitService 实现
-func (s *LimitService) CheckUserTrafficLimitWithVnStat(userID uint) (bool, string, error) {
-	trafficLimitService := NewTrafficLimitService()
-	return trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
-}
-
-// CheckProviderTrafficLimitWithVnStat 委托给 TrafficLimitService 实现
-func (s *LimitService) CheckProviderTrafficLimitWithVnStat(providerID uint) (bool, string, error) {
-	trafficLimitService := NewTrafficLimitService()
-	return trafficLimitService.CheckProviderTrafficLimitWithVnStat(providerID)
-}
-
-// ============ 原有统计查询方法 ============
+// ============ 流量统计查询方法 ============
 
 // getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
 func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
@@ -56,19 +36,26 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 	month := int(now.Month())
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
+	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
 	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'out' THEN agg.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN agg.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (agg.rx_bytes + agg.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
 			END
 		), 0) / 1048576
 		FROM instances i
 		LEFT JOIN providers p ON i.provider_id = p.id
-		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id
-			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
+		LEFT JOIN (
+			SELECT instance_id, 
+				   SUM(rx_bytes) as rx_bytes, 
+				   SUM(tx_bytes) as tx_bytes
+			FROM vnstat_traffic_records
+			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
+			GROUP BY instance_id
+		) agg ON i.id = agg.instance_id
 		WHERE i.user_id = ?
 	`
 
@@ -93,19 +80,26 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 	month := int(now.Month())
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
+	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
 	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'out' THEN agg.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN agg.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (agg.rx_bytes + agg.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
 			END
 		), 0) / 1048576
 		FROM instances i
 		LEFT JOIN providers p ON i.provider_id = p.id
-		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id
-			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
+		LEFT JOIN (
+			SELECT instance_id, 
+				   SUM(rx_bytes) as rx_bytes, 
+				   SUM(tx_bytes) as tx_bytes
+			FROM vnstat_traffic_records
+			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
+			GROUP BY instance_id
+		) agg ON i.id = agg.instance_id
 		WHERE i.provider_id = ?
 	`
 
@@ -195,19 +189,28 @@ func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error
 
 	var totalTraffic int64
 
-	// 遍历每个实例，获取年度流量
+	// 遍历每个实例，获取年度流量（聚合所有接口，避免重复统计）
 	for _, instance := range instances {
-		// 获取实例所有接口的年度总流量（total记录中year=0表示总计）
-		var records []monitoringModel.VnStatTrafficRecord
-		err := global.APP_DB.Where("instance_id = ? AND year = 0 AND month = 0 AND day = 0 AND hour = 0",
-			instance.ID).Find(&records).Error
+		// 获取实例所有接口的年度总流量聚合（使用子查询避免重复统计多个接口）
+		var instanceTotalMB int64
+		err := global.APP_DB.Raw(`
+			SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) / 1048576
+			FROM (
+				SELECT instance_id, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
+				FROM vnstat_traffic_records
+				WHERE instance_id = ? AND year = 0 AND month = 0 AND day = 0 AND hour = 0
+				GROUP BY instance_id
+			) agg
+		`, instance.ID).Scan(&instanceTotalMB).Error
+
 		if err != nil {
+			global.APP_LOG.Warn("获取实例年度流量失败",
+				zap.Uint("instanceID", instance.ID),
+				zap.Error(err))
 			continue
 		}
 
-		for _, record := range records {
-			totalTraffic += record.TotalBytes / (1024 * 1024) // 转换为MB
-		}
+		totalTraffic += instanceTotalMB
 	}
 
 	return totalTraffic, nil
@@ -263,13 +266,21 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 	now := time.Now()
 	year, month, _ := now.Date()
 
-	// 获取系统总流量（所有实例本月流量总和）
+	// 获取系统总流量（所有实例本月流量总和，避免重复统计多个接口）
 	var totalTraffic dashboardModel.TrafficStats
 
-	err := global.APP_DB.Table("vnstat_traffic_records").
-		Select("SUM(rx_bytes) as total_rx, SUM(tx_bytes) as total_tx, SUM(total_bytes) as total_bytes").
-		Where("year = ? AND month = ?", year, int(month)).
-		Scan(&totalTraffic).Error
+	err := global.APP_DB.Raw(`
+		SELECT 
+			COALESCE(SUM(rx_bytes), 0) as total_rx, 
+			COALESCE(SUM(tx_bytes), 0) as total_tx, 
+			COALESCE(SUM(rx_bytes + tx_bytes), 0) as total_bytes
+		FROM (
+			SELECT instance_id, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
+			FROM vnstat_traffic_records
+			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
+			GROUP BY instance_id
+		) agg
+	`, year, int(month)).Scan(&totalTraffic).Error
 
 	if err != nil {
 		return nil, fmt.Errorf("获取系统总流量失败: %w", err)

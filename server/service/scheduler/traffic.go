@@ -36,7 +36,7 @@ func (s *SchedulerService) syncAllTrafficData() {
 	global.APP_LOG.Debug("开始同步流量数据（基于vnStat）")
 
 	// 使用流量服务进行同步
-	trafficService := traffic.NewTrafficService()
+	trafficService := traffic.NewService()
 	if err := trafficService.SyncAllTrafficData(); err != nil {
 		global.APP_LOG.Error("同步流量数据失败", zap.Error(err))
 	} else {

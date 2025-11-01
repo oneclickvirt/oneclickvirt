@@ -10,15 +10,17 @@ import (
 
 // SyncTriggerService 流量同步触发服务
 type SyncTriggerService struct {
-	service      *Service
-	limitService *LimitService
+	service          *Service
+	limitService     *LimitService
+	threeTierService *ThreeTierLimitService
 }
 
 // NewSyncTriggerService 创建流量同步触发服务
 func NewSyncTriggerService() *SyncTriggerService {
 	return &SyncTriggerService{
-		service:      NewService(),
-		limitService: NewLimitService(),
+		service:          NewService(),
+		limitService:     NewLimitService(),
+		threeTierService: NewThreeTierLimitService(),
 	}
 }
 
@@ -69,8 +71,8 @@ func (s *SyncTriggerService) TriggerUserTrafficSync(userID uint, reason string) 
 			zap.Uint("userID", userID),
 			zap.String("reason", reason))
 
-		// 使用vnStat数据检查流量限制（这会同时触发同步）
-		if _, _, err := s.limitService.CheckUserTrafficLimitWithVnStat(userID); err != nil {
+		// 使用三层级流量限制服务检查流量限制
+		if _, err := s.threeTierService.CheckUserTrafficLimit(userID); err != nil {
 			global.APP_LOG.Error("同步用户流量失败",
 				zap.Uint("userID", userID),
 				zap.String("reason", reason),
@@ -100,8 +102,8 @@ func (s *SyncTriggerService) TriggerProviderTrafficSync(providerID uint, reason 
 			zap.Uint("providerID", providerID),
 			zap.String("reason", reason))
 
-		// 使用vnStat数据检查Provider流量限制（这会同时触发同步）
-		if _, _, err := s.limitService.CheckProviderTrafficLimitWithVnStat(providerID); err != nil {
+		// 使用三层级流量限制服务检查Provider流量限制
+		if _, err := s.threeTierService.CheckProviderTrafficLimit(providerID); err != nil {
 			global.APP_LOG.Error("同步Provider流量失败",
 				zap.Uint("providerID", providerID),
 				zap.String("reason", reason),
@@ -136,16 +138,7 @@ func (s *SyncTriggerService) TriggerDelayedInstanceTrafficSync(instanceID uint, 
 		// 等待指定时间
 		time.Sleep(delay)
 
-		// 再次检查实例是否还存在
-		var count int64
-		if err := global.APP_DB.Model(&struct{}{}).Table("instances").Where("id = ? AND soft_deleted = ?", instanceID, false).Count(&count).Error; err != nil || count == 0 {
-			global.APP_LOG.Warn("延迟同步时实例已不存在，跳过",
-				zap.Uint("instanceID", instanceID),
-				zap.String("reason", reason))
-			return
-		}
-
-		// 触发流量同步
-		s.TriggerInstanceTrafficSync(instanceID, reason)
+		// 执行流量同步
+		s.TriggerInstanceTrafficSync(instanceID, reason+" (延迟触发)")
 	}()
 }

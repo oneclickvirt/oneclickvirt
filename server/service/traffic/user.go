@@ -187,8 +187,9 @@ func (s *UserTrafficService) GetUserInstancesTrafficSummary(userID uint) (map[st
 
 // GetTrafficLimitStatus 获取流量限制状态
 func (s *UserTrafficService) GetTrafficLimitStatus(userID uint) (map[string]interface{}, error) {
-	// 检查用户流量限制状态
-	isUserLimited, userReason, err := s.limitService.CheckUserTrafficLimitWithVnStat(userID)
+	// 使用三层级流量限制服务检查用户流量限制状态
+	threeTierService := NewThreeTierLimitService()
+	isUserLimited, err := threeTierService.CheckUserTrafficLimit(userID)
 	if err != nil {
 		return nil, fmt.Errorf("检查用户流量限制失败: %w", err)
 	}
@@ -202,7 +203,6 @@ func (s *UserTrafficService) GetTrafficLimitStatus(userID uint) (map[string]inte
 	result := map[string]interface{}{
 		"user_id":           userID,
 		"is_user_limited":   isUserLimited,
-		"user_limit_reason": userReason,
 		"traffic_overview":  trafficOverview,
 		"limited_instances": []map[string]interface{}{},
 	}
@@ -220,15 +220,14 @@ func (s *UserTrafficService) GetTrafficLimitStatus(userID uint) (map[string]inte
 		// 检查每个受限实例的Provider状态
 		instanceDetails := []map[string]interface{}{}
 		for _, instance := range limitedInstances {
-			// 检查Provider是否也受限
-			isProviderLimited, providerReason, providerErr := s.limitService.CheckProviderTrafficLimitWithVnStat(instance.ProviderID)
+			// 使用三层级流量限制服务检查Provider是否也受限
+			isProviderLimited, providerErr := threeTierService.CheckProviderTrafficLimit(instance.ProviderID)
 
 			instanceDetail := map[string]interface{}{
-				"id":                    instance.ID,
-				"name":                  instance.Name,
-				"status":                instance.Status,
-				"is_provider_limited":   isProviderLimited,
-				"provider_limit_reason": providerReason,
+				"id":                  instance.ID,
+				"name":                instance.Name,
+				"status":              instance.Status,
+				"is_provider_limited": isProviderLimited,
 			}
 
 			if providerErr != nil {

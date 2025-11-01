@@ -355,12 +355,20 @@ func (s *Service) getVnstatData(instance provider.Instance) (*system.VnstatData,
 // getInstanceMonthlyTrafficFromVnStat 获取实例月度流量数据（MB）
 // 注意：此函数直接统计双向流量，不考虑 Provider 的流量模式
 // 流量模式的处理应在上层调用时通过 SQL 完成
+// 此函数会聚合实例的所有接口流量，避免重复统计
 func (s *Service) getInstanceMonthlyTrafficFromVnStat(instanceID uint, year, month int) (int64, error) {
 	var totalBytes int64
-	err := global.APP_DB.Model(&monitoring.VnStatTrafficRecord{}).
-		Where("instance_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0", instanceID, year, month).
-		Select("COALESCE(SUM(rx_bytes + tx_bytes), 0)").
-		Scan(&totalBytes).Error
+
+	// 使用子查询聚合所有接口的流量，避免重复统计
+	err := global.APP_DB.Raw(`
+		SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0)
+		FROM (
+			SELECT SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
+			FROM vnstat_traffic_records
+			WHERE instance_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0
+			GROUP BY instance_id
+		) agg
+	`, instanceID, year, month).Scan(&totalBytes).Error
 
 	if err != nil {
 		return 0, err

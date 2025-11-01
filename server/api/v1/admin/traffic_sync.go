@@ -134,8 +134,8 @@ func SyncAllTraffic(c *gin.Context) {
 
 	// 触发全系统流量同步
 	go func() {
-		trafficLimitService := traffic.NewLimitService()
-		if err := trafficLimitService.SyncAllTrafficLimitsWithVnStat(c.Request.Context()); err != nil {
+		threeTierService := traffic.NewThreeTierLimitService()
+		if err := threeTierService.CheckAllTrafficLimits(c.Request.Context()); err != nil {
 			// 错误会在服务内部记录日志
 		}
 	}()
