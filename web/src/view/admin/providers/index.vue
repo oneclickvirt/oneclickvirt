@@ -2732,6 +2732,7 @@ const cancelAddServer = () => {
     maxConcurrentTasks: 1, // 重置最大并发任务数
     taskPollInterval: 60, // 重置任务轮询间隔
     enableTaskPolling: true, // 重置任务轮询开关
+    storagePool: 'local', // 重置存储池配置
     // 重置端口映射配置
     defaultPortCount: 10,
     portRangeStart: 10000,
@@ -2746,6 +2747,7 @@ const cancelAddServer = () => {
     maxTraffic: 1048576,
     trafficCountMode: 'both', // 重置流量统计模式
     trafficMultiplier: 1.0, // 重置流量倍率
+    executionRule: 'auto', // 重置操作执行规则
     ipv4PortMappingMethod: 'device_proxy',
     ipv6PortMappingMethod: 'device_proxy',
     // 重置SSH超时配置
@@ -2757,7 +2759,9 @@ const cancelAddServer = () => {
     containerLimitDisk: true,
     vmLimitCpu: true,
     vmLimitMemory: true,
-    vmLimitDisk: true
+    vmLimitDisk: true,
+    // 重置等级限制配置
+    levelLimits: {}
   })
   // 清空连接测试结果
   connectionTestResult.value = null
@@ -2807,6 +2811,7 @@ const submitAddServer = async () => {
       architecture: addProviderForm.architecture, // 架构字段
       totalQuota: 0,
       allowClaim: true,
+      status: addProviderForm.status, // 节点状态（active/offline/frozen）
       expiresAt: addProviderForm.expiresAt || '', // 过期时间字段
       maxContainerInstances: addProviderForm.maxContainerInstances || 0, // 最大容器数
       maxVMInstances: addProviderForm.maxVMInstances || 0, // 最大虚拟机数
@@ -2902,8 +2907,6 @@ const submitAddServer = async () => {
     }
 
     if (isEditing.value) {
-      // 编辑服务器时需要添加 status 字段
-      serverData.status = addProviderForm.status
       await updateProvider(addProviderForm.id, serverData)
       ElMessage.success(t('admin.providers.serverUpdateSuccess'))
     } else {
