@@ -561,6 +561,12 @@ export default {
       createdAt: 'Created At',
       expiredAt: 'Expires At',
       networkType: 'Network Configuration Type',
+      webSSH: 'Web SSH',
+      sshTerminal: 'SSH Terminal',
+      instanceNotFound: 'Instance not found',
+      instanceNotRunning: 'Instance is not running',
+      noPassword: 'Instance password is not available',
+      sshConnectFailed: 'SSH connection failed',
     },
     tasks: {
       title: 'Task List',

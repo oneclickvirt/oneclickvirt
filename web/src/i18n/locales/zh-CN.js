@@ -561,6 +561,12 @@ export default {
       createdAt: '创建时间',
       expiredAt: '到期时间',
       networkType: '网络配置类型',
+      webSSH: 'Web SSH',
+      sshTerminal: 'SSH终端',
+      instanceNotFound: '实例不存在',
+      instanceNotRunning: '实例未运行',
+      noPassword: '实例密码不可用',
+      sshConnectFailed: 'SSH连接失败',
     },
     tasks: {
       title: '任务列表',

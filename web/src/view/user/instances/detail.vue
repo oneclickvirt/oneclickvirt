@@ -110,6 +110,16 @@
             >
               {{ t('user.instanceDetail.resetPassword') }}
             </el-button>
+            <!-- Web SSH按钮 -->
+            <el-button 
+              v-if="instance.status === 'running' && instance.password"
+              type="primary"
+              size="small"
+              @click="openSSHTerminal"
+            >
+              <el-icon><Monitor /></el-icon>
+              {{ t('user.instanceDetail.webSSH') }}
+            </el-button>
             <!-- 删除按钮 - 根据权限显示 -->
             <el-button 
               v-if="instanceTypePermissions.canDeleteInstance"
@@ -566,6 +576,24 @@
       </el-tabs>
     </el-card>
 
+    <!-- SSH终端对话框 -->
+    <el-dialog
+      v-model="sshDialogVisible"
+      :title="t('user.instanceDetail.sshTerminal')"
+      width="80%"
+      :before-close="handleCloseSSH"
+      destroy-on-close
+    >
+      <div class="ssh-dialog-content">
+        <SSHTerminal
+          v-if="sshDialogVisible"
+          :instance-id="instance.id"
+          @close="handleCloseSSH"
+          @error="handleSSHError"
+        />
+      </div>
+    </el-dialog>
+
     <!-- vnStat 流量详情对话框 -->
     <InstanceTrafficDetail
       v-model="showTrafficDetail"
@@ -585,7 +613,8 @@ import {
   VideoPlay, 
   VideoPause, 
   Refresh, 
-  Delete 
+  Delete,
+  Monitor
 } from '@element-plus/icons-vue'
 import { 
   getUserInstanceDetail, 
@@ -597,6 +626,7 @@ import {
 } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
+import SSHTerminal from '@/components/SSHTerminal.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -606,6 +636,7 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const showPassword = ref(false)
 const showTrafficDetail = ref(false)
+const sshDialogVisible = ref(false) // SSH对话框显示状态
 const portMappings = ref([])
 const activeTab = ref('overview') // 默认显示概览标签页
 
@@ -892,6 +923,37 @@ const performAction = async (action) => {
   } finally {
     actionLoading.value = false
   }
+}
+
+// 打开SSH终端
+const openSSHTerminal = () => {
+  if (!instance.value.id) {
+    ElMessage.error(t('user.instanceDetail.instanceNotFound'))
+    return
+  }
+  
+  if (instance.value.status !== 'running') {
+    ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
+    return
+  }
+  
+  if (!instance.value.password) {
+    ElMessage.warning(t('user.instanceDetail.noPassword'))
+    return
+  }
+  
+  sshDialogVisible.value = true
+}
+
+// 关闭SSH终端
+const handleCloseSSH = () => {
+  sshDialogVisible.value = false
+}
+
+// 处理SSH错误
+const handleSSHError = (error) => {
+  console.error('SSH连接错误:', error)
+  ElMessage.error(t('user.instanceDetail.sshConnectFailed'))
 }
 
 // 显示重置密码对话框
@@ -1615,5 +1677,21 @@ onUnmounted(() => {
     width: 100%;
     justify-content: space-between;
   }
+}
+
+/* SSH终端对话框样式 */
+.ssh-dialog-content {
+  height: 600px;
+  background-color: #1e1e1e;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+:deep(.el-dialog__body) {
+  padding: 0;
+}
+
+:deep(.el-dialog) {
+  border-radius: 8px;
 }
 </style>
