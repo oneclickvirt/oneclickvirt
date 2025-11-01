@@ -56,7 +56,7 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 	month := int(now.Month())
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
-	var totalTrafficMB int64
+	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
@@ -81,9 +81,9 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 		zap.Uint("userID", userID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Int64("totalTrafficMB", totalTrafficMB))
+		zap.Float64("totalTrafficMB", totalTrafficMB))
 
-	return totalTrafficMB, nil
+	return int64(totalTrafficMB), nil
 }
 
 // getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
@@ -93,7 +93,7 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 	month := int(now.Month())
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
-	var totalTrafficMB int64
+	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
@@ -118,9 +118,9 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 		zap.Uint("providerID", providerID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Int64("totalTrafficMB", totalTrafficMB))
+		zap.Float64("totalTrafficMB", totalTrafficMB))
 
-	return totalTrafficMB, nil
+	return int64(totalTrafficMB), nil
 }
 
 // GetUserTrafficUsageWithVnStat 获取用户流量使用情况（基于vnStat数据）
@@ -400,7 +400,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 		UserID     uint       `gorm:"column:user_id"`
 		Username   string     `gorm:"column:username"`
 		Nickname   string     `gorm:"column:nickname"`
-		MonthUsage int64      `gorm:"column:month_usage"`
+		MonthUsage float64    `gorm:"column:month_usage"`
 		TotalLimit int64      `gorm:"column:total_limit"`
 		IsLimited  bool       `gorm:"column:is_limited"`
 		ResetTime  *time.Time `gorm:"column:reset_time"`
@@ -489,7 +489,9 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	for i, rank := range rankings {
 		var usagePercent float64 = 0
 		if rank.TotalLimit > 0 {
-			usagePercent = (float64(rank.MonthUsage) / float64(rank.TotalLimit)) * 100
+			// rank.MonthUsage 已经是 MB 单位了，需要转换为字节再计算百分比
+			monthUsageBytes := rank.MonthUsage * 1024 * 1024
+			usagePercent = (monthUsageBytes / float64(rank.TotalLimit)) * 100
 		}
 
 		result = append(result, map[string]interface{}{
@@ -503,7 +505,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 			"is_limited":    rank.IsLimited,
 			"reset_time":    rank.ResetTime,
 			"formatted": map[string]string{
-				"month_usage": FormatTrafficMB(rank.MonthUsage),
+				"month_usage": FormatTrafficMB(int64(rank.MonthUsage)),
 				"total_limit": FormatTrafficMB(rank.TotalLimit),
 			},
 		})

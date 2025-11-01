@@ -286,7 +286,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	month := int(now.Month())
 
 	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
-	var totalUsed int64
+	var totalUsed float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
@@ -310,27 +310,31 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 
 		// 降级方案：使用 LimitService 的方法（已支持流量模式）
 		limitService := NewLimitService()
-		totalUsed, err = limitService.getUserMonthlyTrafficFromVnStat(userID)
+		totalUsedInt64, err := limitService.getUserMonthlyTrafficFromVnStat(userID)
 		if err != nil {
 			return false, fmt.Errorf("获取用户流量失败: %w", err)
 		}
+		totalUsed = float64(totalUsedInt64)
 	}
 
+	// 转换为 int64 用于存储和比较
+	totalUsedMB := int64(totalUsed)
+
 	// 更新用户已使用流量
-	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsed).Error; err != nil {
+	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsedMB).Error; err != nil {
 		return false, fmt.Errorf("更新用户流量失败: %w", err)
 	}
 
 	// 检查是否超限
-	if totalUsed >= u.TotalTraffic {
+	if totalUsedMB >= u.TotalTraffic {
 		// 用户超限，停止用户所有实例
 		global.APP_LOG.Info("用户流量超限",
 			zap.Uint("userID", userID),
 			zap.String("username", u.Username),
-			zap.Int64("usedTraffic", totalUsed),
+			zap.Int64("usedTraffic", totalUsedMB),
 			zap.Int64("totalTraffic", u.TotalTraffic))
 
-		return s.limitUserInstances(userID, fmt.Sprintf("用户流量超限: %dMB/%dMB", totalUsed, u.TotalTraffic))
+		return s.limitUserInstances(userID, fmt.Sprintf("用户流量超限: %dMB/%dMB", totalUsedMB, u.TotalTraffic))
 	}
 
 	// 未超限，解除用户级限制
@@ -487,7 +491,7 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 	month := int(now.Month())
 
 	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
-	var totalUsed int64
+	var totalUsed float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
@@ -511,27 +515,31 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 
 		// 降级方案：使用 LimitService 的方法（已支持流量模式）
 		limitService := NewLimitService()
-		totalUsed, err = limitService.getProviderMonthlyTrafficFromVnStat(providerID)
+		totalUsedInt64, err := limitService.getProviderMonthlyTrafficFromVnStat(providerID)
 		if err != nil {
 			return false, fmt.Errorf("获取Provider流量失败: %w", err)
 		}
+		totalUsed = float64(totalUsedInt64)
 	}
 
+	// 转换为 int64 用于存储和比较
+	totalUsedMB := int64(totalUsed)
+
 	// 更新Provider已使用流量
-	if err := global.APP_DB.Model(&p).Update("used_traffic", totalUsed).Error; err != nil {
+	if err := global.APP_DB.Model(&p).Update("used_traffic", totalUsedMB).Error; err != nil {
 		return false, fmt.Errorf("更新Provider流量失败: %w", err)
 	}
 
 	// 检查是否超限
-	if totalUsed >= p.MaxTraffic {
+	if totalUsedMB >= p.MaxTraffic {
 		// Provider超限，停止Provider所有实例，禁止申请
 		global.APP_LOG.Info("Provider流量超限",
 			zap.Uint("providerID", providerID),
 			zap.String("providerName", p.Name),
-			zap.Int64("usedTraffic", totalUsed),
+			zap.Int64("usedTraffic", totalUsedMB),
 			zap.Int64("maxTraffic", p.MaxTraffic))
 
-		return s.limitProviderInstances(providerID, fmt.Sprintf("Provider流量超限: %dMB/%dMB", totalUsed, p.MaxTraffic))
+		return s.limitProviderInstances(providerID, fmt.Sprintf("Provider流量超限: %dMB/%dMB", totalUsedMB, p.MaxTraffic))
 	}
 
 	// 未超限，解除Provider级限制
