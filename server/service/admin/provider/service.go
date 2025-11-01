@@ -493,9 +493,14 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.TrafficCountMode != "" {
 		provider.TrafficCountMode = req.TrafficCountMode
 	}
-	// 流量计费倍率更新（允许 0.1 到 10.0 之间的任何值）
-	if req.TrafficMultiplier >= 0.1 && req.TrafficMultiplier <= 10.0 {
+	// 流量计费倍率更新
+	if req.TrafficMultiplier > 0 {
+		oldValue := provider.TrafficMultiplier
 		provider.TrafficMultiplier = req.TrafficMultiplier
+		global.APP_LOG.Debug("更新流量计费倍率",
+			zap.Uint("providerID", req.ID),
+			zap.Float64("oldValue", oldValue),
+			zap.Float64("newValue", req.TrafficMultiplier))
 	}
 	// 端口映射方式更新
 	// Docker 类型固定使用 native，忽略前端传入的值
