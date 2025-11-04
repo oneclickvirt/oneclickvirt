@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY web/package*.json ./
 
-RUN npm ci || npm install
+RUN npm ci --include=optional && npm cache clean --force
 
 COPY web/ ./
 

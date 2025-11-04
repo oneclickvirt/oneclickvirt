@@ -3,7 +3,7 @@
 FROM node:22-slim AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN npm install --include=optional
+RUN npm ci --include=optional && npm cache clean --force
 COPY web/ ./
 RUN npm run build
 
