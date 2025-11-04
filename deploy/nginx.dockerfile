@@ -5,7 +5,8 @@ WORKDIR /app
 
 COPY web/package*.json ./
 
-RUN npm ci --include=optional && npm cache clean --force
+RUN npm ci --include=optional
+RUN npm install --no-save @rollup/rollup-linux-x64-gnu
 
 COPY web/ ./
 
