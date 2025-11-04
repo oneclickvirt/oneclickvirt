@@ -591,61 +591,6 @@
       </el-tabs>
     </el-card>
 
-    <!-- SSH终端对话框 -->
-    <el-dialog
-      v-model="sshDialogVisible"
-      :title="sshDialogTitle"
-      width="80%"
-      :before-close="handleCloseSSH"
-      :destroy-on-close="false"
-      :append-to-body="true"
-      :close-on-click-modal="false"
-      class="ssh-terminal-dialog"
-    >
-      <template #header>
-        <div class="ssh-dialog-header">
-          <span class="ssh-dialog-title">{{ sshDialogTitle }}</span>
-          <div class="ssh-dialog-actions">
-            <el-button 
-              :icon="Minus"
-              size="small" 
-              @click="minimizeSSH"
-              title="Minimize"
-            >
-              Minimize
-            </el-button>
-            <el-button 
-              :icon="Refresh"
-              size="small" 
-              @click="reconnectSSH"
-              title="Reconnect"
-            >
-              Reconnect
-            </el-button>
-            <el-button 
-              :icon="FullScreen"
-              size="small" 
-              @click="openSSHInNewWindow"
-              title="Open in New Window"
-            >
-              New Window
-            </el-button>
-          </div>
-        </div>
-      </template>
-      <div class="ssh-dialog-content">
-        <SSHTerminal
-          v-if="sshTerminalCreated"
-          v-show="sshDialogVisible"
-          ref="sshTerminalRef"
-          :instance-id="instance.id"
-          :instance-name="instance.name"
-          @close="handleCloseSSH"
-          @error="handleSSHError"
-        />
-      </div>
-    </el-dialog>
-
     <!-- vnStat 流量详情对话框 -->
     <InstanceTrafficDetail
       v-model="showTrafficDetail"
@@ -666,10 +611,7 @@ import {
   VideoPause, 
   Refresh, 
   Delete,
-  Monitor,
-  Minus,
-  FullScreen,
-  Close
+  Monitor
 } from '@element-plus/icons-vue'
 import { 
   getUserInstanceDetail, 
@@ -681,7 +623,6 @@ import {
 } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
-import SSHTerminal from '@/components/SSHTerminal.vue'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
 const route = useRoute()
@@ -693,37 +634,8 @@ const loading = ref(false)
 const actionLoading = ref(false)
 const showPassword = ref(false)
 const showTrafficDetail = ref(false)
-const sshTerminalRef = ref(null) // SSH终端组件引用
 const portMappings = ref([])
 const activeTab = ref('overview') // 默认显示概览标签页
-
-// SSH状态从store获取
-const sshDialogVisible = computed({
-  get: () => {
-    const conn = sshStore.getConnection(route.params.id)
-    return conn ? conn.visible : false
-  },
-  set: (val) => {
-    if (val) {
-      sshStore.showConnection(route.params.id)
-    } else {
-      const conn = sshStore.getConnection(route.params.id)
-      if (conn && conn.minimized) {
-        // 如果是最小化状态，保持最小化
-        return
-      }
-    }
-  }
-})
-
-const sshMinimized = computed(() => {
-  const conn = sshStore.getConnection(route.params.id)
-  return conn ? conn.minimized : false
-})
-
-const sshTerminalCreated = computed(() => {
-  return sshStore.hasConnection(route.params.id)
-})
 
 // 实例类型权限配置
 const instanceTypePermissions = ref({
@@ -804,11 +716,6 @@ const getNetworkTypeTagType = (networkType) => {
   }
   return tagTypes[networkType] || 'default'
 }
-
-// SSH对话框标题
-const sshDialogTitle = computed(() => {
-  return `SSH Terminal - ${instance.value.name || 'Instance'}`
-})
 
 // 获取实例详情
 const loadInstanceDetail = async () => {
@@ -1032,221 +939,11 @@ const openSSHTerminal = () => {
     return
   }
   
-  // 创建或显示SSH连接
+  // 创建或显示SSH连接（由全局管理器处理）
   if (!sshStore.hasConnection(instance.value.id)) {
     sshStore.createConnection(instance.value.id, instance.value.name)
   } else {
     sshStore.showConnection(instance.value.id)
-  }
-}
-
-// 关闭SSH终端
-const handleCloseSSH = () => {
-  sshStore.closeConnection(instance.value.id)
-  
-  // 清理终端连接
-  if (sshTerminalRef.value && sshTerminalRef.value.cleanup) {
-    sshTerminalRef.value.cleanup()
-  }
-}
-
-// 处理SSH错误
-const handleSSHError = (error) => {
-  console.error('SSH连接错误:', error)
-  ElMessage.error(t('user.instanceDetail.sshConnectFailed'))
-}
-
-// 最小化SSH终端
-const minimizeSSH = () => {
-  sshStore.minimizeConnection(instance.value.id)
-}
-
-// 恢复SSH终端
-const restoreSSH = () => {
-  sshStore.showConnection(instance.value.id)
-}
-
-// 重新连接SSH
-const reconnectSSH = () => {
-  if (sshTerminalRef.value && sshTerminalRef.value.reconnect) {
-    sshTerminalRef.value.reconnect()
-  } else {
-    ElMessage.warning('Terminal not ready')
-  }
-}
-
-// 在新窗口打开SSH终端
-const openSSHInNewWindow = () => {
-  const instanceId = instance.value.id
-  const instanceName = instance.value.name
-  const token = sessionStorage.getItem('token')
-  
-  if (!token) {
-    ElMessage.error('Authentication token not found')
-    return
-  }
-  
-  // 构建WebSocket URL
-  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  let wsHost = window.location.host
-  
-  // 开发环境处理
-  if (import.meta.env.MODE === 'development' && import.meta.env.VITE_SERVER_PORT) {
-    const serverPort = import.meta.env.VITE_SERVER_PORT
-    wsHost = `${window.location.hostname}:${serverPort}`
-  }
-  
-  const wsUrl = `${protocol}//${wsHost}/api/v1/user/instances/${instanceId}/ssh?token=${encodeURIComponent(token)}`
-  
-  // 创建新窗口HTML内容
-  const htmlContent = `<!DOCTYPE html>
-<html>
-<head>
-  <title>SSH Terminal - ${instanceName}</title>
-  <meta charset="UTF-8">
-  <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
-    body { 
-      background-color: #1e1e1e; 
-      font-family: Arial, sans-serif;
-      overflow: hidden;
-      display: flex;
-      flex-direction: column;
-      height: 100vh;
-    }
-    .header {
-      background-color: #ffffff;
-      color: #000000;
-      padding: 12px 20px;
-      font-size: 14px;
-      font-weight: 500;
-      border-bottom: 1px solid #e0e0e0;
-      box-shadow: 0 1px 4px rgba(0,0,0,0.1);
-    }
-    .terminal-container {
-      flex: 1;
-      padding: 10px;
-      overflow: hidden;
-    }
-    #terminal {
-      width: 100%;
-      height: 100%;
-    }
-  </style>
-  <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
-</head>
-<body>
-  <div class="header">SSH Terminal - ${instanceName}</div>
-  <div class="terminal-container">
-    <div id="terminal"></div>
-  </div>
-  <script src="https://unpkg.com/xterm@5.3.0/lib/xterm.js"><\/script>
-  <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"><\/script>
-  <script>
-    (function() {
-      const terminal = new window.Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Monaco, Menlo, "Courier New", monospace',
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#d4d4d4',
-          cursor: '#d4d4d4',
-          black: '#000000',
-          red: '#cd3131',
-          green: '#0dbc79',
-          yellow: '#e5e510',
-          blue: '#2472c8',
-          magenta: '#bc3fbc',
-          cyan: '#11a8cd',
-          white: '#e5e5e5',
-          brightBlack: '#666666',
-          brightRed: '#f14c4c',
-          brightGreen: '#23d18b',
-          brightYellow: '#f5f543',
-          brightBlue: '#3b8eea',
-          brightMagenta: '#d670d6',
-          brightCyan: '#29b8db',
-          brightWhite: '#e5e5e5'
-        }
-      });
-      
-      const fitAddon = new window.FitAddon.FitAddon();
-      terminal.loadAddon(fitAddon);
-      terminal.open(document.getElementById('terminal'));
-      
-      setTimeout(function() { 
-        fitAddon.fit(); 
-        terminal.focus();
-      }, 100);
-      
-      window.addEventListener('resize', function() { 
-        fitAddon.fit(); 
-      });
-      
-      terminal.writeln('Connecting to SSH server...');
-      
-      const websocket = new WebSocket('${wsUrl}');
-      
-      websocket.onopen = function() {
-        terminal.writeln('\\x1b[32mConnected to SSH server\\x1b[0m');
-        terminal.focus();
-        websocket.send(JSON.stringify({
-          type: 'resize',
-          cols: terminal.cols,
-          rows: terminal.rows
-        }));
-      };
-      
-      websocket.onmessage = function(event) {
-        terminal.write(event.data);
-      };
-      
-      websocket.onerror = function() {
-        terminal.writeln('\\x1b[31mWebSocket connection error\\x1b[0m');
-      };
-      
-      websocket.onclose = function(event) {
-        if (event.code !== 1000) {
-          terminal.writeln('\\x1b[33mSSH connection closed\\x1b[0m');
-        } else {
-          terminal.writeln('\\x1b[32mSSH connection closed normally\\x1b[0m');
-        }
-      };
-      
-      terminal.onData(function(data) {
-        if (websocket.readyState === WebSocket.OPEN) {
-          websocket.send(data);
-        }
-      });
-      
-      window.addEventListener('beforeunload', function() {
-        websocket.close();
-      });
-    })();
-  <\/script>
-</body>
-</html>`
-  
-  // 构建新窗口参数
-  const width = 1000
-  const height = 700
-  const left = Math.max(0, (screen.width - width) / 2)
-  const top = Math.max(0, (screen.height - height) / 2)
-  
-  // 创建新窗口
-  const newWindow = window.open(
-    'about:blank',
-    `ssh-terminal-${instanceId}`,
-    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=no,menubar=no,toolbar=no,location=no,status=no`
-  )
-  
-  if (newWindow) {
-    newWindow.document.open()
-    newWindow.document.write(htmlContent)
-    newWindow.document.close()
-  } else {
-    ElMessage.error('Unable to open new window, please check browser popup settings')
   }
 }
 
