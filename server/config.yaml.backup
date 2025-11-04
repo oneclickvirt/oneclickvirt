@@ -29,7 +29,7 @@ jwt:
     # signing-key 会自动生成256位随机密钥，无需手动配置
     # 如需多实例部署统一密钥，请使用环境变量 JWT_SIGNING_KEY
 mysql:
-    auto-create: "true"
+    auto-create: true
     config: charset=utf8mb4&parseTime=True&loc=Local
     db-name: oneclickvirt
     engine: InnoDB

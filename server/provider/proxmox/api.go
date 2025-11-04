@@ -199,6 +199,15 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 			zap.Error(err))
 	}
 
+	// 更新实例notes - 将配置信息写入到配置文件中
+	updateProgress(97, "更新实例配置信息...")
+	if err := p.updateInstanceNotes(ctx, vmid, config); err != nil {
+		global.APP_LOG.Warn("更新实例notes失败",
+			zap.Int("vmid", vmid),
+			zap.String("name", config.Name),
+			zap.Error(err))
+	}
+
 	updateProgress(100, "Proxmox API实例创建完成")
 
 	global.APP_LOG.Info("Proxmox API实例创建成功",
@@ -1070,7 +1079,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ide1 %s:cloudinit", vmid, storage))
 	}
 
-	// 调整磁盘大小（参考 https://github.com/oneclickvirt/pve 的处理方式）
+	// 调整磁盘大小
 	// Proxmox 不支持缩小磁盘，所以需要先检查当前磁盘大小，只在需要扩大时才resize
 	diskFormatted := convertDiskFormat(config.Disk)
 	if diskFormatted != "" {

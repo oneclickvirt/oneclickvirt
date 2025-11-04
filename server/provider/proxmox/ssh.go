@@ -200,6 +200,15 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 			zap.Error(err))
 	}
 
+	// 更新实例notes - 将配置信息写入到配置文件中
+	updateProgress(97, "更新实例配置信息...")
+	if err := p.updateInstanceNotes(ctx, vmid, config); err != nil {
+		global.APP_LOG.Warn("更新实例notes失败",
+			zap.Int("vmid", vmid),
+			zap.String("name", config.Name),
+			zap.Error(err))
+	}
+
 	updateProgress(100, "Proxmox实例创建完成")
 
 	global.APP_LOG.Info("Proxmox实例创建成功",
@@ -1355,7 +1364,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	updateProgress(85, "调整磁盘大小...")
 
-	// 调整磁盘大小（参考 https://github.com/oneclickvirt/pve 的处理方式）
+	// 调整磁盘大小
 	// Proxmox 不支持缩小磁盘，所以需要先检查当前磁盘大小，只在需要扩大时才resize
 	if diskFormatted != "" {
 		// 尝试解析目标磁盘大小（单位：GB）
@@ -1838,6 +1847,84 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 			zap.Error(err))
 		// 不返回错误，因为SSH密码已经设置成功
 	}
+
+	return nil
+}
+
+// updateInstanceNotes 更新虚拟机/容器的notes，将配置信息写入到配置文件中
+func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, config provider.InstanceConfig) error {
+	// 构建配置信息
+	var notesBuilder strings.Builder
+	notesBuilder.WriteString(fmt.Sprintf("VMID: %d\n", vmid))
+	notesBuilder.WriteString(fmt.Sprintf("Name: %s\n", config.Name))
+	notesBuilder.WriteString(fmt.Sprintf("CPU: %s\n", config.CPU))
+	notesBuilder.WriteString(fmt.Sprintf("Memory: %s\n", config.Memory))
+	notesBuilder.WriteString(fmt.Sprintf("Disk: %s\n", config.Disk))
+	notesBuilder.WriteString(fmt.Sprintf("Image: %s\n", config.Image))
+	notesBuilder.WriteString(fmt.Sprintf("Type: %s\n", config.InstanceType))
+
+	// 添加网络信息
+	internalIP := fmt.Sprintf("172.16.1.%d", vmid)
+	notesBuilder.WriteString(fmt.Sprintf("Internal IP: %s\n", internalIP))
+
+	// 添加端口信息（如果有）
+	if len(config.Ports) > 0 {
+		notesBuilder.WriteString("Ports: ")
+		for i, port := range config.Ports {
+			if i > 0 {
+				notesBuilder.WriteString(", ")
+			}
+			notesBuilder.WriteString(port)
+		}
+		notesBuilder.WriteString("\n")
+	}
+
+	// 添加创建时间
+	notesBuilder.WriteString(fmt.Sprintf("Created: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+
+	notes := notesBuilder.String()
+
+	// 根据实例类型更新配置文件
+	var configPath string
+	if config.InstanceType == "container" {
+		configPath = fmt.Sprintf("/etc/pve/lxc/%d.conf", vmid)
+	} else {
+		configPath = fmt.Sprintf("/etc/pve/qemu-server/%d.conf", vmid)
+	}
+
+	// 创建临时文件并写入notes
+	tmpFile := fmt.Sprintf("/tmp/notes_%d.txt", vmid)
+
+	// 将notes内容写入临时文件，每行前加#作为注释
+	escapedNotes := strings.ReplaceAll(notes, "'", "'\\''")
+	writeNotesCmd := fmt.Sprintf("echo '%s' | sed 's/^/# /' > %s", escapedNotes, tmpFile)
+	_, err := p.sshClient.Execute(writeNotesCmd)
+	if err != nil {
+		return fmt.Errorf("写入notes临时文件失败: %w", err)
+	}
+
+	// 将原配置文件内容追加到临时文件
+	appendConfigCmd := fmt.Sprintf("cat %s >> %s", configPath, tmpFile)
+	_, err = p.sshClient.Execute(appendConfigCmd)
+	if err != nil {
+		// 清理临时文件
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpFile))
+		return fmt.Errorf("追加配置文件失败: %w", err)
+	}
+
+	// 用临时文件替换原配置文件
+	replaceCmd := fmt.Sprintf("mv %s %s", tmpFile, configPath)
+	_, err = p.sshClient.Execute(replaceCmd)
+	if err != nil {
+		// 清理临时文件
+		p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpFile))
+		return fmt.Errorf("替换配置文件失败: %w", err)
+	}
+
+	global.APP_LOG.Info("成功更新实例notes",
+		zap.Int("vmid", vmid),
+		zap.String("name", config.Name),
+		zap.String("type", config.InstanceType))
 
 	return nil
 }

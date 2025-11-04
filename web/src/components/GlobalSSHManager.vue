@@ -10,7 +10,7 @@
         v-model="conn.visible"
         :title="`SSH Terminal - ${conn.instanceName}`"
         width="80%"
-        :before-close="() => minimizeConnection(conn.instanceId)"
+        :before-close="() => closeConnection(conn.instanceId)"
         :destroy-on-close="false"
         :append-to-body="true"
         :close-on-click-modal="false"
