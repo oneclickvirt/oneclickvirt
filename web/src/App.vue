@@ -1,6 +1,7 @@
 <template>
   <div id="app">
     <router-view />
+    <GlobalSSHManager />
   </div>
 </template>
 
@@ -8,6 +9,7 @@
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkSystemInit } from '@/api/init'
+import GlobalSSHManager from '@/components/GlobalSSHManager.vue'
 
 const router = useRouter()
 

@@ -115,13 +115,13 @@ const connect = () => {
   }
 
   isConnecting = true
-  terminal.writeln('\r\n正在连接SSH服务器...\r\n')
+  terminal.writeln('Connecting to SSH server...')
 
   // 获取token - 从 sessionStorage 获取（与 user store 保持一致）
   const token = sessionStorage.getItem('token')
   if (!token) {
-    terminal.writeln('\r\n\x1b[31m错误: 未找到认证令牌\x1b[0m\r\n')
-    emit('error', '未找到认证令牌')
+    terminal.writeln('\x1b[31mError: Authentication token not found\x1b[0m')
+    emit('error', 'Authentication token not found')
     isConnecting = false
     return
   }
@@ -144,7 +144,7 @@ const connect = () => {
 
     websocket.onopen = () => {
       isConnecting = false
-      terminal.writeln('\r\n\x1b[32m已连接到SSH服务器\x1b[0m\r\n')
+      terminal.writeln('\x1b[32mConnected to SSH server\x1b[0m')
       terminal.focus()
       
       // 发送初始终端大小
@@ -162,7 +162,7 @@ const connect = () => {
 
     websocket.onerror = (error) => {
       console.error('WebSocket错误:', error)
-      terminal.writeln('\r\n\x1b[31mWebSocket连接错误\x1b[0m\r\n')
+      terminal.writeln('\x1b[31mWebSocket connection error\x1b[0m')
       ElMessage.error('SSH连接出错')
       emit('error', error)
       isConnecting = false
@@ -171,15 +171,15 @@ const connect = () => {
     websocket.onclose = (event) => {
       isConnecting = false
       if (event.code !== 1000) {
-        terminal.writeln('\r\n\x1b[33mSSH连接已断开\x1b[0m\r\n')
+        terminal.writeln('\x1b[33mSSH connection closed\x1b[0m')
         ElMessage.warning('SSH连接已断开')
       } else {
-        terminal.writeln('\r\n\x1b[32mSSH连接正常关闭\x1b[0m\r\n')
+        terminal.writeln('\x1b[32mSSH connection closed normally\x1b[0m')
       }
     }
   } catch (error) {
     console.error('创建WebSocket连接失败:', error)
-    terminal.writeln('\r\n\x1b[31m无法创建WebSocket连接\x1b[0m\r\n')
+    terminal.writeln('\x1b[31mFailed to create WebSocket connection\x1b[0m')
     ElMessage.error('无法创建SSH连接')
     emit('error', error)
     isConnecting = false
@@ -205,9 +205,18 @@ const cleanup = () => {
   }
 }
 
+const reconnect = () => {
+  cleanup()
+  nextTick(() => {
+    initTerminal()
+    connect()
+  })
+}
+
 // 暴露方法给父组件
 defineExpose({
-  cleanup
+  cleanup,
+  reconnect
 })
 </script>
 
