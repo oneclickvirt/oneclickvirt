@@ -22,6 +22,10 @@ const props = defineProps({
   instanceName: {
     type: String,
     default: ''
+  },
+  isAdmin: {
+    type: Boolean,
+    default: false
   }
 })
 
@@ -137,7 +141,12 @@ const connect = () => {
     host = `${window.location.hostname}:${serverPort}`
   }
   
-  const wsUrl = `${protocol}//${host}/api/v1/user/instances/${props.instanceId}/ssh?token=${token}`
+  // 根据是否为管理员模式选择不同的API端点
+  const apiPath = props.isAdmin 
+    ? `/api/v1/admin/instances/${props.instanceId}/ssh`
+    : `/api/v1/user/instances/${props.instanceId}/ssh`
+  
+  const wsUrl = `${protocol}//${host}${apiPath}?token=${token}`
 
   try {
     websocket = new WebSocket(wsUrl)

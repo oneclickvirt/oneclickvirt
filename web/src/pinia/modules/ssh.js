@@ -3,7 +3,7 @@ import { defineStore } from 'pinia'
 export const useSSHStore = defineStore('ssh', {
   state: () => ({
     // SSH连接状态
-    connections: {} // { instanceId: { visible, minimized, instanceName } }
+    connections: {} // { instanceId: { visible, minimized, instanceName, isAdmin } }
   }),
   
   getters: {
@@ -30,11 +30,12 @@ export const useSSHStore = defineStore('ssh', {
   
   actions: {
     // 创建SSH连接
-    createConnection(instanceId, instanceName) {
+    createConnection(instanceId, instanceName, isAdmin = false) {
       this.connections[instanceId] = {
         visible: true,
         minimized: false,
         instanceName,
+        isAdmin,
         createdAt: Date.now()
       }
     },

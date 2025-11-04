@@ -45,6 +45,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
 		AdminGroup.GET("/instance-type-permissions", admin.GetAdminInstanceTypePermissions)
 		AdminGroup.PUT("/instance-type-permissions", admin.UpdateAdminInstanceTypePermissions)
+		AdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket) // 管理员WebSocket SSH连接
 
 		// 公告管理
 		AdminGroup.GET("/announcements", admin.GetAnnouncements)

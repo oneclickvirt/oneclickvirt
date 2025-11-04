@@ -1855,29 +1855,22 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, config provider.InstanceConfig) error {
 	// 构建配置信息
 	var notesBuilder strings.Builder
-	notesBuilder.WriteString(fmt.Sprintf("VMID: %d\n", vmid))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("Name: %s\n", config.Name))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("CPU: %s\n", config.CPU))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("Memory: %s\n", config.Memory))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("Disk: %s\n", config.Disk))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("Image: %s\n", config.Image))
-	notesBuilder.WriteString("#\n")
-	notesBuilder.WriteString(fmt.Sprintf("Type: %s\n", config.InstanceType))
-	notesBuilder.WriteString("#\n")
+	// Prefix each line with '#' so the notes are clearly comments in Proxmox
+	notesBuilder.WriteString(fmt.Sprintf("#VMID: %d\n", vmid))
+	notesBuilder.WriteString(fmt.Sprintf("#Name: %s\n", config.Name))
+	notesBuilder.WriteString(fmt.Sprintf("#CPU: %s\n", config.CPU))
+	notesBuilder.WriteString(fmt.Sprintf("#Memory: %s\n", config.Memory))
+	notesBuilder.WriteString(fmt.Sprintf("#Disk: %s\n", config.Disk))
+	notesBuilder.WriteString(fmt.Sprintf("#Image: %s\n", config.Image))
+	notesBuilder.WriteString(fmt.Sprintf("#Type: %s\n", config.InstanceType))
 
 	// 添加网络信息
 	internalIP := fmt.Sprintf("172.16.1.%d", vmid)
-	notesBuilder.WriteString(fmt.Sprintf("Internal IP: %s\n", internalIP))
-	notesBuilder.WriteString("#\n")
+	notesBuilder.WriteString(fmt.Sprintf("#Internal IP: %s\n", internalIP))
 
-	// 添加端口信息（如果有）
+	// 添加端口信息（如果有），并尝试解析SSH端口映射
 	if len(config.Ports) > 0 {
-		notesBuilder.WriteString("Ports: ")
+		notesBuilder.WriteString("#Ports: ")
 		for i, port := range config.Ports {
 			if i > 0 {
 				notesBuilder.WriteString(", ")
@@ -1885,11 +1878,34 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 			notesBuilder.WriteString(port)
 		}
 		notesBuilder.WriteString("\n")
-		notesBuilder.WriteString("#\n")
+
+		// 尝试从端口映射中找到宿主机SSH端口（guest 22）
+		for _, port := range config.Ports {
+			// 常见格式："0.0.0.0:10000:22/tcp" 或 "10000:22/tcp" 或 "10000:22"
+			parts := strings.Split(port, ":")
+			if len(parts) >= 3 {
+				// 取倒数两段: hostPort, guestPart
+				hostPort := parts[len(parts)-2]
+				guestPart := parts[len(parts)-1]
+				guestPort := strings.SplitN(guestPart, "/", 2)[0]
+				if guestPort == "22" {
+					notesBuilder.WriteString(fmt.Sprintf("#SSH Port: %s\n", hostPort))
+					break
+				}
+			} else if len(parts) == 2 {
+				hostPort := parts[0]
+				guestPart := parts[1]
+				guestPort := strings.SplitN(guestPart, "/", 2)[0]
+				if guestPort == "22" {
+					notesBuilder.WriteString(fmt.Sprintf("#SSH Port: %s\n", hostPort))
+					break
+				}
+			}
+		}
 	}
 
 	// 添加创建时间
-	notesBuilder.WriteString(fmt.Sprintf("Created: %s\n", time.Now().Format("2006-01-02 15:04:05")))
+	notesBuilder.WriteString(fmt.Sprintf("#Created: %s\n", time.Now().Format("2006-01-02 15:04:05")))
 
 	notes := notesBuilder.String()
 

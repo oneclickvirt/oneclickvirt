@@ -52,6 +52,7 @@
             :ref="el => setTerminalRef(conn.instanceId, el)"
             :instance-id="conn.instanceId"
             :instance-name="conn.instanceName"
+            :is-admin="conn.isAdmin || false"
             @close="() => closeConnection(conn.instanceId)"
             @error="(error) => handleSSHError(conn.instanceId, error)"
           />

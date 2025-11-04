@@ -7,6 +7,20 @@
           <div class="header-actions">
             <el-button
               v-if="selectedInstances.length > 0"
+              type="success"
+              @click="batchStartInstances"
+            >
+              {{ $t('admin.instances.batchStart') }} ({{ selectedInstances.length }})
+            </el-button>
+            <el-button
+              v-if="selectedInstances.length > 0"
+              type="warning"
+              @click="batchStopInstances"
+            >
+              {{ $t('admin.instances.batchStop') }} ({{ selectedInstances.length }})
+            </el-button>
+            <el-button
+              v-if="selectedInstances.length > 0"
               type="danger"
               @click="batchDeleteInstances"
             >
@@ -120,6 +134,7 @@
           :label="$t('admin.instances.instanceName')"
           min-width="140"
           show-overflow-tooltip
+          fixed="left"
         />
         <el-table-column
           prop="userName"
@@ -147,36 +162,11 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="status"
-          :label="$t('common.status')"
-          width="100"
-        >
-          <template #default="scope">
-            <el-tag
-              :type="getStatusType(scope.row.status)"
-              size="small"
-            >
-              {{ getStatusText(scope.row.status) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          :label="$t('admin.instances.specifications')"
-          width="120"
-        >
-          <template #default="scope">
-            <div style="font-size: 12px;">
-              <div>CPU: {{ scope.row.cpu }}{{ $t('admin.instances.cores') }}</div>
-              <div>{{ $t('admin.instances.memory') }}: {{ formatMemory(scope.row.memory) }}</div>
-              <div>{{ $t('admin.instances.disk') }}: {{ formatDisk(scope.row.disk) }}</div>
-            </div>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="ipAddress"
-          :label="$t('admin.instances.ipAddress')"
-          width="130"
+          prop="name"
+          :label="$t('admin.instances.instanceName')"
+          min-width="220"
           show-overflow-tooltip
+          fixed="left"
         />
         <el-table-column
           prop="sshPort"
@@ -231,53 +221,25 @@
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="220"
+          width="160"
           fixed="right"
         >
           <template #default="scope">
             <div class="action-buttons">
               <el-button
                 size="small"
-                :disabled="scope.row.status === 'running' || scope.row.status === 'starting'"
-                @click="manageInstance(scope.row, 'start')"
-              >
-                {{ $t('common.start') }}
-              </el-button>
-              <el-button
-                size="small"
-                :disabled="scope.row.status === 'stopped' || scope.row.status === 'stopping'"
-                @click="manageInstance(scope.row, 'stop')"
-              >
-                {{ $t('common.stop') }}
-              </el-button>
-              <el-button
-                size="small"
-                :disabled="scope.row.status !== 'running'"
-                @click="manageInstance(scope.row, 'restart')"
-              >
-                {{ $t('common.restart') }}
-              </el-button>
-              <el-button
-                size="small"
                 type="primary"
-                :disabled="scope.row.status !== 'running'"
-                @click="showResetPasswordDialog(scope.row)"
+                @click="showActionDialog(scope.row)"
               >
-                {{ $t('admin.instances.resetPassword') }}
+                {{ $t('admin.instances.actions') }}
               </el-button>
               <el-button
                 size="small"
-                type="primary"
-                @click="viewInstanceDetail(scope.row)"
+                type="success"
+                :disabled="scope.row.status !== 'running' || !scope.row.password"
+                @click="openSSHTerminal(scope.row)"
               >
-                {{ $t('common.details') }}
-              </el-button>
-              <el-button
-                size="small"
-                type="danger"
-                @click="deleteInstance(scope.row.id)"
-              >
-                {{ $t('common.delete') }}
+                {{ $t('admin.instances.connect') }}
               </el-button>
             </div>
           </template>
@@ -440,21 +402,106 @@
         </div>
       </div>
     </el-dialog>
+
+    <!-- 实例操作对话框 -->
+    <el-dialog
+      v-model="actionDialogVisible"
+      :title="$t('admin.instances.instanceActions')"
+      width="400px"
+    >
+      <div
+        v-if="actionInstance"
+        class="action-dialog-content"
+      >
+        <el-button
+          type="success"
+          :disabled="actionInstance.status === 'running' || actionInstance.status === 'starting'"
+          :loading="actionLoading"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('start')"
+        >
+          <el-icon><VideoPlay /></el-icon>
+          {{ $t('common.start') }}
+        </el-button>
+        <el-button
+          type="warning"
+          :disabled="actionInstance.status === 'stopped' || actionInstance.status === 'stopping'"
+          :loading="actionLoading"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('stop')"
+        >
+          <el-icon><VideoPause /></el-icon>
+          {{ $t('common.stop') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :disabled="actionInstance.status !== 'running'"
+          :loading="actionLoading"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('restart')"
+        >
+          <el-icon><Refresh /></el-icon>
+          {{ $t('common.restart') }}
+        </el-button>
+        <el-button
+          type="info"
+          :disabled="actionInstance.status !== 'running'"
+          :loading="actionLoading"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('resetPassword')"
+        >
+          <el-icon><Lock /></el-icon>
+          {{ $t('admin.instances.resetPassword') }}
+        </el-button>
+        <el-button
+          type="warning"
+          :disabled="actionInstance.status !== 'running'"
+          :loading="actionLoading"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('reset')"
+        >
+          <el-icon><RefreshRight /></el-icon>
+          {{ $t('admin.instances.resetSystem') }}
+        </el-button>
+        <el-button
+          type="danger"
+          :loading="actionLoading"
+          style="width: 100%;"
+          @click="performAction('delete')"
+        >
+          <el-icon><Delete /></el-icon>
+          {{ $t('common.delete') }}
+        </el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { 
+  VideoPlay, 
+  VideoPause, 
+  Refresh, 
+  RefreshRight, 
+  Lock, 
+  Delete 
+} from '@element-plus/icons-vue'
 import { getAllInstances, deleteInstance as deleteInstanceApi, adminInstanceAction, resetInstancePassword } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
+import { useSSHStore } from '@/pinia/modules/ssh'
 
 const { t } = useI18n()
+const sshStore = useSSHStore()
 
 const instances = ref([])
 const loading = ref(false)
 const detailDialogVisible = ref(false)
+const actionDialogVisible = ref(false)
 const selectedInstance = ref(null)
+const actionInstance = ref(null)
+const actionLoading = ref(false)
 const showPassword = ref(false)
 const selectedInstances = ref([])
 
@@ -532,6 +579,60 @@ const viewInstanceDetail = (instance) => {
   selectedInstance.value = instance
   showPassword.value = false
   detailDialogVisible.value = true
+}
+
+// 显示操作对话框
+const showActionDialog = (instance) => {
+  actionInstance.value = instance
+  actionDialogVisible.value = true
+}
+
+// 执行操作
+const performAction = async (action) => {
+  const actionText = {
+    'start': t('common.start'),
+    'stop': t('common.stop'),
+    'restart': t('common.restart'),
+    'reset': t('admin.instances.resetSystem'),
+    'resetPassword': t('admin.instances.resetPassword'),
+    'delete': t('common.delete')
+  }[action]
+  
+  try {
+    await ElMessageBox.confirm(
+      t('admin.instances.manageConfirm', { action: actionText, name: actionInstance.value.name }),
+      t('admin.instances.manageTitle', { action: actionText }),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+      }
+    )
+    
+    actionLoading.value = true
+    
+    // 重置密码使用特殊API
+    if (action === 'resetPassword') {
+      await resetInstancePassword(actionInstance.value.id)
+    } else {
+      await adminInstanceAction(actionInstance.value.id, action)
+    }
+    
+    ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
+    
+    // 关闭对话框
+    actionDialogVisible.value = false
+    actionInstance.value = null
+    
+    // 刷新列表
+    await loadInstances()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.instances.actionFailed', { action: actionText }))
+    }
+  } finally {
+    actionLoading.value = false
+  }
 }
 
 const getStatusType = (status) => {
@@ -620,89 +721,28 @@ const isExpiringSoon = (expiredAt) => {
   return daysDiff > 0 && daysDiff <= 7 // 7天内到期
 }
 
-const manageInstance = async (instance, action) => {
-  const actionText = {
-    'start': t('common.start'),
-    'stop': t('common.stop'),
-    'restart': t('common.restart'),
-    'reset': t('common.reset')
-  }[action]
+// 打开SSH终端
+const openSSHTerminal = (instance) => {
+  if (!instance.id) {
+    ElMessage.error(t('admin.instances.instanceNotFound'))
+    return
+  }
   
-  try {
-    await ElMessageBox.confirm(
-      t('admin.instances.manageConfirm', { action: actionText, name: instance.name }),
-      t('admin.instances.manageTitle', { action: actionText }),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-      }
-    )
-    
-    await adminInstanceAction(instance.id, action)
-    ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
-    await loadInstances()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('admin.instances.actionFailed', { action: actionText }))
-    }
+  if (instance.status !== 'running') {
+    ElMessage.warning(t('admin.instances.instanceNotRunning'))
+    return
   }
-}
-
-// 显示重置密码对话框
-const showResetPasswordDialog = async (instance) => {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.instances.resetPasswordConfirm', { name: instance.name }),
-      t('admin.instances.resetPasswordTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning'
-      }
-    )
-
-    try {
-      const response = await resetInstancePassword(instance.id)
-
-      if (response.code === 0 || response.code === 200) {
-        const taskId = response.data.taskId
-        
-        ElMessage.success(t('admin.instances.resetPasswordSuccess', { taskId }))
-        
-        // 刷新实例列表
-        await loadInstances()
-      } else {
-        ElMessage.error(response.message || t('admin.instances.resetPasswordFailed'))
-      }
-    } catch (error) {
-      console.error('创建密码重置任务失败:', error)
-      ElMessage.error(t('admin.instances.resetPasswordError'))
-    }
-  } catch (error) {
-    // 用户取消操作
+  
+  if (!instance.password) {
+    ElMessage.warning(t('admin.instances.noPassword'))
+    return
   }
-}
-
-const deleteInstance = async (id) => {
-  try {
-    await ElMessageBox.confirm(
-      t('admin.instances.deleteConfirm'),
-      t('admin.instances.deleteTitle'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-      }
-    )
-    
-    await adminInstanceAction(id, 'delete')
-    ElMessage.success(t('admin.instances.deleteSuccess'))
-    await loadInstances()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('common.deleteFailed'))
-    }
+  
+  // 创建或显示SSH连接（由全局管理器处理）
+  if (!sshStore.hasConnection(instance.id)) {
+    sshStore.createConnection(instance.id, instance.name, true) // true表示管理员模式
+  } else {
+    sshStore.showConnection(instance.id)
   }
 }
 
@@ -760,6 +800,60 @@ const batchDeleteInstances = async () => {
     if (error !== 'cancel') {
       ElMessage.error(t('admin.instances.batchDeleteFailed'))
     }
+  }
+}
+
+// 批量启动
+const batchStartInstances = async () => {
+  if (selectedInstances.value.length === 0) {
+    ElMessage.warning(t('admin.instances.selectStartWarning'))
+    return
+  }
+
+  try {
+    let success = 0
+    let fail = 0
+    for (const inst of selectedInstances.value) {
+      try {
+        await adminInstanceAction(inst.id, 'start')
+        success++
+      } catch (e) {
+        fail++
+      }
+    }
+    if (fail === 0) ElMessage.success(t('admin.instances.batchStartSuccess', { count: success }))
+    else ElMessage.warning(t('admin.instances.batchStartPartial', { success, fail }))
+    await loadInstances()
+    selectedInstances.value = []
+  } catch (err) {
+    ElMessage.error(t('admin.instances.batchStartFailed'))
+  }
+}
+
+// 批量停止
+const batchStopInstances = async () => {
+  if (selectedInstances.value.length === 0) {
+    ElMessage.warning(t('admin.instances.selectStopWarning'))
+    return
+  }
+
+  try {
+    let success = 0
+    let fail = 0
+    for (const inst of selectedInstances.value) {
+      try {
+        await adminInstanceAction(inst.id, 'stop')
+        success++
+      } catch (e) {
+        fail++
+      }
+    }
+    if (fail === 0) ElMessage.success(t('admin.instances.batchStopSuccess', { count: success }))
+    else ElMessage.warning(t('admin.instances.batchStopPartial', { success, fail }))
+    await loadInstances()
+    selectedInstances.value = []
+  } catch (err) {
+    ElMessage.error(t('admin.instances.batchStopFailed'))
   }
 }
 
@@ -829,6 +923,14 @@ onMounted(() => {
 .expiring-soon {
   color: #e6a23c;
   font-weight: bold;
+}
+
+.action-dialog-content {
+  padding: 10px 0;
+}
+
+.action-dialog-content .el-button {
+  margin: 0;
 }
 
 /* 响应式设计 */
