@@ -113,8 +113,8 @@ const connect = () => {
   isConnecting = true
   terminal.writeln('\r\n正在连接SSH服务器...\r\n')
 
-  // 获取token
-  const token = localStorage.getItem('token')
+  // 获取token - 从 sessionStorage 获取（与 user store 保持一致）
+  const token = sessionStorage.getItem('token')
   if (!token) {
     terminal.writeln('\r\n\x1b[31m错误: 未找到认证令牌\x1b[0m\r\n')
     emit('error', '未找到认证令牌')
@@ -123,8 +123,16 @@ const connect = () => {
   }
 
   // 构建WebSocket URL
+  // 在开发环境中，需要使用后端服务器的地址，而不是前端开发服务器的地址
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  const host = window.location.host
+  let host = window.location.host
+  
+  // 开发环境：如果前端运行在 8080 端口，WebSocket 应该连接到后端的 8888 端口
+  if (import.meta.env.MODE === 'development' && import.meta.env.VITE_SERVER_PORT) {
+    const serverPort = import.meta.env.VITE_SERVER_PORT
+    host = `${window.location.hostname}:${serverPort}`
+  }
+  
   const wsUrl = `${protocol}//${host}/api/v1/user/instances/${props.instanceId}/ssh?token=${token}`
 
   try {

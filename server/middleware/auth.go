@@ -138,7 +138,13 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 
 // validateJWTTokenWithClaims 验证JWT Token并获取最新用户权限（返回claims用于刷新检查）
 func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClaims, error) {
+	// 优先从 Authorization 头获取token
 	token := c.GetHeader("Authorization")
+	if token == "" {
+		// 如果头中没有，尝试从查询参数获取（用于 WebSocket 连接）
+		token = c.Query("token")
+	}
+
 	if token == "" {
 		return nil, nil, common.NewError(common.CodeUnauthorized, "未提供认证令牌")
 	}
