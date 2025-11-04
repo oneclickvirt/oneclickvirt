@@ -1558,6 +1558,7 @@ export default {
       ipAddress: 'IP地址',
       sshPort: 'SSH端口',
       system: '系统',
+      instanceStatus: '实例状态',
       trafficStatus: '流量状态',
       limited: '已限制',
       expiryTime: '到期时间',

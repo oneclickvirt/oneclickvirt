@@ -262,7 +262,15 @@ download_file() {
 }
 
 create_directories() {
-    local dirs=("/opt/oneclickvirt" "/opt/oneclickvirt/server" "/opt/oneclickvirt/web")
+    local dirs=("/opt/oneclickvirt" "/opt/oneclickvirt/server")
+    
+    # 如果自定义了Web路径，使用自定义路径，否则使用默认路径
+    if [ -n "$custom_web_path" ]; then
+        dirs+=("$custom_web_path")
+    else
+        dirs+=("/opt/oneclickvirt/web")
+    fi
+    
     for dir in "${dirs[@]}"; do
         if [ ! -d "$dir" ]; then
             mkdir -p "$dir"
@@ -329,6 +337,17 @@ install_web() {
         download_url="${BASE_URL}/${filename}"
     fi
     local temp_file="/opt/oneclickvirt/${filename}"
+    
+    # 确定Web安装路径
+    local web_path
+    if [ -n "$custom_web_path" ]; then
+        web_path="$custom_web_path"
+        log_info "使用自定义Web路径: $web_path"
+    else
+        web_path="/opt/oneclickvirt/web"
+        log_info "使用默认Web路径: $web_path"
+    fi
+    
     log_info "下载Web应用文件..."
     log_info "下载链接: $download_url"
     
@@ -338,11 +357,13 @@ install_web() {
         log_error "下载失败: $download_url"
         exit 1
     fi
+    
     log_info "解压Web应用文件..."
     if command -v unzip &> /dev/null; then
-        if unzip -q "$temp_file" -d /opt/oneclickvirt/web/; then
+        if unzip -q "$temp_file" -d "$web_path/"; then
             rm -f "$temp_file"
-            log_success "Web应用文件安装完成"
+            chmod 777 "$web_path/"
+            log_success "Web应用文件安装完成: $web_path"
         else
             log_error "解压失败"
             exit 1
@@ -354,15 +375,15 @@ install_web() {
             log_error "unzip安装失败，跳过Web文件安装"
             return 1
         fi
-        if unzip -q "$temp_file" -d /opt/oneclickvirt/web/; then
+        if unzip -q "$temp_file" -d "$web_path/"; then
             rm -f "$temp_file"
-            log_success "Web应用文件安装完成"
+            chmod 777 "$web_path/"
+            log_success "Web应用文件安装完成: $web_path"
         else
             log_error "解压失败"
             exit 1
         fi
     fi
-    chmod 777 /opt/oneclickvirt/web/
 }
 
 download_config() {
@@ -512,8 +533,25 @@ upgrade_server() {
     log_info "升级服务器二进制文件..."
     install_server
     
-    # 升级Web文件
+    # 升级Web文件 - 先删除旧文件，再解压新文件
     log_info "升级Web应用文件..."
+    
+    # 确定Web路径
+    local web_path
+    if [ -n "$custom_web_path" ]; then
+        web_path="$custom_web_path"
+    else
+        web_path="/opt/oneclickvirt/web"
+    fi
+    
+    # 删除旧的Web文件夹内容（但保留文件夹本身）
+    if [ -d "$web_path" ]; then
+        log_info "清理旧的Web文件: $web_path"
+        rm -rf "${web_path:?}"/*
+        log_success "旧Web文件已清理"
+    fi
+    
+    # 安装新的Web文件
     install_web
     
     # 重新启动服务
@@ -531,6 +569,7 @@ upgrade_server() {
     log_success "升级完成!"
     log_info "版本: $VERSION"
     log_info "配置文件保持不变: /opt/oneclickvirt/server/config.yaml"
+    log_info "Web路径: $web_path"
     if [ "$service_was_running" = false ]; then
         log_warning "服务未自动启动，请手动启动: systemctl start oneclickvirt"
     fi
@@ -565,6 +604,11 @@ show_info() {
     log_info "  系统: $SYSTEM"
     log_info "  架构: $(detect_arch)"
     log_info "  安装路径: /opt/oneclickvirt"
+    if [ -n "$custom_web_path" ]; then
+        log_info "  Web路径: $custom_web_path (自定义)"
+    else
+        log_info "  Web路径: /opt/oneclickvirt/web (默认)"
+    fi
     echo ""
     log_info "使用方法:"
     log_info "  查看帮助: oneclickvirt --help"
@@ -599,6 +643,7 @@ OneClickVirt 安装脚本
 环境变量:
   CN=true              强制使用中国镜像
   noninteractive=true  非交互模式
+  WEB_PATH=/path       自定义Web文件安装路径 (默认: /opt/oneclickvirt/web)
 
 示例:
   $0                   # 完整安装
@@ -606,10 +651,35 @@ OneClickVirt 安装脚本
   $0 upgrade          # 升级现有安装
   CN=true $0          # 使用中国镜像安装
   noninteractive=true $0  # 非交互安装
+  WEB_PATH=/var/www/html $0  # 自定义Web路径安装
+  WEB_PATH=/custom/path $0 upgrade  # 升级时指定自定义Web路径
 EOF
 }
 
 main() {
+    # 处理自定义Web路径
+    custom_web_path="${WEB_PATH:-}"
+    
+    # 如果非交互模式且未指定WEB_PATH，询问用户
+    if [ "$noninteractive" != "true" ] && [ -z "$custom_web_path" ]; then
+        reading "是否使用自定义Web路径? (y/N): " use_custom
+        case "$use_custom" in
+            [Yy]*)
+                reading "请输入Web路径 (如 /var/www/html): " custom_web_path
+                if [ -n "$custom_web_path" ]; then
+                    log_info "将使用自定义Web路径: $custom_web_path"
+                else
+                    log_warning "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
+                fi
+                ;;
+            *)
+                log_info "使用默认Web路径: /opt/oneclickvirt/web"
+                ;;
+        esac
+    elif [ -n "$custom_web_path" ]; then
+        log_info "检测到环境变量WEB_PATH: $custom_web_path"
+    fi
+    
     case "${1:-install}" in
         "env")
             check_root

@@ -172,6 +172,19 @@
           width="80"
         />
         <el-table-column
+          :label="$t('admin.instances.instanceStatus')"
+          width="100"
+        >
+          <template #default="scope">
+            <el-tag
+              :type="getStatusType(scope.row.status)"
+              size="small"
+            >
+              {{ getStatusText(scope.row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
           :label="$t('admin.instances.trafficStatus')"
           width="100"
         >
@@ -291,7 +304,7 @@
               {{ selectedInstance.instance_type === 'container' ? $t('admin.instances.typeContainer') : $t('admin.instances.typeVM') }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('common.status')">
+          <el-descriptions-item :label="$t('admin.instances.instanceStatus')">
             <el-tag :type="getStatusType(selectedInstance.status)">
               {{ getStatusText(selectedInstance.status) }}
             </el-tag>

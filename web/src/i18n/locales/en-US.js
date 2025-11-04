@@ -1540,6 +1540,7 @@ export default {
       ipAddress: 'IP Address',
       sshPort: 'SSH',
       system: 'System',
+      instanceStatus: 'Status',
       trafficStatus: 'Traffic',
       limited: 'Limited',
       expiryTime: 'Expiry Time',
