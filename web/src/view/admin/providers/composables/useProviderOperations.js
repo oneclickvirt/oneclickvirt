@@ -214,51 +214,6 @@ export function useProviderOperations() {
     }
   }
 
-  // 批量健康检查
-  const batchHealthCheck = async (providers) => {
-    if (!providers || providers.length === 0) {
-      ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
-      return { success: false }
-    }
-
-    const loadingInstance = ElLoading.service({
-      lock: true,
-      text: t('admin.providers.batchHealthChecking'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-
-    let successCount = 0
-    let failCount = 0
-    const errors = []
-
-    for (const provider of providers) {
-      try {
-        await checkProviderHealth(provider.id)
-        successCount++
-      } catch (error) {
-        failCount++
-        errors.push(`${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`)
-      }
-    }
-
-    loadingInstance.close()
-
-    if (failCount === 0) {
-      ElMessage.success(t('admin.providers.batchHealthCheckSuccess', { count: successCount }))
-    } else {
-      ElMessageBox.alert(
-        `${t('admin.providers.batchHealthCheckPartialSuccess', { success: successCount, fail: failCount })}<br><br>${errors.join('<br>')}`,
-        t('admin.providers.batchOperationResult'),
-        {
-          dangerouslyUseHTMLString: true,
-          type: 'warning'
-        }
-      )
-    }
-
-    return { success: true, successCount, failCount, errors }
-  }
-
   // 冻结Provider
   const freezeProviderHandler = async (id) => {
     try {
@@ -400,7 +355,6 @@ export function useProviderOperations() {
     deleteProviderHandler,
     batchDeleteProviders,
     batchFreezeProviders,
-    batchHealthCheck,
     freezeProviderHandler,
     unfreezeProviderHandler,
     checkHealth,

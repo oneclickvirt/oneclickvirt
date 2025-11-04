@@ -21,13 +21,6 @@
               >
                 {{ $t('admin.providers.batchFreeze') }} ({{ selectedProviders.length }})
               </el-button>
-              <el-button
-                type="success"
-                :icon="CircleCheck"
-                @click="handleBatchHealthCheck"
-              >
-                {{ $t('admin.providers.batchHealthCheck') }} ({{ selectedProviders.length }})
-              </el-button>
             </template>
             <!-- 添加服务器按钮 -->
             <el-button
@@ -105,7 +98,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { Search, Delete, Lock, CircleCheck } from '@element-plus/icons-vue'
+import { Search, Delete, Lock } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail } from '@/api/admin'
 import { countries, getCountryByName, getCountriesByRegion } from '@/utils/countries'
@@ -863,91 +856,7 @@ const handleBatchFreeze = async () => {
   }
 }
 
-// 批量健康检测
-const handleBatchHealthCheck = async () => {
-  if (selectedProviders.value.length === 0) {
-    ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
-    return
-  }
 
-  try {
-    await ElMessageBox.confirm(
-      t('admin.providers.batchHealthCheckConfirm', { count: selectedProviders.value.length }),
-      t('admin.providers.confirmHealthCheck'),
-      {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'info'
-      }
-    )
-
-    const loadingInstance = ElLoading.service({
-      lock: true,
-      text: t('admin.providers.batchHealthChecking'),
-      background: 'rgba(0, 0, 0, 0.7)'
-    })
-
-    let successCount = 0
-    let failCount = 0
-    const results = []
-
-    // 逐个进行健康检测
-    for (const provider of selectedProviders.value) {
-      try {
-        const res = await checkProviderHealth(provider.id)
-        successCount++
-        results.push({
-          name: provider.name,
-          success: true,
-          status: res.data?.healthStatus || 'healthy',
-          message: res.data?.message || t('admin.providers.healthCheckPassed')
-        })
-      } catch (error) {
-        failCount++
-        results.push({
-          name: provider.name,
-          success: false,
-          status: 'unhealthy',
-          message: error?.response?.data?.msg || error?.message || t('admin.providers.healthCheckFailed')
-        })
-      }
-    }
-
-    loadingInstance.close()
-
-    // 显示详细结果
-    const resultHtml = `
-      <div>
-        <p>${t('admin.providers.batchOperationResult')}</p>
-        <p style="color: #67C23A;">${t('admin.providers.healthyCount')}: ${successCount}</p>
-        <p style="color: #F56C6C;">${t('admin.providers.unhealthyCount')}: ${failCount}</p>
-        <div style="margin-top: 10px; max-height: 300px; overflow-y: auto;">
-          ${results.map(r => `
-            <div style="padding: 8px; border-bottom: 1px solid #eee;">
-              <p style="font-weight: bold; margin-bottom: 4px;">
-                ${r.success ? '✅' : '❌'} ${r.name}
-              </p>
-              <p style="font-size: 12px; color: ${r.success ? '#67C23A' : '#F56C6C'}; margin: 0;">
-                ${r.message}
-              </p>
-            </div>
-          `).join('')}
-        </div>
-      </div>
-    `
-
-    ElMessageBox.alert(resultHtml, t('admin.providers.healthCheckResults'), {
-      dangerouslyUseHTMLString: true,
-      confirmButtonText: t('common.confirm')
-    })
-
-    await loadProviders()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('admin.providers.batchHealthCheckFailed'))
-    }
-  }
-}
 
 const freezeServer = async (id) => {
   try {
