@@ -1527,6 +1527,7 @@ export default {
       allInstances: '所有实例',
       userInstances: '用户实例',
       instanceDetails: '实例详情',
+      viewDetail: '查看详情',
       owner: '所有者',
       provider: 'Provider',
       uuid: 'UUID',

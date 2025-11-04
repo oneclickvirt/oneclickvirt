@@ -1509,6 +1509,7 @@ export default {
       allInstances: 'All Instances',
       userInstances: 'User Instances',
       instanceDetails: 'Instance Details',
+      viewDetail: 'View Details',
       owner: 'Owner',
       provider: 'Provider',
       uuid: 'UUID',

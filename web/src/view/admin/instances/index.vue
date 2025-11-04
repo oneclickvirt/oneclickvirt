@@ -162,13 +162,6 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="name"
-          :label="$t('admin.instances.instanceName')"
-          min-width="220"
-          show-overflow-tooltip
-          fixed="left"
-        />
-        <el-table-column
           prop="sshPort"
           :label="$t('admin.instances.sshPort')"
           width="80"
@@ -221,11 +214,18 @@
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="160"
+          width="220"
           fixed="right"
         >
           <template #default="scope">
             <div class="action-buttons">
+              <el-button
+                size="small"
+                type="info"
+                @click="viewInstanceDetail(scope.row)"
+              >
+                {{ $t('admin.instances.viewDetail') }}
+              </el-button>
               <el-button
                 size="small"
                 type="primary"
