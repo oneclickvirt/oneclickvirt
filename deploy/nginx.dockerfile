@@ -1,12 +1,17 @@
 # 构建前端
 FROM node:22-slim AS builder
+ARG TARGETARCH
 
 WORKDIR /app
 
 COPY web/package*.json ./
 
 RUN npm ci --include=optional
-RUN npm install --no-save @rollup/rollup-linux-x64-gnu
+RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        npm install --no-save @rollup/rollup-linux-x64-gnu; \
+    elif [ "$TARGETARCH" = "arm64" ]; then \
+        npm install --no-save @rollup/rollup-linux-arm64-gnu; \
+    fi
 
 COPY web/ ./
 
