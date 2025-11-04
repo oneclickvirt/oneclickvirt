@@ -611,11 +611,26 @@ const performAction = async (action) => {
     
     actionLoading.value = true
     
+    // 立即更新本地状态
+    const instanceId = actionInstance.value.id
+    const instanceIndex = instances.value.findIndex(i => i.id === instanceId)
+    if (instanceIndex !== -1) {
+      const statusMap = {
+        'start': 'starting',
+        'stop': 'stopping',
+        'restart': 'restarting',
+        'reset': 'resetting',
+        'resetPassword': instances.value[instanceIndex].status, // 重置密码不改变状态
+        'delete': 'deleting'
+      }
+      instances.value[instanceIndex].status = statusMap[action]
+    }
+    
     // 重置密码使用特殊API
     if (action === 'resetPassword') {
-      await resetInstancePassword(actionInstance.value.id)
+      await resetInstancePassword(instanceId)
     } else {
-      await adminInstanceAction(actionInstance.value.id, action)
+      await adminInstanceAction(instanceId, action)
     }
     
     ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
@@ -624,11 +639,18 @@ const performAction = async (action) => {
     actionDialogVisible.value = false
     actionInstance.value = null
     
-    // 刷新列表
-    await loadInstances()
+    // 如果是删除操作，延迟刷新以等待删除完成
+    if (action === 'delete') {
+      setTimeout(() => loadInstances(), 1000)
+    } else {
+      // 其他操作也刷新，但状态已经立即更新
+      setTimeout(() => loadInstances(), 500)
+    }
   } catch (error) {
     if (error !== 'cancel') {
       ElMessage.error(t('admin.instances.actionFailed', { action: actionText }))
+      // 操作失败，刷新列表恢复正确状态
+      await loadInstances()
     }
   } finally {
     actionLoading.value = false
@@ -813,20 +835,38 @@ const batchStartInstances = async () => {
   try {
     let success = 0
     let fail = 0
+    
+    // 立即更新所有选中实例的状态为 starting
+    selectedInstances.value.forEach(inst => {
+      const index = instances.value.findIndex(i => i.id === inst.id)
+      if (index !== -1) {
+        instances.value[index].status = 'starting'
+      }
+    })
+    
     for (const inst of selectedInstances.value) {
       try {
         await adminInstanceAction(inst.id, 'start')
         success++
       } catch (e) {
         fail++
+        // 失败的恢复原状态
+        const index = instances.value.findIndex(i => i.id === inst.id)
+        if (index !== -1) {
+          instances.value[index].status = 'stopped'
+        }
       }
     }
+    
     if (fail === 0) ElMessage.success(t('admin.instances.batchStartSuccess', { count: success }))
     else ElMessage.warning(t('admin.instances.batchStartPartial', { success, fail }))
-    await loadInstances()
+    
+    // 延迟刷新以获取最新状态
+    setTimeout(() => loadInstances(), 500)
     selectedInstances.value = []
   } catch (err) {
     ElMessage.error(t('admin.instances.batchStartFailed'))
+    await loadInstances()
   }
 }
 
@@ -840,20 +880,38 @@ const batchStopInstances = async () => {
   try {
     let success = 0
     let fail = 0
+    
+    // 立即更新所有选中实例的状态为 stopping
+    selectedInstances.value.forEach(inst => {
+      const index = instances.value.findIndex(i => i.id === inst.id)
+      if (index !== -1) {
+        instances.value[index].status = 'stopping'
+      }
+    })
+    
     for (const inst of selectedInstances.value) {
       try {
         await adminInstanceAction(inst.id, 'stop')
         success++
       } catch (e) {
         fail++
+        // 失败的恢复原状态
+        const index = instances.value.findIndex(i => i.id === inst.id)
+        if (index !== -1) {
+          instances.value[index].status = 'running'
+        }
       }
     }
+    
     if (fail === 0) ElMessage.success(t('admin.instances.batchStopSuccess', { count: success }))
     else ElMessage.warning(t('admin.instances.batchStopPartial', { success, fail }))
-    await loadInstances()
+    
+    // 延迟刷新以获取最新状态
+    setTimeout(() => loadInstances(), 500)
     selectedInstances.value = []
   } catch (err) {
     ElMessage.error(t('admin.instances.batchStopFailed'))
+    await loadInstances()
   }
 }
 
