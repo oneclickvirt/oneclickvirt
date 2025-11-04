@@ -1856,16 +1856,24 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	// 构建配置信息
 	var notesBuilder strings.Builder
 	notesBuilder.WriteString(fmt.Sprintf("VMID: %d\n", vmid))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("Name: %s\n", config.Name))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("CPU: %s\n", config.CPU))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("Memory: %s\n", config.Memory))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("Disk: %s\n", config.Disk))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("Image: %s\n", config.Image))
+	notesBuilder.WriteString("#\n")
 	notesBuilder.WriteString(fmt.Sprintf("Type: %s\n", config.InstanceType))
+	notesBuilder.WriteString("#\n")
 
 	// 添加网络信息
 	internalIP := fmt.Sprintf("172.16.1.%d", vmid)
 	notesBuilder.WriteString(fmt.Sprintf("Internal IP: %s\n", internalIP))
+	notesBuilder.WriteString("#\n")
 
 	// 添加端口信息（如果有）
 	if len(config.Ports) > 0 {
@@ -1877,6 +1885,7 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 			notesBuilder.WriteString(port)
 		}
 		notesBuilder.WriteString("\n")
+		notesBuilder.WriteString("#\n")
 	}
 
 	// 添加创建时间
