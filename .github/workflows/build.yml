@@ -45,10 +45,8 @@ jobs:
     - name: Build Vue web application
       run: |
         cd web
-        if [ ! -d "node_modules" ]; then
-          npm install --no-optional
-          npm install @rollup/rollup-linux-x64-gnu --save-dev
-        fi
+        npm ci || npm install
+        npm install @rollup/rollup-linux-x64-gnu --save-dev --force
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .

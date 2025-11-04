@@ -5,7 +5,7 @@ WORKDIR /app
 
 COPY web/package*.json ./
 
-RUN rm -f package-lock.json && npm install
+RUN npm ci || npm install
 
 COPY web/ ./
 

@@ -3,7 +3,7 @@
 FROM node:22-slim AS frontend-builder
 WORKDIR /app/web
 COPY web/package*.json ./
-RUN rm -f package-lock.json && npm install
+RUN npm ci || npm install
 COPY web/ ./
 RUN npm run build
 
