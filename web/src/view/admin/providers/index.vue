@@ -98,14 +98,18 @@
           prop="id"
           label="ID"
           width="60"
+          fixed="left"
         />
         <el-table-column
           prop="name"
           :label="$t('common.name')"
+          width="100"
+          fixed="left"
         />
         <el-table-column
           prop="type"
           :label="$t('admin.providers.providerType')"
+          width="80"
         />
         <el-table-column
           :label="$t('admin.providers.location')"
@@ -229,30 +233,119 @@
           </template>
         </el-table-column>
         <el-table-column
-          :label="$t('admin.providers.expiryTime')"
-          width="120"
+          :label="$t('admin.providers.cpuResource')"
+          width="140"
         >
           <template #default="scope">
-            <div v-if="scope.row.expiresAt">
-              <el-tag 
-                :type="isExpired(scope.row.expiresAt) ? 'danger' : isNearExpiry(scope.row.expiresAt) ? 'warning' : 'success'" 
-                size="small"
-              >
-                {{ formatDateTime(scope.row.expiresAt) }}
-              </el-tag>
-            </div>
-            <el-text
-              v-else
-              size="small"
-              type="info"
+            <div 
+              v-if="scope.row.resourceSynced"
+              class="resource-info"
             >
-              {{ $t('admin.providers.neverExpires') }}
-            </el-text>
+              <div class="resource-usage">
+                <span>{{ scope.row.allocatedCpuCores || 0 }}</span>
+                <span class="separator">/</span>
+                <span>{{ scope.row.nodeCpuCores || 0 }} {{ $t('admin.providers.cores') }}</span>
+              </div>
+              <div class="resource-progress">
+                <el-progress
+                  :percentage="getResourcePercentage(scope.row.allocatedCpuCores, scope.row.nodeCpuCores)"
+                  :status="getResourceProgressStatus(scope.row.allocatedCpuCores, scope.row.nodeCpuCores)"
+                  :stroke-width="6"
+                  :show-text="false"
+                />
+              </div>
+            </div>
+            <div
+              v-else
+              class="resource-placeholder"
+            >
+              <el-text
+                size="small"
+                type="info"
+              >
+                <el-icon><Loading /></el-icon>
+                {{ $t('admin.providers.notSynced') }}
+              </el-text>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.memoryResource')"
+          width="140"
+        >
+          <template #default="scope">
+            <div 
+              v-if="scope.row.resourceSynced"
+              class="resource-info"
+            >
+              <div class="resource-usage">
+                <span>{{ formatMemorySize(scope.row.allocatedMemory) }}</span>
+                <span class="separator">/</span>
+                <span>{{ formatMemorySize(scope.row.nodeMemoryTotal) }}</span>
+              </div>
+              <div class="resource-progress">
+                <el-progress
+                  :percentage="getResourcePercentage(scope.row.allocatedMemory, scope.row.nodeMemoryTotal)"
+                  :status="getResourceProgressStatus(scope.row.allocatedMemory, scope.row.nodeMemoryTotal)"
+                  :stroke-width="6"
+                  :show-text="false"
+                />
+              </div>
+            </div>
+            <div
+              v-else
+              class="resource-placeholder"
+            >
+              <el-text
+                size="small"
+                type="info"
+              >
+                <el-icon><Loading /></el-icon>
+                {{ $t('admin.providers.notSynced') }}
+              </el-text>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.diskResource')"
+          width="140"
+        >
+          <template #default="scope">
+            <div 
+              v-if="scope.row.resourceSynced"
+              class="resource-info"
+            >
+              <div class="resource-usage">
+                <span>{{ formatDiskSize(scope.row.allocatedDisk) }}</span>
+                <span class="separator">/</span>
+                <span>{{ formatDiskSize(scope.row.nodeDiskTotal) }}</span>
+              </div>
+              <div class="resource-progress">
+                <el-progress
+                  :percentage="getResourcePercentage(scope.row.allocatedDisk, scope.row.nodeDiskTotal)"
+                  :status="getResourceProgressStatus(scope.row.allocatedDisk, scope.row.nodeDiskTotal)"
+                  :stroke-width="6"
+                  :show-text="false"
+                />
+              </div>
+            </div>
+            <div
+              v-else
+              class="resource-placeholder"
+            >
+              <el-text
+                size="small"
+                type="info"
+              >
+                <el-icon><Loading /></el-icon>
+                {{ $t('admin.providers.notSynced') }}
+              </el-text>
+            </div>
           </template>
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.trafficUsage')"
-          width="130"
+          width="140"
         >
           <template #default="scope">
             <div class="traffic-info">
@@ -312,99 +405,25 @@
           </template>
         </el-table-column>
         <el-table-column
-          :label="$t('admin.providers.nodeResources')"
+          :label="$t('admin.providers.expiryTime')"
           width="120"
         >
           <template #default="scope">
-            <div
-              v-if="scope.row.resourceSynced"
-              class="resource-info"
-            >
-              <div class="resource-item">
-                <el-icon><Cpu /></el-icon>
-                <span>{{ scope.row.nodeCpuCores || 0 }} {{ $t('admin.providers.cores') }}</span>
-              </div>
-              <div class="resource-item">
-                <el-icon><Monitor /></el-icon>
-                <span>{{ formatMemorySize(scope.row.nodeMemoryTotal) }}</span>
-                <span v-if="scope.row.nodeSwapTotal > 0">+{{ formatMemorySize(scope.row.nodeSwapTotal) }}S</span>
-              </div>
-              <div class="resource-item">
-                <el-icon><FolderOpened /></el-icon>
-                <span>{{ formatDiskSize(scope.row.nodeDiskTotal) }} {{ $t('admin.providers.totalSpace') }}</span>
-              </div>
-              <div class="sync-time">
-                <el-text
-                  size="small"
-                  type="info"
-                >
-                  {{ formatRelativeTime(scope.row.resourceSyncedAt) }}
-                </el-text>
-              </div>
-            </div>
-            <div
-              v-else
-              class="resource-placeholder"
-            >
-              <el-text
+            <div v-if="scope.row.expiresAt">
+              <el-tag 
+                :type="isExpired(scope.row.expiresAt) ? 'danger' : isNearExpiry(scope.row.expiresAt) ? 'warning' : 'success'" 
                 size="small"
-                type="info"
               >
-                <el-icon><Loading /></el-icon>
-                {{ $t('admin.providers.notSynced') }}
-              </el-text>
+                {{ formatDateTime(scope.row.expiresAt) }}
+              </el-tag>
             </div>
-          </template>
-        </el-table-column>
-        <el-table-column
-          :label="$t('admin.providers.taskStatus')"
-          width="120"
-        >
-          <template #default="scope">
-            <div class="task-status">
-              <div style="margin-bottom: 4px;">
-                <el-text size="small">
-                  {{ $t('admin.providers.instances') }}: {{ scope.row.instanceCount || 0 }}
-                </el-text>
-              </div>
-              <div style="margin-bottom: 4px;">
-                <el-text size="small">
-                  {{ $t('admin.providers.runningTasks') }}: {{ scope.row.runningTasksCount || 0 }}
-                </el-text>
-              </div>
-              <div>
-                <el-tag
-                  v-if="scope.row.allowConcurrentTasks"
-                  type="success"
-                  size="small"
-                >
-                  {{ $t('admin.providers.concurrent') }} ({{ scope.row.maxConcurrentTasks }})
-                </el-tag>
-                <el-tag
-                  v-else
-                  type="warning"
-                  size="small"
-                >
-                  {{ $t('admin.providers.serial') }}
-                </el-tag>
-              </div>
-              <div style="margin-top: 4px;">
-                <el-tag
-                  v-if="scope.row.enableTaskPolling"
-                  type="primary"
-                  size="small"
-                >
-                  {{ $t('admin.providers.polling') }} {{ scope.row.taskPollInterval }}s
-                </el-tag>
-                <el-tag
-                  v-else
-                  type="info"
-                  size="small"
-                >
-                  {{ $t('admin.providers.pollingDisabled') }}
-                </el-tag>
-              </div>
-            </div>
+            <el-text
+              v-else
+              size="small"
+              type="info"
+            >
+              {{ $t('admin.providers.neverExpires') }}
+            </el-text>
           </template>
         </el-table-column>
         <el-table-column
@@ -3186,6 +3205,20 @@ const getTrafficProgressStatus = (used, max) => {
   return 'success'
 }
 
+// 计算资源使用百分比（适用于CPU、内存、磁盘）
+const getResourcePercentage = (allocated, total) => {
+  if (!total || total === 0) return 0
+  return Math.min(Math.round((allocated / total) * 100), 100)
+}
+
+// 获取资源进度条状态（适用于CPU、内存、磁盘）
+const getResourceProgressStatus = (allocated, total) => {
+  const percentage = getResourcePercentage(allocated, total)
+  if (percentage >= 95) return 'exception'
+  if (percentage >= 85) return 'warning'
+  return 'success'
+}
+
 // 格式化日期时间
 const formatDateTime = (dateTimeStr) => {
   if (!dateTimeStr) return '-'
@@ -3657,8 +3690,24 @@ const formatRelativeTime = (dateTime) => {
 .resource-info {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
+}
+
+.resource-usage {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  font-weight: 500;
+}
+
+.resource-usage .separator {
+  color: #c0c4cc;
+  margin: 0 2px;
+}
+
+.resource-progress {
+  width: 100%;
 }
 
 .resource-item {

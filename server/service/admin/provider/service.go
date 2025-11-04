@@ -80,6 +80,13 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			provider.IPv6PortMappingMethod = "native"
 		}
 
+		// 计算已分配资源（基于实例配置和limit配置）
+		// UsedCPUCores, UsedMemory, UsedDisk 已经在数据库中按照limit配置计算好了
+		// 这些值在创建/删除实例时由 AllocateResourcesInTx / ReleaseResourcesInTx 维护
+		allocatedCPU := provider.UsedCPUCores
+		allocatedMemory := provider.UsedMemory
+		allocatedDisk := provider.UsedDisk
+
 		providerResponse := admin.ProviderManageResponse{
 			Provider:          provider,
 			InstanceCount:     int(instanceCount),
@@ -93,6 +100,10 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			ResourceSyncedAt: provider.ResourceSyncedAt,
 			// 添加认证方式标识
 			AuthMethod: provider.GetAuthMethod(),
+			// 资源占用情况（已分配/总量）
+			AllocatedCPUCores: allocatedCPU,
+			AllocatedMemory:   allocatedMemory,
+			AllocatedDisk:     allocatedDisk,
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}
