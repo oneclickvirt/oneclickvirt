@@ -1355,21 +1355,58 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	updateProgress(85, "调整磁盘大小...")
 
-	// 调整磁盘大小（参考脚本）
-	resizeCmd := fmt.Sprintf("qm resize %d scsi0 %s", vmid, diskFormatted)
-	_, err = p.sshClient.Execute(resizeCmd)
-	if err != nil {
-		// 尝试以MB为单位重试
-		if strings.HasSuffix(diskFormatted, "G") {
-			diskNum := diskFormatted[:len(diskFormatted)-1]
-			if diskMB, parseErr := strconv.Atoi(diskNum); parseErr == nil {
-				diskMB *= 1024
-				resizeCmd = fmt.Sprintf("qm resize %d scsi0 %dM", vmid, diskMB)
-				_, err = p.sshClient.Execute(resizeCmd)
-			}
+	// 调整磁盘大小（参考 https://github.com/oneclickvirt/pve 的处理方式）
+	// Proxmox 不支持缩小磁盘，所以需要先检查当前磁盘大小，只在需要扩大时才resize
+	if diskFormatted != "" {
+		// 尝试解析目标磁盘大小（单位：GB）
+		targetDiskGB := 0
+		if diskNum, parseErr := strconv.Atoi(diskFormatted); parseErr == nil {
+			targetDiskGB = diskNum
 		}
-		if err != nil {
-			global.APP_LOG.Warn("调整磁盘大小失败", zap.Int("vmid", vmid), zap.Error(err))
+
+		if targetDiskGB > 0 {
+			// 获取当前磁盘大小
+			getCurrentSizeCmd := fmt.Sprintf("qm config %d | grep 'scsi0' | awk -F'size=' '{print $2}' | awk '{print $1}'", vmid)
+			currentSizeOutput, _ := p.sshClient.Execute(getCurrentSizeCmd)
+			currentSize := strings.TrimSpace(currentSizeOutput)
+
+			shouldResize := true
+			if currentSize != "" {
+				// 解析当前磁盘大小（可能是 10G, 1024M 等格式）
+				currentGB := 0
+				if strings.HasSuffix(currentSize, "G") {
+					if num, err := strconv.Atoi(strings.TrimSuffix(currentSize, "G")); err == nil {
+						currentGB = num
+					}
+				} else if strings.HasSuffix(currentSize, "M") {
+					if num, err := strconv.Atoi(strings.TrimSuffix(currentSize, "M")); err == nil {
+						currentGB = (num + 1023) / 1024 // 向上取整
+					}
+				}
+
+				// 只有当目标大小大于当前大小时才resize
+				if currentGB > 0 && targetDiskGB <= currentGB {
+					shouldResize = false
+					global.APP_LOG.Info("磁盘无需调整",
+						zap.Int("vmid", vmid),
+						zap.Int("current_gb", currentGB),
+						zap.Int("target_gb", targetDiskGB))
+				}
+			}
+
+			if shouldResize {
+				resizeCmd := fmt.Sprintf("qm resize %d scsi0 %sG", vmid, diskFormatted)
+				_, err = p.sshClient.Execute(resizeCmd)
+				if err != nil {
+					// 尝试以MB为单位重试
+					diskMB := targetDiskGB * 1024
+					resizeCmd = fmt.Sprintf("qm resize %d scsi0 %dM", vmid, diskMB)
+					_, err = p.sshClient.Execute(resizeCmd)
+					if err != nil {
+						global.APP_LOG.Warn("调整磁盘大小失败", zap.Int("vmid", vmid), zap.Error(err))
+					}
+				}
+			}
 		}
 	}
 
