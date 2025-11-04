@@ -860,8 +860,15 @@ onMounted(() => {
 </script>
 
 <style scoped>
+.admin-traffic {
+  margin: -24px -24px -24px -24px;
+  padding: 24px 0 24px 24px;
+  width: calc(100% + 48px);
+}
+
 .page-header {
   margin-bottom: 20px;
+  padding-right: 24px;
 }
 
 .page-header h1 {
@@ -876,6 +883,11 @@ onMounted(() => {
 
 .system-overview {
   margin-bottom: 20px;
+  padding-right: 24px;
+}
+
+.traffic-ranking {
+  padding-right: 0;
 }
 
 .card-header {
@@ -938,6 +950,12 @@ onMounted(() => {
 
 .traffic-ranking {
   margin-bottom: 20px;
+  padding-right: 0;
+}
+
+.traffic-ranking :deep(.el-card) {
+  border-radius: 0;
+  margin-right: 0;
 }
 
 .empty-state {

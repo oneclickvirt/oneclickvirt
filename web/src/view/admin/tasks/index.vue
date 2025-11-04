@@ -341,7 +341,7 @@
         <el-table-column
           prop="remainingTime"
           :label="$t('admin.tasks.remainingTime')"
-          width="110"
+          width="125"
           align="center"
         >
           <template #default="{ row }">

@@ -109,19 +109,38 @@
         <el-table-column
           prop="type"
           :label="$t('admin.providers.providerType')"
-          width="80"
+          width="100"
         />
         <el-table-column
           :label="$t('admin.providers.location')"
-          width="120"
+          width="100"
         >
           <template #default="scope">
-            <div class="location-cell">
-              <span
+            <div class="location-cell-vertical">
+              <div
                 v-if="scope.row.countryCode"
-                class="flag-icon"
-              >{{ getFlagEmoji(scope.row.countryCode) }}</span>
-              <span>{{ formatLocation(scope.row) }}</span>
+                class="location-flag"
+              >
+                {{ getFlagEmoji(scope.row.countryCode) }}
+              </div>
+              <div
+                v-if="scope.row.country"
+                class="location-country"
+              >
+                {{ scope.row.country }}
+              </div>
+              <div
+                v-if="scope.row.city"
+                class="location-city"
+              >
+                {{ scope.row.city }}
+              </div>
+              <div
+                v-if="!scope.row.country && !scope.row.city"
+                class="location-empty"
+              >
+                -
+              </div>
             </div>
           </template>
         </el-table-column>
@@ -167,7 +186,7 @@
         <el-table-column
           prop="architecture"
           :label="$t('admin.providers.architecture')"
-          width="80"
+          width="110"
         >
           <template #default="scope">
             <el-tag
@@ -180,7 +199,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.storagePool')"
-          width="100"
+          width="110"
         >
           <template #default="scope">
             <el-tag
@@ -209,7 +228,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.connectionStatus')"
-          width="90"
+          width="100"
         >
           <template #default="scope">
             <div class="connection-status">
@@ -377,8 +396,8 @@
           </template>
         </el-table-column>
         <el-table-column
-          :label="$t('admin.providers.serverStatus')"
-          width="100"
+          :label="$t('common.status')"
+          width="80"
         >
           <template #default="scope">
             <el-tag
@@ -406,7 +425,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('admin.providers.expiryTime')"
-          width="120"
+          width="130"
         >
           <template #default="scope">
             <div v-if="scope.row.expiresAt">
@@ -3647,6 +3666,35 @@ const formatRelativeTime = (dateTime) => {
   display: flex;
   align-items: center;
   gap: 5px;
+}
+
+.location-cell-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.location-flag {
+  font-size: 20px;
+  line-height: 1;
+}
+
+.location-country {
+  font-weight: 500;
+  color: #303133;
+  text-align: center;
+}
+
+.location-city {
+  font-size: 11px;
+  color: #909399;
+  text-align: center;
+}
+
+.location-empty {
+  color: #c0c4cc;
 }
 
 .flag-icon {

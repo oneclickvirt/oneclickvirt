@@ -4,7 +4,7 @@ auth:
     email-smtp-port: "3306"
     email-username: root
     enable-email: false
-    enable-o-auth2: false
+    enable-o-auth2: true
     enable-public-registration: false
     enable-qq: false
     enable-telegram: false
@@ -34,7 +34,8 @@ jwt:
     buffer-time: 1d
     expires-time: 7d
     issuer: oneclickvirt
-    signing-key: ""
+    # signing-key 会自动生成256位随机密钥，无需手动配置
+    # 如需多实例部署统一密钥，请使用环境变量 JWT_SIGNING_KEY
 mysql:
     auto-create: true
     config: charset=utf8mb4&parseTime=True&loc=Local
@@ -42,9 +43,9 @@ mysql:
     engine: InnoDB
     log-mode: error
     log-zap: "false"
-    max-idle-conns: "10"
-    max-lifetime: "3600"
-    max-open-conns: "100"
+    max-idle-conns: "20"
+    max-lifetime: "900"
+    max-open-conns: "200"
     password: ""
     path: 127.0.0.1
     port: "3306"
@@ -118,7 +119,7 @@ task:
 upload:
     max-avatar-size: 2
 other:
-    default-language: en-US
+    default-language: zh-CN
     max-avatar-size: 3
 zap:
     compress-logs: true

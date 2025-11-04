@@ -235,13 +235,13 @@
         <el-table-column
           prop="architecture"
           :label="$t('admin.systemImages.architecture')"
-          width="100"
+          width="110"
           align="center"
           show-overflow-tooltip
         />
         <el-table-column
           :label="$t('admin.systemImages.osType')"
-          width="140"
+          width="150"
           show-overflow-tooltip
         >
           <template #default="scope">

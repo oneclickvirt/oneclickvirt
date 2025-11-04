@@ -159,7 +159,7 @@
         <el-table-column
           prop="guestPort"
           :label="$t('admin.portMapping.internalPort')"
-          width="100"
+          width="110"
         />
         <el-table-column
           prop="protocol"
