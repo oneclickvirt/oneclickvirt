@@ -74,7 +74,11 @@ export default {
     leftParen: '（',
     rightParen: '）',
     inLocation: '中查看',
-    backToHome: '返回首页'
+    backToHome: '返回首页',
+    seconds: '秒',
+    minutes: '分钟',
+    hours: '小时',
+    days: '天'
   },
   navbar: {
     switchTo: '切换到',
@@ -1140,7 +1144,7 @@ export default {
       
       addServer: '添加服务器',
       editServer: '编辑服务器',
-      autoConfigureAPI: '自动配置API',
+      autoConfigureAPI: '配置API',
       healthCheck: '健康检查',
       freeze: '冻结',
       unfreeze: '解冻',
@@ -1200,8 +1204,10 @@ export default {
         statusRequired: '请选择状态',
         dateFormatError: '请输入正确的日期格式或留空',
         autoConfiguring: '正在执行自动配置，请稍候...',
-        healthChecking: '正在进行健康检查，请稍候...'
-      }
+        healthChecking: '正在进行健康检查，请稍候...',
+        formValidationFailed: '表单验证失败，请检查必填项'
+      },
+      pleaseCheckRequiredFields: '请检查必填项'
     },
     config: {
       title: '系统配置',

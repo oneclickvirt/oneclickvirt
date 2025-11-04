@@ -1,0 +1,596 @@
+<template>
+  <div>
+    <el-table
+      v-loading="loading"
+      :data="providers"
+      style="width: 100%"
+      :row-style="{ height: '90px' }"
+      @selection-change="handleSelectionChange"
+    >
+      <el-table-column
+        type="selection"
+        width="55"
+        fixed="left"
+      />
+      <el-table-column
+        prop="name"
+        :label="$t('common.name')"
+        width="100"
+        fixed="left"
+      />
+      <el-table-column
+        prop="type"
+        :label="$t('admin.providers.providerType')"
+        width="100"
+      />
+      <el-table-column
+        :label="$t('admin.providers.location')"
+        width="100"
+      >
+        <template #default="scope">
+          <div class="location-cell-vertical">
+            <div
+              v-if="scope.row.countryCode"
+              class="location-flag"
+            >
+              {{ getFlagEmoji(scope.row.countryCode) }}
+            </div>
+            <div
+              v-if="scope.row.country"
+              class="location-country"
+            >
+              {{ scope.row.country }}
+            </div>
+            <div
+              v-if="scope.row.city"
+              class="location-city"
+            >
+              {{ scope.row.city }}
+            </div>
+            <div
+              v-if="!scope.row.country && !scope.row.city"
+              class="location-empty"
+            >
+              -
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.apiEndpoint')"
+        width="140"
+      >
+        <template #default="scope">
+          {{ scope.row.endpoint ? scope.row.endpoint.split(':')[0] : '-' }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.sshPort')"
+        width="80"
+      >
+        <template #default="scope">
+          {{ scope.row.sshPort || 22 }}
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.supportTypes')"
+        width="120"
+      >
+        <template #default="scope">
+          <div class="support-types">
+            <el-tag
+              v-if="scope.row.container_enabled"
+              size="small"
+              type="primary"
+            >
+              {{ $t('admin.providers.container') }}
+            </el-tag>
+            <el-tag
+              v-if="scope.row.vm_enabled"
+              size="small"
+              type="success"
+            >
+              {{ $t('admin.providers.vm') }}
+            </el-tag>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        prop="architecture"
+        :label="$t('admin.providers.architecture')"
+        width="110"
+      >
+        <template #default="scope">
+          <el-tag
+            size="small"
+            type="info"
+          >
+            {{ scope.row.architecture || 'amd64' }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.storagePool')"
+        width="110"
+      >
+        <template #default="scope">
+          <el-tag
+            v-if="scope.row.type === 'proxmox' && scope.row.storagePool"
+            size="small"
+            type="warning"
+          >
+            <el-icon style="margin-right: 4px;">
+              <FolderOpened />
+            </el-icon>
+            {{ scope.row.storagePool }}
+          </el-tag>
+          <el-text
+            v-else-if="scope.row.type === 'proxmox'"
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.notConfigured') }}
+          </el-text>
+          <el-text
+            v-else
+            size="small"
+            type="info"
+          >
+            -
+          </el-text>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.connectionStatus')"
+        width="100"
+      >
+        <template #default="scope">
+          <div class="connection-status">
+            <div style="margin-bottom: 4px;">
+              <el-tag 
+                size="small" 
+                :type="getStatusType(scope.row.apiStatus)"
+              >
+                API: {{ getStatusText(scope.row.apiStatus) }}
+              </el-tag>
+            </div>
+            <div>
+              <el-tag 
+                size="small" 
+                :type="getStatusType(scope.row.sshStatus)"
+              >
+                SSH: {{ getStatusText(scope.row.sshStatus) }}
+              </el-tag>
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.cpuResource')"
+        width="140"
+      >
+        <template #default="scope">
+          <div 
+            v-if="scope.row.resourceSynced"
+            class="resource-info"
+          >
+            <div class="resource-usage">
+              <span>{{ scope.row.allocatedCpuCores || 0 }}</span>
+              <span class="separator">/</span>
+              <span>{{ scope.row.nodeCpuCores || 0 }} {{ $t('admin.providers.cores') }}</span>
+            </div>
+            <div class="resource-progress">
+              <el-progress
+                :percentage="getResourcePercentage(scope.row.allocatedCpuCores, scope.row.nodeCpuCores)"
+                :status="getResourceProgressStatus(scope.row.allocatedCpuCores, scope.row.nodeCpuCores)"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </div>
+          </div>
+          <div
+            v-else
+            class="resource-placeholder"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
+              <el-icon><Loading /></el-icon>
+              {{ $t('admin.providers.notSynced') }}
+            </el-text>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.memoryResource')"
+        width="140"
+      >
+        <template #default="scope">
+          <div 
+            v-if="scope.row.resourceSynced"
+            class="resource-info"
+          >
+            <div class="resource-usage">
+              <span>{{ formatMemorySize(scope.row.allocatedMemory) }}</span>
+              <span class="separator">/</span>
+              <span>{{ formatMemorySize(scope.row.nodeMemoryTotal) }}</span>
+            </div>
+            <div class="resource-progress">
+              <el-progress
+                :percentage="getResourcePercentage(scope.row.allocatedMemory, scope.row.nodeMemoryTotal)"
+                :status="getResourceProgressStatus(scope.row.allocatedMemory, scope.row.nodeMemoryTotal)"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </div>
+          </div>
+          <div
+            v-else
+            class="resource-placeholder"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
+              <el-icon><Loading /></el-icon>
+              {{ $t('admin.providers.notSynced') }}
+            </el-text>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.diskResource')"
+        width="140"
+      >
+        <template #default="scope">
+          <div 
+            v-if="scope.row.resourceSynced"
+            class="resource-info"
+          >
+            <div class="resource-usage">
+              <span>{{ formatDiskSize(scope.row.allocatedDisk) }}</span>
+              <span class="separator">/</span>
+              <span>{{ formatDiskSize(scope.row.nodeDiskTotal) }}</span>
+            </div>
+            <div class="resource-progress">
+              <el-progress
+                :percentage="getResourcePercentage(scope.row.allocatedDisk, scope.row.nodeDiskTotal)"
+                :status="getResourceProgressStatus(scope.row.allocatedDisk, scope.row.nodeDiskTotal)"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </div>
+          </div>
+          <div
+            v-else
+            class="resource-placeholder"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
+              <el-icon><Loading /></el-icon>
+              {{ $t('admin.providers.notSynced') }}
+            </el-text>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.trafficUsage')"
+        width="140"
+      >
+        <template #default="scope">
+          <div class="traffic-info">
+            <div class="traffic-usage">
+              <span>{{ formatTraffic(scope.row.usedTraffic) }}</span>
+              <span class="separator">/</span>
+              <span>{{ formatTraffic(scope.row.maxTraffic) }}</span>
+            </div>
+            <div class="traffic-progress">
+              <el-progress
+                :percentage="getTrafficPercentage(scope.row.usedTraffic, scope.row.maxTraffic)"
+                :status="scope.row.trafficLimited ? 'exception' : getTrafficProgressStatus(scope.row.usedTraffic, scope.row.maxTraffic)"
+                :stroke-width="6"
+                :show-text="false"
+              />
+            </div>
+            <div
+              v-if="scope.row.trafficLimited"
+              class="traffic-status"
+            >
+              <el-tag
+                type="danger"
+                size="small"
+              >
+                {{ $t('admin.providers.trafficExceeded') }}
+              </el-tag>
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('common.status')"
+        width="80"
+      >
+        <template #default="scope">
+          <el-tag
+            v-if="scope.row.isFrozen"
+            type="danger"
+            size="small"
+          >
+            {{ $t('admin.providers.frozen') }}
+          </el-tag>
+          <el-tag
+            v-else-if="isExpired(scope.row.expiresAt)"
+            type="warning"
+            size="small"
+          >
+            {{ $t('admin.providers.expired') }}
+          </el-tag>
+          <el-tag
+            v-else
+            type="success"
+            size="small"
+          >
+            {{ $t('common.normal') }}
+          </el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('admin.providers.expiryTime')"
+        width="130"
+      >
+        <template #default="scope">
+          <div v-if="scope.row.expiresAt">
+            <el-tag 
+              :type="isExpired(scope.row.expiresAt) ? 'danger' : isNearExpiry(scope.row.expiresAt) ? 'warning' : 'success'" 
+              size="small"
+            >
+              {{ formatDateTime(scope.row.expiresAt) }}
+            </el-tag>
+          </div>
+          <el-text
+            v-else
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.neverExpires') }}
+          </el-text>
+        </template>
+      </el-table-column>
+      <el-table-column
+        :label="$t('common.actions')"
+        width="360"
+        fixed="right"
+      >
+        <template #default="scope">
+          <div class="table-action-buttons">
+            <a
+              class="table-action-link"
+              @click="$emit('edit', scope.row)"
+            >
+              {{ $t('common.edit') }}
+            </a>
+            <a 
+              v-if="(scope.row.type === 'lxd' || scope.row.type === 'incus' || scope.row.type === 'proxmox')" 
+              class="table-action-link" 
+              @click="$emit('auto-configure', scope.row)"
+            >
+              {{ $t('admin.providers.autoConfigureAPI') }}
+            </a>
+            <a 
+              class="table-action-link" 
+              @click="$emit('health-check', scope.row.id)"
+            >
+              {{ $t('admin.providers.healthCheck') }}
+            </a>
+            <a 
+              v-if="scope.row.isFrozen" 
+              class="table-action-link success" 
+              @click="$emit('unfreeze', scope.row)"
+            >
+              {{ $t('admin.providers.unfreeze') }}
+            </a>
+            <a 
+              v-else 
+              class="table-action-link warning" 
+              @click="$emit('freeze', scope.row.id)"
+            >
+              {{ $t('admin.providers.freeze') }}
+            </a>
+            <a
+              class="table-action-link danger"
+              @click="$emit('delete', scope.row.id)"
+            >
+              {{ $t('common.delete') }}
+            </a>
+          </div>
+        </template>
+      </el-table-column>
+    </el-table>
+
+    <!-- 分页 -->
+    <div class="pagination-wrapper">
+      <el-pagination
+        :current-page="currentPage"
+        :page-size="pageSize"
+        :page-sizes="[10, 20, 50, 100]"
+        :total="total"
+        layout="total, sizes, prev, pager, next, jumper"
+        @size-change="$emit('size-change', $event)"
+        @current-change="$emit('page-change', $event)"
+      />
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { Loading, FolderOpened } from '@element-plus/icons-vue'
+import { 
+  formatMemorySize, 
+  formatDiskSize, 
+  formatTraffic,
+  getTrafficPercentage,
+  getTrafficProgressStatus,
+  getResourcePercentage,
+  getResourceProgressStatus,
+  formatDateTime,
+  isExpired,
+  isNearExpiry,
+  getStatusType,
+  getStatusText,
+  getFlagEmoji
+} from '../composables/useProviderUtils'
+
+defineProps({
+  loading: {
+    type: Boolean,
+    default: false
+  },
+  providers: {
+    type: Array,
+    default: () => []
+  },
+  currentPage: {
+    type: Number,
+    default: 1
+  },
+  pageSize: {
+    type: Number,
+    default: 10
+  },
+  total: {
+    type: Number,
+    default: 0
+  }
+})
+
+const emit = defineEmits([
+  'selection-change',
+  'edit',
+  'auto-configure',
+  'health-check',
+  'freeze',
+  'unfreeze',
+  'delete',
+  'size-change',
+  'page-change'
+])
+
+const handleSelectionChange = (selection) => {
+  emit('selection-change', selection)
+}
+</script>
+
+<style scoped>
+.location-cell-vertical {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  min-height: 75px;
+  justify-content: center;
+}
+
+.location-flag {
+  font-size: 20px;
+}
+
+.location-country,
+.location-city {
+  font-size: 12px;
+  color: #606266;
+}
+
+.location-empty {
+  color: #c0c4cc;
+}
+
+.support-types {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.connection-status {
+  display: flex;
+  flex-direction: column;
+}
+
+.resource-info,
+.traffic-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.resource-usage,
+.traffic-usage {
+  font-size: 12px;
+  text-align: center;
+}
+
+.separator {
+  margin: 0 4px;
+  color: #909399;
+}
+
+.resource-placeholder {
+  text-align: center;
+}
+
+.traffic-status {
+  text-align: center;
+}
+
+.table-action-buttons {
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+  flex-wrap: wrap;
+  align-items: center;
+  padding: 8px 0;
+}
+
+.table-action-link {
+  cursor: pointer;
+  color: #409eff;
+  text-decoration: none;
+  font-size: 13px;
+}
+
+.table-action-link:hover {
+  color: #66b1ff;
+}
+
+.table-action-link.success {
+  color: #67c23a;
+}
+
+.table-action-link.success:hover {
+  color: #85ce61;
+}
+
+.table-action-link.warning {
+  color: #e6a23c;
+}
+
+.table-action-link.warning:hover {
+  color: #ebb563;
+}
+
+.table-action-link.danger {
+  color: #f56c6c;
+}
+
+.table-action-link.danger:hover {
+  color: #f78989;
+}
+
+.pagination-wrapper {
+  margin-top: 20px;
+  display: flex;
+  justify-content: center;
+}
+</style>

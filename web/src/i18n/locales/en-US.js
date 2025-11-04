@@ -1140,7 +1140,7 @@ export default {
       
       addServer: 'Add Server',
       editServer: 'Edit Server',
-      autoConfigureAPI: 'Auto Configure API',
+      autoConfigureAPI: 'Configure API',
       healthCheck: 'Health Check',
       freeze: 'Freeze',
       unfreeze: 'Unfreeze',
