@@ -51,16 +51,6 @@ jobs:
         cd dist
         zip -r ../../build/web-dist.zip .
 
-    - name: Cache Go modules
-      uses: actions/cache@v3
-      with:
-        path: |
-          ~/.cache/go-build
-          ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
-        restore-keys: |
-          ${{ runner.os }}-go-
-
     - name: Build Go server binaries (Standalone - without embedded frontend)
       working-directory: ./server
       run: |
