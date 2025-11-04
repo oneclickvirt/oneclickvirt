@@ -32,9 +32,18 @@
               style="width: 120px"
               @change="handleFilterChange"
             >
-              <el-option :label="$t('common.all')" :value="null" />
-              <el-option :label="$t('admin.inviteCodes.unused')" :value="false" />
-              <el-option :label="$t('admin.inviteCodes.used')" :value="true" />
+              <el-option
+                :label="$t('common.all')"
+                :value="null"
+              />
+              <el-option
+                :label="$t('admin.inviteCodes.unused')"
+                :value="false"
+              />
+              <el-option
+                :label="$t('admin.inviteCodes.used')"
+                :value="true"
+              />
             </el-select>
           </el-form-item>
           <el-form-item :label="$t('common.status')">
@@ -45,8 +54,14 @@
               style="width: 120px"
               @change="handleFilterChange"
             >
-              <el-option :label="$t('common.all')" :value="0" />
-              <el-option :label="$t('admin.inviteCodes.available')" :value="1" />
+              <el-option
+                :label="$t('common.all')"
+                :value="0"
+              />
+              <el-option
+                :label="$t('admin.inviteCodes.available')"
+                :value="1"
+              />
             </el-select>
           </el-form-item>
         </el-form>

@@ -179,7 +179,11 @@
                   </span>
                 </el-option>
               </el-select>
-              <div v-if="selectedImageInfo" class="form-hint" style="margin-top: 5px; font-size: 12px; color: #909399;">
+              <div
+                v-if="selectedImageInfo"
+                class="form-hint"
+                style="margin-top: 5px; font-size: 12px; color: #909399;"
+              >
                 {{ t('user.apply.imageRequirements', { 
                   memory: selectedImageInfo.minMemoryMB, 
                   disk: Math.round(selectedImageInfo.minDiskMB / 1024 * 10) / 10 

@@ -14,8 +14,8 @@
       <!-- 语言切换按钮 -->
       <div class="language-switcher">
         <el-button
-          @click="switchLanguage"
           :title="t('navbar.switchLanguage')"
+          @click="switchLanguage"
         >
           <el-icon><Operation /></el-icon>
           <span class="language-text">{{ languageStore.currentLanguage === 'zh-CN' ? 'English' : '中文' }}</span>
@@ -51,8 +51,8 @@
               <span>{{ t('navbar.switchTo') }}{{ userStore.currentViewMode === 'admin' ? t('navbar.userView') : t('navbar.adminView') }}</span>
             </el-dropdown-item>
             <el-dropdown-item
-              @click="logout"
               divided
+              @click="logout"
             >
               <el-icon style="margin-right: 8px;">
                 <SwitchButton />

@@ -4,7 +4,11 @@
     <header class="auth-header">
       <div class="header-content">
         <div class="logo">
-          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <img
+            src="@/assets/images/logo.png"
+            alt="OneClickVirt Logo"
+            class="logo-image"
+          >
           <h1>OneClickVirt</h1>
         </div>
         <nav class="nav-actions">
@@ -137,6 +141,8 @@
             v-for="provider in oauth2Providers"
             :key="provider.id"
             class="oauth2-button"
+            :loading="oauth2Loading"
+            :disabled="oauth2Loading"
             @click="handleOAuth2Login(provider)"
           >
             <el-icon><Connection /></el-icon>
@@ -173,6 +179,7 @@ const captchaImage = ref('')
 const captchaId = ref('')
 const oauth2Enabled = ref(false)
 const oauth2Providers = ref([])
+const oauth2Loading = ref(false) // OAuth2登录防重复点击
 
 const loginForm = reactive({
   username: '',
@@ -197,24 +204,36 @@ const loginRules = computed(() => ({
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
+  
+  // 防止重复提交
+  if (loading.value) return
 
   await loginFormRef.value.validate(async (valid) => {
     if (!valid) return
-
-    const result = await handleSubmit(async () => {
-      return await userStore.userLogin({
-        ...loginForm,
-        captchaId: captchaId.value
+    
+    // 再次检查loading状态，防止表单验证期间的重复点击
+    if (loading.value) return
+    
+    loading.value = true
+    
+    try {
+      const result = await handleSubmit(async () => {
+        return await userStore.userLogin({
+          ...loginForm,
+          captchaId: captchaId.value
+        })
+      }, {
+        successMessage: t('login.loginSuccess'),
+        showLoading: false // 使用组件自己的loading
       })
-    }, {
-      successMessage: t('login.loginSuccess'),
-      showLoading: false // 使用组件自己的loading
-    })
 
-    if (result.success) {
-      router.push('/user/dashboard')
-    } else {
-      refreshCaptcha() // 登录失败刷新验证码
+      if (result.success) {
+        router.push('/user/dashboard')
+      } else {
+        refreshCaptcha() // 登录失败刷新验证码
+      }
+    } finally {
+      loading.value = false
     }
   })
 }
@@ -233,8 +252,15 @@ const refreshCaptcha = async () => {
 
 // OAuth2登录
 const handleOAuth2Login = (provider) => {
+  // 防止重复点击
+  if (oauth2Loading.value) return
+  
+  oauth2Loading.value = true
+  
   // 跳转到后端的OAuth2登录接口，使用provider_id参数
   window.location.href = `/api/v1/auth/oauth2/login?provider_id=${provider.id}`
+  
+  // 注意：页面跳转后loading状态会自动重置，这里不需要手动重置
 }
 
 // 检查OAuth2配置并加载提供商列表

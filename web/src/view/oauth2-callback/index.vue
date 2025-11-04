@@ -1,26 +1,55 @@
 <template>
   <div class="oauth2-callback-container">
     <el-card class="callback-card">
-      <div v-if="loading" class="loading-container">
-        <el-icon class="is-loading" :size="50">
+      <div
+        v-if="loading"
+        class="loading-container"
+      >
+        <el-icon
+          class="is-loading"
+          :size="50"
+        >
           <Loading />
         </el-icon>
-        <p class="loading-text">{{ t('oauth2Callback.processing') }}</p>
+        <p class="loading-text">
+          {{ t('oauth2Callback.processing') }}
+        </p>
       </div>
       
-      <div v-else-if="error" class="error-container">
-        <el-icon :size="50" color="#f56c6c">
+      <div
+        v-else-if="error"
+        class="error-container"
+      >
+        <el-icon
+          :size="50"
+          color="#f56c6c"
+        >
           <CircleClose />
         </el-icon>
-        <p class="error-text">{{ errorMessage }}</p>
-        <el-button type="primary" @click="goToLogin">{{ t('oauth2Callback.backToLogin') }}</el-button>
+        <p class="error-text">
+          {{ errorMessage }}
+        </p>
+        <el-button
+          type="primary"
+          @click="goToLogin"
+        >
+          {{ t('oauth2Callback.backToLogin') }}
+        </el-button>
       </div>
       
-      <div v-else class="success-container">
-        <el-icon :size="50" color="#67c23a">
+      <div
+        v-else
+        class="success-container"
+      >
+        <el-icon
+          :size="50"
+          color="#67c23a"
+        >
           <CircleCheck />
         </el-icon>
-        <p class="success-text">{{ t('oauth2Callback.loginSuccess') }}</p>
+        <p class="success-text">
+          {{ t('oauth2Callback.loginSuccess') }}
+        </p>
       </div>
     </el-card>
   </div>

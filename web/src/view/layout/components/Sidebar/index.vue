@@ -7,7 +7,9 @@
     }"
   >
     <div class="sidebar-logo">
-      <h1 v-show="!isCollapse || isMobile">OneClickVirt</h1>
+      <h1 v-show="!isCollapse || isMobile">
+        OneClickVirt
+      </h1>
       <el-button 
         v-if="!isMobile"
         class="collapse-btn" 
@@ -35,7 +37,9 @@
           index="/home"
         >
           <el-icon><HomeFilled /></el-icon>
-          <template #title>{{ t('navbar.home') }}</template>
+          <template #title>
+            {{ t('navbar.home') }}
+          </template>
         </el-menu-item>
         
         <!-- 动态生成的菜单项 -->

@@ -144,6 +144,52 @@ func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
 	}
 }
 
+// imageBlacklist 黑名单配置 - 禁用特定镜像
+// 硬编码黑名单，用于暂时禁用有问题的镜像
+type ImageBlacklistEntry struct {
+	ProviderType string
+	InstanceType string
+	Architecture string
+	OSType       string
+	OSVersion    string
+}
+
+// isImageBlacklisted 检查镜像是否在黑名单中
+func isImageBlacklisted(providerType, instanceType, architecture, osType, osVersion string) bool {
+	// 硬编码黑名单：Debian 12 和 Debian 13 的 Proxmox VE AMD64 容器镜像，暂时不可用
+	blacklist := []ImageBlacklistEntry{
+		{
+			ProviderType: "proxmox",
+			InstanceType: "container",
+			Architecture: "amd64",
+			OSType:       "debian",
+			OSVersion:    "12",
+		},
+		{
+			ProviderType: "proxmox",
+			InstanceType: "container",
+			Architecture: "amd64",
+			OSType:       "debian",
+			OSVersion:    "13",
+		},
+	}
+
+	osTypeLower := strings.ToLower(osType)
+	osVersionLower := strings.ToLower(osVersion)
+
+	for _, entry := range blacklist {
+		if strings.EqualFold(entry.ProviderType, providerType) &&
+			strings.EqualFold(entry.InstanceType, instanceType) &&
+			strings.EqualFold(entry.Architecture, architecture) &&
+			strings.EqualFold(entry.OSType, osTypeLower) &&
+			strings.EqualFold(entry.OSVersion, osVersionLower) {
+			return true
+		}
+	}
+
+	return false
+}
+
 // SeedSystemImages 从远程URL获取镜像列表并添加到数据库
 func SeedSystemImages() {
 	global.APP_LOG.Info("开始同步系统镜像列表")
@@ -220,7 +266,21 @@ func SeedSystemImages() {
 				global.APP_LOG.Debug("跳过openrc/systemd镜像，已有cloud版本",
 					zap.String("url", imageURL), zap.String("variant", currentVariant))
 				continue
-			} // 检查是否已存在
+			}
+
+			// 检查镜像是否在黑名单中
+			if isImageBlacklisted(imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture, imageInfo.OSType, imageInfo.OSVersion) {
+				global.APP_LOG.Warn("跳过黑名单镜像",
+					zap.String("name", imageInfo.Name),
+					zap.String("provider", imageInfo.ProviderType),
+					zap.String("type", imageInfo.InstanceType),
+					zap.String("arch", imageInfo.Architecture),
+					zap.String("os", imageInfo.OSType),
+					zap.String("version", imageInfo.OSVersion))
+				continue
+			}
+
+			// 检查是否已存在
 			var existingImage system.SystemImage
 			result := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
 				imageInfo.Name, imageInfo.ProviderType, imageInfo.InstanceType, imageInfo.Architecture).First(&existingImage)

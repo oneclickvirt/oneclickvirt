@@ -1,9 +1,10 @@
 package dashboard
 
 type DashboardStats struct {
-	RegionStats []RegionStat `json:"regionStats"`
-	QuotaStats  QuotaStat    `json:"quotaStats"`
-	UserStats   UserStat     `json:"userStats"`
+	RegionStats   []RegionStat       `json:"regionStats"`
+	QuotaStats    QuotaStat          `json:"quotaStats"`
+	UserStats     UserStat           `json:"userStats"`
+	ResourceUsage ResourceUsageStats `json:"resourceUsage"` // 资源使用统计
 }
 
 type RegionStat struct {

@@ -1,16 +1,8 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
     enable-email: false
-    enable-o-auth2: true
-    enable-public-registration: false
+    enable-public-registration: true
     enable-qq: false
     enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
 captcha:
     enabled: true
     expire-time: 300
@@ -43,9 +35,9 @@ mysql:
     engine: InnoDB
     log-mode: error
     log-zap: "false"
-    max-idle-conns: "20"
-    max-lifetime: "900"
-    max-open-conns: "200"
+    max-idle-conns: "10"
+    max-lifetime: "3600"
+    max-open-conns: "100"
     password: ""
     path: 127.0.0.1
     port: "3306"
@@ -92,7 +84,7 @@ quota:
             max-resources:
                 bandwidth: 2000
                 cpu: 16
-                disk: 102400
+                disk: 163840
                 memory: 8192
             max-traffic: 512000
 redis:

@@ -304,6 +304,12 @@ export default {
       title: 'Supported Virtualization Platforms',
       description: 'One-click integration with multiple mainstream virtualization technologies'
     },
+    stats: {
+      users: 'Users',
+      nodes: 'Nodes',
+      containers: 'Containers',
+      vms: 'Virtual Machines'
+    },
     announcements: {
       title: 'System Announcements',
       typeHomepage: 'Homepage Announcement',

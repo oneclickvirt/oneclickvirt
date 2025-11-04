@@ -14,7 +14,11 @@
           {{ $t('admin.oauth2.notEnabledHint') }}
           <br>
           {{ $t('admin.oauth2.enableHint') }}
-          <el-link type="primary" @click="goToConfig" :underline="false">
+          <el-link
+            type="primary"
+            :underline="false"
+            @click="goToConfig"
+          >
             <strong>{{ $t('admin.oauth2.systemConfig') }}</strong>
           </el-link>
           {{ $t('admin.oauth2.enableHint2') }}
@@ -22,7 +26,10 @@
       </template>
     </el-alert>
 
-    <el-card shadow="never" class="providers-card">
+    <el-card
+      shadow="never"
+      class="providers-card"
+    >
       <template #header>
         <div class="card-header">
           <span>{{ $t('admin.oauth2.title') }}</span>
@@ -145,7 +152,10 @@
       <template #header>
         <div class="dialog-header">
           <span>{{ dialogTitle }}</span>
-          <div v-if="!isEdit" class="preset-buttons">
+          <div
+            v-if="!isEdit"
+            class="preset-buttons"
+          >
             <el-button
               size="small"
               type="primary"
@@ -172,7 +182,10 @@
         label-width="120px"
         class="oauth2-form"
       >
-        <el-tabs v-model="activeTab" class="oauth2-tabs">
+        <el-tabs
+          v-model="activeTab"
+          class="oauth2-tabs"
+        >
           <el-tab-pane
             :label="$t('admin.oauth2.basicConfig')"
             name="basic"
@@ -231,7 +244,9 @@
                 </el-col>
               </el-row>
 
-              <el-divider content-position="left">{{ $t('admin.oauth2.oauth2Credentials') }}</el-divider>
+              <el-divider content-position="left">
+                {{ $t('admin.oauth2.oauth2Credentials') }}
+              </el-divider>
 
               <el-form-item
                 label="Client ID"
@@ -450,8 +465,8 @@
         </el-button>
         <el-button
           type="primary"
-          @click="handleSubmit"
           :loading="submitting"
+          @click="handleSubmit"
         >
           {{ $t('common.confirm') }}
         </el-button>

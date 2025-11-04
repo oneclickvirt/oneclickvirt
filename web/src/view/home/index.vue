@@ -4,7 +4,11 @@
     <header class="home-header">
       <div class="header-content">
         <div class="logo">
-          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <img
+            src="@/assets/images/logo.png"
+            alt="OneClickVirt Logo"
+            class="logo-image"
+          >
           <h1>{{ t('home.title') }}</h1>
         </div>
         <nav class="nav-menu">
@@ -62,21 +66,21 @@
           <div class="feature-preview">
             <div class="preview-card">
               <div class="card-icon">
-                <i class="fas fa-server"></i>
+                <i class="fas fa-server" />
               </div>
               <h3>{{ t('home.features.vm.title') }}</h3>
               <p>{{ t('home.features.vm.description') }}</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
-                <i class="fas fa-box"></i>
+                <i class="fas fa-box" />
               </div>
               <h3>{{ t('home.features.container.title') }}</h3>
               <p>{{ t('home.features.container.description') }}</p>
             </div>
             <div class="preview-card">
               <div class="card-icon">
-                <i class="fas fa-chart-bar"></i>
+                <i class="fas fa-chart-bar" />
               </div>
               <h3>{{ t('home.features.monitoring.title') }}</h3>
               <p>{{ t('home.features.monitoring.description') }}</p>
@@ -138,6 +142,63 @@
               >
             </div>
             <h3>LXD</h3>
+          </div>
+        </div>
+        <!-- 统计概况：与平台卡片相同的框架风格，显示用户/节点/容器/虚拟机数量 -->
+        <div
+          class="stats-grid"
+          aria-label="platform-stats"
+        >
+          <div class="platform-item stats-item">
+            <div class="platform-icon">
+              <i
+                class="fas fa-users fa-2x"
+                aria-hidden="true"
+              />
+            </div>
+            <h3>{{ t('home.stats.users') }}</h3>
+            <p class="stats-value">
+              {{ usersCountDisplay }}
+            </p>
+          </div>
+
+          <div class="platform-item stats-item">
+            <div class="platform-icon">
+              <i
+                class="fas fa-network-wired fa-2x"
+                aria-hidden="true"
+              />
+            </div>
+            <h3>{{ t('home.stats.nodes') }}</h3>
+            <p class="stats-value">
+              {{ nodesCountDisplay }}
+            </p>
+          </div>
+
+          <div class="platform-item stats-item">
+            <div class="platform-icon">
+              <i
+                class="fas fa-box fa-2x"
+                aria-hidden="true"
+              />
+            </div>
+            <h3>{{ t('home.stats.containers') }}</h3>
+            <p class="stats-value">
+              {{ containersCountDisplay }}
+            </p>
+          </div>
+
+          <div class="platform-item stats-item">
+            <div class="platform-icon">
+              <i
+                class="fas fa-server fa-2x"
+                aria-hidden="true"
+              />
+            </div>
+            <h3>{{ t('home.stats.vms') }}</h3>
+            <p class="stats-value">
+              {{ vmsCountDisplay }}
+            </p>
           </div>
         </div>
       </section>
@@ -299,10 +360,10 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { getPublicAnnouncements } from '@/api/public'
+import { getPublicAnnouncements, getPublicStats } from '@/api/public'
 import { checkSystemInit } from '@/api/init'
 import { ElTag, ElMessage } from 'element-plus'
 import { Operation } from '@element-plus/icons-vue'
@@ -312,6 +373,16 @@ const router = useRouter()
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
 const announcements = ref([])
+// 统计数据
+const usersCount = ref(null)
+const nodesCount = ref(null)
+const containersCount = ref(null)
+const vmsCount = ref(null)
+
+const usersCountDisplay = computed(() => (usersCount.value === null ? '-' : usersCount.value))
+const nodesCountDisplay = computed(() => (nodesCount.value === null ? '-' : nodesCount.value))
+const containersCountDisplay = computed(() => (containersCount.value === null ? '-' : containersCount.value))
+const vmsCountDisplay = computed(() => (vmsCount.value === null ? '-' : vmsCount.value))
 
 const switchLanguage = () => {
   const newLang = languageStore.toggleLanguage()
@@ -332,6 +403,31 @@ const fetchAnnouncements = async () => {
     }
   } catch (error) {
     console.error(t('home.errors.fetchAnnouncementsFailed'), error)
+  }
+}
+
+const fetchPublicStats = async () => {
+  try {
+    const resp = await getPublicStats()
+    if (resp && (resp.code === 0 || resp.code === 200) && resp.data) {
+      const d = resp.data
+      // 尝试从常见字段拾取数据，做多层回退以兼容不同返回结构
+      usersCount.value = d.userStats?.totalUsers ?? d.user_count ?? d.userCount ?? d.userTotal ?? null
+      // nodes 可能对应 regionStats 的 count 总和或 provider 总数
+      if (Array.isArray(d.regionStats) && d.regionStats.length > 0) {
+        let total = 0
+        d.regionStats.forEach(r => { total += r.count ?? 0 })
+        nodesCount.value = total
+      } else {
+        nodesCount.value = d.provider_count ?? d.node_count ?? d.nodeCount ?? null
+      }
+
+      // 容器/虚拟机：尝试从资源统计中读取
+      containersCount.value = d.resourceUsage?.container_count ?? d.resourceUsage?.containerCount ?? d.container_count ?? d.containerCount ?? null
+      vmsCount.value = d.resourceUsage?.vm_count ?? d.resourceUsage?.vmCount ?? d.vm_count ?? d.vmCount ?? null
+    }
+  } catch (error) {
+    console.error('获取公开统计数据失败', error)
   }
 }
 
@@ -365,6 +461,8 @@ onMounted(() => {
   checkInitStatus()
   // 然后获取公告
   fetchAnnouncements()
+  // 获取公开统计数据（用于未登录首页展示）
+  fetchPublicStats()
 })
 </script>
 
@@ -633,6 +731,25 @@ onMounted(() => {
   grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
   gap: 32px;
   margin-top: 60px;
+}
+
+/* 统计概况网格：复用 platform-item 的视觉样式，使其与图标卡片一致 */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 24px;
+  margin-top: 36px;
+}
+
+.stats-item .platform-icon {
+  height: 56px;
+}
+
+.stats-value {
+  font-size: 28px;
+  color: #16a34a;
+  font-weight: 700;
+  margin-top: 12px;
 }
 
 .platform-item {

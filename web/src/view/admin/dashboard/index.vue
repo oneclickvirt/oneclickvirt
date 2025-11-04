@@ -7,83 +7,107 @@
         </div>
       </template>
 
-    <!-- 统计卡片 -->
-    <el-row
-      :gutter="20"
-      class="stats-row"
-    >
-      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon user-icon">
-              <i class="fas fa-users"></i>
-            </div>
-            <div class="stat-info">
-              <div class="stat-number">
-                {{ dashboardData.totalUsers }}
+      <!-- 统计卡片 -->
+      <el-row
+        :gutter="20"
+        class="stats-row"
+      >
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="12"
+          :lg="6"
+          :xl="6"
+        >
+          <el-card class="stat-card">
+            <div class="stat-content">
+              <div class="stat-icon user-icon">
+                <i class="fas fa-users" />
               </div>
-              <div class="stat-label">
-                {{ $t('admin.dashboard.totalUsers') }}
+              <div class="stat-info">
+                <div class="stat-number">
+                  {{ dashboardData.totalUsers }}
+                </div>
+                <div class="stat-label">
+                  {{ $t('admin.dashboard.totalUsers') }}
+                </div>
               </div>
             </div>
-          </div>
-        </el-card>
-      </el-col>
+          </el-card>
+        </el-col>
       
-      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon server-icon">
-              <i class="fas fa-server"></i>
-            </div>
-            <div class="stat-info">
-              <div class="stat-number">
-                {{ dashboardData.totalProviders }}
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="12"
+          :lg="6"
+          :xl="6"
+        >
+          <el-card class="stat-card">
+            <div class="stat-content">
+              <div class="stat-icon server-icon">
+                <i class="fas fa-server" />
               </div>
-              <div class="stat-label">
-                {{ $t('admin.dashboard.totalProviders') }}
+              <div class="stat-info">
+                <div class="stat-number">
+                  {{ dashboardData.totalProviders }}
+                </div>
+                <div class="stat-label">
+                  {{ $t('admin.dashboard.totalProviders') }}
+                </div>
               </div>
             </div>
-          </div>
-        </el-card>
-      </el-col>
+          </el-card>
+        </el-col>
       
-      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon vm-icon">
-              <i class="fas fa-desktop"></i>
-            </div>
-            <div class="stat-info">
-              <div class="stat-number">
-                {{ dashboardData.totalVMs }}
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="12"
+          :lg="6"
+          :xl="6"
+        >
+          <el-card class="stat-card">
+            <div class="stat-content">
+              <div class="stat-icon vm-icon">
+                <i class="fas fa-desktop" />
               </div>
-              <div class="stat-label">
-                {{ $t('admin.dashboard.totalVMs') }}
+              <div class="stat-info">
+                <div class="stat-number">
+                  {{ dashboardData.totalVMs }}
+                </div>
+                <div class="stat-label">
+                  {{ $t('admin.dashboard.totalVMs') }}
+                </div>
               </div>
             </div>
-          </div>
-        </el-card>
-      </el-col>
+          </el-card>
+        </el-col>
       
-      <el-col :xs="24" :sm="12" :md="12" :lg="6" :xl="6">
-        <el-card class="stat-card">
-          <div class="stat-content">
-            <div class="stat-icon container-icon">
-              <i class="fas fa-box"></i>
-            </div>
-            <div class="stat-info">
-              <div class="stat-number">
-                {{ dashboardData.totalContainers }}
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="12"
+          :lg="6"
+          :xl="6"
+        >
+          <el-card class="stat-card">
+            <div class="stat-content">
+              <div class="stat-icon container-icon">
+                <i class="fas fa-box" />
               </div>
-              <div class="stat-label">
-                {{ $t('admin.dashboard.totalContainers') }}
+              <div class="stat-info">
+                <div class="stat-number">
+                  {{ dashboardData.totalContainers }}
+                </div>
+                <div class="stat-label">
+                  {{ $t('admin.dashboard.totalContainers') }}
+                </div>
               </div>
             </div>
-          </div>
-        </el-card>
-      </el-col>
-    </el-row>
+          </el-card>
+        </el-col>
+      </el-row>
     </el-card>
   </div>
 </template>

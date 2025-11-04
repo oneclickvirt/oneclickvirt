@@ -4,7 +4,11 @@
     <header class="auth-header">
       <div class="header-content">
         <div class="logo">
-          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <img
+            src="@/assets/images/logo.png"
+            alt="OneClickVirt Logo"
+            class="logo-image"
+          >
           <h1>OneClickVirt</h1>
         </div>
         <nav class="nav-actions">

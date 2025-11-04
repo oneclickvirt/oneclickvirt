@@ -304,6 +304,12 @@ export default {
       title: '支持的虚拟化平台',
       description: '一键对接多种主流虚拟化技术'
     },
+    stats: {
+      users: '用户数量',
+      nodes: '节点数量',
+      containers: '容器数量',
+      vms: '虚拟机数量'
+    },
     announcements: {
       title: '系统公告',
       typeHomepage: '首页公告',

@@ -123,8 +123,16 @@
                 :color="getProgressColor(userLimits.usedTraffic, userLimits.maxTraffic)"
                 :stroke-width="8"
               />
-              <div v-else class="unlimited-badge">
-                <el-tag type="success" size="small">{{ t('user.dashboard.unlimitedTraffic') }}</el-tag>
+              <div
+                v-else
+                class="unlimited-badge"
+              >
+                <el-tag
+                  type="success"
+                  size="small"
+                >
+                  {{ t('user.dashboard.unlimitedTraffic') }}
+                </el-tag>
               </div>
               <div class="limit-description">
                 {{ userLimits.maxTraffic > 0 ? t('user.dashboard.trafficLimitDesc') : t('user.dashboard.unlimitedTrafficDesc') }}

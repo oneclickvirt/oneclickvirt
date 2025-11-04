@@ -358,10 +358,16 @@
           <el-descriptions-item :label="$t('admin.instances.privateIPv4')">
             {{ selectedInstance.privateIP || $t('admin.instances.unassigned') }}
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('admin.instances.privateIPv6')" v-if="selectedInstance.ipv6Address">
+          <el-descriptions-item
+            v-if="selectedInstance.ipv6Address"
+            :label="$t('admin.instances.privateIPv6')"
+          >
             {{ selectedInstance.ipv6Address }}
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('admin.instances.publicIPv6')" v-if="selectedInstance.publicIPv6">
+          <el-descriptions-item
+            v-if="selectedInstance.publicIPv6"
+            :label="$t('admin.instances.publicIPv6')"
+          >
             {{ selectedInstance.publicIPv6 }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.sshPort')">

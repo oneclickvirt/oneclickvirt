@@ -73,6 +73,7 @@ type UpdateSystemImageRequest struct {
 // @Param architecture query string false "架构" Enums(amd64,arm64,s390x)
 // @Param status query string false "状态" Enums(active,inactive)
 // @Param search query string false "搜索关键字"
+// @Param osType query string false "操作系统类型"
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Failure 400 {object} common.Response "请求参数错误"
 // @Failure 500 {object} common.Response "服务器内部错误"
@@ -86,6 +87,7 @@ func GetSystemImageList(c *gin.Context) {
 	providerType := c.Query("providerType")
 	instanceType := c.Query("instanceType")
 	architecture := c.Query("architecture")
+	osType := c.Query("osType")
 	status := c.Query("status")
 	search := c.Query("search")
 
@@ -100,6 +102,10 @@ func GetSystemImageList(c *gin.Context) {
 	}
 	if architecture != "" {
 		db = db.Where("architecture = ?", architecture)
+	}
+	if osType != "" {
+		// 使用小写匹配，支持主流Linux系统
+		db = db.Where("LOWER(os_type) = LOWER(?)", osType)
 	}
 	if status != "" {
 		db = db.Where("status = ?", status)
@@ -491,9 +497,10 @@ func GetAvailableSystemImages(c *gin.Context) {
 	providerType := c.Query("providerType")
 	instanceType := c.Query("instanceType")
 	architecture := c.Query("architecture")
+	osType := c.Query("osType")
 
 	imageService := images.ImageService{}
-	images, err := imageService.GetAvailableImages(providerType, instanceType, architecture)
+	images, err := imageService.GetAvailableImagesWithOS(providerType, instanceType, architecture, osType)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code": 500,

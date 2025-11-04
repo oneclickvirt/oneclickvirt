@@ -207,7 +207,9 @@
               size="small"
               type="warning"
             >
-              <el-icon style="margin-right: 4px;"><FolderOpened /></el-icon>
+              <el-icon style="margin-right: 4px;">
+                <FolderOpened />
+              </el-icon>
               {{ scope.row.storagePool }}
             </el-tag>
             <el-text
@@ -957,20 +959,42 @@
               <span style="margin-left: 8px;">{{ $t('admin.providers.virtualizationConfig') }}</span>
             </el-divider>
 
-            <el-row :gutter="20" style="margin-bottom: 20px;">
+            <el-row
+              :gutter="20"
+              style="margin-bottom: 20px;"
+            >
               <el-col :span="12">
-                <el-card shadow="hover" style="height: 100%;">
+                <el-card
+                  shadow="hover"
+                  style="height: 100%;"
+                >
                   <template #header>
                     <div style="display: flex; align-items: center; font-weight: 600;">
-                      <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
+                      <el-icon
+                        size="18"
+                        style="margin-right: 8px;"
+                      >
+                        <Box />
+                      </el-icon>
                       <span>{{ $t('admin.providers.supportTypes') }}</span>
                     </div>
                   </template>
-                  <div class="support-type-group" style="padding: 10px 0;">
-                    <el-checkbox v-model="addProviderForm.containerEnabled" style="margin-right: 30px;">
+                  <div
+                    class="support-type-group"
+                    style="padding: 10px 0;"
+                  >
+                    <el-checkbox
+                      v-model="addProviderForm.containerEnabled"
+                      style="margin-right: 30px;"
+                    >
                       <span style="font-size: 14px;">{{ $t('admin.providers.supportContainer') }}</span>
-                      <el-tooltip :content="$t('admin.providers.containerTech')" placement="top">
-                        <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
+                      <el-tooltip
+                        :content="$t('admin.providers.containerTech')"
+                        placement="top"
+                      >
+                        <el-icon style="margin-left: 5px;">
+                          <InfoFilled />
+                        </el-icon>
                       </el-tooltip>
                     </el-checkbox>
                     <el-checkbox 
@@ -978,28 +1002,51 @@
                       :disabled="addProviderForm.type === 'docker'"
                     >
                       <span style="font-size: 14px;">{{ $t('admin.providers.supportVM') }}</span>
-                      <el-tooltip :content="$t('admin.providers.vmTech')" placement="top">
-                        <el-icon style="margin-left: 5px;"><InfoFilled /></el-icon>
+                      <el-tooltip
+                        :content="$t('admin.providers.vmTech')"
+                        placement="top"
+                      >
+                        <el-icon style="margin-left: 5px;">
+                          <InfoFilled />
+                        </el-icon>
                       </el-tooltip>
                     </el-checkbox>
                   </div>
-                  <div class="form-tip" style="margin-top: 10px;">
-                    <el-text size="small" type="info">
+                  <div
+                    class="form-tip"
+                    style="margin-top: 10px;"
+                  >
+                    <el-text
+                      size="small"
+                      type="info"
+                    >
                       {{ addProviderForm.type === 'docker' ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtualizationType') }}
                     </el-text>
                   </div>
                 </el-card>
               </el-col>
               <el-col :span="12">
-                <el-card shadow="hover" style="height: 100%;">
+                <el-card
+                  shadow="hover"
+                  style="height: 100%;"
+                >
                   <template #header>
                     <div style="display: flex; align-items: center; font-weight: 600;">
-                      <el-icon size="18" style="margin-right: 8px;"><DocumentCopy /></el-icon>
+                      <el-icon
+                        size="18"
+                        style="margin-right: 8px;"
+                      >
+                        <DocumentCopy />
+                      </el-icon>
                       <span>{{ $t('admin.providers.instanceLimits') }}</span>
                     </div>
                   </template>
                   <div style="padding: 5px 0;">
-                    <el-form-item :label="$t('admin.providers.maxContainers')" label-width="100px" style="margin-bottom: 15px;">
+                    <el-form-item
+                      :label="$t('admin.providers.maxContainers')"
+                      label-width="100px"
+                      style="margin-bottom: 15px;"
+                    >
                       <el-input-number
                         v-model="addProviderForm.maxContainerInstances"
                         :min="0"
@@ -1010,12 +1057,24 @@
                         size="small"
                         style="width: 100%"
                       />
-                      <div class="form-tip" style="margin-top: 5px;">
-                        <el-text size="small" type="info">{{ $t('admin.providers.maxContainersTip') }}</el-text>
+                      <div
+                        class="form-tip"
+                        style="margin-top: 5px;"
+                      >
+                        <el-text
+                          size="small"
+                          type="info"
+                        >
+                          {{ $t('admin.providers.maxContainersTip') }}
+                        </el-text>
                       </div>
                     </el-form-item>
                     
-                    <el-form-item :label="$t('admin.providers.maxVMs')" label-width="100px" style="margin-bottom: 0;">
+                    <el-form-item
+                      :label="$t('admin.providers.maxVMs')"
+                      label-width="100px"
+                      style="margin-bottom: 0;"
+                    >
                       <el-input-number
                         v-model="addProviderForm.maxVMInstances"
                         :min="0"
@@ -1026,8 +1085,16 @@
                         size="small"
                         style="width: 100%"
                       />
-                      <div class="form-tip" style="margin-top: 5px;">
-                        <el-text size="small" type="info">{{ $t('admin.providers.maxVMsTip') }}</el-text>
+                      <div
+                        class="form-tip"
+                        style="margin-top: 5px;"
+                      >
+                        <el-text
+                          size="small"
+                          type="info"
+                        >
+                          {{ $t('admin.providers.maxVMsTip') }}
+                        </el-text>
                       </div>
                     </el-form-item>
                   </div>
@@ -1041,10 +1108,20 @@
                 <template #header>
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; font-weight: 600;">
-                      <el-icon size="18" style="margin-right: 8px;"><Box /></el-icon>
+                      <el-icon
+                        size="18"
+                        style="margin-right: 8px;"
+                      >
+                        <Box />
+                      </el-icon>
                       <span>{{ $t('admin.providers.containerResourceLimits') }}</span>
                     </div>
-                    <el-tag size="small" type="info">Container</el-tag>
+                    <el-tag
+                      size="small"
+                      type="info"
+                    >
+                      Container
+                    </el-tag>
                   </div>
                 </template>
                 <el-alert
@@ -1057,7 +1134,7 @@
                     <span style="font-size: 13px;">{{ $t('admin.providers.configDescription') }}</span>
                   </template>
                   <div style="font-size: 12px; line-height: 1.8;">
-                    {{ $t('admin.providers.enableLimitTip') }}<br/>
+                    {{ $t('admin.providers.enableLimitTip') }}<br>
                     {{ $t('admin.providers.noLimitTip') }}
                   </div>
                 </el-alert>
@@ -1076,7 +1153,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultNoLimitCPU') }}</span>
                       </div>
                     </div>
@@ -1095,7 +1174,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultNoLimitMemory') }}</span>
                       </div>
                     </div>
@@ -1114,7 +1195,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultLimitDisk') }}</span>
                       </div>
                     </div>
@@ -1129,10 +1212,20 @@
                 <template #header>
                   <div style="display: flex; align-items: center; justify-content: space-between;">
                     <div style="display: flex; align-items: center; font-weight: 600;">
-                      <el-icon size="18" style="margin-right: 8px;"><Monitor /></el-icon>
+                      <el-icon
+                        size="18"
+                        style="margin-right: 8px;"
+                      >
+                        <Monitor />
+                      </el-icon>
                       <span>{{ $t('admin.providers.vmResourceLimits') }}</span>
                     </div>
-                    <el-tag size="small" type="success">Virtual Machine</el-tag>
+                    <el-tag
+                      size="small"
+                      type="success"
+                    >
+                      Virtual Machine
+                    </el-tag>
                   </div>
                 </template>
                 <el-alert
@@ -1145,7 +1238,7 @@
                     <span style="font-size: 13px;">{{ $t('admin.providers.configDescription') }}</span>
                   </template>
                   <div style="font-size: 12px; line-height: 1.8;">
-                    {{ $t('admin.providers.enableLimitTip') }}<br/>
+                    {{ $t('admin.providers.enableLimitTip') }}<br>
                     {{ $t('admin.providers.noLimitTip') }}
                   </div>
                 </el-alert>
@@ -1164,7 +1257,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultLimitCPU') }}</span>
                       </div>
                     </div>
@@ -1183,7 +1278,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultLimitMemory') }}</span>
                       </div>
                     </div>
@@ -1202,7 +1299,9 @@
                         style="--el-switch-on-color: #13ce66; --el-switch-off-color: #ff4949;"
                       />
                       <div class="resource-limit-tip">
-                        <el-icon size="12"><InfoFilled /></el-icon>
+                        <el-icon size="12">
+                          <InfoFilled />
+                        </el-icon>
                         <span>{{ $t('admin.providers.defaultLimitDisk') }}</span>
                       </div>
                     </div>

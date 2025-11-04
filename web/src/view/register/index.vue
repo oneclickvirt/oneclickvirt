@@ -4,7 +4,11 @@
     <header class="auth-header">
       <div class="header-content">
         <div class="logo">
-          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <img
+            src="@/assets/images/logo.png"
+            alt="OneClickVirt Logo"
+            class="logo-image"
+          >
           <h1>OneClickVirt</h1>
         </div>
         <nav class="nav-actions">
@@ -256,9 +260,15 @@ const refreshCaptcha = async () => {
 
 const handleRegister = async () => {
   if (!registerFormRef.value) return
+  
+  // 防止重复提交
+  if (loading.value) return
 
   await registerFormRef.value.validate(async (valid) => {
     if (!valid) return
+    
+    // 再次检查loading状态，防止表单验证期间的重复点击
+    if (loading.value) return
 
     loading.value = true
     try {

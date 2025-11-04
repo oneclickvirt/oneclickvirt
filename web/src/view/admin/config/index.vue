@@ -233,11 +233,11 @@
             >
               <div>{{ $t('admin.config.userLevelHint') }}</div>
               <div style="margin-top: 8px; color: #67C23A;">
-                <i class="el-icon-check"></i>
+                <i class="el-icon-check" />
                 {{ $t('admin.config.autoSyncHint') }}
               </div>
               <div style="margin-top: 8px; color: #E6A23C;">
-                <i class="el-icon-warning"></i>
+                <i class="el-icon-warning" />
                 {{ $t('admin.config.resourceLimitWarning') }}
               </div>
             </el-alert>

@@ -4,13 +4,24 @@
       <template #header>
         <div class="card-header">
           <span>{{ $t('admin.systemImages.title') }}</span>
-          <el-button
-            type="primary"
-            @click="handleCreate"
-          >
-            <el-icon><Plus /></el-icon>
-            {{ $t('admin.systemImages.addImage') }}
-          </el-button>
+          <div class="header-buttons">
+            <el-button @click="handleReset">
+              {{ $t('common.reset') }}
+            </el-button>
+            <el-button
+              type="primary"
+              @click="handleSearch"
+            >
+              {{ $t('common.search') }}
+            </el-button>
+            <el-button
+              type="primary"
+              @click="handleCreate"
+            >
+              <el-icon><Plus /></el-icon>
+              {{ $t('admin.systemImages.addImage') }}
+            </el-button>
+          </div>
         </div>
       </template>
 
@@ -22,8 +33,6 @@
               v-model="searchForm.search"
               :placeholder="$t('admin.systemImages.searchPlaceholder')"
               clearable
-              @clear="handleSearch"
-              @keyup.enter="handleSearch"
             >
               <template #prefix>
                 <el-icon><Search /></el-icon>
@@ -35,7 +44,6 @@
               v-model="searchForm.providerType"
               :placeholder="$t('admin.systemImages.providerType')"
               clearable
-              @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
@@ -61,7 +69,6 @@
               v-model="searchForm.instanceType"
               :placeholder="$t('admin.systemImages.instanceType')"
               clearable
-              @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
@@ -79,7 +86,6 @@
               v-model="searchForm.architecture"
               :placeholder="$t('admin.systemImages.architecture')"
               clearable
-              @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
@@ -102,7 +108,6 @@
               :placeholder="$t('admin.systemImages.osType')"
               clearable
               style="width: 100%;"
-              @change="handleSearch"
             >
               <el-option-group
                 v-for="(osList, category) in groupedOperatingSystems"
@@ -123,7 +128,6 @@
               v-model="searchForm.status"
               :placeholder="$t('common.status')"
               clearable
-              @change="handleSearch"
               style="width: 100%;"
             >
               <el-option
@@ -135,17 +139,6 @@
                 value="inactive"
               />
             </el-select>
-          </el-col>
-          <el-col :span="4">
-            <el-button
-              type="primary"
-              @click="handleSearch"
-            >
-              {{ $t('common.search') }}
-            </el-button>
-            <el-button @click="handleReset">
-              {{ $t('common.reset') }}
-            </el-button>
           </el-col>
         </el-row>
       </div>
@@ -488,20 +481,10 @@
               :label="$t('admin.systemImages.osVersion')"
               prop="osVersion"
             >
-              <el-select 
+              <el-input 
                 v-model="form.osVersion" 
                 :placeholder="$t('admin.systemImages.selectOsVersion')"
-                filterable
-                allow-create
-                default-first-option
-              >
-                <el-option
-                  v-for="version in availableVersions"
-                  :key="version"
-                  :label="version"
-                  :value="version"
-                />
-              </el-select>
+              />
             </el-form-item>
           </el-col>
         </el-row>
@@ -605,7 +588,6 @@ import { useI18n } from 'vue-i18n'
 import { systemImageApi } from '@/api/admin'
 import { 
   getOperatingSystemsByCategory, 
-  getCommonVersions,
   getDisplayName 
 } from '@/utils/operating-systems'
 
@@ -662,7 +644,6 @@ const editId = ref(null)
 
 // 操作系统数据
 const groupedOperatingSystems = ref(getOperatingSystemsByCategory())
-const availableVersions = ref([])
 
 // 计算属性
 const dialogTitle = computed(() => isEdit.value ? t('admin.systemImages.editImage') : t('admin.systemImages.addImage'))
@@ -769,11 +750,6 @@ const handleEdit = (row) => {
     minDiskMB: row.minDiskMB || null,
     useCdn: row.useCdn !== undefined ? row.useCdn : true
   })
-  
-  // 设置可用版本
-  if (form.osType) {
-    availableVersions.value = getCommonVersions(form.osType)
-  }
   
   dialogVisible.value = true
 }
@@ -964,14 +940,8 @@ const handleInstanceTypeChange = () => {
 
 // 操作系统类型变化
 const handleOsTypeChange = () => {
-  // 更新可用版本列表
-  if (form.osType) {
-    availableVersions.value = getCommonVersions(form.osType)
-    // 清空之前选择的版本
-    form.osVersion = ''
-  } else {
-    availableVersions.value = []
-  }
+  // 清空之前选择的版本
+  form.osVersion = ''
 }
 
 // 获取URL提示
@@ -1047,6 +1017,12 @@ onMounted(() => {
     font-weight: 600;
     color: #303133;
   }
+}
+
+.header-buttons {
+  display: flex;
+  gap: 8px;
+  align-items: center;
 }
 
 .system-images-table {

@@ -1,5 +1,8 @@
 <template>
-  <div class="app-wrapper" :class="{ 'mobile': isMobile }">
+  <div
+    class="app-wrapper"
+    :class="{ 'mobile': isMobile }"
+  >
     <!-- 顶部栏公告 -->
     <TopbarAnnouncement />
     

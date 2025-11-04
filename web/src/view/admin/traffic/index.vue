@@ -32,16 +32,29 @@
           </div>
         </template>
 
-        <div v-if="overviewLoading" class="loading-container">
-          <el-skeleton :rows="3" animated />
+        <div
+          v-if="overviewLoading"
+          class="loading-container"
+        >
+          <el-skeleton
+            :rows="3"
+            animated
+          />
         </div>
 
-        <div v-else-if="systemOverview" class="overview-content">
+        <div
+          v-else-if="systemOverview"
+          class="overview-content"
+        >
           <el-row :gutter="20">
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">{{ $t('admin.traffic.monthlyTotalTraffic') }}</div>
-                <div class="stat-value">{{ systemOverview.traffic?.formatted?.total_bytes || '0 B' }}</div>
+                <div class="stat-title">
+                  {{ $t('admin.traffic.monthlyTotalTraffic') }}
+                </div>
+                <div class="stat-value">
+                  {{ systemOverview.traffic?.formatted?.total_bytes || '0 B' }}
+                </div>
                 <div class="stat-subtitle">
                   {{ $t('admin.traffic.uplink') }}: {{ systemOverview.traffic?.formatted?.total_tx || '0 B' }} / 
                   {{ $t('admin.traffic.downlink') }}: {{ systemOverview.traffic?.formatted?.total_rx || '0 B' }}
@@ -50,8 +63,12 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">{{ $t('admin.traffic.userStats') }}</div>
-                <div class="stat-value">{{ systemOverview.users?.total || 0 }}</div>
+                <div class="stat-title">
+                  {{ $t('admin.traffic.userStats') }}
+                </div>
+                <div class="stat-value">
+                  {{ systemOverview.users?.total || 0 }}
+                </div>
                 <div class="stat-subtitle">
                   {{ $t('admin.traffic.limited') }}: {{ systemOverview.users?.limited || 0 }} 
                   ({{ (systemOverview.users?.limited_percent || 0).toFixed(1) }}%)
@@ -60,8 +77,12 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">{{ $t('admin.traffic.providerStats') }}</div>
-                <div class="stat-value">{{ systemOverview.providers?.total || 0 }}</div>
+                <div class="stat-title">
+                  {{ $t('admin.traffic.providerStats') }}
+                </div>
+                <div class="stat-value">
+                  {{ systemOverview.providers?.total || 0 }}
+                </div>
                 <div class="stat-subtitle">
                   {{ $t('admin.traffic.limited') }}: {{ systemOverview.providers?.limited || 0 }} 
                   ({{ (systemOverview.providers?.limited_percent || 0).toFixed(1) }}%)
@@ -70,15 +91,24 @@
             </el-col>
             <el-col :span="6">
               <div class="stat-card">
-                <div class="stat-title">{{ $t('admin.traffic.totalInstances') }}</div>
-                <div class="stat-value">{{ systemOverview.instances || 0 }}</div>
-                <div class="stat-subtitle">{{ $t('admin.traffic.activeInstanceStats') }}</div>
+                <div class="stat-title">
+                  {{ $t('admin.traffic.totalInstances') }}
+                </div>
+                <div class="stat-value">
+                  {{ systemOverview.instances || 0 }}
+                </div>
+                <div class="stat-subtitle">
+                  {{ $t('admin.traffic.activeInstanceStats') }}
+                </div>
               </div>
             </el-col>
           </el-row>
 
           <div class="period-info">
-            <el-text type="info" size="small">
+            <el-text
+              type="info"
+              size="small"
+            >
               <el-icon><Calendar /></el-icon>
               {{ $t('admin.traffic.statsPeriod') }}: {{ systemOverview.period }}
             </el-text>
@@ -175,8 +205,14 @@
           </div>
         </div>
 
-        <div v-if="rankingLoading" class="loading-container">
-          <el-skeleton :rows="5" animated />
+        <div
+          v-if="rankingLoading"
+          class="loading-container"
+        >
+          <el-skeleton
+            :rows="5"
+            animated
+          />
         </div>
 
         <div v-else-if="trafficRanking && trafficRanking.length > 0">
@@ -191,7 +227,11 @@
               width="55"
               align="center"
             />
-            <el-table-column :label="$t('admin.traffic.rank')" width="80" align="center">
+            <el-table-column
+              :label="$t('admin.traffic.rank')"
+              width="80"
+              align="center"
+            >
               <template #default="{ row }">
                 <el-tag 
                   :type="getRankTagType(row.rank)"
@@ -202,19 +242,37 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column prop="username" :label="$t('admin.traffic.username')" width="150" />
-            <el-table-column prop="nickname" :label="$t('admin.traffic.nickname')" width="150" />
-            <el-table-column :label="$t('admin.traffic.monthlyUsage')" width="120">
+            <el-table-column
+              prop="username"
+              :label="$t('admin.traffic.username')"
+              width="150"
+            />
+            <el-table-column
+              prop="nickname"
+              :label="$t('admin.traffic.nickname')"
+              width="150"
+            />
+            <el-table-column
+              :label="$t('admin.traffic.monthlyUsage')"
+              width="120"
+            >
               <template #default="{ row }">
                 {{ row.formatted?.month_usage || formatBytes(row.month_usage) }}
               </template>
             </el-table-column>
-            <el-table-column :label="$t('admin.traffic.totalLimit')" width="120">
+            <el-table-column
+              :label="$t('admin.traffic.totalLimit')"
+              width="120"
+            >
               <template #default="{ row }">
                 {{ row.formatted?.total_limit || formatTrafficMB(row.total_limit) }}
               </template>
             </el-table-column>
-            <el-table-column :label="$t('admin.traffic.usageRate')" width="120" align="center">
+            <el-table-column
+              :label="$t('admin.traffic.usageRate')"
+              width="120"
+              align="center"
+            >
               <template #default="{ row }">
                 <el-progress
                   :percentage="Math.min(row.usage_percent || 0, 100)"
@@ -227,7 +285,11 @@
                 </div>
               </template>
             </el-table-column>
-            <el-table-column :label="$t('common.status')" width="100" align="center">
+            <el-table-column
+              :label="$t('common.status')"
+              width="100"
+              align="center"
+            >
               <template #default="{ row }">
                 <el-tag 
                   :type="row.is_limited ? 'danger' : 'success'"
@@ -237,7 +299,11 @@
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="$t('common.actions')" width="280" align="center">
+            <el-table-column
+              :label="$t('common.actions')"
+              width="280"
+              align="center"
+            >
               <template #default="{ row }">
                 <el-button
                   size="small"
@@ -287,7 +353,10 @@
           </div>
         </div>
 
-        <div v-else class="empty-state">
+        <div
+          v-else
+          class="empty-state"
+        >
           <el-empty :description="$t('admin.traffic.noTrafficData')" />
         </div>
       </el-card>
@@ -299,15 +368,31 @@
       :title="$t('admin.traffic.userTrafficDetails')"
       width="600px"
     >
-      <div v-if="userTrafficLoading" class="loading-container">
-        <el-skeleton :rows="4" animated />
+      <div
+        v-if="userTrafficLoading"
+        class="loading-container"
+      >
+        <el-skeleton
+          :rows="4"
+          animated
+        />
       </div>
 
-      <div v-else-if="selectedUserTraffic" class="user-traffic-detail">
-        <el-descriptions :column="2" border>
-          <el-descriptions-item :label="$t('admin.traffic.userId')">{{ selectedUserTraffic.user_id }}</el-descriptions-item>
+      <div
+        v-else-if="selectedUserTraffic"
+        class="user-traffic-detail"
+      >
+        <el-descriptions
+          :column="2"
+          border
+        >
+          <el-descriptions-item :label="$t('admin.traffic.userId')">
+            {{ selectedUserTraffic.user_id }}
+          </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.dataSource')">
-            <el-tag type="success">{{ $t('admin.traffic.vnstatRealtime') }}</el-tag>
+            <el-tag type="success">
+              {{ $t('admin.traffic.vnstatRealtime') }}
+            </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.monthlyUsage')">
             {{ selectedUserTraffic.formatted?.current_usage || formatTrafficMB(selectedUserTraffic.current_month_usage) }}
@@ -325,8 +410,14 @@
           </el-descriptions-item>
         </el-descriptions>
 
-        <div v-if="selectedUserTraffic.reset_time" style="margin-top: 15px;">
-          <el-text type="info" size="small">
+        <div
+          v-if="selectedUserTraffic.reset_time"
+          style="margin-top: 15px;"
+        >
+          <el-text
+            type="info"
+            size="small"
+          >
             <el-icon><Clock /></el-icon>
             {{ $t('admin.traffic.trafficResetTime') }}: {{ formatDate(selectedUserTraffic.reset_time) }}
           </el-text>
@@ -362,7 +453,11 @@
         <el-form-item :label="$t('common.user')">
           <el-text>{{ selectedUser?.username }} ({{ selectedUser?.email }})</el-text>
         </el-form-item>
-        <el-form-item v-if="limitAction === 'limit'" :label="$t('admin.traffic.limitReason')" prop="reason">
+        <el-form-item
+          v-if="limitAction === 'limit'"
+          :label="$t('admin.traffic.limitReason')"
+          prop="reason"
+        >
           <el-input
             v-model="limitForm.reason"
             type="textarea"

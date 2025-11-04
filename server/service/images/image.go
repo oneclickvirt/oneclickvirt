@@ -272,12 +272,18 @@ func (s *ImageService) PrepareImageForInstance(req image.DownloadImageRequest) (
 
 // GetAvailableImages 获取可用镜像列表
 func (s *ImageService) GetAvailableImages(providerType, instanceType, architecture string) ([]system.SystemImage, error) {
+	return s.GetAvailableImagesWithOS(providerType, instanceType, architecture, "")
+}
+
+// GetAvailableImagesWithOS 获取可用的系统镜像（带操作系统过滤）
+func (s *ImageService) GetAvailableImagesWithOS(providerType, instanceType, architecture, osType string) ([]system.SystemImage, error) {
 	var images []system.SystemImage
 
 	global.APP_LOG.Debug("查询可用镜像",
 		zap.String("providerType", providerType),
 		zap.String("instanceType", instanceType),
-		zap.String("architecture", architecture))
+		zap.String("architecture", architecture),
+		zap.String("osType", osType))
 
 	query := global.APP_DB.Where("status = ?", "active")
 
@@ -290,12 +296,17 @@ func (s *ImageService) GetAvailableImages(providerType, instanceType, architectu
 	if architecture != "" {
 		query = query.Where("architecture = ?", architecture)
 	}
+	if osType != "" {
+		// 使用小写匹配，支持主流Linux系统
+		query = query.Where("LOWER(os_type) = LOWER(?)", osType)
+	}
 
 	if err := query.Order("created_at DESC").Find(&images).Error; err != nil {
 		global.APP_LOG.Error("查询可用镜像失败",
 			zap.String("providerType", providerType),
 			zap.String("instanceType", instanceType),
 			zap.String("architecture", architecture),
+			zap.String("osType", osType),
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
 		return nil, err
 	}
@@ -304,7 +315,8 @@ func (s *ImageService) GetAvailableImages(providerType, instanceType, architectu
 		zap.Int("imageCount", len(images)),
 		zap.String("providerType", providerType),
 		zap.String("instanceType", instanceType),
-		zap.String("architecture", architecture))
+		zap.String("architecture", architecture),
+		zap.String("osType", osType))
 
 	return images, nil
 }

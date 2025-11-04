@@ -72,9 +72,18 @@
               clearable
               style="width: 100%;"
             >
-              <el-option label="TCP" value="tcp" />
-              <el-option label="UDP" value="udp" />
-              <el-option label="TCP/UDP" value="both" />
+              <el-option
+                label="TCP"
+                value="tcp"
+              />
+              <el-option
+                label="UDP"
+                value="udp"
+              />
+              <el-option
+                label="TCP/UDP"
+                value="both"
+              />
             </el-select>
           </el-col>
           <el-col :span="4">
@@ -167,9 +176,27 @@
           width="100"
         >
           <template #default="{ row }">
-            <el-tag v-if="row.protocol === 'both'" type="info" size="small">TCP/UDP</el-tag>
-            <el-tag v-else-if="row.protocol === 'tcp'" type="success" size="small">TCP</el-tag>
-            <el-tag v-else-if="row.protocol === 'udp'" type="warning" size="small">UDP</el-tag>
+            <el-tag
+              v-if="row.protocol === 'both'"
+              type="info"
+              size="small"
+            >
+              TCP/UDP
+            </el-tag>
+            <el-tag
+              v-else-if="row.protocol === 'tcp'"
+              type="success"
+              size="small"
+            >
+              TCP
+            </el-tag>
+            <el-tag
+              v-else-if="row.protocol === 'udp'"
+              type="warning"
+              size="small"
+            >
+              UDP
+            </el-tag>
             <span v-else>{{ row.protocol }}</span>
           </template>
         </el-table-column>
@@ -205,14 +232,18 @@
               v-else-if="row.status === 'creating' || row.status === 'pending'" 
               type="warning"
             >
-              <el-icon class="is-loading"><Loading /></el-icon>
+              <el-icon class="is-loading">
+                <Loading />
+              </el-icon>
               {{ row.status === 'creating' ? $t('admin.portMapping.statusCreating') : $t('admin.portMapping.statusPending') }}
             </el-tag>
             <el-tag 
               v-else-if="row.status === 'deleting'" 
               type="warning"
             >
-              <el-icon class="is-loading"><Loading /></el-icon>
+              <el-icon class="is-loading">
+                <Loading />
+              </el-icon>
               {{ $t('admin.portMapping.statusDeleting') }}
             </el-tag>
             <el-tag 
@@ -318,10 +349,10 @@
             filterable
             clearable
             style="width: 100%"
-            @change="onInstanceChange"
             :filter-method="filterInstances"
             :no-data-text="instances.length === 0 ? $t('admin.portMapping.noInstanceData') : $t('admin.portMapping.noMatchingInstance')"
             popper-class="instance-select-dropdown"
+            @change="onInstanceChange"
           >
             <el-option
               v-for="instance in filteredInstances"
@@ -357,14 +388,23 @@
               {{ $t('admin.portMapping.totalInstancesFound') }} <strong>{{ filteredInstancesCount }}</strong> {{ $t('admin.portMapping.availableInstances') }}
               <span v-if="filteredInstancesCount > 10">{{ $t('admin.portMapping.showingFirst10') }}</span>
             </span>
-            <span v-else-if="supportedInstances.length === 0 && instances.length > 0" style="color: #e6a23c;">
+            <span
+              v-else-if="supportedInstances.length === 0 && instances.length > 0"
+              style="color: #e6a23c;"
+            >
               ⚠️ {{ $t('admin.portMapping.noSupportedInstances') }}（{{ $t('admin.portMapping.instancesLoadedButNotSupported', { count: instances.length }) }}）
             </span>
-            <span v-else style="color: #909399;">
+            <span
+              v-else
+              style="color: #909399;"
+            >
               {{ $t('admin.portMapping.pleaseSelectInstance') }}
             </span>
           </div>
-          <div v-if="selectedInstanceProvider !== '-'" style="color: #67c23a; font-size: 12px; margin-top: 3px;">
+          <div
+            v-if="selectedInstanceProvider !== '-'"
+            style="color: #67c23a; font-size: 12px; margin-top: 3px;"
+          >
             {{ $t('admin.portMapping.currentInstanceProvider') }}: <strong>{{ selectedInstanceProvider }}</strong>
           </div>
         </el-form-item>
@@ -405,9 +445,15 @@
           prop="protocol"
         >
           <el-radio-group v-model="addForm.protocol">
-            <el-radio label="tcp">TCP</el-radio>
-            <el-radio label="udp">UDP</el-radio>
-            <el-radio label="both">TCP/UDP</el-radio>
+            <el-radio label="tcp">
+              TCP
+            </el-radio>
+            <el-radio label="udp">
+              UDP
+            </el-radio>
+            <el-radio label="both">
+              TCP/UDP
+            </el-radio>
           </el-radio-group>
         </el-form-item>
         

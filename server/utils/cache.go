@@ -179,3 +179,58 @@ func (c *MemoryCaptchaCache) evictOldestLocked() {
 		delete(c.data, oldestKey)
 	}
 }
+
+// StatsCache 统计数据缓存
+type StatsCache struct {
+	data       interface{}
+	mutex      sync.RWMutex
+	expiration time.Time
+	updateFunc func() (interface{}, error) // 更新函数
+}
+
+// NewStatsCache 创建新的统计数据缓存
+func NewStatsCache(updateFunc func() (interface{}, error)) *StatsCache {
+	return &StatsCache{
+		updateFunc: updateFunc,
+	}
+}
+
+// Get 获取缓存的统计数据，如果缓存过期则自动更新
+func (c *StatsCache) Get() (interface{}, error) {
+	c.mutex.RLock()
+	// 检查缓存是否有效
+	if c.data != nil && time.Now().Before(c.expiration) {
+		data := c.data
+		c.mutex.RUnlock()
+		return data, nil
+	}
+	c.mutex.RUnlock()
+
+	// 缓存无效，需要更新
+	return c.Update()
+}
+
+// Update 强制更新缓存
+func (c *StatsCache) Update() (interface{}, error) {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	// 调用更新函数获取新数据
+	data, err := c.updateFunc()
+	if err != nil {
+		return nil, err
+	}
+
+	// 更新缓存
+	c.data = data
+	c.expiration = time.Now().Add(5 * time.Minute) // 5分钟过期
+
+	return data, nil
+}
+
+// IsExpired 检查缓存是否过期
+func (c *StatsCache) IsExpired() bool {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.data == nil || time.Now().After(c.expiration)
+}

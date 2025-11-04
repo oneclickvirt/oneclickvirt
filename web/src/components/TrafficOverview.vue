@@ -15,11 +15,20 @@
         </div>
       </template>
 
-      <div v-if="loading" class="loading-container">
-        <el-skeleton :rows="3" animated />
+      <div
+        v-if="loading"
+        class="loading-container"
+      >
+        <el-skeleton
+          :rows="3"
+          animated
+        />
       </div>
 
-      <div v-else-if="trafficData" class="traffic-content">
+      <div
+        v-else-if="trafficData"
+        class="traffic-content"
+      >
         <!-- 数据源指示 -->
         <div class="data-source-indicator">
           <el-tag 
@@ -58,16 +67,27 @@
         </div>
 
         <!-- 重置时间 -->
-        <div v-if="trafficData.reset_time" class="reset-info">
-          <el-text type="info" size="small">
+        <div
+          v-if="trafficData.reset_time"
+          class="reset-info"
+        >
+          <el-text
+            type="info"
+            size="small"
+          >
             <el-icon><Clock /></el-icon>
             {{ t('user.trafficOverview.resetTime') }}: {{ formatDate(trafficData.reset_time) }}
           </el-text>
         </div>
 
         <!-- vnStat详细数据 -->
-        <div v-if="trafficData.vnstat_available && showDetails" class="vnstat-details">
-          <el-divider content-position="left">{{ t('user.trafficOverview.detailedStats') }}</el-divider>
+        <div
+          v-if="trafficData.vnstat_available && showDetails"
+          class="vnstat-details"
+        >
+          <el-divider content-position="left">
+            {{ t('user.trafficOverview.detailedStats') }}
+          </el-divider>
           <div class="details-grid">
             <div class="detail-item">
               <span class="detail-label">{{ t('user.trafficOverview.todayUsage') }}</span>
@@ -85,7 +105,10 @@
         </div>
 
         <!-- 展开/收起按钮 -->
-        <div v-if="trafficData.vnstat_available" class="toggle-details">
+        <div
+          v-if="trafficData.vnstat_available"
+          class="toggle-details"
+        >
           <el-button
             text
             size="small"
@@ -97,7 +120,10 @@
         </div>
       </div>
 
-      <div v-else class="error-state">
+      <div
+        v-else
+        class="error-state"
+      >
         <el-empty :description="t('user.trafficOverview.noData')" />
       </div>
     </el-card>

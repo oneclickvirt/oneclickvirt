@@ -193,7 +193,10 @@
           </div>
 
           <!-- 实例操作按钮 -->
-          <div class="instance-actions" @click.stop>
+          <div
+            class="instance-actions"
+            @click.stop
+          >
             <el-button
               size="small"
               type="primary"

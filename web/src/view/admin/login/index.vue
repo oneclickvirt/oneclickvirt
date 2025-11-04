@@ -4,7 +4,11 @@
     <header class="auth-header">
       <div class="header-content">
         <div class="logo">
-          <img src="@/assets/images/logo.png" alt="OneClickVirt Logo" class="logo-image">
+          <img
+            src="@/assets/images/logo.png"
+            alt="OneClickVirt Logo"
+            class="logo-image"
+          >
           <h1>OneClickVirt</h1>
         </div>
         <nav class="nav-actions">
@@ -154,24 +158,36 @@ const loginRules = computed(() => ({
 
 const handleLogin = async () => {
   if (!loginFormRef.value) return
+  
+  // 防止重复提交
+  if (loading.value) return
 
   await loginFormRef.value.validate(async (valid) => {
     if (!valid) return
-
-    const result = await handleSubmit(async () => {
-      return await userStore.adminLogin({
-        ...loginForm,
-        captchaId: captchaId.value
+    
+    // 再次检查loading状态，防止表单验证期间的重复点击
+    if (loading.value) return
+    
+    loading.value = true
+    
+    try {
+      const result = await handleSubmit(async () => {
+        return await userStore.adminLogin({
+          ...loginForm,
+          captchaId: captchaId.value
+        })
+      }, {
+        successMessage: t('login.loginSuccess'),
+        showLoading: false // 使用组件自己的loading
       })
-    }, {
-      successMessage: t('login.loginSuccess'),
-      showLoading: false // 使用组件自己的loading
-    })
 
-    if (result.success) {
-      router.push('/admin/dashboard')
-    } else {
-      refreshCaptcha() // 登录失败刷新验证码
+      if (result.success) {
+        router.push('/admin/dashboard')
+      } else {
+        refreshCaptcha() // 登录失败刷新验证码
+      }
+    } finally {
+      loading.value = false
     }
   })
 }

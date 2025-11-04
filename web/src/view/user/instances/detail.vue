@@ -41,9 +41,14 @@
         <div class="server-basic-info">
           <div class="server-header">
             <div class="server-name-section">
-              <h1 class="server-name">{{ instance.name }}</h1>
+              <h1 class="server-name">
+                {{ instance.name }}
+              </h1>
               <div class="server-meta">
-                <el-tag :type="instance.instance_type === 'vm' ? 'primary' : 'success'" size="small">
+                <el-tag
+                  :type="instance.instance_type === 'vm' ? 'primary' : 'success'"
+                  size="small"
+                >
                   {{ instance.instance_type === 'vm' ? t('user.instanceDetail.vm') : t('user.instanceDetail.container') }}
                 </el-tag>
                 <span class="server-provider">{{ instance.providerName }}</span>
@@ -161,9 +166,15 @@
 
     <!-- 标签页内容 -->
     <el-card class="tabs-card">
-      <el-tabs v-model="activeTab" type="border-card">
+      <el-tabs
+        v-model="activeTab"
+        type="border-card"
+      >
         <!-- 概览标签页 -->
-        <el-tab-pane :label="t('user.instanceDetail.overview')" name="overview">
+        <el-tab-pane
+          :label="t('user.instanceDetail.overview')"
+          name="overview"
+        >
           <div class="overview-content">
             <!-- SSH连接信息 -->
             <div class="connection-section">
@@ -353,7 +364,10 @@
         </el-tab-pane>
 
         <!-- 端口映射标签页 -->
-        <el-tab-pane :label="t('user.instanceDetail.portMapping')" name="ports">
+        <el-tab-pane
+          :label="t('user.instanceDetail.portMapping')"
+          name="ports"
+        >
           <div class="ports-content">
             <div class="ports-header">
               <div class="ports-summary">
@@ -491,10 +505,11 @@
         </el-tab-pane>
 
         <!-- 统计标签页 -->
-        <el-tab-pane :label="t('user.instanceDetail.statistics')" name="stats">
+        <el-tab-pane
+          :label="t('user.instanceDetail.statistics')"
+          name="stats"
+        >
           <div class="stats-content">
-
-
             <!-- 流量统计 -->
             <div class="traffic-section">
               <div class="section-header">
