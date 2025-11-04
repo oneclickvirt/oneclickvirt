@@ -18,6 +18,10 @@ const props = defineProps({
   instanceId: {
     type: [Number, String],
     required: true
+  },
+  instanceName: {
+    type: String,
+    default: ''
   }
 })
 

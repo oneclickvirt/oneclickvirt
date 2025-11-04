@@ -4,12 +4,39 @@
       <template #header>
         <div class="card-header">
           <span>{{ $t('admin.providers.title') }}</span>
-          <el-button
-            type="primary"
-            @click="showAddDialog = true"
-          >
-            {{ $t('admin.providers.addProvider') }}
-          </el-button>
+          <div class="header-actions">
+            <!-- 批量操作按钮组 - 仅在选中时显示 -->
+            <template v-if="selectedProviders.length > 0">
+              <el-button
+                type="danger"
+                :icon="Delete"
+                @click="handleBatchDelete"
+              >
+                {{ $t('admin.providers.batchDelete') }} ({{ selectedProviders.length }})
+              </el-button>
+              <el-button
+                type="warning"
+                :icon="Lock"
+                @click="handleBatchFreeze"
+              >
+                {{ $t('admin.providers.batchFreeze') }} ({{ selectedProviders.length }})
+              </el-button>
+              <el-button
+                type="success"
+                :icon="CircleCheck"
+                @click="handleBatchHealthCheck"
+              >
+                {{ $t('admin.providers.batchHealthCheck') }} ({{ selectedProviders.length }})
+              </el-button>
+            </template>
+            <!-- 添加服务器按钮 -->
+            <el-button
+              type="primary"
+              @click="showAddDialog = true"
+            >
+              {{ $t('admin.providers.addProvider') }}
+            </el-button>
+          </div>
         </div>
       </template>
       
@@ -93,12 +120,17 @@
         v-loading="loading"
         :data="providers"
         style="width: 100%"
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column
+          type="selection"
+          width="55"
+          fixed="left"
+        />
         <el-table-column
           prop="id"
           label="ID"
           width="60"
-          fixed="left"
         />
         <el-table-column
           prop="name"
@@ -2451,7 +2483,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
-import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin, Search } from '@element-plus/icons-vue'
+import { InfoFilled, DocumentCopy, Loading, Cpu, Monitor, FolderOpened, Box, Memo, Coin, Search, Delete, Lock, CircleCheck } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 import { countries, getFlagEmoji, getCountryByName, getCountriesByRegion } from '@/utils/countries'
@@ -2461,6 +2493,7 @@ import { useUserStore } from '@/pinia/modules/user'
 const { t } = useI18n()
 
 const providers = ref([])
+const selectedProviders = ref([]) // 批量选中的节点
 const loading = ref(false)
 const showAddDialog = ref(false)
 const addProviderLoading = ref(false)
@@ -3186,6 +3219,258 @@ const handleDeleteProvider = async (id) => {
   }
 }
 
+// 批量选择变化处理
+const handleSelectionChange = (selection) => {
+  selectedProviders.value = selection
+}
+
+// 批量删除
+const handleBatchDelete = async () => {
+  if (selectedProviders.value.length === 0) {
+    ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      t('admin.providers.batchDeleteConfirm', { count: selectedProviders.value.length }),
+      t('common.warning'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+        dangerouslyUseHTMLString: true
+      }
+    )
+
+    const loadingInstance = ElLoading.service({
+      lock: true,
+      text: t('admin.providers.batchDeleting'),
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
+
+    let successCount = 0
+    let failCount = 0
+    const errors = []
+
+    // 逐个删除（纯前端实现）
+    for (const provider of selectedProviders.value) {
+      try {
+        await deleteProvider(provider.id)
+        successCount++
+      } catch (error) {
+        failCount++
+        errors.push(`${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`)
+      }
+    }
+
+    loadingInstance.close()
+
+    // 显示结果
+    if (failCount === 0) {
+      ElMessage.success(t('admin.providers.batchDeleteSuccess', { count: successCount }))
+    } else {
+      ElMessageBox.alert(
+        `<div>
+          <p>${t('admin.providers.batchOperationResult')}</p>
+          <p style="color: #67C23A;">${t('admin.providers.successCount')}: ${successCount}</p>
+          <p style="color: #F56C6C;">${t('admin.providers.failCount')}: ${failCount}</p>
+          ${errors.length > 0 ? `<div style="margin-top: 10px; max-height: 200px; overflow-y: auto;">
+            <p style="font-weight: bold;">${t('admin.providers.errorDetails')}:</p>
+            ${errors.map(e => `<p style="color: #F56C6C; font-size: 12px;">• ${e}</p>`).join('')}
+          </div>` : ''}
+        </div>`,
+        t('admin.providers.operationResult'),
+        {
+          dangerouslyUseHTMLString: true,
+          confirmButtonText: t('common.confirm')
+        }
+      )
+    }
+
+    await loadProviders()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.providers.batchDeleteFailed'))
+    }
+  }
+}
+
+// 批量冻结
+const handleBatchFreeze = async () => {
+  if (selectedProviders.value.length === 0) {
+    ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
+    return
+  }
+
+  // 检查是否有已冻结的节点
+  const frozenProviders = selectedProviders.value.filter(p => p.isFrozen)
+  const activeProviders = selectedProviders.value.filter(p => !p.isFrozen)
+
+  if (frozenProviders.length > 0 && activeProviders.length === 0) {
+    ElMessage.warning(t('admin.providers.allSelectedAlreadyFrozen'))
+    return
+  }
+
+  try {
+    const message = frozenProviders.length > 0
+      ? t('admin.providers.batchFreezeConfirmMixed', { 
+          total: selectedProviders.value.length, 
+          frozen: frozenProviders.length,
+          active: activeProviders.length 
+        })
+      : t('admin.providers.batchFreezeConfirm', { count: selectedProviders.value.length })
+
+    await ElMessageBox.confirm(
+      message,
+      t('admin.providers.confirmFreeze'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+        dangerouslyUseHTMLString: true
+      }
+    )
+
+    const loadingInstance = ElLoading.service({
+      lock: true,
+      text: t('admin.providers.batchFreezing'),
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
+
+    let successCount = 0
+    let failCount = 0
+    const errors = []
+
+    // 只处理未冻结的节点
+    for (const provider of activeProviders) {
+      try {
+        await freezeProvider(provider.id)
+        successCount++
+      } catch (error) {
+        failCount++
+        errors.push(`${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`)
+      }
+    }
+
+    loadingInstance.close()
+
+    // 显示结果
+    if (failCount === 0) {
+      ElMessage.success(t('admin.providers.batchFreezeSuccess', { count: successCount }))
+    } else {
+      ElMessageBox.alert(
+        `<div>
+          <p>${t('admin.providers.batchOperationResult')}</p>
+          <p style="color: #67C23A;">${t('admin.providers.successCount')}: ${successCount}</p>
+          <p style="color: #F56C6C;">${t('admin.providers.failCount')}: ${failCount}</p>
+          ${errors.length > 0 ? `<div style="margin-top: 10px; max-height: 200px; overflow-y: auto;">
+            <p style="font-weight: bold;">${t('admin.providers.errorDetails')}:</p>
+            ${errors.map(e => `<p style="color: #F56C6C; font-size: 12px;">• ${e}</p>`).join('')}
+          </div>` : ''}
+        </div>`,
+        t('admin.providers.operationResult'),
+        {
+          dangerouslyUseHTMLString: true,
+          confirmButtonText: t('common.confirm')
+        }
+      )
+    }
+
+    await loadProviders()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.providers.batchFreezeFailed'))
+    }
+  }
+}
+
+// 批量健康检测
+const handleBatchHealthCheck = async () => {
+  if (selectedProviders.value.length === 0) {
+    ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
+    return
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      t('admin.providers.batchHealthCheckConfirm', { count: selectedProviders.value.length }),
+      t('admin.providers.confirmHealthCheck'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'info'
+      }
+    )
+
+    const loadingInstance = ElLoading.service({
+      lock: true,
+      text: t('admin.providers.batchHealthChecking'),
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
+
+    let successCount = 0
+    let failCount = 0
+    const results = []
+
+    // 逐个进行健康检测
+    for (const provider of selectedProviders.value) {
+      try {
+        const res = await checkProviderHealth(provider.id)
+        successCount++
+        results.push({
+          name: provider.name,
+          success: true,
+          status: res.data?.healthStatus || 'healthy',
+          message: res.data?.message || t('admin.providers.healthCheckPassed')
+        })
+      } catch (error) {
+        failCount++
+        results.push({
+          name: provider.name,
+          success: false,
+          status: 'unhealthy',
+          message: error?.response?.data?.msg || error?.message || t('admin.providers.healthCheckFailed')
+        })
+      }
+    }
+
+    loadingInstance.close()
+
+    // 显示详细结果
+    const resultHtml = `
+      <div>
+        <p>${t('admin.providers.batchOperationResult')}</p>
+        <p style="color: #67C23A;">${t('admin.providers.healthyCount')}: ${successCount}</p>
+        <p style="color: #F56C6C;">${t('admin.providers.unhealthyCount')}: ${failCount}</p>
+        <div style="margin-top: 10px; max-height: 300px; overflow-y: auto;">
+          ${results.map(r => `
+            <div style="padding: 8px; border-bottom: 1px solid #eee;">
+              <p style="font-weight: bold; margin-bottom: 4px;">
+                ${r.success ? '✅' : '❌'} ${r.name}
+              </p>
+              <p style="font-size: 12px; color: ${r.success ? '#67C23A' : '#F56C6C'}; margin: 0;">
+                ${r.message}
+              </p>
+            </div>
+          `).join('')}
+        </div>
+      </div>
+    `
+
+    ElMessageBox.alert(resultHtml, t('admin.providers.healthCheckResults'), {
+      dangerouslyUseHTMLString: true,
+      confirmButtonText: t('common.confirm')
+    })
+
+    await loadProviders()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.providers.batchHealthCheckFailed'))
+    }
+  }
+}
+
 const freezeServer = async (id) => {
   try {
     await ElMessageBox.confirm(
@@ -3725,6 +4010,12 @@ const formatRelativeTime = (dateTime) => {
     font-weight: 600;
     color: #303133;
   }
+}
+
+.header-actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
 }
 
 .filter-container {
