@@ -25,7 +25,7 @@
             <!-- 添加服务器按钮 -->
             <el-button
               type="primary"
-              @click="showAddDialog = true"
+              @click="handleAddProvider"
             >
               {{ $t('admin.providers.addProvider') }}
             </el-button>
@@ -565,6 +565,16 @@ const submitAddServer = async (formData) => {
   } finally {
     addProviderLoading.value = false
   }
+}
+
+// 处理添加新节点
+const handleAddProvider = () => {
+  // 重置为新增模式
+  isEditing.value = false
+  // 重置表单到初始状态
+  cancelAddServer()
+  // 打开对话框
+  showAddDialog.value = true
 }
 
 const editProvider = (provider) => {

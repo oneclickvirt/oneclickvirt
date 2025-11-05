@@ -272,11 +272,13 @@ const rules = {
 }
 
 // 监听 providerData 变化，更新表单数据
-watch(() => props.providerData, (newData) => {
-  if (newData && Object.keys(newData).length > 0) {
-    Object.assign(formData.value, newData)
+// 注意：只在对话框首次打开时同步数据，避免用户编辑过程中被覆盖
+watch(() => props.visible, (isVisible) => {
+  if (isVisible && props.providerData && Object.keys(props.providerData).length > 0) {
+    // 对话框打开时，同步父组件的数据到表单
+    Object.assign(formData.value, props.providerData)
   }
-}, { deep: true, immediate: true })
+}, { immediate: true })
 
 // 监听国家选择变化，自动填充国家代码和地区
 watch(() => formData.value.country, (newCountry, oldCountry) => {

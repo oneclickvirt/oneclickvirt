@@ -7,7 +7,7 @@
           <div class="header-actions">
             <el-button
               type="primary"
-              @click="showAddDialog = true"
+              @click="handleAddUser"
             >
               {{ $t('admin.users.addUser') }}
             </el-button>
@@ -897,6 +897,16 @@ const getUserTypeTagType = (userType) => {
     'admin': 'danger'
   }
   return typeMap[userType] || ''
+}
+
+// 添加新用户
+const handleAddUser = () => {
+  // 重置为新增模式
+  isEditing.value = false
+  // 重置表单到初始状态
+  cancelAddUser()
+  // 打开对话框
+  showAddDialog.value = true
 }
 
 // 编辑用户
