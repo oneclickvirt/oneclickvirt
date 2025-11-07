@@ -192,10 +192,11 @@ func SSHWebSocket(c *gin.Context) {
 
 			// 支持 TextMessage 和 BinaryMessage
 			if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
-				// 处理特殊消息（终端大小调整）- 只对文本消息尝试JSON解析
+				// 处理特殊消息（终端大小调整和心跳）- 只对文本消息尝试JSON解析
 				if messageType == websocket.TextMessage {
 					var msg map[string]interface{}
 					if err := json.Unmarshal(message, &msg); err == nil {
+						// 处理终端大小调整
 						if msg["type"] == "resize" {
 							if cols, ok := msg["cols"].(float64); ok {
 								if rows, ok := msg["rows"].(float64); ok {
@@ -205,6 +206,10 @@ func SSHWebSocket(c *gin.Context) {
 									continue
 								}
 							}
+						}
+						// 处理心跳包 - 收到心跳后直接忽略，不需要发送到SSH
+						if msg["type"] == "ping" {
+							continue
 						}
 					}
 				}

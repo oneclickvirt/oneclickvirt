@@ -36,6 +36,9 @@ let terminal = null
 let fitAddon = null
 let websocket = null
 let isConnecting = false
+let heartbeatInterval = null
+let reconnectTimeout = null
+let isIntentionallyClosed = false
 
 onMounted(() => {
   nextTick(() => {
@@ -170,6 +173,9 @@ const connect = () => {
         rows: terminal.rows
       }
       websocket.send(JSON.stringify(size))
+      
+      // 启动心跳保活机制 - 每30秒发送一次心跳
+      startHeartbeat()
     }
 
     websocket.onmessage = (event) => {
@@ -193,9 +199,19 @@ const connect = () => {
 
     websocket.onclose = (event) => {
       isConnecting = false
+      stopHeartbeat()
+      
       if (event.code !== 1000) {
         terminal.writeln('\x1b[33mSSH connection closed\x1b[0m')
         ElMessage.warning('SSH连接已断开')
+        
+        // 如果不是主动关闭，尝试自动重连
+        if (!isIntentionallyClosed) {
+          terminal.writeln('\x1b[33mAttempting to reconnect in 3 seconds...\x1b[0m')
+          reconnectTimeout = setTimeout(() => {
+            reconnect()
+          }, 3000)
+        }
       } else {
         terminal.writeln('\x1b[32mSSH connection closed normally\x1b[0m')
       }
@@ -209,7 +225,36 @@ const connect = () => {
   }
 }
 
+// 启动心跳保活
+const startHeartbeat = () => {
+  stopHeartbeat()
+  heartbeatInterval = setInterval(() => {
+    if (websocket && websocket.readyState === WebSocket.OPEN) {
+      try {
+        // 发送心跳包 - 使用空字节作为心跳信号
+        websocket.send(JSON.stringify({ type: 'ping' }))
+      } catch (error) {
+        console.error('发送心跳失败:', error)
+      }
+    }
+  }, 30000) // 每30秒发送一次心跳
+}
+
+// 停止心跳
+const stopHeartbeat = () => {
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval)
+    heartbeatInterval = null
+  }
+  if (reconnectTimeout) {
+    clearTimeout(reconnectTimeout)
+    reconnectTimeout = null
+  }
+}
+
 const cleanup = () => {
+  isIntentionallyClosed = true
+  stopHeartbeat()
   window.removeEventListener('resize', handleResize)
   
   if (websocket) {
@@ -229,11 +274,22 @@ const cleanup = () => {
 }
 
 const reconnect = () => {
-  cleanup()
-  nextTick(() => {
+  isIntentionallyClosed = false
+  stopHeartbeat()
+  
+  if (websocket) {
+    websocket.close()
+    websocket = null
+  }
+  
+  // 清空终端内容并重新初始化
+  if (terminal) {
+    terminal.clear()
+  } else {
     initTerminal()
-    connect()
-  })
+  }
+  
+  connect()
 }
 
 // 暴露方法给父组件

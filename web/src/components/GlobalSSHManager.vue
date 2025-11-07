@@ -186,6 +186,39 @@ const openSSHInNewWindow = (conn) => {
       font-weight: 500;
       border-bottom: 1px solid #e0e0e0;
       box-shadow: 0 1px 4px rgba(0,0,0,0.1);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .header-title {
+      flex: 1;
+    }
+    .header-buttons {
+      display: flex;
+      gap: 8px;
+    }
+    .btn {
+      padding: 6px 12px;
+      border: none;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 500;
+      transition: all 0.2s;
+    }
+    .btn-reconnect {
+      background-color: #409eff;
+      color: white;
+    }
+    .btn-reconnect:hover {
+      background-color: #66b1ff;
+    }
+    .btn-close {
+      background-color: #f56c6c;
+      color: white;
+    }
+    .btn-close:hover {
+      background-color: #f78989;
     }
     .terminal-container {
       flex: 1;
@@ -200,7 +233,13 @@ const openSSHInNewWindow = (conn) => {
   <link rel="stylesheet" href="https://unpkg.com/xterm@5.3.0/css/xterm.css">
 </head>
 <body>
-  <div class="header">SSH Terminal - ${conn.instanceName}</div>
+  <div class="header">
+    <div class="header-title">SSH Terminal - ${conn.instanceName}</div>
+    <div class="header-buttons">
+      <button class="btn btn-reconnect" onclick="reconnectSSH()">🔄 Reconnect</button>
+      <button class="btn btn-close" onclick="window.close()">✕ Close</button>
+    </div>
+  </div>
   <div class="terminal-container">
     <div id="terminal"></div>
   </div>
@@ -208,6 +247,11 @@ const openSSHInNewWindow = (conn) => {
   <script src="https://unpkg.com/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.js"><\/script>
   <script>
     (function() {
+      let websocket = null;
+      let heartbeatInterval = null;
+      let reconnectTimeout = null;
+      let isIntentionallyClosed = false;
+      
       const terminal = new window.Terminal({
         cursorBlink: true,
         fontSize: 14,
@@ -252,50 +296,110 @@ const openSSHInNewWindow = (conn) => {
         fitAddon.fit(); 
       });
       
-      terminal.writeln('Connecting to SSH server...');
+      // 启动心跳保活
+      function startHeartbeat() {
+        stopHeartbeat();
+        heartbeatInterval = setInterval(function() {
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            try {
+              websocket.send(JSON.stringify({ type: 'ping' }));
+            } catch (error) {
+              console.error('发送心跳失败:', error);
+            }
+          }
+        }, 30000); // 每30秒发送一次心跳
+      }
       
-      const websocket = new WebSocket('${wsUrl}');
-      websocket.binaryType = 'arraybuffer';
-      
-      websocket.onopen = function() {
-        terminal.writeln('\\x1b[32mConnected to SSH server\\x1b[0m');
-        terminal.focus();
-        websocket.send(JSON.stringify({
-          type: 'resize',
-          cols: terminal.cols,
-          rows: terminal.rows
-        }));
-      };
-      
-      websocket.onmessage = function(event) {
-        if (event.data instanceof ArrayBuffer) {
-          const uint8Array = new Uint8Array(event.data);
-          terminal.write(uint8Array);
-        } else {
-          terminal.write(event.data);
+      // 停止心跳
+      function stopHeartbeat() {
+        if (heartbeatInterval) {
+          clearInterval(heartbeatInterval);
+          heartbeatInterval = null;
         }
-      };
-      
-      websocket.onerror = function() {
-        terminal.writeln('\\x1b[31mWebSocket connection error\\x1b[0m');
-      };
-      
-      websocket.onclose = function(event) {
-        if (event.code !== 1000) {
-          terminal.writeln('\\x1b[33mSSH connection closed\\x1b[0m');
-        } else {
-          terminal.writeln('\\x1b[32mSSH connection closed normally\\x1b[0m');
+        if (reconnectTimeout) {
+          clearTimeout(reconnectTimeout);
+          reconnectTimeout = null;
         }
+      }
+      
+      // 连接WebSocket
+      function connectWebSocket() {
+        terminal.writeln('Connecting to SSH server...');
+        
+        websocket = new WebSocket('${wsUrl}');
+        websocket.binaryType = 'arraybuffer';
+        
+        websocket.onopen = function() {
+          terminal.writeln('\\x1b[32mConnected to SSH server\\x1b[0m');
+          terminal.focus();
+          websocket.send(JSON.stringify({
+            type: 'resize',
+            cols: terminal.cols,
+            rows: terminal.rows
+          }));
+          startHeartbeat();
+        };
+        
+        websocket.onmessage = function(event) {
+          if (event.data instanceof ArrayBuffer) {
+            const uint8Array = new Uint8Array(event.data);
+            terminal.write(uint8Array);
+          } else {
+            terminal.write(event.data);
+          }
+        };
+        
+        websocket.onerror = function() {
+          terminal.writeln('\\x1b[31mWebSocket connection error\\x1b[0m');
+        };
+        
+        websocket.onclose = function(event) {
+          stopHeartbeat();
+          if (event.code !== 1000) {
+            terminal.writeln('\\x1b[33mSSH connection closed\\x1b[0m');
+            
+            // 如果不是主动关闭，尝试自动重连
+            if (!isIntentionallyClosed) {
+              terminal.writeln('\\x1b[33mAttempting to reconnect in 3 seconds...\\x1b[0m');
+              reconnectTimeout = setTimeout(function() {
+                reconnectSSH();
+              }, 3000);
+            }
+          } else {
+            terminal.writeln('\\x1b[32mSSH connection closed normally\\x1b[0m');
+          }
+        };
+        
+        terminal.onData(function(data) {
+          if (websocket && websocket.readyState === WebSocket.OPEN) {
+            websocket.send(data);
+          }
+        });
+      }
+      
+      // 重连函数
+      window.reconnectSSH = function() {
+        isIntentionallyClosed = false;
+        stopHeartbeat();
+        
+        if (websocket) {
+          websocket.close();
+          websocket = null;
+        }
+        
+        terminal.clear();
+        connectWebSocket();
       };
       
-      terminal.onData(function(data) {
-        if (websocket.readyState === WebSocket.OPEN) {
-          websocket.send(data);
-        }
-      });
+      // 初始连接
+      connectWebSocket();
       
       window.addEventListener('beforeunload', function() {
-        websocket.close();
+        isIntentionallyClosed = true;
+        stopHeartbeat();
+        if (websocket) {
+          websocket.close();
+        }
       });
     })();
   <\/script>

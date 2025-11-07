@@ -192,18 +192,25 @@ func AdminSSHWebSocket(c *gin.Context) {
 
 			// 支持 TextMessage 和 BinaryMessage
 			if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
-				// 处理终端调整大小消息 - 只对文本消息尝试JSON解析
+				// 处理终端调整大小消息和心跳 - 只对文本消息尝试JSON解析
 				if messageType == websocket.TextMessage {
 					var msg map[string]interface{}
 					if err := json.Unmarshal(p, &msg); err == nil {
-						if msgType, ok := msg["type"].(string); ok && msgType == "resize" {
-							if cols, ok := msg["cols"].(float64); ok {
-								if rows, ok := msg["rows"].(float64); ok {
-									if err := sshSession.WindowChange(int(rows), int(cols)); err != nil {
-										global.APP_LOG.Error("窗口大小调整失败", zap.Error(err))
+						if msgType, ok := msg["type"].(string); ok {
+							// 处理终端大小调整
+							if msgType == "resize" {
+								if cols, ok := msg["cols"].(float64); ok {
+									if rows, ok := msg["rows"].(float64); ok {
+										if err := sshSession.WindowChange(int(rows), int(cols)); err != nil {
+											global.APP_LOG.Error("窗口大小调整失败", zap.Error(err))
+										}
+										continue
 									}
-									continue
 								}
+							}
+							// 处理心跳包 - 收到心跳后直接忽略，不需要发送到SSH
+							if msgType == "ping" {
+								continue
 							}
 						}
 					}
