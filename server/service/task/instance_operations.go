@@ -26,6 +26,10 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
 	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		global.APP_LOG.Error("解析启动任务数据失败",
+			zap.Uint("taskId", task.ID),
+			zap.String("taskData", task.TaskData),
+			zap.Error(err))
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
@@ -173,6 +177,10 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
 	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		global.APP_LOG.Error("解析停止任务数据失败",
+			zap.Uint("taskId", task.ID),
+			zap.String("taskData", task.TaskData),
+			zap.Error(err))
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
@@ -265,6 +273,10 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
 	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		global.APP_LOG.Error("解析重启任务数据失败",
+			zap.Uint("taskId", task.ID),
+			zap.String("taskData", task.TaskData),
+			zap.Error(err))
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
@@ -426,6 +438,10 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	// 解析任务数据
 	var taskReq adminModel.ResetPasswordTaskRequest
 	if err := json.Unmarshal([]byte(task.TaskData), &taskReq); err != nil {
+		global.APP_LOG.Error("解析重置密码任务数据失败",
+			zap.Uint("taskId", task.ID),
+			zap.String("taskData", task.TaskData),
+			zap.Error(err))
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 

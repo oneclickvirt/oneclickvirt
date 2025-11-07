@@ -631,11 +631,15 @@ func (s *ThreeTierLimitService) unlimitProviderInstances(providerID uint, reason
 
 // createStopTask 创建停止实例的任务
 func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID uint, message string) error {
+	// 构建任务数据
+	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
+
 	task := &adminModel.Task{
 		TaskType:         "stop",
 		Status:           "pending",
 		Progress:         0,
 		StatusMessage:    message,
+		TaskData:         taskData,
 		UserID:           userID,
 		ProviderID:       &providerID,
 		InstanceID:       &instanceID,
