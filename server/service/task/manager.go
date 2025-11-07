@@ -2,9 +2,11 @@ package task
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	dashboardModel "oneclickvirt/model/dashboard"
@@ -15,21 +17,120 @@ import (
 	"gorm.io/gorm"
 )
 
+// calculateEstimatedDuration 计算任务预计执行时长（秒）
+// 所有任务都需要设置执行时长，用于准确计算排队等待时间
+// VM创建: 5分钟 (300秒)
+// 容器创建: 3分钟 (180秒)
+// VM重置: 7.5分钟 (创建的1.5倍)
+// 容器重置: 4.5分钟 (创建的1.5倍)
+// 其他操作: 根据操作类型设置合理时长
+func (s *TaskService) calculateEstimatedDuration(taskType string, instanceType string) int {
+	switch taskType {
+	case "create":
+		if instanceType == "vm" {
+			return 300 // 5分钟 - VM创建较慢
+		}
+		return 180 // 3分钟 - 容器创建较快
+	case "reset":
+		if instanceType == "vm" {
+			return 450 // 7.5分钟 - VM重置 (创建的1.5倍)
+		}
+		return 270 // 4.5分钟 - 容器重置 (创建的1.5倍)
+	case "start":
+		if instanceType == "vm" {
+			return 90 // 1.5分钟 - VM启动较慢
+		}
+		return 30 // 30秒 - 容器启动快
+	case "stop":
+		if instanceType == "vm" {
+			return 60 // 1分钟 - VM停止需要优雅关机
+		}
+		return 30 // 30秒 - 容器停止快
+	case "restart":
+		if instanceType == "vm" {
+			return 150 // 2.5分钟 - VM重启 (stop + start)
+		}
+		return 60 // 1分钟 - 容器重启
+	case "delete":
+		return 60 // 1分钟 - 删除操作通常较快
+	case "reset-password":
+		return 30 // 30秒 - 密码重置操作快
+	default:
+		return 60 // 默认1分钟 - 保守估计
+	}
+}
+
+// parseTaskDataForConfig 解析taskData获取实例配置信息
+func (s *TaskService) parseTaskDataForConfig(taskData string) (cpu int, memory int, disk int, bandwidth int, instanceType string) {
+	var taskReq adminModel.CreateInstanceTaskRequest
+	if err := json.Unmarshal([]byte(taskData), &taskReq); err != nil {
+		return 0, 0, 0, 0, ""
+	}
+
+	// 解析规格ID获取实际配置
+	if cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId); err == nil {
+		cpu = cpuSpec.Cores
+	}
+	if memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId); err == nil {
+		memory = memorySpec.SizeMB
+	}
+	if diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId); err == nil {
+		disk = diskSpec.SizeMB
+	}
+	if bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId); err == nil {
+		bandwidth = bandwidthSpec.SpeedMbps
+	}
+
+	// 从镜像ID获取实例类型
+	if taskReq.ImageId > 0 {
+		var systemImage struct {
+			InstanceType string
+		}
+		if err := global.APP_DB.Table("system_images").
+			Select("instance_type").
+			Where("id = ?", taskReq.ImageId).
+			First(&systemImage).Error; err == nil {
+			instanceType = systemImage.InstanceType
+		}
+	}
+
+	return
+}
+
 // CreateTask 创建任务
 func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint, taskType string, taskData string, timeoutDuration int) (*adminModel.Task, error) {
 	if timeoutDuration <= 0 {
 		timeoutDuration = s.getDefaultTimeout(taskType)
 	}
 
+	// 解析taskData获取配置信息
+	cpu, memory, disk, bandwidth, instanceType := s.parseTaskDataForConfig(taskData)
+
+	// 如果是非create任务，从instance获取实例类型
+	if instanceType == "" && instanceID != nil {
+		var instance providerModel.Instance
+		if err := global.APP_DB.Select("instance_type").First(&instance, *instanceID).Error; err == nil {
+			instanceType = instance.InstanceType
+		}
+	}
+
+	// 计算预计执行时长
+	estimatedDuration := s.calculateEstimatedDuration(taskType, instanceType)
+
 	task := &adminModel.Task{
-		UserID:           userID,
-		ProviderID:       providerID,
-		InstanceID:       instanceID,
-		TaskType:         taskType,
-		Status:           "pending",
-		TaskData:         taskData,
-		TimeoutDuration:  timeoutDuration,
-		IsForceStoppable: true,
+		UserID:                userID,
+		ProviderID:            providerID,
+		InstanceID:            instanceID,
+		TaskType:              taskType,
+		Status:                "pending",
+		TaskData:              taskData,
+		TimeoutDuration:       timeoutDuration,
+		IsForceStoppable:      true,
+		EstimatedDuration:     estimatedDuration,
+		PreallocatedCPU:       cpu,
+		PreallocatedMemory:    memory,
+		PreallocatedDisk:      disk,
+		PreallocatedBandwidth: bandwidth,
 	}
 
 	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
@@ -43,7 +144,10 @@ func (s *TaskService) CreateTask(userID uint, providerID *uint, instanceID *uint
 	global.APP_LOG.Info("任务创建成功",
 		zap.Uint("taskId", task.ID),
 		zap.String("taskType", taskType),
-		zap.Uint("userId", userID))
+		zap.Uint("userId", userID),
+		zap.Int("estimatedDuration", estimatedDuration),
+		zap.Int("cpu", cpu),
+		zap.Int("memory", memory))
 
 	return task, nil
 }
@@ -84,22 +188,41 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		return nil, 0, err
 	}
 
+	// 获取每个provider的pending和running任务用于计算排队信息
+	providerTasksMap := make(map[uint][]adminModel.Task)
+	for _, task := range tasks {
+		if task.ProviderID != nil && (task.Status == "pending" || task.Status == "running") {
+			if _, exists := providerTasksMap[*task.ProviderID]; !exists {
+				// 获取该provider的所有pending和running任务
+				var providerTasks []adminModel.Task
+				global.APP_DB.Where("provider_id = ? AND status IN (?, ?)", *task.ProviderID, "pending", "running").
+					Order("created_at ASC").
+					Find(&providerTasks)
+				providerTasksMap[*task.ProviderID] = providerTasks
+			}
+		}
+	}
+
 	// 转换为响应格式
 	var taskResponses []userModel.TaskResponse
 	for _, task := range tasks {
 		taskResponse := userModel.TaskResponse{
-			ID:              task.ID,
-			UUID:            task.UUID,
-			TaskType:        task.TaskType,
-			Status:          task.Status,
-			Progress:        task.Progress,
-			ErrorMessage:    task.ErrorMessage,
-			CancelReason:    task.CancelReason,
-			CreatedAt:       task.CreatedAt,
-			StartedAt:       task.StartedAt,
-			CompletedAt:     task.CompletedAt,
-			TimeoutDuration: task.TimeoutDuration,
-			StatusMessage:   task.StatusMessage,
+			ID:                    task.ID,
+			UUID:                  task.UUID,
+			TaskType:              task.TaskType,
+			Status:                task.Status,
+			Progress:              task.Progress,
+			ErrorMessage:          task.ErrorMessage,
+			CancelReason:          task.CancelReason,
+			CreatedAt:             task.CreatedAt,
+			StartedAt:             task.StartedAt,
+			CompletedAt:           task.CompletedAt,
+			TimeoutDuration:       task.TimeoutDuration,
+			StatusMessage:         task.StatusMessage,
+			PreallocatedCPU:       task.PreallocatedCPU,
+			PreallocatedMemory:    task.PreallocatedMemory,
+			PreallocatedDisk:      task.PreallocatedDisk,
+			PreallocatedBandwidth: task.PreallocatedBandwidth,
 		}
 
 		// 设置ProviderId和ProviderName
@@ -129,8 +252,41 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 			}
 		}
 
+		// 计算排队信息
+		if task.ProviderID != nil && (task.Status == "pending" || task.Status == "running") {
+			if providerTasks, exists := providerTasksMap[*task.ProviderID]; exists {
+				queuePosition := 0
+				estimatedWaitTime := 0
+
+				for i, pt := range providerTasks {
+					if pt.ID == task.ID {
+						queuePosition = i
+						// 计算前面所有任务的预计剩余时间
+						for j := 0; j < i; j++ {
+							if providerTasks[j].Status == "running" && providerTasks[j].StartedAt != nil {
+								// 正在运行的任务：计算剩余时间
+								elapsed := time.Since(*providerTasks[j].StartedAt).Seconds()
+								remaining := float64(providerTasks[j].EstimatedDuration) - elapsed
+								if remaining > 0 {
+									estimatedWaitTime += int(remaining)
+								}
+							} else {
+								// pending任务：使用预计执行时长
+								estimatedWaitTime += providerTasks[j].EstimatedDuration
+							}
+						}
+						break
+					}
+				}
+
+				taskResponse.QueuePosition = queuePosition
+				taskResponse.EstimatedWaitTime = estimatedWaitTime
+			}
+		}
+
 		// 设置是否可取消（考虑任务状态和是否允许被用户取消）
 		taskResponse.CanCancel = (task.Status == "pending" || task.Status == "running") && task.IsForceStoppable
+		taskResponse.IsForceStoppable = task.IsForceStoppable
 
 		taskResponses = append(taskResponses, taskResponse)
 	}
@@ -201,24 +357,27 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 		}
 
 		taskResponse := adminModel.AdminTaskResponse{
-			ID:              task.ID,
-			UUID:            task.UUID,
-			TaskType:        task.TaskType,
-			Status:          task.Status,
-			Progress:        task.Progress,
-			ErrorMessage:    task.ErrorMessage,
-			CancelReason:    task.CancelReason,
-			CreatedAt:       task.CreatedAt,
-			StartedAt:       task.StartedAt,
-			CompletedAt:     task.CompletedAt,
-			TimeoutDuration: task.TimeoutDuration,
-			StatusMessage:   task.StatusMessage,
-			UserID:          task.UserID,
-			ProviderID:      &providerID,
-			// 管理员可以强制停止processing, running, cancelling状态的任务
-			CanForceStop:     (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
-			IsForceStoppable: task.IsForceStoppable,
-			RemainingTime:    remainingTime,
+			ID:                    task.ID,
+			UUID:                  task.UUID,
+			TaskType:              task.TaskType,
+			Status:                task.Status,
+			Progress:              task.Progress,
+			ErrorMessage:          task.ErrorMessage,
+			CancelReason:          task.CancelReason,
+			CreatedAt:             task.CreatedAt,
+			StartedAt:             task.StartedAt,
+			CompletedAt:           task.CompletedAt,
+			TimeoutDuration:       task.TimeoutDuration,
+			StatusMessage:         task.StatusMessage,
+			UserID:                task.UserID,
+			ProviderID:            &providerID,
+			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
+			IsForceStoppable:      task.IsForceStoppable,
+			RemainingTime:         remainingTime,
+			PreallocatedCPU:       task.PreallocatedCPU,
+			PreallocatedMemory:    task.PreallocatedMemory,
+			PreallocatedDisk:      task.PreallocatedDisk,
+			PreallocatedBandwidth: task.PreallocatedBandwidth,
 		}
 
 		if task.UserID != 0 {

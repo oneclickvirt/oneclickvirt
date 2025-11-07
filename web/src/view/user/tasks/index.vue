@@ -201,6 +201,32 @@
                   <span class="label">{{ t('user.tasks.estimatedCompletion') }}:</span>
                   <span class="value">{{ getEstimatedTime(currentTask) }}</span>
                 </div>
+                <div
+                  v-if="currentTask.queuePosition > 0"
+                  class="detail-item"
+                >
+                  <span class="label">{{ t('user.tasks.queuePosition') }}:</span>
+                  <span class="value">{{ t('user.tasks.beforeYouInQueue', { count: currentTask.queuePosition }) }}</span>
+                </div>
+                <div
+                  v-if="currentTask.estimatedWaitTime > 0"
+                  class="detail-item"
+                >
+                  <span class="label">{{ t('user.tasks.estimatedWaitTime') }}:</span>
+                  <span class="value">{{ formatDurationSeconds(currentTask.estimatedWaitTime) }}</span>
+                </div>
+                <div
+                  v-if="currentTask.preallocatedCpu > 0"
+                  class="detail-item"
+                >
+                  <span class="label">{{ t('user.tasks.instanceConfig') }}:</span>
+                  <span class="value">
+                    {{ currentTask.preallocatedCpu }}{{ t('common.core') }} / 
+                    {{ (currentTask.preallocatedMemory / 1024).toFixed(1) }}GB / 
+                    {{ (currentTask.preallocatedDisk / 1024).toFixed(1) }}GB / 
+                    {{ currentTask.preallocatedBandwidth }}Mbps
+                  </span>
+                </div>
               </div>
             </el-card>
           </div>
@@ -230,6 +256,12 @@
                 </div>
                 <div class="task-time">
                   {{ formatDate(task.createdAt) }}
+                </div>
+                <div
+                  v-if="task.estimatedWaitTime > 0"
+                  class="task-wait-time"
+                >
+                  {{ t('user.tasks.estimatedWait') }}: {{ formatDurationSeconds(task.estimatedWaitTime) }}
                 </div>
               </div>
               <div class="task-actions">
@@ -536,6 +568,30 @@ const getTaskTypeText = (type) => {
     'delete': t('user.tasks.taskTypeDelete')
   }
   return typeMap[type] || type
+}
+
+// 格式化秒数为可读时间
+const formatDurationSeconds = (seconds) => {
+  if (!seconds || seconds <= 0) {
+    return t('user.tasks.calculating')
+  }
+  
+  const hours = Math.floor(seconds / 3600)
+  const minutes = Math.floor((seconds % 3600) / 60)
+  const secs = Math.floor(seconds % 60)
+  
+  const parts = []
+  if (hours > 0) {
+    parts.push(`${hours}${t('user.tasks.hours')}`)
+  }
+  if (minutes > 0) {
+    parts.push(`${minutes}${t('user.tasks.minutes')}`)
+  }
+  if (secs > 0 || parts.length === 0) {
+    parts.push(`${secs}${t('user.tasks.seconds')}`)
+  }
+  
+  return parts.join(' ')
 }
 
 // 获取任务状态类型

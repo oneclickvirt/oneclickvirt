@@ -39,6 +39,11 @@ type AdminTaskResponse struct {
 	CanForceStop     bool       `json:"canForceStop"`
 	IsForceStoppable bool       `json:"isForceStoppable"`
 	RemainingTime    int        `json:"remainingTime"` // 剩余时间（秒）
+	// 预分配的实例配置信息
+	PreallocatedCPU       int `json:"preallocatedCpu"`       // 预分配的CPU核心数
+	PreallocatedMemory    int `json:"preallocatedMemory"`    // 预分配的内存(MB)
+	PreallocatedDisk      int `json:"preallocatedDisk"`      // 预分配的磁盘(MB)
+	PreallocatedBandwidth int `json:"preallocatedBandwidth"` // 预分配的带宽(Mbps)
 }
 
 // AdminTaskListResponse 管理员任务列表响应

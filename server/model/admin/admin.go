@@ -35,6 +35,12 @@ type Task struct {
 	EstimatedDuration int        `json:"estimatedDuration" gorm:"default:0"`  // 预计执行时长（秒）
 	TimeoutDuration   int        `json:"timeoutDuration" gorm:"default:1800"` // 任务超时时间（秒，默认30分钟）
 
+	// 预分配的实例配置信息（用于显示和排队估算）
+	PreallocatedCPU       int `json:"preallocatedCpu" gorm:"default:0"`       // 预分配的CPU核心数
+	PreallocatedMemory    int `json:"preallocatedMemory" gorm:"default:0"`    // 预分配的内存(MB)
+	PreallocatedDisk      int `json:"preallocatedDisk" gorm:"default:0"`      // 预分配的磁盘(MB)
+	PreallocatedBandwidth int `json:"preallocatedBandwidth" gorm:"default:0"` // 预分配的带宽(Mbps)
+
 	// 关联信息
 	UserID     uint  `json:"userId" gorm:"index"`                                    // 任务所属用户ID
 	ProviderID *uint `json:"providerId" gorm:"index:idx_provider_status,priority:1"` // 执行任务的Provider ID（可为空）

@@ -78,6 +78,7 @@ export default {
     seconds: '秒',
     minutes: '分钟',
     hours: '小时',
+    core: '核',
     days: '天'
   },
   navbar: {
@@ -648,6 +649,15 @@ export default {
       refreshedTotal: '已刷新，共 {count} 个任务',
       estimatedCompletion: '预计完成',
       cancel: '取消',
+      queuePosition: '排队位置',
+      beforeYouInQueue: '前面还有 {count} 个任务',
+      estimatedWaitTime: '预计等待',
+      estimatedWait: '预计等待',
+      calculating: '计算中...',
+      hours: '小时',
+      minutes: '分钟',
+      seconds: '秒',
+      instanceConfig: '实例配置',
       duration: '耗时',
       cancelReason: '取消原因',
       seconds: '秒',
@@ -1688,7 +1698,11 @@ export default {
       forceStopSuccess: '任务已强制停止',
       cancelTaskConfirm: '确定要取消任务 "{taskType}" 吗？',
       confirmCancel: '确认取消',
-      cancelSuccess: '任务已取消'
+      cancelSuccess: '任务已取消',
+      preallocatedConfig: '预分配配置',
+      memory: '内存',
+      disk: '磁盘',
+      bandwidth: '带宽'
     },
     traffic: {
       title: '流量管理',

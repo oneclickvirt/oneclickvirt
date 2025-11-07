@@ -96,6 +96,14 @@ type UserTaskResponse struct {
 	StatusMessage    string     `json:"statusMessage"`    // 状态描述
 	CanCancel        bool       `json:"canCancel"`        // 是否可以取消
 	IsForceStoppable bool       `json:"isForceStoppable"` // 是否允许强制停止
+	// 排队信息
+	QueuePosition     int `json:"queuePosition"`     // 排队位置（0表示正在执行，>0表示前面有n个任务）
+	EstimatedWaitTime int `json:"estimatedWaitTime"` // 预计等待时间（秒）
+	// 预分配的实例配置信息
+	PreallocatedCPU       int `json:"preallocatedCpu"`       // 预分配的CPU核心数
+	PreallocatedMemory    int `json:"preallocatedMemory"`    // 预分配的内存(MB)
+	PreallocatedDisk      int `json:"preallocatedDisk"`      // 预分配的磁盘(MB)
+	PreallocatedBandwidth int `json:"preallocatedBandwidth"` // 预分配的带宽(Mbps)
 }
 
 // TaskResponse 通用任务响应（向后兼容）

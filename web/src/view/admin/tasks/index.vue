@@ -559,6 +559,24 @@
               </el-text>
             </el-descriptions-item>
             <el-descriptions-item
+              v-if="detailDialog.task.preallocatedCpu > 0"
+              :label="$t('admin.tasks.preallocatedConfig')"
+              :span="2"
+            >
+              <el-tag size="small" type="info">
+                CPU: {{ detailDialog.task.preallocatedCpu }} {{ $t('common.core') }}
+              </el-tag>
+              <el-tag size="small" type="info" style="margin-left: 8px;">
+                {{ $t('admin.tasks.memory') }}: {{ (detailDialog.task.preallocatedMemory / 1024).toFixed(1) }} GB
+              </el-tag>
+              <el-tag size="small" type="info" style="margin-left: 8px;">
+                {{ $t('admin.tasks.disk') }}: {{ (detailDialog.task.preallocatedDisk / 1024).toFixed(1) }} GB
+              </el-tag>
+              <el-tag size="small" type="info" style="margin-left: 8px;">
+                {{ $t('admin.tasks.bandwidth') }}: {{ detailDialog.task.preallocatedBandwidth }} Mbps
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item
               v-if="detailDialog.task.statusMessage"
               :label="$t('admin.tasks.statusMessage')"
               :span="2"

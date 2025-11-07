@@ -74,7 +74,8 @@ export default {
     leftParen: ' (',
     rightParen: ')',
     inLocation: ' in',
-    backToHome: 'Back to Home'
+    backToHome: 'Back to Home',
+    core: ' Core'
   },
   navbar: {
     switchTo: 'Switch to',
@@ -644,11 +645,17 @@ export default {
       refreshedTotal: 'Refreshed, total {count} tasks',
       estimatedCompletion: 'Estimated Completion',
       cancel: 'Cancel',
+      queuePosition: 'Queue Position',
+      beforeYouInQueue: '{count} tasks ahead',
+      estimatedWaitTime: 'Est. Wait',
+      estimatedWait: 'Est. Wait',
+      calculating: 'Calculating...',
+      hours: 'h',
+      minutes: 'm',
+      seconds: 's',
+      instanceConfig: 'Instance Config',
       duration: 'Duration',
       cancelReason: 'Cancel Reason',
-      seconds: 's',
-      minutes: 'm',
-      hours: 'h',
       apiLoadTasks: 'Load Task List',
       apiLoadProviders: 'Load Provider List'
     },
@@ -1670,7 +1677,11 @@ export default {
       forceStopSuccess: 'Task force stopped successfully',
       cancelTaskConfirm: 'Are you sure to cancel task "{taskType}"?',
       confirmCancel: 'Confirm Cancel',
-      cancelSuccess: 'Task cancelled successfully'
+      cancelSuccess: 'Task cancelled successfully',
+      preallocatedConfig: 'Preallocated Config',
+      memory: 'Memory',
+      disk: 'Disk',
+      bandwidth: 'Bandwidth'
     },
     traffic: {
       title: 'Traffic Management',
