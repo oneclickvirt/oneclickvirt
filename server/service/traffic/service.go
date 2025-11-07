@@ -543,7 +543,7 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 	} else {
 		// 负增量或零增量的警告
 		if deltaIn < 0 || deltaOut < 0 {
-			global.APP_LOG.Warn("检测到负流量增量，可能是vnStat异常或时钟回退",
+			global.APP_LOG.Warn("检测到负流量增量，可能是vnStat异常或时钟回退，重置基准值",
 				zap.Uint("instanceID", instanceID),
 				zap.Int64("deltaIn", deltaIn),
 				zap.Int64("deltaOut", deltaOut),
@@ -553,6 +553,25 @@ func (s *Service) updateTrafficRecord(userID, providerID, instanceID uint, data 
 				zap.Int64("currentTx", data.TxMB),
 				zap.Int64("lastTx", record.LastVnstatTxMB),
 				zap.String("可能原因", "vnStat数据库损坏/NTP时钟回退/网卡流量计数器异常"))
+
+			// 重置vnStat基准值，避免数据不一致
+			err := global.APP_DB.Model(&userModel.TrafficRecord{}).
+				Where("id = ?", record.ID).
+				Updates(map[string]interface{}{
+					"last_vnstat_rx_mb": data.RxMB,
+					"last_vnstat_tx_mb": data.TxMB,
+					"last_sync_at":      now,
+				}).Error
+			if err != nil {
+				global.APP_LOG.Error("重置vnStat基准值失败",
+					zap.Uint("instanceID", instanceID),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已重置vnStat基准值",
+					zap.Uint("instanceID", instanceID),
+					zap.Int64("newRxMB", data.RxMB),
+					zap.Int64("newTxMB", data.TxMB))
+			}
 		} else {
 			global.APP_LOG.Debug("流量增量为零，跳过更新",
 				zap.Uint("instanceID", instanceID),

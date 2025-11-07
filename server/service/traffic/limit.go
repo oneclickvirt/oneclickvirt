@@ -192,9 +192,9 @@ func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error
 	// 遍历每个实例，获取年度流量（聚合所有接口，避免重复统计）
 	for _, instance := range instances {
 		// 获取实例所有接口的年度总流量聚合（使用子查询避免重复统计多个接口）
-		var instanceTotalMB int64
+		var instanceTotalMB float64
 		err := global.APP_DB.Raw(`
-			SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) / 1048576
+			SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) / 1048576.0
 			FROM (
 				SELECT instance_id, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
 				FROM vnstat_traffic_records
@@ -210,7 +210,7 @@ func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error
 			continue
 		}
 
-		totalTraffic += instanceTotalMB
+		totalTraffic += int64(instanceTotalMB)
 	}
 
 	return totalTraffic, nil
