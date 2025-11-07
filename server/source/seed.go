@@ -118,22 +118,22 @@ func getMinHardwareRequirements(osType string, instanceType string) (int, int) {
 	}
 
 	// 虚拟机的最低要求（取容器要求和当前硬编码的最大值）
-	// 当前硬编码：VM 512MB内存，5GB硬盘
+	// 当前硬编码：VM 512MB内存，3GB硬盘
 	vmRequirements := map[string]struct{ memory, disk int }{
-		"centos":     {512, 5120}, // max(512, 512)=512MB, max(2048, 5120)=5120MB
-		"almalinux":  {512, 5120}, // max(350, 512)=512MB, max(1536, 5120)=5120MB
-		"debian":     {512, 5120}, // max(128, 512)=512MB, max(1024, 5120)=5120MB
-		"kali":       {512, 5120}, // max(256, 512)=512MB, max(1024, 5120)=5120MB
-		"rockylinux": {512, 5120}, // max(350, 512)=512MB, max(1536, 5120)=5120MB
-		"alpine":     {512, 5120}, // max(64, 512)=512MB, max(200, 5120)=5120MB
+		"centos":     {512, 3072}, // max(512, 512)=512MB, max(2048, 3072)=3072MB
+		"almalinux":  {512, 3072}, // max(350, 512)=512MB, max(1536, 3072)=3072MB
+		"debian":     {326, 3072}, // max(128, 326)=326MB, max(1024, 3072)=3072MB
+		"kali":       {326, 3072}, // max(256, 326)=326MB, max(1024, 3072)=3072MB
+		"rockylinux": {512, 3072}, // max(350, 512)=512MB, max(1536, 3072)=3072MB
+		"alpine":     {64, 3072},  // max(64, 326)=326MB, max(200, 3072)=3072MB
 	}
 
 	if instanceType == "vm" {
 		if req, ok := vmRequirements[osTypeLower]; ok {
 			return req.memory, req.disk
 		}
-		// 其他系统默认值：512MB, 5GB
-		return 512, 5120
+		// 其他系统默认值：512MB, 3GB
+		return 326, 3072
 	} else {
 		// container
 		if req, ok := containerRequirements[osTypeLower]; ok {
