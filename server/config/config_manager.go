@@ -646,11 +646,11 @@ func (cm *ConfigManager) loadConfigFromDB() {
 	// 场景2：数据库有配置 + 标志文件不存在 = 可能是升级后首次启动，标志文件丢失
 	// 策略：智能判断 - 对比数据库和YAML的时间戳或内容
 	if configCount > 0 && !configModified {
-		cm.logger.Info("场景：数据库有配置但无标志文件（可能是升级场景）")
+		cm.logger.Info("场景：数据库有配置但无标志文件（可能是重启或升级场景）")
 		shouldUseDatabaseConfig := cm.shouldPreferDatabaseConfig()
 
 		if shouldUseDatabaseConfig {
-			cm.logger.Info("判断：数据库配置更新，优先使用数据库配置")
+			cm.logger.Info("判断：数据库有配置数据，优先使用数据库配置（保留用户设置）")
 			// 重新创建标志文件
 			if err := cm.markConfigAsModified(); err != nil {
 				cm.logger.Warn("重新创建标志文件失败", zap.Error(err))
@@ -754,33 +754,24 @@ func (cm *ConfigManager) shouldPreferDatabaseConfig() bool {
 		return false
 	}
 
-	// 策略2：检查数据库配置的更新时间
-	// 如果最近有更新，说明是用户修改过的配置
-	var latestConfig SystemConfig
-	if err := cm.db.Order("updated_at DESC").First(&latestConfig).Error; err == nil {
-		// 如果最近24小时内有更新，优先使用数据库
-		if time.Since(latestConfig.UpdatedAt) < 24*time.Hour {
-			cm.logger.Info("数据库配置最近有更新，优先使用数据库",
-				zap.Time("lastUpdate", latestConfig.UpdatedAt))
-			return true
-		}
-	}
-
-	// 策略3：对比数据库配置数量
-	// 如果数据库配置数量较多（>10），说明已经初始化过
-	if len(configs) > 10 {
-		cm.logger.Info("数据库中有大量配置，判断为已初始化环境",
-			zap.Int("configCount", len(configs)))
-		return true
-	}
-
-	// 策略4：检查是否有system_configs表的数据
-	// 如果表存在且有数据，说明之前运行过
+	// 策略2：只要数据库中有任何配置数据，就认为系统已经初始化过
+	// 应该优先使用数据库配置，避免用户配置丢失
 	var count int64
 	cm.db.Model(&SystemConfig{}).Count(&count)
 	if count > 0 {
 		cm.logger.Info("数据库system_configs表存在且有数据，优先使用数据库",
 			zap.Int64("count", count))
+		return true
+	}
+
+	// 策略3：检查数据库配置的更新时间（作为补充验证）
+	// 如果最近有更新，说明是用户修改过的配置
+	var latestConfig SystemConfig
+	if err := cm.db.Order("updated_at DESC").First(&latestConfig).Error; err == nil {
+		// 只要有配置记录，就认为应该使用数据库（移除24小时限制）
+		cm.logger.Info("数据库配置存在，优先使用数据库",
+			zap.Time("lastUpdate", latestConfig.UpdatedAt),
+			zap.Duration("timeSince", time.Since(latestConfig.UpdatedAt)))
 		return true
 	}
 

@@ -65,6 +65,7 @@ func getDefaultConfig() config.Server {
 			EnableEmail:              false,
 			EnableTelegram:           false,
 			EnableQQ:                 false,
+			EnableOAuth2:             false,
 			EnablePublicRegistration: false,
 			EmailSMTPHost:            "",
 			EmailSMTPPort:            587,
