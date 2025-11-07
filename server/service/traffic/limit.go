@@ -74,10 +74,22 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 }
 
 // getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
+// 只统计启用了流量统计的Provider
 func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
+
+	// 首先检查Provider是否启用了流量统计
+	var p provider.Provider
+	if err := global.APP_DB.Select("enable_traffic_control").First(&p, providerID).Error; err != nil {
+		return 0, fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 如果未启用流量统计，返回0
+	if !p.EnableTrafficControl {
+		return 0, nil
+	}
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
 	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
@@ -351,13 +363,20 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 获取当前月份的流量使用（MB 单位）
-	monthlyTrafficMB, err := s.getProviderMonthlyTrafficFromVnStat(providerID)
-	if err != nil {
-		global.APP_LOG.Warn("获取Provider vnStat月度流量失败，使用默认值",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
+	var monthlyTrafficMB int64
+	// 如果未启用流量统计，流量使用量为0
+	if !p.EnableTrafficControl {
 		monthlyTrafficMB = 0
+	} else {
+		// 获取当前月份的流量使用（MB 单位）
+		var err error
+		monthlyTrafficMB, err = s.getProviderMonthlyTrafficFromVnStat(providerID)
+		if err != nil {
+			global.APP_LOG.Warn("获取Provider vnStat月度流量失败，使用默认值",
+				zap.Uint("providerID", providerID),
+				zap.Error(err))
+			monthlyTrafficMB = 0
+		}
 	}
 
 	// 计算使用百分比
@@ -368,7 +387,7 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 
 	// 获取Provider下的实例数量（排除软删除的实例 - 用于显示活跃实例数）
 	var instanceCount int64
-	err = global.APP_DB.Model(&provider.Instance{}).Where("provider_id = ?", providerID).Count(&instanceCount).Error
+	err := global.APP_DB.Model(&provider.Instance{}).Where("provider_id = ?", providerID).Count(&instanceCount).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取Provider实例数量失败: %w", err)
 	}
@@ -385,7 +404,8 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 	return map[string]interface{}{
 		"provider_id":            providerID,
 		"provider_name":          p.Name,
-		"current_month_usage":    monthlyTrafficMB, // 返回 MB 单位
+		"enable_traffic_control": p.EnableTrafficControl, // 添加流量统计开关状态
+		"current_month_usage":    monthlyTrafficMB,       // 返回 MB 单位
 		"total_limit":            p.MaxTraffic,
 		"usage_percent":          usagePercent,
 		"is_limited":             p.TrafficLimited,

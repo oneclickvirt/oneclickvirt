@@ -83,9 +83,10 @@ type CreateProviderRequest struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
-	MaxTraffic        int64   `json:"maxTraffic"`        // 最大流量限制（MB），默认1TB=1048576MB
-	TrafficCountMode  string  `json:"trafficCountMode"`  // 流量统计模式：both(双向), out(仅出向), in(仅入向)
-	TrafficMultiplier float64 `json:"trafficMultiplier"` // 流量计费倍率，默认1.0
+	EnableTrafficControl bool    `json:"enableTrafficControl"` // 是否启用流量统计和限制，默认启用
+	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
+	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
 	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native
@@ -150,9 +151,10 @@ type UpdateProviderRequest struct {
 	MaxInboundBandwidth      int `json:"maxInboundBandwidth"`      // 最大入站带宽限制（Mbps）
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth"`     // 最大出站带宽限制（Mbps）
 	// 流量管理
-	MaxTraffic        int64   `json:"maxTraffic"`        // 最大流量限制（MB），默认1TB=1048576MB
-	TrafficCountMode  string  `json:"trafficCountMode"`  // 流量统计模式：both(双向), out(仅出向), in(仅入向)
-	TrafficMultiplier float64 `json:"trafficMultiplier"` // 流量计费倍率，默认1.0
+	EnableTrafficControl bool    `json:"enableTrafficControl"` // 是否启用流量统计和限制，默认启用
+	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
+	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
 	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native

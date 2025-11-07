@@ -121,8 +121,28 @@
     </el-divider>
 
     <el-form-item
+      :label="$t('admin.providers.enableTrafficControl')"
+      prop="enableTrafficControl"
+    >
+      <el-switch
+        v-model="modelValue.enableTrafficControl"
+        :active-text="$t('admin.providers.enabled')"
+        :inactive-text="$t('admin.providers.disabled')"
+      />
+      <div class="form-tip">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.enableTrafficControlTip') }}
+        </el-text>
+      </div>
+    </el-form-item>
+
+    <el-form-item
       :label="$t('admin.providers.maxTraffic')"
       prop="maxTraffic"
+      v-show="modelValue.enableTrafficControl"
     >
       <el-input-number
         v-model="maxTrafficTB"
@@ -147,6 +167,7 @@
     <el-form-item
       :label="$t('admin.providers.trafficCountMode')"
       prop="trafficCountMode"
+      v-show="modelValue.enableTrafficControl"
     >
       <el-select
         v-model="modelValue.trafficCountMode"
@@ -179,6 +200,7 @@
     <el-form-item
       :label="$t('admin.providers.trafficMultiplier')"
       prop="trafficMultiplier"
+      v-show="modelValue.enableTrafficControl"
     >
       <el-input-number
         v-model="modelValue.trafficMultiplier"

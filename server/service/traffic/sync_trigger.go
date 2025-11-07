@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	provider "oneclickvirt/model/provider"
 
 	"go.uber.org/zap"
 )
@@ -101,6 +102,24 @@ func (s *SyncTriggerService) TriggerProviderTrafficSync(providerID uint, reason 
 		global.APP_LOG.Info("触发Provider流量同步",
 			zap.Uint("providerID", providerID),
 			zap.String("reason", reason))
+
+		// 检查Provider是否启用了流量控制
+		var p provider.Provider
+		if err := global.APP_DB.Select("enable_traffic_control").First(&p, providerID).Error; err != nil {
+			global.APP_LOG.Error("查询Provider失败",
+				zap.Uint("providerID", providerID),
+				zap.String("reason", reason),
+				zap.Error(err))
+			return
+		}
+
+		// 如果未启用流量控制，跳过同步
+		if !p.EnableTrafficControl {
+			global.APP_LOG.Debug("Provider未启用流量控制，跳过流量同步",
+				zap.Uint("providerID", providerID),
+				zap.String("reason", reason))
+			return
+		}
 
 		// 使用三层级流量限制服务检查Provider流量限制
 		if _, err := s.threeTierService.CheckProviderTrafficLimit(providerID); err != nil {

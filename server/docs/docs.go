@@ -2653,6 +2653,12 @@ const docTemplate = `{
                         "description": "搜索关键字",
                         "name": "search",
                         "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "操作系统类型",
+                        "name": "osType",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -8399,6 +8405,118 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/admin/instances/{id}/ssh": {
+            "get": {
+                "description": "管理员通过WebSocket建立到任意实例的SSH连接",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员WebSocket SSH连接",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/user/instances/{id}/ssh": {
+            "get": {
+                "description": "通过WebSocket建立到实例的SSH连接",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "WebSocket SSH连接",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
@@ -8455,6 +8573,22 @@ const docTemplate = `{
                 },
                 "isForceStoppable": {
                     "type": "boolean"
+                },
+                "preallocatedBandwidth": {
+                    "description": "预分配的带宽(Mbps)",
+                    "type": "integer"
+                },
+                "preallocatedCpu": {
+                    "description": "预分配的实例配置信息",
+                    "type": "integer"
+                },
+                "preallocatedDisk": {
+                    "description": "预分配的磁盘(MB)",
+                    "type": "integer"
+                },
+                "preallocatedMemory": {
+                    "description": "预分配的内存(MB)",
+                    "type": "integer"
                 },
                 "progress": {
                     "type": "integer"
@@ -8960,6 +9094,18 @@ const docTemplate = `{
                 "config": {
                     "type": "string"
                 },
+                "containerLimitCpu": {
+                    "description": "容器资源限制配置",
+                    "type": "boolean"
+                },
+                "containerLimitDisk": {
+                    "description": "容器硬盘是否计入总量预算",
+                    "type": "boolean"
+                },
+                "containerLimitMemory": {
+                    "description": "容器内存是否计入总量预算",
+                    "type": "boolean"
+                },
                 "container_enabled": {
                     "type": "boolean"
                 },
@@ -8985,6 +9131,10 @@ const docTemplate = `{
                     "description": "是否启用任务轮询，默认true",
                     "type": "boolean"
                 },
+                "enableTrafficControl": {
+                    "description": "流量管理",
+                    "type": "boolean"
+                },
                 "endpoint": {
                     "type": "string"
                 },
@@ -8999,6 +9149,14 @@ const docTemplate = `{
                 },
                 "expiresAt": {
                     "description": "过期时间，格式: \"2006-01-02 15:04:05\"",
+                    "type": "string"
+                },
+                "ipv4PortMappingMethod": {
+                    "description": "端口映射方式配置",
+                    "type": "string"
+                },
+                "ipv6PortMappingMethod": {
+                    "description": "IPv6端口映射方式：device_proxy, iptables, native",
                     "type": "string"
                 },
                 "levelLimits": {
@@ -9026,7 +9184,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "maxTraffic": {
-                    "description": "流量管理",
+                    "description": "最大流量限制（MB），默认1TB=1048576MB",
                     "type": "integer"
                 },
                 "maxVMInstances": {
@@ -9097,11 +9255,31 @@ const docTemplate = `{
                 "totalQuota": {
                     "type": "integer"
                 },
+                "trafficCountMode": {
+                    "description": "流量统计模式：both(双向), out(仅出向), in(仅入向)",
+                    "type": "string"
+                },
+                "trafficMultiplier": {
+                    "description": "流量计费倍率，默认1.0",
+                    "type": "number"
+                },
                 "type": {
                     "type": "string"
                 },
                 "username": {
                     "type": "string"
+                },
+                "vmLimitCpu": {
+                    "description": "虚拟机资源限制配置",
+                    "type": "boolean"
+                },
+                "vmLimitDisk": {
+                    "description": "虚拟机硬盘是否计入总量预算",
+                    "type": "boolean"
+                },
+                "vmLimitMemory": {
+                    "description": "虚拟机内存是否计入总量预算",
+                    "type": "boolean"
                 },
                 "vm_enabled": {
                     "type": "boolean"
@@ -11409,6 +11587,10 @@ const docTemplate = `{
                 },
                 "providerStatus": {
                     "description": "Provider状态：active, inactive, partial",
+                    "type": "string"
+                },
+                "providerType": {
+                    "description": "Provider虚拟化类型：docker, lxd, incus, proxmox",
                     "type": "string"
                 },
                 "publicIP": {

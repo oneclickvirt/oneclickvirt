@@ -125,12 +125,13 @@ type Provider struct {
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth" gorm:"default:1000"`    // 最大出站带宽限制（Mbps）
 
 	// 流量管理（MB为单位）
-	MaxTraffic        int64      `json:"maxTraffic" gorm:"default:1048576"`            // 最大流量限制（默认1TB=1048576MB）
-	UsedTraffic       int64      `json:"usedTraffic" gorm:"default:0"`                 // 当月已使用流量（MB）
-	TrafficLimited    bool       `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被限制
-	TrafficResetAt    *time.Time `json:"trafficResetAt"`                               // 流量重置时间
-	TrafficCountMode  string     `json:"trafficCountMode" gorm:"default:both;size:16"` // 流量统计模式：both(双向), out(仅出向), in(仅入向)
-	TrafficMultiplier float64    `json:"trafficMultiplier" gorm:"default:1.0"`         // 流量计费倍率（例如：入向0.5倍，出向1倍）
+	EnableTrafficControl bool       `json:"enableTrafficControl" gorm:"default:true"`     // 是否启用流量统计和限制，默认启用
+	MaxTraffic           int64      `json:"maxTraffic" gorm:"default:1048576"`            // 最大流量限制（默认1TB=1048576MB）
+	UsedTraffic          int64      `json:"usedTraffic" gorm:"default:0"`                 // 当月已使用流量（MB）
+	TrafficLimited       bool       `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被限制
+	TrafficResetAt       *time.Time `json:"trafficResetAt"`                               // 流量重置时间
+	TrafficCountMode     string     `json:"trafficCountMode" gorm:"default:both;size:16"` // 流量统计模式：both(双向), out(仅出向), in(仅入向)
+	TrafficMultiplier    float64    `json:"trafficMultiplier" gorm:"default:1.0"`         // 流量计费倍率（例如：入向0.5倍，出向1倍）
 
 	// 资源占用统计（基于实际创建的实例计算）
 	UsedCPUCores     int        `json:"usedCpuCores" gorm:"default:0"`       // 已占用的CPU核心数

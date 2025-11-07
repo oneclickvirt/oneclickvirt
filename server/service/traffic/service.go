@@ -101,6 +101,19 @@ func (s *Service) SyncInstanceTraffic(instanceID uint) error {
 // SyncProviderTraffic 同步Provider流量统计
 // 从TrafficRecord汇总该Provider下所有实例的当月流量（包含已删除实例）
 func (s *Service) SyncProviderTraffic(providerID uint) error {
+	// 检查Provider是否启用了流量控制
+	var p provider.Provider
+	if err := global.APP_DB.Select("enable_traffic_control").First(&p, providerID).Error; err != nil {
+		return fmt.Errorf("查询Provider失败: %w", err)
+	}
+
+	// 如果未启用流量控制，跳过同步
+	if !p.EnableTrafficControl {
+		global.APP_LOG.Debug("Provider未启用流量控制，跳过流量同步",
+			zap.Uint("providerID", providerID))
+		return nil
+	}
+
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
@@ -135,6 +148,13 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 	var p provider.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
 		return false, err
+	}
+
+	// 如果未启用流量控制，跳过检查
+	if !p.EnableTrafficControl {
+		global.APP_LOG.Debug("Provider未启用流量控制，跳过流量限制检查",
+			zap.Uint("providerID", providerID))
+		return false, nil
 	}
 
 	// 检查是否需要重置流量
@@ -862,6 +882,22 @@ func (s *Service) SyncAllTrafficData() error {
 
 	// 同步Provider流量（汇总所有实例的流量）
 	for providerID := range providerMap {
+		// 检查Provider是否启用了流量控制
+		var p provider.Provider
+		if err := global.APP_DB.Select("enable_traffic_control").First(&p, providerID).Error; err != nil {
+			global.APP_LOG.Error("查询Provider失败",
+				zap.Uint("providerID", providerID),
+				zap.Error(err))
+			continue
+		}
+
+		// 如果未启用流量控制，跳过同步
+		if !p.EnableTrafficControl {
+			global.APP_LOG.Debug("Provider未启用流量控制，跳过流量同步",
+				zap.Uint("providerID", providerID))
+			continue
+		}
+
 		if err := s.SyncProviderTraffic(providerID); err != nil {
 			global.APP_LOG.Error("同步Provider流量失败",
 				zap.Uint("providerID", providerID),

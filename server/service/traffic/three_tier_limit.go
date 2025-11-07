@@ -465,6 +465,15 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 		return false, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
+	// 如果Provider未启用流量统计和限制，直接跳过检查
+	if !p.EnableTrafficControl {
+		// 如果之前被限制过，解除限制
+		if p.TrafficLimited {
+			return s.unlimitProviderInstances(providerID, "Provider已禁用流量统计和限制")
+		}
+		return false, nil
+	}
+
 	// 检查是否需要重置流量
 	if err := s.service.checkAndResetProviderMonthlyTraffic(providerID); err != nil {
 		global.APP_LOG.Error("检查Provider月度流量重置失败",

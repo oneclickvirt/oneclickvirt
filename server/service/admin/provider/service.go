@@ -312,6 +312,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	if provider.MaxTraffic <= 0 {
 		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
 	}
+	// 流量统计控制默认值：启用
+	// EnableTrafficControl字段由数据库默认值处理（default:true），这里不需要手动设置
 	// 流量统计模式默认值
 	if provider.TrafficCountMode == "" {
 		provider.TrafficCountMode = "both" // 默认双向统计
@@ -505,6 +507,8 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.MaxOutboundBandwidth > 0 {
 		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
 	}
+	// 流量控制开关更新
+	provider.EnableTrafficControl = req.EnableTrafficControl
 	// 流量限制更新
 	if req.MaxTraffic > 0 {
 		provider.MaxTraffic = req.MaxTraffic

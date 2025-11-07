@@ -172,6 +172,7 @@ const addProviderForm = reactive({
   maxInboundBandwidth: 1000, // 最大入站带宽限制（Mbps）
   maxOutboundBandwidth: 1000, // 最大出站带宽限制（Mbps）
   // 流量配置
+  enableTrafficControl: true, // 是否启用流量统计和限制，默认启用
   maxTraffic: 1048576, // 最大流量限制（MB），默认1TB
   trafficCountMode: 'both', // 流量统计模式：both(双向), out(仅出向), in(仅入向)
   trafficMultiplier: 1.0, // 流量计费倍率，默认1.0
@@ -473,6 +474,7 @@ const submitAddServer = async (formData) => {
       maxInboundBandwidth: formData.maxInboundBandwidth || 1000,
       maxOutboundBandwidth: formData.maxOutboundBandwidth || 1000,
       // 流量配置
+      enableTrafficControl: formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : true,
       maxTraffic: formData.maxTraffic || 1048576,
       trafficCountMode: formData.trafficCountMode || 'both', // 流量统计模式
       trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0, // 流量计费倍率
@@ -629,6 +631,7 @@ const editProvider = (provider) => {
     maxInboundBandwidth: provider.maxInboundBandwidth || 1000,
     maxOutboundBandwidth: provider.maxOutboundBandwidth || 1000,
     // 流量配置
+    enableTrafficControl: provider.enableTrafficControl !== undefined ? provider.enableTrafficControl : true,
     maxTraffic: provider.maxTraffic || 1048576,
     trafficCountMode: provider.trafficCountMode || 'both', // 流量统计模式
     trafficMultiplier: provider.trafficMultiplier || 1.0, // 流量倍率
