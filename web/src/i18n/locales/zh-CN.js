@@ -898,6 +898,7 @@ export default {
       diskResource: '硬盘资源',
       trafficUsage: '流量使用',
       trafficExceeded: '流量超限',
+      instanceQuota: '实例配额',
       serverStatus: '服务器状态',
       frozen: '冻结',
       expired: '已过期',

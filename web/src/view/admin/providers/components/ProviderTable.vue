@@ -310,6 +310,59 @@
         </template>
       </el-table-column>
       <el-table-column
+        :label="$t('admin.providers.instanceQuota')"
+        width="160"
+      >
+        <template #default="scope">
+          <div class="instance-quota-info">
+            <!-- 容器配额 -->
+            <div
+              v-if="scope.row.container_enabled"
+              class="quota-item"
+            >
+              <el-tag
+                size="small"
+                type="primary"
+              >
+                {{ $t('admin.providers.container') }}
+              </el-tag>
+              <span class="quota-text">
+                {{ scope.row.currentContainerCount || 0 }} / {{ scope.row.maxContainerInstances === 0 ? '∞' : scope.row.maxContainerInstances }}
+              </span>
+              <el-progress
+                v-if="scope.row.maxContainerInstances > 0"
+                :percentage="getQuotaPercentage(scope.row.currentContainerCount, scope.row.maxContainerInstances)"
+                :status="getQuotaProgressStatus(scope.row.currentContainerCount, scope.row.maxContainerInstances)"
+                :stroke-width="4"
+                :show-text="false"
+              />
+            </div>
+            <!-- 虚拟机配额 -->
+            <div
+              v-if="scope.row.vm_enabled"
+              class="quota-item"
+            >
+              <el-tag
+                size="small"
+                type="success"
+              >
+                {{ $t('admin.providers.vm') }}
+              </el-tag>
+              <span class="quota-text">
+                {{ scope.row.currentVMCount || 0 }} / {{ scope.row.maxVMInstances === 0 ? '∞' : scope.row.maxVMInstances }}
+              </span>
+              <el-progress
+                v-if="scope.row.maxVMInstances > 0"
+                :percentage="getQuotaPercentage(scope.row.currentVMCount, scope.row.maxVMInstances)"
+                :status="getQuotaProgressStatus(scope.row.currentVMCount, scope.row.maxVMInstances)"
+                :stroke-width="4"
+                :show-text="false"
+              />
+            </div>
+          </div>
+        </template>
+      </el-table-column>
+      <el-table-column
         :label="$t('common.status')"
         width="80"
       >
@@ -435,6 +488,8 @@ import {
   getTrafficProgressStatus,
   getResourcePercentage,
   getResourceProgressStatus,
+  getQuotaPercentage,
+  getQuotaProgressStatus,
   formatDateTime,
   isExpired,
   isNearExpiry,
@@ -542,6 +597,26 @@ const handleSelectionChange = (selection) => {
 
 .traffic-status {
   text-align: center;
+}
+
+.instance-quota-info {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.quota-item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.quota-text {
+  font-size: 12px;
+  font-weight: 500;
+  color: #606266;
+  margin-left: 4px;
 }
 
 .table-action-buttons {

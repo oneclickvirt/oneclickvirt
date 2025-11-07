@@ -882,6 +882,7 @@ export default {
       diskResource: 'Disk Resource',
       trafficUsage: 'Traffic Usage',
       trafficExceeded: 'Traffic Exceeded',
+      instanceQuota: 'Instance Quota',
       serverStatus: 'Server Status',
       frozen: 'Frozen',
       expired: 'Expired',

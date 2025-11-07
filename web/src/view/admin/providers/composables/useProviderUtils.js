@@ -112,6 +112,20 @@ export const getLevelTagType = (level) => {
   return levelColors[level] || 'info'
 }
 
+// 计算配额使用百分比
+export const getQuotaPercentage = (current, max) => {
+  if (!max || max === 0) return 0
+  return Math.min(Math.round((current / max) * 100), 100)
+}
+
+// 获取配额进度条状态
+export const getQuotaProgressStatus = (current, max) => {
+  const percentage = getQuotaPercentage(current, max)
+  if (percentage >= 100) return 'exception'
+  if (percentage >= 90) return 'warning'
+  return 'success'
+}
+
 // 导出常用工具函数
 export {
   formatMemorySize,

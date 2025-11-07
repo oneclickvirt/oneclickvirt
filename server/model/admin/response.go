@@ -53,6 +53,9 @@ type ProviderManageResponse struct {
 	AllocatedCPUCores int   `json:"allocatedCpuCores"` // 已分配的CPU核心数（考虑limit配置）
 	AllocatedMemory   int64 `json:"allocatedMemory"`   // 已分配的内存（MB）（考虑limit配置）
 	AllocatedDisk     int64 `json:"allocatedDisk"`     // 已分配的磁盘（MB）（考虑limit配置）
+	// 实例数量统计（容器和虚拟机分别统计）
+	CurrentContainerCount int `json:"currentContainerCount"` // 当前容器实例数量
+	CurrentVMCount        int `json:"currentVMCount"`        // 当前虚拟机实例数量
 }
 
 type InviteCodeResponse struct {

@@ -74,6 +74,12 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		var runningTasksCount int64
 		global.APP_DB.Model(&admin.Task{}).Where("provider_id = ? AND status = ?", provider.ID, "running").Count(&runningTasksCount)
 
+		// 统计容器和虚拟机数量
+		var containerCount int64
+		var vmCount int64
+		global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ? AND instance_type = ?", provider.ID, "container").Count(&containerCount)
+		global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ? AND instance_type = ?", provider.ID, "vm").Count(&vmCount)
+
 		// Docker 类型固定使用 native 端口映射方式
 		if provider.Type == "docker" {
 			provider.IPv4PortMappingMethod = "native"
@@ -104,6 +110,9 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			AllocatedCPUCores: allocatedCPU,
 			AllocatedMemory:   allocatedMemory,
 			AllocatedDisk:     allocatedDisk,
+			// 实例数量统计
+			CurrentContainerCount: int(containerCount),
+			CurrentVMCount:        int(vmCount),
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}
