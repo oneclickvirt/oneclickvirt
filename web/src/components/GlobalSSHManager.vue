@@ -232,7 +232,11 @@ const openSSHInNewWindow = (conn) => {
           brightMagenta: '#d670d6',
           brightCyan: '#29b8db',
           brightWhite: '#e5e5e5'
-        }
+        },
+        rows: 24,
+        cols: 80,
+        scrollback: 1000,
+        convertEol: false
       });
       
       const fitAddon = new window.FitAddon.FitAddon();
@@ -251,6 +255,7 @@ const openSSHInNewWindow = (conn) => {
       terminal.writeln('Connecting to SSH server...');
       
       const websocket = new WebSocket('${wsUrl}');
+      websocket.binaryType = 'arraybuffer';
       
       websocket.onopen = function() {
         terminal.writeln('\\x1b[32mConnected to SSH server\\x1b[0m');
@@ -263,7 +268,12 @@ const openSSHInNewWindow = (conn) => {
       };
       
       websocket.onmessage = function(event) {
-        terminal.write(event.data);
+        if (event.data instanceof ArrayBuffer) {
+          const uint8Array = new Uint8Array(event.data);
+          terminal.write(uint8Array);
+        } else {
+          terminal.write(event.data);
+        }
       };
       
       websocket.onerror = function() {

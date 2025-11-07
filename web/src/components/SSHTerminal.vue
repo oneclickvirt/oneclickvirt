@@ -74,8 +74,13 @@ const initTerminal = () => {
       brightCyan: '#29b8db',
       brightWhite: '#e5e5e5'
     },
-    rows: 30,
-    cols: 100
+    rows: 24,
+    cols: 80,
+    // vim/vi 需要的额外配置
+    scrollback: 1000,
+    convertEol: false,
+    // 确保能正确处理特殊按键
+    allowProposedApi: true
   })
 
   fitAddon = new FitAddon()
@@ -150,6 +155,8 @@ const connect = () => {
 
   try {
     websocket = new WebSocket(wsUrl)
+    // 设置为接收二进制数据作为 ArrayBuffer
+    websocket.binaryType = 'arraybuffer'
 
     websocket.onopen = () => {
       isConnecting = false
@@ -166,7 +173,14 @@ const connect = () => {
     }
 
     websocket.onmessage = (event) => {
-      terminal.write(event.data)
+      // 处理二进制数据
+      if (event.data instanceof ArrayBuffer) {
+        const uint8Array = new Uint8Array(event.data)
+        terminal.write(uint8Array)
+      } else {
+        // 处理文本数据（向后兼容）
+        terminal.write(event.data)
+      }
     }
 
     websocket.onerror = (error) => {

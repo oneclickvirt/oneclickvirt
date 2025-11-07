@@ -127,15 +127,21 @@ func SSHWebSocket(c *gin.Context) {
 	defer sshClient.Close()
 	defer session.Close()
 
-	// 设置终端模式
+	// 设置终端模式 - 添加更多vim/vi需要的终端模式
 	modes := ssh.TerminalModes{
-		ssh.ECHO:          1,
-		ssh.TTY_OP_ISPEED: 14400,
-		ssh.TTY_OP_OSPEED: 14400,
+		ssh.ECHO:          1,     // 启用回显
+		ssh.TTY_OP_ISPEED: 14400, // 输入速度
+		ssh.TTY_OP_OSPEED: 14400, // 输出速度
+		ssh.ECHOCTL:       0,     // 不回显控制字符
+		ssh.ECHOKE:        1,     // 删除键回显
+		ssh.IGNCR:         0,     // 不忽略回车
+		ssh.ICRNL:         1,     // 回车转换为换行
+		ssh.OPOST:         1,     // 输出后处理
+		ssh.ONLCR:         1,     // 换行转换为回车换行
 	}
 
-	// 请求PTY
-	if err := session.RequestPty("xterm-256color", 40, 80, modes); err != nil {
+	// 请求PTY - 初始大小设为24x80，这是标准终端大小，与vim兼容性最好
+	if err := session.RequestPty("xterm-256color", 24, 80, modes); err != nil {
 		global.APP_LOG.Error("请求PTY失败", zap.Error(err))
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("请求PTY失败: %v\r\n", err)))
 		return
@@ -184,21 +190,26 @@ func SSHWebSocket(c *gin.Context) {
 				return
 			}
 
-			if messageType == websocket.TextMessage {
-				// 处理特殊消息（终端大小调整）
-				var msg map[string]interface{}
-				if err := json.Unmarshal(message, &msg); err == nil {
-					if msg["type"] == "resize" {
-						if cols, ok := msg["cols"].(float64); ok {
-							if rows, ok := msg["rows"].(float64); ok {
-								session.WindowChange(int(rows), int(cols))
-								continue
+			// 支持 TextMessage 和 BinaryMessage
+			if messageType == websocket.TextMessage || messageType == websocket.BinaryMessage {
+				// 处理特殊消息（终端大小调整）- 只对文本消息尝试JSON解析
+				if messageType == websocket.TextMessage {
+					var msg map[string]interface{}
+					if err := json.Unmarshal(message, &msg); err == nil {
+						if msg["type"] == "resize" {
+							if cols, ok := msg["cols"].(float64); ok {
+								if rows, ok := msg["rows"].(float64); ok {
+									if err := session.WindowChange(int(rows), int(cols)); err != nil {
+										global.APP_LOG.Error("窗口大小调整失败", zap.Error(err))
+									}
+									continue
+								}
 							}
 						}
 					}
 				}
 
-				// 普通输入
+				// 普通输入 - 直接写入原始字节，不做任何转换
 				if _, err := sshIn.Write(message); err != nil {
 					global.APP_LOG.Error("写入SSH失败", zap.Error(err))
 					errChan <- err
@@ -210,7 +221,7 @@ func SSHWebSocket(c *gin.Context) {
 
 	// SSH -> WebSocket (stdout)
 	go func() {
-		buf := make([]byte, 1024)
+		buf := make([]byte, 32768) // 增加缓冲区大小以更好地处理vim的输出
 		for {
 			n, err := sshOut.Read(buf)
 			if err != nil {
@@ -221,7 +232,8 @@ func SSHWebSocket(c *gin.Context) {
 				return
 			}
 			if n > 0 {
-				if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+				// 使用 BinaryMessage 而不是 TextMessage，避免UTF-8验证问题
+				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 					global.APP_LOG.Error("写入WebSocket失败", zap.Error(err))
 					errChan <- err
 					return
@@ -232,7 +244,7 @@ func SSHWebSocket(c *gin.Context) {
 
 	// SSH -> WebSocket (stderr)
 	go func() {
-		buf := make([]byte, 1024)
+		buf := make([]byte, 32768) // 增加缓冲区大小
 		for {
 			n, err := sshErr.Read(buf)
 			if err != nil {
@@ -242,7 +254,8 @@ func SSHWebSocket(c *gin.Context) {
 				return
 			}
 			if n > 0 {
-				if err := ws.WriteMessage(websocket.TextMessage, buf[:n]); err != nil {
+				// 使用 BinaryMessage 而不是 TextMessage
+				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
 					global.APP_LOG.Error("写入WebSocket失败", zap.Error(err))
 					return
 				}
