@@ -1,12 +1,17 @@
 #!/bin/bash
 # from https://github.com/oneclickvirt/oneclickvirt
-# 2025.09.27
+# 2025.11.07
 
-VERSION="v20251107-121325"
+VERSION="" 
 REPO="oneclickvirt/oneclickvirt"
-BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+BASE_URL=""
 cdn_urls="https://cdn0.spiritlhl.top/ http://cdn3.spiritlhl.net/ http://cdn1.spiritlhl.net/ http://cdn2.spiritlhl.net/"
 cdn_success_url=""
+github_api_urls=(
+    "https://api.github.com"
+    "https://githubapi.spiritlhl.workers.dev"
+    "https://githubapi.spiritlhl.top"
+)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
@@ -32,6 +37,43 @@ log_error() {
 reading() { 
     printf "\033[32m\033[01m%s\033[0m" "$1"
     read "$2"
+}
+
+get_latest_version() {
+    # 如果用户通过环境变量指定了版本，直接使用
+    if [ -n "$INSTALL_VERSION" ]; then
+        log_info "使用指定版本: $INSTALL_VERSION"
+        VERSION="$INSTALL_VERSION"
+        BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+        return 0
+    fi
+    
+    log_info "正在获取最新版本信息..."
+    
+    local version=""
+    for api_url in "${github_api_urls[@]}"; do
+        log_info "尝试从 $api_url 获取版本信息..."
+        
+        # 尝试获取最新release信息
+        local response
+        if response=$(curl -sL --connect-timeout 10 --max-time 30 "${api_url}/repos/${REPO}/releases/latest" 2>/dev/null); then
+            version=$(echo "$response" | grep '"tag_name":' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+            
+            if [ -n "$version" ] && [ "$version" != "null" ]; then
+                log_success "成功获取最新版本: $version"
+                VERSION="$version"
+                BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
+                return 0
+            fi
+        fi
+        
+        log_warning "从 $api_url 获取版本失败，尝试下一个..."
+        sleep 1
+    done
+    
+    log_error "无法从任何API获取最新版本信息"
+    log_error "请检查网络连接或手动指定版本"
+    return 1
 }
 
 check_root() {
@@ -621,6 +663,13 @@ show_info() {
 
 env_check() {
     log_info "开始环境检查..."
+    
+    # 获取最新版本
+    if ! get_latest_version; then
+        log_error "无法获取最新版本，安装终止"
+        exit 1
+    fi
+    
     detect_system
     check_memory_warning
     check_dependencies
@@ -641,18 +690,21 @@ OneClickVirt 安装脚本
   help                 显示此帮助信息
   
 环境变量:
-  CN=true              强制使用中国镜像
-  noninteractive=true  非交互模式
-  WEB_PATH=/path       自定义Web文件安装路径 (默认: /opt/oneclickvirt/web)
+  CN=true                    强制使用中国镜像
+  noninteractive=true        非交互模式
+  WEB_PATH=/path             自定义Web文件安装路径 (默认: /opt/oneclickvirt/web)
+  INSTALL_VERSION=v1.0.0     指定要安装的版本 (默认: 自动获取最新版本)
 
 示例:
-  $0                   # 完整安装
-  $0 env              # 仅环境检查
-  $0 upgrade          # 升级现有安装
-  CN=true $0          # 使用中国镜像安装
-  noninteractive=true $0  # 非交互安装
-  WEB_PATH=/var/www/html $0  # 自定义Web路径安装
-  WEB_PATH=/custom/path $0 upgrade  # 升级时指定自定义Web路径
+  $0                                    # 完整安装最新版本
+  $0 env                                # 仅环境检查
+  $0 upgrade                            # 升级到最新版本
+  CN=true $0                            # 使用中国镜像安装
+  noninteractive=true $0                # 非交互安装
+  WEB_PATH=/var/www/html $0             # 自定义Web路径安装
+  INSTALL_VERSION=v1.0.0 $0             # 安装指定版本
+  INSTALL_VERSION=v1.0.0 $0 upgrade     # 升级到指定版本
+  WEB_PATH=/custom/path $0 upgrade      # 升级时指定自定义Web路径
 EOF
 }
 

@@ -120,23 +120,6 @@ jobs:
         
         ls -lh
 
-    - name: Update install script with new tag
-      run: |
-        TAG_NAME="v${{ steps.date.outputs.date }}"
-        sed -i "s/VERSION=.*/VERSION=\"${TAG_NAME}\"/" install.sh
-        
-    - name: Commit updated install script
-      run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add install.sh
-        if git diff --staged --quiet; then
-          echo "No changes to commit"
-        else
-          git commit -m "chore: update install script to version v${{ steps.date.outputs.date }}"
-          git push
-        fi
-
     - name: Get previous release tag
       id: get_previous_tag
       run: |
