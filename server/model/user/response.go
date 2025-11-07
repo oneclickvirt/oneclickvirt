@@ -120,6 +120,7 @@ type UserInstanceDetailResponse struct {
 	Username        string    `json:"username"`
 	Password        string    `json:"password"`
 	ProviderName    string    `json:"providerName"`
+	ProviderType    string    `json:"providerType"`    // Provider虚拟化类型：docker, lxd, incus, proxmox
 	ProviderStatus  string    `json:"providerStatus"`  // Provider状态：active, inactive, partial
 	PortRangeStart  int       `json:"portRangeStart"`  // 端口范围起始
 	PortRangeEnd    int       `json:"portRangeEnd"`    // 端口范围结束

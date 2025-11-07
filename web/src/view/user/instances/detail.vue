@@ -51,6 +51,14 @@
                 >
                   {{ instance.instance_type === 'vm' ? t('user.instanceDetail.vm') : t('user.instanceDetail.container') }}
                 </el-tag>
+                <el-tag 
+                  v-if="instance.providerType"
+                  :type="getProviderTypeColor(instance.providerType)"
+                  size="small"
+                  style="margin-left: 8px;"
+                >
+                  {{ getProviderTypeName(instance.providerType) }}
+                </el-tag>
                 <span class="server-provider">{{ instance.providerName }}</span>
               </div>
             </div>
@@ -717,8 +725,30 @@ const getNetworkTypeTagType = (networkType) => {
   return tagTypes[networkType] || 'default'
 }
 
+// 获取Provider类型名称
+const getProviderTypeName = (type) => {
+  const names = {
+    docker: 'Docker',
+    lxd: 'LXD',
+    incus: 'Incus',
+    proxmox: 'Proxmox'
+  }
+  return names[type] || type
+}
+
+// 获取Provider类型颜色
+const getProviderTypeColor = (type) => {
+  const colors = {
+    docker: 'info',
+    lxd: 'success',
+    incus: 'warning',
+    proxmox: ''
+  }
+  return colors[type] || ''
+}
+
 // 获取实例详情
-const loadInstanceDetail = async () => {
+const loadInstanceDetail = async (skipPermissionUpdate = false) => {
   // 检查实例ID是否有效
   if (!route.params.id || route.params.id === 'undefined') {
     console.error('实例ID无效，返回实例列表')
@@ -731,9 +761,16 @@ const loadInstanceDetail = async () => {
     loading.value = true
     const response = await getUserInstanceDetail(route.params.id)
     if (response.code === 0 || response.code === 200) {
-      Object.assign(instance.value, response.data)
-      // 实例详情加载完成后，更新权限
-      updateInstancePermissions()
+      // 后端返回的字段名是 type，前端需要映射为 instance_type
+      const data = response.data
+      if (data.type && !data.instance_type) {
+        data.instance_type = data.type
+      }
+      Object.assign(instance.value, data)
+      // 如果不跳过权限更新，则更新权限（用于页面初始化时已并行加载权限的情况）
+      if (!skipPermissionUpdate) {
+        updateInstancePermissions()
+      }
       return true
     }
     return false
@@ -819,11 +856,9 @@ const loadInstanceTypePermissions = async () => {
         canDeleteInstance: false, // 初始化，后续根据实例类型动态设置
         canResetInstance: false  // 初始化，后续根据实例类型动态设置
       }
-      // 如果实例详情已加载，根据实例类型设置对应权限
-      if (instance.value.instance_type) {
-        updateInstancePermissions()
-      }
+      return true
     }
+    return false
   } catch (error) {
     console.error('获取实例类型权限失败:', error)
     instanceTypePermissions.value = {
@@ -836,6 +871,7 @@ const loadInstanceTypePermissions = async () => {
       canResetContainer: false,
       canResetVM: false
     }
+    return false
   }
 }
 
@@ -1146,27 +1182,49 @@ const getTrafficLimitType = () => {
 // 监听路由参数变化
 watch(() => route.params.id, async (newId, oldId) => {
   if (newId && newId !== oldId && newId !== 'undefined') {
-    const success = await loadInstanceDetail()
-    if (success) {
-      refreshMonitoring()
-      // 重新加载权限配置以更新按钮显示
-      await loadInstanceTypePermissions()
+    try {
+      // 并行加载实例详情和权限配置
+      const [detailSuccess, permissionsSuccess] = await Promise.all([
+        loadInstanceDetail(true),
+        loadInstanceTypePermissions()
+      ])
+      
+      // 两个请求都成功后，统一更新权限并刷新其他数据
+      if (detailSuccess && permissionsSuccess) {
+        updateInstancePermissions()
+        refreshMonitoring()
+        refreshPortMappings()
+      }
+    } catch (error) {
+      console.error('路由切换时加载数据失败:', error)
     }
   }
 })
+
+// 标志位，防止 watch 循环触发
+let isUpdatingFromRoute = false
 
 // 监听路由hash变化来切换标签页
 watch(() => route.hash, (newHash) => {
   if (newHash) {
     const tab = newHash.replace('#', '')
     if (['overview', 'ports', 'stats'].includes(tab)) {
+      isUpdatingFromRoute = true
       activeTab.value = tab
+      // 下一个 tick 后重置标志
+      nextTick(() => {
+        isUpdatingFromRoute = false
+      })
     }
   }
 }, { immediate: true })
 
 // 切换标签页时更新URL hash
 watch(activeTab, (newTab) => {
+  // 如果是从路由更新触发的，不再更新路由，避免循环
+  if (isUpdatingFromRoute) {
+    return
+  }
   if (newTab && route.hash !== `#${newTab}`) {
     router.replace({ ...route, hash: `#${newTab}` })
   }
@@ -1179,18 +1237,24 @@ onMounted(async () => {
   // 等待下一个tick，确保路由参数已经加载
   await nextTick()
   
-  // 并行加载实例详情和权限配置
-  const [detailSuccess] = await Promise.allSettled([
-    loadInstanceDetail(),
-    loadInstanceTypePermissions()
-  ])
-  
-  if (detailSuccess.status === 'fulfilled' && detailSuccess.value) {
-    refreshMonitoring()
-    refreshPortMappings()
+  // 使用 Promise.all 并行加载实例详情和权限配置，确保两者都完成
+  try {
+    const [detailSuccess, permissionsSuccess] = await Promise.all([
+      loadInstanceDetail(true), // 跳过实例详情加载时的权限更新
+      loadInstanceTypePermissions()
+    ])
     
-    // 定时刷新监控数据
-    monitoringTimer = setInterval(refreshMonitoring, 30000)
+    // 两个请求都成功后，再统一更新权限，确保按钮渲染一致
+    if (detailSuccess && permissionsSuccess) {
+      updateInstancePermissions()
+      refreshMonitoring()
+      refreshPortMappings()
+      
+      // 定时刷新监控数据
+      monitoringTimer = setInterval(refreshMonitoring, 30000)
+    }
+  } catch (error) {
+    console.error('页面初始化失败:', error)
   }
 })
 

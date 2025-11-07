@@ -338,6 +338,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	var provider providerModel.Provider
 	if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
 		detail.ProviderName = provider.Name
+		detail.ProviderType = provider.Type // Provider虚拟化类型
 		detail.ProviderStatus = provider.Status
 		// 只有当实例没有公网IP时，才使用Provider的endpoint作为fallback
 		if detail.PublicIP == "" {
