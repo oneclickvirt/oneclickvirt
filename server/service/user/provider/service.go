@@ -940,6 +940,18 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv4Address", ipv4Address))
+
+							// 对于内网节点（NAT模式），公网IPv4使用Provider的Endpoint（已在前面设置）
+							// 对于独立IP模式（dedicated），实例获取到的内网IP就是公网IP
+							if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+								// 独立IP模式：内网IP就是公网IP
+								instanceUpdates["public_ip"] = ipv4Address
+								global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+									zap.String("instanceName", instance.Name),
+									zap.String("networkType", dbProvider.NetworkType),
+									zap.String("publicIP", ipv4Address))
+							}
+							// NAT模式下，public_ip已经在前面从Provider的Endpoint设置，这里不需要覆盖
 						} else {
 							global.APP_LOG.Warn("获取Proxmox实例内网IPv4地址失败",
 								zap.String("instanceName", instance.Name),
@@ -967,7 +979,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 										zap.String("instanceName", instance.Name),
 										zap.Error(err))
 								}
-							} else {
+							} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
 								// 直接分配模式（dedicated_ipv4_ipv6, ipv6_only）：获取到的就是公网IPv6地址
 								instanceUpdates["public_ipv6"] = ipv6Address
 								global.APP_LOG.Info("获取到Proxmox实例公网IPv6地址（直接分配模式）",
@@ -991,11 +1003,29 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 									global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
 										zap.String("instanceName", instance.Name),
 										zap.String("privateIP", proxmoxInstance.IP))
+
+									// 对于独立IP模式，内网IP就是公网IP
+									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+										instanceUpdates["public_ip"] = proxmoxInstance.IP
+										global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+											zap.String("instanceName", instance.Name),
+											zap.String("networkType", dbProvider.NetworkType),
+											zap.String("publicIP", proxmoxInstance.IP))
+									}
 								} else if proxmoxInstance.PrivateIP != "" {
 									instanceUpdates["private_ip"] = proxmoxInstance.PrivateIP
 									global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
 										zap.String("instanceName", instance.Name),
 										zap.String("privateIP", proxmoxInstance.PrivateIP))
+
+									// 对于独立IP模式，内网IP就是公网IP
+									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+										instanceUpdates["public_ip"] = proxmoxInstance.PrivateIP
+										global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+											zap.String("instanceName", instance.Name),
+											zap.String("networkType", dbProvider.NetworkType),
+											zap.String("publicIP", proxmoxInstance.PrivateIP))
+									}
 								} else {
 									global.APP_LOG.Warn("Proxmox实例返回的IP地址为空",
 										zap.String("instanceName", instance.Name))
@@ -1010,7 +1040,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 										global.APP_LOG.Info("获取到Proxmox实例内网IPv6地址（NAT模式）",
 											zap.String("instanceName", instance.Name),
 											zap.String("ipv6Address", proxmoxInstance.IPv6Address))
-									} else {
+									} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
 										// 直接分配模式：这是公网IPv6地址
 										instanceUpdates["public_ipv6"] = proxmoxInstance.IPv6Address
 										global.APP_LOG.Info("获取到Proxmox实例公网IPv6地址（直接分配模式）",
