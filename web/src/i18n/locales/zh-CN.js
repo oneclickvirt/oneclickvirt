@@ -658,6 +658,7 @@ export default {
       minutes: '分钟',
       seconds: '秒',
       instanceConfig: '实例配置',
+      configLoading: '配置加载中...',
       duration: '耗时',
       cancelReason: '取消原因',
       seconds: '秒',
@@ -1704,6 +1705,7 @@ export default {
       confirmCancel: '确认取消',
       cancelSuccess: '任务已取消',
       preallocatedConfig: '预分配配置',
+      noPreallocatedConfig: '暂无预分配配置',
       memory: '内存',
       disk: '磁盘',
       bandwidth: '带宽'

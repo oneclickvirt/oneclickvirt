@@ -106,6 +106,24 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 		return false, fmt.Errorf("获取实例信息失败: %w", err)
 	}
 
+	// 检查实例所属 Provider 是否启用流量统计
+	var p provider.Provider
+	if err := global.APP_DB.Select("enable_traffic_control").First(&p, instance.ProviderID).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider流量统计开关失败，跳过实例检查",
+			zap.Uint("instanceID", instanceID),
+			zap.Uint("providerID", instance.ProviderID),
+			zap.Error(err))
+		return false, nil
+	}
+
+	// 如果Provider未启用流量统计，解除可能存在的实例层级限制
+	if !p.EnableTrafficControl {
+		if instance.TrafficLimited && instance.TrafficLimitReason == "instance" {
+			return s.unlimitInstance(instanceID, "Provider已禁用流量统计")
+		}
+		return false, nil
+	}
+
 	// 如果实例已经被更高层级限制，跳过
 	if instance.TrafficLimited && instance.TrafficLimitReason != "" && instance.TrafficLimitReason != "instance" {
 		return true, nil // 已被用户或Provider层级限制
@@ -286,6 +304,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	month := int(now.Month())
 
 	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
+	// 只统计启用了流量统计的Provider的流量
 	var totalUsed float64
 	query := `
 		SELECT COALESCE(SUM(
@@ -299,6 +318,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		INNER JOIN instances AS i ON vtr.instance_id = i.id
 		LEFT JOIN providers AS p ON i.provider_id = p.id
 		WHERE i.user_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0
+		AND COALESCE(p.enable_traffic_control, true) = true
 	`
 
 	err := global.APP_DB.Raw(query, userID, year, month).Scan(&totalUsed).Error

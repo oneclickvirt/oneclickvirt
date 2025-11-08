@@ -30,6 +30,7 @@ func NewLimitService() *LimitService {
 // ============ 流量统计查询方法 ============
 
 // getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
+// 只统计启用了流量统计的Provider
 func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
@@ -37,6 +38,7 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 
 	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
 	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
+	// 只统计启用了流量统计的Provider
 	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
@@ -57,6 +59,7 @@ func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, erro
 			GROUP BY instance_id
 		) agg ON i.id = agg.instance_id
 		WHERE i.user_id = ?
+		AND COALESCE(p.enable_traffic_control, true) = true
 	`
 
 	err := global.APP_DB.Raw(query, year, month, userID).Scan(&totalTrafficMB).Error

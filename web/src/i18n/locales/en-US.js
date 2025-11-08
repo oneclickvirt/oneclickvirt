@@ -654,6 +654,7 @@ export default {
       minutes: 'm',
       seconds: 's',
       instanceConfig: 'Instance Config',
+      configLoading: 'Config loading...',
       duration: 'Duration',
       cancelReason: 'Cancel Reason',
       apiLoadTasks: 'Load Task List',
@@ -1683,6 +1684,7 @@ export default {
       confirmCancel: 'Confirm Cancel',
       cancelSuccess: 'Task cancelled successfully',
       preallocatedConfig: 'Preallocated Config',
+      noPreallocatedConfig: 'No preallocated configuration',
       memory: 'Memory',
       disk: 'Disk',
       bandwidth: 'Bandwidth'

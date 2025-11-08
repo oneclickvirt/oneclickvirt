@@ -216,15 +216,20 @@
                   <span class="value">{{ formatDurationSeconds(currentTask.estimatedWaitTime) }}</span>
                 </div>
                 <div
-                  v-if="currentTask.preallocatedCpu > 0"
+                  v-if="shouldShowInstanceConfig(currentTask)"
                   class="detail-item"
                 >
                   <span class="label">{{ t('user.tasks.instanceConfig') }}:</span>
                   <span class="value">
-                    {{ currentTask.preallocatedCpu }}{{ t('common.core') }} / 
-                    {{ (currentTask.preallocatedMemory / 1024).toFixed(1) }}GB / 
-                    {{ (currentTask.preallocatedDisk / 1024).toFixed(1) }}GB / 
-                    {{ currentTask.preallocatedBandwidth }}Mbps
+                    <template v-if="currentTask.preallocatedCpu > 0">
+                      {{ currentTask.preallocatedCpu }}{{ t('common.core') }} / 
+                      {{ (currentTask.preallocatedMemory / 1024).toFixed(1) }}GB / 
+                      {{ (currentTask.preallocatedDisk / 1024).toFixed(1) }}GB / 
+                      {{ currentTask.preallocatedBandwidth }}Mbps
+                    </template>
+                    <template v-else>
+                      <el-text type="info" size="small">{{ t('user.tasks.configLoading') }}</el-text>
+                    </template>
                   </span>
                 </div>
               </div>
@@ -262,6 +267,17 @@
                   class="task-wait-time"
                 >
                   {{ t('user.tasks.estimatedWait') }}: {{ formatDurationSeconds(task.estimatedWaitTime) }}
+                </div>
+                <div
+                  v-if="task.taskType === 'create' && task.preallocatedCpu > 0"
+                  class="task-config"
+                >
+                  <el-tag size="small" type="info">
+                    {{ task.preallocatedCpu }}{{ t('common.core') }} / 
+                    {{ (task.preallocatedMemory / 1024).toFixed(1) }}GB / 
+                    {{ (task.preallocatedDisk / 1024).toFixed(1) }}GB / 
+                    {{ task.preallocatedBandwidth }}Mbps
+                  </el-tag>
                 </div>
               </div>
               <div class="task-actions">
@@ -607,6 +623,12 @@ const getTaskStatusType = (status) => {
     'timeout': 'danger'
   }
   return statusMap[status] || 'info'
+}
+
+// 判断是否应该显示实例配置
+const shouldShowInstanceConfig = (task) => {
+  // create 类型的任务总是显示配置区域
+  return task.taskType === 'create'
 }
 
 // 获取任务状态文本

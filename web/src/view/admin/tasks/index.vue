@@ -559,22 +559,27 @@
               </el-text>
             </el-descriptions-item>
             <el-descriptions-item
-              v-if="detailDialog.task.preallocatedCpu > 0"
+              v-if="shouldShowPreallocatedConfig(detailDialog.task)"
               :label="$t('admin.tasks.preallocatedConfig')"
               :span="2"
             >
-              <el-tag size="small" type="info">
-                CPU: {{ detailDialog.task.preallocatedCpu }} {{ $t('common.core') }}
-              </el-tag>
-              <el-tag size="small" type="info" style="margin-left: 8px;">
-                {{ $t('admin.tasks.memory') }}: {{ (detailDialog.task.preallocatedMemory / 1024).toFixed(1) }} GB
-              </el-tag>
-              <el-tag size="small" type="info" style="margin-left: 8px;">
-                {{ $t('admin.tasks.disk') }}: {{ (detailDialog.task.preallocatedDisk / 1024).toFixed(1) }} GB
-              </el-tag>
-              <el-tag size="small" type="info" style="margin-left: 8px;">
-                {{ $t('admin.tasks.bandwidth') }}: {{ detailDialog.task.preallocatedBandwidth }} Mbps
-              </el-tag>
+              <template v-if="detailDialog.task.preallocatedCpu && detailDialog.task.preallocatedCpu > 0">
+                <el-tag size="small" type="info">
+                  CPU: {{ detailDialog.task.preallocatedCpu }} {{ $t('common.core') }}
+                </el-tag>
+                <el-tag size="small" type="info" style="margin-left: 8px;">
+                  {{ $t('admin.tasks.memory') }}: {{ (detailDialog.task.preallocatedMemory / 1024).toFixed(1) }} GB
+                </el-tag>
+                <el-tag size="small" type="info" style="margin-left: 8px;">
+                  {{ $t('admin.tasks.disk') }}: {{ (detailDialog.task.preallocatedDisk / 1024).toFixed(1) }} GB
+                </el-tag>
+                <el-tag size="small" type="info" style="margin-left: 8px;">
+                  {{ $t('admin.tasks.bandwidth') }}: {{ detailDialog.task.preallocatedBandwidth }} Mbps
+                </el-tag>
+              </template>
+              <template v-else>
+                <el-text type="info">{{ $t('admin.tasks.noPreallocatedConfig') }}</el-text>
+              </template>
             </el-descriptions-item>
             <el-descriptions-item
               v-if="detailDialog.task.statusMessage"
@@ -781,6 +786,13 @@ const cancelTask = async (task) => {
 const viewTaskDetail = (task) => {
   detailDialog.task = task
   detailDialog.visible = true
+}
+
+// 判断是否应该显示预分配配置
+const shouldShowPreallocatedConfig = (task) => {
+  // create 类型的任务，或者 pending/processing 状态且有配置的任务
+  return task.taskType === 'create' || 
+         ((task.status === 'pending' || task.status === 'processing') && task.preallocatedCpu > 0)
 }
 
 // 获取任务类型文本
