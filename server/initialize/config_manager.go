@@ -1,6 +1,7 @@
 package initialize
 
 import (
+	"fmt"
 	"oneclickvirt/config"
 	"oneclickvirt/global"
 
@@ -161,50 +162,63 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 
 // syncAuthConfig 同步认证配置
 func syncAuthConfig(authConfig map[string]interface{}) {
-	global.APP_LOG.Info("同步认证配置到全局变量", zap.Any("authConfig", authConfig))
+	global.APP_LOG.Info("========== 开始同步认证配置 ==========")
+	global.APP_LOG.Info("收到的认证配置",
+		zap.Any("authConfig", authConfig),
+		zap.Int("configCount", len(authConfig)))
+
+	// 打印所有键名用于调试
+	for key := range authConfig {
+		global.APP_LOG.Info("认证配置键",
+			zap.String("key", key),
+			zap.String("valueType", fmt.Sprintf("%T", authConfig[key])),
+			zap.Any("value", authConfig[key]))
+	}
 
 	// 支持驼峰和kebab-case两种格式
 	if enablePublicRegistration, ok := authConfig["enablePublicRegistration"].(bool); ok {
 		global.APP_CONFIG.Auth.EnablePublicRegistration = enablePublicRegistration
-		global.APP_LOG.Info("同步enablePublicRegistration", zap.Bool("value", enablePublicRegistration))
+		global.APP_LOG.Info("✓ 同步enablePublicRegistration", zap.Bool("value", enablePublicRegistration))
 	} else if enablePublicRegistration, ok := authConfig["enable-public-registration"].(bool); ok {
 		global.APP_CONFIG.Auth.EnablePublicRegistration = enablePublicRegistration
-		global.APP_LOG.Info("同步enable-public-registration", zap.Bool("value", enablePublicRegistration))
+		global.APP_LOG.Info("✓ 同步enable-public-registration", zap.Bool("value", enablePublicRegistration))
 	}
 
 	if enableEmail, ok := authConfig["enableEmail"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableEmail = enableEmail
-		global.APP_LOG.Info("同步enableEmail", zap.Bool("value", enableEmail))
+		global.APP_LOG.Info("✓ 同步enableEmail", zap.Bool("value", enableEmail))
 	} else if enableEmail, ok := authConfig["enable-email"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableEmail = enableEmail
-		global.APP_LOG.Info("同步enable-email", zap.Bool("value", enableEmail))
+		global.APP_LOG.Info("✓ 同步enable-email", zap.Bool("value", enableEmail))
 	}
 
 	if enableTelegram, ok := authConfig["enableTelegram"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableTelegram = enableTelegram
-		global.APP_LOG.Info("同步enableTelegram", zap.Bool("value", enableTelegram))
+		global.APP_LOG.Info("✓ 同步enableTelegram", zap.Bool("value", enableTelegram))
 	} else if enableTelegram, ok := authConfig["enable-telegram"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableTelegram = enableTelegram
-		global.APP_LOG.Info("同步enable-telegram", zap.Bool("value", enableTelegram))
+		global.APP_LOG.Info("✓ 同步enable-telegram", zap.Bool("value", enableTelegram))
 	}
 
 	if enableQQ, ok := authConfig["enableQQ"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableQQ = enableQQ
-		global.APP_LOG.Info("同步enableQQ", zap.Bool("value", enableQQ))
+		global.APP_LOG.Info("✓ 同步enableQQ", zap.Bool("value", enableQQ))
 	} else if enableQQ, ok := authConfig["enable-qq"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableQQ = enableQQ
-		global.APP_LOG.Info("同步enable-qq", zap.Bool("value", enableQQ))
+		global.APP_LOG.Info("✓ 同步enable-qq", zap.Bool("value", enableQQ))
 	}
 
 	if enableOAuth2, ok := authConfig["enableOAuth2"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableOAuth2 = enableOAuth2
-		global.APP_LOG.Info("同步enableOAuth2", zap.Bool("value", enableOAuth2))
+		global.APP_LOG.Info("✓ 同步enableOAuth2（驼峰）", zap.Bool("value", enableOAuth2))
 	} else if enableOAuth2, ok := authConfig["enable-oauth2"].(bool); ok {
 		global.APP_CONFIG.Auth.EnableOAuth2 = enableOAuth2
-		global.APP_LOG.Info("同步enable-oauth2", zap.Bool("value", enableOAuth2))
+		global.APP_LOG.Info("✓ 同步enable-oauth2（kebab）", zap.Bool("value", enableOAuth2))
+	} else {
+		global.APP_LOG.Warn("OAuth2配置未找到！检查键名是否正确")
 	}
 
-	global.APP_LOG.Info("认证配置同步完成",
+	global.APP_LOG.Info("========== 认证配置同步完成 ==========",
 		zap.Bool("EnableOAuth2", global.APP_CONFIG.Auth.EnableOAuth2),
 		zap.Bool("EnableEmail", global.APP_CONFIG.Auth.EnableEmail),
 		zap.Bool("EnableTelegram", global.APP_CONFIG.Auth.EnableTelegram),

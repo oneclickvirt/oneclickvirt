@@ -201,20 +201,7 @@
                   <span class="label">{{ t('user.tasks.estimatedCompletion') }}:</span>
                   <span class="value">{{ getEstimatedTime(currentTask) }}</span>
                 </div>
-                <div
-                  v-if="currentTask.queuePosition > 0"
-                  class="detail-item"
-                >
-                  <span class="label">{{ t('user.tasks.queuePosition') }}:</span>
-                  <span class="value">{{ t('user.tasks.beforeYouInQueue', { count: currentTask.queuePosition }) }}</span>
-                </div>
-                <div
-                  v-if="currentTask.estimatedWaitTime > 0"
-                  class="detail-item"
-                >
-                  <span class="label">{{ t('user.tasks.estimatedWaitTime') }}:</span>
-                  <span class="value">{{ formatDurationSeconds(currentTask.estimatedWaitTime) }}</span>
-                </div>
+                <!-- running 状态不显示排队位置 -->
                 <div
                   v-if="shouldShowInstanceConfig(currentTask)"
                   class="detail-item"
@@ -261,6 +248,22 @@
                 </div>
                 <div class="task-time">
                   {{ formatDate(task.createdAt) }}
+                </div>
+                <div
+                  v-if="task.queuePosition > 0"
+                  class="task-queue-info"
+                >
+                  <el-text type="info" size="small">
+                    {{ t('user.tasks.beforeYouInQueue', { count: task.queuePosition }) }}
+                  </el-text>
+                </div>
+                <div
+                  v-if="task.queuePosition === 0"
+                  class="task-queue-info"
+                >
+                  <el-text type="success" size="small">
+                    {{ t('user.tasks.nextToExecute') }}
+                  </el-text>
                 </div>
                 <div
                   v-if="task.estimatedWaitTime > 0"
@@ -365,17 +368,22 @@
           </el-collapse>
         </div>
 
-        <!-- 空状态 -->
-        <el-empty 
+        <!-- 该节点无任务的空状态：只有在该节点确实没有任何任务时才显示 -->
+        <div
           v-if="serverGroup.pendingTasks.length === 0 && serverGroup.historyTasks.length === 0 && serverGroup.currentTasks.length === 0"
-          :description="t('user.tasks.noTasksForProvider')"
-        />
+          class="empty-provider"
+        >
+          <el-empty 
+            :description="t('user.tasks.noTasksForProvider')"
+            :image-size="80"
+          />
+        </div>
       </div>
     </div>
 
-    <!-- 全局空状态 -->
+    <!-- 全局空状态：没有任何任务时显示 -->
     <el-empty 
-      v-if="tasks.length === 0 && !loading"
+      v-if="!loading && tasks.length === 0"
       :description="t('user.tasks.noTasksDescription')"
     >
       <el-button
@@ -386,9 +394,9 @@
       </el-button>
     </el-empty>
 
-    <!-- 分页 - 只在选择了特定节点时显示 -->
+    <!-- 分页 - 只在有筛选条件且有数据时显示 -->
     <div
-      v-if="filterForm.providerId && total > 0"
+      v-if="(filterForm.providerId || filterForm.taskType || filterForm.status) && total > pagination.pageSize"
       class="pagination"
     >
       <el-pagination
@@ -454,9 +462,9 @@ const groupedTasks = computed(() => {
       groups.set(providerId, {
         providerId,
         providerName: task.providerName,
-        currentTasks: [], // 改为数组，支持多个正在执行的任务
-        pendingTasks: [],
-        historyTasks: []
+        currentTasks: [], // 正在执行的任务（running/processing）
+        pendingTasks: [], // 等待中的任务
+        historyTasks: [] // 历史任务（completed/failed/cancelled/timeout）
       })
     }
     
@@ -464,23 +472,40 @@ const groupedTasks = computed(() => {
     
     // 正在执行的任务（running 或 processing 状态）
     if (task.status === 'running' || task.status === 'processing') {
-      group.currentTasks.push(task) // 到数组中而不是覆盖
+      group.currentTasks.push(task)
     } else if (task.status === 'pending') {
       group.pendingTasks.push(task)
     } else {
+      // 其他状态都是历史任务
       group.historyTasks.push(task)
     }
   })
   
-  // 对等待队列按创建时间排序
+  // 对每个分组内的任务进行排序
   groups.forEach(group => {
-    // 对正在执行的任务按创建时间排序（最早的在前）
+    // 正在执行的任务按创建时间排序（最早的在前）
     group.currentTasks.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    // 等待队列按创建时间排序（最早的在前）
     group.pendingTasks.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt))
+    // 历史任务按创建时间倒序（最新的在前）
     group.historyTasks.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
   })
   
-  return Array.from(groups.values())
+  // 将分组转换为数组并排序：优先显示有活跃任务（pending/running）的节点
+  const groupArray = Array.from(groups.values())
+  groupArray.sort((a, b) => {
+    const aHasActive = a.currentTasks.length + a.pendingTasks.length
+    const bHasActive = b.currentTasks.length + b.pendingTasks.length
+    
+    // 有活跃任务的节点优先
+    if (aHasActive > 0 && bHasActive === 0) return -1
+    if (aHasActive === 0 && bHasActive > 0) return 1
+    
+    // 都有活跃任务或都没有，按节点名称排序
+    return a.providerName.localeCompare(b.providerName)
+  })
+  
+  return groupArray
 })
 
 // 获取任务列表
@@ -491,8 +516,11 @@ const loadTasks = async (showSuccessMsg = false) => {
       ...filterForm
     }
     
-    // 只在选择了特定节点时才使用分页
-    if (filterForm.providerId) {
+    // 判断是否有筛选条件
+    const hasFilter = filterForm.providerId || filterForm.taskType || filterForm.status
+    
+    // 只在有筛选条件时才使用分页
+    if (hasFilter) {
       params.page = pagination.page
       params.pageSize = pagination.pageSize
     }
@@ -503,13 +531,18 @@ const loadTasks = async (showSuccessMsg = false) => {
       total.value = response.data.total || 0
       console.log('任务数据加载成功:', {
         count: tasks.value.length,
+        total: total.value,
+        hasFilter,
         tasks: tasks.value,
-        groupedTasks: groupedTasks.value,
-        hasFilter: !!filterForm.providerId
+        groupedTasks: groupedTasks.value
       })
       // 只有在明确刷新时才显示成功提示
       if (showSuccessMsg) {
-        ElMessage.success(t('user.tasks.refreshedTotal', { count: total.value }))
+        if (hasFilter) {
+          ElMessage.success(t('user.tasks.refreshedTotal', { count: total.value }))
+        } else {
+          ElMessage.success(t('user.tasks.loadSuccess'))
+        }
       }
     } else {
       tasks.value = []
@@ -717,10 +750,10 @@ watch(() => route.path, (newPath, oldPath) => {
   }
 }, { immediate: false })
 
-// 监听节点筛选变化，重置分页
-watch(() => filterForm.providerId, () => {
+// 监听筛选条件变化，重置分页
+watch([() => filterForm.providerId, () => filterForm.taskType, () => filterForm.status], () => {
   pagination.page = 1
-})
+}, { deep: true })
 
 // 监听自定义导航事件
 const handleRouterNavigation = (event) => {
@@ -984,14 +1017,30 @@ onUnmounted(() => {
 }
 
 .task-time,
-.task-duration {
+.task-duration,
+.task-wait-time,
+.task-queue-info {
   font-size: 12px;
   color: #9ca3af;
+  margin-top: 4px;
 }
 
-.task-error {
+.task-queue-info {
+  margin-top: 6px;
+}
+
+.task-config {
+  margin-top: 6px;
+}
+
+.task-error,
+.task-cancel-reason {
   grid-column: 1 / -1;
   margin-top: 8px;
+}
+
+.empty-provider {
+  padding: 20px;
 }
 
 .pagination {

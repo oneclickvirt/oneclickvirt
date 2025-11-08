@@ -301,7 +301,7 @@
             </el-table-column>
             <el-table-column
               :label="$t('common.actions')"
-              width="380"
+              width="450"
               align="center"
             >
               <template #default="{ row }">

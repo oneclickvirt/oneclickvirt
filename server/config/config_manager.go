@@ -725,7 +725,16 @@ func (cm *ConfigManager) handleYAMLFirst() error {
 	// 3. 加锁更新内存缓存
 	cm.mu.Lock()
 	for _, config := range configs {
-		cm.configCache[config.Key] = parseConfigValue(config.Value)
+		parsedValue := parseConfigValue(config.Value)
+		cm.configCache[config.Key] = parsedValue
+		// 调试输出
+		if config.Key == "auth.enable-oauth2" || config.Key == "auth.enableOAuth2" {
+			cm.logger.Info("加载OAuth2配置到缓存",
+				zap.String("key", config.Key),
+				zap.String("rawValue", config.Value),
+				zap.Any("parsedValue", parsedValue),
+				zap.String("parsedType", fmt.Sprintf("%T", parsedValue)))
+		}
 	}
 	cm.mu.Unlock()
 	cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
@@ -1078,14 +1087,34 @@ func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 	nestedConfig := make(map[string]interface{})
 
 	// 将扁平配置转换为嵌套结构
+	cm.logger.Info("开始构建嵌套配置",
+		zap.Int("flatConfigCount", len(cm.configCache)))
+
 	for key, value := range cm.configCache {
+		cm.logger.Debug("处理配置项",
+			zap.String("key", key),
+			zap.Any("value", value))
 		setNestedValue(nestedConfig, key, value)
 	}
+
+	cm.logger.Info("嵌套配置构建完成",
+		zap.Int("nestedConfigCount", len(nestedConfig)),
+		zap.Any("topLevelKeys", func() []string {
+			keys := make([]string, 0, len(nestedConfig))
+			for k := range nestedConfig {
+				keys = append(keys, k)
+			}
+			return keys
+		}()))
 
 	// 遍历配置并同步到全局配置
 	// 这里需要导入 global 包，但为了避免循环导入
 	// 我们通过回调机制来实现同步
 	for key, value := range nestedConfig {
+		cm.logger.Info("触发配置同步回调",
+			zap.String("key", key),
+			zap.String("valueType", fmt.Sprintf("%T", value)))
+
 		for _, callback := range cm.changeCallbacks {
 			if err := callback(key, nil, value); err != nil {
 				cm.logger.Error("同步配置到全局变量失败",
@@ -1292,6 +1321,8 @@ func parseConfigValue(valueStr string) interface{} {
 	var jsonValue interface{}
 	if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
 		// 如果成功反序列化，返回反序列化后的值
+		// 添加类型日志以便调试
+		// fmt.Printf("解析配置值: %s -> %v (类型: %T)\n", valueStr, jsonValue, jsonValue)
 		return jsonValue
 	}
 

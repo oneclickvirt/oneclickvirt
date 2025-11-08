@@ -2,7 +2,7 @@
   <el-dialog 
     v-model="dialogVisible" 
     :title="isEditing ? $t('admin.providers.editServer') : $t('admin.providers.addServer')" 
-    width="800px"
+    width="1000px"
     :close-on-click-modal="false"
     @close="handleClose"
   >

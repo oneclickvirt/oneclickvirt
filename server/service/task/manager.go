@@ -161,14 +161,18 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		query := global.APP_DB.Model(&adminModel.Task{}).Where("user_id = ?", userID)
 
 		// 应用筛选条件
+		hasFilter := false
 		if req.ProviderId != 0 {
 			query = query.Where("provider_id = ?", req.ProviderId)
+			hasFilter = true
 		}
 		if req.TaskType != "" {
 			query = query.Where("task_type = ?", req.TaskType)
+			hasFilter = true
 		}
 		if req.Status != "" {
 			query = query.Where("status = ?", req.Status)
+			hasFilter = true
 		}
 
 		// 获取总数
@@ -177,11 +181,24 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		}
 
 		// 获取任务列表
-		offset := (req.Page - 1) * req.PageSize
-		return query.Preload("Provider").
-			Order("created_at DESC").
-			Offset(offset).Limit(req.PageSize).
-			Find(&tasks).Error
+		// 无筛选条件时：返回所有任务（最多100条），优先展示有活跃任务的节点
+		// 有筛选条件时：使用分页
+		if !hasFilter {
+			// 无筛选：返回所有任务（最多100条）
+			// 优先返回 pending 和 running 状态的任务，然后是其他状态
+			return query.Preload("Provider").
+				Order("CASE WHEN status IN ('pending', 'running', 'processing') THEN 0 ELSE 1 END").
+				Order("created_at DESC").
+				Limit(100).
+				Find(&tasks).Error
+		} else {
+			// 有筛选：使用分页
+			offset := (req.Page - 1) * req.PageSize
+			return query.Preload("Provider").
+				Order("created_at DESC").
+				Offset(offset).Limit(req.PageSize).
+				Find(&tasks).Error
+		}
 	})
 
 	if err != nil {
@@ -253,35 +270,71 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 		}
 
 		// 计算排队信息
-		if task.ProviderID != nil && (task.Status == "pending" || task.Status == "running") {
+		// 只有 pending 状态的任务才显示排队位置
+		// running 状态的任务不显示排队位置（queuePosition = -1 表示正在执行）
+		if task.ProviderID != nil && task.Status == "pending" {
 			if providerTasks, exists := providerTasksMap[*task.ProviderID]; exists {
-				queuePosition := 0
+				queuePosition := -1 // 默认值，表示找不到或正在执行
 				estimatedWaitTime := 0
+				runningCount := 0
 
-				for i, pt := range providerTasks {
-					if pt.ID == task.ID {
-						queuePosition = i
-						// 计算前面所有任务的预计剩余时间
-						for j := 0; j < i; j++ {
-							if providerTasks[j].Status == "running" && providerTasks[j].StartedAt != nil {
-								// 正在运行的任务：计算剩余时间
-								elapsed := time.Since(*providerTasks[j].StartedAt).Seconds()
-								remaining := float64(providerTasks[j].EstimatedDuration) - elapsed
-								if remaining > 0 {
-									estimatedWaitTime += int(remaining)
+				// 先统计有多少个 running 任务
+				for _, pt := range providerTasks {
+					if pt.Status == "running" || pt.Status == "processing" {
+						runningCount++
+					}
+				}
+
+				// 找到当前任务在队列中的位置
+				pendingIndex := 0
+				for _, pt := range providerTasks {
+					if pt.Status == "pending" {
+						if pt.ID == task.ID {
+							// 找到了当前任务
+							// queuePosition 从 0 开始：0 表示第一个等待的任务
+							queuePosition = pendingIndex
+
+							// 计算预计等待时间：
+							// 1. 所有 running 任务的剩余时间
+							for _, rpt := range providerTasks {
+								if rpt.Status == "running" || rpt.Status == "processing" {
+									if rpt.StartedAt != nil {
+										elapsed := time.Since(*rpt.StartedAt).Seconds()
+										remaining := float64(rpt.EstimatedDuration) - elapsed
+										if remaining > 0 {
+											estimatedWaitTime += int(remaining)
+										}
+									} else {
+										// 如果没有开始时间，使用预计执行时长
+										estimatedWaitTime += rpt.EstimatedDuration
+									}
 								}
-							} else {
-								// pending任务：使用预计执行时长
-								estimatedWaitTime += providerTasks[j].EstimatedDuration
 							}
+
+							// 2. 前面所有 pending 任务的预计执行时长
+							pendingIdx := 0
+							for _, ppt := range providerTasks {
+								if ppt.Status == "pending" {
+									if ppt.ID == task.ID {
+										break
+									}
+									estimatedWaitTime += ppt.EstimatedDuration
+									pendingIdx++
+								}
+							}
+							break
 						}
-						break
+						pendingIndex++
 					}
 				}
 
 				taskResponse.QueuePosition = queuePosition
 				taskResponse.EstimatedWaitTime = estimatedWaitTime
 			}
+		} else if task.ProviderID != nil && (task.Status == "running" || task.Status == "processing") {
+			// running 状态：不显示排队位置（设为-1）
+			taskResponse.QueuePosition = -1
+			taskResponse.EstimatedWaitTime = 0
 		}
 
 		// 设置是否可取消（考虑任务状态和是否允许被用户取消）

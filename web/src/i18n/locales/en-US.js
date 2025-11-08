@@ -971,7 +971,7 @@ export default {
       
       serverNameTip: 'Set an easily recognizable name for the server',
       hostTip: 'IP address or domain name for SSH connection',
-      portIPTip: 'Public IP for port mapping. If SSH connects via private IP but port mapping requires public IP, enter the public IP here',
+      portIPTip: 'Public IP for port mapping. If SSH connects via private IP but port mapping requires public IP, enter public here',
       descriptionTip: 'Server purpose or note information',
       regionTip: 'Server region for filtering and display',
       countryTip: 'Server country, supports Chinese and English',
@@ -1721,7 +1721,7 @@ export default {
       nickname: 'Nickname',
       searchByUsername: 'Search by username',
       searchByNickname: 'Search by nickname',
-      monthlyUsage: 'Monthly Usage',
+      monthlyUsage: 'Monthly',
       totalLimit: 'Total Limit',
       usageRate: 'Usage Rate',
       limitedStatus: 'Limited',

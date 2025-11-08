@@ -652,6 +652,7 @@ export default {
       cancel: '取消',
       queuePosition: '排队位置',
       beforeYouInQueue: '前面还有 {count} 个任务',
+      nextToExecute: '下一个执行',
       estimatedWaitTime: '预计等待',
       estimatedWait: '预计等待',
       calculating: '计算中...',
@@ -662,9 +663,6 @@ export default {
       configLoading: '配置加载中...',
       duration: '耗时',
       cancelReason: '取消原因',
-      seconds: '秒',
-      minutes: '分钟',
-      hours: '小时',
       apiLoadTasks: '获取任务列表',
       apiLoadProviders: '获取提供商列表'
     },
