@@ -51,6 +51,12 @@
           style="width: 200px; margin-right: 10px;"
           clearable
         />
+        <el-input
+          v-model="filters.ownerName"
+          :placeholder="$t('admin.instances.searchByOwner')"
+          style="width: 200px; margin-right: 10px;"
+          clearable
+        />
         <el-select
           v-model="filters.status"
           :placeholder="$t('admin.instances.filterByStatus')"
@@ -522,6 +528,7 @@ const selectedInstances = ref([])
 const filters = ref({
   instanceName: '',
   providerName: '',
+  ownerName: '',
   status: '',
   instanceType: ''
 })
@@ -541,6 +548,7 @@ const loadInstances = async () => {
       pageSize: pagination.value.pageSize,
       name: filters.value.instanceName || undefined,
       providerName: filters.value.providerName || undefined,
+      ownerName: filters.value.ownerName || undefined,
       status: filters.value.status || undefined,
       instance_type: filters.value.instanceType || undefined
     }
@@ -571,6 +579,7 @@ const handleSearch = () => {
 const handleReset = () => {
   filters.value.instanceName = ''
   filters.value.providerName = ''
+  filters.value.ownerName = ''
   filters.value.status = ''
   filters.value.instanceType = ''
   pagination.value.page = 1

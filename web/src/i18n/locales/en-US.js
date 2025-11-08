@@ -574,6 +574,7 @@ export default {
       instanceNotRunning: 'Instance is not running',
       noPassword: 'Instance password is not available',
       sshConnectFailed: 'SSH connection failed',
+      operationInProgress: 'Operation in progress, please do not click repeatedly...',
     },
     tasks: {
       title: 'Task List',
@@ -744,6 +745,7 @@ export default {
       remarks: 'Remarks',
       remarksPlaceholder: 'Enter remarks (optional)',
       submitApplication: 'Submit Application',
+      submitInProgress: 'Submitting application, please do not click repeatedly...',
       pleaseSelectInstanceType: 'Please select instance type',
       pleaseSelectSystemImage: 'Please select system image',
       pleaseSelectMemorySpec: 'Please select memory',
@@ -1532,6 +1534,7 @@ export default {
       batchDelete: 'Batch Delete',
       searchByInstanceName: 'Search by Instance Name',
       searchByProviderName: 'Search by Provider Name',
+      searchByOwner: 'Search by Owner',
       filterByStatus: 'Filter by Status',
       filterByType: 'Filter by Type',
       statusRunning: 'Running',

@@ -848,6 +848,12 @@ const resetForm = async () => {
 
 // 提交申请
 const submitApplication = async () => {
+  // 防止重复提交：如果正在提交，直接返回
+  if (submitting.value) {
+    ElMessage.warning(t('user.apply.submitInProgress'))
+    return
+  }
+
   if (!selectedProvider.value) {
     ElMessage.warning(t('user.apply.pleaseSelectProvider'))
     return
@@ -883,7 +889,9 @@ const submitApplication = async () => {
   try {
     await formRef.value.validate()
     
+    // 设置提交状态，防止重复点击
     submitting.value = true
+    
     const requestData = {
       providerId: selectedProvider.value.id,
       imageId: configForm.imageId,
@@ -901,15 +909,24 @@ const submitApplication = async () => {
       if (response.data && response.data.taskId) {
         ElMessage.info(t('user.apply.taskIdInfo', { taskId: response.data.taskId }))
       }
-      // 导航到任务页面
-      router.push('/user/tasks')
+      
+      // 强制等待5秒后跳转到任务页面
+      setTimeout(() => {
+        router.push('/user/tasks')
+      }, 5000)
     } else {
       // 检查是否是重复提交的情况
       if (response.message && response.message.includes('进行中')) {
         ElMessage.warning(t('user.apply.duplicateTaskWarning'))
-        router.push('/user/tasks')
+        
+        // 强制等待5秒后跳转到任务页面
+        setTimeout(() => {
+          router.push('/user/tasks')
+        }, 5000)
       } else {
         ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
+        // 提交失败时重置提交状态
+        submitting.value = false
       }
     }
   } catch (error) {
@@ -917,14 +934,22 @@ const submitApplication = async () => {
       console.error('提交申请失败:', error)
       if (error.message && error.message.includes('timeout')) {
         ElMessage.error(t('user.apply.requestTimeout'))
-        router.push('/user/tasks')
+        
+        // 强制等待5秒后跳转到任务页面
+        setTimeout(() => {
+          router.push('/user/tasks')
+        }, 5000)
       } else {
         ElMessage.error(t('user.apply.submitFailed'))
+        // 提交失败时重置提交状态
+        submitting.value = false
       }
+    } else {
+      // 表单验证失败时重置提交状态
+      submitting.value = false
     }
-  } finally {
-    submitting.value = false
   }
+  // 注意：成功提交后不在finally中重置submitting，保持按钮禁用状态直到页面跳转
 }
 
 // 监听路由变化，确保页面切换时重新加载数据

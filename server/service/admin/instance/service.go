@@ -59,6 +59,11 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 	if req.ProviderName != "" {
 		query = query.Where("provider LIKE ?", "%"+req.ProviderName+"%")
 	}
+	if req.OwnerName != "" {
+		// 通过用户名搜索，需要连接 users 表
+		query = query.Joins("LEFT JOIN users ON users.id = instances.user_id").
+			Where("users.username LIKE ?", "%"+req.OwnerName+"%")
+	}
 	if req.Status != "" {
 		query = query.Where("status = ?", req.Status)
 	}

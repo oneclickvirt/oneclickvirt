@@ -889,6 +889,12 @@ const updateInstancePermissions = () => {
 
 // 执行实例操作
 const performAction = async (action) => {
+  // 防止重复操作：如果正在执行操作，直接返回
+  if (actionLoading.value) {
+    ElMessage.warning(t('user.instanceDetail.operationInProgress'))
+    return
+  }
+
   const actionText = {
     'start': t('user.instanceDetail.actionStart'),
     'stop': t('user.instanceDetail.actionStop'),
@@ -928,7 +934,9 @@ const performAction = async (action) => {
       }
     )
 
+    // 设置加载状态，防止重复点击
     actionLoading.value = true
+    
     const response = await performInstanceAction({
       instanceId: instance.value.id,
       action: action
@@ -944,18 +952,25 @@ const performAction = async (action) => {
         }
         router.push('/user/instances')
       } else {
-        // 其他操作刷新详情
-        await loadInstanceDetail()
+        // 其他操作强制等待3秒后刷新详情并恢复按钮
+        setTimeout(async () => {
+          await loadInstanceDetail()
+          actionLoading.value = false
+        }, 3000)
       }
+    } else {
+      // 操作失败时立即恢复按钮
+      actionLoading.value = false
     }
   } catch (error) {
     if (error !== 'cancel') {
       console.error(`${actionText}实例失败:`, error)
       ElMessage.error(`${actionText}${t('user.instances.title')}${t('common.failed')}`)
     }
-  } finally {
+    // 操作失败或取消时立即恢复按钮
     actionLoading.value = false
   }
+  // 注意：成功执行非删除/重置操作时，不立即重置loading，等待3秒后再重置
 }
 
 // 打开SSH终端
@@ -985,6 +1000,12 @@ const openSSHTerminal = () => {
 
 // 显示重置密码对话框
 const showResetPasswordDialog = async () => {
+  // 防止重复操作：如果正在执行操作，直接返回
+  if (actionLoading.value) {
+    ElMessage.warning(t('user.instanceDetail.operationInProgress'))
+    return
+  }
+
   try {
     await ElMessageBox.confirm(
       `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.resetPassword')}${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.password')}${t('common.questionMark')}\n${t('user.tasks.system')}${t('user.tasks.willCreateTask')}${t('user.instanceDetail.resetPassword')}${t('user.tasks.operation')}${t('common.period')}`,
@@ -996,7 +1017,7 @@ const showResetPasswordDialog = async () => {
       }
     )
 
-    // 显示加载状态
+    // 设置加载状态，防止重复点击
     actionLoading.value = true
 
     try {
@@ -1007,20 +1028,23 @@ const showResetPasswordDialog = async () => {
         
         ElMessage.success(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.checkProgress')}${t('user.tasks.taskList')}${t('common.inLocation')}`)
         
-        // 可以选择跳转到任务列表或者在当前页面轮询任务状态
-        // 这里简单显示成功消息，让用户去任务列表查看
-        
+        // 强制等待3秒后恢复按钮
+        setTimeout(() => {
+          actionLoading.value = false
+        }, 3000)
       } else {
         ElMessage.error(response.message || t('user.instanceDetail.resetPasswordFailed'))
+        // 失败时立即恢复按钮
+        actionLoading.value = false
       }
     } catch (error) {
       console.error('创建密码重置任务失败:', error)
       ElMessage.error(t('user.instanceDetail.resetPasswordFailed'))
+      // 失败时立即恢复按钮
+      actionLoading.value = false
     }
   } catch (error) {
-    // 用户取消操作
-  } finally {
-    actionLoading.value = false
+    // 用户取消操作，不需要设置loading状态
   }
 }
 
@@ -1205,13 +1229,31 @@ watch(() => route.params.id, async (newId, oldId) => {
 let isUpdatingFromRoute = false
 
 // 监听路由hash变化来切换标签页
-watch(() => route.hash, (newHash) => {
+watch(() => route.hash, (newHash, oldHash) => {
+  // 如果hash没有实际变化，直接返回
+  if (newHash === oldHash) {
+    return
+  }
+  
   if (newHash) {
     const tab = newHash.replace('#', '')
     if (['overview', 'ports', 'stats'].includes(tab)) {
+      // 如果当前标签已经是目标标签，不需要更新
+      if (activeTab.value === tab) {
+        return
+      }
       isUpdatingFromRoute = true
       activeTab.value = tab
       // 下一个 tick 后重置标志
+      nextTick(() => {
+        isUpdatingFromRoute = false
+      })
+    }
+  } else {
+    // 如果没有hash，默认显示overview
+    if (activeTab.value !== 'overview') {
+      isUpdatingFromRoute = true
+      activeTab.value = 'overview'
       nextTick(() => {
         isUpdatingFromRoute = false
       })
@@ -1220,13 +1262,26 @@ watch(() => route.hash, (newHash) => {
 }, { immediate: true })
 
 // 切换标签页时更新URL hash
-watch(activeTab, (newTab) => {
+watch(activeTab, (newTab, oldTab) => {
+  // 如果标签没有实际变化，直接返回
+  if (newTab === oldTab) {
+    return
+  }
+  
   // 如果是从路由更新触发的，不再更新路由，避免循环
   if (isUpdatingFromRoute) {
     return
   }
-  if (newTab && route.hash !== `#${newTab}`) {
-    router.replace({ ...route, hash: `#${newTab}` })
+  
+  if (newTab) {
+    const newHash = `#${newTab}`
+    // 只在hash真正不同时才更新
+    if (route.hash !== newHash) {
+      // 使用 history.replaceState 而不是 router.replace，避免触发整个组件重新渲染
+      const url = new URL(window.location.href)
+      url.hash = newHash
+      window.history.replaceState(window.history.state, '', url.toString())
+    }
   }
 })
 
@@ -1391,6 +1446,12 @@ onUnmounted(() => {
 
 .tabs-card :deep(.el-tabs__content) {
   padding: 24px;
+}
+
+/* 优化标签页切换性能 - 使用 GPU 加速 */
+.tabs-card :deep(.el-tab-pane) {
+  will-change: auto;
+  transform: translateZ(0);
 }
 
 /* 概览标签页内容 */

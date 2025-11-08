@@ -578,6 +578,7 @@ export default {
       instanceNotRunning: '实例未运行',
       noPassword: '实例密码不可用',
       sshConnectFailed: 'SSH连接失败',
+      operationInProgress: '操作正在进行中，请勿重复点击...',
     },
     tasks: {
       title: '任务列表',
@@ -751,6 +752,7 @@ export default {
       remarks: '备注说明',
       remarksPlaceholder: '请输入备注说明（可选）',
       submitApplication: '提交申请',
+      submitInProgress: '正在提交申请，请勿重复点击...',
       pleaseSelectInstanceType: '请选择实例类型',
       pleaseSelectSystemImage: '请选择系统镜像',
       pleaseSelectMemorySpec: '请选择内存',
@@ -1553,6 +1555,7 @@ export default {
       batchDelete: '批量删除',
       searchByInstanceName: '按实例名称搜索',
       searchByProviderName: '按Provider名称搜索',
+      searchByOwner: '按所有者搜索',
       filterByStatus: '按状态筛选',
       filterByType: '按类型筛选',
       statusRunning: '运行中',

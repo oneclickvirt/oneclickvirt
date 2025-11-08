@@ -246,6 +246,7 @@ type InstanceListRequest struct {
 	common.PageInfo
 	Name         string `json:"name" form:"name"`                 // 实例名称搜索
 	ProviderName string `json:"providerName" form:"providerName"` // 节点名称搜索
+	OwnerName    string `json:"ownerName" form:"ownerName"`       // 所有者名称搜索
 	Status       string `json:"status" form:"status"`
 	InstanceType string `json:"instance_type" form:"instance_type"`
 	UserID       uint   `json:"userId" form:"userId"`

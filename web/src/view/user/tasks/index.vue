@@ -386,9 +386,9 @@
       </el-button>
     </el-empty>
 
-    <!-- 分页 -->
+    <!-- 分页 - 只在选择了特定节点时显示 -->
     <div
-      v-if="total > 0"
+      v-if="filterForm.providerId && total > 0"
       class="pagination"
     >
       <el-pagination
@@ -488,9 +488,13 @@ const loadTasks = async (showSuccessMsg = false) => {
   try {
     loading.value = true
     const params = {
-      page: pagination.page,
-      pageSize: pagination.pageSize,
       ...filterForm
+    }
+    
+    // 只在选择了特定节点时才使用分页
+    if (filterForm.providerId) {
+      params.page = pagination.page
+      params.pageSize = pagination.pageSize
     }
     
     const response = await getUserTasks(params)
@@ -500,7 +504,8 @@ const loadTasks = async (showSuccessMsg = false) => {
       console.log('任务数据加载成功:', {
         count: tasks.value.length,
         tasks: tasks.value,
-        groupedTasks: groupedTasks.value
+        groupedTasks: groupedTasks.value,
+        hasFilter: !!filterForm.providerId
       })
       // 只有在明确刷新时才显示成功提示
       if (showSuccessMsg) {
@@ -711,6 +716,11 @@ watch(() => route.path, (newPath, oldPath) => {
     stopAutoRefresh()
   }
 }, { immediate: false })
+
+// 监听节点筛选变化，重置分页
+watch(() => filterForm.providerId, () => {
+  pagination.page = 1
+})
 
 // 监听自定义导航事件
 const handleRouterNavigation = (event) => {
