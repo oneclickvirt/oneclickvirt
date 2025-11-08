@@ -1790,7 +1790,12 @@ export default {
       syncTriggered: '流量同步已触发，数据将在后台更新',
       syncFailed: '同步失败',
       syncError: '同步失败，请稍后重试',
-      syncAllTriggered: '全系统流量同步已触发，数据将在后台更新'
+      syncAllTriggered: '全系统流量同步已触发，数据将在后台更新',
+      clearTraffic: '清空流量',
+      clearTrafficConfirm: '确定要清空用户 <strong>{username}</strong> 的所有流量记录吗？<br/>此操作将：<br/>1. 删除该用户的所有流量记录<br/>2. 重置用户流量配额<br/>3. 解除流量限制状态<br/>4. 恢复受限实例<br/><br/><strong style="color: red;">此操作不可恢复！</strong>',
+      clearTrafficSuccess: '成功清空用户 {username} 的流量记录，共删除 {count} 条记录',
+      clearTrafficFailed: '清空流量记录失败',
+      clearTrafficError: '清空流量记录失败，请稍后重试'
     },
     portMapping: {
       title: '端口映射管理',

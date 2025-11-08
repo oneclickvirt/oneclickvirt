@@ -629,3 +629,12 @@ export const syncAllTraffic = () => {
     method: 'post'
   })
 }
+
+// 清空用户流量记录
+export const clearUserTrafficRecords = (userId) => {
+  return request({
+    url: `/v1/admin/traffic/user/${userId}/clear`,
+    method: 'delete'
+  })
+}
+

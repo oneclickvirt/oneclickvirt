@@ -301,7 +301,7 @@
             </el-table-column>
             <el-table-column
               :label="$t('common.actions')"
-              width="280"
+              width="380"
               align="center"
             >
               <template #default="{ row }">
@@ -334,6 +334,13 @@
                   @click="unlimitUser(row)"
                 >
                   {{ $t('admin.traffic.removeLimit') }}
+                </el-button>
+                <el-button
+                  size="small"
+                  type="danger"
+                  @click="clearUserTraffic(row)"
+                >
+                  {{ $t('admin.traffic.clearTraffic') }}
                 </el-button>
               </template>
             </el-table-column>
@@ -500,7 +507,8 @@ import {
   batchManageTrafficLimits,
   batchSyncUserTraffic,
   syncUserTraffic,
-  syncAllTraffic
+  syncAllTraffic,
+  clearUserTrafficRecords
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
@@ -891,6 +899,41 @@ const syncAllTrafficData = async () => {
     ElMessage.error(t('admin.traffic.syncError'))
   } finally {
     syncingAllTraffic.value = false
+  }
+}
+
+// 清空用户流量记录
+const clearUserTraffic = async (user) => {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.traffic.clearTrafficConfirm', { username: user.username }),
+      t('common.warning'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+        dangerouslyUseHTMLString: true
+      }
+    )
+
+    const response = await clearUserTrafficRecords(user.user_id)
+    if (response.code === 0) {
+      ElMessage.success(t('admin.traffic.clearTrafficSuccess', { 
+        username: user.username, 
+        count: response.data.deleted_count 
+      }))
+      
+      // 刷新列表
+      loadTrafficRanking()
+      loadSystemOverview()
+    } else {
+      ElMessage.error(`${t('admin.traffic.clearTrafficFailed')}: ${response.msg}`)
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      console.error('清空用户流量记录失败:', error)
+      ElMessage.error(t('admin.traffic.clearTrafficError'))
+    }
   }
 }
 

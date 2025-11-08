@@ -2658,6 +2658,10 @@ paths:
         in: query
         name: pageSize
         type: integer
+      - description: 实例名称
+        in: query
+        name: name
+        type: string
       - description: 实例状态
         in: query
         name: status
@@ -2665,6 +2669,14 @@ paths:
       - description: 节点名称
         in: query
         name: providerName
+        type: string
+      - description: 所有者名称
+        in: query
+        name: ownerName
+        type: string
+      - description: 实例类型
+        in: query
+        name: instance_type
         type: string
       produces:
       - application/json
@@ -4941,6 +4953,29 @@ paths:
       security:
       - ApiKeyAuth: []
       summary: 获取用户流量统计
+      tags:
+      - 管理员流量
+  /api/v1/admin/traffic/user/{userId}/clear:
+    delete:
+      consumes:
+      - application/json
+      description: 删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额
+      parameters:
+      - description: 用户ID
+        in: path
+        name: userId
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - ApiKeyAuth: []
+      summary: 清空用户流量记录
       tags:
       - 管理员流量
   /api/v1/admin/traffic/users/rank:

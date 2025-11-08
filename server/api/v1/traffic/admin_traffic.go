@@ -407,3 +407,47 @@ type BatchManageTrafficLimitRequest struct {
 type BatchSyncTrafficRequest struct {
 	UserIDs []uint `json:"user_ids" binding:"required"`
 }
+
+// ClearUserTrafficRecords 清空用户流量记录
+// @Summary 清空用户流量记录
+// @Description 删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额
+// @Tags 管理员流量
+// @Accept json
+// @Produce json
+// @Security ApiKeyAuth
+// @Param userId path int true "用户ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/traffic/user/{userId}/clear [delete]
+func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
+	userIDStr := c.Param("userId")
+	userID, err := strconv.ParseUint(userIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 40000,
+			Msg:  "无效的用户ID",
+		})
+		return
+	}
+
+	trafficService := traffic.NewService()
+	deletedCount, err := trafficService.ClearUserTrafficRecords(uint(userID))
+	if err != nil {
+		global.APP_LOG.Error("清空用户流量记录失败",
+			zap.Uint("userID", uint(userID)),
+			zap.Error(err))
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 50000,
+			Msg:  "清空流量记录失败: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Msg:  "清空流量记录成功",
+		Data: map[string]interface{}{
+			"user_id":       uint(userID),
+			"deleted_count": deletedCount,
+		},
+	})
+}

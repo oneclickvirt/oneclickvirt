@@ -133,5 +133,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/traffic/manage", adminTrafficAPI.ManageTrafficLimits)
 		AdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
 		AdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
+		AdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
 	}
 }

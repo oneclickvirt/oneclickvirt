@@ -770,6 +770,12 @@ const docTemplate = `{
                     },
                     {
                         "type": "string",
+                        "description": "实例名称",
+                        "name": "name",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
                         "description": "实例状态",
                         "name": "status",
                         "in": "query"
@@ -778,6 +784,18 @@ const docTemplate = `{
                         "type": "string",
                         "description": "节点名称",
                         "name": "providerName",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "所有者名称",
+                        "name": "ownerName",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "实例类型",
+                        "name": "instance_type",
                         "in": "query"
                     }
                 ],
@@ -4463,6 +4481,43 @@ const docTemplate = `{
                     "管理员流量"
                 ],
                 "summary": "获取用户流量统计",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "用户ID",
+                        "name": "userId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/traffic/user/{userId}/clear": {
+            "delete": {
+                "security": [
+                    {
+                        "ApiKeyAuth": []
+                    }
+                ],
+                "description": "删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员流量"
+                ],
+                "summary": "清空用户流量记录",
                 "parameters": [
                     {
                         "type": "integer",

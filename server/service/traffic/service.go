@@ -1037,3 +1037,119 @@ func (s *Service) CleanupOldTrafficRecords() error {
 
 	return nil
 }
+
+// ClearUserTrafficRecords 清空用户的所有流量记录
+// 删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额
+func (s *Service) ClearUserTrafficRecords(userID uint) (int64, error) {
+	// 0. 获取用户所有实例ID（包括已删除的）
+	var instanceIDs []uint
+	if err := global.APP_DB.Unscoped().Model(&provider.Instance{}).
+		Where("user_id = ?", userID).
+		Pluck("id", &instanceIDs).Error; err != nil {
+		global.APP_LOG.Error("获取用户实例列表失败",
+			zap.Uint("userID", userID),
+			zap.Error(err))
+		return 0, err
+	}
+
+	var totalDeletedCount int64 = 0
+
+	// 1. 物理删除用户的所有流量记录（TrafficRecord表，包括软删除的记录）
+	result := global.APP_DB.Unscoped().
+		Where("user_id = ?", userID).
+		Delete(&userModel.TrafficRecord{})
+
+	if result.Error != nil {
+		global.APP_LOG.Error("清空用户流量记录失败",
+			zap.Uint("userID", userID),
+			zap.Error(result.Error))
+		return 0, result.Error
+	}
+
+	totalDeletedCount += result.RowsAffected
+	global.APP_LOG.Info("删除用户TrafficRecord记录",
+		zap.Uint("userID", userID),
+		zap.Int64("deletedCount", result.RowsAffected))
+
+	// 2. 删除vnStat流量记录（VnStatTrafficRecord表）
+	if len(instanceIDs) > 0 {
+		vnstatResult := global.APP_DB.Unscoped().
+			Where("instance_id IN ?", instanceIDs).
+			Delete(&monitoring.VnStatTrafficRecord{})
+
+		if vnstatResult.Error != nil {
+			global.APP_LOG.Error("删除用户vnStat流量记录失败",
+				zap.Uint("userID", userID),
+				zap.Error(vnstatResult.Error))
+			// 继续执行，不中断
+		} else if vnstatResult.RowsAffected > 0 {
+			totalDeletedCount += vnstatResult.RowsAffected
+			global.APP_LOG.Info("删除用户VnStatTrafficRecord记录",
+				zap.Uint("userID", userID),
+				zap.Int64("deletedCount", vnstatResult.RowsAffected))
+		}
+
+		// 3. 删除vnStat接口记录（VnStatInterface表）
+		interfaceResult := global.APP_DB.Unscoped().
+			Where("instance_id IN ?", instanceIDs).
+			Delete(&monitoring.VnStatInterface{})
+
+		if interfaceResult.Error != nil {
+			global.APP_LOG.Error("删除用户vnStat接口记录失败",
+				zap.Uint("userID", userID),
+				zap.Error(interfaceResult.Error))
+			// 继续执行，不中断
+		} else if interfaceResult.RowsAffected > 0 {
+			totalDeletedCount += interfaceResult.RowsAffected
+			global.APP_LOG.Info("删除用户VnStatInterface记录",
+				zap.Uint("userID", userID),
+				zap.Int64("deletedCount", interfaceResult.RowsAffected))
+		}
+	}
+
+	// 4. 重置用户的流量配额
+	var u user.User
+	if err := global.APP_DB.First(&u, userID).Error; err != nil {
+		global.APP_LOG.Error("获取用户信息失败",
+			zap.Uint("userID", userID),
+			zap.Error(err))
+		return totalDeletedCount, err
+	}
+
+	// 获取用户等级对应的流量限制
+	trafficLimit := s.GetUserTrafficLimitByLevel(u.Level)
+
+	// 重置流量配额和状态
+	now := time.Now()
+	resetTime := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
+
+	updates := map[string]interface{}{
+		"total_traffic":    trafficLimit,
+		"used_traffic":     0,
+		"traffic_reset_at": resetTime,
+		"traffic_limited":  false,
+	}
+
+	if err := global.APP_DB.Model(&u).Updates(updates).Error; err != nil {
+		global.APP_LOG.Error("重置用户流量配额失败",
+			zap.Uint("userID", userID),
+			zap.Error(err))
+		return totalDeletedCount, err
+	}
+
+	// 5. 恢复用户的所有受限实例
+	if err := s.resumeUserInstances(userID); err != nil {
+		global.APP_LOG.Error("恢复用户实例失败",
+			zap.Uint("userID", userID),
+			zap.Error(err))
+		// 这里不返回错误，因为主要操作已经完成
+	}
+
+	global.APP_LOG.Info("成功清空用户所有流量记录",
+		zap.Uint("userID", userID),
+		zap.Int("instanceCount", len(instanceIDs)),
+		zap.Int64("totalDeletedRecords", totalDeletedCount),
+		zap.Int64("trafficLimit", trafficLimit))
+
+	return totalDeletedCount, nil
+}

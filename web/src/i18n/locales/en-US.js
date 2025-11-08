@@ -1769,7 +1769,12 @@ export default {
       syncTriggered: 'Traffic sync triggered, data will be updated in the background',
       syncFailed: 'Sync failed',
       syncError: 'Sync failed, please try again later',
-      syncAllTriggered: 'System-wide traffic sync triggered, data will be updated in the background'
+      syncAllTriggered: 'System-wide traffic sync triggered, data will be updated in the background',
+      clearTraffic: 'Clear Traffic',
+      clearTrafficConfirm: 'Are you sure you want to clear all traffic records for user <strong>{username}</strong>?<br/>This operation will:<br/>1. Delete all traffic records for this user<br/>2. Reset user traffic quota<br/>3. Remove traffic limit status<br/>4. Resume limited instances<br/><br/><strong style="color: red;">This operation cannot be undone!</strong>',
+      clearTrafficSuccess: 'Successfully cleared traffic records for user {username}, deleted {count} record(s)',
+      clearTrafficFailed: 'Failed to clear traffic records',
+      clearTrafficError: 'Failed to clear traffic records, please try again later'
     },
     portMapping: {
       title: 'Port Mapping Management',
