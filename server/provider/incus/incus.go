@@ -102,7 +102,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	i.sshClient = client
 	i.connected = true
 
-	// 初始化健康检查器
+	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
 		Host:          config.Host,
 		Port:          config.Port,
@@ -120,7 +120,8 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	}
 
 	zapLogger, _ := zap.NewProduction()
-	i.healthChecker = health.NewIncusHealthChecker(healthConfig, zapLogger)
+	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
+	i.healthChecker = health.NewIncusHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
 	global.APP_LOG.Info("Incus provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),

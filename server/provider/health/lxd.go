@@ -14,13 +14,26 @@ import (
 // LXDHealthChecker LXD健康检查器
 type LXDHealthChecker struct {
 	*BaseHealthChecker
-	sshClient *ssh.Client
+	sshClient      *ssh.Client
+	useExternalSSH bool // 标识是否使用外部SSH连接
+	shouldCloseSSH bool // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
 }
 
 // NewLXDHealthChecker 创建LXD健康检查器
 func NewLXDHealthChecker(config HealthConfig, logger *zap.Logger) *LXDHealthChecker {
 	return &LXDHealthChecker{
 		BaseHealthChecker: NewBaseHealthChecker(config, logger),
+		shouldCloseSSH:    true, // 默认情况下，自己创建的连接应该关闭
+	}
+}
+
+// NewLXDHealthCheckerWithSSH 创建使用外部SSH连接的LXD健康检查器
+func NewLXDHealthCheckerWithSSH(config HealthConfig, logger *zap.Logger, sshClient *ssh.Client) *LXDHealthChecker {
+	return &LXDHealthChecker{
+		BaseHealthChecker: NewBaseHealthChecker(config, logger),
+		sshClient:         sshClient,
+		useExternalSSH:    true,
+		shouldCloseSSH:    false, // 使用外部连接，不应该关闭
 	}
 }
 
@@ -66,12 +79,32 @@ func (l *LXDHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, erro
 
 // checkSSH 检查SSH连接
 func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
+	// 如果使用外部SSH连接，只测试连接是否可用
+	if l.useExternalSSH {
+		if l.sshClient == nil {
+			return fmt.Errorf("external SSH client is nil")
+		}
+		// 测试现有连接
+		_, err := l.sshClient.NewSession()
+		if err != nil {
+			return fmt.Errorf("external SSH connection test failed: %w", err)
+		}
+		if l.logger != nil {
+			l.logger.Debug("使用外部SSH连接检查成功", zap.String("host", l.config.Host))
+		}
+		return nil
+	}
+
+	// 非外部连接模式：自己管理SSH连接
 	if l.sshClient != nil {
 		// 测试现有连接
 		_, err := l.sshClient.NewSession()
 		if err == nil {
 			return nil
 		}
+		// 连接失效，关闭并重新创建
+		l.sshClient.Close()
+		l.sshClient = nil
 	}
 
 	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
@@ -290,10 +323,15 @@ func (l *LXDHealthChecker) getHostname(ctx context.Context) (string, error) {
 
 // Close 关闭连接
 func (l *LXDHealthChecker) Close() error {
-	if l.sshClient != nil {
+	// 只有在应该关闭SSH连接时才关闭（即自己创建的连接）
+	if l.shouldCloseSSH && l.sshClient != nil {
 		err := l.sshClient.Close()
 		l.sshClient = nil
 		return err
+	}
+	// 如果使用外部连接，只清空引用，不关闭连接
+	if l.useExternalSSH {
+		l.sshClient = nil
 	}
 	return nil
 }

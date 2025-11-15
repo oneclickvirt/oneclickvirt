@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
+	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 	"strconv"
 	"strings"
@@ -289,6 +290,82 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol))
+
+	// 尝试从ProviderService获取Provider实例，以使用其SSH连接
+	providerSvc := providerService.GetProviderService()
+	providerInstance, exists := providerSvc.GetProviderByID(providerInfo.ID)
+
+	if !exists || !providerInstance.IsConnected() {
+		// 如果Provider未加载或未连接，回退到创建临时SSH连接
+		global.APP_LOG.Warn("Provider未连接，使用临时SSH连接",
+			zap.Uint("providerId", providerInfo.ID),
+			zap.String("providerName", providerInfo.Name))
+		return d.createDockerPortMappingWithTempSSH(ctx, instance, hostPort, guestPort, protocol, providerInfo)
+	}
+
+	// 使用Provider实例的SSH连接执行命令
+	global.APP_LOG.Debug("使用Provider实例执行端口映射命令",
+		zap.Uint("providerId", providerInfo.ID),
+		zap.String("providerName", providerInfo.Name))
+
+	// 检查容器是否存在
+	checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", instance.Name)
+	status, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd)
+	if err != nil {
+		return fmt.Errorf("failed to check container status: %v", err)
+	}
+
+	status = strings.TrimSpace(strings.ToLower(status))
+
+	// Docker不支持动态端口映射，需要重新创建容器
+	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
+		// 获取现有容器的配置
+		inspectCmd := fmt.Sprintf("docker inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		configInfo, err := providerInstance.ExecuteSSHCommand(ctx, inspectCmd)
+		if err != nil {
+			return fmt.Errorf("failed to get container config: %v", err)
+		}
+
+		// 获取现有的端口映射
+		portsCmd := fmt.Sprintf("docker port %s", instance.Name)
+		existingPorts, _ := providerInstance.ExecuteSSHCommand(ctx, portsCmd)
+
+		// 停止并删除现有容器
+		stopCmd := fmt.Sprintf("docker stop %s", instance.Name)
+		_, err = providerInstance.ExecuteSSHCommand(ctx, stopCmd)
+		if err != nil {
+			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
+		}
+
+		removeCmd := fmt.Sprintf("docker rm %s", instance.Name)
+		_, err = providerInstance.ExecuteSSHCommand(ctx, removeCmd)
+		if err != nil {
+			return fmt.Errorf("failed to remove container: %v", err)
+		}
+
+		// 重新创建容器，包含新的端口映射
+		recreateCmd := d.buildDockerRunCommand(instance, configInfo, existingPorts, hostPort, guestPort, protocol)
+		_, err = providerInstance.ExecuteSSHCommand(ctx, recreateCmd)
+		if err != nil {
+			return fmt.Errorf("failed to recreate container with port mapping: %v", err)
+		}
+
+		global.APP_LOG.Info("Container recreated with new port mapping",
+			zap.String("instance", instance.Name),
+			zap.Int("hostPort", hostPort),
+			zap.Int("guestPort", guestPort))
+	} else {
+		return fmt.Errorf("container %s is in unexpected state: %s", instance.Name, status)
+	}
+
+	return nil
+}
+
+// createDockerPortMappingWithTempSSH 使用临时SSH连接创建Docker端口映射（回退方案）
+func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
+	global.APP_LOG.Warn("使用临时SSH连接创建端口映射（回退方案）",
+		zap.Uint("providerId", providerInfo.ID),
+		zap.String("providerName", providerInfo.Name))
 
 	// 构建SSH连接
 	sshClient, err := d.getSSHClient(providerInfo)

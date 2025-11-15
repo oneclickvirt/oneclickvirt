@@ -158,6 +158,12 @@ func (c *SSHClient) IsHealthy() bool {
 	return true
 }
 
+// GetUnderlyingClient 获取底层的ssh.Client，供其他组件使用（如health checker）
+// 注意：调用者不应该关闭返回的client，它由SSHClient管理
+func (c *SSHClient) GetUnderlyingClient() *ssh.Client {
+	return c.client
+}
+
 // Reconnect 重新建立SSH连接
 func (c *SSHClient) Reconnect() error {
 	global.APP_LOG.Info("尝试重新建立SSH连接",

@@ -77,9 +77,10 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		return nil, err
 	}
 
-	prov, dbProvider, err := s.GetProviderByID(providerID)
-	if err != nil {
-		return nil, err
+	// 从数据库获取Provider配置
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+		return nil, fmt.Errorf("Provider不存在")
 	}
 
 	// Docker 类型固定使用 native 端口映射方式
@@ -90,13 +91,33 @@ func (s *ProviderApiService) GetProviderStatusByID(providerIDStr string) (map[st
 		ipv6Method = "native"
 	}
 
+	// 检查Provider是否已连接（不尝试新连接）
+	providerService := GetProviderService()
+	var connected bool
+	var supportedTypes []string
+
+	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists && prov.IsConnected() {
+		connected = true
+		supportedTypes = prov.GetSupportedInstanceTypes()
+	} else {
+		connected = false
+		// 根据配置返回支持的实例类型
+		if dbProvider.ContainerEnabled && dbProvider.VirtualMachineEnabled {
+			supportedTypes = []string{"container", "vm"}
+		} else if dbProvider.ContainerEnabled {
+			supportedTypes = []string{"container"}
+		} else if dbProvider.VirtualMachineEnabled {
+			supportedTypes = []string{"vm"}
+		}
+	}
+
 	status := map[string]interface{}{
 		"id":                    dbProvider.ID,
 		"name":                  dbProvider.Name,
 		"type":                  dbProvider.Type,
-		"connected":             prov.IsConnected(),
+		"connected":             connected,
 		"status":                dbProvider.Status,
-		"supportedTypes":        prov.GetSupportedInstanceTypes(),
+		"supportedTypes":        supportedTypes,
 		"containerEnabled":      dbProvider.ContainerEnabled,
 		"vmEnabled":             dbProvider.VirtualMachineEnabled,
 		"architecture":          dbProvider.Architecture,
@@ -133,9 +154,10 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		return nil, err
 	}
 
-	prov, dbProvider, err := s.GetProviderByID(providerID)
-	if err != nil {
-		return nil, err
+	// 从数据库获取Provider配置
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+		return nil, fmt.Errorf("Provider不存在")
 	}
 
 	// Docker 类型固定使用 native 端口映射方式
@@ -146,11 +168,28 @@ func (s *ProviderApiService) GetProviderCapabilitiesByID(providerIDStr string) (
 		ipv6Method = "native"
 	}
 
+	// 检查Provider是否已连接（不尝试新连接）
+	providerService := GetProviderService()
+	var supportedTypes []string
+
+	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists && prov.IsConnected() {
+		supportedTypes = prov.GetSupportedInstanceTypes()
+	} else {
+		// 根据配置返回支持的实例类型
+		if dbProvider.ContainerEnabled && dbProvider.VirtualMachineEnabled {
+			supportedTypes = []string{"container", "vm"}
+		} else if dbProvider.ContainerEnabled {
+			supportedTypes = []string{"container"}
+		} else if dbProvider.VirtualMachineEnabled {
+			supportedTypes = []string{"vm"}
+		}
+	}
+
 	capabilities := map[string]interface{}{
 		"id":                    dbProvider.ID,
 		"name":                  dbProvider.Name,
 		"type":                  dbProvider.Type,
-		"supportedTypes":        prov.GetSupportedInstanceTypes(),
+		"supportedTypes":        supportedTypes,
 		"containerEnabled":      dbProvider.ContainerEnabled,
 		"vmEnabled":             dbProvider.VirtualMachineEnabled,
 		"architecture":          dbProvider.Architecture,

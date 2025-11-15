@@ -70,7 +70,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 	d.sshClient = client
 	d.connected = true
 
-	// 初始化健康检查器
+	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
 		Host:          config.Host,
 		Port:          config.Port,
@@ -85,7 +85,8 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 
 	// 创建一个简单的zap logger实例给健康检查器使用
 	zapLogger, _ := zap.NewProduction()
-	d.healthChecker = health.NewDockerHealthChecker(healthConfig, zapLogger)
+	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
+	d.healthChecker = health.NewDockerHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
 	global.APP_LOG.Info("Docker provider连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),

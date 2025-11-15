@@ -106,7 +106,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	l.sshClient = client
 	l.connected = true
 
-	// 初始化健康检查器
+	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
 	healthConfig := health.HealthConfig{
 		Host:          config.Host,
 		Port:          config.Port,
@@ -124,7 +124,8 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	}
 
 	zapLogger, _ := zap.NewProduction()
-	l.healthChecker = health.NewLXDHealthChecker(healthConfig, zapLogger)
+	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
+	l.healthChecker = health.NewLXDHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
 	global.APP_LOG.Info("LXD provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 50)),

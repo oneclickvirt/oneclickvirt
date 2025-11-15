@@ -171,8 +171,14 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		config.Port = 22
 	}
 
-	// 连接Provider
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// 连接Provider - 使用较短的超时时间以避免阻塞
+	// 如果Provider配置了自定义超时时间，使用自定义值，否则默认10秒
+	connectTimeout := 10 * time.Second
+	if dbProvider.SSHConnectTimeout > 0 {
+		connectTimeout = time.Duration(dbProvider.SSHConnectTimeout) * time.Second
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), connectTimeout)
 	defer cancel()
 
 	if err := prov.Connect(ctx, config); err != nil {

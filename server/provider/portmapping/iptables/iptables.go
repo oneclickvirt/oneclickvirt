@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
+	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 	"strconv"
 	"strings"
@@ -327,6 +328,55 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 		zap.String("protocol", protocol),
 		zap.Int("commandCount", len(allCommands)))
 
+	// 尝试从ProviderService获取Provider实例，以使用其SSH连接
+	providerSvc := providerService.GetProviderService()
+	providerInstance, exists := providerSvc.GetProviderByID(providerInfo.ID)
+
+	if !exists || !providerInstance.IsConnected() {
+		// 如果Provider未加载或未连接，回退到创建临时SSH连接
+		global.APP_LOG.Warn("Provider未连接，使用临时SSH连接",
+			zap.Uint("providerId", providerInfo.ID),
+			zap.String("providerName", providerInfo.Name))
+		return i.createIptablesRuleWithTempSSH(ctx, allCommands, instance, hostPort, guestPort, providerInfo)
+	}
+
+	// 使用Provider实例的SSH连接执行命令
+	global.APP_LOG.Debug("使用Provider实例执行iptables命令",
+		zap.Uint("providerId", providerInfo.ID),
+		zap.String("providerName", providerInfo.Name))
+
+	// 执行iptables命令
+	for _, cmd := range allCommands {
+		_, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
+		if err != nil {
+			global.APP_LOG.Error("Failed to execute iptables command",
+				zap.String("command", cmd),
+				zap.Error(err))
+			return fmt.Errorf("failed to execute iptables command '%s': %v", cmd, err)
+		}
+	}
+
+	// 保存iptables规则
+	saveCmd := "iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"
+	_, err := providerInstance.ExecuteSSHCommand(ctx, saveCmd)
+	if err != nil {
+		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Successfully created iptables rules",
+		zap.String("instance", instance.Name),
+		zap.Int("hostPort", hostPort),
+		zap.Int("guestPort", guestPort))
+
+	return nil
+}
+
+// createIptablesRuleWithTempSSH 使用临时SSH连接创建iptables规则（回退方案）
+func (i *IptablesPortMapping) createIptablesRuleWithTempSSH(ctx context.Context, commands []string, instance *provider.Instance, hostPort, guestPort int, providerInfo *provider.Provider) error {
+	global.APP_LOG.Warn("使用临时SSH连接创建iptables规则（回退方案）",
+		zap.Uint("providerId", providerInfo.ID),
+		zap.String("providerName", providerInfo.Name))
+
 	// 创建SSH客户端连接到provider主机执行iptables命令
 	sshClient, err := i.createSSHClient(providerInfo)
 	if err != nil {
@@ -335,7 +385,7 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 	defer sshClient.Close()
 
 	// 执行iptables命令
-	for _, cmd := range allCommands {
+	for _, cmd := range commands {
 		_, err := sshClient.Execute(cmd)
 		if err != nil {
 			global.APP_LOG.Error("Failed to execute iptables command",

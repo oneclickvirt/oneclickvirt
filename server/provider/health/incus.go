@@ -14,13 +14,26 @@ import (
 // IncusHealthChecker Incus健康检查器
 type IncusHealthChecker struct {
 	*BaseHealthChecker
-	sshClient *ssh.Client
+	sshClient      *ssh.Client
+	useExternalSSH bool // 标识是否使用外部SSH连接
+	shouldCloseSSH bool // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
 }
 
 // NewIncusHealthChecker 创建Incus健康检查器
 func NewIncusHealthChecker(config HealthConfig, logger *zap.Logger) *IncusHealthChecker {
 	return &IncusHealthChecker{
 		BaseHealthChecker: NewBaseHealthChecker(config, logger),
+		shouldCloseSSH:    true, // 默认情况下，自己创建的连接应该关闭
+	}
+}
+
+// NewIncusHealthCheckerWithSSH 创建使用外部SSH连接的Incus健康检查器
+func NewIncusHealthCheckerWithSSH(config HealthConfig, logger *zap.Logger, sshClient *ssh.Client) *IncusHealthChecker {
+	return &IncusHealthChecker{
+		BaseHealthChecker: NewBaseHealthChecker(config, logger),
+		sshClient:         sshClient,
+		useExternalSSH:    true,
+		shouldCloseSSH:    false, // 使用外部连接，不应该关闭
 	}
 }
 
@@ -66,12 +79,32 @@ func (i *IncusHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, er
 
 // checkSSH 检查SSH连接
 func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
+	// 如果使用外部SSH连接，只测试连接是否可用
+	if i.useExternalSSH {
+		if i.sshClient == nil {
+			return fmt.Errorf("external SSH client is nil")
+		}
+		// 测试现有连接
+		_, err := i.sshClient.NewSession()
+		if err != nil {
+			return fmt.Errorf("external SSH connection test failed: %w", err)
+		}
+		if i.logger != nil {
+			i.logger.Debug("使用外部SSH连接检查成功", zap.String("host", i.config.Host))
+		}
+		return nil
+	}
+
+	// 非外部连接模式：自己管理SSH连接
 	if i.sshClient != nil {
 		// 测试现有连接
 		_, err := i.sshClient.NewSession()
 		if err == nil {
 			return nil
 		}
+		// 连接失效，关闭并重新创建
+		i.sshClient.Close()
+		i.sshClient = nil
 	}
 
 	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
@@ -279,10 +312,15 @@ func (i *IncusHealthChecker) getHostname(ctx context.Context) (string, error) {
 
 // Close 关闭连接
 func (i *IncusHealthChecker) Close() error {
-	if i.sshClient != nil {
+	// 只有在应该关闭SSH连接时才关闭（即自己创建的连接）
+	if i.shouldCloseSSH && i.sshClient != nil {
 		err := i.sshClient.Close()
 		i.sshClient = nil
 		return err
+	}
+	// 如果使用外部连接，只清空引用，不关闭连接
+	if i.useExternalSSH {
+		i.sshClient = nil
 	}
 	return nil
 }

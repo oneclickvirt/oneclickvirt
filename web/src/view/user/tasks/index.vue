@@ -383,7 +383,7 @@
 
     <!-- 全局空状态：没有任何任务时显示 -->
     <el-empty 
-      v-if="!loading && tasks.length === 0"
+      v-if="!loading && groupedTasks.length === 0"
       :description="t('user.tasks.noTasksDescription')"
     >
       <el-button
@@ -458,6 +458,12 @@ const groupedTasks = computed(() => {
   
   tasks.value.forEach(task => {
     const providerId = task.providerId
+    
+    // 如果有节点筛选条件（不为空字符串），只显示选中的节点
+    if (filterForm.providerId !== '' && String(task.providerId) !== String(filterForm.providerId)) {
+      return
+    }
+    
     if (!groups.has(providerId)) {
       groups.set(providerId, {
         providerId,
