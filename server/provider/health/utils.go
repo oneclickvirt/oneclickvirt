@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -409,33 +410,24 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	}
 	defer client.Close()
 
-	// 记录实际连接的远程地址，并验证是否正确
-	actualRemoteAddr := ""
-	if client.Conn != nil {
-		actualRemoteAddr = client.Conn.RemoteAddr().String()
-	}
-
-	// 验证实际连接的IP是否与目标IP一致
-	expectedPrefix := localHost + ":"
-	if !strings.HasPrefix(actualRemoteAddr, expectedPrefix) {
+	// 验证SSH连接的远程地址是否匹配预期的主机（支持域名解析）
+	if err := utils.VerifySSHConnection(client, localHost); err != nil {
 		if phc.logger != nil {
-			phc.logger.Error("SSH连接地址不匹配！可能存在网络重定向或代理",
+			phc.logger.Error("SSH连接地址验证失败",
 				zap.Uint("providerID", localProviderID),
 				zap.String("providerName", localProviderName),
-				zap.String("expectedHost", localHost),
-				zap.Int("expectedPort", localPort),
-				zap.String("expectedAddr", addr),
-				zap.String("actualRemoteAddr", actualRemoteAddr))
+				zap.String("host", localHost),
+				zap.Int("port", localPort),
+				zap.Error(err))
 		}
-		return nil, fmt.Errorf("SSH连接地址不匹配: 期望连接到 %s 但实际连接到 %s", addr, actualRemoteAddr)
+		return nil, err
 	}
 
 	if phc.logger != nil {
-		phc.logger.Debug("SSH连接成功，准备获取资源信息",
+		phc.logger.Debug("SSH连接验证成功，准备获取资源信息",
 			zap.Uint("providerID", localProviderID),
 			zap.String("providerName", localProviderName),
-			zap.String("configHost", localHost),
-			zap.String("actualRemoteAddr", actualRemoteAddr))
+			zap.String("host", localHost))
 	}
 
 	resourceInfo := &ResourceInfo{}

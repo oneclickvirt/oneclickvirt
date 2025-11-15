@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"oneclickvirt/utils"
+
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
@@ -179,9 +181,21 @@ func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
 		return fmt.Errorf("SSH连接失败: %w", err)
 	}
 
+	// 验证SSH连接的远程地址是否匹配预期的主机（支持域名解析）
+	if err := utils.VerifySSHConnection(client, l.config.Host); err != nil {
+		if l.logger != nil {
+			l.logger.Error("LXD SSH连接地址验证失败",
+				zap.String("host", l.config.Host),
+				zap.Int("port", l.config.Port),
+				zap.Error(err))
+		}
+		client.Close()
+		return err
+	}
+
 	l.sshClient = client
 	if l.logger != nil {
-		l.logger.Debug("LXD SSH连接成功", zap.String("host", l.config.Host), zap.Int("port", l.config.Port))
+		l.logger.Debug("LXD SSH连接验证成功", zap.String("host", l.config.Host), zap.Int("port", l.config.Port))
 	}
 	return nil
 }

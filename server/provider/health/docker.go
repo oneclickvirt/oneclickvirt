@@ -7,6 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	"oneclickvirt/utils"
+
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
@@ -223,40 +225,18 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 		return fmt.Errorf("SSH连接失败: %w", err)
 	}
 
-	// 立即输出Dial成功日志
-	if d.logger != nil {
-		d.logger.Debug("SSH Dial成功，获取远程地址",
-			zap.Uint("providerID", providerID),
-			zap.String("providerName", providerName),
-			zap.String("address", address))
-	}
-
-	// 立即获取实际连接的远程地址
-	remoteAddr := client.Conn.RemoteAddr().String()
-
-	if d.logger != nil {
-		d.logger.Debug("获取到远程地址，准备验证",
-			zap.Uint("providerID", providerID),
-			zap.String("providerName", providerName),
-			zap.String("expectedHost", expectedHost),
-			zap.String("remoteAddr", remoteAddr))
-	}
-
-	// 验证实际连接的IP是否与目标IP一致（使用保存的expectedHost）
-	expectedPrefix := expectedHost + ":"
-	if !strings.HasPrefix(remoteAddr, expectedPrefix) {
+	// 验证SSH连接的远程地址是否匹配预期的主机（支持域名解析）
+	if err := utils.VerifySSHConnection(client, expectedHost); err != nil {
 		if d.logger != nil {
-			d.logger.Error("Docker SSH连接地址不匹配！",
+			d.logger.Error("Docker SSH连接地址验证失败",
 				zap.Uint("providerID", providerID),
 				zap.String("providerName", providerName),
 				zap.String("expectedHost", expectedHost),
 				zap.Int("expectedPort", expectedPort),
-				zap.String("expectedAddr", address),
-				zap.String("actualRemoteAddr", remoteAddr),
-				zap.String("currentConfigHost", d.config.Host))
+				zap.Error(err))
 		}
 		client.Close()
-		return fmt.Errorf("SSH连接地址不匹配: 期望连接到 %s 但实际连接到 %s (ProviderID=%d)", address, remoteAddr, providerID)
+		return err
 	}
 
 	d.sshClient = client
@@ -264,8 +244,7 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 		d.logger.Debug("SSH连接验证成功",
 			zap.Uint("providerID", providerID),
 			zap.String("providerName", providerName),
-			zap.String("expectedHost", expectedHost),
-			zap.String("actualRemoteAddr", remoteAddr))
+			zap.String("expectedHost", expectedHost))
 	}
 	return nil
 }

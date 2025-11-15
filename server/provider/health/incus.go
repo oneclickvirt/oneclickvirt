@@ -8,6 +8,8 @@ import (
 	"strings"
 	"sync"
 
+	"oneclickvirt/utils"
+
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
 )
@@ -179,9 +181,21 @@ func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
 		return fmt.Errorf("SSH连接失败: %w", err)
 	}
 
+	// 验证SSH连接的远程地址是否匹配预期的主机（支持域名解析）
+	if err := utils.VerifySSHConnection(client, i.config.Host); err != nil {
+		if i.logger != nil {
+			i.logger.Error("Incus SSH连接地址验证失败",
+				zap.String("host", i.config.Host),
+				zap.Int("port", i.config.Port),
+				zap.Error(err))
+		}
+		client.Close()
+		return err
+	}
+
 	i.sshClient = client
 	if i.logger != nil {
-		i.logger.Debug("Incus SSH连接成功", zap.String("host", i.config.Host), zap.Int("port", i.config.Port))
+		i.logger.Debug("Incus SSH连接验证成功", zap.String("host", i.config.Host), zap.Int("port", i.config.Port))
 	}
 	return nil
 }

@@ -910,19 +910,19 @@ const submitApplication = async () => {
         ElMessage.info(t('user.apply.taskIdInfo', { taskId: response.data.taskId }))
       }
       
-      // 强制等待5秒后跳转到任务页面
+      // 强制等待3秒后跳转到任务页面
       setTimeout(() => {
         router.push('/user/tasks')
-      }, 5000)
+      }, 3000)
     } else {
       // 检查是否是重复提交的情况
       if (response.message && response.message.includes('进行中')) {
         ElMessage.warning(t('user.apply.duplicateTaskWarning'))
         
-        // 强制等待5秒后跳转到任务页面
+        // 强制等待3秒后跳转到任务页面
         setTimeout(() => {
           router.push('/user/tasks')
-        }, 5000)
+        }, 3000)
       } else {
         ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
         // 提交失败时重置提交状态
@@ -935,10 +935,10 @@ const submitApplication = async () => {
       if (error.message && error.message.includes('timeout')) {
         ElMessage.error(t('user.apply.requestTimeout'))
         
-        // 强制等待5秒后跳转到任务页面
+        // 强制等待3秒后跳转到任务页面
         setTimeout(() => {
           router.push('/user/tasks')
-        }, 5000)
+        }, 3000)
       } else {
         ElMessage.error(t('user.apply.submitFailed'))
         // 提交失败时重置提交状态

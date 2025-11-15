@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"strings"
 	"sync"
@@ -554,4 +555,60 @@ func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) 
 	}
 
 	return nil
+}
+
+// ResolveHostToIP 解析主机名到IP地址
+// 如果host已经是IP地址，直接返回；如果是域名，解析为IP地址
+func ResolveHostToIP(host string) ([]string, error) {
+	// 尝试解析为IP地址
+	if ip := net.ParseIP(host); ip != nil {
+		// 已经是IP地址，直接返回
+		return []string{host}, nil
+	}
+
+	// 是域名，需要解析
+	ips, err := net.LookupHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve hostname %s: %w", host, err)
+	}
+
+	if len(ips) == 0 {
+		return nil, fmt.Errorf("no IP addresses found for hostname %s", host)
+	}
+
+	return ips, nil
+}
+
+// VerifySSHConnection 验证SSH连接的远程地址是否匹配预期的主机
+// 支持域名解析验证：如果expectedHost是域名，会解析后与实际连接的IP比对
+func VerifySSHConnection(client *ssh.Client, expectedHost string) error {
+	if client == nil || client.Conn == nil {
+		return fmt.Errorf("SSH client or connection is nil")
+	}
+
+	// 获取实际连接的远程地址
+	remoteAddr := client.Conn.RemoteAddr().String()
+
+	// 从 remoteAddr 提取IP（格式: "IP:Port"）
+	actualIP, _, err := net.SplitHostPort(remoteAddr)
+	if err != nil {
+		return fmt.Errorf("failed to parse remote address %s: %w", remoteAddr, err)
+	}
+
+	// 解析预期的主机名到IP列表
+	expectedIPs, err := ResolveHostToIP(expectedHost)
+	if err != nil {
+		return fmt.Errorf("failed to resolve expected host %s: %w", expectedHost, err)
+	}
+
+	// 检查实际连接的IP是否在预期的IP列表中
+	for _, expectedIP := range expectedIPs {
+		if actualIP == expectedIP {
+			return nil // 匹配成功
+		}
+	}
+
+	// 如果都不匹配，返回错误
+	return fmt.Errorf("SSH connection address mismatch: expected to connect to %s (resolved to %v) but actually connected to %s",
+		expectedHost, expectedIPs, actualIP)
 }

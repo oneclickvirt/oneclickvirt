@@ -3733,6 +3733,87 @@ paths:
       summary: 导出所有Provider配置
       tags:
       - 管理员管理
+  /admin/providers/check-endpoint:
+    get:
+      consumes:
+      - application/json
+      description: 检查指定的SSH地址和端口组合是否已被使用（用于前端实时验证）
+      parameters:
+      - description: SSH地址
+        in: query
+        name: endpoint
+        required: true
+        type: string
+      - description: SSH端口
+        in: query
+        name: sshPort
+        required: true
+        type: integer
+      - description: 排除的Provider ID（编辑时使用）
+        in: query
+        name: excludeId
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检查结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: boolean
+                  type: object
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查Provider SSH地址和端口是否已存在
+      tags:
+      - 提供商管理
+  /admin/providers/check-name:
+    get:
+      consumes:
+      - application/json
+      description: 检查指定的Provider名称是否已被使用（用于前端实时验证）
+      parameters:
+      - description: 要检查的Provider名称
+        in: query
+        name: name
+        required: true
+        type: string
+      - description: 排除的Provider ID（编辑时使用）
+        in: query
+        name: excludeId
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检查结果
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  additionalProperties:
+                    type: boolean
+                  type: object
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查Provider名称是否已存在
+      tags:
+      - 提供商管理
   /admin/providers/test-ssh-connection:
     post:
       consumes:
