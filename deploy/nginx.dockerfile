@@ -6,11 +6,14 @@ WORKDIR /app
 
 COPY web/package*.json ./
 
-RUN npm ci --include=optional
 RUN if [ "$TARGETARCH" = "amd64" ]; then \
+        npm ci --include=optional && \
         npm install --no-save @rollup/rollup-linux-x64-gnu; \
     elif [ "$TARGETARCH" = "arm64" ]; then \
-        npm install --no-save @rollup/rollup-linux-arm64-gnu; \
+        npm install --force && \
+        npm install --no-save --force @rollup/rollup-linux-arm64-gnu; \
+    else \
+        npm ci --include=optional; \
     fi
 
 COPY web/ ./
