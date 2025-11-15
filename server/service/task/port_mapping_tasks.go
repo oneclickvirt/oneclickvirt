@@ -20,8 +20,8 @@ import (
 
 // executeCreatePortMappingTask 执行创建端口映射任务
 func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.CreatePortMappingTaskRequest
@@ -29,8 +29,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取端口映射信息...")
+	// 更新进度 (12%)
+	s.updateTaskProgress(task.ID, 12, "正在获取端口映射信息...")
 
 	// 获取端口映射记录
 	var port providerModel.Port
@@ -38,8 +38,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("端口映射记录不存在")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取实例信息...")
+	// 更新进度 (20%)
+	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -49,8 +49,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("实例不存在")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 40, "正在获取Provider配置...")
+	// 更新进度 (28%)
+	s.updateTaskProgress(task.ID, 28, "正在获取Provider配置...")
 
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
@@ -60,16 +60,21 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("Provider不存在")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 45, "正在获取实例最新内网IP地址...")
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := providerInfo.ID
+	localProviderType := providerInfo.Type
+	localIPv4PortMappingMethod := providerInfo.IPv4PortMappingMethod
+
+	// 更新进度 (35%)
+	s.updateTaskProgress(task.ID, 35, "正在获取实例最新内网IP地址...")
 
 	// 获取实例最新的内网IP地址
 	var currentPrivateIP string
 	providerApiService := &provider2.ProviderApiService{}
-	prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+	prov, _, err := providerApiService.GetProviderByID(localProviderID)
 	if err != nil {
 		global.APP_LOG.Error("获取Provider实例失败",
-			zap.Uint("providerId", providerInfo.ID),
+			zap.Uint("providerId", localProviderID),
 			zap.Error(err))
 		// 更新端口状态为失败
 		global.APP_DB.Model(&port).Update("status", "failed")
@@ -77,7 +82,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 根据不同的Provider类型获取内网IP
-	switch providerInfo.Type {
+	switch localProviderType {
 	case "lxd":
 		if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
 			if ip, err := lxdProv.GetInstanceIPv4(instance.Name); err == nil {
@@ -147,31 +152,31 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		}
 	}
 
-	// 更新进度
+	// 更新进度 (50%)
 	s.updateTaskProgress(task.ID, 50, "正在配置端口映射...")
 
 	// 使用 portmapping manager 添加端口映射
 	manager := portmapping.NewManager(&portmapping.ManagerConfig{
-		DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+		DefaultMappingMethod: localIPv4PortMappingMethod,
 	})
 
 	// 确定使用的 portmapping provider 类型
-	portMappingType := providerInfo.Type
+	portMappingType := localProviderType
 	if portMappingType == "proxmox" {
 		portMappingType = "iptables"
 	}
 
 	portReq := &portmapping.PortMappingRequest{
 		InstanceID:    fmt.Sprintf("%d", instance.ID),
-		ProviderID:    providerInfo.ID,
+		ProviderID:    localProviderID,
 		Protocol:      port.Protocol,
 		HostPort:      port.HostPort,
 		GuestPort:     port.GuestPort,
 		Description:   port.Description,
-		MappingMethod: providerInfo.IPv4PortMappingMethod,
+		MappingMethod: localIPv4PortMappingMethod,
 	}
 
-	// 执行端口映射添加
+	// 执行端口映射添加 (70%)
 	s.updateTaskProgress(task.ID, 70, "正在远程服务器上配置端口映射...")
 
 	result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
@@ -189,9 +194,6 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("添加端口映射失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 90, "正在更新端口状态...")
-
 	// Provider 会创建一条新的数据库记录，我们需要删除它并更新我们原有的记录
 	if result.ID != 0 && result.ID != port.ID {
 		// 删除 provider 创建的重复记录
@@ -201,19 +203,19 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			zap.Uint("originalPortId", port.ID))
 	}
 
-	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上实际创建端口映射
-	if providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" {
+	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上实际创建端口映射 (85%)
+	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" {
 		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
 
 		// 调用 provider 层的方法在远程服务器上创建实际映射（使用最新获取的内网IP）
-		switch providerInfo.Type {
+		switch localProviderType {
 		case "lxd":
 			lxdProv, ok := prov.(*lxd.LXDProvider)
 			if !ok {
 				return fmt.Errorf("Provider类型断言失败")
 			}
 			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
+			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 
 		case "incus":
 			incusProv, ok := prov.(*incus.IncusProvider)
@@ -221,7 +223,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				return fmt.Errorf("Provider类型断言失败")
 			}
 			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
+			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 
 		case "proxmox":
 			proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider)
@@ -229,7 +231,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				return fmt.Errorf("Provider类型断言失败")
 			}
 			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = proxmoxProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, providerInfo.IPv4PortMappingMethod, currentPrivateIP)
+			err = proxmoxProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 		}
 
 		if err != nil {
@@ -244,8 +246,11 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 		global.APP_LOG.Info("已在远程服务器上应用端口映射",
 			zap.Uint("portId", port.ID),
-			zap.String("providerType", providerInfo.Type))
+			zap.String("providerType", localProviderType))
 	}
+
+	// 更新进度 (92%)
+	s.updateTaskProgress(task.ID, 92, "正在更新端口状态...")
 
 	// 更新端口状态为active
 	if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
@@ -279,8 +284,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 // executeDeletePortMappingTask 执行删除端口映射任务
 func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.DeletePortMappingTaskRequest
@@ -288,8 +293,8 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取端口映射信息...")
+	// 更新进度 (15%)
+	s.updateTaskProgress(task.ID, 15, "正在获取端口映射信息...")
 
 	// 获取端口映射记录
 	var port providerModel.Port
@@ -305,8 +310,8 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("获取端口映射记录失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取实例信息...")
+	// 更新进度 (25%)
+	s.updateTaskProgress(task.ID, 25, "正在获取实例信息...")
 
 	// 获取实例信息（可能实例已被删除）
 	var instance providerModel.Instance
@@ -317,8 +322,8 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		instance.Name = "" // 清空实例名称
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 40, "正在获取Provider配置...")
+	// 更新进度 (35%)
+	s.updateTaskProgress(task.ID, 35, "正在获取Provider配置...")
 
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
@@ -329,15 +334,20 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 			zap.Error(err))
 		providerDeleteSuccess = false
 	} else {
-		// 只有Provider存在时才尝试从远程删除
+		// 复制副本避免共享状态，立即创建Provider字段的本地副本
+		localProviderID := providerInfo.ID
+		localProviderType := providerInfo.Type
+		localIPv4PortMappingMethod := providerInfo.IPv4PortMappingMethod
+
+		// 只有Provider存在时才尝试从远程删除 (50%)
 		s.updateTaskProgress(task.ID, 50, "正在从远程服务器删除端口映射...")
 
 		// 使用 portmapping manager 删除端口映射
 		manager := portmapping.NewManager(&portmapping.ManagerConfig{
-			DefaultMappingMethod: providerInfo.IPv4PortMappingMethod,
+			DefaultMappingMethod: localIPv4PortMappingMethod,
 		})
 
-		portMappingType := providerInfo.Type
+		portMappingType := localProviderType
 		if portMappingType == "proxmox" {
 			portMappingType = "iptables"
 		}
@@ -356,32 +366,32 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 			// 继续执行，不阻止数据库记录删除
 		}
 
-		// 对于 LXD/Incus，还需要在远程服务器上实际删除 proxy device
-		if (providerInfo.Type == "lxd" || providerInfo.Type == "incus") && instance.Name != "" {
-			s.updateTaskProgress(task.ID, 70, "正在从远程服务器删除端口映射...")
+		// 对于 LXD/Incus，还需要在远程服务器上实际删除 proxy device (70%)
+		if (localProviderType == "lxd" || localProviderType == "incus") && instance.Name != "" {
+			s.updateTaskProgress(task.ID, 70, "正在从LXD/Incus服务器删除端口映射...")
 
 			// 获取 Provider 实例
 			providerApiService := &provider2.ProviderApiService{}
-			prov, _, err := providerApiService.GetProviderByID(providerInfo.ID)
+			prov, _, err := providerApiService.GetProviderByID(localProviderID)
 			if err != nil {
 				global.APP_LOG.Warn("获取Provider实例失败，跳过远程删除",
-					zap.Uint("providerId", providerInfo.ID),
+					zap.Uint("providerId", localProviderID),
 					zap.Error(err))
 				providerDeleteSuccess = false
 			} else {
 				// 调用 provider 层的方法在远程服务器上删除实际映射
 				var deleteErr error
-				switch providerInfo.Type {
+				switch localProviderType {
 				case "lxd":
 					if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
-						deleteErr = lxdProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, providerInfo.IPv4PortMappingMethod)
+						deleteErr = lxdProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, localIPv4PortMappingMethod)
 					} else {
 						deleteErr = fmt.Errorf("Provider类型断言失败")
 					}
 
 				case "incus":
 					if incusProv, ok := prov.(*incus.IncusProvider); ok {
-						deleteErr = incusProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, providerInfo.IPv4PortMappingMethod)
+						deleteErr = incusProv.RemovePortMapping(instance.Name, port.HostPort, port.Protocol, localIPv4PortMappingMethod)
 					} else {
 						deleteErr = fmt.Errorf("Provider类型断言失败")
 					}
@@ -390,20 +400,20 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 				if deleteErr != nil {
 					global.APP_LOG.Warn("从远程服务器删除端口映射失败",
 						zap.Uint("portId", port.ID),
-						zap.String("providerType", providerInfo.Type),
+						zap.String("providerType", localProviderType),
 						zap.Error(deleteErr))
 					providerDeleteSuccess = false
 				} else {
 					global.APP_LOG.Info("已从远程服务器删除端口映射",
 						zap.Uint("portId", port.ID),
-						zap.String("providerType", providerInfo.Type))
+						zap.String("providerType", localProviderType))
 				}
 			}
 		}
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 80, "正在删除数据库记录...")
+	// 更新进度 (85%)
+	s.updateTaskProgress(task.ID, 85, "正在删除数据库记录...")
 
 	// 删除数据库记录
 	if err := global.APP_DB.Delete(&port).Error; err != nil {

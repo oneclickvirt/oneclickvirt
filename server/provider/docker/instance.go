@@ -78,8 +78,17 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	updateProgress(10, "开始创建Docker实例...")
 
+	global.APP_LOG.Debug("开始创建Docker实例",
+		zap.String("instance", config.Name),
+		zap.String("image", config.Image),
+		zap.String("providerHost", d.config.Host))
+
 	// 确保SSH脚本文件可用
 	updateProgress(15, "确保SSH脚本可用...")
+	global.APP_LOG.Debug("准备调用ensureSSHScriptsAvailable",
+		zap.String("instance", config.Name),
+		zap.String("country", d.config.Country))
+
 	if err := d.ensureSSHScriptsAvailable(d.config.Country); err != nil {
 		global.APP_LOG.Error("确保SSH脚本可用失败",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
@@ -87,12 +96,25 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		return fmt.Errorf("确保SSH脚本可用失败: %w", err)
 	}
 
+	global.APP_LOG.Debug("ensureSSHScriptsAvailable成功返回",
+		zap.String("instance", config.Name))
+
 	updateProgress(20, "处理Docker镜像...")
 	// 为镜像名称添加前缀
 	imageNameWithPrefix := "oneclickvirt_" + config.Image
 
+	global.APP_LOG.Debug("准备检查镜像是否存在",
+		zap.String("instance", config.Name),
+		zap.String("imageNameWithPrefix", imageNameWithPrefix))
+
 	// 首先检查镜像是否存在
-	if !d.imageExists(imageNameWithPrefix) {
+	imageExistsResult := d.imageExists(imageNameWithPrefix)
+	global.APP_LOG.Debug("imageExists调用完成",
+		zap.String("instance", config.Name),
+		zap.String("imageNameWithPrefix", imageNameWithPrefix),
+		zap.Bool("exists", imageExistsResult))
+
+	if !imageExistsResult {
 		// 如果镜像不存在且有镜像URL，先在远程服务器下载镜像
 		if config.ImageURL != "" {
 			updateProgress(30, "下载镜像到远程服务器...")

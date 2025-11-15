@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -22,6 +23,7 @@ type LXDProvider struct {
 	apiClient     *http.Client
 	connected     bool
 	healthChecker health.HealthChecker
+	mu            sync.RWMutex // 保护并发访问
 }
 
 func NewLXDProvider() provider.Provider {

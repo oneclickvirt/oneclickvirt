@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -23,6 +24,7 @@ type ProxmoxProvider struct {
 	node          string // Proxmox 节点名
 	providerUUID  string // Provider UUID，用于查询数据库中的配置
 	healthChecker health.HealthChecker
+	mu            sync.RWMutex // 保护并发访问
 }
 
 func NewProxmoxProvider() provider.Provider {

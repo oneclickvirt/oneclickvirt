@@ -101,7 +101,7 @@ func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (
 
 // validateInTransaction 在事务中进行配额验证（增强版，防止并发竞争）
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
-	// 使用 SELECT FOR UPDATE 锁定用户记录，防止并发修改
+	// 使用 SELECT FOR UPDATE 锁定用户记录
 	// NOWAIT 选项：如果无法立即获取锁，直接返回错误，避免长时间等待
 	var user user.User
 	if err := tx.Set("gorm:query_option", "FOR UPDATE NOWAIT").First(&user, req.UserID).Error; err != nil {

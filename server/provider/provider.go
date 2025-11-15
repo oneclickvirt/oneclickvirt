@@ -60,13 +60,11 @@ type Provider interface {
 // Registry Provider 注册表
 type Registry struct {
 	providers map[string]func() Provider
-	instances map[string]Provider
 	mu        sync.RWMutex
 }
 
 var globalRegistry = &Registry{
 	providers: make(map[string]func() Provider),
-	instances: make(map[string]Provider),
 }
 
 // RegisterProvider 注册 Provider
@@ -77,29 +75,19 @@ func RegisterProvider(name string, factory func() Provider) {
 }
 
 // GetProvider 获取 Provider 实例
+// 注意：返回的是工厂创建的新实例，不是单例
+// 每次调用都会创建新的Provider实例，避免并发问题
 func GetProvider(name string) (Provider, error) {
 	globalRegistry.mu.RLock()
-	if instance, exists := globalRegistry.instances[name]; exists {
-		globalRegistry.mu.RUnlock()
-		return instance, nil
-	}
+	factory, exists := globalRegistry.providers[name]
 	globalRegistry.mu.RUnlock()
 
-	globalRegistry.mu.Lock()
-	defer globalRegistry.mu.Unlock()
-
-	// 双重检查
-	if instance, exists := globalRegistry.instances[name]; exists {
-		return instance, nil
-	}
-
-	factory, exists := globalRegistry.providers[name]
 	if !exists {
 		return nil, fmt.Errorf("provider %s not registered", name)
 	}
 
+	// 每次都创建新实例，避免并发竞态条件
 	instance := factory()
-	globalRegistry.instances[name] = instance
 	return instance, nil
 }
 
@@ -115,14 +103,15 @@ func ListProviders() []string {
 	return names
 }
 
-// GetAllProviders 获取所有 Provider 实例
-func GetAllProviders() map[string]Provider {
+// GetAllProviders 获取所有 Provider 类型的工厂函数
+// 注意：不再返回单例实例，而是返回可以创建Provider的工厂函数
+func GetAllProviders() map[string]func() Provider {
 	globalRegistry.mu.RLock()
 	defer globalRegistry.mu.RUnlock()
 
-	result := make(map[string]Provider)
-	for name, instance := range globalRegistry.instances {
-		result[name] = instance
+	result := make(map[string]func() Provider)
+	for name, factory := range globalRegistry.providers {
+		result[name] = factory
 	}
 	return result
 }

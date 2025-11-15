@@ -417,9 +417,7 @@
         width="500px"
       >
         <el-form
-          ref="forceStopFormRef"
           :model="forceStopDialog.form"
-          :rules="forceStopDialog.rules"
           label-width="80px"
         >
           <el-form-item :label="$t('admin.tasks.taskInfo')">
@@ -431,8 +429,7 @@
             </div>
           </el-form-item>
           <el-form-item 
-            :label="$t('admin.tasks.stopReason')" 
-            prop="reason"
+            :label="$t('admin.tasks.stopReason')"
           >
             <el-input
               v-model="forceStopDialog.form.reason"
@@ -640,9 +637,7 @@ const forceStopDialog = reactive({
     reason: ''
   },
   rules: {
-    reason: [
-      { required: true, message: () => t('admin.tasks.enterStopReason'), trigger: 'blur' }
-    ]
+    // reason is optional - no validation rules
   }
 })
 
@@ -650,8 +645,6 @@ const detailDialog = reactive({
   visible: false,
   task: null
 })
-
-const forceStopFormRef = ref()
 
 // 加载任务列表
 const loadTasks = async () => {
@@ -724,33 +717,27 @@ const showForceStopDialog = (task) => {
 
 // 确认强制停止
 const confirmForceStop = async () => {
-  if (!forceStopFormRef.value) return
+  try {
+    forceStopDialog.loading = true
+    const response = await forceStopTask({
+      taskId: forceStopDialog.task.id,
+      reason: forceStopDialog.form.reason
+    })
 
-  await forceStopFormRef.value.validate(async (valid) => {
-    if (!valid) return
-
-    try {
-      forceStopDialog.loading = true
-      const response = await forceStopTask({
-        taskId: forceStopDialog.task.id,
-        reason: forceStopDialog.form.reason
-      })
-
-      if (response.code === 0 || response.code === 200) {
-        ElMessage.success(t('admin.tasks.forceStopSuccess'))
-        forceStopDialog.visible = false
-        loadTasks()
-        loadStats()
-      } else {
-        ElMessage.error(response.message || t('message.operationFailed'))
-      }
-    } catch (error) {
-      console.error('强制停止任务失败:', error)
-      ElMessage.error(t('message.operationFailed'))
-    } finally {
-      forceStopDialog.loading = false
+    if (response.code === 0 || response.code === 200) {
+      ElMessage.success(t('admin.tasks.forceStopSuccess'))
+      forceStopDialog.visible = false
+      loadTasks()
+      loadStats()
+    } else {
+      ElMessage.error(response.message || t('message.operationFailed'))
     }
-  })
+  } catch (error) {
+    console.error('强制停止任务失败:', error)
+    ElMessage.error(t('message.operationFailed'))
+  } finally {
+    forceStopDialog.loading = false
+  }
 }
 
 // 取消任务

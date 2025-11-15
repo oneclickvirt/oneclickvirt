@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -15,16 +16,28 @@ import (
 type LXDHealthChecker struct {
 	*BaseHealthChecker
 	sshClient      *ssh.Client
-	useExternalSSH bool // 标识是否使用外部SSH连接
-	shouldCloseSSH bool // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	useExternalSSH bool       // 标识是否使用外部SSH连接
+	shouldCloseSSH bool       // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	mu             sync.Mutex // 保护并发访问sshClient和config字段
 }
 
 // NewLXDHealthChecker 创建LXD健康检查器
 func NewLXDHealthChecker(config HealthConfig, logger *zap.Logger) *LXDHealthChecker {
-	return &LXDHealthChecker{
+	checker := &LXDHealthChecker{
 		BaseHealthChecker: NewBaseHealthChecker(config, logger),
 		shouldCloseSSH:    true, // 默认情况下，自己创建的连接应该关闭
 	}
+	if logger != nil {
+		logger.Info("创建新的LXDHealthChecker实例",
+			zap.String("checkerType", "LXDHealthChecker"),
+			zap.String("instancePtr", fmt.Sprintf("%p", checker)),
+			zap.String("configHost", config.Host),
+			zap.Int("configPort", config.Port),
+			zap.Uint("providerID", config.ProviderID),
+			zap.String("providerName", config.ProviderName),
+			zap.String("baseCheckerPtr", fmt.Sprintf("%p", checker.BaseHealthChecker)))
+	}
+	return checker
 }
 
 // NewLXDHealthCheckerWithSSH 创建使用外部SSH连接的LXD健康检查器
@@ -79,30 +92,44 @@ func (l *LXDHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, erro
 
 // checkSSH 检查SSH连接
 func (l *LXDHealthChecker) checkSSH(ctx context.Context) error {
+	// 加锁保护并发访问
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	// 如果使用外部SSH连接，只测试连接是否可用
+	// 重要：使用外部SSH连接时，绝不创建新连接，确保在正确的节点上执行
 	if l.useExternalSSH {
 		if l.sshClient == nil {
 			return fmt.Errorf("external SSH client is nil")
 		}
 		// 测试现有连接
-		_, err := l.sshClient.NewSession()
+		session, err := l.sshClient.NewSession()
 		if err != nil {
 			return fmt.Errorf("external SSH connection test failed: %w", err)
 		}
+		session.Close()
 		if l.logger != nil {
-			l.logger.Debug("使用外部SSH连接检查成功", zap.String("host", l.config.Host))
+			l.logger.Debug("使用外部SSH连接检查成功（使用Provider的SSH连接，确保在正确节点）",
+				zap.String("host", l.config.Host))
 		}
 		return nil
 	}
 
 	// 非外部连接模式：自己管理SSH连接
+	// 重要：为了避免并发问题，总是关闭旧连接并创建新连接
+	// 这确保每次health check都连接到正确的服务器
 	if l.sshClient != nil {
-		// 测试现有连接
-		_, err := l.sshClient.NewSession()
-		if err == nil {
-			return nil
+		if l.logger != nil {
+			existingRemoteAddr := ""
+			if l.sshClient.Conn != nil {
+				existingRemoteAddr = l.sshClient.Conn.RemoteAddr().String()
+			}
+			l.logger.Info("关闭现有SSH连接，准备创建新连接（防止并发连接错误）",
+				zap.String("configHost", l.config.Host),
+				zap.Int("configPort", l.config.Port),
+				zap.String("existingRemoteAddr", existingRemoteAddr))
 		}
-		// 连接失效，关闭并重新创建
+		// 总是关闭现有连接
 		l.sshClient.Close()
 		l.sshClient = nil
 	}
@@ -231,8 +258,14 @@ func (l *LXDHealthChecker) checkAPI(ctx context.Context) error {
 
 // checkLXDService 检查LXD服务状态
 func (l *LXDHealthChecker) checkLXDService(ctx context.Context) error {
-	if l.sshClient == nil {
-		// 如果没有SSH连接，先建立连接
+	// 如果使用外部SSH连接，必须确保连接已建立
+	if l.useExternalSSH {
+		if l.sshClient == nil {
+			return fmt.Errorf("external SSH client is required for service check but is nil")
+		}
+		// 不建立新连接，确保使用Provider的SSH连接
+	} else if l.sshClient == nil {
+		// 仅在非外部连接模式下才建立新连接
 		if err := l.checkSSH(ctx); err != nil {
 			return fmt.Errorf("无法建立SSH连接进行服务检查: %w", err)
 		}
@@ -298,6 +331,10 @@ func (l *LXDHealthChecker) checkLXDService(ctx context.Context) error {
 
 // getHostname 获取节点hostname
 func (l *LXDHealthChecker) getHostname(ctx context.Context) (string, error) {
+	// 加锁保护并发访问
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
 	if l.sshClient == nil {
 		return "", fmt.Errorf("SSH连接未建立")
 	}
@@ -316,6 +353,13 @@ func (l *LXDHealthChecker) getHostname(ctx context.Context) (string, error) {
 	hostname := strings.TrimSpace(string(output))
 	if hostname == "" {
 		return "", fmt.Errorf("hostname为空")
+	}
+
+	if l.logger != nil {
+		l.logger.Debug("获取到LXD节点hostname",
+			zap.String("hostname", hostname),
+			zap.String("host", l.config.Host),
+			zap.Bool("useExternalSSH", l.useExternalSSH))
 	}
 
 	return hostname, nil

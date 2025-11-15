@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -30,6 +31,7 @@ type SSHClient struct {
 	config          SSHConfig
 	lastHealthTime  time.Time          // 上次健康检查时间
 	keepaliveCancel context.CancelFunc // keepalive goroutine控制
+	mu              sync.RWMutex       // 保护并发访问
 }
 
 func NewSSHClient(config SSHConfig) (*SSHClient, error) {

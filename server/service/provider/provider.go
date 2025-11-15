@@ -191,9 +191,8 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 	}
 
 	// 存储Provider实例（使用ID作为key）
-	ps.mutex.Lock()
+	// 注意：此时已经持有ps.mutex.Lock()，不需要再次加锁
 	ps.providers[dbProvider.ID] = prov
-	ps.mutex.Unlock()
 
 	global.APP_LOG.Info("Provider加载成功",
 		zap.String("name", dbProvider.Name),
@@ -221,25 +220,6 @@ func (ps *ProviderService) GetProvider(name string) (provider.Provider, bool) {
 
 	for _, prov := range ps.providers {
 		if prov.GetName() == name {
-			return prov, true
-		}
-	}
-	return nil, false
-}
-
-// GetProviderByType 获取指定类型的第一个Provider
-// 【已弃用】此方法存在歧义问题，当有多个相同type的provider时会返回随机结果
-// 请使用 GetProvider(name) 或通过 ProviderApiService.GetProviderByID(id) 代替
-// Deprecated: Use GetProvider(name) or ProviderApiService.GetProviderByID(id) instead
-func (ps *ProviderService) GetProviderByType(providerType string) (provider.Provider, bool) {
-	ps.mutex.RLock()
-	defer ps.mutex.RUnlock()
-
-	global.APP_LOG.Warn("使用了已弃用的GetProviderByType方法，此方法存在歧义",
-		zap.String("type", providerType))
-
-	for _, prov := range ps.providers {
-		if prov.GetType() == providerType {
 			return prov, true
 		}
 	}

@@ -84,6 +84,9 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/providers/freeze", admin.FreezeProvider)
 		AdminGroup.POST("/providers/unfreeze", admin.UnfreezeProvider)
 		AdminGroup.POST("/providers/test-ssh-connection", admin.TestSSHConnection)
+		// Provider验证接口（用于前端实时验证）
+		AdminGroup.GET("/providers/check-name", admin.CheckProviderName)
+		AdminGroup.GET("/providers/check-endpoint", admin.CheckProviderEndpoint)
 
 		// 证书管理
 		AdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)

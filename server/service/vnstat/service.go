@@ -55,11 +55,25 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 		return fmt.Errorf("failed to get provider: %w", err)
 	}
 
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := providerInfo.ID
+	localProviderType := providerInfo.Type
+	localProviderName := providerInfo.Name
+	localProviderHost := providerService.ExtractHostFromEndpoint(providerInfo.Endpoint)
+	localProviderSSHPort := providerInfo.SSHPort
+	localProviderUsername := providerInfo.Username
+	localProviderPassword := providerInfo.Password
+	localProviderSSHKey := providerInfo.SSHKey
+	localProviderNetworkType := providerInfo.NetworkType
+	localProviderSSHConnectTimeout := providerInfo.SSHConnectTimeout
+	localProviderSSHExecuteTimeout := providerInfo.SSHExecuteTimeout
+	localProviderHostName := providerInfo.HostName
+
 	// 设置当前操作的ProviderID，用于获取超时配置
-	s.SetProviderID(providerInfo.ID)
+	s.SetProviderID(localProviderID)
 
 	// 获取Provider实例
-	providerInstance, err := provider.GetProvider(providerInfo.Type)
+	providerInstance, err := provider.GetProvider(localProviderType)
 	if err != nil {
 		return fmt.Errorf("failed to get provider instance: %w", err)
 	}
@@ -67,20 +81,20 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 	// 检查Provider连接
 	if !providerInstance.IsConnected() {
 		nodeConfig := provider.NodeConfig{
-			Name:              providerInfo.Name,
-			Host:              providerService.ExtractHostFromEndpoint(providerInfo.Endpoint),
-			Port:              providerInfo.SSHPort,
-			Username:          providerInfo.Username,
-			Password:          providerInfo.Password,
-			PrivateKey:        providerInfo.SSHKey,
-			Type:              providerInfo.Type,
-			NetworkType:       providerInfo.NetworkType,
-			SSHConnectTimeout: providerInfo.SSHConnectTimeout,
-			SSHExecuteTimeout: providerInfo.SSHExecuteTimeout,
-			HostName:          providerInfo.HostName, // 传递主机名，避免节点混淆
+			Name:              localProviderName,
+			Host:              localProviderHost,
+			Port:              localProviderSSHPort,
+			Username:          localProviderUsername,
+			Password:          localProviderPassword,
+			PrivateKey:        localProviderSSHKey,
+			Type:              localProviderType,
+			NetworkType:       localProviderNetworkType,
+			SSHConnectTimeout: localProviderSSHConnectTimeout,
+			SSHExecuteTimeout: localProviderSSHExecuteTimeout,
+			HostName:          localProviderHostName, // 传递主机名，避免节点混淆
 		}
 
-		ctx, cancel := s.getContextWithTimeout(providerInfo.ID, false)
+		ctx, cancel := s.getContextWithTimeout(localProviderID, false)
 		defer cancel()
 		if err := providerInstance.Connect(ctx, nodeConfig); err != nil {
 			return fmt.Errorf("failed to connect to provider: %w", err)
@@ -427,6 +441,17 @@ func (s *Service) CleanupVnStatData(instanceID uint) error {
 				zap.Uint("provider_id", instance.ProviderID),
 				zap.Error(err))
 		} else {
+			// 复制副本避免共享状态，立即创建Provider字段的本地副本
+			localProviderType := providerInfo.Type
+			localProviderName := providerInfo.Name
+			localProviderHost := providerService.ExtractHostFromEndpoint(providerInfo.Endpoint)
+			localProviderSSHPort := providerInfo.SSHPort
+			localProviderUsername := providerInfo.Username
+			localProviderPassword := providerInfo.Password
+			localProviderSSHKey := providerInfo.SSHKey
+			localProviderNetworkType := providerInfo.NetworkType
+			localProviderHostName := providerInfo.HostName
+
 			// 获取要删除的接口列表
 			var interfaces []monitoringModel.VnStatInterface
 			if err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&interfaces).Error; err != nil {
@@ -435,31 +460,31 @@ func (s *Service) CleanupVnStatData(instanceID uint) error {
 					zap.Error(err))
 			} else if len(interfaces) > 0 {
 				// 获取Provider实例
-				providerInstance, err := provider.GetProvider(providerInfo.Type)
+				providerInstance, err := provider.GetProvider(localProviderType)
 				if err != nil {
 					global.APP_LOG.Warn("获取Provider实例失败，跳过vnstat接口删除",
 						zap.Uint("instance_id", instanceID),
-						zap.String("provider_type", providerInfo.Type),
+						zap.String("provider_type", localProviderType),
 						zap.Error(err))
 				} else {
 					// 检查Provider连接
 					if !providerInstance.IsConnected() {
 						nodeConfig := provider.NodeConfig{
-							Name:        providerInfo.Name,
-							Host:        providerService.ExtractHostFromEndpoint(providerInfo.Endpoint),
-							Port:        providerInfo.SSHPort,
-							Username:    providerInfo.Username,
-							Password:    providerInfo.Password,
-							PrivateKey:  providerInfo.SSHKey,
-							Type:        providerInfo.Type,
-							NetworkType: providerInfo.NetworkType,
-							HostName:    providerInfo.HostName, // 传递主机名
+							Name:        localProviderName,
+							Host:        localProviderHost,
+							Port:        localProviderSSHPort,
+							Username:    localProviderUsername,
+							Password:    localProviderPassword,
+							PrivateKey:  localProviderSSHKey,
+							Type:        localProviderType,
+							NetworkType: localProviderNetworkType,
+							HostName:    localProviderHostName, // 传递主机名
 						}
 
 						if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
 							global.APP_LOG.Warn("连接Provider失败，跳过vnstat接口删除",
 								zap.Uint("instance_id", instanceID),
-								zap.String("provider_name", providerInfo.Name),
+								zap.String("provider_name", localProviderName),
 								zap.Error(err))
 						}
 					}

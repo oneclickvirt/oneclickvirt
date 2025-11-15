@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"oneclickvirt/service/images"
 	"oneclickvirt/service/resources"
-	"time"
 
 	"oneclickvirt/global"
 	imageModel "oneclickvirt/model/image"
@@ -62,35 +61,6 @@ type CreateInstanceRequest struct {
 	SystemImageID uint `json:"systemImageId"` // 系统镜像ID
 }
 
-// GetProviderByName 从数据库获取Provider配置并创建实例
-func (s *ProviderApiService) GetProviderByName(providerName string) (*ProviderWithStatus, error) {
-	// 允许 active 和 partial 状态的Provider（与GetAvailableProviders保持一致）
-	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("name = ? AND (status = ? OR status = ?)", providerName, "active", "partial").First(&dbProvider).Error; err != nil {
-		return nil, fmt.Errorf("Provider %s 不存在或不可用", providerName)
-	}
-
-	// 检查Provider是否过期或冻结
-	if dbProvider.IsFrozen {
-		return nil, fmt.Errorf("Provider %s 已被冻结", providerName)
-	}
-
-	if dbProvider.ExpiresAt != nil && dbProvider.ExpiresAt.Before(time.Now()) {
-		return nil, fmt.Errorf("Provider %s 已过期", providerName)
-	}
-
-	// 动态创建Provider实例
-	prov, err := provider.GetProvider(dbProvider.Type)
-	if err != nil {
-		return nil, fmt.Errorf("不支持的Provider类型: %s", dbProvider.Type)
-	}
-
-	return &ProviderWithStatus{
-		Provider: prov,
-		DBModel:  &dbProvider,
-	}, nil
-}
-
 // ConnectProvider 连接Provider
 func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectProviderRequest) error {
 	// 获取Provider实例
@@ -145,9 +115,10 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 	return nil
 }
 
-// GetAllProviders 获取所有Provider
-func (s *ProviderApiService) GetAllProviders() map[string]provider.Provider {
-	return provider.GetAllProviders()
+// GetAllProviders 获取所有Provider类型名称列表
+// 注意：不再返回Provider实例，因为每次使用都应该创建新实例
+func (s *ProviderApiService) GetAllProviders() []string {
+	return provider.ListProviders()
 }
 
 // CheckProviderConnection 检查Provider连接状态

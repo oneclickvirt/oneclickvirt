@@ -39,45 +39,83 @@ func (hm *HealthManager) RegisterChecker(id string, checker HealthChecker) {
 
 // CreateChecker 创建指定类型的健康检查器
 func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthConfig) (HealthChecker, error) {
+	// 复制副本避免共享状态，创建config的深拷贝，避免并发修改
+	configCopy := config.DeepCopy()
+
 	// 设置默认值
-	if config.Timeout == 0 {
-		config.Timeout = 30 * time.Second
+	if configCopy.Timeout == 0 {
+		configCopy.Timeout = 30 * time.Second
 	}
-	if config.APIScheme == "" {
-		config.APIScheme = "https"
+	if configCopy.APIScheme == "" {
+		configCopy.APIScheme = "https"
 	}
+
+	// 记录创建参数，用于问题排查
+	if hm.logger != nil {
+		hm.logger.Debug("CreateChecker 开始",
+			zap.String("providerType", string(providerType)),
+			zap.Uint("providerID", configCopy.ProviderID),
+			zap.String("providerName", configCopy.ProviderName),
+			zap.String("host", configCopy.Host),
+			zap.Int("port", configCopy.Port))
+	}
+
+	var checker HealthChecker
+	var checkerTypeName string
 
 	switch providerType {
 	case ProviderTypeDocker:
-		if config.APIScheme == "" {
-			config.APIScheme = "http"
+		if configCopy.APIScheme == "" {
+			configCopy.APIScheme = "http"
 		}
-		if config.APIPort == 0 {
-			config.APIPort = 2375
+		if configCopy.APIPort == 0 {
+			configCopy.APIPort = 2375
 		}
-		return NewDockerHealthChecker(config, hm.logger), nil
+		checker = NewDockerHealthChecker(configCopy, hm.logger)
+		checkerTypeName = "DockerHealthChecker"
 
 	case ProviderTypeLXD:
-		if config.APIPort == 0 {
-			config.APIPort = 8443
+		if configCopy.APIPort == 0 {
+			configCopy.APIPort = 8443
 		}
-		return NewLXDHealthChecker(config, hm.logger), nil
+		checker = NewLXDHealthChecker(configCopy, hm.logger)
+		checkerTypeName = "LXDHealthChecker"
 
 	case ProviderTypeIncus:
-		if config.APIPort == 0 {
-			config.APIPort = 8443
+		if configCopy.APIPort == 0 {
+			configCopy.APIPort = 8443
 		}
-		return NewIncusHealthChecker(config, hm.logger), nil
+		checker = NewIncusHealthChecker(configCopy, hm.logger)
+		checkerTypeName = "IncusHealthChecker"
 
 	case ProviderTypeProxmox:
-		if config.APIPort == 0 {
-			config.APIPort = 8006
+		if configCopy.APIPort == 0 {
+			configCopy.APIPort = 8006
 		}
-		return NewProxmoxHealthChecker(config, hm.logger), nil
+		checker = NewProxmoxHealthChecker(configCopy, hm.logger)
+		checkerTypeName = "ProxmoxHealthChecker"
 
 	default:
+		if hm.logger != nil {
+			hm.logger.Error("不支持的Provider类型",
+				zap.String("providerType", string(providerType)),
+				zap.Uint("providerID", configCopy.ProviderID))
+		}
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
 	}
+
+	// 验证创建的checker类型是否正确
+	if hm.logger != nil {
+		hm.logger.Info("成功创建HealthChecker",
+			zap.String("expectedType", string(providerType)),
+			zap.String("actualCheckerType", checkerTypeName),
+			zap.String("checkerPtr", fmt.Sprintf("%p", checker)),
+			zap.Uint("providerID", configCopy.ProviderID),
+			zap.String("providerName", configCopy.ProviderName),
+			zap.String("host", configCopy.Host))
+	}
+
+	return checker, nil
 }
 
 // CheckHealth 执行健康检查

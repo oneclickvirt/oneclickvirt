@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -16,14 +17,19 @@ type ProviderHealthSchedulerService struct {
 	providerService *adminProviderService.Service
 	stopChan        chan struct{}
 	isRunning       bool
+	maxConcurrency  int           // 最大并发数
+	semaphore       chan struct{} // 信号量，用于限制并发
 }
 
 // NewProviderHealthSchedulerService 创建Provider健康检查调度服务
 func NewProviderHealthSchedulerService() *ProviderHealthSchedulerService {
+	maxConcurrency := 3 // 最多同时检查3个provider
 	return &ProviderHealthSchedulerService{
 		providerService: adminProviderService.NewService(),
 		stopChan:        make(chan struct{}),
 		isRunning:       false,
+		maxConcurrency:  maxConcurrency,
+		semaphore:       make(chan struct{}, maxConcurrency),
 	}
 }
 
@@ -102,35 +108,75 @@ func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
 
 	global.APP_LOG.Debug("开始检查Provider健康状态", zap.Int("count", len(providers)))
 
-	// 并发检查所有Provider
+	// 使用WaitGroup等待所有检查完成
+	var wg sync.WaitGroup
+
+	// 并发检查所有Provider，但使用信号量限制并发数
+	// 重要：必须在循环内创建provider副本，避免goroutine捕获同一变量导致的并发问题
 	for _, provider := range providers {
-		go s.checkSingleProviderHealth(provider)
+		provider := provider // 创建副本，避免goroutine闭包捕获错误的provider
+
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			// 获取信号量，限制并发数
+			s.semaphore <- struct{}{}
+			defer func() { <-s.semaphore }()
+
+			s.checkSingleProviderHealth(provider)
+		}()
 	}
+
+	// 等待所有检查完成
+	wg.Wait()
+	global.APP_LOG.Debug("所有Provider健康检查完成")
 }
 
 // checkSingleProviderHealth 检查单个Provider的健康状态
 func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider providerModel.Provider) {
+	// 复制副本避免共享状态，立即创建所有参数的本地副本
+	// 这些变量在整个函数执行期间保持不变
+	providerID := provider.ID
+	providerName := provider.Name
+	providerType := provider.Type
+	providerEndpoint := provider.Endpoint
 	oldSSHStatus := provider.SSHStatus
 	oldAPIStatus := provider.APIStatus
 	oldStatus := provider.Status
 
+	global.APP_LOG.Debug("开始单个Provider健康检查",
+		zap.Uint("providerId", providerID),
+		zap.String("providerName", providerName),
+		zap.String("providerType", providerType),
+		zap.String("endpoint", providerEndpoint))
+
 	// 执行健康检查
 	// 注意：即使检查失败（超时、网络错误等），状态也已经被更新到数据库
 	// 因此我们需要继续处理，而不是直接返回
-	err := s.providerService.CheckProviderHealth(provider.ID)
+	err := s.providerService.CheckProviderHealth(providerID)
 	if err != nil {
 		global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
-			zap.Uint("provider_id", provider.ID),
-			zap.String("provider_name", provider.Name),
+			zap.Uint("provider_id", providerID),
+			zap.String("provider_name", providerName),
 			zap.Error(err))
 		// 不要return，继续获取更新后的状态
+	} else {
+		global.APP_LOG.Debug("Provider健康检查执行完成",
+			zap.Uint("provider_id", providerID),
+			zap.String("provider_name", providerName))
 	}
 
 	// 重新获取Provider以获得最新状态
 	var updatedProvider providerModel.Provider
-	if err := global.APP_DB.First(&updatedProvider, provider.ID).Error; err != nil {
-		global.APP_LOG.Error("获取更新后的Provider失败", zap.Uint("provider_id", provider.ID), zap.Error(err))
+	if err := global.APP_DB.First(&updatedProvider, providerID).Error; err != nil {
+		global.APP_LOG.Error("获取更新后的Provider失败", zap.Uint("provider_id", providerID), zap.Error(err))
 		return
+	}
+
+	// 检测同类型Provider的hostname冲突（仅记录警告，不做任何处理）
+	if updatedProvider.HostName != "" {
+		s.detectHostnameConflicts(providerID, providerName, providerType, updatedProvider.HostName, updatedProvider.Endpoint)
 	}
 
 	// 检查Provider状态是否发生变化
@@ -140,8 +186,8 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 
 	if statusChanged {
 		global.APP_LOG.Info("Provider状态发生变化",
-			zap.Uint("provider_id", provider.ID),
-			zap.String("provider_name", provider.Name),
+			zap.Uint("provider_id", providerID),
+			zap.String("provider_name", providerName),
 			zap.String("old_status", oldStatus),
 			zap.String("new_status", updatedProvider.Status),
 			zap.String("old_ssh", oldSSHStatus),
@@ -158,24 +204,24 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 		if updatedProvider.Status == "inactive" && oldStatus != "inactive" {
 			// Provider变为完全离线，禁止申领新实例
 			// 但不取消已在进行中的任务
-			s.updateProviderAllowClaim(provider.ID, false)
+			s.updateProviderAllowClaim(providerID, false)
 			global.APP_LOG.Warn("Provider完全离线，禁止申领新实例（不影响进行中的任务）",
-				zap.Uint("provider_id", provider.ID),
-				zap.String("provider_name", provider.Name),
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName),
 				zap.String("ssh_status", updatedProvider.SSHStatus),
 				zap.String("api_status", updatedProvider.APIStatus))
 		} else if updatedProvider.Status == "active" && oldStatus != "active" {
 			// Provider恢复在线，允许申领新实例
-			s.updateProviderAllowClaim(provider.ID, true)
+			s.updateProviderAllowClaim(providerID, true)
 			global.APP_LOG.Info("Provider恢复在线，允许申领新实例",
-				zap.Uint("provider_id", provider.ID),
-				zap.String("provider_name", provider.Name))
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName))
 		} else if updatedProvider.Status == "partial" && oldStatus == "inactive" {
 			// Provider从完全离线恢复到部分在线，也应该允许申领
-			s.updateProviderAllowClaim(provider.ID, true)
+			s.updateProviderAllowClaim(providerID, true)
 			global.APP_LOG.Info("Provider部分恢复在线，允许申领新实例",
-				zap.Uint("provider_id", provider.ID),
-				zap.String("provider_name", provider.Name),
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName),
 				zap.String("ssh_status", updatedProvider.SSHStatus),
 				zap.String("api_status", updatedProvider.APIStatus))
 		}
@@ -206,4 +252,48 @@ func (s *ProviderHealthSchedulerService) updateProviderAllowClaim(providerID uin
 		zap.Uint("provider_id", providerID),
 		zap.Bool("allow_claim", allowClaim),
 		zap.String("message", statusMsg))
+}
+
+// detectHostnameConflicts 检测同类型Provider的hostname冲突
+// 仅记录警告日志，不做任何实际处理，由管理员决定是否需要调整配置
+func (s *ProviderHealthSchedulerService) detectHostnameConflicts(currentProviderID uint, currentProviderName, currentProviderType, currentHostName, currentEndpoint string) {
+	// 查询同类型且hostname相同的其他Provider
+	var conflictingProviders []providerModel.Provider
+	err := global.APP_DB.Where("type = ? AND host_name = ? AND id != ? AND host_name != ''",
+		currentProviderType, currentHostName, currentProviderID).
+		Find(&conflictingProviders).Error
+
+	if err != nil {
+		global.APP_LOG.Error("检测hostname冲突时查询失败",
+			zap.Uint("provider_id", currentProviderID),
+			zap.String("provider_name", currentProviderName),
+			zap.String("hostname", currentHostName),
+			zap.Error(err))
+		return
+	}
+
+	// 如果发现冲突，记录警告
+	if len(conflictingProviders) > 0 {
+		conflictNames := make([]string, 0, len(conflictingProviders))
+		conflictIDs := make([]uint, 0, len(conflictingProviders))
+		conflictEndpoints := make([]string, 0, len(conflictingProviders))
+
+		for _, cp := range conflictingProviders {
+			conflictNames = append(conflictNames, cp.Name)
+			conflictIDs = append(conflictIDs, cp.ID)
+			conflictEndpoints = append(conflictEndpoints, cp.Endpoint)
+		}
+
+		global.APP_LOG.Warn("检测到同类型Provider的hostname冲突",
+			zap.Uint("current_provider_id", currentProviderID),
+			zap.String("current_provider_name", currentProviderName),
+			zap.String("current_provider_type", currentProviderType),
+			zap.String("current_endpoint", currentEndpoint),
+			zap.String("conflicting_hostname", currentHostName),
+			zap.Int("conflict_count", len(conflictingProviders)),
+			zap.Uints("conflicting_provider_ids", conflictIDs),
+			zap.Strings("conflicting_provider_names", conflictNames),
+			zap.Strings("conflicting_endpoints", conflictEndpoints),
+			zap.String("suggestion", "请检查这些Provider是否指向同一物理节点，或考虑为节点配置不同的hostname以避免混淆"))
+	}
 }

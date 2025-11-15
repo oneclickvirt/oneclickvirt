@@ -193,6 +193,18 @@ func (i *IncusProvider) sshCreateInstance(ctx context.Context, config provider.I
 }
 
 func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	// 获取节点hostname用于日志
+	hostname := "unknown"
+	if output, err := i.sshClient.Execute("hostname"); err == nil {
+		hostname = strings.TrimSpace(output)
+	}
+
+	global.APP_LOG.Info("开始在Incus节点上创建实例（使用SSH）",
+		zap.String("hostname", hostname),
+		zap.String("host", utils.TruncateString(i.config.Host, 32)),
+		zap.String("instance_name", config.Name),
+		zap.String("instance_type", config.InstanceType))
+
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {
@@ -540,6 +552,17 @@ func (i *IncusProvider) sshRestartInstance(id string) error {
 }
 
 func (i *IncusProvider) sshDeleteInstance(id string) error {
+	// 获取节点hostname用于日志
+	hostname := "unknown"
+	if output, err := i.sshClient.Execute("hostname"); err == nil {
+		hostname = strings.TrimSpace(output)
+	}
+
+	global.APP_LOG.Info("开始在Incus节点上删除实例（使用SSH）",
+		zap.String("hostname", hostname),
+		zap.String("host", utils.TruncateString(i.config.Host, 32)),
+		zap.String("instance_id", id))
+
 	output, err := i.sshClient.Execute(fmt.Sprintf("incus delete %s --force", id))
 	if err != nil {
 		// 检查是否是实例不存在的错误

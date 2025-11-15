@@ -104,6 +104,34 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		pool.TaskService.contextMutex.Unlock()
 	}()
 
+	// Panic recovery机制：捕获任务执行过程中的panic
+	defer func() {
+		if r := recover(); r != nil {
+			// 记录panic详情
+			global.APP_LOG.Error("任务执行过程中发生panic",
+				zap.Uint("taskId", task.ID),
+				zap.String("taskType", task.TaskType),
+				zap.Any("panic", r),
+				zap.Stack("stack"))
+
+			// 更新任务状态为失败
+			result.Success = false
+			result.Error = fmt.Errorf("任务执行panic: %v", r)
+
+			// 标记任务失败
+			errorMsg := fmt.Sprintf("任务执行发生严重错误: %v", r)
+			pool.TaskService.CompleteTask(task.ID, false, errorMsg, result.Data)
+
+			// 尝试发送结果（可能已经超时或通道已关闭）
+			select {
+			case taskReq.ResponseCh <- result:
+			default:
+				global.APP_LOG.Warn("无法发送panic任务结果，通道可能已关闭",
+					zap.Uint("taskId", task.ID))
+			}
+		}
+	}()
+
 	// 更新任务状态为运行中 - 使用SELECT FOR UPDATE确保原子性
 	err := pool.TaskService.dbService.ExecuteTransaction(taskCtx, func(tx *gorm.DB) error {
 		// 使用行锁查询任务，确保原子性

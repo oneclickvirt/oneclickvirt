@@ -518,12 +518,22 @@ const groupedTasks = computed(() => {
 const loadTasks = async (showSuccessMsg = false) => {
   try {
     loading.value = true
-    const params = {
-      ...filterForm
-    }
     
     // 判断是否有筛选条件
     const hasFilter = filterForm.providerId || filterForm.taskType || filterForm.status
+    
+    const params = {}
+    
+    // 只添加非空的筛选条件
+    if (filterForm.providerId) {
+      params.providerId = filterForm.providerId
+    }
+    if (filterForm.taskType) {
+      params.taskType = filterForm.taskType
+    }
+    if (filterForm.status) {
+      params.status = filterForm.status
+    }
     
     // 只在有筛选条件时才使用分页
     if (hasFilter) {

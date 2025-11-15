@@ -30,8 +30,15 @@ func (l *LXDProvider) configurePortMappingsWithIP(instanceName string, networkCo
 	}
 
 	// 从数据库获取实例的端口映射配置
+	// 首先获取Provider ID
+	var provider providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", l.config.Name).First(&provider).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 使用Provider ID和实例名称查询实例（组合唯一索引）
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, provider.ID).First(&instance).Error; err != nil {
 		return fmt.Errorf("获取实例信息失败: %w", err)
 	}
 
@@ -676,8 +683,18 @@ func (l *LXDProvider) removeIptablesMapping(instanceName string, hostPort int, p
 // configureFirewallPorts 配置防火墙端口 - 根据实际的端口映射配置（非阻塞式）
 func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 	// 从数据库获取实例信息
+	// 首先获取Provider ID
+	var provider providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", l.config.Name).First(&provider).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider信息失败，跳过防火墙配置",
+			zap.String("instance", instanceName),
+			zap.Error(err))
+		return nil // 非阻塞，返回 nil
+	}
+
+	// 使用Provider ID和实例名称查询实例（组合唯一索引）
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, provider.ID).First(&instance).Error; err != nil {
 		global.APP_LOG.Warn("获取实例信息失败，跳过防火墙配置",
 			zap.String("instance", instanceName),
 			zap.Error(err))

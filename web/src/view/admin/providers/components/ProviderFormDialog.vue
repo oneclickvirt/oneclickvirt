@@ -244,21 +244,76 @@ const formData = ref({
   }
 })
 
+// 异步验证器：检查Provider名称是否已存在
+const validateProviderName = async (rule, value, callback) => {
+  if (!value) {
+    callback()
+    return
+  }
+  
+  try {
+    const { checkProviderNameExists } = await import('@/api/admin')
+    const excludeId = props.isEditing ? formData.value.id : null
+    const response = await checkProviderNameExists(value, excludeId)
+    
+    if (response.data.exists) {
+      callback(new Error(t('admin.providers.validation.nameAlreadyExists')))
+    } else {
+      callback()
+    }
+  } catch (error) {
+    // 网络错误时不阻止提交，只在后端再次验证
+    console.warn('检查Provider名称失败:', error)
+    callback()
+  }
+}
+
+// 异步验证器：检查SSH地址和端口是否已存在
+const validateEndpoint = async (rule, value, callback) => {
+  if (!formData.value.host || !formData.value.port) {
+    callback()
+    return
+  }
+  
+  try {
+    const { checkProviderEndpointExists } = await import('@/api/admin')
+    const excludeId = props.isEditing ? formData.value.id : null
+    const response = await checkProviderEndpointExists(
+      formData.value.host, 
+      formData.value.port, 
+      excludeId
+    )
+    
+    if (response.data.exists) {
+      callback(new Error(t('admin.providers.validation.endpointAlreadyExists')))
+    } else {
+      callback()
+    }
+  } catch (error) {
+    // 网络错误时不阻止提交，只在后端再次验证
+    console.warn('检查SSH地址失败:', error)
+    callback()
+  }
+}
+
 // 表单验证规则
 const rules = {
   name: [
     { required: true, message: () => t('admin.providers.validation.serverNameRequired'), trigger: 'blur' },
     { pattern: /^[a-zA-Z0-9]+$/, message: () => t('admin.providers.validation.serverNamePattern'), trigger: 'blur' },
-    { max: 7, message: () => t('admin.providers.validation.serverNameMaxLength'), trigger: 'blur' }
+    { max: 7, message: () => t('admin.providers.validation.serverNameMaxLength'), trigger: 'blur' },
+    { validator: validateProviderName, trigger: 'blur' }
   ],
   type: [
     { required: true, message: () => t('admin.providers.validation.serverTypeRequired'), trigger: 'change' }
   ],
   host: [
-    { required: true, message: () => t('admin.providers.validation.hostRequired'), trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.hostRequired'), trigger: 'blur' },
+    { validator: validateEndpoint, trigger: 'blur' }
   ],
   port: [
-    { required: true, message: () => t('admin.providers.validation.portRequired'), trigger: 'blur' }
+    { required: true, message: () => t('admin.providers.validation.portRequired'), trigger: 'blur' },
+    { validator: validateEndpoint, trigger: 'blur' }
   ],
   username: [
     { required: true, message: () => t('admin.providers.validation.usernameRequired'), trigger: 'blur' }

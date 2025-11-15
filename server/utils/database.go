@@ -108,7 +108,7 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 			// 使用位移操作计算 2^i，更高效
 			delay := baseDelay * time.Duration(1<<uint(i))
 
-			// 添加随机抖动（jitter），避免惊群效应
+			// 随机抖动（jitter），避免惊群效应
 			// jitter范围为 0-25% 的延迟时间
 			jitter := time.Duration(float64(delay) * 0.25 * (0.5 + 0.5*float64(i%2)))
 			delay += jitter

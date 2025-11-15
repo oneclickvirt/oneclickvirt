@@ -41,7 +41,7 @@ export function useProviderFormHelpers() {
         testCount: 3
       }
 
-      // 添加对应的认证信息
+      // 对应的认证信息
       if (formData.authMethod === 'password') {
         requestData.password = formData.password
       } else if (formData.authMethod === 'sshKey') {

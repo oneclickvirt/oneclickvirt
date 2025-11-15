@@ -590,3 +590,126 @@ func TestSSHConnection(c *gin.Context) {
 		Data: response,
 	})
 }
+
+// CheckProviderName 检查Provider名称是否已存在
+// @Summary 检查Provider名称是否已存在
+// @Description 检查指定的Provider名称是否已被使用（用于前端实时验证）
+// @Tags 提供商管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param name query string true "要检查的Provider名称"
+// @Param excludeId query int false "排除的Provider ID（编辑时使用）"
+// @Success 200 {object} common.Response{data=map[string]bool} "检查结果"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Router /admin/providers/check-name [get]
+func CheckProviderName(c *gin.Context) {
+	name := c.Query("name")
+	if name == "" {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "名称参数不能为空",
+		})
+		return
+	}
+
+	excludeIdStr := c.Query("excludeId")
+	var excludeId *uint
+	if excludeIdStr != "" {
+		id, err := strconv.ParseUint(excludeIdStr, 10, 32)
+		if err == nil {
+			uid := uint(id)
+			excludeId = &uid
+		}
+	}
+
+	providerService := adminProvider.NewService()
+	exists, err := providerService.CheckProviderNameExists(name, excludeId)
+	if err != nil {
+		global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 500,
+			Msg:  "检查失败",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 200,
+		Msg:  "检查成功",
+		Data: map[string]bool{
+			"exists": exists,
+		},
+	})
+}
+
+// CheckProviderEndpoint 检查Provider SSH地址和端口是否已存在
+// @Summary 检查Provider SSH地址和端口是否已存在
+// @Description 检查指定的SSH地址和端口组合是否已被使用（用于前端实时验证）
+// @Tags 提供商管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param endpoint query string true "SSH地址"
+// @Param sshPort query int true "SSH端口"
+// @Param excludeId query int false "排除的Provider ID（编辑时使用）"
+// @Success 200 {object} common.Response{data=map[string]bool} "检查结果"
+// @Failure 400 {object} common.Response "请求参数错误"
+// @Router /admin/providers/check-endpoint [get]
+func CheckProviderEndpoint(c *gin.Context) {
+	endpoint := c.Query("endpoint")
+	if endpoint == "" {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "endpoint参数不能为空",
+		})
+		return
+	}
+
+	sshPortStr := c.Query("sshPort")
+	if sshPortStr == "" {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "sshPort参数不能为空",
+		})
+		return
+	}
+
+	sshPort, err := strconv.Atoi(sshPortStr)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{
+			Code: 400,
+			Msg:  "sshPort参数格式错误",
+		})
+		return
+	}
+
+	excludeIdStr := c.Query("excludeId")
+	var excludeId *uint
+	if excludeIdStr != "" {
+		id, err := strconv.ParseUint(excludeIdStr, 10, 32)
+		if err == nil {
+			uid := uint(id)
+			excludeId = &uid
+		}
+	}
+
+	providerService := adminProvider.NewService()
+	exists, err := providerService.CheckProviderEndpointExists(endpoint, sshPort, excludeId)
+	if err != nil {
+		global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 500,
+			Msg:  "检查失败",
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 200,
+		Msg:  "检查成功",
+		Data: map[string]bool{
+			"exists": exists,
+		},
+	})
+}

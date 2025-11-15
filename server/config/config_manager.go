@@ -1321,7 +1321,6 @@ func parseConfigValue(valueStr string) interface{} {
 	var jsonValue interface{}
 	if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
 		// 如果成功反序列化，返回反序列化后的值
-		// 添加类型日志以便调试
 		// fmt.Printf("解析配置值: %s -> %v (类型: %T)\n", valueStr, jsonValue, jsonValue)
 		return jsonValue
 	}

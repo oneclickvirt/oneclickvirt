@@ -104,7 +104,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			NodeDiskTotal:    provider.NodeDiskTotal,
 			ResourceSynced:   provider.ResourceSynced,
 			ResourceSyncedAt: provider.ResourceSyncedAt,
-			// 添加认证方式标识
+			// 认证方式标识
 			AuthMethod: provider.GetAuthMethod(),
 			// 资源占用情况（已分配/总量）
 			AllocatedCPUCores: allocatedCPU,
@@ -129,6 +129,39 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
 		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
+
+	// 1. 检查Provider名称是否已存在
+	var existingNameCount int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", req.Name).Count(&existingNameCount).Error; err != nil {
+		global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
+		return fmt.Errorf("检查Provider名称失败: %v", err)
+	}
+	if existingNameCount > 0 {
+		global.APP_LOG.Warn("Provider创建失败：名称已存在",
+			zap.String("name", utils.TruncateString(req.Name, 32)))
+		return fmt.Errorf("Provider名称 '%s' 已存在，请使用其他名称", req.Name)
+	}
+
+	// 2. 检查SSH地址和端口组合是否已存在（防止配置相同节点）
+	if req.Endpoint != "" {
+		sshPort := req.SSHPort
+		if sshPort == 0 {
+			sshPort = 22 // 默认SSH端口
+		}
+		var existingEndpointCount int64
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("endpoint = ? AND ssh_port = ?", req.Endpoint, sshPort).
+			Count(&existingEndpointCount).Error; err != nil {
+			global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
+			return fmt.Errorf("检查Provider SSH地址失败: %v", err)
+		}
+		if existingEndpointCount > 0 {
+			global.APP_LOG.Warn("Provider创建失败：SSH地址和端口组合已存在",
+				zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
+				zap.Int("sshPort", sshPort))
+			return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+		}
+	}
 
 	// 解析过期时间
 	var expiresAt *time.Time
@@ -312,8 +345,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 	if provider.MaxTraffic <= 0 {
 		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
 	}
-	// 流量统计控制默认值：启用
-	// EnableTrafficControl字段由数据库默认值处理（default:true），这里不需要手动设置
+	// 流量统计控制默认值：不启用
+	// EnableTrafficControl字段由数据库默认值处理（default:false），这里不需要手动设置
 	// 流量统计模式默认值
 	if provider.TrafficCountMode == "" {
 		provider.TrafficCountMode = "both" // 默认双向统计
@@ -378,6 +411,48 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			global.APP_LOG.Error("查询Provider失败", zap.Uint("providerID", req.ID), zap.Error(err))
 		}
 		return err
+	}
+
+	// 1. 检查Provider名称是否与其他Provider重复（排除当前Provider）
+	if req.Name != provider.Name {
+		var existingNameCount int64
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("name = ? AND id != ?", req.Name, req.ID).
+			Count(&existingNameCount).Error; err != nil {
+			global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
+			return fmt.Errorf("检查Provider名称失败: %v", err)
+		}
+		if existingNameCount > 0 {
+			global.APP_LOG.Warn("Provider更新失败：名称已存在",
+				zap.Uint("providerID", req.ID),
+				zap.String("name", utils.TruncateString(req.Name, 32)))
+			return fmt.Errorf("Provider名称 '%s' 已被其他Provider使用，请使用其他名称", req.Name)
+		}
+	}
+
+	// 2. 检查SSH地址和端口组合是否与其他Provider重复（排除当前Provider）
+	if req.Endpoint != "" {
+		sshPort := req.SSHPort
+		if sshPort == 0 {
+			sshPort = 22 // 默认SSH端口
+		}
+		// 只有当SSH地址或端口发生变化时才检查
+		if req.Endpoint != provider.Endpoint || sshPort != provider.SSHPort {
+			var existingEndpointCount int64
+			if err := global.APP_DB.Model(&providerModel.Provider{}).
+				Where("endpoint = ? AND ssh_port = ? AND id != ?", req.Endpoint, sshPort, req.ID).
+				Count(&existingEndpointCount).Error; err != nil {
+				global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
+				return fmt.Errorf("检查Provider SSH地址失败: %v", err)
+			}
+			if existingEndpointCount > 0 {
+				global.APP_LOG.Warn("Provider更新失败：SSH地址和端口组合已存在",
+					zap.Uint("providerID", req.ID),
+					zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
+					zap.Int("sshPort", sshPort))
+				return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+			}
+		}
 	}
 
 	// 解析过期时间
@@ -937,15 +1012,35 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 		return fmt.Errorf("Provider不存在")
 	}
 
+	// 复制副本避免共享状态，立即创建所有必要字段的本地副本
+	// 这些变量在整个函数执行期间保持不变，确保健康检查使用正确的参数
+	localProviderID := provider.ID
+	localProviderName := provider.Name
+	localProviderType := provider.Type
+	localEndpoint := provider.Endpoint
+	localUsername := provider.Username
+	localPassword := provider.Password
+	localSSHKey := provider.SSHKey
+	localSSHPort := provider.SSHPort
+	if localSSHPort == 0 {
+		localSSHPort = 22 // 如果数据库中没有设置SSH端口，使用默认值22
+	}
+	localAutoConfigured := provider.AutoConfigured
+	localAuthConfig := provider.AuthConfig
+
 	now := time.Now()
 	ctx := context.Background()
 
-	// 解析endpoint获取主机，使用数据库中存储的SSH端口
-	host := strings.Split(provider.Endpoint, ":")[0]
-	sshPort := provider.SSHPort
-	if sshPort == 0 {
-		sshPort = 22 // 如果数据库中没有设置SSH端口，使用默认值22
-	}
+	// 解析endpoint获取主机
+	host := strings.Split(localEndpoint, ":")[0]
+
+	global.APP_LOG.Info("开始检查Provider健康状态",
+		zap.Uint("providerId", localProviderID),
+		zap.String("providerName", localProviderName),
+		zap.String("providerType", localProviderType),
+		zap.String("endpoint", localEndpoint),
+		zap.String("host", host),
+		zap.Int("port", localSSHPort))
 
 	// 使用新的健康检查系统
 	healthChecker := health.NewProviderHealthChecker(global.APP_LOG)
@@ -954,20 +1049,29 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 	var err error
 
 	// 如果Provider已自动配置，可以尝试进行API检查
-	if provider.AutoConfigured && provider.AuthConfig != "" {
+	if localAutoConfigured && localAuthConfig != "" {
 		configService := &provider2.ProviderConfigService{}
-		authConfig, configErr := configService.LoadProviderConfig(provider.ID)
+		authConfig, configErr := configService.LoadProviderConfig(localProviderID)
 		if configErr == nil {
+			// 添加详细日志，确认传入的参数
+			global.APP_LOG.Debug("调用CheckProviderHealthWithConfig",
+				zap.Uint("providerId", localProviderID),
+				zap.String("providerName", localProviderName),
+				zap.String("providerType", localProviderType),
+				zap.String("host", host),
+				zap.Int("sshPort", localSSHPort),
+				zap.String("endpoint", localEndpoint))
+
 			// 使用认证配置执行完整健康检查（包含API检查），并获取主机名
 			sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfig(
-				ctx, provider.Type, host, provider.Username, provider.Password, provider.SSHKey, sshPort, authConfig)
+				ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig)
 		} else {
 			// 配置加载失败，只进行SSH检查
 			global.APP_LOG.Warn("加载Provider配置失败，仅进行SSH检查",
-				zap.String("provider", provider.Name),
+				zap.String("provider", localProviderName),
 				zap.Error(configErr))
 
-			if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort); sshErr != nil {
+			if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
 				sshStatus = "offline"
 			} else {
 				sshStatus = "online"
@@ -976,7 +1080,7 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 		}
 	} else {
 		// 未自动配置的Provider，只进行SSH检查
-		if sshErr := healthChecker.CheckSSHConnection(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort); sshErr != nil {
+		if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
 			sshStatus = "offline"
 		} else {
 			sshStatus = "online"
@@ -986,8 +1090,8 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 
 	if err != nil {
 		global.APP_LOG.Warn("Health check failed",
-			zap.String("provider", provider.Name),
-			zap.String("type", provider.Type),
+			zap.String("provider", localProviderName),
+			zap.String("type", localProviderType),
 			zap.Error(err))
 		// 如果检查失败，设置为offline状态
 		if sshStatus == "" {
@@ -1000,12 +1104,16 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 
 	// 如果SSH连接成功且资源信息尚未同步，获取系统资源信息
 	if sshStatus == "online" && !provider.ResourceSynced {
-		global.APP_LOG.Info("开始同步节点资源信息", zap.String("provider", provider.Name))
+		global.APP_LOG.Info("开始同步节点资源信息",
+			zap.Uint("providerID", localProviderID),
+			zap.String("provider", localProviderName),
+			zap.String("host", host),
+			zap.Int("sshPort", localSSHPort))
 
-		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, host, provider.Username, provider.Password, provider.SSHKey, sshPort)
+		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort)
 		if resourceErr != nil {
 			global.APP_LOG.Warn("获取系统资源信息失败",
-				zap.String("provider", provider.Name),
+				zap.String("provider", localProviderName),
 				zap.Error(resourceErr))
 		} else {
 			// 更新Provider的资源信息
@@ -1019,12 +1127,12 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 			if resourceInfo.HostName != "" {
 				provider.HostName = resourceInfo.HostName
 				global.APP_LOG.Info("从资源同步中获取主机名",
-					zap.String("provider", provider.Name),
+					zap.String("provider", localProviderName),
 					zap.String("hostName", resourceInfo.HostName))
 			}
 
 			global.APP_LOG.Info("节点资源信息同步成功",
-				zap.String("provider", provider.Name),
+				zap.String("provider", localProviderName),
 				zap.Int("cpu_cores", resourceInfo.CPUCores),
 				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal+resourceInfo.SwapTotal),
 				zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
@@ -1042,7 +1150,7 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 	// 更新主机名（如果获取到了）
 	if hostName != "" && provider.HostName != hostName {
 		global.APP_LOG.Info("更新Provider主机名",
-			zap.String("provider", provider.Name),
+			zap.String("provider", localProviderName),
 			zap.String("oldHostName", provider.HostName),
 			zap.String("newHostName", hostName))
 		provider.HostName = hostName
@@ -1098,4 +1206,44 @@ func (s *Service) GetProviderStatus(providerID uint) (*admin.ProviderStatusRespo
 	}
 
 	return response, nil
+}
+
+// CheckProviderNameExists 检查Provider名称是否已存在
+func (s *Service) CheckProviderNameExists(name string, excludeId *uint) (bool, error) {
+	query := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", name)
+
+	// 如果提供了excludeId，排除该ID（用于编辑时的检查）
+	if excludeId != nil {
+		query = query.Where("id != ?", *excludeId)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
+}
+
+// CheckProviderEndpointExists 检查Provider SSH地址和端口组合是否已存在
+func (s *Service) CheckProviderEndpointExists(endpoint string, sshPort int, excludeId *uint) (bool, error) {
+	// 如果端口为0，使用默认值22
+	if sshPort == 0 {
+		sshPort = 22
+	}
+
+	query := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("endpoint = ? AND ssh_port = ?", endpoint, sshPort)
+
+	// 如果提供了excludeId，排除该ID（用于编辑时的检查）
+	if excludeId != nil {
+		query = query.Where("id != ?", *excludeId)
+	}
+
+	var count int64
+	if err := query.Count(&count).Error; err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }

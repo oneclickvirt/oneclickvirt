@@ -30,8 +30,15 @@ func (i *IncusProvider) configurePortMappingsWithIP(ctx context.Context, instanc
 	}
 
 	// 从数据库获取实例的端口映射配置
+	// 首先获取Provider ID
+	var provider providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&provider).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 使用Provider ID和实例名称查询实例（组合唯一索引）
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, provider.ID).First(&instance).Error; err != nil {
 		return fmt.Errorf("获取实例信息失败: %w", err)
 	}
 
@@ -132,8 +139,15 @@ func (i *IncusProvider) configurePortMappingsWithIP(ctx context.Context, instanc
 // configureFirewallPorts 配置防火墙端口
 func (i *IncusProvider) configureFirewallPorts(instanceName string) error {
 	// 获取实例的端口映射信息
+	// 首先获取Provider ID
+	var provider providerModel.Provider
+	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&provider).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 使用Provider ID和实例名称查询实例（组合唯一索引）
 	var instance providerModel.Instance
-	if err := global.APP_DB.Where("name = ?", instanceName).First(&instance).Error; err != nil {
+	if err := global.APP_DB.Where("name = ? AND provider_id = ?", instanceName, provider.ID).First(&instance).Error; err != nil {
 		return fmt.Errorf("获取实例信息失败: %w", err)
 	}
 

@@ -51,13 +51,36 @@ type TokenInfo interface {
 
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查
 // 返回: sshStatus, apiStatus, hostName, error
-func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, string, error) {
+func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerID uint, providerName, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, string, error) {
+	// 复制副本避免共享状态，立即创建所有参数的本地副本
+	localProviderID := providerID
+	localProviderName := providerName
+	localProviderType := providerType
+	localHost := host
+	localUsername := username
+	localPassword := password
+	localPrivateKey := privateKey
+	localPort := port
+
+	// 添加入口日志，追踪参数
+	if phc.logger != nil {
+		phc.logger.Debug("CheckProviderHealthWithAuthConfig 调用",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("providerType", localProviderType),
+			zap.String("host", localHost),
+			zap.Int("port", localPort),
+			zap.String("username", localUsername))
+	}
+
 	config := HealthConfig{
-		Host:          host,
-		Port:          port,
-		Username:      username,
-		Password:      password,
-		PrivateKey:    privateKey,
+		ProviderID:    localProviderID,
+		ProviderName:  localProviderName,
+		Host:          localHost,
+		Port:          localPort,
+		Username:      localUsername,
+		Password:      localPassword,
+		PrivateKey:    localPrivateKey,
 		SSHEnabled:    true,
 		APIEnabled:    true,
 		SkipTLSVerify: true,
@@ -65,7 +88,7 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 	}
 
 	// 根据认证配置设置具体的认证信息
-	switch providerType {
+	switch localProviderType {
 	case "lxd", "incus":
 		cert := authConfig.GetCertificate()
 		if cert != nil {
@@ -76,7 +99,7 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 			config.CertContent = cert.GetCertContent()
 			config.KeyContent = cert.GetKeyContent()
 		}
-		config.ServiceChecks = []string{providerType}
+		config.ServiceChecks = []string{localProviderType}
 	case "proxmox":
 		token := authConfig.GetToken()
 		if token != nil {
@@ -93,7 +116,17 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 		config.ServiceChecks = []string{"docker"}
 	}
 
-	checker, err := phc.manager.CreateChecker(ProviderType(providerType), config)
+	// 创建checker前再次记录配置，确保config.Host正确
+	if phc.logger != nil {
+		phc.logger.Debug("准备创建HealthChecker",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("providerType", localProviderType),
+			zap.String("config.Host", config.Host),
+			zap.Int("config.Port", config.Port))
+	}
+
+	checker, err := phc.manager.CreateChecker(ProviderType(localProviderType), config)
 	if err != nil {
 		return "offline", "offline", "", fmt.Errorf("failed to create health checker: %w", err)
 	}
@@ -194,16 +227,27 @@ func (phc *ProviderHealthChecker) CheckProviderHealthFromConfig(ctx context.Cont
 }
 
 // CheckSSHConnection 单独检查SSH连接
-func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, host, username, password, privateKey string, port int) error {
+func (phc *ProviderHealthChecker) CheckSSHConnection(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int) error {
+	// 复制副本避免共享状态，立即创建所有参数的本地副本
+	localProviderID := providerID
+	localProviderName := providerName
+	localHost := host
+	localUsername := username
+	localPassword := password
+	localPrivateKey := privateKey
+	localPort := port
+
 	config := HealthConfig{
-		Host:       host,
-		Port:       port,
-		Username:   username,
-		Password:   password,
-		PrivateKey: privateKey,
-		SSHEnabled: true,
-		APIEnabled: false,
-		Timeout:    30 * time.Second,
+		ProviderID:   localProviderID,
+		ProviderName: localProviderName,
+		Host:         localHost,
+		Port:         localPort,
+		Username:     localUsername,
+		Password:     localPassword,
+		PrivateKey:   localPrivateKey,
+		SSHEnabled:   true,
+		APIEnabled:   false,
+		Timeout:      30 * time.Second,
 	}
 	checker := NewDockerHealthChecker(config, phc.logger)
 	defer checker.Close()
@@ -285,35 +329,54 @@ func (phc *ProviderHealthChecker) CheckAPIConnection(ctx context.Context, provid
 }
 
 // GetSystemResourceInfo 通过SSH获取系统资源信息
-func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, host, username, password string, port int) (*ResourceInfo, error) {
-	return phc.GetSystemResourceInfoWithKey(ctx, host, username, password, "", port)
+func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, providerID uint, providerName, host, username, password string, port int) (*ResourceInfo, error) {
+	return phc.GetSystemResourceInfoWithKey(ctx, providerID, providerName, host, username, password, "", port)
 }
 
 // GetSystemResourceInfoWithKey 通过SSH获取系统资源信息（支持SSH密钥）
-func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, host, username, password, privateKey string, port int) (*ResourceInfo, error) {
+func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int) (*ResourceInfo, error) {
+	// 复制副本避免共享状态，立即创建所有参数的本地副本
+	localProviderID := providerID
+	localProviderName := providerName
+	localHost := host
+	localUsername := username
+	localPassword := password
+	localPrivateKey := privateKey
+	localPort := port
+
+	// 添加入口日志
+	if phc.logger != nil {
+		phc.logger.Debug("GetSystemResourceInfoWithKey 调用",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("host", localHost),
+			zap.Int("port", localPort),
+			zap.String("username", localUsername))
+	}
+
 	// 构建认证方法：优先使用SSH密钥，否则使用密码
 	var authMethods []ssh.AuthMethod
 
 	// 如果提供了SSH私钥，添加密钥认证
-	if privateKey != "" {
-		signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+	if localPrivateKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(localPrivateKey))
 		if err == nil {
 			authMethods = append(authMethods, ssh.PublicKeys(signer))
 			if phc.logger != nil {
-				phc.logger.Debug("已添加SSH密钥认证方法获取资源信息", zap.String("host", host))
+				phc.logger.Debug("已添加SSH密钥认证方法获取资源信息", zap.String("host", localHost))
 			}
 		} else if phc.logger != nil {
 			phc.logger.Warn("SSH私钥解析失败，将尝试使用密码认证",
-				zap.String("host", host),
+				zap.String("host", localHost),
 				zap.Error(err))
 		}
 	}
 
 	// 如果提供了密码，添加密码认证（无论是否有密钥，都添加作为备用方案）
-	if password != "" {
-		authMethods = append(authMethods, ssh.Password(password))
+	if localPassword != "" {
+		authMethods = append(authMethods, ssh.Password(localPassword))
 		if phc.logger != nil {
-			phc.logger.Debug("已添加SSH密码认证方法获取资源信息", zap.String("host", host))
+			phc.logger.Debug("已添加SSH密码认证方法获取资源信息", zap.String("host", localHost))
 		}
 	}
 
@@ -323,19 +386,57 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	}
 
 	config := &ssh.ClientConfig{
-		User:            username,
+		User:            localUsername,
 		Auth:            authMethods,
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         30 * time.Second,
 	}
 
 	// 连接SSH
-	addr := fmt.Sprintf("%s:%d", host, port)
+	addr := fmt.Sprintf("%s:%d", localHost, localPort)
+	if phc.logger != nil {
+		phc.logger.Debug("准备连接SSH获取资源信息",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("host", localHost),
+			zap.Int("port", localPort),
+			zap.String("address", addr))
+	}
+
 	client, err := ssh.Dial("tcp", addr, config)
 	if err != nil {
 		return nil, fmt.Errorf("SSH连接失败: %w", err)
 	}
 	defer client.Close()
+
+	// 记录实际连接的远程地址，并验证是否正确
+	actualRemoteAddr := ""
+	if client.Conn != nil {
+		actualRemoteAddr = client.Conn.RemoteAddr().String()
+	}
+
+	// 验证实际连接的IP是否与目标IP一致
+	expectedPrefix := localHost + ":"
+	if !strings.HasPrefix(actualRemoteAddr, expectedPrefix) {
+		if phc.logger != nil {
+			phc.logger.Error("SSH连接地址不匹配！可能存在网络重定向或代理",
+				zap.Uint("providerID", localProviderID),
+				zap.String("providerName", localProviderName),
+				zap.String("expectedHost", localHost),
+				zap.Int("expectedPort", localPort),
+				zap.String("expectedAddr", addr),
+				zap.String("actualRemoteAddr", actualRemoteAddr))
+		}
+		return nil, fmt.Errorf("SSH连接地址不匹配: 期望连接到 %s 但实际连接到 %s", addr, actualRemoteAddr)
+	}
+
+	if phc.logger != nil {
+		phc.logger.Debug("SSH连接成功，准备获取资源信息",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("configHost", localHost),
+			zap.String("actualRemoteAddr", actualRemoteAddr))
+	}
 
 	resourceInfo := &ResourceInfo{}
 
@@ -409,7 +510,9 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 
 	if phc.logger != nil {
 		phc.logger.Info("系统资源信息获取成功",
-			zap.String("host", host),
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("host", localHost),
 			zap.Int("cpu_cores", resourceInfo.CPUCores),
 			zap.Int64("memory_total_mb", resourceInfo.MemoryTotal),
 			zap.Int64("swap_total_mb", resourceInfo.SwapTotal),

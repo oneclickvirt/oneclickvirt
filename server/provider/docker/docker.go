@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -19,6 +20,7 @@ type DockerProvider struct {
 	sshClient     *utils.SSHClient
 	connected     bool
 	healthChecker health.HealthChecker
+	mu            sync.RWMutex // 保护并发访问
 }
 
 func NewDockerProvider() provider.Provider {
@@ -164,7 +166,12 @@ func (d *DockerProvider) CreateInstance(ctx context.Context, config provider.Ins
 }
 
 func (d *DockerProvider) CreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	global.APP_LOG.Info("Docker.CreateInstanceWithProgress被调用",
+		zap.String("instanceName", config.Name),
+		zap.Bool("connected", d.connected))
+
 	if !d.connected {
+		global.APP_LOG.Error("Docker provider未连接", zap.String("instanceName", config.Name))
 		return fmt.Errorf("not connected")
 	}
 
@@ -172,6 +179,10 @@ func (d *DockerProvider) CreateInstanceWithProgress(ctx context.Context, config 
 	if d.config.ExecutionRule == "api_only" {
 		return fmt.Errorf("Docker provider不支持API调用，无法使用api_only执行规则")
 	}
+
+	global.APP_LOG.Info("准备调用sshCreateInstanceWithProgress",
+		zap.String("instanceName", config.Name),
+		zap.String("providerHost", d.config.Host))
 
 	return d.sshCreateInstanceWithProgress(ctx, config, progressCallback)
 }

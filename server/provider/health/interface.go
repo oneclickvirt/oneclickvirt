@@ -57,6 +57,10 @@ type ResourceInfo struct {
 
 // HealthConfig 健康检查配置
 type HealthConfig struct {
+	// 追踪标识（用于日志和调试）
+	ProviderID   uint   `json:"provider_id"`   // Provider数据库ID
+	ProviderName string `json:"provider_name"` // Provider名称
+
 	// 基础连接配置
 	Host       string `json:"host"`
 	Port       int    `json:"port"`
@@ -81,6 +85,40 @@ type HealthConfig struct {
 	SSHEnabled     bool          `json:"ssh_enabled"`
 	ServiceChecks  []string      `json:"service_checks"`  // 要检查的服务列表
 	CustomCommands []string      `json:"custom_commands"` // 自定义检查命令
+}
+
+// DeepCopy 创建 HealthConfig 的深拷贝，避免并发修改问题
+func (c HealthConfig) DeepCopy() HealthConfig {
+	// 拷贝切片
+	serviceChecks := make([]string, len(c.ServiceChecks))
+	copy(serviceChecks, c.ServiceChecks)
+
+	customCommands := make([]string, len(c.CustomCommands))
+	copy(customCommands, c.CustomCommands)
+
+	return HealthConfig{
+		ProviderID:     c.ProviderID,
+		ProviderName:   c.ProviderName,
+		Host:           c.Host,
+		Port:           c.Port,
+		Username:       c.Username,
+		Password:       c.Password,
+		PrivateKey:     c.PrivateKey,
+		APIEnabled:     c.APIEnabled,
+		APIPort:        c.APIPort,
+		APIScheme:      c.APIScheme,
+		SkipTLSVerify:  c.SkipTLSVerify,
+		Token:          c.Token,
+		TokenID:        c.TokenID,
+		CertPath:       c.CertPath,
+		KeyPath:        c.KeyPath,
+		CertContent:    c.CertContent,
+		KeyContent:     c.KeyContent,
+		Timeout:        c.Timeout,
+		SSHEnabled:     c.SSHEnabled,
+		ServiceChecks:  serviceChecks,
+		CustomCommands: customCommands,
+	}
 }
 
 // CheckType 检查类型

@@ -127,6 +127,11 @@ func (p *ProxmoxProvider) sshCreateInstance(ctx context.Context, config provider
 }
 
 func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
+	global.APP_LOG.Info("开始在Proxmox节点上创建实例（使用SSH）",
+		zap.String("node", p.node),
+		zap.String("host", utils.TruncateString(p.config.Host, 32)),
+		zap.String("instance_name", config.Name),
+		zap.String("instance_type", config.InstanceType))
 	// 进度更新辅助函数
 	updateProgress := func(percentage int, message string) {
 		if progressCallback != nil {
@@ -493,6 +498,10 @@ func (p *ProxmoxProvider) findVMIDByNameOrID(ctx context.Context, identifier str
 }
 
 func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) error {
+	global.APP_LOG.Info("开始在Proxmox节点上删除实例（使用SSH）",
+		zap.String("node", p.node),
+		zap.String("host", utils.TruncateString(p.config.Host, 32)),
+		zap.String("instance_id", id))
 	// 查找实例对应的VMID
 	vmid, instanceType, err := p.findVMIDByNameOrID(ctx, id)
 	if err != nil {

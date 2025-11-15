@@ -169,7 +169,7 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 	}
 	global.APP_LOG.Info("带宽规格验证成功", zap.String("bandwidthId", req.BandwidthId), zap.Int("speedMbps", bandwidthSpec.SpeedMbps), zap.String("name", bandwidthSpec.Name))
 
-	// 【核心校验】验证用户等级限制和资源规格权限
+	// 验证用户等级限制和资源规格权限
 	// 包含：全局等级限制 + Provider节点等级限制（取最小值）
 	// 验证：CPU、内存、磁盘、带宽规格是否超过限制
 	// 注意：实例数量限制在事务内验证（防止并发问题）
@@ -218,7 +218,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 	// 使用事务确保原子性，但只在关键操作中持有锁
 	var task *adminModel.Task
 	err := database.GetDatabaseService().ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 【关键】在事务中验证实例数量限制（防止并发超配）
+		// 在事务中验证实例数量限制（防止并发超配）
 		// 使用行锁保护，确保原子性
 		quotaService := resources.NewQuotaService()
 
@@ -339,10 +339,10 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	global.APP_LOG.Info("开始处理创建实例任务", zap.Uint("taskId", task.ID))
 
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在准备实例创建...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在准备实例创建...")
 
-	// 阶段1: 数据库预处理（快速事务）
+	// 阶段1: 数据库预处理（快速事务） (5% -> 25%)
 	instance, err := s.prepareInstanceCreation(ctx, task)
 	if err != nil {
 		global.APP_LOG.Error("实例创建预处理失败", zap.Uint("taskId", task.ID), zap.Error(err))
@@ -358,10 +358,10 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 		return err
 	}
 
-	// 更新进度到30%
+	// 更新进度到30% (开始调用Provider API)
 	s.updateTaskProgress(task.ID, 30, "正在调用Provider API...")
 
-	// 阶段2: Provider API调用（无事务）
+	// 阶段2: Provider API调用（无事务）(30% -> 60%)
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理（快速事务）
@@ -521,13 +521,13 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		zap.String("sessionId", taskReq.SessionId),
 		zap.Uint("instanceId", instance.ID))
 
-	// 更新进度到25%
+	// 更新进度到25% (数据库预处理完成)
 	s.updateTaskProgress(task.ID, 25, "数据库预处理完成")
 
 	return &instance, nil
 }
 
-// executeProviderCreation 阶段2: Provider API调用
+// executeProviderCreation 阶段2: Provider API调用 (30% -> 60%)
 func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance) error {
 	global.APP_LOG.Info("开始Provider API调用阶段", zap.Uint("taskId", task.ID))
 
@@ -555,16 +555,26 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := dbProvider.ID
+	localProviderName := dbProvider.Name
+	localProviderType := dbProvider.Type
+	localProviderIsFrozen := dbProvider.IsFrozen
+	localProviderExpiresAt := dbProvider.ExpiresAt
+	localProviderIPv4PortMappingMethod := dbProvider.IPv4PortMappingMethod
+	localProviderIPv6PortMappingMethod := dbProvider.IPv6PortMappingMethod
+	localProviderNetworkType := dbProvider.NetworkType
+
 	// 检查Provider是否过期或冻结
-	if dbProvider.IsFrozen {
-		err := fmt.Errorf("Provider ID %d 已被冻结", instance.ProviderID)
-		global.APP_LOG.Error("Provider已冻结", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID))
+	if localProviderIsFrozen {
+		err := fmt.Errorf("Provider ID %d 已被冻结", localProviderID)
+		global.APP_LOG.Error("Provider已冻结", zap.Uint("taskId", task.ID), zap.Uint("providerId", localProviderID))
 		return err
 	}
 
-	if dbProvider.ExpiresAt != nil && dbProvider.ExpiresAt.Before(time.Now()) {
-		err := fmt.Errorf("Provider ID %d 已过期", instance.ProviderID)
-		global.APP_LOG.Error("Provider已过期", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Time("expiresAt", *dbProvider.ExpiresAt))
+	if localProviderExpiresAt != nil && localProviderExpiresAt.Before(time.Now()) {
+		err := fmt.Errorf("Provider ID %d 已过期", localProviderID)
+		global.APP_LOG.Error("Provider已过期", zap.Uint("taskId", task.ID), zap.Uint("providerId", localProviderID), zap.Time("expiresAt", *localProviderExpiresAt))
 		return err
 	}
 
@@ -575,18 +585,18 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.Uint("providerId", instance.ProviderID), zap.String("name", dbProvider.Name))
+		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName))
 		if err := providerSvc.LoadProvider(dbProvider); err != nil {
-			global.APP_LOG.Error("动态加载Provider失败", zap.Uint("providerId", instance.ProviderID), zap.String("name", dbProvider.Name), zap.Error(err))
-			err := fmt.Errorf("Provider ID %d 连接失败: %v", instance.ProviderID, err)
+			global.APP_LOG.Error("动态加载Provider失败", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName), zap.Error(err))
+			err := fmt.Errorf("Provider ID %d 连接失败: %v", localProviderID, err)
 			return err
 		}
 
 		// 重新获取Provider实例
 		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 		if !exists {
-			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", instance.ProviderID)
-			global.APP_LOG.Error("Provider连接后仍然不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID))
+			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", localProviderID)
+			global.APP_LOG.Error("Provider连接后仍然不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", localProviderID))
 			return err
 		}
 	}
@@ -656,11 +666,11 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		Metadata: map[string]string{
 			"user_level":               fmt.Sprintf("%d", user.Level),              // 用户等级，用于带宽限制配置
 			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpec.SpeedMbps), // 用户选择的带宽规格
-			"ipv4_port_mapping_method": dbProvider.IPv4PortMappingMethod,           // IPv4端口映射方式（从Provider配置获取）
-			"ipv6_port_mapping_method": dbProvider.IPv6PortMappingMethod,           // IPv6端口映射方式（从Provider配置获取）
-			"network_type":             dbProvider.NetworkType,                     // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+			"ipv4_port_mapping_method": localProviderIPv4PortMappingMethod,         // IPv4端口映射方式（从Provider配置获取）
+			"ipv6_port_mapping_method": localProviderIPv6PortMappingMethod,         // IPv6端口映射方式（从Provider配置获取）
+			"network_type":             localProviderNetworkType,                   // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 			"instance_id":              fmt.Sprintf("%d", instance.ID),             // 实例ID，用于端口分配
-			"provider_id":              fmt.Sprintf("%d", dbProvider.ID),           // Provider ID，用于端口区间分配
+			"provider_id":              fmt.Sprintf("%d", localProviderID),         // Provider ID，用于端口区间分配
 		},
 	}
 
@@ -668,7 +678,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	portMappingService := &resources.PortMappingService{}
 
 	// 预先创建端口映射记录，用于统一的端口管理
-	if err := portMappingService.CreateDefaultPortMappings(instance.ID, dbProvider.ID); err != nil {
+	if err := portMappingService.CreateDefaultPortMappings(instance.ID, localProviderID); err != nil {
 		global.APP_LOG.Warn("预分配端口映射失败",
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID),
@@ -683,7 +693,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				zap.Error(err))
 		} else {
 			// 对于Docker容器，将端口映射信息添加到实例配置中
-			if dbProvider.Type == "docker" {
+			if localProviderType == "docker" {
 				// 将端口映射信息添加到实例配置中
 				var ports []string
 				for _, port := range portMappings {
@@ -710,7 +720,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				global.APP_LOG.Info("端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
-					zap.String("providerType", dbProvider.Type),
+					zap.String("providerType", localProviderType),
 					zap.Int("portCount", len(portMappings)))
 			}
 		}
@@ -725,7 +735,17 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		s.updateTaskProgress(task.ID, adjustedPercentage, message)
 	}
 
+	global.APP_LOG.Info("准备调用Provider创建实例方法",
+		zap.Uint("taskId", task.ID),
+		zap.String("instanceName", instance.Name),
+		zap.String("providerName", localProviderName),
+		zap.String("providerType", localProviderType))
+
 	// 使用带进度的创建方法
+	global.APP_LOG.Info("开始调用CreateInstanceWithProgress",
+		zap.Uint("taskId", task.ID),
+		zap.String("instanceName", instance.Name))
+
 	if err := providerInstance.CreateInstanceWithProgress(ctx, instanceConfig, progressCallback); err != nil {
 		err := fmt.Errorf("Provider API创建实例失败: %v", err)
 		global.APP_LOG.Error("Provider API创建实例失败", zap.Uint("taskId", task.ID), zap.Error(err))
@@ -1152,8 +1172,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 			global.APP_LOG.Info("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
 
-			// 更新进度到75%
-			s.updateTaskProgress(taskID, 75, "正在配置端口映射...")
+			// 更新进度到65% (配置端口映射)
+			s.updateTaskProgress(taskID, 65, "正在配置端口映射...")
 
 			// 1. 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
 			portMappingService := &resources.PortMappingService{}
@@ -1176,8 +1196,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Int("existingPortCount", len(existingPorts)))
 			}
 
-			// 更新进度到80%
-			s.updateTaskProgress(taskID, 80, "正在初始化监控...")
+			// 更新进度到75% (初始化监控)
+			s.updateTaskProgress(taskID, 75, "正在初始化vnStat监控...")
 
 			// 2. 初始化vnStat监控
 			vnstatService := &vnstat.Service{}
@@ -1192,7 +1212,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				vnstatInitSuccess = true
 			}
 
-			// 更新进度到85%
+			// 更新进度到85% (设置SSH密码)
 			s.updateTaskProgress(taskID, 85, "正在设置SSH密码...")
 
 			// 3. 设置实例SSH密码（关键步骤）
@@ -1227,7 +1247,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
-			// 更新进度到90%
+			// 更新进度到90% (配置网络监控)
 			s.updateTaskProgress(taskID, 90, "正在配置网络监控...")
 
 			// 4. 自动检测并设置vnstat接口（仅在vnStat初始化成功时执行）

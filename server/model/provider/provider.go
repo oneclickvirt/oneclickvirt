@@ -125,7 +125,7 @@ type Provider struct {
 	MaxOutboundBandwidth     int `json:"maxOutboundBandwidth" gorm:"default:1000"`    // 最大出站带宽限制（Mbps）
 
 	// 流量管理（MB为单位）
-	EnableTrafficControl bool       `json:"enableTrafficControl" gorm:"default:true"`     // 是否启用流量统计和限制，默认启用
+	EnableTrafficControl bool       `json:"enableTrafficControl" gorm:"default:false"`    // 是否启用流量统计和限制，默认不启用
 	MaxTraffic           int64      `json:"maxTraffic" gorm:"default:1048576"`            // 最大流量限制（默认1TB=1048576MB）
 	UsedTraffic          int64      `json:"usedTraffic" gorm:"default:0"`                 // 当月已使用流量（MB）
 	TrafficLimited       bool       `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被限制
@@ -185,12 +185,12 @@ type Instance struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
 
 	// 基本信息
-	Name         string `json:"name" gorm:"uniqueIndex;not null;size:128"`      // 实例名称（唯一）
-	Provider     string `json:"provider" gorm:"not null;size:32"`               // Provider名称
-	ProviderID   uint   `json:"providerId" gorm:"not null"`                     // 关联的Provider ID
-	Status       string `json:"status" gorm:"size:32"`                          // 实例状态：creating, running, stopped, failed等
-	Image        string `json:"image" gorm:"size:128"`                          // 使用的镜像名称
-	InstanceType string `json:"instance_type" gorm:"size:16;default:container"` // 实例类型：container, vm
+	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider;not null;size:128"` // 实例名称（与provider_id组合唯一）
+	Provider     string `json:"provider" gorm:"not null;size:32"`                                     // Provider名称
+	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider;not null"`    // 关联的Provider ID（与name组合唯一）
+	Status       string `json:"status" gorm:"size:32"`                                                // 实例状态：creating, running, stopped, failed等
+	Image        string `json:"image" gorm:"size:128"`                                                // 使用的镜像名称
+	InstanceType string `json:"instance_type" gorm:"size:16;default:container"`                       // 实例类型：container, vm
 
 	// 资源配置
 	CPU       int   `json:"cpu" gorm:"default:1"`        // CPU核心数

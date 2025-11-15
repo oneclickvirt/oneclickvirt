@@ -208,6 +208,11 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 	// 构建查询条件
 	query := global.APP_DB.Model(&adminModel.Task{}).Where("user_id = ?", userID)
 
+	// 节点筛选
+	if req.ProviderId != 0 {
+		query = query.Where("provider_id = ?", req.ProviderId)
+	}
+
 	// 状态筛选
 	if req.Status != "" {
 		query = query.Where("status = ?", req.Status)
@@ -223,9 +228,19 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 		return nil, 0, fmt.Errorf("统计任务数量失败: %v", err)
 	}
 
+	// 设置分页默认值
+	page := req.Page
+	pageSize := req.PageSize
+	if page <= 0 {
+		page = 1
+	}
+	if pageSize <= 0 {
+		pageSize = 10
+	}
+
 	// 分页查询
-	offset := (req.Page - 1) * req.PageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(req.PageSize).Find(&tasks).Error; err != nil {
+	offset := (page - 1) * pageSize
+	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&tasks).Error; err != nil {
 		return nil, 0, fmt.Errorf("查询用户任务失败: %v", err)
 	}
 

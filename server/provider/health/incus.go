@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -15,16 +16,28 @@ import (
 type IncusHealthChecker struct {
 	*BaseHealthChecker
 	sshClient      *ssh.Client
-	useExternalSSH bool // 标识是否使用外部SSH连接
-	shouldCloseSSH bool // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	useExternalSSH bool       // 标识是否使用外部SSH连接
+	shouldCloseSSH bool       // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	mu             sync.Mutex // 保护并发访问sshClient和config字段
 }
 
 // NewIncusHealthChecker 创建Incus健康检查器
 func NewIncusHealthChecker(config HealthConfig, logger *zap.Logger) *IncusHealthChecker {
-	return &IncusHealthChecker{
+	checker := &IncusHealthChecker{
 		BaseHealthChecker: NewBaseHealthChecker(config, logger),
 		shouldCloseSSH:    true, // 默认情况下，自己创建的连接应该关闭
 	}
+	if logger != nil {
+		logger.Info("创建新的IncusHealthChecker实例",
+			zap.String("checkerType", "IncusHealthChecker"),
+			zap.String("instancePtr", fmt.Sprintf("%p", checker)),
+			zap.String("configHost", config.Host),
+			zap.Int("configPort", config.Port),
+			zap.Uint("providerID", config.ProviderID),
+			zap.String("providerName", config.ProviderName),
+			zap.String("baseCheckerPtr", fmt.Sprintf("%p", checker.BaseHealthChecker)))
+	}
+	return checker
 }
 
 // NewIncusHealthCheckerWithSSH 创建使用外部SSH连接的Incus健康检查器
@@ -79,30 +92,44 @@ func (i *IncusHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, er
 
 // checkSSH 检查SSH连接
 func (i *IncusHealthChecker) checkSSH(ctx context.Context) error {
+	// 加锁保护并发访问
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
 	// 如果使用外部SSH连接，只测试连接是否可用
+	// 重要：使用外部SSH连接时，绝不创建新连接，确保在正确的节点上执行
 	if i.useExternalSSH {
 		if i.sshClient == nil {
 			return fmt.Errorf("external SSH client is nil")
 		}
 		// 测试现有连接
-		_, err := i.sshClient.NewSession()
+		session, err := i.sshClient.NewSession()
 		if err != nil {
 			return fmt.Errorf("external SSH connection test failed: %w", err)
 		}
+		session.Close()
 		if i.logger != nil {
-			i.logger.Debug("使用外部SSH连接检查成功", zap.String("host", i.config.Host))
+			i.logger.Debug("使用外部SSH连接检查成功（使用Provider的SSH连接，确保在正确节点）",
+				zap.String("host", i.config.Host))
 		}
 		return nil
 	}
 
 	// 非外部连接模式：自己管理SSH连接
+	// 重要：为了避免并发问题，总是关闭旧连接并创建新连接
+	// 这确保每次health check都连接到正确的服务器
 	if i.sshClient != nil {
-		// 测试现有连接
-		_, err := i.sshClient.NewSession()
-		if err == nil {
-			return nil
+		if i.logger != nil {
+			existingRemoteAddr := ""
+			if i.sshClient.Conn != nil {
+				existingRemoteAddr = i.sshClient.Conn.RemoteAddr().String()
+			}
+			i.logger.Info("关闭现有SSH连接，准备创建新连接（防止并发连接错误）",
+				zap.String("configHost", i.config.Host),
+				zap.Int("configPort", i.config.Port),
+				zap.String("existingRemoteAddr", existingRemoteAddr))
 		}
-		// 连接失效，关闭并重新创建
+		// 总是关闭现有连接
 		i.sshClient.Close()
 		i.sshClient = nil
 	}
@@ -220,8 +247,14 @@ func (i *IncusHealthChecker) checkAPI(ctx context.Context) error {
 
 // checkIncusService 检查Incus服务状态
 func (i *IncusHealthChecker) checkIncusService(ctx context.Context) error {
-	if i.sshClient == nil {
-		// 如果没有SSH连接，先建立连接
+	// 如果使用外部SSH连接，必须确保连接已建立
+	if i.useExternalSSH {
+		if i.sshClient == nil {
+			return fmt.Errorf("external SSH client is required for service check but is nil")
+		}
+		// 不建立新连接，确保使用Provider的SSH连接
+	} else if i.sshClient == nil {
+		// 仅在非外部连接模式下才建立新连接
 		if err := i.checkSSH(ctx); err != nil {
 			return fmt.Errorf("无法建立SSH连接进行服务检查: %w", err)
 		}
@@ -287,6 +320,10 @@ func (i *IncusHealthChecker) checkIncusService(ctx context.Context) error {
 
 // getHostname 获取节点hostname
 func (i *IncusHealthChecker) getHostname(ctx context.Context) (string, error) {
+	// 加锁保护并发访问
+	i.mu.Lock()
+	defer i.mu.Unlock()
+
 	if i.sshClient == nil {
 		return "", fmt.Errorf("SSH连接未建立")
 	}
@@ -305,6 +342,13 @@ func (i *IncusHealthChecker) getHostname(ctx context.Context) (string, error) {
 	hostname := strings.TrimSpace(string(output))
 	if hostname == "" {
 		return "", fmt.Errorf("hostname为空")
+	}
+
+	if i.logger != nil {
+		i.logger.Debug("获取到Incus节点hostname",
+			zap.String("hostname", hostname),
+			zap.String("host", i.config.Host),
+			zap.Bool("useExternalSSH", i.useExternalSSH))
 	}
 
 	return hostname, nil

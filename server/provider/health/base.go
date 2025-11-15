@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -15,10 +16,16 @@ type BaseHealthChecker struct {
 	config     HealthConfig
 	httpClient *http.Client
 	logger     *zap.Logger
+	// 追踪字段
+	instanceID string       // 实例唯一标识，用于日志追踪
+	mu         sync.RWMutex // 保护 config 字段的并发访问
 }
 
 // NewBaseHealthChecker 创建基础健康检查器
 func NewBaseHealthChecker(config HealthConfig, logger *zap.Logger) *BaseHealthChecker {
+	// 生成实例ID用于追踪
+	instanceID := fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
+
 	// 创建HTTP客户端，根据配置决定是否跳过TLS验证
 	transport := &http.Transport{}
 
@@ -29,19 +36,35 @@ func NewBaseHealthChecker(config HealthConfig, logger *zap.Logger) *BaseHealthCh
 		}
 	}
 
-	return &BaseHealthChecker{
-		config: config,
+	checker := &BaseHealthChecker{
+		config:     config,
+		instanceID: instanceID,
 		httpClient: &http.Client{
 			Timeout:   config.Timeout,
 			Transport: transport,
 		},
 		logger: logger,
 	}
+
+	if logger != nil {
+		logger.Debug("创建BaseHealthChecker",
+			zap.String("instanceID", instanceID),
+			zap.Uint("providerID", config.ProviderID),
+			zap.String("providerName", config.ProviderName),
+			zap.String("host", config.Host),
+			zap.Int("port", config.Port))
+	}
+
+	return checker
 }
 
 // SetConfig 设置配置
 func (b *BaseHealthChecker) SetConfig(config HealthConfig) {
-	b.config = config
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	b.config = config.DeepCopy() // 使用深拷贝避免外部修改
+	b.instanceID = fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
 
 	// 重新配置HTTP客户端
 	transport := &http.Transport{}
@@ -57,6 +80,13 @@ func (b *BaseHealthChecker) SetConfig(config HealthConfig) {
 		Timeout:   config.Timeout,
 		Transport: transport,
 	}
+}
+
+// GetConfig 获取配置的只读副本（线程安全）
+func (b *BaseHealthChecker) GetConfig() HealthConfig {
+	b.mu.RLock()
+	defer b.mu.RUnlock()
+	return b.config.DeepCopy()
 }
 
 // GetHealthStatus 获取健康状态（默认实现）

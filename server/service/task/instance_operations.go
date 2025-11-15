@@ -20,8 +20,8 @@ import (
 
 // executeStartInstanceTask 执行启动实例任务
 func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -33,8 +33,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	// 更新进度 (15%)
+	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -50,8 +50,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("无权限操作此实例")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取Provider配置...")
+	// 更新进度 (25%)
+	s.updateTaskProgress(task.ID, 25, "正在获取Provider配置...")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -59,16 +59,23 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("获取Provider配置失败: %v", err)
 	}
 
-	// 更新进度
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := provider.ID
+	localProviderName := provider.Name
+
+	// 更新进度 (35%)
+	s.updateTaskProgress(task.ID, 35, "正在连接Provider服务...")
+
+	// 更新进度 (50%)
 	s.updateTaskProgress(task.ID, 50, "正在启动实例...")
 
 	// 调用Provider启动实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StartInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
+	if err := providerApiService.StartInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider启动实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
-			zap.String("provider", provider.Name),
+			zap.String("provider", localProviderName),
 			zap.Error(err))
 
 		// 更新实例状态为启动失败
@@ -76,8 +83,11 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("启动实例失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 70, "正在更新实例状态...")
+	// 更新进度 (70%)
+	s.updateTaskProgress(task.ID, 70, "实例启动成功，正在验证状态...")
+
+	// 更新进度 (80%)
+	s.updateTaskProgress(task.ID, 80, "正在更新实例状态...")
 
 	// 更新实例状态为运行中
 	if err := global.APP_DB.Model(&instance).Update("status", "running").Error; err != nil {
@@ -85,8 +95,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		return fmt.Errorf("更新实例状态失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 80, "正在初始化监控服务...")
+	// 更新进度 (90%)
+	s.updateTaskProgress(task.ID, 90, "正在初始化监控服务...")
 
 	// 实例启动成功后，异步初始化vnStat监控和流量同步
 	s.wg.Add(1)
@@ -171,8 +181,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 // executeStopInstanceTask 执行停止实例任务
 func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -184,8 +194,8 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	// 更新进度 (15%)
+	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -201,8 +211,8 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 		return fmt.Errorf("无权限操作此实例")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取Provider配置...")
+	// 更新进度 (25%)
+	s.updateTaskProgress(task.ID, 25, "正在获取Provider配置...")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -210,10 +220,14 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 		return fmt.Errorf("获取Provider配置失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 50, "正在同步流量数据...")
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := provider.ID
+	localProviderName := provider.Name
 
-	// 停止前同步流量数据
+	// 更新进度 (35%)
+	s.updateTaskProgress(task.ID, 35, "正在同步流量数据...")
+
+	// 停止前同步流量数据（重要！）
 	syncTrigger := traffic.NewSyncTriggerService()
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例停止前同步")
 
@@ -224,24 +238,27 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 		return fmt.Errorf("任务已取消")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 70, "正在停止实例...")
+	// 更新进度 (60%)
+	s.updateTaskProgress(task.ID, 60, "正在停止实例...")
 
 	// 调用Provider停止实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.StopInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
+	if err := providerApiService.StopInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider停止实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
-			zap.String("provider", provider.Name),
+			zap.String("provider", localProviderName),
 			zap.Error(err))
 
 		// 更新实例状态为停止失败
-		global.APP_DB.Model(&instance).Update("status", "running")
+		global.APP_DB.Model(&instance).Update("status", "error")
 		return fmt.Errorf("停止实例失败: %v", err)
 	}
 
-	// 更新进度
+	// 更新进度 (80%)
+	s.updateTaskProgress(task.ID, 80, "实例停止成功，正在验证状态...")
+
+	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "正在更新实例状态...")
 
 	// 更新实例状态为已停止
@@ -267,8 +284,8 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 
 // executeRestartInstanceTask 执行重启实例任务
 func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -280,8 +297,8 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	// 更新进度 (12%)
+	s.updateTaskProgress(task.ID, 12, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -297,8 +314,8 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("无权限操作此实例")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取Provider配置...")
+	// 更新进度 (20%)
+	s.updateTaskProgress(task.ID, 20, "正在获取Provider配置...")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -306,8 +323,12 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("获取Provider配置失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 40, "正在同步流量数据...")
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := provider.ID
+	localProviderName := provider.Name
+
+	// 更新进度 (28%)
+	s.updateTaskProgress(task.ID, 28, "正在同步流量数据...")
 
 	// 重启前同步流量数据
 	syncTrigger := traffic.NewSyncTriggerService()
@@ -320,16 +341,16 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("任务已取消")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 60, "正在重启实例...")
+	// 更新进度 (45%)
+	s.updateTaskProgress(task.ID, 45, "正在重启实例（停止+启动）...")
 
 	// 调用Provider重启实例
 	providerApiService := &provider2.ProviderApiService{}
-	if err := providerApiService.RestartInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
+	if err := providerApiService.RestartInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
 		global.APP_LOG.Error("Provider重启实例失败",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
-			zap.String("provider", provider.Name),
+			zap.String("provider", localProviderName),
 			zap.Error(err))
 
 		// 更新实例状态为重启失败
@@ -337,8 +358,11 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("重启实例失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 80, "正在更新实例状态...")
+	// 更新进度 (65%)
+	s.updateTaskProgress(task.ID, 65, "实例重启成功，正在验证状态...")
+
+	// 更新进度 (75%)
+	s.updateTaskProgress(task.ID, 75, "正在更新实例状态...")
 
 	// 更新实例状态为运行中
 	if err := global.APP_DB.Model(&instance).Update("status", "running").Error; err != nil {
@@ -346,8 +370,8 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		return fmt.Errorf("更新实例状态失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 85, "正在重新初始化监控服务...")
+	// 更新进度 (80%)
+	s.updateTaskProgress(task.ID, 80, "正在重新初始化监控服务...")
 
 	// 实例重启成功后，异步重新初始化vnStat监控
 	s.wg.Add(1)
@@ -433,7 +457,8 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 // executeResetPasswordTask 执行重置实例密码任务
 func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.ResetPasswordTaskRequest
@@ -445,8 +470,8 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	// 更新进度 (15%)
+	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -462,13 +487,16 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 		return fmt.Errorf("无权限操作此实例")
 	}
 
+	// 更新进度 (25%)
+	s.updateTaskProgress(task.ID, 25, "正在验证实例状态...")
+
 	// 检查实例状态
 	if instance.Status != "running" {
 		return fmt.Errorf("只有运行中的实例才能重置密码")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在生成新密码...")
+	// 更新进度 (35%)
+	s.updateTaskProgress(task.ID, 35, "正在生成新密码...")
 
 	// 生成新密码
 	newPassword := utils.GenerateStrongPassword(12)

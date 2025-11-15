@@ -21,8 +21,8 @@ import (
 
 // executeDeleteInstanceTask 执行删除实例任务
 func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *adminModel.Task) error {
-	// 初始化进度
-	s.updateTaskProgress(task.ID, 10, "正在解析任务数据...")
+	// 初始化进度 (5%)
+	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
 
 	// 解析任务数据
 	var taskReq adminModel.DeleteInstanceTaskRequest
@@ -30,8 +30,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		return fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	// 更新进度 (12%)
+	s.updateTaskProgress(task.ID, 12, "正在获取实例信息...")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -52,8 +52,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		return fmt.Errorf("无权限删除此实例")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 30, "正在获取Provider配置...")
+	// 更新进度 (20%)
+	s.updateTaskProgress(task.ID, 20, "正在获取Provider配置...")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -61,8 +61,12 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		return fmt.Errorf("获取Provider配置失败: %v", err)
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 40, "正在同步流量数据...")
+	// 复制副本避免共享状态，立即创建Provider字段的本地副本
+	localProviderID := provider.ID
+	localProviderName := provider.Name
+
+	// 更新进度 (28%)
+	s.updateTaskProgress(task.ID, 28, "正在同步流量数据...")
 
 	// 删除前进行最后一次流量同步
 	syncTrigger := traffic.NewSyncTriggerService()
@@ -75,8 +79,8 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		return fmt.Errorf("任务已取消")
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 60, "正在删除实例...")
+	// 更新进度 (40%)
+	s.updateTaskProgress(task.ID, 40, "正在删除实例...")
 
 	// 调用Provider删除实例，重试机制
 	providerApiService := &provider2.ProviderApiService{}
@@ -93,15 +97,20 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	providerDeleteSuccess := false
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			s.updateTaskProgress(task.ID, 60+attempt*5, fmt.Sprintf("正在删除实例（第%d次尝试）...", attempt))
+			// 每次重试增加进度 (40% -> 50% -> 60% -> 70%)
+			progressIncrement := 40 + (attempt-1)*10
+			if progressIncrement > 75 {
+				progressIncrement = 75
+			}
+			s.updateTaskProgress(task.ID, progressIncrement, fmt.Sprintf("正在删除实例（第%d次尝试）...", attempt))
 		}
 
-		if err := providerApiService.DeleteInstanceByProviderID(ctx, provider.ID, instance.Name); err != nil {
+		if err := providerApiService.DeleteInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
 			lastErr = err
 			global.APP_LOG.Warn("Provider删除实例失败，准备重试",
 				zap.Uint("taskId", task.ID),
 				zap.String("instanceName", instance.Name),
-				zap.String("provider", provider.Name),
+				zap.String("provider", localProviderName),
 				zap.Int("attempt", attempt),
 				zap.Int("maxRetries", maxRetries),
 				zap.Error(err))
@@ -134,14 +143,28 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			zap.Error(lastErr))
 	}
 
-	// 更新进度
-	s.updateTaskProgress(task.ID, 80, "正在清理数据库记录...")
+	// 更新进度 (85%)
+	s.updateTaskProgress(task.ID, 85, "正在清理数据库记录...")
 
 	// 在事务中删除实例记录并释放资源配额
 	dbService := database.GetDatabaseService()
 	quotaService := resources.NewQuotaService()
 
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		// 更新进度 (92%)
+		s.updateTaskProgress(task.ID, 92, "正在清理vnStat监控数据...")
+
+		// 清理实例vnStat数据
+		vnstatService := vnstat.NewService()
+		if err := vnstatService.CleanupVnStatData(instance.ID); err != nil {
+			global.APP_LOG.Warn("清理实例vnStat数据失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(err))
+		}
+
+		// 更新进度 (95%)
+		s.updateTaskProgress(task.ID, 95, "正在清理端口映射...")
+
 		// 删除实例的端口映射
 		portMappingService := resources.PortMappingService{}
 		if err := portMappingService.DeleteInstancePortMappings(instance.ID); err != nil {
@@ -157,14 +180,6 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			instance.CPU, instance.Memory, instance.Disk); err != nil {
 			global.APP_LOG.Error("释放Provider资源失败",
 				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instance.ID),
-				zap.Error(err))
-		}
-
-		// 清理实例vnStat数据
-		vnstatService := vnstat.NewService()
-		if err := vnstatService.CleanupVnStatData(instance.ID); err != nil {
-			global.APP_LOG.Warn("清理实例vnStat数据失败",
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(err))
 		}

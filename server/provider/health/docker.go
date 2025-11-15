@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/ssh"
@@ -14,16 +15,28 @@ import (
 type DockerHealthChecker struct {
 	*BaseHealthChecker
 	sshClient      *ssh.Client
-	useExternalSSH bool // 标识是否使用外部SSH连接
-	shouldCloseSSH bool // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	useExternalSSH bool       // 标识是否使用外部SSH连接
+	shouldCloseSSH bool       // 标识是否应该关闭SSH连接（仅当自己创建时才关闭）
+	mu             sync.Mutex // 保护并发访问sshClient和config字段
 }
 
 // NewDockerHealthChecker 创建Docker健康检查器
 func NewDockerHealthChecker(config HealthConfig, logger *zap.Logger) *DockerHealthChecker {
-	return &DockerHealthChecker{
+	checker := &DockerHealthChecker{
 		BaseHealthChecker: NewBaseHealthChecker(config, logger),
 		shouldCloseSSH:    true, // 默认情况下，自己创建的连接应该关闭
 	}
+	if logger != nil {
+		logger.Info("创建SSH通用健康检查器",
+			zap.String("checkerType", "SSH通用检查"),
+			zap.String("instancePtr", fmt.Sprintf("%p", checker)),
+			zap.String("configHost", config.Host),
+			zap.Int("configPort", config.Port),
+			zap.Uint("providerID", config.ProviderID),
+			zap.String("providerName", config.ProviderName),
+			zap.String("baseCheckerPtr", fmt.Sprintf("%p", checker.BaseHealthChecker)))
+	}
+	return checker
 }
 
 // NewDockerHealthCheckerWithSSH 创建使用外部SSH连接的Docker健康检查器
@@ -36,8 +49,17 @@ func NewDockerHealthCheckerWithSSH(config HealthConfig, logger *zap.Logger, sshC
 	}
 }
 
-// CheckHealth 执行Docker健康检查
+// CheckHealth 执行SSH通用健康检查
 func (d *DockerHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, error) {
+	if d.logger != nil {
+		d.logger.Debug("SSH通用健康检查开始",
+			zap.Uint("providerID", d.config.ProviderID),
+			zap.String("providerName", d.config.ProviderName),
+			zap.String("configHost", d.config.Host),
+			zap.Int("configPort", d.config.Port),
+			zap.String("instancePtr", fmt.Sprintf("%p", d)))
+	}
+
 	checks := []func(context.Context) CheckResult{}
 
 	// SSH检查
@@ -62,12 +84,12 @@ func (d *DockerHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, e
 		if hostname, err := d.getHostname(ctx); err == nil {
 			result.HostName = hostname
 			if d.logger != nil {
-				d.logger.Debug("获取Docker节点hostname成功",
+				d.logger.Debug("获取节点hostname成功",
 					zap.String("hostname", hostname),
 					zap.String("host", d.config.Host))
 			}
 		} else if d.logger != nil {
-			d.logger.Warn("获取Docker节点hostname失败",
+			d.logger.Warn("获取节点hostname失败",
 				zap.String("host", d.config.Host),
 				zap.Error(err))
 		}
@@ -78,30 +100,56 @@ func (d *DockerHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, e
 
 // checkSSH 检查SSH连接
 func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
+	// 加锁保护并发访问
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.logger != nil {
+		d.logger.Debug("checkSSH开始执行",
+			zap.Uint("providerID", d.config.ProviderID),
+			zap.String("providerName", d.config.ProviderName),
+			zap.String("instancePtr", fmt.Sprintf("%p", d)),
+			zap.String("configHost", d.config.Host),
+			zap.Int("configPort", d.config.Port))
+	}
+
 	// 如果使用外部SSH连接，只测试连接是否可用
+	// 重要：使用外部SSH连接时，绝不创建新连接，确保在正确的节点上执行
 	if d.useExternalSSH {
 		if d.sshClient == nil {
 			return fmt.Errorf("external SSH client is nil")
 		}
 		// 测试现有连接
-		_, err := d.sshClient.NewSession()
+		session, err := d.sshClient.NewSession()
 		if err != nil {
 			return fmt.Errorf("external SSH connection test failed: %w", err)
 		}
+		session.Close()
 		if d.logger != nil {
-			d.logger.Debug("使用外部SSH连接检查成功", zap.String("host", d.config.Host))
+			d.logger.Debug("使用外部SSH连接检查成功（使用Provider的SSH连接，确保在正确节点）",
+				zap.String("host", d.config.Host))
 		}
 		return nil
 	}
 
 	// 非外部连接模式：自己管理SSH连接
+	// 重要：为了避免并发问题，总是关闭旧连接并创建新连接
+	// 这确保每次health check都连接到正确的服务器
 	if d.sshClient != nil {
-		// 测试现有连接
-		_, err := d.sshClient.NewSession()
-		if err == nil {
-			return nil
+		// 获取现有连接的远程地址用于日志
+		existingRemoteAddr := ""
+		if d.sshClient.Conn != nil {
+			existingRemoteAddr = d.sshClient.Conn.RemoteAddr().String()
 		}
-		// 连接失效，关闭并重新创建
+
+		if d.logger != nil {
+			d.logger.Info("关闭现有SSH连接，准备创建新连接（防止并发连接错误）",
+				zap.String("configHost", d.config.Host),
+				zap.Int("configPort", d.config.Port),
+				zap.String("existingRemoteAddr", existingRemoteAddr))
+		}
+
+		// 总是关闭现有连接
 		d.sshClient.Close()
 		d.sshClient = nil
 	}
@@ -147,14 +195,77 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 	}
 
 	address := fmt.Sprintf("%s:%d", d.config.Host, d.config.Port)
+	// 保存预期的host用于后续验证（避免并发修改）
+	expectedHost := d.config.Host
+	expectedPort := d.config.Port
+	providerID := d.config.ProviderID
+	providerName := d.config.ProviderName
+
+	if d.logger != nil {
+		d.logger.Debug("准备建立SSH连接",
+			zap.Uint("providerID", providerID),
+			zap.String("providerName", providerName),
+			zap.String("expectedHost", expectedHost),
+			zap.Int("expectedPort", expectedPort),
+			zap.String("address", address),
+			zap.String("username", d.config.Username))
+	}
+
 	client, err := ssh.Dial("tcp", address, config)
 	if err != nil {
+		if d.logger != nil {
+			d.logger.Error("SSH Dial失败",
+				zap.Uint("providerID", providerID),
+				zap.String("providerName", providerName),
+				zap.String("address", address),
+				zap.Error(err))
+		}
 		return fmt.Errorf("SSH连接失败: %w", err)
+	}
+
+	// 立即输出Dial成功日志
+	if d.logger != nil {
+		d.logger.Debug("SSH Dial成功，获取远程地址",
+			zap.Uint("providerID", providerID),
+			zap.String("providerName", providerName),
+			zap.String("address", address))
+	}
+
+	// 立即获取实际连接的远程地址
+	remoteAddr := client.Conn.RemoteAddr().String()
+
+	if d.logger != nil {
+		d.logger.Debug("获取到远程地址，准备验证",
+			zap.Uint("providerID", providerID),
+			zap.String("providerName", providerName),
+			zap.String("expectedHost", expectedHost),
+			zap.String("remoteAddr", remoteAddr))
+	}
+
+	// 验证实际连接的IP是否与目标IP一致（使用保存的expectedHost）
+	expectedPrefix := expectedHost + ":"
+	if !strings.HasPrefix(remoteAddr, expectedPrefix) {
+		if d.logger != nil {
+			d.logger.Error("Docker SSH连接地址不匹配！",
+				zap.Uint("providerID", providerID),
+				zap.String("providerName", providerName),
+				zap.String("expectedHost", expectedHost),
+				zap.Int("expectedPort", expectedPort),
+				zap.String("expectedAddr", address),
+				zap.String("actualRemoteAddr", remoteAddr),
+				zap.String("currentConfigHost", d.config.Host))
+		}
+		client.Close()
+		return fmt.Errorf("SSH连接地址不匹配: 期望连接到 %s 但实际连接到 %s (ProviderID=%d)", address, remoteAddr, providerID)
 	}
 
 	d.sshClient = client
 	if d.logger != nil {
-		d.logger.Debug("Docker SSH连接成功", zap.String("host", d.config.Host), zap.Int("port", d.config.Port))
+		d.logger.Debug("SSH连接验证成功",
+			zap.Uint("providerID", providerID),
+			zap.String("providerName", providerName),
+			zap.String("expectedHost", expectedHost),
+			zap.String("actualRemoteAddr", remoteAddr))
 	}
 	return nil
 }
@@ -191,8 +302,14 @@ func (d *DockerHealthChecker) checkAPI(ctx context.Context) error {
 
 // checkDockerService 检查Docker服务状态
 func (d *DockerHealthChecker) checkDockerService(ctx context.Context) error {
-	if d.sshClient == nil {
-		// 如果没有SSH连接，先建立连接
+	// 如果使用外部SSH连接，必须确保连接已建立
+	if d.useExternalSSH {
+		if d.sshClient == nil {
+			return fmt.Errorf("external SSH client is required for service check but is nil")
+		}
+		// 不建立新连接，确保使用Provider的SSH连接
+	} else if d.sshClient == nil {
+		// 仅在非外部连接模式下才建立新连接
 		if err := d.checkSSH(ctx); err != nil {
 			return fmt.Errorf("无法建立SSH连接进行服务检查: %w", err)
 		}
@@ -234,6 +351,10 @@ func (d *DockerHealthChecker) checkDockerService(ctx context.Context) error {
 
 // getHostname 获取节点hostname
 func (d *DockerHealthChecker) getHostname(ctx context.Context) (string, error) {
+	// 加锁保护并发访问
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
 	if d.sshClient == nil {
 		return "", fmt.Errorf("SSH连接未建立")
 	}
@@ -254,20 +375,61 @@ func (d *DockerHealthChecker) getHostname(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("hostname为空")
 	}
 
+	// 获取实际连接的远程地址
+	remoteAddr := ""
+	if d.sshClient != nil && d.sshClient.Conn != nil {
+		remoteAddr = d.sshClient.Conn.RemoteAddr().String()
+	}
+
+	if d.logger != nil {
+		d.logger.Debug("获取到节点hostname",
+			zap.String("hostname", hostname),
+			zap.String("configHost", d.config.Host),
+			zap.String("actualRemoteAddr", remoteAddr),
+			zap.Bool("useExternalSSH", d.useExternalSSH),
+			zap.Uint("providerID", d.config.ProviderID),
+			zap.String("providerName", d.config.ProviderName),
+			zap.String("instancePtr", fmt.Sprintf("%p", d)))
+	}
+
 	return hostname, nil
 }
 
 // Close 关闭连接
 func (d *DockerHealthChecker) Close() error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.logger != nil {
+		d.logger.Debug("关闭SSH通用健康检查器",
+			zap.String("checkerType", "SSH通用检查"),
+			zap.String("instancePtr", fmt.Sprintf("%p", d)),
+			zap.Bool("shouldCloseSSH", d.shouldCloseSSH),
+			zap.Bool("useExternalSSH", d.useExternalSSH),
+			zap.Bool("hasSSHClient", d.sshClient != nil),
+			zap.Uint("providerID", d.config.ProviderID),
+			zap.String("providerName", d.config.ProviderName))
+	}
+
 	// 只有在应该关闭SSH连接时才关闭（即自己创建的连接）
 	if d.shouldCloseSSH && d.sshClient != nil {
 		err := d.sshClient.Close()
 		d.sshClient = nil
+		if d.logger != nil {
+			if err != nil {
+				d.logger.Warn("关闭SSH连接失败", zap.Error(err))
+			} else {
+				d.logger.Debug("成功关闭SSH连接")
+			}
+		}
 		return err
 	}
 	// 如果使用外部连接，只清空引用，不关闭连接
 	if d.useExternalSSH {
 		d.sshClient = nil
+		if d.logger != nil {
+			d.logger.Debug("清空外部SSH连接引用（不关闭）")
+		}
 	}
 	return nil
 }

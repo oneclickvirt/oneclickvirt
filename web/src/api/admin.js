@@ -106,6 +106,24 @@ export const getProviderList = (params) => {
   })
 }
 
+// 检查Provider名称是否已存在
+export const checkProviderNameExists = (name, excludeId = null) => {
+  return request({
+    url: '/v1/admin/providers/check-name',
+    method: 'get',
+    params: { name, excludeId }
+  })
+}
+
+// 检查Provider SSH地址和端口是否已存在
+export const checkProviderEndpointExists = (endpoint, sshPort, excludeId = null) => {
+  return request({
+    url: '/v1/admin/providers/check-endpoint',
+    method: 'get',
+    params: { endpoint, sshPort, excludeId }
+  })
+}
+
 export const createProvider = (data) => {
   return request({
     url: '/v1/admin/providers',
