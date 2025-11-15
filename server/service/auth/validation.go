@@ -18,7 +18,12 @@ func (s *AuthValidationService) ShouldCheckCaptcha() bool {
 func (s *AuthValidationService) ValidateCaptchaRequired(captchaId, captcha string) *common.AppError {
 	if s.ShouldCheckCaptcha() {
 		if captchaId == "" || captcha == "" {
-			return common.NewError(common.CodeValidationError, "验证码参数不完整")
+			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
+		}
+		// 实际验证验证码
+		authService := AuthService{}
+		if err := authService.verifyCaptcha(captchaId, captcha); err != nil {
+			return common.NewError(common.CodeCaptchaInvalid, err.Error())
 		}
 	}
 	return nil

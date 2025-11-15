@@ -248,17 +248,10 @@ func SendVerifyCode(c *gin.Context) {
 		return
 	}
 
-	// 验证图形验证码（开发模式下可以跳过）
-	if req.CaptchaId != "" && req.Captcha != "" {
-		// 使用验证服务验证图形验证码
-		authValidationService := auth2.AuthValidationService{}
-		if err := authValidationService.ValidateCaptchaRequired(req.CaptchaId, req.Captcha); err != nil {
-			common.ResponseWithError(c, err)
-			return
-		}
-	} else if global.APP_CONFIG.System.Env != "development" {
-		// 只在非开发环境下强制要求验证码
-		common.ResponseWithError(c, common.NewError(common.CodeCaptchaRequired, "请填写图形验证码"))
+	// 验证图形验证码
+	authValidationService := auth2.AuthValidationService{}
+	if err := authValidationService.ValidateCaptchaRequired(req.CaptchaId, req.Captcha); err != nil {
+		common.ResponseWithError(c, err)
 		return
 	}
 

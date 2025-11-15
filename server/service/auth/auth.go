@@ -234,15 +234,8 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
-	// 验证图形验证码（开发模式下可以跳过）
-	if req.CaptchaId != "" && req.Captcha != "" {
-		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return common.NewError(common.CodeCaptchaInvalid)
-		}
-	} else if global.APP_CONFIG.System.Env != "development" {
-		// 只在非开发环境下强制要求验证码
-		return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
-	}
+	// 注意：验证码验证已经在 API 层通过 ValidateCaptchaRequired 完成
+	// 这里不再重复验证，避免验证码被重复消费
 
 	// 邀请码验证逻辑
 	// 如果启用邀请码系统且未启用公开注册，则必须要邀请码
