@@ -50,7 +50,8 @@ type TokenInfo interface {
 }
 
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查
-func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, error) {
+// 返回: sshStatus, apiStatus, hostName, error
+func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.Context, providerType, host, username, password, privateKey string, port int, authConfig ProviderAuthConfig) (string, string, string, error) {
 	config := HealthConfig{
 		Host:          host,
 		Port:          port,
@@ -94,12 +95,12 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 
 	checker, err := phc.manager.CreateChecker(ProviderType(providerType), config)
 	if err != nil {
-		return "offline", "offline", fmt.Errorf("failed to create health checker: %w", err)
+		return "offline", "offline", "", fmt.Errorf("failed to create health checker: %w", err)
 	}
 
 	result, err := checker.CheckHealth(ctx)
 	if err != nil {
-		return "offline", "offline", err
+		return "offline", "offline", "", err
 	}
 
 	// 确保释放资源
@@ -116,13 +117,17 @@ func (phc *ProviderHealthChecker) CheckProviderHealthWithAuthConfig(ctx context.
 
 	sshStatus := "unknown"
 	apiStatus := "unknown"
+	hostName := ""
 	if result.SSHStatus != "" {
 		sshStatus = result.SSHStatus
 	}
 	if result.APIStatus != "" {
 		apiStatus = result.APIStatus
 	}
-	return sshStatus, apiStatus, nil
+	if result.HostName != "" {
+		hostName = result.HostName
+	}
+	return sshStatus, apiStatus, hostName, nil
 }
 
 // CheckProviderHealthWithAuthConfig 根据认证配置执行健康检查

@@ -43,6 +43,23 @@ func (p *ProxmoxHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, 
 	}
 
 	result := p.executeChecks(ctx, checks)
+
+	// 获取节点hostname（如果SSH连接成功）
+	if result.SSHStatus == "online" && p.sshClient != nil {
+		if hostname, err := p.getHostname(ctx); err == nil {
+			result.HostName = hostname
+			if p.logger != nil {
+				p.logger.Debug("获取Proxmox节点hostname成功",
+					zap.String("hostname", hostname),
+					zap.String("host", p.config.Host))
+			}
+		} else if p.logger != nil {
+			p.logger.Warn("获取Proxmox节点hostname失败",
+				zap.String("host", p.config.Host),
+				zap.Error(err))
+		}
+	}
+
 	return result, nil
 }
 
@@ -218,6 +235,31 @@ func (p *ProxmoxHealthChecker) checkProxmoxService(ctx context.Context) error {
 		p.logger.Debug("Proxmox服务检查成功", zap.String("host", p.config.Host), zap.Strings("services", services))
 	}
 	return nil
+}
+
+// getHostname 获取节点hostname
+func (p *ProxmoxHealthChecker) getHostname(ctx context.Context) (string, error) {
+	if p.sshClient == nil {
+		return "", fmt.Errorf("SSH连接未建立")
+	}
+
+	session, err := p.sshClient.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput("hostname")
+	if err != nil {
+		return "", fmt.Errorf("执行hostname命令失败: %w", err)
+	}
+
+	hostname := strings.TrimSpace(string(output))
+	if hostname == "" {
+		return "", fmt.Errorf("hostname为空")
+	}
+
+	return hostname, nil
 }
 
 // Close 关闭连接

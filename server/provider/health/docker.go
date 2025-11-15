@@ -43,6 +43,23 @@ func (d *DockerHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, e
 	}
 
 	result := d.executeChecks(ctx, checks)
+
+	// 获取节点hostname（如果SSH连接成功）
+	if result.SSHStatus == "online" && d.sshClient != nil {
+		if hostname, err := d.getHostname(ctx); err == nil {
+			result.HostName = hostname
+			if d.logger != nil {
+				d.logger.Debug("获取Docker节点hostname成功",
+					zap.String("hostname", hostname),
+					zap.String("host", d.config.Host))
+			}
+		} else if d.logger != nil {
+			d.logger.Warn("获取Docker节点hostname失败",
+				zap.String("host", d.config.Host),
+				zap.Error(err))
+		}
+	}
+
 	return result, nil
 }
 
@@ -180,6 +197,31 @@ func (d *DockerHealthChecker) checkDockerService(ctx context.Context) error {
 		d.logger.Debug("Docker服务检查成功", zap.String("host", d.config.Host))
 	}
 	return nil
+}
+
+// getHostname 获取节点hostname
+func (d *DockerHealthChecker) getHostname(ctx context.Context) (string, error) {
+	if d.sshClient == nil {
+		return "", fmt.Errorf("SSH连接未建立")
+	}
+
+	session, err := d.sshClient.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput("hostname")
+	if err != nil {
+		return "", fmt.Errorf("执行hostname命令失败: %w", err)
+	}
+
+	hostname := strings.TrimSpace(string(output))
+	if hostname == "" {
+		return "", fmt.Errorf("hostname为空")
+	}
+
+	return hostname, nil
 }
 
 // Close 关闭连接

@@ -144,9 +144,9 @@ func (s *Service) getInstanceDetailsAfterCreation(ctx context.Context, instance 
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 获取Provider实例
+	// 获取Provider实例（使用ID）
 	providerSvc := providerService.GetProviderService()
-	providerInstance, exists := providerSvc.GetProvider(instance.Provider)
+	providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID)
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
@@ -155,9 +155,9 @@ func (s *Service) getInstanceDetailsAfterCreation(ctx context.Context, instance 
 		}
 
 		// 重新获取Provider实例
-		providerInstance, exists = providerSvc.GetProvider(instance.Provider)
+		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 		if !exists {
-			return nil, fmt.Errorf("Provider %s 连接后仍然不可用", instance.Provider)
+			return nil, fmt.Errorf("Provider ID %d 连接后仍然不可用", instance.ProviderID)
 		}
 	}
 

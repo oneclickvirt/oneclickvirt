@@ -33,9 +33,9 @@ func (s *ProviderApiService) GetProviderByID(providerID uint) (provider.Provider
 		return nil, nil, fmt.Errorf("Provider已过期")
 	}
 
-	// 从Provider服务获取已连接的实例
+	// 从Provider服务获取已连接的实例（使用ID）
 	providerService := GetProviderService()
-	if prov, exists := providerService.GetProvider(dbProvider.Name); exists {
+	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists {
 		if prov.IsConnected() {
 			return prov, &dbProvider, nil
 		}
@@ -53,8 +53,8 @@ func (s *ProviderApiService) GetProviderByID(providerID uint) (provider.Provider
 		return nil, nil, fmt.Errorf("Provider连接失败: %v", err)
 	}
 
-	// 再次获取
-	if prov, exists := providerService.GetProvider(dbProvider.Name); exists {
+	// 再次获取（使用ID）
+	if prov, exists := providerService.GetProviderByID(dbProvider.ID); exists {
 		return prov, &dbProvider, nil
 	}
 

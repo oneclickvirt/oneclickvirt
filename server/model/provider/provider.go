@@ -151,6 +151,9 @@ type Provider struct {
 	// 用于限制该节点上不同等级用户能创建的最大资源，与全局等级配置类似但仅对当前节点生效
 	// 该字段会与用户全局等级限制进行比较，取两者的最小值作为实际限制
 	LevelLimits string `json:"levelLimits" gorm:"type:text"` // JSON格式: map[int]config.LevelLimitInfo
+
+	// 节点标识信息（用于区分多个hostname相同的节点）
+	HostName string `json:"hostName" gorm:"size:128"` // 节点主机名（hostname），由健康检查自动更新
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
@@ -356,6 +359,9 @@ type ProviderNodeConfig struct {
 	VMLimitCPU    bool `json:"vmLimitCpu"`    // 虚拟机是否限制CPU数量，默认限制
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机是否限制内存大小，默认限制
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机是否限制硬盘大小，默认限制
+
+	// 节点标识（用于区分多个相同hostname的节点）
+	HostName string `json:"host_name"` // 节点主机名（hostname），用于Proxmox等需要节点名的Provider
 }
 
 // ProviderResponse 用于返回给前端的Provider响应结构

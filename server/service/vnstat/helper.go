@@ -991,6 +991,7 @@ func (s *Service) collectInterfaceData(ctx context.Context, iface *monitoringMod
 			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
+			HostName:    providerInfo.HostName, // 传递主机名
 		}
 
 		if err := providerInstance.Connect(ctx, nodeConfig); err != nil {

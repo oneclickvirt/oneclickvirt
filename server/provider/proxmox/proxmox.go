@@ -88,10 +88,26 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	p.sshClient = client
 	p.connected = true
 
-	// 获取节点名
-	if err := p.getNodeName(ctx); err != nil {
-		global.APP_LOG.Warn("获取节点名称失败", zap.Error(err))
-		p.node = "pve" // 默认节点名
+	// 获取节点名：优先使用配置中的HostName（数据库存储的），否则动态获取
+	if config.HostName != "" {
+		p.node = config.HostName
+		global.APP_LOG.Info("使用数据库配置的Proxmox主机名",
+			zap.String("hostName", p.node),
+			zap.String("provider", config.Name),
+			zap.String("host", utils.TruncateString(config.Host, 32)))
+	} else {
+		// 动态获取节点名
+		if err := p.getNodeName(ctx); err != nil {
+			global.APP_LOG.Warn("获取主机名失败，使用默认值",
+				zap.Error(err),
+				zap.String("host", utils.TruncateString(config.Host, 32)))
+			p.node = "pve" // 默认节点名
+		} else {
+			global.APP_LOG.Info("动态获取Proxmox主机名成功",
+				zap.String("hostName", p.node),
+				zap.String("provider", config.Name),
+				zap.String("host", utils.TruncateString(config.Host, 32)))
+		}
 	}
 
 	// 初始化健康检查器

@@ -44,6 +44,23 @@ func (i *IncusHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, er
 	}
 
 	result := i.executeChecks(ctx, checks)
+
+	// 获取节点hostname（如果SSH连接成功）
+	if result.SSHStatus == "online" && i.sshClient != nil {
+		if hostname, err := i.getHostname(ctx); err == nil {
+			result.HostName = hostname
+			if i.logger != nil {
+				i.logger.Debug("获取Incus节点hostname成功",
+					zap.String("hostname", hostname),
+					zap.String("host", i.config.Host))
+			}
+		} else if i.logger != nil {
+			i.logger.Warn("获取Incus节点hostname失败",
+				zap.String("host", i.config.Host),
+				zap.Error(err))
+		}
+	}
+
 	return result, nil
 }
 
@@ -233,6 +250,31 @@ func (i *IncusHealthChecker) checkIncusService(ctx context.Context) error {
 		i.logger.Debug("Incus服务检查成功", zap.String("host", i.config.Host))
 	}
 	return nil
+}
+
+// getHostname 获取节点hostname
+func (i *IncusHealthChecker) getHostname(ctx context.Context) (string, error) {
+	if i.sshClient == nil {
+		return "", fmt.Errorf("SSH连接未建立")
+	}
+
+	session, err := i.sshClient.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput("hostname")
+	if err != nil {
+		return "", fmt.Errorf("执行hostname命令失败: %w", err)
+	}
+
+	hostname := strings.TrimSpace(string(output))
+	if hostname == "" {
+		return "", fmt.Errorf("hostname为空")
+	}
+
+	return hostname, nil
 }
 
 // Close 关闭连接

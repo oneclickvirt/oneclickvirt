@@ -44,6 +44,23 @@ func (l *LXDHealthChecker) CheckHealth(ctx context.Context) (*HealthResult, erro
 	}
 
 	result := l.executeChecks(ctx, checks)
+
+	// 获取节点hostname（如果SSH连接成功）
+	if result.SSHStatus == "online" && l.sshClient != nil {
+		if hostname, err := l.getHostname(ctx); err == nil {
+			result.HostName = hostname
+			if l.logger != nil {
+				l.logger.Debug("获取LXD节点hostname成功",
+					zap.String("hostname", hostname),
+					zap.String("host", l.config.Host))
+			}
+		} else if l.logger != nil {
+			l.logger.Warn("获取LXD节点hostname失败",
+				zap.String("host", l.config.Host),
+				zap.Error(err))
+		}
+	}
+
 	return result, nil
 }
 
@@ -244,6 +261,31 @@ func (l *LXDHealthChecker) checkLXDService(ctx context.Context) error {
 		l.logger.Debug("LXD服务检查成功", zap.String("host", l.config.Host))
 	}
 	return nil
+}
+
+// getHostname 获取节点hostname
+func (l *LXDHealthChecker) getHostname(ctx context.Context) (string, error) {
+	if l.sshClient == nil {
+		return "", fmt.Errorf("SSH连接未建立")
+	}
+
+	session, err := l.sshClient.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+	defer session.Close()
+
+	output, err := session.CombinedOutput("hostname")
+	if err != nil {
+		return "", fmt.Errorf("执行hostname命令失败: %w", err)
+	}
+
+	hostname := strings.TrimSpace(string(output))
+	if hostname == "" {
+		return "", fmt.Errorf("hostname为空")
+	}
+
+	return hostname, nil
 }
 
 // Close 关闭连接

@@ -39,6 +39,8 @@ type HealthResult struct {
 	Details       map[string]interface{} `json:"details,omitempty"`
 	// 资源信息字段
 	ResourceInfo *ResourceInfo `json:"resource_info,omitempty"`
+	// 节点标识信息
+	HostName string `json:"host_name,omitempty"` // 节点主机名（hostname）
 }
 
 // ResourceInfo 节点资源信息
@@ -50,6 +52,7 @@ type ResourceInfo struct {
 	DiskFree    int64      `json:"disk_free"`    // 可用磁盘空间（MB）
 	Synced      bool       `json:"synced"`       // 是否已同步
 	SyncedAt    *time.Time `json:"synced_at"`    // 同步时间
+	HostName    string     `json:"host_name"`    // 节点主机名（hostname），用于区分多个节点
 }
 
 // HealthConfig 健康检查配置

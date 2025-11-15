@@ -546,47 +546,47 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
-	// 直接从数据库获取Provider配置
+	// 直接从数据库获取Provider配置（使用ProviderID而不是Name）
 	// 允许 active 和 partial 状态的Provider执行任务（与GetAvailableProviders保持一致）
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("name = ? AND (status = ? OR status = ?)", instance.Provider, "active", "partial").First(&dbProvider).Error; err != nil {
-		err := fmt.Errorf("Provider %s 不存在或不可用", instance.Provider)
-		global.APP_LOG.Error("Provider不存在", zap.Uint("taskId", task.ID), zap.String("provider", instance.Provider), zap.Error(err))
+	if err := global.APP_DB.Where("id = ? AND (status = ? OR status = ?)", instance.ProviderID, "active", "partial").First(&dbProvider).Error; err != nil {
+		err := fmt.Errorf("Provider ID %d 不存在或不可用", instance.ProviderID)
+		global.APP_LOG.Error("Provider不存在", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Error(err))
 		return err
 	}
 
 	// 检查Provider是否过期或冻结
 	if dbProvider.IsFrozen {
-		err := fmt.Errorf("Provider %s 已被冻结", instance.Provider)
-		global.APP_LOG.Error("Provider已冻结", zap.Uint("taskId", task.ID), zap.String("provider", instance.Provider))
+		err := fmt.Errorf("Provider ID %d 已被冻结", instance.ProviderID)
+		global.APP_LOG.Error("Provider已冻结", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID))
 		return err
 	}
 
 	if dbProvider.ExpiresAt != nil && dbProvider.ExpiresAt.Before(time.Now()) {
-		err := fmt.Errorf("Provider %s 已过期", instance.Provider)
-		global.APP_LOG.Error("Provider已过期", zap.Uint("taskId", task.ID), zap.String("provider", instance.Provider), zap.Time("expiresAt", *dbProvider.ExpiresAt))
+		err := fmt.Errorf("Provider ID %d 已过期", instance.ProviderID)
+		global.APP_LOG.Error("Provider已过期", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Time("expiresAt", *dbProvider.ExpiresAt))
 		return err
 	}
 
 	// 实现实际的Provider API调用逻辑
-	// 首先尝试从ProviderService获取已连接的Provider实例
+	// 首先尝试从ProviderService获取已连接的Provider实例（使用ID）
 	providerSvc := providerService.GetProviderService()
-	providerInstance, exists := providerSvc.GetProvider(instance.Provider)
+	providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID)
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.String("provider", instance.Provider))
+		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.Uint("providerId", instance.ProviderID), zap.String("name", dbProvider.Name))
 		if err := providerSvc.LoadProvider(dbProvider); err != nil {
-			global.APP_LOG.Error("动态加载Provider失败", zap.String("provider", instance.Provider), zap.Error(err))
-			err := fmt.Errorf("Provider %s 连接失败: %v", instance.Provider, err)
+			global.APP_LOG.Error("动态加载Provider失败", zap.Uint("providerId", instance.ProviderID), zap.String("name", dbProvider.Name), zap.Error(err))
+			err := fmt.Errorf("Provider ID %d 连接失败: %v", instance.ProviderID, err)
 			return err
 		}
 
 		// 重新获取Provider实例
-		providerInstance, exists = providerSvc.GetProvider(instance.Provider)
+		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 		if !exists {
-			err := fmt.Errorf("Provider %s 连接后仍然不可用", instance.Provider)
-			global.APP_LOG.Error("Provider连接后仍然不可用", zap.Uint("taskId", task.ID), zap.String("provider", instance.Provider))
+			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", instance.ProviderID)
+			global.APP_LOG.Error("Provider连接后仍然不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID))
 			return err
 		}
 	}
@@ -862,7 +862,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		// 尝试获取IPv4和IPv6地址（针对LXD、Incus和Proxmox Provider）
 		if actualInstance != nil {
 			providerSvc := providerService.GetProviderService()
-			if providerInstance, exists := providerSvc.GetProvider(instance.Provider); exists {
+			if providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID); exists {
 				if dbProvider.Type == "lxd" {
 					if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
 						// 获取内网IPv4地址

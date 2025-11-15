@@ -950,7 +950,7 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 	// 使用新的健康检查系统
 	healthChecker := health.NewProviderHealthChecker(global.APP_LOG)
 
-	var sshStatus, apiStatus string
+	var sshStatus, apiStatus, hostName string
 	var err error
 
 	// 如果Provider已自动配置，可以尝试进行API检查
@@ -958,8 +958,8 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 		configService := &provider2.ProviderConfigService{}
 		authConfig, configErr := configService.LoadProviderConfig(provider.ID)
 		if configErr == nil {
-			// 使用认证配置执行完整健康检查（包含API检查）
-			sshStatus, apiStatus, err = images.CheckProviderHealthWithConfig(
+			// 使用认证配置执行完整健康检查（包含API检查），并获取主机名
+			sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfig(
 				ctx, provider.Type, host, provider.Username, provider.Password, provider.SSHKey, sshPort, authConfig)
 		} else {
 			// 配置加载失败，只进行SSH检查
@@ -1015,12 +1015,21 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 			provider.ResourceSynced = true
 			provider.ResourceSyncedAt = resourceInfo.SyncedAt
 
+			// 更新主机名（如果资源信息中包含）
+			if resourceInfo.HostName != "" {
+				provider.HostName = resourceInfo.HostName
+				global.APP_LOG.Info("从资源同步中获取主机名",
+					zap.String("provider", provider.Name),
+					zap.String("hostName", resourceInfo.HostName))
+			}
+
 			global.APP_LOG.Info("节点资源信息同步成功",
 				zap.String("provider", provider.Name),
 				zap.Int("cpu_cores", resourceInfo.CPUCores),
 				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal+resourceInfo.SwapTotal),
 				zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
-				zap.Int64("disk_total_mb", resourceInfo.DiskTotal))
+				zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
+				zap.String("hostName", resourceInfo.HostName))
 		}
 	}
 
@@ -1029,6 +1038,15 @@ func (s *Service) CheckProviderHealth(providerID uint) error {
 	provider.APIStatus = apiStatus
 	provider.LastSSHCheck = &now
 	provider.LastAPICheck = &now
+
+	// 更新主机名（如果获取到了）
+	if hostName != "" && provider.HostName != hostName {
+		global.APP_LOG.Info("更新Provider主机名",
+			zap.String("provider", provider.Name),
+			zap.String("oldHostName", provider.HostName),
+			zap.String("newHostName", hostName))
+		provider.HostName = hostName
+	}
 
 	// 更新整体状态
 	if sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown") {

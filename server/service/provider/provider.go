@@ -17,7 +17,7 @@ import (
 
 // ProviderService 管理已配置的Provider实例
 type ProviderService struct {
-	providers map[string]provider.Provider // key: providers name, value: providers instance
+	providers map[uint]provider.Provider // key: provider ID, value: provider instance
 	mutex     sync.RWMutex
 }
 
@@ -30,7 +30,7 @@ var (
 func GetProviderService() *ProviderService {
 	providerServiceOnce.Do(func() {
 		providerServiceInstance = &ProviderService{
-			providers: make(map[string]provider.Provider),
+			providers: make(map[uint]provider.Provider),
 		}
 	})
 	return providerServiceInstance
@@ -124,6 +124,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		ExecutionRule:         dbProvider.ExecutionRule,
 		SSHConnectTimeout:     dbProvider.SSHConnectTimeout,
 		SSHExecuteTimeout:     dbProvider.SSHExecuteTimeout,
+		HostName:              dbProvider.HostName, // 传递数据库中存储的主机名，避免动态获取导致的节点混淆
 		// 资源限制配置
 		ContainerLimitCPU:    dbProvider.ContainerLimitCPU,
 		ContainerLimitMemory: dbProvider.ContainerLimitMemory,
@@ -177,29 +178,47 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 	if err := prov.Connect(ctx, config); err != nil {
 		global.APP_LOG.Error("连接Provider失败",
 			zap.String("name", dbProvider.Name),
+			zap.Uint("id", dbProvider.ID),
 			zap.String("type", dbProvider.Type),
 			zap.Error(err))
 		return err
 	}
 
-	// 存储Provider实例
-	ps.providers[dbProvider.Name] = prov
+	// 存储Provider实例（使用ID作为key）
+	ps.mutex.Lock()
+	ps.providers[dbProvider.ID] = prov
+	ps.mutex.Unlock()
 
 	global.APP_LOG.Info("Provider加载成功",
 		zap.String("name", dbProvider.Name),
+		zap.Uint("id", dbProvider.ID),
 		zap.String("type", dbProvider.Type),
 		zap.Bool("autoConfigured", dbProvider.AutoConfigured))
 
 	return nil
 }
 
-// GetProvider 获取已加载的Provider
+// GetProviderByID 根据ID获取已加载的Provider（推荐使用）
+func (ps *ProviderService) GetProviderByID(id uint) (provider.Provider, bool) {
+	ps.mutex.RLock()
+	defer ps.mutex.RUnlock()
+
+	prov, exists := ps.providers[id]
+	return prov, exists
+}
+
+// GetProvider 根据名称获取已加载的Provider（通过遍历查找）
+// 注意：由于需要遍历，性能不如 GetProviderByID，推荐优先使用 GetProviderByID
 func (ps *ProviderService) GetProvider(name string) (provider.Provider, bool) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
-	prov, exists := ps.providers[name]
-	return prov, exists
+	for _, prov := range ps.providers {
+		if prov.GetName() == name {
+			return prov, true
+		}
+	}
+	return nil, false
 }
 
 // GetProviderByType 获取指定类型的第一个Provider
@@ -222,79 +241,87 @@ func (ps *ProviderService) GetProviderByType(providerType string) (provider.Prov
 }
 
 // ReloadProvider 重新加载指定的Provider
-func (ps *ProviderService) ReloadProvider(name string) error {
+func (ps *ProviderService) ReloadProvider(providerID uint) error {
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", name).First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return err
 	}
 
 	// 断开旧连接
-	ps.RemoveProvider(name)
+	ps.RemoveProvider(providerID)
 
 	// 重新加载
 	return ps.LoadProvider(dbProvider)
 }
 
 // RemoveProvider 移除Provider
-func (ps *ProviderService) RemoveProvider(name string) {
+func (ps *ProviderService) RemoveProvider(providerID uint) {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
 
-	if prov, exists := ps.providers[name]; exists {
+	if prov, exists := ps.providers[providerID]; exists {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 
 		if err := prov.Disconnect(ctx); err != nil {
 			global.APP_LOG.Warn("断开Provider连接失败",
-				zap.String("name", name),
+				zap.Uint("id", providerID),
+				zap.String("name", prov.GetName()),
 				zap.Error(err))
 		}
 
-		delete(ps.providers, name)
-		global.APP_LOG.Info("Provider已移除", zap.String("name", name))
+		delete(ps.providers, providerID)
+		global.APP_LOG.Info("Provider已移除",
+			zap.Uint("id", providerID),
+			zap.String("name", prov.GetName()))
 	}
 }
 
-// ListProviders 列出所有已加载的Providers
-func (ps *ProviderService) ListProviders() []string {
+// ListProviders 列出所有已加载的Providers的ID
+func (ps *ProviderService) ListProviders() []uint {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
 
-	var names []string
-	for name := range ps.providers {
-		names = append(names, name)
+	var ids []uint
+	for id := range ps.providers {
+		ids = append(ids, id)
 	}
-	return names
+	return ids
 }
 
 // SetInstancePassword 设置实例密码
 func (ps *ProviderService) SetInstancePassword(ctx context.Context, providerID uint, instanceName, password string) error {
 	// 获取Provider信息
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", providerID).First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return fmt.Errorf("获取Provider信息失败: %v", err)
 	}
 
 	// 获取Provider实例，如果不存在则尝试连接
 	ps.mutex.RLock()
-	prov, exists := ps.providers[dbProvider.Name]
+	prov, exists := ps.providers[dbProvider.ID]
 	ps.mutex.RUnlock()
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.String("provider", dbProvider.Name))
+		global.APP_LOG.Info("Provider未连接，尝试动态加载",
+			zap.Uint("id", dbProvider.ID),
+			zap.String("name", dbProvider.Name))
 		if err := ps.LoadProvider(dbProvider); err != nil {
-			global.APP_LOG.Error("动态加载Provider失败", zap.String("provider", dbProvider.Name), zap.Error(err))
-			return fmt.Errorf("Provider %s 连接失败: %v", dbProvider.Name, err)
+			global.APP_LOG.Error("动态加载Provider失败",
+				zap.Uint("id", dbProvider.ID),
+				zap.String("name", dbProvider.Name),
+				zap.Error(err))
+			return fmt.Errorf("Provider ID %d 连接失败: %v", dbProvider.ID, err)
 		}
 
 		// 重新获取Provider实例
 		ps.mutex.RLock()
-		prov, exists = ps.providers[dbProvider.Name]
+		prov, exists = ps.providers[dbProvider.ID]
 		ps.mutex.RUnlock()
 
 		if !exists {
-			return fmt.Errorf("Provider %s 连接后仍然不可用", dbProvider.Name)
+			return fmt.Errorf("Provider ID %d 连接后仍然不可用", dbProvider.ID)
 		}
 	}
 
@@ -306,30 +333,35 @@ func (ps *ProviderService) SetInstancePassword(ctx context.Context, providerID u
 func (ps *ProviderService) ResetInstancePassword(ctx context.Context, providerID uint, instanceName string) (string, error) {
 	// 获取Provider信息
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", providerID).First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
 		return "", fmt.Errorf("获取Provider信息失败: %v", err)
 	}
 
 	// 获取Provider实例，如果不存在则尝试连接
 	ps.mutex.RLock()
-	prov, exists := ps.providers[dbProvider.Name]
+	prov, exists := ps.providers[dbProvider.ID]
 	ps.mutex.RUnlock()
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.String("provider", dbProvider.Name))
+		global.APP_LOG.Info("Provider未连接，尝试动态加载",
+			zap.Uint("id", dbProvider.ID),
+			zap.String("name", dbProvider.Name))
 		if err := ps.LoadProvider(dbProvider); err != nil {
-			global.APP_LOG.Error("动态加载Provider失败", zap.String("provider", dbProvider.Name), zap.Error(err))
-			return "", fmt.Errorf("Provider %s 连接失败: %v", dbProvider.Name, err)
+			global.APP_LOG.Error("动态加载Provider失败",
+				zap.Uint("id", dbProvider.ID),
+				zap.String("name", dbProvider.Name),
+				zap.Error(err))
+			return "", fmt.Errorf("Provider ID %d 连接失败: %v", dbProvider.ID, err)
 		}
 
 		// 重新获取Provider实例
 		ps.mutex.RLock()
-		prov, exists = ps.providers[dbProvider.Name]
+		prov, exists = ps.providers[dbProvider.ID]
 		ps.mutex.RUnlock()
 
 		if !exists {
-			return "", fmt.Errorf("Provider %s 连接后仍然不可用", dbProvider.Name)
+			return "", fmt.Errorf("Provider ID %d 连接后仍然不可用", dbProvider.ID)
 		}
 	}
 

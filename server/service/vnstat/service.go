@@ -77,6 +77,7 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 			NetworkType:       providerInfo.NetworkType,
 			SSHConnectTimeout: providerInfo.SSHConnectTimeout,
 			SSHExecuteTimeout: providerInfo.SSHExecuteTimeout,
+			HostName:          providerInfo.HostName, // 传递主机名，避免节点混淆
 		}
 
 		ctx, cancel := s.getContextWithTimeout(providerInfo.ID, false)
@@ -452,6 +453,7 @@ func (s *Service) CleanupVnStatData(instanceID uint) error {
 							PrivateKey:  providerInfo.SSHKey,
 							Type:        providerInfo.Type,
 							NetworkType: providerInfo.NetworkType,
+							HostName:    providerInfo.HostName, // 传递主机名
 						}
 
 						if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
@@ -575,6 +577,7 @@ func (s *Service) GetVnStatSummaryByInstanceID(instanceID uint, interfaceName st
 			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
+			HostName:    providerInfo.HostName, // 传递主机名
 		}
 
 		if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
@@ -634,6 +637,7 @@ func (s *Service) QueryVnStatData(instanceID uint, interfaceName, dateRange stri
 			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
+			HostName:    providerInfo.HostName, // 传递主机名
 		}
 
 		if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
@@ -728,6 +732,7 @@ func (s *Service) GetVnStatDashboardData(instanceID uint) (interface{}, error) {
 			PrivateKey:  providerInfo.SSHKey,
 			Type:        providerInfo.Type,
 			NetworkType: providerInfo.NetworkType,
+			HostName:    providerInfo.HostName, // 传递主机名
 		}
 
 		if err := providerInstance.Connect(context.Background(), nodeConfig); err != nil {
