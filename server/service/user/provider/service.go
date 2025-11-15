@@ -817,18 +817,32 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		// 获取Provider信息以设置公网IP
 		var dbProvider providerModel.Provider
 		if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err == nil {
-			// 从Provider的Endpoint中提取公网IP
-			if endpoint := dbProvider.Endpoint; endpoint != "" {
+			// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
+			// 如果PortIP为空，则使用Endpoint（SSH连接地址）
+			publicIPSource := dbProvider.PortIP
+			if publicIPSource == "" {
+				publicIPSource = dbProvider.Endpoint
+			}
+
+			// 从IP源中提取纯IP地址
+			if publicIPSource != "" {
 				// 移除端口号获取纯IP地址
-				if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
-					if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
-						instanceUpdates["public_ip"] = endpoint // IPv6格式
+				if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
+					if strings.Count(publicIPSource, ":") > 1 && !strings.HasPrefix(publicIPSource, "[") {
+						instanceUpdates["public_ip"] = publicIPSource // IPv6格式
 					} else {
-						instanceUpdates["public_ip"] = endpoint[:colonIndex] // IPv4格式，移除端口
+						instanceUpdates["public_ip"] = publicIPSource[:colonIndex] // IPv4格式，移除端口
 					}
 				} else {
-					instanceUpdates["public_ip"] = endpoint
+					instanceUpdates["public_ip"] = publicIPSource
 				}
+
+				global.APP_LOG.Info("设置实例公网IP",
+					zap.String("instanceName", instance.Name),
+					zap.String("portIP", dbProvider.PortIP),
+					zap.String("endpoint", dbProvider.Endpoint),
+					zap.String("publicIPSource", publicIPSource),
+					zap.Any("publicIP", instanceUpdates["public_ip"]))
 			}
 		}
 

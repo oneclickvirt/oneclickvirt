@@ -89,8 +89,13 @@ func GetPortMappingList(c *gin.Context) {
 		var providerInfo provider.Provider
 		if err := global.APP_DB.Where("id = ?", port.ProviderID).First(&providerInfo).Error; err == nil {
 			providerName = providerInfo.Name
+			// 优先使用PortIP，如果为空则使用Endpoint
+			ipSource := providerInfo.PortIP
+			if ipSource == "" {
+				ipSource = providerInfo.Endpoint
+			}
 			// 提取纯IP地址，移除端口号
-			publicIP = extractIPFromEndpoint(providerInfo.Endpoint)
+			publicIP = extractIPFromEndpoint(ipSource)
 		}
 
 		formattedPorts[i] = map[string]interface{}{

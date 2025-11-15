@@ -79,21 +79,26 @@ func GetInstancePorts(c *gin.Context) {
 	var providerInfo provider.Provider
 	var publicIP string
 	if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
-		// 处理Endpoint，移除端口号部分
-		endpoint := providerInfo.Endpoint
-		if endpoint != "" {
-			// 如果Endpoint包含端口（如 "192.168.1.1:22"），只取IP部分
-			if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
+		// 优先使用PortIP，如果为空则使用Endpoint
+		ipSource := providerInfo.PortIP
+		if ipSource == "" {
+			ipSource = providerInfo.Endpoint
+		}
+
+		// 处理IP源，移除端口号部分
+		if ipSource != "" {
+			// 如果包含端口（如 "192.168.1.1:22"），只取IP部分
+			if colonIndex := strings.LastIndex(ipSource, ":"); colonIndex > 0 {
 				// 检查是否是IPv6地址
-				if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
+				if strings.Count(ipSource, ":") > 1 && !strings.HasPrefix(ipSource, "[") {
 					// IPv6地址处理
-					publicIP = endpoint
+					publicIP = ipSource
 				} else {
 					// IPv4地址，移除端口部分
-					publicIP = endpoint[:colonIndex]
+					publicIP = ipSource[:colonIndex]
 				}
 			} else {
-				publicIP = endpoint
+				publicIP = ipSource
 			}
 		}
 	}

@@ -91,20 +91,27 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
 				providerType = providerInfo.Type
 				providerStatus = providerInfo.Status
-				endpoint := providerInfo.Endpoint
-				if endpoint != "" {
+
+				// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
+				// 如果PortIP为空，则使用Endpoint（SSH连接地址）
+				ipSource := providerInfo.PortIP
+				if ipSource == "" {
+					ipSource = providerInfo.Endpoint
+				}
+
+				if ipSource != "" {
 					// 移除端口号部分，只保留IP
-					if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
+					if colonIndex := strings.LastIndex(ipSource, ":"); colonIndex > 0 {
 						// 检查是否是IPv6地址
-						if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
+						if strings.Count(ipSource, ":") > 1 && !strings.HasPrefix(ipSource, "[") {
 							// IPv6地址
-							publicIP = endpoint
+							publicIP = ipSource
 						} else {
 							// IPv4地址，移除端口部分
-							publicIP = endpoint[:colonIndex]
+							publicIP = ipSource[:colonIndex]
 						}
 					} else {
-						publicIP = endpoint
+						publicIP = ipSource
 					}
 				}
 
