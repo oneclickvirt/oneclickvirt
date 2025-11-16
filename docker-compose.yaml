@@ -21,7 +21,7 @@ services:
       - default
 
   mysql:
-    image: mysql:5.7
+    image: mariadb:10.11
     container_name: mysql
     restart: always
     ports:
