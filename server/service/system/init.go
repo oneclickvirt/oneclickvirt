@@ -290,6 +290,17 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 		return fmt.Errorf("写入配置文件失败: %v", err)
 	}
 
+	global.APP_LOG.Info("数据库配置已成功写入文件",
+		zap.String("host", dbConfig.Host),
+		zap.Int("port", dbConfig.Port),
+		zap.String("database", dbConfig.Database))
+
+	// 立即重新加载配置到内存
+	if err := s.reloadConfig(); err != nil {
+		global.APP_LOG.Warn("重新加载配置失败", zap.Error(err))
+		// 不返回错误，因为配置文件已经写入成功
+	}
+
 	return nil
 }
 
@@ -416,6 +427,11 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 
 // ReinitializeDatabase 重新初始化数据库连接
 func (s *InitService) ReinitializeDatabase() error {
+	// 强制重新加载配置文件到 global.APP_CONFIG
+	if err := s.reloadConfig(); err != nil {
+		global.APP_LOG.Warn("重新加载配置失败，尝试从文件直接读取", zap.Error(err))
+	}
+
 	// 读取配置文件获取最新的数据库配置
 	configPath := "./config.yaml"
 	configData, err := os.ReadFile(configPath)
@@ -440,6 +456,12 @@ func (s *InitService) ReinitializeDatabase() error {
 	username, _ := mysqlConfig["username"].(string)
 	password, _ := mysqlConfig["password"].(string)
 	config, _ := mysqlConfig["config"].(string)
+
+	// 记录读取到的数据库配置，用于调试
+	global.APP_LOG.Info("从配置文件读取到的数据库配置",
+		zap.String("host", host),
+		zap.String("dbname", dbname),
+		zap.String("username", username))
 
 	// 处理端口字段，支持字符串和数字两种类型
 	var portStr string
@@ -490,5 +512,22 @@ func (s *InitService) ReinitializeDatabase() error {
 	global.APP_DB = db
 	global.APP_LOG.Info("数据库连接已更新")
 
+	return nil
+}
+
+// reloadConfig 重新加载配置文件到 global.APP_CONFIG
+func (s *InitService) reloadConfig() error {
+	configPath := "./config.yaml"
+	configData, err := os.ReadFile(configPath)
+	if err != nil {
+		return fmt.Errorf("读取配置文件失败: %v", err)
+	}
+
+	// 解析配置到 global.APP_CONFIG
+	if err := yaml.Unmarshal(configData, &global.APP_CONFIG); err != nil {
+		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+
+	global.APP_LOG.Info("配置已从文件重新加载")
 	return nil
 }
