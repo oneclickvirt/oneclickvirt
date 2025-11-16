@@ -40,7 +40,7 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		config.ConnectTimeout = 30 * time.Second // 增加到30秒，适应Docker容器网络环境
 	}
 	if config.ExecuteTimeout == 0 {
-		config.ExecuteTimeout = 300 * time.Second // 5分钟执行超时，足够处理复杂配置
+		config.ExecuteTimeout = 200 * time.Second // 执行超时，避免长时间阻塞
 	}
 
 	global.APP_LOG.Debug("SSH客户端连接配置",

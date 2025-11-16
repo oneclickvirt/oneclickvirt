@@ -101,9 +101,23 @@ func (p *ProxmoxProvider) checkIPv6Environment(ctx context.Context) error {
 
 // checkBasicIPv6Environment 检查基础IPv6环境
 func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
+	// 首先检查宿主机是否有公网IPv6地址
+	checkHostIPv6Cmd := "ip -6 addr show | grep 'inet6.*global' | head -n 1"
+	output, err := p.sshClient.Execute(checkHostIPv6Cmd)
+	if err != nil || strings.TrimSpace(output) == "" {
+		global.APP_LOG.Warn("宿主机没有公网IPv6地址",
+			zap.String("provider", p.config.Name),
+			zap.Error(err))
+		return fmt.Errorf("宿主机没有公网IPv6地址，无法开设带IPv6的服务")
+	}
+
+	global.APP_LOG.Info("宿主机IPv6地址检查通过",
+		zap.String("provider", p.config.Name),
+		zap.String("ipv6Info", strings.TrimSpace(output)))
+
 	// 检查IPv6地址文件是否存在
 	checkIPv6Cmd := "[ -f /usr/local/bin/pve_check_ipv6 ]"
-	_, err := p.sshClient.Execute(checkIPv6Cmd)
+	_, err = p.sshClient.Execute(checkIPv6Cmd)
 	if err != nil {
 		return fmt.Errorf("没有IPv6地址用于开设带独立IPv6地址的服务")
 	}
@@ -117,7 +131,7 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 
 	// 检查ndpresponder服务状态
 	checkServiceCmd := "systemctl is-active ndpresponder.service"
-	output, err := p.sshClient.Execute(checkServiceCmd)
+	output, err = p.sshClient.Execute(checkServiceCmd)
 	if err != nil || strings.TrimSpace(output) != "active" {
 		return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
 	}

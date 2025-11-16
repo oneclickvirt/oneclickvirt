@@ -253,8 +253,8 @@ func (l *LXDProvider) forceRestartContainer(instanceName string) error {
 func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 	global.APP_LOG.Info("等待虚拟机网络就绪", zap.String("instanceName", instanceName))
 
-	maxRetries := 20 // 增加重试次数
-	delay := 15      // 虚拟机需要更长的启动时间
+	maxRetries := 8 // 增加重试次数
+	delay := 15     // 虚拟机需要更长的启动时间
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		global.APP_LOG.Info("等待虚拟机启动并获取IP地址",

@@ -544,6 +544,19 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 		zap.String("container", containerName),
 		zap.String("portMappingMethod", portMappingMethod))
 
+	// 首先检查宿主机是否有公网IPv6地址
+	hostIPv6, err := i.checkIPv6(ctx)
+	if err != nil {
+		global.APP_LOG.Warn("宿主机不支持IPv6，自动跳过IPv6配置",
+			zap.String("container", containerName),
+			zap.Error(err))
+		return nil // 宿主机不支持IPv6时，静默跳过IPv6配置，不返回错误
+	}
+
+	global.APP_LOG.Info("宿主机IPv6环境检查通过",
+		zap.String("container", containerName),
+		zap.String("hostIPv6", hostIPv6))
+
 	// 获取IPv6网关信息
 	gatewayInfo, err := i.getIPv6GatewayInfo(ctx)
 	if err != nil {

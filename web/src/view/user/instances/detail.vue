@@ -1135,8 +1135,14 @@ const getStatusType = (status) => {
     'running': 'success',
     'stopped': 'info',
     'paused': 'warning',
+    'starting': 'warning',
+    'stopping': 'warning',
+    'restarting': 'warning',
+    'resetting': 'warning',
+    'processing': 'warning',
     'unavailable': 'danger',
-    'error': 'danger'
+    'error': 'danger',
+    'failed': 'danger'
   }
   return statusMap[status] || 'info'
 }
@@ -1147,8 +1153,14 @@ const getStatusText = (status) => {
     'running': t('user.instanceDetail.statusRunning'),
     'stopped': t('user.instanceDetail.statusStopped'),
     'paused': t('user.instanceDetail.statusPaused'),
+    'starting': t('user.instanceDetail.statusStarting'),
+    'stopping': t('user.instanceDetail.statusStopping'),
+    'restarting': t('user.instanceDetail.statusRestarting'),
+    'resetting': t('user.instanceDetail.statusResetting'),
+    'processing': t('user.instanceDetail.statusProcessing'),
     'unavailable': t('user.instanceDetail.statusUnavailable'),
-    'error': t('user.instanceDetail.statusError')
+    'error': t('user.instanceDetail.statusError'),
+    'failed': t('user.instanceDetail.statusFailed')
   }
   return statusMap[status] || status
 }

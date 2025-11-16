@@ -25,6 +25,7 @@ import (
 	"oneclickvirt/service/vnstat"
 
 	"go.uber.org/zap"
+	"golang.org/x/crypto/ssh"
 	"gorm.io/gorm"
 )
 
@@ -885,8 +886,23 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 			// SSH端口使用默认值22
 			instanceUpdates["ssh_port"] = 22
+			// 标准化实例状态：将Provider返回的各种运行状态统一为"running"
 			if actualInstance.Status != "" {
-				instanceUpdates["status"] = actualInstance.Status
+				// 将Provider返回的状态转换为小写进行比较
+				providerStatus := strings.ToLower(actualInstance.Status)
+				// 如果Provider返回的是运行状态（running/active），统一设置为running
+				// 其他状态（如stopped）保持原样
+				if providerStatus == "running" || providerStatus == "active" {
+					instanceUpdates["status"] = "running"
+				} else if providerStatus == "stopped" {
+					instanceUpdates["status"] = "stopped"
+				} else {
+					// 对于其他未知状态，记录日志但保持默认的running状态
+					global.APP_LOG.Warn("Provider返回了非标准状态",
+						zap.String("instanceName", instance.Name),
+						zap.String("providerStatus", actualInstance.Status))
+					// 保持默认的running状态
+				}
 			}
 		} else {
 			// 使用默认值
@@ -1155,14 +1171,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					}
 				}
 			}()
-			// 等待容器完全启动 - 增加等待时间确保容器充分初始化
-			time.Sleep(45 * time.Second)
+
 			// 在开始后处理前，检查任务状态，确保没有被其他地方标记为失败
 			var currentTask adminModel.Task
 			if err := global.APP_DB.Where("id = ?", taskID).First(&currentTask).Error; err != nil {
 				global.APP_LOG.Error("获取任务状态失败，跳过后处理", zap.Uint("taskId", taskID), zap.Error(err))
 				return
 			}
+
 			// 如果任务状态不是running，说明任务已经被其他地方处理（可能失败了），跳过后处理
 			if currentTask.Status != "running" {
 				global.APP_LOG.Info("任务状态已非running，跳过后处理任务",
@@ -1172,10 +1188,21 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 			global.APP_LOG.Info("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
 
-			// 更新进度到65% (配置端口映射)
-			s.updateTaskProgress(taskID, 65, "正在配置端口映射...")
+			// 更新进度到62% (等待实例SSH服务就绪)
+			s.updateTaskProgress(taskID, 62, "等待实例SSH服务就绪...")
 
-			// 1. 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
+			// 智能等待实例SSH服务就绪，传入taskID以便更新进度
+			if err := s.waitForInstanceSSHReady(instanceID, providerID, taskID, 120*time.Second); err != nil {
+				global.APP_LOG.Warn("等待实例SSH就绪超时",
+					zap.Uint("instanceId", instanceID),
+					zap.Error(err))
+				// 继续执行，但后续SSH相关操作可能失败
+			}
+
+			// 更新进度到70% (配置端口映射)
+			s.updateTaskProgress(taskID, 70, "正在配置端口映射...")
+
+			// 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
 			portMappingService := &resources.PortMappingService{}
 
 			// 检查是否已经有端口映射（Docker在创建前已分配）
@@ -1196,8 +1223,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Int("existingPortCount", len(existingPorts)))
 			}
 
-			// 更新进度到75% (初始化监控)
-			s.updateTaskProgress(taskID, 75, "正在初始化vnStat监控...")
+			// 更新进度到78% (初始化监控)
+			s.updateTaskProgress(taskID, 78, "正在初始化vnStat监控...")
 
 			// 2. 初始化vnStat监控
 			vnstatService := &vnstat.Service{}
@@ -1212,9 +1239,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				vnstatInitSuccess = true
 			}
 
-			// 更新进度到85% (设置SSH密码)
-			s.updateTaskProgress(taskID, 85, "正在设置SSH密码...")
-
+			// 更新进度到86% (设置SSH密码)
+			s.updateTaskProgress(taskID, 86, "正在设置SSH密码...")
 			// 3. 设置实例SSH密码（关键步骤）
 			var currentInstance providerModel.Instance
 			var passwordSetSuccess bool = false
@@ -1223,19 +1249,25 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
 			} else if currentInstance.Password != "" {
-				// 设置实例SSH密码，重试机制确保成功
+				// 设置实例SSH密码，最多重试2次（总共2次尝试）
 				providerSvc := providerService.GetProviderService()
-				maxRetries := 3
+				maxRetries := 2
 				for i := 0; i < maxRetries; i++ {
-					if err := providerSvc.SetInstancePassword(context.Background(), currentInstance.ProviderID, currentInstance.Name, currentInstance.Password); err != nil {
-						global.APP_LOG.Warn("设置实例SSH密码失败，正在重试",
+					// 创建带2分钟超时的context
+					ctxWithTimeout, cancel := context.WithTimeout(context.Background(), 200*time.Second)
+					err := providerSvc.SetInstancePassword(ctxWithTimeout, currentInstance.ProviderID, currentInstance.Name, currentInstance.Password)
+					cancel() // 立即释放context资源
+					if err != nil {
+						global.APP_LOG.Warn("设置实例SSH密码失败",
 							zap.Uint("instanceId", instanceID),
 							zap.String("instanceName", currentInstance.Name),
 							zap.Int("attempt", i+1),
 							zap.Int("maxRetries", maxRetries),
 							zap.Error(err))
 						if i < maxRetries-1 {
-							time.Sleep(15 * time.Second) // 增加重试间隔到15秒
+							global.APP_LOG.Info("等待10秒后重试设置SSH密码",
+								zap.Uint("instanceId", instanceID))
+							time.Sleep(10 * time.Second) // 重试间隔10秒
 						}
 					} else {
 						global.APP_LOG.Info("实例SSH密码设置成功",
@@ -1247,8 +1279,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
-			// 更新进度到90% (配置网络监控)
-			s.updateTaskProgress(taskID, 90, "正在配置网络监控...")
+			// 更新进度到92% (配置网络监控)
+			s.updateTaskProgress(taskID, 92, "正在配置网络监控...")
 
 			// 4. 自动检测并设置vnstat接口（仅在vnStat初始化成功时执行）
 			if vnstatInitSuccess {
@@ -1266,8 +1298,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					zap.Uint("instanceId", instanceID))
 			}
 
-			// 更新进度到95%
-			s.updateTaskProgress(taskID, 95, "正在启动流量同步...")
+			// 更新进度到96%
+			s.updateTaskProgress(taskID, 96, "正在启动流量同步...")
 
 			// 5. 触发流量同步（仅在vnStat初始化成功时执行）
 			if vnstatInitSuccess {
@@ -1308,4 +1340,120 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	}
 	global.APP_LOG.Info("实例创建最终化完成", zap.Uint("taskId", task.ID))
 	return nil
+}
+
+// waitForInstanceSSHReady 智能等待实例SSH服务就绪
+// 通过轮询检查SSH端口是否可连接，而不是盲目等待固定时间
+func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, maxWaitTime time.Duration) error {
+	// 获取实例信息
+	var instance providerModel.Instance
+	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
+		return fmt.Errorf("获取实例信息失败: %w", err)
+	}
+
+	// 获取Provider信息
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	// 获取SSH端口映射
+	var sshPort int
+	var sshPortMapping providerModel.Port
+	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
+		sshPort = sshPortMapping.HostPort
+	} else {
+		sshPort = instance.SSHPort
+		if sshPort == 0 {
+			sshPort = 22 // 默认端口
+		}
+	}
+
+	// 确定SSH连接地址
+	var sshHost string
+	if provider.PortIP != "" {
+		sshHost = provider.PortIP
+	} else {
+		sshHost = provider.Endpoint
+	}
+
+	// 如果sshHost包含端口，去掉端口部分
+	if colonIndex := strings.LastIndex(sshHost, ":"); colonIndex > 0 {
+		if strings.Count(sshHost, ":") == 1 || strings.HasPrefix(sshHost, "[") {
+			sshHost = sshHost[:colonIndex]
+		}
+	}
+
+	global.APP_LOG.Info("开始等待实例SSH服务就绪",
+		zap.Uint("instanceId", instanceID),
+		zap.String("instanceName", instance.Name),
+		zap.String("sshHost", sshHost),
+		zap.Int("sshPort", sshPort),
+		zap.Duration("maxWaitTime", maxWaitTime))
+
+	checkInterval := 5 * time.Second
+	startTime := time.Now()
+	attemptCount := 0
+
+	// 进度范围：62% - 68%，根据等待时间百分比更新
+	progressStart := 62
+	progressEnd := 68
+
+	for {
+		attemptCount++
+		elapsed := time.Since(startTime)
+
+		// 检查是否超时
+		if elapsed >= maxWaitTime {
+			return fmt.Errorf("等待SSH服务超时 (%v), 尝试次数: %d", maxWaitTime, attemptCount)
+		}
+
+		// 计算当前进度（62-68%范围内）
+		progressPercent := float64(elapsed) / float64(maxWaitTime)
+		currentProgress := progressStart + int(float64(progressEnd-progressStart)*progressPercent)
+		if currentProgress > progressEnd {
+			currentProgress = progressEnd
+		}
+
+		// 更新进度和消息
+		waitMsg := fmt.Sprintf("等待实例SSH服务就绪... (尝试 %d次, 已等待 %ds)", attemptCount, int(elapsed.Seconds()))
+		s.updateTaskProgress(taskID, currentProgress, waitMsg)
+
+		// 尝试连接SSH
+		address := fmt.Sprintf("%s:%d", sshHost, sshPort)
+		config := &ssh.ClientConfig{
+			User: instance.Username,
+			Auth: []ssh.AuthMethod{
+				ssh.Password(instance.Password),
+			},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+			Timeout:         5 * time.Second,
+		}
+
+		client, err := ssh.Dial("tcp", address, config)
+		if err == nil {
+			// SSH连接成功
+			client.Close()
+			global.APP_LOG.Info("实例SSH服务已就绪",
+				zap.Uint("instanceId", instanceID),
+				zap.String("instanceName", instance.Name),
+				zap.Duration("waitTime", elapsed),
+				zap.Int("attempts", attemptCount))
+
+			// 确保进度达到68%
+			s.updateTaskProgress(taskID, progressEnd, "实例SSH服务已就绪")
+			return nil
+		}
+
+		// 连接失败，记录日志并等待重试
+		global.APP_LOG.Debug("等待实例SSH就绪",
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", instance.Name),
+			zap.Int("attempt", attemptCount),
+			zap.Duration("elapsed", elapsed),
+			zap.String("error", err.Error()))
+
+		// 等待后重试
+		time.Sleep(checkInterval)
+	}
 }
