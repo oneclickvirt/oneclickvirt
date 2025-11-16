@@ -211,7 +211,7 @@
                   v-if="instance.privateIP"
                   class="connection-item"
                 >
-                  <span class="label">{{ t('user.instanceDetail.publicIPv4') }}</span>
+                  <span class="label">{{ t('user.instanceDetail.privateIPv4') }}</span>
                   <div class="value-with-action">
                     <span 
                       class="value ip-value" 

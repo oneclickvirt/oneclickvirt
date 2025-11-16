@@ -509,6 +509,7 @@ export default {
       overview: 'Overview',
       sshConnection: 'SSH Connection',
       publicIPv4: 'Public IPv4',
+      privateIPv4: 'Private IPv4',
       none: 'None',
       copy: 'Copy',
       ipv6: 'IPv6',

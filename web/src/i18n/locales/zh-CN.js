@@ -513,6 +513,7 @@ export default {
       overview: '概览',
       sshConnection: 'SSH连接',
       publicIPv4: '公网IPv4',
+      privateIPv4: '内网IPv4',
       none: '暂无',
       copy: '复制',
       ipv6: 'IPv6',
