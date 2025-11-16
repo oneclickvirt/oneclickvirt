@@ -951,8 +951,8 @@ func (s *AuthService) GenerateCaptcha(width, height int) (*auth.CaptchaResponse,
 	if height <= 0 {
 		height = 40
 	}
-	// 设置验证码配置
-	driver := base64Captcha.NewDriverDigit(height, width, captchaLen, 0.7, 80)
+	// 设置验证码配置难度
+	driver := base64Captcha.NewDriverDigit(height, width, captchaLen, 0.4, 40)
 	// 创建验证码
 	c := base64Captcha.NewCaptcha(driver, base64Captcha.DefaultMemStore)
 	id, b64s, _, err := c.Generate()

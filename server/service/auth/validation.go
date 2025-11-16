@@ -66,9 +66,23 @@ func (s *AuthValidationService) ClassifyLoginError(err error) *common.AppError {
 		return nil
 	}
 
-	errMsg := err.Error()
-	if errMsg == "用户已被禁用，有问题请联系管理员" {
-		return common.NewError(common.CodeUserDisabled, errMsg)
+	// 检查是否是AppError类型
+	if appErr, ok := err.(*common.AppError); ok {
+		return appErr
 	}
-	return common.NewError(common.CodeInvalidCredentials, errMsg)
+
+	errMsg := err.Error()
+
+	// 根据错误信息返回不同的错误码
+	switch {
+	case errMsg == "用户已被禁用，有问题请联系管理员":
+		return common.NewError(common.CodeUserDisabled, errMsg)
+	case errMsg == "验证码错误" || errMsg == "验证码已过期":
+		return common.NewError(common.CodeCaptchaInvalid, errMsg)
+	case errMsg == "请填写验证码":
+		return common.NewError(common.CodeCaptchaRequired, errMsg)
+	default:
+		// 默认返回用户名或密码错误
+		return common.NewError(common.CodeInvalidCredentials, "用户名或密码错误")
+	}
 }
