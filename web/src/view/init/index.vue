@@ -278,6 +278,7 @@
         <el-button
           type="primary"
           :loading="loading"
+          :disabled="loading || !isFormValid"
           style="width: 48%"
           @click="handleInit"
         >
@@ -307,7 +308,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
@@ -458,6 +459,32 @@ const databaseRules = {
     { required: true, message: t('init.validation.dbUsernameRequired'), trigger: 'blur' }
   ]
 }
+
+// 计算属性：检查表单是否填写完整
+const isFormValid = computed(() => {
+  // 检查管理员表单
+  const adminValid = initForm.admin.username && 
+                     initForm.admin.password && 
+                     initForm.admin.confirmPassword && 
+                     initForm.admin.email &&
+                     initForm.admin.password === initForm.admin.confirmPassword
+  
+  // 检查普通用户表单
+  const userValid = initForm.user.username && 
+                    initForm.user.password && 
+                    initForm.user.confirmPassword && 
+                    initForm.user.email &&
+                    initForm.user.password === initForm.user.confirmPassword
+  
+  // 检查数据库配置
+  const dbValid = databaseForm.type && 
+                  databaseForm.host && 
+                  databaseForm.port && 
+                  databaseForm.database && 
+                  databaseForm.username
+  
+  return adminValid && userValid && dbValid
+})
 
 // 创建管理员用户表单验证规则
 
@@ -613,6 +640,12 @@ const testDatabaseConnection = async () => {
 }
 
 const handleInit = async () => {
+  // 防止重复点击
+  if (loading.value) {
+    console.log('初始化正在进行中，忽略重复点击')
+    return
+  }
+  
   try {
     // 验证所有表单
     const validations = [
@@ -648,20 +681,22 @@ const handleInit = async () => {
 
     if (response.code === 0 || response.code === 200) {
       ElMessage.success(t('init.messages.initSuccess'))
+      // 延长等待时间到4.5秒，确保后端数据库重新连接完成（后端需要2秒+处理时间）
       setTimeout(() => {
         router.push('/home')
-      }, 1500)
+      }, 4500)
     } else {
       ElMessage.error(response.msg || t('init.messages.initFailed'))
+      loading.value = false
       startPolling()
     }
   } catch (error) {
     console.error(t('init.messages.initFailed') + ':', error)
     ElMessage.error(t('init.messages.initRetry'))
-    startPolling()
-  } finally {
     loading.value = false
+    startPolling()
   }
+  // 注意：成功时不要在这里设置 loading.value = false，让页面保持loading状态直到跳转
 }
 
 onMounted(async () => {
