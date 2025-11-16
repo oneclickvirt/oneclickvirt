@@ -109,6 +109,13 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '    sendfile on;' >> /etc/nginx/nginx.conf && \
     echo '    keepalive_timeout 65;' >> /etc/nginx/nginx.conf && \
     echo '    gzip on;' >> /etc/nginx/nginx.conf && \
+    echo '    ' >> /etc/nginx/nginx.conf && \
+    echo '    # WebSocket upgrade mapping' >> /etc/nginx/nginx.conf && \
+    echo '    map $http_upgrade $connection_upgrade {' >> /etc/nginx/nginx.conf && \
+    echo '        default upgrade;' >> /etc/nginx/nginx.conf && \
+    echo '        '"''"' close;' >> /etc/nginx/nginx.conf && \
+    echo '    }' >> /etc/nginx/nginx.conf && \
+    echo '    ' >> /etc/nginx/nginx.conf && \
     echo '    server {' >> /etc/nginx/nginx.conf && \
     echo '        listen 80;' >> /etc/nginx/nginx.conf && \
     echo '        server_name localhost;' >> /etc/nginx/nginx.conf && \
@@ -121,12 +128,35 @@ RUN echo 'user www-data;' > /etc/nginx/nginx.conf && \
     echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header REMOTE-HOST $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Proto $scheme;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-Port $server_port;' >> /etc/nginx/nginx.conf && \
+    echo '            ' >> /etc/nginx/nginx.conf && \
+    echo '            # WebSocket support' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Upgrade $http_upgrade;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header Connection $connection_upgrade;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_http_version 1.1;' >> /etc/nginx/nginx.conf && \
+    echo '            ' >> /etc/nginx/nginx.conf && \
+    echo '            # SSL settings' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_ssl_server_name off;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_ssl_name $proxy_host;' >> /etc/nginx/nginx.conf && \
+    echo '            ' >> /etc/nginx/nginx.conf && \
+    echo '            # Timeout settings for SSH connections' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_connect_timeout 60s;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_send_timeout 600s;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_read_timeout 600s;' >> /etc/nginx/nginx.conf && \
+    echo '            ' >> /etc/nginx/nginx.conf && \
+    echo '            # Disable buffering for real-time data' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_buffering off;' >> /etc/nginx/nginx.conf && \
+    echo '            add_header X-Cache $upstream_cache_status;' >> /etc/nginx/nginx.conf && \
+    echo '            add_header Cache-Control no-cache;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location /swagger/ {' >> /etc/nginx/nginx.conf && \
     echo '            proxy_pass http://127.0.0.1:8888;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header Host $host;' >> /etc/nginx/nginx.conf && \
     echo '            proxy_set_header X-Real-IP $remote_addr;' >> /etc/nginx/nginx.conf && \
+    echo '            proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;' >> /etc/nginx/nginx.conf && \
     echo '        }' >> /etc/nginx/nginx.conf && \
     echo '        ' >> /etc/nginx/nginx.conf && \
     echo '        location / {' >> /etc/nginx/nginx.conf && \

@@ -25,6 +25,11 @@ func isAPIPath(path string) bool {
 func SetupRouter() *gin.Engine {
 	Router := gin.Default()
 
+	// 信任所有代理（用于反向代理和Cloudflare Tunnel）
+	// 这样可以正确处理 X-Forwarded-* headers
+	Router.SetTrustedProxies(nil) // nil 表示信任所有代理
+	Router.ForwardedByClientIP = true
+
 	// CORS配置
 	Router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"*"},
