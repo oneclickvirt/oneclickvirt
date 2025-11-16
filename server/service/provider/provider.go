@@ -109,6 +109,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		Name:                  dbProvider.Name,
 		Type:                  dbProvider.Type,
 		Host:                  extractHost(dbProvider.Endpoint),
+		PortIP:                dbProvider.PortIP, // 端口映射使用的公网IP
 		Port:                  sshPort,
 		Username:              dbProvider.Username,
 		Password:              dbProvider.Password,

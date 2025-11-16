@@ -421,6 +421,15 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		return "", fmt.Errorf("启动容器失败: %w", err)
 	}
 
+	// 等待容器网络就绪后再进行后续配置
+	global.APP_LOG.Debug("等待容器网络就绪以配置IPv6",
+		zap.String("containerName", config.ContainerName))
+	if err := i.waitForContainerNetworkReady(config.ContainerName); err != nil {
+		global.APP_LOG.Warn("等待容器网络就绪超时，继续尝试配置IPv6",
+			zap.String("containerName", config.ContainerName),
+			zap.Error(err))
+	}
+
 	// 处理IPv6网关配置
 	if config.Gateway == "N" {
 		i.handleIPv6Gateway(ctx, ipv6NetworkName)

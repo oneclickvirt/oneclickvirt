@@ -3,6 +3,7 @@ package incus
 import (
 	"context"
 	"fmt"
+	"net"
 	"strconv"
 	"strings"
 	"time"
@@ -441,7 +442,7 @@ func (i *IncusProvider) waitForVMNetworkReady(instanceName string) error {
 
 		// 逐渐增加等待时间
 		if attempt < maxRetries {
-			delay = m(delay+5, 30) // 最大等待30秒
+			delay = min(delay+5, 25)
 		}
 	}
 
@@ -494,7 +495,7 @@ func (i *IncusProvider) waitForContainerNetworkReady(instanceName string) error 
 
 		// 逐渐增加等待时间
 		if attempt < maxRetries {
-			delay = m(delay+2, 15) // 最大等待15秒
+			delay = min(delay+2, 15) // 最大等待15秒
 		}
 	}
 
@@ -852,6 +853,44 @@ func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error
 
 // getHostIP 获取主机IP地址
 func (i *IncusProvider) getHostIP() (string, error) {
+	// 1. 优先使用配置的 PortIP（端口映射专用IP）
+	if i.config.PortIP != "" {
+		global.APP_LOG.Debug("使用配置的PortIP作为端口映射地址",
+			zap.String("portIP", i.config.PortIP))
+		return i.config.PortIP, nil
+	}
+
+	// 2. 如果 PortIP 为空，尝试从 Host 提取或解析 IP
+	if i.config.Host != "" {
+		// 检查 Host 是否已经是 IP 地址
+		if net.ParseIP(i.config.Host) != nil {
+			global.APP_LOG.Debug("SSH连接地址是IP，直接用于端口映射",
+				zap.String("host", i.config.Host))
+			return i.config.Host, nil
+		}
+
+		// Host 是域名，尝试解析为 IP
+		global.APP_LOG.Debug("SSH连接地址是域名，尝试解析",
+			zap.String("domain", i.config.Host))
+		ips, err := net.LookupIP(i.config.Host)
+		if err == nil && len(ips) > 0 {
+			for _, ip := range ips {
+				if ipv4 := ip.To4(); ipv4 != nil {
+					global.APP_LOG.Debug("域名解析成功，使用解析的IP",
+						zap.String("domain", i.config.Host),
+						zap.String("resolvedIP", ipv4.String()))
+					return ipv4.String(), nil
+				}
+			}
+		} else if err != nil {
+			global.APP_LOG.Warn("域名解析失败，回退到宿主机IP获取",
+				zap.String("domain", i.config.Host),
+				zap.Error(err))
+		}
+	}
+
+	// 3. 最后才从宿主机动态获取 IP地址
+	global.APP_LOG.Info("从宿主机动态获取IP地址")
 	cmd := "ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p' | cut -d/ -f1"
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {
@@ -863,6 +902,8 @@ func (i *IncusProvider) getHostIP() (string, error) {
 		return "", fmt.Errorf("主机IP为空")
 	}
 
+	global.APP_LOG.Info("从宿主机获取到IP地址",
+		zap.String("hostIP", hostIP))
 	return hostIP, nil
 }
 
@@ -985,8 +1026,30 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 			return fmt.Errorf("启动实例失败: %w", err)
 		}
 
-		// 等待实例启动
-		time.Sleep(10 * time.Second)
+		// 等待实例网络就绪（根据实例类型选择合适的等待方法）
+		global.APP_LOG.Info("等待实例网络就绪后再配置端口映射",
+			zap.String("instanceName", config.Name))
+
+		// 判断实例类型
+		typeCmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", config.Name)
+		typeOutput, err := i.sshClient.Execute(typeCmd)
+		instanceType := strings.TrimSpace(typeOutput)
+
+		if err == nil && (instanceType == "virtual-machine" || instanceType == "vm") {
+			// 虚拟机需要更长的等待时间
+			if err := i.waitForVMNetworkReady(config.Name); err != nil {
+				global.APP_LOG.Warn("等待虚拟机网络就绪超时，继续尝试配置",
+					zap.String("instanceName", config.Name),
+					zap.Error(err))
+			}
+		} else {
+			// 容器使用较短的等待时间
+			if err := i.waitForContainerNetworkReady(config.Name); err != nil {
+				global.APP_LOG.Warn("等待容器网络就绪超时，继续尝试配置",
+					zap.String("instanceName", config.Name),
+					zap.Error(err))
+			}
+		}
 	}
 
 	// 尝试获取现有IP地址

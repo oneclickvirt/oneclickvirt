@@ -330,6 +330,7 @@ type ProviderNodeConfig struct {
 	UUID                  string   `json:"uuid"`
 	Name                  string   `json:"name"`
 	Host                  string   `json:"host"`
+	PortIP                string   `json:"port_ip"` // 端口映射使用的公网IP（非必填，若为空则使用Host）
 	Port                  int      `json:"port"`
 	Username              string   `json:"username"`
 	Password              string   `json:"password"`

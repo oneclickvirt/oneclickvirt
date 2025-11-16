@@ -60,6 +60,7 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 	localProviderType := providerInfo.Type
 	localProviderName := providerInfo.Name
 	localProviderHost := providerService.ExtractHostFromEndpoint(providerInfo.Endpoint)
+	localProviderPortIP := providerInfo.PortIP
 	localProviderSSHPort := providerInfo.SSHPort
 	localProviderUsername := providerInfo.Username
 	localProviderPassword := providerInfo.Password
@@ -83,6 +84,7 @@ func (s *Service) InitializeVnStatForInstance(instanceID uint) error {
 		nodeConfig := provider.NodeConfig{
 			Name:              localProviderName,
 			Host:              localProviderHost,
+			PortIP:            localProviderPortIP,
 			Port:              localProviderSSHPort,
 			Username:          localProviderUsername,
 			Password:          localProviderPassword,
