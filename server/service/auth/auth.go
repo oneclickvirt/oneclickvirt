@@ -24,6 +24,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type AuthService struct{}
@@ -243,14 +244,9 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		if req.InviteCode == "" {
 			return common.NewError(common.CodeInvalidParam, "邀请码不能为空")
 		}
-		if err := s.verifyInviteCode(req.InviteCode); err != nil {
-			return err
-		}
-	} else if req.InviteCode != "" {
-		// 如果提供了邀请码，无论如何都要验证
-		if err := s.verifyInviteCode(req.InviteCode); err != nil {
-			return err
-		}
+	} else if req.InviteCode == "" && !enableRegistration {
+		// 如果没有邀请码且公开注册未启用，则禁止注册
+		return errors.New("注册功能已被禁用")
 	}
 
 	// 密码强度验证（仅在非初始化场景下执行）
@@ -1006,11 +1002,29 @@ func (s *AuthService) verifyInviteCode(code string) error {
 }
 
 // useInviteCodeWithTx 使用邀请码（带事务支持）
+// 在事务内验证并标记邀请码为已使用，确保原子性
 func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, ip string, userAgent string) error {
 	var inviteCode system.InviteCode
-	err := db.Where("code = ? AND status = ?", code, 1).First(&inviteCode).Error
+
+	// 使用行级锁获取邀请码记录，防止并发使用
+	err := db.Clauses(clause.Locking{Strength: "UPDATE"}).
+		Where("code = ? AND status = ?", code, 1).
+		First(&inviteCode).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return common.NewError(common.CodeInviteCodeInvalid, "邀请码无效")
+		}
 		return err
+	}
+
+	// 检查过期时间
+	if inviteCode.ExpiresAt != nil && inviteCode.ExpiresAt.Before(time.Now()) {
+		return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+	}
+
+	// 检查使用次数
+	if inviteCode.MaxUses > 0 && inviteCode.UsedCount >= inviteCode.MaxUses {
+		return common.NewError(common.CodeInviteCodeUsed, "邀请码已被使用")
 	}
 
 	// 增加使用次数

@@ -49,8 +49,14 @@ func (s *AuthValidationService) ClassifyAuthError(err error) *common.AppError {
 		return common.NewError(common.CodeForbidden, errMsg)
 	case errMsg == "验证码错误" || errMsg == "验证码已过期":
 		return common.NewError(common.CodeCaptchaInvalid, errMsg)
-	case errMsg == "邀请码不能为空" || errMsg == "邀请码无效" || errMsg == "邀请码已被使用" || errMsg == "邀请码已达到最大使用次数" || errMsg == "邀请码已过期":
+	case errMsg == "邀请码不能为空":
 		return common.NewError(common.CodeInviteCodeInvalid, errMsg)
+	case errMsg == "邀请码无效":
+		return common.NewError(common.CodeInviteCodeInvalid, errMsg)
+	case errMsg == "邀请码已过期":
+		return common.NewError(common.CodeInviteCodeExpired, errMsg)
+	case errMsg == "邀请码已被使用" || errMsg == "邀请码已达到最大使用次数":
+		return common.NewError(common.CodeInviteCodeUsed, errMsg)
 	case strings.Contains(errMsg, "密码长度") || strings.Contains(errMsg, "密码必须包含") || strings.Contains(errMsg, "密码不能包含"):
 		return common.NewError(common.CodeValidationError, errMsg)
 	case errMsg == "用户已被禁用，有问题请联系管理员":
