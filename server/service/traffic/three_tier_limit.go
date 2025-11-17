@@ -267,6 +267,26 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		return false, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
+	// 检查用户的所有实例所在的Provider是否都禁用了流量统计
+	var enabledProviderCount int64
+	err := global.APP_DB.Table("instances").
+		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
+		Where("instances.user_id = ? AND instances.deleted_at IS NULL", userID).
+		Where("providers.enable_traffic_control = ?", true).
+		Count(&enabledProviderCount).Error
+
+	if err != nil {
+		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
+	}
+
+	// 如果所有Provider都禁用了流量统计，解除用户层级限制
+	if enabledProviderCount == 0 {
+		if u.TrafficLimited {
+			return s.unlimitUserInstances(userID, "所有Provider已禁用流量统计")
+		}
+		return false, nil
+	}
+
 	// 检查是否需要重置流量
 	if err := s.service.checkAndResetMonthlyTraffic(userID); err != nil {
 		global.APP_LOG.Error("检查用户月度流量重置失败",
@@ -321,7 +341,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		AND COALESCE(p.enable_traffic_control, true) = true
 	`
 
-	err := global.APP_DB.Raw(query, userID, year, month).Scan(&totalUsed).Error
+	err = global.APP_DB.Raw(query, userID, year, month).Scan(&totalUsed).Error
 
 	if err != nil {
 		global.APP_LOG.Warn("批量查询用户流量失败，降级到逐个查询",

@@ -32,6 +32,30 @@ func (s *UserTrafficService) GetUserTrafficOverview(userID uint) (map[string]int
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
+	// 检查用户的所有实例所在的Provider是否都禁用了流量统计
+	hasEnabledTrafficControl, err := s.limitService.hasAnyProviderWithTrafficControlEnabled(userID)
+	if err != nil {
+		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
+	}
+
+	// 如果所有Provider都禁用了流量统计，返回无限制状态
+	if !hasEnabledTrafficControl {
+		return map[string]interface{}{
+			"user_id":                 userID,
+			"current_month_usage":     int64(0),
+			"total_limit":             int64(0), // 0表示无限制
+			"usage_percent":           float64(0),
+			"is_limited":              false,
+			"traffic_control_enabled": false, // 标记流量统计已禁用
+			"data_source":             "none",
+			"vnstat_available":        false,
+			"formatted": map[string]string{
+				"current_usage": "0 MB",
+				"total_limit":   "无限制",
+			},
+		}, nil
+	}
+
 	// 自动同步TotalTraffic为maxTraffic（如TotalTraffic为0时）
 	if u.TotalTraffic == 0 {
 		// 从等级配置中获取流量限额

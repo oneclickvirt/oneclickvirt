@@ -139,6 +139,31 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
+	// 检查用户的所有实例所在的Provider是否都禁用了流量统计
+	hasEnabledTrafficControl, err := s.hasAnyProviderWithTrafficControlEnabled(userID)
+	if err != nil {
+		global.APP_LOG.Warn("检查Provider流量统计状态失败", zap.Error(err))
+	}
+
+	// 如果所有Provider都禁用了流量统计，返回无限制状态
+	if !hasEnabledTrafficControl {
+		return map[string]interface{}{
+			"user_id":                 userID,
+			"current_month_usage":     int64(0),
+			"yearly_usage":            int64(0),
+			"total_limit":             int64(0), // 0表示无限制
+			"usage_percent":           float64(0),
+			"is_limited":              false,
+			"reset_time":              nil,
+			"history":                 []map[string]interface{}{},
+			"traffic_control_enabled": false, // 标记流量统计已禁用
+			"formatted": map[string]string{
+				"current_usage": "0 MB",
+				"total_limit":   "无限制",
+			},
+		}, nil
+	}
+
 	// 自动同步用户流量限额：如果TotalTraffic为0，从等级配置中获取
 	if u.TotalTraffic == 0 {
 		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[u.Level]
@@ -174,19 +199,36 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 	}
 
 	return map[string]interface{}{
-		"user_id":             userID,
-		"current_month_usage": currentMonthUsageMB, // 返回 MB 单位
-		"yearly_usage":        yearlyUsage,
-		"total_limit":         u.TotalTraffic,
-		"usage_percent":       usagePercent,
-		"is_limited":          u.TrafficLimited,
-		"reset_time":          u.TrafficResetAt,
-		"history":             history,
+		"user_id":                 userID,
+		"current_month_usage":     currentMonthUsageMB, // 返回 MB 单位
+		"yearly_usage":            yearlyUsage,
+		"total_limit":             u.TotalTraffic,
+		"usage_percent":           usagePercent,
+		"is_limited":              u.TrafficLimited,
+		"reset_time":              u.TrafficResetAt,
+		"history":                 history,
+		"traffic_control_enabled": true, // 标记流量统计已启用
 		"formatted": map[string]string{
 			"current_usage": FormatTrafficMB(currentMonthUsageMB),
 			"total_limit":   FormatTrafficMB(int64(u.TotalTraffic)),
 		},
 	}, nil
+}
+
+// hasAnyProviderWithTrafficControlEnabled 检查用户的实例是否有任何Provider启用了流量统计
+func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (bool, error) {
+	var count int64
+	err := global.APP_DB.Table("instances").
+		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
+		Where("instances.user_id = ? AND instances.deleted_at IS NULL", userID).
+		Where("providers.enable_traffic_control = ?", true).
+		Count(&count).Error
+
+	if err != nil {
+		return false, err
+	}
+
+	return count > 0, nil
 }
 
 // getUserYearlyTrafficFromVnStat 从vnStat数据获取用户年度流量使用量

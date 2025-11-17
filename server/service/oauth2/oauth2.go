@@ -541,6 +541,7 @@ func (s *Service) SetUserQuotaByLevel(usr *user.User) {
 		usr.MaxBandwidth = maxRes
 	}
 
-	// 设置流量限制
-	usr.TotalTraffic = levelLimits.MaxTraffic
+	// 不再自动设置流量限制，保持为0，只有当用户实例所在Provider启用流量统计时才设置
+	// usr.TotalTraffic = levelLimits.MaxTraffic
+	usr.TotalTraffic = 0
 }

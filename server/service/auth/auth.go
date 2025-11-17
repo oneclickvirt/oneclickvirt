@@ -277,6 +277,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		Status:   1, // 默认状态为正常
 		// 资源限制将在创建后通过同步服务自动设置
 		UsedTraffic:    0,
+		TotalTraffic:   0, // 默认为0，不自动设置流量限制，只有当用户实例所在Provider启用流量统计时才设置
 		TrafficLimited: false,
 	}
 
@@ -1200,9 +1201,8 @@ func syncNewUserResourceLimits(level int, userID uint) error {
 		}
 	}
 
-	// 构建更新数据
+	// 构建更新数据 - 不再自动设置 total_traffic，保持为0
 	updateData := map[string]interface{}{
-		"total_traffic": levelConfig.MaxTraffic,
 		"max_instances": levelConfig.MaxInstances,
 	}
 

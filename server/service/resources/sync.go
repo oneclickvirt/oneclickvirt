@@ -254,9 +254,8 @@ func (s *QuotaSyncService) syncLevelUsers(level int, levelConfig *config.LevelLi
 		return nil
 	}
 
-	// 构建更新数据
+	// 构建更新数据 - 不再自动设置 total_traffic
 	updateData := map[string]interface{}{
-		"total_traffic": levelConfig.MaxTraffic,
 		"max_instances": levelConfig.MaxInstances,
 	}
 
