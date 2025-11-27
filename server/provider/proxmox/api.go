@@ -975,23 +975,13 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	cpuFormatted := convertCPUFormat(config.CPU)
 	memoryFormatted := convertMemoryFormat(config.Memory)
 
-	// 获取IPv6配置信息
-	ipv6Info, err := p.getIPv6Info(ctx)
-	if err != nil {
-		global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
-		ipv6Info = &IPv6Info{HasAppendedAddresses: false}
-	}
+	// 解析网络配置，判断是否需要IPv6
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
+		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
+		networkConfig.NetworkType == "ipv6_only"
 
-	var net1Bridge string
-	if ipv6Info.HasAppendedAddresses {
-		net1Bridge = "vmbr1"
-	} else {
-		net1Bridge = "vmbr2"
-	}
-
-	// 通过API创建虚拟机
-	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
-
+	// 构建payload基础配置
 	payload := map[string]interface{}{
 		"vmid":    vmid,
 		"name":    config.Name,
@@ -1002,11 +992,42 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		"sockets": "1",
 		"cpu":     cpuType,
 		"net0":    "virtio,bridge=vmbr1,firewall=0",
-		"net1":    fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge),
 		"ostype":  "l26",
 		"kvm":     fmt.Sprintf("%d", kvmFlag),
 		"memory":  memoryFormatted,
 	}
+
+	// 只有在需要IPv6时才配置net1接口和vmbr2
+	if hasIPv6 {
+		// 获取IPv6配置信息
+		ipv6Info, err := p.getIPv6Info(ctx)
+		if err != nil {
+			global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
+			ipv6Info = &IPv6Info{HasAppendedAddresses: false}
+		}
+
+		var net1Bridge string
+		if ipv6Info.HasAppendedAddresses {
+			net1Bridge = "vmbr1"
+		} else {
+			net1Bridge = "vmbr2"
+		}
+
+		// 添加IPv6网络接口
+		payload["net1"] = fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)
+
+		global.APP_LOG.Info("配置VM的IPv6网络接口",
+			zap.Int("vmid", vmid),
+			zap.String("bridge", net1Bridge),
+			zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses))
+	} else {
+		global.APP_LOG.Info("网络类型不包含IPv6，跳过net1接口配置",
+			zap.Int("vmid", vmid),
+			zap.String("networkType", networkConfig.NetworkType))
+	}
+
+	// 通过API创建虚拟机
+	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {

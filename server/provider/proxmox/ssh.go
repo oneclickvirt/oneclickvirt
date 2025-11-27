@@ -1249,26 +1249,50 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		storage = "local" // 默认存储
 	}
 
-	// 获取IPv6配置信息来决定网络桥接
-	ipv6Info, err := p.getIPv6Info(ctx)
-	if err != nil {
-		global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
-		ipv6Info = &IPv6Info{HasAppendedAddresses: false}
-	}
+	// 解析网络配置，判断是否需要IPv6
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" ||
+		networkConfig.NetworkType == "dedicated_ipv4_ipv6" ||
+		networkConfig.NetworkType == "ipv6_only"
 
-	// 根据IPv6配置选择第二个网络桥接
-	var net1Bridge string
-	if ipv6Info.HasAppendedAddresses {
-		net1Bridge = "vmbr1"
-	} else {
-		net1Bridge = "vmbr2"
-	}
-
-	// 创建虚拟机，包含IPv6网络接口
+	// 构建基础创建命令（只包含net0）
 	createCmd := fmt.Sprintf(
-		"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-		vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
+		"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --ostype l26 %s",
+		vmid, cpuFormatted, cpuType, kvmFlag,
 	)
+
+	// 只有在需要IPv6时才添加net1接口
+	if hasIPv6 {
+		// 获取IPv6配置信息来决定网络桥接
+		ipv6Info, err := p.getIPv6Info(ctx)
+		if err != nil {
+			global.APP_LOG.Warn("获取IPv6信息失败，使用默认网络配置", zap.Error(err))
+			ipv6Info = &IPv6Info{HasAppendedAddresses: false}
+		}
+
+		// 根据IPv6配置选择第二个网络桥接
+		var net1Bridge string
+		if ipv6Info.HasAppendedAddresses {
+			net1Bridge = "vmbr1"
+		} else {
+			net1Bridge = "vmbr2"
+		}
+
+		// 添加IPv6网络接口到创建命令
+		createCmd = fmt.Sprintf(
+			"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+			vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
+		)
+
+		global.APP_LOG.Info("配置VM的IPv6网络接口",
+			zap.Int("vmid", vmid),
+			zap.String("bridge", net1Bridge),
+			zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses))
+	} else {
+		global.APP_LOG.Info("网络类型不包含IPv6，跳过net1接口配置",
+			zap.Int("vmid", vmid),
+			zap.String("networkType", networkConfig.NetworkType))
+	}
 
 	_, err = p.sshClient.Execute(createCmd)
 	if err != nil {
