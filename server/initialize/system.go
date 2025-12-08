@@ -7,19 +7,19 @@ import (
 	"oneclickvirt/core"
 	"oneclickvirt/global"
 	"oneclickvirt/service/auth"
+	"oneclickvirt/service/lifecycle"
 	"oneclickvirt/service/log"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/scheduler"
 	"oneclickvirt/service/storage"
 	"oneclickvirt/service/system"
 	"oneclickvirt/service/task"
-	"oneclickvirt/service/traffic"
 	userProviderService "oneclickvirt/service/user/provider"
-	"oneclickvirt/service/vnstat"
+	"oneclickvirt/utils"
 
 	// 导入端口映射 providers 以触发其 init() 函数进行注册
 	_ "oneclickvirt/provider/portmapping/docker"
-	_ "oneclickvirt/provider/portmapping/gost"
 	_ "oneclickvirt/provider/portmapping/incus"
 	_ "oneclickvirt/provider/portmapping/iptables"
 	_ "oneclickvirt/provider/portmapping/lxd"
@@ -35,9 +35,34 @@ func InitializeSystem() {
 	zap.ReplaceGlobals(global.APP_LOG)
 
 	global.APP_LOG.Info("系统初始化开始")
+	global.APP_LOG.Info("系统配置加载完成",
+		zap.String("env", global.APP_CONFIG.System.Env),
+		zap.Int("addr", global.APP_CONFIG.System.Addr),
+		zap.Bool("captcha_enabled", global.APP_CONFIG.Captcha.Enabled),
+	)
 
 	// 创建系统级别的关闭上下文
 	global.APP_SHUTDOWN_CONTEXT, global.APP_SHUTDOWN_CANCEL = context.WithCancel(context.Background())
+
+	// 启动日志采样器清理任务（现在 APP_SHUTDOWN_CONTEXT 已初始化）
+	core.StartSamplerCleanup(global.APP_SHUTDOWN_CONTEXT)
+
+	// 启动日志速率限制器清理任务
+	logRateLimiter := utils.GetLogRateLimiter()
+	logRateLimiter.StartCleanupTask(global.APP_SHUTDOWN_CONTEXT)
+
+	// 初始化全局SSH连接池
+	sshPool := utils.InitGlobalSSHPool(global.APP_LOG)
+	global.APP_SSH_POOL = sshPool
+
+	// 初始化 HTTP Client Manager（启动定期清理）
+	httpManager := utils.GetHTTPClientManager()
+	global.APP_LOG.Debug("HTTP Client Manager已初始化")
+	_ = httpManager // 避免未使用警告
+
+	// 初始化LRU验证码缓存
+	global.APP_CAPTCHA_STORE = utils.NewLRUCaptchaCache(utils.MaxCaptchaItems)
+	global.APP_LOG.Debug("LRU验证码缓存初始化完成", zap.Int("capacity", utils.MaxCaptchaItems))
 
 	// 初始化存储目录结构
 	initializeStorage()
@@ -77,6 +102,12 @@ func initializeLogRotation() {
 
 		// 启动定时清理任务（每天凌晨3点执行），支持优雅退出
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					global.APP_LOG.Error("日志轮转任务panic", zap.Any("panic", r))
+				}
+			}()
+
 			for {
 				now := time.Now()
 				// 计算到下一个凌晨3点的时间
@@ -114,6 +145,7 @@ func initializeLogRotation() {
 					global.APP_LOG.Info("日志轮转任务已停止")
 					return
 				}
+				// timer已经被使用或停止，无需再次停止
 			}
 		}()
 	}
@@ -231,7 +263,6 @@ func syncProvidersDataOnStartup() {
 	// 同步每个Provider的数据
 	successCount := 0
 	resourceService := &resources.ResourceService{}
-	trafficService := traffic.NewService()
 
 	for _, prov := range providers {
 		// 1. 同步资源使用情况（基于数据库中的实例记录）
@@ -246,17 +277,7 @@ func syncProvidersDataOnStartup() {
 				zap.String("providerName", prov.Name))
 		}
 
-		// 2. 同步流量统计（基于TrafficRecord表）
-		if err := trafficService.SyncProviderTraffic(prov.ID); err != nil {
-			global.APP_LOG.Warn("同步Provider流量失败",
-				zap.Uint("providerID", prov.ID),
-				zap.String("providerName", prov.Name),
-				zap.Error(err))
-		} else {
-			global.APP_LOG.Debug("Provider流量同步成功",
-				zap.Uint("providerID", prov.ID),
-				zap.String("providerName", prov.Name))
-		}
+		// 流量数据从pmacct_traffic_records实时查询，无需同步
 
 		successCount++
 	}
@@ -268,10 +289,14 @@ func syncProvidersDataOnStartup() {
 
 // initializeSchedulers 初始化调度器服务
 func initializeSchedulers() {
+	lifecycleMgr := lifecycle.GetManager()
+
 	// 初始化任务服务（只有在数据库已初始化时才创建）
 	taskService := task.GetTaskService()
 	// 设置全局任务服务实例，避免循环依赖
 	userProviderService.SetGlobalTaskService(taskService)
+	// 注册任务服务到生命周期管理器
+	lifecycleMgr.Register("TaskService", taskService)
 
 	// 启动前先同步Provider层面的数据（资源和流量统计）
 	syncProvidersDataOnStartup()
@@ -280,17 +305,59 @@ func initializeSchedulers() {
 	schedulerService := scheduler.NewSchedulerService(taskService)
 	global.APP_SCHEDULER = schedulerService
 	schedulerService.StartScheduler()
+	lifecycleMgr.Register("SchedulerService", schedulerService)
 
-	// 启动监控调度器
-	vnstatService := vnstat.NewService()
-	monitoringSchedulerService := scheduler.NewMonitoringSchedulerService(vnstatService)
+	// 启动监控调度器（使用全局shutdown context确保可以正确关闭）
+	pmacctService := pmacct.NewService()
+	monitoringSchedulerService := scheduler.NewMonitoringSchedulerService(pmacctService)
 	global.APP_MONITORING_SCHEDULER = monitoringSchedulerService
-	monitoringSchedulerService.Start(context.Background())
+	monitoringSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("MonitoringScheduler", monitoringSchedulerService)
 
-	// 启动Provider健康检查调度器
+	// 启动Provider健康检查调度器（使用全局shutdown context确保可以正确关闭）
 	providerHealthSchedulerService := scheduler.NewProviderHealthSchedulerService()
 	global.APP_PROVIDER_HEALTH_SCHEDULER = providerHealthSchedulerService
-	providerHealthSchedulerService.Start(context.Background())
+	providerHealthSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("ProviderHealthScheduler", providerHealthSchedulerService)
+
+	// 注册pmacct批处理器
+	pmacctBatchProcessor := pmacct.GetBatchProcessor()
+	lifecycleMgr.Register("PmacctBatchProcessor", pmacctBatchProcessor)
+
+	// 注册全局SSH连接池
+	sshPool := utils.GetGlobalSSHPool()
+	lifecycleMgr.Register("GlobalSSHPool", sshPool)
+
+	// 注册验证码缓存（如果已创建）
+	// 这里先获取缓存实例
+	type CaptchaCacheCloser interface {
+		Stop()
+	}
+	// 实际上MemoryCaptchaCache需要通过某种方式暴露出来，暂时跳过
+	// 后续可以添加全局captcha cache变量
+
+	// 注册资源预留服务
+	reservationService := resources.GetResourceReservationService()
+	lifecycleMgr.Register("ResourceReservationService", reservationService)
+
+	// 注册JWT黑名单服务
+	jwtBlacklistService := auth.GetJWTBlacklistService()
+	lifecycleMgr.Register("JWTBlacklistService", jwtBlacklistService)
+
+	// 注册验证码缓存
+	if global.APP_CAPTCHA_STORE != nil {
+		lifecycleMgr.Register("CaptchaCache", global.APP_CAPTCHA_STORE)
+	}
+
+	// 注册HTTP客户端（用于关闭空闲连接）
+	httpClientManager := utils.GetHTTPClientManager()
+	lifecycleMgr.Register("HTTPClientManager", httpClientManager)
+
+	// 注册日志速率限制器
+	logRateLimiter := utils.GetLogRateLimiter()
+	lifecycleMgr.Register("LogRateLimiter", logRateLimiter)
+
+	global.APP_LOG.Info("所有调度器和全局服务已启动并注册到生命周期管理器")
 }
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化
@@ -305,7 +372,7 @@ func InitializePostSystemInit() {
 	// 注册数据库表
 	RegisterTables(global.APP_DB)
 
-	// 重新初始化配置管理器（这是关键修复）
+	// 重新初始化配置管理器
 	ReInitializeConfigManager()
 	global.APP_LOG.Debug("数据库连接、表注册和配置管理器重新初始化完成")
 

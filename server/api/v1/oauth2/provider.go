@@ -234,3 +234,37 @@ func ResetRegistrationCount(c *gin.Context) {
 	global.APP_LOG.Info("重置OAuth2注册计数", zap.Uint64("id", id))
 	common.ResponseSuccess(c, nil, "重置成功")
 }
+
+// GetPresets 获取OAuth2预设配置列表
+// @Summary 获取OAuth2预设配置
+// @Description 获取所有可用的OAuth2预设配置（linuxdo, idcflare, github, generic）
+// @Tags OAuth2
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Success 200 {object} common.Response{data=map[string]oauth2Service.PresetConfig}
+// @Router /oauth2/presets [get]
+func GetPresets(c *gin.Context) {
+	presets := oauth2Service.GetPresetConfigs()
+	common.ResponseSuccess(c, presets)
+}
+
+// GetPreset 获取指定的OAuth2预设配置
+// @Summary 获取指定预设配置
+// @Description 获取指定名称的OAuth2预设配置详情
+// @Tags OAuth2
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param name path string true "预设名称" Enums(linuxdo, idcflare, github, generic)
+// @Success 200 {object} common.Response{data=oauth2Service.PresetConfig}
+// @Router /oauth2/presets/{name} [get]
+func GetPreset(c *gin.Context) {
+	name := c.Param("name")
+	preset, exists := oauth2Service.GetPresetConfig(name)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "预设配置不存在"))
+		return
+	}
+	common.ResponseSuccess(c, preset)
+}

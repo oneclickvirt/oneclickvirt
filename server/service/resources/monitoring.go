@@ -159,7 +159,7 @@ func (s *MonitoringService) getEstimatedDiskStats() system.DiskStats {
 
 // getNetworkStats 获取网络统计信息
 func (s *MonitoringService) getNetworkStats() system.NetworkStats {
-	// 返回空的网络统计信息，实际流量数据由vnstat提供
+	// 返回空的网络统计信息，实际流量数据由 pmacct 提供
 	// 避免使用模拟数据干扰真实的流量统计
 	return system.NetworkStats{
 		BytesReceived: 0, // 不使用模拟数据

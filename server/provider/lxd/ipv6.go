@@ -516,8 +516,8 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		l.updateSysctl(ctx, sysctlConfig)
 	}
 
-	// 重新加载sysctl配置
-	l.sshClient.Execute("sysctl -p")
+	// 重新加载sysctl配置（忽略不存在的参数错误）
+	l.sshClient.Execute("sysctl -p 2>&1 | grep -v 'cannot stat' || true")
 
 	// 使用sipcalc计算IPv6地址
 	sipcalcCmd := fmt.Sprintf("sipcalc %s | grep \"Compressed address\" | awk '{print $4}' | awk -F: '{NF--; print}' OFS=:", ipNetworkGam)

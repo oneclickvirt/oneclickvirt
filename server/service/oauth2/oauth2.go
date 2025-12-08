@@ -27,9 +27,17 @@ import (
 
 // Service OAuth2服务
 type Service struct {
-	states map[string]*StateInfo // state令牌存储
-	mu     sync.RWMutex          // 保护states的互斥锁
+	states        map[string]*StateInfo // state令牌存储
+	mu            sync.RWMutex          // 保护states的互斥锁
+	ctx           context.Context       // 生命周期控制
+	cancel        context.CancelFunc    // 取消函数
+	cleanupTicker *time.Ticker          // 清理定时器
 }
+
+var (
+	globalOAuth2Service     *Service
+	globalOAuth2ServiceOnce sync.Once
+)
 
 // StateInfo 状态信息
 type StateInfo struct {
@@ -37,10 +45,51 @@ type StateInfo struct {
 	Expiry     time.Time // 过期时间
 }
 
-// NewService 创建OAuth2服务实例
+// NewService 创建OAuth2服务实例（单例模式）
 func NewService() *Service {
-	return &Service{
-		states: make(map[string]*StateInfo),
+	globalOAuth2ServiceOnce.Do(func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		globalOAuth2Service = &Service{
+			states: make(map[string]*StateInfo),
+			ctx:    ctx,
+			cancel: cancel,
+		}
+
+		// 启动定期清理goroutine（每5分钟清理一次过期state）
+		globalOAuth2Service.cleanupTicker = time.NewTicker(5 * time.Minute)
+		go globalOAuth2Service.periodicCleanup()
+	})
+
+	return globalOAuth2Service
+}
+
+// StopOAuth2Service 停止全局OAuth2服务（用于应用关闭时清理）
+func StopOAuth2Service() {
+	if globalOAuth2Service != nil {
+		globalOAuth2Service.Close()
+		global.APP_LOG.Info("OAuth2服务已停止")
+	}
+}
+
+// Close 关闭服务，清理资源
+func (s *Service) Close() {
+	if s.cancel != nil {
+		s.cancel()
+	}
+	if s.cleanupTicker != nil {
+		s.cleanupTicker.Stop()
+	}
+}
+
+// periodicCleanup 定期清理过期的state令牌
+func (s *Service) periodicCleanup() {
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-s.cleanupTicker.C:
+			s.cleanExpiredStates()
+		}
 	}
 }
 
@@ -50,10 +99,16 @@ func (s *Service) cleanExpiredStates() {
 	defer s.mu.Unlock()
 
 	now := time.Now()
+	count := 0
 	for state, info := range s.states {
 		if now.After(info.Expiry) {
 			delete(s.states, state)
+			count++
 		}
+	}
+
+	if count > 0 {
+		global.APP_LOG.Debug("清理过期OAuth2 state令牌", zap.Int("count", count))
 	}
 }
 
@@ -86,9 +141,6 @@ func (s *Service) GenerateStateToken(providerID uint) (string, error) {
 		zap.String("state", state[:16]+"..."), // 只记录部分state用于调试
 		zap.Time("expiry", expiry),
 		zap.Duration("valid_for", expiryDuration))
-
-	// 清理过期的state
-	go s.cleanExpiredStates()
 
 	return state, nil
 }

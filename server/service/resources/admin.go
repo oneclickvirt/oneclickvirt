@@ -43,7 +43,7 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 	// 保留原有字段以兼容其他可能的用途
 	dashboard.Statistics.ActiveUsers = int(activeUsers)
 	dashboard.Statistics.TotalInstances = int(totalVMs + totalContainers)
-	dashboard.Statistics.RunningInstances = int(runningInstances) // 修复：使用真实的运行实例统计
+	dashboard.Statistics.RunningInstances = int(runningInstances) // 使用真实的运行实例统计
 	dashboard.Statistics.TotalProviders = int(totalProviders)
 	dashboard.Statistics.ActiveProviders = int(activeProviders)
 

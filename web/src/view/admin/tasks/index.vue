@@ -777,9 +777,8 @@ const viewTaskDetail = (task) => {
 
 // 判断是否应该显示预分配配置
 const shouldShowPreallocatedConfig = (task) => {
-  // create 类型的任务，或者 pending/processing 状态且有配置的任务
-  return task.taskType === 'create' || 
-         ((task.status === 'pending' || task.status === 'processing') && task.preallocatedCpu > 0)
+  // create 类型的任务，或者任何有预分配配置的任务（不限制状态）
+  return task.taskType === 'create' || task.preallocatedCpu > 0
 }
 
 // 获取任务类型文本

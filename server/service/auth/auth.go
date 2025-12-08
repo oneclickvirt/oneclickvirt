@@ -235,7 +235,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
-	// 注意：验证码验证已经在 API 层通过 ValidateCaptchaRequired 完成
+	// 验证码验证已经在 API 层通过 ValidateCaptchaRequired 完成
 	// 这里不再重复验证，避免验证码被重复消费
 
 	// 邀请码验证逻辑
@@ -276,7 +276,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		Level:    global.APP_CONFIG.Quota.DefaultLevel,
 		Status:   1, // 默认状态为正常
 		// 资源限制将在创建后通过同步服务自动设置
-		UsedTraffic:    0,
+		// UsedTraffic字段已删除，流量数据从pmacct_traffic_records实时查询
 		TotalTraffic:   0, // 默认为0，不自动设置流量限制，只有当用户实例所在Provider启用流量统计时才设置
 		TrafficLimited: false,
 	}
@@ -759,7 +759,7 @@ func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) err
 	}
 
 	// 构造短信内容
-	message := fmt.Sprintf("【您的应用】用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
+	message := fmt.Sprintf("用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
 
 	// 这里应该调用短信服务商API
 	// 可以集成阿里云、腾讯云、华为云等短信服务
@@ -895,7 +895,7 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 	}
 
 	// 构造短信内容
-	message := fmt.Sprintf("【您的应用】验证码：%s，5分钟内有效，请勿泄露。", code)
+	message := fmt.Sprintf("验证码：%s，5分钟内有效，请勿泄露。", code)
 
 	// 这里应该调用短信服务商API
 	// 可以集成阿里云、腾讯云、华为云等短信服务
@@ -950,8 +950,8 @@ func (s *AuthService) GenerateCaptcha(width, height int) (*auth.CaptchaResponse,
 	}
 	// 设置验证码配置难度
 	driver := base64Captcha.NewDriverDigit(height, width, captchaLen, 0.4, 40)
-	// 创建验证码
-	c := base64Captcha.NewCaptcha(driver, base64Captcha.DefaultMemStore)
+	// 使用全局LRU缓存存储
+	c := base64Captcha.NewCaptcha(driver, global.APP_CAPTCHA_STORE)
 	id, b64s, _, err := c.Generate()
 	if err != nil {
 		return nil, err
@@ -973,8 +973,8 @@ func (s *AuthService) verifyCaptcha(captchaId, code string) error {
 		return nil
 	}
 
-	// 使用 base64Captcha 验证
-	match := base64Captcha.DefaultMemStore.Verify(captchaId, code, true)
+	// 使用全局LRU缓存验证
+	match := global.APP_CAPTCHA_STORE.Verify(captchaId, code, true)
 	if !match {
 		return errors.New("验证码错误或已过期")
 	}

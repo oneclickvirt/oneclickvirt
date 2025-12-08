@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -19,7 +20,7 @@ func (i *IncusProvider) validateInstanceConfig(config provider.InstanceConfig) e
 		return fmt.Errorf("实例名称不能为空")
 	}
 
-	if !isValidInstanceName(config.Name) {
+	if !utils.IsValidLXDInstanceName(config.Name) {
 		return fmt.Errorf("实例名称格式无效: %s", config.Name)
 	}
 
@@ -65,7 +66,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 	}
 
 	// 基础配置参数
-	// 注意：始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
+	// 始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
 	configParams := []string{}
 
 	if config.CPU != "" {
@@ -82,10 +83,66 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		// 虚拟机特定配置
 		configParams = append(configParams, "security.secureboot=false")
 		configParams = append(configParams, "limits.memory.swap=true")
+		configParams = append(configParams, "limits.cpu.priority=0")
 	} else {
-		// 容器特定配置
-		configParams = append(configParams, "security.nesting=true")
-		configParams = append(configParams, "limits.memory.swap=true")
+		// 容器特定配置 - 应用容器特殊配置选项
+		// 1. 特权模式配置（Privileged）
+		if config.Privileged != nil {
+			if *config.Privileged {
+				configParams = append(configParams, "security.privileged=true")
+			} else {
+				configParams = append(configParams, "security.privileged=false")
+			}
+		}
+
+		// 2. 容器嵌套配置（Allow Nesting）
+		if config.AllowNesting != nil {
+			if *config.AllowNesting {
+				configParams = append(configParams, "security.nesting=true")
+			} else {
+				configParams = append(configParams, "security.nesting=false")
+			}
+		} else {
+			// 默认启用嵌套（保持原有行为）
+			configParams = append(configParams, "security.nesting=true")
+		}
+
+		// 3. CPU限制配置（CPU Allowance vs limits.cpu）
+		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
+			configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
+			configParams = append(configParams, "limits.cpu.priority=0")
+		} else {
+			configParams = append(configParams, "limits.cpu.priority=0")
+			configParams = append(configParams, "limits.cpu.allowance=50%")
+			configParams = append(configParams, "limits.cpu.allowance=25ms/100ms")
+		}
+
+		// 4. 内存交换配置（Memory Swap）
+		if config.MemorySwap != nil {
+			if *config.MemorySwap {
+				configParams = append(configParams, "limits.memory.swap=true")
+				configParams = append(configParams, "limits.memory.swap.priority=1")
+			} else {
+				configParams = append(configParams, "limits.memory.swap=false")
+			}
+		} else {
+			// 默认启用swap（保持原有行为）
+			configParams = append(configParams, "limits.memory.swap=true")
+			configParams = append(configParams, "limits.memory.swap.priority=1")
+		}
+
+		// 5. 最大进程数配置（Max Processes）
+		if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
+			configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
+		}
+
+		// 磁盘IO限制将在实例创建后通过device命令设置
+		if config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
+			if config.Metadata == nil {
+				config.Metadata = make(map[string]string)
+			}
+			config.Metadata["disk_io_limit"] = *config.DiskIOLimit
+		}
 	}
 
 	// 配置参数到命令

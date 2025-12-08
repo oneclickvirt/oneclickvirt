@@ -223,11 +223,31 @@ func (i *IncusHealthChecker) checkAPI(ctx context.Context) error {
 			InsecureSkipVerify: true, // Incus通常使用自签名证书
 		}
 
+		// 清理旧的HTTP Client（如果存在）
+		if i.httpClient != nil && i.httpClient.Transport != nil {
+			if transport, ok := i.httpClient.Transport.(*http.Transport); ok {
+				transport.CloseIdleConnections()
+			}
+		}
+
+		// 创建新的Transport并注册到清理管理器
+		transport := &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+
+		// 注册到清理管理器（防止内存泄漏）
+		if GetTransportCleanupManager != nil {
+			mgr := GetTransportCleanupManager()
+			if i.config.ProviderID > 0 {
+				mgr.RegisterTransportWithProvider(transport, i.config.ProviderID)
+			} else {
+				mgr.RegisterTransport(transport)
+			}
+		}
+
 		i.httpClient = &http.Client{
-			Timeout: i.config.Timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: tlsConfig,
-			},
+			Timeout:   i.config.Timeout,
+			Transport: transport,
 		}
 	}
 

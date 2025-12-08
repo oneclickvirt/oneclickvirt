@@ -134,10 +134,12 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 				zap.String("退避策略", "exponential backoff with jitter"))
 
 			// 使用可取消的延迟等待
+			timer := time.NewTimer(delay)
 			select {
-			case <-time.After(delay):
+			case <-timer.C:
 				// 继续重试
 			case <-ctx.Done():
+				timer.Stop()
 				return ctx.Err()
 			}
 		}
@@ -157,7 +159,7 @@ func SafeTransaction(ctx context.Context, fn func(tx *gorm.DB) error) error {
 		return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 			return fn(tx)
 		})
-	}, 8) // 增加到8次重试，配合指数退避可以处理更长时间的锁等待
+	}, 8)
 }
 
 // SafeQuery 安全的查询操作（使用指数退避重试）

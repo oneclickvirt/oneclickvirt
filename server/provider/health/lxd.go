@@ -233,11 +233,31 @@ func (l *LXDHealthChecker) checkAPI(ctx context.Context) error {
 			InsecureSkipVerify: true, // LXD通常使用自签名证书
 		}
 
+		// 清理旧的HTTP Client（如果存在）
+		if l.httpClient != nil && l.httpClient.Transport != nil {
+			if transport, ok := l.httpClient.Transport.(*http.Transport); ok {
+				transport.CloseIdleConnections()
+			}
+		}
+
+		// 创建新的Transport并注册到清理管理器
+		transport := &http.Transport{
+			TLSClientConfig: tlsConfig,
+		}
+
+		// 注册到清理管理器（防止内存泄漏）
+		if GetTransportCleanupManager != nil {
+			mgr := GetTransportCleanupManager()
+			if l.config.ProviderID > 0 {
+				mgr.RegisterTransportWithProvider(transport, l.config.ProviderID)
+			} else {
+				mgr.RegisterTransport(transport)
+			}
+		}
+
 		l.httpClient = &http.Client{
-			Timeout: l.config.Timeout,
-			Transport: &http.Transport{
-				TLSClientConfig: tlsConfig,
-			},
+			Timeout:   l.config.Timeout,
+			Transport: transport,
 		}
 	}
 

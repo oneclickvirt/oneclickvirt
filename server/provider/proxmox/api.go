@@ -190,10 +190,10 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
 
-	// 初始化vnstat流量监控
-	updateProgress(95, "初始化vnstat流量监控...")
-	if err := p.initializeVnStatMonitoring(ctx, vmid, config.Name); err != nil {
-		global.APP_LOG.Warn("初始化vnstat监控失败",
+	// 初始化pmacct流量监控
+	updateProgress(95, "初始化pmacct流量监控...")
+	if err := p.initializePmacctMonitoring(ctx, vmid, config.Name); err != nil {
+		global.APP_LOG.Warn("初始化pmacct监控失败",
 			zap.Int("vmid", vmid),
 			zap.String("name", config.Name),
 			zap.Error(err))
@@ -376,9 +376,9 @@ func (p *ProxmoxProvider) apiDeleteInstance(ctx context.Context, id string) erro
 		zap.String("type", instanceType),
 		zap.String("ip", ipAddress))
 
-	// 在删除实例前先清理vnstat监控
-	if err := p.cleanupVnStatMonitoring(ctx, id); err != nil {
-		global.APP_LOG.Warn("API删除: 清理vnstat监控失败",
+	// 在删除实例前先清理pmacct监控
+	if err := p.cleanupPmacctMonitoring(ctx, id); err != nil {
+		global.APP_LOG.Warn("API删除: 清理pmacct监控失败",
 			zap.String("id", id),
 			zap.String("vmid", vmid),
 			zap.Error(err))

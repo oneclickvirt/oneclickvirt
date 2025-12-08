@@ -16,7 +16,7 @@ export function setupRouterGuards(router) {
     
     const userStore = useUserStore()
     
-    // 检查URL参数中是否有OAuth2 token（解决跨域localStorage隔离问题）
+    // 检查URL参数中是否有OAuth2 token（避免跨域localStorage隔离问题）
     const urlParams = new URLSearchParams(window.location.search)
     const oauth2Token = urlParams.get('oauth2_token')
     const oauth2Username = urlParams.get('username')

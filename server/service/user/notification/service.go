@@ -115,12 +115,12 @@ func (s *Service) sendPasswordToUser(user *userModel.User, newPassword string) e
 // sendPasswordByEmail 通过邮箱发送新密码
 func (s *Service) sendPasswordByEmail(email, username, newPassword string) error {
 	config := global.APP_CONFIG.Auth
-	
+
 	// 检查邮箱是否启用
 	if !config.EnableEmail {
 		return errors.New("邮箱服务未启用")
 	}
-	
+
 	// 检查邮箱配置是否完整
 	if config.EmailSMTPHost == "" {
 		return errors.New("邮箱SMTP配置不完整")
@@ -140,7 +140,7 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 	// 构造邮件内容
 	subject := "密码重置通知"
 	body := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该直接调用邮件发送功能
 	// 可以使用 gomail 或其他邮件库
 	// 示例实现：
@@ -149,11 +149,11 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 	// m.SetHeader("To", email)
 	// m.SetHeader("Subject", subject)
 	// m.SetBody("text/plain", body)
-	// 
+	//
 	// d := gomail.NewDialer(config.EmailSMTPHost, config.EmailSMTPPort, config.EmailUsername, config.EmailPassword)
 	// return d.DialAndSend(m)
-	
-	global.APP_LOG.Warn("邮件发送功能待实现", 
+
+	global.APP_LOG.Warn("邮件发送功能待实现",
 		zap.String("subject", subject),
 		zap.String("body", body),
 		zap.String("email", email))
@@ -163,12 +163,12 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string) error {
 	config := global.APP_CONFIG.Auth
-	
+
 	// 检查Telegram是否启用
 	if !config.EnableTelegram {
 		return errors.New("Telegram通知服务未启用")
 	}
-	
+
 	// 检查Bot Token是否配置
 	if config.TelegramBotToken == "" {
 		return errors.New("Telegram Bot Token未配置")
@@ -187,9 +187,9 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 
 	// 构造消息内容
 	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该调用Telegram Bot API发送消息
-	global.APP_LOG.Warn("Telegram Bot API集成待实现", 
+	global.APP_LOG.Warn("Telegram Bot API集成待实现",
 		zap.String("message", message),
 		zap.String("chatId", telegram))
 	return errors.New("Telegram Bot API集成待实现")
@@ -198,12 +198,12 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 	config := global.APP_CONFIG.Auth
-	
+
 	// 检查QQ是否启用
 	if !config.EnableQQ {
 		return errors.New("QQ通知服务未启用")
 	}
-	
+
 	// 检查QQ配置是否完整
 	if config.QQAppID == "" || config.QQAppKey == "" {
 		return errors.New("QQ应用配置不完整")
@@ -222,9 +222,9 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 
 	// 构造消息内容
 	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-	
+
 	// 这里应该调用QQ机器人API发送消息
-	global.APP_LOG.Warn("QQ机器人API集成待实现", 
+	global.APP_LOG.Warn("QQ机器人API集成待实现",
 		zap.String("message", message),
 		zap.String("qqNumber", qq))
 	return errors.New("QQ机器人API集成待实现")
@@ -244,10 +244,10 @@ func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
 	}
 
 	// 构造短信内容
-	message := fmt.Sprintf("【您的应用】用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
-	
+	message := fmt.Sprintf("用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
+
 	// 这里应该调用短信服务商API
-	global.APP_LOG.Warn("短信服务API集成待实现", 
+	global.APP_LOG.Warn("短信服务API集成待实现",
 		zap.String("message", message),
 		zap.String("phone", phone))
 	return errors.New("短信服务API集成待实现")

@@ -54,6 +54,12 @@ type AdminTaskListResponse struct {
 	PageSize int                 `json:"pageSize"`
 }
 
+// AdminTaskDetailResponse 管理员任务详情响应
+type AdminTaskDetailResponse struct {
+	AdminTaskResponse
+	TaskData string `json:"taskData"` // 任务数据（JSON格式）
+}
+
 // ForceStopTaskRequest 强制停止任务请求
 type ForceStopTaskRequest struct {
 	TaskID uint   `json:"taskId" binding:"required"`

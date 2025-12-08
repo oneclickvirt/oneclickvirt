@@ -2,9 +2,9 @@ package user
 
 import (
 	"errors"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/task"
-	"oneclickvirt/service/vnstat"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -971,23 +971,22 @@ func GetInstanceNewPassword(c *gin.Context) {
 	common.ResponseSuccess(c, response, "获取新密码成功")
 }
 
-// GetInstanceVnStatSummary 获取实例vnStat流量汇总
-// @Summary 获取实例vnStat流量汇总
-// @Description 获取用户实例的vnStat流量汇总信息，包括今日、本月和总流量统计
+// GetInstancePmacctSummary 获取实例pmacct流量汇总
+// @Summary 获取实例pmacct流量汇总
+// @Description 获取用户实例的pmacct流量汇总信息，包括今日、本月和总流量统计
 // @Tags 用户管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param instance_id path int true "实例ID"
-// @Param interface query string false "网络接口名称（可选）"
-// @Success 200 {object} common.Response{data=monitoring.VnStatResponse} "获取成功"
+// @Success 200 {object} common.Response{data=monitoring.PmacctSummary} "获取成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"
 // @Failure 403 {object} common.Response "无权限访问该实例"
 // @Failure 404 {object} common.Response "实例不存在"
 // @Failure 500 {object} common.Response "获取失败"
-// @Router /user/instances/{instance_id}/vnstat/summary [get]
-func GetInstanceVnStatSummary(c *gin.Context) {
+// @Router /user/instances/{instance_id}/pmacct/summary [get]
+func GetInstancePmacctSummary(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
@@ -1013,50 +1012,41 @@ func GetInstanceVnStatSummary(c *gin.Context) {
 		return
 	}
 
-	interfaceName := c.Query("interface")
-
-	vnstatService := vnstat.NewService()
-	summary, err := vnstatService.GetVnStatSummaryByInstanceID(uint(instanceID), interfaceName)
+	// pmacct不需要interfaceName，因为它只监控一个公网IP
+	pmacctService := pmacct.NewService()
+	summary, err := pmacctService.GetPmacctSummary(uint(instanceID))
 	if err != nil {
-		global.APP_LOG.Error("获取实例vnStat汇总失败",
+		global.APP_LOG.Error("获取实例pmacct汇总失败",
 			zap.Uint("userID", userID),
 			zap.Uint64("instanceID", instanceID),
-			zap.String("interface", interfaceName),
 			zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	global.APP_LOG.Info("用户获取实例vnStat汇总成功",
+	global.APP_LOG.Info("用户获取实例pmacct汇总成功",
 		zap.Uint("userID", userID),
-		zap.Uint64("instanceID", instanceID),
-		zap.String("interface", interfaceName))
+		zap.Uint64("instanceID", instanceID))
 
-	common.ResponseSuccess(c, summary, "获取vnStat汇总成功")
+	common.ResponseSuccess(c, summary, "获取pmacct汇总成功")
 }
 
-// QueryInstanceVnStatData 查询实例vnStat流量数据
-// @Summary 查询实例vnStat流量数据
-// @Description 根据查询条件获取实例的vnStat流量数据，支持按类型、时间范围查询
+// QueryInstancePmacctData 查询实例pmacct流量数据
+// @Summary 查询实例pmacct流量数据
+// @Description 查询实例的pmacct流量数据
 // @Tags 用户管理
 // @Accept json
 // @Produce json
 // @Security BearerAuth
 // @Param instance_id path int true "实例ID"
-// @Param interface query string false "网络接口名称"
-// @Param type query string false "查询类型：total, daily, monthly, hourly"
-// @Param period query string false "时间周期"
-// @Param start_date query string false "开始日期（YYYY-MM-DD）"
-// @Param end_date query string false "结束日期（YYYY-MM-DD）"
-// @Param limit query int false "返回记录数限制（默认100）"
-// @Success 200 {object} common.Response{data=monitoring.VnStatResponse} "查询成功"
+// @Success 200 {object} common.Response{data=monitoring.PmacctSummary} "查询成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 401 {object} common.Response "用户未登录"
 // @Failure 403 {object} common.Response "无权限访问该实例"
 // @Failure 404 {object} common.Response "实例不存在"
 // @Failure 500 {object} common.Response "查询失败"
-// @Router /user/instances/{instance_id}/vnstat/query [get]
-func QueryInstanceVnStatData(c *gin.Context) {
+// @Router /user/instances/{instance_id}/pmacct/query [get]
+func QueryInstancePmacctData(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
@@ -1082,84 +1072,10 @@ func QueryInstanceVnStatData(c *gin.Context) {
 		return
 	}
 
-	// 解析查询参数
-	type VnStatQueryParams struct {
-		InstanceID    uint   `json:"instance_id"`
-		InterfaceName string `json:"interface_name"`
-		DateRange     string `json:"date_range"`
-	}
-	var params VnStatQueryParams
-	if err := c.ShouldBindQuery(&params); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "查询参数错误"))
-		return
-	}
-	params.InstanceID = uint(instanceID)
-
-	vnstatService := vnstat.NewService()
-	result, err := vnstatService.QueryVnStatData(params.InstanceID, params.InterfaceName, params.DateRange)
+	pmacctService := pmacct.NewService()
+	summary, err := pmacctService.GetPmacctSummary(uint(instanceID))
 	if err != nil {
-		global.APP_LOG.Error("查询实例vnStat数据失败",
-			zap.Uint("userID", userID),
-			zap.Uint64("instanceID", instanceID),
-			zap.Any("params", params),
-			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
-		return
-	}
-
-	global.APP_LOG.Info("用户查询实例vnStat数据成功",
-		zap.Uint("userID", userID),
-		zap.Uint64("instanceID", instanceID),
-		zap.Any("params", params))
-
-	common.ResponseSuccess(c, result, "查询vnStat数据成功")
-}
-
-// GetInstanceVnStatInterfaces 获取实例vnStat接口列表
-// @Summary 获取实例vnStat接口列表
-// @Description 获取实例的所有vnStat监控接口列表及其状态
-// @Tags 用户管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param instance_id path int true "实例ID"
-// @Success 200 {object} common.Response{data=[]monitoring.VnStatInterface} "获取成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 401 {object} common.Response "用户未登录"
-// @Failure 403 {object} common.Response "无权限访问该实例"
-// @Failure 404 {object} common.Response "实例不存在"
-// @Failure 500 {object} common.Response "获取失败"
-// @Router /user/instances/{instance_id}/vnstat/interfaces [get]
-func GetInstanceVnStatInterfaces(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
-		return
-	}
-
-	instanceIDStr := c.Param("id")
-	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
-		return
-	}
-
-	// 验证用户是否有权限访问该实例
-	userServiceInstance := userService.NewService()
-	_, err = userServiceInstance.GetInstanceDetail(userID, uint(instanceID))
-	if err != nil {
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "验证实例权限失败"))
-		}
-		return
-	}
-
-	vnstatService := vnstat.NewService()
-	interfaces, err := vnstatService.GetVnStatInterfaces(uint(instanceID))
-	if err != nil {
-		global.APP_LOG.Error("获取实例vnStat接口列表失败",
+		global.APP_LOG.Error("查询pmacct数据失败",
 			zap.Uint("userID", userID),
 			zap.Uint64("instanceID", instanceID),
 			zap.Error(err))
@@ -1167,69 +1083,9 @@ func GetInstanceVnStatInterfaces(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("用户获取实例vnStat接口列表成功",
-		zap.Uint("userID", userID),
-		zap.Uint64("instanceID", instanceID),
-		zap.Int("interfaces_count", len(interfaces)))
-
-	common.ResponseSuccess(c, interfaces, "获取vnStat接口列表成功")
-}
-
-// GetInstanceVnStatDashboard 获取实例vnStat仪表板数据
-// @Summary 获取实例vnStat仪表板数据
-// @Description 获取实例的vnStat仪表板数据，包括汇总、趋势图等信息
-// @Tags 用户管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param instance_id path int true "实例ID"
-// @Success 200 {object} common.Response{data=map[string]interface{}} "获取成功"
-// @Failure 400 {object} common.Response "参数错误"
-// @Failure 401 {object} common.Response "用户未登录"
-// @Failure 403 {object} common.Response "无权限访问该实例"
-// @Failure 404 {object} common.Response "实例不存在"
-// @Failure 500 {object} common.Response "获取失败"
-// @Router /user/instances/{instance_id}/vnstat/dashboard [get]
-func GetInstanceVnStatDashboard(c *gin.Context) {
-	userID, err := getUserID(c)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
-		return
-	}
-
-	instanceIDStr := c.Param("id")
-	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
-		return
-	}
-
-	// 验证用户是否有权限访问该实例
-	userServiceInstance := userService.NewService()
-	_, err = userServiceInstance.GetInstanceDetail(userID, uint(instanceID))
-	if err != nil {
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "验证实例权限失败"))
-		}
-		return
-	}
-
-	vnstatService := vnstat.NewService()
-	dashboard, err := vnstatService.GetVnStatDashboardData(uint(instanceID))
-	if err != nil {
-		global.APP_LOG.Error("获取实例vnStat仪表板数据失败",
-			zap.Uint("userID", userID),
-			zap.Uint64("instanceID", instanceID),
-			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
-		return
-	}
-
-	global.APP_LOG.Info("用户获取实例vnStat仪表板数据成功",
+	global.APP_LOG.Info("用户查询pmacct数据成功",
 		zap.Uint("userID", userID),
 		zap.Uint64("instanceID", instanceID))
 
-	common.ResponseSuccess(c, dashboard, "获取vnStat仪表板数据成功")
+	common.ResponseSuccess(c, summary, "查询pmacct数据成功")
 }

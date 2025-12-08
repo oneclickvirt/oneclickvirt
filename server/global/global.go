@@ -36,6 +36,18 @@ type TaskLockReleaser interface {
 	ReleaseTaskLocks(taskID uint)
 }
 
+// SSHPoolManager SSH连接池管理器接口
+type SSHPoolManager interface {
+	CloseAll()
+}
+
+// CaptchaStore 验证码存储接口（与base64Captcha.Store兼容）
+type CaptchaStore interface {
+	Set(id string, value string) error
+	Get(id string, clear bool) string
+	Verify(id, answer string, clear bool) bool
+}
+
 // SystemInitializationCallback 系统初始化完成后的回调函数类型
 type SystemInitializationCallback func()
 
@@ -49,6 +61,8 @@ var (
 	APP_MONITORING_SCHEDULER      MonitoringScheduler          // 监控调度器全局变量
 	APP_PROVIDER_HEALTH_SCHEDULER ProviderHealthScheduler      // Provider健康检查调度器全局变量
 	APP_TASK_LOCK_RELEASER        TaskLockReleaser             // 任务锁释放器全局变量
+	APP_SSH_POOL                  SSHPoolManager               // SSH连接池管理器全局变量
+	APP_CAPTCHA_STORE             CaptchaStore                 // 验证码存储全局变量
 	APP_SYSTEM_INIT_CALLBACK      SystemInitializationCallback // 系统初始化完成回调函数
 	APP_SHUTDOWN_CONTEXT          context.Context              // 系统关闭上下文
 	APP_SHUTDOWN_CANCEL           context.CancelFunc           // 系统关闭取消函数

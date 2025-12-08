@@ -4,39 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"oneclickvirt/service/database"
-	"oneclickvirt/service/storage"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
-
-	"gorm.io/gorm"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/service/database"
+	"oneclickvirt/service/storage"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
-// ExtractHostFromEndpoint 从endpoint中提取主机地址
+// ExtractHostFromEndpoint 从端点提取主机地址（使用全局工具函数）
 func ExtractHostFromEndpoint(endpoint string) string {
-	// 处理各种格式的endpoint
-	if endpoint == "" {
-		return ""
-	}
-
-	// 移除协议前缀
-	if idx := strings.Index(endpoint, "://"); idx != -1 {
-		endpoint = endpoint[idx+3:]
-	}
-
-	// 移除端口
-	if idx := strings.Index(endpoint, ":"); idx != -1 {
-		return endpoint[:idx]
-	}
-
-	return endpoint
+	return utils.ExtractHost(endpoint)
 }
 
 // ProviderConfigService Provider配置管理服务
@@ -151,15 +135,9 @@ func (s *ProviderConfigService) createFileBackups(provider *providerModel.Provid
 	return nil
 }
 
-// ensureDirectories 确保所需目录存在
+// ensureDirectories 确保所需目录存在（使用全局工具函数）
 func (s *ProviderConfigService) ensureDirectories() error {
-	dirs := []string{storageService.GetConfigsPath(), storageService.GetCertsPath()}
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			return fmt.Errorf("创建目录 %s 失败: %w", dir, err)
-		}
-	}
-	return nil
+	return utils.EnsureDirs(storageService.GetConfigsPath(), storageService.GetCertsPath())
 }
 
 // saveCertificateFiles 保存证书文件

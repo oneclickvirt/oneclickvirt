@@ -131,10 +131,19 @@ func AutoConfigureProvider(c *gin.Context) {
 		return
 	}
 
-	// 异步执行配置（带超时控制）
+	// 异步执行配置（带超时控制和统一生命周期管理）
 	go func() {
-		// 创建2分钟超时的context
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("自动配置执行panic",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("providerId", req.ProviderID),
+					zap.Any("panic", r))
+			}
+		}()
+
+		// 创备2分钟超时的context，但与系统关闭信号关联
+		ctx, cancel := context.WithTimeout(global.APP_SHUTDOWN_CONTEXT, 2*time.Minute)
 		defer cancel()
 
 		// 使用带context的执行函数

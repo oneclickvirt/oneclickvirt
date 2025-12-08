@@ -9,12 +9,13 @@ import (
 	dashboardModel "oneclickvirt/model/dashboard"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
 // LimitService 流量统计查询服务
-// 注意：流量检查和限制功能已移至 three_tier_limit.go
+// 流量检查和限制功能已移至 three_tier_limit.go
 // 本服务只负责流量数据的统计和查询
 type LimitService struct {
 	service *Service
@@ -29,56 +30,34 @@ func NewLimitService() *LimitService {
 
 // ============ 流量统计查询方法 ============
 
-// getUserMonthlyTrafficFromVnStat 从vnStat数据计算用户当月流量使用量
+// getUserMonthlyTrafficFromPmacct 从pmacct数据计算用户当月流量使用量
 // 只统计启用了流量统计的Provider
-func (s *LimitService) getUserMonthlyTrafficFromVnStat(userID uint) (int64, error) {
+// pmacct重启会导致累积值重置，需要检测并分段计算
+func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
-	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
-	// 只统计启用了流量统计的Provider
-	var totalTrafficMB float64
-	query := `
-		SELECT COALESCE(SUM(
-			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN agg.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN agg.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (agg.rx_bytes + agg.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
-			END
-		), 0) / 1048576
-		FROM instances i
-		LEFT JOIN providers p ON i.provider_id = p.id
-		LEFT JOIN (
-			SELECT instance_id, 
-				   SUM(rx_bytes) as rx_bytes, 
-				   SUM(tx_bytes) as tx_bytes
-			FROM vnstat_traffic_records
-			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
-			GROUP BY instance_id
-		) agg ON i.id = agg.instance_id
-		WHERE i.user_id = ?
-		AND COALESCE(p.enable_traffic_control, true) = true
-	`
-
-	err := global.APP_DB.Raw(query, year, month, userID).Scan(&totalTrafficMB).Error
+	// 使用QueryService的方法来获取用户月度流量（已包含重启检测逻辑）
+	queryService := NewQueryService()
+	stats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
 	if err != nil {
 		return 0, fmt.Errorf("获取用户月度流量失败: %w", err)
 	}
 
-	global.APP_LOG.Debug("计算用户vnStat月度流量",
+	global.APP_LOG.Debug("计算用户pmacct月度流量",
 		zap.Uint("userID", userID),
 		zap.Int("year", year),
 		zap.Int("month", month),
-		zap.Float64("totalTrafficMB", totalTrafficMB))
+		zap.Float64("actualUsageMB", stats.ActualUsageMB))
 
-	return int64(totalTrafficMB), nil
+	return int64(stats.ActualUsageMB), nil
 }
 
-// getProviderMonthlyTrafficFromVnStat 从vnStat数据计算Provider当月流量使用量
+// getProviderMonthlyTrafficFromPmacct 从pmacct数据计算Provider当月流量使用量
 // 只统计启用了流量统计的Provider
-func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int64, error) {
+// pmacct数据是累积值，需要先按instance_id取MAX，再按provider汇总
+func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
@@ -94,36 +73,77 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 		return 0, nil
 	}
 
-	// 使用 SQL 批量查询，根据 Provider 的流量模式和倍率计算流量
-	// 注意：使用子查询先对每个实例的多个接口流量进行聚合，避免重复统计
+	// pmacct重启会导致累积值重置，需要分段检测并汇总
+	// 注意：当月数据包括归档数据，防止用户通过重置实例绕过流量限制
 	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(
 			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN agg.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN agg.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (agg.rx_bytes + agg.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
+				WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
+				ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
 			END
-		), 0) / 1048576
-		FROM instances i
-		LEFT JOIN providers p ON i.provider_id = p.id
-		LEFT JOIN (
-			SELECT instance_id, 
-				   SUM(rx_bytes) as rx_bytes, 
-				   SUM(tx_bytes) as tx_bytes
-			FROM vnstat_traffic_records
-			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
-			GROUP BY instance_id
-		) agg ON i.id = agg.instance_id
-		WHERE i.provider_id = ?
+		), 0) / 1048576.0
+		FROM (
+			-- 对每个instance按segment求和（处理pmacct重启）
+			SELECT 
+				instance_id,
+				provider_id,
+				SUM(max_rx) as segment_rx,
+				SUM(max_tx) as segment_tx
+			FROM (
+				-- 检测重启并分段，每段取MAX
+				SELECT 
+					instance_id,
+					provider_id,
+					segment_id,
+					MAX(rx_bytes) as max_rx,
+					MAX(tx_bytes) as max_tx
+				FROM (
+					SELECT 
+						t1.instance_id,
+						t1.provider_id,
+						t1.rx_bytes,
+						t1.tx_bytes,
+						(
+							SELECT COUNT(*)
+							FROM pmacct_traffic_records t2
+							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+								AND t3.timestamp = (
+								SELECT MAX(timestamp) 
+								FROM pmacct_traffic_records 
+								WHERE instance_id = t2.instance_id 
+									AND timestamp < t2.timestamp
+									AND year = ? AND month = ?
+							)
+							WHERE t2.instance_id = t1.instance_id
+								AND t2.provider_id = ?
+								AND t2.year = ? AND t2.month = ?
+								AND t2.timestamp <= t1.timestamp
+								AND (
+									(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
+									OR
+									(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
+								)
+						) as segment_id
+				FROM pmacct_traffic_records t1
+				WHERE t1.provider_id = ?
+				  AND t1.year = ? 
+				  AND t1.month = ?
+				) AS segments
+				GROUP BY instance_id, provider_id, segment_id
+			) AS instance_segments
+			GROUP BY instance_id, provider_id
+		) AS instance_totals
+		INNER JOIN providers p ON instance_totals.provider_id = p.id
 	`
 
-	err := global.APP_DB.Raw(query, year, month, providerID).Scan(&totalTrafficMB).Error
+	err := global.APP_DB.Raw(query, year, month, providerID, year, month, providerID, year, month).Scan(&totalTrafficMB).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取Provider月度流量失败: %w", err)
 	}
 
-	global.APP_LOG.Debug("计算Provider vnStat月度流量",
+	global.APP_LOG.Debug("计算Provider pmacct月度流量",
 		zap.Uint("providerID", providerID),
 		zap.Int("year", year),
 		zap.Int("month", month),
@@ -132,8 +152,8 @@ func (s *LimitService) getProviderMonthlyTrafficFromVnStat(providerID uint) (int
 	return int64(totalTrafficMB), nil
 }
 
-// GetUserTrafficUsageWithVnStat 获取用户流量使用情况（基于vnStat数据）
-func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]interface{}, error) {
+// GetUserTrafficUsageWithPmacct 获取用户流量使用情况（基于pmacct数据）
+func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]interface{}, error) {
 	var u user.User
 	if err := global.APP_DB.First(&u, userID).Error; err != nil {
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
@@ -173,13 +193,13 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 	}
 
 	// 获取当月流量使用量（MB 单位）
-	currentMonthUsageMB, err := s.getUserMonthlyTrafficFromVnStat(userID)
+	currentMonthUsageMB, err := s.getUserMonthlyTrafficFromPmacct(userID)
 	if err != nil {
 		return nil, fmt.Errorf("获取当月流量使用量失败: %w", err)
 	}
 
 	// 获取本年度总流量使用量
-	yearlyUsage, err := s.getUserYearlyTrafficFromVnStat(userID)
+	yearlyUsage, err := s.getUserYearlyTrafficFromPmacct(userID)
 	if err != nil {
 		global.APP_LOG.Warn("获取年度流量使用量失败", zap.Error(err))
 		yearlyUsage = 0
@@ -192,7 +212,7 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 	}
 
 	// 获取最近6个月的流量历史
-	history, err := s.getUserTrafficHistoryFromVnStat(userID, 6)
+	history, err := s.getUserTrafficHistoryFromPmacct(userID, 6)
 	if err != nil {
 		global.APP_LOG.Warn("获取流量历史失败", zap.Error(err))
 		history = []map[string]interface{}{}
@@ -209,8 +229,8 @@ func (s *LimitService) GetUserTrafficUsageWithVnStat(userID uint) (map[string]in
 		"history":                 history,
 		"traffic_control_enabled": true, // 标记流量统计已启用
 		"formatted": map[string]string{
-			"current_usage": FormatTrafficMB(currentMonthUsageMB),
-			"total_limit":   FormatTrafficMB(int64(u.TotalTraffic)),
+			"current_usage": utils.FormatMB(float64(currentMonthUsageMB)),
+			"total_limit":   utils.FormatMB(float64(u.TotalTraffic)),
 		},
 	}, nil
 }
@@ -220,7 +240,7 @@ func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (boo
 	var count int64
 	err := global.APP_DB.Table("instances").
 		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
-		Where("instances.user_id = ? AND instances.deleted_at IS NULL", userID).
+		Where("instances.user_id = ?", userID).
 		Where("providers.enable_traffic_control = ?", true).
 		Count(&count).Error
 
@@ -231,11 +251,14 @@ func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (boo
 	return count > 0, nil
 }
 
-// getUserYearlyTrafficFromVnStat 从vnStat数据获取用户年度流量使用量
-func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error) {
-	// 获取用户所有实例（包含软删除的实例，因为需要统计本年已产生的流量）
+// getUserYearlyTrafficFromPmacct 从pmacct数据获取用户年度流量使用量
+func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error) {
+	// 获取用户所有实例（包含软删除的实例）
 	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
+	err := global.APP_DB.Unscoped().
+		Where("user_id = ?", userID).
+		Limit(1000). // 限制最多1000个实例
+		Find(&instances).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
@@ -244,40 +267,80 @@ func (s *LimitService) getUserYearlyTrafficFromVnStat(userID uint) (int64, error
 		return 0, nil
 	}
 
-	var totalTraffic int64
-
-	// 遍历每个实例，获取年度流量（聚合所有接口，避免重复统计）
+	// 收集所有实例ID
+	instanceIDs := make([]uint, 0, len(instances))
 	for _, instance := range instances {
-		// 获取实例所有接口的年度总流量聚合（使用子查询避免重复统计多个接口）
-		var instanceTotalMB float64
-		err := global.APP_DB.Raw(`
-			SELECT COALESCE(SUM(rx_bytes + tx_bytes), 0) / 1048576.0
-			FROM (
-				SELECT instance_id, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
-				FROM vnstat_traffic_records
-				WHERE instance_id = ? AND year = 0 AND month = 0 AND day = 0 AND hour = 0
-				GROUP BY instance_id
-			) agg
-		`, instance.ID).Scan(&instanceTotalMB).Error
-
-		if err != nil {
-			global.APP_LOG.Warn("获取实例年度流量失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-			continue
-		}
-
-		totalTraffic += int64(instanceTotalMB)
+		instanceIDs = append(instanceIDs, instance.ID)
 	}
 
-	return totalTraffic, nil
+	// 一次性批量查询所有实例的年度流量（当前年度）
+	// 处理pmacct重启导致的累积值重置问题
+	var totalTrafficMB float64
+	currentYear := time.Now().Year()
+	err = global.APP_DB.Raw(`
+		SELECT COALESCE(SUM(segment_total), 0) / 1048576.0
+		FROM (
+			-- 对每个instance按segment求和（处理pmacct重启）
+			SELECT 
+				instance_id,
+				SUM(max_rx + max_tx) as segment_total
+			FROM (
+				-- 检测重启并分段，每段取MAX
+				SELECT 
+					instance_id,
+					segment_id,
+					MAX(rx_bytes) as max_rx,
+					MAX(tx_bytes) as max_tx
+				FROM (
+					-- 计算每条记录的segment_id（累积重启次数）
+					SELECT 
+						t1.instance_id,
+						t1.rx_bytes,
+						t1.tx_bytes,
+						(
+							SELECT COUNT(*)
+							FROM pmacct_traffic_records t2
+							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+								AND t3.timestamp = (
+									SELECT MAX(timestamp) 
+									FROM pmacct_traffic_records 
+									WHERE instance_id = t2.instance_id 
+										AND timestamp < t2.timestamp
+										AND year = ?
+								)
+							WHERE t2.instance_id = t1.instance_id
+								AND t2.year = ?
+								AND t2.timestamp <= t1.timestamp
+								AND (
+									(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
+									OR
+									(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
+								)
+						) as segment_id
+					FROM pmacct_traffic_records t1
+					WHERE t1.instance_id IN ? AND t1.year = ?
+				) AS segments
+				GROUP BY instance_id, segment_id
+			) AS instance_segments
+			GROUP BY instance_id
+		) AS instance_totals
+	`, currentYear, currentYear, instanceIDs, currentYear).Scan(&totalTrafficMB).Error
+
+	if err != nil {
+		return 0, fmt.Errorf("获取用户年度流量失败: %w", err)
+	}
+
+	return int64(totalTrafficMB), nil
 }
 
-// getUserTrafficHistoryFromVnStat 从vnStat数据获取用户流量历史
-func (s *LimitService) getUserTrafficHistoryFromVnStat(userID uint, months int) ([]map[string]interface{}, error) {
-	// 获取用户所有实例（包含软删除的实例，因为需要统计历史流量）
+// getUserTrafficHistoryFromPmacct 从pmacct数据获取用户流量历史
+func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) ([]map[string]interface{}, error) {
+	// 获取用户所有实例（包含软删除的实例，但排除已重置的实例）
 	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().Where("user_id = ?", userID).Find(&instances).Error
+	err := global.APP_DB.Unscoped().
+		Where("user_id = ?", userID).
+		Limit(1000). // 限制最多1000个实例
+		Find(&instances).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
@@ -289,27 +352,96 @@ func (s *LimitService) getUserTrafficHistoryFromVnStat(userID uint, months int) 
 	now := time.Now()
 	history := make([]map[string]interface{}, 0, months)
 
+	// 收集所有实例ID，用于批量查询
+	instanceIDs := make([]uint, 0, len(instances))
+	for _, instance := range instances {
+		instanceIDs = append(instanceIDs, instance.ID)
+	}
+
 	// 获取最近N个月的数据
 	for i := 0; i < months; i++ {
 		targetTime := now.AddDate(0, -i, 0)
 		year := targetTime.Year()
 		month := int(targetTime.Month())
 
-		var monthlyTraffic int64
+		// 批量查询该月所有实例的流量
+		// pmacct重启会导致累积值重置，需要分段检测并汇总
+		var monthlyTraffic float64
+		if len(instanceIDs) > 0 {
+			err := global.APP_DB.Raw(`
+				SELECT COALESCE(SUM(
+					CASE 
+						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
+						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
+					END
+				), 0) / 1048576.0
+				FROM (
+					SELECT 
+						instance_id,
+						provider_id,
+						SUM(max_rx) as segment_rx,
+						SUM(max_tx) as segment_tx
+					FROM (
+						SELECT 
+							instance_id,
+							provider_id,
+							segment_id,
+							MAX(rx_bytes) as max_rx,
+							MAX(tx_bytes) as max_tx
+						FROM (
+							SELECT 
+								t1.instance_id,
+								t1.provider_id,
+								t1.rx_bytes,
+								t1.tx_bytes,
+								(
+									SELECT COUNT(*)
+									FROM pmacct_traffic_records t2
+									LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+										AND t3.timestamp = (
+											SELECT MAX(timestamp) 
+											FROM pmacct_traffic_records 
+											WHERE instance_id = t2.instance_id 
+												AND timestamp < t2.timestamp
+												AND year = ? AND month = ?
+										)
+									WHERE t2.instance_id = t1.instance_id
+										AND t2.user_id = ?
+										AND t2.year = ? AND t2.month = ?
+										AND t2.timestamp <= t1.timestamp
+										AND (
+											(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
+											OR
+											(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
+										)
+								) as segment_id
+							FROM pmacct_traffic_records t1
+							WHERE t1.user_id = ?
+							  AND t1.year = ? 
+							  AND t1.month = ?
+						) AS segments
+						GROUP BY instance_id, provider_id, segment_id
+					) AS instance_segments
+					GROUP BY instance_id, provider_id
+				) AS instance_totals
+				INNER JOIN providers p ON instance_totals.provider_id = p.id
+				WHERE p.enable_traffic_control = true
+			`, year, month, userID, year, month, userID, year, month).Scan(&monthlyTraffic).Error
 
-		// 计算该月所有实例的流量总和
-		for _, instance := range instances {
-			instanceTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instance.ID, year, month)
 			if err != nil {
-				continue
+				global.APP_LOG.Warn("批量查询月度流量失败",
+					zap.Int("year", year),
+					zap.Int("month", month),
+					zap.Error(err))
+				monthlyTraffic = 0
 			}
-			monthlyTraffic += instanceTraffic
 		}
 
 		history = append(history, map[string]interface{}{
 			"year":    year,
 			"month":   month,
-			"traffic": monthlyTraffic,
+			"traffic": int64(monthlyTraffic),
 			"date":    fmt.Sprintf("%d-%02d", year, month),
 		})
 	}
@@ -323,20 +455,24 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 	now := time.Now()
 	year, month, _ := now.Date()
 
-	// 获取系统总流量（所有实例本月流量总和，避免重复统计多个接口）
+	// 获取系统总流量（所有实例本月流量总和）
+	// 兼容MySQL 5.x：直接取MAX累积值
 	var totalTraffic dashboardModel.TrafficStats
 
 	err := global.APP_DB.Raw(`
 		SELECT 
-			COALESCE(SUM(rx_bytes), 0) as total_rx, 
-			COALESCE(SUM(tx_bytes), 0) as total_tx, 
-			COALESCE(SUM(rx_bytes + tx_bytes), 0) as total_bytes
+			COALESCE(SUM(max_rx), 0) as total_rx, 
+			COALESCE(SUM(max_tx), 0) as total_tx, 
+			COALESCE(SUM(max_rx + max_tx), 0) as total_bytes
 		FROM (
-			SELECT instance_id, SUM(rx_bytes) as rx_bytes, SUM(tx_bytes) as tx_bytes
-			FROM vnstat_traffic_records
-			WHERE year = ? AND month = ? AND day = 0 AND hour = 0
+			SELECT 
+				instance_id,
+				MAX(rx_bytes) as max_rx,
+				MAX(tx_bytes) as max_tx
+			FROM pmacct_traffic_records
+			WHERE year = ? AND month = ?
 			GROUP BY instance_id
-		) agg
+		) AS instance_max
 	`, year, int(month)).Scan(&totalTraffic).Error
 
 	if err != nil {
@@ -379,9 +515,9 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 			"total_tx":    totalTraffic.TotalTx,
 			"total_bytes": totalTraffic.TotalBytes,
 			"formatted": map[string]string{
-				"total_rx":    FormatVnStatData(totalTraffic.TotalRx),
-				"total_tx":    FormatVnStatData(totalTraffic.TotalTx),
-				"total_bytes": FormatVnStatData(totalTraffic.TotalBytes),
+				"total_rx":    utils.FormatBytes(totalTraffic.TotalRx),
+				"total_tx":    utils.FormatBytes(totalTraffic.TotalTx),
+				"total_bytes": utils.FormatBytes(totalTraffic.TotalBytes),
 			},
 		},
 		"users": map[string]interface{}{
@@ -400,8 +536,8 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 	return result, nil
 }
 
-// GetProviderTrafficUsageWithVnStat 获取Provider流量使用情况
-func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[string]interface{}, error) {
+// GetProviderTrafficUsageWithPmacct 获取Provider流量使用情况
+func (s *LimitService) GetProviderTrafficUsageWithPmacct(providerID uint) (map[string]interface{}, error) {
 	// 获取Provider信息
 	var p provider.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
@@ -415,9 +551,9 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 	} else {
 		// 获取当前月份的流量使用（MB 单位）
 		var err error
-		monthlyTrafficMB, err = s.getProviderMonthlyTrafficFromVnStat(providerID)
+		monthlyTrafficMB, err = s.getProviderMonthlyTrafficFromPmacct(providerID)
 		if err != nil {
-			global.APP_LOG.Warn("获取Provider vnStat月度流量失败，使用默认值",
+			global.APP_LOG.Warn("获取Provider pmacct月度流量失败，使用默认值",
 				zap.Uint("providerID", providerID),
 				zap.Error(err))
 			monthlyTrafficMB = 0
@@ -457,10 +593,10 @@ func (s *LimitService) GetProviderTrafficUsageWithVnStat(providerID uint) (map[s
 		"reset_time":             p.TrafficResetAt,
 		"instance_count":         instanceCount,
 		"limited_instance_count": limitedInstanceCount,
-		"data_source":            "vnstat",
+		"data_source":            "pmacct",
 		"formatted": map[string]string{
-			"current_usage": FormatTrafficMB(monthlyTrafficMB),
-			"total_limit":   FormatTrafficMB(p.MaxTraffic),
+			"current_usage": utils.FormatMB(float64(monthlyTrafficMB)),
+			"total_limit":   utils.FormatMB(float64(p.MaxTraffic)),
 		},
 	}, nil
 }
@@ -503,17 +639,13 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 		whereClause = " AND " + strings.Join(whereConditions, " AND ")
 	}
 
-	// 先获取总数
+	// 先获取总数 - 简化查询，只统计用户表
 	countQuery := `
-		SELECT COUNT(DISTINCT u.id)
+		SELECT COUNT(*)
 		FROM users u
-		LEFT JOIN instances i ON u.id = i.user_id
-		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id 
-			AND vr.year = ? AND vr.month = ?
 		WHERE 1=1` + whereClause
 
-	countArgs := append([]interface{}{year, int(month)}, whereArgs...)
-	err := global.APP_DB.Raw(countQuery, countArgs...).Scan(&total).Error
+	err := global.APP_DB.Raw(countQuery, whereArgs...).Scan(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("获取用户流量总数失败: %w", err)
 	}
@@ -523,34 +655,90 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	// - both: rx_bytes + tx_bytes（乘以倍率）
 	// - out: tx_bytes（乘以倍率）
 	// - in: rx_bytes（乘以倍率）
+	// pmacct重启会导致累积值重置，需要检测并分段计算
 	offset := (page - 1) * pageSize
 	query := `
 		SELECT 
 			u.id as user_id,
 			u.username,
 			u.nickname,
-			COALESCE(SUM(
-				CASE 
-					WHEN p.traffic_count_mode = 'out' THEN vr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-					WHEN p.traffic_count_mode = 'in' THEN vr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-					ELSE (vr.rx_bytes + vr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
-				END
-			), 0) / 1048576 as month_usage,
+			COALESCE(traffic_data.month_usage, 0) as month_usage,
 			u.total_traffic as total_limit,
 			u.traffic_limited as is_limited,
 			u.traffic_reset_at as reset_time
 		FROM users u
-		LEFT JOIN instances i ON u.id = i.user_id
-		LEFT JOIN providers p ON i.provider_id = p.id
-		LEFT JOIN vnstat_traffic_records vr ON i.id = vr.instance_id 
-			AND vr.year = ? AND vr.month = ? AND vr.day = 0 AND vr.hour = 0
+		LEFT JOIN (
+			SELECT 
+				instance_totals.user_id,
+				SUM(
+					CASE 
+						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
+						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
+					END
+				) / 1048576.0 as month_usage
+			FROM (
+				-- 对每个instance按segment求和（处理pmacct重启）
+				SELECT 
+					user_id,
+					instance_id,
+					provider_id,
+					SUM(max_rx) as segment_rx,
+					SUM(max_tx) as segment_tx
+				FROM (
+					-- 检测重启并分段，每段取MAX
+					SELECT 
+						user_id,
+						instance_id,
+						provider_id,
+						segment_id,
+						MAX(rx_bytes) as max_rx,
+						MAX(tx_bytes) as max_tx
+					FROM (
+						-- 计算每条记录的segment_id（累积重启次数）
+						SELECT 
+							t1.user_id,
+							t1.instance_id,
+							t1.provider_id,
+							t1.rx_bytes,
+							t1.tx_bytes,
+							(
+								SELECT COUNT(*)
+								FROM pmacct_traffic_records t2
+								LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+									AND t3.timestamp = (
+										SELECT MAX(timestamp) 
+										FROM pmacct_traffic_records 
+										WHERE instance_id = t2.instance_id 
+											AND timestamp < t2.timestamp
+											AND year = ? AND month = ?
+									)
+								WHERE t2.instance_id = t1.instance_id
+									AND t2.year = ? AND t2.month = ?
+									AND t2.timestamp <= t1.timestamp
+									AND (
+										(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
+										OR
+										(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
+									)
+							) as segment_id
+						FROM pmacct_traffic_records t1
+						WHERE t1.year = ? AND t1.month = ?
+					) AS segments
+					GROUP BY user_id, instance_id, provider_id, segment_id
+				) AS instance_segments
+				GROUP BY user_id, instance_id, provider_id
+			) AS instance_totals
+			INNER JOIN providers p ON instance_totals.provider_id = p.id
+			WHERE p.enable_traffic_control = true
+			GROUP BY instance_totals.user_id
+		) traffic_data ON u.id = traffic_data.user_id
 		WHERE 1=1` + whereClause + `
-		GROUP BY u.id, u.username, u.nickname, u.total_traffic, u.traffic_limited, u.traffic_reset_at
 		ORDER BY month_usage DESC
 		LIMIT ? OFFSET ?
 	`
 
-	queryArgs := append([]interface{}{year, int(month)}, whereArgs...)
+	queryArgs := append([]interface{}{year, int(month), year, int(month), year, int(month)}, whereArgs...)
 	queryArgs = append(queryArgs, pageSize, offset)
 
 	err = global.APP_DB.Raw(query, queryArgs...).Scan(&rankings).Error
@@ -580,8 +768,8 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 			"is_limited":    rank.IsLimited,
 			"reset_time":    rank.ResetTime,
 			"formatted": map[string]string{
-				"month_usage": FormatTrafficMB(int64(rank.MonthUsage)),
-				"total_limit": FormatTrafficMB(rank.TotalLimit),
+				"month_usage": utils.FormatMB(float64(rank.MonthUsage)),
+				"total_limit": utils.FormatMB(float64(rank.TotalLimit)),
 			},
 		})
 	}
@@ -629,43 +817,4 @@ func (s *LimitService) RemoveProviderTrafficLimit(providerID uint) error {
 		}).Error
 }
 
-// FormatVnStatData 格式化vnStat数据显示（输入为字节）
-func FormatVnStatData(bytes int64) string {
-	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-		TB = GB * 1024
-	)
-
-	if bytes >= TB {
-		return fmt.Sprintf("%.2f TB", float64(bytes)/TB)
-	} else if bytes >= GB {
-		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
-	} else if bytes >= MB {
-		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
-	} else if bytes >= KB {
-		return fmt.Sprintf("%.2f KB", float64(bytes)/KB)
-	}
-	return fmt.Sprintf("%d B", bytes)
-}
-
-// FormatTrafficMB 格式化流量数据显示（输入为MB）
-func FormatTrafficMB(mb int64) string {
-	const (
-		KB_IN_MB = float64(1) / 1024 // 1 MB = 1024 KB
-		GB_IN_MB = 1024              // 1 GB = 1024 MB
-		TB_IN_MB = 1024 * 1024       // 1 TB = 1024 * 1024 MB
-	)
-
-	if mb >= TB_IN_MB {
-		return fmt.Sprintf("%.2f TB", float64(mb)/TB_IN_MB)
-	} else if mb >= GB_IN_MB {
-		return fmt.Sprintf("%.2f GB", float64(mb)/GB_IN_MB)
-	} else if mb >= 1 {
-		return fmt.Sprintf("%.2f MB", float64(mb))
-	} else if mb > 0 {
-		return fmt.Sprintf("%.2f KB", float64(mb)/KB_IN_MB)
-	}
-	return "0 B"
-}
+// FormatPmacctData 格式化pmacct数据显示（输入为字节）

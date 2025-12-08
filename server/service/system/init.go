@@ -127,10 +127,9 @@ func (s *InitService) AutoMigrateTables() error {
 	// 执行表结构迁移
 	err := global.APP_DB.AutoMigrate(
 		// 用户相关表
-		&userModel.User{},          // 用户基础信息表
-		&userModel.TrafficRecord{}, // 用户流量记录表
-		&auth.Role{},               // 角色管理表
-		&userModel.UserRole{},      // 用户角色关联表
+		&userModel.User{},     // 用户基础信息表
+		&auth.Role{},          // 角色管理表
+		&userModel.UserRole{}, // 用户角色关联表
 
 		// 实例相关表
 		&provider.Instance{}, // 虚拟机/容器实例表
@@ -516,6 +515,10 @@ func (s *InitService) ReinitializeDatabase() error {
 }
 
 // reloadConfig 重新加载配置文件到 global.APP_CONFIG
+// 手动修改 config.yaml 后调用此方法，会：
+// 1. 将 YAML 配置同步到数据库
+// 2. 通过 ConfigManager 回调同步到 global.APP_CONFIG
+// 3. 清除配置修改标志（因为现在 YAML 是最新的）
 func (s *InitService) reloadConfig() error {
 	configPath := "./config.yaml"
 	configData, err := os.ReadFile(configPath)
@@ -523,9 +526,31 @@ func (s *InitService) reloadConfig() error {
 		return fmt.Errorf("读取配置文件失败: %v", err)
 	}
 
-	// 解析配置到 global.APP_CONFIG
-	if err := yaml.Unmarshal(configData, &global.APP_CONFIG); err != nil {
+	// 先解析配置到临时变量（用于验证）
+	var tempConfig configManager.Server
+	if err := yaml.Unmarshal(configData, &tempConfig); err != nil {
 		return fmt.Errorf("解析配置文件失败: %v", err)
+	}
+
+	// 使用 ConfigManager 重新加载配置
+	// 这样可以确保：
+	// 1. 配置被同步到数据库
+	// 2. 触发回调同步到 global.APP_CONFIG
+	// 3. 配置缓存被更新
+	cm := configManager.GetConfigManager()
+	if cm != nil {
+		if err := cm.ReloadFromYAML(); err != nil {
+			global.APP_LOG.Error("通过ConfigManager重新加载配置失败", zap.Error(err))
+			// 降级处理：直接加载到 global.APP_CONFIG
+			global.APP_CONFIG = tempConfig
+			global.APP_LOG.Warn("配置已直接加载到global.APP_CONFIG，但未同步到数据库")
+		} else {
+			global.APP_LOG.Info("配置已通过ConfigManager重新加载并同步到数据库")
+		}
+	} else {
+		// ConfigManager 未初始化，直接加载
+		global.APP_CONFIG = tempConfig
+		global.APP_LOG.Warn("ConfigManager未初始化，配置仅加载到global.APP_CONFIG")
 	}
 
 	global.APP_LOG.Info("配置已从文件重新加载")

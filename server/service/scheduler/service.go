@@ -110,22 +110,18 @@ func (s *SchedulerService) StopScheduler() {
 func (s *SchedulerService) runTaskScheduler() {
 	defer s.wg.Done()
 
-	// 创建定时器，错开执行时间避免并发峰值
-	taskTicker := time.NewTicker(5 * time.Second)         // 任务处理
-	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理
-	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护
-	trafficTicker := time.NewTicker(2 * time.Hour)        // 流量同步
-	trafficResetTicker := time.NewTicker(3 * time.Hour)   // 流量重置检查
+	// 创建定时器
+	taskTicker := time.NewTicker(5 * time.Second)         // 任务处理保持5秒
+	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理保持1分钟
+	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护保持10分钟
 
 	defer func() {
 		taskTicker.Stop()
 		cleanupTicker.Stop()
 		maintenanceTicker.Stop()
-		trafficTicker.Stop()
-		trafficResetTicker.Stop()
 	}()
 
-	global.APP_LOG.Info("Task scheduler main loop started")
+	global.APP_LOG.Info("Task scheduler main loop started (flow control moved to MonitoringSchedulerService)")
 
 	for {
 		select {
@@ -146,12 +142,6 @@ func (s *SchedulerService) runTaskScheduler() {
 
 		case <-maintenanceTicker.C:
 			s.performMaintenance()
-
-		case <-trafficTicker.C:
-			s.syncAllTrafficData()
-
-		case <-trafficResetTicker.C:
-			s.checkMonthlyTrafficReset()
 		}
 	}
 }
@@ -247,17 +237,28 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 		return
 	}
 
-	// 如果Provider状态为inactive，才取消任务
-	// partial状态表示部分在线（如SSH在线但API离线），仍然可以尝试执行任务
-	if provider.Status == "inactive" {
+	// 对于删除任务，允许inactive状态的Provider，因为GetProviderByID会自动尝试重新连接
+	// 其他任务类型仍需检查Provider状态
+	if provider.Status == "inactive" && task.TaskType != "delete_instance" {
 		global.APP_LOG.Warn("Provider is inactive, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("ssh_status", provider.SSHStatus),
 			zap.String("api_status", provider.APIStatus),
+			zap.String("task_type", task.TaskType),
 			zap.Uint("task_id", task.ID))
 		s.taskService.CancelTaskByAdmin(task.ID, "Provider is inactive")
 		return
+	}
+
+	// 对于删除任务，即使Provider状态为inactive，也允许继续执行
+	// GetProviderByID会尝试重新连接，确保删除操作能够完成
+	if provider.Status == "inactive" && task.TaskType == "delete_instance" {
+		global.APP_LOG.Info("Provider is inactive but allowing delete task to proceed, will attempt reconnection",
+			zap.Uint("provider_id", *task.ProviderID),
+			zap.String("provider_name", provider.Name),
+			zap.String("task_type", task.TaskType),
+			zap.Uint("task_id", task.ID))
 	}
 
 	// 记录当前allow_claim状态，但不阻止任务执行

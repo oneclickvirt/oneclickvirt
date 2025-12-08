@@ -14,6 +14,12 @@ type SamplingCore struct {
 	mu       sync.RWMutex
 }
 
+// 全局采样核心列表，用于清理
+var (
+	samplingCores   []*SamplingCore
+	samplingCoresMu sync.RWMutex
+)
+
 // sampler 用于控制特定消息的采样频率
 type sampler struct {
 	interval    time.Duration
@@ -24,10 +30,17 @@ type sampler struct {
 
 // NewSamplingCore 创建一个新的采样核心
 func NewSamplingCore(core zapcore.Core) *SamplingCore {
-	return &SamplingCore{
+	sc := &SamplingCore{
 		Core:     core,
 		samplers: make(map[string]*sampler),
 	}
+
+	// 注册到全局列表
+	samplingCoresMu.Lock()
+	samplingCores = append(samplingCores, sc)
+	samplingCoresMu.Unlock()
+
+	return sc
 }
 
 // Check 检查是否应该记录该日志
@@ -144,10 +157,30 @@ func (s *SamplingCore) CleanupOldSamplers() {
 	defer s.mu.Unlock()
 
 	now := time.Now()
+	cleanedCount := 0
 	for message, samp := range s.samplers {
 		// 如果采样器超过1小时没有使用，删除它
 		if now.Sub(samp.lastLog) > time.Hour {
 			delete(s.samplers, message)
+			cleanedCount++
 		}
+	}
+
+	// 如果清理了采样器，记录日志（使用采样避免过多日志）
+	if cleanedCount > 0 && len(s.samplers)%100 == 0 {
+		// 只在特定情况下记录，避免产生过多清理日志
+		// 这里不能使用global.APP_LOG，会造成递归
+	}
+}
+
+// CleanupAllSamplingCores 清理所有采样核心的旧采样器
+func CleanupAllSamplingCores() {
+	samplingCoresMu.RLock()
+	cores := make([]*SamplingCore, len(samplingCores))
+	copy(cores, samplingCores)
+	samplingCoresMu.RUnlock()
+
+	for _, core := range cores {
+		core.CleanupOldSamplers()
 	}
 }

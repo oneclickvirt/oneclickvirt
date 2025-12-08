@@ -479,6 +479,9 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 		containerDisk := stats.UsedDisk
 		containerCount := stats.ContainerCount
 
+		// 设置缓存过期时间（5分钟后）
+		cacheExpiry := time.Now().Add(5 * time.Minute)
+
 		// 更新Provider资源统计
 		totalInstances := int(vmCount + containerCount)
 		availableCPU := provider.NodeCPUCores - int(vmCPU)
@@ -491,7 +494,7 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 		}
 
 		// 计算最大实例数限制（基于容器和虚拟机的单独限制）
-		// 注意：0 表示无限制，不应该被处理成有限制的情况
+		// 0 表示无限制，不应该被处理成有限制的情况
 		maxInstances := 0
 		hasLimit := false
 		if provider.MaxContainerInstances > 0 {
@@ -519,6 +522,7 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 			"used_instances":      totalInstances,
 			"resource_synced":     true,
 			"resource_synced_at":  &now,
+			"count_cache_expiry":  &cacheExpiry, // 设置缓存过期时间
 		}
 
 		return tx.Model(&provider).Updates(updates).Error

@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/system"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -39,8 +40,8 @@ func (s *StorageService) InitializeStorage() error {
 		zap.String("baseDir", config.BaseDir),
 		zap.Int("dirsCount", len(config.Dirs)))
 
-	// 创建基础目录
-	if err := s.ensureDir(config.BaseDir); err != nil {
+	// 创建基础目录（使用全局工具函数）
+	if err := utils.EnsureDir(config.BaseDir); err != nil {
 		return fmt.Errorf("创建基础存储目录失败: %w", err)
 	}
 
@@ -48,7 +49,7 @@ func (s *StorageService) InitializeStorage() error {
 	failedDirs := make([]string, 0)
 	for _, dir := range config.Dirs {
 		fullPath := filepath.Join(config.BaseDir, dir)
-		if err := s.ensureDir(fullPath); err != nil {
+		if err := utils.EnsureDir(fullPath); err != nil {
 			failedDirs = append(failedDirs, fullPath)
 			global.APP_LOG.Warn("创建存储子目录失败",
 				zap.String("dir", fullPath),
@@ -68,18 +69,6 @@ func (s *StorageService) InitializeStorage() error {
 			zap.Int("dirs", len(config.Dirs)))
 	}
 
-	return nil
-}
-
-// ensureDir 确保目录存在，如果不存在则创建
-func (s *StorageService) ensureDir(dirPath string) error {
-	if _, err := os.Stat(dirPath); os.IsNotExist(err) {
-		if err := os.MkdirAll(dirPath, 0755); err != nil {
-			return fmt.Errorf("创建目录 %s 失败: %w", dirPath, err)
-		}
-	} else if err != nil {
-		return fmt.Errorf("检查目录 %s 失败: %w", dirPath, err)
-	}
 	return nil
 }
 

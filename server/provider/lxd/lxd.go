@@ -21,14 +21,28 @@ type LXDProvider struct {
 	config        provider.NodeConfig
 	sshClient     *utils.SSHClient
 	apiClient     *http.Client
+	transport     *http.Transport
+	providerID    uint // 存储providerID用于清理
 	connected     bool
 	healthChecker health.HealthChecker
 	mu            sync.RWMutex // 保护并发访问
 }
 
 func NewLXDProvider() provider.Provider {
+	// 创建独立的 Transport
+	transport := &http.Transport{
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		IdleConnTimeout:     90 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+	}
+	provider.GetTransportCleanupManager().RegisterTransport(transport)
 	return &LXDProvider{
-		apiClient: &http.Client{Timeout: 30 * time.Second},
+		transport: transport,
+		apiClient: &http.Client{
+			Timeout:   30 * time.Second,
+			Transport: transport,
+		},
 	}
 }
 
@@ -46,11 +60,14 @@ func (l *LXDProvider) GetSupportedInstanceTypes() []string {
 
 func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	l.config = config
+	l.providerID = config.ID // 存储providerID
 
-	// 初始化默认的API客户端（如果证书配置失败，仍然可以回退到SSH）
-	l.apiClient = &http.Client{Timeout: 30 * time.Second}
+	// Transport 已在 NewLXDProvider 中创建，现在关联providerID
+	if l.transport != nil && l.providerID > 0 {
+		provider.GetTransportCleanupManager().RegisterTransportWithProvider(l.transport, l.providerID)
+	}
 
-	// 如果有证书配置，设置HTTPS客户端
+	// 如果有证书配置，设置TLS配置
 	if config.CertPath != "" && config.KeyPath != "" {
 		global.APP_LOG.Info("尝试配置LXD证书认证",
 			zap.String("host", utils.TruncateString(config.Host, 50)),
@@ -64,12 +81,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 				zap.String("certPath", utils.TruncateString(config.CertPath, 100)),
 				zap.String("keyPath", utils.TruncateString(config.KeyPath, 100)))
 		} else {
-			l.apiClient = &http.Client{
-				Timeout: 30 * time.Second,
-				Transport: &http.Transport{
-					TLSClientConfig: tlsConfig,
-				},
-			}
+			l.transport.TLSClientConfig = tlsConfig
 			global.APP_LOG.Info("LXD provider证书认证配置成功",
 				zap.String("host", utils.TruncateString(config.Host, 50)),
 				zap.String("certPath", utils.TruncateString(config.CertPath, 100)))
@@ -141,6 +153,17 @@ func (l *LXDProvider) Disconnect(ctx context.Context) error {
 		l.sshClient.Close()
 		l.sshClient = nil
 	}
+
+	// 按providerID清理transport
+	if l.providerID > 0 {
+		provider.GetTransportCleanupManager().CleanupProvider(l.providerID)
+	} else if l.transport != nil {
+		// fallback: 如果providerID未设置，使用原来的方法
+		l.transport.CloseIdleConnections()
+		provider.GetTransportCleanupManager().UnregisterTransport(l.transport)
+	}
+	l.transport = nil
+
 	l.connected = false
 	return nil
 }
@@ -576,11 +599,11 @@ func (l *LXDProvider) shouldUseSSH() bool {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return true
+		return l.sshClient != nil && l.connected
 	case "auto":
 		fallthrough
 	default:
-		return true
+		return l.sshClient != nil && l.connected
 	}
 }
 
@@ -596,6 +619,20 @@ func (l *LXDProvider) shouldFallbackToSSH() bool {
 	default:
 		return true
 	}
+}
+
+// ensureSSHBeforeFallback 在回退到SSH前检查SSH连接健康状态
+func (l *LXDProvider) ensureSSHBeforeFallback(apiErr error, operation string) error {
+	if !l.shouldFallbackToSSH() {
+		return fmt.Errorf("API调用失败且不允许回退到SSH: %w", apiErr)
+	}
+
+	if err := l.EnsureConnection(); err != nil {
+		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
+	}
+
+	global.APP_LOG.Info(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	return nil
 }
 
 // SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）

@@ -1944,6 +1944,69 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/ports/check": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "检查指定Provider上的端口或端口段是否可用",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "端口映射管理"
+                ],
+                "summary": "检查端口可用性",
+                "parameters": [
+                    {
+                        "description": "检查端口可用性请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.CheckPortAvailabilityRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "检查成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.CheckPortAvailabilityResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "检查失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/provider": {
             "get": {
                 "security": [
@@ -2176,6 +2239,271 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/provider/traffic-monitor": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "批量启用、删除或检测Provider下所有实例的流量监控",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量监控管理"
+                ],
+                "summary": "流量监控操作",
+                "parameters": [
+                    {
+                        "description": "操作请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.TrafficMonitorOperationRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "操作成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/provider/traffic-monitor/latest": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定Provider的最新流量监控任务（用于显示运行中的任务）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量监控管理"
+                ],
+                "summary": "获取Provider的最新流量监控任务",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "providerId",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "查询成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.TrafficMonitorTask"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "没有任务",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/provider/traffic-monitor/tasks": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "查询流量监控操作任务列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量监控管理"
+                ],
+                "summary": "获取流量监控任务列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "providerId",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "任务类型",
+                        "name": "taskType",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "任务状态",
+                        "name": "status",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "查询成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/provider/traffic-monitor/tasks/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定任务的详细信息和输出日志",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量监控管理"
+                ],
+                "summary": "获取流量监控任务详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "查询成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.TrafficMonitorTask"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "404": {
+                        "description": "任务不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/provider/{id}/auto-configure-stream": {
             "post": {
                 "security": [
@@ -2311,6 +2639,13 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    },
+                    {
+                        "type": "boolean",
+                        "default": true,
+                        "description": "是否强制刷新资源信息",
+                        "name": "forceRefresh",
+                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -3155,6 +3490,79 @@ const docTemplate = `{
                     },
                     "401": {
                         "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/tasks/{taskId}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员获取指定任务的详细信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员管理"
+                ],
+                "summary": "获取任务详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "任务ID",
+                        "name": "taskId",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/admin.AdminTaskDetailResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "权限不足",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "任务不存在",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -4642,7 +5050,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额",
+                "description": "删除指定用户的所有历史流量记录，用于重新计数",
                 "consumes": [
                     "application/json"
                 ],
@@ -4826,7 +5234,7 @@ const docTemplate = `{
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "基于vnStat获取用户流量使用情况概览",
+                "description": "基于pmacct获取用户流量使用情况概览",
                 "consumes": [
                     "application/json"
                 ],
@@ -4847,14 +5255,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/user/traffic/vnstat/{instanceId}": {
+        "/api/v1/user/traffic/pmacct/{instanceId}": {
             "get": {
                 "security": [
                     {
                         "ApiKeyAuth": []
                     }
                 ],
-                "description": "获取指定实例的原始vnStat统计数据",
+                "description": "获取指定实例的原始pmacct统计数据",
                 "consumes": [
                     "application/json"
                 ],
@@ -4864,7 +5272,7 @@ const docTemplate = `{
                 "tags": [
                     "用户流量"
                 ],
-                "summary": "获取原始vnStat数据",
+                "summary": "获取原始pmacct数据",
                 "parameters": [
                     {
                         "type": "integer",
@@ -5525,6 +5933,104 @@ const docTemplate = `{
                                         "data": {
                                             "type": "object",
                                             "additionalProperties": true
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/oauth2/presets": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取所有可用的OAuth2预设配置（linuxdo, idcflare, github, generic）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "获取OAuth2预设配置",
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object",
+                                            "additionalProperties": {
+                                                "$ref": "#/definitions/oauth2.PresetConfig"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    }
+                }
+            }
+        },
+        "/oauth2/presets/{name}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定名称的OAuth2预设配置详情",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "OAuth2"
+                ],
+                "summary": "获取指定预设配置",
+                "parameters": [
+                    {
+                        "enum": [
+                            "linuxdo",
+                            "idcflare",
+                            "github",
+                            "generic"
+                        ],
+                        "type": "string",
+                        "description": "预设名称",
+                        "name": "name",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/oauth2.PresetConfig"
                                         }
                                     }
                                 }
@@ -7545,14 +8051,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/user/instances/{instance_id}/vnstat/dashboard": {
+        "/user/instances/{instance_id}/pmacct/query": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "获取实例的vnStat仪表板数据，包括汇总、趋势图等信息",
+                "description": "查询实例的pmacct流量数据",
                 "consumes": [
                     "application/json"
                 ],
@@ -7562,7 +8068,7 @@ const docTemplate = `{
                 "tags": [
                     "用户管理"
                 ],
-                "summary": "获取实例vnStat仪表板数据",
+                "summary": "查询实例pmacct流量数据",
                 "parameters": [
                     {
                         "type": "integer",
@@ -7570,204 +8076,6 @@ const docTemplate = `{
                         "name": "instance_id",
                         "in": "path",
                         "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": true
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "用户未登录",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "无权限访问该实例",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "实例不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/user/instances/{instance_id}/vnstat/interfaces": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取实例的所有vnStat监控接口列表及其状态",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户管理"
-                ],
-                "summary": "获取实例vnStat接口列表",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "instance_id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/definitions/monitoring.VnStatInterface"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "用户未登录",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "403": {
-                        "description": "无权限访问该实例",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "实例不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/user/instances/{instance_id}/vnstat/query": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "根据查询条件获取实例的vnStat流量数据，支持按类型、时间范围查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "用户管理"
-                ],
-                "summary": "查询实例vnStat流量数据",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "实例ID",
-                        "name": "instance_id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "网络接口名称",
-                        "name": "interface",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "查询类型：total, daily, monthly, hourly",
-                        "name": "type",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "时间周期",
-                        "name": "period",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "开始日期（YYYY-MM-DD）",
-                        "name": "start_date",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "结束日期（YYYY-MM-DD）",
-                        "name": "end_date",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "description": "返回记录数限制（默认100）",
-                        "name": "limit",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7782,7 +8090,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/monitoring.VnStatResponse"
+                                            "$ref": "#/definitions/monitoring.PmacctSummary"
                                         }
                                     }
                                 }
@@ -7822,14 +8130,14 @@ const docTemplate = `{
                 }
             }
         },
-        "/user/instances/{instance_id}/vnstat/summary": {
+        "/user/instances/{instance_id}/pmacct/summary": {
             "get": {
                 "security": [
                     {
                         "BearerAuth": []
                     }
                 ],
-                "description": "获取用户实例的vnStat流量汇总信息，包括今日、本月和总流量统计",
+                "description": "获取用户实例的pmacct流量汇总信息，包括今日、本月和总流量统计",
                 "consumes": [
                     "application/json"
                 ],
@@ -7839,7 +8147,7 @@ const docTemplate = `{
                 "tags": [
                     "用户管理"
                 ],
-                "summary": "获取实例vnStat流量汇总",
+                "summary": "获取实例pmacct流量汇总",
                 "parameters": [
                     {
                         "type": "integer",
@@ -7847,12 +8155,6 @@ const docTemplate = `{
                         "name": "instance_id",
                         "in": "path",
                         "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "网络接口名称（可选）",
-                        "name": "interface",
-                        "in": "query"
                     }
                 ],
                 "responses": {
@@ -7867,7 +8169,7 @@ const docTemplate = `{
                                     "type": "object",
                                     "properties": {
                                         "data": {
-                                            "$ref": "#/definitions/monitoring.VnStatResponse"
+                                            "$ref": "#/definitions/monitoring.PmacctSummary"
                                         }
                                     }
                                 }
@@ -8652,6 +8954,90 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/admin/providers/{provider_id}/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定Provider的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理-管理员"
+                ],
+                "summary": "获取Provider流量历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "provider_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择",
+                        "name": "interval",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.ProviderTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/user/instances/{id}/ssh": {
             "get": {
                 "description": "通过WebSocket建立到实例的SSH连接",
@@ -8707,9 +9093,270 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/user/instances/{instance_id}/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定实例的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理"
+                ],
+                "summary": "获取实例流量历史",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "instance_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择，可选: 5, 15, 30, 60",
+                        "name": "interval",
+                        "in": "query"
+                    },
+                    {
+                        "type": "boolean",
+                        "default": false,
+                        "description": "是否包含已归档数据（重置前的历史记录）",
+                        "name": "includeArchived",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.InstanceTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/v1/user/traffic/history": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取当前用户的历史流量数据，支持5分钟到24小时的灵活时间范围",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "流量管理"
+                ],
+                "summary": "获取用户流量历史",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "default": "1h",
+                        "description": "时间范围: 5m, 10m, 15m, 30m, 45m, 1h, 6h, 12h, 24h",
+                        "name": "period",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 0,
+                        "description": "数据点间隔（分钟），0表示自动选择",
+                        "name": "interval",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/definitions/monitoring.UserTrafficHistory"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
         }
     },
     "definitions": {
+        "admin.AdminTaskDetailResponse": {
+            "type": "object",
+            "properties": {
+                "canForceStop": {
+                    "type": "boolean"
+                },
+                "cancelReason": {
+                    "description": "取消原因",
+                    "type": "string"
+                },
+                "completedAt": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "errorMessage": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instanceId": {
+                    "type": "integer"
+                },
+                "instanceName": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "type": "string"
+                },
+                "isForceStoppable": {
+                    "type": "boolean"
+                },
+                "preallocatedBandwidth": {
+                    "description": "预分配的带宽(Mbps)",
+                    "type": "integer"
+                },
+                "preallocatedCpu": {
+                    "description": "预分配的实例配置信息",
+                    "type": "integer"
+                },
+                "preallocatedDisk": {
+                    "description": "预分配的磁盘(MB)",
+                    "type": "integer"
+                },
+                "preallocatedMemory": {
+                    "description": "预分配的内存(MB)",
+                    "type": "integer"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "providerId": {
+                    "type": "integer"
+                },
+                "providerName": {
+                    "type": "string"
+                },
+                "remainingTime": {
+                    "description": "剩余时间（秒）",
+                    "type": "integer"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "statusMessage": {
+                    "type": "string"
+                },
+                "taskData": {
+                    "description": "任务数据（JSON格式）",
+                    "type": "string"
+                },
+                "taskType": {
+                    "type": "string"
+                },
+                "timeoutDuration": {
+                    "type": "integer"
+                },
+                "userId": {
+                    "type": "integer"
+                },
+                "userName": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.AdminTaskListResponse": {
             "type": "object",
             "properties": {
@@ -8988,6 +9635,76 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.CheckPortAvailabilityRequest": {
+            "type": "object",
+            "required": [
+                "hostPort",
+                "protocol",
+                "providerId"
+            ],
+            "properties": {
+                "hostPort": {
+                    "description": "要检查的主机端口（起始端口）",
+                    "type": "integer",
+                    "maximum": 65535,
+                    "minimum": 1
+                },
+                "portCount": {
+                    "description": "端口数量（默认1，检查端口段时使用）",
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 1
+                },
+                "protocol": {
+                    "description": "协议类型",
+                    "type": "string",
+                    "enum": [
+                        "tcp",
+                        "udp",
+                        "both"
+                    ]
+                },
+                "providerId": {
+                    "description": "Provider ID",
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.CheckPortAvailabilityResponse": {
+            "type": "object",
+            "properties": {
+                "available": {
+                    "description": "是否所有端口都可用",
+                    "type": "boolean"
+                },
+                "availablePorts": {
+                    "description": "可用的端口列表",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                },
+                "message": {
+                    "description": "检查结果描述",
+                    "type": "string"
+                },
+                "portRange": {
+                    "description": "端口范围描述（如 \"10000-10009\"）",
+                    "type": "string"
+                },
+                "suggestion": {
+                    "description": "建议（如果有冲突，提供替代方案）",
+                    "type": "string"
+                },
+                "unavailablePorts": {
+                    "description": "不可用的端口列表",
+                    "type": "array",
+                    "items": {
+                        "type": "integer"
+                    }
+                }
+            }
+        },
         "admin.ConfigurationTaskDetailResponse": {
             "type": "object",
             "properties": {
@@ -9237,21 +9954,30 @@ const docTemplate = `{
             ],
             "properties": {
                 "description": {
+                    "description": "端口用途描述",
                     "type": "string"
                 },
                 "guestPort": {
+                    "description": "起始端口",
                     "type": "integer",
                     "maximum": 65535,
                     "minimum": 1
                 },
                 "hostPort": {
-                    "description": "可选，不指定则自动分配",
+                    "description": "可选，不指定则自动分配，指定时作为起始端口",
                     "type": "integer"
                 },
                 "instanceId": {
                     "type": "integer"
                 },
+                "portCount": {
+                    "description": "端口数量，默认1（单端口），最多100个",
+                    "type": "integer",
+                    "maximum": 100,
+                    "minimum": 1
+                },
                 "protocol": {
+                    "description": "协议类型",
                     "type": "string",
                     "enum": [
                         "tcp",
@@ -9284,6 +10010,22 @@ const docTemplate = `{
                 "config": {
                     "type": "string"
                 },
+                "containerAllowNesting": {
+                    "description": "是否允许嵌套虚拟化",
+                    "type": "boolean"
+                },
+                "containerCpuAllowance": {
+                    "description": "CPU使用率上限（如\"100%\"）",
+                    "type": "string"
+                },
+                "containerDiskIoLimit": {
+                    "description": "磁盘IO限制（如\"10MB\"或\"100iops\"）",
+                    "type": "string"
+                },
+                "containerEnableLxcfs": {
+                    "description": "是否启用LXCFS",
+                    "type": "boolean"
+                },
                 "containerLimitCpu": {
                     "description": "容器资源限制配置",
                     "type": "boolean"
@@ -9294,6 +10036,18 @@ const docTemplate = `{
                 },
                 "containerLimitMemory": {
                     "description": "容器内存是否计入总量预算",
+                    "type": "boolean"
+                },
+                "containerMaxProcesses": {
+                    "description": "最大进程数限制（0表示不限制）",
+                    "type": "integer"
+                },
+                "containerMemorySwap": {
+                    "description": "是否允许使用swap",
+                    "type": "boolean"
+                },
+                "containerPrivileged": {
+                    "description": "容器特殊配置选项（仅 LXD/Incus 容器）",
                     "type": "boolean"
                 },
                 "container_enabled": {
@@ -9445,13 +10199,41 @@ const docTemplate = `{
                 "totalQuota": {
                     "type": "integer"
                 },
+                "trafficAutoResetBatchSize": {
+                    "description": "流量自动重置批量大小",
+                    "type": "integer"
+                },
+                "trafficAutoResetInterval": {
+                    "description": "流量自动重置检查间隔（秒）",
+                    "type": "integer"
+                },
                 "trafficCountMode": {
                     "description": "流量统计模式：both(双向), out(仅出向), in(仅入向)",
                     "type": "string"
                 },
+                "trafficLimitCheckBatchSize": {
+                    "description": "流量限制检测批量大小",
+                    "type": "integer"
+                },
+                "trafficLimitCheckInterval": {
+                    "description": "流量限制检测间隔（秒）",
+                    "type": "integer"
+                },
                 "trafficMultiplier": {
                     "description": "流量计费倍率，默认1.0",
                     "type": "number"
+                },
+                "trafficStatsBatchSize": {
+                    "description": "流量统计批量大小",
+                    "type": "integer"
+                },
+                "trafficStatsInterval": {
+                    "description": "流量统计间隔（秒）",
+                    "type": "integer"
+                },
+                "trafficStatsMode": {
+                    "description": "流量统计性能配置",
+                    "type": "string"
                 },
                 "type": {
                     "type": "string"
@@ -9764,6 +10546,89 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.TrafficMonitorOperationRequest": {
+            "type": "object",
+            "required": [
+                "operation",
+                "providerId"
+            ],
+            "properties": {
+                "operation": {
+                    "description": "enable: 批量启用, disable: 批量删除, detect: 批量检测",
+                    "type": "string",
+                    "enum": [
+                        "enable",
+                        "disable",
+                        "detect"
+                    ]
+                },
+                "providerId": {
+                    "type": "integer"
+                }
+            }
+        },
+        "admin.TrafficMonitorTask": {
+            "type": "object",
+            "properties": {
+                "completedAt": {
+                    "description": "任务完成时间",
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "errorMsg": {
+                    "description": "错误信息",
+                    "type": "string"
+                },
+                "failedCount": {
+                    "description": "失败数量",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "message": {
+                    "description": "当前状态消息",
+                    "type": "string"
+                },
+                "output": {
+                    "description": "详细输出日志",
+                    "type": "string"
+                },
+                "progress": {
+                    "description": "进度 0-100",
+                    "type": "integer"
+                },
+                "providerId": {
+                    "description": "Provider ID",
+                    "type": "integer"
+                },
+                "startedAt": {
+                    "description": "任务开始时间",
+                    "type": "string"
+                },
+                "status": {
+                    "description": "状态: pending, running, completed, failed",
+                    "type": "string"
+                },
+                "successCount": {
+                    "description": "成功数量",
+                    "type": "integer"
+                },
+                "taskType": {
+                    "description": "任务类型: enable_all, disable_all, detect_all",
+                    "type": "string"
+                },
+                "totalCount": {
+                    "description": "总实例数",
+                    "type": "integer"
+                },
+                "updatedAt": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.UpdateAnnouncementRequest": {
             "type": "object",
             "properties": {
@@ -10011,89 +10876,6 @@ const docTemplate = `{
                 }
             }
         },
-        "config.AuthConfig": {
-            "type": "object",
-            "properties": {
-                "emailPassword": {
-                    "type": "string"
-                },
-                "emailSMTPHost": {
-                    "type": "string"
-                },
-                "emailSMTPPort": {
-                    "type": "integer"
-                },
-                "emailUsername": {
-                    "type": "string"
-                },
-                "enableEmail": {
-                    "type": "boolean"
-                },
-                "enableOAuth2": {
-                    "description": "是否启用OAuth2登录",
-                    "type": "boolean"
-                },
-                "enablePublicRegistration": {
-                    "description": "是否启用公开注册（无需邀请码）",
-                    "type": "boolean"
-                },
-                "enableQQ": {
-                    "type": "boolean"
-                },
-                "enableTelegram": {
-                    "type": "boolean"
-                },
-                "qqAppID": {
-                    "type": "string"
-                },
-                "qqAppKey": {
-                    "type": "string"
-                },
-                "telegramBotToken": {
-                    "type": "string"
-                }
-            }
-        },
-        "config.InviteCodeConfig": {
-            "type": "object",
-            "properties": {
-                "enabled": {
-                    "description": "是否启用邀请码系统",
-                    "type": "boolean"
-                },
-                "required": {
-                    "description": "是否必须邀请码（兼容旧字段）",
-                    "type": "boolean"
-                }
-            }
-        },
-        "config.OtherConfig": {
-            "type": "object",
-            "properties": {
-                "defaultLanguage": {
-                    "description": "系统默认语言，空字符串表示使用浏览器语言",
-                    "type": "string"
-                },
-                "maxAvatarSize": {
-                    "description": "头像最大大小(MB)",
-                    "type": "number"
-                }
-            }
-        },
-        "config.QuotaConfig": {
-            "type": "object",
-            "properties": {
-                "defaultLevel": {
-                    "type": "integer"
-                },
-                "levelLimits": {
-                    "type": "object",
-                    "additionalProperties": {
-                        "$ref": "#/definitions/oneclickvirt_model_config.LevelLimitInfo"
-                    }
-                }
-            }
-        },
         "config.UnifiedConfigRequest": {
             "type": "object",
             "required": [
@@ -10108,23 +10890,6 @@ const docTemplate = `{
                 "scope": {
                     "description": "public, user, admin",
                     "type": "string"
-                }
-            }
-        },
-        "config.UpdateConfigRequest": {
-            "type": "object",
-            "properties": {
-                "auth": {
-                    "$ref": "#/definitions/config.AuthConfig"
-                },
-                "inviteCode": {
-                    "$ref": "#/definitions/config.InviteCodeConfig"
-                },
-                "other": {
-                    "$ref": "#/definitions/config.OtherConfig"
-                },
-                "quota": {
-                    "$ref": "#/definitions/config.QuotaConfig"
                 }
             }
         },
@@ -10152,93 +10917,19 @@ const docTemplate = `{
                 }
             }
         },
-        "monitoring.VnStatDate": {
-            "type": "object",
-            "properties": {
-                "day": {
-                    "type": "integer"
-                },
-                "month": {
-                    "type": "integer"
-                },
-                "year": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatDayRecord": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "$ref": "#/definitions/monitoring.VnStatDate"
-                },
-                "id": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                },
-                "rx": {
-                    "type": "integer"
-                },
-                "timestamp": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatFiveMinRecord": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "$ref": "#/definitions/monitoring.VnStatDate"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "rx": {
-                    "type": "integer"
-                },
-                "time": {
-                    "$ref": "#/definitions/monitoring.VnStatTime"
-                },
-                "timestamp": {
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatHourRecord": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "$ref": "#/definitions/monitoring.VnStatDate"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "rx": {
-                    "type": "integer"
-                },
-                "time": {
-                    "$ref": "#/definitions/monitoring.VnStatTime"
-                },
-                "timestamp": {
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatInterface": {
+        "monitoring.InstanceTrafficHistory": {
             "type": "object",
             "properties": {
                 "created_at": {
                     "type": "string"
+                },
+                "day": {
+                    "description": "日",
+                    "type": "integer"
+                },
+                "hour": {
+                    "description": "小时(0-23)，0表示日度汇总",
+                    "type": "integer"
                 },
                 "id": {
                     "type": "integer"
@@ -10247,257 +10938,266 @@ const docTemplate = `{
                     "description": "实例ID",
                     "type": "integer"
                 },
-                "interface": {
-                    "description": "接口名称",
-                    "type": "string"
-                },
-                "is_enabled": {
-                    "description": "是否启用监控",
-                    "type": "boolean"
-                },
-                "last_sync": {
-                    "description": "最后同步时间",
-                    "type": "string"
+                "month": {
+                    "description": "月",
+                    "type": "integer"
                 },
                 "provider_id": {
                     "description": "Provider ID",
                     "type": "integer"
                 },
+                "record_time": {
+                    "description": "记录时间",
+                    "type": "string"
+                },
+                "total_used": {
+                    "description": "总流量",
+                    "type": "integer"
+                },
+                "traffic_in": {
+                    "description": "流量数据 (单位: MB)",
+                    "type": "integer"
+                },
+                "traffic_out": {
+                    "description": "出站流量",
+                    "type": "integer"
+                },
                 "updated_at": {
                     "type": "string"
-                }
-            }
-        },
-        "monitoring.VnStatInterfaceData": {
-            "type": "object",
-            "properties": {
-                "alias": {
-                    "type": "string"
                 },
-                "created": {
-                    "description": "v2+ 才有",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/monitoring.VnStatTimestamp"
-                        }
-                    ]
-                },
-                "name": {
-                    "type": "string"
-                },
-                "traffic": {
-                    "$ref": "#/definitions/monitoring.VnStatTrafficData"
-                },
-                "updated": {
-                    "description": "v2+ 才有",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/monitoring.VnStatTimestamp"
-                        }
-                    ]
-                }
-            }
-        },
-        "monitoring.VnStatMonthRecord": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "description": "只有年月",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/monitoring.VnStatDate"
-                        }
-                    ]
-                },
-                "id": {
-                    "description": "v2+ 才有",
+                "user_id": {
+                    "description": "用户ID",
                     "type": "integer"
-                },
-                "rx": {
-                    "type": "integer"
-                },
-                "timestamp": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatResponse": {
-            "type": "object",
-            "properties": {
-                "interfaces": {
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatInterfaceData"
-                    }
-                },
-                "jsonversion": {
-                    "type": "string"
-                },
-                "vnstatversion": {
-                    "type": "string"
-                }
-            }
-        },
-        "monitoring.VnStatTime": {
-            "type": "object",
-            "properties": {
-                "hour": {
-                    "type": "integer"
-                },
-                "minute": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatTimestamp": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "$ref": "#/definitions/monitoring.VnStatDate"
-                },
-                "time": {
-                    "description": "有些地方没有时间",
-                    "allOf": [
-                        {
-                            "$ref": "#/definitions/monitoring.VnStatTime"
-                        }
-                    ]
-                },
-                "timestamp": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatTopRecord": {
-            "type": "object",
-            "properties": {
-                "date": {
-                    "$ref": "#/definitions/monitoring.VnStatDate"
-                },
-                "id": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                },
-                "rx": {
-                    "type": "integer"
-                },
-                "timestamp": {
-                    "description": "v2+ 才有",
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatTotal": {
-            "type": "object",
-            "properties": {
-                "rx": {
-                    "type": "integer"
-                },
-                "tx": {
-                    "type": "integer"
-                }
-            }
-        },
-        "monitoring.VnStatTrafficData": {
-            "type": "object",
-            "properties": {
-                "day": {
-                    "description": "v2 使用",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatDayRecord"
-                    }
-                },
-                "days": {
-                    "description": "v1 格式字段 (复数形式)",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatDayRecord"
-                    }
-                },
-                "fiveminute": {
-                    "description": "v2 格式字段 (单数形式)",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatFiveMinRecord"
-                    }
-                },
-                "hour": {
-                    "description": "v2+ 新增",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatHourRecord"
-                    }
-                },
-                "month": {
-                    "description": "v2 使用",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatMonthRecord"
-                    }
-                },
-                "months": {
-                    "description": "v1 使用",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatMonthRecord"
-                    }
-                },
-                "top": {
-                    "description": "v2 使用",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatTopRecord"
-                    }
-                },
-                "tops": {
-                    "description": "v1 使用",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatTopRecord"
-                    }
-                },
-                "total": {
-                    "$ref": "#/definitions/monitoring.VnStatTotal"
                 },
                 "year": {
-                    "description": "v2+ 新增",
-                    "type": "array",
-                    "items": {
-                        "$ref": "#/definitions/monitoring.VnStatYearRecord"
-                    }
+                    "description": "时间维度",
+                    "type": "integer"
                 }
             }
         },
-        "monitoring.VnStatYearRecord": {
+        "monitoring.PmacctSummary": {
             "type": "object",
             "properties": {
-                "date": {
-                    "description": "只有年",
+                "all_time": {
+                    "description": "总流量",
                     "allOf": [
                         {
-                            "$ref": "#/definitions/monitoring.VnStatDate"
+                            "$ref": "#/definitions/monitoring.PmacctTrafficRecord"
                         }
                     ]
+                },
+                "history": {
+                    "description": "历史记录",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/monitoring.PmacctTrafficRecord"
+                    }
+                },
+                "instance_id": {
+                    "type": "integer"
+                },
+                "mapped_ip": {
+                    "type": "string"
+                },
+                "mapped_ipv6": {
+                    "type": "string"
+                },
+                "this_month": {
+                    "description": "本月流量",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/monitoring.PmacctTrafficRecord"
+                        }
+                    ]
+                },
+                "today": {
+                    "description": "今日流量",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/monitoring.PmacctTrafficRecord"
+                        }
+                    ]
+                }
+            }
+        },
+        "monitoring.PmacctTrafficRecord": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "day": {
+                    "description": "日期",
+                    "type": "integer"
+                },
+                "hour": {
+                    "description": "小时",
+                    "type": "integer"
                 },
                 "id": {
                     "type": "integer"
                 },
-                "rx": {
+                "instance_id": {
+                    "description": "实例ID",
+                    "type": "integer"
+                },
+                "mapped_ip": {
+                    "description": "映射的公网IP地址",
+                    "type": "string"
+                },
+                "minute": {
+                    "description": "分钟（0, 5, 10, ..., 55）",
+                    "type": "integer"
+                },
+                "month": {
+                    "description": "月份",
+                    "type": "integer"
+                },
+                "provider_id": {
+                    "description": "Provider ID",
+                    "type": "integer"
+                },
+                "provider_type": {
+                    "description": "Provider类型",
+                    "type": "string"
+                },
+                "record_time": {
+                    "description": "元数据",
+                    "type": "string"
+                },
+                "rx_bytes": {
+                    "description": "流量统计数据 (单位: 字节)",
                     "type": "integer"
                 },
                 "timestamp": {
+                    "description": "时间维度（支持5分钟精度）",
+                    "type": "string"
+                },
+                "total_bytes": {
+                    "description": "总流量字节数",
                     "type": "integer"
                 },
-                "tx": {
+                "tx_bytes": {
+                    "description": "发送字节数（出站流量）",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "用户ID（冗余存储，避免JOIN）",
+                    "type": "integer"
+                },
+                "year": {
+                    "description": "年份",
+                    "type": "integer"
+                }
+            }
+        },
+        "monitoring.ProviderTrafficHistory": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "day": {
+                    "description": "日",
+                    "type": "integer"
+                },
+                "hour": {
+                    "description": "小时(0-23)，0表示日度汇总",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instance_count": {
+                    "description": "实例统计",
+                    "type": "integer"
+                },
+                "month": {
+                    "description": "月",
+                    "type": "integer"
+                },
+                "provider_id": {
+                    "description": "Provider ID",
+                    "type": "integer"
+                },
+                "record_time": {
+                    "description": "记录时间",
+                    "type": "string"
+                },
+                "total_used": {
+                    "description": "总流量",
+                    "type": "integer"
+                },
+                "traffic_in": {
+                    "description": "流量数据 (单位: MB)",
+                    "type": "integer"
+                },
+                "traffic_out": {
+                    "description": "出站流量",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "year": {
+                    "description": "时间维度",
+                    "type": "integer"
+                }
+            }
+        },
+        "monitoring.UserTrafficHistory": {
+            "type": "object",
+            "properties": {
+                "created_at": {
+                    "type": "string"
+                },
+                "day": {
+                    "description": "日",
+                    "type": "integer"
+                },
+                "hour": {
+                    "description": "小时(0-23)，0表示日度汇总",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instance_count": {
+                    "description": "实例统计",
+                    "type": "integer"
+                },
+                "month": {
+                    "description": "月",
+                    "type": "integer"
+                },
+                "record_time": {
+                    "description": "记录时间",
+                    "type": "string"
+                },
+                "total_used": {
+                    "description": "总流量",
+                    "type": "integer"
+                },
+                "traffic_in": {
+                    "description": "流量数据 (单位: MB)",
+                    "type": "integer"
+                },
+                "traffic_out": {
+                    "description": "出站流量",
+                    "type": "integer"
+                },
+                "updated_at": {
+                    "type": "string"
+                },
+                "user_id": {
+                    "description": "用户ID",
+                    "type": "integer"
+                },
+                "year": {
+                    "description": "时间维度",
                     "type": "integer"
                 }
             }
@@ -10510,6 +11210,7 @@ const docTemplate = `{
                 "clientSecret",
                 "displayName",
                 "name",
+                "providerType",
                 "redirectUrl",
                 "tokenUrl",
                 "userInfoUrl"
@@ -10553,6 +11254,14 @@ const docTemplate = `{
                 },
                 "nicknameField": {
                     "type": "string"
+                },
+                "providerType": {
+                    "description": "preset 或 generic",
+                    "type": "string",
+                    "enum": [
+                        "preset",
+                        "generic"
+                    ]
                 },
                 "redirectUrl": {
                     "type": "string"
@@ -10638,6 +11347,10 @@ const docTemplate = `{
                     "description": "可选字段映射",
                     "type": "string"
                 },
+                "providerType": {
+                    "description": "提供商类型（preset:预设, generic:通用）",
+                    "type": "string"
+                },
                 "redirectUrl": {
                     "description": "OAuth2回调地址",
                     "type": "string"
@@ -10671,6 +11384,62 @@ const docTemplate = `{
                 },
                 "usernameField": {
                     "description": "用户名字段映射",
+                    "type": "string"
+                }
+            }
+        },
+        "oauth2.PresetConfig": {
+            "type": "object",
+            "properties": {
+                "authURL": {
+                    "type": "string"
+                },
+                "avatarField": {
+                    "type": "string"
+                },
+                "defaultLevel": {
+                    "type": "integer"
+                },
+                "displayName": {
+                    "type": "string"
+                },
+                "emailField": {
+                    "type": "string"
+                },
+                "levelMapping": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "type": "integer"
+                    }
+                },
+                "name": {
+                    "type": "string"
+                },
+                "nicknameField": {
+                    "type": "string"
+                },
+                "providerType": {
+                    "type": "string"
+                },
+                "scopes": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
+                "tokenURL": {
+                    "type": "string"
+                },
+                "trustLevelField": {
+                    "type": "string"
+                },
+                "userIDField": {
+                    "type": "string"
+                },
+                "userInfoURL": {
+                    "type": "string"
+                },
+                "usernameField": {
                     "type": "string"
                 }
             }
@@ -10717,6 +11486,13 @@ const docTemplate = `{
                 "nicknameField": {
                     "type": "string"
                 },
+                "providerType": {
+                    "type": "string",
+                    "enum": [
+                        "preset",
+                        "generic"
+                    ]
+                },
                 "redirectUrl": {
                     "type": "string"
                 },
@@ -10737,22 +11513,6 @@ const docTemplate = `{
                 },
                 "usernameField": {
                     "type": "string"
-                }
-            }
-        },
-        "oneclickvirt_model_config.LevelLimitInfo": {
-            "type": "object",
-            "properties": {
-                "maxInstances": {
-                    "type": "integer"
-                },
-                "maxResources": {
-                    "type": "object",
-                    "additionalProperties": true
-                },
-                "maxTraffic": {
-                    "description": "最大流量限制(MB)",
-                    "type": "integer"
                 }
             }
         },
@@ -10850,11 +11610,27 @@ const docTemplate = `{
         "oneclickvirt_service_provider.CreateInstanceRequest": {
             "type": "object",
             "properties": {
+                "allowNesting": {
+                    "description": "容器嵌套",
+                    "type": "boolean"
+                },
                 "cpu": {
+                    "type": "string"
+                },
+                "cpuAllowance": {
+                    "description": "CPU限制",
                     "type": "string"
                 },
                 "disk": {
                     "type": "string"
+                },
+                "diskIoLimit": {
+                    "description": "磁盘IO限制",
+                    "type": "string"
+                },
+                "enableLxcfs": {
+                    "description": "LXCFS资源视图",
+                    "type": "boolean"
                 },
                 "env": {
                     "type": "object",
@@ -10877,8 +11653,16 @@ const docTemplate = `{
                     "description": "container 或 vm",
                     "type": "string"
                 },
+                "maxProcesses": {
+                    "description": "最大进程数",
+                    "type": "integer"
+                },
                 "memory": {
                     "type": "string"
+                },
+                "memorySwap": {
+                    "description": "内存交换",
+                    "type": "boolean"
                 },
                 "metadata": {
                     "type": "object",
@@ -10897,6 +11681,10 @@ const docTemplate = `{
                     "items": {
                         "type": "string"
                     }
+                },
+                "privileged": {
+                    "description": "容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）",
+                    "type": "boolean"
                 },
                 "systemImageId": {
                     "description": "系统镜像ID",
@@ -11549,7 +12337,7 @@ const docTemplate = `{
             "type": "object",
             "properties": {
                 "trafficData": {
-                    "description": "硬件监控已移除，只保留流量监控\nCPUUsage    float64     ` + "`" + `json:\"cpuUsage\"` + "`" + `    // 已移除：硬件资源使用率监控\nMemoryUsage float64     ` + "`" + `json:\"memoryUsage\"` + "`" + ` // 已移除：硬件资源使用率监控\nDiskUsage   float64     ` + "`" + `json:\"diskUsage\"` + "`" + `   // 已移除：硬件资源使用率监控\nNetworkIn   int64       ` + "`" + `json:\"networkIn\"` + "`" + `   // 已移除：网络接收速率\nNetworkOut  int64       ` + "`" + `json:\"networkOut\"` + "`" + `  // 已移除：网络发送速率",
+                    "description": "CPUUsage    float64     ` + "`" + `json:\"cpuUsage\"` + "`" + `    // 已移除：硬件资源使用率监控\nMemoryUsage float64     ` + "`" + `json:\"memoryUsage\"` + "`" + ` // 已移除：硬件资源使用率监控\nDiskUsage   float64     ` + "`" + `json:\"diskUsage\"` + "`" + `   // 已移除：硬件资源使用率监控",
                     "allOf": [
                         {
                             "$ref": "#/definitions/user.TrafficData"
@@ -11791,6 +12579,14 @@ const docTemplate = `{
                     "description": "公网IPv6地址",
                     "type": "string"
                 },
+                "relatedTask": {
+                    "description": "关联任务信息",
+                    "allOf": [
+                        {
+                            "$ref": "#/definitions/user.UserTaskResponse"
+                        }
+                    ]
+                },
                 "sshPort": {
                     "type": "integer"
                 },
@@ -11856,6 +12652,105 @@ const docTemplate = `{
                 "usedTraffic": {
                     "description": "已使用流量(MB)",
                     "type": "integer"
+                }
+            }
+        },
+        "user.UserTaskResponse": {
+            "type": "object",
+            "properties": {
+                "canCancel": {
+                    "description": "是否可以取消",
+                    "type": "boolean"
+                },
+                "cancelReason": {
+                    "description": "取消原因",
+                    "type": "string"
+                },
+                "completedAt": {
+                    "type": "string"
+                },
+                "createdAt": {
+                    "type": "string"
+                },
+                "errorMessage": {
+                    "type": "string"
+                },
+                "estimatedWaitTime": {
+                    "description": "预计等待时间（秒）",
+                    "type": "integer"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "instanceId": {
+                    "type": "integer"
+                },
+                "instanceName": {
+                    "type": "string"
+                },
+                "instanceType": {
+                    "description": "实例类型：container 或 vm",
+                    "type": "string"
+                },
+                "isForceStoppable": {
+                    "description": "是否允许强制停止",
+                    "type": "boolean"
+                },
+                "preallocatedBandwidth": {
+                    "description": "预分配的带宽(Mbps)",
+                    "type": "integer"
+                },
+                "preallocatedCpu": {
+                    "description": "预分配的实例配置信息",
+                    "type": "integer"
+                },
+                "preallocatedDisk": {
+                    "description": "预分配的磁盘(MB)",
+                    "type": "integer"
+                },
+                "preallocatedMemory": {
+                    "description": "预分配的内存(MB)",
+                    "type": "integer"
+                },
+                "progress": {
+                    "type": "integer"
+                },
+                "providerId": {
+                    "type": "integer"
+                },
+                "providerName": {
+                    "type": "string"
+                },
+                "queuePosition": {
+                    "description": "排队信息",
+                    "type": "integer"
+                },
+                "remainingTime": {
+                    "description": "剩余时间（秒）",
+                    "type": "integer"
+                },
+                "startedAt": {
+                    "type": "string"
+                },
+                "status": {
+                    "type": "string"
+                },
+                "statusMessage": {
+                    "description": "状态描述",
+                    "type": "string"
+                },
+                "taskType": {
+                    "type": "string"
+                },
+                "timeoutDuration": {
+                    "description": "超时时间（秒）",
+                    "type": "integer"
+                },
+                "updatedAt": {
+                    "type": "string"
+                },
+                "uuid": {
+                    "type": "string"
                 }
             }
         }

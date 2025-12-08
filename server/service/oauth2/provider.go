@@ -51,6 +51,7 @@ func (s *ProviderService) CreateProvider(req *CreateProviderRequest) (*oauth2Mod
 	provider := &oauth2Model.OAuth2Provider{
 		Name:             req.Name,
 		DisplayName:      req.DisplayName,
+		ProviderType:     req.ProviderType,
 		Enabled:          req.Enabled,
 		ClientID:         req.ClientID,
 		ClientSecret:     req.ClientSecret,
@@ -105,6 +106,9 @@ func (s *ProviderService) UpdateProvider(id uint, req *UpdateProviderRequest) er
 	}
 	if req.DisplayName != nil {
 		updates["display_name"] = *req.DisplayName
+	}
+	if req.ProviderType != nil {
+		updates["provider_type"] = *req.ProviderType
 	}
 	if req.Enabled != nil {
 		updates["enabled"] = *req.Enabled
@@ -213,6 +217,7 @@ func (s *ProviderService) ResetRegistrationCount(id uint) error {
 type CreateProviderRequest struct {
 	Name             string         `json:"name" binding:"required"`
 	DisplayName      string         `json:"displayName" binding:"required"`
+	ProviderType     string         `json:"providerType" binding:"required,oneof=preset generic"` // preset 或 generic
 	Enabled          bool           `json:"enabled"`
 	ClientID         string         `json:"clientId" binding:"required"`
 	ClientSecret     string         `json:"clientSecret" binding:"required"`
@@ -236,6 +241,7 @@ type CreateProviderRequest struct {
 type UpdateProviderRequest struct {
 	Name             *string        `json:"name"`
 	DisplayName      *string        `json:"displayName"`
+	ProviderType     *string        `json:"providerType" binding:"omitempty,oneof=preset generic"`
 	Enabled          *bool          `json:"enabled"`
 	ClientID         *string        `json:"clientId"`
 	ClientSecret     *string        `json:"clientSecret"`

@@ -250,6 +250,14 @@ const userRoutes = computed(() => {
           title: t('sidebar.systemConfiguration'),
           icon: 'Setting'
         }
+      },
+      {
+        path: '/admin/performance',
+        name: 'AdminPerformance',
+        meta: {
+          title: t('sidebar.performanceMonitoring'),
+          icon: 'Histogram'
+        }
       }
     ]
   }

@@ -2,7 +2,7 @@
   <div class="instance-traffic-detail">
     <el-dialog
       v-model="visible"
-      :title="`实例流量详情 - ${instanceName}`"
+      :title="`${t('user.traffic.detail.title')} - ${displayInstanceName}`"
       width="800px"
       :before-close="handleClose"
     >
@@ -26,151 +26,98 @@
             :column="2"
             border
           >
-            <el-descriptions-item label="实例ID">
+            <el-descriptions-item :label="t('user.traffic.detail.instanceId')">
               {{ trafficData.instance_id }}
             </el-descriptions-item>
-            <el-descriptions-item label="数据源">
+            <el-descriptions-item :label="t('user.traffic.detail.dataSource')">
               <el-tag type="success">
-                vnStat实时数据
+                {{ t('user.traffic.detail.realtimeData') }}
               </el-tag>
             </el-descriptions-item>
           </el-descriptions>
         </div>
 
         <!-- 流量汇总信息 -->
-        <div
-          v-if="trafficData.summary"
-          class="traffic-summary"
-        >
-          <h4>流量使用汇总</h4>
+        <div class="traffic-summary">
+          <h4>{{ t('user.traffic.detail.trafficSummary') }}</h4>
           
-          <!-- 今日流量 -->
-          <div
-            v-if="trafficData.summary.today"
-            class="period-section"
-          >
-            <h5>今日流量</h5>
+          <!-- 当月流量 -->
+          <div class="period-section">
+            <h5>{{ t('user.traffic.detail.currentMonth') }}</h5>
             <el-row :gutter="20">
               <el-col :span="8">
                 <div class="traffic-card">
                   <div class="traffic-label">
-                    接收流量
+                    {{ t('user.traffic.detail.receivedTraffic') }}
                   </div>
                   <div class="traffic-value">
-                    {{ trafficData.today_formatted?.rx || formatBytes(trafficData.summary.today.rx_bytes) }}
+                    {{ trafficData.formatted?.rx || formatBytes(trafficData.rx_bytes) }}
                   </div>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="traffic-card">
                   <div class="traffic-label">
-                    发送流量
+                    {{ t('user.traffic.detail.sentTraffic') }}
                   </div>
                   <div class="traffic-value">
-                    {{ trafficData.today_formatted?.tx || formatBytes(trafficData.summary.today.tx_bytes) }}
+                    {{ trafficData.formatted?.tx || formatBytes(trafficData.tx_bytes) }}
                   </div>
                 </div>
               </el-col>
               <el-col :span="8">
                 <div class="traffic-card">
                   <div class="traffic-label">
-                    总流量
+                    {{ t('user.traffic.detail.totalTraffic') }}
                   </div>
                   <div class="traffic-value">
-                    {{ trafficData.today_formatted?.total || formatBytes(trafficData.summary.today.total_bytes) }}
+                    {{ trafficData.formatted?.current_usage || formatBytes(trafficData.total_bytes) }}
                   </div>
                 </div>
               </el-col>
             </el-row>
           </div>
 
-          <!-- 本月流量 -->
-          <div
-            v-if="trafficData.summary.thisMonth"
-            class="period-section"
-          >
-            <h5>本月流量</h5>
-            <el-row :gutter="20">
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    接收流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.month_formatted?.rx || formatBytes(trafficData.summary.thisMonth.rx_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    发送流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.month_formatted?.tx || formatBytes(trafficData.summary.thisMonth.tx_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    总流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.month_formatted?.total || formatBytes(trafficData.summary.thisMonth.total_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-            </el-row>
-          </div>
-
-          <!-- 历史总流量 -->
-          <div
-            v-if="trafficData.summary.allTime"
-            class="period-section"
-          >
-            <h5>历史总流量</h5>
-            <el-row :gutter="20">
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    接收流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.alltime_formatted?.rx || formatBytes(trafficData.summary.allTime.rx_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    发送流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.alltime_formatted?.tx || formatBytes(trafficData.summary.allTime.tx_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-              <el-col :span="8">
-                <div class="traffic-card">
-                  <div class="traffic-label">
-                    总流量
-                  </div>
-                  <div class="traffic-value">
-                    {{ trafficData.alltime_formatted?.total || formatBytes(trafficData.summary.allTime.total_bytes) }}
-                  </div>
-                </div>
-              </el-col>
-            </el-row>
-          </div>
         </div>
+
+        <!-- 监控配置信息 -->
+        <div
+          v-if="trafficData.traffic_control_enabled"
+          class="config-section"
+        >
+          <h4>{{ t('user.traffic.detail.monitoringConfig') }}</h4>
+          <el-descriptions :column="2" border>
+            <el-descriptions-item :label="t('user.traffic.detail.mappedIP')">
+              {{ trafficData.mapped_ip || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('user.traffic.detail.mappedIPv6')">
+              {{ trafficData.mapped_ipv6 || '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('user.traffic.detail.monitoringStatus')">
+              <el-tag :type="trafficData.is_enabled ? 'success' : 'info'">
+                {{ trafficData.is_enabled ? t('user.traffic.detail.enabled') : t('user.traffic.detail.disabled') }}
+              </el-tag>
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('user.traffic.detail.lastSync')">
+              {{ trafficData.last_sync ? new Date(trafficData.last_sync).toLocaleString(locale === 'zh-CN' ? 'zh-CN' : 'en-US') : '-' }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('user.traffic.detail.billingMode')">
+              {{ getTrafficCountModeText(trafficData.traffic_count_mode) }}
+            </el-descriptions-item>
+            <el-descriptions-item :label="t('user.traffic.detail.trafficMultiplier')">
+              {{ trafficData.traffic_multiplier || 1 }}x
+            </el-descriptions-item>
+          </el-descriptions>
+        </div>
+
+
 
         <!-- 网络接口信息 -->
         <div
           v-if="trafficData.interfaces && trafficData.interfaces.length > 0"
           class="interfaces-section"
         >
-          <h4>网络接口详情</h4>
+          <h4>{{ t('user.traffic.detail.networkInterfaces') }}</h4>
           <el-table
             :data="trafficData.interfaces"
             border
@@ -178,37 +125,37 @@
           >
             <el-table-column
               prop="name"
-              label="接口名称"
+              :label="t('user.traffic.detail.interfaceName')"
               width="120"
             />
             <el-table-column
               prop="alias"
-              label="别名"
+              :label="t('user.traffic.detail.alias')"
               width="150"
             />
             <el-table-column
               prop="total_rx"
-              label="总接收"
+              :label="t('user.traffic.detail.totalReceived')"
               :formatter="formatBytesColumn"
             />
             <el-table-column
               prop="total_tx"
-              label="总发送"
+              :label="t('user.traffic.detail.totalSent')"
               :formatter="formatBytesColumn"
             />
             <el-table-column
               prop="total_bytes"
-              label="总流量"
+              :label="t('user.traffic.detail.totalTraffic')"
               :formatter="formatBytesColumn"
             />
             <el-table-column
               prop="active"
-              label="状态"
+              :label="t('user.traffic.detail.status')"
               width="80"
             >
               <template #default="{ row }">
                 <el-tag :type="row.active ? 'success' : 'info'">
-                  {{ row.active ? '活跃' : '非活跃' }}
+                  {{ row.active ? t('user.traffic.detail.active') : t('user.traffic.detail.inactive') }}
                 </el-tag>
               </template>
             </el-table-column>
@@ -220,18 +167,18 @@
         v-else
         class="error-state"
       >
-        <el-empty description="暂无流量数据" />
+        <el-empty :description="t('user.traffic.detail.noData')" />
       </div>
 
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="handleClose">关闭</el-button>
+          <el-button @click="handleClose">{{ t('user.traffic.detail.close') }}</el-button>
           <el-button
             type="primary"
             @click="loadTrafficDetail"
           >
             <el-icon><Refresh /></el-icon>
-            刷新数据
+            {{ t('user.traffic.detail.refresh') }}
           </el-button>
         </span>
       </template>
@@ -240,10 +187,13 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
+import { ref, watch, computed } from 'vue'
 import { getInstanceTrafficDetail } from '@/api/user'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
+import { useI18n } from 'vue-i18n'
+
+const { t, locale } = useI18n()
 
 const props = defineProps({
   modelValue: {
@@ -256,7 +206,7 @@ const props = defineProps({
   },
   instanceName: {
     type: String,
-    default: '未知实例'
+    default: null
   }
 })
 
@@ -265,6 +215,11 @@ const emit = defineEmits(['update:modelValue'])
 const visible = ref(false)
 const loading = ref(false)
 const trafficData = ref(null)
+
+// 使用 computed 来处理 instanceName，如果没有传递则使用翻译的默认值
+const displayInstanceName = computed(() => {
+  return props.instanceName || t('user.traffic.detail.unknownInstance')
+})
 
 watch(() => props.modelValue, (newVal) => {
   visible.value = newVal
@@ -283,17 +238,28 @@ const loadTrafficDetail = async () => {
   loading.value = true
   try {
     const response = await getInstanceTrafficDetail(props.instanceId)
+    
     if (response.code === 0) {
       trafficData.value = response.data
+      ElMessage.success(t('user.traffic.detail.loadSuccess'))
     } else {
-      ElMessage.error(`获取实例流量详情失败: ${response.msg}`)
+      ElMessage.error(`${t('user.traffic.detail.loadFailed')}: ${response.msg}`)
     }
   } catch (error) {
     console.error('获取实例流量详情失败:', error)
-    ElMessage.error('获取实例流量详情失败，请稍后重试')
+    ElMessage.error(error.message || t('user.traffic.detail.loadFailedRetry'))
   } finally {
     loading.value = false
   }
+}
+
+const getTrafficCountModeText = (mode) => {
+  const modes = {
+    'bidirectional': t('user.traffic.detail.bidirectional'),
+    'upload_only': t('user.traffic.detail.uploadOnly'),
+    'download_only': t('user.traffic.detail.downloadOnly')
+  }
+  return modes[mode] || mode || '-'
 }
 
 const formatBytes = (bytes) => {
@@ -350,6 +316,12 @@ const handleClose = () => {
   margin-bottom: 10px;
   color: var(--el-text-color-regular);
   font-size: 14px;
+}
+
+.history-info {
+  margin-bottom: 15px;
+  font-size: 12px;
+  color: var(--el-text-color-secondary);
 }
 
 .traffic-card {

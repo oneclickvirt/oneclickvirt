@@ -161,10 +161,6 @@ func (m *Manager) GetProviderCapabilities(providerType string) map[string]interf
 		capabilities["description"] = "Proxmox VE使用iptables端口转发"
 		capabilities["methods"] = []string{"iptables-nat"}
 		capabilities["limitations"] = []string{"需要root权限"}
-	case "gost":
-		capabilities["description"] = "GOST隧道端口映射，支持多协议"
-		capabilities["methods"] = []string{"tunnel", "forward"}
-		capabilities["limitations"] = []string{"需要GOST服务"}
 	case "iptables":
 		capabilities["description"] = "通用iptables NAT端口映射"
 		capabilities["methods"] = []string{"nat", "dnat", "snat"}
@@ -188,7 +184,7 @@ func (m *Manager) GetStats() map[string]interface{} {
 		capabilities := m.GetProviderCapabilities(providerType)
 		providerStats[providerType] = map[string]interface{}{
 			"capabilities": capabilities,
-			"usage_count":  0, // TODO: 从数据库统计
+			"usage_count":  0, // TODO: 从数据库统计, 暂时设为0
 		}
 	}
 	stats["provider_details"] = providerStats

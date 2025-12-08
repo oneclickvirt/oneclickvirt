@@ -1,11 +1,14 @@
 package admin
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"oneclickvirt/utils"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -49,7 +52,9 @@ func AdminSSHWebSocket(c *gin.Context) {
 
 	// 获取实例信息（管理员可以访问任意实例）
 	var instance providerModel.Instance
-	err := global.APP_DB.Where("id = ?", instanceID).First(&instance).Error
+	err := global.APP_DB.Select("id", "name", "provider_id", "status", "private_ip", "public_ip", "ipv6_address", "public_ipv6", "ssh_port", "username", "password").
+		Where("id = ?", instanceID).
+		First(&instance).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(404, gin.H{"code": 404, "message": "实例不存在"})
@@ -66,30 +71,44 @@ func AdminSSHWebSocket(c *gin.Context) {
 		return
 	}
 
-	// 获取Provider信息以获取SSH连接地址
-	var provider providerModel.Provider
-	err = global.APP_DB.Where("id = ?", instance.ProviderID).First(&provider).Error
-	if err != nil {
-		global.APP_LOG.Error("查询Provider失败", zap.Error(err))
-		c.JSON(500, gin.H{"code": 500, "message": "查询Provider失败"})
-		return
-	}
-
-	// 获取SSH端口映射
+	// 构建SSH连接地址和端口（基于实例信息）
+	var sshHost string
 	var sshPort int
+
+	// 优先使用SSH端口映射（适用于容器等需要端口转发的场景）
 	var sshPortMapping providerModel.Port
 	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instance.ID).First(&sshPortMapping).Error; err == nil {
+		// 找到SSH端口映射，使用映射配置
+		// 连接地址优先使用实例的PublicIP，如果没有则使用PrivateIP
+		if instance.PublicIP != "" {
+			sshHost = instance.PublicIP
+		} else if instance.PrivateIP != "" {
+			sshHost = instance.PrivateIP
+		} else {
+			global.APP_LOG.Error("实例没有可用的IP地址")
+			c.JSON(500, gin.H{"code": 500, "message": "实例没有可用的IP地址"})
+			return
+		}
 		sshPort = sshPortMapping.HostPort
+		global.APP_LOG.Info("管理员使用SSH端口映射连接",
+			zap.String("host", sshHost),
+			zap.Int("hostPort", sshPortMapping.HostPort),
+			zap.Int("guestPort", sshPortMapping.GuestPort))
 	} else {
+		// 没有端口映射，直接使用实例的IP和SSH端口（适用于有独立公网IP的虚拟机）
+		if instance.PublicIP != "" {
+			sshHost = instance.PublicIP
+		} else if instance.PrivateIP != "" {
+			sshHost = instance.PrivateIP
+		} else {
+			global.APP_LOG.Error("实例没有可用的IP地址")
+			c.JSON(500, gin.H{"code": 500, "message": "实例没有可用的IP地址"})
+			return
+		}
 		sshPort = instance.SSHPort
-	}
-
-	// 构建SSH地址
-	var sshHost string
-	if provider.PortIP != "" {
-		sshHost = provider.PortIP
-	} else {
-		sshHost = provider.Endpoint
+		global.APP_LOG.Info("管理员直接使用实例IP和SSH端口连接",
+			zap.String("host", sshHost),
+			zap.Int("sshPort", instance.SSHPort))
 	}
 
 	sshAddress := fmt.Sprintf("%s:%d", sshHost, sshPort)
@@ -123,8 +142,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
 		return
 	}
-	defer sshClient.Close()
-	defer sshSession.Close()
+	// 注意：不在这里defer关闭，而是在清理阶段统一强制关闭
 
 	// 获取SSH输入输出流
 	sshStdin, err := sshSession.StdinPipe()
@@ -175,13 +193,35 @@ func AdminSSHWebSocket(c *gin.Context) {
 		return
 	}
 
-	// 创建通道用于协程通信
+	// 创建context用于超时控制
+	ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
+	defer cancel()
+
+	// 创建通道用于协程通信和退出控制
 	done := make(chan struct{})
+	wsInputDone := make(chan struct{})
+	sshOutputDone := make(chan struct{})
+	sshErrorDone := make(chan struct{})
+	wg := &sync.WaitGroup{} // 跟踪所有goroutine
 
 	// WebSocket -> SSH (处理用户输入)
+	wg.Add(1)
 	go func() {
-		defer close(done)
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("Admin SSH WebSocket读取goroutine panic", zap.Any("panic", r))
+			}
+			close(wsInputDone)
+		}()
+
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			messageType, p, err := ws.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
@@ -226,9 +266,24 @@ func AdminSSHWebSocket(c *gin.Context) {
 	}()
 
 	// SSH stdout -> WebSocket
+	wg.Add(1)
 	go func() {
-		buf := make([]byte, 32768) // 增加缓冲区大小以更好地处理vim的输出
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("Admin SSH stdout goroutine panic", zap.Any("panic", r))
+			}
+			close(sshOutputDone)
+		}()
+
+		buf := make([]byte, 8192)
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			n, err := sshStdout.Read(buf)
 			if err != nil {
 				if err != io.EOF {
@@ -247,9 +302,24 @@ func AdminSSHWebSocket(c *gin.Context) {
 	}()
 
 	// SSH stderr -> WebSocket
+	wg.Add(1)
 	go func() {
-		buf := make([]byte, 32768) // 增加缓冲区大小
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("Admin SSH stderr goroutine panic", zap.Any("panic", r))
+			}
+			close(sshErrorDone)
+		}()
+
+		buf := make([]byte, 8192)
 		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+
 			n, err := sshStderr.Read(buf)
 			if err != nil {
 				if err != io.EOF {
@@ -267,9 +337,56 @@ func AdminSSHWebSocket(c *gin.Context) {
 		}
 	}()
 
-	// 等待连接关闭
-	<-done
-	sshSession.Wait()
+	// 等待所有goroutine完成或超时
+	go func() {
+		<-wsInputDone
+		<-sshOutputDone
+		<-sshErrorDone
+		close(done)
+	}()
+
+	// 等待连接关闭或超时
+	select {
+	case <-done:
+		// 正常关闭
+		global.APP_LOG.Info("管理员SSH会话正常关闭",
+			zap.String("instanceID", instanceID))
+	case <-ctx.Done():
+		// 超时保护，强制关闭
+		global.APP_LOG.Warn("SSH会话超时，强制关闭",
+			zap.String("instanceID", instanceID))
+	}
+
+	// 立即取消context
+	cancel()
+
+	// 强制关闭SSH连接和session，确保goroutine能退出
+	if sshSession != nil {
+		sshSession.Close() // 立即关闭session，中断所有IO操作
+	}
+	if sshClient != nil {
+		sshClient.Close() // 关闭底层连接，强制终止所有goroutine
+	}
+
+	// 等待所有goroutine退出（最多3秒）
+	goroutineDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(goroutineDone)
+	}()
+
+	gracefulTimer := time.NewTimer(3 * time.Second)
+	defer gracefulTimer.Stop()
+
+	select {
+	case <-goroutineDone:
+		global.APP_LOG.Debug("Admin SSH所有goroutine已正常退出",
+			zap.String("instanceID", instanceID))
+	case <-gracefulTimer.C:
+		// 理论上不应该发生，因为已经强制关闭了所有连接
+		global.APP_LOG.Error("Admin SSH goroutine退出超时（连接已强制关闭）",
+			zap.String("instanceID", instanceID))
+	}
 
 	global.APP_LOG.Info("管理员SSH会话结束",
 		zap.String("instanceID", instanceID),
@@ -277,27 +394,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 	)
 }
 
-// createAdminSSHConnection 创建管理员SSH连接
+// createAdminSSHConnection 创建管理员SSH连接（使用全局函数）
 func createAdminSSHConnection(address, username, password string) (*ssh.Client, *ssh.Session, error) {
-	config := &ssh.ClientConfig{
-		User: username,
-		Auth: []ssh.AuthMethod{
-			ssh.Password(password),
-		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-		Timeout:         10 * time.Second,
-	}
-
-	client, err := ssh.Dial("tcp", address, config)
-	if err != nil {
-		return nil, nil, fmt.Errorf("SSH连接失败: %w", err)
-	}
-
-	session, err := client.NewSession()
-	if err != nil {
-		client.Close()
-		return nil, nil, fmt.Errorf("创建SSH会话失败: %w", err)
-	}
-
-	return client, session, nil
+	return utils.CreateSSHConnectionFromAddress(address, username, password)
 }

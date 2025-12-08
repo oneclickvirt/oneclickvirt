@@ -41,13 +41,6 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('user.apply.selectProvider') }}</span>
-          <el-button
-            size="small"
-            @click="() => loadProviders(true)"
-          >
-            <el-icon><Refresh /></el-icon>
-            {{ t('user.apply.refresh') }}
-          </el-button>
         </div>
       </template>
       <div class="providers-grid">
@@ -299,7 +292,7 @@
             size="large"
             @click="resetForm"
           >
-            重置配置
+            {{ t('user.apply.resetConfig') }}
           </el-button>
         </el-form-item>
       </el-form>
@@ -341,7 +334,7 @@
 import { ref, reactive, computed, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 import { 
   getAvailableProviders, 
@@ -360,6 +353,7 @@ const router = useRouter()
 const route = useRoute()
 
 const loading = ref(false)
+const refreshing = ref(false)
 const submitting = ref(false)
 const selectedProvider = ref(null)
 const providers = ref([])
@@ -684,6 +678,62 @@ const loadProviders = async (showSuccessMsg = false) => {
   }
 }
 
+// 刷新数据（同时刷新提供商和配额信息）
+const refreshData = async () => {
+  // 防止重复点击
+  if (refreshing.value || loading.value) {
+    return
+  }
+  
+  try {
+    refreshing.value = true
+    
+    // 并行刷新提供商列表和用户配额信息
+    const [providersResult, limitsResult] = await Promise.allSettled([
+      getAvailableProviders(),
+      getUserLimits()
+    ])
+    
+    // 处理提供商列表结果
+    if (providersResult.status === 'fulfilled') {
+      const response = providersResult.value
+      if (response.code === 0 || response.code === 200) {
+        providers.value = response.value.data || []
+        
+        if (providers.value.length === 0) {
+          ElMessage.info(t('user.apply.noProvidersRetry'))
+        }
+      } else {
+        providers.value = []
+        console.warn('获取提供商列表失败:', response.message)
+      }
+    } else {
+      console.error('获取提供商列表失败:', providersResult.reason)
+      providers.value = []
+    }
+    
+    // 处理用户配额信息结果
+    if (limitsResult.status === 'fulfilled') {
+      const response = limitsResult.value
+      if (response.code === 0 || response.code === 200) {
+        Object.assign(userLimits, response.data)
+      } else {
+        console.warn('获取用户配额失败:', response.message)
+      }
+    } else {
+      console.error('获取用户配额失败:', limitsResult.reason)
+    }
+    
+    // 所有请求完成后显示成功消息
+    ElMessage.success(t('user.apply.dataRefreshed'))
+  } catch (error) {
+    console.error('刷新数据失败:', error)
+    ElMessage.error(t('user.apply.refreshFailed'))
+  } finally {
+    refreshing.value = false
+  }
+}
+
 // 获取用户限制信息
 const loadUserLimits = async () => {
   try {
@@ -889,6 +939,46 @@ const submitApplication = async () => {
   try {
     await formRef.value.validate()
     
+    // 获取配置详情用于确认对话框
+    const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
+    const selectedCpu = availableCpuSpecs.value.find(spec => spec.id === configForm.cpuId)
+    const selectedMemory = availableMemorySpecs.value.find(spec => spec.id === configForm.memoryId)
+    const selectedDisk = availableDiskSpecs.value.find(spec => spec.id === configForm.diskId)
+    const selectedBandwidth = availableBandwidthSpecs.value.find(spec => spec.id === configForm.bandwidthId)
+    
+    // 构建确认信息
+    const confirmMessage = `
+      <div style="text-align: left; line-height: 2;">
+        <p style="margin-bottom: 12px; color: #606266;">${t('user.apply.confirmDialogMessage')}</p>
+        <div style="padding: 12px; background: #f5f7fa; border-radius: 4px;">
+          <p><strong>${t('user.apply.confirmProvider')}:</strong> ${selectedProvider.value.name}</p>
+          <p><strong>${t('user.apply.confirmInstanceType')}:</strong> ${configForm.type === 'container' ? t('user.apply.container') : t('user.apply.vm')}</p>
+          <p><strong>${t('user.apply.confirmImage')}:</strong> ${selectedImage?.name || '-'}</p>
+          <p><strong>${t('user.apply.confirmCpu')}:</strong> ${selectedCpu?.name || '-'}</p>
+          <p><strong>${t('user.apply.confirmMemory')}:</strong> ${selectedMemory?.name || '-'}</p>
+          <p><strong>${t('user.apply.confirmDisk')}:</strong> ${selectedDisk?.name || '-'}</p>
+          <p><strong>${t('user.apply.confirmBandwidth')}:</strong> ${selectedBandwidth?.name || '-'}</p>
+          ${configForm.description ? `<p><strong>${t('user.apply.confirmDescription')}:</strong> ${configForm.description}</p>` : ''}
+        </div>
+        <p style="margin-top: 12px; color: #E6A23C; font-size: 13px;">
+          <i class="el-icon-warning" style="margin-right: 4px;"></i>${t('user.apply.confirmWarning')}
+        </p>
+      </div>
+    `
+    
+    // 显示确认对话框
+    await ElMessageBox.confirm(
+      confirmMessage,
+      t('user.apply.confirmDialogTitle'),
+      {
+        confirmButtonText: t('user.apply.confirmSubmit'),
+        cancelButtonText: t('user.apply.confirmCancel'),
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        distinguishCancelAndClose: true
+      }
+    )
+    
     // 设置提交状态，防止重复点击
     submitting.value = true
     
@@ -930,6 +1020,11 @@ const submitApplication = async () => {
       }
     }
   } catch (error) {
+    // 用户取消确认对话框
+    if (error === 'cancel' || error === 'close') {
+      return
+    }
+    
     if (error !== false) { // 表单验证失败时error为false
       console.error('提交申请失败:', error)
       if (error.message && error.message.includes('timeout')) {
@@ -949,7 +1044,7 @@ const submitApplication = async () => {
       submitting.value = false
     }
   }
-  // 注意：成功提交后不在finally中重置submitting，保持按钮禁用状态直到页面跳转
+  // 成功提交后不在finally中重置submitting，保持按钮禁用状态直到页面跳转
 }
 
 // 监听路由变化，确保页面切换时重新加载数据

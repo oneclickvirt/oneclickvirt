@@ -60,7 +60,6 @@ func (s *Service) validateProviderImageCompatibility(provider *providerModel.Pro
 // 3. 合并两者限制，取最小值作为最终限制
 // 4. 验证所选规格（CPU、内存、磁盘、带宽）是否超过限制
 //
-// 注意：
 // - 此函数在事务外执行，可以快速失败
 // - 不验证实例数量限制（在事务内验证以防并发问题）
 // - 管理员不受限制
@@ -94,7 +93,7 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 				levelKey := fmt.Sprintf("%d", effective.EffectiveLevel)
 				if providerLimits, ok := allProviderLimits[levelKey]; ok {
 					// 合并Provider限制：如果Provider有限制且更严格，则使用Provider的限制
-					if providerMaxResources, ok := providerLimits["maxResources"].(map[string]interface{}); ok {
+					if providerMaxResources, ok := providerLimits["max-resources"].(map[string]interface{}); ok {
 						// 更新levelLimits为合并后的限制（取最小值）
 						for key, value := range levelLimits.MaxResources {
 							if providerValue, exists := providerMaxResources[key]; exists {

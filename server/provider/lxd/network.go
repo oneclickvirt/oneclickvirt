@@ -175,8 +175,6 @@ func (l *LXDProvider) restartVMForNetwork(instanceName string) error {
 // restartContainerForNetwork 重启容器以获取网络配置
 func (l *LXDProvider) restartContainerForNetwork(instanceName string) error {
 	global.APP_LOG.Info("重启容器获取网络配置", zap.String("instanceName", instanceName))
-
-	// 容器重启相对简单，但也增加超时时间
 	restartCmd := fmt.Sprintf("lxc restart %s --timeout=60", instanceName)
 	_, err := l.sshClient.Execute(restartCmd)
 
@@ -390,7 +388,7 @@ func (l *LXDProvider) getInstanceIP(instanceName string) (string, error) {
 	}
 }
 
-// getVMInstanceIP 获取虚拟机实例IP地址（针对VM优化）
+// getVMInstanceIP 获取虚拟机实例IP地址
 func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 	global.APP_LOG.Debug("获取虚拟机IP地址", zap.String("instanceName", instanceName))
 
@@ -434,7 +432,7 @@ func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 	return l.getInstanceIPGeneric(instanceName)
 }
 
-// getContainerInstanceIP 获取容器实例IP地址（针对容器优化）
+// getContainerInstanceIP 获取容器实例IP地址
 func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error) {
 	global.APP_LOG.Debug("获取容器IP地址", zap.String("instanceName", instanceName))
 
@@ -1000,10 +998,10 @@ func (l *LXDProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed
 
 	// 设置默认值（如果配置为0）
 	if inSpeed <= 0 {
-		inSpeed = 300 // 默认300Mbps
+		inSpeed = 100 // 默认100Mbps
 	}
 	if outSpeed <= 0 {
-		outSpeed = 300 // 默认300Mbps
+		outSpeed = 100 // 默认100Mbps
 	}
 
 	// 确保不超过Provider的最大限制
@@ -1045,6 +1043,49 @@ func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
 func (l *LXDProvider) GetInstanceIPv4(instanceName string) (string, error) {
 	// 复用已有的getInstanceIP方法来获取内网IPv4地址
 	return l.getInstanceIP(instanceName)
+}
+
+// GetVethInterfaceName 获取容器对应的宿主机veth接口名称（IPv4）
+// 通过 lxc config show 获取 volatile.eth0.host_name
+func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) {
+	cmd := fmt.Sprintf("lxc config show %s | grep 'volatile.eth0.host_name:' | awk '{print $2}'", instanceName)
+	output, err := l.sshClient.Execute(cmd)
+	if err != nil {
+		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
+	}
+
+	vethName := strings.TrimSpace(output)
+	if vethName == "" {
+		return "", fmt.Errorf("未找到veth接口名称")
+	}
+
+	global.APP_LOG.Debug("获取到veth接口名称",
+		zap.String("instanceName", instanceName),
+		zap.String("vethInterface", vethName))
+
+	return vethName, nil
+}
+
+// GetVethInterfaceNameV6 获取容器对应的宿主机veth接口名称（IPv6）
+// 通过 lxc config show 获取 volatile.eth1.host_name（如果存在）
+func (l *LXDProvider) GetVethInterfaceNameV6(instanceName string) (string, error) {
+	cmd := fmt.Sprintf("lxc config show %s | grep 'volatile.eth1.host_name:' | awk '{print $2}'", instanceName)
+	output, err := l.sshClient.Execute(cmd)
+	if err != nil {
+		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)
+	}
+
+	vethName := strings.TrimSpace(output)
+	if vethName == "" {
+		// 如果没有eth1，可能使用eth0，返回eth0的veth接口
+		return l.GetVethInterfaceName(instanceName)
+	}
+
+	global.APP_LOG.Debug("获取到veth接口名称(IPv6)",
+		zap.String("instanceName", instanceName),
+		zap.String("vethInterface", vethName))
+
+	return vethName, nil
 }
 
 // tryUseExistingNetworkConfig 尝试使用现有的网络配置继续

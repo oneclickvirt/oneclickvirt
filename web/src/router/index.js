@@ -268,6 +268,16 @@ const routes = [
         }
       },
       {
+        path: 'performance',
+        name: 'AdminPerformance',
+        component: () => import('@/view/admin/performance/index.vue'),
+        meta: {
+          title: '性能监控',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'oauth2-providers',
         name: 'AdminOAuth2Providers',
         component: () => import('@/view/admin/oauth2/index.vue'),

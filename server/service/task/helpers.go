@@ -3,54 +3,21 @@ package task
 import (
 	"context"
 	"fmt"
-	"oneclickvirt/global"
-	adminModel "oneclickvirt/model/admin"
 	"time"
 
-	"go.uber.org/zap"
+	"oneclickvirt/global"
+	adminModel "oneclickvirt/model/admin"
+	"oneclickvirt/utils"
 )
 
-// getDefaultTimeout 获取默认超时时间
-func (s *TaskService) getDefaultTimeout(taskType string) int {
-	timeouts := map[string]int{
-		"create":              1800, // 30分钟
-		"start":               300,  // 5分钟
-		"stop":                300,  // 5分钟
-		"restart":             600,  // 10分钟
-		"reset":               1200, // 20分钟
-		"delete":              600,  // 10分钟
-		"create-port-mapping": 600,  // 10分钟
-		"delete-port-mapping": 300,  // 5分钟
-		"reset-password":      600,  // 10分钟
-	}
-
-	if timeout, exists := timeouts[taskType]; exists {
-		return timeout
-	}
-	return 1800 // 默认30分钟
+// updateTaskProgress 更新任务进度（使用全局工具函数）
+func (s *TaskService) updateTaskProgress(taskID uint, progress int, message string) {
+	utils.UpdateTaskProgress(taskID, progress, message)
 }
 
-// updateTaskProgress 更新任务进度
-func (s *TaskService) updateTaskProgress(taskID uint, progress int, message string) {
-	updates := map[string]interface{}{
-		"progress": progress,
-	}
-	if message != "" {
-		updates["status_message"] = message
-	}
-
-	if err := global.APP_DB.Model(&adminModel.Task{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
-		global.APP_LOG.Error("更新任务进度失败",
-			zap.Uint("taskId", taskID),
-			zap.Int("progress", progress),
-			zap.String("message", message),
-			zap.Error(err))
-	} else {
-		global.APP_LOG.Debug("任务进度更新成功",
-			zap.Uint("taskId", taskID),
-			zap.Int("progress", progress),
-			zap.String("message", message))
-	}
+// getDefaultTimeout 获取默认超时时间（使用全局工具函数）
+func (s *TaskService) getDefaultTimeout(taskType string) int {
+	return utils.GetDefaultTaskTimeout(taskType)
 }
 
 // CleanupTimeoutTasksWithLockRelease 清理超时任务并释放锁

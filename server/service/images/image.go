@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/image"
@@ -179,9 +180,9 @@ func (s *ImageService) CalculateFileMD5(filePath string) (string, error) {
 
 // DownloadFile 下载文件
 func (s *ImageService) DownloadFile(url, filePath string) error {
-	// 创建目录
+	// 创建目录（使用全局工具函数）
 	dir := filepath.Dir(filePath)
-	if err := s.CreateDirectory(dir); err != nil {
+	if err := utils.EnsureDir(dir); err != nil {
 		return fmt.Errorf("创建目录失败: %v", err)
 	}
 
@@ -192,8 +193,9 @@ func (s *ImageService) DownloadFile(url, filePath string) error {
 	}
 	defer out.Close()
 
-	// 下载文件
-	resp, err := http.Get(url)
+	// 下载文件，使用HTTP客户端（带连接池）
+	client := utils.GetHTTPClientWithTimeout(10 * time.Minute)
+	resp, err := client.Get(url)
 	if err != nil {
 		return err
 	}

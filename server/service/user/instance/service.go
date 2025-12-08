@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"oneclickvirt/service/auth"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/task"
-	"oneclickvirt/service/traffic"
+	trafficService "oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 	"strings"
 	"time"
 
@@ -35,7 +37,10 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 	var total int64
 
 	// 基础查询：过滤掉失败、创建中、删除中的实例，这些实例不应该在用户界面显示
-	query := global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND status NOT IN (?)", userID, []string{"failed", "creating", "deleting"})
+	// 同时排除有进行中的reset任务的实例（包括新旧实例）
+	query := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("user_id = ? AND status NOT IN (?)", userID, []string{"failed", "creating", "deleting"}).
+		Where("id NOT IN (SELECT instance_id FROM tasks WHERE task_type = 'reset' AND status IN ('pending', 'running') AND instance_id IS NOT NULL)")
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
@@ -64,12 +69,53 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		return nil, 0, err
 	}
 
+	// 批量预加载端口映射
+	var instanceIDs []uint
+	for _, instance := range instances {
+		instanceIDs = append(instanceIDs, instance.ID)
+	}
+
+	// 批量查询所有实例的端口映射
+	var allPorts []providerModel.Port
+	if len(instanceIDs) > 0 {
+		global.APP_DB.Where("instance_id IN ? AND status = 'active'", instanceIDs).
+			Order("instance_id, is_ssh DESC, created_at ASC").Find(&allPorts)
+	}
+
+	// 将端口映射按instance_id分组
+	portsByInstance := make(map[uint][]providerModel.Port)
+	for _, port := range allPorts {
+		portsByInstance[port.InstanceID] = append(portsByInstance[port.InstanceID], port)
+	}
+
+	// 批量查询Provider信息
+	var providerIDs []uint
+	providerIDSet := make(map[uint]bool)
+	for _, instance := range instances {
+		if instance.ProviderID > 0 && !providerIDSet[instance.ProviderID] {
+			providerIDs = append(providerIDs, instance.ProviderID)
+			providerIDSet[instance.ProviderID] = true
+		}
+	}
+
+	var providers []providerModel.Provider
+	if len(providerIDs) > 0 {
+		global.APP_DB.Select("id, name, type, status, host, port_ip, endpoint").
+			Where("id IN ?", providerIDs).
+			Limit(1000).
+			Find(&providers)
+	}
+
+	// 将Provider信息按ID映射
+	providerMap := make(map[uint]providerModel.Provider)
+	for _, provider := range providers {
+		providerMap[provider.ID] = provider
+	}
+
 	var userInstances []userModel.UserInstanceResponse
 	for _, instance := range instances {
-		// 获取端口映射信息
-		var ports []providerModel.Port
-		global.APP_DB.Where("instance_id = ? AND status = 'active'", instance.ID).
-			Order("is_ssh DESC, created_at ASC").Find(&ports)
+		// 从预加载的数据中获取端口映射信息
+		ports := portsByInstance[instance.ID]
 
 		// 获取SSH端口（映射的公网端口）
 		var sshPort int
@@ -85,10 +131,9 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			}
 		}
 
-		// 获取Provider信息以获取公网IP（不含端口）、类型和状态
+		// 从预加载的Provider map中获取Provider信息
 		if instance.ProviderID > 0 {
-			var providerInfo providerModel.Provider
-			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
+			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
 				providerType = providerInfo.Type
 				providerStatus = providerInfo.Status
 
@@ -174,6 +219,13 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		}
 		return err
 	}
+
+	// 操作完成后使缓存失效
+	defer func() {
+		cacheService := cache.GetUserCacheService()
+		cacheService.InvalidateUserCache(userID)
+		cacheService.InvalidateInstanceCache(req.InstanceID)
+	}()
 
 	switch req.Action {
 	case "start":
@@ -356,43 +408,42 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		detail.NetworkType = provider.NetworkType       // 网络配置类型
 	}
 
+	// 查询关联的最新任务（如果有正在进行或待处理的任务）
+	var task adminModel.Task
+	if err := global.APP_DB.Where("instance_id = ? AND status IN (?, ?, ?)", instanceID, "pending", "processing", "running").
+		Order("created_at DESC").
+		First(&task).Error; err == nil {
+		// 有关联任务，添加到响应中
+		detail.RelatedTask = &userModel.UserTaskResponse{
+			ID:            task.ID,
+			UUID:          task.UUID,
+			TaskType:      task.TaskType,
+			Status:        task.Status,
+			Progress:      task.Progress,
+			StatusMessage: task.StatusMessage,
+			CreatedAt:     task.CreatedAt,
+			UpdatedAt:     task.UpdatedAt,
+			StartedAt:     task.StartedAt,
+			CompletedAt:   task.CompletedAt,
+			ErrorMessage:  task.ErrorMessage,
+			CancelReason:  task.CancelReason,
+		}
+		if task.ProviderID != nil {
+			detail.RelatedTask.ProviderId = *task.ProviderID
+			detail.RelatedTask.ProviderName = provider.Name
+		}
+		if task.InstanceID != nil {
+			detail.RelatedTask.InstanceID = task.InstanceID
+			detail.RelatedTask.InstanceName = instance.Name
+		}
+	}
+
 	return detail, nil
 }
 
-// extractIPFromEndpoint 从endpoint中提取纯IP地址（移除端口号）
+// extractIPFromEndpoint 从endpoint中提取纯IP地址（使用全局函数）
 func (s *Service) extractIPFromEndpoint(endpoint string) string {
-	if endpoint == "" {
-		return ""
-	}
-
-	// 移除协议前缀
-	if strings.Contains(endpoint, "://") {
-		parts := strings.Split(endpoint, "://")
-		if len(parts) > 1 {
-			endpoint = parts[1]
-		}
-	}
-
-	// 处理IPv6地址
-	if strings.HasPrefix(endpoint, "[") {
-		closeBracket := strings.Index(endpoint, "]")
-		if closeBracket > 0 {
-			return endpoint[1:closeBracket]
-		}
-	}
-
-	// 处理IPv4地址
-	colonIndex := strings.LastIndex(endpoint, ":")
-	if colonIndex > 0 {
-		// 检查是否是IPv6地址（多个冒号）
-		if strings.Count(endpoint, ":") > 1 {
-			return endpoint // IPv6地址不处理
-		}
-		// IPv4地址，移除端口
-		return endpoint[:colonIndex]
-	}
-
-	return endpoint
+	return utils.ExtractIPFromEndpoint(endpoint)
 }
 
 // GetInstanceMonitoring 获取实例监控数据
@@ -412,40 +463,37 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 		return nil, fmt.Errorf("获取用户信息失败: %v", err)
 	}
 
-	// 获取流量历史 - 简化处理，直接返回空数组
-	trafficHistory := []userModel.TrafficRecord{}
+	// 计算用户总流量使用情况 - 用于流量限制判断
+	trafficQueryService := trafficService.NewQueryService()
+	year, month, _ := time.Now().Date()
+	userMonthlyTrafficStats, err := trafficQueryService.GetUserMonthlyTraffic(userID, year, int(month))
 
-	// 计算当月流量使用情况 - 优先使用vnStat数据
-	currentMonthTraffic := user.UsedTraffic
+	var userTotalMonthTraffic int64
 	var usagePercent float64
 
-	// 使用vnStat数据获取更准确的流量信息
-	trafficLimitService := newTrafficLimitService()
-	vnstatTrafficData, err := trafficLimitService.GetUserTrafficUsageWithVnStat(userID)
 	if err != nil {
-		global.APP_LOG.Warn("获取vnStat流量数据失败，使用旧方法",
+		global.APP_LOG.Warn("获取用户总流量数据失败，使用默认值",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		// 降级到原有逻辑
-		if user.TotalTraffic > 0 {
-			usagePercent = float64(currentMonthTraffic) / float64(user.TotalTraffic) * 100
-		}
+		userTotalMonthTraffic = 0
+		usagePercent = 0
 	} else {
-		// 使用vnStat数据
-		if usage, ok := vnstatTrafficData["current_month_usage"].(int64); ok {
-			currentMonthTraffic = usage
+		userTotalMonthTraffic = int64(userMonthlyTrafficStats.ActualUsageMB)
+		if user.TotalTraffic > 0 {
+			usagePercent = float64(userTotalMonthTraffic) / float64(user.TotalTraffic) * 100
 		}
-		if percent, ok := vnstatTrafficData["usage_percent"].(float64); ok {
-			usagePercent = percent
-		}
+	}
 
-		// 更新用户流量限制状态检查
-		isLimited, _, limitErr := trafficLimitService.CheckUserTrafficLimitWithVnStat(userID)
-		if limitErr == nil && isLimited != instance.TrafficLimited {
-			// 状态不一致，更新实例状态
-			global.APP_DB.Model(&instance).Update("traffic_limited", isLimited)
-			instance.TrafficLimited = isLimited
-		}
+	// 获取当前实例的流量数据 - 用于显示
+	instanceMonthlyTrafficStats, err := trafficQueryService.GetInstanceMonthlyTraffic(instanceID, year, int(month))
+	var currentInstanceTraffic int64
+	if err != nil {
+		global.APP_LOG.Warn("获取实例流量数据失败，使用默认值",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(err))
+		currentInstanceTraffic = 0
+	} else {
+		currentInstanceTraffic = int64(instanceMonthlyTrafficStats.ActualUsageMB)
 	}
 
 	// 检查流量限制状态
@@ -454,14 +502,15 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 	// 检查实例是否因流量超限被限制
 	if instance.TrafficLimited {
 		// 判断限制类型
-		userLimited := user.UsedTraffic >= user.TotalTraffic && user.TotalTraffic > 0
+		userLimited := userTotalMonthTraffic >= user.TotalTraffic && user.TotalTraffic > 0
 		var providerLimited bool
 
-		// 检查Provider流量限制（使用vnStat数据）
+		// 检查Provider流量限制（使用统一的流量查询服务）
 		var provider providerModel.Provider
 		if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
-			if providerIsLimited, _, providerErr := trafficLimitService.CheckProviderTrafficLimitWithVnStat(provider.ID); providerErr == nil {
-				providerLimited = providerIsLimited
+			providerMonthlyStats, providerErr := trafficQueryService.GetProviderMonthlyTraffic(provider.ID, year, int(month))
+			if providerErr == nil && provider.MaxTraffic > 0 {
+				providerLimited = int64(providerMonthlyStats.ActualUsageMB) >= provider.MaxTraffic
 			}
 		}
 
@@ -479,19 +528,19 @@ func (s *Service) GetInstanceMonitoring(userID, instanceID uint) (*userModel.Ins
 
 	// 确保使用百分比被正确计算
 	if usagePercent == 0.0 && user.TotalTraffic > 0 {
-		usagePercent = float64(currentMonthTraffic) / float64(user.TotalTraffic) * 100
+		usagePercent = float64(userTotalMonthTraffic) / float64(user.TotalTraffic) * 100
 	}
 
-	// 构建监控响应，只包含流量数据
+	// 构建监控响应，显示实例流量数据
 	monitoring := &userModel.InstanceMonitoringResponse{
 		TrafficData: userModel.TrafficData{
-			CurrentMonth: currentMonthTraffic,
+			CurrentMonth: currentInstanceTraffic, // 显示实例流量，而非用户总流量
 			TotalLimit:   user.TotalTraffic,
 			UsagePercent: usagePercent,
 			IsLimited:    instance.TrafficLimited,
 			LimitType:    limitType,
 			LimitReason:  limitReason,
-			History:      s.convertTrafficHistory(trafficHistory),
+			History:      []userModel.TrafficHistoryItem{},
 		},
 	}
 
@@ -503,22 +552,6 @@ func (s *Service) PerformInstanceAction(userID uint, req userModel.InstanceActio
 	return s.InstanceAction(userID, req)
 }
 
-// convertTrafficHistory 转换流量历史数据格式
-func (s *Service) convertTrafficHistory(records []userModel.TrafficRecord) []userModel.TrafficHistoryItem {
-	var history []userModel.TrafficHistoryItem
-	for _, record := range records {
-		history = append(history, userModel.TrafficHistoryItem{
-			Year:       record.Year,
-			Month:      record.Month,
-			TrafficIn:  record.TrafficIn,
-			TrafficOut: record.TrafficOut,
-			TotalUsed:  record.TotalUsed,
-			LastSync:   record.LastSyncAt,
-		})
-	}
-	return history
-}
-
 // 获取外部服务的辅助函数
 func getTaskService() interface {
 	CreateTask(userID uint, providerID *uint, instanceID *uint, taskType string, taskData string, timeout int) (*adminModel.Task, error)
@@ -527,83 +560,37 @@ func getTaskService() interface {
 	return task.GetTaskService()
 }
 
-func newTrafficLimitService() interface {
-	GetUserTrafficUsageWithVnStat(userID uint) (map[string]interface{}, error)
-	CheckUserTrafficLimitWithVnStat(userID uint) (bool, map[string]interface{}, error)
-	CheckProviderTrafficLimitWithVnStat(providerID uint) (bool, map[string]interface{}, error)
-} {
-	return &trafficLimitServiceAdapter{}
-}
-
-type trafficLimitServiceAdapter struct {
-	trafficService *Service
-}
-
-func (tls *trafficLimitServiceAdapter) GetUserTrafficUsageWithVnStat(userID uint) (map[string]interface{}, error) {
-	trafficService := traffic.NewService()
-
-	// 获取用户流量使用情况 - 简化实现
+// GetUserTrafficUsageWithPmacct 获取用户流量使用情况（使用pmacct数据）
+func (s *Service) GetUserTrafficUsageWithPmacct(userID uint) (map[string]interface{}, error) {
+	// 获取用户流量使用情况
 	var user userModel.User
 	if err := global.APP_DB.First(&user, userID).Error; err != nil {
 		return nil, err
 	}
 
-	trafficLimit := trafficService.GetUserTrafficLimitByLevel(user.Level)
+	// 获取用户流量限制
+	tService := trafficService.NewService()
+	trafficLimit := tService.GetUserTrafficLimitByLevel(user.Level)
 
 	// 简化的流量使用查询（包含已删除实例，保证累计值准确）
-	var totalUsed int64
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用 Unscoped() 包含已软删除的记录
-	err := global.APP_DB.Model(&userModel.TrafficRecord{}).
-		Unscoped(). // ← 关键：包含已删除的记录
-		Where("user_id = ? AND year = ? AND month = ?", userID, year, month).
-		Select("COALESCE(SUM(total_used), 0)").
-		Scan(&totalUsed).Error
-
+	// 使用统一的流量查询服务（从pmacct_traffic_records实时聚合）
+	queryService := trafficService.NewQueryService()
+	monthlyStats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
 	if err != nil {
 		return nil, err
 	}
+
+	totalUsed := int64(monthlyStats.ActualUsageMB)
 
 	return map[string]interface{}{
 		"used":      totalUsed,
 		"limit":     trafficLimit,
 		"remaining": trafficLimit - totalUsed,
 	}, nil
-}
-
-func (tls *trafficLimitServiceAdapter) CheckUserTrafficLimitWithVnStat(userID uint) (bool, map[string]interface{}, error) {
-	trafficService := traffic.NewService()
-
-	exceeded, err := trafficService.CheckUserTrafficLimit(userID)
-	if err != nil {
-		return false, nil, err
-	}
-
-	usage, err := tls.GetUserTrafficUsageWithVnStat(userID)
-	if err != nil {
-		return false, nil, err
-	}
-
-	return exceeded, usage, nil
-}
-
-func (tls *trafficLimitServiceAdapter) CheckProviderTrafficLimitWithVnStat(providerID uint) (bool, map[string]interface{}, error) {
-	trafficService := traffic.NewService()
-
-	exceeded, err := trafficService.CheckProviderTrafficLimit(providerID)
-	if err != nil {
-		return false, nil, err
-	}
-
-	// 获取Provider流量使用情况 (简化实现)
-	usage := map[string]interface{}{
-		"exceeded": exceeded,
-	}
-
-	return exceeded, usage, nil
 }
 
 // HasInstanceAccess 检查用户是否有权限访问实例

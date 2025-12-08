@@ -116,7 +116,7 @@ func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectPro
 }
 
 // GetAllProviders 获取所有Provider类型名称列表
-// 注意：不再返回Provider实例，因为每次使用都应该创建新实例
+// 不再返回Provider实例，因为每次使用都应该创建新实例
 func (s *ProviderApiService) GetAllProviders() []string {
 	return provider.ListProviders()
 }

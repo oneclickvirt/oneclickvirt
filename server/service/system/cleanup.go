@@ -1,13 +1,14 @@
 package system
 
 import (
+	"context"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
-	userModel "oneclickvirt/model/user"
+
+	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/resources"
-	"oneclickvirt/service/vnstat"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -51,12 +52,29 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 	global.APP_LOG.Warn("发现旧的失败实例，可能即时清理机制未生效",
 		zap.Int("count", len(failedInstances)))
 
-	// 收集需要清理流量记录的实例ID
-	var instanceIDs []uint
+	// 批量预加载provider信息
+	var providerIDs []uint
+	providerIDSet := make(map[uint]bool)
 	for _, instance := range failedInstances {
-		instanceIDs = append(instanceIDs, instance.ID)
+		if instance.ProviderID > 0 && !providerIDSet[instance.ProviderID] {
+			providerIDs = append(providerIDs, instance.ProviderID)
+			providerIDSet[instance.ProviderID] = true
+		}
+	}
 
-		if err := s.cleanupSingleFailedInstance(&instance); err != nil {
+	providerMap := make(map[uint]providerModel.Provider)
+	if len(providerIDs) > 0 {
+		var providers []providerModel.Provider
+		if err := global.APP_DB.Where("id IN ?", providerIDs).Find(&providers).Error; err == nil {
+			for _, provider := range providers {
+				providerMap[provider.ID] = provider
+			}
+		}
+	}
+
+	// 逐个清理失败实例
+	for _, instance := range failedInstances {
+		if err := s.cleanupSingleFailedInstance(&instance, providerMap); err != nil {
 			global.APP_LOG.Error("清理旧失败实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name),
@@ -65,17 +83,12 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 		}
 	}
 
-	// 批量清理流量记录
-	if len(instanceIDs) > 0 {
-		s.batchCleanupTrafficRecords(instanceIDs)
-	}
-
 	global.APP_LOG.Info("旧失败实例清理完成", zap.Int("processedCount", len(failedInstances)))
 	return nil
 }
 
 // cleanupSingleFailedInstance 清理单个失败实例
-func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerModel.Instance) error {
+func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerModel.Instance, providerMap map[uint]providerModel.Provider) error {
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 1. 清理实例相关的端口映射等资源
 		global.APP_LOG.Debug("清理失败实例端口映射",
@@ -113,16 +126,22 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 				zap.Uint("instanceId", instance.ID))
 		}
 
-		// 3. 释放资源配额（实例数量）
-		global.APP_LOG.Debug("释放失败实例资源配额",
-			zap.Uint("instanceId", instance.ID))
+		// 保存需要用于日志的字段
+		instanceID := instance.ID
+		instanceName := instance.Name
+		instanceProviderID := instance.ProviderID
 
-		// 获取Provider信息并更新使用配额
-		var provider providerModel.Provider
-		if err := tx.First(&provider, instance.ProviderID).Error; err == nil {
+		// 3. 释放资源配额（实例数量）- 使用预加载的provider数据
+		global.APP_LOG.Debug("释放失败实例资源配额",
+			zap.Uint("instanceId", instanceID))
+
+		// 从预加载的map获取Provider信息
+		if provider, ok := providerMap[instanceProviderID]; ok {
 			if provider.UsedQuota > 0 {
 				newUsedQuota := provider.UsedQuota - 1
-				if err := tx.Model(&provider).Update("used_quota", newUsedQuota).Error; err != nil {
+				if err := tx.Model(&providerModel.Provider{}).
+					Where("id = ?", instanceProviderID).
+					Update("used_quota", newUsedQuota).Error; err != nil {
 					global.APP_LOG.Error("更新Provider配额失败", zap.Error(err))
 				}
 			}
@@ -134,8 +153,8 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 		}
 
 		global.APP_LOG.Info("成功清理失败实例",
-			zap.Uint("instanceId", instance.ID),
-			zap.String("instanceName", instance.Name))
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", instanceName))
 
 		return nil
 	})
@@ -159,12 +178,29 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 
 	global.APP_LOG.Info("开始清理过期实例", zap.Int("count", len(expiredInstances)))
 
-	// 收集需要清理流量记录的实例ID
-	var instanceIDs []uint
+	// 批量预加载provider信息
+	var providerIDs []uint
+	providerIDSet := make(map[uint]bool)
 	for _, instance := range expiredInstances {
-		instanceIDs = append(instanceIDs, instance.ID)
+		if instance.ProviderID > 0 && !providerIDSet[instance.ProviderID] {
+			providerIDs = append(providerIDs, instance.ProviderID)
+			providerIDSet[instance.ProviderID] = true
+		}
+	}
 
-		if err := s.cleanupSingleExpiredInstance(&instance); err != nil {
+	providerMap := make(map[uint]providerModel.Provider)
+	if len(providerIDs) > 0 {
+		var providers []providerModel.Provider
+		if err := global.APP_DB.Where("id IN ?", providerIDs).Find(&providers).Error; err == nil {
+			for _, provider := range providers {
+				providerMap[provider.ID] = provider
+			}
+		}
+	}
+
+	// 逐个清理过期实例
+	for _, instance := range expiredInstances {
+		if err := s.cleanupSingleExpiredInstance(&instance, providerMap); err != nil {
 			global.APP_LOG.Error("清理过期实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name),
@@ -173,48 +209,24 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 		}
 	}
 
-	// 批量清理流量记录，避免在事务中逐个删除导致锁表时间过长
-	if len(instanceIDs) > 0 {
-		s.batchCleanupTrafficRecords(instanceIDs)
-	}
-
 	global.APP_LOG.Info("过期实例清理完成", zap.Int("processedCount", len(expiredInstances)))
 	return nil
 }
 
-// batchCleanupTrafficRecords 批量清理流量记录
-func (s *InstanceCleanupService) batchCleanupTrafficRecords(instanceIDs []uint) {
-	// 分批处理，每批最多100条，避免一次性删除过多导致数据库压力
-	batchSize := 100
-	for i := 0; i < len(instanceIDs); i += batchSize {
-		end := i + batchSize
-		if end > len(instanceIDs) {
-			end = len(instanceIDs)
-		}
-		batch := instanceIDs[i:end]
-
-		// 物理删除流量记录（包括软删除的记录）
-		result := global.APP_DB.Unscoped().Where("instance_id IN ?", batch).Delete(&userModel.TrafficRecord{})
-		if result.Error != nil {
-			global.APP_LOG.Error("批量删除流量记录失败",
-				zap.Int("batchStart", i),
-				zap.Int("batchEnd", end),
-				zap.Error(result.Error))
-		} else if result.RowsAffected > 0 {
-			global.APP_LOG.Info("批量删除流量记录成功",
-				zap.Int("instanceCount", len(batch)),
-				zap.Int64("deletedRecords", result.RowsAffected))
-		}
-
-		// 每批处理后短暂休眠，避免对数据库造成瞬时压力
-		if end < len(instanceIDs) {
-			time.Sleep(100 * time.Millisecond)
-		}
-	}
-}
-
 // cleanupSingleExpiredInstance 清理单个过期实例
-func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *providerModel.Instance) error {
+func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *providerModel.Instance, providerMap map[uint]providerModel.Provider) error {
+	// 第一步：在事务外清理 pmacct 数据（可能包含SSH命令，不应在事务内）
+	trafficMonitorManager := traffic_monitor.GetManager()
+	deleteCtx, deleteCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer deleteCancel()
+	if err := trafficMonitorManager.DetachMonitor(deleteCtx, instance.ID); err != nil {
+		global.APP_LOG.Warn("清理过期实例pmacct数据失败",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+		// 不返回错误，继续清理数据库记录
+	}
+
+	// 第二步：在短事务内完成数据库操作
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 1. 标记实例为删除中
 		if err := tx.Model(instance).Updates(map[string]interface{}{
@@ -228,31 +240,31 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		global.APP_LOG.Debug("清理过期实例资源",
 			zap.Uint("instanceId", instance.ID))
 
-		// 删除实例的端口映射
+		// 删除实例的端口映射（在事务内）
 		portMappingService := resources.PortMappingService{}
-		if err := portMappingService.DeleteInstancePortMappings(instance.ID); err != nil {
+		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instance.ID); err != nil {
 			global.APP_LOG.Warn("删除过期实例端口映射失败",
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(err))
+			// 不返回错误，继续其他清理操作
 		} else {
 			global.APP_LOG.Info("成功删除过期实例端口映射",
 				zap.Uint("instanceId", instance.ID))
 		}
 
-		// 清理实例vnStat数据
-		vnstatService := vnstat.NewService()
-		if err := vnstatService.CleanupVnStatData(instance.ID); err != nil {
-			global.APP_LOG.Warn("清理过期实例vnStat数据失败",
-				zap.Uint("instanceId", instance.ID),
-				zap.Error(err))
-		}
+		// 保存需要用于日志的字段
+		instanceID := instance.ID
+		instanceName := instance.Name
+		instanceExpiredAt := instance.ExpiredAt
+		instanceProviderID := instance.ProviderID
 
-		// 获取Provider信息并更新使用配额
-		var provider providerModel.Provider
-		if err := tx.First(&provider, instance.ProviderID).Error; err == nil {
+		// 从预加载的map获取Provider信息并更新使用配额
+		if provider, ok := providerMap[instanceProviderID]; ok {
 			if provider.UsedQuota > 0 {
 				newUsedQuota := provider.UsedQuota - 1
-				if err := tx.Model(&provider).Update("used_quota", newUsedQuota).Error; err != nil {
+				if err := tx.Model(&providerModel.Provider{}).
+					Where("id = ?", instanceProviderID).
+					Update("used_quota", newUsedQuota).Error; err != nil {
 					global.APP_LOG.Error("更新Provider配额失败", zap.Error(err))
 				}
 			}
@@ -264,9 +276,9 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		}
 
 		global.APP_LOG.Info("成功清理过期实例",
-			zap.Uint("instanceId", instance.ID),
-			zap.String("instanceName", instance.Name),
-			zap.Time("expiredAt", instance.ExpiredAt))
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", instanceName),
+			zap.Time("expiredAt", instanceExpiredAt))
 
 		return nil
 	})

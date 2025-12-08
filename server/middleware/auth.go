@@ -27,6 +27,15 @@ func GetAuthContext(c *gin.Context) (*auth.AuthContext, bool) {
 	return nil, false
 }
 
+// GetUserIDFromContext 从认证上下文中获取用户ID（全局统一函数）
+func GetUserIDFromContext(c *gin.Context) (uint, error) {
+	authCtx, exists := GetAuthContext(c)
+	if !exists {
+		return 0, fmt.Errorf("用户未认证")
+	}
+	return authCtx.UserID, nil
+}
+
 // RequireAuth 统一的认证中间件
 func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -188,12 +197,6 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 	}
 
 	return userAuth, claims, nil
-}
-
-// validateJWTToken 验证JWT Token并获取最新用户权限（向后兼容）
-func validateJWTToken(c *gin.Context) (*auth.AuthContext, error) {
-	authCtx, _, err := validateJWTTokenWithClaims(c)
-	return authCtx, err
 }
 
 // getUserAuthInfo 从数据库获取用户认证信息和权限

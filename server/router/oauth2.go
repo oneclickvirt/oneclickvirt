@@ -14,12 +14,14 @@ func InitOAuth2Router(Router *gin.RouterGroup) {
 	{
 		// 管理员路由（需要管理员权限）
 		OAuth2Router.Use(middleware.RequireAuth(authModel.AuthLevelAdmin)).
-			GET("providers", oauth2Api.GetProviders).                           // 获取所有提供商
-			GET("providers/:id", oauth2Api.GetProvider).                        // 获取单个提供商
-			POST("providers", oauth2Api.CreateProvider).                        // 创建提供商
-			PUT("providers/:id", oauth2Api.UpdateProvider).                     // 更新提供商
-			DELETE("providers/:id", oauth2Api.DeleteProvider).                  // 删除提供商
-			POST("providers/:id/reset-count", oauth2Api.ResetRegistrationCount) // 重置注册计数
+			GET("providers", oauth2Api.GetProviders).                            // 获取所有提供商
+			GET("providers/:id", oauth2Api.GetProvider).                         // 获取单个提供商
+			POST("providers", oauth2Api.CreateProvider).                         // 创建提供商
+			PUT("providers/:id", oauth2Api.UpdateProvider).                      // 更新提供商
+			DELETE("providers/:id", oauth2Api.DeleteProvider).                   // 删除提供商
+			POST("providers/:id/reset-count", oauth2Api.ResetRegistrationCount). // 重置注册计数
+			GET("presets", oauth2Api.GetPresets).                                // 获取预设配置列表
+			GET("presets/:name", oauth2Api.GetPreset)                            // 获取指定预设配置
 	}
 
 	// OAuth2认证路由（不需要鉴权）

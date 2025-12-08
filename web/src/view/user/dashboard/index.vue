@@ -145,6 +145,15 @@
       <!-- 流量使用统计 -->
       <TrafficOverview />
 
+      <!-- 流量历史趋势图 -->
+      <div class="traffic-history-section">
+        <TrafficHistoryChart
+          type="user"
+          :title="t('user.dashboard.trafficHistoryChart')"
+          :auto-refresh="0"
+        />
+      </div>
+
       <!-- 系统公告 -->
       <div
         v-if="announcements.length > 0"
@@ -192,6 +201,7 @@ import { getAnnouncements } from '@/api/public'
 import { useUserStore } from '@/pinia/modules/user'
 import { formatMemorySize, formatDiskSize, formatBandwidthSpeed } from '@/utils/unit-formatter'
 import TrafficOverview from '@/components/TrafficOverview.vue'
+import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
 
 const { t, locale } = useI18n()
 const userStore = useUserStore()
@@ -458,6 +468,11 @@ onUnmounted(() => {
 
 /* 公告 */
 .announcements {
+  margin-bottom: 24px;
+}
+
+/* 流量历史图表 */
+.traffic-history-section {
   margin-bottom: 24px;
 }
 

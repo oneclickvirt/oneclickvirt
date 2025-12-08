@@ -316,17 +316,45 @@ export function getTrafficLimitStatus() {
   })
 }
 
-export function getInstanceVnStatData(instanceId, interfaceName = '') {
+export function getInstancePmacctData(instanceId) {
   return request({
-    url: `/v1/user/traffic/vnstat/${instanceId}`,
-    method: 'get',
-    params: interfaceName ? { interface: interfaceName } : {}
+    url: `/v1/user/traffic/pmacct/${instanceId}`,
+    method: 'get'
   })
 }
 
-export function getInstanceVnStatInterfaces(instanceId) {
+export function getInstancePmacctSummary(instanceId) {
   return request({
-    url: `/v1/user/instances/${instanceId}/vnstat/interfaces`,
+    url: `/v1/user/instances/${instanceId}/pmacct/summary`,
     method: 'get'
+  })
+}
+
+/**
+ * 查询实例pmacct流量数据（同步）
+ * @param {number} instanceId 实例ID
+ * @returns {Promise}
+ */
+export function queryInstancePmacctData(instanceId) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/pmacct/query`,
+    method: 'get'
+  })
+}
+
+// 流量历史数据相关API
+export function getUserTrafficHistory(params) {
+  return request({
+    url: '/v1/user/traffic/history',
+    method: 'get',
+    params
+  })
+}
+
+export function getInstanceTrafficHistory(instanceId, params) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/traffic/history`,
+    method: 'get',
+    params
   })
 }

@@ -16,8 +16,8 @@ type StorageConfig struct {
 	Dirs    []string
 }
 
-// VnstatData vnstat数据结构
-type VnstatData struct {
+// PmacctData pmacct 数据结构
+type PmacctData struct {
 	Interface string `json:"interface"`
 	RxMB      int64  `json:"rx_mb"`
 	TxMB      int64  `json:"tx_mb"`

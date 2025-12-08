@@ -32,15 +32,17 @@ type SSHClient struct {
 	config          SSHConfig
 	lastHealthTime  time.Time          // 上次健康检查时间
 	keepaliveCancel context.CancelFunc // keepalive goroutine控制
+	keepaliveWg     *sync.WaitGroup    // keepalive goroutine同步（指针避免拷贝）
 	mu              sync.RWMutex       // 保护并发访问
+	closed          bool               // 标记是否已关闭
 }
 
 func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 	if config.ConnectTimeout == 0 {
-		config.ConnectTimeout = 30 * time.Second // 增加到30秒，适应Docker容器网络环境
+		config.ConnectTimeout = 30 * time.Second
 	}
 	if config.ExecuteTimeout == 0 {
-		config.ExecuteTimeout = 200 * time.Second // 执行超时，避免长时间阻塞
+		config.ExecuteTimeout = 300 * time.Second // 执行超时，避免长时间阻塞
 	}
 
 	global.APP_LOG.Debug("SSH客户端连接配置",
@@ -49,7 +51,7 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		zap.Duration("connectTimeout", config.ConnectTimeout),
 		zap.Duration("executeTimeout", config.ExecuteTimeout))
 
-	client, keepaliveCancel, err := dialSSH(config)
+	client, keepaliveCancel, keepaliveWg, err := dialSSH(config)
 	if err != nil {
 		return nil, err
 	}
@@ -59,11 +61,13 @@ func NewSSHClient(config SSHConfig) (*SSHClient, error) {
 		config:          config,
 		lastHealthTime:  time.Now(),
 		keepaliveCancel: keepaliveCancel,
+		keepaliveWg:     keepaliveWg,
+		closed:          false,
 	}, nil
 }
 
 // dialSSH 建立SSH连接的内部方法
-func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
+func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup, error) {
 	// 构建认证方法：支持密钥和密码，SSH客户端会按顺序尝试
 	var authMethods []ssh.AuthMethod
 
@@ -90,7 +94,7 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
 
 	// 如果既没有密钥也没有密码，返回错误
 	if len(authMethods) == 0 {
-		return nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
+		return nil, nil, nil, fmt.Errorf("no authentication method available: neither SSH key nor password provided")
 	}
 
 	sshConfig := &ssh.ClientConfig{
@@ -112,28 +116,74 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, error) {
 
 	client, err := ssh.Dial("tcp", addr, sshConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
+		return nil, nil, nil, fmt.Errorf("failed to connect to SSH server: %w", err)
 	}
 
 	// 启用 KeepAlive，保持连接活跃，使用context控制生命周期
 	ctx, cancel := context.WithCancel(context.Background())
+	wg := &sync.WaitGroup{}
+	wg.Add(1)
 	go func() {
+		defer wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("SSH keepalive goroutine panic",
+					zap.String("host", config.Host),
+					zap.Any("panic", r))
+			}
+		}()
+
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
+
 		for {
 			select {
 			case <-ctx.Done():
+				// Context被取消，立即退出
+				global.APP_LOG.Debug("SSH keepalive goroutine正常退出",
+					zap.String("host", config.Host))
 				return
 			case <-ticker.C:
-				_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-				if err != nil {
+				// 发送keepalive请求
+				if client == nil {
+					// 连接已关闭，退出
 					return
+				}
+
+				// 使用带超时的 context 发送 keepalive
+				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
+				errCh := make(chan error, 1)
+
+				go func() {
+					_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
+					errCh <- err
+					reqCancel()
+				}()
+
+				select {
+				case <-reqCtx.Done():
+					// keepalive 超时或被取消
+					if ctx.Err() != nil {
+						// 主 context 被取消，退出
+						return
+					}
+					global.APP_LOG.Debug("SSH keepalive超时",
+						zap.String("host", config.Host))
+				case err := <-errCh:
+					reqCancel()
+					if err != nil {
+						// 连接失败，退出goroutine
+						global.APP_LOG.Debug("SSH keepalive失败，停止发送",
+							zap.String("host", config.Host),
+							zap.Error(err))
+						return
+					}
 				}
 			}
 		}
 	}()
 
-	return client, cancel, nil
+	return client, cancel, wg, nil
 }
 
 // IsHealthy 检查SSH连接是否健康
@@ -162,9 +212,54 @@ func (c *SSHClient) IsHealthy() bool {
 }
 
 // GetUnderlyingClient 获取底层的ssh.Client，供其他组件使用（如health checker）
-// 注意：调用者不应该关闭返回的client，它由SSHClient管理
+// 调用者不应该关闭返回的client，它由SSHClient管理
 func (c *SSHClient) GetUnderlyingClient() *ssh.Client {
 	return c.client
+}
+
+// Close 关闭SSH连接并等待所有goroutine退出
+func (c *SSHClient) Close() error {
+	c.mu.Lock()
+	if c.closed {
+		c.mu.Unlock()
+		return nil
+	}
+	c.closed = true
+	c.mu.Unlock()
+
+	// 取消keepalive goroutine
+	if c.keepaliveCancel != nil {
+		c.keepaliveCancel()
+	}
+
+	// 等待keepalive goroutine退出（减少到3秒，避免长时间阻塞）
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		if c.keepaliveWg != nil {
+			c.keepaliveWg.Wait()
+		}
+	}()
+
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+
+	select {
+	case <-done:
+		// goroutine已退出
+		global.APP_LOG.Debug("SSH keepalive goroutine已正常退出",
+			zap.String("host", c.config.Host))
+	case <-timer.C:
+		global.APP_LOG.Warn("SSH keepalive goroutine退出超时，强制继续",
+			zap.String("host", c.config.Host))
+		// 超时也要继续关闭连接，不能阻塞
+	}
+
+	// 关闭SSH客户端
+	if c.client != nil {
+		return c.client.Close()
+	}
+	return nil
 }
 
 // Reconnect 重新建立SSH连接
@@ -176,20 +271,39 @@ func (c *SSHClient) Reconnect() error {
 	// 关闭旧连接和keepalive goroutine
 	if c.keepaliveCancel != nil {
 		c.keepaliveCancel()
+		// 等待旧的keepalive goroutine退出
+		done := make(chan struct{})
+		go func() {
+			if c.keepaliveWg != nil {
+				c.keepaliveWg.Wait()
+			}
+			close(done)
+		}()
+
+		timer := time.NewTimer(5 * time.Second)
+		defer timer.Stop()
+
+		select {
+		case <-done:
+		case <-timer.C:
+			global.APP_LOG.Warn("等待旧keepalive goroutine退出超时", zap.String("host", c.config.Host))
+		}
 	}
 	if c.client != nil {
 		c.client.Close()
 	}
 
 	// 建立新连接
-	client, keepaliveCancel, err := dialSSH(c.config)
+	client, keepaliveCancel, keepaliveWg, err := dialSSH(c.config)
 	if err != nil {
 		return fmt.Errorf("failed to reconnect SSH: %w", err)
 	}
 
 	c.client = client
 	c.keepaliveCancel = keepaliveCancel
+	c.keepaliveWg = keepaliveWg
 	c.lastHealthTime = time.Now()
+	c.closed = false
 
 	global.APP_LOG.Info("SSH连接重建成功",
 		zap.String("host", c.config.Host),
@@ -263,6 +377,9 @@ func (c *SSHClient) executeCommand(command string) (string, error) {
 	}()
 
 	// 等待命令完成或超时
+	timeoutTimer := time.NewTimer(c.config.ExecuteTimeout)
+	defer timeoutTimer.Stop()
+
 	select {
 	case <-done:
 		if execErr != nil {
@@ -277,24 +394,10 @@ func (c *SSHClient) executeCommand(command string) (string, error) {
 			return string(output), fmt.Errorf("command execution failed: %w", execErr)
 		}
 		return string(output), nil
-	case <-time.After(c.config.ExecuteTimeout):
+	case <-timeoutTimer.C:
 		session.Signal(ssh.SIGKILL) // 强制终止会话
 		return "", fmt.Errorf("command execution timeout after %v", c.config.ExecuteTimeout)
 	}
-}
-
-func (c *SSHClient) Close() error {
-	// 先停止keepalive goroutine
-	if c.keepaliveCancel != nil {
-		c.keepaliveCancel()
-		c.keepaliveCancel = nil
-	}
-
-	// 再关闭SSH连接
-	if c.client != nil {
-		return c.client.Close()
-	}
-	return nil
 }
 
 // TestSSHConnectionLatency 测试SSH连接延迟，执行指定次数测试并返回结果
@@ -480,6 +583,9 @@ func (c *SSHClient) executeCommandWithLogging(command string, logPrefix string) 
 	}()
 
 	// 等待命令完成或超时
+	timeoutTimer := time.NewTimer(c.config.ExecuteTimeout)
+	defer timeoutTimer.Stop()
+
 	select {
 	case <-done:
 		if execErr != nil {
@@ -501,7 +607,7 @@ func (c *SSHClient) executeCommandWithLogging(command string, logPrefix string) 
 				zap.Int("output_length", len(output)))
 		}
 		return string(output), nil
-	case <-time.After(c.config.ExecuteTimeout):
+	case <-timeoutTimer.C:
 		session.Signal(ssh.SIGKILL) // 强制终止会话
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("SSH命令执行超时",
@@ -611,4 +717,59 @@ func VerifySSHConnection(client *ssh.Client, expectedHost string) error {
 	// 如果都不匹配，返回错误
 	return fmt.Errorf("SSH connection address mismatch: expected to connect to %s (resolved to %v) but actually connected to %s",
 		expectedHost, expectedIPs, actualIP)
+}
+
+// CreateSSHConnection 创建SSH连接（全局统一函数，用于WebSocket SSH等场景）
+// 返回 SSH client, session 和可能的错误
+func CreateSSHConnection(host string, port int, username, password string) (*ssh.Client, *ssh.Session, error) {
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	// 连接SSH服务器
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH连接失败: %w", err)
+	}
+
+	// 创建会话
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+
+	return client, session, nil
+}
+
+// CreateSSHConnectionFromAddress 创建SSH连接（全局统一函数，直接使用地址字符串）
+// address 格式: "host:port"
+func CreateSSHConnectionFromAddress(address, username, password string) (*ssh.Client, *ssh.Session, error) {
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	client, err := ssh.Dial("tcp", address, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH连接失败: %w", err)
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+
+	return client, session, nil
 }

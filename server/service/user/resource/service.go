@@ -46,17 +46,31 @@ func (s *Service) GetAvailableResources(req userModel.AvailableResourcesRequest)
 		return nil, 0, err
 	}
 
+	// 批量查询活跃的预留资源
+	var providerIDs []uint
+	for _, provider := range providers {
+		providerIDs = append(providerIDs, provider.ID)
+	}
+
+	var allReservations []resourceModel.ResourceReservation
+	if len(providerIDs) > 0 {
+		if err := global.APP_DB.Where("provider_id IN ? AND expires_at > ?",
+			providerIDs, time.Now()).Find(&allReservations).Error; err != nil {
+			global.APP_LOG.Warn("批量查询预留资源失败", zap.Error(err))
+		}
+	}
+
+	// 按provider_id分组预留资源
+	reservationsByProvider := make(map[uint][]resourceModel.ResourceReservation)
+	for _, reservation := range allReservations {
+		reservationsByProvider[reservation.ProviderID] = append(
+			reservationsByProvider[reservation.ProviderID], reservation)
+	}
+
 	var resourceResponses []userModel.AvailableResourceResponse
 	for _, provider := range providers {
-		// 统计当前活跃的预留资源（新机制：基于过期时间）
-		var activeReservations []resourceModel.ResourceReservation
-		if err := global.APP_DB.Where("provider_id = ? AND expires_at > ?",
-			provider.ID, time.Now()).Find(&activeReservations).Error; err != nil {
-			global.APP_LOG.Warn("查询预留资源失败",
-				zap.Uint("providerId", provider.ID),
-				zap.Error(err))
-			continue
-		}
+		// 从预加载的数据中获取该provider的预留资源
+		activeReservations := reservationsByProvider[provider.ID]
 
 		// 计算预留资源占用
 		reservedContainers := 0
@@ -170,13 +184,44 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		}
 
 		// 4. 检查Provider节点级别的实例数量限制
+		// 使用缓存的计数值（如果缓存有效），否则进行实时查询
+		containerCount := provider.ContainerCount
+		vmCount := provider.VMCount
+
+		// 检查缓存是否过期
+		if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {
+			// 缓存过期，需要重新查询
+			var freshContainerCount, freshVMCount int64
+			tx.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
+					provider.ID, "container", []string{"deleted", "deleting"}).
+				Count(&freshContainerCount)
+			tx.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
+					provider.ID, "vm", []string{"deleted", "deleting"}).
+				Count(&freshVMCount)
+
+			containerCount = int(freshContainerCount)
+			vmCount = int(freshVMCount)
+
+			global.APP_LOG.Debug("使用实时查询的实例数量（缓存已过期）",
+				zap.Uint("providerID", provider.ID),
+				zap.Int("containerCount", containerCount),
+				zap.Int("vmCount", vmCount))
+		} else {
+			global.APP_LOG.Debug("使用缓存的实例数量",
+				zap.Uint("providerID", provider.ID),
+				zap.Int("containerCount", containerCount),
+				zap.Int("vmCount", vmCount))
+		}
+
 		if req.InstanceType == "container" && provider.MaxContainerInstances > 0 {
-			if provider.ContainerCount >= provider.MaxContainerInstances {
-				return fmt.Errorf("节点容器数量已达上限：%d/%d", provider.ContainerCount, provider.MaxContainerInstances)
+			if containerCount >= provider.MaxContainerInstances {
+				return fmt.Errorf("节点容器数量已达上限：%d/%d", containerCount, provider.MaxContainerInstances)
 			}
 		} else if req.InstanceType == "vm" && provider.MaxVMInstances > 0 {
-			if provider.VMCount >= provider.MaxVMInstances {
-				return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", provider.VMCount, provider.MaxVMInstances)
+			if vmCount >= provider.MaxVMInstances {
+				return fmt.Errorf("节点虚拟机数量已达上限：%d/%d", vmCount, provider.MaxVMInstances)
 			}
 		}
 

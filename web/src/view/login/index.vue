@@ -260,7 +260,7 @@ const handleOAuth2Login = (provider) => {
   // 跳转到后端的OAuth2登录接口，使用provider_id参数
   window.location.href = `/api/v1/auth/oauth2/login?provider_id=${provider.id}`
   
-  // 注意：页面跳转后loading状态会自动重置，这里不需要手动重置
+  // 页面跳转后loading状态会自动重置，这里不需要手动重置
 }
 
 // 检查OAuth2配置并加载提供商列表

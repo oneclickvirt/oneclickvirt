@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/service/database"
 	"regexp"
 	"strings"
+	"time"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
@@ -26,6 +27,8 @@ func InitSeedData() {
 	initDefaultAnnouncements()
 	initLevelConfigurations()
 	initOtherConfigurations()
+	// OAuth2 providers are not automatically initialized
+	// Admin should configure them manually based on their needs
 }
 
 func initDefaultRoles() {
@@ -205,35 +208,55 @@ func SeedSystemImages() {
 		return
 	}
 
+	// 收集所有镜像URL
+	var imageURLs []string
+	useDefaultImages := false
+
 	// 从配置获取基础CDN端点
 	baseCDN := utils.GetBaseCDNEndpoint()
 	imageURL := baseCDN + "https://raw.githubusercontent.com/oneclickvirt/images_auto_list/refs/heads/main/images.txt"
 
-	// 获取镜像列表
-	resp, err := http.Get(imageURL)
+	// 获取镜像列表，使用带超时的HTTP客户端
+	client := &http.Client{
+		Timeout: 60 * time.Second, // 获取文本列表，60秒超时
+	}
+	resp, err := client.Get(imageURL)
 	if err != nil {
-		global.APP_LOG.Error("获取镜像列表失败", zap.Error(err))
-		return
-	}
-	defer resp.Body.Close()
+		global.APP_LOG.Warn("获取远程镜像列表失败，将使用默认镜像列表", zap.Error(err))
+		useDefaultImages = true
+	} else {
+		defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		global.APP_LOG.Error("获取镜像列表失败", zap.Int("status", resp.StatusCode))
-		return
-	}
+		if resp.StatusCode != http.StatusOK {
+			global.APP_LOG.Warn("获取远程镜像列表失败，将使用默认镜像列表", zap.Int("status", resp.StatusCode))
+			useDefaultImages = true
+		} else {
+			// 从远程读取镜像URL
+			scanner := bufio.NewScanner(resp.Body)
+			for scanner.Scan() {
+				imageURL := strings.TrimSpace(scanner.Text())
+				if imageURL != "" {
+					imageURLs = append(imageURLs, imageURL)
+				}
+			}
 
-	// 收集所有镜像URL
-	var imageURLs []string
-	scanner := bufio.NewScanner(resp.Body)
-	for scanner.Scan() {
-		imageURL := strings.TrimSpace(scanner.Text())
-		if imageURL != "" {
-			imageURLs = append(imageURLs, imageURL)
+			if err := scanner.Err(); err != nil {
+				global.APP_LOG.Warn("读取远程镜像列表失败，将使用默认镜像列表", zap.Error(err))
+				useDefaultImages = true
+				imageURLs = nil // 清空可能部分读取的数据
+			}
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		global.APP_LOG.Error("读取镜像列表失败", zap.Error(err))
+	// 如果远程获取失败，使用默认镜像列表
+	if useDefaultImages {
+		global.APP_LOG.Info("使用默认镜像列表进行初始化")
+		imageURLs = getDefaultImageURLs()
+	}
+
+	// 如果仍然没有镜像URL，记录错误并返回
+	if len(imageURLs) == 0 {
+		global.APP_LOG.Error("无法获取镜像列表，远程和默认列表均为空")
 		return
 	}
 

@@ -21,10 +21,9 @@ type blacklistItem struct {
 
 // JWTBlacklistService 基于内存的JWT黑名单服务
 type JWTBlacklistService struct {
-	data          map[string]*blacklistItem
-	mutex         sync.RWMutex
-	cleanupTicker *time.Ticker
-	stopCleanup   chan struct{}
+	data        map[string]*blacklistItem
+	mutex       sync.RWMutex
+	stopCleanup chan struct{}
 }
 
 var (
@@ -44,16 +43,35 @@ func GetJWTBlacklistService() *JWTBlacklistService {
 	return blacklistService
 }
 
-// startCleanup 启动自动清理过期Token
+// startCleanup 启动自适应自动清理过期Token
 func (s *JWTBlacklistService) startCleanup() {
-	s.cleanupTicker = time.NewTicker(5 * time.Minute)
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("JWT黑名单清理goroutine panic", zap.Any("panic", r))
+			}
+		}()
+
+		ticker := time.NewTicker(5 * time.Minute)
+		defer ticker.Stop()
+
 		for {
 			select {
-			case <-s.cleanupTicker.C:
-				s.CleanExpiredTokens()
+			case <-ticker.C:
+				// 检查黑名单Token数量
+				s.mutex.RLock()
+				tokenCount := len(s.data)
+				s.mutex.RUnlock()
+
+				// 有Token时5分钟清理，无Token时30分钟检查（节省资源）
+				newInterval := 30 * time.Minute
+				if tokenCount > 0 {
+					newInterval = 5 * time.Minute
+					s.CleanExpiredTokens()
+				}
+				ticker.Reset(newInterval)
+
 			case <-s.stopCleanup:
-				s.cleanupTicker.Stop()
 				return
 			}
 		}

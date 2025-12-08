@@ -7,12 +7,10 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
-	"oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
-	"oneclickvirt/model/user"
-	"oneclickvirt/provider/health"
+
+	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/database"
-	"oneclickvirt/service/images"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 	"strings"
@@ -65,20 +63,146 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		return nil, 0, err
 	}
 
+	// 批量查询统计数据
+	var providerIDs []uint
+	for _, provider := range providers {
+		providerIDs = append(providerIDs, provider.ID)
+	}
+
+	// 批量统计实例数量（总数、容器、虚拟机）
+	type InstanceCountResult struct {
+		ProviderID     uint
+		TotalCount     int64
+		ContainerCount int64
+		VMCount        int64
+	}
+	var instanceCounts []InstanceCountResult
+	if len(providerIDs) > 0 {
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Select(`provider_id,
+				COUNT(*) as total_count,
+				SUM(CASE WHEN instance_type = 'container' THEN 1 ELSE 0 END) as container_count,
+				SUM(CASE WHEN instance_type = 'vm' THEN 1 ELSE 0 END) as vm_count`).
+			Where("provider_id IN ?", providerIDs).
+			Group("provider_id").
+			Scan(&instanceCounts)
+	}
+
+	// 批量统计运行中的任务数量
+	type TaskCountResult struct {
+		ProviderID        uint
+		RunningTasksCount int64
+	}
+	var taskCounts []TaskCountResult
+	if len(providerIDs) > 0 {
+		global.APP_DB.Model(&admin.Task{}).
+			Select("provider_id, COUNT(*) as running_tasks_count").
+			Where("provider_id IN ? AND status = ?", providerIDs, "running").
+			Group("provider_id").
+			Scan(&taskCounts)
+	}
+
+	// 批量查询Provider本月流量使用情况
+	type TrafficUsageResult struct {
+		ProviderID  uint
+		UsedTraffic float64
+	}
+	var trafficUsages []TrafficUsageResult
+	if len(providerIDs) > 0 {
+		now := time.Now()
+		year, month := now.Year(), int(now.Month())
+
+		// 使用与GetProviderMonthlyTraffic相同的逻辑计算流量
+		// 处理pmacct重启导致的累积值重置问题
+		global.APP_DB.Raw(`
+			SELECT 
+				instance_totals.provider_id,
+				SUM(
+					CASE 
+						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
+						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
+					END
+				) / 1048576.0 as used_traffic
+			FROM (
+				-- 对每个instance按segment求和（处理pmacct重启）
+				SELECT 
+					instance_id,
+					provider_id,
+					SUM(max_rx) as segment_rx,
+					SUM(max_tx) as segment_tx
+				FROM (
+					-- 检测重启并分段，每段取MAX
+					SELECT 
+						instance_id,
+						provider_id,
+						segment_id,
+						MAX(rx_bytes) as max_rx,
+						MAX(tx_bytes) as max_tx
+					FROM (
+						SELECT 
+							t1.instance_id,
+							t1.provider_id,
+							t1.rx_bytes,
+							t1.tx_bytes,
+							(
+								SELECT COUNT(*)
+								FROM pmacct_traffic_records t2
+								LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+									AND t3.timestamp = (
+										SELECT MAX(timestamp) 
+										FROM pmacct_traffic_records 
+										WHERE instance_id = t2.instance_id 
+											AND timestamp < t2.timestamp
+											AND year = ? AND month = ?
+									)
+								WHERE t2.instance_id = t1.instance_id
+									AND t2.provider_id IN ?
+									AND t2.year = ? AND t2.month = ?
+									AND t2.timestamp <= t1.timestamp
+									AND (
+										(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
+										OR
+										(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
+									)
+							) as segment_id
+						FROM pmacct_traffic_records t1
+						WHERE t1.provider_id IN ?
+						  AND t1.year = ? 
+						  AND t1.month = ?
+					) AS segments
+					GROUP BY instance_id, provider_id, segment_id
+				) AS instance_segments
+				GROUP BY instance_id, provider_id
+			) AS instance_totals
+			INNER JOIN providers p ON instance_totals.provider_id = p.id
+			WHERE p.enable_traffic_control = true
+			GROUP BY instance_totals.provider_id
+		`, year, month, providerIDs, year, month, providerIDs, year, month).Scan(&trafficUsages)
+	}
+
+	// 构建映射表
+	instanceCountMap := make(map[uint]InstanceCountResult)
+	for _, count := range instanceCounts {
+		instanceCountMap[count.ProviderID] = count
+	}
+
+	taskCountMap := make(map[uint]int64)
+	for _, count := range taskCounts {
+		taskCountMap[count.ProviderID] = count.RunningTasksCount
+	}
+
+	trafficUsageMap := make(map[uint]int64)
+	for _, usage := range trafficUsages {
+		trafficUsageMap[usage.ProviderID] = int64(usage.UsedTraffic)
+	}
+
 	var providerResponses []admin.ProviderManageResponse
 	for _, provider := range providers {
-		var instanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ?", provider.ID).Count(&instanceCount)
-
-		// 统计正在运行的任务数量
-		var runningTasksCount int64
-		global.APP_DB.Model(&admin.Task{}).Where("provider_id = ? AND status = ?", provider.ID, "running").Count(&runningTasksCount)
-
-		// 统计容器和虚拟机数量
-		var containerCount int64
-		var vmCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ? AND instance_type = ?", provider.ID, "container").Count(&containerCount)
-		global.APP_DB.Model(&providerModel.Instance{}).Where("provider_id = ? AND instance_type = ?", provider.ID, "vm").Count(&vmCount)
+		// 从映射表中获取统计数据
+		instanceCount := instanceCountMap[provider.ID]
+		runningTasksCount := taskCountMap[provider.ID]
+		usedTraffic := trafficUsageMap[provider.ID]
 
 		// Docker 类型固定使用 native 端口映射方式
 		if provider.Type == "docker" {
@@ -95,7 +219,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 
 		providerResponse := admin.ProviderManageResponse{
 			Provider:          provider,
-			InstanceCount:     int(instanceCount),
+			InstanceCount:     int(instanceCount.TotalCount),
 			HealthStatus:      "healthy",
 			RunningTasksCount: int(runningTasksCount),
 			// 包含资源信息
@@ -111,8 +235,10 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 			AllocatedMemory:   allocatedMemory,
 			AllocatedDisk:     allocatedDisk,
 			// 实例数量统计
-			CurrentContainerCount: int(containerCount),
-			CurrentVMCount:        int(vmCount),
+			CurrentContainerCount: int(instanceCount.ContainerCount),
+			CurrentVMCount:        int(instanceCount.VMCount),
+			// 流量使用情况
+			UsedTraffic: usedTraffic,
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}
@@ -121,282 +247,6 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		zap.Int64("total", total),
 		zap.Int("count", len(providerResponses)))
 	return providerResponses, total, nil
-}
-
-// CreateProvider 创建Provider
-func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
-	global.APP_LOG.Debug("开始创建Provider",
-		zap.String("name", utils.TruncateString(req.Name, 32)),
-		zap.String("type", req.Type),
-		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
-
-	// 1. 检查Provider名称是否已存在
-	var existingNameCount int64
-	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", req.Name).Count(&existingNameCount).Error; err != nil {
-		global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
-		return fmt.Errorf("检查Provider名称失败: %v", err)
-	}
-	if existingNameCount > 0 {
-		global.APP_LOG.Warn("Provider创建失败：名称已存在",
-			zap.String("name", utils.TruncateString(req.Name, 32)))
-		return fmt.Errorf("Provider名称 '%s' 已存在，请使用其他名称", req.Name)
-	}
-
-	// 2. 检查SSH地址和端口组合是否已存在（防止配置相同节点）
-	if req.Endpoint != "" {
-		sshPort := req.SSHPort
-		if sshPort == 0 {
-			sshPort = 22 // 默认SSH端口
-		}
-		var existingEndpointCount int64
-		if err := global.APP_DB.Model(&providerModel.Provider{}).
-			Where("endpoint = ? AND ssh_port = ?", req.Endpoint, sshPort).
-			Count(&existingEndpointCount).Error; err != nil {
-			global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
-			return fmt.Errorf("检查Provider SSH地址失败: %v", err)
-		}
-		if existingEndpointCount > 0 {
-			global.APP_LOG.Warn("Provider创建失败：SSH地址和端口组合已存在",
-				zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
-				zap.Int("sshPort", sshPort))
-			return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
-		}
-	}
-
-	// 解析过期时间
-	var expiresAt *time.Time
-	if req.ExpiresAt != "" {
-		// 尝试解析多种时间格式
-		var t time.Time
-		var err error
-
-		// 首先尝试ISO 8601格式（前端默认格式）
-		t, err = time.Parse(time.RFC3339, req.ExpiresAt)
-		if err != nil {
-			// 尝试标准日期时间格式
-			t, err = time.Parse("2006-01-02 15:04:05", req.ExpiresAt)
-			if err != nil {
-				// 尝试日期格式
-				t, err = time.Parse("2006-01-02", req.ExpiresAt)
-				if err != nil {
-					global.APP_LOG.Warn("Provider创建失败：过期时间格式错误",
-						zap.String("name", utils.TruncateString(req.Name, 32)),
-						zap.String("expiresAt", utils.TruncateString(req.ExpiresAt, 32)))
-					return fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
-				}
-			}
-		}
-		expiresAt = &t
-	} else {
-		// 默认31天后过期
-		defaultExpiry := time.Now().AddDate(0, 0, 31)
-		expiresAt = &defaultExpiry
-	}
-
-	// 验证：必须提供密码或SSH密钥其中一种
-	if req.Password == "" && req.SSHKey == "" {
-		global.APP_LOG.Warn("Provider创建失败：未提供SSH认证方式",
-			zap.String("name", utils.TruncateString(req.Name, 32)))
-		return fmt.Errorf("必须提供SSH密码或SSH密钥其中一种认证方式")
-	}
-
-	provider := providerModel.Provider{
-		Name:                  req.Name,
-		Type:                  req.Type,
-		Endpoint:              req.Endpoint,
-		PortIP:                req.PortIP,
-		SSHPort:               req.SSHPort,
-		Username:              req.Username,
-		Password:              req.Password,
-		SSHKey:                req.SSHKey,
-		Token:                 req.Token,
-		Config:                req.Config,
-		Region:                req.Region,
-		Country:               req.Country,
-		CountryCode:           req.CountryCode,
-		City:                  req.City,
-		Architecture:          req.Architecture,
-		ContainerEnabled:      req.ContainerEnabled,
-		VirtualMachineEnabled: req.VirtualMachineEnabled,
-		TotalQuota:            req.TotalQuota,
-		AllowClaim:            req.AllowClaim,
-		Status:                "active",
-		ExpiresAt:             expiresAt,
-		IsFrozen:              false,
-		MaxContainerInstances: req.MaxContainerInstances,
-		MaxVMInstances:        req.MaxVMInstances,
-		AllowConcurrentTasks:  req.AllowConcurrentTasks,
-		MaxConcurrentTasks:    req.MaxConcurrentTasks,
-		TaskPollInterval:      req.TaskPollInterval,
-		EnableTaskPolling:     req.EnableTaskPolling,
-		// 存储配置（ProxmoxVE专用）
-		StoragePool: req.StoragePool,
-		// 操作执行配置
-		ExecutionRule: req.ExecutionRule,
-		// 端口映射配置
-		DefaultPortCount: req.DefaultPortCount,
-		PortRangeStart:   req.PortRangeStart,
-		PortRangeEnd:     req.PortRangeEnd,
-		NetworkType:      req.NetworkType,
-		// 带宽配置
-		DefaultInboundBandwidth:  req.DefaultInboundBandwidth,
-		DefaultOutboundBandwidth: req.DefaultOutboundBandwidth,
-		MaxInboundBandwidth:      req.MaxInboundBandwidth,
-		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
-		// 流量管理
-		MaxTraffic:        req.MaxTraffic,
-		TrafficCountMode:  req.TrafficCountMode,
-		TrafficMultiplier: req.TrafficMultiplier,
-		// 端口映射方式
-		IPv4PortMappingMethod: req.IPv4PortMappingMethod,
-		IPv6PortMappingMethod: req.IPv6PortMappingMethod,
-		// SSH连接配置
-		SSHConnectTimeout: req.SSHConnectTimeout,
-		SSHExecuteTimeout: req.SSHExecuteTimeout,
-		// 容器资源限制配置
-		ContainerLimitCPU:    req.ContainerLimitCpu,
-		ContainerLimitMemory: req.ContainerLimitMemory,
-		ContainerLimitDisk:   req.ContainerLimitDisk,
-		// 虚拟机资源限制配置
-		VMLimitCPU:    req.VMLimitCpu,
-		VMLimitMemory: req.VMLimitMemory,
-		VMLimitDisk:   req.VMLimitDisk,
-	}
-
-	// 节点级别等级限制配置
-	if len(req.LevelLimits) > 0 {
-		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
-		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
-		if err != nil {
-			global.APP_LOG.Error("序列化节点等级限制配置失败",
-				zap.String("providerName", req.Name),
-				zap.Error(err))
-			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
-		}
-		provider.LevelLimits = string(levelLimitsJSON)
-	} else {
-		// 如果没有提供等级限制，设置默认等级1的限制
-		defaultLevelLimits := map[int]map[string]interface{}{
-			1: {
-				"maxInstances": 1,
-				"maxResources": map[string]interface{}{
-					"cpu":       1,
-					"memory":    350,
-					"disk":      1025,
-					"bandwidth": 100,
-				},
-				"maxTraffic": 102400,
-			},
-		}
-		levelLimitsJSON, err := json.Marshal(defaultLevelLimits)
-		if err != nil {
-			global.APP_LOG.Error("序列化默认节点等级限制配置失败",
-				zap.String("providerName", req.Name),
-				zap.Error(err))
-			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
-		}
-		provider.LevelLimits = string(levelLimitsJSON)
-		global.APP_LOG.Info("使用默认节点等级限制配置",
-			zap.String("providerName", req.Name))
-	}
-
-	// 设置默认值
-	// 并发控制默认值：默认不允许并发，最大并发数为1
-	if !provider.AllowConcurrentTasks && provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
-	if provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
-	if provider.TaskPollInterval <= 0 {
-		provider.TaskPollInterval = 60
-	}
-	// 操作执行配置默认值
-	if provider.ExecutionRule == "" {
-		provider.ExecutionRule = "auto"
-	}
-	// 端口映射默认值
-	if provider.DefaultPortCount <= 0 {
-		provider.DefaultPortCount = 10
-	}
-	if provider.PortRangeStart <= 0 {
-		provider.PortRangeStart = 10000
-	}
-	if provider.PortRangeEnd <= 0 {
-		provider.PortRangeEnd = 65535
-	}
-	if provider.NetworkType == "" {
-		provider.NetworkType = "nat_ipv4"
-	}
-	// 带宽配置默认值
-	if provider.DefaultInboundBandwidth <= 0 {
-		provider.DefaultInboundBandwidth = 300
-	}
-	if provider.DefaultOutboundBandwidth <= 0 {
-		provider.DefaultOutboundBandwidth = 300
-	}
-	if provider.MaxInboundBandwidth <= 0 {
-		provider.MaxInboundBandwidth = 1000
-	}
-	if provider.MaxOutboundBandwidth <= 0 {
-		provider.MaxOutboundBandwidth = 1000
-	}
-	// 流量限制默认值：1TB
-	if provider.MaxTraffic <= 0 {
-		provider.MaxTraffic = 1048576 // 1TB = 1048576MB
-	}
-	// 流量统计控制默认值：不启用
-	// EnableTrafficControl字段由数据库默认值处理（default:false），这里不需要手动设置
-	// 流量统计模式默认值
-	if provider.TrafficCountMode == "" {
-		provider.TrafficCountMode = "both" // 默认双向统计
-	}
-	// 流量计费倍率默认值
-	if provider.TrafficMultiplier == 0 {
-		provider.TrafficMultiplier = 1.0 // 默认1.0倍
-	}
-	// 端口映射方式默认值
-	// Docker 类型固定使用 native
-	if provider.Type == "docker" {
-		provider.IPv4PortMappingMethod = "native"
-		provider.IPv6PortMappingMethod = "native"
-	} else {
-		if provider.IPv4PortMappingMethod == "" {
-			provider.IPv4PortMappingMethod = "device_proxy" // 默认device_proxy
-		}
-		if provider.IPv6PortMappingMethod == "" {
-			provider.IPv6PortMappingMethod = "device_proxy" // 默认device_proxy
-		}
-	}
-	// SSH超时默认值
-	if provider.SSHConnectTimeout <= 0 {
-		provider.SSHConnectTimeout = 30 // 默认30秒连接超时
-	}
-	if provider.SSHExecuteTimeout <= 0 {
-		provider.SSHExecuteTimeout = 300 // 默认300秒执行超时
-	}
-	provider.NextAvailablePort = provider.PortRangeStart
-
-	// 初始化流量重置时间为下个月的1号
-	now := time.Now()
-	nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
-	provider.TrafficResetAt = &nextReset
-
-	dbService := database.GetDatabaseService()
-	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Create(&provider).Error
-	}); err != nil {
-		global.APP_LOG.Error("Provider创建失败",
-			zap.String("name", utils.TruncateString(req.Name, 32)),
-			zap.Error(err))
-		return err
-	}
-
-	global.APP_LOG.Info("Provider创建成功",
-		zap.String("name", utils.TruncateString(req.Name, 32)),
-		zap.String("type", req.Type),
-		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
-	return nil
 }
 
 // UpdateProvider 更新Provider
@@ -583,7 +433,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
 	}
 	// 流量控制开关更新
+	oldEnableTrafficControl := provider.EnableTrafficControl
 	provider.EnableTrafficControl = req.EnableTrafficControl
+
+	// 检测流量统计开关是否发生变化
+	trafficControlChanged := oldEnableTrafficControl != req.EnableTrafficControl
+
 	// 流量限制更新
 	if req.MaxTraffic > 0 {
 		provider.MaxTraffic = req.MaxTraffic
@@ -591,6 +446,43 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	// 流量统计模式更新
 	if req.TrafficCountMode != "" {
 		provider.TrafficCountMode = req.TrafficCountMode
+	}
+	// 流量统计性能模式更新
+	if req.TrafficStatsMode != "" {
+		oldMode := provider.TrafficStatsMode
+		provider.TrafficStatsMode = req.TrafficStatsMode
+
+		// 如果切换到非自定义模式，强制应用预设配置
+		if req.TrafficStatsMode != providerModel.TrafficStatsModeCustom {
+			global.APP_LOG.Info("应用流量统计预设配置",
+				zap.Uint("providerID", req.ID),
+				zap.String("oldMode", oldMode),
+				zap.String("newMode", req.TrafficStatsMode))
+			provider.ApplyTrafficStatsPreset()
+		}
+	}
+	// 流量统计详细配置更新（仅在自定义模式下使用）
+	if req.TrafficCollectInterval > 0 {
+		// 验证采集间隔最大不超过5分钟（300秒）
+		if req.TrafficCollectInterval > 300 {
+			return fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
+		}
+		provider.TrafficCollectInterval = req.TrafficCollectInterval
+	}
+	if req.TrafficCollectBatchSize > 0 {
+		provider.TrafficCollectBatchSize = req.TrafficCollectBatchSize
+	}
+	if req.TrafficLimitCheckInterval > 0 {
+		provider.TrafficLimitCheckInterval = req.TrafficLimitCheckInterval
+	}
+	if req.TrafficLimitCheckBatchSize > 0 {
+		provider.TrafficLimitCheckBatchSize = req.TrafficLimitCheckBatchSize
+	}
+	if req.TrafficAutoResetInterval > 0 {
+		provider.TrafficAutoResetInterval = req.TrafficAutoResetInterval
+	}
+	if req.TrafficAutoResetBatchSize > 0 {
+		provider.TrafficAutoResetBatchSize = req.TrafficAutoResetBatchSize
 	}
 	// 流量计费倍率更新
 	if req.TrafficMultiplier > 0 {
@@ -629,11 +521,41 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.VMLimitCPU = req.VMLimitCpu
 	provider.VMLimitMemory = req.VMLimitMemory
 	provider.VMLimitDisk = req.VMLimitDisk
+	// 容器特殊配置选项更新（仅 LXD/Incus 容器）
+	provider.ContainerPrivileged = req.ContainerPrivileged
+	provider.ContainerAllowNesting = req.ContainerAllowNesting
+	provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
+	if req.ContainerCPUAllowance != "" {
+		provider.ContainerCPUAllowance = req.ContainerCPUAllowance
+	}
+	provider.ContainerMemorySwap = req.ContainerMemorySwap
+	provider.ContainerMaxProcesses = req.ContainerMaxProcesses
+	provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {
-		// 将 map[int]map[string]interface{} 转换为 JSON 字符串
-		levelLimitsJSON, err := json.Marshal(req.LevelLimits)
+		// 转换前端发送的 camelCase 为存储的 kebab-case
+		convertedLimits := make(map[int]map[string]interface{})
+		for level, limits := range req.LevelLimits {
+			convertedLimit := make(map[string]interface{})
+			for key, value := range limits {
+				// 转换 camelCase 键为 kebab-case
+				switch key {
+				case "maxInstances":
+					convertedLimit["max-instances"] = value
+				case "maxResources":
+					convertedLimit["max-resources"] = value
+				case "maxTraffic":
+					convertedLimit["max-traffic"] = value
+				default:
+					// 保留其他键不变（已经是正确格式或未知字段）
+					convertedLimit[key] = value
+				}
+			}
+			convertedLimits[level] = convertedLimit
+		}
+		// 将转换后的 map[int]map[string]interface{} 序列化为 JSON 字符串
+		levelLimitsJSON, err := json.Marshal(convertedLimits)
 		if err != nil {
 			global.APP_LOG.Error("序列化节点等级限制配置失败",
 				zap.Uint("providerID", req.ID),
@@ -678,166 +600,135 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 				zap.Time("newExpiresAt", *provider.ExpiresAt))
 		}
 
+		// 如果流量统计开关发生变化，触发后台任务处理监控配置
+		if trafficControlChanged {
+			go s.handleTrafficControlToggle(provider.ID, req.EnableTrafficControl)
+		}
+
 		return nil
 	})
 }
 
-// DeleteProvider 删除Provider（级联硬删除所有相关数据）
-func (s *Service) DeleteProvider(providerID uint) error {
-	global.APP_LOG.Info("开始删除Provider及其所有关联数据", zap.Uint("providerID", providerID))
-
-	// 检查是否还有运行中的实例（不包括已软删除的）
-	var runningInstanceCount int64
-	global.APP_DB.Model(&providerModel.Instance{}).
-		Where("provider_id = ? AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
-		Count(&runningInstanceCount)
-
-	if runningInstanceCount > 0 {
-		global.APP_LOG.Warn("Provider删除失败：Provider还有运行中的实例",
-			zap.Uint("providerID", providerID),
-			zap.Int64("runningInstanceCount", runningInstanceCount))
-		return errors.New("提供商还有运行中的实例，无法删除。请先停止或删除所有实例")
-	}
-
-	// 获取所有关联的实例ID（包括软删除的）
-	var instanceIDs []uint
-	global.APP_DB.Unscoped().Model(&providerModel.Instance{}).
-		Where("provider_id = ?", providerID).
-		Pluck("id", &instanceIDs)
-
-	dbService := database.GetDatabaseService()
-	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 1. 硬删除所有关联的端口映射（包括软删除的）
-		portResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Port{})
-		if portResult.Error != nil {
-			global.APP_LOG.Error("删除Provider端口映射失败", zap.Error(portResult.Error))
-			return portResult.Error
-		}
-		if portResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider端口映射",
+// handleTrafficControlToggle 处理流量统计开关切换（后台任务）
+// 当Provider的EnableTrafficControl从false->true或true->false时调用
+func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			global.APP_LOG.Error("处理流量统计开关切换时发生panic",
 				zap.Uint("providerID", providerID),
-				zap.Int64("count", portResult.RowsAffected))
+				zap.Bool("enabled", enabled),
+				zap.Any("panic", r))
 		}
+	}()
 
-		// 2. 硬删除所有关联的任务（包括软删除的）
-		taskResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&admin.Task{})
-		if taskResult.Error != nil {
-			global.APP_LOG.Error("删除Provider任务失败", zap.Error(taskResult.Error))
-			return taskResult.Error
-		}
-		if taskResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider任务",
-				zap.Uint("providerID", providerID),
-				zap.Int64("count", taskResult.RowsAffected))
-		}
-
-		// 3. 硬删除配置任务（包括软删除的）
-		configTaskResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&admin.ConfigurationTask{})
-		if configTaskResult.Error != nil {
-			global.APP_LOG.Error("删除Provider配置任务失败", zap.Error(configTaskResult.Error))
-			return configTaskResult.Error
-		}
-		if configTaskResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider配置任务",
-				zap.Uint("providerID", providerID),
-				zap.Int64("count", configTaskResult.RowsAffected))
-		}
-
-		// 4. 硬删除所有实例记录（包括软删除的）
-		instanceResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.Instance{})
-		if instanceResult.Error != nil {
-			global.APP_LOG.Error("删除Provider实例记录失败", zap.Error(instanceResult.Error))
-			return instanceResult.Error
-		}
-		if instanceResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider实例记录",
-				zap.Uint("providerID", providerID),
-				zap.Int64("count", instanceResult.RowsAffected))
-		}
-
-		// 5. 硬删除Provider本身
-		if err := tx.Unscoped().Delete(&providerModel.Provider{}, providerID).Error; err != nil {
-			global.APP_LOG.Error("删除Provider记录失败", zap.Error(err))
-			return err
-		}
-
-		return nil
-	})
-
-	if err != nil {
-		global.APP_LOG.Error("Provider删除事务失败", zap.Uint("providerID", providerID), zap.Error(err))
-		return err
-	}
-
-	// 6. 事务外批量删除流量相关数据（避免长时间锁表）
-	s.batchCleanupProviderTrafficData(providerID, instanceIDs)
-
-	global.APP_LOG.Info("Provider及所有关联数据删除成功",
+	global.APP_LOG.Info("开始处理Provider流量统计开关切换",
 		zap.Uint("providerID", providerID),
-		zap.Int("instanceCount", len(instanceIDs)))
-	return nil
-}
+		zap.Bool("enabled", enabled))
 
-// batchCleanupProviderTrafficData 批量清理Provider的流量相关数据
-func (s *Service) batchCleanupProviderTrafficData(providerID uint, instanceIDs []uint) {
-	// 1. 批量删除流量记录（TrafficRecord）
-	if len(instanceIDs) > 0 {
-		batchSize := 100
-		for i := 0; i < len(instanceIDs); i += batchSize {
-			end := i + batchSize
-			if end > len(instanceIDs) {
-				end = len(instanceIDs)
+	// 获取Provider信息（预加载，避免循环中重复查询）
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+		global.APP_LOG.Error("查询Provider失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return
+	}
+
+	// 获取该Provider下所有活跃实例（预加载所有字段）
+	var instances []providerModel.Instance
+	if err := global.APP_DB.Where("provider_id = ? AND status NOT IN (?)",
+		providerID, []string{"deleted", "deleting"}).Find(&instances).Error; err != nil {
+		global.APP_LOG.Error("查询Provider实例失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return
+	}
+
+	if len(instances) == 0 {
+		global.APP_LOG.Info("Provider没有活跃实例，无需处理",
+			zap.Uint("providerID", providerID))
+		return
+	}
+
+	// 使用统一的流量监控管理器
+	trafficMonitorManager := traffic_monitor.GetManager()
+
+	// 创建带超时的context
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	if enabled {
+		// 启用流量统计：为所有运行中实例初始化监控
+		global.APP_LOG.Info("启用流量统计，开始为实例初始化监控",
+			zap.Uint("providerID", providerID),
+			zap.Int("instanceCount", len(instances)))
+
+		successCount := 0
+		failCount := 0
+		skippedCount := 0
+
+		for _, instance := range instances {
+			// 只为运行中的实例初始化监控
+			if instance.Status != "running" {
+				global.APP_LOG.Debug("跳过非运行状态实例",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("status", instance.Status))
+				skippedCount++
+				continue
 			}
-			batch := instanceIDs[i:end]
 
-			result := global.APP_DB.Unscoped().Where("instance_id IN ?", batch).Delete(&user.TrafficRecord{})
-			if result.Error != nil {
-				global.APP_LOG.Error("批量删除流量记录失败",
-					zap.Uint("providerID", providerID),
-					zap.Int("batchStart", i),
-					zap.Error(result.Error))
-			} else if result.RowsAffected > 0 {
-				global.APP_LOG.Info("批量删除流量记录成功",
-					zap.Uint("providerID", providerID),
-					zap.Int("instanceCount", len(batch)),
-					zap.Int64("deletedRecords", result.RowsAffected))
-			}
-
-			// 每批处理后短暂休眠
-			if end < len(instanceIDs) {
-				time.Sleep(100 * time.Millisecond)
+			// 使用统一的流量监控管理器
+			if err := trafficMonitorManager.AttachMonitor(ctx, instance.ID); err != nil {
+				global.APP_LOG.Warn("初始化实例监控失败",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name),
+					zap.Error(err))
+				failCount++
+			} else {
+				global.APP_LOG.Info("实例监控初始化成功",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name))
+				successCount++
 			}
 		}
-	}
 
-	// 2. 删除Provider的vnStat流量记录
-	vnstatResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
-		Delete(&monitoring.VnStatTrafficRecord{})
-	if vnstatResult.Error != nil {
-		global.APP_LOG.Error("删除Provider vnStat流量记录失败",
+		global.APP_LOG.Info("Provider流量统计启用处理完成",
 			zap.Uint("providerID", providerID),
-			zap.Error(vnstatResult.Error))
-	} else if vnstatResult.RowsAffected > 0 {
-		global.APP_LOG.Info("成功删除Provider vnStat流量记录",
-			zap.Uint("providerID", providerID),
-			zap.Int64("count", vnstatResult.RowsAffected))
-	}
+			zap.Int("成功", successCount),
+			zap.Int("失败", failCount),
+			zap.Int("跳过", skippedCount))
 
-	// 3. 删除Provider的vnStat接口记录
-	interfaceResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
-		Delete(&monitoring.VnStatInterface{})
-	if interfaceResult.Error != nil {
-		global.APP_LOG.Error("删除Provider vnStat接口记录失败",
+	} else {
+		// 禁用流量统计：清理所有实例的监控
+		global.APP_LOG.Info("禁用流量统计，开始清理实例监控",
 			zap.Uint("providerID", providerID),
-			zap.Error(interfaceResult.Error))
-	} else if interfaceResult.RowsAffected > 0 {
-		global.APP_LOG.Info("成功删除Provider vnStat接口记录",
-			zap.Uint("providerID", providerID),
-			zap.Int64("count", interfaceResult.RowsAffected))
-	}
-}
+			zap.Int("instanceCount", len(instances)))
 
-// FreezeProvider 冻结Provider
+		successCount := 0
+		failCount := 0
+
+		for _, instance := range instances {
+			// 使用统一的流量监控管理器清理监控
+			if err := trafficMonitorManager.DetachMonitor(ctx, instance.ID); err != nil {
+				global.APP_LOG.Warn("清理实例监控失败",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name),
+					zap.Error(err))
+				failCount++
+			} else {
+				global.APP_LOG.Info("实例监控清理成功",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name))
+				successCount++
+			}
+		}
+
+		global.APP_LOG.Info("Provider流量统计禁用处理完成",
+			zap.Uint("providerID", providerID),
+			zap.Int("成功", successCount),
+			zap.Int("失败", failCount))
+	}
+} // FreezeProvider 冻结Provider
 func (s *Service) FreezeProvider(req admin.FreezeProviderRequest) error {
 	var provider providerModel.Provider
 	if err := global.APP_DB.First(&provider, req.ID).Error; err != nil {
@@ -916,46 +807,25 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 	})
 }
 
-// GenerateProviderCert 为Provider生成证书配置
-func (s *Service) GenerateProviderCert(providerID uint) (string, error) {
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return "", fmt.Errorf("Provider不存在")
-	}
-
-	// 支持LXD、Incus和Proxmox
-	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" {
-		return "", fmt.Errorf("只支持为LXD、Incus和Proxmox生成配置")
-	}
-
-	certService := &provider2.CertService{}
-
-	// 执行自动配置（现在包含完整的数据库和文件保存）
-	err := certService.AutoConfigureProvider(&provider)
-	if err != nil {
-		return "", fmt.Errorf("自动配置失败: %w", err)
-	}
-
-	// 根据类型返回不同的成功消息
-	var message string
-	switch provider.Type {
-	case "proxmox":
-		message = "Proxmox VE API 自动配置成功，认证配置已保存到数据库和文件"
-	case "lxd":
-		message = "LXD 自动配置成功，证书已安装并保存到数据库和文件"
-	case "incus":
-		message = "Incus 自动配置成功，证书已安装并保存到数据库和文件"
-	}
-
-	return message, nil
-}
-
 // AutoConfigureProviderWithStream 带实时输出的自动配置Provider
 func (s *Service) AutoConfigureProviderWithStream(providerID uint, outputChan chan<- string) error {
+	return s.AutoConfigureProviderWithStreamContext(context.Background(), providerID, outputChan)
+}
+
+// AutoConfigureProviderWithStreamContext 带实时输出和context控制的自动配置Provider
+func (s *Service) AutoConfigureProviderWithStreamContext(ctx context.Context, providerID uint, outputChan chan<- string) error {
 	var provider providerModel.Provider
 	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
 		outputChan <- fmt.Sprintf("错误: Provider不存在 (ID: %d)", providerID)
 		return fmt.Errorf("Provider不存在")
+	}
+
+	// 检查context是否已取消
+	select {
+	case <-ctx.Done():
+		outputChan <- "操作已取消"
+		return ctx.Err()
+	default:
 	}
 
 	// 支持LXD、Incus和Proxmox
@@ -970,9 +840,13 @@ func (s *Service) AutoConfigureProviderWithStream(providerID uint, outputChan ch
 
 	certService := &provider2.CertService{}
 
-	// 执行自动配置（现在包含完整的配置保存）
-	err := certService.AutoConfigureProviderWithStream(&provider, outputChan)
+	// 执行自动配置（传递context以便取消）
+	err := certService.AutoConfigureProviderWithStreamContext(ctx, &provider, outputChan)
 	if err != nil {
+		if ctx.Err() != nil {
+			outputChan <- "操作已取消"
+			return ctx.Err()
+		}
 		outputChan <- fmt.Sprintf("自动配置失败: %s", err.Error())
 		return fmt.Errorf("自动配置失败: %w", err)
 	}
@@ -992,189 +866,6 @@ func (s *Service) AutoConfigureProviderWithStream(providerID uint, outputChan ch
 	outputChan <- "✅ 自动配置流程完成，配置信息已统一管理"
 
 	return nil
-}
-
-// CheckProviderHealthAsync 异步检查Provider健康状态
-func (s *Service) CheckProviderHealthAsync(providerID uint) {
-	go func() {
-		if err := s.CheckProviderHealth(providerID); err != nil {
-			global.APP_LOG.Warn("异步健康检查失败",
-				zap.Uint("providerID", providerID),
-				zap.Error(err))
-		}
-	}()
-}
-
-// CheckProviderHealth 检查Provider健康状态
-func (s *Service) CheckProviderHealth(providerID uint) error {
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
-	// 复制副本避免共享状态，立即创建所有必要字段的本地副本
-	// 这些变量在整个函数执行期间保持不变，确保健康检查使用正确的参数
-	localProviderID := provider.ID
-	localProviderName := provider.Name
-	localProviderType := provider.Type
-	localEndpoint := provider.Endpoint
-	localUsername := provider.Username
-	localPassword := provider.Password
-	localSSHKey := provider.SSHKey
-	localSSHPort := provider.SSHPort
-	if localSSHPort == 0 {
-		localSSHPort = 22 // 如果数据库中没有设置SSH端口，使用默认值22
-	}
-	localAutoConfigured := provider.AutoConfigured
-	localAuthConfig := provider.AuthConfig
-
-	now := time.Now()
-	ctx := context.Background()
-
-	// 解析endpoint获取主机
-	host := strings.Split(localEndpoint, ":")[0]
-
-	global.APP_LOG.Info("开始检查Provider健康状态",
-		zap.Uint("providerId", localProviderID),
-		zap.String("providerName", localProviderName),
-		zap.String("providerType", localProviderType),
-		zap.String("endpoint", localEndpoint),
-		zap.String("host", host),
-		zap.Int("port", localSSHPort))
-
-	// 使用新的健康检查系统
-	healthChecker := health.NewProviderHealthChecker(global.APP_LOG)
-
-	var sshStatus, apiStatus, hostName string
-	var err error
-
-	// 如果Provider已自动配置，可以尝试进行API检查
-	if localAutoConfigured && localAuthConfig != "" {
-		configService := &provider2.ProviderConfigService{}
-		authConfig, configErr := configService.LoadProviderConfig(localProviderID)
-		if configErr == nil {
-			// 添加详细日志，确认传入的参数
-			global.APP_LOG.Debug("调用CheckProviderHealthWithConfig",
-				zap.Uint("providerId", localProviderID),
-				zap.String("providerName", localProviderName),
-				zap.String("providerType", localProviderType),
-				zap.String("host", host),
-				zap.Int("sshPort", localSSHPort),
-				zap.String("endpoint", localEndpoint))
-
-			// 使用认证配置执行完整健康检查（包含API检查），并获取主机名
-			sshStatus, apiStatus, hostName, err = images.CheckProviderHealthWithConfig(
-				ctx, localProviderID, localProviderName, localProviderType, host, localUsername, localPassword, localSSHKey, localSSHPort, authConfig)
-		} else {
-			// 配置加载失败，只进行SSH检查
-			global.APP_LOG.Warn("加载Provider配置失败，仅进行SSH检查",
-				zap.String("provider", localProviderName),
-				zap.Error(configErr))
-
-			if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
-				sshStatus = "offline"
-			} else {
-				sshStatus = "online"
-			}
-			apiStatus = "unknown"
-		}
-	} else {
-		// 未自动配置的Provider，只进行SSH检查
-		if sshErr := healthChecker.CheckSSHConnection(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort); sshErr != nil {
-			sshStatus = "offline"
-		} else {
-			sshStatus = "online"
-		}
-		apiStatus = "unknown"
-	}
-
-	if err != nil {
-		global.APP_LOG.Warn("Health check failed",
-			zap.String("provider", localProviderName),
-			zap.String("type", localProviderType),
-			zap.Error(err))
-		// 如果检查失败，设置为offline状态
-		if sshStatus == "" {
-			sshStatus = "offline"
-		}
-		if apiStatus == "" {
-			apiStatus = "offline"
-		}
-	}
-
-	// 如果SSH连接成功且资源信息尚未同步，获取系统资源信息
-	if sshStatus == "online" && !provider.ResourceSynced {
-		global.APP_LOG.Info("开始同步节点资源信息",
-			zap.Uint("providerID", localProviderID),
-			zap.String("provider", localProviderName),
-			zap.String("host", host),
-			zap.Int("sshPort", localSSHPort))
-
-		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort)
-		if resourceErr != nil {
-			global.APP_LOG.Warn("获取系统资源信息失败",
-				zap.String("provider", localProviderName),
-				zap.Error(resourceErr))
-		} else {
-			// 更新Provider的资源信息
-			provider.NodeCPUCores = resourceInfo.CPUCores
-			provider.NodeMemoryTotal = resourceInfo.MemoryTotal + resourceInfo.SwapTotal
-			provider.NodeDiskTotal = resourceInfo.DiskTotal // 直接使用MB值
-			provider.ResourceSynced = true
-			provider.ResourceSyncedAt = resourceInfo.SyncedAt
-
-			// 更新主机名（如果资源信息中包含）
-			if resourceInfo.HostName != "" {
-				provider.HostName = resourceInfo.HostName
-				global.APP_LOG.Info("从资源同步中获取主机名",
-					zap.String("provider", localProviderName),
-					zap.String("hostName", resourceInfo.HostName))
-			}
-
-			global.APP_LOG.Info("节点资源信息同步成功",
-				zap.String("provider", localProviderName),
-				zap.Int("cpu_cores", resourceInfo.CPUCores),
-				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal+resourceInfo.SwapTotal),
-				zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
-				zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
-				zap.String("hostName", resourceInfo.HostName))
-		}
-	}
-
-	// 更新Provider状态
-	provider.SSHStatus = sshStatus
-	provider.APIStatus = apiStatus
-	provider.LastSSHCheck = &now
-	provider.LastAPICheck = &now
-
-	// 更新主机名（如果获取到了）
-	if hostName != "" && provider.HostName != hostName {
-		global.APP_LOG.Info("更新Provider主机名",
-			zap.String("provider", localProviderName),
-			zap.String("oldHostName", provider.HostName),
-			zap.String("newHostName", hostName))
-		provider.HostName = hostName
-	}
-
-	// 更新整体状态
-	if sshStatus == "online" && (apiStatus == "online" || apiStatus == "N/A" || apiStatus == "unknown") {
-		provider.Status = "active"
-	} else if sshStatus == "offline" && apiStatus == "offline" {
-		provider.Status = "inactive"
-	} else {
-		provider.Status = "partial" // 部分连接正常
-	}
-
-	// 先保存状态到数据库
-	dbService := database.GetDatabaseService()
-	if dbErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&provider).Error
-	}); dbErr != nil {
-		return fmt.Errorf("保存Provider状态失败: %w", dbErr)
-	}
-
-	// 如果健康检查有错误，返回该错误（这样前端可以获取具体错误信息）
-	return err
 }
 
 // GetProviderStatus 获取Provider状态详情
@@ -1206,44 +897,4 @@ func (s *Service) GetProviderStatus(providerID uint) (*admin.ProviderStatusRespo
 	}
 
 	return response, nil
-}
-
-// CheckProviderNameExists 检查Provider名称是否已存在
-func (s *Service) CheckProviderNameExists(name string, excludeId *uint) (bool, error) {
-	query := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", name)
-
-	// 如果提供了excludeId，排除该ID（用于编辑时的检查）
-	if excludeId != nil {
-		query = query.Where("id != ?", *excludeId)
-	}
-
-	var count int64
-	if err := query.Count(&count).Error; err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
-}
-
-// CheckProviderEndpointExists 检查Provider SSH地址和端口组合是否已存在
-func (s *Service) CheckProviderEndpointExists(endpoint string, sshPort int, excludeId *uint) (bool, error) {
-	// 如果端口为0，使用默认值22
-	if sshPort == 0 {
-		sshPort = 22
-	}
-
-	query := global.APP_DB.Model(&providerModel.Provider{}).
-		Where("endpoint = ? AND ssh_port = ?", endpoint, sshPort)
-
-	// 如果提供了excludeId，排除该ID（用于编辑时的检查）
-	if excludeId != nil {
-		query = query.Where("id != ?", *excludeId)
-	}
-
-	var count int64
-	if err := query.Count(&count).Error; err != nil {
-		return false, err
-	}
-
-	return count > 0, nil
 }

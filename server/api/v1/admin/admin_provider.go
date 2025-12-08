@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"oneclickvirt/service/provider"
@@ -303,15 +304,24 @@ func AutoConfigureProviderStream(c *gin.Context) {
 	outputChan := make(chan string, 100)
 	errorChan := make(chan error, 1)
 
+	// 创建可取消的context，关联到客户端请求
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	defer cancel() // 确保函数退出时取消后台任务
+
 	// 启动配置过程
 	go func() {
 		defer close(outputChan)
 		defer close(errorChan)
 
 		providerService := adminProvider.NewService()
-		err := providerService.AutoConfigureProviderWithStream(uint(providerID), outputChan)
+		// 传递context以便客户端断开时能取消操作
+		err := providerService.AutoConfigureProviderWithStreamContext(ctx, uint(providerID), outputChan)
 		if err != nil {
-			errorChan <- err
+			select {
+			case errorChan <- err:
+			case <-ctx.Done():
+				// Context已取消，不发送错误
+			}
 		}
 	}()
 
@@ -345,8 +355,10 @@ func AutoConfigureProviderStream(c *gin.Context) {
 				return
 			}
 
-		case <-c.Request.Context().Done():
-			// 客户端断开连接
+		case <-ctx.Done():
+			// 客户端断开连接或超时
+			c.Writer.WriteString("\n\n=== 连接已断开 ===\n")
+			flusher.Flush()
 			return
 		}
 	}
@@ -360,6 +372,7 @@ func AutoConfigureProviderStream(c *gin.Context) {
 // @Produce json
 // @Security BearerAuth
 // @Param id path int true "Provider ID"
+// @Param forceRefresh query bool false "是否强制刷新资源信息" default(true)
 // @Success 200 {object} common.Response{data=admin.ProviderStatusResponse} "检查成功"
 // @Failure 400 {object} common.Response "参数错误"
 // @Failure 500 {object} common.Response "检查失败"
@@ -375,10 +388,13 @@ func CheckProviderHealth(c *gin.Context) {
 		return
 	}
 
+	// 获取forceRefresh参数，默认为true（手动触发时强制刷新）
+	forceRefresh := c.DefaultQuery("forceRefresh", "true") == "true"
+
 	providerService := adminProvider.NewService()
-	err = providerService.CheckProviderHealth(uint(providerID))
+	err = providerService.CheckProviderHealthWithOptions(uint(providerID), forceRefresh)
 	if err != nil {
-		// 优化错误消息
+		// 错误消息
 		errorMsg := "健康检查失败"
 		if strings.Contains(err.Error(), "timeout") || strings.Contains(err.Error(), "i/o timeout") {
 			errorMsg = "健康检查超时，请检查网络连接或服务器状态"

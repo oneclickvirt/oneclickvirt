@@ -162,3 +162,39 @@ func GetTaskOverallStats(c *gin.Context) {
 
 	common.ResponseSuccess(c, stats)
 }
+
+// GetTaskDetail 获取任务详情
+// @Summary 获取任务详情
+// @Description 管理员获取指定任务的详细信息
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param taskId path int true "任务ID"
+// @Success 200 {object} common.Response{data=adminModel.AdminTaskDetailResponse} "获取成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "权限不足"
+// @Failure 404 {object} common.Response "任务不存在"
+// @Failure 500 {object} common.Response "获取失败"
+// @Router /admin/tasks/{taskId} [get]
+func GetTaskDetail(c *gin.Context) {
+	taskIDStr := c.Param("taskId")
+	taskID, err := strconv.ParseUint(taskIDStr, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
+		return
+	}
+
+	taskService := task.GetTaskService()
+	detail, err := taskService.GetTaskDetail(uint(taskID))
+	if err != nil {
+		if err.Error() == "任务不存在" {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
+			return
+		}
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务详情失败"))
+		return
+	}
+
+	common.ResponseSuccess(c, detail)
+}

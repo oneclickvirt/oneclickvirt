@@ -161,15 +161,28 @@
           width="120"
         />
         <el-table-column
-          prop="hostPort"
           :label="$t('admin.portMapping.publicPort')"
-          width="100"
-        />
+          width="140"
+        >
+          <template #default="{ row }">
+            <span v-if="row.portType === 'batch' && row.portCount && row.portCount > 1">
+              {{ row.hostPort }}-{{ row.hostPortEnd || (row.hostPort + row.portCount - 1) }}
+              <el-tag size="small" type="info" style="margin-left: 5px;">×{{ row.portCount }}</el-tag>
+            </span>
+            <span v-else>{{ row.hostPort }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
-          prop="guestPort"
           :label="$t('admin.portMapping.internalPort')"
-          width="110"
-        />
+          width="140"
+        >
+          <template #default="{ row }">
+            <span v-if="row.portType === 'batch' && row.portCount && row.portCount > 1">
+              {{ row.guestPort }}-{{ row.guestPortEnd || (row.guestPort + row.portCount - 1) }}
+            </span>
+            <span v-else>{{ row.guestPort }}</span>
+          </template>
+        </el-table-column>
         <el-table-column
           prop="protocol"
           :label="$t('admin.portMapping.protocol')"
@@ -420,23 +433,73 @@
             :controls="false"
             :placeholder="$t('admin.portMapping.internalPortPlaceholder')"
             style="width: 100%"
+            @change="updatePortRange"
           />
+        </el-form-item>
+        
+        <el-form-item
+          :label="$t('admin.portMapping.portCount')"
+          prop="portCount"
+        >
+          <el-input-number
+            v-model="addForm.portCount"
+            :min="1"
+            :max="100"
+            :controls="true"
+            :placeholder="$t('admin.portMapping.portCountPlaceholder')"
+            style="width: 100%"
+            @change="updatePortRange"
+          />
+          <div style="color: #909399; font-size: 12px; margin-top: 5px;">
+            {{ $t('admin.portMapping.portCountHint') }}
+          </div>
+          <div
+            v-if="portRangePreview"
+            style="color: #409eff; font-size: 12px; margin-top: 5px;"
+          >
+            <strong>{{ $t('admin.portMapping.portRangePreview') }}:</strong> {{ portRangePreview }}
+          </div>
         </el-form-item>
         
         <el-form-item
           :label="$t('admin.portMapping.publicPort')"
           prop="hostPort"
         >
-          <el-input-number
-            v-model="addForm.hostPort"
-            :min="0"
-            :max="65535"
-            :controls="false"
-            :placeholder="$t('admin.portMapping.autoAssignPort')"
-            style="width: 100%"
-          />
+          <div style="display: flex; gap: 10px; align-items: start;">
+            <el-input-number
+              v-model="addForm.hostPort"
+              :min="0"
+              :max="65535"
+              :controls="false"
+              :placeholder="$t('admin.portMapping.autoAssignPort')"
+              style="flex: 1"
+              @change="updatePortRange"
+              @blur="checkPortAvailabilityDebounced"
+            />
+            <el-button
+              :loading="checkingPort"
+              :disabled="!addForm.hostPort || addForm.hostPort === 0"
+              @click="checkPortAvailability"
+            >
+              {{ $t('admin.portMapping.checkPort') }}
+            </el-button>
+          </div>
           <div style="color: #909399; font-size: 12px; margin-top: 5px;">
             {{ $t('admin.portMapping.autoAssignPortHint') }}
+          </div>
+          <!-- 端口检查结果 -->
+          <div
+            v-if="portCheckResult"
+            :style="{ color: portCheckResult.available ? '#67c23a' : '#f56c6c', fontSize: '12px', marginTop: '5px' }"
+          >
+            <el-icon><CircleCheck v-if="portCheckResult.available" /><CircleClose v-else /></el-icon>
+            {{ portCheckResult.message }}
+          </div>
+          <div
+            v-if="portCheckResult && portCheckResult.suggestion"
+            style="color: #e6a23c; font-size: 12px; margin-top: 3px;"
+          >
+            💡 {{ portCheckResult.suggestion }}
           </div>
         </el-form-item>
         
@@ -464,7 +527,7 @@
           <el-input
             v-model="addForm.description"
             :placeholder="$t('admin.portMapping.descriptionPlaceholder')"
-            maxlength="128"
+            maxlength="256"
             show-word-limit
           />
         </el-form-item>
@@ -489,13 +552,14 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Loading, Search } from '@element-plus/icons-vue'
+import { Plus, Loading, Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { 
   getPortMappings, 
   createPortMapping,
   deletePortMapping, 
-  batchDeletePortMappings, 
+  batchDeletePortMappings,
+  checkPortAvailable,
   getProviderList,
   getAllInstances
 } from '@/api/admin'
@@ -531,9 +595,15 @@ const addForm = reactive({
   instanceId: '',
   guestPort: null,
   hostPort: 0,
+  portCount: 1,
   protocol: 'both',
   description: ''
 })
+
+// 端口检查状态
+const checkingPort = ref(false)
+const portCheckResult = ref(null)
+let checkPortTimeout = null
 
 const addRules = {
   instanceId: [
@@ -542,6 +612,9 @@ const addRules = {
   guestPort: [
     { required: true, message: t('admin.portMapping.pleaseEnterInternalPort'), trigger: 'blur' },
     { type: 'number', min: 1, max: 65535, message: t('admin.portMapping.portRangeError'), trigger: 'blur' }
+  ],
+  portCount: [
+    { type: 'number', min: 1, max: 100, message: t('admin.portMapping.portCountRangeError'), trigger: 'blur' }
   ],
   protocol: [
     { required: true, message: t('admin.portMapping.pleaseSelectProtocol'), trigger: 'change' }
@@ -608,6 +681,112 @@ const selectedInstanceProvider = computed(() => {
   const type = getInstanceProviderType(instance)
   return type || '-'
 })
+
+// 端口范围预览
+const portRangePreview = computed(() => {
+  if (!addForm.portCount || addForm.portCount <= 1) {
+    return ''
+  }
+  
+  const guestStart = addForm.guestPort || 0
+  const guestEnd = guestStart + addForm.portCount - 1
+  
+  // 如果 hostPort 为 0 或未设置，表示自动分配
+  if (!addForm.hostPort || addForm.hostPort === 0) {
+    return t('admin.portMapping.guestPortRange', { start: guestStart, end: guestEnd }) + ' → ' + t('admin.portMapping.autoAssign')
+  }
+  
+  const hostStart = addForm.hostPort
+  const hostEnd = hostStart + addForm.portCount - 1
+  
+  return t('admin.portMapping.guestPortRange', { start: guestStart, end: guestEnd }) + ' → ' + 
+         t('admin.portMapping.hostPortRange', { start: hostStart, end: hostEnd })
+})
+
+// 更新端口范围（当端口或数量变化时）
+const updatePortRange = () => {
+  // 清除之前的端口检查结果
+  portCheckResult.value = null
+  
+  // 验证端口范围是否超出限制
+  if (addForm.guestPort && addForm.portCount) {
+    const guestEnd = addForm.guestPort + addForm.portCount - 1
+    if (guestEnd > 65535) {
+      ElMessage.warning(t('admin.portMapping.portRangeExceedsLimit'))
+    }
+  }
+  
+  if (addForm.hostPort && addForm.hostPort > 0 && addForm.portCount) {
+    const hostEnd = addForm.hostPort + addForm.portCount - 1
+    if (hostEnd > 65535) {
+      ElMessage.warning(t('admin.portMapping.portRangeExceedsLimit'))
+    }
+  }
+}
+
+// 检查端口可用性（带防抖）
+const checkPortAvailabilityDebounced = () => {
+  if (checkPortTimeout) {
+    clearTimeout(checkPortTimeout)
+  }
+  
+  checkPortTimeout = setTimeout(() => {
+    checkPortAvailability()
+  }, 500)
+}
+
+// 检查端口可用性
+const checkPortAvailability = async () => {
+  if (!addForm.hostPort || addForm.hostPort === 0) {
+    portCheckResult.value = null
+    return
+  }
+  
+  if (!addForm.instanceId) {
+    ElMessage.warning(t('admin.portMapping.pleaseSelectInstanceFirst'))
+    return
+  }
+  
+  const portCount = addForm.portCount || 1
+  
+  checkingPort.value = true
+  portCheckResult.value = null
+  
+  try {
+    const response = await checkPortAvailable({
+      instanceId: addForm.instanceId,
+      hostPort: addForm.hostPort,
+      protocol: addForm.protocol,
+      portCount: portCount
+    })
+    
+    if (response.code === 0 && response.data) {
+      const data = response.data
+      portCheckResult.value = {
+        available: data.available,
+        message: data.available 
+          ? (portCount > 1 
+              ? t('admin.portMapping.portRangeAvailable', { start: addForm.hostPort, end: addForm.hostPort + portCount - 1 })
+              : t('admin.portMapping.portAvailable', { port: addForm.hostPort }))
+          : (data.unavailablePorts && data.unavailablePorts.length > 0
+              ? t('admin.portMapping.portsUnavailable', { ports: data.unavailablePorts.join(', ') })
+              : t('admin.portMapping.portUnavailable', { port: addForm.hostPort })),
+        suggestion: data.suggestion || ''
+      }
+    } else {
+      throw new Error(response.message || 'Check failed')
+    }
+  } catch (error) {
+    console.error('Port check error:', error)
+    portCheckResult.value = {
+      available: false,
+      message: t('admin.portMapping.portCheckFailed'),
+      suggestion: ''
+    }
+  } finally {
+    checkingPort.value = false
+  }
+}
 
 // 实例过滤状态
 const instanceFilterText = ref('')
@@ -845,9 +1024,14 @@ const openAddDialog = async () => {
     instanceId: '',
     guestPort: null,
     hostPort: 0,
+    portCount: 1,
     protocol: 'both',
     description: ''
   })
+  
+  // 重置端口检查状态
+  portCheckResult.value = null
+  checkingPort.value = false
   
   // 如果实例列表为空，重新加载
   if (instances.value.length === 0) {
@@ -897,14 +1081,21 @@ const submitAdd = async () => {
       instanceId: addForm.instanceId,
       guestPort: addForm.guestPort,
       hostPort: addForm.hostPort || 0,
+      portCount: addForm.portCount || 1,
       protocol: addForm.protocol,
       description: addForm.description
     }
     
     const response = await createPortMapping(data)
-    ElMessage.success(t('admin.portMapping.addPortTaskCreated'))
+    
+    // 根据端口数量显示不同的成功消息
+    if (data.portCount > 1) {
+      ElMessage.success(t('admin.portMapping.batchAddPortTaskCreated', { count: data.portCount }))
+    } else {
+      ElMessage.success(t('admin.portMapping.addPortTaskCreated'))
+    }
+    
     addDialogVisible.value = false
-    loadPortMappings()
     loadPortMappings()
   } catch (error) {
     ElMessage.error(error.message || t('admin.portMapping.addPortFailed'))

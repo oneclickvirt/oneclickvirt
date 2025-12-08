@@ -44,7 +44,7 @@ func (s *Service) GetUserList(req admin.UserListRequest) ([]admin.UserManageResp
 	if req.UserType != "" {
 		query = query.Where("user_type = ?", req.UserType)
 	}
-	// 修复状态筛选逻辑 - 只有明确指定了状态时才筛选
+	// 状态筛选逻辑 - 只有明确指定了状态时才筛选
 	if req.Status != nil {
 		query = query.Where("status = ?", *req.Status)
 	}
@@ -58,10 +58,36 @@ func (s *Service) GetUserList(req admin.UserListRequest) ([]admin.UserManageResp
 		return nil, 0, err
 	}
 
+	// 批量统计实例数量
+	var userIDs []uint
+	for _, user := range users {
+		userIDs = append(userIDs, user.ID)
+	}
+
+	// 使用GROUP BY一次性统计所有用户的实例数量
+	type InstanceCountResult struct {
+		UserID        uint
+		InstanceCount int64
+	}
+	var countResults []InstanceCountResult
+	if len(userIDs) > 0 {
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Select("user_id, COUNT(*) as instance_count").
+			Where("user_id IN ?", userIDs).
+			Group("user_id").
+			Scan(&countResults)
+	}
+
+	// 将统计结果按user_id映射
+	instanceCountMap := make(map[uint]int64)
+	for _, result := range countResults {
+		instanceCountMap[result.UserID] = result.InstanceCount
+	}
+
 	var userResponses []admin.UserManageResponse
 	for _, user := range users {
-		var instanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ?", user.ID).Count(&instanceCount)
+		// 从预统计的map中获取实例数量
+		instanceCount := instanceCountMap[user.ID]
 
 		userResponse := admin.UserManageResponse{
 			User:          user,
@@ -231,26 +257,37 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 		// 只有在不是修改自己的情况下才允许修改用户类型
 		if req.ID != currentUserID {
 			user.UserType = role.Code
-
-			// 更新用户角色关联
-			global.APP_DB.Model(&user).Association("Roles").Clear()
-			global.APP_DB.Model(&user).Association("Roles").Append(&role)
+			// 角色关联将在事务内更新
 		}
 	} else if req.UserType != "" && req.ID != currentUserID {
 		// 直接指定的用户类型（仅在不是修改自己时允许）
 		user.UserType = req.UserType
 	}
 
-	// 保存更新
+	// 保存更新（在事务内完成所有操作）
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 如果需要更新角色关联，在事务内进行
+		if req.RoleID > 0 && req.ID != currentUserID {
+			var role auth.Role
+			if err := tx.First(&role, req.RoleID).Error; err != nil {
+				return err
+			}
+			// 清除旧的角色关联
+			if err := tx.Model(&user).Association("Roles").Clear(); err != nil {
+				return err
+			}
+			// 添加新的角色关联
+			if err := tx.Model(&user).Association("Roles").Append(&role); err != nil {
+				return err
+			}
+		}
+		// 保存用户信息
 		return tx.Save(&user).Error
 	}); err != nil {
 		global.APP_LOG.Error("用户更新失败", zap.Uint("userID", req.ID), zap.Error(err))
 		return err
-	}
-
-	// 清除用户权限缓存，确保权限变更立即生效
+	} // 清除用户权限缓存，确保权限变更立即生效
 	permissionService := auth2.PermissionService{}
 	permissionService.ClearUserPermissionCache(user.ID)
 
@@ -394,8 +431,12 @@ func (s *Service) syncUserResourceLimits(userIDs []uint) error {
 	}
 
 	// 按等级分组查询用户
+	// 批量查询用户level信息
 	var users []userModel.User
-	if err := global.APP_DB.Select("id, level").Where("id IN ?", userIDs).Find(&users).Error; err != nil {
+	if err := global.APP_DB.Select("id, level").
+		Where("id IN ?", userIDs).
+		Limit(1000).
+		Find(&users).Error; err != nil {
 		global.APP_LOG.Error("查询用户信息失败", zap.Error(err))
 		return err
 	}

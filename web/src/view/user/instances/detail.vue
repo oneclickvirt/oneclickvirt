@@ -14,6 +14,37 @@
 
     <!-- 实例概览卡片 -->
     <el-card class="overview-card">
+      <!-- 关联任务提示 -->
+      <el-alert
+        v-if="instance.relatedTask"
+        :title="getTaskTitle(instance.relatedTask)"
+        :type="getTaskAlertType(instance.relatedTask.status)"
+        :description="instance.relatedTask.statusMessage || `进度: ${instance.relatedTask.progress}%`"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 20px;"
+      >
+        <template #default>
+          <div style="display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <p>{{ instance.relatedTask.statusMessage || `正在${getTaskTypeText(instance.relatedTask.taskType)}...` }}</p>
+              <el-progress 
+                :percentage="instance.relatedTask.progress" 
+                :status="instance.relatedTask.progress === 100 ? 'success' : undefined"
+                style="margin-top: 10px;"
+              />
+            </div>
+            <el-button 
+              type="primary" 
+              size="small"
+              @click="viewTaskDetail(instance.relatedTask.id)"
+            >
+              查看任务详情
+            </el-button>
+          </div>
+        </template>
+      </el-alert>
+      
       <!-- Provider离线警告 -->
       <el-alert
         v-if="instance.providerStatus && (instance.providerStatus === 'inactive' || instance.providerStatus === 'partial')"
@@ -520,25 +551,6 @@
           <div class="stats-content">
             <!-- 流量统计 -->
             <div class="traffic-section">
-              <div class="section-header">
-                <h3>{{ t('user.trafficOverview.trafficStats') }}</h3>
-                <div class="section-actions">
-                  <el-button
-                    size="small"
-                    @click="refreshMonitoring"
-                  >
-                    <el-icon><Refresh /></el-icon>
-                    {{ t('user.instances.search') }}
-                  </el-button>
-                  <el-button
-                    size="small"
-                    type="primary"
-                    @click="showTrafficDetail = true"
-                  >
-                    {{ t('user.trafficOverview.viewDetailedStats') }}
-                  </el-button>
-                </div>
-              </div>
               <div class="traffic-stats">
                 <div class="traffic-usage">
                   <div class="usage-header">
@@ -594,12 +606,38 @@
                 </div>
               </div>
             </div>
+
+            <!-- 流量历史趋势图 -->
+            <TrafficHistoryChart
+              ref="trafficChartRef"
+              type="instance"
+              :resource-id="route.params.id"
+              :title="''"
+              :auto-refresh="0"
+            >
+              <template #extra-actions>
+                <el-button
+                  size="small"
+                  @click="refreshMonitoring"
+                >
+                  <el-icon><Refresh /></el-icon>
+                  {{ t('common.refresh') }}
+                </el-button>
+                <el-button
+                  size="small"
+                  type="primary"
+                  @click="showTrafficDetail = true"
+                >
+                  {{ t('user.trafficOverview.viewDetailedStats') }}
+                </el-button>
+              </template>
+            </TrafficHistoryChart>
           </div>
         </el-tab-pane>
       </el-tabs>
     </el-card>
 
-    <!-- vnStat 流量详情对话框 -->
+    <!-- PMAcct 流量详情对话框 -->
     <InstanceTrafficDetail
       v-model="showTrafficDetail"
       :instance-id="route.params.id"
@@ -631,6 +669,7 @@ import {
 } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
+import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
 const route = useRoute()
@@ -644,6 +683,7 @@ const showPassword = ref(false)
 const showTrafficDetail = ref(false)
 const portMappings = ref([])
 const activeTab = ref('overview') // 默认显示概览标签页
+const trafficChartRef = ref(null) // TrafficHistoryChart 组件引用
 
 // 实例类型权限配置
 const instanceTypePermissions = ref({
@@ -747,6 +787,53 @@ const getProviderTypeColor = (type) => {
   return colors[type] || ''
 }
 
+// 任务相关方法
+const getTaskTitle = (task) => {
+  const taskTypes = {
+    create: '创建实例',
+    delete: '删除实例',
+    start: '启动实例',
+    stop: '停止实例',
+    restart: '重启实例',
+    reset: '重置实例',
+    reset_password: '重置密码'
+  }
+  return taskTypes[task.taskType] || '实例操作'
+}
+
+const getTaskTypeText = (taskType) => {
+  const taskTypes = {
+    create: '创建',
+    delete: '删除',
+    start: '启动',
+    stop: '停止',
+    restart: '重启',
+    reset: '重置',
+    reset_password: '重置密码'
+  }
+  return taskTypes[taskType] || '处理'
+}
+
+const getTaskAlertType = (status) => {
+  const types = {
+    pending: 'info',
+    processing: 'warning',
+    running: 'warning',
+    completed: 'success',
+    failed: 'error',
+    cancelled: 'info'
+  }
+  return types[status] || 'info'
+}
+
+const viewTaskDetail = (taskId) => {
+  // 跳转到任务列表页面并高亮该任务
+  router.push({
+    path: '/user/tasks',
+    query: { taskId }
+  })
+}
+
 // 获取实例详情
 const loadInstanceDetail = async (skipPermissionUpdate = false) => {
   // 检查实例ID是否有效
@@ -837,6 +924,11 @@ const refreshMonitoring = async () => {
       history: []
     }
     ElMessage.error(t('user.instanceDetail.getMonitoringFailed'))
+  }
+  
+  // 刷新流量历史图表
+  if (trafficChartRef.value && trafficChartRef.value.refresh) {
+    trafficChartRef.value.refresh()
   }
 }
 
@@ -970,7 +1062,7 @@ const performAction = async (action) => {
     // 操作失败或取消时立即恢复按钮
     actionLoading.value = false
   }
-  // 注意：成功执行非删除/重置操作时，不立即重置loading，等待3秒后再重置
+  // 成功执行非删除/重置操作时，不立即重置loading，等待3秒后再重置
 }
 
 // 打开SSH终端
@@ -1240,29 +1332,26 @@ watch(() => route.params.id, async (newId, oldId) => {
 // 标志位，防止 watch 循环触发
 let isUpdatingFromRoute = false
 
-// 监听路由hash变化来切换标签页
-watch(() => route.hash, (newHash, oldHash) => {
-  // 如果hash没有实际变化，直接返回
-  if (newHash === oldHash) {
+// 监听路由 query 参数变化来切换标签页
+watch(() => route.query.tab, (newTab, oldTab) => {
+  // 如果tab没有实际变化，直接返回
+  if (newTab === oldTab) {
     return
   }
   
-  if (newHash) {
-    const tab = newHash.replace('#', '')
-    if (['overview', 'ports', 'stats'].includes(tab)) {
-      // 如果当前标签已经是目标标签，不需要更新
-      if (activeTab.value === tab) {
-        return
-      }
-      isUpdatingFromRoute = true
-      activeTab.value = tab
-      // 下一个 tick 后重置标志
-      nextTick(() => {
-        isUpdatingFromRoute = false
-      })
+  if (newTab && ['overview', 'ports', 'stats'].includes(newTab)) {
+    // 如果当前标签已经是目标标签，不需要更新
+    if (activeTab.value === newTab) {
+      return
     }
+    isUpdatingFromRoute = true
+    activeTab.value = newTab
+    // 下一个 tick 后重置标志
+    nextTick(() => {
+      isUpdatingFromRoute = false
+    })
   } else {
-    // 如果没有hash，默认显示overview
+    // 如果没有tab参数，默认显示overview
     if (activeTab.value !== 'overview') {
       isUpdatingFromRoute = true
       activeTab.value = 'overview'
@@ -1273,7 +1362,7 @@ watch(() => route.hash, (newHash, oldHash) => {
   }
 }, { immediate: true })
 
-// 切换标签页时更新URL hash
+// 切换标签页时更新 URL query 参数
 watch(activeTab, (newTab, oldTab) => {
   // 如果标签没有实际变化，直接返回
   if (newTab === oldTab) {
@@ -1286,13 +1375,11 @@ watch(activeTab, (newTab, oldTab) => {
   }
   
   if (newTab) {
-    const newHash = `#${newTab}`
-    // 只在hash真正不同时才更新
-    if (route.hash !== newHash) {
-      // 使用 history.replaceState 而不是 router.replace，避免触发整个组件重新渲染
-      const url = new URL(window.location.href)
-      url.hash = newHash
-      window.history.replaceState(window.history.state, '', url.toString())
+    // 只在 query 参数真正不同时才更新
+    if (route.query.tab !== newTab) {
+      router.replace({
+        query: { ...route.query, tab: newTab }
+      })
     }
   }
 })
@@ -1460,7 +1547,7 @@ onUnmounted(() => {
   padding: 24px;
 }
 
-/* 优化标签页切换性能 - 使用 GPU 加速 */
+/* 标签页切换 - 使用 GPU 加速 */
 .tabs-card :deep(.el-tab-pane) {
   will-change: auto;
   transform: translateZ(0);
@@ -1606,7 +1693,7 @@ onUnmounted(() => {
 /* 统计标签页 */
 .stats-content {
   display: grid;
-  gap: 32px;
+  gap: 12px;
 }
 
 .section-header {
@@ -1666,7 +1753,7 @@ onUnmounted(() => {
   padding: 20px;
   background: #f8f9fa;
   border-radius: 8px;
-  margin-bottom: 20px;
+  margin-bottom: 0;
 }
 
 .usage-header {
@@ -1786,7 +1873,7 @@ onUnmounted(() => {
     gap: 8px;
   }
 
-  /* 移动端IP地址显示优化 */
+  /* 移动端IP地址显示 */
   .ip-value {
     max-width: 150px;
   }

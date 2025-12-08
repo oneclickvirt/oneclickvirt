@@ -681,8 +681,9 @@ const getTaskStatusType = (status) => {
 
 // 判断是否应该显示实例配置
 const shouldShowInstanceConfig = (task) => {
-  // create 类型的任务总是显示配置区域
-  return task.taskType === 'create'
+  // create 类型的任务总是显示配置区域（所有状态）
+  // 或者任务有预分配配置信息时也显示
+  return task.taskType === 'create' || task.preallocatedCpu > 0
 }
 
 // 获取任务状态文本

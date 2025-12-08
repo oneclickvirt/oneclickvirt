@@ -7,6 +7,74 @@ import (
 	"gorm.io/gorm"
 )
 
+// TrafficStatsMode 流量统计性能模式
+const (
+	TrafficStatsModeHigh     = "high"     // 高性能模式（8核+独立服务器）
+	TrafficStatsModeStandard = "standard" // 标准模式（4-8核独立服务器）
+	TrafficStatsModeLight    = "light"    // 轻量模式（2-4核独立服务器，默认）
+	TrafficStatsModeMinimal  = "minimal"  // 最小模式（共享VPS/无独享内核）
+	TrafficStatsModeCustom   = "custom"   // 自定义模式
+)
+
+// TrafficStatsPreset 流量统计预设配置
+type TrafficStatsPreset struct {
+	SQLiteCollectInterval int // SQLite采集间隔（秒），采集后自动同步统计
+	CollectBatchSize      int // 采集批量大小（每次处理的实例数）
+	LimitCheckInterval    int // 流量限制检测间隔（秒）
+	LimitCheckBatchSize   int // 流量限制检测批量大小
+	AutoResetInterval     int // 自动重置检查间隔（秒）
+	AutoResetBatchSize    int // 自动重置批量大小
+}
+
+// GetTrafficStatsPreset 根据模式获取预设配置
+func GetTrafficStatsPreset(mode string) TrafficStatsPreset {
+	switch mode {
+	case TrafficStatsModeHigh:
+		// 高性能模式（8核+）- CPU占用10-15%, 响应快
+		return TrafficStatsPreset{
+			SQLiteCollectInterval: 30,  // 0.5分钟采集+统计
+			CollectBatchSize:      20,  // 批量20个
+			LimitCheckInterval:    30,  // 30秒检测
+			LimitCheckBatchSize:   20,  // 批量20个
+			AutoResetInterval:     600, // 10分钟检查
+			AutoResetBatchSize:    20,  // 批量20个
+		}
+	case TrafficStatsModeStandard:
+		// 标准模式（4-8核）- CPU占用5-10%, 响应正常
+		return TrafficStatsPreset{
+			SQLiteCollectInterval: 60,  // 1分钟采集+统计
+			CollectBatchSize:      15,  // 批量15个
+			LimitCheckInterval:    60,  // 1分钟检测
+			LimitCheckBatchSize:   15,  // 批量15个
+			AutoResetInterval:     900, // 15分钟检查
+			AutoResetBatchSize:    15,  // 批量15个
+		}
+	case TrafficStatsModeLight:
+		// 轻量模式（2-4核，默认）- CPU占用2-5%, 资源友好
+		return TrafficStatsPreset{
+			SQLiteCollectInterval: 90,   // 1.5分钟采集+统计
+			CollectBatchSize:      10,   // 批量10个
+			LimitCheckInterval:    90,   // 1.5分钟检测
+			LimitCheckBatchSize:   10,   // 批量10个
+			AutoResetInterval:     1800, // 30分钟检查
+			AutoResetBatchSize:    10,   // 批量10个
+		}
+	case TrafficStatsModeMinimal:
+		// 最小模式（共享VPS）- CPU占用0.5-2%, 极低负载
+		return TrafficStatsPreset{
+			SQLiteCollectInterval: 120,  // 2分钟采集+统计
+			CollectBatchSize:      5,    // 批量5个
+			LimitCheckInterval:    120,  // 2分钟检测
+			LimitCheckBatchSize:   5,    // 批量5个
+			AutoResetInterval:     3600, // 60分钟检查
+			AutoResetBatchSize:    5,    // 批量5个
+		}
+	default:
+		// 返回轻量模式作为默认
+		return GetTrafficStatsPreset(TrafficStatsModeLight)
+	}
+}
+
 type Provider struct {
 	// 基础字段
 	ID        uint      `json:"id" gorm:"primarykey"`                     // 主键ID
@@ -127,20 +195,29 @@ type Provider struct {
 	// 流量管理（MB为单位）
 	EnableTrafficControl bool       `json:"enableTrafficControl" gorm:"default:false"`    // 是否启用流量统计和限制，默认不启用
 	MaxTraffic           int64      `json:"maxTraffic" gorm:"default:1048576"`            // 最大流量限制（默认1TB=1048576MB）
-	UsedTraffic          int64      `json:"usedTraffic" gorm:"default:0"`                 // 当月已使用流量（MB）
 	TrafficLimited       bool       `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被限制
 	TrafficResetAt       *time.Time `json:"trafficResetAt"`                               // 流量重置时间
 	TrafficCountMode     string     `json:"trafficCountMode" gorm:"default:both;size:16"` // 流量统计模式：both(双向), out(仅出向), in(仅入向)
 	TrafficMultiplier    float64    `json:"trafficMultiplier" gorm:"default:1.0"`         // 流量计费倍率（例如：入向0.5倍，出向1倍）
 
+	// 流量统计性能配置
+	TrafficStatsMode           string `json:"trafficStatsMode" gorm:"default:light;size:16"`                               // 流量统计性能模式：high(高性能), standard(标准), light(轻量), minimal(最小), custom(自定义)
+	TrafficCollectInterval     int    `json:"trafficCollectInterval" gorm:"column:traffic_collect_interval;default:300"`   // 流量采集间隔（秒），采集后自动统计，默认300秒（5分钟）
+	TrafficCollectBatchSize    int    `json:"trafficCollectBatchSize" gorm:"column:traffic_collect_batch_size;default:10"` // 流量采集批量大小，默认10个
+	TrafficLimitCheckInterval  int    `json:"trafficLimitCheckInterval" gorm:"default:600"`                                // 流量限制检测间隔（秒），默认600秒（10分钟）
+	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize" gorm:"default:10"`                                // 流量限制检测批量大小，默认10个
+	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval" gorm:"default:1800"`                                // 流量自动重置检查间隔（秒），默认1800秒（30分钟）
+	TrafficAutoResetBatchSize  int    `json:"trafficAutoResetBatchSize" gorm:"default:10"`                                 // 流量自动重置批量大小，默认10个
+
 	// 资源占用统计（基于实际创建的实例计算）
 	UsedCPUCores     int        `json:"usedCpuCores" gorm:"default:0"`       // 已占用的CPU核心数
 	UsedMemory       int64      `json:"usedMemory" gorm:"default:0"`         // 已占用的内存大小（MB）
 	UsedDisk         int64      `json:"usedDisk" gorm:"default:0"`           // 已占用的磁盘空间（MB）
-	ContainerCount   int        `json:"containerCount" gorm:"default:0"`     // 当前运行的容器实例数量
-	VMCount          int        `json:"vmCount" gorm:"default:0"`            // 当前运行的虚拟机实例数量
+	ContainerCount   int        `json:"containerCount" gorm:"default:0"`     // 当前运行的容器实例数量（缓存值，定期更新）
+	VMCount          int        `json:"vmCount" gorm:"default:0"`            // 当前运行的虚拟机实例数量（缓存值，定期更新）
 	ResourceSynced   bool       `json:"resourceSynced" gorm:"default:false"` // 资源信息是否已同步
 	ResourceSyncedAt *time.Time `json:"resourceSyncedAt"`                    // 资源信息最后同步时间
+	CountCacheExpiry *time.Time `json:"countCacheExpiry"`                    // 数量缓存过期时间（避免频繁查询数据库）
 
 	// 可用资源统计（动态计算得出）
 	AvailableCPUCores int   `json:"availableCpuCores" gorm:"default:0"` // 可用的CPU核心数（NodeCPUCores - UsedCPUCores）
@@ -154,11 +231,57 @@ type Provider struct {
 
 	// 节点标识信息（用于区分多个hostname相同的节点）
 	HostName string `json:"hostName" gorm:"size:128"` // 节点主机名（hostname），由健康检查自动更新
+
+	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
+	ContainerPrivileged   bool   `json:"containerPrivileged" gorm:"default:false"`          // 容器特权模式：允许容器访问宿主机资源
+	ContainerAllowNesting bool   `json:"containerAllowNesting" gorm:"default:false"`        // 容器嵌套：允许在容器内运行容器
+	ContainerEnableLXCFS  bool   `json:"containerEnableLxcfs" gorm:"default:true"`          // LXCFS资源视图：显示真实资源限制
+	ContainerCPUAllowance string `json:"containerCpuAllowance" gorm:"default:100%;size:16"` // CPU限制：例如 "100%" 或 "50%"
+	ContainerMemorySwap   bool   `json:"containerMemorySwap" gorm:"default:true"`           // 内存交换：允许使用swap空间
+	ContainerMaxProcesses int    `json:"containerMaxProcesses" gorm:"default:0"`            // 最大进程数：0表示不限制
+	ContainerDiskIOLimit  string `json:"containerDiskIoLimit" gorm:"size:32"`               // 磁盘IO限制：例如 "10MB" 或 "100iops"
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 	p.UUID = uuid.New().String()
+
+	// 如果没有设置流量统计模式，使用默认轻量模式
+	if p.TrafficStatsMode == "" {
+		p.TrafficStatsMode = TrafficStatsModeLight
+	}
+
+	// 应用预设配置（如果不是自定义模式且配置值为0）
+	if p.TrafficStatsMode != TrafficStatsModeCustom {
+		p.ApplyTrafficStatsPreset()
+	}
+
 	return nil
+}
+
+// ApplyTrafficStatsPreset 应用流量统计预设配置
+// 强制应用所有预设值（不保留旧值）
+func (p *Provider) ApplyTrafficStatsPreset() {
+	preset := GetTrafficStatsPreset(p.TrafficStatsMode)
+
+	// 强制应用预设配置的所有值
+	p.TrafficCollectInterval = preset.SQLiteCollectInterval
+	p.TrafficCollectBatchSize = preset.CollectBatchSize
+	p.TrafficLimitCheckInterval = preset.LimitCheckInterval
+	p.TrafficLimitCheckBatchSize = preset.LimitCheckBatchSize
+	p.TrafficAutoResetInterval = preset.AutoResetInterval
+	p.TrafficAutoResetBatchSize = preset.AutoResetBatchSize
+}
+
+// GetTrafficStatsConfig 获取流量统计配置
+func (p *Provider) GetTrafficStatsConfig() TrafficStatsPreset {
+	return TrafficStatsPreset{
+		SQLiteCollectInterval: p.TrafficCollectInterval,
+		CollectBatchSize:      p.TrafficCollectBatchSize,
+		LimitCheckInterval:    p.TrafficLimitCheckInterval,
+		LimitCheckBatchSize:   p.TrafficLimitCheckBatchSize,
+		AutoResetInterval:     p.TrafficAutoResetInterval,
+		AutoResetBatchSize:    p.TrafficAutoResetBatchSize,
+	}
 }
 
 // GetAuthMethod 返回当前使用的认证方式
@@ -185,12 +308,12 @@ type Instance struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
 
 	// 基本信息
-	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider;not null;size:128"` // 实例名称（与provider_id组合唯一）
-	Provider     string `json:"provider" gorm:"not null;size:32"`                                     // Provider名称
-	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider;not null"`    // 关联的Provider ID（与name组合唯一）
-	Status       string `json:"status" gorm:"size:32"`                                                // 实例状态：creating, running, stopped, failed等
-	Image        string `json:"image" gorm:"size:128"`                                                // 使用的镜像名称
-	InstanceType string `json:"instance_type" gorm:"size:16;default:container"`                       // 实例类型：container, vm
+	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider;not null;size:128"`                                   // 实例名称（与provider_id组合唯一）
+	Provider     string `json:"provider" gorm:"not null;size:32"`                                                                       // Provider名称
+	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
+	Status       string `json:"status" gorm:"size:32;index:idx_provider_status,priority:2"`                                             // 实例状态：creating, running, stopped, failed等
+	Image        string `json:"image" gorm:"size:128"`                                                                                  // 使用的镜像名称
+	InstanceType string `json:"instance_type" gorm:"size:16;default:container"`                                                         // 实例类型：container, vm
 
 	// 资源配置
 	CPU       int   `json:"cpu" gorm:"default:1"`        // CPU核心数
@@ -216,23 +339,18 @@ type Instance struct {
 	OSType string `json:"osType" gorm:"size:64"` // 操作系统类型：ubuntu, centos, debian等
 	Region string `json:"region" gorm:"size:64"` // 所在地区
 
-	// 流量统计（MB为单位）
-	UsedTrafficIn      int64  `json:"usedTrafficIn" gorm:"default:0"`               // 入站流量（MB）
-	UsedTrafficOut     int64  `json:"usedTrafficOut" gorm:"default:0"`              // 出站流量（MB）
-	UsedTraffic        int64  `json:"usedTraffic" gorm:"default:0"`                 // 实例当月总流量（MB）= UsedTrafficIn + UsedTrafficOut
+	// 流量统计（实例层面）
 	MaxTraffic         int64  `json:"maxTraffic" gorm:"default:0"`                  // 实例流量限制（MB），0表示不限制，从用户等级继承
 	TrafficLimited     bool   `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被停机
 	TrafficLimitReason string `json:"trafficLimitReason" gorm:"size:16;default:''"` // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
-	VnstatInterface    string `json:"vnstatInterface" gorm:"size:32"`               // vnstat监控的网络接口名称
+	PmacctInterfaceV4  string `json:"pmacctInterfaceV4" gorm:"size:32"`             // pmacct 监控的IPv4网络接口名称
+	PmacctInterfaceV6  string `json:"pmacctInterfaceV6" gorm:"size:32"`             // pmacct 监控的IPv6网络接口名称
 
 	// 生命周期
 	ExpiredAt time.Time `json:"expiredAt" gorm:"column:expired_at"` // 实例到期时间
 
 	// 关联关系
-	UserID uint `json:"userId"` // 所属用户ID
-
-	// 其他标志
-	SoftDeleted bool `json:"softDeleted" gorm:"default:false"` // 是否软删除
+	UserID uint `json:"userId" gorm:"index:idx_user_status,priority:1"` // 所属用户ID
 }
 
 func (i *Instance) BeforeCreate(tx *gorm.DB) error {
@@ -249,21 +367,24 @@ type Port struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`       // 软删除时间
 
 	// 端口映射信息
-	InstanceID  uint   `json:"instanceId"`                                   // 关联的实例ID
-	ProviderID  uint   `json:"providerId"`                                   // 关联的Provider ID
-	HostPort    int    `json:"hostPort" gorm:"not null"`                     // 宿主机端口
-	GuestPort   int    `json:"guestPort" gorm:"not null"`                    // 容器/虚拟机内部端口
-	Protocol    string `json:"protocol" gorm:"default:both;size:8"`          // 协议类型：tcp, udp, both
-	Status      string `json:"status" gorm:"default:active;size:16"`         // 映射状态：active, inactive
-	Description string `json:"description" gorm:"size:128"`                  // 端口用途描述
-	IsSSH       bool   `json:"isSsh" gorm:"default:false"`                   // 是否为SSH端口
-	IsAutomatic bool   `json:"isAutomatic" gorm:"default:true"`              // 是否为自动分配的端口
-	PortType    string `json:"portType" gorm:"default:range_mapped;size:16"` // 端口类型：range_mapped(区间映射), manual(手动添加)
+	InstanceID   uint   `json:"instanceId"`                                   // 关联的实例ID
+	ProviderID   uint   `json:"providerId"`                                   // 关联的Provider ID
+	HostPort     int    `json:"hostPort" gorm:"not null"`                     // 宿主机端口（起始端口）
+	HostPortEnd  int    `json:"hostPortEnd" gorm:"default:0"`                 // 宿主机端口结束（0表示单端口）
+	GuestPort    int    `json:"guestPort" gorm:"not null"`                    // 容器/虚拟机内部端口（起始端口）
+	GuestPortEnd int    `json:"guestPortEnd" gorm:"default:0"`                // 容器/虚拟机内部端口结束（0表示单端口）
+	PortCount    int    `json:"portCount" gorm:"default:1"`                   // 端口数量（端口段包含的端口个数）
+	Protocol     string `json:"protocol" gorm:"default:both;size:8"`          // 协议类型：tcp, udp, both
+	Status       string `json:"status" gorm:"default:active;size:16"`         // 映射状态：active, inactive
+	Description  string `json:"description" gorm:"size:256"`                  // 端口用途描述（支持更长描述）
+	IsSSH        bool   `json:"isSsh" gorm:"default:false"`                   // 是否为SSH端口
+	IsAutomatic  bool   `json:"isAutomatic" gorm:"default:true"`              // 是否为自动分配的端口
+	PortType     string `json:"portType" gorm:"default:range_mapped;size:16"` // 端口类型：range_mapped(区间映射), manual(手动添加), batch(批量添加)
 
 	// IPv6支持
 	IPv6Enabled   bool   `json:"ipv6Enabled" gorm:"default:false"`            // 是否启用IPv6映射
 	IPv6Address   string `json:"ipv6Address" gorm:"size:64"`                  // IPv6映射地址
-	MappingMethod string `json:"mappingMethod" gorm:"size:32;default:native"` // 映射方法：native, iptables, gost, firewall
+	MappingMethod string `json:"mappingMethod" gorm:"size:32;default:native"` // 映射方法：native, iptables, firewall
 }
 
 // PendingDeletion 待删除资源模型
@@ -323,10 +444,20 @@ type ProviderInstanceConfig struct {
 	Env          map[string]string `json:"env"`
 	Metadata     map[string]string `json:"metadata"`
 	InstanceType string            `json:"instance_type"` // container 或 vm
+
+	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
+	Privileged   *bool   `json:"privileged,omitempty"`   // 容器特权模式，使用指针以区分 false 和未设置
+	AllowNesting *bool   `json:"allowNesting,omitempty"` // 容器嵌套
+	EnableLXCFS  *bool   `json:"enableLxcfs,omitempty"`  // LXCFS资源视图
+	CPUAllowance *string `json:"cpuAllowance,omitempty"` // CPU限制
+	MemorySwap   *bool   `json:"memorySwap,omitempty"`   // 内存交换
+	MaxProcesses *int    `json:"maxProcesses,omitempty"` // 最大进程数
+	DiskIOLimit  *string `json:"diskIoLimit,omitempty"`  // 磁盘IO限制
 }
 
 // ProviderNodeConfig 节点配置
 type ProviderNodeConfig struct {
+	ID                    uint     `json:"id"` // Provider ID，用于资源清理
 	UUID                  string   `json:"uuid"`
 	Name                  string   `json:"name"`
 	Host                  string   `json:"host"`
@@ -363,6 +494,15 @@ type ProviderNodeConfig struct {
 
 	// 节点标识（用于区分多个相同hostname的节点）
 	HostName string `json:"host_name"` // 节点主机名（hostname），用于Proxmox等需要节点名的Provider
+
+	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
+	ContainerPrivileged   bool   `json:"containerPrivileged"`   // 容器特权模式
+	ContainerAllowNesting bool   `json:"containerAllowNesting"` // 容器嵌套
+	ContainerEnableLXCFS  bool   `json:"containerEnableLxcfs"`  // LXCFS资源视图
+	ContainerCPUAllowance string `json:"containerCpuAllowance"` // CPU限制
+	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 内存交换
+	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数
+	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制
 }
 
 // ProviderResponse 用于返回给前端的Provider响应结构

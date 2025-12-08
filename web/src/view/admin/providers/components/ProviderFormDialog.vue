@@ -102,6 +102,17 @@
           v-model="formData"
         />
       </el-tab-pane>
+
+      <!-- 硬件配置（LXD/Incus 容器和虚拟机） -->
+      <el-tab-pane
+        v-if="showHardwareConfigTab"
+        :label="$t('admin.providers.hardwareConfig')"
+        name="hardwareConfig"
+      >
+        <HardwareConfigTab
+          v-model="formData"
+        />
+      </el-tab-pane>
     </el-tabs>
     
     <template #footer>
@@ -132,6 +143,7 @@ import MappingTab from './formTabs/MappingTab.vue'
 import BandwidthTab from './formTabs/BandwidthTab.vue'
 import LevelLimitsTab from './formTabs/LevelLimitsTab.vue'
 import AdvancedTab from './formTabs/AdvancedTab.vue'
+import HardwareConfigTab from './formTabs/HardwareConfigTab.vue'
 
 const { t } = useI18n()
 
@@ -182,6 +194,12 @@ const groupedCountries = computed(() => {
     return props.groupedCountries
   }
   return getCountriesByRegion()
+})
+
+// 是否显示硬件配置标签页（LXD/Incus 的容器或虚拟机都可以配置硬件参数）
+const showHardwareConfigTab = computed(() => {
+  const type = formData.value.type
+  return type === 'lxd' || type === 'incus'
 })
 
 // 表单数据
@@ -241,7 +259,15 @@ const formData = ref({
     3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 40960, bandwidth: 500 }, maxTraffic: 307200 },
     4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 81920, bandwidth: 1000 }, maxTraffic: 409600 },
     5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 163840, bandwidth: 2000 }, maxTraffic: 512000 }
-  }
+  },
+  // 容器特殊配置选项（仅 LXD/Incus 容器）
+  containerPrivileged: false,
+  containerAllowNesting: false,
+  containerEnableLxcfs: true,
+  containerCpuAllowance: '100%',
+  containerMemorySwap: true,
+  containerMaxProcesses: 0,
+  containerDiskIoLimit: ''
 })
 
 // 异步验证器：检查Provider名称是否已存在
@@ -323,11 +349,23 @@ const rules = {
   ],
   status: [
     { required: true, message: () => t('admin.providers.validation.statusRequired'), trigger: 'change' }
+  ],
+  trafficCollectInterval: [
+    { 
+      validator: (rule, value, callback) => {
+        if (value && (value < 10 || value > 300)) {
+          callback(new Error(t('admin.providers.validation.trafficCollectIntervalRange') || '流量采集间隔必须在10-300秒之间（最长5分钟）'))
+        } else {
+          callback()
+        }
+      }, 
+      trigger: 'blur' 
+    }
   ]
 }
 
 // 监听 providerData 变化，更新表单数据
-// 注意：只在对话框首次打开时同步数据，避免用户编辑过程中被覆盖
+// 只在对话框首次打开时同步数据，避免用户编辑过程中被覆盖
 watch(() => props.visible, (isVisible) => {
   if (isVisible && props.providerData && Object.keys(props.providerData).length > 0) {
     // 对话框打开时，同步父组件的数据到表单

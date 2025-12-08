@@ -9,7 +9,6 @@ import (
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 	"strconv"
-	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -519,24 +518,9 @@ func (i *IptablesPortMapping) createSSHClient(providerInfo *provider.Provider) (
 	return utils.NewSSHClient(sshConfig)
 }
 
-// parseEndpoint 解析endpoint获取host和port
+// parseEndpoint 解析endpoint获取host和port（使用全局函数）
 func (i *IptablesPortMapping) parseEndpoint(endpoint string) (host string, port int) {
-	// 默认SSH端口
-	port = 22
-	host = endpoint
-
-	// 如果endpoint包含端口，解析它
-	if strings.Contains(endpoint, ":") {
-		parts := strings.Split(endpoint, ":")
-		if len(parts) == 2 {
-			host = parts[0]
-			if p, err := strconv.Atoi(parts[1]); err == nil {
-				port = p
-			}
-		}
-	}
-
-	return host, port
+	return utils.ParseEndpoint(endpoint, 22)
 }
 
 // init 注册iptables端口映射Provider

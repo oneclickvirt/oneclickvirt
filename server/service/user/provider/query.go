@@ -24,7 +24,9 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 
 	// 获取允许申领且未冻结的Provider，包括部分在线的服务器
 	err := global.APP_DB.Where("(status = ? OR status = ?) AND allow_claim = ? AND is_frozen = ?",
-		"active", "partial", true, false).Find(&dbProviders).Error
+		"active", "partial", true, false).
+		Limit(1000). // 限制最多1000条，防止单次查询过大
+		Find(&dbProviders).Error
 	if err != nil {
 		return nil, err
 	}
@@ -32,6 +34,25 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 	global.APP_LOG.Info("开始处理Provider列表",
 		zap.Int("totalProviders", len(dbProviders)),
 		zap.Uint("userID", userID))
+
+	// 批量查询所有Provider的活跃预留资源
+	var providerIDs []uint
+	for _, provider := range dbProviders {
+		providerIDs = append(providerIDs, provider.ID)
+	}
+
+	var allReservations []resourceModel.ResourceReservation
+	if len(providerIDs) > 0 {
+		global.APP_DB.Where("provider_id IN ? AND expires_at > ?", providerIDs, time.Now()).
+			Find(&allReservations)
+	}
+
+	// 按provider_id分组预留资源
+	reservationsByProvider := make(map[uint][]resourceModel.ResourceReservation)
+	for _, reservation := range allReservations {
+		reservationsByProvider[reservation.ProviderID] = append(
+			reservationsByProvider[reservation.ProviderID], reservation)
+	}
 
 	var providers []userModel.AvailableProviderResponse
 	skippedCount := 0
@@ -62,15 +83,8 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				continue
 			}
 
-			// 计算实际可用资源（包含预留资源的占用）
-			// 统计当前活跃的预留资源（新机制：基于过期时间）
-			var activeReservations []resourceModel.ResourceReservation
-			if err := global.APP_DB.Where("provider_id = ? AND expires_at > ?",
-				provider.ID, time.Now()).Find(&activeReservations).Error; err != nil {
-				global.APP_LOG.Warn("查询预留资源失败",
-					zap.Uint("providerId", provider.ID),
-					zap.Error(err))
-			}
+			// 从预加载的map中获取该Provider的活跃预留资源
+			activeReservations := reservationsByProvider[provider.ID]
 
 			// 计算预留资源占用
 			reservedCPU := 0
@@ -257,7 +271,7 @@ func (s *Service) GetInstanceConfig(userID uint, providerID uint) (*userModel.In
 
 	if providerLevelLimits != nil {
 		// 如果有节点限制，取最小值
-		if maxResources, ok := providerLevelLimits["maxResources"].(map[string]interface{}); ok {
+		if maxResources, ok := providerLevelLimits["max-resources"].(map[string]interface{}); ok {
 			if cpu, ok := maxResources["cpu"].(float64); ok && int(cpu) < finalMaxCPU {
 				finalMaxCPU = int(cpu)
 			}

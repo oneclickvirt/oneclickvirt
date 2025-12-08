@@ -32,10 +32,10 @@
         <!-- 数据源指示 -->
         <div class="data-source-indicator">
           <el-tag 
-            :type="trafficData.vnstat_available ? 'success' : 'warning'"
+            :type="trafficData.traffic_control_enabled ? 'success' : 'warning'"
             size="small"
           >
-            {{ trafficData.vnstat_available ? t('user.trafficOverview.vnstatRealtime') : t('user.trafficOverview.basicData') }}
+            {{ trafficData.traffic_control_enabled ? t('user.trafficOverview.pmacctRealtime') : t('user.trafficOverview.basicData') }}
           </el-tag>
         </div>
 
@@ -44,8 +44,8 @@
           <div class="usage-header">
             <span class="usage-title">{{ t('user.trafficOverview.monthlyUsage') }}</span>
             <span class="usage-values">
-              {{ formatTraffic(trafficData.current_month_usage) }} / 
-              {{ formatTraffic(trafficData.total_limit) }}
+              {{ trafficData.formatted?.current_usage || formatTraffic(trafficData.current_month_usage_mb) }} / 
+              {{ trafficData.formatted?.total_limit || formatTraffic(trafficData.total_limit_mb) }}
             </span>
           </div>
           <el-progress 
@@ -53,6 +53,7 @@
             :color="getProgressColor(trafficData.usage_percent || 0)"
             :stroke-width="12"
             :status="trafficData.is_limited ? 'exception' : undefined"
+            :format="(percentage) => `${percentage.toFixed(2)}%`"
           />
           <div class="usage-info">
             <span class="usage-percent">{{ (trafficData.usage_percent || 0).toFixed(2) }}%</span>
@@ -80,33 +81,33 @@
           </el-text>
         </div>
 
-        <!-- vnStat详细数据 -->
+        <!-- PMAcct详细数据 -->
         <div
-          v-if="trafficData.vnstat_available && showDetails"
-          class="vnstat-details"
+          v-if="trafficData.traffic_control_enabled && showDetails"
+          class="pmacct-details"
         >
           <el-divider content-position="left">
             {{ t('user.trafficOverview.detailedStats') }}
           </el-divider>
           <div class="details-grid">
             <div class="detail-item">
-              <span class="detail-label">{{ t('user.trafficOverview.todayUsage') }}</span>
-              <span class="detail-value">{{ formatTraffic(trafficData.today_usage || 0) }}</span>
+              <span class="detail-label">{{ t('user.trafficOverview.rxTraffic') }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.rx || '0 B' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">{{ t('user.trafficOverview.weekUsage') }}</span>
-              <span class="detail-value">{{ formatTraffic(trafficData.week_usage || 0) }}</span>
+              <span class="detail-label">{{ t('user.trafficOverview.txTraffic') }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.tx || '0 B' }}</span>
             </div>
             <div class="detail-item">
-              <span class="detail-label">{{ t('user.trafficOverview.monthUsage') }}</span>
-              <span class="detail-value">{{ formatTraffic(trafficData.alltime_usage || 0) }}</span>
+              <span class="detail-label">{{ t('user.trafficOverview.totalTraffic') }}</span>
+              <span class="detail-value">{{ trafficData.formatted?.total || '0 B' }}</span>
             </div>
           </div>
         </div>
 
         <!-- 展开/收起按钮 -->
         <div
-          v-if="trafficData.vnstat_available"
+          v-if="trafficData.traffic_control_enabled"
           class="toggle-details"
         >
           <el-button
@@ -264,22 +265,33 @@ onMounted(() => {
   text-align: center;
 }
 
-.vnstat-details {
+.pmacct-details {
   margin-top: 15px;
 }
 
 .details-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 15px;
   margin-top: 10px;
 }
 
+@media (max-width: 768px) {
+  .details-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .detail-item {
   text-align: center;
-  padding: 10px;
+  padding: 15px;
   background: var(--el-fill-color-lighter);
   border-radius: 6px;
+  min-height: 80px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
 }
 
 .detail-label {
@@ -291,7 +303,8 @@ onMounted(() => {
 
 .detail-value {
   display: block;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 16px;
   font-family: monospace;
   color: var(--el-text-color-primary);
 }

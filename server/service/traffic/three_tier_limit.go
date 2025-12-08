@@ -66,7 +66,9 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 	// 获取所有活跃实例（未被用户级或Provider级限制的）
 	var instances []provider.Instance
 	err := global.APP_DB.Where("status NOT IN (?) AND traffic_limited = ? AND (traffic_limit_reason = ? OR traffic_limit_reason = ?)",
-		[]string{"deleted", "deleting"}, false, "", "instance").Find(&instances).Error
+		[]string{"deleted", "deleting"}, false, "", "instance").
+		Limit(1000). // 限制最多1000个实例
+		Find(&instances).Error
 	if err != nil {
 		return fmt.Errorf("获取实例列表失败: %w", err)
 	}
@@ -143,18 +145,19 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 	year := now.Year()
 	month := int(now.Month())
 
-	usedTraffic, err := s.service.getInstanceMonthlyTrafficFromVnStat(instanceID, year, month)
+	// 使用统一的流量查询服务
+	queryService := NewQueryService()
+	monthlyStats, err := queryService.GetInstanceMonthlyTraffic(instanceID, year, month)
 	if err != nil {
-		global.APP_LOG.Warn("获取实例vnStat流量失败，使用数据库值",
+		global.APP_LOG.Warn("获取实例 pmacct 流量失败",
 			zap.Uint("instanceID", instanceID),
 			zap.Error(err))
-		usedTraffic = instance.UsedTraffic
+		return false, fmt.Errorf("获取实例流量失败: %w", err)
 	}
 
-	// 更新实例已使用流量
-	if err := global.APP_DB.Model(&instance).Update("used_traffic", usedTraffic).Error; err != nil {
-		return false, fmt.Errorf("更新实例流量失败: %w", err)
-	}
+	usedTraffic := int64(monthlyStats.ActualUsageMB)
+
+	// 不再更新instance.used_traffic字段（已删除）
 
 	// 检查是否超限
 	if usedTraffic >= instance.MaxTraffic {
@@ -183,6 +186,10 @@ func (s *ThreeTierLimitService) limitInstance(instanceID uint, reason string, me
 		return false, err
 	}
 
+	// 保存需要使用的字段
+	userID := instance.UserID
+	providerID := instance.ProviderID
+
 	// 标记实例为受限状态
 	updates := map[string]interface{}{
 		"traffic_limited":      true,
@@ -195,7 +202,7 @@ func (s *ThreeTierLimitService) limitInstance(instanceID uint, reason string, me
 	}
 
 	// 创建停止任务
-	if err := s.createStopTask(instance.UserID, instanceID, instance.ProviderID, message); err != nil {
+	if err := s.createStopTask(userID, instanceID, providerID, message); err != nil {
 		global.APP_LOG.Error("创建实例停止任务失败",
 			zap.Uint("instanceID", instanceID),
 			zap.Error(err))
@@ -271,7 +278,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	var enabledProviderCount int64
 	err := global.APP_DB.Table("instances").
 		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
-		Where("instances.user_id = ? AND instances.deleted_at IS NULL", userID).
+		Where("instances.user_id = ?", userID).
 		Where("providers.enable_traffic_control = ?", true).
 		Count(&enabledProviderCount).Error
 
@@ -287,12 +294,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		return false, nil
 	}
 
-	// 检查是否需要重置流量
-	if err := s.service.checkAndResetMonthlyTraffic(userID); err != nil {
-		global.APP_LOG.Error("检查用户月度流量重置失败",
-			zap.Uint("userID", userID),
-			zap.Error(err))
-	}
+	// checkAndResetMonthlyTraffic方法已删除，流量重置由单独的调度器处理
 
 	// 重新加载用户数据
 	if err := global.APP_DB.First(&u, userID).Error; err != nil {
@@ -318,47 +320,19 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 		return false, nil
 	}
 
-	// 使用批量查询获取用户当月总流量（应用流量模式和倍率）
+	// 从pmacct_traffic_records实时汇总用户当月总流量（已包含流量模式和倍率计算）
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
-	// 只统计启用了流量统计的Provider的流量
-	var totalUsed float64
-	query := `
-		SELECT COALESCE(SUM(
-			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN vtr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN vtr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (vtr.rx_bytes + vtr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
-			END
-		), 0) / 1048576
-		FROM vnstat_traffic_records AS vtr
-		INNER JOIN instances AS i ON vtr.instance_id = i.id
-		LEFT JOIN providers AS p ON i.provider_id = p.id
-		WHERE i.user_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0
-		AND COALESCE(p.enable_traffic_control, true) = true
-	`
-
-	err = global.APP_DB.Raw(query, userID, year, month).Scan(&totalUsed).Error
-
+	// 使用统一的流量查询服务（会自动包含软删除实例的流量统计）
+	queryService := NewQueryService()
+	monthlyStats, err := queryService.GetUserMonthlyTraffic(userID, year, month)
 	if err != nil {
-		global.APP_LOG.Warn("批量查询用户流量失败，降级到逐个查询",
-			zap.Uint("userID", userID),
-			zap.Error(err))
-
-		// 降级方案：使用 LimitService 的方法（已支持流量模式）
-		limitService := NewLimitService()
-		totalUsedInt64, err := limitService.getUserMonthlyTrafficFromVnStat(userID)
-		if err != nil {
-			return false, fmt.Errorf("获取用户流量失败: %w", err)
-		}
-		totalUsed = float64(totalUsedInt64)
+		return false, fmt.Errorf("获取用户流量失败: %w", err)
 	}
 
-	// 转换为 int64 用于存储和比较
-	totalUsedMB := int64(totalUsed)
+	totalUsedMB := int64(monthlyStats.ActualUsageMB)
 
 	// 更新用户已使用流量
 	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsedMB).Error; err != nil {
@@ -415,15 +389,13 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 		Find(&instances).Error; err != nil {
 		global.APP_LOG.Error("获取受限实例列表失败", zap.Error(err))
 		// 不返回错误，状态已更新，任务创建是次要的
-	} else {
-		// 为每个实例创建停止任务（异步执行）
-		for _, instance := range instances {
-			if err := s.createStopTask(userID, instance.ID, instance.ProviderID, message); err != nil {
-				global.APP_LOG.Error("创建实例停止任务失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.Error(err))
-				// 继续处理其他实例
-			}
+	} else if len(instances) > 0 {
+		// 批量创建停止任务
+		if err := s.batchCreateStopTasks(userID, instances, message); err != nil {
+			global.APP_LOG.Error("批量创建实例停止任务失败",
+				zap.Uint("userID", userID),
+				zap.Int("instanceCount", len(instances)),
+				zap.Error(err))
 		}
 	}
 
@@ -499,6 +471,8 @@ func (s *ThreeTierLimitService) CheckAllProvidersTrafficLimit(ctx context.Contex
 
 // CheckProviderTrafficLimit 检查单个Provider的流量限制
 // 返回是否被限制
+// 该方法假设Provider的流量数据已经通过SyncProviderInstancesTraffic更新
+// 如果需要确保数据最新，调用方应先调用SyncProviderInstancesTraffic
 func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 	var p provider.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
@@ -514,14 +488,9 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 		return false, nil
 	}
 
-	// 检查是否需要重置流量
-	if err := s.service.checkAndResetProviderMonthlyTraffic(providerID); err != nil {
-		global.APP_LOG.Error("检查Provider月度流量重置失败",
-			zap.Uint("providerID", providerID),
-			zap.Error(err))
-	}
+	// checkAndResetProviderMonthlyTraffic方法已删除，流量重置由单独的调度器处理
 
-	// 重新加载Provider数据
+	// 重新加载 Provider 数据
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
 		return false, fmt.Errorf("重新加载Provider信息失败: %w", err)
 	}
@@ -534,50 +503,25 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 		return false, nil
 	}
 
-	// 使用批量查询获取Provider当月总流量（应用流量模式和倍率）
+	// 使用统一的流量查询服务获取Provider当月流量
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
-
-	// 使用SQL聚合查询，根据Provider的流量模式和倍率计算
-	var totalUsed float64
-	query := `
-		SELECT COALESCE(SUM(
-			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN vtr.tx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN vtr.rx_bytes * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (vtr.rx_bytes + vtr.tx_bytes) * COALESCE(p.traffic_multiplier, 1.0)
-			END
-		), 0) / 1048576
-		FROM vnstat_traffic_records AS vtr
-		INNER JOIN instances AS i ON vtr.instance_id = i.id
-		LEFT JOIN providers AS p ON i.provider_id = p.id
-		WHERE i.provider_id = ? AND vtr.year = ? AND vtr.month = ? AND vtr.day = 0 AND vtr.hour = 0
-	`
-
-	err := global.APP_DB.Raw(query, providerID, year, month).Scan(&totalUsed).Error
-
+	queryService := NewQueryService()
+	monthlyStats, err := queryService.GetProviderMonthlyTraffic(providerID, year, month)
 	if err != nil {
-		global.APP_LOG.Warn("批量查询Provider流量失败，降级到逐个查询",
+		global.APP_LOG.Error("获取Provider流量失败",
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
-
-		// 降级方案：使用 LimitService 的方法（已支持流量模式）
-		limitService := NewLimitService()
-		totalUsedInt64, err := limitService.getProviderMonthlyTrafficFromVnStat(providerID)
-		if err != nil {
-			return false, fmt.Errorf("获取Provider流量失败: %w", err)
-		}
-		totalUsed = float64(totalUsedInt64)
+		return false, fmt.Errorf("获取Provider流量失败: %w", err)
 	}
+	totalUsedMB := int64(monthlyStats.ActualUsageMB)
 
-	// 转换为 int64 用于存储和比较
-	totalUsedMB := int64(totalUsed)
-
-	// 更新Provider已使用流量
-	if err := global.APP_DB.Model(&p).Update("used_traffic", totalUsedMB).Error; err != nil {
-		return false, fmt.Errorf("更新Provider流量失败: %w", err)
-	}
+	global.APP_LOG.Debug("检查Provider流量限制",
+		zap.Uint("providerID", providerID),
+		zap.String("providerName", p.Name),
+		zap.Int64("usedTraffic", totalUsedMB),
+		zap.Int64("maxTraffic", p.MaxTraffic))
 
 	// 检查是否超限
 	if totalUsedMB >= p.MaxTraffic {
@@ -630,15 +574,14 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 		Find(&instances).Error; err != nil {
 		global.APP_LOG.Error("获取受限实例列表失败", zap.Error(err))
 		// 不返回错误，状态已更新，任务创建是次要的
-	} else {
-		// 为每个实例创建停止任务（异步执行）
-		for _, instance := range instances {
-			if err := s.createStopTask(instance.UserID, instance.ID, providerID, message); err != nil {
-				global.APP_LOG.Error("创建实例停止任务失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.Error(err))
-				// 继续处理其他实例
-			}
+	} else if len(instances) > 0 {
+		// 批量创建停止任务
+		// 这里的userID来自instance，需要特殊处理
+		if err := s.batchCreateStopTasksForProvider(providerID, instances, message); err != nil {
+			global.APP_LOG.Error("批量创建实例停止任务失败",
+				zap.Uint("providerID", providerID),
+				zap.Int("instanceCount", len(instances)),
+				zap.Error(err))
 		}
 	}
 
@@ -698,6 +641,84 @@ func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID ui
 	}
 
 	if err := global.APP_DB.Create(task).Error; err != nil {
+		return err
+	}
+
+	// 触发调度器立即处理任务
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+
+	return nil
+}
+
+// batchCreateStopTasks 批量创建停止任务（用户层级限流）
+func (s *ThreeTierLimitService) batchCreateStopTasks(userID uint, instances []provider.Instance, message string) error {
+	if len(instances) == 0 {
+		return nil
+	}
+
+	tasks := make([]*adminModel.Task, 0, len(instances))
+	for _, instance := range instances {
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, instance.ProviderID)
+
+		task := &adminModel.Task{
+			TaskType:         "stop",
+			Status:           "pending",
+			Progress:         0,
+			StatusMessage:    message,
+			TaskData:         taskData,
+			UserID:           userID,
+			ProviderID:       &instance.ProviderID,
+			InstanceID:       &instance.ID,
+			TimeoutDuration:  600,
+			IsForceStoppable: true,
+			CanForceStop:     false,
+		}
+		tasks = append(tasks, task)
+	}
+
+	// 批量插入任务
+	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
+		return err
+	}
+
+	// 触发调度器立即处理任务
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+
+	return nil
+}
+
+// batchCreateStopTasksForProvider 批量创建停止任务（Provider层级限流）
+func (s *ThreeTierLimitService) batchCreateStopTasksForProvider(providerID uint, instances []provider.Instance, message string) error {
+	if len(instances) == 0 {
+		return nil
+	}
+
+	tasks := make([]*adminModel.Task, 0, len(instances))
+	for _, instance := range instances {
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, providerID)
+
+		task := &adminModel.Task{
+			TaskType:         "stop",
+			Status:           "pending",
+			Progress:         0,
+			StatusMessage:    message,
+			TaskData:         taskData,
+			UserID:           instance.UserID,
+			ProviderID:       &providerID,
+			InstanceID:       &instance.ID,
+			TimeoutDuration:  600,
+			IsForceStoppable: true,
+			CanForceStop:     false,
+		}
+		tasks = append(tasks, task)
+	}
+
+	// 批量插入任务
+	if err := global.APP_DB.CreateInBatches(tasks, 100).Error; err != nil {
 		return err
 	}
 

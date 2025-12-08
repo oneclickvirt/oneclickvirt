@@ -4,8 +4,8 @@ auth:
     enable-qq: false
     enable-telegram: false
 captcha:
-    enabled: true
-    expire-time: 300
+    enabled: false
+    expire-time: 5
     height: 40
     length: 4
     width: 120
@@ -17,8 +17,10 @@ cdn:
         - http://cdn1.spiritlhl.net/
         - http://cdn2.spiritlhl.net/
 cors:
-    mode: ""
-    whitelist: []
+    mode: allow-all
+    whitelist:
+        - http://localhost:8080
+        - http://127.0.0.1:8080
 invite-code:
     enabled: false
     required: false
@@ -26,8 +28,7 @@ jwt:
     buffer-time: 1d
     expires-time: 7d
     issuer: oneclickvirt
-    # signing-key 会自动生成256位随机密钥，无需手动配置
-    # 如需多实例部署统一密钥，请使用环境变量 JWT_SIGNING_KEY
+    signing-key: ""
 mysql:
     auto-create: true
     config: charset=utf8mb4&parseTime=True&loc=Local
@@ -91,28 +92,26 @@ redis:
     addr: ""
     db: 0
     password: ""
-sysm:
-    db-type: mysql
 system:
     addr: 8888
     db-type: mysql
     env: development
-    iplimit-count: 15000
+    frontend-url: ""
+    iplimit-count: 100
     iplimit-time: 3600
+    oauth2-state-token-minutes: 15
     oss-type: local
+    provider-inactive-hours: 72
     use-multipoint: false
     use-redis: false
-    frontend-url: "http://beta.spiritlhl.net/"
-    provider-inactive-hours: 24
-    oauth2-state-token-minutes: 15
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
 upload:
-    max-avatar-size: 2
+    max-avatar-size: 5242880
 other:
-    default-language: zh-CN
-    max-avatar-size: 3
+    default-language: en-US
+    max-avatar-size: 5
 zap:
     compress-logs: true
     director: storage/logs
@@ -126,6 +125,15 @@ zap:
     max-log-length: 2000
     max-string-length: 1000
     prefix: '[oneclickvirt]'
-    retention-day: 3
-    show-line: false
+    retention-day: 7
+    show-line: true
     stacktrace-key: stacktrace
+max_avatar_size: 2
+default_language:
+signing_key_v1:
+    created_at: "2025-12-08T18:43:42.267888+08:00"
+    expires_at: "2025-12-09T18:43:42.267888+08:00"
+    is_active: false
+    key: fe666d319683f909613284f41d760859d243f08f6c44ee3bdf118deb6682be66
+    version: 1
+active_version: 1

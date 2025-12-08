@@ -7,28 +7,57 @@ import (
 	"oneclickvirt/global"
 	dashboardModel "oneclickvirt/model/dashboard"
 	monitoringModel "oneclickvirt/model/monitoring"
+	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
 
-// UserTrafficService 用户流量服务 - 提供基于vnStat的流量查询
+// UserTrafficService 用户流量服务 - 提供基于 pmacct 的流量查询
 type UserTrafficService struct {
+	queryService *QueryService
 	limitService *LimitService
 }
 
 // NewUserTrafficService 创建用户流量服务
 func NewUserTrafficService() *UserTrafficService {
 	return &UserTrafficService{
+		queryService: NewQueryService(),
 		limitService: NewLimitService(),
 	}
 }
 
-// GetUserTrafficOverview 获取用户流量概览
+// GetUserTrafficOverview 获取用户流量概览（带缓存）
 func (s *UserTrafficService) GetUserTrafficOverview(userID uint) (map[string]interface{}, error) {
+	cacheService := cache.GetUserCacheService()
+	cacheKey := cache.MakeUserTrafficOverviewKey(userID)
+
+	// 尝试从缓存获取
+	if cachedData, ok := cacheService.Get(cacheKey); ok {
+		if overview, ok := cachedData.(map[string]interface{}); ok {
+			return overview, nil
+		}
+	}
+
+	// 缓存未命中，查询数据
+	overview, err := s.fetchUserTrafficOverview(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存结果
+	cacheService.Set(cacheKey, overview, cache.TTLUserTrafficOverview)
+	return overview, nil
+}
+
+// fetchUserTrafficOverview 从数据库获取用户流量概览
+func (s *UserTrafficService) fetchUserTrafficOverview(userID uint) (map[string]interface{}, error) {
 	// 获取用户信息
 	var u user.User
-	if err := global.APP_DB.First(&u, userID).Error; err != nil {
+	if err := global.APP_DB.Select("id, level, total_traffic, traffic_reset_at, traffic_limited").
+		First(&u, userID).Error; err != nil {
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
 	}
 
@@ -42,13 +71,12 @@ func (s *UserTrafficService) GetUserTrafficOverview(userID uint) (map[string]int
 	if !hasEnabledTrafficControl {
 		return map[string]interface{}{
 			"user_id":                 userID,
-			"current_month_usage":     int64(0),
-			"total_limit":             int64(0), // 0表示无限制
+			"current_month_usage_mb":  float64(0),
+			"total_limit_mb":          int64(0), // 0表示无限制
 			"usage_percent":           float64(0),
 			"is_limited":              false,
-			"traffic_control_enabled": false, // 标记流量统计已禁用
+			"traffic_control_enabled": false,
 			"data_source":             "none",
-			"vnstat_available":        false,
 			"formatted": map[string]string{
 				"current_usage": "0 MB",
 				"total_limit":   "无限制",
@@ -56,66 +84,250 @@ func (s *UserTrafficService) GetUserTrafficOverview(userID uint) (map[string]int
 		}, nil
 	}
 
-	// 自动同步TotalTraffic为maxTraffic（如TotalTraffic为0时）
+	// 自动设置TotalTraffic（如TotalTraffic为0时）
 	if u.TotalTraffic == 0 {
-		// 从等级配置中获取流量限额
 		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[u.Level]
 		if exists && levelLimits.MaxTraffic > 0 {
 			u.TotalTraffic = levelLimits.MaxTraffic
 		}
 	}
 
-	// 获取基于vnStat的流量使用情况
-	vnstatData, err := s.limitService.GetUserTrafficUsageWithVnStat(userID)
+	// 从QueryService获取当月流量统计
+	now := time.Now()
+	stats, err := s.queryService.GetUserMonthlyTraffic(userID, now.Year(), int(now.Month()))
 	if err != nil {
-		global.APP_LOG.Warn("获取vnStat流量数据失败，返回基础信息",
-			zap.Uint("userID", userID),
-			zap.Error(err))
-
-		// 降级到基础数据
-		return map[string]interface{}{
-			"user_id":             userID,
-			"current_month_usage": u.UsedTraffic,
-			"total_limit":         u.TotalTraffic,
-			"usage_percent":       float64(u.UsedTraffic) / float64(u.TotalTraffic) * 100,
-			"is_limited":          u.TrafficLimited,
-			"reset_time":          u.TrafficResetAt,
-			"data_source":         "legacy",
-			"vnstat_available":    false,
-		}, nil
+		return nil, fmt.Errorf("查询用户月度流量失败: %w", err)
 	}
 
-	// 强制同步total_limit为maxTraffic（如TotalTraffic为0时）
+	// 计算使用百分比
+	var usagePercent float64
 	if u.TotalTraffic > 0 {
-		vnstatData["total_limit"] = u.TotalTraffic
+		usagePercent = (stats.ActualUsageMB / float64(u.TotalTraffic)) * 100
 	}
 
-	// 数据源标识
-	vnstatData["data_source"] = "vnstat"
-	vnstatData["vnstat_available"] = true
-
-	return vnstatData, nil
+	return map[string]interface{}{
+		"user_id":                 userID,
+		"current_month_usage_mb":  stats.ActualUsageMB,
+		"total_limit_mb":          u.TotalTraffic,
+		"usage_percent":           usagePercent,
+		"is_limited":              u.TrafficLimited,
+		"reset_time":              u.TrafficResetAt,
+		"traffic_control_enabled": true,
+		"data_source":             "pmacct_realtime",
+		"rx_bytes":                stats.RxBytes,
+		"tx_bytes":                stats.TxBytes,
+		"total_bytes":             stats.TotalBytes,
+		"formatted": map[string]string{
+			"current_usage": utils.FormatMB(stats.ActualUsageMB),
+			"total_limit":   utils.FormatMB(float64(u.TotalTraffic)),
+			"rx":            utils.FormatBytes(stats.RxBytes),
+			"tx":            utils.FormatBytes(stats.TxBytes),
+			"total":         utils.FormatBytes(stats.TotalBytes),
+		},
+	}, nil
 }
 
-// GetInstanceTrafficDetail 获取实例流量详情
+// GetInstanceTrafficDetail 获取实例流量详情（带缓存）
 func (s *UserTrafficService) GetInstanceTrafficDetail(userID, instanceID uint) (map[string]interface{}, error) {
+	cacheService := cache.GetUserCacheService()
+	cacheKey := cache.MakeInstanceTrafficDetailKey(instanceID)
+
+	// 尝试从缓存获取
+	if cachedData, ok := cacheService.Get(cacheKey); ok {
+		if detail, ok := cachedData.(map[string]interface{}); ok {
+			// 验证用户权限（即使是缓存数据也要验证）
+			if !s.hasInstanceAccess(userID, instanceID) {
+				return nil, fmt.Errorf("用户无权限访问该实例")
+			}
+			return detail, nil
+		}
+	}
+
+	// 缓存未命中，查询数据
+	detail, err := s.fetchInstanceTrafficDetail(userID, instanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存结果
+	cacheService.Set(cacheKey, detail, cache.TTLInstanceTrafficDetail)
+	return detail, nil
+}
+
+// fetchInstanceTrafficDetail 从数据库获取实例流量详情
+func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint) (map[string]interface{}, error) {
 	// 验证用户权限
 	if !s.hasInstanceAccess(userID, instanceID) {
 		return nil, fmt.Errorf("用户无权限访问该实例")
 	}
 
-	// 获取实例的网络接口列表
-	interfaces, err := s.getVnStatInterfaces(instanceID)
-	if err != nil {
-		global.APP_LOG.Warn("获取实例网络接口失败", zap.Error(err))
-		interfaces = []*monitoringModel.VnStatInterface{}
+	// 获取实例基本信息
+	var instance provider.Instance
+	if err := global.APP_DB.Select("id, name, provider_id, public_ip, traffic_limited").
+		First(&instance, instanceID).Error; err != nil {
+		return nil, fmt.Errorf("实例不存在: %w", err)
 	}
 
-	// 格式化数据
-	result := map[string]interface{}{
-		"instance_id": instanceID,
-		"interfaces":  interfaces,
+	// 获取实例的pmacct监控信息
+	var monitor monitoringModel.PmacctMonitor
+	err := global.APP_DB.Where("instance_id = ?", instanceID).First(&monitor).Error
+	if err != nil {
+		global.APP_LOG.Warn("获取实例pmacct监控信息失败",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(err))
+		// 继续执行，返回基本信息
 	}
+
+	// 获取Provider配置
+	var prov provider.Provider
+	if err := global.APP_DB.Select("id, enable_traffic_control, traffic_count_mode, traffic_multiplier").
+		First(&prov, instance.ProviderID).Error; err != nil {
+		return nil, fmt.Errorf("查询Provider配置失败: %w", err)
+	}
+
+	// 如果未启用流量控制，返回基本信息
+	if !prov.EnableTrafficControl {
+		return map[string]interface{}{
+			"instance_id":             instanceID,
+			"instance_name":           instance.Name,
+			"mapped_ip":               monitor.MappedIP,
+			"traffic_control_enabled": false,
+			"current_month_usage_mb":  float64(0),
+			"formatted": map[string]string{
+				"current_usage": "0 MB",
+			},
+		}, nil
+	}
+
+	// 从QueryService获取当月流量数据
+	now := time.Now()
+	stats, err := s.queryService.GetInstanceMonthlyTraffic(instanceID, now.Year(), int(now.Month()))
+	if err != nil {
+		return nil, fmt.Errorf("查询实例流量失败: %w", err)
+	}
+
+	// 获取流量历史（最近30天）
+	history, err := s.queryService.GetInstanceTrafficHistory(instanceID, 30)
+	if err != nil {
+		global.APP_LOG.Warn("获取实例流量历史失败",
+			zap.Uint("instanceID", instanceID),
+			zap.Error(err))
+		history = []*HistoryPoint{}
+	}
+
+	return map[string]interface{}{
+		"instance_id":             instanceID,
+		"instance_name":           instance.Name,
+		"mapped_ip":               monitor.MappedIP,
+		"mapped_ipv6":             monitor.MappedIPv6,
+		"is_enabled":              monitor.IsEnabled,
+		"last_sync":               monitor.LastSync,
+		"traffic_control_enabled": true,
+		"traffic_limited":         instance.TrafficLimited,
+		"current_month_usage_mb":  stats.ActualUsageMB,
+		"rx_bytes":                stats.RxBytes,
+		"tx_bytes":                stats.TxBytes,
+		"total_bytes":             stats.TotalBytes,
+		"traffic_count_mode":      prov.TrafficCountMode,
+		"traffic_multiplier":      prov.TrafficMultiplier,
+		"year":                    now.Year(),
+		"month":                   int(now.Month()),
+		"history":                 history,
+		"formatted": map[string]string{
+			"current_usage": utils.FormatMB(stats.ActualUsageMB),
+			"rx":            utils.FormatBytes(stats.RxBytes),
+			"tx":            utils.FormatBytes(stats.TxBytes),
+			"total":         utils.FormatBytes(stats.TotalBytes),
+		},
+	}, nil
+}
+
+// GetUserInstancesTrafficSummary 获取用户所有实例的流量汇总（带缓存）
+func (s *UserTrafficService) GetUserInstancesTrafficSummary(userID uint) (map[string]interface{}, error) {
+	now := time.Now()
+	cacheService := cache.GetUserCacheService()
+	cacheKey := cache.MakeUserTrafficSummaryKey(userID, now.Year(), int(now.Month()))
+
+	// 尝试从缓存获取
+	if cachedData, ok := cacheService.Get(cacheKey); ok {
+		if summary, ok := cachedData.(map[string]interface{}); ok {
+			return summary, nil
+		}
+	}
+
+	// 缓存未命中，查询数据
+	summary, err := s.fetchUserInstancesTrafficSummary(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存结果
+	cacheService.Set(cacheKey, summary, cache.TTLUserTrafficSummary)
+	return summary, nil
+}
+
+// fetchUserInstancesTrafficSummary 从数据库获取用户所有实例的流量汇总
+func (s *UserTrafficService) fetchUserInstancesTrafficSummary(userID uint) (map[string]interface{}, error) {
+	// 获取用户所有实例
+	var instances []dashboardModel.InstanceSummary
+	err := global.APP_DB.Table("instances").
+		Select("id, name, status").
+		Where("user_id = ?", userID).
+		Find(&instances).Error
+	if err != nil {
+		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
+	}
+
+	result := map[string]interface{}{
+		"user_id":        userID,
+		"instance_count": len(instances),
+		"instances":      []map[string]interface{}{},
+	}
+
+	if len(instances) == 0 {
+		result["total_traffic_mb"] = float64(0)
+		result["formatted_total"] = "0 MB"
+		return result, nil
+	}
+
+	// 提取实例ID列表
+	instanceIDs := make([]uint, 0, len(instances))
+	for _, instance := range instances {
+		instanceIDs = append(instanceIDs, instance.ID)
+	}
+
+	// 批量查询流量数据
+	now := time.Now()
+	statsMap, err := s.queryService.BatchGetInstancesMonthlyTraffic(instanceIDs, now.Year(), int(now.Month()))
+	if err != nil {
+		return nil, fmt.Errorf("批量查询实例流量失败: %w", err)
+	}
+
+	// 构建响应数据
+	instanceDetails := make([]map[string]interface{}, 0, len(instances))
+	var totalTrafficMB float64
+
+	for _, instance := range instances {
+		stats := statsMap[instance.ID]
+
+		instanceDetail := map[string]interface{}{
+			"id":                 instance.ID,
+			"name":               instance.Name,
+			"status":             instance.Status,
+			"monthly_traffic_mb": stats.ActualUsageMB,
+			"rx_bytes":           stats.RxBytes,
+			"tx_bytes":           stats.TxBytes,
+			"total_bytes":        stats.TotalBytes,
+			"formatted_monthly":  utils.FormatMB(stats.ActualUsageMB),
+		}
+
+		totalTrafficMB += stats.ActualUsageMB
+		instanceDetails = append(instanceDetails, instanceDetail)
+	}
+
+	result["instances"] = instanceDetails
+	result["total_traffic_mb"] = totalTrafficMB
+	result["formatted_total"] = utils.FormatMB(totalTrafficMB)
 
 	return result, nil
 }
@@ -130,83 +342,6 @@ func (s *UserTrafficService) hasInstanceAccess(userID, instanceID uint) bool {
 		return false
 	}
 	return count > 0
-}
-
-// getVnStatInterfaces 获取实例的vnStat接口列表
-func (s *UserTrafficService) getVnStatInterfaces(instanceID uint) ([]*monitoringModel.VnStatInterface, error) {
-	var interfaces []*monitoringModel.VnStatInterface
-	err := global.APP_DB.Where("instance_id = ?", instanceID).Find(&interfaces).Error
-	return interfaces, err
-}
-
-// GetUserInstancesTrafficSummary 获取用户所有实例的流量汇总
-func (s *UserTrafficService) GetUserInstancesTrafficSummary(userID uint) (map[string]interface{}, error) {
-	// 获取用户所有实例
-	var instances []dashboardModel.InstanceSummary
-
-	err := global.APP_DB.Table("instances").
-		Select("id, name, status").
-		Where("user_id = ?", userID).
-		Find(&instances).Error
-
-	if err != nil {
-		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
-	}
-
-	result := map[string]interface{}{
-		"user_id":        userID,
-		"instance_count": len(instances),
-		"instances":      []map[string]interface{}{},
-	}
-
-	var totalRx, totalTx, totalBytes int64
-	instanceDetails := []map[string]interface{}{}
-
-	// 获取当前月份
-	now := time.Now()
-	year := now.Year()
-	month := int(now.Month())
-
-	// 遍历每个实例获取流量数据
-	for _, instance := range instances {
-		// 获取实例的本月流量数据
-		monthlyTraffic, err := s.limitService.service.getInstanceMonthlyTrafficFromVnStat(
-			instance.ID,
-			year, month,
-		)
-		if err != nil {
-			global.APP_LOG.Warn("获取实例月度流量失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-			continue
-		}
-
-		instanceDetail := map[string]interface{}{
-			"id":              instance.ID,
-			"name":            instance.Name,
-			"status":          instance.Status,
-			"monthly_traffic": monthlyTraffic,
-		}
-
-		// 累加总流量
-		totalBytes += monthlyTraffic
-
-		instanceDetails = append(instanceDetails, instanceDetail)
-	}
-
-	result["instances"] = instanceDetails
-	result["total_traffic"] = map[string]interface{}{
-		"rx":    totalRx,
-		"tx":    totalTx,
-		"total": totalBytes,
-		"formatted": map[string]string{
-			"rx":    FormatTrafficMB(totalRx),
-			"tx":    FormatTrafficMB(totalTx),
-			"total": FormatTrafficMB(totalBytes),
-		},
-	}
-
-	return result, nil
 }
 
 // GetTrafficLimitStatus 获取流量限制状态
@@ -241,23 +376,34 @@ func (s *UserTrafficService) GetTrafficLimitStatus(userID uint) (map[string]inte
 	if err != nil {
 		global.APP_LOG.Warn("获取受限实例列表失败", zap.Error(err))
 	} else {
-		// 检查每个受限实例的Provider状态
+		// 批量检查所有受限实例的Provider状态
+		// 先收集所有唯一的providerID
+		providerIDSet := make(map[uint]bool)
+		for _, instance := range limitedInstances {
+			providerIDSet[instance.ProviderID] = true
+		}
+
+		// 批量检查所有Provider的流量限制状态
+		providerLimitMap := make(map[uint]bool)
+		for providerID := range providerIDSet {
+			isProviderLimited, providerErr := threeTierService.CheckProviderTrafficLimit(providerID)
+			if providerErr != nil {
+				global.APP_LOG.Warn("检查Provider流量限制失败",
+					zap.Uint("providerID", providerID),
+					zap.Error(providerErr))
+			}
+			providerLimitMap[providerID] = isProviderLimited
+		}
+
+		// 构建实例详情列表
 		instanceDetails := []map[string]interface{}{}
 		for _, instance := range limitedInstances {
-			// 使用三层级流量限制服务检查Provider是否也受限
-			isProviderLimited, providerErr := threeTierService.CheckProviderTrafficLimit(instance.ProviderID)
-
 			instanceDetail := map[string]interface{}{
 				"id":                  instance.ID,
 				"name":                instance.Name,
 				"status":              instance.Status,
-				"is_provider_limited": isProviderLimited,
+				"is_provider_limited": providerLimitMap[instance.ProviderID],
 			}
-
-			if providerErr != nil {
-				instanceDetail["provider_check_error"] = providerErr.Error()
-			}
-
 			instanceDetails = append(instanceDetails, instanceDetail)
 		}
 		result["limited_instances"] = instanceDetails

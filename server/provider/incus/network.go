@@ -323,7 +323,7 @@ func (i *IncusProvider) restartVMForNetwork(instanceName string) error {
 func (i *IncusProvider) restartContainerForNetwork(instanceName string) error {
 	global.APP_LOG.Info("重启容器获取网络配置", zap.String("instanceName", instanceName))
 
-	// 容器重启相对简单，但也增加超时时间
+	// 容器重启
 	restartCmd := fmt.Sprintf("incus restart %s --timeout=60", instanceName)
 	_, err := i.sshClient.Execute(restartCmd)
 
@@ -400,7 +400,7 @@ func (i *IncusProvider) forceRestartContainer(instanceName string) error {
 func (i *IncusProvider) waitForVMNetworkReady(instanceName string) error {
 	global.APP_LOG.Info("等待虚拟机网络就绪", zap.String("instanceName", instanceName))
 
-	maxRetries := 8 // 增加重试次数
+	maxRetries := 8 // 重试次数
 	delay := 15     // 虚拟机需要更长的启动时间
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
@@ -784,7 +784,7 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error) {
 	global.APP_LOG.Debug("使用通用方法获取IP地址", zap.String("instanceName", instanceName))
 
-	// 多种方式尝试获取IP地址，增加重试机制
+	// 多种方式尝试获取IP地址
 	maxRetries := 5
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		global.APP_LOG.Debug("尝试获取实例IP地址（通用方法）",

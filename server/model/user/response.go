@@ -85,12 +85,14 @@ type UserTaskResponse struct {
 	ErrorMessage     string     `json:"errorMessage"`
 	CancelReason     string     `json:"cancelReason"` // 取消原因
 	CreatedAt        time.Time  `json:"createdAt"`
+	UpdatedAt        time.Time  `json:"updatedAt"`
 	StartedAt        *time.Time `json:"startedAt"`
 	CompletedAt      *time.Time `json:"completedAt"`
 	ProviderId       uint       `json:"providerId"`
 	ProviderName     string     `json:"providerName"`
 	InstanceID       *uint      `json:"instanceId"`
 	InstanceName     string     `json:"instanceName"`
+	InstanceType     string     `json:"instanceType"`     // 实例类型：container 或 vm
 	TimeoutDuration  int        `json:"timeoutDuration"`  // 超时时间（秒）
 	RemainingTime    int        `json:"remainingTime"`    // 剩余时间（秒）
 	StatusMessage    string     `json:"statusMessage"`    // 状态描述
@@ -136,17 +138,16 @@ type UserInstanceDetailResponse struct {
 	NetworkType     string    `json:"networkType"`     // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
 	CreatedAt       time.Time `json:"createdAt"`
 	ExpiredAt       time.Time `json:"expiredAt"`
+	// 关联任务信息
+	RelatedTask *UserTaskResponse `json:"relatedTask,omitempty"` // 关联的最新任务（如果有）
 }
 
 // InstanceMonitoringResponse 实例监控数据响应
 type InstanceMonitoringResponse struct {
-	// 硬件监控已移除，只保留流量监控
 	// CPUUsage    float64     `json:"cpuUsage"`    // 已移除：硬件资源使用率监控
 	// MemoryUsage float64     `json:"memoryUsage"` // 已移除：硬件资源使用率监控
 	// DiskUsage   float64     `json:"diskUsage"`   // 已移除：硬件资源使用率监控
-	// NetworkIn   int64       `json:"networkIn"`   // 已移除：网络接收速率
-	// NetworkOut  int64       `json:"networkOut"`  // 已移除：网络发送速率
-	TrafficData TrafficData `json:"trafficData"` // 流量详细数据（基于vnStat）
+	TrafficData TrafficData `json:"trafficData"` // 流量详细数据（基于pmacct）
 }
 
 // TrafficData 流量数据结构

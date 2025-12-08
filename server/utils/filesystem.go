@@ -20,13 +20,23 @@ func PathExists(path string) (bool, error) {
 	return false, err
 }
 
-// EnsureDir 确保目录存在，如果不存在则创建
+// EnsureDir 确保目录存在，如果不存在则创建（全局统一函数）
 func EnsureDir(path string) error {
-	if exists, err := PathExists(path); err != nil {
-		return fmt.Errorf("检查目录失败: %w", err)
-	} else if !exists {
-		if err := os.MkdirAll(path, os.ModePerm); err != nil {
-			return fmt.Errorf("创建目录失败: %w", err)
+	if _, err := os.Stat(path); os.IsNotExist(err) {
+		if err := os.MkdirAll(path, 0755); err != nil {
+			return fmt.Errorf("创建目录 %s 失败: %w", path, err)
+		}
+	} else if err != nil {
+		return fmt.Errorf("检查目录 %s 失败: %w", path, err)
+	}
+	return nil
+}
+
+// EnsureDirs 确保多个目录存在（全局统一函数）
+func EnsureDirs(dirs ...string) error {
+	for _, dir := range dirs {
+		if err := EnsureDir(dir); err != nil {
+			return err
 		}
 	}
 	return nil

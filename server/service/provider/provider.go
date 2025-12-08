@@ -90,7 +90,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		return nil
 	}
 
-	global.APP_LOG.Debug("开始连接Provider", zap.String("name", dbProvider.Name), zap.String("type", dbProvider.Type), zap.String("host", extractHost(dbProvider.Endpoint)), zap.Int("port", dbProvider.SSHPort))
+	global.APP_LOG.Debug("开始连接Provider", zap.String("name", dbProvider.Name), zap.String("type", dbProvider.Type), zap.String("host", utils.ExtractHost(dbProvider.Endpoint)), zap.Int("port", dbProvider.SSHPort))
 
 	// 创建Provider实例
 	prov, err := provider.GetProvider(dbProvider.Type)
@@ -106,9 +106,10 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 	}
 
 	config := provider.NodeConfig{
+		ID:                    dbProvider.ID, // 传递Provider ID用于资源清理
 		Name:                  dbProvider.Name,
 		Type:                  dbProvider.Type,
-		Host:                  extractHost(dbProvider.Endpoint),
+		Host:                  utils.ExtractHost(dbProvider.Endpoint),
 		PortIP:                dbProvider.PortIP, // 端口映射使用的公网IP
 		Port:                  sshPort,
 		Username:              dbProvider.Username,
@@ -133,6 +134,14 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		VMLimitCPU:           dbProvider.VMLimitCPU,
 		VMLimitMemory:        dbProvider.VMLimitMemory,
 		VMLimitDisk:          dbProvider.VMLimitDisk,
+		// 容器特殊配置选项（仅 LXD/Incus 容器）
+		ContainerPrivileged:   dbProvider.ContainerPrivileged,
+		ContainerAllowNesting: dbProvider.ContainerAllowNesting,
+		ContainerEnableLXCFS:  dbProvider.ContainerEnableLXCFS,
+		ContainerCPUAllowance: dbProvider.ContainerCPUAllowance,
+		ContainerMemorySwap:   dbProvider.ContainerMemorySwap,
+		ContainerMaxProcesses: dbProvider.ContainerMaxProcesses,
+		ContainerDiskIOLimit:  dbProvider.ContainerDiskIOLimit,
 	}
 
 	// 如果Provider已自动配置，尝试加载完整配置
@@ -192,7 +201,7 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 	}
 
 	// 存储Provider实例（使用ID作为key）
-	// 注意：此时已经持有ps.mutex.Lock()，不需要再次加锁
+	// 此时已经持有ps.mutex.Lock()，不需要再次加锁
 	ps.providers[dbProvider.ID] = prov
 
 	global.APP_LOG.Info("Provider加载成功",
@@ -214,7 +223,7 @@ func (ps *ProviderService) GetProviderByID(id uint) (provider.Provider, bool) {
 }
 
 // GetProvider 根据名称获取已加载的Provider（通过遍历查找）
-// 注意：由于需要遍历，性能不如 GetProviderByID，推荐优先使用 GetProviderByID
+// 由于需要遍历，性能不如 GetProviderByID，推荐优先使用 GetProviderByID
 func (ps *ProviderService) GetProvider(name string) (provider.Provider, bool) {
 	ps.mutex.RLock()
 	defer ps.mutex.RUnlock()
@@ -241,7 +250,7 @@ func (ps *ProviderService) ReloadProvider(providerID uint) error {
 	return ps.LoadProvider(dbProvider)
 }
 
-// RemoveProvider 移除Provider
+// RemoveProvider 移除Provider并清理资源
 func (ps *ProviderService) RemoveProvider(providerID uint) {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
@@ -258,7 +267,16 @@ func (ps *ProviderService) RemoveProvider(providerID uint) {
 		}
 
 		delete(ps.providers, providerID)
-		global.APP_LOG.Info("Provider已移除",
+
+		// 清理SSH连接池中的连接
+		if global.APP_SSH_POOL != nil {
+			// 使用类型断言获取具体类型并调用RemoveProvider
+			if pool, ok := global.APP_SSH_POOL.(interface{ RemoveProvider(uint) }); ok {
+				pool.RemoveProvider(providerID)
+			}
+		}
+
+		global.APP_LOG.Info("Provider已移除并清理资源",
 			zap.Uint("id", providerID),
 			zap.String("name", prov.GetName()))
 	}
@@ -354,33 +372,4 @@ func (ps *ProviderService) ResetInstancePassword(ctx context.Context, providerID
 
 	// 调用Provider的密码重置方法
 	return prov.ResetInstancePassword(ctx, instanceName)
-}
-
-// extractHost 从endpoint中提取主机地址
-func extractHost(endpoint string) string {
-	// 处理各种格式的endpoint
-	if endpoint == "" {
-		return "127.0.0.1" // 默认本地地址
-	}
-
-	// 移除协议前缀
-	if idx := strings.Index(endpoint, "://"); idx != -1 {
-		endpoint = endpoint[idx+3:]
-	}
-
-	// 移除端口
-	if idx := strings.Index(endpoint, ":"); idx != -1 {
-		host := endpoint[:idx]
-		if host == "" {
-			return "127.0.0.1" // 如果host为空，返回默认值
-		}
-		return host
-	}
-
-	// 检查是否为空或无效
-	if endpoint == "" {
-		return "127.0.0.1"
-	}
-
-	return endpoint
 }

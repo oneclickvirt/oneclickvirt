@@ -75,11 +75,11 @@ func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 	// 设置连接池参数
 	maxIdle := m.MaxIdleConns
 	if maxIdle <= 0 {
-		maxIdle = 20 // 增加默认空闲连接数
+		maxIdle = 20 // 默认空闲连接数
 	}
 	maxOpen := m.MaxOpenConns
 	if maxOpen <= 0 {
-		maxOpen = 200 // 增加默认最大连接数
+		maxOpen = 200 // 默认最大连接数
 	}
 	maxLifetime := m.MaxLifetime
 	if maxLifetime <= 0 {

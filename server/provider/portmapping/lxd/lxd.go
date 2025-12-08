@@ -56,7 +56,7 @@ func (l *LXDPortMapping) CreatePortMapping(ctx context.Context, req *portmapping
 		}
 	}
 
-	// 注意：LXD端口映射（proxy device）由provider层的configurePortMappingsWithIP函数处理
+	// LXD端口映射（proxy device）由provider层的configurePortMappingsWithIP函数处理
 	// 这里只负责数据库记录的管理
 
 	// 判断是否为SSH端口：优先使用请求中的IsSSH字段，否则根据GuestPort判断
@@ -113,7 +113,7 @@ func (l *LXDPortMapping) DeletePortMapping(ctx context.Context, req *portmapping
 		return fmt.Errorf("port mapping not found: %v", err)
 	}
 
-	// 注意：LXD proxy device的删除由provider层处理，这里只管理数据库记录
+	// LXD proxy device的删除由provider层处理，这里只管理数据库记录
 
 	// 从数据库删除
 	if err := global.APP_DB.Delete(&portModel).Error; err != nil {
@@ -140,7 +140,7 @@ func (l *LXDPortMapping) UpdatePortMapping(ctx context.Context, req *portmapping
 		return nil, fmt.Errorf("failed to get provider: %v", err)
 	}
 
-	// 注意：如果端口发生变化，LXD proxy device的重建由provider层处理
+	// 如果端口发生变化，LXD proxy device的重建由provider层处理
 	// 这里只更新数据库记录
 
 	// 更新数据库记录

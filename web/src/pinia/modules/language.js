@@ -70,6 +70,24 @@ export const useLanguageStore = defineStore('language', () => {
     localStorage.setItem('language', lang)
   }
 
+  // 强制应用系统语言配置（用于管理员修改系统语言后）
+  const forceApplySystemLanguage = (systemLang) => {
+    console.log('[Language] 强制应用系统语言:', systemLang)
+    
+    // 更新系统配置语言
+    systemConfigLanguage.value = systemLang
+    
+    // 清除用户的手动设置（如果需要强制所有用户使用新语言）
+    // localStorage.removeItem('language')
+    
+    // 重新计算有效语言
+    const effectiveLanguage = getEffectiveLanguage()
+    currentLanguage.value = effectiveLanguage
+    
+    console.log('[Language] 强制应用后的当前语言:', currentLanguage.value)
+    return effectiveLanguage
+  }
+
   const toggleLanguage = () => {
     const newLang = currentLanguage.value === 'zh-CN' ? 'en-US' : 'zh-CN'
     setLanguage(newLang)
@@ -94,6 +112,7 @@ export const useLanguageStore = defineStore('language', () => {
     detectBrowserLanguage,
     getEffectiveLanguage,
     setSystemConfigLanguage,
-    initLanguage
+    initLanguage,
+    forceApplySystemLanguage
   }
 })

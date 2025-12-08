@@ -105,3 +105,41 @@ func FormatError(err error) string {
 	errStr := err.Error()
 	return TruncateString(errStr, MaxStringLength)
 }
+
+// FormatBytes 格式化字节数显示
+func FormatBytes(bytes int64) string {
+	const (
+		KB = 1024
+		MB = KB * 1024
+		GB = MB * 1024
+		TB = GB * 1024
+	)
+
+	if bytes >= TB {
+		return fmt.Sprintf("%.2f TB", float64(bytes)/TB)
+	} else if bytes >= GB {
+		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
+	} else if bytes >= MB {
+		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
+	} else if bytes >= KB {
+		return fmt.Sprintf("%.2f KB", float64(bytes)/KB)
+	}
+	return fmt.Sprintf("%d B", bytes)
+}
+
+// FormatMB 格式化MB数显示
+func FormatMB(mb float64) string {
+	const (
+		GB_IN_MB = 1024
+		TB_IN_MB = 1024 * 1024
+	)
+
+	if mb >= TB_IN_MB {
+		return fmt.Sprintf("%.2f TB", mb/TB_IN_MB)
+	} else if mb >= GB_IN_MB {
+		return fmt.Sprintf("%.2f GB", mb/GB_IN_MB)
+	} else if mb >= 1 {
+		return fmt.Sprintf("%.2f MB", mb)
+	}
+	return fmt.Sprintf("%.2f KB", mb*1024)
+}

@@ -70,7 +70,7 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 	trafficLimitService := traffic.NewLimitService()
 
 	// 获取Provider流量使用情况
-	providerUsage, err := trafficLimitService.GetProviderTrafficUsageWithVnStat(uint(providerID))
+	providerUsage, err := trafficLimitService.GetProviderTrafficUsageWithPmacct(uint(providerID))
 	if err != nil {
 		global.APP_LOG.Error("获取Provider流量统计失败",
 			zap.Uint("providerID", uint(providerID)),
@@ -113,7 +113,7 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 	trafficLimitService := traffic.NewLimitService()
 
 	// 获取用户流量使用情况
-	userUsage, err := trafficLimitService.GetUserTrafficUsageWithVnStat(uint(userID))
+	userUsage, err := trafficLimitService.GetUserTrafficUsageWithPmacct(uint(userID))
 	if err != nil {
 		global.APP_LOG.Error("获取用户流量统计失败",
 			zap.Uint("userID", uint(userID)),
@@ -410,7 +410,7 @@ type BatchSyncTrafficRequest struct {
 
 // ClearUserTrafficRecords 清空用户流量记录
 // @Summary 清空用户流量记录
-// @Description 删除指定用户的所有流量记录（包括软删除的记录），并重置用户流量配额
+// @Description 删除指定用户的所有历史流量记录，用于重新计数
 // @Tags 管理员流量
 // @Accept json
 // @Produce json
@@ -424,29 +424,30 @@ func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{
 			Code: 40000,
-			Msg:  "无效的用户ID",
+			Msg:  "用户ID格式错误",
 		})
 		return
 	}
 
-	trafficService := traffic.NewService()
-	deletedCount, err := trafficService.ClearUserTrafficRecords(uint(userID))
+	clearService := traffic.NewClearService()
+
+	deletedCount, err := clearService.ClearUserTrafficRecords(uint(userID))
 	if err != nil {
 		global.APP_LOG.Error("清空用户流量记录失败",
 			zap.Uint("userID", uint(userID)),
 			zap.Error(err))
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 50000,
-			Msg:  "清空流量记录失败: " + err.Error(),
+			Msg:  "清空用户流量记录失败: " + err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, common.Response{
 		Code: 0,
-		Msg:  "清空流量记录成功",
+		Msg:  "清空用户流量记录成功",
 		Data: map[string]interface{}{
-			"user_id":       uint(userID),
+			"user_id":       userID,
 			"deleted_count": deletedCount,
 		},
 	})

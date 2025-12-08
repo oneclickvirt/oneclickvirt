@@ -1,22 +1,16 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
     enable-email: false
-    enable-oauth2: false
     enable-public-registration: false
     enable-qq: false
     enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
+
 captcha:
     enabled: true
     expire-time: 300
     height: 40
     length: 4
     width: 120
+
 cdn:
     base-endpoint: https://cdn.spiritlhl.net/
     endpoints:
@@ -24,44 +18,42 @@ cdn:
         - http://cdn3.spiritlhl.net/
         - http://cdn1.spiritlhl.net/
         - http://cdn2.spiritlhl.net/
+
 cors:
     mode: ""
     whitelist: []
+
 invite-code:
     enabled: false
     required: false
+
 jwt:
     buffer-time: 1d
     expires-time: 7d
     issuer: oneclickvirt
     signing-key: ""
+
 mysql:
-    auto-create: true
+    auto-create: "true"
     config: charset=utf8mb4&parseTime=True&loc=Local
     db-name: oneclickvirt
     engine: InnoDB
     log-mode: error
-    log-zap: false
-    max-idle-conns: 50
-    max-lifetime: 900
-    max-open-conns: 500
+    log-zap: "false"
+    max-idle-conns: "50"
+    max-lifetime: "900"
+    max-open-conns: "500"
     password: ""
     path:
     port:
     prefix: ""
-    singular: false
+    singular: "false"
     username: root
+
 quota:
     default-level: 1
-    instance-type-permissions:
-        min-level-for-container: 1
-        min-level-for-delete-container: 2
-        min-level-for-delete-vm: 3
-        min-level-for-reset-container: 1
-        min-level-for-reset-vm: 3
-        min-level-for-vm: 3
     level-limits:
-        1:
+        "1":
             max-instances: 1
             max-resources:
                 bandwidth: 100
@@ -69,7 +61,7 @@ quota:
                 disk: 1025
                 memory: 350
             max-traffic: 102400
-        2:
+        "2":
             max-instances: 3
             max-resources:
                 bandwidth: 200
@@ -77,7 +69,7 @@ quota:
                 disk: 20480
                 memory: 1024
             max-traffic: 204800
-        3:
+        "3":
             max-instances: 5
             max-resources:
                 bandwidth: 500
@@ -85,7 +77,7 @@ quota:
                 disk: 40960
                 memory: 2048
             max-traffic: 307200
-        4:
+        "4":
             max-instances: 10
             max-resources:
                 bandwidth: 1000
@@ -93,7 +85,7 @@ quota:
                 disk: 81920
                 memory: 4096
             max-traffic: 409600
-        5:
+        "5":
             max-instances: 20
             max-resources:
                 bandwidth: 2000
@@ -101,32 +93,36 @@ quota:
                 disk: 163840
                 memory: 8192
             max-traffic: 512000
+
 redis:
     addr: ""
     db: 0
     password: ""
-sysm:
-    db-type: mysql
+
 system:
     addr: 8888
     db-type: mysql
     env: production
+    frontend-url: ""
     iplimit-count: 15000
     iplimit-time: 3600
+    oauth2-state-token-minutes: 15
     oss-type: local
+    provider-inactive-hours: 24
     use-multipoint: false
     use-redis: false
-    frontend-url: ""
-    provider-inactive-hours: 24
-    oauth2-state-token-minutes: 15
+
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
+
 upload:
     max-avatar-size: 2
+
 other:
     default-language: zh-CN
     max-avatar-size: 2
+
 zap:
     compress-logs: true
     director: storage/logs
@@ -143,3 +139,13 @@ zap:
     retention-day: 3
     show-line: false
     stacktrace-key: stacktrace
+
+max_avatar_size: 2
+default_language:
+signing_key_v1:
+    created_at: ""
+    expires_at: ""
+    is_active: false
+    key:
+    version: 1
+active_version: 1

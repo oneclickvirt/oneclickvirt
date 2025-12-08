@@ -696,7 +696,7 @@ const handleInit = async () => {
     loading.value = false
     startPolling()
   }
-  // 注意：成功时不要在这里设置 loading.value = false，让页面保持loading状态直到跳转
+  // 成功时不要在这里设置 loading.value = false，让页面保持loading状态直到跳转
 }
 
 onMounted(async () => {

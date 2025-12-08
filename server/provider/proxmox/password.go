@@ -4,7 +4,10 @@ import (
 	"context"
 	"fmt"
 
+	"oneclickvirt/global"
 	"oneclickvirt/utils"
+
+	"go.uber.org/zap"
 )
 
 // SetInstancePassword 设置实例密码
@@ -13,12 +16,31 @@ func (p *ProxmoxProvider) SetInstancePassword(ctx context.Context, instanceID, p
 		return fmt.Errorf("provider not connected")
 	}
 
-	// 根据配置选择使用API还是SSH方式
-	if p.config.Token != "" && p.config.TokenID != "" {
-		return p.apiSetInstancePassword(ctx, instanceID, password)
-	} else {
-		return p.sshSetInstancePassword(ctx, instanceID, password)
+	// 根据执行规则判断使用哪种方式
+	if p.shouldUseAPI() {
+		if err := p.apiSetInstancePassword(ctx, instanceID, password); err == nil {
+			global.APP_LOG.Info("Proxmox API设置实例密码成功",
+				zap.String("instanceID", utils.TruncateString(instanceID, 50)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("Proxmox API设置实例密码失败", zap.Error(err))
+
+			// 检查是否可回退到SSH并确保SSH健康
+			if fallbackErr := p.ensureSSHBeforeFallback(err, "设置实例密码"); fallbackErr != nil {
+				return fallbackErr
+			}
+		}
 	}
+
+	// 使用SSH方式
+	if !p.shouldUseSSH() {
+		if p.config.ExecutionRule == "api_only" {
+			return fmt.Errorf("执行规则为api_only，但API不可用且不允许使用SSH")
+		}
+		return fmt.Errorf("SSH连接不可用")
+	}
+
+	return p.sshSetInstancePassword(ctx, instanceID, password)
 }
 
 // ResetInstancePassword 重置实例密码

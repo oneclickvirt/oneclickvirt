@@ -53,6 +53,7 @@ func Viper(path ...string) *viper.Viper {
 }
 
 func setDefaults(v *viper.Viper) {
+	v.SetDefault("system.env", "public")
 	v.SetDefault("system.addr", 8080)
 	v.SetDefault("system.db-type", "mysql")
 	v.SetDefault("system.oss-type", "local")

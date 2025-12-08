@@ -447,7 +447,9 @@ func (s *JWTKeyService) cleanupExpiredKeys() error {
 	// 获取所有密钥版本，按版本号降序排列
 	var configs []adminModel.SystemConfig
 	err := global.APP_DB.Where("category = ? AND `key` LIKE ?", JWT_KEY_CATEGORY, JWT_KEY_PREFIX+"%").
-		Order("`key` DESC").Find(&configs).Error
+		Order("`key` DESC").
+		Limit(100). // 限制最多100条配置
+		Find(&configs).Error
 	if err != nil {
 		global.APP_LOG.Error("查询密钥列表失败",
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
@@ -507,7 +509,9 @@ func (s *JWTKeyService) GetAllKeys() ([]JWTKey, error) {
 
 	var configs []adminModel.SystemConfig
 	err := global.APP_DB.Where("category = ? AND key LIKE ?", JWT_KEY_CATEGORY, JWT_KEY_PREFIX+"%").
-		Order("key ASC").Find(&configs).Error
+		Order("key ASC").
+		Limit(100). // 限制最多100条配置
+		Find(&configs).Error
 	if err != nil {
 		global.APP_LOG.Error("查询所有密钥失败",
 			zap.String("error", utils.TruncateString(err.Error(), 200)))

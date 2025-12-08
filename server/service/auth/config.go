@@ -103,9 +103,9 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 			}
 
 			levelLimits[levelKey] = map[string]interface{}{
-				"maxInstances": modelLimit.MaxInstances,
-				"maxResources": modelLimit.MaxResources,
-				"maxTraffic":   modelLimit.MaxTraffic,
+				"max-instances": modelLimit.MaxInstances,
+				"max-resources": modelLimit.MaxResources,
+				"max-traffic":   modelLimit.MaxTraffic,
 			}
 		}
 		quotaConfig["levelLimits"] = levelLimits
@@ -364,19 +364,21 @@ func (s *ConfigService) SaveInstanceTypePermissions(minLevelForContainer, minLev
 		return fmt.Errorf("配置管理器未初始化")
 	}
 
-	// 构建实例类型权限配置 - 使用带连字符的key确保正确写回YAML
+	// 构建实例类型权限配置 - 使用嵌套格式（会被自动转换为 kebab-case）
 	instanceTypePermissions := map[string]interface{}{
-		"min-level-for-container":        minLevelForContainer,
-		"min-level-for-vm":               minLevelForVM,
-		"min-level-for-delete-container": minLevelForDeleteContainer,
-		"min-level-for-delete-vm":        minLevelForDeleteVM,
-		"min-level-for-reset-container":  minLevelForResetContainer,
-		"min-level-for-reset-vm":         minLevelForResetVM,
+		"minLevelForContainer":       minLevelForContainer,
+		"minLevelForVM":              minLevelForVM,
+		"minLevelForDeleteContainer": minLevelForDeleteContainer,
+		"minLevelForDeleteVM":        minLevelForDeleteVM,
+		"minLevelForResetContainer":  minLevelForResetContainer,
+		"minLevelForResetVM":         minLevelForResetVM,
 	}
 
-	// 更新配置
+	// 更新配置 - 使用嵌套格式，ConfigManager 会自动转换键名为 kebab-case 并扁平化
 	configUpdates := map[string]interface{}{
-		"quota.instance-type-permissions": instanceTypePermissions,
+		"quota": map[string]interface{}{
+			"instanceTypePermissions": instanceTypePermissions,
+		},
 	}
 
 	if err := configManager.UpdateConfig(configUpdates); err != nil {
@@ -384,15 +386,8 @@ func (s *ConfigService) SaveInstanceTypePermissions(minLevelForContainer, minLev
 		return fmt.Errorf("保存实例类型权限配置失败: %v", err)
 	}
 
-	// 立即同步到全局配置（避免需要重启服务）
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer = minLevelForContainer
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM = minLevelForVM
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer = minLevelForDeleteContainer
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM = minLevelForDeleteVM
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer = minLevelForResetContainer
-	global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM = minLevelForResetVM
-
-	global.APP_LOG.Info("实例类型权限配置保存成功，已同步到全局配置")
+	// 注意：不需要手动同步到全局配置，ConfigManager 会通过回调机制自动同步
+	global.APP_LOG.Info("实例类型权限配置保存成功，ConfigManager 将自动同步到全局配置")
 	return nil
 }
 

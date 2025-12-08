@@ -235,12 +235,8 @@ func (s *ImageDownloadService) isValidImageFormat(header []byte) bool {
 
 // checkChecksum 检查文件校验和（如果URL中包含校验和信息）
 func (s *ImageDownloadService) checkChecksum(filePath, imageURL string) bool {
-	// 这里可以实现从URL或相关的.sha256文件中获取校验和并验证
+	// TODO: 未来实现从URL或相关的.sha256文件中获取校验和并验证
 	// 目前先返回true，表示没有校验和要求或校验通过
-
-	// TODO: 实现具体的校验和验证逻辑
-	// 可以尝试下载对应的 .sha256 或 .md5 文件进行校验
-
 	return true
 }
 
@@ -270,7 +266,6 @@ func (s *ImageDownloadService) validateCompressedFile(filePath string) bool {
 	}
 
 	// 对于其他格式，暂时返回true
-	// TODO: 可以添加对xz、bzip2等格式的验证
 	return true
 }
 
@@ -334,7 +329,7 @@ func (s *ImageDownloadService) getCDNURL(originalURL string) string {
 
 // testCDNEndpoint 测试CDN端点是否可用
 func (s *ImageDownloadService) testCDNEndpoint(url string) bool {
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := utils.GetHTTPClientWithTimeout(5 * time.Second)
 	resp, err := client.Head(url)
 	if err != nil {
 		return false
@@ -350,8 +345,8 @@ func (s *ImageDownloadService) downloadFile(url, filePath string) error {
 	tmpPath := filePath + ".tmp"
 	defer os.Remove(tmpPath)
 
-	// 创建HTTP客户端
-	client := &http.Client{Timeout: 30 * time.Minute} // 镜像文件可能比较大，设置较长超时
+	// 创建HTTP客户端（30分钟超时，带连接池）
+	client := utils.GetHTTPClientWithTimeout(30 * time.Minute)
 
 	// 发起下载请求
 	resp, err := client.Get(url)

@@ -16,42 +16,7 @@ import (
 
 // getOrCreateProviderPool 获取或创建Provider工作池
 func (s *TaskService) getOrCreateProviderPool(providerID uint, concurrency int) *ProviderWorkerPool {
-	s.poolMutex.Lock()
-	defer s.poolMutex.Unlock()
-
-	// 如果池已存在，检查并发数是否需要调整
-	if pool, exists := s.providerPools[providerID]; exists {
-		if pool.WorkerCount != concurrency {
-			// 需要调整并发数，关闭旧池并创建新池
-			pool.Cancel()
-			delete(s.providerPools, providerID)
-		} else {
-			return pool
-		}
-	}
-
-	// 创建新的工作池
-	ctx, cancel := context.WithCancel(context.Background())
-	pool := &ProviderWorkerPool{
-		ProviderID:  providerID,
-		TaskQueue:   make(chan TaskRequest, concurrency*2), // 队列大小为并发数的2倍，提供缓冲
-		WorkerCount: concurrency,
-		Ctx:         ctx,
-		Cancel:      cancel,
-		TaskService: s,
-	}
-
-	// 启动工作者
-	for i := 0; i < concurrency; i++ {
-		go pool.worker(i)
-	}
-
-	s.providerPools[providerID] = pool
-	global.APP_LOG.Info("创建Provider工作池",
-		zap.Uint("providerId", providerID),
-		zap.Int("concurrency", concurrency))
-
-	return pool
+	return s.poolManager.GetOrCreate(providerID, concurrency, s)
 }
 
 // worker 工作者goroutine
@@ -88,23 +53,19 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 	defer taskCancel()
 
 	// 注册任务上下文
-	pool.TaskService.contextMutex.Lock()
-	pool.TaskService.runningContexts[task.ID] = &TaskContext{
-		TaskID:     task.ID,
-		Context:    taskCtx,
-		CancelFunc: taskCancel,
-		StartTime:  time.Now(),
+	if err := pool.TaskService.contextManager.Add(task.ID, taskCtx, taskCancel); err != nil {
+		global.APP_LOG.Error("注册任务上下文失败",
+			zap.Uint("taskID", task.ID),
+			zap.Error(err))
+
+		result.Success = false
+		result.Error = err
+		pool.TaskService.CompleteTask(task.ID, false, err.Error(), result.Data)
+		taskReq.ResponseCh <- result
+		return
 	}
-	pool.TaskService.contextMutex.Unlock()
 
-	// 任务完成时清理上下文
-	defer func() {
-		pool.TaskService.contextMutex.Lock()
-		delete(pool.TaskService.runningContexts, task.ID)
-		pool.TaskService.contextMutex.Unlock()
-	}()
-
-	// Panic recovery机制：捕获任务执行过程中的panic
+	// Panic recovery机制必须在最外层，确保任何panic都会清理资源
 	defer func() {
 		if r := recover(); r != nil {
 			// 记录panic详情
@@ -130,10 +91,15 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 					zap.Uint("taskId", task.ID))
 			}
 		}
+		// 确保panic时也清理context
+		pool.TaskService.contextManager.Delete(task.ID)
 	}()
 
+	// 任务完成时清理上下文
+	defer pool.TaskService.contextManager.Delete(task.ID)
+
 	// 更新任务状态为运行中 - 使用SELECT FOR UPDATE确保原子性
-	err := pool.TaskService.dbService.ExecuteTransaction(taskCtx, func(tx *gorm.DB) error {
+	updateErr := pool.TaskService.dbService.ExecuteTransaction(taskCtx, func(tx *gorm.DB) error {
 		// 使用行锁查询任务，确保原子性
 		var currentTask adminModel.Task
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
@@ -167,11 +133,11 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		return nil
 	})
 
-	if err != nil {
-		result.Error = fmt.Errorf("更新任务状态失败: %v", err)
+	if updateErr != nil {
+		result.Error = fmt.Errorf("更新任务状态失败: %v", updateErr)
 		global.APP_LOG.Warn("任务状态更新失败，可能被其他worker处理",
 			zap.Uint("taskId", task.ID),
-			zap.Error(err))
+			zap.Error(updateErr))
 		// 如果状态更新失败，不发送结果，让调度器自然忽略
 		return
 	}
@@ -191,10 +157,22 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 	}
 	pool.TaskService.CompleteTask(task.ID, result.Success, errorMsg, result.Data)
 
-	// 发送结果
+	// 非阻塞发送结果，防止goroutine泄漏
+	// 使用timer代替time.After避免内存泄漏
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
 	select {
 	case taskReq.ResponseCh <- result:
+		// 成功发送
 	case <-taskCtx.Done():
+		// 上下文已取消，放弃发送
+		global.APP_LOG.Debug("任务上下文已取消，放弃发送结果",
+			zap.Uint("taskId", task.ID))
+	case <-timeout.C:
+		// 5秒超时，防止永久阻塞
+		global.APP_LOG.Warn("发送任务结果超时",
+			zap.Uint("taskId", task.ID))
 	}
 }
 
@@ -233,20 +211,62 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 	// 获取或创建工作池
 	pool := s.getOrCreateProviderPool(*task.ProviderID, concurrency)
 
-	// 创建任务请求
+	// 创建任务请求，使用带缓冲的channel防止阻塞
 	taskReq := TaskRequest{
 		Task:       task,
 		ResponseCh: make(chan TaskResult, 1),
 	}
 
+	// 启动goroutine等待响应或超时，防止channel泄漏
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("任务响应处理goroutine panic",
+					zap.Uint("taskId", taskID),
+					zap.Any("panic", r))
+			}
+		}()
+
+		// 等待响应或超时（最长等待1小时）
+		timeout := time.NewTimer(1 * time.Hour)
+		defer timeout.Stop()
+
+		select {
+		case result := <-taskReq.ResponseCh:
+			// 处理结果（日志记录）
+			if result.Success {
+				global.APP_LOG.Debug("任务执行成功",
+					zap.Uint("taskId", taskID))
+			} else {
+				global.APP_LOG.Debug("任务执行失败",
+					zap.Uint("taskId", taskID),
+					zap.Error(result.Error))
+			}
+			// channel会自动被GC
+		case <-timeout.C:
+			global.APP_LOG.Warn("任务响应超时，关闭ResponseCh",
+				zap.Uint("taskId", taskID))
+			// 尝试drain channel
+			select {
+			case <-taskReq.ResponseCh:
+			default:
+			}
+		}
+	}()
+
 	// 发送任务到工作池（阻塞直到有空闲worker或队列有空间）
+	timer := time.NewTimer(30 * time.Second)
+	defer timer.Stop()
+
 	select {
 	case pool.TaskQueue <- taskReq:
 		global.APP_LOG.Info("任务已发送到工作池",
 			zap.Uint("taskId", taskID),
 			zap.Uint("providerId", *task.ProviderID),
 			zap.Int("queueLength", len(pool.TaskQueue)))
-	case <-time.After(30 * time.Second):
+	case <-timer.C:
+		// 发送失败，关闭ResponseCh防止泄漏
+		close(taskReq.ResponseCh)
 		return fmt.Errorf("任务队列已满，发送超时")
 	}
 

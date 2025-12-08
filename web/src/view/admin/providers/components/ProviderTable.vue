@@ -281,7 +281,10 @@
         width="140"
       >
         <template #default="scope">
-          <div class="traffic-info">
+          <div 
+            v-if="scope.row.enableTrafficControl"
+            class="traffic-info"
+          >
             <div class="traffic-usage">
               <span>{{ formatTraffic(scope.row.usedTraffic) }}</span>
               <span class="separator">/</span>
@@ -306,6 +309,17 @@
                 {{ $t('admin.providers.trafficExceeded') }}
               </el-tag>
             </div>
+          </div>
+          <div
+            v-else
+            class="traffic-disabled"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
+              {{ $t('admin.providers.trafficDisabled') }}
+            </el-text>
           </div>
         </template>
       </el-table-column>
@@ -414,50 +428,32 @@
       </el-table-column>
       <el-table-column
         :label="$t('common.actions')"
-        width="360"
+        width="230"
         fixed="right"
       >
         <template #default="scope">
-          <div class="table-action-buttons">
-            <a
-              class="table-action-link"
+          <div class="action-buttons">
+            <el-button
+              size="small"
+              type="primary"
               @click="$emit('edit', scope.row)"
             >
               {{ $t('common.edit') }}
-            </a>
-            <a 
-              v-if="(scope.row.type === 'lxd' || scope.row.type === 'incus' || scope.row.type === 'proxmox')" 
-              class="table-action-link" 
-              @click="$emit('auto-configure', scope.row)"
+            </el-button>
+            <el-button
+              size="small"
+              type="primary"
+              @click="showActionsDialog(scope.row)"
             >
-              {{ $t('admin.providers.autoConfigureAPI') }}
-            </a>
-            <a 
-              class="table-action-link" 
-              @click="$emit('health-check', scope.row.id)"
-            >
-              {{ $t('admin.providers.healthCheck') }}
-            </a>
-            <a 
-              v-if="scope.row.isFrozen" 
-              class="table-action-link success" 
-              @click="$emit('unfreeze', scope.row)"
-            >
-              {{ $t('admin.providers.unfreeze') }}
-            </a>
-            <a 
-              v-else 
-              class="table-action-link warning" 
-              @click="$emit('freeze', scope.row.id)"
-            >
-              {{ $t('admin.providers.freeze') }}
-            </a>
-            <a
-              class="table-action-link danger"
-              @click="$emit('delete', scope.row.id)"
+              {{ $t('common.actions') }}
+            </el-button>
+            <el-button
+              size="small"
+              type="danger"
+              @click="$emit('delete', scope.row)"
             >
               {{ $t('common.delete') }}
-            </a>
+            </el-button>
           </div>
         </template>
       </el-table-column>
@@ -475,11 +471,67 @@
         @current-change="$emit('page-change', $event)"
       />
     </div>
+
+    <!-- 操作对话框 -->
+    <el-dialog
+      v-model="actionsDialogVisible"
+      :title="$t('common.actions')"
+      width="400px"
+    >
+      <div
+        v-if="currentRow"
+        class="actions-dialog-content"
+      >
+        <el-button
+          v-if="currentRow.type === 'lxd' || currentRow.type === 'incus' || currentRow.type === 'proxmox'"
+          class="action-button"
+          type="primary"
+          @click="handleAction('auto-configure')"
+        >
+          {{ $t('admin.providers.autoConfigureAPI') }}
+        </el-button>
+        
+        <el-button
+          v-if="currentRow.enableTrafficControl"
+          class="action-button"
+          type="success"
+          @click="handleAction('traffic-monitor')"
+        >
+          {{ $t('admin.providers.trafficMonitorManagement') }}
+        </el-button>
+
+        <el-divider v-if="(currentRow.type === 'lxd' || currentRow.type === 'incus' || currentRow.type === 'proxmox') || currentRow.enableTrafficControl" />
+        <el-button
+          class="action-button"
+          type="primary"
+          @click="handleAction('health-check')"
+        >
+          {{ $t('admin.providers.healthCheck') }}
+        </el-button>
+
+        <el-button
+          v-if="currentRow.isFrozen"
+          class="action-button"
+          type="success"
+          @click="handleAction('unfreeze')"
+        >
+          {{ $t('admin.providers.unfreeze') }}
+        </el-button>
+        <el-button
+          v-else
+          class="action-button"
+          type="warning"
+          @click="handleAction('freeze')"
+        >
+          {{ $t('admin.providers.freeze') }}
+        </el-button>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { Loading, FolderOpened } from '@element-plus/icons-vue'
+import { ref } from 'vue'
 import { 
   formatMemorySize, 
   formatDiskSize, 
@@ -525,6 +577,7 @@ const emit = defineEmits([
   'selection-change',
   'edit',
   'auto-configure',
+  'traffic-monitor',
   'health-check',
   'freeze',
   'unfreeze',
@@ -535,6 +588,40 @@ const emit = defineEmits([
 
 const handleSelectionChange = (selection) => {
   emit('selection-change', selection)
+}
+
+const actionsDialogVisible = ref(false)
+const currentRow = ref(null)
+
+const showActionsDialog = (row) => {
+  currentRow.value = row
+  actionsDialogVisible.value = true
+}
+
+const handleAction = (action) => {
+  if (!currentRow.value) return
+  
+  actionsDialogVisible.value = false
+  
+  switch (action) {
+    case 'auto-configure':
+      emit('auto-configure', currentRow.value)
+      break
+    case 'traffic-monitor':
+      emit('traffic-monitor', currentRow.value)
+      break
+    case 'health-check':
+      emit('health-check', currentRow.value.id)
+      break
+    case 'freeze':
+      emit('freeze', currentRow.value.id)
+      break
+    case 'unfreeze':
+      emit('unfreeze', currentRow.value)
+      break
+  }
+  
+  currentRow.value = null
 }
 </script>
 
@@ -596,6 +683,14 @@ const handleSelectionChange = (selection) => {
 }
 
 .traffic-status {
+  text-align: center;
+}
+
+.traffic-disabled {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 60px;
   text-align: center;
 }
 
@@ -667,5 +762,32 @@ const handleSelectionChange = (selection) => {
   margin-top: 20px;
   display: flex;
   justify-content: center;
+}
+
+.action-buttons {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.action-buttons .el-button {
+  margin: 0;
+}
+
+.actions-dialog-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 0;
+}
+
+.action-button {
+  width: 100%;
+  margin: 0 !important;
+}
+
+.actions-dialog-content .el-divider {
+  margin: 10px 0;
 }
 </style>

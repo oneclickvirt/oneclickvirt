@@ -70,6 +70,27 @@ export function resetOAuth2RegistrationCount(id) {
   })
 }
 
+/**
+ * 获取OAuth2预设配置列表
+ */
+export function getOAuth2Presets() {
+  return request({
+    url: '/v1/oauth2/presets',
+    method: 'get'
+  })
+}
+
+/**
+ * 获取指定的OAuth2预设配置
+ * @param {string} name - 预设名称 (linuxdo, idcflare, github, generic)
+ */
+export function getOAuth2Preset(name) {
+  return request({
+    url: `/v1/oauth2/presets/${name}`,
+    method: 'get'
+  })
+}
+
 // ==================== 公开接口 ====================
 
 /**

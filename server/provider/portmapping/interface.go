@@ -47,7 +47,7 @@ type PortMappingRequest struct {
 	IPv6Enabled   bool   `json:"ipv6Enabled"`   // 是否启用IPv6
 	IPv6Address   string `json:"ipv6Address"`   // IPv6地址
 	HostIP        string `json:"hostIP"`        // 主机IP（某些情况下需要指定）
-	MappingMethod string `json:"mappingMethod"` // 映射方法: native, iptables, gost, etc.
+	MappingMethod string `json:"mappingMethod"` // 映射方法: native, iptables, etc.
 	IsSSH         *bool  `json:"isSSH"`         // 是否为SSH端口（可选，如果不提供则根据GuestPort==22判断）
 }
 

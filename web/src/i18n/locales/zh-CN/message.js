@@ -1,0 +1,21 @@
+export default {
+  operationSuccess: '操作成功',
+  operationFailed: '操作失败',
+  saveSuccess: '保存成功',
+  saveFailed: '保存失败',
+  deleteSuccess: '删除成功',
+  deleteFailed: '删除失败',
+  updateSuccess: '更新成功',
+  updateFailed: '更新失败',
+  createSuccess: '创建成功',
+  createFailed: '创建失败',
+  uploadSuccess: '上传成功',
+  uploadFailed: '上传失败',
+  confirmDelete: '确定要删除吗？',
+  confirmAction: '确定要执行此操作吗？',
+  networkError: '网络错误，请检查您的连接',
+  serverError: '服务器错误，请稍后重试',
+  noData: '暂无数据',
+  loadingData: '正在加载数据...',
+  pleaseWait: '请稍候...'
+}

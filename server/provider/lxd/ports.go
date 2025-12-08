@@ -276,12 +276,11 @@ func (l *LXDProvider) setupNATPortRangeMappingWithIP(instanceName string, startP
 		zap.Int("endPort", endPort),
 		zap.String("method", method),
 		zap.String("instanceIP", instanceIP))
-
 	switch method {
 	case "device_proxy":
 		return l.setupNATPortRangeDeviceProxyWithIP(instanceName, startPort, endPort, instanceIP)
 	case "iptables":
-		// TODO: 如果需要支持iptables的端口范围映射，可以在这里实现
+		// TODO: 需要支持iptables的端口范围映射
 		return fmt.Errorf("iptables方式的NAT端口范围映射暂未实现")
 	default:
 		// 默认使用device proxy方式

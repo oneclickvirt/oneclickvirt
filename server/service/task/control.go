@@ -195,11 +195,9 @@ func (s *TaskService) cancelRunningTask(tx *gorm.DB, taskID uint, reason string)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.contextMutex.RLock()
-		if taskCtx, exists := s.runningContexts[taskID]; exists {
+		if taskCtx, exists := s.contextManager.Get(taskID); exists {
 			taskCtx.CancelFunc()
 		}
-		s.contextMutex.RUnlock()
 	}()
 
 	return nil
@@ -237,12 +235,11 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 			}
 		}
 
-		s.contextMutex.Lock()
-		if taskCtx, exists := s.runningContexts[taskID]; exists {
+		// 取消运行中的context
+		if taskCtx, exists := s.contextManager.Get(taskID); exists {
 			taskCtx.CancelFunc()
-			delete(s.runningContexts, taskID)
+			s.contextManager.Delete(taskID)
 		}
-		s.contextMutex.Unlock()
 
 		// 释放资源
 		s.releaseTaskResources(taskID)

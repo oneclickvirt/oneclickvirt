@@ -2,33 +2,77 @@ package resources
 
 import (
 	"fmt"
-	"strings"
+	"oneclickvirt/utils"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
+	trafficService "oneclickvirt/service/traffic"
+
+	"go.uber.org/zap"
 )
 
 // UserDashboardService 处理用户仪表板相关功能
 type UserDashboardService struct{}
 
-// GetUserDashboard 获取用户仪表板数据
+// GetUserDashboard 获取用户仪表板数据（带缓存）
 func (s *UserDashboardService) GetUserDashboard(userID uint) (*userModel.UserDashboardResponse, error) {
+	cacheService := cache.GetUserCacheService()
+	cacheKey := cache.MakeUserDashboardKey(userID)
+
+	// 尝试从缓存获取
+	if cachedData, ok := cacheService.Get(cacheKey); ok {
+		if dashboard, ok := cachedData.(*userModel.UserDashboardResponse); ok {
+			return dashboard, nil
+		}
+	}
+
+	// 缓存未命中，查询数据库
+	dashboard, err := s.fetchUserDashboard(userID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 缓存结果
+	cacheService.Set(cacheKey, dashboard, cache.TTLUserDashboard)
+	return dashboard, nil
+}
+
+// fetchUserDashboard 从数据库获取用户仪表板数据
+func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserDashboardResponse, error) {
 	var user userModel.User
 	if err := global.APP_DB.First(&user, userID).Error; err != nil {
 		return nil, err
 	}
 
-	// 统计当前实例（不包含预留资源，只统计实际实例）
-	var totalInstances, runningInstances, stoppedInstances, containers, vms int64
-	// 只统计非删除状态的实例
-	global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND status != ? AND status != ?", userID, "deleting", "deleted").Count(&totalInstances)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND status = ?", userID, "running").Count(&runningInstances)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND status = ?", userID, "stopped").Count(&stoppedInstances)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND instance_type = ? AND status != ? AND status != ?", userID, "container", "deleting", "deleted").Count(&containers)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ? AND instance_type = ? AND status != ? AND status != ?", userID, "vm", "deleting", "deleted").Count(&vms)
+	// 使用单次查询统计所有实例相关数据
+	type InstanceStats struct {
+		TotalInstances   int64
+		RunningInstances int64
+		StoppedInstances int64
+		Containers       int64
+		VMs              int64
+	}
+
+	var stats InstanceStats
+	// 使用子查询一次性获取所有统计数据
+	err := global.APP_DB.Raw(`
+		SELECT 
+			COUNT(*) as total_instances,
+			SUM(CASE WHEN status = 'running' THEN 1 ELSE 0 END) as running_instances,
+			SUM(CASE WHEN status = 'stopped' THEN 1 ELSE 0 END) as stopped_instances,
+			SUM(CASE WHEN instance_type = 'container' AND status NOT IN ('deleting', 'deleted') THEN 1 ELSE 0 END) as containers,
+			SUM(CASE WHEN instance_type = 'vm' AND status NOT IN ('deleting', 'deleted') THEN 1 ELSE 0 END) as vms
+		FROM instances
+		WHERE user_id = ? AND status NOT IN ('deleting', 'deleted')
+	`, userID).Scan(&stats).Error
+
+	if err != nil {
+		return nil, fmt.Errorf("统计用户实例失败: %v", err)
+	}
 
 	var recentInstances []providerModel.Instance
 	global.APP_DB.Where("user_id = ? AND status != ? AND status != ?", userID, "deleting", "deleted").Order("created_at DESC").Limit(5).Find(&recentInstances)
@@ -50,7 +94,7 @@ func (s *UserDashboardService) GetUserDashboard(userID uint) (*userModel.UserDas
 		return nil, fmt.Errorf("查询用户实例失败: %v", err)
 	}
 
-	// 统计当前预留的资源（新机制：只查询未过期的预留）
+	// 统计当前预留的资源只查询未过期的预留
 	var activeReservations []resourceModel.ResourceReservation
 	if err := global.APP_DB.Where("user_id = ? AND expires_at > ?", userID, time.Now()).Find(&activeReservations).Error; err != nil {
 		return nil, fmt.Errorf("查询用户预留资源失败: %v", err)
@@ -89,11 +133,11 @@ func (s *UserDashboardService) GetUserDashboard(userID uint) (*userModel.UserDas
 		RecentInstances: recentInstances,
 	}
 
-	dashboard.Instances.Total = int(totalInstances)
-	dashboard.Instances.Running = int(runningInstances)
-	dashboard.Instances.Stopped = int(stoppedInstances)
-	dashboard.Instances.Containers = int(containers)
-	dashboard.Instances.VMs = int(vms)
+	dashboard.Instances.Total = int(stats.TotalInstances)
+	dashboard.Instances.Running = int(stats.RunningInstances)
+	dashboard.Instances.Stopped = int(stats.StoppedInstances)
+	dashboard.Instances.Containers = int(stats.Containers)
+	dashboard.Instances.VMs = int(stats.VMs)
 
 	// 详细的资源使用信息（包含预留资源）
 	dashboard.ResourceUsage = &userModel.ResourceUsageInfo{
@@ -157,6 +201,21 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 		usedInstances++
 	}
 
+	// 查询当月流量使用情况（从pmacct_traffic_records实时聚合）
+	trafficQueryService := trafficService.NewQueryService()
+	year, month, _ := time.Now().Date()
+	monthlyTrafficStats, err := trafficQueryService.GetUserMonthlyTraffic(user.ID, year, int(month))
+
+	var usedTrafficMB int64
+	if err != nil {
+		global.APP_LOG.Warn("获取用户流量数据失败，使用默认值",
+			zap.Uint("userID", user.ID),
+			zap.Error(err))
+		usedTrafficMB = 0
+	} else {
+		usedTrafficMB = int64(monthlyTrafficStats.ActualUsageMB)
+	}
+
 	response := &userModel.UserLimitsResponse{
 		Level:         user.Level,
 		MaxInstances:  levelLimits.MaxInstances,
@@ -170,44 +229,13 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 		MaxBandwidth:  maxResources.Bandwidth,
 		UsedBandwidth: usedBandwidth,
 		MaxTraffic:    levelLimits.MaxTraffic, // 使用等级配置的流量限制
-		UsedTraffic:   user.UsedTraffic,       // 使用用户本身的已使用流量
+		UsedTraffic:   usedTrafficMB,          // 使用实时查询的流量数据
 	}
 
 	return response, nil
 }
 
-// extractIPFromEndpoint 从endpoint中提取纯IP地址（移除端口号）
+// extractIPFromEndpoint 从endpoint中提取纯IP地址（使用全局函数）
 func (s *UserDashboardService) extractIPFromEndpoint(endpoint string) string {
-	if endpoint == "" {
-		return ""
-	}
-
-	// 移除协议前缀
-	if strings.Contains(endpoint, "://") {
-		parts := strings.Split(endpoint, "://")
-		if len(parts) > 1 {
-			endpoint = parts[1]
-		}
-	}
-
-	// 处理IPv6地址
-	if strings.HasPrefix(endpoint, "[") {
-		closeBracket := strings.Index(endpoint, "]")
-		if closeBracket > 0 {
-			return endpoint[1:closeBracket]
-		}
-	}
-
-	// 处理IPv4地址
-	colonIndex := strings.LastIndex(endpoint, ":")
-	if colonIndex > 0 {
-		// 检查是否是IPv6地址（多个冒号）
-		if strings.Count(endpoint, ":") > 1 {
-			return endpoint // IPv6地址不处理
-		}
-		// IPv4地址，移除端口
-		return endpoint[:colonIndex]
-	}
-
-	return endpoint
+	return utils.ExtractIPFromEndpoint(endpoint)
 }

@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
@@ -153,13 +154,24 @@ func (cs *CertService) AutoConfigureProvider(provider *provider.Provider) error 
 }
 
 func (cs *CertService) AutoConfigureProviderWithStream(provider *provider.Provider, outputChan chan<- string) error {
+	return cs.AutoConfigureProviderWithStreamContext(context.Background(), provider, outputChan)
+}
+
+func (cs *CertService) AutoConfigureProviderWithStreamContext(ctx context.Context, provider *provider.Provider, outputChan chan<- string) error {
+	// 检查context是否已取消
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
 	switch provider.Type {
 	case "lxd":
-		return cs.autoConfigureLXDWithStream(provider, outputChan)
+		return cs.autoConfigureLXDWithStreamContext(ctx, provider, outputChan)
 	case "incus":
-		return cs.autoConfigureIncusWithStream(provider, outputChan)
+		return cs.autoConfigureIncusWithStreamContext(ctx, provider, outputChan)
 	case "proxmox":
-		return cs.autoConfigureProxmoxWithStream(provider, outputChan)
+		return cs.autoConfigureProxmoxWithStreamContext(ctx, provider, outputChan)
 	default:
 		return fmt.Errorf("不支持的Provider类型: %s", provider.Type)
 	}
@@ -445,7 +457,7 @@ func (cs *CertService) autoConfigureProxmoxWithStream(provider *provider.Provide
 }
 
 func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script, filename string) error {
-	host, port := cs.parseEndpoint(*provider)
+	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
 		Host:           host,
 		Port:           port,
@@ -481,7 +493,7 @@ func (cs *CertService) executeScriptViaSFTP(provider *provider.Provider, script,
 }
 
 func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provider, script, filename string, outputChan chan<- string) error {
-	host, port := cs.parseEndpoint(*provider)
+	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
 		Host:           host,
 		Port:           port,
@@ -502,7 +514,28 @@ func (cs *CertService) executeScriptViaSFTPWithStream(provider *provider.Provide
 	remotePath := fmt.Sprintf("/tmp/%s", filename)
 
 	outputChan <- "上传配置脚本..."
-	if err := sshClient.UploadContent(script, remotePath, 0755); err != nil {
+	// 先尝试直接上传，如果权限被拒绝，则尝试上传到用户目录再移动
+	err = sshClient.UploadContent(script, remotePath, 0755)
+	if err != nil && strings.Contains(err.Error(), "permission denied") {
+		// 如果直接上传/tmp失败，尝试上传到用户home目录
+		userRemotePath := fmt.Sprintf("~/%s", filename)
+		outputChan <- fmt.Sprintf("⚠️ /tmp目录权限不足，尝试上传到用户目录: %s", userRemotePath)
+
+		if err := sshClient.UploadContent(script, userRemotePath, 0755); err != nil {
+			outputChan <- fmt.Sprintf("❌ 上传脚本失败: %s", err.Error())
+			return fmt.Errorf("上传脚本失败: %w", err)
+		}
+
+		// 使用sudo移动到/tmp
+		moveCmd := fmt.Sprintf("sudo mv %s %s && sudo chmod 755 %s", userRemotePath, remotePath, remotePath)
+		if _, err := sshClient.Execute(moveCmd); err != nil {
+			outputChan <- fmt.Sprintf("❌ 移动脚本到/tmp失败: %s", err.Error())
+			// 如果移动失败，直接使用用户目录的脚本
+			remotePath = userRemotePath
+		} else {
+			outputChan <- "✅ 脚本已移动到/tmp目录"
+		}
+	} else if err != nil {
 		outputChan <- fmt.Sprintf("❌ 上传脚本失败: %s", err.Error())
 		return fmt.Errorf("上传脚本失败: %w", err)
 	}
@@ -738,6 +771,26 @@ func (cs *CertService) generateProxmoxScript(providerUUID, username, tokenId str
 
 echo "=== OneClickVirt Proxmox VE 配置开始 ==="
 
+# 检查是否为Proxmox VE环境
+if ! command -v pveum &> /dev/null; then
+    echo "❌ 错误：当前系统不是Proxmox VE环境"
+    exit 1
+fi
+
+echo "✅ Proxmox VE环境检查通过"
+
+# 检查当前用户权限
+if [ "$(id -u)" -ne 0 ]; then
+    echo "⚠️ 当前用户不是root，尝试使用sudo执行"
+    # 检查是否有sudo权限
+    if ! sudo -n true 2>/dev/null; then
+        echo "❌ 错误：当前用户没有sudo权限，请使用root用户或配置sudo权限"
+        exit 1
+    fi
+    # 重新以sudo执行自己
+    exec sudo bash "$0" "$@"
+fi
+
 if ! command -v pveum >/dev/null 2>&1; then
 	echo "❌ 未找到pveum命令，请确认这是Proxmox VE服务器"
 	exit 1
@@ -810,7 +863,7 @@ echo "=== Proxmox VE 配置完成 ==="
 }
 
 func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, username, tokenId string) (*TokenInfo, error) {
-	host, port := cs.parseEndpoint(*provider)
+	host, port := utils.ParseEndpoint(provider.Endpoint, provider.SSHPort)
 	sshConfig := utils.SSHConfig{
 		Host:           host,
 		Port:           port,
@@ -853,20 +906,6 @@ func (cs *CertService) getProxmoxTokenFromRemote(provider *provider.Provider, us
 		TokenSecret: tokenSecret,
 		Username:    username,
 	}, nil
-}
-
-func (cs *CertService) parseEndpoint(provider provider.Provider) (host string, port int) {
-	// 从endpoint中提取主机地址
-	parts := strings.Split(provider.Endpoint, ":")
-	host = parts[0]
-
-	// 使用数据库中存储的SSH端口，如果为0则使用默认值22
-	port = provider.SSHPort
-	if port == 0 {
-		port = 22
-	}
-
-	return host, port
 }
 
 // ProxmoxTokenInfo 存储 Proxmox Token 信息的结构

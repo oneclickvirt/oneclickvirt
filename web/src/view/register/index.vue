@@ -288,7 +288,7 @@ const handleRegister = async () => {
 
       if (result.success && result.data) {
         // 注册成功，直接设置用户登录状态
-        const responseData = result.data.data // 修复：正确获取嵌套的data数据
+        const responseData = result.data.data // 正确获取嵌套的data数据
         
         // 导入用户store
         const { useUserStore } = await import('@/pinia/modules/user')

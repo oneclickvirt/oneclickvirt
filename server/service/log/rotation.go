@@ -612,7 +612,7 @@ func (s *LogRotationService) compressFile(filePath string) error {
 			zap.String("file", filePath),
 			zap.Error(err))
 	} else {
-		// 降低压缩完成日志的级别
+		// 压缩完成日志的级别
 		global.APP_LOG.Debug("日志文件压缩完成",
 			zap.String("source", filePath),
 			zap.String("dest", dstPath))

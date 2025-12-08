@@ -56,6 +56,8 @@ type ProviderManageResponse struct {
 	// 实例数量统计（容器和虚拟机分别统计）
 	CurrentContainerCount int `json:"currentContainerCount"` // 当前容器实例数量
 	CurrentVMCount        int `json:"currentVMCount"`        // 当前虚拟机实例数量
+	// 流量使用情况
+	UsedTraffic int64 `json:"usedTraffic"` // 已使用流量（MB）
 }
 
 type InviteCodeResponse struct {
@@ -65,10 +67,12 @@ type InviteCodeResponse struct {
 
 type InstanceManageResponse struct {
 	provider.Instance
-	UserName     string `json:"userName"`
-	ProviderName string `json:"providerName"`
-	ProviderType string `json:"providerType"`
-	HealthStatus string `json:"healthStatus"`
+	UserName       string `json:"userName"`
+	ProviderName   string `json:"providerName"`
+	ProviderType   string `json:"providerType"`
+	HealthStatus   string `json:"healthStatus"`
+	UsedTrafficIn  int64  `json:"usedTrafficIn"`  // 当月入站流量（MB）- 从历史记录查询
+	UsedTrafficOut int64  `json:"usedTrafficOut"` // 当月出站流量（MB）- 从历史记录查询
 }
 
 type SystemConfigResponse struct {

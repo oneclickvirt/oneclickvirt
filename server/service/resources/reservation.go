@@ -15,11 +15,10 @@ import (
 	"oneclickvirt/service/database"
 )
 
-// ResourceReservationService 资源预留服务 - 基于会话ID的新机制
+// ResourceReservationService 资源预留服务 - 基于会话ID
 type ResourceReservationService struct {
-	dbService     *database.DatabaseService
-	cleanupTicker *time.Ticker
-	stopCleanup   chan bool
+	dbService   *database.DatabaseService
+	stopCleanup chan bool
 }
 
 var (
@@ -46,18 +45,38 @@ func GetResourceReservationService() *ResourceReservationService {
 	return reservationService
 }
 
-// startPeriodicCleanup 启动定期清理任务
+// startPeriodicCleanup 启动自适应定期清理任务
 func (s *ResourceReservationService) startPeriodicCleanup() {
-	s.cleanupTicker = time.NewTicker(10 * time.Minute) // 每10分钟清理一次
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("资源预留清理goroutine panic", zap.Any("panic", r))
+			}
+		}()
+
+		ticker := time.NewTicker(10 * time.Minute)
+		defer ticker.Stop()
+
 		for {
 			select {
-			case <-s.cleanupTicker.C:
-				if err := s.cleanupExpiredReservations(); err != nil {
-					global.APP_LOG.Error("清理过期预留记录失败", zap.Error(err))
+			case <-ticker.C:
+				// 检查是否有预留记录
+				var count int64
+				if global.APP_DB != nil {
+					global.APP_DB.Model(&resource.ResourceReservation{}).Count(&count)
 				}
+
+				// 有预留时10分钟清理，无预留时1小时检查（节省资源）
+				newInterval := 1 * time.Hour
+				if count > 0 {
+					newInterval = 10 * time.Minute
+					if err := s.cleanupExpiredReservations(); err != nil {
+						global.APP_LOG.Error("清理过期预留记录失败", zap.Error(err))
+					}
+				}
+				ticker.Reset(newInterval)
+
 			case <-s.stopCleanup:
-				s.cleanupTicker.Stop()
 				return
 			}
 		}
@@ -294,7 +313,9 @@ func (s *ResourceReservationService) GetActiveReservations() ([]resource.Resourc
 	var reservations []resource.ResourceReservation
 
 	// 查询未过期的预留记录
-	err := global.APP_DB.Where("expires_at > ?", time.Now()).Find(&reservations).Error
+	err := global.APP_DB.Where("expires_at > ?", time.Now()).
+		Limit(5000). // 限制最多5000条预留记录
+		Find(&reservations).Error
 	if err != nil {
 		global.APP_LOG.Error("查询活跃预留记录失败", zap.Error(err))
 		return nil, err

@@ -20,17 +20,27 @@ func (p *ProxmoxProvider) ListImages(ctx context.Context) ([]provider.Image, err
 		return nil, fmt.Errorf("not connected")
 	}
 
-	// 尝试 API 调用
-	if p.hasAPIAccess() {
+	// 根据执行规则判断使用哪种方式
+	if p.shouldUseAPI() {
 		images, err := p.apiListImages(ctx)
 		if err == nil {
 			global.APP_LOG.Info("Proxmox API调用成功 - 获取镜像列表")
 			return images, nil
 		}
-		global.APP_LOG.Warn("Proxmox API失败，回退到SSH - 获取镜像列表", zap.Error(err))
+		global.APP_LOG.Warn("Proxmox API失败 - 获取镜像列表", zap.Error(err))
+
+		// 检查是否可以回退到SSH
+		if !p.shouldFallbackToSSH() {
+			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		}
+		global.APP_LOG.Info("回退到SSH方式 - 获取镜像列表")
 	}
 
-	// SSH 方式
+	// 使用SSH方式
+	if !p.shouldUseSSH() {
+		return nil, fmt.Errorf("执行规则不允许使用SSH")
+	}
+
 	return p.sshListImages(ctx)
 }
 
@@ -44,17 +54,27 @@ func (p *ProxmoxProvider) PullImage(ctx context.Context, image string) error {
 		return p.handleImageDownload(ctx, image)
 	}
 
-	// 尝试 API 调用
-	if p.hasAPIAccess() {
+	// 根据执行规则判断使用哪种方式
+	if p.shouldUseAPI() {
 		err := p.apiPullImage(ctx, image)
 		if err == nil {
 			global.APP_LOG.Info("Proxmox API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 			return nil
 		}
-		global.APP_LOG.Warn("Proxmox API失败，回退到SSH - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)), zap.Error(err))
+		global.APP_LOG.Warn("Proxmox API失败 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)), zap.Error(err))
+
+		// 检查是否可以回退到SSH
+		if !p.shouldFallbackToSSH() {
+			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		}
+		global.APP_LOG.Info("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 	}
 
-	// SSH 方式
+	// 使用SSH方式
+	if !p.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
 	return p.sshPullImage(ctx, image)
 }
 
@@ -209,17 +229,27 @@ func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	// 尝试 API 调用
-	if p.hasAPIAccess() {
+	// 根据执行规则判断使用哪种方式
+	if p.shouldUseAPI() {
 		err := p.apiDeleteImage(ctx, id)
 		if err == nil {
 			global.APP_LOG.Info("Proxmox API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
-		global.APP_LOG.Warn("Proxmox API失败，回退到SSH - 删除镜像", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
+		global.APP_LOG.Warn("Proxmox API失败 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
+
+		// 检查是否可以回退到SSH
+		if !p.shouldFallbackToSSH() {
+			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		}
+		global.APP_LOG.Info("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
-	// SSH 方式
+	// 使用SSH方式
+	if !p.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
 	return p.sshDeleteImage(ctx, id)
 }
 

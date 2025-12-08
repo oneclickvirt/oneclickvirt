@@ -672,12 +672,14 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { ElMessage, ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox, ElNotification } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
+import { useLanguageStore } from '@/pinia/modules/language'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
+const languageStore = useLanguageStore()
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -727,6 +729,9 @@ const instanceTypePermissions = ref({
 
 const loading = ref(false)
 
+// 记录系统配置的语言，用于判断是否修改
+const systemConfigLanguage = ref('')
+
 const loadConfig = async () => {
   loading.value = true
   try {
@@ -756,7 +761,10 @@ const loadConfig = async () => {
           ...config.value.other,
           ...response.data.other
         }
+        // 记录当前的系统语言配置
+        systemConfigLanguage.value = config.value.other.defaultLanguage || ''
         console.log('合并后的其他配置:', config.value.other)
+        console.log('当前系统语言配置:', systemConfigLanguage.value)
       }
       
       // 加载等级配置
@@ -767,14 +775,14 @@ const loadConfig = async () => {
           if (response.data.quota.levelLimits[levelKey]) {
             const limitData = response.data.quota.levelLimits[levelKey]
             config.value.quota.levelLimits[level] = {
-              maxInstances: limitData.maxInstances || (level * 2),
+              maxInstances: limitData['max-instances'] || (level * 2),
               maxResources: {
-                cpu: limitData.maxResources?.cpu || (level * 2),
-                memory: limitData.maxResources?.memory || (1024 * Math.pow(2, level - 1)),
-                disk: limitData.maxResources?.disk || (10240 * Math.pow(2, level - 1)),
-                bandwidth: limitData.maxResources?.bandwidth || (10 * level)
+                cpu: limitData['max-resources']?.cpu || (level * 2),
+                memory: limitData['max-resources']?.memory || (1024 * Math.pow(2, level - 1)),
+                disk: limitData['max-resources']?.disk || (10240 * Math.pow(2, level - 1)),
+                bandwidth: limitData['max-resources']?.bandwidth || (10 * level)
               },
-              maxTraffic: limitData.maxTraffic || (1024 * level)
+              maxTraffic: limitData['max-traffic'] || (1024 * level)
             }
           } else {
             // 如果没有数据，使用默认值
@@ -874,8 +882,28 @@ const saveConfig = async () => {
     console.log('实例类型权限配置:', instanceTypePermissions.value)
     console.log('语言配置:', config.value.other.defaultLanguage)
     
+    // 记录修改前的语言设置
+    const oldLanguage = systemConfigLanguage.value
+    const newLanguage = config.value.other.defaultLanguage
+    const languageChanged = oldLanguage !== newLanguage
+    
+    // 转换 levelLimits 为 kebab-case 格式
+    const configToSave = JSON.parse(JSON.stringify(config.value))
+    if (configToSave.quota && configToSave.quota.levelLimits) {
+      const convertedLimits = {}
+      Object.keys(configToSave.quota.levelLimits).forEach(level => {
+        const limit = configToSave.quota.levelLimits[level]
+        convertedLimits[level] = {
+          'max-instances': limit.maxInstances,
+          'max-resources': limit.maxResources,
+          'max-traffic': limit.maxTraffic
+        }
+      })
+      configToSave.quota.levelLimits = convertedLimits
+    }
+    
     // 保存基础配置
-    const configResult = await updateAdminConfig(config.value)
+    const configResult = await updateAdminConfig(configToSave)
     console.log('基础配置保存结果:', configResult)
     
     // 保存实例类型权限配置
@@ -884,9 +912,34 @@ const saveConfig = async () => {
     
     ElMessage.success(t('admin.config.saveSuccess'))
     
-    // 保存成功后重新加载配置，确保显示最新数据
-    await loadConfig()
-    await loadInstanceTypePermissions()
+    // 如果修改了默认语言，强制应用并刷新页面
+    if (languageChanged) {
+      console.log('[Config] 系统语言已修改，从', oldLanguage, '到', newLanguage)
+      
+      // 更新 language store 中的系统配置语言并强制应用
+      const effectiveLanguage = languageStore.forceApplySystemLanguage(newLanguage)
+      console.log('[Config] 强制应用后的有效语言:', effectiveLanguage)
+      
+      // 更新当前页面的语言
+      locale.value = effectiveLanguage
+      
+      // 显示通知，告知用户页面将刷新
+      ElNotification({
+        title: t('common.success'),
+        message: t('admin.config.languageChangedRefreshing'),
+        type: 'success',
+        duration: 2000
+      })
+      
+      // 延迟刷新页面，让用户看到通知
+      setTimeout(() => {
+        window.location.reload()
+      }, 2000)
+    } else {
+      // 保存成功后重新加载配置，确保显示最新数据
+      await loadConfig()
+      await loadInstanceTypePermissions()
+    }
   } catch (error) {
     console.error('保存配置失败:', error)
     ElMessage.error(t('admin.config.saveFailed', { error: error.message || t('common.unknownError') }))
@@ -1003,7 +1056,7 @@ onMounted(() => {
   }
 }
 
-/* 标签页样式优化 */
+/* 标签页样式 */
 .config-tabs :deep(.el-tabs__header) {
   margin-bottom: 0;
 }
@@ -1017,7 +1070,7 @@ onMounted(() => {
   font-weight: 500;
 }
 
-/* 表单样式优化 */
+/* 表单样式 */
 .config-form :deep(.el-form-item__label) {
   font-weight: 500;
   color: #606266;

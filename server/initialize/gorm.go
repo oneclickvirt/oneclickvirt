@@ -1,6 +1,8 @@
 package initialize
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -18,6 +20,10 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+)
+
+var (
+	dbMonitorOnce sync.Once // 确保监控只启动一次
 )
 
 // GormMysql 初始化数据库（支持MySQL和MariaDB）
@@ -103,54 +109,63 @@ func validateDatabaseConnection(db *gorm.DB) error {
 		zap.Int("in_use", stats.InUse),
 		zap.Int("idle", stats.Idle))
 
-	// 启动连接池监控（每5分钟检查一次）
-	go monitorConnectionPool(db)
+	// 使用sync.Once确保连接池监控只启动一次
+	dbMonitorOnce.Do(func() {
+		go monitorConnectionPool(db, global.APP_SHUTDOWN_CONTEXT)
+		global.APP_LOG.Info("数据库连接池监控已启动")
+	})
 
 	return nil
 }
 
 // monitorConnectionPool 监控数据库连接池状态
-func monitorConnectionPool(db *gorm.DB) {
+func monitorConnectionPool(db *gorm.DB, ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		if db == nil {
+	for {
+		select {
+		case <-ctx.Done():
+			global.APP_LOG.Info("数据库连接池监控已停止")
 			return
-		}
+		case <-ticker.C:
+			if db == nil {
+				return
+			}
 
-		sqlDB, err := db.DB()
-		if err != nil {
-			global.APP_LOG.Error("获取数据库连接池失败", zap.Error(err))
-			continue
-		}
+			sqlDB, err := db.DB()
+			if err != nil {
+				global.APP_LOG.Error("获取数据库连接池失败", zap.Error(err))
+				continue
+			}
 
-		// 检查连接是否正常
-		if err := sqlDB.Ping(); err != nil {
-			global.APP_LOG.Error("数据库连接检查失败", zap.Error(err))
-			continue
-		}
+			// 检查连接是否正常
+			if err := sqlDB.Ping(); err != nil {
+				global.APP_LOG.Error("数据库连接检查失败", zap.Error(err))
+				continue
+			}
 
-		// 获取连接池统计信息
-		stats := sqlDB.Stats()
-		usagePercent := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
+			// 获取连接池统计信息
+			stats := sqlDB.Stats()
+			usagePercent := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
 
-		// 如果使用率超过80%，记录警告
-		if usagePercent > 80 {
-			global.APP_LOG.Warn("数据库连接池使用率过高",
-				zap.Int("open_connections", stats.OpenConnections),
-				zap.Int("max_open_connections", stats.MaxOpenConnections),
-				zap.Float64("usage_percent", usagePercent),
-				zap.Int("in_use", stats.InUse),
-				zap.Int("idle", stats.Idle),
-				zap.Int64("wait_count", stats.WaitCount),
-				zap.Duration("wait_duration", stats.WaitDuration))
-		} else {
-			// 正常情况下记录debug日志
-			global.APP_LOG.Debug("数据库连接池状态",
-				zap.Int("open_connections", stats.OpenConnections),
-				zap.Int("max_open_connections", stats.MaxOpenConnections),
-				zap.Float64("usage_percent", usagePercent))
+			// 如果使用率超过80%，记录警告
+			if usagePercent > 80 {
+				global.APP_LOG.Warn("数据库连接池使用率过高",
+					zap.Int("open_connections", stats.OpenConnections),
+					zap.Int("max_open_connections", stats.MaxOpenConnections),
+					zap.Float64("usage_percent", usagePercent),
+					zap.Int("in_use", stats.InUse),
+					zap.Int("idle", stats.Idle),
+					zap.Int64("wait_count", stats.WaitCount),
+					zap.Duration("wait_duration", stats.WaitDuration))
+			} else {
+				// 正常情况下记录debug日志
+				global.APP_LOG.Debug("数据库连接池状态",
+					zap.Int("open_connections", stats.OpenConnections),
+					zap.Int("max_open_connections", stats.MaxOpenConnections),
+					zap.Float64("usage_percent", usagePercent))
+			}
 		}
 	}
 }
@@ -159,10 +174,9 @@ func monitorConnectionPool(db *gorm.DB) {
 func RegisterTables(db *gorm.DB) {
 	err := db.AutoMigrate(
 		// 用户相关表
-		&userModel.User{},          // 用户基础信息表
-		&userModel.TrafficRecord{}, // 用户流量记录表
-		&authModel.Role{},          // 角色管理表
-		&userModel.UserRole{},      // 用户角色关联表
+		&userModel.User{},     // 用户基础信息表
+		&authModel.Role{},     // 角色管理表
+		&userModel.UserRole{}, // 用户角色关联表
 
 		// OAuth2相关表
 		&oauth2Model.OAuth2Provider{}, // OAuth2提供商配置表
@@ -199,11 +213,16 @@ func RegisterTables(db *gorm.DB) {
 		&providerModel.PendingDeletion{}, // 待删除资源表
 
 		// 管理员配置任务表
-		&adminModel.ConfigurationTask{}, // 管理员配置任务表
+		&adminModel.ConfigurationTask{},  // 管理员配置任务表
+		&adminModel.TrafficMonitorTask{}, // 流量监控操作任务表
 
 		// 监控数据表
-		&monitoringModel.VnStatTrafficRecord{}, // vnStat流量记录表
-		&monitoringModel.VnStatInterface{},     // vnStat网络接口表
+		&monitoringModel.PmacctTrafficRecord{},    // pmacct流量记录表（原始数据，5分钟粒度）
+		&monitoringModel.PmacctMonitor{},          // pmacct监控配置表
+		&monitoringModel.InstanceTrafficHistory{}, // 实例流量历史表
+		&monitoringModel.ProviderTrafficHistory{}, // Provider流量历史表
+		&monitoringModel.UserTrafficHistory{},     // 用户流量历史表
+		&monitoringModel.PerformanceMetric{},      // 性能指标历史表
 	)
 	if err != nil {
 		global.APP_LOG.Error("register table failed", zap.Error(err))

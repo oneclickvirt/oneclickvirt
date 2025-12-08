@@ -11,8 +11,8 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
-	"oneclickvirt/service/vnstat"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -309,39 +309,105 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	}
 
 	updateProgress(80, "等待实例完全启动...")
-	// 查找实例ID用于vnstat初始化
+	// 查找实例ID用于pmacct初始化
 	var instanceID uint
 	var instance providerModel.Instance
 	// 通过provider名称查找provider记录
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", i.config.Name).First(&providerRecord).Error; err != nil {
-		global.APP_LOG.Warn("查找provider记录失败，跳过vnstat初始化",
+		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
 			zap.String("provider_name", i.config.Name),
 			zap.Error(err))
 	} else if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
-		global.APP_LOG.Warn("查找实例记录失败，跳过vnstat初始化",
+		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
 			zap.Uint("provider_id", providerRecord.ID),
 			zap.Error(err))
 	} else {
 		instanceID = instance.ID
-		// 初始化vnstat监控
-		updateProgress(85, "初始化vnstat监控...")
-		vnstatService := vnstat.NewService()
-		if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
-			global.APP_LOG.Warn("Incus实例创建后初始化vnStat监控失败",
-				zap.Uint("instanceId", instanceID),
-				zap.String("instanceName", config.Name),
-				zap.Error(vnstatErr))
+
+		// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
+		updateProgress(83, "获取实例内网IP...")
+		ctx2, cancel2 := context.WithTimeout(ctx, 30*time.Second)
+		defer cancel2()
+		if privateIP, err := i.GetInstanceIPv4(ctx2, config.Name); err == nil && privateIP != "" {
+			// 更新数据库中的PrivateIP
+			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
+				global.APP_LOG.Info("已更新Incus实例内网IP",
+					zap.String("instanceName", config.Name),
+					zap.String("privateIP", privateIP))
+			}
 		} else {
-			global.APP_LOG.Info("Incus实例创建后vnStat监控初始化成功",
-				zap.Uint("instanceId", instanceID),
+			global.APP_LOG.Warn("获取Incus实例内网IP失败，pmacct可能使用公网IP",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+		}
+
+		// 获取并更新实例的网络接口信息（对于容器类型）
+		if config.InstanceType != "vm" {
+			updateProgress(84, "获取网络接口信息...")
+			ctx3, cancel3 := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel3()
+
+			// 获取IPv4的veth接口
+			if vethV4, err := i.GetVethInterfaceName(ctx3, config.Name); err == nil && vethV4 != "" {
+				if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", vethV4).Error; err == nil {
+					global.APP_LOG.Info("已更新Incus实例IPv4网络接口",
+						zap.String("instanceName", config.Name),
+						zap.String("interfaceV4", vethV4))
+				}
+			} else {
+				global.APP_LOG.Debug("未获取到IPv4网络接口",
+					zap.String("instanceName", config.Name),
+					zap.Error(err))
+			}
+
+			// 获取IPv6的veth接口（尝试检查实例是否有公网IPv6）
+			// 先尝试获取公网IPv6地址来判断是否需要获取eth1接口
+			ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
+			defer cancel4()
+			if publicIPv6, err := i.GetInstancePublicIPv6(ctx4, config.Name); err == nil && publicIPv6 != "" {
+				// 实例有公网IPv6，获取对应的veth接口
+				if vethV6, err := i.GetVethInterfaceNameV6(ctx4, config.Name); err == nil && vethV6 != "" {
+					if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", vethV6).Error; err == nil {
+						global.APP_LOG.Info("已更新Incus实例IPv6网络接口",
+							zap.String("instanceName", config.Name),
+							zap.String("interfaceV6", vethV6))
+					}
+				} else {
+					global.APP_LOG.Debug("未获取到IPv6网络接口或使用与IPv4相同的接口",
+						zap.String("instanceName", config.Name))
+				}
+			} else {
+				global.APP_LOG.Debug("实例没有公网IPv6地址，跳过IPv6网络接口获取",
+					zap.String("instanceName", config.Name))
+			}
+		}
+
+		// 检查provider是否启用了流量统计
+		if providerRecord.EnableTrafficControl {
+			// 初始化pmacct监控
+			updateProgress(85, "初始化pmacct监控...")
+			pmacctService := pmacct.NewService()
+			if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
+				global.APP_LOG.Warn("Incus实例创建后初始化 pmacct 监控失败",
+					zap.Uint("instanceId", instanceID),
+					zap.String("instanceName", config.Name),
+					zap.Error(pmacctErr))
+			} else {
+				global.APP_LOG.Info("Incus实例创建后 pmacct 监控初始化成功",
+					zap.Uint("instanceId", instanceID),
+					zap.String("instanceName", config.Name))
+			}
+			// 触发流量数据同步
+			updateProgress(90, "同步流量数据...")
+			syncTrigger := traffic.NewSyncTriggerService()
+			syncTrigger.TriggerInstanceTrafficSync(instanceID, "Incus实例创建后同步")
+		} else {
+			global.APP_LOG.Debug("Provider未启用流量统计，跳过Incus实例pmacct监控初始化",
+				zap.String("providerName", i.config.Name),
 				zap.String("instanceName", config.Name))
 		}
-		// 触发流量数据同步
-		updateProgress(90, "同步流量数据...")
-		syncTrigger := traffic.NewSyncTriggerService()
-		syncTrigger.TriggerInstanceTrafficSync(instanceID, "Incus实例创建后同步")
 	}
 	updateProgress(95, "等待Agent启动...")
 	if err := i.waitForVMAgentReady(config.Name, 120); err != nil {
@@ -387,12 +453,10 @@ func (i *IncusProvider) configureInstanceLimits(ctx context.Context, config prov
 
 	// 如果是容器，配置额外的限制
 	if config.InstanceType != "vm" {
-		// 配置IO限制
+		// 配置IO限制（移除了limits.read.iops和limits.write.iops，Incus不支持这些选项）
 		ioConfigs := map[string]string{
-			"limits.read":       "500MB",
-			"limits.write":      "500MB",
-			"limits.read.iops":  "5000",
-			"limits.write.iops": "5000",
+			"limits.read":  "500MB",
+			"limits.write": "500MB",
 		}
 
 		for key, value := range ioConfigs {

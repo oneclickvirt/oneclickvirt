@@ -1,13 +1,12 @@
 package user
 
 import (
-	"errors"
+	"oneclickvirt/middleware"
 	"oneclickvirt/service/resources"
 	"strconv"
 	"strings"
 
 	"oneclickvirt/global"
-	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/service/admin/instance"
@@ -17,11 +16,7 @@ import (
 )
 
 func getUserIDFromContext(c *gin.Context) (uint, error) {
-	authCtx, exists := middleware.GetAuthContext(c)
-	if !exists {
-		return 0, errors.New("用户未登录")
-	}
-	return authCtx.UserID, nil
+	return middleware.GetUserIDFromContext(c)
 }
 
 // GetInstancePorts 获取实例的端口映射

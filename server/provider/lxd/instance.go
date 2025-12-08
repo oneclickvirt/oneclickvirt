@@ -166,6 +166,10 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 	interval := 3 * time.Second
 	startTime := time.Now()
 
+	// 使用Timer避免time.After泄漏
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
 	for {
 		if time.Since(startTime) > timeout {
 			return fmt.Errorf("等待实例就绪超时: %s", instanceName)
@@ -178,8 +182,13 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 			global.APP_LOG.Debug("获取实例状态失败",
 				zap.String("instance", instanceName),
 				zap.Error(err))
-			time.Sleep(interval)
-			continue
+			timer.Reset(interval)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-timer.C:
+				continue
+			}
 		}
 
 		status := strings.TrimSpace(output)
@@ -192,10 +201,11 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 			return nil
 		}
 
+		timer.Reset(interval)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(interval):
+		case <-timer.C:
 			// 继续等待
 		}
 	}

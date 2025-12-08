@@ -18,7 +18,8 @@
           style="margin-bottom: 20px;"
         >
           <template #default>
-            <p>{{ $t('admin.providers.configHistoryMessage') }}</p>
+            <p v-if="historyTasks.length > 0 || runningTask">{{ $t('admin.providers.configHistoryMessage') }}</p>
+            <p v-else>{{ $t('admin.providers.noConfigHistory') }}</p>
           </template>
         </el-alert>
 
@@ -131,7 +132,7 @@
             type="warning"
             @click="handleRerunConfiguration"
           >
-            {{ $t('admin.providers.rerunConfig') }}
+            {{ historyTasks.length > 0 ? $t('admin.providers.rerunConfig') : $t('admin.providers.startConfig') }}
           </el-button>
           <el-button @click="handleClose">
             {{ $t('common.close') }}

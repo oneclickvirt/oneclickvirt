@@ -159,18 +159,33 @@
             <el-button
               size="small"
               type="primary"
-              @click="applyLinuxDoPreset"
+              @click="applyPreset('linuxdo')"
             >
               <el-icon><Connection /></el-icon>
-              {{ $t('admin.oauth2.linuxDoPreset') }}
+              Linux.do
             </el-button>
             <el-button
               size="small"
               type="success"
-              @click="applyIDCFlarePreset"
+              @click="applyPreset('idcflare')"
             >
               <el-icon><Connection /></el-icon>
-              {{ $t('admin.oauth2.idcFlarePreset') }}
+              IDCFlare
+            </el-button>
+            <el-button
+              size="small"
+              @click="applyPreset('github')"
+            >
+              <el-icon><Connection /></el-icon>
+              GitHub
+            </el-button>
+            <el-button
+              size="small"
+              type="info"
+              @click="applyPreset('generic')"
+            >
+              <el-icon><Setting /></el-icon>
+              {{ $t('admin.oauth2.genericOAuth2') }}
             </el-button>
           </div>
         </div>
@@ -513,7 +528,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Connection } from '@element-plus/icons-vue'
+import { Plus, Connection, Setting } from '@element-plus/icons-vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import {
@@ -521,7 +536,8 @@ import {
   createOAuth2Provider,
   updateOAuth2Provider,
   deleteOAuth2Provider,
-  resetOAuth2RegistrationCount
+  resetOAuth2RegistrationCount,
+  getOAuth2Presets
 } from '@/api/oauth2'
 import { getAdminConfig } from '@/api/config'
 
@@ -546,6 +562,7 @@ const newMapping = reactive({
 const formData = reactive({
   name: '',
   displayName: '',
+  providerType: 'preset', // preset 或 generic
   enabled: true,
   clientId: '',
   clientSecret: '',
@@ -640,6 +657,7 @@ const resetForm = () => {
   Object.assign(formData, {
     name: '',
     displayName: '',
+    providerType: 'preset',
     enabled: true,
     clientId: '',
     clientSecret: '',
@@ -662,42 +680,39 @@ const resetForm = () => {
   activeTab.value = 'basic'
 }
 
-// Linux.do 预设
-const applyLinuxDoPreset = () => {
-  Object.assign(formData, {
-    name: 'linuxdo',
-    displayName: 'Linux.do',
-    authUrl: 'https://connect.linux.do/oauth2/authorize',
-    tokenUrl: 'https://connect.linux.do/oauth2/token',
-    userInfoUrl: 'https://connect.linux.do/api/user',
-    userIdField: 'id',
-    usernameField: 'username',
-    emailField: 'email',
-    avatarField: 'avatar_url',
-    nicknameField: 'name',
-    trustLevelField: 'trust_level',
-    defaultLevel: 1
-  })
-  ElMessage.success(t('admin.oauth2.linuxDoPresetApplied'))
-}
+// 应用预设配置
+const applyPreset = async (presetName) => {
+  try {
+    const res = await getOAuth2Presets()
+    const preset = res.data[presetName]
+    
+    if (!preset) {
+      ElMessage.error(t('admin.oauth2.presetNotFound'))
+      return
+    }
 
-// IDCFlare 预设
-const applyIDCFlarePreset = () => {
-  Object.assign(formData, {
-    name: 'idcflare',
-    displayName: 'IDCFlare',
-    authUrl: 'https://connect.idcflare.com/oauth2/authorize',
-    tokenUrl: 'https://connect.idcflare.com/oauth2/token',
-    userInfoUrl: 'https://connect.idcflare.com/api/user',
-    userIdField: 'id',
-    usernameField: 'username',
-    emailField: 'email',
-    avatarField: 'avatar_url',
-    nicknameField: 'name',
-    trustLevelField: 'trust_level',
-    defaultLevel: 1
-  })
-  ElMessage.success(t('admin.oauth2.idcFlarePresetApplied'))
+    Object.assign(formData, {
+      name: preset.name,
+      displayName: preset.displayName,
+      providerType: preset.providerType,
+      authUrl: preset.authURL,
+      tokenUrl: preset.tokenURL,
+      userInfoUrl: preset.userInfoURL,
+      userIdField: preset.userIDField,
+      usernameField: preset.usernameField,
+      emailField: preset.emailField,
+      avatarField: preset.avatarField,
+      nicknameField: preset.nicknameField || '',
+      trustLevelField: preset.trustLevelField || '',
+      levelMapping: preset.levelMapping || {},
+      defaultLevel: preset.defaultLevel
+    })
+    
+    ElMessage.success(t('admin.oauth2.presetApplied', { name: preset.displayName }))
+  } catch (error) {
+    console.error('Failed to load preset:', error)
+    ElMessage.error(t('admin.oauth2.presetLoadFailed'))
+  }
 }
 
 const handleAdd = () => {
@@ -724,6 +739,7 @@ const handleEdit = (row) => {
     id: row.id,
     name: row.name,
     displayName: row.displayName,
+    providerType: row.providerType || 'preset',
     enabled: row.enabled,
     clientId: row.clientId,
     clientSecret: '', // 不回显密钥
@@ -760,6 +776,7 @@ const handleSubmit = async () => {
       const data = {
         name: formData.name,
         displayName: formData.displayName,
+        providerType: formData.providerType,
         enabled: formData.enabled,
         clientId: formData.clientId,
         redirectUrl: formData.redirectUrl,

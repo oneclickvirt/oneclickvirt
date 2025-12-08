@@ -50,6 +50,7 @@
         @selection-change="handleSelectionChange"
         @edit="editProvider"
         @auto-configure="autoConfigureAPI"
+        @traffic-monitor="handleEnableTrafficMonitor"
         @health-check="checkHealth"
         @freeze="freezeServer"
         @unfreeze="unfreezeServer"
@@ -92,6 +93,25 @@
       :task="taskLogDialog.task"
       @close="taskLogDialog.visible = false"
     />
+
+    <!-- 流量监控任务对话框 -->
+    <TrafficMonitorTaskDialog
+      v-model:visible="trafficMonitorDialog.visible"
+      :provider="trafficMonitorDialog.provider"
+      :show-history="trafficMonitorDialog.showHistory"
+      :task="trafficMonitorDialog.task"
+      :running-task="trafficMonitorDialog.runningTask"
+      :history-tasks="trafficMonitorDialog.historyTasks"
+      :loading="trafficMonitorDialog.loading"
+      :pagination="trafficMonitorDialog.pagination"
+      @close="trafficMonitorDialog.visible = false"
+      @refresh="refreshTrafficMonitorTask"
+      @view-task-log="viewTrafficMonitorTaskLog"
+      @view-running-task="viewRunningTrafficMonitorTask"
+      @execute-operation="executeTrafficMonitorOperation"
+      @page-change="handleTrafficMonitorPageChange"
+      @page-size-change="handleTrafficMonitorPageSizeChange"
+    />
   </div>
 </template>
 
@@ -100,13 +120,14 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Search, Delete, Lock } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail } from '@/api/admin'
+import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, trafficMonitorOperation, getLatestTrafficMonitorTask, getTrafficMonitorTasks, getTrafficMonitorTaskDetail } from '@/api/admin'
 import { countries, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { useUserStore } from '@/pinia/modules/user'
 // 导入拆分的组件
 import SearchFilter from './components/SearchFilter.vue'
 import ConfigDialog from './components/ConfigDialog.vue'
 import TaskLogDialog from './components/TaskLogDialog.vue'
+import TrafficMonitorTaskDialog from './components/TrafficMonitorTaskDialog.vue'
 import ProviderTable from './components/ProviderTable.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
 
@@ -176,6 +197,14 @@ const addProviderForm = reactive({
   maxTraffic: 1048576, // 最大流量限制（MB），默认1TB
   trafficCountMode: 'both', // 流量统计模式：both(双向), out(仅出向), in(仅入向)
   trafficMultiplier: 1.0, // 流量计费倍率，默认1.0
+  // 流量统计配置
+  trafficStatsMode: 'light', // 流量统计模式：high, standard, light, minimal, custom
+  trafficCollectInterval: 60, // 流量采集间隔（秒）
+  trafficCollectBatchSize: 10, // 流量采集批量大小
+  trafficLimitCheckInterval: 180, // 流量限制检查间隔（秒）
+  trafficLimitCheckBatchSize: 10, // 流量限制检查批量大小
+  trafficAutoResetInterval: 1800, // 流量自动重置检查间隔（秒）
+  trafficAutoResetBatchSize: 10, // 流量自动重置批量大小
   ipv4PortMappingMethod: 'device_proxy', // IPv4端口映射方式：device_proxy, iptables, native
   ipv6PortMappingMethod: 'device_proxy',  // IPv6端口映射方式：device_proxy, iptables, native
   executionRule: 'auto', // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
@@ -297,6 +326,22 @@ const parseLevelLimits = (levelLimitsStr) => {
     for (let i = 1; i <= 5; i++) {
       if (!parsed[i]) {
         parsed[i] = defaultLevelLimits[i]
+      } else {
+        // 确保maxResources对象存在并包含所有必需字段
+        if (!parsed[i].maxResources) {
+          parsed[i].maxResources = defaultLevelLimits[i].maxResources
+        } else {
+          // 确保maxResources的每个字段都存在
+          parsed[i].maxResources = {
+            cpu: parsed[i].maxResources.cpu ?? defaultLevelLimits[i].maxResources.cpu,
+            memory: parsed[i].maxResources.memory ?? defaultLevelLimits[i].maxResources.memory,
+            disk: parsed[i].maxResources.disk ?? defaultLevelLimits[i].maxResources.disk,
+            bandwidth: parsed[i].maxResources.bandwidth ?? defaultLevelLimits[i].maxResources.bandwidth
+          }
+        }
+        // 确保其他字段也存在
+        parsed[i].maxInstances = parsed[i].maxInstances ?? defaultLevelLimits[i].maxInstances
+        parsed[i].maxTraffic = parsed[i].maxTraffic ?? defaultLevelLimits[i].maxTraffic
       }
     }
     return parsed
@@ -442,7 +487,7 @@ const submitAddServer = async (formData) => {
       portIP: formData.portIP, // 端口映射使用的公网IP
       sshPort: formData.port, // 单独存储SSH端口
       username: formData.username,
-      // 注意：密码和SSH密钥根据认证方式在后面单独处理，这里不设置
+      // 密码和SSH密钥根据认证方式在后面单独处理，这里不设置
       config: '',
       region: formData.region,
       country: formData.country,
@@ -478,6 +523,14 @@ const submitAddServer = async (formData) => {
       maxTraffic: formData.maxTraffic || 1048576,
       trafficCountMode: formData.trafficCountMode || 'both', // 流量统计模式
       trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0, // 流量计费倍率
+      // 流量统计配置
+      trafficStatsMode: formData.trafficStatsMode || 'light',
+      trafficCollectInterval: formData.trafficCollectInterval || 60,
+      trafficCollectBatchSize: formData.trafficCollectBatchSize || 10,
+      trafficLimitCheckInterval: formData.trafficLimitCheckInterval || 180,
+      trafficLimitCheckBatchSize: formData.trafficLimitCheckBatchSize || 10,
+      trafficAutoResetInterval: formData.trafficAutoResetInterval || 1800,
+      trafficAutoResetBatchSize: formData.trafficAutoResetBatchSize || 10,
       // 操作执行规则
       executionRule: formData.executionRule || 'auto', // 操作轮转规则
       // SSH超时配置
@@ -606,8 +659,9 @@ const editProvider = (provider) => {
     country: provider.country || '',
     countryCode: provider.countryCode || '',
     city: provider.city || '',
-    containerEnabled: provider.container_enabled === true,
-    vmEnabled: provider.vm_enabled === true,
+    // 确保正确转换布尔值，防止字符串或其他类型
+    containerEnabled: Boolean(provider.container_enabled),
+    vmEnabled: Boolean(provider.vm_enabled),
     architecture: provider.architecture || 'amd64', // 架构字段
     status: provider.status || 'active',
     expiresAt: provider.expiresAt || '', // 过期时间字段
@@ -635,6 +689,14 @@ const editProvider = (provider) => {
     maxTraffic: provider.maxTraffic || 1048576,
     trafficCountMode: provider.trafficCountMode || 'both', // 流量统计模式
     trafficMultiplier: provider.trafficMultiplier || 1.0, // 流量倍率
+    // 流量统计配置
+    trafficStatsMode: provider.trafficStatsMode || 'light',
+    trafficCollectInterval: provider.trafficCollectInterval || 60,
+    trafficCollectBatchSize: provider.trafficCollectBatchSize || 10,
+    trafficLimitCheckInterval: provider.trafficLimitCheckInterval || 180,
+    trafficLimitCheckBatchSize: provider.trafficLimitCheckBatchSize || 10,
+    trafficAutoResetInterval: provider.trafficAutoResetInterval || 1800,
+    trafficAutoResetBatchSize: provider.trafficAutoResetBatchSize || 10,
     // 操作执行规则
     executionRule: provider.executionRule || 'auto', // 默认自动切换
     // SSH超时配置
@@ -670,13 +732,6 @@ const editProvider = (provider) => {
   
   isEditing.value = true
   showAddDialog.value = true
-  
-  // 使用 nextTick 确保弹窗打开后，表单数据正确绑定到组件
-  nextTick(() => {
-    // 强制更新复选框状态
-    addProviderForm.containerEnabled = provider.container_enabled === true
-    addProviderForm.vmEnabled = provider.vm_enabled === true
-  })
 }
 
 const handleDeleteProvider = async (id) => {
@@ -917,6 +972,177 @@ const unfreezeServer = async (server) => {
   }
 }
 
+// 流量监控操作处理 - 统一入口，先显示历史记录
+const handleEnableTrafficMonitor = async (provider) => {
+  await openTrafficMonitorDialog(provider)
+}
+
+const handleDisableTrafficMonitor = async (provider) => {
+  await openTrafficMonitorDialog(provider)
+}
+
+const handleDetectTrafficMonitor = async (provider) => {
+  await openTrafficMonitorDialog(provider)
+}
+
+// 打开流量监控对话框，显示历史记录
+const openTrafficMonitorDialog = async (provider) => {
+  trafficMonitorDialog.provider = provider
+  trafficMonitorDialog.pagination.page = 1
+  trafficMonitorDialog.pagination.pageSize = 10
+  await loadTrafficMonitorHistory()
+  trafficMonitorDialog.showHistory = true
+  trafficMonitorDialog.task = null
+  trafficMonitorDialog.visible = true
+}
+
+// 加载流量监控历史任务
+const loadTrafficMonitorHistory = async () => {
+  if (!trafficMonitorDialog.provider) return
+  
+  try {
+    const historyResponse = await getTrafficMonitorTasks(trafficMonitorDialog.provider.id, {
+      page: trafficMonitorDialog.pagination.page,
+      pageSize: trafficMonitorDialog.pagination.pageSize
+    })
+
+    trafficMonitorDialog.historyTasks = historyResponse.data?.list || []
+    trafficMonitorDialog.pagination.total = historyResponse.data?.total || 0
+    
+    // 检查是否有正在运行的任务
+    const runningTask = trafficMonitorDialog.historyTasks.find(task => task.status === 'running' || task.status === 'pending')
+    trafficMonitorDialog.runningTask = runningTask || null
+  } catch (error) {
+    console.error('Failed to load traffic monitor tasks:', error)
+    ElMessage.error(t('admin.providers.loadTasksFailed'))
+  }
+}
+
+// 处理流量监控任务列表分页变化
+const handleTrafficMonitorPageChange = async (page) => {
+  trafficMonitorDialog.pagination.page = page
+  await loadTrafficMonitorHistory()
+}
+
+// 处理流量监控任务列表每页数量变化
+const handleTrafficMonitorPageSizeChange = async (pageSize) => {
+  trafficMonitorDialog.pagination.pageSize = pageSize
+  trafficMonitorDialog.pagination.page = 1
+  await loadTrafficMonitorHistory()
+}
+
+// 执行流量监控操作
+const executeTrafficMonitorOperation = async (operation) => {
+  if (!trafficMonitorDialog.provider) return
+  
+  const confirmMessages = {
+    enable: t('admin.providers.enableTrafficMonitorConfirm'),
+    disable: t('admin.providers.disableTrafficMonitorConfirm'),
+    detect: t('admin.providers.detectTrafficMonitorConfirm')
+  }
+  
+  const confirmTypes = {
+    enable: 'info',
+    disable: 'warning',
+    detect: 'info'
+  }
+  
+  try {
+    await ElMessageBox.confirm(
+      confirmMessages[operation],
+      t('common.confirm'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: confirmTypes[operation]
+      }
+    )
+
+    const response = await trafficMonitorOperation({
+      providerId: trafficMonitorDialog.provider.id,
+      operation: operation
+    })
+
+    if (response.code === 200 || response.code === 0) {
+      ElMessage.success(t('admin.providers.trafficMonitorOperationSuccess'))
+      
+      // 获取完整的任务详情
+      if (response.data?.taskId) {
+        try {
+          const taskResponse = await getTrafficMonitorTaskDetail(response.data.taskId)
+          if (taskResponse.code === 200 || taskResponse.code === 0) {
+            trafficMonitorDialog.showHistory = false
+            trafficMonitorDialog.task = taskResponse.data
+          }
+        } catch (error) {
+          console.error('Failed to load task detail:', error)
+        }
+      } else {
+        // 如果返回的是完整任务对象
+        trafficMonitorDialog.showHistory = false
+        trafficMonitorDialog.task = response.data
+      }
+    } else {
+      ElMessage.error(response.msg || t('admin.providers.trafficMonitorOperationFailed'))
+    }
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error?.response?.data?.msg || t('admin.providers.trafficMonitorOperationFailed'))
+    }
+  }
+}
+
+// 查看任务日志
+const viewTrafficMonitorTaskLog = async (taskId) => {
+  try {
+    trafficMonitorDialog.loading = true
+    const response = await getTrafficMonitorTaskDetail(taskId)
+    
+    if (response.code === 200 || response.code === 0) {
+      trafficMonitorDialog.showHistory = false
+      trafficMonitorDialog.task = response.data
+    } else {
+      ElMessage.error(response.msg || t('admin.providers.loadTaskFailed'))
+    }
+  } catch (error) {
+    console.error('Failed to load task detail:', error)
+    ElMessage.error(t('admin.providers.loadTaskFailed'))
+  } finally {
+    trafficMonitorDialog.loading = false
+  }
+}
+
+// 查看正在运行的任务
+const viewRunningTrafficMonitorTask = () => {
+  if (trafficMonitorDialog.runningTask) {
+    trafficMonitorDialog.showHistory = false
+    trafficMonitorDialog.task = trafficMonitorDialog.runningTask
+  }
+}
+
+// 刷新流量监控任务
+const refreshTrafficMonitorTask = async () => {
+  if (!trafficMonitorDialog.task || !trafficMonitorDialog.task.id) return
+  
+  try {
+    trafficMonitorDialog.loading = true
+    const response = await getTrafficMonitorTaskDetail(trafficMonitorDialog.task.id)
+    
+    if (response.code === 200 || response.code === 0) {
+      trafficMonitorDialog.task = response.data
+      
+      // 如果任务已完成，刷新历史列表
+      if (response.data.status === 'completed' || response.data.status === 'failed') {
+        await loadTrafficMonitorHistory()
+      }
+    }
+  } catch (error) {
+    console.error('Failed to refresh task:', error)
+  } finally {
+    trafficMonitorDialog.loading = false
+  }
+}
+
 const handleSizeChange = (newSize) => {
   pageSize.value = newSize
   currentPage.value = 1
@@ -1093,6 +1319,22 @@ const taskLogDialog = reactive({
   task: null
 })
 
+// 流量监控任务对话框状态
+const trafficMonitorDialog = reactive({
+  visible: false,
+  loading: false,
+  provider: null,
+  task: null,
+  showHistory: false,
+  runningTask: null,
+  historyTasks: [],
+  pagination: {
+    page: 1,
+    pageSize: 10,
+    total: 0
+  }
+})
+
 // 自动配置API - 新版本
 const autoConfigureAPI = async (provider, force = false) => {
   try {
@@ -1104,27 +1346,18 @@ const autoConfigureAPI = async (provider, force = false) => {
 
     const result = checkResponse.data
 
-    // 如果有正在运行的任务或历史记录
-    if (result.runningTask || (result.historyTasks && result.historyTasks.length > 0)) {
-      // 显示历史记录对话框
-      configDialog.provider = provider
-      configDialog.runningTask = result.runningTask
-      configDialog.historyTasks = result.historyTasks || []
-      configDialog.showHistory = true
-      configDialog.visible = true
-      
-      // 如果有正在运行的任务，直接查看任务日志
-      if (result.runningTask) {
-        ElMessage.info(t('admin.providers.showTaskLog'))
-        await viewTaskLog(result.runningTask.id)
-        return
-      }
-      
-      return
+    // 始终显示配置对话框（包括首次配置的情况）
+    configDialog.provider = provider
+    configDialog.runningTask = result.runningTask
+    configDialog.historyTasks = result.historyTasks || []
+    configDialog.showHistory = true
+    configDialog.visible = true
+    
+    // 如果有正在运行的任务，直接查看任务日志
+    if (result.runningTask) {
+      ElMessage.info(t('admin.providers.showTaskLog'))
+      await viewTaskLog(result.runningTask.id)
     }
-
-    // 如果没有历史记录，直接开始配置
-    await startNewConfiguration(provider, force)
 
   } catch (error) {
     console.error('检查配置状态失败:', error)
@@ -1134,69 +1367,44 @@ const autoConfigureAPI = async (provider, force = false) => {
 
 // 开始新的配置
 const startNewConfiguration = async (provider, force = false) => {
+  // 显示加载提示
+  const loadingMessage = ElMessage({
+    message: t('admin.providers.validation.autoConfiguring'),
+    type: 'info',
+    duration: 0,
+    showClose: false
+  })
+
   try {
-    const confirmMessage = force ? 
-      '确定要强制重新配置吗？这将取消当前正在运行的任务。' :
-      `确定要自动配置 ${provider.name} (${provider.type.toUpperCase()}) 的API访问吗？<br>
-<strong>此操作将：</strong><br>
-• 通过SSH连接到服务器<br>
-• 自动安装和配置必要的证书/Token<br>
-• 清理其他控制端的配置<br>
-• 确保只有当前控制端能管理该服务器<br><br>
-<span style="color: #E6A23C;">请确保SSH连接信息正确且用户有足够权限。</span>`
-
-    await ElMessageBox.confirm(
-      confirmMessage,
-      force ? '确认强制配置' : '确认自动配置',
-      {
-        confirmButtonText: force ? '强制配置' : '确定配置',
-        cancelButtonText: '取消',
-        type: 'warning',
-        dangerouslyUseHTMLString: true
-      }
-    )
-
-    // 显示加载提示
-    const loadingMessage = ElMessage({
-      message: t('admin.providers.validation.autoConfiguring'),
-      type: 'info',
-      duration: 0,
-      showClose: false
+    // 开始配置
+    const response = await autoConfigureProvider({
+      providerId: provider.id,
+      force
     })
 
-    try {
-      // 开始配置
-      const response = await autoConfigureProvider({
-        providerId: provider.id,
-        force
-      })
+    const result = response.data
 
-      const result = response.data
+    // 关闭加载提示
+    loadingMessage.close()
 
-      // 关闭加载提示
-      loadingMessage.close()
+    // 关闭配置对话框
+    configDialog.visible = false
 
-      // 配置完成后直接显示结果
-      if (result.taskId) {
-        // 直接查看任务日志
-        await viewTaskLog(result.taskId)
-        // 重新加载服务器列表
-        await loadProviders()
-      } else {
-        ElMessage.success('API 自动配置成功')
-        await loadProviders()
-      }
-
-    } catch (configError) {
-      loadingMessage.close()
-      throw configError
+    // 配置完成后直接显示结果
+    if (result.taskId) {
+      // 直接查看任务日志
+      await viewTaskLog(result.taskId)
+      // 重新加载服务器列表
+      await loadProviders()
+    } else {
+      ElMessage.success('API 自动配置成功')
+      await loadProviders()
     }
 
   } catch (error) {
-    if (error !== 'cancel') {
-      console.error('启动配置失败:', error)
-      ElMessage.error(t('admin.providers.startConfigFailed') + ': ' + (error.message || t('common.unknownError')))
-    }
+    loadingMessage.close()
+    console.error('启动配置失败:', error)
+    ElMessage.error(t('admin.providers.startConfigFailed') + ': ' + (error.message || t('common.unknownError')))
   }
 }
 
@@ -1292,7 +1500,7 @@ const checkHealth = async (providerId) => {
       stack: error.stack
     })
     
-    // 优化错误消息显示
+    // 错误消息显示
     let errorMsg = '健康检查失败'
     if (error.message && error.message.includes('timeout')) {
       errorMsg = '健康检查超时，请检查网络连接或服务器状态'

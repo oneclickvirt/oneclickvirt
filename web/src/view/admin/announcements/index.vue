@@ -462,7 +462,7 @@ const loadAnnouncements = async () => {
       params.type = filterType.value
     }
     
-    // 状态过滤 - 修复逻辑：只有当明确选择了状态值时才传递参数
+    // 状态过滤 - 逻辑：只有当明确选择了状态值时才传递参数
     if (filterStatus.value !== null && filterStatus.value !== undefined) {
       params.status = filterStatus.value
     }

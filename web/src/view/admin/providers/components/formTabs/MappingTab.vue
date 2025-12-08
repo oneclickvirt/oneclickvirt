@@ -4,15 +4,9 @@
     label-width="120px"
     class="server-form"
   >
-    <el-alert
-      :title="$t('admin.providers.portMappingConfigTitle')"
-      type="info"
-      :closable="false"
-      show-icon
-      style="margin-bottom: 20px;"
-    >
-      {{ $t('admin.providers.portMappingConfigMessage') }}
-    </el-alert>
+    <el-divider content-position="left">
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.portMappingConfig') }}</span>
+    </el-divider>
 
     <el-form-item
       :label="$t('admin.providers.defaultPortCount')"

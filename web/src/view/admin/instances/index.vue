@@ -125,6 +125,7 @@
       </div>
 
       <el-table
+        ref="tableRef"
         v-loading="loading"
         :data="instances"
         style="width: 100%"
@@ -381,8 +382,11 @@
               {{ $t('common.normal') }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('admin.instances.vnstatInterface')">
-            {{ selectedInstance.vnstatInterface || $t('admin.instances.notSet') }}
+          <el-descriptions-item :label="$t('admin.instances.networkInterfaceV4')">
+            {{ selectedInstance.pmacctInterfaceV4 || $t('admin.instances.notSet') }}
+          </el-descriptions-item>
+          <el-descriptions-item :label="$t('admin.instances.networkInterfaceV6')">
+            {{ selectedInstance.pmacctInterfaceV6 || $t('admin.instances.notSet') }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('common.createTime')">
             {{ formatDate(selectedInstance.createdAt) }}
@@ -406,7 +410,7 @@
           class="traffic-info"
           style="margin-top: 20px;"
         >
-          <h4>{{ $t('admin.instances.trafficUsage') }}</h4>
+          <h4>{{ $t('admin.instances.historicalTraffic') }}</h4>
           <el-descriptions
             :column="2"
             border
@@ -497,7 +501,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { 
   VideoPlay, 
@@ -523,6 +527,7 @@ const actionInstance = ref(null)
 const actionLoading = ref(false)
 const showPassword = ref(false)
 const selectedInstances = ref([])
+const tableRef = ref(null)
 
 // 筛选条件
 const filters = ref({
@@ -937,12 +942,33 @@ const batchStopInstances = async () => {
   }
 }
 
+// 窗口大小调整时重新计算表格布局
+const handleWindowResize = () => {
+  nextTick(() => {
+    if (tableRef.value) {
+      tableRef.value.doLayout()
+    }
+  })
+}
+
 onMounted(() => {
   loadInstances()
+  // 监听窗口大小变化
+  window.addEventListener('resize', handleWindowResize)
+})
+
+onUnmounted(() => {
+  // 移除事件监听
+  window.removeEventListener('resize', handleWindowResize)
 })
 </script>
 
 <style scoped>
+.instances-container {
+  width: 100%;
+  height: 100%;
+}
+
 .header-row {
   display: flex;
   justify-content: space-between;
@@ -1013,6 +1039,26 @@ onMounted(() => {
   margin: 0;
 }
 
+/* 修复表格在窗口调整时的显示问题 */
+:deep(.el-table) {
+  overflow: visible !important;
+}
+
+:deep(.el-table__body-wrapper) {
+  overflow-x: auto;
+}
+
+/* 确保fixed列正确渲染 */
+:deep(.el-table__fixed),
+:deep(.el-table__fixed-right) {
+  height: auto !important;
+}
+
+:deep(.el-table__fixed-body-wrapper),
+:deep(.el-table__fixed-right .el-table__fixed-body-wrapper) {
+  height: auto !important;
+}
+
 /* 响应式设计 */
 @media (max-width: 1200px) {
   .action-buttons {
@@ -1034,6 +1080,10 @@ onMounted(() => {
   .filter-row > * {
     width: 100% !important;
     margin-bottom: 10px;
+  }
+  
+  .header-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

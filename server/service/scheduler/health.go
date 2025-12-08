@@ -63,26 +63,46 @@ func (s *ProviderHealthSchedulerService) IsRunning() bool {
 	return s.isRunning
 }
 
-// startHealthCheckTask 启动健康检查任务
+// startHealthCheckTask 启动自适应健康检查任务
 func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Context) {
-	// 健康检查间隔（3分钟）
-	ticker := time.NewTicker(3 * time.Minute)
-	defer ticker.Stop()
-
 	// 启动后立即执行一次
 	s.checkAllProvidersHealth()
 
+	// 确俟ticker在panic时也能停止，防止goroutine泄漏
+	ticker := time.NewTicker(3 * time.Minute)
+	defer func() {
+		ticker.Stop()
+		if r := recover(); r != nil {
+			global.APP_LOG.Error("Provider健康检查goroutine panic",
+				zap.Any("panic", r),
+				zap.Stack("stack"))
+		}
+		global.APP_LOG.Info("Provider健康检查任务已停止")
+	}()
+
 	for {
 		select {
+		case <-ctx.Done():
+			return
 		case <-s.stopChan:
-			global.APP_LOG.Info("Provider健康检查任务已停止")
 			return
 		case <-ticker.C:
-			// 检查数据库是否已初始化
+			// 动态调整检查间隔
 			if global.APP_DB == nil {
-				global.APP_LOG.Debug("数据库未初始化，跳过健康检查")
 				continue
 			}
+
+			var providerCount int64
+			global.APP_DB.Model(&providerModel.Provider{}).
+				Where("is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)", false, time.Now()).
+				Count(&providerCount)
+
+			// 有Provider时3分钟检查，无Provider时10分钟检查（节省资源）
+			newInterval := 10 * time.Minute
+			if providerCount > 0 {
+				newInterval = 3 * time.Minute
+			}
+			ticker.Reset(newInterval)
 
 			s.checkAllProvidersHealth()
 		}
@@ -108,24 +128,25 @@ func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
 
 	global.APP_LOG.Debug("开始检查Provider健康状态", zap.Int("count", len(providers)))
 
-	// 使用WaitGroup等待所有检查完成
-	var wg sync.WaitGroup
-
-	// 并发检查所有Provider，但使用信号量限制并发数
-	// 重要：必须在循环内创建provider副本，避免goroutine捕获同一变量导致的并发问题
+	// 使用worker池模式避免创建过多goroutine
+	// 对于provider数量较少的情况，直接并发处理
+	// 对于provider数量较多的情况，分批处理
+	providerChan := make(chan providerModel.Provider, len(providers))
 	for _, provider := range providers {
-		provider := provider // 创建副本，避免goroutine闭包捕获错误的provider
+		providerChan <- provider
+	}
+	close(providerChan)
 
+	// 启动固定数量的worker
+	var wg sync.WaitGroup
+	for i := 0; i < s.maxConcurrency; i++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
-
-			// 获取信号量，限制并发数
-			s.semaphore <- struct{}{}
-			defer func() { <-s.semaphore }()
-
-			s.checkSingleProviderHealth(provider)
-		}()
+			for provider := range providerChan {
+				s.checkSingleProviderHealth(provider)
+			}
+		}(i)
 	}
 
 	// 等待所有检查完成
@@ -151,20 +172,36 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 		zap.String("providerType", providerType),
 		zap.String("endpoint", providerEndpoint))
 
-	// 执行健康检查
-	// 注意：即使检查失败（超时、网络错误等），状态也已经被更新到数据库
-	// 因此我们需要继续处理，而不是直接返回
-	err := s.providerService.CheckProviderHealth(providerID)
-	if err != nil {
-		global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
+	// 添加整体超时控制（2分钟）
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+
+	// 直接执行健康检查，带超时控制
+	errChan := make(chan error, 1)
+	go func() {
+		errChan <- s.providerService.CheckProviderHealth(providerID)
+	}()
+
+	// 等待结果或超时
+	var err error
+	select {
+	case err = <-errChan:
+		if err != nil {
+			global.APP_LOG.Warn("Provider健康检查执行出错（可能是超时或网络问题）",
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Debug("Provider健康检查执行完成",
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName))
+		}
+	case <-ctx.Done():
+		global.APP_LOG.Warn("Provider健康检查超时，强制继续",
 			zap.Uint("provider_id", providerID),
 			zap.String("provider_name", providerName),
-			zap.Error(err))
-		// 不要return，继续获取更新后的状态
-	} else {
-		global.APP_LOG.Debug("Provider健康检查执行完成",
-			zap.Uint("provider_id", providerID),
-			zap.String("provider_name", providerName))
+			zap.Duration("timeout", 2*time.Minute))
+		// 超时也继续处理，因为状态可能部分更新
 	}
 
 	// 重新获取Provider以获得最新状态

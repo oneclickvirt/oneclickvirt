@@ -385,12 +385,99 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 		Image:  fields[2],
 	}
 
+	// 补充网络信息（IP地址和IPv6）
+	if status == "running" {
+		d.enrichInstanceWithNetworkInfo(instance)
+	}
+
 	global.APP_LOG.Debug("Docker实例信息获取成功",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("name", instance.Name),
 		zap.String("status", instance.Status))
 
 	return instance, nil
+}
+
+// enrichInstanceWithNetworkInfo 补充单个实例的网络信息
+func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instance) {
+	// 1. 获取容器的内网IP地址
+	cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", instance.Name)
+	output, err := d.sshClient.Execute(cmd)
+	if err == nil {
+		ipAddress := strings.TrimSpace(output)
+		if ipAddress != "" && ipAddress != "<no value>" {
+			instance.PrivateIP = ipAddress
+			instance.IP = ipAddress // 保持向后兼容
+			global.APP_LOG.Debug("获取到Docker实例内网IP地址",
+				zap.String("instance", instance.Name),
+				zap.String("privateIP", ipAddress))
+		}
+	}
+
+	// 2. 获取容器对应的宿主机veth接口
+	vethCmd := fmt.Sprintf(`
+CONTAINER_NAME='%s'
+CONTAINER_PID=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
+if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
+    exit 1
+fi
+HOST_VETH_IFINDEX=$(nsenter -t $CONTAINER_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
+if [ -z "$HOST_VETH_IFINDEX" ]; then
+    exit 1
+fi
+VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
+if [ -n "$VETH_NAME" ]; then
+    echo "$VETH_NAME"
+fi
+`, instance.Name)
+
+	vethOutput, err := d.sshClient.Execute(vethCmd)
+	if err == nil {
+		vethInterface := strings.TrimSpace(vethOutput)
+		if vethInterface != "" {
+			if instance.Metadata == nil {
+				instance.Metadata = make(map[string]string)
+			}
+			instance.Metadata["network_interface"] = vethInterface
+			global.APP_LOG.Debug("获取到Docker实例veth接口",
+				zap.String("instance", instance.Name),
+				zap.String("veth", vethInterface))
+		}
+	}
+
+	// 如果没有获取到PrivateIP，尝试使用旧方法获取
+	if instance.PrivateIP == "" {
+		cmd := fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", instance.Name)
+		output, err := d.sshClient.Execute(cmd)
+		if err == nil {
+			ipAddress := strings.TrimSpace(output)
+			if ipAddress != "" && ipAddress != "<no value>" {
+				instance.PrivateIP = ipAddress
+				instance.IP = ipAddress
+				global.APP_LOG.Debug("通过默认网络获取到Docker实例IP地址",
+					zap.String("instance", instance.Name),
+					zap.String("privateIP", ipAddress))
+			}
+		}
+	}
+
+	// 3. 检查容器是否连接到ipv6_net网络，如果是则获取IPv6地址
+	checkIPv6Cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", instance.Name)
+	networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
+	if err == nil && strings.Contains(networksOutput, "ipv6_net") {
+		// 容器连接到了ipv6_net，获取IPv6地址
+		cmd = fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", instance.Name)
+		output, err = d.sshClient.Execute(cmd)
+		if err == nil {
+			ipv6Address := strings.TrimSpace(output)
+			if ipv6Address != "" && ipv6Address != "<no value>" {
+				instance.IPv6Address = ipv6Address
+				global.APP_LOG.Debug("获取到Docker实例IPv6地址",
+					zap.String("instance", instance.Name),
+					zap.String("ipv6", ipv6Address))
+			}
+		}
+	}
 }
 
 // checkIPv6NetworkAvailable 检查IPv6网络是否可用

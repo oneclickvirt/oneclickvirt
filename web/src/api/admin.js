@@ -44,6 +44,43 @@ export const cancelUserTaskByAdmin = (taskId) => {
   })
 }
 
+// 流量监控任务管理
+export const trafficMonitorOperation = (data) => {
+  return request({
+    url: '/v1/admin/providers/traffic-monitor',
+    method: 'post',
+    data
+  })
+}
+
+export const getTrafficMonitorTasks = (providerId, params) => {
+  return request({
+    url: '/v1/admin/providers/traffic-monitor/tasks',
+    method: 'get',
+    params: {
+      ...params,
+      providerId
+    }
+  })
+}
+
+export const getTrafficMonitorTaskDetail = (taskId) => {
+  return request({
+    url: `/v1/admin/providers/traffic-monitor/tasks/${taskId}`,
+    method: 'get'
+  })
+}
+
+export const getLatestTrafficMonitorTask = (providerId) => {
+  return request({
+    url: '/v1/admin/providers/traffic-monitor/latest',
+    method: 'get',
+    params: {
+      providerId
+    }
+  })
+}
+
 export const getAdminDashboard = () => {
   return request({
     url: '/v1/admin/dashboard',
@@ -547,6 +584,15 @@ export const batchDeletePortMappings = (ids) => {
     url: '/v1/admin/port-mappings/batch-delete',
     method: 'post',
     data: { ids }
+  })
+}
+
+// 检查端口可用性
+export const checkPortAvailable = (data) => {
+  return request({
+    url: '/v1/admin/ports/check',
+    method: 'post',
+    data
   })
 }
 

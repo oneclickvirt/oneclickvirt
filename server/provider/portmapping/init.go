@@ -70,13 +70,6 @@ func GetProviderDescription(providerType string) map[string]interface{} {
 			"protocols":   []string{"tcp", "udp"},
 			"features":    []string{"vm-specific", "flexible", "host-level"},
 		},
-		"gost": {
-			"name":        "GOST",
-			"description": "GOST隧道端口映射，支持多种协议和传输方式",
-			"methods":     []string{"tunnel", "forward", "socks5"},
-			"protocols":   []string{"tcp", "udp", "http", "https", "socks5"},
-			"features":    []string{"tunneling", "encryption", "multi-protocol", "cross-platform"},
-		},
 		"iptables": {
 			"name":        "iptables",
 			"description": "通用iptables NAT端口映射，适用于各种场景",
@@ -130,15 +123,6 @@ func GetProviderCapabilities(providerType string) map[string]bool {
 			"persistent":           true,
 		},
 		"pve": {
-			"auto_port_allocation": true,
-			"custom_port_range":    true,
-			"ipv6_support":         true,
-			"protocol_tcp":         true,
-			"protocol_udp":         true,
-			"hot_reload":           true,
-			"persistent":           false,
-		},
-		"gost": {
 			"auto_port_allocation": true,
 			"custom_port_range":    true,
 			"ipv6_support":         true,

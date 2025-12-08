@@ -30,10 +30,8 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.POST("/user/instances", user.CreateUserInstance)
 		UserGroup.GET("/user/instances/:id", user.GetUserInstanceDetail)
 		UserGroup.GET("/user/instances/:id/monitoring", user.GetInstanceMonitoring)
-		UserGroup.GET("/user/instances/:id/vnstat/summary", user.GetInstanceVnStatSummary)
-		UserGroup.GET("/user/instances/:id/vnstat/query", user.QueryInstanceVnStatData)
-		UserGroup.GET("/user/instances/:id/vnstat/interfaces", user.GetInstanceVnStatInterfaces)
-		UserGroup.GET("/user/instances/:id/vnstat/dashboard", user.GetInstanceVnStatDashboard)
+		UserGroup.GET("/user/instances/:id/pmacct/summary", user.GetInstancePmacctSummary)
+		UserGroup.GET("/user/instances/:id/pmacct/query", user.QueryInstancePmacctData)
 		UserGroup.PUT("/user/instances/:id/reset-password", user.ResetInstancePassword)
 		UserGroup.GET("/user/instances/:id/password/:taskId", user.GetInstanceNewPassword)
 		UserGroup.GET("/user/instances/:id/ports", user.GetInstancePorts)
@@ -63,7 +61,9 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/traffic/instance/:instanceId", trafficAPI.GetInstanceTrafficDetail)
 		UserGroup.GET("/user/traffic/instances", trafficAPI.GetInstancesTrafficSummary)
 		UserGroup.GET("/user/traffic/limit-status", trafficAPI.GetTrafficLimitStatus)
-		UserGroup.GET("/user/traffic/vnstat/:instanceId", trafficAPI.GetVnStatData)
+		UserGroup.GET("/user/traffic/pmacct/:instanceId", trafficAPI.GetPmacctData)
+		UserGroup.GET("/user/traffic/history", trafficAPI.GetUserTrafficHistory)
+		UserGroup.GET("/user/instances/:id/traffic/history", trafficAPI.GetInstanceTrafficHistory)
 
 		// 文件上传
 		uploadGroup := UserGroup.Group("/upload")

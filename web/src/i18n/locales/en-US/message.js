@@ -1,0 +1,21 @@
+export default {
+  operationSuccess: 'Operation successful',
+  operationFailed: 'Operation failed',
+  saveSuccess: 'Saved successfully',
+  saveFailed: 'Save failed',
+  deleteSuccess: 'Deleted successfully',
+  deleteFailed: 'Delete failed',
+  updateSuccess: 'Updated successfully',
+  updateFailed: 'Update failed',
+  createSuccess: 'Created successfully',
+  createFailed: 'Create failed',
+  uploadSuccess: 'Uploaded successfully',
+  uploadFailed: 'Upload failed',
+  confirmDelete: 'Are you sure you want to delete?',
+  confirmAction: 'Are you sure you want to perform this action?',
+  networkError: 'Network error, please check your connection',
+  serverError: 'Server error, please try again later',
+  noData: 'No data',
+  loadingData: 'Loading data...',
+  pleaseWait: 'Please wait...'
+}

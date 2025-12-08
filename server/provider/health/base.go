@@ -4,12 +4,20 @@ import (
 	"context"
 	"crypto/tls"
 	"fmt"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// GetTransportCleanupManager 获取Transport清理管理器（避免循环依赖）
+// 这个函数会在运行时通过类型断言调用provider包的函数
+var GetTransportCleanupManager func() interface {
+	RegisterTransport(*http.Transport)
+	RegisterTransportWithProvider(*http.Transport, uint)
+}
 
 // BaseHealthChecker 基础健康检查器
 type BaseHealthChecker struct {
@@ -21,13 +29,20 @@ type BaseHealthChecker struct {
 	mu         sync.RWMutex // 保护 config 字段的并发访问
 }
 
-// NewBaseHealthChecker 创建基础健康检查器
-func NewBaseHealthChecker(config HealthConfig, logger *zap.Logger) *BaseHealthChecker {
-	// 生成实例ID用于追踪
-	instanceID := fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
-
-	// 创建HTTP客户端，根据配置决定是否跳过TLS验证
-	transport := &http.Transport{}
+// createOptimizedHTTPClient 创建HTTP客户端（带连接池）并注册到清理管理器
+func createOptimizedHTTPClient(config HealthConfig) *http.Client {
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+		MaxIdleConns:          50, // 健康检查不需要太多连接
+		MaxIdleConnsPerHost:   5,  // 每个host最多5个空闲连接
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
 
 	// 如果使用HTTPS且配置了跳过TLS验证，则设置InsecureSkipVerify
 	if config.APIScheme == "https" && config.SkipTLSVerify {
@@ -36,14 +51,32 @@ func NewBaseHealthChecker(config HealthConfig, logger *zap.Logger) *BaseHealthCh
 		}
 	}
 
+	// 注册到Transport清理管理器（防止内存泄漏）
+	if GetTransportCleanupManager != nil {
+		mgr := GetTransportCleanupManager()
+		if config.ProviderID > 0 {
+			mgr.RegisterTransportWithProvider(transport, config.ProviderID)
+		} else {
+			mgr.RegisterTransport(transport)
+		}
+	}
+
+	return &http.Client{
+		Timeout:   config.Timeout,
+		Transport: transport,
+	}
+}
+
+// NewBaseHealthChecker 创建基础健康检查器
+func NewBaseHealthChecker(config HealthConfig, logger *zap.Logger) *BaseHealthChecker {
+	// 生成实例ID用于追踪
+	instanceID := fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
+
 	checker := &BaseHealthChecker{
 		config:     config,
 		instanceID: instanceID,
-		httpClient: &http.Client{
-			Timeout:   config.Timeout,
-			Transport: transport,
-		},
-		logger: logger,
+		httpClient: createOptimizedHTTPClient(config),
+		logger:     logger,
 	}
 
 	if logger != nil {
@@ -63,23 +96,18 @@ func (b *BaseHealthChecker) SetConfig(config HealthConfig) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
-	b.config = config.DeepCopy() // 使用深拷贝避免外部修改
-	b.instanceID = fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
-
-	// 重新配置HTTP客户端
-	transport := &http.Transport{}
-
-	// 如果使用HTTPS且配置了跳过TLS验证，则设置InsecureSkipVerify
-	if config.APIScheme == "https" && config.SkipTLSVerify {
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: true,
+	// 清理旧的HTTP Client的Transport连接（防止泄漏）
+	if b.httpClient != nil && b.httpClient.Transport != nil {
+		if transport, ok := b.httpClient.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
 		}
 	}
 
-	b.httpClient = &http.Client{
-		Timeout:   config.Timeout,
-		Transport: transport,
-	}
+	b.config = config.DeepCopy() // 使用深拷贝避免外部修改
+	b.instanceID = fmt.Sprintf("provider_%d_%s", config.ProviderID, config.ProviderName)
+
+	// 重新配置HTTP客户端（使用连接池）
+	b.httpClient = createOptimizedHTTPClient(config)
 }
 
 // GetConfig 获取配置的只读副本（线程安全）

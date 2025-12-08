@@ -93,7 +93,7 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			levelLimit := config.LevelLimitInfo{}
 
 			// 解析 MaxInstances
-			if maxInstances, exists := limitMap["maxInstances"]; exists {
+			if maxInstances, exists := limitMap["max-instances"]; exists {
 				if instances, ok := maxInstances.(float64); ok {
 					levelLimit.MaxInstances = int(instances)
 				} else if instances, ok := maxInstances.(int); ok {
@@ -102,7 +102,7 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			}
 
 			// 解析 MaxTraffic
-			if maxTraffic, exists := limitMap["maxTraffic"]; exists {
+			if maxTraffic, exists := limitMap["max-traffic"]; exists {
 				if traffic, ok := maxTraffic.(float64); ok {
 					levelLimit.MaxTraffic = int64(traffic)
 				} else if traffic, ok := maxTraffic.(int64); ok {
@@ -113,7 +113,7 @@ func (s *QuotaSyncService) extractLevelLimits(configMap map[string]interface{}) 
 			}
 
 			// 解析 MaxResources
-			if maxResources, exists := limitMap["maxResources"]; exists {
+			if maxResources, exists := limitMap["max-resources"]; exists {
 				if resourcesMap, ok := maxResources.(map[string]interface{}); ok {
 					levelLimit.MaxResources = resourcesMap
 				}

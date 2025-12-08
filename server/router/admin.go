@@ -67,6 +67,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)
 		AdminGroup.GET("/monitoring/audit-logs", system.GetOperationLogs)
 
+		// 性能监控
+		AdminGroup.GET("/performance/metrics", system.GetPerformanceMetrics)
+		AdminGroup.GET("/performance/history", system.GetPerformanceHistory)
+
 		// 流量同步管理
 		AdminGroup.POST("/traffic/sync/instance/:instance_id", admin.SyncInstanceTraffic)
 		AdminGroup.POST("/traffic/sync/user/:user_id", admin.SyncUserTraffic)
@@ -105,6 +109,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// 用户任务管理
 		AdminGroup.GET("/tasks", admin.GetAdminTasks)
+		AdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
 		AdminGroup.POST("/tasks/force-stop", admin.ForceStopTask)
 		AdminGroup.GET("/tasks/stats", admin.GetTaskStats)
 		AdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
@@ -120,9 +125,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// 端口映射管理
 		AdminGroup.GET("/port-mappings", admin.GetPortMappingList)
-		AdminGroup.POST("/port-mappings", admin.CreatePortMapping)                   // 仅支持手动添加单个端口（LXD/Incus/PVE）
+		AdminGroup.POST("/port-mappings", admin.CreatePortMapping)                   // 支持单个端口和端口段批量添加（LXD/Incus/PVE）
 		AdminGroup.DELETE("/port-mappings/:id", admin.DeletePortMapping)             // 仅支持删除手动添加的端口
 		AdminGroup.POST("/port-mappings/batch-delete", admin.BatchDeletePortMapping) // 仅支持删除手动添加的端口
+		AdminGroup.POST("/ports/check", admin.CheckPortAvailability)                 // 检查端口可用性
 		AdminGroup.PUT("/providers/:id/port-config", admin.UpdateProviderPortConfig)
 		AdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)
 		AdminGroup.GET("/instances/:id/port-mappings", admin.GetInstancePortMappings)
@@ -137,5 +143,14 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
 		AdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
 		AdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
+
+		// 流量历史API
+		AdminGroup.GET("/providers/:id/traffic/history", traffic.GetProviderTrafficHistory)
+
+		// 流量监控管理
+		AdminGroup.POST("/providers/traffic-monitor", admin.TrafficMonitorOperation)
+		AdminGroup.GET("/providers/traffic-monitor/tasks", admin.GetTrafficMonitorTaskList)
+		AdminGroup.GET("/providers/traffic-monitor/tasks/:id", admin.GetTrafficMonitorTaskDetail)
+		AdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
 	}
 }

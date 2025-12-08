@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -157,65 +158,109 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 	var tasks []adminModel.Task
 	var total int64
 
-	err := s.dbService.ExecuteQuery(context.Background(), func() error {
-		query := global.APP_DB.Model(&adminModel.Task{}).Where("user_id = ?", userID)
+	// 构建查询 - 不使用事务包装
+	query := global.APP_DB.Model(&adminModel.Task{}).Where("user_id = ?", userID)
 
-		// 应用筛选条件
-		hasFilter := false
-		if req.ProviderId != 0 {
-			query = query.Where("provider_id = ?", req.ProviderId)
-			hasFilter = true
-		}
-		if req.TaskType != "" {
-			query = query.Where("task_type = ?", req.TaskType)
-			hasFilter = true
-		}
-		if req.Status != "" {
-			query = query.Where("status = ?", req.Status)
-			hasFilter = true
-		}
+	// 应用筛选条件
+	hasFilter := false
+	if req.ProviderId != 0 {
+		query = query.Where("provider_id = ?", req.ProviderId)
+		hasFilter = true
+	}
+	if req.TaskType != "" {
+		query = query.Where("task_type = ?", req.TaskType)
+		hasFilter = true
+	}
+	if req.Status != "" {
+		query = query.Where("status = ?", req.Status)
+		hasFilter = true
+	}
 
-		// 获取总数
-		if err := query.Count(&total).Error; err != nil {
-			return err
-		}
-
-		// 获取任务列表
-		// 无筛选条件时：返回所有任务（最多100条），优先展示有活跃任务的节点
-		// 有筛选条件时：使用分页
-		if !hasFilter {
-			// 无筛选：返回所有任务（最多100条）
-			// 优先返回 pending 和 running 状态的任务，然后是其他状态
-			return query.Preload("Provider").
-				Order("CASE WHEN status IN ('pending', 'running', 'processing') THEN 0 ELSE 1 END").
-				Order("created_at DESC").
-				Limit(100).
-				Find(&tasks).Error
-		} else {
-			// 有筛选：使用分页
-			offset := (req.Page - 1) * req.PageSize
-			return query.Preload("Provider").
-				Order("created_at DESC").
-				Offset(offset).Limit(req.PageSize).
-				Find(&tasks).Error
-		}
-	})
-
-	if err != nil {
+	// 获取总数
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
-	// 获取每个provider的pending和running任务用于计算排队信息
-	providerTasksMap := make(map[uint][]adminModel.Task)
+	// 获取任务列表
+	// 无筛选条件时：返回所有任务（最多100条），优先展示有活跃任务的节点
+	// 有筛选条件时：使用分页
+	if !hasFilter {
+		// 无筛选：返回所有任务（最多100条）
+		// 优先返回 pending 和 running 状态的任务，然后是其他状态
+		// 使用Preload预加载Provider
+		if err := query.Preload("Provider", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name") // 只选择需要的字段
+		}).
+			Order("CASE WHEN status IN ('pending', 'running', 'processing') THEN 0 ELSE 1 END").
+			Order("created_at DESC").
+			Limit(100).
+			Find(&tasks).Error; err != nil {
+			return nil, 0, err
+		}
+	} else {
+		// 有筛选：使用分页
+		// 使用Preload预加载Provider
+		offset := (req.Page - 1) * req.PageSize
+		if err := query.Preload("Provider", func(db *gorm.DB) *gorm.DB {
+			return db.Select("id", "name")
+		}).
+			Order("created_at DESC").
+			Offset(offset).Limit(req.PageSize).
+			Find(&tasks).Error; err != nil {
+			return nil, 0, err
+		}
+	}
+
+	// 批量查询所有涉及的 provider 的任务
+	providerIDs := make(map[uint]bool)
 	for _, task := range tasks {
 		if task.ProviderID != nil && (task.Status == "pending" || task.Status == "running") {
-			if _, exists := providerTasksMap[*task.ProviderID]; !exists {
-				// 获取该provider的所有pending和running任务
-				var providerTasks []adminModel.Task
-				global.APP_DB.Where("provider_id = ? AND status IN (?, ?)", *task.ProviderID, "pending", "running").
-					Order("created_at ASC").
-					Find(&providerTasks)
-				providerTasksMap[*task.ProviderID] = providerTasks
+			providerIDs[*task.ProviderID] = true
+		}
+	}
+
+	providerTasksMap := make(map[uint][]adminModel.Task)
+	if len(providerIDs) > 0 {
+		var providerIDList []uint
+		for pid := range providerIDs {
+			providerIDList = append(providerIDList, pid)
+		}
+
+		// 一次性查询所有 provider 的 pending 和 running 任务
+		var allProviderTasks []adminModel.Task
+		if err := global.APP_DB.Select("id", "provider_id", "status", "created_at", "estimated_duration", "started_at").
+			Where("provider_id IN ? AND status IN (?, ?)", providerIDList, "pending", "running").
+			Order("provider_id ASC, created_at ASC").
+			Find(&allProviderTasks).Error; err == nil {
+			// 按 provider_id 分组
+			for _, pt := range allProviderTasks {
+				if pt.ProviderID != nil {
+					providerTasksMap[*pt.ProviderID] = append(providerTasksMap[*pt.ProviderID], pt)
+				}
+			}
+		}
+	}
+
+	// 批量查询实例信息 - 包含instance_type字段
+	var instanceIDs []uint
+	instanceIDSet := make(map[uint]bool)
+	for _, task := range tasks {
+		if task.InstanceID != nil && !instanceIDSet[*task.InstanceID] {
+			instanceIDs = append(instanceIDs, *task.InstanceID)
+			instanceIDSet[*task.InstanceID] = true
+		}
+	}
+
+	instanceMap := make(map[uint]providerModel.Instance) // instanceID -> Instance
+	if len(instanceIDs) > 0 {
+		var instances []providerModel.Instance
+		if err := global.APP_DB.Model(&providerModel.Instance{}).
+			Select("id", "name", "instance_type").
+			Where("id IN ?", instanceIDs).
+			Limit(500). // 限制最多500条，防止单次查询过大
+			Find(&instances).Error; err == nil {
+			for _, instance := range instances {
+				instanceMap[instance.ID] = instance
 			}
 		}
 	}
@@ -250,13 +295,13 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 			taskResponse.ProviderName = task.Provider.Name
 		}
 
-		// 设置InstanceID和InstanceName
+		// 设置InstanceID、InstanceName和InstanceType
 		if task.InstanceID != nil {
 			taskResponse.InstanceID = task.InstanceID
-			// 获取实例名称
-			var instance providerModel.Instance
-			if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err == nil {
+			// 从预加载的map中获取实例信息
+			if instance, exists := instanceMap[*task.InstanceID]; exists {
 				taskResponse.InstanceName = instance.Name
+				taskResponse.InstanceType = instance.InstanceType
 			}
 		}
 
@@ -352,43 +397,103 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 	var tasks []adminModel.Task
 	var total int64
 
-	err := s.dbService.ExecuteQuery(context.Background(), func() error {
-		query := global.APP_DB.Model(&adminModel.Task{})
+	// 构建查询 - 不使用事务包装
+	query := global.APP_DB.Model(&adminModel.Task{})
 
-		// 应用筛选条件
-		if req.ProviderID != 0 {
-			query = query.Where("provider_id = ?", req.ProviderID)
-		}
-		if req.Username != "" {
-			// 通过用户名搜索，需要连接 users 表
-			query = query.Joins("LEFT JOIN users ON users.id = tasks.user_id").
-				Where("users.username LIKE ?", "%"+req.Username+"%")
-		}
-		if req.TaskType != "" {
-			query = query.Where("task_type = ?", req.TaskType)
-		}
-		if req.Status != "" {
-			query = query.Where("status = ?", req.Status)
-		}
-		if req.InstanceType != "" {
-			query = query.Joins("LEFT JOIN instances ON instances.id = tasks.instance_id").
-				Where("instances.instance_type = ?", req.InstanceType)
-		}
+	// 应用筛选条件
+	if req.ProviderID != 0 {
+		query = query.Where("tasks.provider_id = ?", req.ProviderID)
+	}
+	if req.Username != "" {
+		// 通过用户名搜索，需要连接 users 表
+		query = query.Joins("LEFT JOIN users ON users.id = tasks.user_id").
+			Where("users.username LIKE ?", "%"+req.Username+"%")
+	}
+	if req.TaskType != "" {
+		query = query.Where("tasks.task_type = ?", req.TaskType)
+	}
+	if req.Status != "" {
+		query = query.Where("tasks.status = ?", req.Status)
+	}
+	if req.InstanceType != "" {
+		query = query.Joins("LEFT JOIN instances ON instances.id = tasks.instance_id").
+			Where("instances.instance_type = ?", req.InstanceType)
+	}
 
-		// 获取总数
-		if err := query.Count(&total).Error; err != nil {
-			return err
-		}
-
-		// 获取任务列表
-		offset := (req.Page - 1) * req.PageSize
-		return query.Order("created_at DESC").
-			Offset(offset).Limit(req.PageSize).
-			Find(&tasks).Error
-	})
-
-	if err != nil {
+	// 获取总数
+	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
+	}
+
+	// 获取任务列表 - 只查询必要字段，避免加载大字段
+	offset := (req.Page - 1) * req.PageSize
+	if err := query.Select("tasks.*").Order("tasks.created_at DESC").
+		Offset(offset).Limit(req.PageSize).
+		Find(&tasks).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 批量预加载 user, provider, instance
+	var userIDs, providerIDs, instanceIDs []uint
+	userIDSet := make(map[uint]bool)
+	providerIDSet := make(map[uint]bool)
+	instanceIDSet := make(map[uint]bool)
+
+	for _, task := range tasks {
+		if task.UserID > 0 && !userIDSet[task.UserID] {
+			userIDs = append(userIDs, task.UserID)
+			userIDSet[task.UserID] = true
+		}
+		if task.ProviderID != nil && *task.ProviderID > 0 && !providerIDSet[*task.ProviderID] {
+			providerIDs = append(providerIDs, *task.ProviderID)
+			providerIDSet[*task.ProviderID] = true
+		}
+		if task.InstanceID != nil && *task.InstanceID > 0 && !instanceIDSet[*task.InstanceID] {
+			instanceIDs = append(instanceIDs, *task.InstanceID)
+			instanceIDSet[*task.InstanceID] = true
+		}
+	}
+
+	// 批量查询users（只选择需要的字段）
+	userMap := make(map[uint]userModel.User)
+	if len(userIDs) > 0 {
+		var users []userModel.User
+		if err := global.APP_DB.Select("id", "username").
+			Where("id IN ?", userIDs).
+			Limit(500). // 限制最多500条
+			Find(&users).Error; err == nil {
+			for _, user := range users {
+				userMap[user.ID] = user
+			}
+		}
+	}
+
+	// 批量查询providers（只选择需要的字段）
+	providerMap := make(map[uint]providerModel.Provider)
+	if len(providerIDs) > 0 {
+		var providers []providerModel.Provider
+		if err := global.APP_DB.Select("id", "name").
+			Where("id IN ?", providerIDs).
+			Limit(500).
+			Find(&providers).Error; err == nil {
+			for _, provider := range providers {
+				providerMap[provider.ID] = provider
+			}
+		}
+	}
+
+	// 批量查询instances（只选择需要的字段）
+	instanceMap := make(map[uint]providerModel.Instance)
+	if len(instanceIDs) > 0 {
+		var instances []providerModel.Instance
+		if err := global.APP_DB.Select("id", "name", "instance_type").
+			Where("id IN ?", instanceIDs).
+			Limit(500).
+			Find(&instances).Error; err == nil {
+			for _, instance := range instances {
+				instanceMap[instance.ID] = instance
+			}
+		}
 	}
 
 	// 转换为响应格式
@@ -434,22 +539,19 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 		}
 
 		if task.UserID != 0 {
-			var user userModel.User
-			if err := global.APP_DB.First(&user, task.UserID).Error; err == nil {
+			if user, ok := userMap[task.UserID]; ok {
 				taskResponse.UserName = user.Username
 			}
 		}
 
 		if task.ProviderID != nil {
-			var provider providerModel.Provider
-			if err := global.APP_DB.First(&provider, *task.ProviderID).Error; err == nil {
+			if provider, ok := providerMap[*task.ProviderID]; ok {
 				taskResponse.ProviderName = provider.Name
 			}
 		}
 
 		if task.InstanceID != nil {
-			var instance providerModel.Instance
-			if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err == nil {
+			if instance, ok := instanceMap[*task.InstanceID]; ok {
 				taskResponse.InstanceID = &instance.ID
 				taskResponse.InstanceName = instance.Name
 				taskResponse.InstanceType = instance.InstanceType
@@ -498,40 +600,119 @@ func (s *TaskService) GetTaskOverallStats() (*adminModel.TaskStatsResponse, erro
 		return nil, fmt.Errorf("统计总任务数失败: %w", err)
 	}
 
-	// 统计各状态的任务数
-	statusQueries := map[string]*int64{
-		"pending":   &stats.PendingTasks,
-		"running":   &stats.RunningTasks,
-		"completed": &stats.CompletedTasks,
-		"failed":    &stats.FailedTasks,
-		"timeout":   &stats.TimeoutTasks,
+	// 使用单次GROUP BY查询统计所有状态
+	type StatusCount struct {
+		Status string
+		Count  int64
+	}
+	var statusCounts []StatusCount
+	if err := global.APP_DB.Model(&adminModel.Task{}).
+		Select("status, COUNT(*) as count").
+		Group("status").
+		Scan(&statusCounts).Error; err != nil {
+		return nil, fmt.Errorf("统计任务状态失败: %w", err)
 	}
 
-	for status, count := range statusQueries {
-		if err := global.APP_DB.Model(&adminModel.Task{}).
-			Where("status = ?", status).
-			Count(count).Error; err != nil {
-			return nil, fmt.Errorf("统计%s状态任务数失败: %w", status, err)
+	// 将状态统计映射到响应结构
+	for _, sc := range statusCounts {
+		switch sc.Status {
+		case "pending":
+			stats.PendingTasks = sc.Count
+		case "running":
+			stats.RunningTasks = sc.Count
+		case "processing":
+			stats.RunningTasks += sc.Count // processing算作运行中
+		case "completed":
+			stats.CompletedTasks = sc.Count
+		case "failed":
+			stats.FailedTasks = sc.Count
+		case "timeout":
+			stats.TimeoutTasks = sc.Count
+		case "cancelled", "cancelling":
+			stats.FailedTasks += sc.Count // cancelled算作失败
 		}
 	}
 
-	// 同时统计processing状态的任务到运行中
-	var processingTasks int64
-	if err := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status = ?", "processing").
-		Count(&processingTasks).Error; err != nil {
-		return nil, fmt.Errorf("统计processing状态任务数失败: %w", err)
-	}
-	stats.RunningTasks += processingTasks
-
-	// 统计cancelled和cancelling状态的任务到失败中
-	var cancelledTasks int64
-	if err := global.APP_DB.Model(&adminModel.Task{}).
-		Where("status IN (?)", []string{"cancelled", "cancelling"}).
-		Count(&cancelledTasks).Error; err != nil {
-		return nil, fmt.Errorf("统计cancelled状态任务数失败: %w", err)
-	}
-	stats.FailedTasks += cancelledTasks
-
 	return &stats, nil
+}
+
+// GetTaskDetail 获取任务详情
+func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailResponse, error) {
+	var task adminModel.Task
+	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("任务不存在")
+		}
+		return nil, fmt.Errorf("查询任务失败: %w", err)
+	}
+
+	var providerID uint
+	if task.ProviderID != nil {
+		providerID = *task.ProviderID
+	}
+
+	// 计算剩余时间
+	remainingTime := 0
+	if task.Status == "running" && task.StartedAt != nil {
+		elapsed := time.Since(*task.StartedAt).Seconds()
+		remaining := float64(task.TimeoutDuration) - elapsed
+		if remaining > 0 {
+			remainingTime = int(remaining)
+		}
+	}
+
+	response := adminModel.AdminTaskDetailResponse{
+		AdminTaskResponse: adminModel.AdminTaskResponse{
+			ID:                    task.ID,
+			UUID:                  task.UUID,
+			TaskType:              task.TaskType,
+			Status:                task.Status,
+			Progress:              task.Progress,
+			ErrorMessage:          task.ErrorMessage,
+			CancelReason:          task.CancelReason,
+			CreatedAt:             task.CreatedAt,
+			StartedAt:             task.StartedAt,
+			CompletedAt:           task.CompletedAt,
+			TimeoutDuration:       task.TimeoutDuration,
+			StatusMessage:         task.StatusMessage,
+			UserID:                task.UserID,
+			ProviderID:            &providerID,
+			CanForceStop:          (task.Status == "processing" || task.Status == "running" || task.Status == "cancelling"),
+			IsForceStoppable:      task.IsForceStoppable,
+			RemainingTime:         remainingTime,
+			PreallocatedCPU:       task.PreallocatedCPU,
+			PreallocatedMemory:    task.PreallocatedMemory,
+			PreallocatedDisk:      task.PreallocatedDisk,
+			PreallocatedBandwidth: task.PreallocatedBandwidth,
+		},
+		TaskData: task.TaskData,
+	}
+
+	// 获取用户信息 - 只查询需要的字段
+	if task.UserID != 0 {
+		var user userModel.User
+		if err := global.APP_DB.Select("id, username").First(&user, task.UserID).Error; err == nil {
+			response.UserName = user.Username
+		}
+	}
+
+	// 获取Provider信息 - 只查询需要的字段
+	if task.ProviderID != nil {
+		var provider providerModel.Provider
+		if err := global.APP_DB.Select("id, name").First(&provider, *task.ProviderID).Error; err == nil {
+			response.ProviderName = provider.Name
+		}
+	}
+
+	// 获取实例信息 - 只查询需要的字段
+	if task.InstanceID != nil {
+		var instance providerModel.Instance
+		if err := global.APP_DB.Select("id, name, instance_type").First(&instance, *task.InstanceID).Error; err == nil {
+			response.InstanceID = &instance.ID
+			response.InstanceName = instance.Name
+			response.InstanceType = instance.InstanceType
+		}
+	}
+
+	return &response, nil
 }

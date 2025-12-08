@@ -10,8 +10,8 @@ import (
 	"oneclickvirt/model/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/task"
+	"oneclickvirt/utils"
 	"strconv"
-	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -73,21 +73,64 @@ func GetPortMappingList(c *gin.Context) {
 		return
 	}
 
+	// 批量预加载实例和Provider信息
+	var instanceIDs, providerIDs []uint
+	instanceIDSet := make(map[uint]bool)
+	providerIDSet := make(map[uint]bool)
+	instanceMap := make(map[uint]provider.Instance)
+	providerMap := make(map[uint]provider.Provider)
+
+	// 去重收集ID
+	for _, port := range ports {
+		if !instanceIDSet[port.InstanceID] {
+			instanceIDs = append(instanceIDs, port.InstanceID)
+			instanceIDSet[port.InstanceID] = true
+		}
+		if !providerIDSet[port.ProviderID] {
+			providerIDs = append(providerIDs, port.ProviderID)
+			providerIDSet[port.ProviderID] = true
+		}
+	}
+
+	// 批量查询实例（只选择需要的字段）
+	if len(instanceIDs) > 0 {
+		var instances []provider.Instance
+		if err := global.APP_DB.Select("id", "name").
+			Where("id IN ?", instanceIDs).
+			Limit(500).
+			Find(&instances).Error; err == nil {
+			for _, inst := range instances {
+				instanceMap[inst.ID] = inst
+			}
+		}
+	}
+
+	// 批量查询Provider（只选择需要的字段）
+	if len(providerIDs) > 0 {
+		var providers []provider.Provider
+		if err := global.APP_DB.Select("id", "name", "port_ip", "endpoint").
+			Where("id IN ?", providerIDs).
+			Limit(500).
+			Find(&providers).Error; err == nil {
+			for _, prov := range providers {
+				providerMap[prov.ID] = prov
+			}
+		}
+	}
+
 	// 转换为前端期望的格式
 	formattedPorts := make([]map[string]interface{}, len(ports))
 	for i, port := range ports {
-		// 获取实例名称
+		// 从预加载的map中获取实例名称
 		var instanceName string
-		var instance provider.Instance
-		if err := global.APP_DB.Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+		if instance, ok := instanceMap[port.InstanceID]; ok {
 			instanceName = instance.Name
 		}
 
-		// 获取Provider名称和处理IP地址
+		// 从预加载的map中获取Provider信息
 		var providerName string
 		var publicIP string
-		var providerInfo provider.Provider
-		if err := global.APP_DB.Where("id = ?", port.ProviderID).First(&providerInfo).Error; err == nil {
+		if providerInfo, ok := providerMap[port.ProviderID]; ok {
 			providerName = providerInfo.Name
 			// 优先使用PortIP，如果为空则使用Endpoint
 			ipSource := providerInfo.PortIP
@@ -459,38 +502,42 @@ func GetInstancePortMappings(c *gin.Context) {
 	common.ResponseSuccess(c, ports, "获取实例端口映射成功")
 }
 
-// extractIPFromEndpoint 从endpoint中提取纯IP地址（移除端口号）
+// extractIPFromEndpoint 从endpoint中提取纯IP地址（使用全局函数）
 func extractIPFromEndpoint(endpoint string) string {
-	if endpoint == "" {
-		return ""
+	return utils.ExtractIPFromEndpoint(endpoint)
+}
+
+// CheckPortAvailability 检查端口可用性
+// @Summary 检查端口可用性
+// @Description 检查指定Provider上的端口或端口段是否可用
+// @Tags 端口映射管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body admin.CheckPortAvailabilityRequest true "检查端口可用性请求"
+// @Success 200 {object} common.Response{data=admin.CheckPortAvailabilityResponse} "检查成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "检查失败"
+// @Router /admin/ports/check [post]
+func CheckPortAvailability(c *gin.Context) {
+	var req admin.CheckPortAvailabilityRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
 	}
 
-	// 移除协议前缀
-	if strings.Contains(endpoint, "://") {
-		parts := strings.Split(endpoint, "://")
-		if len(parts) > 1 {
-			endpoint = parts[1]
-		}
+	// 默认端口数量为1
+	if req.PortCount == 0 {
+		req.PortCount = 1
 	}
 
-	// 处理IPv6地址
-	if strings.HasPrefix(endpoint, "[") {
-		closeBracket := strings.Index(endpoint, "]")
-		if closeBracket > 0 {
-			return endpoint[1:closeBracket]
-		}
+	portMappingService := resources.PortMappingService{}
+	response, err := portMappingService.CheckPortAvailability(req)
+	if err != nil {
+		global.APP_LOG.Error("检查端口可用性失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
 	}
 
-	// 处理IPv4地址
-	colonIndex := strings.LastIndex(endpoint, ":")
-	if colonIndex > 0 {
-		// 检查是否是IPv6地址（多个冒号）
-		if strings.Count(endpoint, ":") > 1 {
-			return endpoint // IPv6地址不处理
-		}
-		// IPv4地址，移除端口
-		return endpoint[:colonIndex]
-	}
-
-	return endpoint
+	common.ResponseSuccess(c, response, "检查完成")
 }

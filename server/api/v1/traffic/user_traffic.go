@@ -5,10 +5,11 @@ import (
 	"strconv"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
 	userService "oneclickvirt/service/user"
-	"oneclickvirt/service/vnstat"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -19,7 +20,7 @@ type UserTrafficAPI struct{}
 
 // GetTrafficOverview 获取用户流量概览
 // @Summary 获取用户流量概览
-// @Description 基于vnStat获取用户流量使用情况概览
+// @Description 基于pmacct获取用户流量使用情况概览
 // @Tags 用户流量
 // @Accept json
 // @Produce json
@@ -185,9 +186,9 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 	})
 }
 
-// GetVnStatData 获取原始vnStat数据
-// @Summary 获取原始vnStat数据
-// @Description 获取指定实例的原始vnStat统计数据
+// GetPmacctData 获取原始pmacct数据
+// @Summary 获取原始pmacct数据
+// @Description 获取指定实例的原始pmacct统计数据
 // @Tags 用户流量
 // @Accept json
 // @Produce json
@@ -195,8 +196,8 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 // @Param instanceId path int true "实例ID"
 // @Param interface query string false "网络接口名称"
 // @Success 200 {object} common.Response
-// @Router /api/v1/user/traffic/vnstat/{instanceId} [get]
-func (api *UserTrafficAPI) GetVnStatData(c *gin.Context) {
+// @Router /api/v1/user/traffic/pmacct/{instanceId} [get]
+func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
 		c.JSON(http.StatusUnauthorized, common.Response{
@@ -216,8 +217,6 @@ func (api *UserTrafficAPI) GetVnStatData(c *gin.Context) {
 		return
 	}
 
-	interfaceName := c.Query("interface")
-
 	// 验证用户权限
 	userServiceInstance := userService.NewService()
 	if !userServiceInstance.HasInstanceAccess(userID, uint(instanceID)) {
@@ -228,37 +227,33 @@ func (api *UserTrafficAPI) GetVnStatData(c *gin.Context) {
 		return
 	}
 
-	// 获取vnStat数据
-	vnstatService := vnstat.NewService()
-	vnstatSummary, err := vnstatService.GetVnStatSummary(uint(instanceID), interfaceName)
+	// 获取pmacct数据（pmacct不需要interfaceName，因为它只监控一个公网IP）
+	pmacctService := pmacct.NewService()
+	pmacctSummary, err := pmacctService.GetPmacctSummary(uint(instanceID))
 	if err != nil {
-		global.APP_LOG.Error("获取vnStat数据失败",
+		global.APP_LOG.Error("获取pmacct数据失败",
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", uint(instanceID)),
-			zap.String("interface", interfaceName),
 			zap.Error(err))
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 50000,
-			Msg:  "获取vnStat数据失败: " + err.Error(),
+			Msg:  "获取pmacct数据失败: " + err.Error(),
 		})
 		return
 	}
 
 	c.JSON(http.StatusOK, common.Response{
 		Code: 0,
-		Msg:  "获取vnStat数据成功",
-		Data: vnstatSummary,
+		Msg:  "获取pmacct数据成功",
+		Data: pmacctSummary,
 	})
 }
 
-// getUserIDFromContext 从上下文中获取用户ID（需要根据实际认证中间件实现）
+// getUserIDFromContext 从上下文中获取用户ID（使用全局函数）
 func getUserIDFromContext(c *gin.Context) uint {
-	// 这里需要根据实际的认证中间件实现
-	// 例如从JWT token或session中获取用户ID
-	if userID, exists := c.Get("user_id"); exists {
-		if id, ok := userID.(uint); ok {
-			return id
-		}
+	userID, err := middleware.GetUserIDFromContext(c)
+	if err != nil {
+		return 0
 	}
-	return 0
+	return userID
 }

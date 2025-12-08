@@ -89,10 +89,43 @@ func (s *Service) BatchDeleteUsers(userIDs []uint) (map[string]interface{}, erro
 		"failedCount":  0,
 	}
 
+	// 批量查询用户信息
+	var users []userModel.User
+	if err := global.APP_DB.Select("id, username, email, level, status, created_at").
+		Where("id IN ?", userIDs).
+		Limit(1000).
+		Find(&users).Error; err != nil {
+		return nil, fmt.Errorf("查询用户信息失败: %w", err)
+	}
+
+	// 将用户按ID映射
+	userMap := make(map[uint]userModel.User)
+	for _, user := range users {
+		userMap[user.ID] = user
+	}
+
+	// 批量统计实例数量
+	type InstanceCountResult struct {
+		UserID        uint
+		InstanceCount int64
+	}
+	var countResults []InstanceCountResult
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Select("user_id, COUNT(*) as instance_count").
+		Where("user_id IN ?", userIDs).
+		Group("user_id").
+		Scan(&countResults)
+
+	// 将实例数量按user_id映射
+	instanceCountMap := make(map[uint]int64)
+	for _, result := range countResults {
+		instanceCountMap[result.UserID] = result.InstanceCount
+	}
+
 	for _, userID := range userIDs {
-		// 检查用户是否存在
-		var user userModel.User
-		if err := global.APP_DB.First(&user, userID).Error; err != nil {
+		// 从预查询的map中检查用户是否存在
+		user, userExists := userMap[userID]
+		if !userExists {
 			result["failed"] = append(result["failed"].([]map[string]interface{}), map[string]interface{}{
 				"id":    userID,
 				"error": "用户不存在",
@@ -101,9 +134,8 @@ func (s *Service) BatchDeleteUsers(userIDs []uint) (map[string]interface{}, erro
 			continue
 		}
 
-		// 检查是否有关联的实例
-		var instanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).Where("user_id = ?", userID).Count(&instanceCount)
+		// 从预统计的map中检查是否有关联的实例
+		instanceCount := instanceCountMap[userID]
 		if instanceCount > 0 {
 			result["failed"] = append(result["failed"].([]map[string]interface{}), map[string]interface{}{
 				"id":    userID,
@@ -244,19 +276,86 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 		return nil, 0, fmt.Errorf("查询用户任务失败: %v", err)
 	}
 
+	// 批量查询关联的实例和Provider信息
+	var instanceIDs []uint
+	var providerIDs []uint
+	instanceIDSet := make(map[uint]bool)
+	providerIDSet := make(map[uint]bool)
+
+	for _, task := range tasks {
+		if task.InstanceID != nil && !instanceIDSet[*task.InstanceID] {
+			instanceIDs = append(instanceIDs, *task.InstanceID)
+			instanceIDSet[*task.InstanceID] = true
+		}
+		if task.ProviderID != nil && !providerIDSet[*task.ProviderID] {
+			providerIDs = append(providerIDs, *task.ProviderID)
+			providerIDSet[*task.ProviderID] = true
+		}
+	}
+
+	// 批量查询所有涉及的 provider 的任务（用于计算排队信息）
+	providerTasksMap := make(map[uint][]adminModel.Task)
+	if len(providerIDs) > 0 {
+		var allProviderTasks []adminModel.Task
+		if err := global.APP_DB.Select("id", "provider_id", "status", "created_at", "estimated_duration", "started_at").
+			Where("provider_id IN ? AND status IN (?, ?)", providerIDs, "pending", "running").
+			Order("provider_id ASC, created_at ASC").
+			Find(&allProviderTasks).Error; err == nil {
+			// 按 provider_id 分组
+			for _, pt := range allProviderTasks {
+				if pt.ProviderID != nil {
+					providerTasksMap[*pt.ProviderID] = append(providerTasksMap[*pt.ProviderID], pt)
+				}
+			}
+		}
+	}
+
+	// 批量查询实例信息
+	var instances []providerModel.Instance
+	instanceMap := make(map[uint]providerModel.Instance)
+	if len(instanceIDs) > 0 {
+		global.APP_DB.Select("id, name, status, instance_type, provider_id").
+			Where("id IN ?", instanceIDs).
+			Limit(1000).
+			Find(&instances)
+		for _, instance := range instances {
+			instanceMap[instance.ID] = instance
+		}
+	}
+
+	// 批量查询Provider信息
+	var providers []providerModel.Provider
+	providerMap := make(map[uint]providerModel.Provider)
+	if len(providerIDs) > 0 {
+		global.APP_DB.Select("id, name, type, region").
+			Where("id IN ?", providerIDs).
+			Limit(1000).
+			Find(&providers)
+		for _, provider := range providers {
+			providerMap[provider.ID] = provider
+		}
+	}
+
 	// 转换为响应格式
 	var taskResponses []userModel.UserTaskResponse
 	for _, task := range tasks {
 		taskResponse := userModel.UserTaskResponse{
-			ID:               task.ID,
-			UUID:             task.UUID,
-			TaskType:         task.TaskType,
-			Status:           task.Status,
-			Progress:         task.Progress,
-			ErrorMessage:     task.ErrorMessage,
-			TimeoutDuration:  task.TimeoutDuration,
-			IsForceStoppable: task.IsForceStoppable,
-			CreatedAt:        task.CreatedAt,
+			ID:                    task.ID,
+			UUID:                  task.UUID,
+			TaskType:              task.TaskType,
+			Status:                task.Status,
+			Progress:              task.Progress,
+			ErrorMessage:          task.ErrorMessage,
+			CancelReason:          task.CancelReason,
+			StatusMessage:         task.StatusMessage,
+			TimeoutDuration:       task.TimeoutDuration,
+			IsForceStoppable:      task.IsForceStoppable,
+			CreatedAt:             task.CreatedAt,
+			UpdatedAt:             task.UpdatedAt,
+			PreallocatedCPU:       task.PreallocatedCPU,
+			PreallocatedMemory:    task.PreallocatedMemory,
+			PreallocatedDisk:      task.PreallocatedDisk,
+			PreallocatedBandwidth: task.PreallocatedBandwidth,
 		}
 
 		// 设置开始时间和完成时间
@@ -267,21 +366,77 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 			taskResponse.CompletedAt = task.CompletedAt
 		}
 
-		// 如果有关联的实例，添加实例信息
+		// 从预加载的map中获取实例信息
 		if task.InstanceID != nil {
-			var instance providerModel.Instance
-			if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err == nil {
+			if instance, ok := instanceMap[*task.InstanceID]; ok {
 				taskResponse.InstanceName = instance.Name
 				taskResponse.InstanceID = task.InstanceID
+				taskResponse.InstanceType = instance.InstanceType
 			}
 		}
 
-		// 如果有关联的Provider，添加Provider信息
+		// 从预加载的map中获取Provider信息
 		if task.ProviderID != nil {
-			var provider providerModel.Provider
-			if err := global.APP_DB.First(&provider, *task.ProviderID).Error; err == nil {
+			if provider, ok := providerMap[*task.ProviderID]; ok {
 				taskResponse.ProviderName = provider.Name
 				taskResponse.ProviderId = *task.ProviderID
+			}
+		}
+
+		// 计算剩余时间
+		if task.Status == "running" && task.StartedAt != nil {
+			elapsed := time.Since(*task.StartedAt).Seconds()
+			remaining := float64(task.TimeoutDuration) - elapsed
+			if remaining > 0 {
+				taskResponse.RemainingTime = int(remaining)
+			}
+		}
+
+		// 计算排队信息
+		if task.ProviderID != nil && task.Status == "pending" {
+			if providerTasks, exists := providerTasksMap[*task.ProviderID]; exists {
+				queuePosition := -1
+				estimatedWaitTime := 0
+
+				// 找到当前任务在队列中的位置
+				pendingIndex := 0
+				for _, pt := range providerTasks {
+					if pt.Status == "pending" {
+						if pt.ID == task.ID {
+							queuePosition = pendingIndex
+
+							// 计算预计等待时间：所有 running 任务的剩余时间
+							for _, rpt := range providerTasks {
+								if rpt.Status == "running" || rpt.Status == "processing" {
+									if rpt.StartedAt != nil {
+										elapsed := time.Since(*rpt.StartedAt).Seconds()
+										remaining := float64(rpt.EstimatedDuration) - elapsed
+										if remaining > 0 {
+											estimatedWaitTime += int(remaining)
+										}
+									} else {
+										estimatedWaitTime += rpt.EstimatedDuration
+									}
+								}
+							}
+
+							// 前面所有 pending 任务的预计执行时长
+							for _, ppt := range providerTasks {
+								if ppt.Status == "pending" {
+									if ppt.ID == task.ID {
+										break
+									}
+									estimatedWaitTime += ppt.EstimatedDuration
+								}
+							}
+							break
+						}
+						pendingIndex++
+					}
+				}
+
+				taskResponse.QueuePosition = queuePosition
+				taskResponse.EstimatedWaitTime = estimatedWaitTime
 			}
 		}
 

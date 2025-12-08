@@ -11,8 +11,8 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/service/traffic"
-	"oneclickvirt/service/vnstat"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -54,8 +54,101 @@ func (d *DockerProvider) sshListInstances(ctx context.Context) ([]provider.Insta
 		instances = append(instances, instance)
 	}
 
+	// 获取每个实例的网络信息（IP地址和网络接口）
+	d.enrichInstancesWithNetworkInfo(&instances)
+
 	global.APP_LOG.Info("获取Docker实例列表成功", zap.Int("count", len(instances)))
 	return instances, nil
+}
+
+// enrichInstancesWithNetworkInfo 补充获取实例的网络信息（IP地址和网络接口）
+func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.Instance) {
+	for idx := range *instances {
+		instance := &(*instances)[idx]
+		// 只处理正在运行的实例
+		if instance.Status != "running" {
+			continue
+		}
+
+		// 1. 获取容器的内网IP地址
+		cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", instance.Name)
+		output, err := d.sshClient.Execute(cmd)
+		if err == nil {
+			ipAddress := strings.TrimSpace(output)
+			if ipAddress != "" && ipAddress != "<no value>" {
+				instance.PrivateIP = ipAddress
+				instance.IP = ipAddress // 保持向后兼容
+				global.APP_LOG.Debug("获取到Docker实例内网IP地址",
+					zap.String("instance", instance.Name),
+					zap.String("privateIP", ipAddress))
+			}
+		}
+
+		// 2. 获取容器对应的宿主机veth接口
+		vethCmd := fmt.Sprintf(`
+CONTAINER_NAME='%s'
+CONTAINER_PID=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
+if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
+    exit 1
+fi
+HOST_VETH_IFINDEX=$(nsenter -t $CONTAINER_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
+if [ -z "$HOST_VETH_IFINDEX" ]; then
+    exit 1
+fi
+VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
+if [ -n "$VETH_NAME" ]; then
+    echo "$VETH_NAME"
+fi
+`, instance.Name)
+
+		vethOutput, err := d.sshClient.Execute(vethCmd)
+		if err == nil {
+			vethInterface := strings.TrimSpace(vethOutput)
+			if vethInterface != "" {
+				if instance.Metadata == nil {
+					instance.Metadata = make(map[string]string)
+				}
+				instance.Metadata["network_interface"] = vethInterface
+				global.APP_LOG.Debug("获取到Docker实例veth接口",
+					zap.String("instance", instance.Name),
+					zap.String("veth", vethInterface))
+			}
+		}
+
+		// 如果没有获取到PrivateIP，尝试使用旧方法获取
+		if instance.PrivateIP == "" {
+			cmd := fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", instance.Name)
+			output, err := d.sshClient.Execute(cmd)
+			if err == nil {
+				ipAddress := strings.TrimSpace(output)
+				if ipAddress != "" && ipAddress != "<no value>" {
+					instance.PrivateIP = ipAddress
+					instance.IP = ipAddress
+					global.APP_LOG.Debug("通过默认网络获取到Docker实例IP地址",
+						zap.String("instance", instance.Name),
+						zap.String("privateIP", ipAddress))
+				}
+			}
+		}
+
+		// 3. 检查容器是否连接到ipv6_net网络，如果是则获取IPv6地址
+		checkIPv6Cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", instance.Name)
+		networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
+		if err == nil && strings.Contains(networksOutput, "ipv6_net") {
+			// 容器连接到了ipv6_net，获取IPv6地址
+			cmd = fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", instance.Name)
+			output, err = d.sshClient.Execute(cmd)
+			if err == nil {
+				ipv6Address := strings.TrimSpace(output)
+				if ipv6Address != "" && ipv6Address != "<no value>" {
+					instance.IPv6Address = ipv6Address
+					global.APP_LOG.Debug("获取到Docker实例IPv6地址",
+						zap.String("instance", instance.Name),
+						zap.String("ipv6", ipv6Address))
+				}
+			}
+		}
+	}
 }
 
 // sshCreateInstance 创建实例
@@ -165,7 +258,27 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
 	}
 
-	updateProgress(70, "构建Docker run命令...")
+	updateProgress(70, "清理同名残留容器...")
+	// 预先清理任何同名的残留容器（包括停止、失败或创建失败的容器）
+	// 这可以避免端口冲突和容器名称冲突
+	cleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ -q | xargs -r docker rm -f", config.Name)
+	global.APP_LOG.Debug("创建前清理同名容器",
+		zap.String("instance", utils.TruncateString(config.Name, 32)),
+		zap.String("command", cleanupCmd))
+
+	cleanupOutput, cleanupErr := d.sshClient.Execute(cleanupCmd)
+	if cleanupErr != nil {
+		global.APP_LOG.Debug("清理同名容器失败（可忽略）",
+			zap.String("instance", utils.TruncateString(config.Name, 32)),
+			zap.String("output", utils.TruncateString(cleanupOutput, 200)),
+			zap.Error(cleanupErr))
+	} else if cleanupOutput != "" {
+		global.APP_LOG.Info("已清理同名残留容器",
+			zap.String("instance", utils.TruncateString(config.Name, 32)),
+			zap.String("cleanedContainers", utils.TruncateString(cleanupOutput, 200)))
+	}
+
+	updateProgress(72, "构建Docker run命令...")
 	// 构建docker run命令
 	cmd := fmt.Sprintf("docker run -d --name %s", config.Name)
 
@@ -417,11 +530,32 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
 
-	// 初始化vnstat监控
-	updateProgress(98, "初始化vnstat监控...")
-	if err := d.initializeVnstatMonitoring(ctx, config); err != nil {
-		// vnstat监控初始化失败也不应该阻止实例创建，记录错误即可
-		global.APP_LOG.Warn("初始化vnstat监控失败", zap.Error(err))
+	// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
+	updateProgress(97, "获取实例内网IP...")
+	if privateIP, err := d.getContainerPrivateIP(config.Name); err == nil && privateIP != "" {
+		// 更新数据库中的PrivateIP
+		var providerRecord providerModel.Provider
+		var instance providerModel.Instance
+		if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err == nil {
+			if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err == nil {
+				if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
+					global.APP_LOG.Info("已更新Docker实例内网IP",
+						zap.String("instanceName", config.Name),
+						zap.String("privateIP", privateIP))
+				}
+			}
+		}
+	} else {
+		global.APP_LOG.Warn("获取Docker实例内网IP失败，pmacct可能使用公网IP",
+			zap.String("instanceName", config.Name),
+			zap.Error(err))
+	}
+
+	// 初始化pmacct监控
+	updateProgress(98, "初始化pmacct监控...")
+	if err := d.initializePmacctMonitoring(ctx, config); err != nil {
+		// pmacct监控初始化失败也不应该阻止实例创建，记录错误即可
+		global.APP_LOG.Warn("初始化pmacct监控失败", zap.Error(err))
 	}
 
 	updateProgress(100, "Docker实例创建完成")
@@ -577,7 +711,6 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		zap.String("id", utils.TruncateString(id, 32)))
 
 	// 预清理：先尝试删除所有同名的已停止容器（Exited状态）
-	// 这可以解决重置实例时遗留死容器的问题
 	cleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ --filter status=exited -q | xargs -r docker rm -f", id)
 	global.APP_LOG.Debug("清理已停止的同名容器",
 		zap.String("id", utils.TruncateString(id, 32)),
@@ -716,10 +849,13 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 					zap.Int("retry", retry),
 					zap.Duration("delay", retryDelay))
 
+				// 使用Timer避免time.After泄漏
+				retryTimer := time.NewTimer(retryDelay)
 				select {
 				case <-ctx.Done():
+					retryTimer.Stop()
 					return ctx.Err()
-				case <-time.After(retryDelay):
+				case <-retryTimer.C:
 					// 继续重试
 				}
 			}
@@ -1044,44 +1180,78 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 	return nil
 }
 
-// initializeVnstatMonitoring 初始化vnstat监控
-func (d *DockerProvider) initializeVnstatMonitoring(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始初始化Docker容器vnstat监控",
-		zap.String("instanceName", config.Name))
+// getContainerPrivateIP 获取容器的内网IP地址
+func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, error) {
+	cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", containerName)
+	output, err := d.sshClient.Execute(cmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to get container IP: %w", err)
+	}
 
-	// 查找实例ID用于vnstat初始化
-	var instanceID uint
-	var instance providerModel.Instance
-	// 通过provider名称查找provider记录
+	ipAddress := strings.TrimSpace(output)
+	if ipAddress == "" || ipAddress == "<no value>" {
+		// 尝试使用默认网络
+		cmd = fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", containerName)
+		output, err = d.sshClient.Execute(cmd)
+		if err != nil {
+			return "", fmt.Errorf("failed to get container IP from default network: %w", err)
+		}
+		ipAddress = strings.TrimSpace(output)
+	}
+
+	if ipAddress == "" || ipAddress == "<no value>" {
+		return "", fmt.Errorf("container IP is empty")
+	}
+
+	return ipAddress, nil
+}
+
+// initializePmacctMonitoring 初始化pmacct监控
+func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config provider.InstanceConfig) error {
+	// 查找provider记录
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err != nil {
-		global.APP_LOG.Warn("查找provider记录失败，跳过vnstat初始化",
+		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
 			zap.String("provider_name", d.config.Name),
 			zap.Error(err))
 		return fmt.Errorf("查找provider记录失败: %w", err)
 	}
 
+	// 查找实例ID
+	var instanceID uint
+	var instance providerModel.Instance
 	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
-		global.APP_LOG.Warn("查找实例记录失败，跳过vnstat初始化",
+		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
 			zap.Uint("provider_id", providerRecord.ID),
 			zap.Error(err))
 		return fmt.Errorf("查找实例记录失败: %w", err)
 	}
-
 	instanceID = instance.ID
 
-	// 初始化vnstat监控
-	vnstatService := vnstat.NewService()
-	if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
-		global.APP_LOG.Warn("Docker容器创建后初始化vnStat监控失败",
-			zap.Uint("instanceId", instanceID),
+	// 检查provider是否启用了流量统计
+	if !providerRecord.EnableTrafficControl {
+		global.APP_LOG.Debug("Provider未启用流量统计，跳过Docker容器pmacct监控初始化",
+			zap.String("providerName", d.config.Name),
 			zap.String("instanceName", config.Name),
-			zap.Error(vnstatErr))
-		return fmt.Errorf("初始化vnStat监控失败: %w", vnstatErr)
+			zap.Uint("instanceId", instanceID))
+		return nil
 	}
 
-	global.APP_LOG.Info("Docker容器创建后vnStat监控初始化成功",
+	global.APP_LOG.Info("开始初始化Docker容器pmacct监控",
+		zap.String("instanceName", config.Name))
+
+	// 初始化pmacct监控
+	pmacctService := pmacct.NewService()
+	if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
+		global.APP_LOG.Warn("Docker容器创建后初始化 pmacct 监控失败",
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", config.Name),
+			zap.Error(pmacctErr))
+		return fmt.Errorf("初始化 pmacct 监控失败: %w", pmacctErr)
+	}
+
+	global.APP_LOG.Info("Docker容器创建后 pmacct 监控初始化成功",
 		zap.Uint("instanceId", instanceID),
 		zap.String("instanceName", config.Name))
 

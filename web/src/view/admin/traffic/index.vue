@@ -398,7 +398,7 @@
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.dataSource')">
             <el-tag type="success">
-              {{ $t('admin.traffic.vnstatRealtime') }}
+              {{ $t('admin.traffic.pmacctRealtime') }}
             </el-tag>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.traffic.monthlyUsage')">

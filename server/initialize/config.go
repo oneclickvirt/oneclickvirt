@@ -77,6 +77,14 @@ func getDefaultConfig() config.Server {
 		},
 		Quota: config.Quota{
 			DefaultLevel: 1,
+			InstanceTypePermissions: config.InstanceTypePermissions{
+				MinLevelForContainer:       1,
+				MinLevelForVM:              1,
+				MinLevelForDeleteContainer: 1,
+				MinLevelForDeleteVM:        1,
+				MinLevelForResetContainer:  1,
+				MinLevelForResetVM:         1,
+			},
 			LevelLimits: map[int]config.LevelLimitInfo{
 				1: {
 					MaxInstances: 1,

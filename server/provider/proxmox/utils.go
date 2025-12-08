@@ -9,7 +9,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
-	"oneclickvirt/service/vnstat"
+	"oneclickvirt/service/pmacct"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -25,40 +25,10 @@ func (p *ProxmoxProvider) getDownloadURL(originalURL string, useCDN bool) string
 	}
 
 	// 尝试使用CDN
-	if cdnURL := p.getCDNURL(originalURL); cdnURL != "" {
+	if cdnURL := utils.GetCDNURL(p.sshClient, originalURL, "Proxmox"); cdnURL != "" {
 		return cdnURL
 	}
 	return originalURL
-}
-
-// getCDNURL 获取CDN URL - 测试CDN可用性
-func (p *ProxmoxProvider) getCDNURL(originalURL string) string {
-	cdnEndpoints := utils.GetCDNEndpoints()
-
-	// 使用已知存在的测试文件来检测CDN可用性
-	testURL := "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
-
-	// 测试每个CDN端点，找到第一个可用的就使用
-	for _, endpoint := range cdnEndpoints {
-		cdnTestURL := endpoint + testURL
-		// 测试CDN可用性 - 检查是否包含 "success" 字符串
-		testCmd := fmt.Sprintf("curl -sL -k --max-time 6 '%s' 2>/dev/null | grep -q 'success' && echo 'ok' || echo 'failed'", cdnTestURL)
-		result, err := p.sshClient.Execute(testCmd)
-		if err == nil && strings.TrimSpace(result) == "ok" {
-			cdnURL := endpoint + originalURL
-			global.APP_LOG.Info("找到可用CDN，使用CDN下载Proxmox镜像",
-				zap.String("originalURL", utils.TruncateString(originalURL, 100)),
-				zap.String("cdnURL", utils.TruncateString(cdnURL, 100)),
-				zap.String("cdnEndpoint", endpoint))
-			return cdnURL
-		}
-		// 短暂延迟避免过于频繁的请求
-		p.sshClient.Execute("sleep 0.5")
-	}
-
-	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
-		zap.String("originalURL", utils.TruncateString(originalURL, 100)))
-	return ""
 }
 
 // convertMemoryFormat 转换内存格式为Proxmox VE支持的格式
@@ -69,7 +39,7 @@ func convertMemoryFormat(memory string) string {
 	}
 
 	// 如果已经是纯数字，直接返回
-	if isNumeric(memory) {
+	if utils.IsNumeric(memory) {
 		return memory
 	}
 
@@ -105,7 +75,7 @@ func convertDiskFormat(disk string) string {
 	}
 
 	// 如果已经是纯数字，假设是GB，直接返回
-	if isNumeric(disk) {
+	if utils.IsNumeric(disk) {
 		return disk
 	}
 
@@ -145,17 +115,17 @@ func convertDiskFormat(disk string) string {
 	// 处理GB格式：去掉单位，只保留数字
 	if strings.HasSuffix(disk, "GB") {
 		numStr := strings.TrimSuffix(disk, "GB")
-		if isNumeric(numStr) {
+		if utils.IsNumeric(numStr) {
 			return numStr
 		}
 	} else if strings.HasSuffix(disk, "G") {
 		numStr := strings.TrimSuffix(disk, "G")
-		if isNumeric(numStr) {
+		if utils.IsNumeric(numStr) {
 			return numStr
 		}
 	} else if strings.HasSuffix(disk, "g") {
 		numStr := strings.TrimSuffix(disk, "g")
-		if isNumeric(numStr) {
+		if utils.IsNumeric(numStr) {
 			return numStr
 		}
 	}
@@ -172,7 +142,7 @@ func convertCPUFormat(cpu string) string {
 	}
 
 	// 检查是否已经是数字格式（包括小数）
-	if isNumeric(cpu) || isFloat(cpu) {
+	if utils.IsNumeric(cpu) || utils.IsFloat(cpu) {
 		return cpu
 	}
 
@@ -183,18 +153,6 @@ func convertCPUFormat(cpu string) string {
 
 	// 默认返回原值
 	return cpu
-}
-
-// isNumeric 检查字符串是否为纯数字
-func isNumeric(s string) bool {
-	_, err := strconv.Atoi(s)
-	return err == nil
-}
-
-// isFloat 检查字符串是否为浮点数
-func isFloat(s string) bool {
-	_, err := strconv.ParseFloat(s, 64)
-	return err == nil
 }
 
 // checkVMCTStatus 检查VM/CT状态
@@ -471,10 +429,10 @@ func (p *ProxmoxProvider) restartNDPResponder(ctx context.Context) error {
 	return err
 }
 
-// cleanupVnStatMonitoring 清理实例的vnstat监控（通过instanceID）
-func (p *ProxmoxProvider) cleanupVnStatMonitoring(ctx context.Context, vmid string) error {
-	// 创建vnstat服务实例
-	vnstatService := vnstat.NewService()
+// cleanupPmacctMonitoring 清理实例的pmacct监控（通过instanceID）
+func (p *ProxmoxProvider) cleanupPmacctMonitoring(ctx context.Context, vmid string) error {
+	// 创建pmacct服务实例
+	pmacctService := pmacct.NewService()
 
 	// 尝试通过VMID查找对应的实例记录
 	var instance providerModel.Instance
@@ -500,24 +458,24 @@ func (p *ProxmoxProvider) cleanupVnStatMonitoring(ctx context.Context, vmid stri
 	}
 
 	if instanceID > 0 {
-		global.APP_LOG.Info("找到实例记录，开始清理vnstat监控",
+		global.APP_LOG.Info("找到实例记录，开始清理pmacct监控",
 			zap.String("vmid", vmid),
 			zap.Uint("instance_id", instanceID))
 
-		// 使用现有的CleanupVnStatData方法进行清理
-		if err := vnstatService.CleanupVnStatData(instanceID); err != nil {
-			global.APP_LOG.Error("通过vnstat服务清理数据失败",
+		// 使用现有的CleanupPmacctData方法进行清理
+		if err := pmacctService.CleanupPmacctData(instanceID); err != nil {
+			global.APP_LOG.Error("通过pmacct服务清理数据失败",
 				zap.String("vmid", vmid),
 				zap.Uint("instance_id", instanceID),
 				zap.Error(err))
 			return err
 		}
 
-		global.APP_LOG.Info("vnstat监控清理完成",
+		global.APP_LOG.Info("pmacct监控清理完成",
 			zap.String("vmid", vmid),
 			zap.Uint("instance_id", instanceID))
 	} else {
-		global.APP_LOG.Warn("未找到对应的实例记录，跳过vnstat清理",
+		global.APP_LOG.Warn("未找到对应的实例记录，跳过pmacct清理",
 			zap.String("vmid", vmid))
 	}
 
@@ -535,7 +493,7 @@ func (p *ProxmoxProvider) isPrivateIPv6(address string) bool {
 		"fe80:",        // 链路本地地址
 		"fc00:",        // 唯一本地地址
 		"fd00:",        // 唯一本地地址
-		"2001:db8:",    // 文档用途（注意：只有2001:db8:才是私有的）
+		"2001:db8:",    // 文档用途（只有2001:db8:才是私有的）
 		"::1",          // 回环地址
 		"::ffff:",      // IPv4映射地址
 		"fd42:",        // Docker等使用的私有地址

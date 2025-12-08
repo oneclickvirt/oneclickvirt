@@ -18,7 +18,7 @@ export async function copyToClipboard(text, successMessage = '已复制到剪贴
 
   try {
     // 优先使用现代的 Clipboard API
-    // 注意：此API要求安全上下文（HTTPS或localhost）
+    // 此API要求安全上下文（HTTPS或localhost）
     if (navigator.clipboard && window.isSecureContext) {
       await navigator.clipboard.writeText(text)
       if (successMessage) {
@@ -28,7 +28,7 @@ export async function copyToClipboard(text, successMessage = '已复制到剪贴
     }
 
     // 降级方案：使用传统的 document.execCommand
-    // 注意：execCommand 已废弃，但作为 Clipboard API 不可用时的兼容方案
+    // execCommand 已废弃，但作为 Clipboard API 不可用时的兼容方案
     // 在非安全上下文（非HTTPS）环境中仍然需要
     const textArea = document.createElement('textarea')
     textArea.value = text

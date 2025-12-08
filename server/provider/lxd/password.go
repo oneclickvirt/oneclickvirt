@@ -18,16 +18,19 @@ func (l *LXDProvider) SetInstancePassword(ctx context.Context, instanceID, passw
 		if err := l.apiSetInstancePassword(ctx, instanceID, password); err == nil {
 			return nil
 		} else {
-			// 检查是否可以回退到SSH
-			if !l.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			// 检查是否可回退到SSH并确保SSH健康
+			if fallbackErr := l.ensureSSHBeforeFallback(err, "设置实例密码"); fallbackErr != nil {
+				return fallbackErr
 			}
 		}
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
 	if !l.shouldUseSSH() {
-		return fmt.Errorf("执行规则不允许使用SSH")
+		if l.config.ExecutionRule == "api_only" {
+			return fmt.Errorf("执行规则为api_only，但API不可用且不允许使用SSH")
+		}
+		return fmt.Errorf("SSH连接不可用")
 	}
 
 	return l.sshSetInstancePassword(ctx, instanceID, password)

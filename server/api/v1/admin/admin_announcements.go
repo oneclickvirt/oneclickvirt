@@ -41,7 +41,7 @@ func GetAnnouncements(c *gin.Context) {
 		req.PageSize = 10
 	}
 
-	// 修复状态过滤逻辑：只有当URL中明确有status参数时才进行状态过滤
+	// 状态过滤逻辑：只有当URL中明确有status参数时才进行状态过滤
 	statusParam := c.Query("status")
 	if statusParam == "" {
 		req.Status = -1 // -1表示获取所有状态

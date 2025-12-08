@@ -11,7 +11,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// DatabaseService 数据库服务抽象层 - 专为MySQL优化，内置指数退避重试
+// DatabaseService 数据库服务抽象层
 type DatabaseService struct {
 	mutex sync.RWMutex
 }

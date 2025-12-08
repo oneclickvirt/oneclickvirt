@@ -8,9 +8,9 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/traffic"
-	"oneclickvirt/service/vnstat"
 	"oneclickvirt/utils"
 	"time"
 
@@ -98,7 +98,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "正在初始化监控服务...")
 
-	// 实例启动成功后，异步初始化vnStat监控和流量同步
+	// 实例启动成功后，异步初始化pmacct监控和流量同步
 	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
 		defer s.wg.Done()
@@ -131,34 +131,49 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		// 正常超时，继续执行
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在初始化vnStat监控...")
+		s.updateTaskProgress(taskID, 90, "正在初始化pmacct监控...")
 
-		// 创建带超时的context给vnstat服务使用
-		vnstatCtx, vnstatCancel := context.WithTimeout(s.ctx, 2*time.Minute)
-		defer vnstatCancel()
-		vnstatService := vnstat.NewServiceWithContext(vnstatCtx)
-		vnstatSuccess := true
-		if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
-			global.APP_LOG.Warn("启动实例后初始化vnStat监控失败",
-				zap.Uint("instanceId", instanceID),
-				zap.Error(vnstatErr))
-			vnstatSuccess = false
+		// 检查Provider是否启用流量统计
+		var dbProvider providerModel.Provider
+		trafficEnabled := false
+		if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&dbProvider).Error; err == nil {
+			trafficEnabled = dbProvider.EnableTrafficControl
+		}
+
+		// 使用统一的流量监控管理器
+		pmacctCtx, pmacctCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer pmacctCancel()
+		trafficMonitorManager := traffic_monitor.GetManager()
+		pmacctSuccess := true
+		if pmacctErr := trafficMonitorManager.AttachMonitor(pmacctCtx, instanceID); pmacctErr != nil {
+			if trafficEnabled {
+				global.APP_LOG.Warn("启动实例后初始化pmacct监控失败",
+					zap.Uint("instanceId", instanceID),
+					zap.Error(pmacctErr))
+			} else {
+				global.APP_LOG.Debug("Provider未启用流量统计，跳过pmacct监控初始化",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("providerId", instance.ProviderID))
+			}
+			pmacctSuccess = false
 		} else {
-			global.APP_LOG.Info("启动实例后vnStat监控初始化成功",
+			global.APP_LOG.Info("启动实例后pmacct监控初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")
 
-		// 实例启动后同步流量数据
-		syncTrigger := traffic.NewSyncTriggerService()
-		syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例启动后同步")
+		// 实例启动后同步流量数据（仅在流量统计启用且初始化成功时）
+		if pmacctSuccess && trafficEnabled {
+			syncTrigger := traffic.NewSyncTriggerService()
+			syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例启动后同步")
+		}
 
 		// 标记任务完成
 		completionMessage := "实例启动成功"
-		if !vnstatSuccess {
-			completionMessage = "实例启动成功，但vnStat监控初始化失败"
+		if !pmacctSuccess && trafficEnabled {
+			completionMessage = "实例启动成功，但pmacct监控初始化失败"
 		}
 		stateManager := GetTaskStateManager()
 		if err := stateManager.CompleteMainTask(taskID, true, completionMessage, nil); err != nil {
@@ -167,7 +182,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 		global.APP_LOG.Info("启动实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
-			zap.Bool("vnstatSuccess", vnstatSuccess))
+			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)
 
 	global.APP_LOG.Info("用户实例启动API调用成功",
@@ -232,8 +247,11 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例停止前同步")
 
 	// 使用可取消的等待
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(3 * time.Second):
+	case <-timer.C:
 	case <-ctx.Done():
 		return fmt.Errorf("任务已取消")
 	}
@@ -335,8 +353,11 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	syncTrigger.TriggerInstanceTrafficSync(instance.ID, "实例重启前同步")
 
 	// 使用可取消的等待
+	timer := time.NewTimer(3 * time.Second)
+	defer timer.Stop()
+
 	select {
-	case <-time.After(3 * time.Second):
+	case <-timer.C:
 	case <-ctx.Done():
 		return fmt.Errorf("任务已取消")
 	}
@@ -373,7 +394,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 更新进度 (80%)
 	s.updateTaskProgress(task.ID, 80, "正在重新初始化监控服务...")
 
-	// 实例重启成功后，异步重新初始化vnStat监控
+	// 实例重启成功后，异步重新初始化pmacct监控
 	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
 		defer s.wg.Done()
@@ -406,34 +427,49 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		// 正常超时，继续执行
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在重新初始化vnStat监控...")
+		s.updateTaskProgress(taskID, 90, "正在重新初始化pmacct监控...")
 
-		// 创建带超时的context给vnstat服务使用
-		vnstatCtx, vnstatCancel := context.WithTimeout(s.ctx, 2*time.Minute)
-		defer vnstatCancel()
-		vnstatService := vnstat.NewServiceWithContext(vnstatCtx)
-		vnstatSuccess := true
-		if vnstatErr := vnstatService.InitializeVnStatForInstance(instanceID); vnstatErr != nil {
-			global.APP_LOG.Warn("重启实例后重新初始化vnStat监控失败",
-				zap.Uint("instanceId", instanceID),
-				zap.Error(vnstatErr))
-			vnstatSuccess = false
+		// 检查Provider是否启用流量统计
+		var dbProvider providerModel.Provider
+		trafficEnabled := false
+		if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&dbProvider).Error; err == nil {
+			trafficEnabled = dbProvider.EnableTrafficControl
+		}
+
+		// 使用统一的流量监控管理器
+		pmacctCtx, pmacctCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		defer pmacctCancel()
+		trafficMonitorManager := traffic_monitor.GetManager()
+		pmacctSuccess := true
+		if pmacctErr := trafficMonitorManager.AttachMonitor(pmacctCtx, instanceID); pmacctErr != nil {
+			if trafficEnabled {
+				global.APP_LOG.Warn("重启实例后重新初始化pmacct监控失败",
+					zap.Uint("instanceId", instanceID),
+					zap.Error(pmacctErr))
+			} else {
+				global.APP_LOG.Debug("Provider未启用流量统计，跳过pmacct监控初始化",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("providerId", instance.ProviderID))
+			}
+			pmacctSuccess = false
 		} else {
-			global.APP_LOG.Info("重启实例后vnStat监控重新初始化成功",
+			global.APP_LOG.Info("重启实例后pmacct监控重新初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")
 
-		// 重启后同步流量数据
-		syncTrigger := traffic.NewSyncTriggerService()
-		syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例重启后同步")
+		// 重启后同步流量数据（仅在流量统计启用且初始化成功时）
+		if pmacctSuccess && trafficEnabled {
+			syncTrigger := traffic.NewSyncTriggerService()
+			syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例重启后同步")
+		}
 
 		// 标记任务完成
 		completionMessage := "实例重启成功"
-		if !vnstatSuccess {
-			completionMessage = "实例重启成功，但vnStat监控重新初始化失败"
+		if !pmacctSuccess && trafficEnabled {
+			completionMessage = "实例重启成功，但pmacct监控重新初始化失败"
 		}
 		stateManager := GetTaskStateManager()
 		if err := stateManager.CompleteMainTask(taskID, true, completionMessage, nil); err != nil {
@@ -442,7 +478,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 		global.APP_LOG.Info("重启实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
-			zap.Bool("vnstatSuccess", vnstatSuccess))
+			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)
 
 	global.APP_LOG.Info("用户实例重启API调用成功",
@@ -532,11 +568,14 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 				zap.Int("maxRetries", maxRetries),
 				zap.Error(err))
 			if attempt < maxRetries {
+				timer := time.NewTimer(5 * time.Second)
 				select {
-				case <-time.After(5 * time.Second):
+				case <-timer.C:
 				case <-ctx.Done():
+					timer.Stop()
 					return fmt.Errorf("任务已取消")
 				}
+				timer.Stop()
 			}
 		} else {
 			passwordSetSuccess = true

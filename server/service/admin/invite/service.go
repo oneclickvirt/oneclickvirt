@@ -59,14 +59,33 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 		return nil, 0, err
 	}
 
+	// 批量查询创建者用户信息
+	var creatorIDs []uint
+	creatorIDSet := make(map[uint]bool)
+	for _, code := range inviteCodes {
+		if code.CreatorID != 0 && !creatorIDSet[code.CreatorID] {
+			creatorIDs = append(creatorIDs, code.CreatorID)
+			creatorIDSet[code.CreatorID] = true
+		}
+	}
+
+	var users []userModel.User
+	userMap := make(map[uint]string)
+	if len(creatorIDs) > 0 {
+		global.APP_DB.Select("id, username").
+			Where("id IN ?", creatorIDs).
+			Limit(500).
+			Find(&users)
+		for _, user := range users {
+			userMap[user.ID] = user.Username
+		}
+	}
+
 	var codeResponses []admin.InviteCodeResponse
 	for _, code := range inviteCodes {
 		var createdByUser string
 		if code.CreatorID != 0 {
-			var user userModel.User
-			if err := global.APP_DB.First(&user, code.CreatorID).Error; err == nil {
-				createdByUser = user.Username
-			}
+			createdByUser = userMap[code.CreatorID]
 		}
 
 		codeResponse := admin.InviteCodeResponse{

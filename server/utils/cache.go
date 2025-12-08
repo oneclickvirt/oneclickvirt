@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"container/list"
 	"errors"
 	"sync"
 	"time"
@@ -8,8 +9,10 @@ import (
 
 // 验证码缓存配置常量
 const (
-	// MaxCaptchaItems 验证码缓存最大数量，防止内存耗尽
-	MaxCaptchaItems = 5000
+	// MaxCaptchaItems 验证码缓存最大数量
+	MaxCaptchaItems = 3000
+	// CaptchaCleanupInterval 验证码清理间隔
+	CaptchaCleanupInterval = 3 * time.Minute
 )
 
 var (
@@ -19,120 +22,186 @@ var (
 
 // CaptchaCache 验证码缓存接口
 type CaptchaCache interface {
-	// SetCaptcha 设置验证码
-	SetCaptcha(id string, code string, expiration time.Duration) error
-	// GetCaptcha 获取验证码
-	GetCaptcha(id string) (string, bool)
-	// DeleteCaptcha 删除验证码
-	DeleteCaptcha(id string) error
+	// Set 设置验证码
+	Set(id string, code string) error
+	// Get 获取验证码（验证后可选清除）
+	Get(id string, clear bool) string
+	// Verify 验证验证码
+	Verify(id string, code string, clear bool) bool
 }
 
-// MemoryCaptchaCache 内存验证码缓存实现
-type MemoryCaptchaCache struct {
-	data     map[string]cacheItem
+// lruCacheItem LRU缓存项
+type lruCacheItem struct {
+	key        string
+	value      string
+	expiration time.Time
+}
+
+// LRUCaptchaCache 基于LRU的验证码缓存实现
+type LRUCaptchaCache struct {
+	capacity int
+	items    map[string]*list.Element // key -> list element
+	lruList  *list.List               // 双向链表维护LRU顺序
 	mutex    sync.RWMutex
-	maxItems int
-	stopChan chan struct{} // 用于停止清理goroutine
+	stopChan chan struct{}
 	stopped  bool
 }
 
-type cacheItem struct {
-	value      string
-	expiration time.Time
-	createdAt  time.Time // 用于LRU淘汰策略
-}
+// NewLRUCaptchaCache 创建新的LRU验证码缓存
+func NewLRUCaptchaCache(capacity int) *LRUCaptchaCache {
+	if capacity <= 0 {
+		capacity = MaxCaptchaItems
+	}
 
-// NewMemoryCaptchaCache 创建新的内存验证码缓存
-func NewMemoryCaptchaCache() *MemoryCaptchaCache {
-	cache := &MemoryCaptchaCache{
-		data:     make(map[string]cacheItem),
-		maxItems: MaxCaptchaItems,
+	cache := &LRUCaptchaCache{
+		capacity: capacity,
+		items:    make(map[string]*list.Element, capacity),
+		lruList:  list.New(),
 		stopChan: make(chan struct{}),
 		stopped:  false,
 	}
 
-	// 启动定期清理过期缓存的协程
+	// 启动定期清理过期缓存
 	go cache.cleanupLoop()
 
 	return cache
 }
 
-// SetCaptcha 设置验证码
-func (c *MemoryCaptchaCache) SetCaptcha(id string, code string, expiration time.Duration) error {
+// Set 设置验证码（实现base64Captcha.Store接口）
+func (c *LRUCaptchaCache) Set(id string, value string) error {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	// 检查缓存容量
-	if len(c.data) >= c.maxItems {
-		// 缓存已满，先尝试清理过期项
-		c.cleanupExpiredLocked()
-
-		// 清理后仍然满，则淘汰最旧的项
-		if len(c.data) >= c.maxItems {
-			c.evictOldestLocked()
-		}
-
-		// 如果还是满（极端情况），返回错误
-		if len(c.data) >= c.maxItems {
-			return ErrCacheFull
-		}
+	// 如果key已存在，更新值并移到前面
+	if elem, ok := c.items[id]; ok {
+		c.lruList.MoveToFront(elem)
+		item := elem.Value.(*lruCacheItem)
+		item.value = value
+		item.expiration = time.Now().Add(10 * time.Minute) // 验证码10分钟过期
+		return nil
 	}
 
-	now := time.Now()
-	c.data[id] = cacheItem{
-		value:      code,
-		expiration: now.Add(expiration),
-		createdAt:  now,
+	// 如果缓存已满，移除最久未使用的项
+	if c.lruList.Len() >= c.capacity {
+		c.evictOldest()
 	}
+
+	// 添加新项到前面
+	item := &lruCacheItem{
+		key:        id,
+		value:      value,
+		expiration: time.Now().Add(10 * time.Minute),
+	}
+	elem := c.lruList.PushFront(item)
+	c.items[id] = elem
 
 	return nil
 }
 
-// GetCaptcha 获取验证码
-func (c *MemoryCaptchaCache) GetCaptcha(id string) (string, bool) {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
+// Get 获取验证码（实现base64Captcha.Store接口）
+func (c *LRUCaptchaCache) Get(id string, clear bool) string {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
 
-	item, exists := c.data[id]
-	if !exists {
-		return "", false
+	elem, ok := c.items[id]
+	if !ok {
+		return ""
 	}
+
+	item := elem.Value.(*lruCacheItem)
 
 	// 检查是否过期
 	if time.Now().After(item.expiration) {
-		return "", false
+		c.removeElement(elem)
+		return ""
 	}
 
-	return item.value, true
+	// 移到前面（最近使用）
+	c.lruList.MoveToFront(elem)
+
+	value := item.value
+
+	// 如果需要清除，删除该项
+	if clear {
+		c.removeElement(elem)
+	}
+
+	return value
 }
 
-// DeleteCaptcha 删除验证码
-func (c *MemoryCaptchaCache) DeleteCaptcha(id string) error {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
+// Verify 验证验证码（实现base64Captcha.Store接口）
+func (c *LRUCaptchaCache) Verify(id, answer string, clear bool) bool {
+	value := c.Get(id, clear)
+	if value == "" {
+		return false
+	}
+	return value == answer
+}
 
-	delete(c.data, id)
-	return nil
+// evictOldest 移除最久未使用的项（需要持有锁）
+func (c *LRUCaptchaCache) evictOldest() {
+	elem := c.lruList.Back()
+	if elem != nil {
+		c.removeElement(elem)
+	}
+}
+
+// removeElement 移除指定元素（需要持有锁）
+func (c *LRUCaptchaCache) removeElement(elem *list.Element) {
+	c.lruList.Remove(elem)
+	item := elem.Value.(*lruCacheItem)
+	delete(c.items, item.key)
 }
 
 // cleanupLoop 定期清理过期缓存
-func (c *MemoryCaptchaCache) cleanupLoop() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
+func (c *LRUCaptchaCache) cleanupLoop() {
+	// 确俟ticker在panic时也能停止，防止goroutine泄漏
+	ticker := time.NewTicker(CaptchaCleanupInterval)
+	defer func() {
+		ticker.Stop()
+		if r := recover(); r != nil {
+			// 静默失败，不记录日志（避免循环依赖）
+		}
+	}()
 
 	for {
 		select {
 		case <-ticker.C:
-			c.cleanup()
+			c.cleanupExpired()
 		case <-c.stopChan:
-			// 收到停止信号，退出goroutine
 			return
 		}
 	}
 }
 
+// cleanupExpired 清理过期项（从后向前遍历，LRU链表最旧的在后面）
+func (c *LRUCaptchaCache) cleanupExpired() {
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+
+	now := time.Now()
+	cleanedCount := 0
+	maxCleanup := 100 // 每次最多清理100个
+
+	// 从后向前遍历（最旧的在后面）
+	for elem := c.lruList.Back(); elem != nil && cleanedCount < maxCleanup; {
+		item := elem.Value.(*lruCacheItem)
+		prev := elem.Prev() // 先保存前一个元素
+
+		if now.After(item.expiration) {
+			c.removeElement(elem)
+			cleanedCount++
+		} else {
+			// 如果遇到未过期的，后面的都是更新的，可以停止
+			break
+		}
+
+		elem = prev
+	}
+}
+
 // Stop 停止清理goroutine
-func (c *MemoryCaptchaCache) Stop() {
+func (c *LRUCaptchaCache) Stop() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
@@ -142,42 +211,11 @@ func (c *MemoryCaptchaCache) Stop() {
 	}
 }
 
-// cleanup 清理过期缓存
-func (c *MemoryCaptchaCache) cleanup() {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-	c.cleanupExpiredLocked()
-}
-
-// cleanupExpiredLocked 清理过期缓存（需要持有锁）
-func (c *MemoryCaptchaCache) cleanupExpiredLocked() {
-	now := time.Now()
-	for key, item := range c.data {
-		if now.After(item.expiration) {
-			delete(c.data, key)
-		}
-	}
-}
-
-// evictOldestLocked 淘汰最旧的缓存项（需要持有锁）
-func (c *MemoryCaptchaCache) evictOldestLocked() {
-	var oldestKey string
-	var oldestTime time.Time
-
-	// 找到最旧的项
-	first := true
-	for key, item := range c.data {
-		if first || item.createdAt.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = item.createdAt
-			first = false
-		}
-	}
-
-	// 删除最旧的项
-	if oldestKey != "" {
-		delete(c.data, oldestKey)
-	}
+// Len 返回当前缓存项数量
+func (c *LRUCaptchaCache) Len() int {
+	c.mutex.RLock()
+	defer c.mutex.RUnlock()
+	return c.lruList.Len()
 }
 
 // StatsCache 统计数据缓存

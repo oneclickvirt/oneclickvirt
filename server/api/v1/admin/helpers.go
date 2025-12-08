@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"errors"
 	"net/http"
 
 	"oneclickvirt/middleware"
@@ -10,13 +9,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// getUserIDFromContext 从认证上下文中获取用户ID
+// getUserIDFromContext 从认证上下文中获取用户ID（使用全局函数）
 func getUserIDFromContext(c *gin.Context) (uint, error) {
-	authCtx, exists := middleware.GetAuthContext(c)
-	if !exists {
-		return 0, errors.New("用户未认证")
-	}
-	return authCtx.UserID, nil
+	return middleware.GetUserIDFromContext(c)
 }
 
 // respondUnauthorized 返回未授权错误

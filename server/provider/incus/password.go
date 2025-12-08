@@ -25,17 +25,19 @@ func (i *IncusProvider) SetInstancePassword(ctx context.Context, instanceID, pas
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
 
-			// 检查是否可以回退到SSH
-			if !i.shouldFallbackToSSH() {
-				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			// 检查是否可回退到SSH并确保SSH健康
+			if fallbackErr := i.ensureSSHBeforeFallback(err, "设置实例密码"); fallbackErr != nil {
+				return fallbackErr
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 设置实例密码", zap.String("instanceID", utils.TruncateString(instanceID, 12)))
 		}
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
 	if !i.shouldUseSSH() {
-		return fmt.Errorf("执行规则不允许使用SSH")
+		if i.config.ExecutionRule == "api_only" {
+			return fmt.Errorf("执行规则为api_only，但API不可用且不允许使用SSH")
+		}
+		return fmt.Errorf("SSH连接不可用")
 	}
 
 	// SSH 方式
@@ -83,7 +85,7 @@ func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) erro
 	if !strings.Contains(output, "RUNNING") {
 		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
 	}
-	// 设置密码 - 使用incus exec命令，增加错误处理
+	// 设置密码 - 使用incus exec命令
 	setPasswordCmd := fmt.Sprintf("incus exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password)
 	_, err = i.sshClient.Execute(setPasswordCmd)
 	if err != nil {

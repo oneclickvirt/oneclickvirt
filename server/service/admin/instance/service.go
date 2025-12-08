@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/service/traffic"
 	"strings"
 	"time"
 
@@ -84,14 +85,94 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 		return nil, 0, err
 	}
 
+	// 批量查询用户信息
+	var userIDs []uint
+	userIDSet := make(map[uint]bool)
+	for _, instance := range instances {
+		if instance.UserID != 0 && !userIDSet[instance.UserID] {
+			userIDs = append(userIDs, instance.UserID)
+			userIDSet[instance.UserID] = true
+		}
+	}
+
+	var users []userModel.User
+	if len(userIDs) > 0 {
+		global.APP_DB.Select("id, username, email, level, status").
+			Where("id IN ?", userIDs).
+			Limit(1000).
+			Find(&users)
+	}
+
+	// 将用户信息按ID映射
+	userMap := make(map[uint]userModel.User)
+	for _, user := range users {
+		userMap[user.ID] = user
+	}
+
+	// 批量查询Provider信息
+	var providerIDs []uint
+	providerIDSet := make(map[uint]bool)
+	for _, instance := range instances {
+		if instance.ProviderID > 0 && !providerIDSet[instance.ProviderID] {
+			providerIDs = append(providerIDs, instance.ProviderID)
+			providerIDSet[instance.ProviderID] = true
+		}
+	}
+
+	var providers []providerModel.Provider
+	if len(providerIDs) > 0 {
+		global.APP_DB.Select("id, name, type, region, status").
+			Where("id IN ?", providerIDs).
+			Limit(1000).
+			Find(&providers)
+	}
+
+	// 将Provider信息按ID映射
+	providerMap := make(map[uint]providerModel.Provider)
+	for _, provider := range providers {
+		providerMap[provider.ID] = provider
+	}
+
+	// 批量查询SSH端口映射
+	var instanceIDs []uint
+	for _, instance := range instances {
+		instanceIDs = append(instanceIDs, instance.ID)
+	}
+
+	var sshPorts []providerModel.Port
+	if len(instanceIDs) > 0 {
+		global.APP_DB.Select("instance_id, host_port, is_ssh, status").
+			Where("instance_id IN ? AND is_ssh = true AND status = 'active'", instanceIDs).
+			Limit(1000).
+			Find(&sshPorts)
+	}
+
+	// 将SSH端口映射按instance_id映射
+	sshPortMap := make(map[uint]providerModel.Port)
+	for _, port := range sshPorts {
+		sshPortMap[port.InstanceID] = port
+	}
+
+	// 批量查询实例当月流量历史数据 - 使用统一的流量查询服务
+	now := time.Now()
+	year := now.Year()
+	month := int(now.Month())
+
+	// 使用流量查询服务批量获取实例流量数据（已应用Provider的流量计算模式）
+	trafficQueryService := traffic.NewQueryService()
+	trafficStatsMap, err := trafficQueryService.BatchGetInstancesMonthlyTraffic(instanceIDs, year, month)
+	if err != nil {
+		global.APP_LOG.Warn("批量查询实例流量数据失败", zap.Error(err))
+		trafficStatsMap = make(map[uint]*traffic.TrafficStats) // 使用空map
+	}
+
 	var instanceResponses []admin.InstanceManageResponse
 	for _, instance := range instances {
 		var userName, providerName string
 
-		// 获取用户名
+		// 从预加载的map中获取用户名
 		if instance.UserID != 0 {
-			var user userModel.User
-			if err := global.APP_DB.First(&user, instance.UserID).Error; err == nil {
+			if user, ok := userMap[instance.UserID]; ok {
 				userName = user.Username
 			} else {
 				userName = "未知用户"
@@ -107,20 +188,18 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 			providerName = "未知提供商"
 		}
 
-		// 获取SSH端口映射的公网端口
+		// 从预加载的map中获取SSH端口映射
 		var sshPort int
-		var sshPortMapping providerModel.Port
-		if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instance.ID).First(&sshPortMapping).Error; err == nil {
+		if sshPortMapping, ok := sshPortMap[instance.ID]; ok {
 			sshPort = sshPortMapping.HostPort // 使用映射的公网端口
 		} else {
 			sshPort = instance.SSHPort // fallback到默认值
 		}
 
-		// 获取纯净的公网IP（移除端口号）
+		// 从预加载的Provider map中获取纯净的公网IP（移除端口号）
 		var cleanIPAddress string
 		if instance.ProviderID > 0 {
-			var providerInfo providerModel.Provider
-			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
+			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
 				endpoint := providerInfo.Endpoint
 				if endpoint != "" {
 					// 移除端口号部分，只保留IP
@@ -165,17 +244,25 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 		}
 
 		instanceResponse := admin.InstanceManageResponse{
-			Instance:     modifiedInstance,
-			UserName:     userName,
-			ProviderName: providerName,
-			ProviderType: "",
-			HealthStatus: "healthy",
+			Instance:       modifiedInstance,
+			UserName:       userName,
+			ProviderName:   providerName,
+			ProviderType:   "",
+			HealthStatus:   "healthy",
+			UsedTrafficIn:  0,
+			UsedTrafficOut: 0,
 		}
 
-		// 如果关联了 ProviderID，尝试查找 Provider 的类型并填充
+		// 从流量查询服务获取的数据中获取（已应用Provider的流量计算模式）
+		if stats, ok := trafficStatsMap[instance.ID]; ok {
+			// 将字节转换为MB
+			instanceResponse.UsedTrafficIn = stats.RxBytes / 1048576
+			instanceResponse.UsedTrafficOut = stats.TxBytes / 1048576
+		}
+
+		// 从预加载的Provider map中获取Provider类型
 		if instance.ProviderID > 0 {
-			var prov providerModel.Provider
-			if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&prov).Error; err == nil {
+			if prov, ok := providerMap[instance.ProviderID]; ok {
 				instanceResponse.ProviderType = prov.Type
 			}
 		}

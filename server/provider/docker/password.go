@@ -84,7 +84,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			zap.Int("attempt", i+1))
 
 		if i < maxRetries-1 {
-			waitSeconds := 10 // 增加等待时间到10秒
+			waitSeconds := 10 // 等待时间
 			global.APP_LOG.Info("等待容器启动",
 				zap.String("instanceID", instanceID),
 				zap.Int("waitSeconds", waitSeconds))

@@ -102,10 +102,10 @@ func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (
 // validateInTransaction 在事务中进行配额验证（增强版，防止并发竞争）
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
 	// 使用 SELECT FOR UPDATE 锁定用户记录
-	// NOWAIT 选项：如果无法立即获取锁，直接返回错误，避免长时间等待
+	// MySQL 5.x和部分MariaDB不支持NOWAIT，使用标准FOR UPDATE（兼容所有版本）
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE NOWAIT").First(&user, req.UserID).Error; err != nil {
-		if strings.Contains(err.Error(), "Lock wait timeout") || strings.Contains(err.Error(), "NOWAIT") {
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, req.UserID).Error; err != nil {
+		if strings.Contains(err.Error(), "Lock wait timeout") || strings.Contains(err.Error(), "timeout") {
 			return nil, fmt.Errorf("系统繁忙，请稍后重试")
 		}
 		return nil, fmt.Errorf("用户不存在: %v", err)
@@ -195,7 +195,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 
 	// 1.5 如果有 Provider 限制，还需要检查用户在该节点的实例数量
 	if req.ProviderID > 0 && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
-		// 注意：这里使用的是合并前的 providerLevelLimits，因为我们要检查节点本身的限制
+		// 这里使用的是合并前的 providerLevelLimits，因为我们要检查节点本身的限制
 		if currentProviderInstances >= providerLevelLimits.MaxInstances {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("该节点实例数量已达上限：当前在此节点 %d/%d",
@@ -279,9 +279,10 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, ResourceUsage, error) {
 	var instances []provider.Instance
 
-	// 使用 FOR SHARE 共享锁，允许其他事务读取但不允许修改
+	// 使用 LOCK IN SHARE MODE 共享锁，允许其他事务读取但不允许修改
+	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
 	// 这样可以防止在统计过程中有新实例被创建（防止幻读）
-	err := tx.Set("gorm:query_option", "FOR SHARE").
+	err := tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
 		Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed"}).
 		Find(&instances).Error
 	if err != nil {
@@ -310,9 +311,10 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint, providerID uint) (int, error) {
 	var count int64
 
-	// 使用 FOR SHARE 共享锁，防止幻读
+	// 使用 LOCK IN SHARE MODE 共享锁，防止幻读
+	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
 	err := tx.Model(&provider.Instance{}).
-		Set("gorm:query_option", "FOR SHARE").
+		Set("gorm:query_option", "LOCK IN SHARE MODE").
 		Where("user_id = ? AND provider_id = ? AND status NOT IN (?)",
 			userID, providerID, []string{"deleting", "deleted", "failed"}).
 		Count(&count).Error
@@ -474,8 +476,8 @@ func (s *QuotaService) ValidateAdminInstanceCreation(req ResourceRequest) (*Quot
 	return s.ValidateInstanceCreation(req)
 }
 
-// RecalculateUserQuota 重新计算用户配额（用于数据修复）
-// 注意：由于系统会重新初始化数据库，这个功能主要用于运行时的配额同步
+// RecalculateUserQuota 重新计算用户配额
+// 由于系统会重新初始化数据库，这个功能主要用于运行时的配额同步
 func (s *QuotaService) RecalculateUserQuota(userID uint) error {
 	// 直接使用事务，依赖数据库FOR UPDATE锁保证原子性
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {

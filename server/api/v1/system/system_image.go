@@ -186,7 +186,7 @@ func CreateSystemImage(c *gin.Context) {
 	}
 
 	// 获取当前用户ID
-	userID, exists := c.Get("userID")
+	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{
 			"code": 401,

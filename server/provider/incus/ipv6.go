@@ -149,6 +149,49 @@ func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName 
 	return "", fmt.Errorf("实例未分配公网IPv6地址")
 }
 
+// GetVethInterfaceName 获取容器对应的宿主机veth接口名称（IPv4）
+// 通过 incus config show 获取 volatile.eth0.host_name
+func (i *IncusProvider) GetVethInterfaceName(ctx context.Context, instanceName string) (string, error) {
+	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth0.host_name:' | awk '{print $2}'", instanceName)
+	output, err := i.sshClient.Execute(cmd)
+	if err != nil {
+		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
+	}
+
+	vethName := strings.TrimSpace(output)
+	if vethName == "" {
+		return "", fmt.Errorf("未找到veth接口名称")
+	}
+
+	global.APP_LOG.Debug("获取到veth接口名称",
+		zap.String("instanceName", instanceName),
+		zap.String("vethInterface", vethName))
+
+	return vethName, nil
+}
+
+// GetVethInterfaceNameV6 获取容器对应的宿主机veth接口名称（IPv6）
+// 通过 incus config show 获取 volatile.eth1.host_name（如果存在）
+func (i *IncusProvider) GetVethInterfaceNameV6(ctx context.Context, instanceName string) (string, error) {
+	cmd := fmt.Sprintf("incus config show %s | grep 'volatile.eth1.host_name:' | awk '{print $2}'", instanceName)
+	output, err := i.sshClient.Execute(cmd)
+	if err != nil {
+		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)
+	}
+
+	vethName := strings.TrimSpace(output)
+	if vethName == "" {
+		// 如果没有eth1，可能使用eth0，返回eth0的veth接口
+		return i.GetVethInterfaceName(ctx, instanceName)
+	}
+
+	global.APP_LOG.Debug("获取到veth接口名称(IPv6)",
+		zap.String("instanceName", instanceName),
+		zap.String("vethInterface", vethName))
+
+	return vethName, nil
+}
+
 // getHostIPv6Prefix 获取宿主机IPv6子网前缀
 func (i *IncusProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
 	cmd := "ip -6 addr show | grep -E 'inet6.*global' | awk '{print $2}' | awk -F'/' '{print $1}' | head -n 1 | cut -d ':' -f1-5"
@@ -370,8 +413,8 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		i.updateSysctl(ctx, sysctlConfig)
 	}
 
-	// 重新加载sysctl配置
-	i.sshClient.Execute("sysctl -p")
+	// 重新加载sysctl配置（忽略不存在的参数错误）
+	i.sshClient.Execute("sysctl -p 2>&1 | grep -v 'cannot stat' || true")
 
 	// 使用sipcalc计算IPv6地址
 	sipcalcCmd := fmt.Sprintf("sipcalc %s | grep \"Compressed address\" | awk '{print $4}' | awk -F: '{NF--; print}' OFS=:", ipNetworkGam)

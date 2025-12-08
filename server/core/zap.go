@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"fmt"
 	"oneclickvirt/service/log"
 	"time"
@@ -28,27 +29,41 @@ func Zap() (logger *zap.Logger) {
 		logger = logger.WithOptions(zap.AddCaller())
 	}
 
-	// 启动采样器清理协程
-	go startSamplerCleanup()
+	// 采样器清理协程的启动将在 InitializeSystem 中进行
+	// 这里不启动，因为 global.APP_SHUTDOWN_CONTEXT 还未初始化
 
 	return logger
 }
 
+// StartSamplerCleanup 启动采样器清理任务（导出供外部调用）
+func StartSamplerCleanup(ctx context.Context) {
+	go startSamplerCleanup(ctx)
+}
+
 // startSamplerCleanup 启动采样器清理任务
-func startSamplerCleanup() {
+func startSamplerCleanup(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Minute) // 每30分钟清理一次
 	defer ticker.Stop()
 
-	for range ticker.C {
-		// 遍历所有采样核心并清理
-		cleanupAllSamplers()
+	for {
+		select {
+		case <-ctx.Done():
+			if global.APP_LOG != nil {
+				global.APP_LOG.Info("采样器清理任务已停止")
+			}
+			return
+		case <-ticker.C:
+			// 遍历所有采样核心并清理
+			cleanupAllSamplers()
+		}
 	}
 }
 
 // cleanupAllSamplers 清理所有采样器
 func cleanupAllSamplers() {
-	// 这个函数会在需要时被调用
-	// 实际的清理逻辑在SamplingCore中实现
+	// 需要导入sampling_core.go中的全局变量
+	// 这里直接调用清理函数
+	CleanupAllSamplingCores()
 }
 
 // GetZapCores 根据配置文件的Level获取 []zapcore.Core

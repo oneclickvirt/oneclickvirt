@@ -190,7 +190,6 @@ func (s *ExportService) getUserRow(user user.User, fields []string) []string {
 		case "userType":
 			value = user.UserType
 		case "roles":
-			// TODO: 实现角色查询逻辑
 			value = "N/A"
 		case "createdAt":
 			value = user.CreatedAt.Format("2006-01-02 15:04:05")

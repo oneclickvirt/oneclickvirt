@@ -4,20 +4,83 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
 	"go.uber.org/zap"
 	"gopkg.in/yaml.v3"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // 配置标志文件路径和配置状态常量
 const (
 	ConfigModifiedFlagFile = "./storage/.config_modified" // 配置已通过API修改的标志文件
 )
+
+// 系统级配置键列表（启动必需配置，必须100%来自YAML，不能被数据库覆盖）
+// 这些配置包括：
+// - 数据库连接信息（必须在数据库连接前读取）
+// - 服务器端口和环境配置（影响启动行为）
+// - 基础系统设置（如OSS类型、是否使用Redis等）
+var systemLevelConfigKeys = map[string]bool{
+	// System 配置（所有 system.* 都是系统级配置）
+	"system.addr":                       true,
+	"system.db-type":                    true,
+	"system.env":                        true,
+	"system.frontend-url":               true,
+	"system.iplimit-count":              true,
+	"system.iplimit-time":               true,
+	"system.oauth2-state-token-minutes": true,
+	"system.oss-type":                   true,
+	"system.provider-inactive-hours":    true,
+	"system.use-multipoint":             true,
+	"system.use-redis":                  true,
+
+	// MySQL 配置（数据库连接信息，必须在连接数据库前读取）
+	"mysql.path":           true,
+	"mysql.port":           true,
+	"mysql.config":         true,
+	"mysql.db-name":        true,
+	"mysql.username":       true,
+	"mysql.password":       true,
+	"mysql.prefix":         true,
+	"mysql.singular":       true,
+	"mysql.engine":         true,
+	"mysql.max-idle-conns": true,
+	"mysql.max-open-conns": true,
+	"mysql.max-lifetime":   true,
+	"mysql.log-mode":       true,
+	"mysql.log-zap":        true,
+	"mysql.auto-create":    true,
+
+	// Redis 配置（如果启用Redis，也是启动必需）
+	"redis.addr":     true,
+	"redis.password": true,
+	"redis.db":       true,
+
+	// Zap 日志配置（日志系统启动必需）
+	"zap.level":              true,
+	"zap.format":             true,
+	"zap.prefix":             true,
+	"zap.director":           true,
+	"zap.encode-level":       true,
+	"zap.stacktrace-key":     true,
+	"zap.max-file-size":      true,
+	"zap.max-backups":        true,
+	"zap.max-log-length":     true,
+	"zap.compress-logs":      true,
+	"zap.retention-day":      true,
+	"zap.show-line":          true,
+	"zap.log-in-console":     true,
+	"zap.max-string-length":  true,
+	"zap.max-array-elements": true,
+}
+
+// isSystemLevelConfig 检查是否为系统级配置（启动必需，必须来自YAML）
+func isSystemLevelConfig(key string) bool {
+	return systemLevelConfigKeys[key]
+}
 
 // 公开配置键列表（不需要认证即可访问）
 var publicConfigKeys = map[string]bool{
@@ -154,21 +217,21 @@ func ReInitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 // initValidationRules 初始化验证规则
 func (cm *ConfigManager) initValidationRules() {
 	// 认证配置验证规则
-	cm.validationRules["auth.enableEmail"] = ConfigValidationRule{
+	cm.validationRules["auth.enable-email"] = ConfigValidationRule{
 		Required: true,
 		Type:     "bool",
 	}
-	cm.validationRules["auth.enableOAuth2"] = ConfigValidationRule{
+	cm.validationRules["auth.enable-oauth2"] = ConfigValidationRule{
 		Required: false,
 		Type:     "bool",
 	}
-	cm.validationRules["auth.emailSMTPPort"] = ConfigValidationRule{
+	cm.validationRules["auth.email-smtp-port"] = ConfigValidationRule{
 		Required: false,
 		Type:     "int",
 		MinValue: 1,
 		MaxValue: 65535,
 	}
-	cm.validationRules["quota.defaultLevel"] = ConfigValidationRule{
+	cm.validationRules["quota.default-level"] = ConfigValidationRule{
 		Required: true,
 		Type:     "int",
 		MinValue: 1,
@@ -176,7 +239,7 @@ func (cm *ConfigManager) initValidationRules() {
 	}
 
 	// 等级限制配置验证规则
-	cm.validationRules["quota.levelLimits"] = ConfigValidationRule{
+	cm.validationRules["quota.level-limits"] = ConfigValidationRule{
 		Required: false,
 		Type:     "object",
 		Validator: func(value interface{}) error {
@@ -266,6 +329,14 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 			return keys
 		}()))
 
+	// 检查是否包含系统级配置，禁止通过API修改
+	for key := range flatConfig {
+		if isSystemLevelConfig(key) {
+			cm.mu.Unlock()
+			return fmt.Errorf("禁止修改系统级配置: %s（该配置必须通过config.yaml修改并重启服务）", key)
+		}
+	}
+
 	for key, value := range flatConfig {
 		if err := cm.validateConfig(key, value); err != nil {
 			cm.mu.Unlock()
@@ -282,49 +353,58 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 		oldConfig[key] = cm.configCache[key]
 	}
 
-	// 开始事务
-	tx := cm.db.Begin()
-
-	// 更新配置
+	// 先准备所有配置数据（事务外）
 	oldValues := make(map[string]interface{})
+	var configsToSave []SystemConfig
 	for key, value := range flatConfig {
 		oldValues[key] = cm.configCache[key]
 		cm.configCache[key] = value
 
-		if err := cm.saveConfigToDBWithTx(tx, key, value); err != nil {
-			tx.Rollback()
+		// 准备配置数据
+		config, err := cm.prepareConfigForDB(key, value)
+		if err != nil {
 			// 恢复配置
 			for k, v := range oldValues {
 				cm.configCache[k] = v
 			}
 			cm.mu.Unlock()
-			return fmt.Errorf("保存配置 %s 失败: %v", key, err)
+			return fmt.Errorf("准备配置 %s 失败: %v", key, err)
 		}
+		configsToSave = append(configsToSave, config)
 	}
 
-	// 在提交事务前先创建标志文件
-	// 如果标志文件创建失败，回滚整个事务
-	if err := cm.markConfigAsModified(); err != nil {
-		tx.Rollback()
+	// 使用短事务批量保存
+	transactionErr := cm.db.Transaction(func(tx *gorm.DB) error {
+		// 批量保存配置（使用真正的批量 UPSERT）
+		if len(configsToSave) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
+			}).CreateInBatches(configsToSave, 50).Error; err != nil {
+				return fmt.Errorf("批量保存配置失败: %v", err)
+			}
+		}
+		return nil
+	})
+
+	if transactionErr != nil {
 		// 恢复配置
 		for k, v := range oldValues {
 			cm.configCache[k] = v
 		}
-		cm.logger.Error("创建配置修改标志文件失败，已回滚事务", zap.Error(err))
+		cm.mu.Unlock()
+		return fmt.Errorf("批量保存配置失败: %v", transactionErr)
+	}
+
+	// 创建配置修改标志文件
+	if err := cm.markConfigAsModified(); err != nil {
+		// 恢复配置
+		for k, v := range oldValues {
+			cm.configCache[k] = v
+		}
+		cm.logger.Error("创建配置修改标志文件失败", zap.Error(err))
 		cm.mu.Unlock()
 		return fmt.Errorf("创建配置修改标志文件失败: %v", err)
-	}
-
-	// 提交事务
-	if err := tx.Commit().Error; err != nil {
-		// 事务提交失败，清除标志文件
-		cm.clearConfigModifiedFlag()
-		// 恢复配置
-		for k, v := range oldValues {
-			cm.configCache[k] = v
-		}
-		cm.mu.Unlock()
-		return fmt.Errorf("提交配置事务失败: %v", err)
 	}
 
 	cm.lastUpdate = time.Now()
@@ -333,13 +413,13 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 	cm.mu.Unlock()
 
 	// 同步配置到全局配置 - 使用连接符格式的配置
-	// 注意：这里在锁外执行，避免持锁时间过长
+	// 这里在锁外执行，避免持锁时间过长
 	if err := cm.syncToGlobalConfig(kebabConfig); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
 	}
 
 	// 触发回调 - 使用连接符格式的配置
-	// 注意：这里在锁外执行，避免回调函数执行时间过长阻塞其他读取操作
+	// 这里在锁外执行，避免回调函数执行时间过长阻塞其他读取操作
 	for key, newValue := range kebabConfig {
 		oldValue := oldValues[key]
 		for _, callback := range cm.changeCallbacks {
@@ -405,11 +485,65 @@ func (cm *ConfigManager) validateConfig(key string, value interface{}) error {
 	return nil
 }
 
-// validateLevelLimits 验证等级限制配置
+// validateLevelLimits 验证等级限制配置，并自动填充缺失的默认值
 func (cm *ConfigManager) validateLevelLimits(value interface{}) error {
 	levelLimitsMap, ok := value.(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("levelLimits 必须是对象类型")
+	}
+
+	// 默认等级配置
+	defaultLevelConfigs := map[string]map[string]interface{}{
+		"1": {
+			"max-instances": 1,
+			"max-resources": map[string]interface{}{
+				"cpu":       1,
+				"memory":    350,
+				"disk":      1024,
+				"bandwidth": 100,
+			},
+			"max-traffic": 102400,
+		},
+		"2": {
+			"max-instances": 3,
+			"max-resources": map[string]interface{}{
+				"cpu":       2,
+				"memory":    1024,
+				"disk":      20480,
+				"bandwidth": 200,
+			},
+			"max-traffic": 204800,
+		},
+		"3": {
+			"max-instances": 5,
+			"max-resources": map[string]interface{}{
+				"cpu":       4,
+				"memory":    2048,
+				"disk":      40960,
+				"bandwidth": 500,
+			},
+			"max-traffic": 307200,
+		},
+		"4": {
+			"max-instances": 10,
+			"max-resources": map[string]interface{}{
+				"cpu":       8,
+				"memory":    4096,
+				"disk":      81920,
+				"bandwidth": 1000,
+			},
+			"max-traffic": 409600,
+		},
+		"5": {
+			"max-instances": 20,
+			"max-resources": map[string]interface{}{
+				"cpu":       16,
+				"memory":    8192,
+				"disk":      163840,
+				"bandwidth": 2000,
+			},
+			"max-traffic": 512000,
+		},
 	}
 
 	// 验证每个等级的配置
@@ -419,44 +553,83 @@ func (cm *ConfigManager) validateLevelLimits(value interface{}) error {
 			return fmt.Errorf("等级 %s 的配置必须是对象类型", levelStr)
 		}
 
-		// 验证 maxInstances
-		maxInstances, exists := limitMap["maxInstances"]
-		if !exists {
-			return fmt.Errorf("等级 %s 缺少 maxInstances 配置", levelStr)
-		}
-		if err := validatePositiveNumber(maxInstances, fmt.Sprintf("等级 %s 的 maxInstances", levelStr)); err != nil {
-			return err
-		}
+		// 获取该等级的默认配置
+		defaultConfig, hasDefault := defaultLevelConfigs[levelStr]
 
-		// 验证 maxTraffic
-		maxTraffic, exists := limitMap["maxTraffic"]
-		if !exists {
-			return fmt.Errorf("等级 %s 缺少 maxTraffic 配置", levelStr)
-		}
-		if err := validatePositiveNumber(maxTraffic, fmt.Sprintf("等级 %s 的 maxTraffic", levelStr)); err != nil {
-			return err
-		}
-
-		// 验证 maxResources
-		maxResources, exists := limitMap["maxResources"]
-		if !exists {
-			return fmt.Errorf("等级 %s 缺少 maxResources 配置", levelStr)
-		}
-
-		resourcesMap, ok := maxResources.(map[string]interface{})
-		if !ok {
-			return fmt.Errorf("等级 %s 的 maxResources 必须是对象类型", levelStr)
-		}
-
-		// 验证必需的资源字段
-		requiredResources := []string{"cpu", "memory", "disk", "bandwidth"}
-		for _, resource := range requiredResources {
-			resourceValue, exists := resourcesMap[resource]
-			if !exists {
-				return fmt.Errorf("等级 %s 的 maxResources 缺少 %s 配置", levelStr, resource)
+		// 验证并填充 max-instances
+		maxInstances, exists := limitMap["max-instances"]
+		if !exists || maxInstances == nil || maxInstances == 0 {
+			if hasDefault {
+				limitMap["max-instances"] = defaultConfig["max-instances"]
+				cm.logger.Info("自动填充默认配置",
+					zap.String("level", levelStr),
+					zap.String("field", "max-instances"),
+					zap.Any("value", defaultConfig["max-instances"]))
+			} else {
+				return fmt.Errorf("等级 %s 缺少 max-instances 配置且没有默认值", levelStr)
 			}
-			if err := validatePositiveNumber(resourceValue, fmt.Sprintf("等级 %s 的 %s", levelStr, resource)); err != nil {
+		} else {
+			if err := validatePositiveNumber(maxInstances, fmt.Sprintf("等级 %s 的 max-instances", levelStr)); err != nil {
 				return err
+			}
+		}
+
+		// 验证并填充 max-traffic
+		maxTraffic, exists := limitMap["max-traffic"]
+		if !exists || maxTraffic == nil || maxTraffic == 0 {
+			if hasDefault {
+				limitMap["max-traffic"] = defaultConfig["max-traffic"]
+				cm.logger.Info("自动填充默认配置",
+					zap.String("level", levelStr),
+					zap.String("field", "max-traffic"),
+					zap.Any("value", defaultConfig["max-traffic"]))
+			} else {
+				return fmt.Errorf("等级 %s 缺少 max-traffic 配置且没有默认值", levelStr)
+			}
+		} else {
+			if err := validatePositiveNumber(maxTraffic, fmt.Sprintf("等级 %s 的 max-traffic", levelStr)); err != nil {
+				return err
+			}
+		}
+
+		// 验证并填充 max-resources
+		maxResources, exists := limitMap["max-resources"]
+		if !exists || maxResources == nil {
+			if hasDefault {
+				limitMap["max-resources"] = defaultConfig["max-resources"]
+				cm.logger.Info("自动填充默认配置",
+					zap.String("level", levelStr),
+					zap.String("field", "max-resources"),
+					zap.Any("value", defaultConfig["max-resources"]))
+			} else {
+				return fmt.Errorf("等级 %s 缺少 max-resources 配置且没有默认值", levelStr)
+			}
+		} else {
+			resourcesMap, ok := maxResources.(map[string]interface{})
+			if !ok {
+				return fmt.Errorf("等级 %s 的 max-resources 必须是对象类型", levelStr)
+			}
+
+			// 验证并填充必需的资源字段
+			requiredResources := []string{"cpu", "memory", "disk", "bandwidth"}
+			for _, resource := range requiredResources {
+				resourceValue, exists := resourcesMap[resource]
+				if !exists || resourceValue == nil || resourceValue == 0 {
+					if hasDefault {
+						defaultResources := defaultConfig["max-resources"].(map[string]interface{})
+						resourcesMap[resource] = defaultResources[resource]
+						cm.logger.Info("自动填充默认配置",
+							zap.String("level", levelStr),
+							zap.String("field", fmt.Sprintf("max-resources.%s", resource)),
+							zap.Any("value", defaultResources[resource]))
+					} else {
+						return fmt.Errorf("等级 %s 的 max-resources 缺少 %s 配置且没有默认值", levelStr, resource)
+					}
+				} else {
+					if err := validatePositiveNumber(resourceValue, fmt.Sprintf("等级 %s 的 %s", levelStr, resource)); err != nil {
+						return err
+					}
+				}
 			}
 		}
 	}
@@ -502,11 +675,15 @@ func (cm *ConfigManager) flattenConfig(config map[string]interface{}, prefix str
 
 		// 如果值是 map，递归展开
 		if valueMap, ok := value.(map[string]interface{}); ok {
-			// 先保存这一层的值（用于验证）
-			result[fullKey] = value
+			// 检查是否是需要特殊处理的嵌套结构
+			// 只有 level-limits 作为整体保存（因为它的结构比较复杂，包含多层嵌套）
+			shouldKeepAsWhole := (key == "level-limits" || key == "levelLimits")
 
-			// 然后递归展开子配置（但不包括 levelLimits，因为它需要作为整体验证）
-			if key != "levelLimits" {
+			if shouldKeepAsWhole {
+				// 对于 level-limits，作为整体保存
+				result[fullKey] = value
+			} else {
+				// 其他嵌套结构正常递归展开（包括 instance-type-permissions）
 				nested := cm.flattenConfig(valueMap, fullKey)
 				for nestedKey, nestedValue := range nested {
 					result[nestedKey] = nestedValue
@@ -643,26 +820,48 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		return
 	}
 
-	// 场景2：数据库有配置 + 标志文件不存在 = 可能是升级后首次启动，标志文件丢失
-	// 策略：智能判断 - 对比数据库和YAML的时间戳或内容
+	// 场景2：数据库有配置 + 标志文件不存在 = 可能是升级/重启/手动修改YAML
+	// 策略：检查YAML修改时间，如果最近被修改，优先使用YAML；否则使用数据库保护用户配置
 	if configCount > 0 && !configModified {
-		cm.logger.Info("场景：数据库有配置但无标志文件（可能是重启或升级场景）")
-		shouldUseDatabaseConfig := cm.shouldPreferDatabaseConfig()
+		cm.logger.Info("场景：数据库有配置但无标志文件（检查YAML是否最近修改）")
 
-		if shouldUseDatabaseConfig {
-			cm.logger.Info("判断：数据库有配置数据，优先使用数据库配置（保留用户设置）")
-			// 重新创建标志文件
-			if err := cm.markConfigAsModified(); err != nil {
-				cm.logger.Warn("重新创建标志文件失败", zap.Error(err))
+		// 检查YAML文件修改时间
+		yamlInfo, err := os.Stat("config.yaml")
+		if err == nil {
+			yamlModTime := yamlInfo.ModTime()
+
+			// 获取数据库中最新配置的更新时间
+			var latestConfig SystemConfig
+			if err := cm.db.Order("updated_at DESC").First(&latestConfig).Error; err == nil {
+				dbModTime := latestConfig.UpdatedAt
+
+				cm.logger.Info("YAML和数据库修改时间对比",
+					zap.Time("yamlModTime", yamlModTime),
+					zap.Time("dbModTime", dbModTime))
+
+				// 如果YAML文件在数据库之后修改（说明用户手动修改了YAML）
+				if yamlModTime.After(dbModTime) {
+					cm.logger.Info("判断：YAML文件最近被修改，优先使用YAML配置")
+					if err := cm.handleYAMLFirst(); err != nil {
+						cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
+					}
+					// 补全缺失配置
+					if err := cm.EnsureDefaultConfigs(); err != nil {
+						cm.logger.Warn("补全缺失配置项失败", zap.Error(err))
+					}
+					return
+				}
 			}
-			if err := cm.handleDatabaseFirst(); err != nil {
-				cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
-			}
-		} else {
-			cm.logger.Info("判断：YAML配置为初始配置，同步YAML到数据库")
-			if err := cm.handleYAMLFirst(); err != nil {
-				cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
-			}
+		}
+
+		// YAML没有更新，使用数据库配置（保护用户配置）
+		cm.logger.Info("判断：数据库配置更新，优先使用数据库保护用户配置")
+		// 重新创建标志文件
+		if err := cm.markConfigAsModified(); err != nil {
+			cm.logger.Warn("重新创建标志文件失败", zap.Error(err))
+		}
+		if err := cm.handleDatabaseFirst(); err != nil {
+			cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
 		}
 		return
 	}
@@ -681,11 +880,17 @@ func (cm *ConfigManager) loadConfigFromDB() {
 	if err := cm.handleYAMLFirst(); err != nil {
 		cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
 	}
+
+	// 在配置加载完成后，检查并补全缺失的配置项
+	if err := cm.EnsureDefaultConfigs(); err != nil {
+		cm.logger.Warn("补全缺失配置项失败", zap.Error(err))
+	}
 }
 
 // handleDatabaseFirst 处理数据库优先的策略
+// 用于升级场景或API修改后重启，完全以数据库为准，不补全默认配置（尊重用户选择）
 func (cm *ConfigManager) handleDatabaseFirst() error {
-	cm.logger.Info("执行策略：数据库 → YAML → global")
+	cm.logger.Info("执行策略：数据库 → YAML → global（保留用户配置，不补全默认值）")
 
 	// 1. 从数据库恢复到YAML文件
 	if err := cm.RestoreConfigFromDatabase(); err != nil {
@@ -701,50 +906,9 @@ func (cm *ConfigManager) handleDatabaseFirst() error {
 	}
 	cm.logger.Info("数据库配置已成功同步到全局配置")
 
-	return nil
-}
-
-// handleYAMLFirst 处理YAML优先的策略
-func (cm *ConfigManager) handleYAMLFirst() error {
-	cm.logger.Info("执行策略：YAML → 数据库 → global")
-
-	// 1. 同步YAML配置到数据库
-	if err := cm.syncYAMLConfigToDatabase(); err != nil {
-		cm.logger.Error("同步YAML配置到数据库失败", zap.Error(err))
-		return err
-	}
-	cm.logger.Info("YAML配置已同步到数据库")
-
-	// 2. 重新从数据库加载以确保缓存一致
-	var configs []SystemConfig
-	if err := cm.db.Find(&configs).Error; err != nil {
-		cm.logger.Error("重新加载配置失败", zap.Error(err))
-		return err
-	}
-
-	// 3. 加锁更新内存缓存
-	cm.mu.Lock()
-	for _, config := range configs {
-		parsedValue := parseConfigValue(config.Value)
-		cm.configCache[config.Key] = parsedValue
-		// 调试输出
-		if config.Key == "auth.enable-oauth2" || config.Key == "auth.enableOAuth2" {
-			cm.logger.Info("加载OAuth2配置到缓存",
-				zap.String("key", config.Key),
-				zap.String("rawValue", config.Value),
-				zap.Any("parsedValue", parsedValue),
-				zap.String("parsedType", fmt.Sprintf("%T", parsedValue)))
-		}
-	}
-	cm.mu.Unlock()
-	cm.logger.Info("配置已加载到缓存", zap.Int("configCount", len(configs)))
-
-	// 4. 同步到全局配置（触发回调）
-	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
-		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
-		return err
-	}
-	cm.logger.Info("配置已同步到全局配置")
+	// 注意：不调用 EnsureDefaultConfigs()
+	// 理由：用户可能在API中删除了某些配置项（如禁用某功能），应该尊重用户选择
+	// 如果需要补全，应该在YAML优先场景（首次启动）时进行
 
 	return nil
 }
@@ -792,6 +956,65 @@ func (cm *ConfigManager) shouldPreferDatabaseConfig() bool {
 // saveConfigToDB 保存配置到数据库
 func (cm *ConfigManager) saveConfigToDB(key string, value interface{}) error {
 	return cm.saveConfigToDBWithTx(cm.db, key, value)
+}
+
+// prepareConfigForDB 准备配置数据用于数据库保存（辅助方法）
+func (cm *ConfigManager) prepareConfigForDB(key string, value interface{}) (SystemConfig, error) {
+	// 将value转换为字符串，处理nil值
+	var valueStr string
+	if value == nil {
+		valueStr = ""
+		cm.logger.Debug("准备nil配置值为空字符串", zap.String("key", key))
+	} else {
+		// 对于非nil值，根据类型进行序列化
+		switch v := value.(type) {
+		case string:
+			valueStr = v
+		case int, int8, int16, int32, int64:
+			valueStr = fmt.Sprintf("%d", v)
+		case uint, uint8, uint16, uint32, uint64:
+			valueStr = fmt.Sprintf("%d", v)
+		case float32, float64:
+			valueStr = fmt.Sprintf("%v", v)
+		case bool:
+			valueStr = fmt.Sprintf("%t", v)
+		case map[string]interface{}, []interface{}, []string, []int, []map[string]interface{}:
+			// 对于复杂类型（map、slice等），使用JSON序列化
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				cm.logger.Error("序列化配置值失败", zap.String("key", key), zap.Error(err))
+				return SystemConfig{}, fmt.Errorf("failed to marshal value for key %s: %w", key, err)
+			}
+			valueStr = string(jsonBytes)
+		default:
+			// 对于其他复杂类型，尝试JSON序列化
+			jsonBytes, err := json.Marshal(v)
+			if err != nil {
+				// 如果JSON序列化失败，记录警告并使用fmt.Sprintf作为降级方案
+				cm.logger.Warn("无法JSON序列化配置值，使用字符串表示",
+					zap.String("key", key),
+					zap.String("type", fmt.Sprintf("%T", v)),
+					zap.Error(err))
+				valueStr = fmt.Sprintf("%v", v)
+			} else {
+				valueStr = string(jsonBytes)
+			}
+		}
+	}
+
+	// 判断该配置是否为公开配置
+	isPublic := publicConfigKeys[key]
+
+	cm.logger.Debug("准备配置数据",
+		zap.String("key", key),
+		zap.String("value", valueStr),
+		zap.Bool("isPublic", isPublic))
+
+	return SystemConfig{
+		Key:      key,
+		Value:    valueStr,
+		IsPublic: isPublic,
+	}, nil
 }
 
 // saveConfigToDBWithTx 使用事务保存配置到数据库
@@ -871,6 +1094,51 @@ func (cm *ConfigManager) saveConfigToDBWithTx(tx *gorm.DB, key string, value int
 	}).Error
 }
 
+// batchSaveConfigsToDBOnly 批量保存配置到数据库（仅数据库，不创建标志文件，不触发回调）
+// 用于系统自动补全默认配置，不应标记为用户修改
+func (cm *ConfigManager) batchSaveConfigsToDBOnly(flatConfigs map[string]interface{}) error {
+	if len(flatConfigs) == 0 {
+		return nil
+	}
+
+	// 准备批量保存的数据
+	var configsToSaveList []SystemConfig
+	for key, value := range flatConfigs {
+		config, err := cm.prepareConfigForDB(key, value)
+		if err != nil {
+			return fmt.Errorf("准备配置 %s 失败: %v", key, err)
+		}
+		configsToSaveList = append(configsToSaveList, config)
+	}
+
+	// 使用事务批量保存
+	if err := cm.db.Transaction(func(tx *gorm.DB) error {
+		if len(configsToSaveList) > 0 {
+			if err := tx.Clauses(clause.OnConflict{
+				Columns:   []clause.Column{{Name: "key"}},
+				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
+			}).CreateInBatches(configsToSaveList, 50).Error; err != nil {
+				return fmt.Errorf("批量保存配置失败: %v", err)
+			}
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	// 更新内存缓存
+	cm.mu.Lock()
+	for key, value := range flatConfigs {
+		cm.configCache[key] = value
+	}
+	cm.mu.Unlock()
+
+	cm.logger.Info("批量保存配置到数据库完成（仅数据库，未创建标志文件）",
+		zap.Int("count", len(configsToSaveList)))
+
+	return nil
+}
+
 // RegisterChangeCallback 注册配置变更回调
 func (cm *ConfigManager) RegisterChangeCallback(callback ConfigChangeCallback) {
 	cm.mu.Lock()
@@ -899,104 +1167,6 @@ func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error
 	if err := cm.writeConfigToYAML(config); err != nil {
 		cm.logger.Error("写回YAML文件失败", zap.Error(err))
 		return err
-	}
-
-	return nil
-}
-
-// writeConfigToYAML 将配置写回到YAML文件（保留原始key格式）
-func (cm *ConfigManager) writeConfigToYAML(updates map[string]interface{}) error {
-	// 读取现有配置文件
-	file, err := os.ReadFile("config.yaml")
-	if err != nil {
-		cm.logger.Error("读取配置文件失败", zap.Error(err))
-		return err
-	}
-
-	// 使用yaml.v3的Node API来精确控制更新，保持原有格式
-	var node yaml.Node
-	if err := yaml.Unmarshal(file, &node); err != nil {
-		cm.logger.Error("解析YAML失败", zap.Error(err))
-		return err
-	}
-
-	// 将驼峰格式的updates转换为连接符格式
-	kebabUpdates := convertMapKeysToKebab(updates)
-	cm.logger.Info("转换配置格式为连接符",
-		zap.Int("originalCount", len(updates)),
-		zap.Int("convertedCount", len(kebabUpdates)))
-
-	// 使用Node API更新值,保持原有key格式不变
-	for key, value := range kebabUpdates {
-		if err := updateYAMLNode(&node, key, value); err != nil {
-			// 只在debug级别记录配置键不存在的警告，避免日志噪音
-			cm.logger.Debug("更新YAML节点失败", zap.String("key", key), zap.Error(err))
-		}
-	} // 序列化Node，这样可以保持原有的key格式
-	out, err := yaml.Marshal(&node)
-	if err != nil {
-		cm.logger.Error("序列化YAML失败", zap.Error(err))
-		return err
-	}
-
-	// 写回文件
-	if err := os.WriteFile("config.yaml", out, 0644); err != nil {
-		cm.logger.Error("写入配置文件失败", zap.Error(err))
-		return err
-	}
-
-	cm.logger.Info("配置已成功写回YAML文件")
-	return nil
-}
-
-// updateYAMLNode 使用Node API更新YAML节点的值，保持key格式不变
-func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
-	// 分割路径
-	keys := splitKey(path)
-
-	// 找到Document节点
-	if node.Kind != yaml.DocumentNode || len(node.Content) == 0 {
-		return fmt.Errorf("invalid document node")
-	}
-
-	// 从根映射开始
-	current := node.Content[0]
-
-	// 遍历路径找到目标节点
-	for i := 0; i < len(keys); i++ {
-		key := keys[i]
-
-		if current.Kind != yaml.MappingNode {
-			return fmt.Errorf("expected mapping node at key: %s", key)
-		}
-
-		// 在映射中查找key
-		found := false
-		for j := 0; j < len(current.Content); j += 2 {
-			keyNode := current.Content[j]
-			valueNode := current.Content[j+1]
-
-			if keyNode.Value == key {
-				found = true
-
-				if i == len(keys)-1 {
-					// 到达目标节点，更新值
-					if err := setNodeValue(valueNode, value); err != nil {
-						return err
-					}
-					return nil
-				} else {
-					// 继续向下遍历
-					current = valueNode
-				}
-				break
-			}
-		}
-
-		if !found {
-			// key不存在，需要创建
-			return fmt.Errorf("key not found: %s", key)
-		}
 	}
 
 	return nil
@@ -1082,15 +1252,26 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 }
 
 // syncDatabaseConfigToGlobal 将数据库中的配置同步到全局配置
+// 注意：系统级配置（system, mysql, redis, zap）已经在启动时从YAML加载到global，
+// 这里只同步业务配置（auth, quota, invite-code等）到global
 func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 	// 构建嵌套配置结构
 	nestedConfig := make(map[string]interface{})
 
-	// 将扁平配置转换为嵌套结构
+	// 将扁平配置转换为嵌套结构（过滤系统级配置）
 	cm.logger.Info("开始构建嵌套配置",
 		zap.Int("flatConfigCount", len(cm.configCache)))
 
+	skippedSystemCount := 0
 	for key, value := range cm.configCache {
+		// 跳过系统级配置（它们已经在启动时从YAML加载）
+		if isSystemLevelConfig(key) {
+			skippedSystemCount++
+			cm.logger.Debug("跳过系统级配置同步（已从YAML加载）",
+				zap.String("key", key))
+			continue
+		}
+
 		cm.logger.Debug("处理配置项",
 			zap.String("key", key),
 			zap.Any("value", value))
@@ -1099,6 +1280,7 @@ func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 
 	cm.logger.Info("嵌套配置构建完成",
 		zap.Int("nestedConfigCount", len(nestedConfig)),
+		zap.Int("skippedSystemCount", skippedSystemCount),
 		zap.Any("topLevelKeys", func() []string {
 			keys := make([]string, 0, len(nestedConfig))
 			for k := range nestedConfig {
@@ -1127,426 +1309,289 @@ func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 	return nil
 }
 
-// setNestedValue 递归设置嵌套配置值（通过点分隔的key）
-func setNestedValue(config map[string]interface{}, key string, value interface{}) {
-	keys := splitKey(key)
-	if len(keys) == 0 {
-		return
+// ReloadFromYAML 从 YAML 文件重新加载配置
+// 用于手动修改 config.yaml 后重新加载配置
+// 执行流程：YAML → 数据库 → 回调 → global.APP_CONFIG
+func (cm *ConfigManager) ReloadFromYAML() error {
+	cm.logger.Info("开始从YAML文件重新加载配置")
+
+	// 1. 清除配置修改标志（因为现在 YAML 是最新的基准）
+	if err := cm.clearConfigModifiedFlag(); err != nil {
+		cm.logger.Warn("清除配置修改标志失败", zap.Error(err))
 	}
 
-	// 递归找到最后一层的map
-	current := config
-	for i := 0; i < len(keys)-1; i++ {
-		k := keys[i]
-		if next, ok := current[k].(map[string]interface{}); ok {
-			current = next
-		} else {
-			// 如果中间层不存在或不是map，创建新map
-			newMap := make(map[string]interface{})
-			current[k] = newMap
-			current = newMap
-		}
+	// 2. 将 YAML 同步到数据库
+	if err := cm.syncYAMLConfigToDatabase(); err != nil {
+		cm.logger.Error("同步YAML到数据库失败", zap.Error(err))
+		return fmt.Errorf("同步YAML到数据库失败: %v", err)
 	}
+	cm.logger.Info("YAML配置已同步到数据库")
 
-	// 设置最后一层的值
-	lastKey := keys[len(keys)-1]
-	current[lastKey] = value
-}
-
-// splitKey 分割点分隔的key（例如 "quota.level-limits" -> ["quota", "level-limits"]）
-func splitKey(key string) []string {
-	var result []string
-	var current string
-
-	for _, ch := range key {
-		if ch == '.' {
-			if current != "" {
-				result = append(result, current)
-				current = ""
-			}
-		} else {
-			current += string(ch)
-		}
-	}
-
-	if current != "" {
-		result = append(result, current)
-	}
-
-	return result
-}
-
-// camelToKebab 将驼峰格式转换为连接符格式
-// 例如: "enableEmail" -> "enable-email", "levelLimits" -> "level-limits"
-// 特殊处理: "OAuth2" -> "oauth2", "QQ" -> "qq", "SMTP" -> "smtp", "ID" -> "id"
-func camelToKebab(s string) string {
-	// 特殊词汇映射表 - 这些词汇不应该被连接符分割
-	specialWords := map[string]string{
-		"OAuth2": "oauth2",
-		"oauth2": "oauth2",
-		"QQ":     "qq",
-		"qq":     "qq",
-		"SMTP":   "smtp",
-		"smtp":   "smtp",
-		"ID":     "id",
-		"id":     "id",
-		"IP":     "ip",
-		"ip":     "ip",
-		"URL":    "url",
-		"url":    "url",
-		"CDN":    "cdn",
-		"cdn":    "cdn",
-		"DB":     "db",
-		"db":     "db",
-		"API":    "api",
-		"api":    "api",
-		"JWT":    "jwt",
-		"jwt":    "jwt",
-	}
-
-	// 直接检查是否是特殊词汇
-	if mapped, ok := specialWords[s]; ok {
-		return mapped
-	}
-
-	var result []rune
-	var lastWasUpper bool
-
-	for i, r := range s {
-		isUpper := r >= 'A' && r <= 'Z'
-
-		// 如果当前是大写字母
-		if isUpper {
-			// 检查是否是连续大写（如 ID, QQ, SMTP）
-			if i > 0 {
-				// 如果前一个不是大写，或者下一个是小写（驼峰边界），则添加分隔符
-				if !lastWasUpper {
-					result = append(result, '-')
-				} else if i+1 < len(s) {
-					// 检查下一个字符
-					nextRune := rune(s[i+1])
-					if nextRune >= 'a' && nextRune <= 'z' {
-						// 这是 HTTPServer 这样的情况，在 HTTP 和 Server 之间加分隔符
-						result = append(result, '-')
-					}
-				}
-			}
-			lastWasUpper = true
-		} else {
-			lastWasUpper = false
-		}
-
-		result = append(result, r)
-	}
-
-	return strings.ToLower(string(result))
-}
-
-// convertMapKeysToKebab 递归将map的key从驼峰转换为连接符格式
-func convertMapKeysToKebab(data map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-	for key, value := range data {
-		// 转换当前key
-		kebabKey := camelToKebab(key)
-
-		// 如果value是map，递归转换
-		if mapValue, ok := value.(map[string]interface{}); ok {
-			result[kebabKey] = convertMapKeysToKebab(mapValue)
-		} else {
-			result[kebabKey] = value
-		}
-	}
-	return result
-}
-
-// ===== 配置恢复相关方法 =====
-
-// isConfigModified 检查配置是否已被修改（标志文件是否存在）
-func (cm *ConfigManager) isConfigModified() bool {
-	_, err := os.Stat(ConfigModifiedFlagFile)
-	return err == nil
-}
-
-// markConfigAsModified 标记配置已被修改
-func (cm *ConfigManager) markConfigAsModified() error {
-	// 确保目录存在
-	dir := filepath.Dir(ConfigModifiedFlagFile)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return fmt.Errorf("创建标志文件目录失败: %v", err)
-	}
-
-	// 创建标志文件
-	file, err := os.Create(ConfigModifiedFlagFile)
-	if err != nil {
-		return fmt.Errorf("创建标志文件失败: %v", err)
-	}
-	defer file.Close()
-
-	// 写入时间戳
-	timestamp := time.Now().Format(time.RFC3339)
-	if _, err := file.WriteString(fmt.Sprintf("Configuration modified at: %s\n", timestamp)); err != nil {
-		return fmt.Errorf("写入标志文件失败: %v", err)
-	}
-
-	cm.logger.Info("配置修改标志文件已创建", zap.String("file", ConfigModifiedFlagFile))
-	return nil
-}
-
-// clearConfigModifiedFlag 清除配置修改标志文件
-func (cm *ConfigManager) clearConfigModifiedFlag() error {
-	if _, err := os.Stat(ConfigModifiedFlagFile); err != nil {
-		if os.IsNotExist(err) {
-			// 文件不存在，无需清除
-			return nil
-		}
-		return fmt.Errorf("检查标志文件失败: %v", err)
-	}
-
-	if err := os.Remove(ConfigModifiedFlagFile); err != nil {
-		return fmt.Errorf("删除标志文件失败: %v", err)
-	}
-
-	cm.logger.Info("配置修改标志文件已清除", zap.String("file", ConfigModifiedFlagFile))
-	return nil
-}
-
-// parseConfigValue 解析配置值，尝试将JSON字符串反序列化为原始类型
-func parseConfigValue(valueStr string) interface{} {
-	// 如果为空字符串，返回空字符串（在YAML中会显示为空值）
-	if valueStr == "" {
-		return ""
-	}
-
-	// 尝试JSON反序列化
-	var jsonValue interface{}
-	if err := json.Unmarshal([]byte(valueStr), &jsonValue); err == nil {
-		// 如果成功反序列化，返回反序列化后的值
-		// fmt.Printf("解析配置值: %s -> %v (类型: %T)\n", valueStr, jsonValue, jsonValue)
-		return jsonValue
-	}
-
-	// 如果不是有效的JSON，返回原始字符串
-	return valueStr
-}
-
-// RestoreConfigFromDatabase 从数据库恢复配置到YAML文件
-func (cm *ConfigManager) RestoreConfigFromDatabase() error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	cm.logger.Info("开始从数据库恢复配置到YAML文件")
-
-	// 从数据库读取所有配置
+	// 3. 从数据库重新加载到缓存
 	var configs []SystemConfig
 	if err := cm.db.Find(&configs).Error; err != nil {
-		cm.logger.Error("从数据库读取配置失败", zap.Error(err))
-		return fmt.Errorf("从数据库读取配置失败: %v", err)
+		cm.logger.Error("从数据库重新加载配置失败", zap.Error(err))
+		return fmt.Errorf("从数据库重新加载配置失败: %v", err)
 	}
 
-	if len(configs) == 0 {
-		cm.logger.Warn("数据库中没有配置数据，跳过恢复")
-		return nil
-	}
-
-	cm.logger.Info("从数据库读取到配置", zap.Int("count", len(configs)))
-
-	// 读取现有YAML文件
-	file, err := os.ReadFile("config.yaml")
-	if err != nil {
-		cm.logger.Error("读取配置文件失败", zap.Error(err))
-		return fmt.Errorf("读取配置文件失败: %v", err)
-	}
-
-	// 使用Node API解析，保持原有格式
-	var node yaml.Node
-	if err := yaml.Unmarshal(file, &node); err != nil {
-		cm.logger.Error("解析YAML失败", zap.Error(err))
-		return fmt.Errorf("解析YAML失败: %v", err)
-	}
-
-	// 使用Node API更新每个配置值
+	cm.mu.Lock()
+	cm.configCache = make(map[string]interface{})
 	for _, config := range configs {
-		// 尝试反序列化JSON值
-		value := parseConfigValue(config.Value)
-
-		if err := updateYAMLNode(&node, config.Key, value); err != nil {
-			// 只在debug级别记录配置键不存在的警告，避免日志噪音
-			cm.logger.Debug("更新配置失败",
-				zap.String("key", config.Key),
-				zap.Error(err))
-		}
+		parsedValue := parseConfigValue(config.Value)
+		cm.configCache[config.Key] = parsedValue
 	}
+	cm.mu.Unlock()
+	cm.logger.Info("配置已重新加载到缓存", zap.Int("configCount", len(configs)))
 
-	// 序列化Node，保持原有key格式
-	out, err := yaml.Marshal(&node)
-	if err != nil {
-		cm.logger.Error("序列化配置失败", zap.Error(err))
-		return fmt.Errorf("序列化配置失败: %v", err)
+	// 4. 通过回调同步到 global.APP_CONFIG
+	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
+		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
+		return fmt.Errorf("同步配置到全局配置失败: %v", err)
 	}
+	cm.logger.Info("配置已同步到全局配置")
 
-	// 写回文件
-	if err := os.WriteFile("config.yaml", out, 0644); err != nil {
-		cm.logger.Error("写入配置文件失败", zap.Error(err))
-		return fmt.Errorf("写入配置文件失败: %v", err)
-	}
+	// 注意：不创建配置修改标志文件
+	// 理由：这是从YAML热加载，不是通过API修改
+	// 下次启动时应该依然以YAML为准，而不是数据库
 
-	// 更新内存缓存
-	for _, config := range configs {
-		cm.configCache[config.Key] = config.Value
-	}
-
-	cm.logger.Info("配置已成功从数据库恢复到YAML文件")
+	cm.logger.Info("从YAML文件重新加载配置完成")
 	return nil
 }
 
-// syncYAMLConfigToDatabase 将YAML配置同步到数据库
-func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
-	cm.logger.Info("开始将YAML配置同步到数据库")
+// EnsureDefaultConfigs 确保所有必需的配置项都存在，缺失的使用默认值补全
+// 这个方法会检查数据库，只对真正缺失的配置项（YAML中也不存在的）使用默认值补全
+// 细粒度到每个小配置项，不会覆盖YAML中已存在的配置（即使是空值）
+func (cm *ConfigManager) EnsureDefaultConfigs() error {
+	cm.logger.Info("开始检查并补全缺失的配置项")
 
-	// 读取YAML文件
+	// 读取YAML配置
 	file, err := os.ReadFile("config.yaml")
 	if err != nil {
-		return fmt.Errorf("读取配置文件失败: %v", err)
+		cm.logger.Warn("读取配置文件失败，将使用默认值补全所有配置", zap.Error(err))
+		file = []byte("{}")
 	}
 
 	var yamlConfig map[string]interface{}
 	if err := yaml.Unmarshal(file, &yamlConfig); err != nil {
-		return fmt.Errorf("解析配置文件失败: %v", err)
+		cm.logger.Warn("解析配置文件失败，将使用默认值补全所有配置", zap.Error(err))
+		yamlConfig = make(map[string]interface{})
 	}
 
-	// 提取需要同步的配置部分
-	configsToSync := make(map[string]interface{})
+	// 展平YAML配置
+	flatYAML := cm.flattenConfig(yamlConfig, "")
+	cm.logger.Info("YAML配置项总数", zap.Int("count", len(flatYAML)))
 
-	// Auth配置
-	if auth, ok := yamlConfig["auth"].(map[string]interface{}); ok {
-		for key, value := range auth {
-			configsToSync[fmt.Sprintf("auth.%s", key)] = value
+	// 获取默认配置结构
+	defaultConfigs := getDefaultConfigMap()
+
+	// 展平默认配置为点分隔的键值对
+	flatDefaults := cm.flattenConfig(defaultConfigs, "")
+	cm.logger.Info("默认配置项总数", zap.Int("count", len(flatDefaults)))
+
+	// 查询数据库中现有的配置
+	var existingConfigs []SystemConfig
+	if err := cm.db.Find(&existingConfigs).Error; err != nil {
+		cm.logger.Error("查询现有配置失败", zap.Error(err))
+		return err
+	}
+
+	// 构建现有配置的键集合
+	existingKeys := make(map[string]bool)
+	for _, cfg := range existingConfigs {
+		existingKeys[cfg.Key] = true
+	}
+
+	// 查找真正缺失的配置项：既不在YAML中也不在数据库中的
+	// 但要跳过系统级配置（它们必须来自YAML，不能被默认值覆盖）
+	missingConfigs := make(map[string]interface{})
+	for key, value := range flatDefaults {
+		// 跳过系统级配置
+		if isSystemLevelConfig(key) {
+			cm.logger.Debug("跳过系统级配置补全（必须来自YAML）",
+				zap.String("key", key))
+			continue
+		}
+
+		// 只有在YAML和数据库中都不存在时，才使用默认值
+		_, inYAML := flatYAML[key]
+		_, inDB := existingKeys[key]
+		if !inYAML && !inDB {
+			missingConfigs[key] = value
+			cm.logger.Debug("发现缺失的配置项",
+				zap.String("key", key),
+				zap.Any("defaultValue", value))
 		}
 	}
 
-	// Quota配置
-	if quota, ok := yamlConfig["quota"].(map[string]interface{}); ok {
-		if defaultLevel, exists := quota["default-level"]; exists {
-			configsToSync["quota.default-level"] = defaultLevel
-		}
+	if len(missingConfigs) == 0 {
+		cm.logger.Info("所有配置项都已存在（在YAML或数据库中），无需补全")
+		return nil
+	}
 
-		// level-limits 作为整体存储（序列化为JSON字符串）
-		if levelLimits, ok := quota["level-limits"].(map[string]interface{}); ok {
-			// 将 level-limits 转换为 JSON 字符串存储
-			levelLimitsJSON, err := yaml.Marshal(levelLimits)
-			if err != nil {
-				cm.logger.Warn("序列化 level-limits 失败", zap.Error(err))
-			} else {
-				configsToSync["quota.level-limits"] = string(levelLimitsJSON)
+	cm.logger.Info("发现真正缺失的配置项（YAML和数据库都没有）",
+		zap.Int("missingCount", len(missingConfigs)),
+		zap.Any("missingKeys", func() []string {
+			keys := make([]string, 0, len(missingConfigs))
+			for k := range missingConfigs {
+				keys = append(keys, k)
 			}
-		}
+			return keys
+		}()))
 
-		if permissions, ok := quota["instance-type-permissions"].(map[string]interface{}); ok {
-			for key, value := range permissions {
-				configsToSync[fmt.Sprintf("quota.instance-type-permissions.%s", key)] = value
-			}
-		}
+	// 批量插入缺失的配置到数据库（不创建标志文件，因为这是系统自动补全）
+	if err := cm.batchSaveConfigsToDBOnly(missingConfigs); err != nil {
+		cm.logger.Error("补全缺失配置失败", zap.Error(err))
+		return err
 	}
 
-	// InviteCode配置
-	if inviteCode, ok := yamlConfig["invite-code"].(map[string]interface{}); ok {
-		for key, value := range inviteCode {
-			configsToSync[fmt.Sprintf("invite-code.%s", key)] = value
-		}
-	}
-
-	// OAuth2配置
-	if oauth2, ok := yamlConfig["oauth2"].(map[string]interface{}); ok {
-		for key, value := range oauth2 {
-			configsToSync[fmt.Sprintf("oauth2.%s", key)] = value
-		}
-	}
-
-	// System配置
-	if system, ok := yamlConfig["system"].(map[string]interface{}); ok {
-		for key, value := range system {
-			configsToSync[fmt.Sprintf("system.%s", key)] = value
-		}
-	}
-
-	// JWT配置
-	if jwt, ok := yamlConfig["jwt"].(map[string]interface{}); ok {
-		for key, value := range jwt {
-			configsToSync[fmt.Sprintf("jwt.%s", key)] = value
-		}
-	}
-
-	// CORS配置
-	if cors, ok := yamlConfig["cors"].(map[string]interface{}); ok {
-		for key, value := range cors {
-			configsToSync[fmt.Sprintf("cors.%s", key)] = value
-		}
-	}
-
-	// Redis配置
-	if redis, ok := yamlConfig["redis"].(map[string]interface{}); ok {
-		for key, value := range redis {
-			configsToSync[fmt.Sprintf("redis.%s", key)] = value
-		}
-	}
-
-	// CDN配置
-	if cdn, ok := yamlConfig["cdn"].(map[string]interface{}); ok {
-		for key, value := range cdn {
-			configsToSync[fmt.Sprintf("cdn.%s", key)] = value
-		}
-	}
-
-	// Task配置
-	if task, ok := yamlConfig["task"].(map[string]interface{}); ok {
-		for key, value := range task {
-			configsToSync[fmt.Sprintf("task.%s", key)] = value
-		}
-	}
-
-	// Captcha配置
-	if captcha, ok := yamlConfig["captcha"].(map[string]interface{}); ok {
-		for key, value := range captcha {
-			configsToSync[fmt.Sprintf("captcha.%s", key)] = value
-		}
-	}
-
-	// Mysql配置
-	if mysql, ok := yamlConfig["mysql"].(map[string]interface{}); ok {
-		for key, value := range mysql {
-			configsToSync[fmt.Sprintf("mysql.%s", key)] = value
-		}
-	}
-
-	// Zap配置
-	if zap, ok := yamlConfig["zap"].(map[string]interface{}); ok {
-		for key, value := range zap {
-			configsToSync[fmt.Sprintf("zap.%s", key)] = value
-		}
-	}
-
-	// Upload配置
-	if upload, ok := yamlConfig["upload"].(map[string]interface{}); ok {
-		for key, value := range upload {
-			configsToSync[fmt.Sprintf("upload.%s", key)] = value
-		}
-	}
-
-	// 批量保存到数据库
-	tx := cm.db.Begin()
-	savedCount := 0
-	for key, value := range configsToSync {
-		if err := cm.saveConfigToDBWithTx(tx, key, value); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("保存配置 %s 到数据库失败: %v", key, err)
-		}
-		savedCount++
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("提交配置到数据库失败: %v", err)
-	}
-
-	cm.logger.Info("YAML配置已成功同步到数据库", zap.Int("count", savedCount))
+	cm.logger.Info("缺失的配置项补全完成", zap.Int("count", len(missingConfigs)))
 	return nil
+}
+
+// getDefaultConfigMap 获取默认配置的 map 表示
+func getDefaultConfigMap() map[string]interface{} {
+	return map[string]interface{}{
+		"auth": map[string]interface{}{
+			"enable-email":               false,
+			"enable-telegram":            false,
+			"enable-qq":                  false,
+			"enable-oauth2":              false,
+			"enable-public-registration": false,
+			"email-smtp-host":            "",
+			"email-smtp-port":            587,
+			"email-username":             "",
+			"email-password":             "",
+			"telegram-bot-token":         "",
+			"qq-app-id":                  "",
+			"qq-app-key":                 "",
+		},
+		"quota": map[string]interface{}{
+			"default-level": 1,
+			"instance-type-permissions": map[string]interface{}{
+				"min-level-for-container":        1,
+				"min-level-for-vm":               2,
+				"min-level-for-delete-container": 2,
+				"min-level-for-delete-vm":        2,
+				"min-level-for-reset-container":  2,
+				"min-level-for-reset-vm":         2,
+			},
+			"level-limits": map[string]interface{}{
+				"1": map[string]interface{}{
+					"max-instances": 1,
+					"max-resources": map[string]interface{}{
+						"cpu":    1,
+						"memory": 1024,
+						"disk":   10,
+					},
+					"max-traffic": 0,
+				},
+				"2": map[string]interface{}{
+					"max-instances": 3,
+					"max-resources": map[string]interface{}{
+						"cpu":    2,
+						"memory": 1024,
+						"disk":   20,
+					},
+					"max-traffic": 0,
+				},
+				"3": map[string]interface{}{
+					"max-instances": 5,
+					"max-resources": map[string]interface{}{
+						"cpu":    4,
+						"memory": 2048,
+						"disk":   40,
+					},
+					"max-traffic": 0,
+				},
+				"4": map[string]interface{}{
+					"max-instances": 10,
+					"max-resources": map[string]interface{}{
+						"cpu":    8,
+						"memory": 4096,
+						"disk":   80,
+					},
+					"max-traffic": 0,
+				},
+				"5": map[string]interface{}{
+					"max-instances": 20,
+					"max-resources": map[string]interface{}{
+						"cpu":    16,
+						"memory": 8192,
+						"disk":   160,
+					},
+					"max-traffic": 0,
+				},
+			},
+		},
+		"invite-code": map[string]interface{}{
+			"enabled":  false,
+			"required": false,
+		},
+		"captcha": map[string]interface{}{
+			"enabled":     false,
+			"width":       120,
+			"height":      40,
+			"length":      4,
+			"expire-time": 5,
+		},
+		"cors": map[string]interface{}{
+			"mode":      "allow-all",
+			"whitelist": []string{"http://localhost:8080", "http://127.0.0.1:8080"},
+		},
+		"system": map[string]interface{}{
+			"env":                        "public",
+			"addr":                       8888,
+			"db-type":                    "mysql",
+			"oss-type":                   "local",
+			"use-multipoint":             false,
+			"use-redis":                  false,
+			"iplimit-count":              100,
+			"iplimit-time":               3600,
+			"frontend-url":               "",
+			"provider-inactive-hours":    72,
+			"oauth2-state-token-minutes": 15,
+		},
+		"jwt": map[string]interface{}{
+			"signing-key":  "",
+			"expires-time": "7d",
+			"buffer-time":  "1d",
+			"issuer":       "oneclickvirt",
+		},
+		"upload": map[string]interface{}{
+			"max-avatar-size": 5242880, // 5MB in bytes
+		},
+		"other": map[string]interface{}{
+			"max-avatar-size":  5.0,
+			"default-language": "zh",
+		},
+	}
+}
+
+// unflattenConfig 将扁平化的配置还原为嵌套结构
+func unflattenConfig(flat map[string]interface{}) map[string]interface{} {
+	result := make(map[string]interface{})
+
+	for key, value := range flat {
+		keys := splitKey(key)
+		if len(keys) == 0 {
+			continue
+		}
+
+		current := result
+		for i := 0; i < len(keys)-1; i++ {
+			k := keys[i]
+			if next, ok := current[k].(map[string]interface{}); ok {
+				current = next
+			} else {
+				newMap := make(map[string]interface{})
+				current[k] = newMap
+				current = newMap
+			}
+		}
+
+		lastKey := keys[len(keys)-1]
+		current[lastKey] = value
+	}
+
+	return result
 }

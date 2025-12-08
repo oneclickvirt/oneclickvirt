@@ -137,7 +137,7 @@ func OAuth2Callback(c *gin.Context) {
 	frontendURL := global.APP_CONFIG.System.FrontendURL
 
 	// 返回HTML页面，通过JavaScript跳转并携带token参数
-	// 注意：localStorage在不同端口/域名下是隔离的，所以必须通过URL参数传递
+	// localStorage在不同端口/域名下是隔离的，所以必须通过URL参数传递
 	html := fmt.Sprintf(`<!DOCTYPE html>
 <html>
 <head>

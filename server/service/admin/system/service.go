@@ -35,7 +35,7 @@ func (s *Service) GetAnnouncementList(req admin.AnnouncementListRequest) ([]admi
 	if req.Type != "" {
 		query = query.Where("type = ?", req.Type)
 	}
-	// 修复状态过滤逻辑：只有当status不是-1时才进行状态过滤
+	// 状态过滤逻辑：只有当status不是-1时才进行状态过滤
 	if req.Status != -1 {
 		query = query.Where("status = ?", req.Status)
 	}

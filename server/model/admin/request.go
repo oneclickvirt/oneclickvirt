@@ -87,6 +87,15 @@ type CreateProviderRequest struct {
 	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
 	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
 	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
+	// 流量统计性能配置
+	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
+	TrafficCollectInterval     int    `json:"trafficStatsInterval"`       // 流量统计间隔（秒）
+	TrafficCollectBatchSize    int    `json:"trafficStatsBatchSize"`      // 流量统计批量大小
+	TrafficLimitCheckInterval  int    `json:"trafficLimitCheckInterval"`  // 流量限制检测间隔（秒）
+	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
+	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）
+	TrafficAutoResetBatchSize  int    `json:"trafficAutoResetBatchSize"`  // 流量自动重置批量大小
+
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
 	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native
@@ -101,6 +110,14 @@ type CreateProviderRequest struct {
 	VMLimitCpu    bool `json:"vmLimitCpu"`    // 虚拟机CPU是否计入总量预算
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机内存是否计入总量预算
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机硬盘是否计入总量预算
+	// 容器特殊配置选项（仅 LXD/Incus 容器）
+	ContainerPrivileged   bool   `json:"containerPrivileged"`   // 是否启用特权容器
+	ContainerAllowNesting bool   `json:"containerAllowNesting"` // 是否允许嵌套虚拟化
+	ContainerEnableLXCFS  bool   `json:"containerEnableLxcfs"`  // 是否启用LXCFS
+	ContainerCPUAllowance string `json:"containerCpuAllowance"` // CPU使用率上限（如"100%"）
+	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
+	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
+	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -155,6 +172,15 @@ type UpdateProviderRequest struct {
 	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
 	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
 	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
+	// 流量统计性能配置
+	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
+	TrafficCollectInterval     int    `json:"trafficStatsInterval"`       // 流量统计间隔（秒）
+	TrafficCollectBatchSize    int    `json:"trafficStatsBatchSize"`      // 流量统计批量大小
+	TrafficLimitCheckInterval  int    `json:"trafficLimitCheckInterval"`  // 流量限制检测间隔（秒）
+	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
+	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）
+	TrafficAutoResetBatchSize  int    `json:"trafficAutoResetBatchSize"`  // 流量自动重置批量大小
+
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
 	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod"` // IPv6端口映射方式：device_proxy, iptables, native
@@ -169,6 +195,14 @@ type UpdateProviderRequest struct {
 	VMLimitCpu    bool `json:"vmLimitCpu"`    // 虚拟机CPU是否计入总量预算
 	VMLimitMemory bool `json:"vmLimitMemory"` // 虚拟机内存是否计入总量预算
 	VMLimitDisk   bool `json:"vmLimitDisk"`   // 虚拟机硬盘是否计入总量预算
+	// 容器特殊配置选项（仅 LXD/Incus 容器）
+	ContainerPrivileged   bool   `json:"containerPrivileged"`   // 是否启用特权容器
+	ContainerAllowNesting bool   `json:"containerAllowNesting"` // 是否允许嵌套虚拟化
+	ContainerEnableLXCFS  bool   `json:"containerEnableLxcfs"`  // 是否启用LXCFS
+	ContainerCPUAllowance string `json:"containerCpuAllowance"` // CPU使用率上限（如"100%"）
+	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
+	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
+	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -373,13 +407,14 @@ type PortMappingListRequest struct {
 	Status     string `json:"status" form:"status"`
 }
 
-// CreatePortMappingRequest 创建端口映射请求（仅支持手动添加单个端口，仅支持 LXD/Incus/PVE）
+// CreatePortMappingRequest 创建端口映射请求（支持单个端口和端口段批量添加，仅支持 LXD/Incus/PVE）
 type CreatePortMappingRequest struct {
 	InstanceID  uint   `json:"instanceId" binding:"required"`
-	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`
-	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"`
-	Description string `json:"description"`
-	HostPort    int    `json:"hostPort"` // 可选，不指定则自动分配
+	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`   // 起始端口
+	PortCount   int    `json:"portCount" binding:"min=1,max=100"`              // 端口数量，默认1（单端口），最多100个
+	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
+	Description string `json:"description"`                                    // 端口用途描述
+	HostPort    int    `json:"hostPort"`                                       // 可选，不指定则自动分配，指定时作为起始端口
 }
 
 // BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）
@@ -428,13 +463,16 @@ type ResetPasswordTaskRequest struct {
 
 // CreatePortMappingTaskRequest 创建端口映射任务数据结构
 type CreatePortMappingTaskRequest struct {
-	PortID      uint   `json:"portId"`      // 端口映射ID
-	InstanceID  uint   `json:"instanceId"`  // 实例ID
-	ProviderID  uint   `json:"providerId"`  // Provider ID
-	HostPort    int    `json:"hostPort"`    // 主机端口
-	GuestPort   int    `json:"guestPort"`   // 容器端口
-	Protocol    string `json:"protocol"`    // 协议
-	Description string `json:"description"` // 描述
+	PortID       uint   `json:"portId"`       // 端口映射ID
+	InstanceID   uint   `json:"instanceId"`   // 实例ID
+	ProviderID   uint   `json:"providerId"`   // Provider ID
+	HostPort     int    `json:"hostPort"`     // 主机起始端口
+	HostPortEnd  int    `json:"hostPortEnd"`  // 主机结束端口（单端口时为0）
+	GuestPort    int    `json:"guestPort"`    // 容器起始端口
+	GuestPortEnd int    `json:"guestPortEnd"` // 容器结束端口（单端口时为0）
+	PortCount    int    `json:"portCount"`    // 端口数量
+	Protocol     string `json:"protocol"`     // 协议
+	Description  string `json:"description"`  // 描述
 }
 
 // DeletePortMappingTaskRequest 删除端口映射任务数据结构
@@ -442,4 +480,22 @@ type DeletePortMappingTaskRequest struct {
 	PortID     uint `json:"portId"`     // 端口映射ID
 	InstanceID uint `json:"instanceId"` // 实例ID
 	ProviderID uint `json:"providerId"` // Provider ID
+}
+
+// CheckPortAvailabilityRequest 检查端口可用性请求
+type CheckPortAvailabilityRequest struct {
+	ProviderID uint   `json:"providerId" binding:"required"`                  // Provider ID
+	HostPort   int    `json:"hostPort" binding:"required,min=1,max=65535"`    // 要检查的主机端口（起始端口）
+	PortCount  int    `json:"portCount" binding:"min=1,max=100"`              // 端口数量（默认1，检查端口段时使用）
+	Protocol   string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
+}
+
+// CheckPortAvailabilityResponse 端口可用性检查响应
+type CheckPortAvailabilityResponse struct {
+	Available        bool   `json:"available"`        // 是否所有端口都可用
+	UnavailablePorts []int  `json:"unavailablePorts"` // 不可用的端口列表
+	AvailablePorts   []int  `json:"availablePorts"`   // 可用的端口列表
+	Message          string `json:"message"`          // 检查结果描述
+	PortRange        string `json:"portRange"`        // 端口范围描述（如 "10000-10009"）
+	Suggestion       string `json:"suggestion"`       // 建议（如果有冲突，提供替代方案）
 }

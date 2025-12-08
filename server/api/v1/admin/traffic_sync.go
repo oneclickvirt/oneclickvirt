@@ -1,7 +1,9 @@
 package admin
 
 import (
+	"context"
 	"strconv"
+	"time"
 
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/traffic"
@@ -39,6 +41,8 @@ func SyncInstanceTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
+	defer syncTrigger.Shutdown(5 * time.Second)
+
 	syncTrigger.TriggerInstanceTrafficSync(uint(instanceID), "管理员手动触发")
 
 	common.ResponseSuccess(c, nil, "实例流量同步已触发")
@@ -74,6 +78,8 @@ func SyncUserTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
+	defer syncTrigger.Shutdown(5 * time.Second)
+
 	syncTrigger.TriggerUserTrafficSync(uint(userID), "管理员手动触发")
 
 	common.ResponseSuccess(c, nil, "用户流量同步已触发")
@@ -109,6 +115,8 @@ func SyncProviderTraffic(c *gin.Context) {
 
 	// 触发同步
 	syncTrigger := traffic.NewSyncTriggerService()
+	defer syncTrigger.Shutdown(5 * time.Second)
+
 	syncTrigger.TriggerProviderTrafficSync(uint(providerID), "管理员手动触发")
 
 	common.ResponseSuccess(c, nil, "Provider流量同步已触发")
@@ -132,10 +140,13 @@ func SyncAllTraffic(c *gin.Context) {
 		return
 	}
 
-	// 触发全系统流量同步
+	// 触发全系统流量同步，带超时控制
 	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+		defer cancel()
+
 		threeTierService := traffic.NewThreeTierLimitService()
-		if err := threeTierService.CheckAllTrafficLimits(c.Request.Context()); err != nil {
+		if err := threeTierService.CheckAllTrafficLimits(ctx); err != nil {
 			// 错误会在服务内部记录日志
 		}
 	}()

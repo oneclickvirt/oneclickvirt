@@ -20,14 +20,13 @@ func LoggerMiddleware() gin.HandlerFunc {
 		path := c.Request.URL.Path
 		raw := c.Request.URL.RawQuery
 
-		// 读取请求体
+		// 读取请求体（限制大小避免内存暴增）
+		const maxBodySize = 1 << 20 // 1MB
 		var body []byte
-		if c.Request.Body != nil {
-			body, _ = io.ReadAll(c.Request.Body)
+		if c.Request.Body != nil && c.Request.ContentLength < maxBodySize {
+			body, _ = io.ReadAll(io.LimitReader(c.Request.Body, maxBodySize))
 			c.Request.Body = io.NopCloser(bytes.NewBuffer(body))
-		}
-
-		// 处理请求
+		} // 处理请求
 		c.Next()
 
 		// 计算处理时间
