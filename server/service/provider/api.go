@@ -61,9 +61,10 @@ type CreateInstanceRequest struct {
 	SystemImageID uint `json:"systemImageId"` // 系统镜像ID
 }
 
-// ConnectProvider 连接Provider
+// ConnectProvider 连接Provider（测试连接）
+// 此方法仅用于测试连接，会创建临时实例，不会影响已加载的Provider实例
 func (s *ProviderApiService) ConnectProvider(ctx context.Context, req ConnectProviderRequest) error {
-	// 获取Provider实例
+	// 创建临时Provider实例用于测试连接
 	prov, err := provider.GetProvider(req.Type)
 	if err != nil {
 		global.APP_LOG.Error("获取Provider失败", zap.Error(err))

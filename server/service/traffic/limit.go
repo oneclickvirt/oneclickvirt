@@ -15,7 +15,7 @@ import (
 )
 
 // LimitService 流量统计查询服务
-// 流量检查和限制功能已移至 three_tier_limit.go
+// 流量检查和限制功能在 three_tier_limit.go
 // 本服务只负责流量数据的统计和查询
 type LimitService struct {
 	service *Service

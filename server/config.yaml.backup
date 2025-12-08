@@ -131,9 +131,9 @@ zap:
 max_avatar_size: 2
 default_language:
 signing_key_v1:
-    created_at: "2025-12-08T18:43:42.267888+08:00"
-    expires_at: "2025-12-09T18:43:42.267888+08:00"
+    created_at: "2025-12-08T19:05:45.841096+08:00"
+    expires_at: "2025-12-09T19:05:45.841096+08:00"
     is_active: false
-    key: fe666d319683f909613284f41d760859d243f08f6c44ee3bdf118deb6682be66
+    key: 1c14bbf7a3a8b4a7e96a6fcc692fd89402b97d9a25829d22283bac562d0d497a
     version: 1
 active_version: 1

@@ -93,9 +93,6 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 		// 停止并清理所有Provider Transport连接
 		provider.GetTransportCleanupManager().Stop()
 
-		// 停止并清理 Provider 缓存
-		provider.GetProviderCache().Stop()
-
 		// 关闭数据库连接
 		if global.APP_DB != nil {
 			if sqlDB, err := global.APP_DB.DB(); err == nil {

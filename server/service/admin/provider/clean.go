@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/pmacct"
+	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
 
 	"go.uber.org/zap"
@@ -130,9 +131,9 @@ func (s *Service) cleanupAllProviderResources(providerID uint) {
 		}
 	}
 
-	// 2. 清理Provider缓存（会调用Disconnect，但SSH连接已清理）
-	provider.InvalidateProviderCache(providerID)
-	global.APP_LOG.Debug("Provider缓存已清理", zap.Uint("providerID", providerID))
+	// 2. 从 ProviderService 中移除 Provider
+	providerService.GetProviderService().RemoveProvider(providerID)
+	global.APP_LOG.Debug("Provider已移除", zap.Uint("providerID", providerID))
 
 	// 3. 清理任务工作池及其所有相关的sync.Map（同步清理pools、lastAccess、createdAt）
 	if taskService := task.GetTaskService(); taskService != nil {

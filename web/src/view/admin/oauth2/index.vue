@@ -691,24 +691,28 @@ const applyPreset = async (presetName) => {
       return
     }
 
+    // 先重置表单，确保清空所有字段
+    resetForm()
+    
+    // 然后应用预设配置
     Object.assign(formData, {
-      name: preset.name,
-      displayName: preset.displayName,
-      providerType: preset.providerType,
-      authUrl: preset.authURL,
-      tokenUrl: preset.tokenURL,
-      userInfoUrl: preset.userInfoURL,
-      userIdField: preset.userIDField,
-      usernameField: preset.usernameField,
-      emailField: preset.emailField,
-      avatarField: preset.avatarField,
-      nicknameField: preset.nicknameField || '',
-      trustLevelField: preset.trustLevelField || '',
-      levelMapping: preset.levelMapping || {},
-      defaultLevel: preset.defaultLevel
+      name: preset.Name || preset.name || '',
+      displayName: preset.DisplayName || preset.displayName || '',
+      providerType: preset.ProviderType || preset.providerType || 'preset',
+      authUrl: preset.AuthURL || preset.authURL || '',
+      tokenUrl: preset.TokenURL || preset.tokenURL || '',
+      userInfoUrl: preset.UserInfoURL || preset.userInfoURL || '',
+      userIdField: preset.UserIDField || preset.userIDField || 'id',
+      usernameField: preset.UsernameField || preset.usernameField || 'username',
+      emailField: preset.EmailField || preset.emailField || 'email',
+      avatarField: preset.AvatarField || preset.avatarField || 'avatar',
+      nicknameField: preset.NicknameField || preset.nicknameField || '',
+      trustLevelField: preset.TrustLevelField || preset.trustLevelField || '',
+      levelMapping: preset.LevelMapping || preset.levelMapping || {},
+      defaultLevel: preset.DefaultLevel || preset.defaultLevel || 1
     })
     
-    ElMessage.success(t('admin.oauth2.presetApplied', { name: preset.displayName }))
+    ElMessage.success(t('admin.oauth2.presetApplied', { name: formData.displayName }))
   } catch (error) {
     console.error('Failed to load preset:', error)
     ElMessage.error(t('admin.oauth2.presetLoadFailed'))

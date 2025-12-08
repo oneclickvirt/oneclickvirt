@@ -90,9 +90,15 @@ func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error
 		return nil
 	}
 
+	// 检查Provider是否已加载
+	if _, exists := ps.providers[dbProvider.ID]; exists {
+		global.APP_LOG.Debug("Provider已加载，跳过重复加载", zap.String("name", dbProvider.Name), zap.Uint("id", dbProvider.ID))
+		return nil
+	}
+
 	global.APP_LOG.Debug("开始连接Provider", zap.String("name", dbProvider.Name), zap.String("type", dbProvider.Type), zap.String("host", utils.ExtractHost(dbProvider.Endpoint)), zap.Int("port", dbProvider.SSHPort))
 
-	// 创建Provider实例
+	// 创建Provider实例（仅在未加载时创建）
 	prov, err := provider.GetProvider(dbProvider.Type)
 	if err != nil {
 		global.APP_LOG.Error("获取Provider实例失败", zap.String("name", dbProvider.Name), zap.String("type", dbProvider.Type), zap.String("error", utils.FormatError(err)))
