@@ -141,7 +141,7 @@
       <el-input-number
         v-model="maxTrafficTB"
         :min="0.001"
-        :max="10"
+        :max="1000"
         :step="0.1"
         :precision="3"
         :controls="false"
