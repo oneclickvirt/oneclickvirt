@@ -161,8 +161,11 @@ func DeleteProvider(c *gin.Context) {
 		return
 	}
 
+	// 获取force参数，用于强制删除离线节点
+	forceDelete := c.Query("force") == "true"
+
 	providerService := adminProvider.NewService()
-	err = providerService.DeleteProvider(uint(providerID))
+	err = providerService.DeleteProvider(uint(providerID), forceDelete)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 500,

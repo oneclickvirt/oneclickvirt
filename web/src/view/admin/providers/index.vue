@@ -734,24 +734,68 @@ const editProvider = (provider) => {
   showAddDialog.value = true
 }
 
-const handleDeleteProvider = async (id) => {
+const handleDeleteProvider = async (provider) => {
   try {
+    // 首先尝试普通删除
+    const isOffline = provider.status === 'inactive' || 
+                      (provider.sshStatus === 'offline' && provider.apiStatus === 'offline')
+    
+    // 第一次确认
+    const firstConfirmMsg = isOffline 
+      ? t('admin.providers.deleteOfflineConfirm', { name: provider.name })
+      : t('admin.providers.deleteConfirm', { name: provider.name })
+    
     await ElMessageBox.confirm(
-      '此操作将永久删除该服务器，是否继续？',
-      '警告',
+      firstConfirmMsg,
+      t('common.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
-        type: 'warning'
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning',
+        dangerouslyUseHTMLString: true
       }
     )
 
-    await deleteProvider(id)
-    ElMessage.success(t('admin.providers.serverDeleteSuccess'))
-    await loadProviders()
+    // 如果是离线节点，尝试普通删除，失败后提示强制删除
+    if (isOffline) {
+      try {
+        // 先尝试普通删除
+        await deleteProvider(provider.id, false)
+        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+        await loadProviders()
+      } catch (normalError) {
+        // 如果是因为有实例而失败，提示强制删除
+        const errorMsg = normalError?.response?.data?.msg || ''
+        if (errorMsg.includes('运行中的实例') || errorMsg.includes('实例')) {
+          // 第二次确认：强制删除
+          await ElMessageBox.confirm(
+            t('admin.providers.forceDeleteConfirm', { name: provider.name }),
+            t('admin.providers.forceDeleteTitle'),
+            {
+              confirmButtonText: t('admin.providers.forceDeleteButton'),
+              cancelButtonText: t('common.cancel'),
+              type: 'error',
+              dangerouslyUseHTMLString: true,
+              distinguishCancelAndClose: true
+            }
+          )
+          
+          // 执行强制删除
+          await deleteProvider(provider.id, true)
+          ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+          await loadProviders()
+        } else {
+          throw normalError
+        }
+      }
+    } else {
+      // 在线节点，直接普通删除
+      await deleteProvider(provider.id, false)
+      ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+      await loadProviders()
+    }
   } catch (error) {
     if (error !== 'cancel') {
-      // 显示后端返回的具体错误信息
       const errorMsg = error?.response?.data?.msg || error?.message || t('admin.providers.serverDeleteFailed')
       ElMessage.error(errorMsg)
     }
@@ -770,9 +814,23 @@ const handleBatchDelete = async () => {
     return
   }
 
+  // 检查是否有离线节点
+  const offlineProviders = selectedProviders.value.filter(p => 
+    p.status === 'inactive' || (p.sshStatus === 'offline' && p.apiStatus === 'offline')
+  )
+  const hasOffline = offlineProviders.length > 0
+
   try {
+    // 第一次确认
+    const confirmMsg = hasOffline
+      ? t('admin.providers.batchDeleteWithOfflineConfirm', { 
+          total: selectedProviders.value.length,
+          offline: offlineProviders.length 
+        })
+      : t('admin.providers.batchDeleteConfirm', { count: selectedProviders.value.length })
+
     await ElMessageBox.confirm(
-      t('admin.providers.batchDeleteConfirm', { count: selectedProviders.value.length }),
+      confirmMsg,
       t('common.warning'),
       {
         confirmButtonText: t('common.confirm'),
@@ -791,15 +849,70 @@ const handleBatchDelete = async () => {
     let successCount = 0
     let failCount = 0
     const errors = []
+    const needsForceDelete = []
 
     // 逐个删除（纯前端实现）
     for (const provider of selectedProviders.value) {
       try {
-        await deleteProvider(provider.id)
+        // 先尝试普通删除
+        await deleteProvider(provider.id, false)
         successCount++
       } catch (error) {
-        failCount++
-        errors.push(`${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`)
+        const errorMsg = error?.response?.data?.msg || ''
+        // 如果是离线节点且因为有实例而失败，记录下来准备强制删除
+        const isOffline = provider.status === 'inactive' || 
+                         (provider.sshStatus === 'offline' && provider.apiStatus === 'offline')
+        if (isOffline && (errorMsg.includes('运行中的实例') || errorMsg.includes('实例'))) {
+          needsForceDelete.push(provider)
+        } else {
+          failCount++
+          errors.push(`${provider.name}: ${errorMsg || error?.message || t('common.failed')}`)
+        }
+      }
+    }
+
+    loadingInstance.close()
+
+    // 如果有需要强制删除的节点，再次确认
+    if (needsForceDelete.length > 0) {
+      try {
+        await ElMessageBox.confirm(
+          t('admin.providers.batchForceDeleteConfirm', { count: needsForceDelete.length }),
+          t('admin.providers.forceDeleteTitle'),
+          {
+            confirmButtonText: t('admin.providers.forceDeleteButton'),
+            cancelButtonText: t('common.cancel'),
+            type: 'error',
+            dangerouslyUseHTMLString: true
+          }
+        )
+
+        const forceLoadingInstance = ElLoading.service({
+          lock: true,
+          text: t('admin.providers.forceDeleting'),
+          background: 'rgba(0, 0, 0, 0.7)'
+        })
+
+        // 执行强制删除
+        for (const provider of needsForceDelete) {
+          try {
+            await deleteProvider(provider.id, true)
+            successCount++
+          } catch (error) {
+            failCount++
+            errors.push(`${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`)
+          }
+        }
+
+        forceLoadingInstance.close()
+      } catch (cancelError) {
+        // 用户取消强制删除
+        if (cancelError !== 'cancel') {
+          failCount += needsForceDelete.length
+          needsForceDelete.forEach(p => {
+            errors.push(`${p.name}: ${t('admin.providers.forceCancelled')}`)
+          })
+        }
       }
     }
 

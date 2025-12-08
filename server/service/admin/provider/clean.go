@@ -18,20 +18,36 @@ import (
 )
 
 // DeleteProvider 删除Provider（级联硬删除所有相关数据）
-func (s *Service) DeleteProvider(providerID uint) error {
-	global.APP_LOG.Info("开始删除Provider及其所有关联数据", zap.Uint("providerID", providerID))
+// 默认情况下会检查是否有运行中的实例，forceDelete=true时跳过检查（用于删除离线节点）
+func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
+	global.APP_LOG.Info("开始删除Provider及其所有关联数据",
+		zap.Uint("providerID", providerID),
+		zap.Bool("forceDelete", forceDelete))
 
-	// 检查是否还有运行中的实例（不包括已软删除的）
-	var runningInstanceCount int64
-	global.APP_DB.Model(&providerModel.Instance{}).
-		Where("provider_id = ? AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
-		Count(&runningInstanceCount)
+	// 如果不是强制删除，检查是否还有运行中的实例（不包括已软删除的）
+	if !forceDelete {
+		var runningInstanceCount int64
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Where("provider_id = ? AND status NOT IN ?", providerID, []string{"deleted", "deleting"}).
+			Count(&runningInstanceCount)
 
-	if runningInstanceCount > 0 {
-		global.APP_LOG.Warn("Provider删除失败：Provider还有运行中的实例",
-			zap.Uint("providerID", providerID),
-			zap.Int64("runningInstanceCount", runningInstanceCount))
-		return errors.New("提供商还有运行中的实例，无法删除。请先停止或删除所有实例")
+		if runningInstanceCount > 0 {
+			global.APP_LOG.Warn("Provider删除失败：Provider还有运行中的实例",
+				zap.Uint("providerID", providerID),
+				zap.Int64("runningInstanceCount", runningInstanceCount))
+			return errors.New("提供商还有运行中的实例，无法删除。请先停止或删除所有实例")
+		}
+	} else {
+		// 强制删除模式：记录被强制删除的实例数量
+		var instanceCount int64
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Where("provider_id = ?", providerID).
+			Count(&instanceCount)
+		if instanceCount > 0 {
+			global.APP_LOG.Warn("强制删除Provider及其所有实例",
+				zap.Uint("providerID", providerID),
+				zap.Int64("instanceCount", instanceCount))
+		}
 	}
 
 	// 获取所有关联的实例ID（包括软删除的）

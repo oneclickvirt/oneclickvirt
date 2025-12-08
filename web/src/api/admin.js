@@ -177,10 +177,13 @@ export const updateProvider = (id, data) => {
   })
 }
 
-export const deleteProvider = (id) => {
+export const deleteProvider = (id, force = false) => {
   return request({
     url: `/v1/admin/providers/${id}`,
-    method: 'delete'
+    method: 'delete',
+    params: {
+      force: force
+    }
   })
 }
 
