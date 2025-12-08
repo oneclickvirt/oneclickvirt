@@ -177,7 +177,7 @@ func UpdateUnifiedConfig(c *gin.Context) {
 		return
 	}
 
-	// 注意：ConfigManager.UpdateConfig 已经通过回调机制自动同步到全局配置
+	// ConfigManager.UpdateConfig 已经通过回调机制自动同步到全局配置
 	// 回调函数在 initialize/config_manager.go 的 syncConfigToGlobal 中定义
 	// 它会正确处理 kebab-case 和 camelCase 两种格式的键名
 

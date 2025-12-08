@@ -386,7 +386,7 @@ func (s *ConfigService) SaveInstanceTypePermissions(minLevelForContainer, minLev
 		return fmt.Errorf("保存实例类型权限配置失败: %v", err)
 	}
 
-	// 注意：不需要手动同步到全局配置，ConfigManager 会通过回调机制自动同步
+	// 不需要手动同步到全局配置，ConfigManager 会通过回调机制自动同步
 	global.APP_LOG.Info("实例类型权限配置保存成功，ConfigManager 将自动同步到全局配置")
 	return nil
 }

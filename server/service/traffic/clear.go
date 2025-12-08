@@ -37,7 +37,7 @@ func (s *ClearService) ClearUserTrafficRecords(userID uint) (int64, error) {
 
 		// 更新该用户所有实例的last_sync时间为当前时间（包含软删除的实例）
 		// 这样下次采集时会从当前时间开始，避免重复采集已删除的历史数据
-		// 注意：需要使用 Unscoped 来包含软删除的实例
+		// 需要使用 Unscoped 来包含软删除的实例
 		var instanceIDs []uint
 		if err := global.APP_DB.Unscoped().Table("instances").Where("user_id = ?", userID).Pluck("id", &instanceIDs).Error; err != nil {
 			return fmt.Errorf("获取用户实例列表失败: %w", err)

@@ -238,7 +238,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 	}
 
 	// 在数据库中创建监控记录（保存MappedIP和网络接口信息）
-	// 注意：网络接口信息会在configurePmacctForIPs中更新到instance表
+	// 网络接口信息会在configurePmacctForIPs中更新到instance表
 	pmacctMonitor := &monitoringModel.PmacctMonitor{
 		InstanceID:   instanceID,
 		ProviderID:   instance.ProviderID,
@@ -468,7 +468,7 @@ func (s *Service) configurePmacctForIPs(providerInstance provider.Provider, inst
 	pluginBufferSize, pluginPipeSize, _, sqlCacheEntries := s.calculatePmacctBufferSizes(instance.Bandwidth)
 
 	// 确定监控使用的网络接口
-	// 注意：对于容器，IPv4和IPv6通常使用同一个veth接口
+	// 对于容器，IPv4和IPv6通常使用同一个veth接口
 	// 对于虚拟机，可能使用同一个物理接口或不同接口
 	networkInterface := networkInterfaces.IPv4Interface
 	if networkInterface == "" && networkInterfaces.IPv6Interface != "" {
@@ -1051,7 +1051,7 @@ func (s *Service) GetPmacctSummary(instanceID uint) (*monitoringModel.PmacctSumm
 }
 
 // updateInstanceNetworkInterfaces 更新实例的网络接口信息到数据库
-// 注意：这个方法接收的是检测到的实际接口，需要从configurePmacctForIPs传递正确的IPv4/IPv6接口
+// 这个方法接收的是检测到的实际接口，需要从configurePmacctForIPs传递正确的IPv4/IPv6接口
 func (s *Service) updateInstanceNetworkInterfaces(instanceName, ipv4Interface, ipv6Interface string) {
 	updateData := map[string]interface{}{}
 	if ipv4Interface != "" {

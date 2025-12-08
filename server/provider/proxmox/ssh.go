@@ -1031,7 +1031,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	}
 
 	// 获取并更新实例的IPv6网络接口（如果有IPv6的话）
-	// 注意：这里依赖于实例的public_ipv6字段已经在之前被设置
+	// 这里依赖于实例的public_ipv6字段已经在之前被设置
 	ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
 	defer cancel4()
 	if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {

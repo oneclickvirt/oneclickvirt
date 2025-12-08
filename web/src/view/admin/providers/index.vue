@@ -1156,6 +1156,10 @@ const handleCurrentChange = (newPage) => {
 
 // 监听provider类型变化，自动设置虚拟化类型支持和端口映射方式
 watch(() => addProviderForm.type, (newType) => {
+  // 编辑模式下不自动修改虚拟化类型设置，保持用户已保存的配置
+  if (isEditing.value) {
+    return
+  }
   if (newType === 'docker') {
     // Docker只支持容器，使用原生端口映射
     addProviderForm.containerEnabled = true
@@ -1187,7 +1191,13 @@ watch(() => addProviderForm.type, (newType) => {
 })
 
 // 监听网络类型变化，当Proxmox从NAT改为独立IP时，自动调整端口映射方法
+// 编辑模式下不应该覆盖用户已保存的配置
 watch(() => [addProviderForm.type, addProviderForm.networkType], ([type, networkType]) => {
+  // 编辑模式下不自动修改端口映射配置，保持用户已保存的配置
+  if (isEditing.value) {
+    return
+  }
+  
   if (type === 'proxmox') {
     const isNATMode = networkType === 'nat_ipv4' || networkType === 'nat_ipv4_ipv6'
     if (isNATMode) {

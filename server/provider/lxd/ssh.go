@@ -320,7 +320,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		}
 
 		// 3. CPU限制配置（CPU Allowance vs limits.cpu）
-		// 注意：limits.cpu.allowance 与 limits.cpu 互斥，优先使用 allowance
+		// limits.cpu.allowance 与 limits.cpu 互斥，优先使用 allowance
 		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
 			// CPU限制格式：20% 或 50%，100%等同于不限制
 			configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
@@ -352,7 +352,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
 		}
 
-		// 注意：LXCFS和磁盘IO在init阶段不设置，在实例启动后通过lxc config device命令设置
+		// LXCFS和磁盘IO在init阶段不设置，在实例启动后通过lxc config device命令设置
 	}
 
 	// 添加所有配置参数到命令

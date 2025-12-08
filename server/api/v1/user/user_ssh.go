@@ -142,7 +142,7 @@ func SSHWebSocket(c *gin.Context) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
 		return
 	}
-	// 注意：不在这里defer关闭，而是在清理阶段统一强制关闭
+	// 不在这里defer关闭，而是在清理阶段统一强制关闭
 
 	// 设置终端模式 - 添加更多vim/vi需要的终端模式
 	modes := ssh.TerminalModes{

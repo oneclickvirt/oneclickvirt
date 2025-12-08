@@ -74,7 +74,7 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 	}
 
 	// pmacct重启会导致累积值重置，需要分段检测并汇总
-	// 注意：当月数据包括归档数据，防止用户通过重置实例绕过流量限制
+	// 当月数据包括归档数据，防止用户通过重置实例绕过流量限制
 	var totalTrafficMB float64
 	query := `
 		SELECT COALESCE(SUM(

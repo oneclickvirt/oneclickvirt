@@ -323,7 +323,7 @@ func RegisterProvider(name string, factory func() Provider) {
 // GetProvider 获取 Provider 实例
 // 返回的是工厂创建的新实例，不是单例
 // 每次调用都会创建新的Provider实例，避免并发问题
-// 注意：这个方法不使用缓存，推荐使用 GetProviderWithCache
+// 这个方法不使用缓存，推荐使用 GetProviderWithCache
 func GetProvider(name string) (Provider, error) {
 	globalRegistry.mu.RLock()
 	factory, exists := globalRegistry.providers[name]
@@ -377,7 +377,7 @@ func InvalidateProviderCache(providerID uint) {
 	cache := GetProviderCache()
 	cache.Delete(providerID)
 
-	// 注意：不在此处清理SSH和Transport，由调用方统一协调清理顺序
+	// 不在此处清理SSH和Transport，由调用方统一协调清理顺序
 	// 避免重复清理和清理顺序问题
 }
 

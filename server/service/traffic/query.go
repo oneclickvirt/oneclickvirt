@@ -219,7 +219,7 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 // BatchGetInstancesMonthlyTraffic 批量获取多个实例的月度流量
 // 使用单SQL批量查询
 // 处理pmacct重启导致的累积值重置
-// 注意：当月数据包括归档数据，防止用户通过重置实例绕过流量限制
+// 当月数据包括归档数据，防止用户通过重置实例绕过流量限制
 func (s *QueryService) BatchGetInstancesMonthlyTraffic(instanceIDs []uint, year, month int) (map[uint]*TrafficStats, error) {
 	if len(instanceIDs) == 0 {
 		return make(map[uint]*TrafficStats), nil

@@ -142,7 +142,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
 		return
 	}
-	// 注意：不在这里defer关闭，而是在清理阶段统一强制关闭
+	// 不在这里defer关闭，而是在清理阶段统一强制关闭
 
 	// 获取SSH输入输出流
 	sshStdin, err := sshSession.StdinPipe()

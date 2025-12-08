@@ -906,7 +906,7 @@ func (cm *ConfigManager) handleDatabaseFirst() error {
 	}
 	cm.logger.Info("数据库配置已成功同步到全局配置")
 
-	// 注意：不调用 EnsureDefaultConfigs()
+	// 不调用 EnsureDefaultConfigs()
 	// 理由：用户可能在API中删除了某些配置项（如禁用某功能），应该尊重用户选择
 	// 如果需要补全，应该在YAML优先场景（首次启动）时进行
 
@@ -1252,7 +1252,7 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 }
 
 // syncDatabaseConfigToGlobal 将数据库中的配置同步到全局配置
-// 注意：系统级配置（system, mysql, redis, zap）已经在启动时从YAML加载到global，
+// 系统级配置（system, mysql, redis, zap）已经在启动时从YAML加载到global，
 // 这里只同步业务配置（auth, quota, invite-code等）到global
 func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 	// 构建嵌套配置结构
@@ -1350,7 +1350,7 @@ func (cm *ConfigManager) ReloadFromYAML() error {
 	}
 	cm.logger.Info("配置已同步到全局配置")
 
-	// 注意：不创建配置修改标志文件
+	// 不创建配置修改标志文件
 	// 理由：这是从YAML热加载，不是通过API修改
 	// 下次启动时应该依然以YAML为准，而不是数据库
 
