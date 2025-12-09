@@ -11,7 +11,6 @@ import (
 	"oneclickvirt/service/task"
 	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -119,7 +118,6 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 		// 获取SSH端口（映射的公网端口）
 		var sshPort int
-		var publicIP string
 		var providerType string
 		var providerStatus string
 
@@ -137,31 +135,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 				providerType = providerInfo.Type
 				providerStatus = providerInfo.Status
 
-				// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
-				// 如果PortIP为空，则使用Endpoint（SSH连接地址）
-				ipSource := providerInfo.PortIP
-				if ipSource == "" {
-					ipSource = providerInfo.Endpoint
-				}
-
-				if ipSource != "" {
-					// 移除端口号部分，只保留IP
-					if colonIndex := strings.LastIndex(ipSource, ":"); colonIndex > 0 {
-						// 检查是否是IPv6地址
-						if strings.Count(ipSource, ":") > 1 && !strings.HasPrefix(ipSource, "[") {
-							// IPv6地址
-							publicIP = ipSource
-						} else {
-							// IPv4地址，移除端口部分
-							publicIP = ipSource[:colonIndex]
-						}
-					} else {
-						publicIP = ipSource
-					}
-				}
-
 				// 如果实例状态是unavailable，检查provider是否已经恢复
-				// 如果provider恢复但实例仍是unavailable，保持状态不变（让用户手动处理）
 				if instance.Status == "unavailable" && providerInfo.Status == "active" {
 					global.APP_LOG.Debug("实例处于unavailable状态但provider已恢复",
 						zap.Uint("instance_id", instance.ID),
@@ -184,13 +158,10 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			})
 		}
 
-		// 创建修改后的实例副本，更新SSH端口和IP地址
+		// 创建修改后的实例副本，更新SSH端口
 		modifiedInstance := instance
 		if sshPort > 0 {
 			modifiedInstance.SSHPort = sshPort // 使用映射的公网端口
-		}
-		if publicIP != "" {
-			modifiedInstance.PublicIP = publicIP // 使用不含端口的公网IP
 		}
 
 		userInstance := userModel.UserInstanceResponse{
@@ -200,7 +171,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			CanRestart:     instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
 			CanDelete:      instance.Status != "deleting",
 			PortMappings:   portMappings,
-			PublicIP:       publicIP,
+			PublicIP:       instance.PublicIP, // 直接使用实例的PublicIP字段
 			ProviderType:   providerType,
 			ProviderStatus: providerStatus,
 		}

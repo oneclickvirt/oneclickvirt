@@ -4,11 +4,9 @@ import (
 	"oneclickvirt/middleware"
 	"oneclickvirt/service/resources"
 	"strconv"
-	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
-	"oneclickvirt/model/provider"
 	"oneclickvirt/service/admin/instance"
 
 	"github.com/gin-gonic/gin"
@@ -70,33 +68,8 @@ func GetInstancePorts(c *gin.Context) {
 		return
 	}
 
-	// 获取实例的Provider信息以获取公网IP
-	var providerInfo provider.Provider
-	var publicIP string
-	if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
-		// 优先使用PortIP，如果为空则使用Endpoint
-		ipSource := providerInfo.PortIP
-		if ipSource == "" {
-			ipSource = providerInfo.Endpoint
-		}
-
-		// 处理IP源，移除端口号部分
-		if ipSource != "" {
-			// 如果包含端口（如 "192.168.1.1:22"），只取IP部分
-			if colonIndex := strings.LastIndex(ipSource, ":"); colonIndex > 0 {
-				// 检查是否是IPv6地址
-				if strings.Count(ipSource, ":") > 1 && !strings.HasPrefix(ipSource, "[") {
-					// IPv6地址处理
-					publicIP = ipSource
-				} else {
-					// IPv4地址，移除端口部分
-					publicIP = ipSource[:colonIndex]
-				}
-			} else {
-				publicIP = ipSource
-			}
-		}
-	}
+	// 直接使用实例的PublicIP字段
+	publicIP := instance.PublicIP
 
 	// 转换为前端期望的格式
 	formattedPorts := make([]map[string]interface{}, len(ports))

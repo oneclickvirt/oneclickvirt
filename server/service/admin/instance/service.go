@@ -9,7 +9,6 @@ import (
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
-	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -196,51 +195,10 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 			sshPort = instance.SSHPort // fallback到默认值
 		}
 
-		// 从预加载的Provider map中获取纯净的公网IP（移除端口号）
-		var cleanIPAddress string
-		if instance.ProviderID > 0 {
-			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
-				endpoint := providerInfo.Endpoint
-				if endpoint != "" {
-					// 移除端口号部分，只保留IP
-					if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
-						// 检查是否是IPv6地址
-						if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
-							// IPv6地址
-							cleanIPAddress = endpoint
-						} else {
-							// IPv4地址，移除端口部分
-							cleanIPAddress = endpoint[:colonIndex]
-						}
-					} else {
-						cleanIPAddress = endpoint
-					}
-				}
-			}
-		}
-
-		// 如果没有从Provider获取到IP，使用实例自身的IP地址字段
-		if cleanIPAddress == "" && instance.PublicIP != "" {
-			// 同样处理实例IP地址，移除可能的端口号
-			endpoint := instance.PublicIP
-			if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
-				if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
-					cleanIPAddress = endpoint // IPv6
-				} else {
-					cleanIPAddress = endpoint[:colonIndex] // IPv4，移除端口
-				}
-			} else {
-				cleanIPAddress = endpoint
-			}
-		}
-
-		// 创建修改后的实例副本
+		// 创建修改后的实例副本，更新SSH端口
 		modifiedInstance := instance
 		if sshPort > 0 {
 			modifiedInstance.SSHPort = sshPort
-		}
-		if cleanIPAddress != "" {
-			modifiedInstance.PublicIP = cleanIPAddress
 		}
 
 		instanceResponse := admin.InstanceManageResponse{
