@@ -204,7 +204,10 @@ func (s *ProviderService) DeleteProvider(id uint) error {
 func (s *ProviderService) ResetRegistrationCount(id uint) error {
 	if err := global.APP_DB.Model(&oauth2Model.OAuth2Provider{}).
 		Where("id = ?", id).
-		Update("current_registrations", 0).Error; err != nil {
+		Updates(map[string]interface{}{
+			"current_registrations": 0,
+			"total_users":           0,
+		}).Error; err != nil {
 		global.APP_LOG.Error("重置注册计数失败", zap.Error(err))
 		return common.NewError(common.CodeInternalError, "重置失败")
 	}
