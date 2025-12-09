@@ -411,7 +411,7 @@ type PortMappingListRequest struct {
 type CreatePortMappingRequest struct {
 	InstanceID  uint   `json:"instanceId" binding:"required"`
 	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`   // 起始端口
-	PortCount   int    `json:"portCount" binding:"min=1,max=100"`              // 端口数量，默认1（单端口），最多100个
+	PortCount   int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量，默认1（单端口），最多1500个
 	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
 	Description string `json:"description"`                                    // 端口用途描述
 	HostPort    int    `json:"hostPort"`                                       // 可选，不指定则自动分配，指定时作为起始端口
@@ -424,7 +424,7 @@ type BatchDeletePortMappingRequest struct {
 
 // ProviderPortConfigRequest Provider端口配置请求
 type ProviderPortConfigRequest struct {
-	DefaultPortCount int    `json:"defaultPortCount" binding:"min=1,max=50"`                                                         // 每个实例默认映射端口数量
+	DefaultPortCount int    `json:"defaultPortCount" binding:"min=1,max=1500"`                                                       // 每个实例默认映射端口数量
 	PortRangeStart   int    `json:"portRangeStart" binding:"min=1024,max=65535"`                                                     // 端口映射范围起始
 	PortRangeEnd     int    `json:"portRangeEnd" binding:"min=1024,max=65535"`                                                       // 端口映射范围结束
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型
@@ -486,7 +486,7 @@ type DeletePortMappingTaskRequest struct {
 type CheckPortAvailabilityRequest struct {
 	ProviderID uint   `json:"providerId" binding:"required"`                  // Provider ID
 	HostPort   int    `json:"hostPort" binding:"required,min=1,max=65535"`    // 要检查的主机端口（起始端口）
-	PortCount  int    `json:"portCount" binding:"min=1,max=100"`              // 端口数量（默认1，检查端口段时使用）
+	PortCount  int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量（默认1，检查端口段时使用）
 	Protocol   string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
 }
 

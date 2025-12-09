@@ -9652,7 +9652,7 @@ const docTemplate = `{
                 "portCount": {
                     "description": "端口数量（默认1，检查端口段时使用）",
                     "type": "integer",
-                    "maximum": 100,
+                    "maximum": 1500,
                     "minimum": 1
                 },
                 "protocol": {
@@ -9971,9 +9971,9 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "portCount": {
-                    "description": "端口数量，默认1（单端口），最多100个",
+                    "description": "端口数量，默认1（单端口），最多1500个",
                     "type": "integer",
-                    "maximum": 100,
+                    "maximum": 1500,
                     "minimum": 1
                 },
                 "protocol": {
@@ -10347,7 +10347,7 @@ const docTemplate = `{
                 "defaultPortCount": {
                     "description": "每个实例默认映射端口数量",
                     "type": "integer",
-                    "maximum": 50,
+                    "maximum": 1500,
                     "minimum": 1
                 },
                 "networkType": {

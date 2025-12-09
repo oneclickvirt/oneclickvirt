@@ -259,7 +259,7 @@ definitions:
         type: integer
       portCount:
         description: 端口数量（默认1，检查端口段时使用）
-        maximum: 100
+        maximum: 1500
         minimum: 1
         type: integer
       protocol:
@@ -481,8 +481,8 @@ definitions:
       instanceId:
         type: integer
       portCount:
-        description: 端口数量，默认1（单端口），最多100个
-        maximum: 100
+        description: 端口数量，默认1（单端口），最多1500个
+        maximum: 1500
         minimum: 1
         type: integer
       protocol:
@@ -758,7 +758,7 @@ definitions:
     properties:
       defaultPortCount:
         description: 每个实例默认映射端口数量
-        maximum: 50
+        maximum: 1500
         minimum: 1
         type: integer
       networkType:

@@ -340,6 +340,13 @@
                 rel="noopener noreferrer"
               >{{ t('home.footer.feedback') }}</a>
             </li>
+            <li>
+              <a
+                href="https://t.me/oneclickvirt"
+                target="_blank"
+                rel="noopener noreferrer"
+              >{{ t('home.footer.communityGroup') }}</a>
+            </li>
           </ul>
         </div>
       </div>

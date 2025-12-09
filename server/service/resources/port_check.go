@@ -267,8 +267,8 @@ func (s *PortMappingService) ValidatePortRange(providerID uint, startPort int, p
 		return fmt.Errorf("端口数量必须大于0")
 	}
 
-	if portCount > 100 {
-		return fmt.Errorf("单次最多只能添加100个端口")
+	if portCount > 1500 {
+		return fmt.Errorf("单次最多只能添加1500个端口")
 	}
 
 	return nil

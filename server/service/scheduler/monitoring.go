@@ -70,9 +70,6 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 
 	// 启动pmacct守护进程重置任务
 	go s.startPmacctResetTask(ctx)
-
-	// 启动每日流量快照任务
-	go s.startDailySnapshotTask(ctx)
 }
 
 // Stop 停止监控调度器
@@ -852,86 +849,4 @@ func (s *MonitoringSchedulerService) checkProviderTrafficLimits(ctx context.Cont
 	}
 
 	return nil
-}
-
-// startDailySnapshotTask 启动每日流量快照任务
-// 每天凌晨2点执行，创建前一天的流量快照
-func (s *MonitoringSchedulerService) startDailySnapshotTask(ctx context.Context) {
-	// 确保ticker在panic时也能停止，防止goroutine泄漏
-	var ticker *time.Ticker
-	var timer *time.Timer
-	defer func() {
-		if ticker != nil {
-			ticker.Stop()
-		}
-		if timer != nil {
-			timer.Stop()
-		}
-		if r := recover(); r != nil {
-			global.APP_LOG.Error("每日流量快照任务panic",
-				zap.Any("panic", r),
-				zap.Stack("stack"))
-		}
-		global.APP_LOG.Info("每日流量快照任务已停止")
-	}()
-
-	global.APP_LOG.Info("启动每日流量快照任务")
-
-	// 等待数据库初始化
-	for global.APP_DB == nil {
-		tempTimer := time.NewTimer(10 * time.Second)
-		select {
-		case <-s.stopChan:
-			tempTimer.Stop()
-			return
-		case <-tempTimer.C:
-			tempTimer.Stop()
-			continue
-		}
-	}
-
-	// 计算下一次执行时间（每天凌晨2点）
-	now := time.Now()
-	nextRun := time.Date(now.Year(), now.Month(), now.Day()+1, 2, 0, 0, 0, now.Location())
-
-	// 首次等待
-	timer = time.NewTimer(time.Until(nextRun))
-
-	select {
-	case <-s.stopChan:
-		return
-	case <-timer.C:
-		// 执行快照
-		s.executeSnapshotTask()
-	}
-
-	// 后续每24小时执行一次
-	ticker = time.NewTicker(24 * time.Hour)
-
-	for {
-		select {
-		case <-s.stopChan:
-			global.APP_LOG.Info("每日流量快照任务已停止")
-			return
-		case <-ticker.C:
-			s.executeSnapshotTask()
-		}
-	}
-}
-
-// executeSnapshotTask 执行快照任务
-func (s *MonitoringSchedulerService) executeSnapshotTask() {
-	global.APP_LOG.Info("开始执行每日流量快照任务")
-
-	// 导入traffic包避免循环依赖，这里使用接口或直接创建服务
-	// 为了避免import cycle，在这里直接创建
-	type SnapshotService interface {
-		CreateDailySnapshots() error
-		CleanupOldSnapshots(retentionDays int) error
-	}
-
-	// 这里需要导入traffic包的SnapshotService
-	// 由于可能有循环依赖，我们在initialize中注入或使用全局服务
-	// 暂时先记录日志，后面在initialize中处理
-	global.APP_LOG.Info("每日流量快照任务：等待traffic.SnapshotService集成")
 }

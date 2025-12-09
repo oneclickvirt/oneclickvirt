@@ -43,9 +43,10 @@ export default {
     coreProjects: '核心项目',
     relatedProjects: '相关项目',
     moreProjects: '更多项目',
-    supportAndDocs: '支持与文档',
+    supportAndDocs: '支持',
     documentation: '使用文档',
     feedback: '问题反馈',
+    communityGroup: '交流群组',
     allRightsReserved: 'All rights reserved.',
     openSourceProject: '一键虚拟化旗下开源项目'
   },

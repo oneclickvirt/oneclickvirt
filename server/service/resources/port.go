@@ -109,8 +109,8 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	}
 
 	// 验证端口数量
-	if portCount < 1 || portCount > 100 {
-		return 0, nil, fmt.Errorf("端口数量必须在1-100之间")
+	if portCount < 1 || portCount > 1500 {
+		return 0, nil, fmt.Errorf("端口数量必须在1-1500之间")
 	}
 
 	// 验证端口段合法性

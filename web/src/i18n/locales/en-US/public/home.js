@@ -43,9 +43,10 @@ export default {
     coreProjects: 'Core Projects',
     relatedProjects: 'Related Projects',
     moreProjects: 'More Projects',
-    supportAndDocs: 'Support & Documentation',
+    supportAndDocs: 'Support',
     documentation: 'Documentation',
     feedback: 'Issue Feedback',
+    communityGroup: 'Community Group',
     allRightsReserved: 'All rights reserved.',
     openSourceProject: 'Open Source Projects by OneClickVirt'
   },

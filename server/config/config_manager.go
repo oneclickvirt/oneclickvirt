@@ -109,15 +109,13 @@ func (SystemConfig) TableName() string {
 
 // ConfigManager 统一的配置管理器
 type ConfigManager struct {
-	mu               sync.RWMutex
-	db               *gorm.DB
-	logger           *zap.Logger
-	configCache      map[string]interface{}
-	lastUpdate       time.Time
-	validationRules  map[string]ConfigValidationRule
-	changeCallbacks  []ConfigChangeCallback
-	rollbackVersions []ConfigSnapshot
-	maxRollbackCount int
+	mu              sync.RWMutex
+	db              *gorm.DB
+	logger          *zap.Logger
+	configCache     map[string]interface{}
+	lastUpdate      time.Time
+	validationRules map[string]ConfigValidationRule
+	changeCallbacks []ConfigChangeCallback
 }
 
 // ConfigValidationRule 配置验证规则
@@ -133,13 +131,6 @@ type ConfigValidationRule struct {
 // ConfigChangeCallback 配置变更回调
 type ConfigChangeCallback func(key string, oldValue, newValue interface{}) error
 
-// ConfigSnapshot 配置快照
-type ConfigSnapshot struct {
-	Timestamp time.Time
-	Config    map[string]interface{}
-	Version   string
-}
-
 var (
 	configManager *ConfigManager
 	once          sync.Once
@@ -148,11 +139,10 @@ var (
 // NewConfigManager 创建新的配置管理器
 func NewConfigManager(db *gorm.DB, logger *zap.Logger) *ConfigManager {
 	return &ConfigManager{
-		db:               db,
-		logger:           logger,
-		configCache:      make(map[string]interface{}),
-		validationRules:  make(map[string]ConfigValidationRule),
-		maxRollbackCount: 10,
+		db:              db,
+		logger:          logger,
+		configCache:     make(map[string]interface{}),
+		validationRules: make(map[string]ConfigValidationRule),
 	}
 }
 
@@ -281,9 +271,8 @@ func (cm *ConfigManager) SetConfig(key string, value interface{}) error {
 		return fmt.Errorf("配置验证失败: %v", err)
 	}
 
-	// 保存快照
+	// 保存旧值用于回调
 	oldValue := cm.configCache[key]
-	cm.createSnapshot()
 
 	// 更新配置
 	cm.configCache[key] = value
@@ -343,9 +332,6 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 			return fmt.Errorf("配置 %s 验证失败: %v", key, err)
 		}
 	}
-
-	// 创建快照
-	cm.createSnapshot()
 
 	// 保存旧配置用于比较
 	oldConfig := make(map[string]interface{})
@@ -695,85 +681,6 @@ func (cm *ConfigManager) flattenConfig(config map[string]interface{}, prefix str
 	}
 
 	return result
-}
-
-// createSnapshot 创建配置快照（深拷贝）
-func (cm *ConfigManager) createSnapshot() {
-	snapshot := ConfigSnapshot{
-		Timestamp: time.Now(),
-		Config:    make(map[string]interface{}),
-		Version:   fmt.Sprintf("v%d", time.Now().Unix()),
-	}
-
-	// 深拷贝配置值，避免引用类型被修改
-	for k, v := range cm.configCache {
-		snapshot.Config[k] = deepCopyValue(v)
-	}
-
-	cm.rollbackVersions = append(cm.rollbackVersions, snapshot)
-
-	// 限制快照数量
-	if len(cm.rollbackVersions) > cm.maxRollbackCount {
-		cm.rollbackVersions = cm.rollbackVersions[1:]
-	}
-}
-
-// deepCopyValue 深拷贝配置值
-func deepCopyValue(v interface{}) interface{} {
-	if v == nil {
-		return nil
-	}
-
-	switch val := v.(type) {
-	case map[string]interface{}:
-		// 深拷贝 map
-		copyMap := make(map[string]interface{}, len(val))
-		for k, v := range val {
-			copyMap[k] = deepCopyValue(v)
-		}
-		return copyMap
-	case []interface{}:
-		// 深拷贝 slice
-		copySlice := make([]interface{}, len(val))
-		for i, v := range val {
-			copySlice[i] = deepCopyValue(v)
-		}
-		return copySlice
-	case []string:
-		// 深拷贝字符串 slice
-		copyStrings := make([]string, len(val))
-		copy(copyStrings, val)
-		return copyStrings
-	case []int:
-		// 深拷贝 int slice
-		copyInts := make([]int, len(val))
-		copy(copyInts, val)
-		return copyInts
-	default:
-		// 基本类型（string, int, bool, float等）直接返回
-		return v
-	}
-}
-
-// RollbackToSnapshot 回滚到指定快照
-func (cm *ConfigManager) RollbackToSnapshot(version string) error {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	var targetSnapshot *ConfigSnapshot
-	for _, snapshot := range cm.rollbackVersions {
-		if snapshot.Version == version {
-			targetSnapshot = &snapshot
-			break
-		}
-	}
-
-	if targetSnapshot == nil {
-		return fmt.Errorf("未找到版本 %s 的快照", version)
-	}
-
-	// 回滚配置
-	return cm.UpdateConfig(targetSnapshot.Config)
 }
 
 // loadConfigFromDB 从数据库加载配置
@@ -1145,16 +1052,6 @@ func (cm *ConfigManager) RegisterChangeCallback(callback ConfigChangeCallback) {
 	defer cm.mu.Unlock()
 
 	cm.changeCallbacks = append(cm.changeCallbacks, callback)
-}
-
-// GetSnapshots 获取所有快照
-func (cm *ConfigManager) GetSnapshots() []ConfigSnapshot {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	result := make([]ConfigSnapshot, len(cm.rollbackVersions))
-	copy(result, cm.rollbackVersions)
-	return result
 }
 
 // syncToGlobalConfig 同步配置到全局配置并写回YAML文件
