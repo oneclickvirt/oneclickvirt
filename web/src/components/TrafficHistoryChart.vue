@@ -277,10 +277,26 @@ const renderChart = (data) => {
   
   // 准备数据
   const timeLabels = data.map(item => formatTimeLabel(item))
-  // 优先使用增量字段（traffic_in/traffic_out/total_used），如果不存在则使用累积字段（rx_bytes/tx_bytes/total_bytes）
-  const trafficIn = data.map(item => (((item.traffic_in || item.rx_bytes) || 0) / 1024 / 1024).toFixed(2)) // 转换为MB
-  const trafficOut = data.map(item => (((item.traffic_out || item.tx_bytes) || 0) / 1024 / 1024).toFixed(2))
-  const totalUsed = data.map(item => (((item.total_used || item.total_bytes) || 0) / 1024 / 1024).toFixed(2))
+  // 支持多种数据格式：
+  // 1. traffic_mb: MB单位（新格式）
+  // 2. traffic_in/traffic_out/total_used: MB单位（实例详细数据）
+  // 3. rx_bytes/tx_bytes/total_bytes: 字节单位（原始pmacct数据）
+  const trafficIn = data.map(item => {
+    if (item.traffic_in !== undefined) return parseFloat(item.traffic_in || 0).toFixed(2) // 已经是MB
+    if (item.rx_bytes !== undefined) return ((item.rx_bytes || 0) / 1024 / 1024).toFixed(2) // 字节转MB
+    return '0.00'
+  })
+  const trafficOut = data.map(item => {
+    if (item.traffic_out !== undefined) return parseFloat(item.traffic_out || 0).toFixed(2)
+    if (item.tx_bytes !== undefined) return ((item.tx_bytes || 0) / 1024 / 1024).toFixed(2)
+    return '0.00'
+  })
+  const totalUsed = data.map(item => {
+    if (item.total_used !== undefined) return parseFloat(item.total_used || 0).toFixed(2)
+    if (item.traffic_mb !== undefined) return parseFloat(item.traffic_mb || 0).toFixed(2) // 历史数据
+    if (item.total_bytes !== undefined) return ((item.total_bytes || 0) / 1024 / 1024).toFixed(2)
+    return '0.00'
+  })
   
   console.log('TrafficHistoryChart - Processed data:', {
     timeLabels,

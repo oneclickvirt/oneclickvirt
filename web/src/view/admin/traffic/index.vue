@@ -257,7 +257,7 @@
               width="120"
             >
               <template #default="{ row }">
-                {{ row.formatted?.month_usage || formatBytes(row.month_usage) }}
+                {{ row.formatted?.month_usage || formatTrafficMB(row.month_usage) }}
               </template>
             </el-table-column>
             <el-table-column

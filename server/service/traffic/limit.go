@@ -333,10 +333,10 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 		}
 
 		history = append(history, map[string]interface{}{
-			"year":    year,
-			"month":   month,
-			"traffic": int64(monthlyTraffic * 1024 * 1024), // 转换为字节保持兼容性
-			"date":    fmt.Sprintf("%d-%02d", year, month),
+			"year":       year,
+			"month":      month,
+			"traffic_mb": monthlyTraffic, // MB单位
+			"date":       fmt.Sprintf("%d-%02d", year, month),
 		})
 	}
 
@@ -611,7 +611,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 			"user_id":       rank.UserID,
 			"username":      rank.Username,
 			"nickname":      rank.Nickname,
-			"month_usage":   rank.MonthUsage * 1024 * 1024, // 转换为字节以保持前端兼容性
+			"month_usage":   rank.MonthUsage, // 保持 MB 单位，由前端格式化
 			"total_limit":   rank.TotalLimit,
 			"usage_percent": usagePercent,
 			"is_limited":    rank.IsLimited,

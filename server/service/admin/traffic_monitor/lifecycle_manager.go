@@ -179,17 +179,37 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 
 		outputBuilder.WriteString(fmt.Sprintf("[%d/%d] 实例: %s (ID: %d)\n", i+1, totalCount, inst.Name, inst.ID))
 
-		// 检查是否已存在监控
+		// 检查是否已存在监控记录
 		var existingMonitor monitoringModel.PmacctMonitor
 		err := global.APP_DB.Where("instance_id = ?", inst.ID).First(&existingMonitor).Error
 
-		if err == nil && existingMonitor.IsEnabled {
-			outputBuilder.WriteString("  ✓ 监控已存在且已启用，跳过\n\n")
-			successCount++
-			continue
+		if err == nil {
+			// 已存在监控记录
+			if existingMonitor.IsEnabled {
+				outputBuilder.WriteString("  ✓ 监控已存在且已启用，跳过\n\n")
+				successCount++
+				continue
+			} else {
+				// 监控已存在但未启用，先删除旧记录（确保完全清理）
+				global.APP_LOG.Info("发现未启用的监控记录，先删除后重新初始化",
+					zap.Uint("instanceID", inst.ID),
+					zap.Uint("oldMonitorID", existingMonitor.ID))
+
+				if err := global.APP_DB.Unscoped().Delete(&existingMonitor).Error; err != nil {
+					outputBuilder.WriteString(fmt.Sprintf("  ✗ 删除旧监控记录失败: %v\n\n", err))
+					failedCount++
+					global.APP_LOG.Error("删除旧监控记录失败",
+						zap.Uint("instanceID", inst.ID),
+						zap.String("instanceName", inst.Name),
+						zap.Uint("monitorID", existingMonitor.ID),
+						zap.Error(err))
+					continue
+				}
+				// 删除后继续执行初始化流程
+			}
 		}
 
-		// 初始化监控
+		// 不存在监控记录或已删除旧记录，初始化新监控
 		if err := pmacctService.InitializePmacctForInstance(inst.ID); err != nil {
 			outputBuilder.WriteString(fmt.Sprintf("  ✗ 失败: %v\n\n", err))
 			failedCount++
