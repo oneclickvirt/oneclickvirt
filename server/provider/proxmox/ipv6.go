@@ -307,8 +307,8 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			}
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
+			userIP := VMIDToInternalIP(vmid)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -354,9 +354,9 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			}
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
-			// 使用统一的IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
-			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
+			// 使用VMID到IP的映射函数
+			userIP := VMIDToInternalIP(vmid)
+			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))

@@ -17,19 +17,61 @@ import (
 )
 
 // Proxmox VMID分配常量
-// 统一管理VMID范围，不区分VM和Container类型
+// VMID和内网IP解耦设计：VMID使用Proxmox标准范围，IP使用完整网段
 const (
-	// MinVMID 最小VMID，保留1-9给系统使用
-	MinVMID = 10
-	// MaxVMID 最大VMID，对应内网IP 172.16.1.255
-	MaxVMID = 255
-	// MaxInstances 最大实例数量（10-255共246个）
-	MaxInstances = 246
+	// MinVMID 最小VMID，Proxmox标准要求≥100
+	MinVMID = 100
+	// MaxVMID 最大VMID，支持更大规模部署
+	MaxVMID = 999
+	// MaxInstances 最大实例数量（100-999共900个，但受限于IP地址池253个）
+	MaxInstances = 900
+
 	// InternalIPPrefix 内网IP前缀
 	InternalIPPrefix = "172.16.1"
-	// InternalGateway 内网网关
+	// InternalGateway 内网网关（172.16.1.1）
 	InternalGateway = "172.16.1.1"
+	// MinInternalIPLastOctet 内网IP最后一个八位组的最小值（保留.1给网关）
+	MinInternalIPLastOctet = 2
+	// MaxInternalIPLastOctet 内网IP最后一个八位组的最大值（保留.255给广播）
+	MaxInternalIPLastOctet = 254
+	// MaxIPAddresses 最大可用IP地址数（2-254共253个）
+	MaxIPAddresses = 253
 )
+
+// VMIDToInternalIP 将VMID转换为内网IP地址
+// 使用循环映射算法，充分利用2-254的IP地址空间
+// 例如：VMID 100 -> 172.16.1.2, VMID 101 -> 172.16.1.3, ..., VMID 352 -> 172.16.1.254, VMID 353 -> 172.16.1.2
+func VMIDToInternalIP(vmid int) string {
+	if vmid < MinVMID || vmid > MaxVMID {
+		return ""
+	}
+	// 计算IP最后一个八位组：((VMID - 100) % 253) + 2
+	lastOctet := ((vmid-MinVMID)%MaxIPAddresses + MinInternalIPLastOctet)
+	return fmt.Sprintf("%s.%d", InternalIPPrefix, lastOctet)
+}
+
+// InternalIPToVMIDCandidates 将内网IP转换为可能的VMID列表
+// 由于使用循环映射，一个IP可能对应多个VMID，需要通过实际查询确认
+func InternalIPToVMIDCandidates(ip string) []int {
+	// 解析IP地址最后一个八位组
+	var lastOctet int
+	if _, err := fmt.Sscanf(ip, InternalIPPrefix+".%d", &lastOctet); err != nil {
+		return nil
+	}
+
+	if lastOctet < MinInternalIPLastOctet || lastOctet > MaxInternalIPLastOctet {
+		return nil
+	}
+
+	// 计算所有可能的VMID：base + n * 253，其中 n = 0, 1, 2, ...
+	candidates := make([]int, 0, 4) // 预分配，最多4个循环
+	base := MinVMID + (lastOctet - MinInternalIPLastOctet)
+	for vmid := base; vmid <= MaxVMID; vmid += MaxIPAddresses {
+		candidates = append(candidates, vmid)
+	}
+
+	return candidates
+}
 
 type ProxmoxProvider struct {
 	config        provider.NodeConfig

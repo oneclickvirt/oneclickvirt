@@ -212,10 +212,9 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 	updateProgress(70, "配置容器网络...")
 
-	// 配置网络（使用统一的IP分配规则: 172.16.1.{VMID}）
-	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
-	user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-	netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
+	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
+	userIP := VMIDToInternalIP(vmid)
+	netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
 	_, err = p.sshClient.Execute(netCmd)
 	if err != nil {
 		global.APP_LOG.Warn("容器网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -557,10 +556,9 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	updateProgress(90, "配置网络...")
 
-	// 配置网络（使用统一的IP分配规则: 172.16.1.{VMID}）
-	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
-	userIP := fmt.Sprintf("172.16.1.%d", vmid)
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=172.16.1.1", vmid, userIP))
+	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
+	userIP := VMIDToInternalIP(vmid)
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, InternalGateway))
 	if err != nil {
 		global.APP_LOG.Warn("设置IP配置失败", zap.Int("vmid", vmid), zap.Error(err))
 	}

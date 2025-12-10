@@ -424,10 +424,10 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		}
 
 		// 最后尝试从网络配置推断IP地址 (如果使用标准内网配置)
-		// IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
+		// 使用VMID到IP的映射函数
 		vmidInt, err := strconv.Atoi(vmid)
 		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
-			inferredIP := fmt.Sprintf("%s.%d", InternalIPPrefix, vmidInt)
+			inferredIP := VMIDToInternalIP(vmidInt)
 			// 验证这个IP是否能ping通
 			pingCmd := fmt.Sprintf("ping -c 1 -W 2 %s >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable'", inferredIP)
 			pingOutput, pingErr := p.sshClient.Execute(pingCmd)
@@ -570,78 +570,142 @@ func (p *ProxmoxProvider) sshDeleteImage(ctx context.Context, id string) error {
 	return nil
 }
 
-// 获取下一个可用的 VMID
+// getUsedInternalIPs 从iptables规则中提取已使用的内网IP地址（高效且准确）
+func (p *ProxmoxProvider) getUsedInternalIPs(ctx context.Context) (map[string]bool, error) {
+	usedIPs := make(map[string]bool)
+
+	// 从 iptables DNAT 规则中提取所有目标内网IP
+	// 这是最准确的方法，因为只要有端口映射就必定在 iptables 中
+	cmd := fmt.Sprintf("iptables -t nat -L PREROUTING -n | grep -oP '%s\\.\\d+' | sort -u", InternalIPPrefix)
+	output, err := p.sshClient.Execute(cmd)
+	if err != nil {
+		global.APP_LOG.Warn("获取iptables规则失败",
+			zap.Error(err))
+		return usedIPs, err
+	}
+
+	if strings.TrimSpace(output) != "" {
+		lines := strings.Split(strings.TrimSpace(output), "\n")
+		for _, ip := range lines {
+			ip = strings.TrimSpace(ip)
+			if ip != "" {
+				usedIPs[ip] = true
+			}
+		}
+	}
+
+	global.APP_LOG.Debug("从iptables规则提取内网IP使用情况完成",
+		zap.Int("usedIPCount", len(usedIPs)))
+
+	return usedIPs, nil
+}
+
+// 获取下一个可用的 VMID（确保对应的IP也可用）
+// 在Proxmox中，VM的VMID和Container的CTID共享同一个ID空间，因此统一分配
 func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) (int, error) {
 	// 并发安全保护：VMID分配必须串行化，避免多个goroutine同时分配到相同ID
 	// 使用互斥锁确保同一时间只有一个goroutine在分配VMID
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	// 统一VMID范围：10-255（不区分VM和Container类型）
+	// VMID/CTID范围：100-999（Proxmox标准，VM和Container共享ID空间）
 	// 使用全局常量确保一致性
-	global.APP_LOG.Info("开始分配VMID",
+	global.APP_LOG.Info("开始分配VMID/CTID",
 		zap.String("instanceType", instanceType),
 		zap.Int("minVMID", MinVMID),
 		zap.Int("maxVMID", MaxVMID),
 		zap.Int("maxInstances", MaxInstances))
 
-	// 获取已使用的VMID列表
-	usedVMIDs := make(map[int]bool)
+	// 1. 获取已使用的ID列表（包含VM的VMID和Container的CTID）
+	usedIDs := make(map[int]bool)
 
-	// 获取虚拟机列表
+	// 获取虚拟机列表（VMID）
 	vmOutput, err := p.sshClient.Execute("qm list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(vmOutput), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
 			fields := strings.Fields(line)
 			if len(fields) >= 1 {
-				if vmid, parseErr := strconv.Atoi(fields[0]); parseErr == nil {
-					usedVMIDs[vmid] = true
+				if id, parseErr := strconv.Atoi(fields[0]); parseErr == nil {
+					usedIDs[id] = true
 				}
 			}
 		}
 	}
 
-	// 获取容器列表
+	// 获取容器列表（CTID）- 与VMID共享同一ID空间
 	ctOutput, err := p.sshClient.Execute("pct list")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(ctOutput), "\n")
 		for _, line := range lines[1:] { // 跳过标题行
 			fields := strings.Fields(line)
 			if len(fields) >= 1 {
-				if vmid, parseErr := strconv.Atoi(fields[0]); parseErr == nil {
-					usedVMIDs[vmid] = true
+				if id, parseErr := strconv.Atoi(fields[0]); parseErr == nil {
+					usedIDs[id] = true
 				}
 			}
 		}
 	}
 
+	// 2. 获取已使用的内网IP列表（关键：避免IP冲突）
+	usedIPs, err := p.getUsedInternalIPs(ctx)
+	if err != nil {
+		global.APP_LOG.Warn("获取已用IP列表失败，继续分配但可能存在IP冲突风险",
+			zap.Error(err))
+		usedIPs = make(map[string]bool) // 继续执行，但有风险
+	}
+
+	global.APP_LOG.Debug("已扫描资源使用情况",
+		zap.Int("usedIDs", len(usedIDs)),
+		zap.Int("usedIPs", len(usedIPs)))
+
 	// 检查是否已达到最大实例数量限制
-	if len(usedVMIDs) >= MaxInstances {
+	if len(usedIDs) >= MaxInstances {
 		global.APP_LOG.Error("已达到最大实例数量限制",
-			zap.Int("currentInstances", len(usedVMIDs)),
+			zap.Int("currentInstances", len(usedIDs)),
 			zap.Int("maxInstances", MaxInstances))
-		return 0, fmt.Errorf("已达到最大实例数量限制 (%d/%d)，无法创建新实例。请删除不用的实例或联系管理员扩展网络容量", len(usedVMIDs), MaxInstances)
+		return 0, fmt.Errorf("已达到最大实例数量限制 (%d/%d)，无法创建新实例。请删除不用的实例或联系管理员扩展网络容量", len(usedIDs), MaxInstances)
 	}
 
-	// 在指定范围内寻找最小的可用VMID
-	for vmid := MinVMID; vmid <= MaxVMID; vmid++ {
-		if !usedVMIDs[vmid] {
-			global.APP_LOG.Info("分配VMID成功",
-				zap.String("instanceType", instanceType),
-				zap.Int("vmid", vmid),
-				zap.Int("totalUsedVMIDs", len(usedVMIDs)),
-				zap.Int("remainingSlots", MaxInstances-len(usedVMIDs)))
-			return vmid, nil
+	// 3. 在指定范围内寻找同时满足ID和IP都可用的ID
+	// 策略：优先从小到大查找，确保ID未被占用（无论是VM还是Container）且映射的IP也未被占用
+	for id := MinVMID; id <= MaxVMID; id++ {
+		// 检查ID是否已被使用（VM或Container）
+		if usedIDs[id] {
+			continue
 		}
+
+		// 检查该ID映射的IP是否已被占用
+		mappedIP := VMIDToInternalIP(id)
+		if mappedIP == "" {
+			continue // 无效映射，跳过
+		}
+
+		if usedIPs[mappedIP] {
+			global.APP_LOG.Debug("ID可用但映射的IP已被占用，跳过",
+				zap.Int("id", id),
+				zap.String("mappedIP", mappedIP))
+			continue
+		}
+
+		// 找到了同时满足ID和IP都可用的ID
+		global.APP_LOG.Info("分配VMID/CTID成功（已验证IP可用）",
+			zap.String("instanceType", instanceType),
+			zap.Int("id", id),
+			zap.String("assignedIP", mappedIP),
+			zap.Int("totalUsedIDs", len(usedIDs)),
+			zap.Int("totalUsedIPs", len(usedIPs)),
+			zap.Int("remainingSlots", MaxInstances-len(usedIDs)))
+		return id, nil
 	}
 
-	// 如果没有可用的VMID，返回错误
-	global.APP_LOG.Error("VMID范围内无可用ID",
+	// 如果没有可用的ID（或所有ID对应的IP都被占用）
+	global.APP_LOG.Error("ID范围内无可用ID或所有映射IP已被占用",
 		zap.Int("minVMID", MinVMID),
 		zap.Int("maxVMID", MaxVMID),
-		zap.Int("usedCount", len(usedVMIDs)))
-	return 0, fmt.Errorf("在范围 %d-%d 内没有可用的VMID（已使用: %d）", MinVMID, MaxVMID, len(usedVMIDs))
+		zap.Int("usedIDs", len(usedIDs)),
+		zap.Int("usedIPs", len(usedIPs)))
+	return 0, fmt.Errorf("在范围 %d-%d 内没有可用的ID（已使用: %d）或所有映射的IP地址已被占用", MinVMID, MaxVMID, len(usedIDs))
 }
 
 // sshSetInstancePassword 通过SSH设置实例密码
@@ -783,10 +847,10 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	}
 
 	// 如果没有IPv6或IPv6配置失败，配置IPv4-only网络
-	// 使用统一的IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
+	// 使用VMID到IP的映射函数
 	if !hasIPv6 {
-		user_ip := fmt.Sprintf("172.16.1.%d", vmid)
-		netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
+		userIP := VMIDToInternalIP(vmid)
+		netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
 		_, err := p.sshClient.Execute(netCmd)
 		if err != nil {
 			return fmt.Errorf("配置容器IPv4网络失败: %w", err)
@@ -794,7 +858,7 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 
 		// 配置端口转发（只在IPv4模式下需要）
 		if len(config.Ports) > 0 {
-			p.configurePortForwarding(ctx, vmid, user_ip, config.Ports)
+			p.configurePortForwarding(ctx, vmid, userIP, config.Ports)
 		}
 	}
 
@@ -1200,8 +1264,8 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	notesBuilder.WriteString("\n")
 	notesBuilder.WriteString(fmt.Sprintf("#Type: %s", config.InstanceType))
 	notesBuilder.WriteString("\n")
-	// 添加网络信息（使用统一的IP分配规则: 172.16.1.{VMID}）
-	internalIP := fmt.Sprintf("172.16.1.%d", vmid)
+	// 添加网络信息（使用VMID到IP的映射函数）
+	internalIP := VMIDToInternalIP(vmid)
 	notesBuilder.WriteString(fmt.Sprintf("#Internal IP: %s", internalIP))
 	notesBuilder.WriteString("\n")
 	// 添加端口信息（如果有），并尝试解析SSH端口映射

@@ -870,13 +870,12 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	updateProgress(70, "配置容器网络...")
 
-	// 配置网络（使用统一的IP分配规则: 172.16.1.{VMID}）
-	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
-	userIP := fmt.Sprintf("172.16.1.%d", vmid)
+	// 配置网络（使用VMID到IP的映射函数）
+	userIP := VMIDToInternalIP(vmid)
 	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
 
 	netPayload := map[string]interface{}{
-		"net0": fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", userIP),
+		"net0": fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway),
 	}
 
 	netJsonData, _ := json.Marshal(netPayload)
@@ -1136,10 +1135,9 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		}
 	}
 
-	// 配置IP（使用统一的IP分配规则: 172.16.1.{VMID}）
-	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
-	userIP := fmt.Sprintf("172.16.1.%d", vmid)
-	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=172.16.1.1", vmid, userIP))
+	// 配置IP（使用VMID到IP的映射函数）
+	userIP := VMIDToInternalIP(vmid)
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, InternalGateway))
 
 	updateProgress(80, "虚拟机配置完成...")
 
