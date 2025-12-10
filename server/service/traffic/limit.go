@@ -314,7 +314,7 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 			), 0)
 			FROM instance_traffic_histories ith
 			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
-			INNER JOIN providers p ON ith.provider_id = p.id AND p.deleted_at IS NULL
+			INNER JOIN providers p ON ith.provider_id = p.id
 			WHERE ith.user_id = ?
 			  AND ith.year = ?
 			  AND ith.month = ?
@@ -573,7 +573,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 				) as month_usage
 			FROM instance_traffic_histories ith
 			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
-			INNER JOIN providers p ON ith.provider_id = p.id AND p.deleted_at IS NULL
+			INNER JOIN providers p ON ith.provider_id = p.id
 			WHERE ith.year = ?
 			  AND ith.month = ?
 			  AND ith.day = 0
