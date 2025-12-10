@@ -16,19 +16,20 @@ type User struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
 
 	// 基本信息
+	// username已有uniqueIndex，无需额外索引
 	Username string `json:"username" gorm:"uniqueIndex;not null;size:64"` // 用户名（唯一，用于登录）
 	Password string `json:"-" gorm:"not null;size:128"`                   // 密码哈希（不返回给前端）
 	Nickname string `json:"nickname" gorm:"size:64"`                      // 用户昵称（显示名称）
-	Email    string `json:"email" gorm:"size:128"`                        // 邮箱地址
+	Email    string `json:"email" gorm:"size:128;index:idx_email"`        // 邮箱地址
 	Phone    string `json:"phone" gorm:"size:32"`                         // 手机号码
 	Telegram string `json:"telegram" gorm:"size:64"`                      // Telegram用户名
 	QQ       string `json:"qq" gorm:"size:32"`                            // QQ号码
 	Avatar   string `json:"avatar" gorm:"size:255"`                       // 头像图片路径
 
 	// 状态和权限
-	Status   int    `json:"status" gorm:"default:1"`              // 用户状态：0=禁用（不可登录），1=正常
-	Level    int    `json:"level" gorm:"default:1"`               // 用户等级，用于权限控制
-	UserType string `json:"userType" gorm:"default:user;size:16"` // 用户类型：user, admin, super_admin等
+	Status   int    `json:"status" gorm:"default:1;index:idx_status"` // 用户状态：0=禁用（不可登录），1=正常
+	Level    int    `json:"level" gorm:"default:1;index:idx_level"`   // 用户等级，用于权限控制
+	UserType string `json:"userType" gorm:"default:user;size:16"`     // 用户类型：user, admin, super_admin等
 
 	// 配额管理（传统系统兼容字段）
 	UsedQuota  int `json:"usedQuota" gorm:"default:0"`  // 已使用配额

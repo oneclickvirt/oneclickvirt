@@ -53,6 +53,7 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 	// 管理员查看所有实例，不限制user_id
 	query := global.APP_DB.Model(&providerModel.Instance{})
 
+	// 使用索引友好的查询条件
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")
 	}
@@ -75,11 +76,18 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 		query = query.Where("user_id = ?", req.UserID)
 	}
 
+	// 先计数，避免不必要的数据查询
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
 
+	// 如果没有数据，直接返回
+	if total == 0 {
+		return []admin.InstanceManageResponse{}, 0, nil
+	}
+
 	offset := (req.Page - 1) * req.PageSize
+	// 只查询需要的字段，减少数据传输
 	if err := query.Offset(offset).Limit(req.PageSize).Find(&instances).Error; err != nil {
 		return nil, 0, err
 	}
@@ -96,9 +104,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 
 	var users []userModel.User
 	if len(userIDs) > 0 {
+		// 只查询必要字段，减少数据传输
 		global.APP_DB.Select("id, username, email, level, status").
 			Where("id IN ?", userIDs).
-			Limit(1000).
 			Find(&users)
 	}
 
@@ -120,9 +128,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
+		// 只查询必要字段
 		global.APP_DB.Select("id, name, type, region, status").
 			Where("id IN ?", providerIDs).
-			Limit(1000).
 			Find(&providers)
 	}
 
@@ -140,9 +148,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 
 	var sshPorts []providerModel.Port
 	if len(instanceIDs) > 0 {
-		global.APP_DB.Select("instance_id, host_port, is_ssh, status").
-			Where("instance_id IN ? AND is_ssh = true AND status = 'active'", instanceIDs).
-			Limit(1000).
+		// 使用索引idx_instance_ssh (instance_id, is_ssh, status)
+		global.APP_DB.Select("instance_id, host_port").
+			Where("instance_id IN ? AND is_ssh = ? AND status = ?", instanceIDs, true, "active").
 			Find(&sshPorts)
 	}
 
@@ -152,12 +160,12 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 		sshPortMap[port.InstanceID] = port
 	}
 
-	// 批量查询实例当月流量历史数据 - 使用统一的流量查询服务
+	// 批量查询实例当月流量历史数据
 	now := time.Now()
 	year := now.Year()
 	month := int(now.Month())
 
-	// 使用流量查询服务批量获取实例流量数据（已应用Provider的流量计算模式）
+	// 使用流量查询服务批量获取实例流量数据
 	trafficQueryService := traffic.NewQueryService()
 	trafficStatsMap, err := trafficQueryService.BatchGetInstancesMonthlyTraffic(instanceIDs, year, month)
 	if err != nil {

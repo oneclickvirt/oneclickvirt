@@ -83,23 +83,24 @@ type Provider struct {
 	UpdatedAt time.Time `json:"updatedAt"`                                // 更新时间
 
 	// 基本信息
-	Name     string `json:"name" gorm:"uniqueIndex;not null;size:64"` // Provider名称（唯一）
-	Type     string `json:"type" gorm:"not null;size:32"`             // Provider类型：docker, lxd, incus, proxmox
-	Endpoint string `json:"endpoint" gorm:"size:255"`                 // SSH连接端点地址
-	PortIP   string `json:"portIP" gorm:"size:255"`                   // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
-	SSHPort  int    `json:"sshPort" gorm:"default:22"`                // SSH连接端口
-	Username string `json:"username" gorm:"size:128"`                 // SSH连接用户名
-	Password string `json:"-" gorm:"size:255"`                        // SSH连接密码（不返回给前端）
-	SSHKey   string `json:"-" gorm:"type:text"`                       // SSH私钥（不返回给前端，优先于密码使用）
-	Token    string `json:"-" gorm:"size:255"`                        // API访问令牌（不返回给前端）
-	Config   string `json:"config" gorm:"type:text"`                  // 额外配置信息（JSON格式）
+	// name已有uniqueIndex，type添加索引
+	Name     string `json:"name" gorm:"uniqueIndex;not null;size:64"`    // Provider名称（唯一）
+	Type     string `json:"type" gorm:"not null;size:32;index:idx_type"` // Provider类型：docker, lxd, incus, proxmox
+	Endpoint string `json:"endpoint" gorm:"size:255"`                    // SSH连接端点地址
+	PortIP   string `json:"portIP" gorm:"size:255"`                      // 端口映射使用的公网IP（非必填，若为空则使用Endpoint）
+	SSHPort  int    `json:"sshPort" gorm:"default:22"`                   // SSH连接端口
+	Username string `json:"username" gorm:"size:128"`                    // SSH连接用户名
+	Password string `json:"-" gorm:"size:255"`                           // SSH连接密码（不返回给前端）
+	SSHKey   string `json:"-" gorm:"type:text"`                          // SSH私钥（不返回给前端，优先于密码使用）
+	Token    string `json:"-" gorm:"size:255"`                           // API访问令牌（不返回给前端）
+	Config   string `json:"config" gorm:"type:text"`                     // 额外配置信息（JSON格式）
 
 	// 状态和地理信息
-	Status      string `json:"status" gorm:"default:active;size:16"` // Provider状态：active, inactive
-	Region      string `json:"region" gorm:"size:64"`                // 地区
-	Country     string `json:"country" gorm:"size:64"`               // 国家
-	CountryCode string `json:"countryCode" gorm:"size:8"`            // 国家代码
-	City        string `json:"city" gorm:"size:64"`                  // 城市（可选）
+	Status      string `json:"status" gorm:"default:active;size:16;index:idx_status"` // Provider状态：active, inactive
+	Region      string `json:"region" gorm:"size:64;index:idx_region"`                // 地区
+	Country     string `json:"country" gorm:"size:64"`                                // 国家
+	CountryCode string `json:"countryCode" gorm:"size:8"`                             // 国家代码
+	City        string `json:"city" gorm:"size:64"`                                   // 城市（可选）
 
 	// 功能支持
 	ContainerEnabled      bool   `json:"container_enabled" gorm:"default:true"` // 是否支持容器实例
@@ -306,15 +307,16 @@ type Instance struct {
 	UUID      string         `json:"uuid" gorm:"uniqueIndex;not null;size:36"` // 实例唯一标识符
 	CreatedAt time.Time      `json:"createdAt"`                                // 实例创建时间
 	UpdatedAt time.Time      `json:"updatedAt"`                                // 实例信息更新时间
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`                           // 软删除时间
+	DeletedAt gorm.DeletedAt `json:"-" gorm:"index:idx_deleted_at"`            // 软删除时间
 
 	// 基本信息
-	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider;not null;size:128"`                                   // 实例名称（与provider_id组合唯一）
-	Provider     string `json:"provider" gorm:"not null;size:32"`                                                                       // Provider名称
-	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
-	Status       string `json:"status" gorm:"size:32;index:idx_provider_status,priority:2"`                                             // 实例状态：creating, running, stopped, failed等
-	Image        string `json:"image" gorm:"size:128"`                                                                                  // 使用的镜像名称
-	InstanceType string `json:"instance_type" gorm:"size:16;default:container"`                                                         // 实例类型：container, vm
+	// 添加覆盖索引，包含常用查询字段
+	Name         string `json:"name" gorm:"uniqueIndex:idx_instance_name_provider,priority:1;not null;size:128"`                                                         // 实例名称（与provider_id组合唯一）
+	Provider     string `json:"provider" gorm:"not null;size:32;index:idx_provider_name"`                                                                                // Provider名称
+	ProviderID   uint   `json:"providerId" gorm:"uniqueIndex:idx_instance_name_provider,priority:2;index:idx_provider_id;index:idx_provider_status,priority:1;not null"` // 关联的Provider ID（与name组合唯一）
+	Status       string `json:"status" gorm:"size:32;index:idx_status;index:idx_provider_status,priority:2"`                                                             // 实例状态：creating, running, stopped, failed等
+	Image        string `json:"image" gorm:"size:128"`                                                                                                                   // 使用的镜像名称
+	InstanceType string `json:"instance_type" gorm:"size:16;default:container;index:idx_instance_type"`                                                                  // 实例类型：container, vm
 
 	// 资源配置
 	CPU       int   `json:"cpu" gorm:"default:1"`        // CPU核心数
@@ -351,7 +353,8 @@ type Instance struct {
 	ExpiredAt time.Time `json:"expiredAt" gorm:"column:expired_at"` // 实例到期时间
 
 	// 关联关系
-	UserID uint `json:"userId" gorm:"index:idx_user_status,priority:1"` // 所属用户ID
+	// 添加UserID索引以支持按用户查询
+	UserID uint `json:"userId" gorm:"index:idx_user_id;index:idx_user_status,priority:1"` // 所属用户ID
 }
 
 func (i *Instance) BeforeCreate(tx *gorm.DB) error {
@@ -368,19 +371,20 @@ type Port struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`       // 软删除时间
 
 	// 端口映射信息
-	InstanceID   uint   `json:"instanceId"`                                   // 关联的实例ID
-	ProviderID   uint   `json:"providerId"`                                   // 关联的Provider ID
-	HostPort     int    `json:"hostPort" gorm:"not null"`                     // 宿主机端口（起始端口）
-	HostPortEnd  int    `json:"hostPortEnd" gorm:"default:0"`                 // 宿主机端口结束（0表示单端口）
-	GuestPort    int    `json:"guestPort" gorm:"not null"`                    // 容器/虚拟机内部端口（起始端口）
-	GuestPortEnd int    `json:"guestPortEnd" gorm:"default:0"`                // 容器/虚拟机内部端口结束（0表示单端口）
-	PortCount    int    `json:"portCount" gorm:"default:1"`                   // 端口数量（端口段包含的端口个数）
-	Protocol     string `json:"protocol" gorm:"default:both;size:8"`          // 协议类型：tcp, udp, both
-	Status       string `json:"status" gorm:"default:active;size:16"`         // 映射状态：active, inactive
-	Description  string `json:"description" gorm:"size:256"`                  // 端口用途描述（支持更长描述）
-	IsSSH        bool   `json:"isSsh" gorm:"default:false"`                   // 是否为SSH端口
-	IsAutomatic  bool   `json:"isAutomatic" gorm:"default:true"`              // 是否为自动分配的端口
-	PortType     string `json:"portType" gorm:"default:range_mapped;size:16"` // 端口类型：range_mapped(区间映射), manual(手动添加), batch(批量添加)
+	// 为常用查询添加复合索引
+	InstanceID   uint   `json:"instanceId" gorm:"index:idx_instance_ssh,priority:1;index:idx_instance_status,priority:1"` // 关联的实例ID
+	ProviderID   uint   `json:"providerId" gorm:"index:idx_provider_id"`                                                  // 关联的Provider ID
+	HostPort     int    `json:"hostPort" gorm:"not null"`                                                                 // 宿主机端口（起始端口）
+	HostPortEnd  int    `json:"hostPortEnd" gorm:"default:0"`                                                             // 宿主机端口结束（0表示单端口）
+	GuestPort    int    `json:"guestPort" gorm:"not null"`                                                                // 容器/虚拟机内部端口（起始端口）
+	GuestPortEnd int    `json:"guestPortEnd" gorm:"default:0"`                                                            // 容器/虚拟机内部端口结束（0表示单端口）
+	PortCount    int    `json:"portCount" gorm:"default:1"`                                                               // 端口数量（端口段包含的端口个数）
+	Protocol     string `json:"protocol" gorm:"default:both;size:8"`                                                      // 协议类型：tcp, udp, both
+	Status       string `json:"status" gorm:"default:active;size:16;index:idx_instance_status,priority:2"`                // 映射状态：active, inactive
+	Description  string `json:"description" gorm:"size:256"`                                                              // 端口用途描述（支持更长描述）
+	IsSSH        bool   `json:"isSsh" gorm:"default:false;index:idx_instance_ssh,priority:2"`                             // 是否为SSH端口
+	IsAutomatic  bool   `json:"isAutomatic" gorm:"default:true"`                                                          // 是否为自动分配的端口
+	PortType     string `json:"portType" gorm:"default:range_mapped;size:16"`                                             // 端口类型：range_mapped(区间映射), manual(手动添加), batch(批量添加)
 
 	// IPv6支持
 	IPv6Enabled   bool   `json:"ipv6Enabled" gorm:"default:false"`            // 是否启用IPv6映射

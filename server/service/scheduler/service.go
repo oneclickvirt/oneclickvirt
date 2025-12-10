@@ -10,6 +10,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	dashboardModel "oneclickvirt/model/dashboard"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/service/traffic"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -114,14 +115,16 @@ func (s *SchedulerService) runTaskScheduler() {
 	taskTicker := time.NewTicker(5 * time.Second)         // 任务处理保持5秒
 	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理保持1分钟
 	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护保持10分钟
+	trafficAggTicker := time.NewTicker(5 * time.Minute)   // 流量聚合保持5分钟
 
 	defer func() {
 		taskTicker.Stop()
 		cleanupTicker.Stop()
 		maintenanceTicker.Stop()
+		trafficAggTicker.Stop()
 	}()
 
-	global.APP_LOG.Info("Task scheduler main loop started (flow control moved to MonitoringSchedulerService)")
+	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation")
 
 	for {
 		select {
@@ -142,6 +145,10 @@ func (s *SchedulerService) runTaskScheduler() {
 
 		case <-maintenanceTicker.C:
 			s.performMaintenance()
+
+		case <-trafficAggTicker.C:
+			// 定期聚合流量数据，更新缓存
+			s.aggregateTrafficData()
 		}
 	}
 }
@@ -308,4 +315,26 @@ func (s *SchedulerService) GetSchedulerStats() map[string]interface{} {
 	stats["last_update"] = time.Now()
 
 	return stats
+}
+
+// aggregateTrafficData 聚合流量数据到缓存表
+// 定期将 pmacct_traffic_records 原始数据聚合到 instance_traffic_histories 缓存表
+// 用于加速查询，避免每次都执行复杂的分段计算
+func (s *SchedulerService) aggregateTrafficData() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		return
+	}
+
+	// 创建流量聚合服务
+	aggService := traffic.NewAggregationService()
+
+	// 聚合当月流量数据
+	err := aggService.AggregateCurrentMonth()
+	if err != nil {
+		global.APP_LOG.Error("流量聚合失败", zap.Error(err))
+		return
+	}
+
+	global.APP_LOG.Debug("流量聚合任务完成")
 }
