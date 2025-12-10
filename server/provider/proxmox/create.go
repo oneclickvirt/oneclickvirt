@@ -355,26 +355,47 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	if hasIPv6 {
 		// 检查是否真正配置了IPv6
 		ipv6Info, err := p.getIPv6Info(ctx)
-		if err != nil || !ipv6Info.HasAppendedAddresses {
-			global.APP_LOG.Warn("IPv6配置检查失败或未配置IPv6，仅使用vmbr1",
+		if err != nil {
+			global.APP_LOG.Warn("获取IPv6信息失败",
 				zap.Error(err),
 				zap.String("networkType", networkConfig.NetworkType))
-			net1Bridge = "vmbr1"
-		} else {
+		}
+
+		// 如果有appended addresses或基础IPv6配置，使用vmbr2
+		if ipv6Info != nil && (ipv6Info.HasAppendedAddresses ||
+			(ipv6Info.HostIPv6Address != "" && ipv6Info.IPv6Gateway != "")) {
 			net1Bridge = "vmbr2"
+			global.APP_LOG.Info("检测到IPv6环境，使用vmbr2",
+				zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses),
+				zap.String("hostIPv6", ipv6Info.HostIPv6Address))
+		} else {
+			// 没有任何IPv6配置，使用单网络接口
+			net1Bridge = ""
+			global.APP_LOG.Warn("未检测到IPv6环境，将使用单网络接口（仅vmbr1）",
+				zap.String("networkType", networkConfig.NetworkType))
 		}
 	} else {
 		// 纯IPv4模式，只使用vmbr1
-		net1Bridge = "vmbr1"
+		net1Bridge = ""
 		global.APP_LOG.Info("使用IPv4-only配置，不创建vmbr2接口",
 			zap.String("networkType", networkConfig.NetworkType))
 	}
 
-	// 创建虚拟机，包含IPv6网络接口
-	createCmd := fmt.Sprintf(
-		"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-		vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
-	)
+	// 创建虚拟机
+	var createCmd string
+	if net1Bridge != "" {
+		// 双网络接口模式（IPv6）
+		createCmd = fmt.Sprintf(
+			"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+			vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
+		)
+	} else {
+		// 单网络接口模式（纯IPv4或IPv6环境缺失）
+		createCmd = fmt.Sprintf(
+			"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --ostype l26 %s",
+			vmid, cpuFormatted, cpuType, kvmFlag,
+		)
+	}
 
 	_, err = p.sshClient.Execute(createCmd)
 	if err != nil {
