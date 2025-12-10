@@ -307,7 +307,7 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 	// 与GetInstanceMonthlyTraffic保持一致，确保计算准确性
 	query := `
 		SELECT 
-			t1.instance_id,
+			segment_max.instance_id,
 			COALESCE(SUM(max_rx), 0) as rx_bytes,
 			COALESCE(SUM(max_tx), 0) as tx_bytes
 		FROM (
@@ -350,7 +350,7 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 			) AS segments
 			GROUP BY instance_id, segment_id
 		) AS segment_max
-		GROUP BY t1.instance_id
+		GROUP BY segment_max.instance_id
 	`
 
 	type RawResult struct {
