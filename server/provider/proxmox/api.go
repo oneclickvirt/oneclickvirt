@@ -193,7 +193,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	// 初始化pmacct流量监控
 	updateProgress(95, "初始化pmacct流量监控...")
 	if err := p.initializePmacctMonitoring(ctx, vmid, config.Name); err != nil {
-		global.APP_LOG.Warn("初始化pmacct监控失败",
+		global.APP_LOG.Warn("初始化流量监控失败",
 			zap.Int("vmid", vmid),
 			zap.String("name", config.Name),
 			zap.Error(err))
@@ -870,7 +870,8 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	updateProgress(70, "配置容器网络...")
 
-	// 配置网络
+	// 配置网络（使用统一的IP分配规则: 172.16.1.{VMID}）
+	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
 	userIP := fmt.Sprintf("172.16.1.%d", vmid)
 	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
 
@@ -1135,7 +1136,8 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		}
 	}
 
-	// 配置IP
+	// 配置IP（使用统一的IP分配规则: 172.16.1.{VMID}）
+	// VMID范围: 10-255, 对应IP: 172.16.1.10 - 172.16.1.255
 	userIP := fmt.Sprintf("172.16.1.%d", vmid)
 	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=172.16.1.1", vmid, userIP))
 

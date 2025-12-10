@@ -52,7 +52,7 @@ func (s *Service) SetProviderID(providerID uint) {
 	s.providerID = providerID
 }
 
-// InitializePmacctForInstance 为实例初始化pmacct监控
+// InitializePmacctForInstance 为实例初始化流量监控
 // 监控容器/虚拟机通过NAT映射的流量
 // 优先使用PortIP（端口映射IP），如果没有则使用Endpoint（SSH连接IP）
 func (s *Service) InitializePmacctForInstance(instanceID uint) error {
@@ -85,7 +85,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 
 	s.SetProviderID(instance.ProviderID)
 
-	global.APP_LOG.Info("开始初始化pmacct监控",
+	global.APP_LOG.Info("开始初始化流量监控",
 		zap.Uint("instanceID", instanceID),
 		zap.String("instanceName", instance.Name),
 		zap.String("providerType", providerInstance.GetType()))

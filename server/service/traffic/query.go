@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+
+	"gorm.io/gorm"
 )
 
 // QueryService 流量查询服务 - 统一的流量数据查询入口
@@ -156,7 +158,7 @@ func (s *QueryService) GetUserMonthlyTraffic(userID uint, year, month int) (*Tra
 }
 
 // GetProviderMonthlyTraffic 获取Provider当月所有实例的流量统计
-// 处理pmacct重启导致的累积值重置问题
+// 使用provider_traffic_histories聚合表，大幅提升性能
 func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month int) (*TrafficStats, error) {
 	// 首先检查Provider是否启用了流量控制
 	var p struct {
@@ -178,41 +180,43 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 		return &TrafficStats{}, nil
 	}
 
-	// 获取Provider下的所有实例（包含软删除的实例，以统计历史流量）
-	var instanceIDs []uint
-	err = global.APP_DB.Unscoped().Table("instances").
-		Where("provider_id = ?", providerID).
-		Pluck("id", &instanceIDs).Error
-	if err != nil {
-		return nil, fmt.Errorf("查询Provider实例列表失败: %w", err)
+	// 使用聚合表查询，性能大幅提升
+	// day=0,hour=0 表示月度汇总数据
+	var result struct {
+		TrafficIn  int64
+		TrafficOut int64
+		TotalUsed  int64
 	}
 
-	if len(instanceIDs) == 0 {
-		return &TrafficStats{}, nil
+	err = global.APP_DB.Table("provider_traffic_histories").
+		Select("traffic_in, traffic_out, total_used").
+		Where("provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL",
+			providerID, year, month).
+		Scan(&result).Error
+	if err != nil && err != gorm.ErrRecordNotFound {
+		return nil, fmt.Errorf("查询Provider流量失败: %w", err)
 	}
 
-	// 使用批量查询（已包含重启检测逻辑）
-	instanceStats, err := s.BatchGetInstancesMonthlyTraffic(instanceIDs, year, month)
-	if err != nil {
-		return nil, err
+	// 根据流量模式计算实际使用量
+	var actualUsageMB float64
+	switch p.TrafficCountMode {
+	case "out":
+		actualUsageMB = float64(result.TrafficOut) * p.TrafficMultiplier
+	case "in":
+		actualUsageMB = float64(result.TrafficIn) * p.TrafficMultiplier
+	default: // "both"
+		actualUsageMB = float64(result.TotalUsed) * p.TrafficMultiplier
 	}
 
-	// 汇总所有实例的流量
-	var totalRxBytes int64
-	var totalTxBytes int64
-	var totalActualUsageMB float64
-
-	for _, stats := range instanceStats {
-		totalRxBytes += stats.RxBytes
-		totalTxBytes += stats.TxBytes
-		totalActualUsageMB += stats.ActualUsageMB
-	}
+	// 转换为字节
+	rxBytes := result.TrafficIn * 1024 * 1024
+	txBytes := result.TrafficOut * 1024 * 1024
 
 	return &TrafficStats{
-		RxBytes:       totalRxBytes,
-		TxBytes:       totalTxBytes,
-		TotalBytes:    totalRxBytes + totalTxBytes,
-		ActualUsageMB: totalActualUsageMB,
+		RxBytes:       rxBytes,
+		TxBytes:       txBytes,
+		TotalBytes:    rxBytes + txBytes,
+		ActualUsageMB: actualUsageMB,
 	}, nil
 }
 
@@ -354,53 +358,51 @@ func (s *QueryService) GetInstanceTrafficHistory(instanceID uint, days int) ([]*
 		TxBytes int64
 	}
 
-	// 兼容 MySQL 5.x - 使用相关子查询代替窗口函数（LAG, PARTITION BY 等）
-	// MySQL 8.0+ 支持窗口函数，但为了兼容 MySQL 5.x 和 MariaDB，使用传统的子查询方式
+	// 兼容 MySQL 5.x - 不使用 CTE (WITH AS) 和窗口函数
+	// MySQL 5.x 不支持 CTE，改用派生表（子查询）实现相同逻辑
 	query := `
-		WITH daily_segments AS (
-			-- 检测累积值重置点（使用相关子查询代替LAG窗口函数，兼容MySQL 5.x）
-			SELECT 
-				DATE(t1.timestamp) as date,
-				t1.timestamp,
-				t1.rx_bytes,
-				t1.tx_bytes,
-				(SELECT COUNT(*)
-				 FROM pmacct_traffic_records t2
-				 WHERE t2.instance_id = ? 
-				   AND DATE(t2.timestamp) = DATE(t1.timestamp)
-				   AND t2.timestamp <= t1.timestamp
-				   AND (
-					 (t2.rx_bytes < (SELECT COALESCE(MAX(t3.rx_bytes), 0)
-									 FROM pmacct_traffic_records t3
-									 WHERE t3.instance_id = ?
-									   AND DATE(t3.timestamp) = DATE(t1.timestamp)
-									   AND t3.timestamp < t2.timestamp))
-					 OR
-					 (t2.tx_bytes < (SELECT COALESCE(MAX(t3.tx_bytes), 0)
-									 FROM pmacct_traffic_records t3
-									 WHERE t3.instance_id = ?
-									   AND DATE(t3.timestamp) = DATE(t1.timestamp)
-									   AND t3.timestamp < t2.timestamp))
-				   )
-				) as segment_id
-			FROM pmacct_traffic_records t1
-			WHERE t1.instance_id = ? AND t1.timestamp >= ?
-		),
-		daily_segment_max AS (
+		SELECT 
+			date,
+			SUM(max_rx) as rx_bytes,
+			SUM(max_tx) as tx_bytes
+		FROM (
 			-- 每天的每个段取MAX
 			SELECT 
 				date,
 				segment_id,
 				MAX(rx_bytes) as max_rx,
 				MAX(tx_bytes) as max_tx
-			FROM daily_segments
+			FROM (
+				-- 检测累积值重置点（使用相关子查询，兼容MySQL 5.x）
+				SELECT 
+					DATE(t1.timestamp) as date,
+					t1.timestamp,
+					t1.rx_bytes,
+					t1.tx_bytes,
+					(SELECT COUNT(*)
+					 FROM pmacct_traffic_records t2
+					 WHERE t2.instance_id = ? 
+					   AND DATE(t2.timestamp) = DATE(t1.timestamp)
+					   AND t2.timestamp <= t1.timestamp
+					   AND (
+						 (t2.rx_bytes < (SELECT COALESCE(MAX(t3.rx_bytes), 0)
+										 FROM pmacct_traffic_records t3
+										 WHERE t3.instance_id = ?
+										   AND DATE(t3.timestamp) = DATE(t1.timestamp)
+										   AND t3.timestamp < t2.timestamp))
+						 OR
+						 (t2.tx_bytes < (SELECT COALESCE(MAX(t3.tx_bytes), 0)
+										 FROM pmacct_traffic_records t3
+										 WHERE t3.instance_id = ?
+										   AND DATE(t3.timestamp) = DATE(t1.timestamp)
+										   AND t3.timestamp < t2.timestamp))
+					   )
+					) as segment_id
+				FROM pmacct_traffic_records t1
+				WHERE t1.instance_id = ? AND t1.timestamp >= ?
+			) AS daily_segments
 			GROUP BY date, segment_id
-		)
-		SELECT 
-			date,
-			SUM(max_rx) as rx_bytes,
-			SUM(max_tx) as tx_bytes
-		FROM daily_segment_max
+		) AS daily_segment_max
 		GROUP BY date
 		ORDER BY date ASC
 	`

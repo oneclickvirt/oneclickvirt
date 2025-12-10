@@ -427,6 +427,11 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 			"providerId": instance.ProviderID,
 		}
 
+		// 如果是重置操作，在创建任务前就添加原始状态
+		if req.Action == "reset" {
+			taskData["originalStatus"] = instance.Status
+		}
+
 		// 将taskData序列化为JSON字符串
 		taskDataJSON, err := json.Marshal(taskData)
 		if err != nil {

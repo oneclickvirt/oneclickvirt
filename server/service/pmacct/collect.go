@@ -563,6 +563,8 @@ ORDER BY timestamp;
 	// 前端/API查询时通过相邻时间点的差值计算实际使用量
 	if imported > 0 {
 		now := time.Now()
+		year, month := now.Year(), int(now.Month())
+		day, hour := now.Day(), now.Hour()
 
 		// 更新实例流量历史表（小时级，存储该小时最新的累积值）
 		if err := global.APP_DB.Exec(`
@@ -588,8 +590,81 @@ ORDER BY timestamp;
 				total_used = VALUES(total_used),
 				record_time = VALUES(record_time),
 				updated_at = VALUES(updated_at)
-		`, now, now, now, instanceID, now.Year(), int(now.Month()), now.Day(), now.Hour()).Error; err != nil {
+		`, now, now, now, instanceID, year, month, day, hour).Error; err != nil {
 			global.APP_LOG.Warn("更新实例流量历史失败",
+				zap.Uint("instanceID", instanceID),
+				zap.Error(err))
+		}
+
+		// 更新实例月度汇总（day=0, hour=0）
+		// 支持pmacct每天4点自动重置，使用分段检测避免数据丢失
+		// pmacct重置后累积值从0开始，需要检测累积值下降并分段求和
+		if err := global.APP_DB.Exec(`
+			INSERT INTO instance_traffic_histories 
+				(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT 
+				instance_id,
+				provider_id,
+				user_id,
+				COALESCE(SUM(segment_max_rx), 0) as traffic_in,
+				COALESCE(SUM(segment_max_tx), 0) as traffic_out,
+				COALESCE(SUM(segment_max_total), 0) as total_used,
+				year, month, 0 as day, 0 as hour,
+				? as record_time,
+				? as created_at,
+				? as updated_at
+			FROM (
+				-- 步骤2：每个分段取最大累积值
+				SELECT 
+					instance_id, provider_id, user_id, year, month,
+					segment_id,
+					MAX(rx_bytes) as segment_max_rx,
+					MAX(tx_bytes) as segment_max_tx,
+					MAX(total_bytes) as segment_max_total
+				FROM (
+					-- 步骤1：检测累积值下降（pmacct重启），计算segment_id
+					SELECT 
+						t1.instance_id,
+						t1.provider_id,
+						t1.user_id,
+						t1.year,
+						t1.month,
+						t1.rx_bytes,
+						t1.tx_bytes,
+						t1.total_bytes,
+						t1.timestamp,
+						-- 计算当前记录之前有多少次重启（累积值下降）
+						(
+							SELECT COUNT(DISTINCT t2.id)
+							FROM pmacct_traffic_records t2
+							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
+								AND t3.timestamp = (
+									SELECT MAX(timestamp) 
+									FROM pmacct_traffic_records 
+									WHERE instance_id = t2.instance_id 
+										AND timestamp < t2.timestamp
+										AND year = t1.year AND month = t1.month
+								)
+							WHERE t2.instance_id = t1.instance_id
+								AND t2.year = t1.year AND t2.month = t1.month
+								AND t2.timestamp <= t1.timestamp
+								AND t3.id IS NOT NULL
+								AND (t2.rx_bytes < t3.rx_bytes OR t2.tx_bytes < t3.tx_bytes)
+						) as segment_id
+					FROM pmacct_traffic_records t1
+					WHERE t1.instance_id = ? AND t1.year = ? AND t1.month = ? AND t1.deleted_at IS NULL
+				) AS segments
+				GROUP BY instance_id, provider_id, user_id, year, month, segment_id
+			) AS segment_totals
+			GROUP BY instance_id, provider_id, user_id, year, month
+			ON DUPLICATE KEY UPDATE
+				traffic_in = VALUES(traffic_in),
+				traffic_out = VALUES(traffic_out),
+				total_used = VALUES(total_used),
+				record_time = VALUES(record_time),
+				updated_at = VALUES(updated_at)
+		`, now, now, now, instanceID, year, month).Error; err != nil {
+			global.APP_LOG.Warn("更新实例月度汇总失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
 		}
@@ -618,8 +693,38 @@ ORDER BY timestamp;
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
 				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.ProviderID, now.Year(), int(now.Month()), now.Day(), now.Hour()).Error; err != nil {
+		`, now, now, now, instance.ProviderID, year, month, day, hour).Error; err != nil {
 			global.APP_LOG.Warn("更新Provider流量历史失败",
+				zap.Uint("providerID", instance.ProviderID),
+				zap.Error(err))
+		}
+
+		// 更新Provider月度汇总（day=0, hour=0）
+		if err := global.APP_DB.Exec(`
+			INSERT INTO provider_traffic_histories 
+				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT 
+				provider_id,
+				SUM(traffic_in) as traffic_in,
+				SUM(traffic_out) as traffic_out,
+				SUM(total_used) as total_used,
+				COUNT(DISTINCT instance_id) as instance_count,
+				year, month, 0 as day, 0 as hour,
+				? as record_time,
+				? as created_at,
+				? as updated_at
+			FROM instance_traffic_histories
+			WHERE provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
+			GROUP BY provider_id, year, month
+			ON DUPLICATE KEY UPDATE
+				traffic_in = VALUES(traffic_in),
+				traffic_out = VALUES(traffic_out),
+				total_used = VALUES(total_used),
+				instance_count = VALUES(instance_count),
+				record_time = VALUES(record_time),
+				updated_at = VALUES(updated_at)
+		`, now, now, now, instance.ProviderID, year, month).Error; err != nil {
+			global.APP_LOG.Warn("更新Provider月度汇总失败",
 				zap.Uint("providerID", instance.ProviderID),
 				zap.Error(err))
 		}
@@ -648,8 +753,38 @@ ORDER BY timestamp;
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
 				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.UserID, now.Year(), int(now.Month()), now.Day(), now.Hour()).Error; err != nil {
+		`, now, now, now, instance.UserID, year, month, day, hour).Error; err != nil {
 			global.APP_LOG.Warn("更新用户流量历史失败",
+				zap.Uint("userID", instance.UserID),
+				zap.Error(err))
+		}
+
+		// 更新用户月度汇总（day=0, hour=0）
+		if err := global.APP_DB.Exec(`
+			INSERT INTO user_traffic_histories 
+				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT 
+				user_id,
+				SUM(traffic_in) as traffic_in,
+				SUM(traffic_out) as traffic_out,
+				SUM(total_used) as total_used,
+				COUNT(DISTINCT instance_id) as instance_count,
+				year, month, 0 as day, 0 as hour,
+				? as record_time,
+				? as created_at,
+				? as updated_at
+			FROM instance_traffic_histories
+			WHERE user_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
+			GROUP BY user_id, year, month
+			ON DUPLICATE KEY UPDATE
+				traffic_in = VALUES(traffic_in),
+				traffic_out = VALUES(traffic_out),
+				total_used = VALUES(total_used),
+				instance_count = VALUES(instance_count),
+				record_time = VALUES(record_time),
+				updated_at = VALUES(updated_at)
+		`, now, now, now, instance.UserID, year, month).Error; err != nil {
+			global.APP_LOG.Warn("更新用户月度汇总失败",
 				zap.Uint("userID", instance.UserID),
 				zap.Error(err))
 		}

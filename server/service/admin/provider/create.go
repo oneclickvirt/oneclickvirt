@@ -121,8 +121,9 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		MaxConcurrentTasks:    req.MaxConcurrentTasks,
 		TaskPollInterval:      req.TaskPollInterval,
 		EnableTaskPolling:     req.EnableTaskPolling,
-		// 存储配置（ProxmoxVE专用）
+		// 存储配置（所有Provider类型通用）
 		StoragePool: req.StoragePool,
+		// StoragePoolPath 将在健康检查时自动检测并填充
 		// 操作执行配置
 		ExecutionRule: req.ExecutionRule,
 		// 端口映射配置

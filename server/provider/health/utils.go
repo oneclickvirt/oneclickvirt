@@ -331,11 +331,11 @@ func (phc *ProviderHealthChecker) CheckAPIConnection(ctx context.Context, provid
 
 // GetSystemResourceInfo 通过SSH获取系统资源信息
 func (phc *ProviderHealthChecker) GetSystemResourceInfo(ctx context.Context, providerID uint, providerName, host, username, password string, port int) (*ResourceInfo, error) {
-	return phc.GetSystemResourceInfoWithKey(ctx, providerID, providerName, host, username, password, "", port)
+	return phc.GetSystemResourceInfoWithKey(ctx, providerID, providerName, host, username, password, "", port, "", "")
 }
 
-// GetSystemResourceInfoWithKey 通过SSH获取系统资源信息（支持SSH密钥）
-func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int) (*ResourceInfo, error) {
+// GetSystemResourceInfoWithKey 通过SSH获取系统资源信息（支持SSH密钥、provider类型和存储池名称）
+func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Context, providerID uint, providerName, host, username, password, privateKey string, port int, providerType, storagePoolName string) (*ResourceInfo, error) {
 	// 复制副本避免共享状态，立即创建所有参数的本地副本
 	localProviderID := providerID
 	localProviderName := providerName
@@ -344,6 +344,8 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 	localPassword := password
 	localPrivateKey := privateKey
 	localPort := port
+	localProviderType := providerType
+	localStoragePoolName := storagePoolName
 
 	// 添加入口日志
 	if phc.logger != nil {
@@ -447,69 +449,99 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 		resourceInfo.SwapTotal = phc.parseMemoryValue(memInfo, "SwapTotal")
 	}
 
-	// 获取磁盘信息（根目录）- 使用更通用的方式
-	diskInfo, err := phc.executeSSHCommand(client, "df -h / | tail -1")
-	if err == nil {
-		if phc.logger != nil {
-			phc.logger.Debug("df -h命令输出", zap.String("output", diskInfo))
-		}
-		// 解析df输出，格式：Filesystem Size Used Avail Use% Mounted on
-		// 示例：/dev/sda1        25G   17G  7.2G  70% /
-		fields := strings.Fields(strings.TrimSpace(diskInfo))
-		if len(fields) >= 4 {
-			// 第二个字段(index 1)是总空间Size，第四个字段(index 3)是可用空间Avail
-			if total := phc.parseDiskSize(fields[1]); total > 0 {
-				resourceInfo.DiskTotal = total
-			}
-			if free := phc.parseDiskSize(fields[3]); free > 0 {
-				resourceInfo.DiskFree = free // 现在parseDiskSize返回MB，直接使用
-			}
-		}
-	} else if phc.logger != nil {
-		phc.logger.Warn("df -h命令失败", zap.Error(err))
+	// 自动检测存储池路径
+	storagePoolPath, err := phc.DetectStoragePoolPath(client, localProviderType, localStoragePoolName)
+	if err != nil && phc.logger != nil {
+		phc.logger.Warn("检测存储池路径失败，使用根目录",
+			zap.String("providerType", localProviderType),
+			zap.String("storagePoolName", localStoragePoolName),
+			zap.Error(err))
+		storagePoolPath = "/"
 	}
 
-	// 如果df -h解析失败，尝试使用statvfs系统调用的替代方案
-	if resourceInfo.DiskTotal == 0 {
-		// 尝试使用du和df的组合来获取更准确的信息
-		statInfo, statErr := phc.executeSSHCommand(client, "stat -f / 2>/dev/null || df / | tail -1")
-		if statErr == nil && statInfo != "" {
+	// 使用检测到的存储池路径获取磁盘信息
+	totalDisk, freeDisk, err := phc.getDiskInfoByPath(client, storagePoolPath)
+	if err == nil {
+		resourceInfo.DiskTotal = totalDisk
+		resourceInfo.DiskFree = freeDisk
+		if phc.logger != nil {
+			phc.logger.Info("使用存储池路径获取磁盘信息成功",
+				zap.String("storagePoolPath", storagePoolPath),
+				zap.Int64("diskTotal", totalDisk),
+				zap.Int64("diskFree", freeDisk))
+		}
+	} else {
+		// 如果使用存储池路径失败，降级使用根目录
+		if phc.logger != nil {
+			phc.logger.Warn("使用存储池路径获取磁盘信息失败，尝试使用根目录",
+				zap.String("storagePoolPath", storagePoolPath),
+				zap.Error(err))
+		}
+		diskInfo, err := phc.executeSSHCommand(client, "df -h / | tail -1")
+		if err == nil {
 			if phc.logger != nil {
-				phc.logger.Debug("备用磁盘信息命令输出", zap.String("output", statInfo))
+				phc.logger.Debug("df -h命令输出", zap.String("output", diskInfo))
 			}
-			// 如果是stat -f的输出，会包含更详细的文件系统信息
-			// 如果是df的输出，格式类似但可能没有单位后缀
-			if strings.Contains(statInfo, "/") {
-				fields := strings.Fields(strings.TrimSpace(statInfo))
-				if len(fields) >= 4 {
-					// 尝试解析第二个和第四个字段，如果没有单位则假设是KB
-					total := phc.parseDiskSizeWithDefault(fields[1], "K")
-					if total > 0 {
-						resourceInfo.DiskTotal = total
-					}
-					free := phc.parseDiskSizeWithDefault(fields[3], "K")
-					if free > 0 {
-						resourceInfo.DiskFree = free // 现在parseDiskSizeWithDefault返回MB，直接使用
+			// 解析df输出，格式：Filesystem Size Used Avail Use% Mounted on
+			// 示例：/dev/sda1        25G   17G  7.2G  70% /
+			fields := strings.Fields(strings.TrimSpace(diskInfo))
+			if len(fields) >= 4 {
+				// 第二个字段(index 1)是总空间Size，第四个字段(index 3)是可用空间Avail
+				if total := phc.parseDiskSize(fields[1]); total > 0 {
+					resourceInfo.DiskTotal = total
+				}
+				if free := phc.parseDiskSize(fields[3]); free > 0 {
+					resourceInfo.DiskFree = free // 现在parseDiskSize返回MB，直接使用
+				}
+			}
+		} else if phc.logger != nil {
+			phc.logger.Warn("df -h命令失败", zap.Error(err))
+		}
+
+		// 如果df -h解析失败，尝试使用statvfs系统调用的替代方案
+		if resourceInfo.DiskTotal == 0 {
+			// 尝试使用du和df的组合来获取更准确的信息
+			statInfo, statErr := phc.executeSSHCommand(client, "stat -f / 2>/dev/null || df / | tail -1")
+			if statErr == nil && statInfo != "" {
+				if phc.logger != nil {
+					phc.logger.Debug("备用磁盘信息命令输出", zap.String("output", statInfo))
+				}
+				// 如果是stat -f的输出，会包含更详细的文件系统信息
+				// 如果是df的输出，格式类似但可能没有单位后缀
+				if strings.Contains(statInfo, "/") {
+					fields := strings.Fields(strings.TrimSpace(statInfo))
+					if len(fields) >= 4 {
+						// 尝试解析第二个和第四个字段，如果没有单位则假设是KB
+						total := phc.parseDiskSizeWithDefault(fields[1], "K")
+						if total > 0 {
+							resourceInfo.DiskTotal = total
+						}
+						free := phc.parseDiskSizeWithDefault(fields[3], "K")
+						if free > 0 {
+							resourceInfo.DiskFree = free // 现在parseDiskSizeWithDefault返回MB，直接使用
+						}
 					}
 				}
 			}
 		}
-	}
 
-	now := time.Now()
-	resourceInfo.Synced = true
-	resourceInfo.SyncedAt = &now
+		now := time.Now()
+		resourceInfo.StoragePoolPath = storagePoolPath // 保存检测到的存储池路径
+		resourceInfo.Synced = true
+		resourceInfo.SyncedAt = &now
 
-	if phc.logger != nil {
-		phc.logger.Info("系统资源信息获取成功",
-			zap.Uint("providerID", localProviderID),
-			zap.String("providerName", localProviderName),
-			zap.String("host", localHost),
-			zap.Int("cpu_cores", resourceInfo.CPUCores),
-			zap.Int64("memory_total_mb", resourceInfo.MemoryTotal),
-			zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
-			zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
-			zap.Int64("disk_free_mb", resourceInfo.DiskFree))
+		if phc.logger != nil {
+			phc.logger.Info("系统资源信息获取成功",
+				zap.Uint("providerID", localProviderID),
+				zap.String("providerName", localProviderName),
+				zap.String("host", localHost),
+				zap.Int("cpu_cores", resourceInfo.CPUCores),
+				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal),
+				zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
+				zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
+				zap.Int64("disk_free_mb", resourceInfo.DiskFree),
+				zap.String("storage_pool_path", storagePoolPath))
+		}
 	}
 
 	return resourceInfo, nil

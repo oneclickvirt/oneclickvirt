@@ -424,10 +424,10 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		}
 
 		// 最后尝试从网络配置推断IP地址 (如果使用标准内网配置)
-		// 基于buildvm.sh脚本中的IP分配规则: 172.16.1.${vm_num}
+		// IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
 		vmidInt, err := strconv.Atoi(vmid)
-		if err == nil && vmidInt > 0 && vmidInt < 255 {
-			inferredIP := fmt.Sprintf("172.16.1.%d", vmidInt)
+		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
+			inferredIP := fmt.Sprintf("%s.%d", InternalIPPrefix, vmidInt)
 			// 验证这个IP是否能ping通
 			pingCmd := fmt.Sprintf("ping -c 1 -W 2 %s >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable'", inferredIP)
 			pingOutput, pingErr := p.sshClient.Execute(pingCmd)
@@ -572,22 +572,18 @@ func (p *ProxmoxProvider) sshDeleteImage(ctx context.Context, id string) error {
 
 // 获取下一个可用的 VMID
 func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) (int, error) {
-	// 根据实例类型确定VMID范围
-	var minVMID, maxVMID int
-	if instanceType == "vm" {
-		minVMID = 100
-		maxVMID = 177 // 虚拟机使用 100-177 (78个ID)
-	} else if instanceType == "container" {
-		minVMID = 178
-		maxVMID = 255 // 容器使用 178-255 (78个ID)
-	} else {
-		return 0, fmt.Errorf("不支持的实例类型: %s", instanceType)
-	}
+	// 并发安全保护：VMID分配必须串行化，避免多个goroutine同时分配到相同ID
+	// 使用互斥锁确保同一时间只有一个goroutine在分配VMID
+	p.mu.Lock()
+	defer p.mu.Unlock()
 
+	// 统一VMID范围：10-255（不区分VM和Container类型）
+	// 使用全局常量确保一致性
 	global.APP_LOG.Info("开始分配VMID",
 		zap.String("instanceType", instanceType),
-		zap.Int("minVMID", minVMID),
-		zap.Int("maxVMID", maxVMID))
+		zap.Int("minVMID", MinVMID),
+		zap.Int("maxVMID", MaxVMID),
+		zap.Int("maxInstances", MaxInstances))
 
 	// 获取已使用的VMID列表
 	usedVMIDs := make(map[int]bool)
@@ -620,19 +616,32 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 		}
 	}
 
+	// 检查是否已达到最大实例数量限制
+	if len(usedVMIDs) >= MaxInstances {
+		global.APP_LOG.Error("已达到最大实例数量限制",
+			zap.Int("currentInstances", len(usedVMIDs)),
+			zap.Int("maxInstances", MaxInstances))
+		return 0, fmt.Errorf("已达到最大实例数量限制 (%d/%d)，无法创建新实例。请删除不用的实例或联系管理员扩展网络容量", len(usedVMIDs), MaxInstances)
+	}
+
 	// 在指定范围内寻找最小的可用VMID
-	for vmid := minVMID; vmid <= maxVMID; vmid++ {
+	for vmid := MinVMID; vmid <= MaxVMID; vmid++ {
 		if !usedVMIDs[vmid] {
 			global.APP_LOG.Info("分配VMID成功",
 				zap.String("instanceType", instanceType),
 				zap.Int("vmid", vmid),
-				zap.Int("totalUsedVMIDs", len(usedVMIDs)))
+				zap.Int("totalUsedVMIDs", len(usedVMIDs)),
+				zap.Int("remainingSlots", MaxInstances-len(usedVMIDs)))
 			return vmid, nil
 		}
 	}
 
 	// 如果没有可用的VMID，返回错误
-	return 0, fmt.Errorf("在范围 %d-%d 内没有可用的VMID，实例类型: %s", minVMID, maxVMID, instanceType)
+	global.APP_LOG.Error("VMID范围内无可用ID",
+		zap.Int("minVMID", MinVMID),
+		zap.Int("maxVMID", MaxVMID),
+		zap.Int("usedCount", len(usedVMIDs)))
+	return 0, fmt.Errorf("在范围 %d-%d 内没有可用的VMID（已使用: %d）", MinVMID, MaxVMID, len(usedVMIDs))
 }
 
 // sshSetInstancePassword 通过SSH设置实例密码
@@ -774,6 +783,7 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	}
 
 	// 如果没有IPv6或IPv6配置失败，配置IPv4-only网络
+	// 使用统一的IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
 	if !hasIPv6 {
 		user_ip := fmt.Sprintf("172.16.1.%d", vmid)
 		netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
@@ -1063,7 +1073,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 		return nil
 	}
 
-	// 初始化pmacct监控
+	// 初始化流量监控
 	if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
 		global.APP_LOG.Warn("Proxmox实例创建后初始化 pmacct 监控失败",
 			zap.Uint("instanceId", instanceID),
@@ -1190,7 +1200,7 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	notesBuilder.WriteString("\n")
 	notesBuilder.WriteString(fmt.Sprintf("#Type: %s", config.InstanceType))
 	notesBuilder.WriteString("\n")
-	// 添加网络信息
+	// 添加网络信息（使用统一的IP分配规则: 172.16.1.{VMID}）
 	internalIP := fmt.Sprintf("172.16.1.%d", vmid)
 	notesBuilder.WriteString(fmt.Sprintf("#Internal IP: %s", internalIP))
 	notesBuilder.WriteString("\n")

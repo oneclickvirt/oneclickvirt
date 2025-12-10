@@ -77,7 +77,7 @@ func (m *LifecycleManager) AttachMonitor(ctx context.Context, instanceID uint) e
 	pmacctService.SetProviderID(instance.ProviderID)
 
 	if err := pmacctService.InitializePmacctForInstance(instanceID); err != nil {
-		return fmt.Errorf("初始化pmacct监控失败: %w", err)
+		return fmt.Errorf("初始化流量监控失败: %w", err)
 	}
 
 	global.APP_LOG.Info("成功附加流量监控",

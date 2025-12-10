@@ -506,8 +506,8 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		// 检查provider是否启用了流量统计
 		if providerRecord.EnableTrafficControl {
-			// 初始化pmacct监控
-			updateProgress(80, "初始化pmacct监控...")
+			// 初始化流量监控
+			updateProgress(80, "初始化流量监控...")
 			pmacctService := pmacct.NewService()
 			if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
 				global.APP_LOG.Warn("LXD实例创建后初始化 pmacct 监控失败",

@@ -140,14 +140,9 @@ func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
 		}
 	})
 
-	// 任务取消成功后，触发资源释放
-	if err == nil {
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.handleCancelledTaskCleanup(taskID)
-		}()
-	}
+	// 注意：对于running状态的任务，不在这里调用handleCancelledTaskCleanup
+	// 因为任务可能已经部分执行，不应该简单恢复状态
+	// 只有pending状态的任务取消才会在cancelPendingTask中恢复状态
 
 	return err
 }
@@ -172,6 +167,13 @@ func (s *TaskService) cancelPendingTask(tx *gorm.DB, taskID uint, reason string)
 	go func() {
 		defer s.wg.Done()
 		s.releaseTaskResources(taskID)
+	}()
+
+	// pending状态的任务取消后，需要恢复实例状态
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		s.handleCancelledTaskCleanup(taskID)
 	}()
 
 	return nil
@@ -257,6 +259,9 @@ func (s *TaskService) ForceStopTask(taskID uint, reason string) error {
 }
 
 // handleCancelledTaskCleanup 处理被取消任务的清理工作
+// 注意：此函数仅用于处理 pending 状态下被取消的任务
+// 对于 running 状态的任务，由于可能已经部分执行并修改了资源，
+// 不应该简单地恢复实例状态，而应该由具体的任务执行逻辑来处理取消后的清理
 func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 	var task adminModel.Task
 	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
@@ -264,7 +269,16 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 		return
 	}
 
-	// 如果是删除任务，需要进行资源清理
+	// 额外检查：确保只处理在 pending 状态下被取消的任务
+	// 如果任务曾经进入 running 状态（started_at 不为空），则不应该恢复状态
+	if task.StartedAt != nil {
+		global.APP_LOG.Info("任务已经开始执行，不恢复实例状态",
+			zap.Uint("taskId", taskID),
+			zap.String("taskType", task.TaskType))
+		return
+	}
+
+	// 处理删除任务的清理
 	if task.TaskType == "delete" && task.InstanceID != nil {
 		global.APP_LOG.Info("开始清理被取消的删除任务的资源",
 			zap.Uint("taskId", taskID),
@@ -299,6 +313,98 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 				global.APP_LOG.Info("已恢复被取消删除任务的实例状态",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("status", newStatus))
+			}
+		}
+	}
+
+	// 处理重置任务的清理
+	if task.TaskType == "reset" && task.InstanceID != nil {
+		global.APP_LOG.Info("开始清理被取消的重置任务的资源",
+			zap.Uint("taskId", taskID),
+			zap.Uint("instanceId", *task.InstanceID))
+
+		// 解析任务数据获取原始状态
+		var taskData map[string]interface{}
+		if err := json.Unmarshal([]byte(task.TaskData), &taskData); err != nil {
+			global.APP_LOG.Error("解析重置任务数据失败", zap.Uint("taskId", taskID), zap.Error(err))
+			return
+		}
+
+		// 获取实例信息
+		var instance providerModel.Instance
+		if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				global.APP_LOG.Error("获取实例信息失败", zap.Uint("instanceId", *task.InstanceID), zap.Error(err))
+			}
+			return
+		}
+
+		// 恢复实例状态（如果是resetting状态）
+		if instance.Status == "resetting" {
+			// 尝试从任务数据中获取原始状态
+			originalStatus := "stopped"
+			if origStatus, ok := taskData["originalStatus"].(string); ok && origStatus != "" {
+				originalStatus = origStatus
+			}
+
+			if err := global.APP_DB.Model(&instance).Update("status", originalStatus).Error; err != nil {
+				global.APP_LOG.Error("恢复实例状态失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("newStatus", originalStatus),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已恢复被取消重置任务的实例状态",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("status", originalStatus))
+			}
+		}
+	}
+
+	// 处理其他操作任务（start、stop、restart）的清理
+	if (task.TaskType == "start" || task.TaskType == "stop" || task.TaskType == "restart") && task.InstanceID != nil {
+		// 获取实例信息
+		var instance providerModel.Instance
+		if err := global.APP_DB.First(&instance, *task.InstanceID).Error; err != nil {
+			if !errors.Is(err, gorm.ErrRecordNotFound) {
+				global.APP_LOG.Error("获取实例信息失败", zap.Uint("instanceId", *task.InstanceID), zap.Error(err))
+			}
+			return
+		}
+
+		// 根据任务类型和当前状态恢复实例状态
+		shouldRevert := false
+		var originalStatus string
+
+		switch task.TaskType {
+		case "start":
+			if instance.Status == "starting" {
+				originalStatus = "stopped"
+				shouldRevert = true
+			}
+		case "stop":
+			if instance.Status == "stopping" {
+				originalStatus = "running"
+				shouldRevert = true
+			}
+		case "restart":
+			if instance.Status == "restarting" {
+				originalStatus = "running"
+				shouldRevert = true
+			}
+		}
+
+		if shouldRevert {
+			if err := global.APP_DB.Model(&instance).Update("status", originalStatus).Error; err != nil {
+				global.APP_LOG.Error("恢复实例状态失败",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("taskType", task.TaskType),
+					zap.String("newStatus", originalStatus),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已恢复被取消任务的实例状态",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("taskType", task.TaskType),
+					zap.String("status", originalStatus))
 			}
 		}
 	}

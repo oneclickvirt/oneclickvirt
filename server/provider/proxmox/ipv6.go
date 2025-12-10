@@ -354,6 +354,7 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			}
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
+			// 使用统一的IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
 			user_ip := fmt.Sprintf("172.16.1.%d", vmid)
 			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=172.16.1.1", vmid, user_ip)
 			_, err := p.sshClient.Execute(net0Cmd)

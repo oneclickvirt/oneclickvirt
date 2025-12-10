@@ -521,7 +521,7 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 	// 使用统一的流量监控管理器重新初始化pmacct（无事务）
 	trafficMonitorManager := traffic_monitor.GetManager()
 	if err := trafficMonitorManager.AttachMonitor(ctx, resetCtx.NewInstanceID); err != nil {
-		global.APP_LOG.Warn("重新初始化pmacct监控失败", zap.Error(err))
+		global.APP_LOG.Warn("重新初始化流量监控失败", zap.Error(err))
 	} else {
 		global.APP_LOG.Info("pmacct监控重新初始化成功",
 			zap.Uint("instanceId", resetCtx.NewInstanceID))

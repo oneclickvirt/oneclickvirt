@@ -128,11 +128,12 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 		}
 	}
 
-	// 3. 尝试基于推断的IP地址清理iptables规则（针对虚拟机的标准IP分配规则）
-	if instanceType == "vm" {
+	// 3. 尝试基于推断的IP地址清理iptables规则（统一的IP分配规则）
+	// VM和Container都使用相同的IP分配规则: 172.16.1.{VMID}, VMID范围: 10-255
+	if instanceType == "vm" || instanceType == "container" {
 		vmidInt, err := strconv.Atoi(vmid)
-		if err == nil && vmidInt > 0 && vmidInt < 255 {
-			inferredIP := fmt.Sprintf("172.16.1.%d", vmidInt)
+		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
+			inferredIP := fmt.Sprintf("%s.%d", InternalIPPrefix, vmidInt)
 			global.APP_LOG.Info("尝试基于推断IP清理iptables规则",
 				zap.String("vmid", vmid),
 				zap.String("inferredIP", inferredIP))

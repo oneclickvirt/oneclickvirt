@@ -419,7 +419,7 @@ func (bp *BatchProcessor) batchAdd(instanceIDs []uint, concurrency int) {
 	providerGroups := bp.groupByProvider(instanceIDs)
 
 	for providerID, instances := range providerGroups {
-		global.APP_LOG.Info("批量初始化pmacct监控",
+		global.APP_LOG.Info("批量初始化流量监控",
 			zap.Uint("providerID", providerID),
 			zap.Int("instanceCount", len(instances)),
 			zap.Int("concurrency", concurrency))

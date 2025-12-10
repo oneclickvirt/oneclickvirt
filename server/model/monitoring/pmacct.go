@@ -7,13 +7,14 @@ import (
 )
 
 // PmacctTrafficRecord pmacct流量记录（5分钟精度）
+// 索引策略：使用复合索引覆盖常见查询场景，提升性能
 type PmacctTrafficRecord struct {
 	ID           uint   `json:"id" gorm:"primaryKey"`
-	InstanceID   uint   `json:"instance_id" gorm:"index:idx_instance_time;not null;uniqueIndex:uk_instance_timestamp"` // 实例ID
-	UserID       uint   `json:"user_id" gorm:"index:idx_user_time;not null"`                                           // 用户ID（冗余存储，避免JOIN）
-	ProviderID   uint   `json:"provider_id" gorm:"index:idx_provider_time;not null"`                                   // Provider ID
-	ProviderType string `json:"provider_type" gorm:"size:50;not null"`                                                 // Provider类型
-	MappedIP     string `json:"mapped_ip" gorm:"size:64;not null"`                                                     // 映射的公网IP地址
+	InstanceID   uint   `json:"instance_id" gorm:"index:idx_instance_year_month;index:idx_instance_timestamp;not null;uniqueIndex:uk_instance_timestamp"` // 实例ID
+	UserID       uint   `json:"user_id" gorm:"index:idx_user_year_month;not null"`                                                                        // 用户ID（冗余存储，避免JOIN）
+	ProviderID   uint   `json:"provider_id" gorm:"index:idx_provider_year_month;not null"`                                                                // Provider ID
+	ProviderType string `json:"provider_type" gorm:"size:50;not null"`                                                                                    // Provider类型
+	MappedIP     string `json:"mapped_ip" gorm:"size:64;not null"`                                                                                        // 映射的公网IP地址
 
 	// 流量统计数据 (单位: 字节)
 	RxBytes    int64 `json:"rx_bytes"`    // 接收字节数（入站流量）
@@ -21,12 +22,13 @@ type PmacctTrafficRecord struct {
 	TotalBytes int64 `json:"total_bytes"` // 总流量字节数
 
 	// 时间维度（支持5分钟精度）
-	Timestamp time.Time `json:"timestamp" gorm:"index:idx_timestamp;not null;uniqueIndex:uk_instance_timestamp"`  // 精确时间戳（5分钟对齐）
-	Year      int       `json:"year" gorm:"index:idx_instance_time;index:idx_user_time;index:idx_provider_time"`  // 年份
-	Month     int       `json:"month" gorm:"index:idx_instance_time;index:idx_user_time;index:idx_provider_time"` // 月份
-	Day       int       `json:"day" gorm:"index:idx_instance_time"`                                               // 日期
-	Hour      int       `json:"hour" gorm:"index:idx_instance_time"`                                              // 小时
-	Minute    int       `json:"minute" gorm:"index:idx_instance_time"`                                            // 分钟（0, 5, 10, ..., 55）
+	// year和month添加到复合索引中，提升月度查询性能
+	Timestamp time.Time `json:"timestamp" gorm:"index:idx_instance_timestamp;index:idx_timestamp;not null;uniqueIndex:uk_instance_timestamp"` // 精确时间戳（5分钟对齐）
+	Year      int       `json:"year" gorm:"index:idx_instance_year_month;index:idx_user_year_month;index:idx_provider_year_month"`            // 年份
+	Month     int       `json:"month" gorm:"index:idx_instance_year_month;index:idx_user_year_month;index:idx_provider_year_month"`           // 月份
+	Day       int       `json:"day"`                                                                                                          // 日期
+	Hour      int       `json:"hour"`                                                                                                         // 小时
+	Minute    int       `json:"minute"`                                                                                                       // 分钟（0, 5, 10, ..., 55）
 
 	// 元数据
 	RecordTime time.Time      `json:"record_time" gorm:"index"` // 记录时间，用于清理过期数据

@@ -143,7 +143,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			zap.Int("sshPort", localSSHPort),
 			zap.Bool("forceRefresh", forceRefresh))
 
-		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort)
+		resourceInfo, resourceErr := healthChecker.GetSystemResourceInfoWithKey(ctx, localProviderID, localProviderName, host, localUsername, localPassword, localSSHKey, localSSHPort, provider.Type, provider.StoragePool)
 		if resourceErr != nil {
 			global.APP_LOG.Warn("获取系统资源信息失败",
 				zap.String("provider", localProviderName),
@@ -153,6 +153,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			provider.NodeCPUCores = resourceInfo.CPUCores
 			provider.NodeMemoryTotal = resourceInfo.MemoryTotal + resourceInfo.SwapTotal
 			provider.NodeDiskTotal = resourceInfo.DiskTotal // 直接使用MB值
+			provider.StoragePoolPath = resourceInfo.StoragePoolPath // 更新自动检测到的存储池路径
 			provider.ResourceSynced = true
 			provider.ResourceSyncedAt = resourceInfo.SyncedAt
 

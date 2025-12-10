@@ -68,8 +68,8 @@ type CreateProviderRequest struct {
 	MaxConcurrentTasks    int    `json:"maxConcurrentTasks"`    // 最大并发任务数，默认1
 	TaskPollInterval      int    `json:"taskPollInterval"`      // 任务轮询间隔（秒），默认60秒
 	EnableTaskPolling     bool   `json:"enableTaskPolling"`     // 是否启用任务轮询，默认true
-	// 存储配置（ProxmoxVE专用）
-	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器
+	// 存储配置（所有Provider类型通用）
+	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器（实际路径将自动检测）
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" binding:"oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
 	// 端口映射配置
@@ -153,8 +153,8 @@ type UpdateProviderRequest struct {
 	MaxConcurrentTasks    int     `json:"maxConcurrentTasks"`    // 最大并发任务数，默认1
 	TaskPollInterval      int     `json:"taskPollInterval"`      // 任务轮询间隔（秒），默认60秒
 	EnableTaskPolling     bool    `json:"enableTaskPolling"`     // 是否启用任务轮询，默认true
-	// 存储配置（ProxmoxVE专用）
-	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器
+	// 存储配置（所有Provider类型通用）
+	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器（实际路径将自动检测）
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" binding:"oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
 	// 端口映射配置

@@ -54,9 +54,8 @@ func (s *LimitService) getUserMonthlyTrafficFromPmacct(userID uint) (int64, erro
 	return int64(stats.ActualUsageMB), nil
 }
 
-// getProviderMonthlyTrafficFromPmacct 从pmacct数据计算Provider当月流量使用量
-// 只统计启用了流量统计的Provider
-// pmacct数据是累积值，需要先按instance_id取MAX，再按provider汇总
+// getProviderMonthlyTrafficFromPmacct 从聚合表获取Provider当月流量使用量
+// 使用provider_traffic_histories聚合表，大幅提升性能
 func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int64, error) {
 	now := time.Now()
 	year := now.Year()
@@ -64,7 +63,7 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 
 	// 首先检查Provider是否启用了流量统计
 	var p provider.Provider
-	if err := global.APP_DB.Select("enable_traffic_control").First(&p, providerID).Error; err != nil {
+	if err := global.APP_DB.Select("enable_traffic_control, traffic_count_mode, traffic_multiplier").First(&p, providerID).Error; err != nil {
 		return 0, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
@@ -73,72 +72,30 @@ func (s *LimitService) getProviderMonthlyTrafficFromPmacct(providerID uint) (int
 		return 0, nil
 	}
 
-	// pmacct重启会导致累积值重置，需要分段检测并汇总
-	// 当月数据包括归档数据，防止用户通过重置实例绕过流量限制
+	// 使用聚合表查询，性能大幅提升
+	// day=0,hour=0 表示月度汇总数据
 	var totalTrafficMB float64
 	query := `
-		SELECT COALESCE(SUM(
+		SELECT 
 			CASE 
-				WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
-				WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
-				ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
-			END
-		), 0) / 1048576.0
-		FROM (
-			-- 对每个instance按segment求和（处理pmacct重启）
-			SELECT 
-				instance_id,
-				provider_id,
-				SUM(max_rx) as segment_rx,
-				SUM(max_tx) as segment_tx
-			FROM (
-				-- 检测重启并分段，每段取MAX
-				SELECT 
-					instance_id,
-					provider_id,
-					segment_id,
-					MAX(rx_bytes) as max_rx,
-					MAX(tx_bytes) as max_tx
-				FROM (
-					SELECT 
-						t1.instance_id,
-						t1.provider_id,
-						t1.rx_bytes,
-						t1.tx_bytes,
-						(
-							SELECT COUNT(*)
-							FROM pmacct_traffic_records t2
-							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-								AND t3.timestamp = (
-								SELECT MAX(timestamp) 
-								FROM pmacct_traffic_records 
-								WHERE instance_id = t2.instance_id 
-									AND timestamp < t2.timestamp
-									AND year = ? AND month = ?
-							)
-							WHERE t2.instance_id = t1.instance_id
-								AND t2.provider_id = ?
-								AND t2.year = ? AND t2.month = ?
-								AND t2.timestamp <= t1.timestamp
-								AND (
-									(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-									OR
-									(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-								)
-						) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE t1.provider_id = ?
-				  AND t1.year = ? 
-				  AND t1.month = ?
-				) AS segments
-				GROUP BY instance_id, provider_id, segment_id
-			) AS instance_segments
-			GROUP BY instance_id, provider_id
-		) AS instance_totals
-		INNER JOIN providers p ON instance_totals.provider_id = p.id
+				WHEN ? = 'out' THEN pth.traffic_out * COALESCE(?, 1.0)
+				WHEN ? = 'in' THEN pth.traffic_in * COALESCE(?, 1.0)
+				ELSE pth.total_used * COALESCE(?, 1.0)
+			END as total_traffic_mb
+		FROM provider_traffic_histories pth
+		WHERE pth.provider_id = ?
+		  AND pth.year = ?
+		  AND pth.month = ?
+		  AND pth.day = 0
+		  AND pth.hour = 0
+		  AND pth.deleted_at IS NULL
 	`
 
-	err := global.APP_DB.Raw(query, year, month, providerID, year, month, providerID, year, month).Scan(&totalTrafficMB).Error
+	err := global.APP_DB.Raw(query,
+		p.TrafficCountMode, p.TrafficMultiplier,
+		p.TrafficCountMode, p.TrafficMultiplier,
+		p.TrafficMultiplier,
+		providerID, year, month).Scan(&totalTrafficMB).Error
 	if err != nil {
 		return 0, fmt.Errorf("获取Provider月度流量失败: %w", err)
 	}
@@ -333,30 +290,11 @@ func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error
 	return int64(totalTrafficMB), nil
 }
 
-// getUserTrafficHistoryFromPmacct 从pmacct数据获取用户流量历史
+// getUserTrafficHistoryFromPmacct 从聚合表获取用户流量历史
+// 使用user_traffic_histories聚合表，大幅提升性能
 func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) ([]map[string]interface{}, error) {
-	// 获取用户所有实例（包含软删除的实例，但排除已重置的实例）
-	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().
-		Where("user_id = ?", userID).
-		Limit(1000). // 限制最多1000个实例
-		Find(&instances).Error
-	if err != nil {
-		return nil, fmt.Errorf("获取用户实例列表失败: %w", err)
-	}
-
-	if len(instances) == 0 {
-		return []map[string]interface{}{}, nil
-	}
-
 	now := time.Now()
 	history := make([]map[string]interface{}, 0, months)
-
-	// 收集所有实例ID，用于批量查询
-	instanceIDs := make([]uint, 0, len(instances))
-	for _, instance := range instances {
-		instanceIDs = append(instanceIDs, instance.ID)
-	}
 
 	// 获取最近N个月的数据
 	for i := 0; i < months; i++ {
@@ -364,84 +302,40 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 		year := targetTime.Year()
 		month := int(targetTime.Month())
 
-		// 批量查询该月所有实例的流量
-		// pmacct重启会导致累积值重置，需要分段检测并汇总
+		// 使用聚合表查询用户月度流量，考虑不同provider的流量模式
 		var monthlyTraffic float64
-		if len(instanceIDs) > 0 {
-			err := global.APP_DB.Raw(`
-				SELECT COALESCE(SUM(
-					CASE 
-						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
-						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
-						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
-					END
-				), 0) / 1048576.0
-				FROM (
-					SELECT 
-						instance_id,
-						provider_id,
-						SUM(max_rx) as segment_rx,
-						SUM(max_tx) as segment_tx
-					FROM (
-						SELECT 
-							instance_id,
-							provider_id,
-							segment_id,
-							MAX(rx_bytes) as max_rx,
-							MAX(tx_bytes) as max_tx
-						FROM (
-							SELECT 
-								t1.instance_id,
-								t1.provider_id,
-								t1.rx_bytes,
-								t1.tx_bytes,
-								(
-									SELECT COUNT(*)
-									FROM pmacct_traffic_records t2
-									LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-										AND t3.timestamp = (
-											SELECT MAX(timestamp) 
-											FROM pmacct_traffic_records 
-											WHERE instance_id = t2.instance_id 
-												AND timestamp < t2.timestamp
-												AND year = ? AND month = ?
-										)
-									WHERE t2.instance_id = t1.instance_id
-										AND t2.user_id = ?
-										AND t2.year = ? AND t2.month = ?
-										AND t2.timestamp <= t1.timestamp
-										AND (
-											(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-											OR
-											(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-										)
-								) as segment_id
-							FROM pmacct_traffic_records t1
-							WHERE t1.user_id = ?
-							  AND t1.year = ? 
-							  AND t1.month = ?
-						) AS segments
-						GROUP BY instance_id, provider_id, segment_id
-					) AS instance_segments
-					GROUP BY instance_id, provider_id
-				) AS instance_totals
-				INNER JOIN providers p ON instance_totals.provider_id = p.id
-				WHERE p.enable_traffic_control = true
-			`, year, month, userID, year, month, userID, year, month).Scan(&monthlyTraffic).Error
+		err := global.APP_DB.Raw(`
+			SELECT COALESCE(SUM(
+				CASE 
+					WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
+					WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
+					ELSE ith.total_used * COALESCE(p.traffic_multiplier, 1.0)
+				END
+			), 0)
+			FROM instance_traffic_histories ith
+			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
+			INNER JOIN providers p ON ith.provider_id = p.id AND p.deleted_at IS NULL
+			WHERE ith.user_id = ?
+			  AND ith.year = ?
+			  AND ith.month = ?
+			  AND ith.day = 0
+			  AND ith.hour = 0
+			  AND p.enable_traffic_control = true
+			  AND ith.deleted_at IS NULL
+		`, userID, year, month).Scan(&monthlyTraffic).Error
 
-			if err != nil {
-				global.APP_LOG.Warn("批量查询月度流量失败",
-					zap.Int("year", year),
-					zap.Int("month", month),
-					zap.Error(err))
-				monthlyTraffic = 0
-			}
+		if err != nil {
+			global.APP_LOG.Warn("查询月度流量失败",
+				zap.Int("year", year),
+				zap.Int("month", month),
+				zap.Error(err))
+			monthlyTraffic = 0
 		}
 
 		history = append(history, map[string]interface{}{
 			"year":    year,
 			"month":   month,
-			"traffic": int64(monthlyTraffic),
+			"traffic": int64(monthlyTraffic * 1024 * 1024), // 转换为字节保持兼容性
 			"date":    fmt.Sprintf("%d-%02d", year, month),
 		})
 	}
@@ -651,12 +545,12 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	}
 
 	// 构建分页查询
-	// 根据 Provider 的流量模式计算流量：
-	// - both: rx_bytes + tx_bytes（乘以倍率）
-	// - out: tx_bytes（乘以倍率）
-	// - in: rx_bytes（乘以倍率）
-	// pmacct重启会导致累积值重置，需要检测并分段计算
+	// 使用instance_traffic_histories聚合表，避免复杂的实时计算
+	// day=0,hour=0 表示月度汇总数据
 	offset := (page - 1) * pageSize
+
+	// 查询用户月度流量汇总，关联providers表获取流量模式和倍率
+	// 直接使用instance_traffic_histories表按user_id聚合
 	query := `
 		SELECT 
 			u.id as user_id,
@@ -669,76 +563,31 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 		FROM users u
 		LEFT JOIN (
 			SELECT 
-				instance_totals.user_id,
+				ith.user_id,
 				SUM(
 					CASE 
-						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
-						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
-						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'out' THEN ith.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
+						WHEN p.traffic_count_mode = 'in' THEN ith.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
+						ELSE ith.total_used * COALESCE(p.traffic_multiplier, 1.0)
 					END
-				) / 1048576.0 as month_usage
-			FROM (
-				-- 对每个instance按segment求和（处理pmacct重启）
-				SELECT 
-					user_id,
-					instance_id,
-					provider_id,
-					SUM(max_rx) as segment_rx,
-					SUM(max_tx) as segment_tx
-				FROM (
-					-- 检测重启并分段，每段取MAX
-					SELECT 
-						user_id,
-						instance_id,
-						provider_id,
-						segment_id,
-						MAX(rx_bytes) as max_rx,
-						MAX(tx_bytes) as max_tx
-					FROM (
-						-- 计算每条记录的segment_id（累积重启次数）
-						SELECT 
-							t1.user_id,
-							t1.instance_id,
-							t1.provider_id,
-							t1.rx_bytes,
-							t1.tx_bytes,
-							(
-								SELECT COUNT(*)
-								FROM pmacct_traffic_records t2
-								LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-									AND t3.timestamp = (
-										SELECT MAX(timestamp) 
-										FROM pmacct_traffic_records 
-										WHERE instance_id = t2.instance_id 
-											AND timestamp < t2.timestamp
-											AND year = ? AND month = ?
-									)
-								WHERE t2.instance_id = t1.instance_id
-									AND t2.year = ? AND t2.month = ?
-									AND t2.timestamp <= t1.timestamp
-									AND (
-										(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-										OR
-										(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-									)
-							) as segment_id
-						FROM pmacct_traffic_records t1
-						WHERE t1.year = ? AND t1.month = ?
-					) AS segments
-					GROUP BY user_id, instance_id, provider_id, segment_id
-				) AS instance_segments
-				GROUP BY user_id, instance_id, provider_id
-			) AS instance_totals
-			INNER JOIN providers p ON instance_totals.provider_id = p.id
-			WHERE p.enable_traffic_control = true
-			GROUP BY instance_totals.user_id
+				) as month_usage
+			FROM instance_traffic_histories ith
+			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
+			INNER JOIN providers p ON ith.provider_id = p.id AND p.deleted_at IS NULL
+			WHERE ith.year = ?
+			  AND ith.month = ?
+			  AND ith.day = 0
+			  AND ith.hour = 0
+			  AND p.enable_traffic_control = true
+			  AND ith.deleted_at IS NULL
+			GROUP BY ith.user_id
 		) traffic_data ON u.id = traffic_data.user_id
 		WHERE 1=1` + whereClause + `
 		ORDER BY month_usage DESC
 		LIMIT ? OFFSET ?
 	`
 
-	queryArgs := append([]interface{}{year, int(month), year, int(month), year, int(month)}, whereArgs...)
+	queryArgs := append([]interface{}{year, int(month)}, whereArgs...)
 	queryArgs = append(queryArgs, pageSize, offset)
 
 	err = global.APP_DB.Raw(query, queryArgs...).Scan(&rankings).Error

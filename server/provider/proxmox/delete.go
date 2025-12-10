@@ -68,23 +68,23 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 		global.APP_LOG.Warn("解锁VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
-	// 2. 清理端口映射 - 在停止VM之前清理，确保能获取到实例名称
-	if err := p.cleanupInstancePortMappings(ctx, vmid, "vm"); err != nil {
-		global.APP_LOG.Warn("清理VM端口映射失败", zap.String("vmid", vmid), zap.Error(err))
-		// 端口映射清理失败不应该阻止VM删除，继续执行
-	}
-
-	// 3. 停止VM
+	// 2. 停止VM
 	global.APP_LOG.Info("停止VM", zap.String("vmid", vmid))
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm stop %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("停止VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
-	// 4. 检查VM是否完全停止
+	// 3. 检查VM是否完全停止
 	if err := p.checkVMCTStatus(ctx, vmid, "vm"); err != nil {
 		global.APP_LOG.Warn("VM未完全停止", zap.String("vmid", vmid), zap.Error(err))
 		// 继续执行删除，但记录警告
+	}
+
+	// 4. 清理端口映射 - 在停止VM之后清理，确保实例已停止
+	if err := p.cleanupInstancePortMappings(ctx, vmid, "vm"); err != nil {
+		global.APP_LOG.Warn("清理VM端口映射失败", zap.String("vmid", vmid), zap.Error(err))
+		// 端口映射清理失败不应该阻止VM删除，继续执行
 	}
 
 	// 5. 删除VM
@@ -132,23 +132,23 @@ func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipA
 		zap.String("ctid", ctid),
 		zap.String("ip", ipAddress))
 
-	// 1. 清理端口映射 - 在停止CT之前清理，确保能获取到实例名称
-	if err := p.cleanupInstancePortMappings(ctx, ctid, "container"); err != nil {
-		global.APP_LOG.Warn("清理CT端口映射失败", zap.String("ctid", ctid), zap.Error(err))
-		// 端口映射清理失败不应该阻止CT删除，继续执行
-	}
-
-	// 2. 停止容器
+	// 1. 停止容器
 	global.APP_LOG.Info("停止CT", zap.String("ctid", ctid))
 	_, err := p.sshClient.Execute(fmt.Sprintf("pct stop %s 2>/dev/null || true", ctid))
 	if err != nil {
 		global.APP_LOG.Warn("停止CT失败", zap.String("ctid", ctid), zap.Error(err))
 	}
 
-	// 3. 检查容器是否完全停止
+	// 2. 检查容器是否完全停止
 	if err := p.checkVMCTStatus(ctx, ctid, "container"); err != nil {
 		global.APP_LOG.Warn("CT未完全停止", zap.String("ctid", ctid), zap.Error(err))
 		// 继续执行删除，但记录警告
+	}
+
+	// 3. 清理端口映射 - 在停止CT之后清理，确保实例已停止
+	if err := p.cleanupInstancePortMappings(ctx, ctid, "container"); err != nil {
+		global.APP_LOG.Warn("清理CT端口映射失败", zap.String("ctid", ctid), zap.Error(err))
+		// 端口映射清理失败不应该阻止CT删除，继续执行
 	}
 
 	// 4. 删除容器

@@ -98,7 +98,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "正在初始化监控服务...")
 
-	// 实例启动成功后，异步初始化pmacct监控和流量同步
+	// 实例启动成功后，异步初始化流量监控和流量同步
 	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
 		defer s.wg.Done()
@@ -131,7 +131,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		// 正常超时，继续执行
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在初始化pmacct监控...")
+		s.updateTaskProgress(taskID, 90, "正在初始化流量监控...")
 
 		// 检查Provider是否启用流量统计
 		var dbProvider providerModel.Provider
@@ -147,7 +147,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		pmacctSuccess := true
 		if pmacctErr := trafficMonitorManager.AttachMonitor(pmacctCtx, instanceID); pmacctErr != nil {
 			if trafficEnabled {
-				global.APP_LOG.Warn("启动实例后初始化pmacct监控失败",
+				global.APP_LOG.Warn("启动实例后初始化流量监控失败",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(pmacctErr))
 			} else {
@@ -394,7 +394,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 更新进度 (80%)
 	s.updateTaskProgress(task.ID, 80, "正在重新初始化监控服务...")
 
-	// 实例重启成功后，异步重新初始化pmacct监控
+	// 实例重启成功后，异步重新初始化流量监控
 	s.wg.Add(1)
 	go func(instanceID uint, taskID uint) {
 		defer s.wg.Done()
@@ -427,7 +427,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		// 正常超时，继续执行
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在重新初始化pmacct监控...")
+		s.updateTaskProgress(taskID, 90, "正在重新初始化流量监控...")
 
 		// 检查Provider是否启用流量统计
 		var dbProvider providerModel.Provider
@@ -443,7 +443,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		pmacctSuccess := true
 		if pmacctErr := trafficMonitorManager.AttachMonitor(pmacctCtx, instanceID); pmacctErr != nil {
 			if trafficEnabled {
-				global.APP_LOG.Warn("重启实例后重新初始化pmacct监控失败",
+				global.APP_LOG.Warn("重启实例后重新初始化流量监控失败",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(pmacctErr))
 			} else {

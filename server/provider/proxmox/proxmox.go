@@ -16,6 +16,21 @@ import (
 	"go.uber.org/zap"
 )
 
+// Proxmox VMID分配常量
+// 统一管理VMID范围，不区分VM和Container类型
+const (
+	// MinVMID 最小VMID，保留1-9给系统使用
+	MinVMID = 10
+	// MaxVMID 最大VMID，对应内网IP 172.16.1.255
+	MaxVMID = 255
+	// MaxInstances 最大实例数量（10-255共246个）
+	MaxInstances = 246
+	// InternalIPPrefix 内网IP前缀
+	InternalIPPrefix = "172.16.1"
+	// InternalGateway 内网网关
+	InternalGateway = "172.16.1.1"
+)
+
 type ProxmoxProvider struct {
 	config        provider.NodeConfig
 	sshClient     *utils.SSHClient

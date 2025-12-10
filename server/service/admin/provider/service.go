@@ -103,6 +103,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 	}
 
 	// 批量查询Provider本月流量使用情况
+	// 直接使用provider_traffic_histories聚合表，避免复杂的实时计算
 	type TrafficUsageResult struct {
 		ProviderID  uint
 		UsedTraffic float64
@@ -112,73 +113,26 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		now := time.Now()
 		year, month := now.Year(), int(now.Month())
 
-		// 使用与GetProviderMonthlyTraffic相同的逻辑计算流量
-		// 处理pmacct重启导致的累积值重置问题
+		// 使用聚合表查询，性能大幅提升
+		// day=0,hour=0 表示月度汇总数据
 		global.APP_DB.Raw(`
 			SELECT 
-				instance_totals.provider_id,
-				SUM(
-					CASE 
-						WHEN p.traffic_count_mode = 'out' THEN segment_tx * COALESCE(p.traffic_multiplier, 1.0)
-						WHEN p.traffic_count_mode = 'in' THEN segment_rx * COALESCE(p.traffic_multiplier, 1.0)
-						ELSE (segment_rx + segment_tx) * COALESCE(p.traffic_multiplier, 1.0)
-					END
-				) / 1048576.0 as used_traffic
-			FROM (
-				-- 对每个instance按segment求和（处理pmacct重启）
-				SELECT 
-					instance_id,
-					provider_id,
-					SUM(max_rx) as segment_rx,
-					SUM(max_tx) as segment_tx
-				FROM (
-					-- 检测重启并分段，每段取MAX
-					SELECT 
-						instance_id,
-						provider_id,
-						segment_id,
-						MAX(rx_bytes) as max_rx,
-						MAX(tx_bytes) as max_tx
-					FROM (
-						SELECT 
-							t1.instance_id,
-							t1.provider_id,
-							t1.rx_bytes,
-							t1.tx_bytes,
-							(
-								SELECT COUNT(*)
-								FROM pmacct_traffic_records t2
-								LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-									AND t3.timestamp = (
-										SELECT MAX(timestamp) 
-										FROM pmacct_traffic_records 
-										WHERE instance_id = t2.instance_id 
-											AND timestamp < t2.timestamp
-											AND year = ? AND month = ?
-									)
-								WHERE t2.instance_id = t1.instance_id
-									AND t2.provider_id IN ?
-									AND t2.year = ? AND t2.month = ?
-									AND t2.timestamp <= t1.timestamp
-									AND (
-										(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-										OR
-										(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-									)
-							) as segment_id
-						FROM pmacct_traffic_records t1
-						WHERE t1.provider_id IN ?
-						  AND t1.year = ? 
-						  AND t1.month = ?
-					) AS segments
-					GROUP BY instance_id, provider_id, segment_id
-				) AS instance_segments
-				GROUP BY instance_id, provider_id
-			) AS instance_totals
-			INNER JOIN providers p ON instance_totals.provider_id = p.id
-			WHERE p.enable_traffic_control = true
-			GROUP BY instance_totals.provider_id
-		`, year, month, providerIDs, year, month, providerIDs, year, month).Scan(&trafficUsages)
+				pth.provider_id,
+				CASE 
+					WHEN p.traffic_count_mode = 'out' THEN pth.traffic_out * COALESCE(p.traffic_multiplier, 1.0)
+					WHEN p.traffic_count_mode = 'in' THEN pth.traffic_in * COALESCE(p.traffic_multiplier, 1.0)
+					ELSE pth.total_used * COALESCE(p.traffic_multiplier, 1.0)
+				END as used_traffic
+			FROM provider_traffic_histories pth
+			INNER JOIN providers p ON pth.provider_id = p.id
+			WHERE pth.provider_id IN ?
+			  AND pth.year = ?
+			  AND pth.month = ?
+			  AND pth.day = 0
+			  AND pth.hour = 0
+			  AND p.enable_traffic_control = true
+			  AND pth.deleted_at IS NULL
+		`, providerIDs, year, month).Scan(&trafficUsages)
 	}
 
 	// 构建映射表
@@ -400,7 +354,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.MaxConcurrentTasks = req.MaxConcurrentTasks
 	provider.TaskPollInterval = req.TaskPollInterval
 	provider.EnableTaskPolling = req.EnableTaskPolling
-	// 存储配置（ProxmoxVE专用）
+	// 存储配置（所有Provider类型通用）
 	provider.StoragePool = req.StoragePool
 	// 操作执行配置更新
 	if req.ExecutionRule != "" {

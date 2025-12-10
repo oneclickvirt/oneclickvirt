@@ -551,11 +551,11 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.Error(err))
 	}
 
-	// 初始化pmacct监控
-	updateProgress(98, "初始化pmacct监控...")
+	// 初始化流量监控
+	updateProgress(98, "初始化流量监控...")
 	if err := d.initializePmacctMonitoring(ctx, config); err != nil {
 		// pmacct监控初始化失败也不应该阻止实例创建，记录错误即可
-		global.APP_LOG.Warn("初始化pmacct监控失败", zap.Error(err))
+		global.APP_LOG.Warn("初始化流量监控失败", zap.Error(err))
 	}
 
 	updateProgress(100, "Docker实例创建完成")
@@ -1206,7 +1206,7 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 	return ipAddress, nil
 }
 
-// initializePmacctMonitoring 初始化pmacct监控
+// initializePmacctMonitoring 初始化流量监控
 func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config provider.InstanceConfig) error {
 	// 查找provider记录
 	var providerRecord providerModel.Provider
@@ -1241,7 +1241,7 @@ func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config 
 	global.APP_LOG.Info("开始初始化Docker容器pmacct监控",
 		zap.String("instanceName", config.Name))
 
-	// 初始化pmacct监控
+	// 初始化流量监控
 	pmacctService := pmacct.NewService()
 	if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
 		global.APP_LOG.Warn("Docker容器创建后初始化 pmacct 监控失败",

@@ -50,6 +50,7 @@ type ResourceInfo struct {
 	SwapTotal   int64      `json:"swap_total"`   // 总交换空间（MB）
 	DiskTotal   int64      `json:"disk_total"`   // 总磁盘空间（MB）
 	DiskFree    int64      `json:"disk_free"`    // 可用磁盘空间（MB）
+	StoragePoolPath string     `json:"storage_pool_path"` // 存储池实际挂载路径
 	Synced      bool       `json:"synced"`       // 是否已同步
 	SyncedAt    *time.Time `json:"synced_at"`    // 同步时间
 	HostName    string     `json:"host_name"`    // 节点主机名（hostname），用于区分多个节点

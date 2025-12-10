@@ -118,8 +118,9 @@ type Provider struct {
 	ExpiresAt    *time.Time `json:"expiresAt" gorm:"index;column:expires_at"`  // Provider过期时间
 	IsFrozen     bool       `json:"isFrozen" gorm:"default:false"`             // 是否被冻结（冻结后无法使用）
 
-	// 存储配置（ProxmoxVE专用）
-	StoragePool string `json:"storagePool" gorm:"size:64;default:local"` // 存储池名称，用于存储虚拟机磁盘和容器
+	// 存储配置（所有Provider类型通用）
+	StoragePool     string `json:"storagePool" gorm:"size:64;default:local"`   // 存储池名称，用于存储虚拟机磁盘和容器
+	StoragePoolPath string `json:"storagePoolPath" gorm:"size:255;default:''"` // 存储池实际挂载路径，用于准确获取硬盘大小
 
 	// 证书相关字段（用于TLS连接）
 	CertPath        string     `json:"certPath" gorm:"size:512"`                 // 客户端证书文件路径
