@@ -197,7 +197,8 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 		return nil, fmt.Errorf("查询Provider流量失败: %w", err)
 	}
 
-	// 根据流量模式计算实际使用量
+	// 聚合表中存储的traffic_in/traffic_out/total_used都是MB单位
+	// 根据流量模式计算实际使用量（MB）
 	var actualUsageMB float64
 	switch p.TrafficCountMode {
 	case "out":
@@ -208,9 +209,9 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 		actualUsageMB = float64(result.TotalUsed) * p.TrafficMultiplier
 	}
 
-	// 转换为字节
-	rxBytes := result.TrafficIn * 1024 * 1024
-	txBytes := result.TrafficOut * 1024 * 1024
+	// 聚合表存储的是MB，转换为字节用于统一返回格式
+	rxBytes := result.TrafficIn * 1048576 // MB转字节：* 1024 * 1024
+	txBytes := result.TrafficOut * 1048576
 
 	return &TrafficStats{
 		RxBytes:       rxBytes,
@@ -284,10 +285,12 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 
 	statsMap := make(map[uint]*TrafficStats)
 	for _, r := range results {
-		// 缓存表存储的是MB，需要转换为字节
+		// 缓存表存储的是MB，转换为字节用于统一返回格式
+		// RxBytes/TxBytes/TotalBytes: 字节单位
+		// ActualUsageMB: MB单位（已应用流量计算模式）
 		statsMap[r.InstanceID] = &TrafficStats{
-			RxBytes:       r.TrafficIn * 1048576,
-			TxBytes:       r.TrafficOut * 1048576,
+			RxBytes:       r.TrafficIn * 1048576,  // MB -> Bytes
+			TxBytes:       r.TrafficOut * 1048576, // MB -> Bytes
 			TotalBytes:    (r.TrafficIn + r.TrafficOut) * 1048576,
 			ActualUsageMB: float64(r.TotalUsed),
 		}
