@@ -25,9 +25,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20251210` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20251211` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20251210` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20251211` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 
