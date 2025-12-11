@@ -69,7 +69,6 @@ func InternalIPToVMIDCandidates(ip string) []int {
 	for vmid := base; vmid <= MaxVMID; vmid += MaxIPAddresses {
 		candidates = append(candidates, vmid)
 	}
-
 	return candidates
 }
 
@@ -83,6 +82,7 @@ type ProxmoxProvider struct {
 	node          string // Proxmox 节点名
 	providerUUID  string // Provider UUID，用于查询数据库中的配置
 	healthChecker health.HealthChecker
+	version       string       // Proxmox VE 版本，用于兼容性判断
 	mu            sync.RWMutex // 保护并发访问
 }
 
@@ -212,10 +212,18 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
 	p.healthChecker = health.NewProxmoxHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
+	// 获取 Proxmox 版本信息
+	if err := p.getProxmoxVersion(); err != nil {
+		global.APP_LOG.Warn("获取 Proxmox 版本失败，将使用保守的兼容性设置",
+			zap.Error(err))
+	}
+
 	global.APP_LOG.Info("Proxmox provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),
 		zap.Int("port", config.Port),
 		zap.String("node", utils.TruncateString(p.node, 32)),
+		zap.String("version", p.version),
+		zap.Bool("supportsFstrim", p.supportsCloneFstrim()),
 		zap.Bool("hasToken", p.hasAPIAccess()))
 
 	return nil
@@ -278,6 +286,12 @@ func (p *ProxmoxProvider) HealthCheck(ctx context.Context) (*health.HealthResult
 
 func (p *ProxmoxProvider) GetHealthChecker() health.HealthChecker {
 	return p.healthChecker
+}
+
+func (p *ProxmoxProvider) GetVersion() string {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.version
 }
 
 // 获取节点名
@@ -473,6 +487,71 @@ func (p *ProxmoxProvider) setAPIAuth(req *http.Request) {
 		authHeader := fmt.Sprintf("PVEAPIToken=%s=%s", cleanTokenID, cleanToken)
 		req.Header.Set("Authorization", authHeader)
 	}
+}
+
+// getProxmoxVersion 获取 Proxmox VE 版本
+func (p *ProxmoxProvider) getProxmoxVersion() error {
+	if p.sshClient == nil {
+		return fmt.Errorf("SSH client not connected")
+	}
+
+	// 尝试通过 pveversion 命令获取版本
+	output, err := p.sshClient.Execute("pveversion")
+	if err != nil {
+		global.APP_LOG.Warn("获取 Proxmox 版本失败，假设为较新版本",
+			zap.Error(err))
+		p.version = "unknown"
+		return err
+	}
+
+	// 解析版本号，输出格式类似: pve-manager/8.1.3/b46aac3b8bb4enji (running kernel: 6.5.11-7-pve)
+	// 或: pve-manager/7.4-16/2346e0b0 (running kernel: 5.15.107-2-pve)
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		if strings.Contains(line, "pve-manager/") {
+			parts := strings.Split(line, "/")
+			if len(parts) >= 2 {
+				versionStr := parts[1]
+				p.version = versionStr
+				global.APP_LOG.Info("获取 Proxmox 版本成功",
+					zap.String("version", p.version),
+					zap.String("node", p.node))
+				return nil
+			}
+		}
+	}
+
+	global.APP_LOG.Warn("无法解析 Proxmox 版本信息，假设为较新版本",
+		zap.String("output", output))
+	p.version = "unknown"
+	return fmt.Errorf("无法解析版本信息")
+}
+
+// supportsCloneFstrim 检查是否支持 fstrim_cloned_disks 参数（PVE 8.0+）
+func (p *ProxmoxProvider) supportsCloneFstrim() bool {
+	if p.version == "" || p.version == "unknown" {
+		// 如果版本未知，为了兼容性，不使用该参数
+		return false
+	}
+
+	// 解析主版本号
+	parts := strings.Split(p.version, ".")
+	if len(parts) == 0 {
+		return false
+	}
+
+	// 提取主版本号（可能包含 -beta 等后缀）
+	majorStr := strings.Split(parts[0], "-")[0]
+	var major int
+	if _, err := fmt.Sscanf(majorStr, "%d", &major); err != nil {
+		global.APP_LOG.Warn("无法解析 Proxmox 主版本号，不使用 fstrim_cloned_disks",
+			zap.String("version", p.version),
+			zap.Error(err))
+		return false
+	}
+
+	// PVE 8.0 及以上支持 fstrim_cloned_disks
+	return major >= 8
 }
 
 func init() {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type LXDProvider struct {
 	providerID    uint // 存储providerID用于清理
 	connected     bool
 	healthChecker health.HealthChecker
+	version       string       // LXD 版本
 	mu            sync.RWMutex // 保护并发访问
 }
 
@@ -141,11 +143,57 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
 	l.healthChecker = health.NewLXDHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
+	// 获取 LXD 版本
+	if err := l.getLXDVersion(); err != nil {
+		global.APP_LOG.Warn("LXD 版本获取失败",
+			zap.Error(err))
+	}
+
 	global.APP_LOG.Info("LXD provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 50)),
-		zap.Int("port", config.Port))
+		zap.Int("port", config.Port),
+		zap.String("version", l.version))
 
 	return nil
+}
+
+func (l *LXDProvider) GetVersion() string {
+	l.mu.RLock()
+	defer l.mu.RUnlock()
+	return l.version
+}
+
+// getLXDVersion 获取 LXD 版本
+func (l *LXDProvider) getLXDVersion() error {
+	if l.sshClient == nil {
+		return fmt.Errorf("SSH client not connected")
+	}
+
+	// 使用 lxd --version 或 lxc version 命令获取版本
+	output, err := l.sshClient.Execute("lxd --version 2>/dev/null || lxc version 2>/dev/null")
+	if err != nil {
+		global.APP_LOG.Warn("获取 LXD 版本失败",
+			zap.Error(err))
+		l.version = "unknown"
+		return err
+	}
+
+	// 解析版本号
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Client") || strings.HasPrefix(line, "Server") {
+			continue
+		}
+		// 提取第一个非空行作为版本号
+		l.version = line
+		global.APP_LOG.Info("获取 LXD 版本成功",
+			zap.String("version", l.version))
+		return nil
+	}
+
+	l.version = "unknown"
+	return fmt.Errorf("无法解析版本信息")
 }
 
 func (l *LXDProvider) Disconnect(ctx context.Context) error {

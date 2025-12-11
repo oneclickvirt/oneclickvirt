@@ -152,7 +152,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			// 更新Provider的资源信息
 			provider.NodeCPUCores = resourceInfo.CPUCores
 			provider.NodeMemoryTotal = resourceInfo.MemoryTotal + resourceInfo.SwapTotal
-			provider.NodeDiskTotal = resourceInfo.DiskTotal // 直接使用MB值
+			provider.NodeDiskTotal = resourceInfo.DiskTotal         // 直接使用MB值
 			provider.StoragePoolPath = resourceInfo.StoragePoolPath // 更新自动检测到的存储池路径
 			provider.ResourceSynced = true
 			provider.ResourceSyncedAt = resourceInfo.SyncedAt
@@ -188,6 +188,21 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			zap.String("oldHostName", provider.HostName),
 			zap.String("newHostName", hostName))
 		provider.HostName = hostName
+	}
+
+	// 如果SSH在线，尝试从Provider实例获取版本信息
+	if sshStatus == "online" {
+		providerSvc := provider2.GetProviderService()
+		if providerInstance, exists := providerSvc.GetProviderByID(localProviderID); exists {
+			version := providerInstance.GetVersion()
+			if version != "" && provider.Version != version {
+				global.APP_LOG.Info("更新Provider版本信息",
+					zap.String("provider", localProviderName),
+					zap.String("oldVersion", provider.Version),
+					zap.String("newVersion", version))
+				provider.Version = version
+			}
+		}
 	}
 
 	// 更新整体状态

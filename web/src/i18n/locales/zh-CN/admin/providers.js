@@ -5,6 +5,7 @@ export default {
   deleteProvider: "删除服务器",
   providerName: "节点名称",
   providerType: "节点类型",
+  version: "版本",
   apiEndpoint: "API端点",
   status: "状态",
   location: "位置",

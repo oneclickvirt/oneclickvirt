@@ -24,6 +24,28 @@
         width="100"
       />
       <el-table-column
+        prop="version"
+        :label="$t('admin.providers.version')"
+        width="100"
+      >
+        <template #default="scope">
+          <el-tag
+            v-if="scope.row.version && scope.row.version !== ''"
+            size="small"
+            type="info"
+          >
+            {{ scope.row.version }}
+          </el-tag>
+          <el-text
+            v-else
+            size="small"
+            type="info"
+          >
+            -
+          </el-text>
+        </template>
+      </el-table-column>
+      <el-table-column
         :label="$t('admin.providers.location')"
         width="100"
       >

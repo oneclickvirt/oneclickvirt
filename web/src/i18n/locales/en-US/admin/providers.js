@@ -5,6 +5,7 @@ export default {
   deleteProvider: "Delete Server",
   providerName: "Provider Name",
   providerType: "Node Type",
+  version: "Version",
   apiEndpoint: "API Endpoint",
   status: "Status",
   location: "Location",

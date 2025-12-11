@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 	"time"
 
@@ -25,6 +26,7 @@ type IncusProvider struct {
 	providerID    uint            // 存储providerID用于清理
 	connected     bool
 	healthChecker health.HealthChecker
+	version       string       // Incus 版本
 	mu            sync.RWMutex // 保护并发访问
 }
 
@@ -138,10 +140,56 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
 	i.healthChecker = health.NewIncusHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
+	// 获取 Incus 版本
+	if err := i.getIncusVersion(); err != nil {
+		global.APP_LOG.Warn("Incus 版本获取失败",
+			zap.Error(err))
+	}
+
 	global.APP_LOG.Info("Incus provider SSH连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),
-		zap.Int("port", config.Port))
+		zap.Int("port", config.Port),
+		zap.String("version", i.version))
 	return nil
+}
+
+func (i *IncusProvider) GetVersion() string {
+	i.mu.RLock()
+	defer i.mu.RUnlock()
+	return i.version
+}
+
+// getIncusVersion 获取 Incus 版本
+func (i *IncusProvider) getIncusVersion() error {
+	if i.sshClient == nil {
+		return fmt.Errorf("SSH client not connected")
+	}
+
+	// 使用 incus --version 或 incus version 命令获取版本
+	output, err := i.sshClient.Execute("incus --version 2>/dev/null || incus version 2>/dev/null")
+	if err != nil {
+		global.APP_LOG.Warn("获取 Incus 版本失败",
+			zap.Error(err))
+		i.version = "unknown"
+		return err
+	}
+
+	// 解析版本号
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Client") || strings.HasPrefix(line, "Server") {
+			continue
+		}
+		// 提取第一个非空行作为版本号
+		i.version = line
+		global.APP_LOG.Info("获取 Incus 版本成功",
+			zap.String("version", i.version))
+		return nil
+	}
+
+	i.version = "unknown"
+	return fmt.Errorf("无法解析版本信息")
 }
 
 func (i *IncusProvider) Disconnect(ctx context.Context) error {

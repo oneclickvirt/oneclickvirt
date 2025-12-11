@@ -174,15 +174,15 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
 
-	// 等待实例真正启动 - 最多等待90秒
-	maxWaitTime := 90 * time.Second
-	checkInterval := 10 * time.Second
+	// 等待实例真正启动
+	maxWaitTime := 120 * time.Second
+	checkInterval := 3 * time.Second
 	startTime := time.Now()
 
 	for {
 		// 检查是否超时
 		if time.Since(startTime) > maxWaitTime {
-			return fmt.Errorf("等待实例启动超时 (90秒)")
+			return fmt.Errorf("等待实例启动超时 (120秒)")
 		}
 
 		// 等待一段时间后再检查
@@ -191,13 +191,49 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		// 检查实例状态
 		statusOutput, err := p.sshClient.Execute(statusCommand)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
-			// 实例已经启动，再等待额外的时间确保系统完全就绪
-			time.Sleep(5 * time.Second)
-			global.APP_LOG.Info("Proxmox实例已成功启动并就绪",
+			// 实例已经启动
+			global.APP_LOG.Info("Proxmox实例已成功启动",
 				zap.String("id", utils.TruncateString(id, 50)),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
 				zap.Duration("wait_time", time.Since(startTime)))
+
+			// 对于VM类型，智能检测QEMU Guest Agent（可选，不影响主流程）
+			if instanceType == "vm" {
+				// 快速检测2次，判断是否支持Agent
+				agentSupported := false
+				for i := 0; i < 2; i++ {
+					agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
+					_, err := p.sshClient.Execute(agentCmd)
+					if err == nil {
+						agentSupported = true
+						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+							zap.String("vmid", vmid))
+						break
+					}
+					time.Sleep(2 * time.Second)
+				}
+
+				// 如果未检测到，进行短时等待
+				if !agentSupported {
+					agentWaitTime := 12 * time.Second
+					agentStartTime := time.Now()
+					for time.Since(agentStartTime) < agentWaitTime {
+						agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
+						_, err := p.sshClient.Execute(agentCmd)
+						if err == nil {
+							global.APP_LOG.Info("QEMU Guest Agent已就绪",
+								zap.String("vmid", vmid),
+								zap.Duration("elapsed", time.Since(agentStartTime)))
+							break
+						}
+						time.Sleep(3 * time.Second)
+					}
+				}
+			}
+
+			// 额外等待确保系统稳定
+			time.Sleep(3 * time.Second)
 			return nil
 		}
 

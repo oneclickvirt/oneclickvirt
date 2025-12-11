@@ -382,17 +382,23 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 创建虚拟机
 	var createCmd string
+	// 根据 PVE 版本决定是否使用 fstrim_cloned_disks 参数
+	agentParam := "1"
+	if p.supportsCloneFstrim() {
+		agentParam = "1,fstrim_cloned_disks=1"
+	}
+
 	if net1Bridge != "" {
 		// 双网络接口模式（IPv6）
 		createCmd = fmt.Sprintf(
-			"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-			vmid, cpuFormatted, cpuType, net1Bridge, kvmFlag,
+			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+			vmid, agentParam, cpuFormatted, cpuType, net1Bridge, kvmFlag,
 		)
 	} else {
 		// 单网络接口模式（纯IPv4或IPv6环境缺失）
 		createCmd = fmt.Sprintf(
-			"qm create %d --agent 1 --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --ostype l26 %s",
-			vmid, cpuFormatted, cpuType, kvmFlag,
+			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --ostype l26 %s",
+			vmid, agentParam, cpuFormatted, cpuType, kvmFlag,
 		)
 	}
 
@@ -606,6 +612,81 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm start %d", vmid))
 	if err != nil {
 		return fmt.Errorf("启动虚拟机失败: %v", err)
+	}
+
+	updateProgress(96, "等待虚拟机启动...")
+
+	// 等待虚拟机状态变为running
+	maxWaitTime := 90 * time.Second
+	checkInterval := 3 * time.Second
+	startTime := time.Now()
+	vmRunning := false
+
+	for time.Since(startTime) < maxWaitTime {
+		statusCmd := fmt.Sprintf("qm status %d", vmid)
+		statusOutput, err := p.sshClient.Execute(statusCmd)
+		if err == nil && strings.Contains(statusOutput, "status: running") {
+			vmRunning = true
+			global.APP_LOG.Info("虚拟机已启动",
+				zap.Int("vmid", vmid),
+				zap.Duration("elapsed", time.Since(startTime)))
+			break
+		}
+		time.Sleep(checkInterval)
+	}
+
+	if !vmRunning {
+		global.APP_LOG.Warn("虚拟机启动超时，但继续创建流程",
+			zap.Int("vmid", vmid),
+			zap.Duration("elapsed", time.Since(startTime)))
+	}
+
+	updateProgress(98, "检测Guest Agent...")
+
+	// 智能等待QEMU Guest Agent就绪（可选，失败不影响创建流程）
+	if vmRunning {
+		// 先快速检测3次，判断镜像是否支持Guest Agent
+		agentSupported := false
+		for i := 0; i < 3; i++ {
+			agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
+			_, err := p.sshClient.Execute(agentCmd)
+			if err == nil {
+				agentSupported = true
+				global.APP_LOG.Info("检测到QEMU Guest Agent已安装并就绪",
+					zap.Int("vmid", vmid))
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
+
+		// 如果快速检测失败，说明镜像可能没有安装Agent，进行较短的等待
+		if !agentSupported {
+			global.APP_LOG.Info("镜像可能未安装QEMU Guest Agent，进行短时等待...",
+				zap.Int("vmid", vmid))
+
+			// 只再等待15秒，给系统更多启动时间
+			agentWaitTime := 15 * time.Second
+			agentStartTime := time.Now()
+
+			for time.Since(agentStartTime) < agentWaitTime {
+				agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
+				_, err := p.sshClient.Execute(agentCmd)
+				if err == nil {
+					global.APP_LOG.Info("QEMU Guest Agent已就绪",
+						zap.Int("vmid", vmid),
+						zap.Duration("elapsed", time.Since(agentStartTime)))
+					agentSupported = true
+					break
+				}
+				time.Sleep(3 * time.Second)
+			}
+
+			if !agentSupported {
+				global.APP_LOG.Warn("镜像未安装QEMU Guest Agent或Agent启动较慢",
+					zap.Int("vmid", vmid),
+					zap.String("建议", "如需使用Agent功能，请在镜像中安装qemu-guest-agent软件包"))
+			}
+		}
 	}
 
 	updateProgress(100, "虚拟机创建完成")

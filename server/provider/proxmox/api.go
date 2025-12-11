@@ -260,15 +260,15 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
 
-	// 等待实例真正启动 - 最多等待60秒
-	maxWaitTime := 60 * time.Second
-	checkInterval := 2 * time.Second
+	// 等待实例真正启动
+	maxWaitTime := 120 * time.Second
+	checkInterval := 3 * time.Second
 	startTime := time.Now()
 
 	for {
 		// 检查是否超时
 		if time.Since(startTime) > maxWaitTime {
-			return fmt.Errorf("等待实例启动超时 (60秒)")
+			return fmt.Errorf("等待实例启动超时 (120秒)")
 		}
 
 		// 等待一段时间后再检查
@@ -285,13 +285,49 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 
 		statusOutput, err := p.sshClient.Execute(statusCmd)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
-			// 实例已经启动，再等待额外的时间确保系统完全就绪
-			time.Sleep(5 * time.Second)
-			global.APP_LOG.Info("Proxmox实例已成功启动并就绪",
+			// 实例已经启动
+			global.APP_LOG.Info("Proxmox实例已成功启动",
 				zap.String("id", id),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
 				zap.Duration("wait_time", time.Since(startTime)))
+
+			// 对于VM类型，智能检测QEMU Guest Agent（可选，不影响主流程）
+			if instanceType == "vm" {
+				// 快速检测2次，判断是否支持Agent
+				agentSupported := false
+				for i := 0; i < 2; i++ {
+					agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
+					_, err := p.sshClient.Execute(agentCmd)
+					if err == nil {
+						agentSupported = true
+						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+							zap.String("vmid", vmid))
+						break
+					}
+					time.Sleep(2 * time.Second)
+				}
+
+				// 如果未检测到，进行短时等待
+				if !agentSupported {
+					agentWaitTime := 12 * time.Second
+					agentStartTime := time.Now()
+					for time.Since(agentStartTime) < agentWaitTime {
+						agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
+						_, err := p.sshClient.Execute(agentCmd)
+						if err == nil {
+							global.APP_LOG.Info("QEMU Guest Agent已就绪",
+								zap.String("vmid", vmid),
+								zap.Duration("elapsed", time.Since(agentStartTime)))
+							break
+						}
+						time.Sleep(3 * time.Second)
+					}
+				}
+			}
+
+			// 额外等待确保系统稳定
+			time.Sleep(3 * time.Second)
 			return nil
 		}
 
@@ -992,10 +1028,16 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	// 通过API创建虚拟机
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
 
+	// 根据 PVE 版本决定是否使用 fstrim_cloned_disks 参数
+	agentParam := "1"
+	if p.supportsCloneFstrim() {
+		agentParam = "1,fstrim_cloned_disks=1"
+	}
+
 	payload := map[string]interface{}{
 		"vmid":    vmid,
 		"name":    config.Name,
-		"agent":   "1",
+		"agent":   agentParam,
 		"scsihw":  "virtio-scsi-single",
 		"serial0": "socket",
 		"cores":   cpuFormatted,
@@ -1140,6 +1182,91 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, InternalGateway))
 
 	updateProgress(80, "虚拟机配置完成...")
+
+	// 启动虚拟机（通过API创建后不会自动启动）
+	updateProgress(85, "启动虚拟机...")
+	startCmd := fmt.Sprintf("qm start %d", vmid)
+	_, err = p.sshClient.Execute(startCmd)
+	if err != nil {
+		global.APP_LOG.Warn("启动虚拟机失败", zap.Int("vmid", vmid), zap.Error(err))
+		// 不返回错误，继续流程
+	} else {
+		updateProgress(90, "等待虚拟机启动...")
+
+		// 等待虚拟机状态变为running
+		maxWaitTime := 90 * time.Second
+		checkInterval := 3 * time.Second
+		startTime := time.Now()
+		vmRunning := false
+
+		for time.Since(startTime) < maxWaitTime {
+			statusCmd := fmt.Sprintf("qm status %d", vmid)
+			statusOutput, err := p.sshClient.Execute(statusCmd)
+			if err == nil && strings.Contains(statusOutput, "status: running") {
+				vmRunning = true
+				global.APP_LOG.Info("虚拟机已启动",
+					zap.Int("vmid", vmid),
+					zap.Duration("elapsed", time.Since(startTime)))
+				break
+			}
+			time.Sleep(checkInterval)
+		}
+
+		if !vmRunning {
+			global.APP_LOG.Warn("虚拟机启动超时",
+				zap.Int("vmid", vmid),
+				zap.Duration("elapsed", time.Since(startTime)))
+		}
+
+		updateProgress(95, "检测Guest Agent...")
+
+		// 智能等待QEMU Guest Agent就绪
+		if vmRunning {
+			// 先快速检测3次，判断镜像是否支持Guest Agent
+			agentSupported := false
+			for i := 0; i < 3; i++ {
+				agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
+				_, err := p.sshClient.Execute(agentCmd)
+				if err == nil {
+					agentSupported = true
+					global.APP_LOG.Info("检测到QEMU Guest Agent已安装并就绪",
+						zap.Int("vmid", vmid))
+					break
+				}
+				time.Sleep(2 * time.Second)
+			}
+
+			// 如果快速检测失败，进行较短的等待
+			if !agentSupported {
+				global.APP_LOG.Info("镜像可能未安装QEMU Guest Agent，进行短时等待...",
+					zap.Int("vmid", vmid))
+
+				agentWaitTime := 15 * time.Second
+				agentStartTime := time.Now()
+
+				for time.Since(agentStartTime) < agentWaitTime {
+					agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
+					_, err := p.sshClient.Execute(agentCmd)
+					if err == nil {
+						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+							zap.Int("vmid", vmid),
+							zap.Duration("elapsed", time.Since(agentStartTime)))
+						agentSupported = true
+						break
+					}
+					time.Sleep(3 * time.Second)
+				}
+
+				if !agentSupported {
+					global.APP_LOG.Warn("镜像未安装QEMU Guest Agent或Agent启动较慢",
+						zap.Int("vmid", vmid),
+						zap.String("建议", "如需使用Agent功能，请在镜像中安装qemu-guest-agent软件包"))
+				}
+			}
+		}
+	}
+
+	updateProgress(100, "虚拟机创建完成")
 
 	global.APP_LOG.Info("通过API成功创建QEMU虚拟机",
 		zap.Int("vmid", vmid),

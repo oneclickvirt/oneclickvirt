@@ -50,6 +50,9 @@ type Provider interface {
 	HealthCheck(ctx context.Context) (*health.HealthResult, error)
 	GetHealthChecker() health.HealthChecker
 
+	// 平台信息
+	GetVersion() string // 获取虚拟化平台版本
+
 	// 密码管理
 	SetInstancePassword(ctx context.Context, instanceID, password string) error
 	ResetInstancePassword(ctx context.Context, instanceID string) (string, error)

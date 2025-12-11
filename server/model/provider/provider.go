@@ -101,6 +101,7 @@ type Provider struct {
 	Country     string `json:"country" gorm:"size:64"`                                // 国家
 	CountryCode string `json:"countryCode" gorm:"size:8"`                             // 国家代码
 	City        string `json:"city" gorm:"size:64"`                                   // 城市（可选）
+	Version     string `json:"version" gorm:"size:32;default:''"`                     // 虚拟化平台版本（如Proxmox版本）
 
 	// 功能支持
 	ContainerEnabled      bool   `json:"container_enabled" gorm:"default:true"` // 是否支持容器实例

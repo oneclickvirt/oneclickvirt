@@ -20,6 +20,7 @@ type DockerProvider struct {
 	sshClient     *utils.SSHClient
 	connected     bool
 	healthChecker health.HealthChecker
+	version       string       // Docker 版本
 	mu            sync.RWMutex // 保护并发访问
 }
 
@@ -90,9 +91,16 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
 	d.healthChecker = health.NewDockerHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
+	// 获取 Docker 版本
+	if err := d.getDockerVersion(); err != nil {
+		global.APP_LOG.Warn("Docker 版本获取失败",
+			zap.Error(err))
+	}
+
 	global.APP_LOG.Info("Docker provider连接成功",
 		zap.String("host", utils.TruncateString(config.Host, 32)),
-		zap.Int("port", config.Port))
+		zap.Int("port", config.Port),
+		zap.String("version", d.version))
 
 	return nil
 }
@@ -142,6 +150,52 @@ func (d *DockerProvider) HealthCheck(ctx context.Context) (*health.HealthResult,
 
 func (d *DockerProvider) GetHealthChecker() health.HealthChecker {
 	return d.healthChecker
+}
+
+func (d *DockerProvider) GetVersion() string {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.version
+}
+
+// getDockerVersion 获取 Docker 版本
+func (d *DockerProvider) getDockerVersion() error {
+	if d.sshClient == nil {
+		return fmt.Errorf("SSH client not connected")
+	}
+
+	// 使用 docker version 命令获取版本
+	output, err := d.sshClient.Execute("docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version")
+	if err != nil {
+		global.APP_LOG.Warn("获取 Docker 版本失败",
+			zap.Error(err))
+		d.version = "unknown"
+		return err
+	}
+
+	// 解析版本号
+	lines := strings.Split(strings.TrimSpace(output), "\n")
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		// 如果是 "Docker version X.Y.Z" 格式，提取版本号
+		if strings.HasPrefix(line, "Docker version") {
+			parts := strings.Fields(line)
+			if len(parts) >= 3 {
+				d.version = parts[2]
+				return nil
+			}
+		} else {
+			// 直接返回的版本号
+			d.version = line
+			return nil
+		}
+	}
+
+	d.version = "unknown"
+	return fmt.Errorf("无法解析版本信息")
 }
 
 func (d *DockerProvider) ListInstances(ctx context.Context) ([]provider.Instance, error) {
