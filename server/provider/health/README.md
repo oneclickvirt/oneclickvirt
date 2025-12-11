@@ -1,476 +1,277 @@
-# Health Check System
+# Provider Health Check 模块
 
 ## 概述
 
-Health Check System是Provider Package的统一健康检查模块，为所有虚拟化平台提供标准化的健康检查功能。该系统支持SSH连接检查、API服务检查和平台特定的服务状态检查，并提供详细的健康报告。
+本模块实现了针对不同虚拟化提供商（Provider）的统一健康检查机制，支持SSH连接检测、API服务检测、资源信息采集和存储池路径探测等功能。
 
 ## 架构设计
 
-```
-server/provider/health/
-├── interface.go    # 健康检查接口定义
-├── base.go         # 基础健康检查器实现
-├── manager.go      # 健康检查管理器
-├── factory.go      # 工厂函数和适配器
-├── utils.go        # 工具函数
-├── docker.go       # Docker健康检查器
-├── lxd.go          # LXD健康检查器
-├── incus.go        # Incus健康检查器
-└── proxmox.go      # Proxmox健康检查器
-```
+### 核心组件
 
-## 核心组件
+- **interface.go**: 定义健康检查的核心接口和数据结构
+  - `HealthChecker`: 健康检查器接口
+  - `HealthResult`: 健康检查结果
+  - `HealthConfig`: 健康检查配置
+  - `ResourceInfo`: 节点资源信息
 
-### HealthChecker接口
+- **manager.go**: 健康检查管理器，负责创建和管理不同类型的健康检查器
+  - 支持的提供商类型: Docker、LXD、Incus、Proxmox
+  - 提供统一的检查器创建接口
 
-统一的健康检查接口，所有平台的健康检查器都实现此接口。
+- **base.go**: 基础健康检查器实现
+  - 提供HTTP客户端管理（带连接池）
+  - 实现通用的检查逻辑
+  - 处理并发配置更新
+
+- **factory.go**: 工厂方法和适配器
+  - 提供便捷的检查器创建函数
+  - 适配器模式集成到现有系统
+
+- **utils.go**: 辅助工具和SSH命令执行
+  - 提供SSH连接管理
+  - 实现资源信息采集逻辑
+  - 健康检查结果解析
+
+- **storage_detection.go**: 存储池路径自动检测
+  - 根据提供商类型自动检测存储池实际挂载路径
+  - 支持Proxmox、LXD、Incus、Docker
+
+### 具体实现
+
+- **docker.go**: Docker提供商健康检查实现
+- **lxd.go**: LXD提供商健康检查实现
+- **incus.go**: Incus提供商健康检查实现
+- **proxmox.go**: Proxmox提供商健康检查实现
+
+## 工作流程
+
+1. 通过`HealthManager`创建指定类型的健康检查器
+2. 配置检查参数（SSH、API、超时等）
+3. 调用`CheckHealth()`执行检查
+4. 返回包含状态、资源信息、错误等的`HealthResult`
+
+## 检查内容
+
+每个健康检查器可执行以下检查项：
+
+- **SSH连接检查**: 验证SSH服务可达性和认证
+- **API服务检查**: 验证提供商API服务状态
+- **服务状态检查**: 检查特定系统服务运行状态
+- **资源信息采集**: CPU、内存、磁盘、存储池路径等
+- **主机名获取**: 节点hostname用于区分多节点环境
+
+## 使用示例
+
+### 基本用法
 
 ```go
-type HealthChecker interface {
-    CheckHealth(ctx context.Context) (*HealthResult, error)
-    GetHealthStatus() HealthStatus
-    SetConfig(config HealthConfig)
+// 创建健康检查管理器
+manager := NewHealthManager(logger)
+
+// 配置检查参数
+config := HealthConfig{
+    ProviderID:   1,
+    ProviderName: "my-provider",
+    Host:         "192.168.1.100",
+    Port:         22,
+    Username:     "root",
+    Password:     "password",
+    SSHEnabled:   true,
+    APIEnabled:   true,
+    Timeout:      30 * time.Second,
 }
-```
 
-### BaseHealthChecker
-
-基础健康检查器，提供通用的健康检查逻辑，所有平台特定的检查器都基于此实现。
-
-**功能**:
-- HTTP客户端管理
-- TLS配置支持
-- 多检查项合并执行
-- 统一的结果格式化
-
-### HealthManager
-
-健康检查管理器，用于批量管理多个健康检查器。
-
-**功能**:
-- 检查器注册和管理
-- 批量健康检查
-- Provider类型识别
-- 默认配置应用
-
-### 平台特定检查器
-
-每个虚拟化平台都有对应的健康检查器实现：
-
-- **DockerHealthChecker**: Docker平台健康检查
-- **LXDHealthChecker**: LXD平台健康检查
-- **IncusHealthChecker**: Incus平台健康检查
-- **ProxmoxHealthChecker**: Proxmox平台健康检查
-
-## 核心数据结构
-
-### HealthConfig
-
-健康检查配置。
-
-```go
-type HealthConfig struct {
-    // 基础连接配置
-    Host     string
-    Port     int
-    Username string
-    Password string
-
-    // API配置
-    APIEnabled    bool
-    APIPort       int
-    APIScheme     string  // http, https
-    SkipTLSVerify bool
-    Token         string
-    TokenID       string
-    CertPath      string
-    KeyPath       string
-    CertContent   string
-    KeyContent    string
-
-    // 检查配置
-    Timeout        time.Duration
-    SSHEnabled     bool
-    ServiceChecks  []string
-    CustomCommands []string
-}
-```
-
-### HealthResult
-
-健康检查结果。
-
-```go
-type HealthResult struct {
-    Status        HealthStatus
-    Timestamp     time.Time
-    Duration      time.Duration
-    SSHStatus     string
-    APIStatus     string
-    ServiceStatus string
-    Errors        []string
-    Details       map[string]interface{}
-    ResourceInfo  *ResourceInfo
-}
-```
-
-### HealthStatus
-
-健康状态枚举。
-
-```go
-type HealthStatus string
-
-const (
-    HealthStatusUnknown   HealthStatus = "unknown"
-    HealthStatusHealthy   HealthStatus = "healthy"
-    HealthStatusUnhealthy HealthStatus = "unhealthy"
-    HealthStatusPartial   HealthStatus = "partial"
-)
-```
-
-### CheckResult
-
-单个检查项的结果。
-
-```go
-type CheckResult struct {
-    Type     CheckType
-    Success  bool
-    Duration time.Duration
-    Error    string
-    Details  map[string]interface{}
-}
-```
-
-### CheckType
-
-检查类型枚举。
-
-```go
-type CheckType string
-
-const (
-    CheckTypeSSH     CheckType = "ssh"
-    CheckTypeAPI     CheckType = "api"
-    CheckTypeService CheckType = "service"
-    CheckTypeCustom  CheckType = "custom"
-)
-```
-
-### ResourceInfo
-
-节点资源信息。
-
-```go
-type ResourceInfo struct {
-    CPUCores    int
-    MemoryTotal int64
-    SwapTotal   int64
-    DiskTotal   int64
-    DiskFree    int64
-    Synced      bool
-    SyncedAt    *time.Time
-}
-```
-
-## 支持的Provider类型
-
-### Docker
-
-**检查项**:
-- SSH连接测试
-- Docker API版本检查（可选）
-- Docker服务状态检查
-
-**API配置**:
-- 默认端口: 2375
-- 默认协议: http
-
-### LXD
-
-**检查项**:
-- SSH连接测试
-- LXD API服务检查
-- 证书认证验证
-- 系统资源信息
-
-**API配置**:
-- 默认端口: 8443
-- 默认协议: https
-- 认证方式: TLS证书
-
-### Incus
-
-**检查项**:
-- SSH连接测试
-- Incus API服务检查
-- 证书认证验证
-- 系统资源信息
-
-**API配置**:
-- 默认端口: 8443
-- 默认协议: https
-- 认证方式: TLS证书
-
-### Proxmox
-
-**检查项**:
-- SSH连接测试
-- Proxmox VE API检查
-- Token认证验证
-- 节点状态检查
-
-**API配置**:
-- 默认端口: 8006
-- 默认协议: https
-- 认证方式: API Token
-
-## 使用方法
-
-### 创建健康检查器
-
-```go
-import "oneclickvirt/provider/health"
-
-// 使用工厂函数创建
-logger, _ := zap.NewProduction()
-checker, err := health.CreateHealthChecker(
-    "docker",
-    "192.168.1.100",
-    "root",
-    "password",
-    22,
-    logger,
-)
-
-// 或使用管理器创建
-manager := health.NewHealthManager(logger)
-config := health.HealthConfig{
-    Host:       "192.168.1.100",
-    Port:       22,
-    Username:   "root",
-    Password:   "password",
-    SSHEnabled: true,
-    APIEnabled: true,
-    Timeout:    30 * time.Second,
-}
-checker, err := manager.CreateChecker(health.ProviderTypeDocker, config)
-```
-
-### 执行健康检查
-
-```go
-ctx := context.Background()
-result, err := checker.CheckHealth(ctx)
+// 创建Docker检查器
+checker, err := manager.CreateChecker(ProviderTypeDocker, config)
 if err != nil {
-    log.Printf("Health check error: %v", err)
-    return
-}
-
-fmt.Printf("Status: %s\n", result.Status)
-fmt.Printf("SSH Status: %s\n", result.SSHStatus)
-fmt.Printf("API Status: %s\n", result.APIStatus)
-fmt.Printf("Duration: %v\n", result.Duration)
-
-if len(result.Errors) > 0 {
-    fmt.Printf("Errors: %v\n", result.Errors)
-}
-```
-
-### 在Provider中集成
-
-```go
-type DockerProvider struct {
-    config        provider.NodeConfig
-    sshClient     *utils.SSHClient
-    connected     bool
-    healthChecker health.HealthChecker
-}
-
-func (p *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
-    // ... 其他连接逻辑
-
-    // 初始化健康检查器
-    healthConfig := health.HealthConfig{
-        Host:          config.Host,
-        Port:          config.Port,
-        Username:      config.Username,
-        Password:      config.Password,
-        APIEnabled:    true,
-        SSHEnabled:    true,
-        Timeout:       30 * time.Second,
-        ServiceChecks: []string{"docker"},
-    }
-
-    p.healthChecker = health.NewDockerHealthChecker(healthConfig, logger)
-    return nil
-}
-
-func (p *DockerProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
-    return p.healthChecker.CheckHealth(ctx)
-}
-
-func (p *DockerProvider) GetHealthChecker() health.HealthChecker {
-    return p.healthChecker
-}
-```
-
-### 批量健康检查
-
-```go
-manager := health.NewHealthManager(logger)
-
-// 注册多个检查器
-manager.RegisterChecker("docker1", dockerChecker1)
-manager.RegisterChecker("docker2", dockerChecker2)
-manager.RegisterChecker("lxd1", lxdChecker)
-
-// 批量检查
-results, err := manager.CheckAllHealth(context.Background())
-for id, result := range results {
-    fmt.Printf("%s: %s\n", id, result.Status)
-}
-```
-
-### 使用适配器简化集成
-
-```go
-adapter := health.NewHealthCheckAdapter(checker)
-
-// 简单的错误检查
-err := adapter.CheckHealth(ctx)
-if err != nil {
-    log.Printf("Health check failed: %v", err)
-}
-
-// 获取详细结果
-result, err := adapter.GetHealthResult(ctx)
-```
-
-## 配置示例
-
-### Docker配置
-
-```go
-config := health.HealthConfig{
-    Host:          "192.168.1.100",
-    Port:          22,
-    Username:      "root",
-    Password:      "password",
-    SSHEnabled:    true,
-    APIEnabled:    false,  // Docker通常不启用API检查或使用HTTP
-    Timeout:       30 * time.Second,
-    ServiceChecks: []string{"docker"},
-}
-```
-
-### LXD配置（证书认证）
-
-```go
-config := health.HealthConfig{
-    Host:          "192.168.1.100",
-    Port:          22,
-    Username:      "root",
-    Password:      "password",
-    SSHEnabled:    true,
-    APIEnabled:    true,
-    APIPort:       8443,
-    APIScheme:     "https",
-    CertPath:      "/path/to/client.crt",
-    KeyPath:       "/path/to/client.key",
-    SkipTLSVerify: false,
-    Timeout:       30 * time.Second,
-}
-```
-
-### Proxmox配置（Token认证）
-
-```go
-config := health.HealthConfig{
-    Host:          "192.168.1.100",
-    Port:          22,
-    Username:      "root",
-    Password:      "password",
-    SSHEnabled:    true,
-    APIEnabled:    true,
-    APIPort:       8006,
-    APIScheme:     "https",
-    Token:         "PVEAPIToken=user@pam!token=uuid",
-    SkipTLSVerify: true,
-    Timeout:       30 * time.Second,
-}
-```
-
-## 状态判断逻辑
-
-健康检查器根据各检查项的结果判断总体健康状态：
-
-- **healthy**: 所有启用的检查项都成功
-- **partial**: 部分检查项成功（如SSH成功但API失败）
-- **unhealthy**: 所有检查项都失败
-- **unknown**: 未执行检查或状态未知
-
-## 超时控制
-
-所有健康检查都支持context超时控制：
-
-```go
-ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-defer cancel()
-
-result, err := checker.CheckHealth(ctx)
-```
-
-## 错误处理
-
-健康检查结果中包含详细的错误信息：
-
-```go
-result, err := checker.CheckHealth(ctx)
-if err != nil {
-    // 检查执行失败
     return err
 }
 
-if result.Status == health.HealthStatusUnhealthy {
-    // 健康检查不通过
-    for _, errMsg := range result.Errors {
-        log.Printf("Health check error: %s", errMsg)
+// 执行健康检查
+result, err := checker.CheckHealth(context.Background())
+if err != nil {
+    return err
+}
+
+// 处理检查结果
+fmt.Printf("Status: %s\n", result.Status)
+fmt.Printf("SSH: %s\n", result.SSHStatus)
+fmt.Printf("API: %s\n", result.APIStatus)
+```
+
+### 使用便捷函数
+
+```go
+checker, err := CreateHealthChecker("docker", "192.168.1.100", "root", "password", 22, logger)
+result, err := checker.CheckHealth(context.Background())
+```
+
+### 存储池路径检测
+
+```go
+healthChecker := NewProviderHealthChecker(logger)
+path, err := healthChecker.DetectStoragePoolPath(sshClient, "proxmox", "local")
+```
+
+## 新增提供商实现指南
+
+### 步骤1: 创建提供商特定的健康检查器文件
+
+创建新文件 `<provider_name>.go`，实现以下结构：
+
+```go
+package health
+
+import (
+    "context"
+    "go.uber.org/zap"
+)
+
+// <Provider>HealthChecker <提供商名称>健康检查器
+type <Provider>HealthChecker struct {
+    *BaseHealthChecker
+}
+
+// New<Provider>HealthChecker 创建检查器
+func New<Provider>HealthChecker(config HealthConfig, logger *zap.Logger) *<Provider>HealthChecker {
+    return &<Provider>HealthChecker{
+        BaseHealthChecker: NewBaseHealthChecker(config, logger),
+    }
+}
+
+// CheckHealth 实现健康检查逻辑
+func (c *<Provider>HealthChecker) CheckHealth(ctx context.Context) (*HealthResult, error) {
+    // 定义需要执行的检查项
+    checks := []func(context.Context) CheckResult{}
+    
+    // SSH检查
+    if c.config.SSHEnabled {
+        checks = append(checks, c.createCheckFunc(CheckTypeSSH, c.checkSSH))
+    }
+    
+    // API检查
+    if c.config.APIEnabled {
+        checks = append(checks, c.createCheckFunc(CheckTypeAPI, c.checkAPI))
+    }
+    
+    // 执行检查并返回结果
+    result := c.executeChecks(ctx, checks)
+    return result, nil
+}
+
+// checkAPI 实现提供商特定的API检查逻辑
+func (c *<Provider>HealthChecker) checkAPI(ctx context.Context) error {
+    // 实现具体的API检查逻辑
+    // 例如: 调用提供商的健康检查API端点
+    return nil
+}
+```
+
+### 步骤2: 在manager.go中注册新提供商
+
+在 `manager.go` 的 `CreateChecker()` 方法中添加新的case分支：
+
+```go
+case ProviderType<Provider>:
+    if configCopy.APIPort == 0 {
+        configCopy.APIPort = <默认API端口>
+    }
+    checker = New<Provider>HealthChecker(configCopy, hm.logger)
+    checkerTypeName = "<Provider>HealthChecker"
+```
+
+在 `ProviderType` 常量中添加新类型：
+
+```go
+const (
+    // ...现有类型...
+    ProviderType<Provider> ProviderType = "<provider_name>"
+)
+```
+
+### 步骤3: 实现存储池路径检测（可选）
+
+在 `storage_detection.go` 中添加检测方法：
+
+```go
+// detect<Provider>StoragePath 检测<提供商>存储池路径
+func (phc *ProviderHealthChecker) detect<Provider>StoragePath(client *ssh.Client, storagePoolName string) (string, error) {
+    // 实现存储池路径检测逻辑
+    // 可通过SSH命令查询或配置文件解析
+    return "/path/to/storage", nil
+}
+```
+
+在 `DetectStoragePoolPath()` 中添加case分支：
+
+```go
+case "<provider_name>":
+    return phc.detect<Provider>StoragePath(client, storagePoolName)
+```
+
+### 步骤4: 实现资源信息采集（可选）
+
+如果提供商有特殊的资源获取方式，在新文件中实现：
+
+```go
+// getResourceInfo 获取资源信息
+func (c *<Provider>HealthChecker) getResourceInfo(ctx context.Context) (*ResourceInfo, error) {
+    // 通过SSH或API获取CPU、内存、磁盘等信息
+    return &ResourceInfo{
+        CPUCores:    cpuCount,
+        MemoryTotal: memTotal,
+        DiskTotal:   diskTotal,
+        DiskFree:    diskFree,
+    }, nil
+}
+```
+
+在 `CheckHealth()` 中调用资源信息采集：
+
+```go
+if result.Status == HealthStatusHealthy {
+    if resourceInfo, err := c.getResourceInfo(ctx); err == nil {
+        result.ResourceInfo = resourceInfo
     }
 }
 ```
 
-## 性能考虑
+## 注意事项
 
-- 合理设置超时时间避免长时间阻塞
-- 可以禁用不需要的检查项（SSH或API）
-- 使用连接池复用SSH连接
-- HTTP客户端自动处理连接复用
-- 并发执行多个检查项
+1. **并发安全**: 所有健康检查器需要支持并发调用，使用`sync.RWMutex`保护共享状态
+2. **资源清理**: HTTP Transport需要注册到清理管理器，防止内存泄漏
+3. **配置隔离**: 使用`DeepCopy()`创建配置副本，避免并发修改
+4. **超时控制**: 所有网络操作应遵守配置的超时时间
+5. **日志追踪**: 使用ProviderID和ProviderName进行日志追踪，便于问题排查
+6. **错误处理**: 检查失败时应在`HealthResult.Errors`中记录详细错误信息
 
-## 最佳实践
+## 配置参数说明
 
-1. **合理配置超时**: 根据网络环境设置适当的超时时间
-2. **启用必要的检查**: 根据实际使用场景选择启用的检查项
-3. **处理部分失败**: 对partial状态进行适当处理
-4. **定期健康检查**: 定时执行健康检查监控系统状态
-5. **日志记录**: 记录健康检查结果便于问题排查
-6. **TLS证书验证**: 生产环境建议启用证书验证
-7. **连接复用**: 重复使用健康检查器实例避免频繁创建
+### 基础连接配置
+- `Host`: 提供商主机地址
+- `Port`: SSH端口（默认22）
+- `Username`: SSH用户名
+- `Password`: SSH密码
+- `PrivateKey`: SSH私钥（优先于密码）
 
-## 扩展自定义检查
+### API配置
+- `APIEnabled`: 是否启用API检查
+- `APIPort`: API服务端口
+- `APIScheme`: API协议（http/https）
+- `SkipTLSVerify`: 是否跳过TLS证书验证
+- `Token`: API访问令牌
+- `CertPath/CertContent`: TLS证书路径或内容
+- `KeyPath/KeyContent`: TLS密钥路径或内容
 
-可以通过自定义命令添加额外的健康检查：
+### 检查配置
+- `Timeout`: 检查超时时间
+- `SSHEnabled`: 是否启用SSH检查
+- `ServiceChecks`: 需要检查的系统服务列表
+- `CustomCommands`: 自定义检查命令
 
-```go
-config := health.HealthConfig{
-    // ... 基础配置
-    CustomCommands: []string{
-        "systemctl status custom-service",
-        "df -h | grep /data",
-    },
-}
-```
+## 健康状态定义
 
-自定义检查结果会包含在`Details`字段中。
+- `HealthStatusHealthy`: 所有检查项通过
+- `HealthStatusUnhealthy`: 存在检查项失败
+- `HealthStatusPartial`: 部分检查项通过
+- `HealthStatusUnknown`: 无法确定健康状态

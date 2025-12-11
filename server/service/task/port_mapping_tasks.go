@@ -85,7 +85,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	switch localProviderType {
 	case "lxd":
 		if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
-			if ip, err := lxdProv.GetInstanceIPv4(instance.Name); err == nil {
+			if ip, err := lxdProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
 				currentPrivateIP = ip
 				global.APP_LOG.Info("成功获取LXD实例最新内网IP",
 					zap.String("instanceName", instance.Name),
@@ -215,7 +215,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				return fmt.Errorf("Provider类型断言失败")
 			}
 			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = lxdProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
+			err = lxdProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 
 		case "incus":
 			incusProv, ok := prov.(*incus.IncusProvider)
@@ -223,7 +223,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				return fmt.Errorf("Provider类型断言失败")
 			}
 			// 调用内部方法创建端口映射，使用最新的内网IP
-			err = incusProv.SetupPortMappingWithIP(instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
+			err = incusProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 
 		case "proxmox":
 			proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider)

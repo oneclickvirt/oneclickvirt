@@ -672,7 +672,7 @@ func (i *IncusProvider) ensureSSHBeforeFallback(apiErr error, operation string) 
 }
 
 // SetupPortMappingWithIP 公开的方法：在远程服务器上创建端口映射（用于手动添加端口）
-func (i *IncusProvider) SetupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
+func (i *IncusProvider) SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
 	return i.setupPortMappingWithIP(instanceName, hostPort, guestPort, protocol, method, instanceIP)
 }
 

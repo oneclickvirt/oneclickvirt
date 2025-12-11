@@ -454,7 +454,8 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 		// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
 		updateProgress(78, "获取实例内网IP...")
-		if privateIP, err := l.GetInstanceIPv4(config.Name); err == nil && privateIP != "" {
+		ctx2 := context.Background()
+		if privateIP, err := l.GetInstanceIPv4(ctx2, config.Name); err == nil && privateIP != "" {
 			// 更新数据库中的PrivateIP
 			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
 				global.APP_LOG.Info("已更新LXD实例内网IP",

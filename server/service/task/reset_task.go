@@ -345,7 +345,7 @@ func (s *TaskService) resetTask_GetPrivateIP(ctx context.Context, resetCtx *Rese
 	switch resetCtx.Provider.Type {
 	case "lxd":
 		if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
-			if ip, err := lxdProv.GetInstanceIPv4(resetCtx.OldInstanceName); err == nil {
+			if ip, err := lxdProv.GetInstanceIPv4(ctx, resetCtx.OldInstanceName); err == nil {
 				resetCtx.NewPrivateIP = ip
 			}
 		}

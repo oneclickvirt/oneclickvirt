@@ -657,7 +657,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				if dbProvider.Type == "lxd" {
 					if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
 						// 获取内网IPv4地址
-						if ipv4Address, err := lxdProvider.GetInstanceIPv4(instance.Name); err == nil && ipv4Address != "" {
+						ctx := context.Background()
+						if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
 							instanceUpdates["private_ip"] = ipv4Address
 							global.APP_LOG.Info("获取到实例内网IPv4地址",
 								zap.String("instanceName", instance.Name),

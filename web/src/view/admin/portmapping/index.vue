@@ -747,6 +747,13 @@ const checkPortAvailability = async () => {
     return
   }
   
+  // 从实例中获取 providerId
+  const selectedInstance = supportedInstances.value.find(inst => inst.id === addForm.instanceId)
+  if (!selectedInstance || !selectedInstance.providerId) {
+    ElMessage.error('无法获取实例的 Provider 信息')
+    return
+  }
+  
   const portCount = addForm.portCount || 1
   
   checkingPort.value = true
@@ -754,7 +761,7 @@ const checkPortAvailability = async () => {
   
   try {
     const response = await checkPortAvailable({
-      instanceId: addForm.instanceId,
+      providerId: selectedInstance.providerId,
       hostPort: addForm.hostPort,
       protocol: addForm.protocol,
       portCount: portCount

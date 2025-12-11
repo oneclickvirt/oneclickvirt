@@ -1040,7 +1040,7 @@ func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
 }
 
 // GetInstanceIPv4 获取实例的内网IPv4地址
-func (l *LXDProvider) GetInstanceIPv4(instanceName string) (string, error) {
+func (l *LXDProvider) GetInstanceIPv4(ctx context.Context, instanceName string) (string, error) {
 	// 复用已有的getInstanceIP方法来获取内网IPv4地址
 	return l.getInstanceIP(instanceName)
 }

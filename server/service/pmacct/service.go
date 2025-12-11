@@ -176,13 +176,10 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 
 		// 使用 Provider 接口的标准方法获取私有IP
 		switch prov := providerInstance.(type) {
-		case interface{ GetInstanceIPv4(string) (string, error) }:
-			// LXD Provider
-			privateIP, err = prov.GetInstanceIPv4(instance.Name)
 		case interface {
 			GetInstanceIPv4(context.Context, string) (string, error)
 		}:
-			// Incus Provider
+			// LXD/Incus/Proxmox Provider
 			ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 			defer cancel()
 			privateIP, err = prov.GetInstanceIPv4(ctx, instance.Name)
