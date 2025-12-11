@@ -190,15 +190,15 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 
 		// 检查缓存是否过期
 		if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {
-			// 缓存过期，需要重新查询
+			// 缓存过期，需要重新查询（排除deleted、deleting、failed状态）
 			var freshContainerCount, freshVMCount int64
 			tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-					provider.ID, "container", []string{"deleted", "deleting"}).
+					provider.ID, "container", []string{"deleted", "deleting", "failed"}).
 				Count(&freshContainerCount)
 			tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-					provider.ID, "vm", []string{"deleted", "deleting"}).
+					provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
 				Count(&freshVMCount)
 
 			containerCount = int(freshContainerCount)

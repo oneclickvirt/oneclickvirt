@@ -60,19 +60,21 @@ type UserInstanceResponse struct {
 
 // UserLimitsResponse 用户配额限制响应
 type UserLimitsResponse struct {
-	Level         int   `json:"level"`
-	MaxInstances  int   `json:"maxInstances"`
-	UsedInstances int   `json:"usedInstances"`
-	MaxCpu        int   `json:"maxCpu"`        // 最大CPU核心数
-	UsedCpu       int   `json:"usedCpu"`       // 已使用CPU核心数
-	MaxMemory     int   `json:"maxMemory"`     // 最大内存(MB)
-	UsedMemory    int   `json:"usedMemory"`    // 已使用内存(MB)
-	MaxDisk       int   `json:"maxDisk"`       // 最大磁盘(MB)
-	UsedDisk      int   `json:"usedDisk"`      // 已使用磁盘(MB)
-	MaxBandwidth  int   `json:"maxBandwidth"`  // 最大带宽(Mbps)
-	UsedBandwidth int   `json:"usedBandwidth"` // 已使用带宽(Mbps)
-	MaxTraffic    int64 `json:"maxTraffic"`    // 最大流量(MB)
-	UsedTraffic   int64 `json:"usedTraffic"`   // 已使用流量(MB)
+	Level          int   `json:"level"`
+	MaxInstances   int   `json:"maxInstances"`
+	UsedInstances  int   `json:"usedInstances"`
+	ContainerCount int   `json:"containerCount"` // 容器数量
+	VMCount        int   `json:"vmCount"`        // 虚拟机数量
+	MaxCpu         int   `json:"maxCpu"`         // 最大CPU核心数
+	UsedCpu        int   `json:"usedCpu"`        // 已使用CPU核心数
+	MaxMemory      int   `json:"maxMemory"`      // 最大内存(MB)
+	UsedMemory     int   `json:"usedMemory"`     // 已使用内存(MB)
+	MaxDisk        int   `json:"maxDisk"`        // 最大磁盘(MB)
+	UsedDisk       int   `json:"usedDisk"`       // 已使用磁盘(MB)
+	MaxBandwidth   int   `json:"maxBandwidth"`   // 最大带宽(Mbps)
+	UsedBandwidth  int   `json:"usedBandwidth"`  // 已使用带宽(Mbps)
+	MaxTraffic     int64 `json:"maxTraffic"`     // 最大流量(MB)
+	UsedTraffic    int64 `json:"usedTraffic"`    // 已使用流量(MB)
 }
 
 // UserTaskResponse 用户任务响应

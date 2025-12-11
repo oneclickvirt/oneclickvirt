@@ -21,9 +21,9 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 	global.APP_DB.Model(&userModel.User{}).Count(&totalUsers)
 	global.APP_DB.Model(&userModel.User{}).Where("status = ?", 1).Count(&activeUsers)
 
-	// 统计虚拟机和容器
-	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ?", "vm").Count(&totalVMs)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ?", "container").Count(&totalContainers)
+	// 统计虚拟机和容器（排除deleted、deleting、failed状态）
+	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ? AND status NOT IN (?)", "vm", []string{"deleted", "deleting", "failed"}).Count(&totalVMs)
+	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ? AND status NOT IN (?)", "container", []string{"deleted", "deleting", "failed"}).Count(&totalContainers)
 
 	// 统计服务器 (Provider表)
 	global.APP_DB.Model(&providerModel.Provider{}).Count(&totalProviders)

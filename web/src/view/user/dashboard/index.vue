@@ -58,6 +58,9 @@
               />
               <div class="limit-description">
                 {{ t('user.dashboard.instanceCountDesc') }}
+                <span v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined" style="display: block; margin-top: 4px; color: #909399; font-size: 12px;">
+                  {{ t('user.dashboard.containerCount') }}: {{ userLimits.containerCount || 0 }} / {{ t('user.dashboard.vmCount') }}: {{ userLimits.vmCount || 0 }}
+                </span>
               </div>
             </div>
 
@@ -212,6 +215,8 @@ const userLimits = reactive({
   level: 1,
   maxInstances: 0,
   usedInstances: 0,
+  containerCount: 0,
+  vmCount: 0,
   maxCpu: 0,
   usedCpu: 0,
   maxMemory: 0,

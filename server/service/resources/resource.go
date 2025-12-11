@@ -450,10 +450,10 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 		// 统计当前实例资源使用
 		var stats dashboardModel.ResourceUsageStats
 
-		// 统计虚拟机资源
+		// 统计虚拟机资源（排除deleted、deleting、failed状态）
 		err := tx.Model(&providerModel.Instance{}).
 			Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-				providerID, "vm", []string{"deleted", "deleting"}).
+				providerID, "vm", []string{"deleted", "deleting", "failed"}).
 			Select("COUNT(*) as vm_count, COALESCE(SUM(cpu), 0) as used_cpu_cores, COALESCE(SUM(memory), 0) as used_memory, COALESCE(SUM(disk), 0) as used_disk").
 			Scan(&stats).Error
 		if err != nil {
@@ -465,10 +465,10 @@ func (s *ResourceService) SyncProviderResources(providerID uint) error {
 		vmDisk := stats.UsedDisk
 		vmCount := stats.VMCount
 
-		// 统计容器资源
+		// 统计容器资源（排除deleted、deleting、failed状态）
 		err = tx.Model(&providerModel.Instance{}).
 			Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-				providerID, "container", []string{"deleted", "deleting"}).
+				providerID, "container", []string{"deleted", "deleting", "failed"}).
 			Select("COUNT(*) as container_count, COALESCE(SUM(memory), 0) as used_memory, COALESCE(SUM(disk), 0) as used_disk").
 			Scan(&stats).Error
 		if err != nil {

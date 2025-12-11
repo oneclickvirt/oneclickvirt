@@ -15,7 +15,12 @@
       <div class="limits-grid">
         <div class="limit-item">
           <span class="label">{{ t('user.apply.maxInstances') }}</span>
-          <span class="value">{{ userLimits.usedInstances }} / {{ userLimits.maxInstances }}</span>
+          <span class="value">
+            {{ userLimits.usedInstances }} / {{ userLimits.maxInstances }}
+            <span v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined" style="color: #909399; font-size: 12px; margin-left: 8px;">
+              ({{ t('user.dashboard.containerCount') }}: {{ userLimits.containerCount || 0 }} / {{ t('user.dashboard.vmCount') }}: {{ userLimits.vmCount || 0 }})
+            </span>
+          </span>
         </div>
         <div class="limit-item">
           <span class="label">{{ t('user.apply.cpuCoreLimit') }}</span>
@@ -385,6 +390,8 @@ const userLimits = reactive({
   level: 1,
   maxInstances: 0,
   usedInstances: 0,
+  containerCount: 0,
+  vmCount: 0,
   maxCpu: 0,
   usedCpu: 0,
   maxMemory: 0,

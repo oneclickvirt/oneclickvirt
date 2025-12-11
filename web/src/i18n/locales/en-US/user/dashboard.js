@@ -6,6 +6,8 @@ export default {
   resourceQuota: "Resource Quota Limits",
   instanceCount: "Instance Count",
   instanceCountDesc: "Total number of VMs and containers that can be created",
+  containerCount: "Containers",
+  vmCount: "VMs",
   cpuCores: "CPU Cores",
   cores: " cores",
   cpuCoresDesc: "Total CPU cores across all instances",

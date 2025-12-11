@@ -6,6 +6,8 @@ export default {
   resourceQuota: "资源配额限制",
   instanceCount: "实例数量",
   instanceCountDesc: "可创建的虚拟机和容器总数",
+  containerCount: "容器",
+  vmCount: "虚拟机",
   cpuCores: "CPU核心",
   cores: "核",
   cpuCoresDesc: "所有实例CPU核心总数",
