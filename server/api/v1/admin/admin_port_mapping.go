@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -12,6 +13,7 @@ import (
 	"oneclickvirt/service/task"
 	"oneclickvirt/utils"
 	"strconv"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -197,7 +199,14 @@ func CreatePortMapping(c *gin.Context) {
 	portID, taskData, err := portMappingService.CreatePortMappingWithTask(req)
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		// 判断是否为端口范围验证错误
+		if errors.Is(err, resources.ErrPortRangeValidation) {
+			// 去掉错误类型前缀，只保留实际的错误消息
+			errMsg := strings.TrimPrefix(err.Error(), "port range validation error: ")
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
+		} else {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		}
 		return
 	}
 

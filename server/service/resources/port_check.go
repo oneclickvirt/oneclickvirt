@@ -32,7 +32,8 @@ func (s *PortMappingService) CheckPortAvailability(req admin.CheckPortAvailabili
 	if req.HostPort < providerInfo.PortRangeStart || req.HostPort > providerInfo.PortRangeEnd {
 		return &admin.CheckPortAvailabilityResponse{
 			Available: false,
-			Message:   fmt.Sprintf("端口 %d 不在Provider允许的范围内 (%d-%d)", req.HostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd),
+			Message: fmt.Sprintf("端口 %d 不在节点允许的范围内 (%d-%d)",
+				req.HostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd),
 		}, nil
 	}
 
@@ -40,7 +41,8 @@ func (s *PortMappingService) CheckPortAvailability(req admin.CheckPortAvailabili
 	if endPort > providerInfo.PortRangeEnd {
 		return &admin.CheckPortAvailabilityResponse{
 			Available: false,
-			Message:   fmt.Sprintf("端口段 %d-%d 超出Provider允许的范围 (%d-%d)", req.HostPort, endPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd),
+			Message: fmt.Sprintf("端口段 %d-%d 超出节点允许的范围 (%d-%d)",
+				req.HostPort, endPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd),
 		}, nil
 	}
 
@@ -251,14 +253,16 @@ func (s *PortMappingService) ValidatePortRange(providerID uint, startPort int, p
 
 	// 检查起始端口是否在范围内
 	if startPort < providerInfo.PortRangeStart || startPort > providerInfo.PortRangeEnd {
-		return fmt.Errorf("起始端口 %d 不在允许范围内 (%d-%d)",
+		return fmt.Errorf("%w: 起始端口 %d 不在节点允许的范围内 (%d-%d)",
+			ErrPortRangeValidation,
 			startPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd)
 	}
 
 	// 检查端口段是否超出范围
 	endPort := startPort + portCount - 1
 	if endPort > providerInfo.PortRangeEnd {
-		return fmt.Errorf("端口段 %d-%d 超出允许范围 (最大端口: %d)",
+		return fmt.Errorf("%w: 端口段 %d-%d 超出节点允许的范围 (最大端口: %d)",
+			ErrPortRangeValidation,
 			startPort, endPort, providerInfo.PortRangeEnd)
 	}
 

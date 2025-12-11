@@ -1,6 +1,7 @@
 package resources
 
 import (
+	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -10,6 +11,12 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+)
+
+// 定义错误类型
+var (
+	// ErrPortRangeValidation 端口范围验证错误（用于区分业务验证错误和系统错误）
+	ErrPortRangeValidation = errors.New("port range validation error")
 )
 
 type PortMappingService struct{}
@@ -128,6 +135,23 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		}
 		hostPort = allocatedPort
 	} else {
+		// 检查主机端口是否在Provider允许的范围内
+		if hostPort < providerInfo.PortRangeStart || hostPort > providerInfo.PortRangeEnd {
+			return 0, nil, fmt.Errorf("%w: 主机端口 %d 不在节点允许的范围内 (%d-%d) / Host port %d is not within the node's allowed range (%d-%d)",
+				ErrPortRangeValidation,
+				hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd,
+				hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd)
+		}
+
+		// 检查端口段是否超出范围
+		hostPortEnd := hostPort + portCount - 1
+		if hostPortEnd > providerInfo.PortRangeEnd {
+			return 0, nil, fmt.Errorf("%w: 主机端口段 %d-%d 超出节点允许的范围 (最大端口: %d) / Host port range %d-%d exceeds the node's allowed range (maximum port: %d)",
+				ErrPortRangeValidation,
+				hostPort, hostPortEnd, providerInfo.PortRangeEnd,
+				hostPort, hostPortEnd, providerInfo.PortRangeEnd)
+		}
+
 		// 批量检查指定的端口段是否可用
 		var occupiedPorts []int
 		err := global.APP_DB.Model(&provider.Port{}).
