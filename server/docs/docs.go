@@ -10186,7 +10186,7 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "storagePool": {
-                    "description": "存储配置（ProxmoxVE专用）",
+                    "description": "存储配置（所有Provider类型通用）",
                     "type": "string"
                 },
                 "taskPollInterval": {
@@ -10970,7 +10970,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "year": {
-                    "description": "时间维度",
+                    "description": "时间维度\n添加唯一约束，防止重复聚合\nday=0, hour=0 表示月度汇总（用于快速查询缓存）",
                     "type": "integer"
                 }
             }
@@ -11070,7 +11070,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "timestamp": {
-                    "description": "时间维度（支持5分钟精度）",
+                    "description": "时间维度（支持5分钟精度）\nyear和month添加到复合索引中，提升月度查询性能\n添加timestamp到复合索引以支持范围查询",
                     "type": "string"
                 },
                 "total_bytes": {
@@ -12604,6 +12604,10 @@ const docTemplate = `{
         "user.UserLimitsResponse": {
             "type": "object",
             "properties": {
+                "containerCount": {
+                    "description": "容器数量",
+                    "type": "integer"
+                },
                 "level": {
                     "type": "integer"
                 },
@@ -12651,6 +12655,10 @@ const docTemplate = `{
                 },
                 "usedTraffic": {
                     "description": "已使用流量(MB)",
+                    "type": "integer"
+                },
+                "vmCount": {
+                    "description": "虚拟机数量",
                     "type": "integer"
                 }
             }

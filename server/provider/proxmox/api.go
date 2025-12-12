@@ -178,6 +178,8 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 		global.APP_LOG.Warn("启动实例失败", zap.Int("vmid", vmid), zap.Error(err))
 	}
 
+	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置
+
 	// 配置端口映射
 	updateProgress(91, "配置端口映射...")
 	if err := p.configureInstancePortMappings(ctx, config, vmid); err != nil {
@@ -906,12 +908,21 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 
 	updateProgress(70, "配置容器网络...")
 
-	// 配置网络（使用VMID到IP的映射函数）
+	// 解析网络配置获取带宽限制
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+
+	// 配置网络（使用VMID到IP的映射函数，包含带宽限制）
 	userIP := VMIDToInternalIP(vmid)
 	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
 
+	// 构建网络配置字符串，包含 rate 参数
+	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+	if networkConfig.OutSpeed > 0 {
+		netConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", netConfigStr, networkConfig.OutSpeed)
+	}
+
 	netPayload := map[string]interface{}{
-		"net0": fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway),
+		"net0": netConfigStr,
 	}
 
 	netJsonData, _ := json.Marshal(netPayload)
@@ -1025,6 +1036,9 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		net1Bridge = "vmbr2"
 	}
 
+	// 获取网络配置用于带宽限制
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+
 	// 通过API创建虚拟机
 	url := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu", p.config.Host, p.node)
 
@@ -1033,6 +1047,14 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	if p.supportsCloneFstrim() {
 		agentParam = "1,fstrim_cloned_disks=1"
 	}
+
+	// 构建网络配置字符串，包含 rate 参数
+	net0Config := "virtio,bridge=vmbr1,firewall=0"
+	if networkConfig.OutSpeed > 0 {
+		net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+	}
+
+	net1Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)
 
 	payload := map[string]interface{}{
 		"vmid":    vmid,
@@ -1043,8 +1065,8 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		"cores":   cpuFormatted,
 		"sockets": "1",
 		"cpu":     cpuType,
-		"net0":    "virtio,bridge=vmbr1,firewall=0",
-		"net1":    fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge),
+		"net0":    net0Config,
+		"net1":    net1Config,
 		"ostype":  "l26",
 		"kvm":     fmt.Sprintf("%d", kvmFlag),
 		"memory":  memoryFormatted,

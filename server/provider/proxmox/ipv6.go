@@ -216,13 +216,20 @@ func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, co
 
 // configureVMIPv6 配置虚拟机IPv6
 func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, ipv6Only bool) error {
+	// 获取网络配置以应用带宽限制
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+
 	if useNATMapping {
 		// NAT映射模式
 		vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%d", vmid)
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=%s,firewall=0", vmid, bridgeName)
+			net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			if networkConfig.OutSpeed > 0 {
+				net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -235,6 +242,7 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 			}
 		} else {
 			// IPv4+IPv6: net1为IPv6
+			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置（Proxmox 的 rate 是整体VM/CT级别的限制）
 			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, bridgeName)
 			_, err := p.sshClient.Execute(netCmd)
 			if err != nil {
@@ -262,7 +270,11 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("qm set %d --net0 virtio,bridge=%s,firewall=0", vmid, bridgeName)
+			net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			if networkConfig.OutSpeed > 0 {
+				net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -275,6 +287,7 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 			}
 		} else {
 			// IPv4+IPv6: net1为IPv6
+			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置（Proxmox 的 rate 是整体VM/CT级别的限制）
 			netCmd := fmt.Sprintf("qm set %d --net1 virtio,bridge=%s,firewall=0", vmid, bridgeName)
 			_, err := p.sshClient.Execute(netCmd)
 			if err != nil {
@@ -294,13 +307,20 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 
 // configureContainerIPv6 配置容器IPv6
 func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, config provider.InstanceConfig, bridgeName string, useNATMapping bool, ipv6Info *IPv6Info, ipv6Only bool) error {
+	// 获取网络配置以应用带宽限制
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
+
 	if useNATMapping {
 		// NAT映射模式
 		vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%d", vmid)
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmid, vmInternalIPv6, bridgeName)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmInternalIPv6, bridgeName)
+			if networkConfig.OutSpeed > 0 {
+				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -308,12 +328,17 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
 			userIP := VMIDToInternalIP(vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+			if networkConfig.OutSpeed > 0 {
+				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
 			}
 
+			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置
 			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmid, vmInternalIPv6, bridgeName)
 			_, err = p.sshClient.Execute(net1Cmd)
 			if err != nil {
@@ -347,7 +372,11 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip6='%s/128',bridge=%s,gw6='%s'", vmid, vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip6='%s/128',bridge=%s,gw6='%s'", vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
+			if networkConfig.OutSpeed > 0 {
+				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv6-only接口失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -356,12 +385,17 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
 			// 使用VMID到IP的映射函数
 			userIP := VMIDToInternalIP(vmid)
-			net0Cmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+			if networkConfig.OutSpeed > 0 {
+				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+			}
+			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
 			if err != nil {
 				global.APP_LOG.Warn("配置容器IPv4接口失败", zap.Int("vmid", vmid), zap.Error(err))
 			}
 
+			// net1 不需要 rate 限制，因为 rate 已在 net0 上配置
 			net1Cmd := fmt.Sprintf("pct set %d --net1 name=eth1,ip6='%s/128',bridge=%s,gw6='%s'", vmid, vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
 			_, err = p.sshClient.Execute(net1Cmd)
 			if err != nil {

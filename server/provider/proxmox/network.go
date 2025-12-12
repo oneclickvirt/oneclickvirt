@@ -117,15 +117,30 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 			}
 		}
 
+		// 带宽配置：取 Provider配置、用户等级配置、实例Metadata配置中的最小值
 		if inSpeed, ok := config.Metadata["in_speed"]; ok {
-			if speed, err := strconv.Atoi(inSpeed); err == nil {
-				networkConfig.InSpeed = speed
+			if speed, err := strconv.Atoi(inSpeed); err == nil && speed > 0 {
+				// 取更小的值
+				if speed < networkConfig.InSpeed {
+					networkConfig.InSpeed = speed
+					global.APP_LOG.Info("使用更低的实例级别入站带宽限制",
+						zap.String("instance", config.Name),
+						zap.Int("metadataInSpeed", speed),
+						zap.Int("finalInSpeed", networkConfig.InSpeed))
+				}
 			}
 		}
 
 		if outSpeed, ok := config.Metadata["out_speed"]; ok {
-			if speed, err := strconv.Atoi(outSpeed); err == nil {
-				networkConfig.OutSpeed = speed
+			if speed, err := strconv.Atoi(outSpeed); err == nil && speed > 0 {
+				// 取更小的值
+				if speed < networkConfig.OutSpeed {
+					networkConfig.OutSpeed = speed
+					global.APP_LOG.Info("使用更低的实例级别出站带宽限制",
+						zap.String("instance", config.Name),
+						zap.Int("metadataOutSpeed", speed),
+						zap.Int("finalOutSpeed", networkConfig.OutSpeed))
+				}
 			}
 		}
 

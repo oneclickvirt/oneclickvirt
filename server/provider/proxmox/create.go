@@ -76,6 +76,8 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 		global.APP_LOG.Warn("启动实例失败", zap.Int("vmid", vmid), zap.Error(err))
 	}
 
+	// 虚拟机和容器的带宽限制已在创建时通过 rate 参数配置
+
 	// 配置端口映射 - 在实例启动后配置
 	updateProgress(91, "配置端口映射...")
 	if err := p.configureInstancePortMappings(ctx, config, vmid); err != nil {
@@ -213,8 +215,14 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	updateProgress(70, "配置容器网络...")
 
 	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
+	// 使用 Proxmox 原生的 rate 参数限制带宽
+	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	userIP := VMIDToInternalIP(vmid)
-	netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
+	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+	if networkConfig.OutSpeed > 0 {
+		netConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", netConfigStr, networkConfig.OutSpeed)
+	}
+	netCmd := fmt.Sprintf("pct set %d --net0 %s", vmid, netConfigStr)
 	_, err = p.sshClient.Execute(netCmd)
 	if err != nil {
 		global.APP_LOG.Warn("容器网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
@@ -388,17 +396,23 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		agentParam = "1,fstrim_cloned_disks=1"
 	}
 
+	// 构建网络配置字符串，包含 rate 参数
+	net0Config := "virtio,bridge=vmbr1,firewall=0"
+	if networkConfig.OutSpeed > 0 {
+		net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+	}
+
 	if net1Bridge != "" {
 		// 双网络接口模式（IPv6）
 		createCmd = fmt.Sprintf(
-			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-			vmid, agentParam, cpuFormatted, cpuType, net1Bridge, kvmFlag,
+			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+			vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
 		)
 	} else {
 		// 单网络接口模式（纯IPv4或IPv6环境缺失）
 		createCmd = fmt.Sprintf(
-			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 virtio,bridge=vmbr1,firewall=0 --ostype l26 %s",
-			vmid, agentParam, cpuFormatted, cpuType, kvmFlag,
+			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+			vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
 		)
 	}
 
