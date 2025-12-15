@@ -357,6 +357,10 @@ func initializeSchedulers() {
 	logRateLimiter := utils.GetLogRateLimiter()
 	lifecycleMgr.Register("LogRateLimiter", logRateLimiter)
 
+	// 注册日志轮转服务
+	logRotationService := log.GetLogRotationService()
+	lifecycleMgr.Register("LogRotationService", logRotationService)
+
 	global.APP_LOG.Info("所有调度器和全局服务已启动并注册到生命周期管理器")
 }
 

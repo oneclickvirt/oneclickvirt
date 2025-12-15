@@ -2,7 +2,6 @@ package pmacct
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -216,32 +215,20 @@ func (bp *BatchProcessor) QueueAdd(instanceID uint) {
 					}
 				}()
 
-				// 直接执行，带超时控制
+				// 直接执行，带超时控制（不再嵌套goroutine）
 				ctx, cancel := context.WithTimeout(bp.ctx, 1*time.Minute)
 				defer cancel()
 
-				// 使用channel接收结果
-				done := make(chan error, 1)
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							done <- fmt.Errorf("panic: %v", r)
-						}
-					}()
-					done <- bp.service.InitializePmacctForInstance(iid)
-				}()
+				// 检查context是否已取消
+				if ctx.Err() != nil {
+					return
+				}
 
-				select {
-				case err := <-done:
-					if err != nil {
-						global.APP_LOG.Error("降级添加pmacct失败",
-							zap.Uint("instanceID", iid),
-							zap.Error(err))
-					}
-				case <-ctx.Done():
-					global.APP_LOG.Error("降级添加pmacct超时",
+				// 直接执行，不再用channel
+				if err := bp.service.InitializePmacctForInstance(iid); err != nil {
+					global.APP_LOG.Error("降级添加pmacct失败",
 						zap.Uint("instanceID", iid),
-						zap.Duration("timeout", 1*time.Minute))
+						zap.Error(err))
 				}
 			}(instanceID)
 
@@ -288,32 +275,20 @@ func (bp *BatchProcessor) QueueDelete(instanceID uint) {
 					}
 				}()
 
-				// 直接执行，带超时控制
+				// 直接执行，带超时控制（不再嵌套goroutine）
 				ctx, cancel := context.WithTimeout(bp.ctx, 1*time.Minute)
 				defer cancel()
 
-				// 使用channel接收结果
-				done := make(chan error, 1)
-				go func() {
-					defer func() {
-						if r := recover(); r != nil {
-							done <- fmt.Errorf("panic: %v", r)
-						}
-					}()
-					done <- bp.service.CleanupPmacctData(iid)
-				}()
+				// 检查context是否已取消
+				if ctx.Err() != nil {
+					return
+				}
 
-				select {
-				case err := <-done:
-					if err != nil {
-						global.APP_LOG.Error("降级删除pmacct失败",
-							zap.Uint("instanceID", iid),
-							zap.Error(err))
-					}
-				case <-ctx.Done():
-					global.APP_LOG.Error("降级删除pmacct超时",
+				// 直接执行，不再用channel
+				if err := bp.service.CleanupPmacctData(iid); err != nil {
+					global.APP_LOG.Error("降级删除pmacct失败",
 						zap.Uint("instanceID", iid),
-						zap.Duration("timeout", 1*time.Minute))
+						zap.Error(err))
 				}
 			}(instanceID)
 
@@ -449,22 +424,17 @@ func (bp *BatchProcessor) batchAdd(instanceIDs []uint, concurrency int) {
 					instCtx, instCancel := context.WithTimeout(ctx, 2*time.Minute)
 					defer instCancel()
 
-					done := make(chan error, 1)
-					go func() {
-						done <- bp.service.InitializePmacctForInstance(iid)
-					}()
+					// 直接执行，不再嵌套goroutine
+					if instCtx.Err() != nil {
+						global.APP_LOG.Warn("批处理已超时，跳过实例",
+							zap.Uint("instanceID", iid))
+						return
+					}
 
-					select {
-					case err := <-done:
-						if err != nil {
-							global.APP_LOG.Error("批量初始化pmacct失败",
-								zap.Uint("instanceID", iid),
-								zap.Error(err))
-						}
-					case <-instCtx.Done():
-						global.APP_LOG.Error("批量初始化pmacct超时",
+					if err := bp.service.InitializePmacctForInstance(iid); err != nil {
+						global.APP_LOG.Error("批量初始化pmacct失败",
 							zap.Uint("instanceID", iid),
-							zap.Duration("timeout", 2*time.Minute))
+							zap.Error(err))
 					}
 				case <-ctx.Done():
 					global.APP_LOG.Warn("批处理已超时，跳过实例",
@@ -513,22 +483,17 @@ func (bp *BatchProcessor) batchDelete(instanceIDs []uint, concurrency int) {
 					instCtx, instCancel := context.WithTimeout(ctx, 1*time.Minute)
 					defer instCancel()
 
-					done := make(chan error, 1)
-					go func() {
-						done <- bp.service.CleanupPmacctData(iid)
-					}()
+					// 直接执行，不再嵌套goroutine
+					if instCtx.Err() != nil {
+						global.APP_LOG.Warn("批处理已超时，跳过实例",
+							zap.Uint("instanceID", iid))
+						return
+					}
 
-					select {
-					case err := <-done:
-						if err != nil {
-							global.APP_LOG.Error("批量清理pmacct失败",
-								zap.Uint("instanceID", iid),
-								zap.Error(err))
-						}
-					case <-instCtx.Done():
-						global.APP_LOG.Error("批量清理pmacct超时",
+					if err := bp.service.CleanupPmacctData(iid); err != nil {
+						global.APP_LOG.Error("批量清理pmacct失败",
 							zap.Uint("instanceID", iid),
-							zap.Duration("timeout", 1*time.Minute))
+							zap.Error(err))
 					}
 				case <-ctx.Done():
 					global.APP_LOG.Warn("批处理已超时，跳过实例",

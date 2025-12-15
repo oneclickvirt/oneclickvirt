@@ -166,10 +166,10 @@ func (m *TransportCleanupManager) periodicCleanup() {
 	}
 }
 
-// cleanupExpiredTransports 清理过期的transport对象（2小时未访问）
+// cleanupExpiredTransports 清理过期的transport对象（30分钟未访问）
 func (m *TransportCleanupManager) cleanupExpiredTransports() {
-	// 确俟ticker在panic时也能停止，防止goroutine泄漏
-	ticker := time.NewTicker(30 * time.Minute)
+	// 确保ticker在panic时也能停止，防止goroutine泄漏
+	ticker := time.NewTicker(10 * time.Minute) // 每10分钟检查一次
 	defer func() {
 		ticker.Stop()
 		if r := recover(); r != nil && global.APP_LOG != nil {
@@ -195,13 +195,13 @@ func (m *TransportCleanupManager) cleanupExpired() {
 	defer m.mu.Unlock()
 
 	now := time.Now()
-	maxAge := 2 * time.Hour
+	maxAge := 30 * time.Minute // 30分钟未访问视为过期
 	cleaned := 0
 
 	// 收集需要删除的transport
 	var toDelete []*http.Transport
 	for t, meta := range m.transports {
-		// 2小时未访问的transport视为过期
+		// 30分钟未访问的transport视为过期
 		if now.Sub(meta.lastAccess) > maxAge {
 			toDelete = append(toDelete, t)
 		}

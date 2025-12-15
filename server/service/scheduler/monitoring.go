@@ -268,63 +268,43 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 								zap.Uint("providerID", providerID),
 								zap.String("providerName", providerName),
 								zap.Int64("roundID", roundID),
-								zap.Any("panic", r))
+								zap.Any("panic", r),
+								zap.Stack("stack"))
 						}
 					}()
 
-					// 第三层：超时保护（防止goroutine永久阻塞）
-					ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+					// 第三层：超时保护
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 					defer cancel()
 
-					// 使用带超时的channel确保goroutine能退出
-					done := make(chan error, 1)
-					go func() {
-						// 检查服务是否已停止
-						select {
-						case <-s.stopChan:
-							done <- fmt.Errorf("服务已停止")
-							return
-						case <-ctx.Done():
-							done <- fmt.Errorf("采集超时")
-							return
-						default:
-						}
-
-						err := s.collectProviderTrafficInBatches(providerID, batchSize, roundID)
-						done <- err
-					}()
-
-					// 等待完成或超时
+					// 检查服务是否已停止
 					select {
-					case err := <-done:
-						if err != nil {
-							if err.Error() == "服务已停止" {
-								global.APP_LOG.Info("服务已停止，取消采集",
-									zap.Uint("providerID", providerID),
-									zap.Int64("roundID", roundID))
-							} else if err.Error() == "采集超时" {
-								global.APP_LOG.Error("Provider流量采集超时",
-									zap.Uint("providerID", providerID),
-									zap.String("providerName", providerName),
-									zap.Int64("roundID", roundID))
-							} else {
-								global.APP_LOG.Error("Provider流量批量采集失败",
-									zap.Uint("providerID", providerID),
-									zap.String("providerName", providerName),
-									zap.Int64("roundID", roundID),
-									zap.Error(err))
-							}
-						} else {
-							global.APP_LOG.Info("Provider流量采集完成",
-								zap.Uint("providerID", providerID),
-								zap.String("providerName", providerName),
-								zap.Int64("轮次ID", roundID))
-						}
+					case <-s.stopChan:
+						global.APP_LOG.Info("服务已停止，取消采集",
+							zap.Uint("providerID", providerID),
+							zap.Int64("roundID", roundID))
+						return
 					case <-ctx.Done():
-						global.APP_LOG.Error("Provider流量采集上下文超时",
+						global.APP_LOG.Error("采集超时（启动阶段）",
+							zap.Uint("providerID", providerID),
+							zap.Int64("roundID", roundID))
+						return
+					default:
+					}
+
+					// 直接执行采集，不再嵌套goroutine
+					err := s.collectProviderTrafficInBatches(providerID, batchSize, roundID)
+					if err != nil {
+						global.APP_LOG.Error("Provider流量批量采集失败",
 							zap.Uint("providerID", providerID),
 							zap.String("providerName", providerName),
-							zap.Int64("roundID", roundID))
+							zap.Int64("roundID", roundID),
+							zap.Error(err))
+					} else {
+						global.APP_LOG.Info("Provider流量采集完成",
+							zap.Uint("providerID", providerID),
+							zap.String("providerName", providerName),
+							zap.Int64("轮次ID", roundID))
 					}
 				}(p.ID, p.Name, roundID, batchSize)
 			}

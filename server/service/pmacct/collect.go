@@ -131,6 +131,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	// 2. 再使用SUM() OVER()窗口函数累加，得到累积值
 	// stamp_inserted: pmacct写入时间
 	// bytes: 每条记录的流量增量（不是累积值）
+	// 添加LIMIT防止返回过多数据
 	query := fmt.Sprintf(`sqlite3 %s "
 WITH time_slots AS (
     SELECT 
@@ -168,13 +169,14 @@ SELECT
     SUM(tx_increment) OVER (ORDER BY timestamp) as tx_bytes,
     SUM(rx_increment) OVER (ORDER BY timestamp) as rx_bytes
 FROM time_slots
-ORDER BY timestamp;
+ORDER BY timestamp
+LIMIT 10000;
 "`, dbPath,
 		ipInClause, ipInClause,
 		ipInClause, ipInClause,
 		ipInClause, ipInClause)
 
-	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	ctx, cancel := context.WithTimeout(s.ctx, 60*time.Second)
 	defer cancel()
 	output, err := providerInstance.ExecuteSSHCommand(ctx, query)
 	if err != nil {

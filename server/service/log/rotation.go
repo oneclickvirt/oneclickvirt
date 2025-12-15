@@ -23,7 +23,40 @@ import (
 
 // LogRotationService 日志轮转服务
 type LogRotationService struct {
-	mu sync.RWMutex
+	mu      sync.RWMutex
+	writers map[string]*RotatingFileWriter // 跟踪所有创建的writer
+}
+
+var (
+	logRotationService     *LogRotationService
+	logRotationServiceOnce sync.Once
+)
+
+// GetLogRotationService 获取日志轮转服务单例
+func GetLogRotationService() *LogRotationService {
+	logRotationServiceOnce.Do(func() {
+		logRotationService = &LogRotationService{
+			writers: make(map[string]*RotatingFileWriter),
+		}
+	})
+	return logRotationService
+}
+
+// Stop 关闭所有日志文件
+func (s *LogRotationService) Stop() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for level, writer := range s.writers {
+		if err := writer.Close(); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Error("关闭日志文件失败",
+					zap.String("level", level),
+					zap.Error(err))
+			}
+		}
+	}
+	s.writers = make(map[string]*RotatingFileWriter)
 }
 
 // GetDefaultDailyLogConfig 获取默认日志分日期配置
@@ -249,6 +282,11 @@ func (w *RotatingFileWriter) Close() error {
 // CreateDailyLogWriter 创建按日期分存储的日志写入器
 func (s *LogRotationService) CreateDailyLogWriter(level string, config *config.DailyLogConfig) zapcore.WriteSyncer {
 	rotatingWriter := NewRotatingFileWriter(level, config)
+
+	// 注册writer到管理器
+	s.mu.Lock()
+	s.writers[level] = rotatingWriter
+	s.mu.Unlock()
 
 	// 如果需要同时输出到控制台
 	if global.APP_CONFIG.Zap.LogInConsole {
@@ -619,9 +657,4 @@ func (s *LogRotationService) compressFile(filePath string) error {
 	}
 
 	return nil
-}
-
-// GetLogRotationService 获取日志轮转服务实例
-func GetLogRotationService() *LogRotationService {
-	return &LogRotationService{}
 }

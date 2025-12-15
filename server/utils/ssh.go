@@ -129,12 +129,16 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("SSH keepalive goroutine panic",
 					zap.String("host", config.Host),
-					zap.Any("panic", r))
+					zap.Any("panic", r),
+					zap.Stack("stack"))
 			}
 		}()
 
 		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
+
+		failedCount := 0
+		maxFailures := 3 // 连续失败3次后退出
 
 		for {
 			select {
@@ -144,41 +148,32 @@ func dialSSH(config SSHConfig) (*ssh.Client, context.CancelFunc, *sync.WaitGroup
 					zap.String("host", config.Host))
 				return
 			case <-ticker.C:
-				// 发送keepalive请求
+				// 双重检查client有效性
 				if client == nil {
-					// 连接已关闭，退出
+					global.APP_LOG.Debug("SSH client已关闭，keepalive退出",
+						zap.String("host", config.Host))
 					return
 				}
 
-				// 使用带超时的 context 发送 keepalive
-				reqCtx, reqCancel := context.WithTimeout(ctx, 5*time.Second)
-				errCh := make(chan error, 1)
+				// 检查连接状态
+				if _, _, err := client.Conn.SendRequest("keepalive@openssh.com", true, nil); err != nil {
+					failedCount++
+					global.APP_LOG.Debug("SSH keepalive失败",
+						zap.String("host", config.Host),
+						zap.Int("failedCount", failedCount),
+						zap.Error(err))
 
-				go func() {
-					_, _, err := client.SendRequest("keepalive@openssh.com", true, nil)
-					errCh <- err
-					reqCancel()
-				}()
-
-				select {
-				case <-reqCtx.Done():
-					// keepalive 超时或被取消
-					if ctx.Err() != nil {
-						// 主 context 被取消，退出
-						return
-					}
-					global.APP_LOG.Debug("SSH keepalive超时",
-						zap.String("host", config.Host))
-				case err := <-errCh:
-					reqCancel()
-					if err != nil {
-						// 连接失败，退出goroutine
-						global.APP_LOG.Debug("SSH keepalive失败，停止发送",
+					if failedCount >= maxFailures {
+						global.APP_LOG.Warn("SSH keepalive连续失败，停止发送",
 							zap.String("host", config.Host),
-							zap.Error(err))
+							zap.Int("failedCount", failedCount))
 						return
 					}
+					continue
 				}
+
+				// 成功，重置失败计数
+				failedCount = 0
 			}
 		}
 	}()
@@ -232,7 +227,7 @@ func (c *SSHClient) Close() error {
 		c.keepaliveCancel()
 	}
 
-	// 等待keepalive goroutine退出（减少到3秒，避免长时间阻塞）
+	// 等待keepalive goroutine退出
 	done := make(chan struct{})
 	go func() {
 		defer close(done)

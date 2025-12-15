@@ -1,6 +1,7 @@
 package system
 
 import (
+	"context"
 	"net/http"
 	"runtime"
 	"sync"
@@ -450,11 +451,22 @@ func schedulePerformanceDataCleanup() {
 	}
 	initialDelay := next3AM.Sub(now)
 
-	// 等待到第一个执行时间
-	time.Sleep(initialDelay)
+	global.APP_LOG.Info("性能数据清理任务已安排",
+		zap.Time("nextRun", next3AM),
+		zap.Duration("initialDelay", initialDelay))
 
-	// 执行第一次清理
-	cleanupOldPerformanceMetrics()
+	// 使用可取消的timer等待，而不是阻塞式Sleep
+	initialTimer := time.NewTimer(initialDelay)
+	defer initialTimer.Stop()
+
+	select {
+	case <-global.APP_SHUTDOWN_CONTEXT.Done():
+		global.APP_LOG.Info("性能数据清理任务在首次执行前已停止")
+		return
+	case <-initialTimer.C:
+		// 执行第一次清理
+		cleanupOldPerformanceMetrics(global.APP_SHUTDOWN_CONTEXT)
+	}
 
 	// 之后每24小时执行一次
 	ticker := time.NewTicker(24 * time.Hour)
@@ -466,28 +478,45 @@ func schedulePerformanceDataCleanup() {
 			global.APP_LOG.Info("性能数据清理任务已停止")
 			return
 		case <-ticker.C:
-			cleanupOldPerformanceMetrics()
+			cleanupOldPerformanceMetrics(global.APP_SHUTDOWN_CONTEXT)
 		}
 	}
 }
 
 // cleanupOldPerformanceMetrics 清理旧的性能指标数据（保留7天）
-func cleanupOldPerformanceMetrics() {
+func cleanupOldPerformanceMetrics(ctx context.Context) {
 	if global.APP_DB == nil {
 		return
 	}
 
 	cutoffTime := time.Now().AddDate(0, 0, -7)
 
+	global.APP_LOG.Info("开始清理旧性能指标数据",
+		zap.Time("cutoffTime", cutoffTime))
+
 	// 分批删除，避免一次性删除太多数据造成长事务
 	batchSize := 1000
+	totalDeleted := int64(0)
+
 	for {
+		// 检查是否需要停止
+		select {
+		case <-ctx.Done():
+			global.APP_LOG.Info("性能数据清理被中断",
+				zap.Int64("total_deleted", totalDeleted))
+			return
+		default:
+		}
+
+		// 执行单批删除
 		result := global.APP_DB.Where("timestamp < ?", cutoffTime).
 			Limit(batchSize).
 			Delete(&monitoringModel.PerformanceMetric{})
 
 		if result.Error != nil {
-			global.APP_LOG.Error("清理旧性能指标数据失败", zap.Error(result.Error))
+			global.APP_LOG.Error("清理旧性能指标数据失败",
+				zap.Error(result.Error),
+				zap.Int64("total_deleted", totalDeleted))
 			return
 		}
 
@@ -495,11 +524,28 @@ func cleanupOldPerformanceMetrics() {
 			break // 没有更多数据需要删除
 		}
 
-		global.APP_LOG.Info("批量清理旧性能指标数据",
-			zap.Int64("deleted_rows", result.RowsAffected))
+		totalDeleted += result.RowsAffected
+		global.APP_LOG.Debug("批量清理旧性能指标数据",
+			zap.Int64("batch_deleted", result.RowsAffected),
+			zap.Int64("total_deleted", totalDeleted))
 
-		// 短暂休息，避免持续占用数据库
-		time.Sleep(100 * time.Millisecond)
+		// 使用可中断的sleep，避免持续占用数据库
+		timer := time.NewTimer(100 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			global.APP_LOG.Info("性能数据清理在批次间被中断",
+				zap.Int64("total_deleted", totalDeleted))
+			return
+		case <-timer.C:
+			// 继续下一批
+		}
+	}
+
+	if totalDeleted > 0 {
+		global.APP_LOG.Info("性能数据清理完成",
+			zap.Int64("total_deleted", totalDeleted),
+			zap.Time("cutoff_time", cutoffTime))
 	}
 }
 

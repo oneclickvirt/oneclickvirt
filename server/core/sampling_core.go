@@ -1,6 +1,7 @@
 package core
 
 import (
+	"sort"
 	"sync"
 	"time"
 
@@ -157,19 +158,48 @@ func (s *SamplingCore) CleanupOldSamplers() {
 	defer s.mu.Unlock()
 
 	now := time.Now()
+	maxSamplers := 1000                // 最多保留1000个采样器
+	cleanThreshold := 30 * time.Minute // 30分钟未使用的清理
+
+	// 第一步：清理过期的采样器
 	cleanedCount := 0
 	for message, samp := range s.samplers {
-		// 如果采样器超过1小时没有使用，删除它
-		if now.Sub(samp.lastLog) > time.Hour {
+		if now.Sub(samp.lastLog) > cleanThreshold {
 			delete(s.samplers, message)
 			cleanedCount++
 		}
 	}
 
-	// 如果清理了采样器，记录日志（使用采样避免过多日志）
-	if cleanedCount > 0 && len(s.samplers)%100 == 0 {
-		// 只在特定情况下记录，避免产生过多清理日志
-		// 这里不能使用global.APP_LOG，会造成递归
+	// 第二步：如果超过限制，强制清理最旧的
+	if len(s.samplers) > maxSamplers {
+		type samplerEntry struct {
+			message string
+			lastLog time.Time
+		}
+
+		entries := make([]samplerEntry, 0, len(s.samplers))
+		for msg, samp := range s.samplers {
+			entries = append(entries, samplerEntry{
+				message: msg,
+				lastLog: samp.lastLog,
+			})
+		}
+
+		// 按时间排序
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].lastLog.Before(entries[j].lastLog)
+		})
+
+		// 删除最旧的50%
+		deleteCount := len(entries) - maxSamplers
+		if deleteCount < len(entries)/2 {
+			deleteCount = len(entries) / 2
+		}
+
+		for i := 0; i < deleteCount && i < len(entries); i++ {
+			delete(s.samplers, entries[i].message)
+			cleanedCount++
+		}
 	}
 }
 
