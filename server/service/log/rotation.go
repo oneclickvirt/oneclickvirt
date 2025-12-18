@@ -96,11 +96,12 @@ func GetDefaultDailyLogConfig() *config.DailyLogConfig {
 
 // RotatingFileWriter 可轮转的文件写入器
 type RotatingFileWriter struct {
-	config *config.DailyLogConfig
-	level  string
-	file   *os.File
-	size   int64
-	mu     sync.Mutex
+	config      *config.DailyLogConfig
+	level       string
+	file        *os.File
+	size        int64
+	mu          sync.Mutex
+	currentDate string // 当前文件所属的日期
 }
 
 // NewRotatingFileWriter 创建新的可轮转文件写入器
@@ -123,7 +124,22 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 		}
 	}
 
-	// 检查是否需要轮转
+	// 检查日期是否变化，如果变化则切换到新日期的目录
+	now := time.Now()
+	if !w.config.LocalTime {
+		now = now.UTC()
+	}
+	todayStr := now.Format("2006-01-02")
+	// 只有当currentDate已经设置且日期发生变化时才轮转
+	// 避免初始化时currentDate为空字符串导致立即触发轮转
+	if w.currentDate != "" && w.currentDate != todayStr {
+		// 日期变化，切换到新日期目录
+		if err := w.rotate(); err != nil {
+			return 0, err
+		}
+	}
+
+	// 检查是否需要按大小轮转
 	if w.size+int64(len(p)) > w.config.MaxSize {
 		if err := w.rotate(); err != nil {
 			return 0, err
@@ -147,7 +163,7 @@ func (w *RotatingFileWriter) openNewFile() error {
 		return fmt.Errorf("创建日志目录失败: %w", err)
 	}
 
-	// 当前日志文件路径
+	// 获取当前日志文件路径
 	filename := w.getCurrentLogFilename()
 
 	// 打开文件
@@ -166,48 +182,154 @@ func (w *RotatingFileWriter) openNewFile() error {
 	w.file = file
 	w.size = info.Size()
 
+	// 更新当前日期
+	now := time.Now()
+	if !w.config.LocalTime {
+		now = now.UTC()
+	}
+	w.currentDate = now.Format("2006-01-02")
+
 	return nil
 }
 
 // getCurrentLogFilename 获取当前日志文件名
+// 如果当前日志文件未达到MaxSize，返回现有文件名
+// 否则返回带时间戳的新文件名
 func (w *RotatingFileWriter) getCurrentLogFilename() string {
 	now := time.Now()
 	if !w.config.LocalTime {
 		now = now.UTC()
 	}
 
-	// 创建按日期分组的目录结构：storage/logs/2025-01-07/level.log
+	// 创建按日期分组的目录结构：storage/logs/2025-01-07/
 	dateStr := now.Format("2006-01-02")
 	dateDir := filepath.Join(w.config.BaseDir, dateStr)
 
 	// 确保日期目录存在
 	if err := os.MkdirAll(dateDir, 0755); err != nil {
-		global.APP_LOG.Error("创建日期日志目录失败",
-			zap.String("dir", dateDir),
-			zap.Error(err))
+		if global.APP_LOG != nil {
+			global.APP_LOG.Error("创建日期日志目录失败",
+				zap.String("dir", dateDir),
+				zap.Error(err))
+		}
 		// 如果创建失败，回退到基础目录
 		return filepath.Join(w.config.BaseDir, fmt.Sprintf("%s.log", w.level))
 	}
 
-	return filepath.Join(dateDir, fmt.Sprintf("%s.log", w.level))
+	// 主日志文件名
+	baseLogFile := filepath.Join(dateDir, fmt.Sprintf("%s.log", w.level))
+
+	// 检查主日志文件是否存在以及大小
+	if info, err := os.Stat(baseLogFile); err == nil {
+		// 文件存在，检查大小
+		if info.Size() < w.config.MaxSize {
+			// 文件未达到最大大小，继续使用当前文件
+			return baseLogFile
+		}
+		// 文件已达到最大大小，需要生成新文件名
+		// 继续往下执行，生成带时间戳的新文件名
+	} else if os.IsNotExist(err) {
+		// 文件不存在，使用基础文件名
+		return baseLogFile
+	}
+
+	// 文件已达到最大大小或出现其他错误，生成带时间戳的新文件名
+	// 格式：level-20060102-150405.log
+	timeStr := now.Format("20060102-150405")
+	return filepath.Join(dateDir, fmt.Sprintf("%s-%s.log", w.level, timeStr))
 }
 
 // rotate 轮转日志文件
 func (w *RotatingFileWriter) rotate() error {
-	// 关闭当前文件
+	// 如果需要轮转，先重命名当前文件
 	if w.file != nil {
-		w.file.Close()
+		currentPath := w.file.Name()
+
+		// 关闭当前文件
+		if err := w.file.Close(); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("关闭日志文件失败", zap.String("file", currentPath), zap.Error(err))
+			}
+		}
 		w.file = nil
 		w.size = 0
+
+		// 如果当前文件是主日志文件（不带时间戳），需要重命名
+		if !w.hasTimestamp(currentPath) {
+			if err := w.renameWithTimestamp(currentPath); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("重命名日志文件失败",
+						zap.String("file", currentPath),
+						zap.Error(err))
+				}
+			}
+		}
 	}
 
 	// 清理旧文件
 	if err := w.cleanup(); err != nil {
-		global.APP_LOG.Warn("清理旧日志文件失败", zap.Error(err))
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("清理旧日志文件失败", zap.Error(err))
+		}
 	}
 
 	// 打开新文件
 	return w.openNewFile()
+}
+
+// hasTimestamp 检查文件名是否包含时间戳
+func (w *RotatingFileWriter) hasTimestamp(filePath string) bool {
+	filename := filepath.Base(filePath)
+	// 匹配格式: level-20060102-150405.log
+	matched, _ := regexp.MatchString(`\w+-\d{8}-\d{6}\.log`, filename)
+	return matched
+}
+
+// renameWithTimestamp 将文件重命名为带时间戳的格式
+func (w *RotatingFileWriter) renameWithTimestamp(oldPath string) error {
+	// 获取文件的修改时间
+	info, err := os.Stat(oldPath)
+	if err != nil {
+		return err
+	}
+
+	modTime := info.ModTime()
+	if !w.config.LocalTime {
+		modTime = modTime.UTC()
+	}
+
+	// 生成新文件名: level-20060102-150405.log
+	timeStr := modTime.Format("20060102-150405")
+	dirPath := filepath.Dir(oldPath)
+	newPath := filepath.Join(dirPath, fmt.Sprintf("%s-%s.log", w.level, timeStr))
+
+	// 如果新文件名已存在，添加递增数字
+	if _, err := os.Stat(newPath); err == nil {
+		found := false
+		for i := 1; i < 1000; i++ {
+			newPath = filepath.Join(dirPath, fmt.Sprintf("%s-%s-%d.log", w.level, timeStr, i))
+			if _, err := os.Stat(newPath); os.IsNotExist(err) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return fmt.Errorf("无法找到可用的文件名，已尝试1000次")
+		}
+	}
+
+	// 重命名文件
+	if err := os.Rename(oldPath, newPath); err != nil {
+		return fmt.Errorf("重命名文件失败 %s -> %s: %w", oldPath, newPath, err)
+	}
+
+	if global.APP_LOG != nil {
+		global.APP_LOG.Debug("日志文件已重命名",
+			zap.String("from", oldPath),
+			zap.String("to", newPath))
+	}
+
+	return nil
 }
 
 // cleanup 清理旧的日志文件
@@ -256,9 +378,10 @@ func (w *RotatingFileWriter) cleanup() error {
 		}
 	}
 
-	// 汇总记录删除结果
-	if deletedByCount > 0 || deletedByAge > 0 {
-		global.APP_LOG.Info("删除过期日志目录",
+	// 汇总记录删除结果（仅在调试模式记录）
+	if (deletedByCount > 0 || deletedByAge > 0) && global.APP_LOG != nil {
+		global.APP_LOG.Debug("删除过期日志目录",
+			zap.String("level", w.level),
 			zap.Int("deletedByCount", deletedByCount),
 			zap.Int("deletedByAge", deletedByAge),
 			zap.Int("remaining", len(dateDirs)-deletedByCount-deletedByAge))
@@ -586,8 +709,10 @@ func (s *LogRotationService) CompressOldLogs() error {
 		return nil // 如果未启用压缩，直接返回
 	}
 
-	// 查找需要压缩的日志文件（昨天之前的文件）
+	// 查找需要压缩的日志文件（昨天之前的文件或当天已轮转的文件）
 	yesterday := time.Now().AddDate(0, 0, -1)
+	compressedCount := 0
+	errorCount := 0
 
 	err := filepath.Walk(defaultDailyLogConfig.BaseDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
@@ -599,13 +724,57 @@ func (s *LogRotationService) CompressOldLogs() error {
 			return nil
 		}
 
-		// 检查文件修改时间
+		// 跳过当前正在使用的主日志文件（文件名格式为 level.log，不含时间戳）
+		filename := filepath.Base(path)
+		isMainLogFile := false
+		if matched, _ := regexp.MatchString(`^\w+\.log$`, filename); matched {
+			isMainLogFile = true
+			// 这是主日志文件，只压缩昨天之前的
+			if !info.ModTime().Before(yesterday) {
+				return nil // 不压缩今天的主日志文件
+			}
+		}
+
+		// 判断是否需要压缩
+		shouldCompress := false
 		if info.ModTime().Before(yesterday) {
-			return s.compressFile(path)
+			// 昨天之前的文件，一定压缩
+			shouldCompress = true
+		} else if !isMainLogFile {
+			// 今天的文件，检查是否是已轮转的带时间戳文件
+			if matched, _ := regexp.MatchString(`\w+-\d{8}-\d{6}.*\.log$`, filename); matched {
+				// 这是带时间戳的已轮转文件
+				// 为了安全，确保文件已经稳定（修改时间超过2分钟）
+				if time.Since(info.ModTime()) > 2*time.Minute {
+					shouldCompress = true
+				}
+			}
+		}
+
+		if shouldCompress {
+			if err := s.compressFile(path); err != nil {
+				errorCount++
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("压缩日志文件失败",
+						zap.String("file", path),
+						zap.Error(err))
+				}
+			} else {
+				compressedCount++
+			}
 		}
 
 		return nil
 	})
+
+	// 记录压缩结果
+	if compressedCount > 0 || errorCount > 0 {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Info("日志压缩任务完成",
+				zap.Int("compressed", compressedCount),
+				zap.Int("errors", errorCount))
+		}
+	}
 
 	return err
 }
