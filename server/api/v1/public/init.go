@@ -269,7 +269,7 @@ func InitSystem(c *gin.Context) {
 		return
 	}
 
-	// 创建用户
+	// Step 1: 创建管理员和用户
 	authService := auth.AuthService{}
 	adminInfo := auth.UserInfo{
 		Username: req.Admin.Username,
@@ -286,13 +286,14 @@ func InitSystem(c *gin.Context) {
 		return
 	}
 
-	// 初始化系统种子数据（角色、菜单、API、公告等）
+	// Step 2: 初始化系统种子数据
+	// 这些操作会自动在各自的短事务中完成
 	source.InitSeedData()
 
-	// 初始化系统镜像
+	// Step 3: 初始化系统镜像
 	source.SeedSystemImages()
 
-	// 创建业务系统初始化标志文件（与数据库初始化标志分离）
+	// 创建业务系统初始化标志文件
 	initFlagPath := "./storage/.system_initialized"
 	initFlagDir := "./storage"
 

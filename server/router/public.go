@@ -13,8 +13,6 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 	{
 		PublicRouter.GET("announcements", system.GetAnnouncement)
 		PublicRouter.GET("stats", public.GetDashboardStats)
-		// init/check, init, test-db-connection, recommended-db-type, register-config
-		// 已在 setup.go 中单独注册到 NoDBGroup（不需要数据库健康检查）
 		PublicRouter.GET("system-config", public.GetPublicSystemConfig)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
 	}

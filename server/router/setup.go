@@ -55,25 +55,26 @@ func SetupRouter() *gin.Engine {
 		// 健康检查也在API路径下，保持与前端一致
 		ApiGroup.GET("/health", public.HealthCheck)
 
-		// 系统初始化相关路由（不需要数据库健康检查）
-		// 这些端点在系统初始化前必须可用
+		// 系统初始化相关路由（无需数据库健康检查）
+		// 这些端点在数据库未连接或初始化前必须可用
 		NoDBGroup := ApiGroup.Group("")
 		NoDBGroup.Use(middleware.RequireAuth(authModel.AuthLevelPublic))
 		{
-			// 初始化相关API
+			// 1. 初始化相关API
 			InitPublicGroup := NoDBGroup.Group("v1/public")
 			{
-				InitPublicGroup.GET("init/check", public.CheckInit)
-				InitPublicGroup.POST("init", public.InitSystem)
-				InitPublicGroup.POST("test-db-connection", public.TestDatabaseConnection)
-				InitPublicGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType)
-				InitPublicGroup.GET("register-config", public.GetRegisterConfig)
+				InitPublicGroup.GET("init/check", public.CheckInit)                           // 检查初始化状态
+				InitPublicGroup.POST("init", public.InitSystem)                               // 执行系统初始化
+				InitPublicGroup.POST("test-db-connection", public.TestDatabaseConnection)     // 测试数据库连接
+				InitPublicGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType) // 获取推荐数据库类型
+				InitPublicGroup.GET("register-config", public.GetRegisterConfig)              // 获取注册配置（从内存读取）
 			}
 
-			// 认证相关API（登录、注册、验证码等在系统初始化后但数据库可能不稳定时也需要可用）
+			// 2. 认证相关API（登录、注册、验证码等不依赖数据库健康检查）
+			// 这些API内部会查询数据库，但系统设计允许在数据库暂时不可用时仍可访问路由
 			InitAuthRouter(NoDBGroup)
 
-			// OAuth2路由也应该在初始化前可用
+			// 3. OAuth2路由（第三方登录不依赖数据库健康检查）
 			InitOAuth2Router(NoDBGroup)
 		}
 
@@ -87,7 +88,7 @@ func SetupRouter() *gin.Engine {
 			})
 
 			// 需要数据库的公开路由
-			InitPublicRouter(PublicGroup) // 公开路由（已从中移除了初始化相关API）
+			InitPublicRouter(PublicGroup) // 公开路由
 		}
 
 		// 配置路由（需要数据库健康检查）
