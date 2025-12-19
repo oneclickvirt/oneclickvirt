@@ -37,7 +37,6 @@ mysql:
     auto-create: "true"
     config: charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&readTimeout=30s&writeTimeout=30s
     db-name: oneclickvirt
-    db-name: oneclickvirt
     engine: InnoDB
     log-mode: error
     log-zap: "false"
