@@ -13,12 +13,6 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 	{
 		PublicRouter.GET("announcements", system.GetAnnouncement)
 		PublicRouter.GET("stats", public.GetDashboardStats)
-		PublicRouter.GET("system-config", public.GetPublicSystemConfig)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
-	}
-
-	StaticRouter := Router.Group("v1/static")
-	{
-		StaticRouter.GET(":type/*path", system.ServeStaticFile)
 	}
 }

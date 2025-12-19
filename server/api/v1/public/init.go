@@ -74,28 +74,40 @@ func CheckInit(c *gin.Context) {
 				needInit = true
 				global.APP_LOG.Info("数据库配置不完整，需要初始化")
 			} else {
-				// 使用服务层检查是否有用户数据
-				systemStatsService := resources.SystemStatsService{}
-				hasUsers, err := systemStatsService.CheckUserExists()
-				if err != nil {
-					// 检查是否是"No database selected"错误
-					if err.Error() == "Error 1046 (3D000): No database selected" {
-						message = "数据库未选择，需要初始化"
-						needInit = true
-						global.APP_LOG.Info("数据库未选择，需要初始化")
-					} else {
-						message = "检查用户数据失败，需要初始化"
-						needInit = true
-						global.APP_LOG.Warn("检查用户数据失败", zap.Error(err))
-					}
-				} else if !hasUsers {
-					message = "未找到用户数据，需要初始化"
+				// 检查users表是否存在
+				hasUsersTable := global.APP_DB.Migrator().HasTable("users")
+				if !hasUsersTable {
+					message = "数据库表未初始化，需要初始化"
 					needInit = true
-					global.APP_LOG.Info("数据库中无用户数据，需要初始化")
+					global.APP_LOG.Info("users表不存在，需要初始化")
 				} else {
-					message = "数据库无需初始化"
-					needInit = false
-					global.APP_LOG.Debug("系统已初始化")
+					// 使用服务层检查是否有用户数据
+					// 使用defer + recover捕获可能的panic
+					func() {
+						defer func() {
+							if r := recover(); r != nil {
+								message = "检查用户数据异常，需要初始化"
+								needInit = true
+								global.APP_LOG.Warn("检查用户数据时发生panic", zap.Any("panic", r))
+							}
+						}()
+
+						systemStatsService := resources.SystemStatsService{}
+						hasUsers, err := systemStatsService.CheckUserExists()
+						if err != nil {
+							message = "检查用户数据失败，需要初始化"
+							needInit = true
+							global.APP_LOG.Warn("检查用户数据失败", zap.Error(err))
+						} else if !hasUsers {
+							message = "未找到用户数据，需要初始化"
+							needInit = true
+							global.APP_LOG.Info("数据库中无用户数据，需要初始化")
+						} else {
+							message = "数据库无需初始化"
+							needInit = false
+							global.APP_LOG.Debug("系统已初始化")
+						}
+					}()
 				}
 			}
 		}
@@ -351,48 +363,75 @@ func GetRegisterConfig(c *gin.Context) {
 
 // GetPublicSystemConfig 获取公开的系统配置信息
 // @Summary 获取公开的系统配置信息
-// @Description 获取系统公开配置信息（不需要认证），如默认语言等
+// @Description 获取系统公开配置信息（不需要认证），如默认语言等，从内存配置读取
 // @Tags 系统配置
 // @Accept json
 // @Produce json
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /public/system-config [get]
 func GetPublicSystemConfig(c *gin.Context) {
-	// 从数据库查询公开的系统配置（已由DatabaseHealthCheck中间件保护）
-	var configs []struct {
-		Key   string `json:"key"`
-		Value string `json:"value"`
-	}
-
-	if err := global.APP_DB.Table("system_configs").
-		Select("`key`, `value`").
-		Where("is_public = ? AND deleted_at IS NULL", true).
-		Find(&configs).Error; err != nil {
-		global.APP_LOG.Warn("获取公开系统配置失败", zap.Error(err))
-		// 返回空配置而不是错误，确保前端能正常工作
-		c.JSON(http.StatusOK, common.Success(map[string]interface{}{}))
-		return
-	}
-
-	global.APP_LOG.Info("查询到的公开配置数量", zap.Int("count", len(configs)))
-
-	// 转换为map格式返回，并进行字段映射以适配前端
+	// 从内存配置读取公开的系统配置，避免依赖数据库
+	// 这样可以确保在数据库未初始化时前端仍然能正常工作
 	result := make(map[string]interface{})
-	for _, config := range configs {
-		global.APP_LOG.Info("公开配置项", zap.String("key", config.Key), zap.String("value", config.Value))
 
-		// 字段映射：将后端的配置键转换为前端期望的格式
-		switch config.Key {
-		case "other.default-language":
-			// 前端期望使用 default_language（下划线命名）
-			result["default_language"] = config.Value
-		case "other.max-avatar-size":
-			// 前端期望使用 max_avatar_size（下划线命名）
-			result["max_avatar_size"] = config.Value
-		default:
-			// 其他配置保持原样
-			result[config.Key] = config.Value
+	// 检查数据库是否可用
+	dbAvailable := false
+	if global.APP_DB != nil {
+		sqlDB, err := global.APP_DB.DB()
+		if err == nil && sqlDB.Ping() == nil {
+			dbAvailable = true
 		}
+	}
+
+	// 如果数据库可用，尝试从数据库读取配置
+	if dbAvailable {
+		var configs []struct {
+			Key   string `json:"key"`
+			Value string `json:"value"`
+		}
+
+		if err := global.APP_DB.Table("system_configs").
+			Select("`key`, `value`").
+			Where("is_public = ? AND deleted_at IS NULL", true).
+			Find(&configs).Error; err == nil {
+			global.APP_LOG.Info("从数据库查询到的公开配置数量", zap.Int("count", len(configs)))
+
+			// 转换为map格式并进行字段映射
+			for _, config := range configs {
+				switch config.Key {
+				case "other.default-language":
+					result["default_language"] = config.Value
+				case "other.max-avatar-size":
+					result["max_avatar_size"] = config.Value
+				default:
+					result[config.Key] = config.Value
+				}
+			}
+		} else {
+			global.APP_LOG.Warn("从数据库获取公开系统配置失败，使用默认配置", zap.Error(err))
+		}
+	} else {
+		global.APP_LOG.Info("数据库不可用，使用默认配置")
+	}
+
+	// 如果数据库不可用或未配置，提供默认值
+	if len(result) == 0 {
+		// 从配置中读取默认值
+		if global.APP_CONFIG.Other.DefaultLanguage != "" {
+			result["default_language"] = global.APP_CONFIG.Other.DefaultLanguage
+		} else {
+			result["default_language"] = "zh" // 默认中文
+		}
+
+		if global.APP_CONFIG.Other.MaxAvatarSize > 0 {
+			result["max_avatar_size"] = strconv.FormatFloat(global.APP_CONFIG.Other.MaxAvatarSize, 'f', -1, 64)
+		} else {
+			result["max_avatar_size"] = "2" // 默认2MB
+		}
+
+		global.APP_LOG.Info("使用默认配置",
+			zap.String("default_language", result["default_language"].(string)),
+			zap.String("max_avatar_size", result["max_avatar_size"].(string)))
 	}
 
 	c.JSON(http.StatusOK, common.Success(result))

@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 	"oneclickvirt/api/v1/public"
+	"oneclickvirt/api/v1/system"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
 	"strings"
@@ -68,14 +69,23 @@ func SetupRouter() *gin.Engine {
 				InitPublicGroup.POST("test-db-connection", public.TestDatabaseConnection)     // 测试数据库连接
 				InitPublicGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType) // 获取推荐数据库类型
 				InitPublicGroup.GET("register-config", public.GetRegisterConfig)              // 获取注册配置（从内存读取）
+				InitPublicGroup.GET("system-config", public.GetPublicSystemConfig)            // 获取系统配置（优先从数据库读取，降级到内存配置）
 			}
 
-			// 2. 认证相关API（登录、注册、验证码等不依赖数据库健康检查）
-			// 这些API内部会查询数据库，但系统设计允许在数据库暂时不可用时仍可访问路由
+			// 2. 静态文件服务（不需要数据库）
+			StaticRouter := NoDBGroup.Group("v1/static")
+			{
+				StaticRouter.GET(":type/*path", system.ServeStaticFile) // 提供静态文件（头像等）
+			}
+
+			// 3. 认证相关API（登录、注册、验证码等需要数据库但在初始化前必须可用）
+			// 这些API内部会查询数据库，但不应被DatabaseHealthCheck拦截
+			// 因为它们需要在系统初始化过程中可用
 			InitAuthRouter(NoDBGroup)
 
-			// 3. OAuth2路由（第三方登录不依赖数据库健康检查）
-			InitOAuth2Router(NoDBGroup)
+			// 4. OAuth2认证路由（第三方登录回调不依赖数据库健康检查）
+			// 注意：OAuth2的管理和公开API会在下面单独配置
+			InitOAuth2AuthRouter(NoDBGroup)
 		}
 
 		// 公开访问路由（需要数据库健康检查）
@@ -88,7 +98,10 @@ func SetupRouter() *gin.Engine {
 			})
 
 			// 需要数据库的公开路由
-			InitPublicRouter(PublicGroup) // 公开路由
+			InitPublicRouter(PublicGroup) // 公开路由（公告、统计、镜像列表）
+
+			// OAuth2公开API（获取启用的提供商列表）
+			InitOAuth2PublicRouter(PublicGroup)
 		}
 
 		// 配置路由（需要数据库健康检查）
@@ -105,6 +118,11 @@ func SetupRouter() *gin.Engine {
 		AdminGroup := ApiGroup.Group("")
 		AdminGroup.Use(middleware.DatabaseHealthCheck())
 		InitAdminRouter(AdminGroup)
+
+		// OAuth2管理路由（需要数据库健康检查和管理员权限）
+		OAuth2AdminGroup := ApiGroup.Group("")
+		OAuth2AdminGroup.Use(middleware.DatabaseHealthCheck())
+		InitOAuth2AdminRouter(OAuth2AdminGroup)
 
 		// 资源和Provider路由（需要数据库健康检查）
 		ResourceGroup := ApiGroup.Group("")

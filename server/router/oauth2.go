@@ -8,8 +8,20 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// InitOAuth2Router OAuth2路由
-func InitOAuth2Router(Router *gin.RouterGroup) {
+// InitOAuth2AuthRouter OAuth2认证路由（不需要数据库健康检查）
+// 这些路由在系统初始化前必须可用
+func InitOAuth2AuthRouter(Router *gin.RouterGroup) {
+	// OAuth2认证路由（第三方登录和回调）
+	AuthRouter := Router.Group("v1/auth/oauth2")
+	{
+		AuthRouter.GET("login", oauth2Api.OAuth2Login)       // OAuth2登录
+		AuthRouter.GET("callback", oauth2Api.OAuth2Callback) // OAuth2回调
+	}
+}
+
+// InitOAuth2AdminRouter OAuth2管理路由（需要数据库健康检查）
+// 仅供管理员使用
+func InitOAuth2AdminRouter(Router *gin.RouterGroup) {
 	OAuth2Router := Router.Group("v1/oauth2")
 	{
 		// 管理员路由（需要管理员权限）
@@ -23,15 +35,11 @@ func InitOAuth2Router(Router *gin.RouterGroup) {
 			GET("presets", oauth2Api.GetPresets).                                // 获取预设配置列表
 			GET("presets/:name", oauth2Api.GetPreset)                            // 获取指定预设配置
 	}
+}
 
-	// OAuth2认证路由（不需要鉴权）
-	AuthRouter := Router.Group("v1/auth/oauth2")
-	{
-		AuthRouter.GET("login", oauth2Api.OAuth2Login)       // OAuth2登录
-		AuthRouter.GET("callback", oauth2Api.OAuth2Callback) // OAuth2回调
-	}
-
-	// 公开路由（获取启用的提供商列表）
+// InitOAuth2PublicRouter OAuth2公开路由（需要数据库健康检查）
+// 获取启用的OAuth2提供商列表
+func InitOAuth2PublicRouter(Router *gin.RouterGroup) {
 	PublicRouter := Router.Group("v1/public/oauth2")
 	{
 		PublicRouter.GET("providers", oauth2Api.GetEnabledProviders) // 获取启用的提供商列表
