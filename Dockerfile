@@ -308,6 +308,16 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo '# Create supervisor configuration dynamically' >> /start.sh && \
     echo 'echo "Creating supervisor configuration for $DB_TYPE..."' >> /start.sh && \
     echo 'cat > /etc/supervisor/conf.d/supervisord.conf <<SUPEREND' >> /start.sh && \
+    echo '[unix_http_server]' >> /start.sh && \
+    echo 'file=/var/run/supervisor.sock' >> /start.sh && \
+    echo 'chmod=0700' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[supervisorctl]' >> /start.sh && \
+    echo 'serverurl=unix:///var/run/supervisor.sock' >> /start.sh && \
+    echo '' >> /start.sh && \
+    echo '[rpcinterface:supervisor]' >> /start.sh && \
+    echo 'supervisor.rpcinterface_factory = supervisor.rpcinterface:make_main_rpcinterface' >> /start.sh && \
+    echo '' >> /start.sh && \
     echo '[supervisord]' >> /start.sh && \
     echo 'nodaemon=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
@@ -340,7 +350,7 @@ RUN echo '#!/bin/bash' > /start.sh && \
     echo 'autorestart=true' >> /start.sh && \
     echo 'user=root' >> /start.sh && \
     echo 'priority=2' >> /start.sh && \
-    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306"' >> /start.sh && \
+    echo 'environment=DB_HOST="127.0.0.1",DB_PORT="3306",DB_USER="root",DB_PASSWORD="",DB_NAME="oneclickvirt"' >> /start.sh && \
     echo 'startsecs=1' >> /start.sh && \
     echo '' >> /start.sh && \
     echo '[program:nginx]' >> /start.sh && \
