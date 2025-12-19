@@ -46,17 +46,17 @@ func Gorm() *gorm.DB {
 
 	db, err := dbManager.Initialize(mysqlConfig)
 	if err != nil {
-		global.APP_LOG.Error("数据库初始化失败",
+		global.APP_LOG.Warn("数据库连接失败，系统将以待初始化模式运行",
 			zap.String("dbType", dbType),
 			zap.Error(err))
 		return nil
 	}
 
-	global.APP_LOG.Info("数据库初始化成功",
+	global.APP_LOG.Info("数据库连接成功",
 		zap.String("dbType", dbType),
 		zap.String("engine", global.APP_CONFIG.Mysql.Engine))
 
-	// 自动迁移表结构
+	// 只有在数据库连接成功时才进行表结构迁移
 	global.APP_LOG.Info("开始数据库表结构自动迁移")
 	RegisterTables(db)
 	global.APP_LOG.Info("数据库表结构迁移完成")

@@ -214,9 +214,26 @@ func CheckSystemInitialized() bool {
 		return false
 	}
 
+	// 检查users表是否存在
+	if !global.APP_DB.Migrator().HasTable("users") {
+		global.APP_LOG.Debug("users表不存在，系统未初始化")
+		return false
+	}
+
 	// 检查是否有用户数据（作为初始化完成的标志）
+	// 使用defer+recover防止可能的panic
 	var userCount int64
-	err = global.APP_DB.Table("users").Count(&userCount).Error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Warn("查询用户表时发生panic", zap.Any("panic", r))
+				userCount = 0
+			}
+		}()
+
+		err = global.APP_DB.Table("users").Count(&userCount).Error
+	}()
+
 	if err != nil {
 		// 如果表不存在或查询失败，说明未初始化
 		global.APP_LOG.Debug("查询用户表失败，系统未初始化", zap.Error(err))
@@ -234,8 +251,17 @@ func CheckSystemInitialized() bool {
 
 // InitializeFullSystem 执行完整的系统初始化（仅在系统已初始化时调用）
 func InitializeFullSystem() {
-	// 注册数据库表
+	// 确保数据库连接存在
+	if global.APP_DB == nil {
+		global.APP_LOG.Warn("数据库未连接，跳过完整系统初始化")
+		return
+	}
+
+	// 注册数据库表（确保表结构是最新的）
+	// 注意：这里不会重复迁移，只是确保表结构完整
+	global.APP_LOG.Debug("确保数据库表结构完整")
 	RegisterTables(global.APP_DB)
+
 	InitializeConfigManager()
 	global.APP_LOG.Debug("数据库连接和表注册完成")
 
