@@ -13,12 +13,9 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 	{
 		PublicRouter.GET("announcements", system.GetAnnouncement)
 		PublicRouter.GET("stats", public.GetDashboardStats)
-		PublicRouter.GET("init/check", public.CheckInit)
-		PublicRouter.POST("init", public.InitSystem)
-		PublicRouter.POST("test-db-connection", public.TestDatabaseConnection)
+		// init/check, init, test-db-connection, recommended-db-type 已在 setup.go 中单独注册（不需要数据库健康检查）
 		PublicRouter.GET("register-config", public.GetRegisterConfig)
 		PublicRouter.GET("system-config", public.GetPublicSystemConfig)
-		PublicRouter.GET("recommended-db-type", public.GetRecommendedDatabaseType)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
 	}
 

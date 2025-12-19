@@ -55,6 +55,16 @@ func SetupRouter() *gin.Engine {
 		// 健康检查也在API路径下，保持与前端一致
 		ApiGroup.GET("/health", public.HealthCheck)
 
+		// 系统初始化相关路由（不需要数据库健康检查）
+		InitGroup := ApiGroup.Group("v1/public")
+		InitGroup.Use(middleware.RequireAuth(authModel.AuthLevelPublic))
+		{
+			InitGroup.GET("init/check", public.CheckInit)
+			InitGroup.POST("init", public.InitSystem)
+			InitGroup.POST("test-db-connection", public.TestDatabaseConnection)
+			InitGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType)
+		}
+
 		// 公开访问路由（需要数据库健康检查）
 		PublicGroup := ApiGroup.Group("")
 		PublicGroup.Use(middleware.DatabaseHealthCheck()) // 添加数据库健康检查
