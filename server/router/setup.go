@@ -56,13 +56,25 @@ func SetupRouter() *gin.Engine {
 		ApiGroup.GET("/health", public.HealthCheck)
 
 		// 系统初始化相关路由（不需要数据库健康检查）
-		InitGroup := ApiGroup.Group("v1/public")
-		InitGroup.Use(middleware.RequireAuth(authModel.AuthLevelPublic))
+		// 这些端点在系统初始化前必须可用
+		NoDBGroup := ApiGroup.Group("")
+		NoDBGroup.Use(middleware.RequireAuth(authModel.AuthLevelPublic))
 		{
-			InitGroup.GET("init/check", public.CheckInit)
-			InitGroup.POST("init", public.InitSystem)
-			InitGroup.POST("test-db-connection", public.TestDatabaseConnection)
-			InitGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType)
+			// 初始化相关API
+			InitPublicGroup := NoDBGroup.Group("v1/public")
+			{
+				InitPublicGroup.GET("init/check", public.CheckInit)
+				InitPublicGroup.POST("init", public.InitSystem)
+				InitPublicGroup.POST("test-db-connection", public.TestDatabaseConnection)
+				InitPublicGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType)
+				InitPublicGroup.GET("register-config", public.GetRegisterConfig)
+			}
+
+			// 认证相关API（登录、注册、验证码等在系统初始化后但数据库可能不稳定时也需要可用）
+			InitAuthRouter(NoDBGroup)
+
+			// OAuth2路由也应该在初始化前可用
+			InitOAuth2Router(NoDBGroup)
 		}
 
 		// 公开访问路由（需要数据库健康检查）
@@ -74,10 +86,8 @@ func SetupRouter() *gin.Engine {
 				c.JSON(http.StatusOK, gin.H{"message": "pong"})
 			})
 
-			// 初始化各模块路由
-			InitAuthRouter(PublicGroup)   // 认证相关路由
-			InitPublicRouter(PublicGroup) // 公开路由
-			InitOAuth2Router(PublicGroup) // OAuth2路由
+			// 需要数据库的公开路由
+			InitPublicRouter(PublicGroup) // 公开路由（已从中移除了初始化相关API）
 		}
 
 		// 配置路由（需要数据库健康检查）
