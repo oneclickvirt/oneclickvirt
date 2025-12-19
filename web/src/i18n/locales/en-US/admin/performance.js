@@ -52,6 +52,14 @@ export default {
   maxLifetimeClosed: "Max Lifetime Closed",
   noData: "No database connection pool information available",
   
+  // Database Manager Status
+  dbManagerStatus: "Database Manager Status",
+  connected: "Connected",
+  reconnecting: "Reconnecting",
+  heartbeatActive: "Heartbeat Active",
+  maxReconnectRetry: "Max Reconnect Retry",
+  reconnectInterval: "Reconnect Interval",
+  
   // SSH Pool
   sshPool: "SSH Connection Pool",
   totalConnections: "Total Connections",

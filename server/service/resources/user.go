@@ -171,7 +171,7 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	quotaService := NewQuotaService()
 	maxResources := quotaService.GetLevelMaxResources(levelLimits)
 
-	// 使用单个聚合查询统计当前使用的资源（避免N+1问题）
+	// 使用单个聚合查询统计当前使用的资源
 	type ResourceStats struct {
 		UsedInstances  int64
 		ContainerCount int64

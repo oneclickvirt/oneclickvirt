@@ -300,7 +300,7 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 }
 
 // computeBatchMonthlyTraffic 实时计算多个实例的月度流量（正确处理pmacct重启）
-// 使用与GetInstanceMonthlyTraffic相同的正确分段逻辑，避免N+1问题
+// 使用与GetInstanceMonthlyTraffic相同的正确分段逻辑
 func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, month int) (map[uint]*TrafficStats, error) {
 	if len(instanceIDs) == 0 {
 		return make(map[uint]*TrafficStats), nil

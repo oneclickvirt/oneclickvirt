@@ -45,19 +45,17 @@ func (h *HistoryService) RecordInstanceTrafficHistory(tx *gorm.DB, instanceID, p
 		RecordTime: now,
 	}
 
-	// 使用ON CONFLICT DO UPDATE确保幂等性
+	// 使用ON DUPLICATE KEY UPDATE确保幂等性（兼容MySQL 5.x/9.x 和 MariaDB）
 	return tx.Exec(`
 		INSERT INTO instance_traffic_histories 
 			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT (instance_id, year, month, day, hour)
-		WHERE deleted_at IS NULL
-		DO UPDATE SET
-			traffic_in = EXCLUDED.traffic_in,
-			traffic_out = EXCLUDED.traffic_out,
-			total_used = EXCLUDED.total_used,
-			record_time = EXCLUDED.record_time,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			record_time = VALUES(record_time),
+			updated_at = VALUES(updated_at)
 	`, history.InstanceID, history.ProviderID, history.UserID, history.TrafficIn, history.TrafficOut,
 		history.TotalUsed, history.Year, history.Month, history.Day, history.Hour,
 		history.RecordTime, now, now).Error
@@ -92,14 +90,12 @@ func (h *HistoryService) AggregateDailyInstanceTraffic(date time.Time) error {
 		FROM instance_traffic_histories
 		WHERE year = ? AND month = ? AND day = ? AND hour > 0 AND deleted_at IS NULL
 		GROUP BY instance_id, provider_id, user_id, year, month, day
-		ON CONFLICT (instance_id, year, month, day, hour)
-		WHERE deleted_at IS NULL
-		DO UPDATE SET
-			traffic_in = EXCLUDED.traffic_in,
-			traffic_out = EXCLUDED.traffic_out,
-			total_used = EXCLUDED.total_used,
-			record_time = EXCLUDED.record_time,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			record_time = VALUES(record_time),
+			updated_at = VALUES(updated_at)
 	`, date, time.Now(), time.Now(), year, month, day).Error
 }
 
@@ -132,15 +128,13 @@ func (h *HistoryService) AggregateProviderTrafficHistory(providerID uint) error 
 		FROM instance_traffic_histories
 		WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
 		GROUP BY provider_id, year, month, day, hour
-		ON CONFLICT (provider_id, year, month, day, hour)
-		WHERE deleted_at IS NULL
-		DO UPDATE SET
-			traffic_in = EXCLUDED.traffic_in,
-			traffic_out = EXCLUDED.traffic_out,
-			total_used = EXCLUDED.total_used,
-			instance_count = EXCLUDED.instance_count,
-			record_time = EXCLUDED.record_time,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			instance_count = VALUES(instance_count),
+			record_time = VALUES(record_time),
+			updated_at = VALUES(updated_at)
 	`, now, time.Now(), time.Now(), providerID, year, month, day, hour).Error
 }
 
@@ -170,15 +164,13 @@ func (h *HistoryService) AggregateDailyProviderTraffic(providerID uint, date tim
 		FROM provider_traffic_histories
 		WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour > 0 AND deleted_at IS NULL
 		GROUP BY provider_id, year, month, day
-		ON CONFLICT (provider_id, year, month, day, hour)
-		WHERE deleted_at IS NULL
-		DO UPDATE SET
-			traffic_in = EXCLUDED.traffic_in,
-			traffic_out = EXCLUDED.traffic_out,
-			total_used = EXCLUDED.total_used,
-			instance_count = EXCLUDED.instance_count,
-			record_time = EXCLUDED.record_time,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			instance_count = VALUES(instance_count),
+			record_time = VALUES(record_time),
+			updated_at = VALUES(updated_at)
 	`, date, time.Now(), time.Now(), providerID, year, month, day).Error
 }
 
@@ -211,15 +203,13 @@ func (h *HistoryService) AggregateUserTrafficHistory(userID uint) error {
 		FROM instance_traffic_histories
 		WHERE user_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
 		GROUP BY user_id, year, month, day, hour
-		ON CONFLICT (user_id, year, month, day, hour)
-		WHERE deleted_at IS NULL
-		DO UPDATE SET
-			traffic_in = EXCLUDED.traffic_in,
-			traffic_out = EXCLUDED.traffic_out,
-			total_used = EXCLUDED.total_used,
-			instance_count = EXCLUDED.instance_count,
-			record_time = EXCLUDED.record_time,
-			updated_at = EXCLUDED.updated_at
+		ON DUPLICATE KEY UPDATE
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			instance_count = VALUES(instance_count),
+			record_time = VALUES(record_time),
+			updated_at = VALUES(updated_at)
 	`, now, time.Now(), time.Now(), userID, year, month, day, hour).Error
 }
 
@@ -853,14 +843,12 @@ func (h *HistoryService) BatchRecordInstanceHistory(instances []providerModel.In
 				INSERT INTO instance_traffic_histories 
 					(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON CONFLICT (instance_id, year, month, day, hour)
-				WHERE deleted_at IS NULL
-				DO UPDATE SET
-					traffic_in = EXCLUDED.traffic_in,
-					traffic_out = EXCLUDED.traffic_out,
-					total_used = EXCLUDED.total_used,
-					record_time = EXCLUDED.record_time,
-					updated_at = EXCLUDED.updated_at
+				ON DUPLICATE KEY UPDATE
+					traffic_in = VALUES(traffic_in),
+					traffic_out = VALUES(traffic_out),
+					total_used = VALUES(total_used),
+					record_time = VALUES(record_time),
+					updated_at = VALUES(updated_at)
 			`, history.InstanceID, history.ProviderID, history.UserID, history.TrafficIn, history.TrafficOut,
 				history.TotalUsed, history.Year, history.Month, history.Day, history.Hour,
 				history.RecordTime, now, now).Error; err != nil {

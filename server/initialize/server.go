@@ -93,11 +93,9 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 		// 停止并清理所有Provider Transport连接
 		provider.GetTransportCleanupManager().Stop()
 
-		// 关闭数据库连接
-		if global.APP_DB != nil {
-			if sqlDB, err := global.APP_DB.DB(); err == nil {
-				sqlDB.Close()
-			}
+		// 关闭数据库连接管理器（包含心跳检测和连接池）
+		if dbManager := GetDatabaseManager(); dbManager != nil {
+			dbManager.Shutdown()
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)

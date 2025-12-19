@@ -357,7 +357,7 @@ func GetRegisterConfig(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /public/system-config [get]
 func GetPublicSystemConfig(c *gin.Context) {
-	// 从数据库查询公开的系统配置
+	// 从数据库查询公开的系统配置（已由DatabaseHealthCheck中间件保护）
 	var configs []struct {
 		Key   string `json:"key"`
 		Value string `json:"value"`

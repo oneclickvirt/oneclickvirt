@@ -55,8 +55,9 @@ func SetupRouter() *gin.Engine {
 		// 健康检查也在API路径下，保持与前端一致
 		ApiGroup.GET("/health", public.HealthCheck)
 
-		// 公开访问路由
+		// 公开访问路由（需要数据库健康检查）
 		PublicGroup := ApiGroup.Group("")
+		PublicGroup.Use(middleware.DatabaseHealthCheck()) // 添加数据库健康检查
 		PublicGroup.Use(middleware.RequireAuth(authModel.AuthLevelPublic))
 		{
 			PublicGroup.GET("/ping", func(c *gin.Context) {
@@ -69,18 +70,26 @@ func SetupRouter() *gin.Engine {
 			InitOAuth2Router(PublicGroup) // OAuth2路由
 		}
 
-		// 配置路由
-		InitConfigRouter(ApiGroup)
+		// 配置路由（需要数据库健康检查）
+		ConfigGroup := ApiGroup.Group("")
+		ConfigGroup.Use(middleware.DatabaseHealthCheck())
+		InitConfigRouter(ConfigGroup)
 
-		// 用户路由
-		InitUserRouter(ApiGroup)
+		// 用户路由（需要数据库健康检查）
+		UserGroup := ApiGroup.Group("")
+		UserGroup.Use(middleware.DatabaseHealthCheck())
+		InitUserRouter(UserGroup)
 
-		// 管理员路由
-		InitAdminRouter(ApiGroup)
+		// 管理员路由（需要数据库健康检查）
+		AdminGroup := ApiGroup.Group("")
+		AdminGroup.Use(middleware.DatabaseHealthCheck())
+		InitAdminRouter(AdminGroup)
 
-		// 资源和Provider路由
-		InitResourceRouter(ApiGroup)
-		InitProviderRouter(ApiGroup)
+		// 资源和Provider路由（需要数据库健康检查）
+		ResourceGroup := ApiGroup.Group("")
+		ResourceGroup.Use(middleware.DatabaseHealthCheck())
+		InitResourceRouter(ResourceGroup)
+		InitProviderRouter(ResourceGroup)
 	}
 
 	// 设置静态文件路由（如果启用了嵌入模式）

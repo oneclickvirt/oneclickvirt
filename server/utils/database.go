@@ -204,3 +204,21 @@ func CheckDBHealth() error {
 		return global.APP_DB.Raw("SELECT 1").Scan(&result).Error
 	})
 }
+
+// GetDB 安全地获取数据库连接
+// 如果数据库未初始化或连接断开，返回错误
+func GetDB() (*gorm.DB, error) {
+	if global.APP_DB == nil {
+		return nil, errors.New("数据库未初始化或连接已断开")
+	}
+	return global.APP_DB, nil
+}
+
+// MustGetDB 获取数据库连接，如果失败则panic
+// 仅在确定数据库必须可用的场景使用（如系统初始化后的正常流程）
+func MustGetDB() *gorm.DB {
+	if global.APP_DB == nil {
+		panic("数据库连接不可用")
+	}
+	return global.APP_DB
+}

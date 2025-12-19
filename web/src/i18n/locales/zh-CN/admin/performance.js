@@ -52,6 +52,14 @@ export default {
   maxLifetimeClosed: "生命周期关闭",
   noData: "暂无数据库连接池信息",
   
+  // 数据库管理器状态
+  dbManagerStatus: "数据库管理器状态",
+  connected: "已连接",
+  reconnecting: "重连中",
+  heartbeatActive: "心跳监控",
+  maxReconnectRetry: "最大重连次数",
+  reconnectInterval: "重连间隔",
+  
   // SSH 连接池
   sshPool: "SSH 连接池",
   totalConnections: "总连接数",

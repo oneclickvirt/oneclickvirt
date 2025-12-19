@@ -41,11 +41,23 @@ type PerformanceMetrics struct {
 	// 数据库连接池状态
 	DBStats *DBPoolStats `json:"db_stats,omitempty"`
 
+	// 数据库管理器状态
+	DBManagerStats *DBManagerStats `json:"db_manager_stats,omitempty"`
+
 	// SSH 连接池状态
 	SSHPoolStats *SSHPoolStats `json:"ssh_pool_stats,omitempty"`
 
 	// 任务系统状态
 	TaskStats *TaskSystemStats `json:"task_stats,omitempty"`
+}
+
+// DBManagerStats 数据库管理器统计
+type DBManagerStats struct {
+	Connected         bool   `json:"connected"`           // 是否已连接
+	Reconnecting      bool   `json:"reconnecting"`        // 是否正在重连
+	HeartbeatActive   bool   `json:"heartbeat_active"`    // 心跳是否活跃
+	MaxReconnectRetry int    `json:"max_reconnect_retry"` // 最大重连次数
+	ReconnectInterval string `json:"reconnect_interval"`  // 重连间隔
 }
 
 // DBPoolStats 数据库连接池统计
@@ -184,6 +196,17 @@ func collectPerformanceMetrics() *PerformanceMetrics {
 				MaxIdleClosed:      stats.MaxIdleClosed,
 				MaxLifetimeClosed:  stats.MaxLifetimeClosed,
 			}
+		}
+	}
+
+	// 收集数据库管理器状态
+	if dbManagerStats := global.APP_DB_MANAGER_STATS; dbManagerStats != nil {
+		metrics.DBManagerStats = &DBManagerStats{
+			Connected:         dbManagerStats.Connected,
+			Reconnecting:      dbManagerStats.Reconnecting,
+			HeartbeatActive:   dbManagerStats.HeartbeatActive,
+			MaxReconnectRetry: dbManagerStats.MaxReconnectRetry,
+			ReconnectInterval: dbManagerStats.ReconnectInterval,
 		}
 	}
 

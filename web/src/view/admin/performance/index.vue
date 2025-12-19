@@ -163,8 +163,31 @@
           <template #header>
             <div class="card-header">
               <span>{{ $t('admin.performance.databasePool') }}</span>
+              <el-tag v-if="dbManagerStats && dbManagerStats.connected" 
+                      :type="dbManagerStats.reconnecting ? 'warning' : 'success'" 
+                      size="small">
+                {{ dbManagerStats.reconnecting ? $t('admin.performance.reconnecting') : $t('admin.performance.connected') }}
+              </el-tag>
             </div>
           </template>
+          
+          <!-- 数据库管理器状态 -->
+          <el-alert 
+            v-if="dbManagerStats && dbManagerStats.heartbeat_active"
+            :title="$t('admin.performance.dbManagerStatus')"
+            type="success"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px">
+            <template #default>
+              <div style="font-size: 12px; line-height: 1.8;">
+                <div>{{ $t('admin.performance.heartbeatActive') }}: {{ dbManagerStats.heartbeat_active ? $t('common.yes') : $t('common.no') }}</div>
+                <div>{{ $t('admin.performance.maxReconnectRetry') }}: {{ dbManagerStats.max_reconnect_retry }}</div>
+                <div>{{ $t('admin.performance.reconnectInterval') }}: {{ dbManagerStats.reconnect_interval }}</div>
+              </div>
+            </template>
+          </el-alert>
+
           <el-descriptions :column="2" border v-if="dbStats">
             <el-descriptions-item :label="$t('admin.performance.maxConnections')">
               {{ dbStats.max_open_connections || 0 }}
@@ -283,6 +306,7 @@ const autoRefresh = ref(true)
 const timeRange = ref('1h')
 const metrics = reactive({})
 const dbStats = reactive({})
+const dbManagerStats = reactive({})
 const sshPoolStats = reactive({})
 
 // 图表实例
@@ -306,6 +330,9 @@ const fetchMetrics = async () => {
       Object.assign(metrics, response.data)
       if (response.data.db_stats) {
         Object.assign(dbStats, response.data.db_stats)
+      }
+      if (response.data.db_manager_stats) {
+        Object.assign(dbManagerStats, response.data.db_manager_stats)
       }
       if (response.data.ssh_pool_stats) {
         Object.assign(sshPoolStats, response.data.ssh_pool_stats)

@@ -117,22 +117,23 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
-	// 如果文件未打开，先打开
-	if w.file == nil {
-		if err := w.openNewFile(); err != nil {
-			return 0, err
-		}
-	}
-
-	// 检查日期是否变化，如果变化则切换到新日期的目录
 	now := time.Now()
 	if !w.config.LocalTime {
 		now = now.UTC()
 	}
 	todayStr := now.Format("2006-01-02")
-	// 只有当currentDate已经设置且日期发生变化时才轮转
-	// 避免初始化时currentDate为空字符串导致立即触发轮转
-	if w.currentDate != "" && w.currentDate != todayStr {
+
+	// 如果文件未打开，先打开
+	if w.file == nil {
+		if err := w.openNewFile(); err != nil {
+			return 0, err
+		}
+		// 初始化时设置当前日期
+		w.currentDate = todayStr
+	}
+
+	// 检查日期是否变化，如果变化则切换到新日期的目录
+	if w.currentDate != todayStr {
 		// 日期变化，切换到新日期目录
 		if err := w.rotate(); err != nil {
 			return 0, err

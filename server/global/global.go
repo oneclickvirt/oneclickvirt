@@ -51,6 +51,15 @@ type CaptchaStore interface {
 // SystemInitializationCallback 系统初始化完成后的回调函数类型
 type SystemInitializationCallback func()
 
+// DBManagerStats 数据库管理器统计信息（用于性能监控，避免循环导入）
+type DBManagerStats struct {
+	Connected         bool   `json:"connected"`
+	Reconnecting      bool   `json:"reconnecting"`
+	HeartbeatActive   bool   `json:"heartbeat_active"`
+	MaxReconnectRetry int    `json:"max_reconnect_retry"`
+	ReconnectInterval string `json:"reconnect_interval"`
+}
+
 var (
 	APP_DB                        *gorm.DB
 	APP_LOG                       *zap.Logger
@@ -67,4 +76,5 @@ var (
 	APP_SHUTDOWN_CONTEXT          context.Context              // 系统关闭上下文
 	APP_SHUTDOWN_CANCEL           context.CancelFunc           // 系统关闭取消函数
 	APP_JWT_SECRET                string                       // JWT密钥（从数据库加载，重启后保持不变）
+	APP_DB_MANAGER_STATS          *DBManagerStats              // 数据库管理器统计信息（由DatabaseManager定期更新）
 )

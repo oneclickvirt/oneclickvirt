@@ -1,12 +1,7 @@
 package initialize
 
 import (
-	"context"
-	"sync"
-	"time"
-
 	"oneclickvirt/global"
-	"oneclickvirt/initialize/internal"
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
 	"oneclickvirt/model/config"
@@ -22,65 +17,49 @@ import (
 	"gorm.io/gorm"
 )
 
-var (
-	dbMonitorOnce sync.Once // 确保监控只启动一次
-)
-
-// GormMysql 初始化数据库（支持MySQL和MariaDB）
-func GormMysql() *gorm.DB {
-	m := global.APP_CONFIG.Mysql
+// Gorm 初始化数据库并产生数据库全局变量
+// 使用DatabaseManager实现连接管理、自动重连和心跳检测
+func Gorm() *gorm.DB {
 	dbType := global.APP_CONFIG.System.DbType
 	if dbType == "" {
-		dbType = "mysql" // 默认
+		dbType = "mysql"
 	}
 
+	// 获取数据库管理器
+	dbManager := GetDatabaseManager()
+
+	// 初始化数据库连接（包含自动重连和心跳检测）
 	mysqlConfig := config.MysqlConfig{
-		Path:         m.Path,
-		Port:         m.Port,
-		Config:       m.Config,
-		Dbname:       m.Dbname,
-		Username:     m.Username,
-		Password:     m.Password,
-		MaxIdleConns: m.MaxIdleConns,
-		MaxOpenConns: m.MaxOpenConns,
-		LogMode:      m.LogMode,
-		LogZap:       m.LogZap,
-		MaxLifetime:  m.MaxLifetime,
-		AutoCreate:   m.AutoCreate,
+		Path:         global.APP_CONFIG.Mysql.Path,
+		Port:         global.APP_CONFIG.Mysql.Port,
+		Config:       global.APP_CONFIG.Mysql.Config,
+		Dbname:       global.APP_CONFIG.Mysql.Dbname,
+		Username:     global.APP_CONFIG.Mysql.Username,
+		Password:     global.APP_CONFIG.Mysql.Password,
+		MaxIdleConns: global.APP_CONFIG.Mysql.MaxIdleConns,
+		MaxOpenConns: global.APP_CONFIG.Mysql.MaxOpenConns,
+		LogMode:      global.APP_CONFIG.Mysql.LogMode,
+		LogZap:       global.APP_CONFIG.Mysql.LogZap,
+		MaxLifetime:  global.APP_CONFIG.Mysql.MaxLifetime,
+		AutoCreate:   global.APP_CONFIG.Mysql.AutoCreate,
 	}
-	if db, err := internal.GormMysql(mysqlConfig); err != nil {
+
+	db, err := dbManager.Initialize(mysqlConfig)
+	if err != nil {
 		global.APP_LOG.Error("数据库初始化失败",
 			zap.String("dbType", dbType),
 			zap.Error(err))
 		return nil
-	} else {
-		db.InstanceSet("gorm:table_options", "ENGINE="+m.Engine)
-		global.APP_LOG.Info("数据库初始化成功",
-			zap.String("dbType", dbType),
-			zap.String("engine", m.Engine))
-		return db
 	}
-}
 
-// Gorm 初始化数据库并产生数据库全局变量
-func Gorm() *gorm.DB {
-	// 支持MySQL和MariaDB
-	db := GormMysql()
-	dbType := global.APP_CONFIG.System.DbType
+	global.APP_LOG.Info("数据库初始化成功",
+		zap.String("dbType", dbType),
+		zap.String("engine", global.APP_CONFIG.Mysql.Engine))
 
-	// 验证数据库连接
-	if db != nil {
-		if err := validateDatabaseConnection(db); err != nil {
-			global.APP_LOG.Error("数据库连接验证失败", zap.Error(err))
-			return nil
-		}
-		global.APP_LOG.Info("数据库连接验证成功", zap.String("dbType", dbType))
-
-		// 自动迁移表结构（无论是否初始化都执行，确保表结构是最新的）
-		global.APP_LOG.Info("开始数据库表结构自动迁移")
-		RegisterTables(db)
-		global.APP_LOG.Info("数据库表结构迁移完成")
-	}
+	// 自动迁移表结构
+	global.APP_LOG.Info("开始数据库表结构自动迁移")
+	RegisterTables(db)
+	global.APP_LOG.Info("数据库表结构迁移完成")
 
 	return db
 } // validateDatabaseConnection 验证数据库连接是否可用
@@ -109,65 +88,7 @@ func validateDatabaseConnection(db *gorm.DB) error {
 		zap.Int("in_use", stats.InUse),
 		zap.Int("idle", stats.Idle))
 
-	// 使用sync.Once确保连接池监控只启动一次
-	dbMonitorOnce.Do(func() {
-		go monitorConnectionPool(db, global.APP_SHUTDOWN_CONTEXT)
-		global.APP_LOG.Info("数据库连接池监控已启动")
-	})
-
 	return nil
-}
-
-// monitorConnectionPool 监控数据库连接池状态
-func monitorConnectionPool(db *gorm.DB, ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			global.APP_LOG.Info("数据库连接池监控已停止")
-			return
-		case <-ticker.C:
-			if db == nil {
-				return
-			}
-
-			sqlDB, err := db.DB()
-			if err != nil {
-				global.APP_LOG.Error("获取数据库连接池失败", zap.Error(err))
-				continue
-			}
-
-			// 检查连接是否正常
-			if err := sqlDB.Ping(); err != nil {
-				global.APP_LOG.Error("数据库连接检查失败", zap.Error(err))
-				continue
-			}
-
-			// 获取连接池统计信息
-			stats := sqlDB.Stats()
-			usagePercent := float64(stats.OpenConnections) / float64(stats.MaxOpenConnections) * 100
-
-			// 如果使用率超过80%，记录警告
-			if usagePercent > 80 {
-				global.APP_LOG.Warn("数据库连接池使用率过高",
-					zap.Int("open_connections", stats.OpenConnections),
-					zap.Int("max_open_connections", stats.MaxOpenConnections),
-					zap.Float64("usage_percent", usagePercent),
-					zap.Int("in_use", stats.InUse),
-					zap.Int("idle", stats.Idle),
-					zap.Int64("wait_count", stats.WaitCount),
-					zap.Duration("wait_duration", stats.WaitDuration))
-			} else {
-				// 正常情况下记录debug日志
-				global.APP_LOG.Debug("数据库连接池状态",
-					zap.Int("open_connections", stats.OpenConnections),
-					zap.Int("max_open_connections", stats.MaxOpenConnections),
-					zap.Float64("usage_percent", usagePercent))
-			}
-		}
-	}
 }
 
 // RegisterTables 注册数据库表专用

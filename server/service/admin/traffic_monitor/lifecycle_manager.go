@@ -418,7 +418,7 @@ func (m *LifecycleManager) BatchDetectMonitoring(ctx context.Context, providerID
 		return fmt.Errorf("Provider未连接")
 	}
 
-	// 一次性查询所有需要的数据（避免N+1问题）
+	// 一次性查询所有需要的数据
 	// 1. 查询所有活跃实例，包含内网IP
 	var instances []providerModel.Instance
 	if err := global.APP_DB.
