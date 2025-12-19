@@ -219,13 +219,37 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 	userIP := VMIDToInternalIP(vmid)
 	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+
+	// 先尝试带rate参数的配置
 	if networkConfig.OutSpeed > 0 {
-		netConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", netConfigStr, networkConfig.OutSpeed)
-	}
-	netCmd := fmt.Sprintf("pct set %d --net0 %s", vmid, netConfigStr)
-	_, err = p.sshClient.Execute(netCmd)
-	if err != nil {
-		global.APP_LOG.Warn("容器网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+		rateMBps := networkConfig.OutSpeed / 8
+		if rateMBps < 1 {
+			rateMBps = 1 // 最小1MB/s
+		}
+		netConfigStrWithRate := fmt.Sprintf("%s,rate=%d", netConfigStr, rateMBps)
+		netCmd := fmt.Sprintf("pct set %d --net0 %s", vmid, netConfigStrWithRate)
+		_, err = p.sshClient.Execute(netCmd)
+		if err != nil {
+			// 带rate参数失败，fallback到不带rate的配置
+			global.APP_LOG.Warn("容器网络配置（带rate）失败，尝试不带rate的配置",
+				zap.Int("vmid", vmid),
+				zap.Int("rateMBps", rateMBps),
+				zap.Error(err))
+
+			netCmd = fmt.Sprintf("pct set %d --net0 %s", vmid, netConfigStr)
+			_, err = p.sshClient.Execute(netCmd)
+			if err != nil {
+				global.APP_LOG.Warn("容器网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+			}
+		}
+	} else {
+		// 不需要rate限速，直接配置
+		netCmd := fmt.Sprintf("pct set %d --net0 %s", vmid, netConfigStr)
+		_, err = p.sshClient.Execute(netCmd)
+		if err != nil {
+			global.APP_LOG.Warn("容器网络配置失败", zap.Int("vmid", vmid), zap.Error(err))
+		}
 	}
 
 	updateProgress(80, "启动容器...")
@@ -398,25 +422,69 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 	// 构建网络配置字符串，包含 rate 参数
 	net0Config := "virtio,bridge=vmbr1,firewall=0"
+	net0ConfigWithRate := net0Config
+	useRateLimit := false
+
 	if networkConfig.OutSpeed > 0 {
-		net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+		rateMBps := networkConfig.OutSpeed / 8
+		if rateMBps < 1 {
+			rateMBps = 1 // 最小1MB/s
+		}
+		net0ConfigWithRate = fmt.Sprintf("%s,rate=%d", net0Config, rateMBps)
+		useRateLimit = true
 	}
 
 	if net1Bridge != "" {
 		// 双网络接口模式（IPv6）
-		createCmd = fmt.Sprintf(
-			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
-			vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
-		)
+		if useRateLimit {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0ConfigWithRate, net1Bridge, kvmFlag,
+			)
+		} else {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
+			)
+		}
 	} else {
 		// 单网络接口模式（纯IPv4或IPv6环境缺失）
-		createCmd = fmt.Sprintf(
-			"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
-			vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
-		)
+		if useRateLimit {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0ConfigWithRate, kvmFlag,
+			)
+		} else {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
+			)
+		}
 	}
 
 	_, err = p.sshClient.Execute(createCmd)
+	if err != nil && useRateLimit {
+		// 带rate参数创建失败，尝试不带rate重试
+		global.APP_LOG.Warn("虚拟机创建（带rate）失败，尝试不带rate的创建",
+			zap.Int("vmid", vmid),
+			zap.Error(err))
+
+		// 重新构建不带rate的命令
+		if net1Bridge != "" {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --net1 virtio,bridge=%s,firewall=0 --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0Config, net1Bridge, kvmFlag,
+			)
+		} else {
+			createCmd = fmt.Sprintf(
+				"qm create %d --agent %s --scsihw virtio-scsi-single --serial0 socket --cores %s --sockets 1 --cpu %s --net0 %s --ostype l26 %s",
+				vmid, agentParam, cpuFormatted, cpuType, net0Config, kvmFlag,
+			)
+		}
+		_, err = p.sshClient.Execute(createCmd)
+	}
+
 	if err != nil {
 		return fmt.Errorf("创建虚拟机失败: %v", err)
 	}

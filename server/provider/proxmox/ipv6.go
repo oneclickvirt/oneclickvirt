@@ -225,13 +225,32 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			net0ConfigBase := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			net0Config := net0ConfigBase
+
 			if networkConfig.OutSpeed > 0 {
-				net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0Config = fmt.Sprintf("%s,rate=%d", net0ConfigBase, rateMBps)
 			}
+
 			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
 			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
+			if err != nil && networkConfig.OutSpeed > 0 {
+				// 带rate失败，尝试不带rate
+				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口（带rate）失败，尝试不带rate",
+					zap.Int("vmid", vmid),
+					zap.Error(err))
+
+				net0Cmd = fmt.Sprintf("qm set %d --net0 %s", vmid, net0ConfigBase)
+				_, err = p.sshClient.Execute(net0Cmd)
+				if err != nil {
+					global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
+				}
+			} else if err != nil {
 				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
 			}
 
@@ -270,13 +289,32 @@ func (p *ProxmoxProvider) configureVMIPv6(ctx context.Context, vmid int, config 
 
 		if ipv6Only {
 			// IPv6-only: net0为IPv6
-			net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			net0ConfigBase := fmt.Sprintf("virtio,bridge=%s,firewall=0", bridgeName)
+			net0Config := net0ConfigBase
+
 			if networkConfig.OutSpeed > 0 {
-				net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0Config = fmt.Sprintf("%s,rate=%d", net0ConfigBase, rateMBps)
 			}
+
 			net0Cmd := fmt.Sprintf("qm set %d --net0 %s", vmid, net0Config)
 			_, err := p.sshClient.Execute(net0Cmd)
-			if err != nil {
+			if err != nil && networkConfig.OutSpeed > 0 {
+				// 带rate失败，尝试不带rate
+				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口（带rate）失败，尝试不带rate",
+					zap.Int("vmid", vmid),
+					zap.Error(err))
+
+				net0Cmd = fmt.Sprintf("qm set %d --net0 %s", vmid, net0ConfigBase)
+				_, err = p.sshClient.Execute(net0Cmd)
+				if err != nil {
+					global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
+				}
+			} else if err != nil {
 				global.APP_LOG.Warn("配置虚拟机IPv6-only net0接口失败", zap.Int("vmid", vmid), zap.Error(err))
 			}
 
@@ -318,7 +356,12 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			// IPv6-only: net0为IPv6
 			net0ConfigStr := fmt.Sprintf("name=eth0,ip6='%s/64',bridge=%s,gw6='2001:db8:1::1'", vmInternalIPv6, bridgeName)
 			if networkConfig.OutSpeed > 0 {
-				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
 			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
@@ -330,7 +373,12 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			userIP := VMIDToInternalIP(vmid)
 			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
 			if networkConfig.OutSpeed > 0 {
-				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
 			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
@@ -374,7 +422,12 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			// IPv6-only: net0为IPv6
 			net0ConfigStr := fmt.Sprintf("name=eth0,ip6='%s/128',bridge=%s,gw6='%s'", vmExternalIPv6, bridgeName, ipv6Info.HostIPv6Address)
 			if networkConfig.OutSpeed > 0 {
-				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
 			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)
@@ -387,7 +440,12 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			userIP := VMIDToInternalIP(vmid)
 			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
 			if networkConfig.OutSpeed > 0 {
-				net0ConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", net0ConfigStr, networkConfig.OutSpeed)
+				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+				rateMBps := networkConfig.OutSpeed / 8
+				if rateMBps < 1 {
+					rateMBps = 1 // 最小1MB/s
+				}
+				net0ConfigStr = fmt.Sprintf("%s,rate=%d", net0ConfigStr, rateMBps)
 			}
 			net0Cmd := fmt.Sprintf("pct set %d --net0 %s", vmid, net0ConfigStr)
 			_, err := p.sshClient.Execute(net0Cmd)

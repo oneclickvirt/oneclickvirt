@@ -918,7 +918,12 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	// 构建网络配置字符串，包含 rate 参数
 	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
 	if networkConfig.OutSpeed > 0 {
-		netConfigStr = fmt.Sprintf("%s,rate=%dMbit/s", netConfigStr, networkConfig.OutSpeed)
+		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+		rateMBps := networkConfig.OutSpeed / 8
+		if rateMBps < 1 {
+			rateMBps = 1 // 最小1MB/s
+		}
+		netConfigStr = fmt.Sprintf("%s,rate=%d", netConfigStr, rateMBps)
 	}
 
 	netPayload := map[string]interface{}{
@@ -1051,7 +1056,12 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	// 构建网络配置字符串，包含 rate 参数
 	net0Config := "virtio,bridge=vmbr1,firewall=0"
 	if networkConfig.OutSpeed > 0 {
-		net0Config = fmt.Sprintf("%s,rate=%dMbit/s", net0Config, networkConfig.OutSpeed)
+		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
+		rateMBps := networkConfig.OutSpeed / 8
+		if rateMBps < 1 {
+			rateMBps = 1 // 最小1MB/s
+		}
+		net0Config = fmt.Sprintf("%s,rate=%d", net0Config, rateMBps)
 	}
 
 	net1Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", net1Bridge)

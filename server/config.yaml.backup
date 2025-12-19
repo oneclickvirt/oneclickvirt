@@ -31,13 +31,13 @@ jwt:
     signing-key: ""
 mysql:
     auto-create: true
-    config: charset=utf8mb4&parseTime=True&loc=Local
+    config: charset=utf8mb4&parseTime=True&loc=Local&timeout=10s&readTimeout=30s&writeTimeout=30s
     db-name: oneclickvirt
     engine: InnoDB
     log-mode: error
     log-zap: "false"
-    max-idle-conns: "10"
-    max-lifetime: "3600"
+    max-idle-conns: "20"
+    max-lifetime: "1800"
     max-open-conns: "100"
     password: ""
     path: 127.0.0.1
@@ -131,9 +131,9 @@ zap:
 max_avatar_size: 2
 default_language:
 signing_key_v1:
-    created_at: "2025-12-08T19:05:45.841096+08:00"
-    expires_at: "2025-12-09T19:05:45.841096+08:00"
+    created_at: "2025-12-10T11:50:42.233262+08:00"
+    expires_at: "2025-12-11T11:50:42.233262+08:00"
     is_active: false
-    key: 1c14bbf7a3a8b4a7e96a6fcc692fd89402b97d9a25829d22283bac562d0d497a
+    key: b938fc5e2557e899f93f97a6edb1ca12e1a1216c0664df7c4adf171d8f1bec78
     version: 1
 active_version: 1
