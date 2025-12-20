@@ -12,6 +12,7 @@ import (
 	resourceModel "oneclickvirt/model/resource"
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/service/database"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -93,6 +94,13 @@ func validateDatabaseConnection(db *gorm.DB) error {
 
 // RegisterTables 注册数据库表专用
 func RegisterTables(db *gorm.DB) {
+	// 在AutoMigrate之前先修复可能存在的重复数据
+	// 这样可以避免在添加唯一索引时因重复数据导致错误
+	dbService := database.GetDatabaseService()
+	if fixErr := dbService.FixAllDuplicateData(); fixErr != nil {
+		global.APP_LOG.Warn("修复重复数据时出现警告（可忽略，如果是新数据库）", zap.Error(fixErr))
+	}
+
 	err := db.AutoMigrate(
 		// 用户相关表
 		&userModel.User{},     // 用户基础信息表
