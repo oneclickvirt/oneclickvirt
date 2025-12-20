@@ -113,7 +113,6 @@ other:
     default-language: en-US
     max-avatar-size: 5
 zap:
-    compress-logs: true
     director: storage/logs
     encode-level: LowercaseLevelEncoder
     format: console

@@ -69,7 +69,6 @@ var systemLevelConfigKeys = map[string]bool{
 	"zap.max-file-size":      true,
 	"zap.max-backups":        true,
 	"zap.max-log-length":     true,
-	"zap.compress-logs":      true,
 	"zap.retention-day":      true,
 	"zap.show-line":          true,
 	"zap.log-in-console":     true,

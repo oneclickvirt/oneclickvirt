@@ -45,20 +45,26 @@ func (h *HistoryService) RecordInstanceTrafficHistory(tx *gorm.DB, instanceID, p
 		RecordTime: now,
 	}
 
-	// 使用ON DUPLICATE KEY UPDATE确保幂等性（兼容MySQL 5.x/9.x 和 MariaDB）
-	return tx.Exec(`
-		INSERT INTO instance_traffic_histories 
-			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-		ON DUPLICATE KEY UPDATE
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
-			updated_at = VALUES(updated_at)
-	`, history.InstanceID, history.ProviderID, history.UserID, history.TrafficIn, history.TrafficOut,
-		history.TotalUsed, history.Year, history.Month, history.Day, history.Hour,
-		history.RecordTime, now, now).Error
+	// 使用 GORM 确保幂等性（兼容MySQL 5.x/9.x 和 MariaDB）
+	var existing monitoringModel.InstanceTrafficHistory
+	err := tx.Where(
+		"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+		history.InstanceID, history.Year, history.Month, history.Day, history.Hour,
+	).First(&existing).Error
+
+	if err == nil {
+		// 更新现有记录
+		existing.ProviderID = history.ProviderID
+		existing.UserID = history.UserID
+		existing.TrafficIn = history.TrafficIn
+		existing.TrafficOut = history.TrafficOut
+		existing.TotalUsed = history.TotalUsed
+		existing.RecordTime = history.RecordTime
+		return tx.Save(&existing).Error
+	}
+
+	// 插入新记录
+	return tx.Create(&history).Error
 }
 
 // AggregateDailyInstanceTraffic 聚合实例每日流量（从小时数据）
@@ -68,35 +74,69 @@ func (h *HistoryService) AggregateDailyInstanceTraffic(date time.Time) error {
 	month := int(date.Month())
 	day := date.Day()
 
-	// 从小时级数据聚合到日级
-	// hour=0表示日级聚合数据
-	return global.APP_DB.Exec(`
-		INSERT INTO instance_traffic_histories 
-			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
-		SELECT 
-			instance_id,
-			provider_id,
-			user_id,
-			SUM(traffic_in) as traffic_in,
-			SUM(traffic_out) as traffic_out,
-			SUM(total_used) as total_used,
-			year,
-			month,
-			day,
-			0 as hour,
-			? as record_time,
-			? as created_at,
-			? as updated_at
-		FROM instance_traffic_histories
-		WHERE year = ? AND month = ? AND day = ? AND hour > 0 AND deleted_at IS NULL
-		GROUP BY instance_id, provider_id, user_id, year, month, day
-		ON DUPLICATE KEY UPDATE
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
-			updated_at = VALUES(updated_at)
-	`, date, time.Now(), time.Now(), year, month, day).Error
+	// 从小时级数据聚合到日级 - 先查询聚合结果
+	type DailyAggregate struct {
+		InstanceID uint
+		ProviderID uint
+		UserID     uint
+		TrafficIn  int64
+		TrafficOut int64
+		TotalUsed  int64
+	}
+
+	var aggregates []DailyAggregate
+	err := global.APP_DB.Table("instance_traffic_histories").
+		Select("instance_id, provider_id, user_id, SUM(traffic_in) as traffic_in, SUM(traffic_out) as traffic_out, SUM(total_used) as total_used").
+		Where("year = ? AND month = ? AND day = ? AND hour > 0 AND deleted_at IS NULL", year, month, day).
+		Group("instance_id, provider_id, user_id, year, month, day").
+		Scan(&aggregates).Error
+
+	if err != nil {
+		return err
+	}
+
+	// 使用GORM保存或更新每个聚合结果
+	now := time.Now()
+	for _, agg := range aggregates {
+		var existing monitoringModel.InstanceTrafficHistory
+		err := global.APP_DB.Where(
+			"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+			agg.InstanceID, year, month, day, 0,
+		).First(&existing).Error
+
+		if err == nil {
+			// 更新现有记录
+			existing.ProviderID = agg.ProviderID
+			existing.UserID = agg.UserID
+			existing.TrafficIn = agg.TrafficIn
+			existing.TrafficOut = agg.TrafficOut
+			existing.TotalUsed = agg.TotalUsed
+			existing.RecordTime = now
+			if err := global.APP_DB.Save(&existing).Error; err != nil {
+				return err
+			}
+		} else {
+			// 插入新记录
+			newRecord := monitoringModel.InstanceTrafficHistory{
+				InstanceID: agg.InstanceID,
+				ProviderID: agg.ProviderID,
+				UserID:     agg.UserID,
+				TrafficIn:  agg.TrafficIn,
+				TrafficOut: agg.TrafficOut,
+				TotalUsed:  agg.TotalUsed,
+				Year:       year,
+				Month:      month,
+				Day:        day,
+				Hour:       0,
+				RecordTime: now,
+			}
+			if err := global.APP_DB.Create(&newRecord).Error; err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // AggregateProviderTrafficHistory 聚合Provider流量历史（小时级）
@@ -839,20 +879,29 @@ func (h *HistoryService) BatchRecordInstanceHistory(instances []providerModel.In
 	// 使用批量插入，提高性能
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		for _, history := range histories {
-			if err := tx.Exec(`
-				INSERT INTO instance_traffic_histories 
-					(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
-				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE
-					traffic_in = VALUES(traffic_in),
-					traffic_out = VALUES(traffic_out),
-					total_used = VALUES(total_used),
-					record_time = VALUES(record_time),
-					updated_at = VALUES(updated_at)
-			`, history.InstanceID, history.ProviderID, history.UserID, history.TrafficIn, history.TrafficOut,
-				history.TotalUsed, history.Year, history.Month, history.Day, history.Hour,
-				history.RecordTime, now, now).Error; err != nil {
-				return fmt.Errorf("批量记录实例流量历史失败: %w", err)
+			// 检查是否存在
+			var existing monitoringModel.InstanceTrafficHistory
+			err := tx.Where(
+				"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+				history.InstanceID, history.Year, history.Month, history.Day, history.Hour,
+			).First(&existing).Error
+
+			if err == nil {
+				// 更新现有记录
+				existing.ProviderID = history.ProviderID
+				existing.UserID = history.UserID
+				existing.TrafficIn = history.TrafficIn
+				existing.TrafficOut = history.TrafficOut
+				existing.TotalUsed = history.TotalUsed
+				existing.RecordTime = history.RecordTime
+				if err := tx.Save(&existing).Error; err != nil {
+					return fmt.Errorf("批量更新实例流量历史失败: %w", err)
+				}
+			} else {
+				// 插入新记录
+				if err := tx.Create(&history).Error; err != nil {
+					return fmt.Errorf("批量插入实例流量历史失败: %w", err)
+				}
 			}
 		}
 		return nil

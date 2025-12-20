@@ -137,22 +137,30 @@ func (s *AggregationService) saveToCacheWithInfo(instanceID, providerID, userID 
 		RecordTime: time.Now(),
 	}
 
-	// MySQL: 使用ON DUPLICATE KEY UPDATE
-	// 先尝试创建，如果唯一键冲突则更新
-	err := global.APP_DB.Exec(`
-		INSERT INTO instance_traffic_histories 
-			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, 
-			 year, month, day, hour, record_time, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
-		ON DUPLICATE KEY UPDATE
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
-			updated_at = NOW()
-	`, record.InstanceID, record.ProviderID, record.UserID,
-		record.TrafficIn, record.TrafficOut, record.TotalUsed,
-		record.Year, record.Month, record.Day, record.Hour, record.RecordTime).Error
+	// 使用 GORM 的 Save 方法，自动处理 INSERT 或 UPDATE
+	// GORM 会根据唯一索引自动判断是插入还是更新
+	// 兼容 MySQL 5.x/9.x 和 MariaDB
+
+	// 首先尝试查找是否存在
+	var existing monitoringModel.InstanceTrafficHistory
+	err := global.APP_DB.Where(
+		"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+		record.InstanceID, record.Year, record.Month, record.Day, record.Hour,
+	).First(&existing).Error
+
+	if err == nil {
+		// 记录存在，更新
+		existing.ProviderID = record.ProviderID
+		existing.UserID = record.UserID
+		existing.TrafficIn = record.TrafficIn
+		existing.TrafficOut = record.TrafficOut
+		existing.TotalUsed = record.TotalUsed
+		existing.RecordTime = record.RecordTime
+		err = global.APP_DB.Save(&existing).Error
+	} else {
+		// 记录不存在，插入新记录
+		err = global.APP_DB.Create(&record).Error
+	}
 
 	return err
 }
@@ -354,25 +362,39 @@ func (s *AggregationService) saveDailyCacheWithInfo(instanceID, providerID, user
 	trafficOutMB := stats.TxBytes / 1048576
 	totalUsedMB := int64(stats.ActualUsageMB)
 
-	// UPSERT：存在则更新，不存在则插入（day!=0, hour=0表示按天缓存）
-	query := `
-		INSERT INTO instance_traffic_histories 
-			(instance_id, provider_id, user_id, year, month, day, hour, 
-			 traffic_in, traffic_out, total_used, record_time, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, NOW(), NOW(), NOW())
-		ON DUPLICATE KEY UPDATE
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = NOW(),
-			updated_at = NOW()
-	`
+	// 使用 GORM 处理插入或更新（day!=0, hour=0表示按天缓存）
+	var existing monitoringModel.InstanceTrafficHistory
+	err := global.APP_DB.Where(
+		"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+		instanceID, year, month, day, 0,
+	).First(&existing).Error
 
-	return global.APP_DB.Exec(query,
-		instanceID, providerID, userID,
-		year, month, day,
-		trafficInMB, trafficOutMB, totalUsedMB,
-	).Error
+	if err == nil {
+		// 记录存在，更新
+		existing.ProviderID = providerID
+		existing.UserID = userID
+		existing.TrafficIn = trafficInMB
+		existing.TrafficOut = trafficOutMB
+		existing.TotalUsed = totalUsedMB
+		existing.RecordTime = time.Now()
+		return global.APP_DB.Save(&existing).Error
+	}
+
+	// 记录不存在，插入新记录
+	record := monitoringModel.InstanceTrafficHistory{
+		InstanceID: instanceID,
+		ProviderID: providerID,
+		UserID:     userID,
+		Year:       year,
+		Month:      month,
+		Day:        day,
+		Hour:       0,
+		TrafficIn:  trafficInMB,
+		TrafficOut: trafficOutMB,
+		TotalUsed:  totalUsedMB,
+		RecordTime: time.Now(),
+	}
+	return global.APP_DB.Create(&record).Error
 }
 
 // saveDailyCache 保存每日缓存数据（保留用于单独调用）

@@ -124,7 +124,6 @@ other:
     max-avatar-size: 2
 
 zap:
-    compress-logs: true
     director: storage/logs
     encode-level: LowercaseLevelEncoder
     format: console

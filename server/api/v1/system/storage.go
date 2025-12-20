@@ -138,21 +138,3 @@ func (s *StorageApi) CleanupOldLogs(c *gin.Context) {
 	}
 	common.ResponseSuccess(c, "旧日志清理成功")
 }
-
-// CompressOldLogs 压缩旧日志文件
-// @Tags System
-// @Summary 压缩旧日志文件
-// @Description 压缩昨天之前的日志文件以节省存储空间
-// @Security BearerAuth
-// @Accept json
-// @Produce json
-// @Success 200 {object} common.Response "success"
-// @Router /api/v1/admin/logs/compress [post]
-func (s *StorageApi) CompressOldLogs(c *gin.Context) {
-	logRotationService := log.GetLogRotationService()
-	if err := logRotationService.CompressOldLogs(); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "压缩旧日志失败: "+err.Error()))
-		return
-	}
-	common.ResponseSuccess(c, "旧日志压缩成功")
-}

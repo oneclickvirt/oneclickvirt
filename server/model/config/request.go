@@ -70,6 +70,5 @@ type DailyLogConfig struct {
 	MaxSize    int64  `json:"maxSize"`    // 最大文件大小(字节)
 	MaxAge     int    `json:"maxAge"`     // 保留天数
 	MaxBackups int    `json:"maxBackups"` // 最大备份数
-	Compress   bool   `json:"compress"`   // 是否压缩历史日志
 	LocalTime  bool   `json:"localTime"`  // 使用本地时间
 }

@@ -569,73 +569,101 @@ LIMIT 10000;
 		day, hour := now.Day(), now.Hour()
 
 		// 更新实例流量历史表（小时级，存储该小时最新的累积值）
-		if err := global.APP_DB.Exec(`
-			INSERT INTO instance_traffic_histories 
-				(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT 
-				instance_id,
-				provider_id,
-				user_id,
-				MAX(rx_bytes) as traffic_in,     -- 该小时的最大累积值
-				MAX(tx_bytes) as traffic_out,
-				MAX(total_bytes) as total_used,
-				year, month, day, hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
-			FROM pmacct_traffic_records
-			WHERE instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
-			GROUP BY instance_id, provider_id, user_id, year, month, day, hour
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),     -- 更新为最新的最大累积值
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instanceID, year, month, day, hour).Error; err != nil {
-			global.APP_LOG.Warn("更新实例流量历史失败",
-				zap.Uint("instanceID", instanceID),
-				zap.Error(err))
+		// 先查询聚合结果
+		var hourlyData struct {
+			InstanceID uint
+			ProviderID uint
+			UserID     uint
+			TrafficIn  int64
+			TrafficOut int64
+			TotalUsed  int64
+		}
+
+		err := global.APP_DB.Table("pmacct_traffic_records").
+			Select("instance_id, provider_id, user_id, MAX(rx_bytes) as traffic_in, MAX(tx_bytes) as traffic_out, MAX(total_bytes) as total_used").
+			Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
+			Group("instance_id, provider_id, user_id, year, month, day, hour").
+			Scan(&hourlyData).Error
+
+		if err == nil && hourlyData.InstanceID > 0 {
+			// 使用GORM保存或更新
+			var existing monitoringModel.InstanceTrafficHistory
+			err = global.APP_DB.Where(
+				"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+				instanceID, year, month, day, hour,
+			).First(&existing).Error
+
+			if err == nil {
+				// 更新现有记录
+				existing.ProviderID = hourlyData.ProviderID
+				existing.UserID = hourlyData.UserID
+				existing.TrafficIn = hourlyData.TrafficIn
+				existing.TrafficOut = hourlyData.TrafficOut
+				existing.TotalUsed = hourlyData.TotalUsed
+				existing.RecordTime = now
+				if err := global.APP_DB.Save(&existing).Error; err != nil {
+					global.APP_LOG.Warn("更新实例流量历史失败",
+						zap.Uint("instanceID", instanceID),
+						zap.Error(err))
+				}
+			} else {
+				// 插入新记录
+				newRecord := monitoringModel.InstanceTrafficHistory{
+					InstanceID: hourlyData.InstanceID,
+					ProviderID: hourlyData.ProviderID,
+					UserID:     hourlyData.UserID,
+					TrafficIn:  hourlyData.TrafficIn,
+					TrafficOut: hourlyData.TrafficOut,
+					TotalUsed:  hourlyData.TotalUsed,
+					Year:       year,
+					Month:      month,
+					Day:        day,
+					Hour:       hour,
+					RecordTime: now,
+				}
+				if err := global.APP_DB.Create(&newRecord).Error; err != nil {
+					global.APP_LOG.Warn("插入实例流量历史失败",
+						zap.Uint("instanceID", instanceID),
+						zap.Error(err))
+				}
+			}
 		}
 
 		// 更新实例月度汇总（day=0, hour=0）
 		// 支持pmacct每天4点自动重置，使用分段检测避免数据丢失
-		// pmacct重置后累积值从0开始，需要检测累积值下降并分段求和
-		if err := global.APP_DB.Exec(`
-			INSERT INTO instance_traffic_histories 
-				(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, year, month, day, hour, record_time, created_at, updated_at)
+		// 先执行聚合查询
+		var monthlyData struct {
+			InstanceID uint
+			ProviderID uint
+			UserID     uint
+			TrafficIn  int64
+			TrafficOut int64
+			TotalUsed  int64
+		}
+
+		err = global.APP_DB.Raw(`
 			SELECT 
 				instance_id,
 				provider_id,
 				user_id,
 				COALESCE(SUM(segment_max_rx), 0) as traffic_in,
 				COALESCE(SUM(segment_max_tx), 0) as traffic_out,
-				COALESCE(SUM(segment_max_total), 0) as total_used,
-				year, month, 0 as day, 0 as hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
+				COALESCE(SUM(segment_max_total), 0) as total_used
 			FROM (
-				-- 步骤2：每个分段取最大累积值
 				SELECT 
-					instance_id, provider_id, user_id, year, month,
+					instance_id, provider_id, user_id,
 					segment_id,
 					MAX(rx_bytes) as segment_max_rx,
 					MAX(tx_bytes) as segment_max_tx,
 					MAX(total_bytes) as segment_max_total
 				FROM (
-					-- 步骤1：检测累积值下降（pmacct重启），计算segment_id
 					SELECT 
 						t1.instance_id,
 						t1.provider_id,
 						t1.user_id,
-						t1.year,
-						t1.month,
 						t1.rx_bytes,
 						t1.tx_bytes,
 						t1.total_bytes,
-						t1.timestamp,
-						-- 计算当前记录之前有多少次重启（累积值下降）
 						(
 							SELECT COUNT(DISTINCT t2.id)
 							FROM pmacct_traffic_records t2
@@ -656,17 +684,55 @@ LIMIT 10000;
 					FROM pmacct_traffic_records t1
 					WHERE t1.instance_id = ? AND t1.year = ? AND t1.month = ? AND t1.deleted_at IS NULL
 				) AS segments
-				GROUP BY instance_id, provider_id, user_id, year, month, segment_id
+				GROUP BY instance_id, provider_id, user_id, segment_id
 			) AS segment_totals
-			GROUP BY instance_id, provider_id, user_id, year, month
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instanceID, year, month).Error; err != nil {
-			global.APP_LOG.Warn("更新实例月度汇总失败",
+			GROUP BY instance_id, provider_id, user_id
+		`, instanceID, year, month).Scan(&monthlyData).Error
+
+		if err == nil && monthlyData.InstanceID > 0 {
+			// 使用GORM保存或更新月度汇总
+			var existing monitoringModel.InstanceTrafficHistory
+			err = global.APP_DB.Where(
+				"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
+				instanceID, year, month, 0, 0,
+			).First(&existing).Error
+
+			if err == nil {
+				// 更新现有记录
+				existing.ProviderID = monthlyData.ProviderID
+				existing.UserID = monthlyData.UserID
+				existing.TrafficIn = monthlyData.TrafficIn
+				existing.TrafficOut = monthlyData.TrafficOut
+				existing.TotalUsed = monthlyData.TotalUsed
+				existing.RecordTime = now
+				if err := global.APP_DB.Save(&existing).Error; err != nil {
+					global.APP_LOG.Warn("更新实例月度汇总失败",
+						zap.Uint("instanceID", instanceID),
+						zap.Error(err))
+				}
+			} else {
+				// 插入新记录
+				newRecord := monitoringModel.InstanceTrafficHistory{
+					InstanceID: monthlyData.InstanceID,
+					ProviderID: monthlyData.ProviderID,
+					UserID:     monthlyData.UserID,
+					TrafficIn:  monthlyData.TrafficIn,
+					TrafficOut: monthlyData.TrafficOut,
+					TotalUsed:  monthlyData.TotalUsed,
+					Year:       year,
+					Month:      month,
+					Day:        0,
+					Hour:       0,
+					RecordTime: now,
+				}
+				if err := global.APP_DB.Create(&newRecord).Error; err != nil {
+					global.APP_LOG.Warn("插入实例月度汇总失败",
+						zap.Uint("instanceID", instanceID),
+						zap.Error(err))
+				}
+			}
+		} else if err != nil {
+			global.APP_LOG.Warn("查询月度汇总数据失败",
 				zap.Uint("instanceID", instanceID),
 				zap.Error(err))
 		}

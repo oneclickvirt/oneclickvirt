@@ -2,7 +2,6 @@ package log
 
 import (
 	"bufio"
-	"compress/gzip"
 	"fmt"
 	"io"
 	"oneclickvirt/service/storage"
@@ -81,15 +80,11 @@ func GetDefaultDailyLogConfig() *config.DailyLogConfig {
 		maxBackups = 30
 	}
 
-	// 从配置文件读取是否压缩日志
-	compressLogs := global.APP_CONFIG.Zap.CompressLogs
-
 	return &config.DailyLogConfig{
 		BaseDir:    storageService.GetLogsPath(),
 		MaxSize:    int64(maxFileSize) * 1024 * 1024, // 转换为字节
 		MaxBackups: maxBackups,                       // 从配置文件读取备份数量
 		MaxAge:     retentionDays,                    // 从配置文件读取保留天数
-		Compress:   compressLogs,                     // 从配置文件读取压缩设置
 		LocalTime:  true,                             // 使用本地时间
 	}
 }
@@ -606,7 +601,6 @@ func (s *LogRotationService) GetLogFiles() ([]LogFileInfo, error) {
 				Path:    relPath,
 				Size:    fileInfo.Size(),
 				ModTime: fileInfo.ModTime(),
-				IsGzip:  ext == ".gz",
 				Date:    dirName, // 日期信息
 			}
 
@@ -628,7 +622,6 @@ type LogFileInfo struct {
 	Path    string    `json:"path"`
 	Size    int64     `json:"size"`
 	ModTime time.Time `json:"mod_time"`
-	IsGzip  bool      `json:"is_gzip"`
 	Date    string    `json:"date"` // 日期字段，格式为 YYYY-MM-DD
 }
 
@@ -668,17 +661,7 @@ func (s *LogRotationService) ReadLogFile(filename string, lines int) ([]string, 
 	}
 	defer file.Close()
 
-	// 如果是gzip压缩文件，需要解压读取
-	if filepath.Ext(filename) == ".gz" {
-		gzReader, err := gzip.NewReader(file)
-		if err != nil {
-			return nil, fmt.Errorf("打开压缩日志文件失败: %w", err)
-		}
-		defer gzReader.Close()
-		reader = gzReader
-	} else {
-		reader = file
-	}
+	reader = file
 
 	// 逐行读取文件
 	var allLines []string
@@ -697,134 +680,4 @@ func (s *LogRotationService) ReadLogFile(filename string, lines int) ([]string, 
 	}
 
 	return allLines, nil
-}
-
-// CompressOldLogs 压缩旧的日志文件
-func (s *LogRotationService) CompressOldLogs() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	defaultDailyLogConfig := GetDefaultDailyLogConfig()
-
-	if !defaultDailyLogConfig.Compress {
-		return nil // 如果未启用压缩，直接返回
-	}
-
-	// 查找需要压缩的日志文件（昨天之前的文件或当天已轮转的文件）
-	yesterday := time.Now().AddDate(0, 0, -1)
-	compressedCount := 0
-	errorCount := 0
-
-	err := filepath.Walk(defaultDailyLogConfig.BaseDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// 跳过目录和已压缩的文件
-		if info.IsDir() || filepath.Ext(path) != ".log" {
-			return nil
-		}
-
-		// 跳过当前正在使用的主日志文件（文件名格式为 level.log，不含时间戳）
-		filename := filepath.Base(path)
-		isMainLogFile := false
-		if matched, _ := regexp.MatchString(`^\w+\.log$`, filename); matched {
-			isMainLogFile = true
-			// 这是主日志文件，只压缩昨天之前的
-			if !info.ModTime().Before(yesterday) {
-				return nil // 不压缩今天的主日志文件
-			}
-		}
-
-		// 判断是否需要压缩
-		shouldCompress := false
-		if info.ModTime().Before(yesterday) {
-			// 昨天之前的文件，一定压缩
-			shouldCompress = true
-		} else if !isMainLogFile {
-			// 今天的文件，检查是否是已轮转的带时间戳文件
-			if matched, _ := regexp.MatchString(`\w+-\d{8}-\d{6}.*\.log$`, filename); matched {
-				// 这是带时间戳的已轮转文件
-				// 为了安全，确保文件已经稳定（修改时间超过2分钟）
-				if time.Since(info.ModTime()) > 2*time.Minute {
-					shouldCompress = true
-				}
-			}
-		}
-
-		if shouldCompress {
-			if err := s.compressFile(path); err != nil {
-				errorCount++
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("压缩日志文件失败",
-						zap.String("file", path),
-						zap.Error(err))
-				}
-			} else {
-				compressedCount++
-			}
-		}
-
-		return nil
-	})
-
-	// 记录压缩结果
-	if compressedCount > 0 || errorCount > 0 {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Info("日志压缩任务完成",
-				zap.Int("compressed", compressedCount),
-				zap.Int("errors", errorCount))
-		}
-	}
-
-	return err
-}
-
-// compressFile 压缩单个文件
-func (s *LogRotationService) compressFile(filePath string) error {
-	// 打开原文件
-	src, err := os.Open(filePath)
-	if err != nil {
-		return fmt.Errorf("打开文件失败: %w", err)
-	}
-	defer src.Close()
-
-	// 创建压缩文件
-	dstPath := filePath + ".gz"
-	dst, err := os.Create(dstPath)
-	if err != nil {
-		return fmt.Errorf("创建压缩文件失败: %w", err)
-	}
-	defer dst.Close()
-
-	// 创建gzip写入器
-	gzWriter := gzip.NewWriter(dst)
-	defer gzWriter.Close()
-
-	// 复制数据
-	_, err = io.Copy(gzWriter, src)
-	if err != nil {
-		os.Remove(dstPath) // 清理失败的压缩文件
-		return fmt.Errorf("压缩文件失败: %w", err)
-	}
-
-	// 关闭gzip写入器以确保数据被刷新
-	if err := gzWriter.Close(); err != nil {
-		os.Remove(dstPath)
-		return fmt.Errorf("关闭压缩文件失败: %w", err)
-	}
-
-	// 删除原文件
-	if err := os.Remove(filePath); err != nil {
-		global.APP_LOG.Warn("删除原日志文件失败",
-			zap.String("file", filePath),
-			zap.Error(err))
-	} else {
-		// 压缩完成日志的级别
-		global.APP_LOG.Debug("日志文件压缩完成",
-			zap.String("source", filePath),
-			zap.String("dest", dstPath))
-	}
-
-	return nil
 }
