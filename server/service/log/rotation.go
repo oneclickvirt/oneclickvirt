@@ -46,14 +46,9 @@ func (s *LogRotationService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for level, writer := range s.writers {
-		if err := writer.Close(); err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Error("关闭日志文件失败",
-					zap.String("level", level),
-					zap.Error(err))
-			}
-		}
+	for _, writer := range s.writers {
+		// 忽略关闭错误，避免日志调用导致递归死锁
+		_ = writer.Close()
 	}
 	s.writers = make(map[string]*RotatingFileWriter)
 }
@@ -91,12 +86,14 @@ func GetDefaultDailyLogConfig() *config.DailyLogConfig {
 
 // RotatingFileWriter 可轮转的文件写入器
 type RotatingFileWriter struct {
-	config      *config.DailyLogConfig
-	level       string
-	file        *os.File
-	size        int64
-	mu          sync.Mutex
-	currentDate string // 当前文件所属的日期
+	config       *config.DailyLogConfig
+	level        string
+	file         *os.File
+	size         int64
+	mu           sync.Mutex
+	currentDate  string // 当前文件所属的日期
+	failCount    int    // 连续失败计数
+	lastFailTime time.Time
 }
 
 // NewRotatingFileWriter 创建新的可轮转文件写入器
@@ -112,6 +109,22 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
+	// 如果连续失败太多次，跳过复杂的轮转逻辑，直接尝试写入
+	// 避免在文件系统异常时无限循环
+	if w.failCount > 5 && time.Since(w.lastFailTime) < 10*time.Second {
+		// 降级模式：尝试直接写入，如果失败就丢弃日志
+		if w.file != nil {
+			n, err = w.file.Write(p)
+			if err == nil {
+				w.failCount = 0 // 成功后重置失败计数
+				w.size += int64(n)
+				return n, nil
+			}
+		}
+		// 降级模式下也失败，丢弃日志但不返回错误，避免阻塞应用
+		return len(p), nil
+	}
+
 	now := time.Now()
 	if !w.config.LocalTime {
 		now = now.UTC()
@@ -121,33 +134,47 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 	// 如果文件未打开，先打开
 	if w.file == nil {
 		if err := w.openNewFile(); err != nil {
-			return 0, err
+			w.failCount++
+			w.lastFailTime = now
+			// 返回成功但实际丢弃日志，避免阻塞应用
+			return len(p), nil
 		}
-		// 初始化时设置当前日期
-		w.currentDate = todayStr
 	}
 
 	// 检查日期是否变化，如果变化则切换到新日期的目录
 	if w.currentDate != todayStr {
 		// 日期变化，切换到新日期目录
 		if err := w.rotate(); err != nil {
-			return 0, err
+			w.failCount++
+			w.lastFailTime = now
+			// 轮转失败，尝试继续使用当前文件
+			// 不返回错误，避免阻塞应用
 		}
 	}
 
 	// 检查是否需要按大小轮转
 	if w.size+int64(len(p)) > w.config.MaxSize {
 		if err := w.rotate(); err != nil {
-			return 0, err
+			// 轮转失败，继续使用当前文件，只是可能超出大小限制
+			// 不返回错误，避免阻塞应用
 		}
 	}
 
 	// 写入数据
 	n, err = w.file.Write(p)
 	if err != nil {
-		return n, err
+		w.failCount++
+		w.lastFailTime = now
+		// 写入失败，关闭文件并标记为需要重新打开
+		_ = w.file.Close()
+		w.file = nil
+		w.size = 0
+		// 返回成功但实际丢弃日志，避免阻塞应用
+		return len(p), nil
 	}
 
+	// 写入成功，重置失败计数
+	w.failCount = 0
 	w.size += int64(n)
 	return n, nil
 }
@@ -241,33 +268,22 @@ func (w *RotatingFileWriter) rotate() error {
 	if w.file != nil {
 		currentPath := w.file.Name()
 
-		// 关闭当前文件
-		if err := w.file.Close(); err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("关闭日志文件失败", zap.String("file", currentPath), zap.Error(err))
-			}
-		}
+		// 关闭当前文件（忽略错误，避免日志调用导致递归死锁）
+		_ = w.file.Close()
 		w.file = nil
 		w.size = 0
 
 		// 如果当前文件是主日志文件（不带时间戳），需要重命名
+		// 重命名失败不影响继续创建新文件
 		if !w.hasTimestamp(currentPath) {
-			if err := w.renameWithTimestamp(currentPath); err != nil {
-				if global.APP_LOG != nil {
-					global.APP_LOG.Warn("重命名日志文件失败",
-						zap.String("file", currentPath),
-						zap.Error(err))
-				}
-			}
+			_ = w.renameWithTimestamp(currentPath)
 		}
 	}
 
-	// 清理旧文件
-	if err := w.cleanup(); err != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("清理旧日志文件失败", zap.Error(err))
-		}
-	}
+	// 清理旧文件（在后台异步执行，避免阻塞日志写入）
+	go func() {
+		_ = w.cleanup()
+	}()
 
 	// 打开新文件
 	return w.openNewFile()
@@ -374,14 +390,10 @@ func (w *RotatingFileWriter) cleanup() error {
 		}
 	}
 
-	// 汇总记录删除结果（仅在调试模式记录）
-	if (deletedByCount > 0 || deletedByAge > 0) && global.APP_LOG != nil {
-		global.APP_LOG.Debug("删除过期日志目录",
-			zap.String("level", w.level),
-			zap.Int("deletedByCount", deletedByCount),
-			zap.Int("deletedByAge", deletedByAge),
-			zap.Int("remaining", len(dateDirs)-deletedByCount-deletedByAge))
-	}
+	// 删除结果不记录日志，避免递归调用
+	// 可以通过检查文件系统来验证清理结果
+	_ = deletedByCount
+	_ = deletedByAge
 
 	return nil
 } // Close 关闭文件写入器
