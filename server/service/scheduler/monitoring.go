@@ -10,6 +10,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/service/system"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -343,7 +344,7 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 		}
 	}
 
-	// 每天凌晨3点执行清理任务
+	// 每小时执行一次状态修复，每天凌晨3点执行数据清理
 	ticker = time.NewTicker(1 * time.Hour)
 
 	for {
@@ -352,7 +353,15 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 			return
 		case <-ticker.C:
 			now := time.Now()
-			// 只在凌晨3点执行
+
+			// 每小时执行实例状态修复
+			global.APP_LOG.Debug("开始修复卡住的实例状态")
+			cleanupService := &system.InstanceCleanupService{}
+			if err := cleanupService.RepairStuckInstances(); err != nil {
+				global.APP_LOG.Error("修复卡住的实例状态失败", zap.Error(err))
+			}
+
+			// 只在凌晨3点执行数据清理
 			if now.Hour() == 3 {
 				global.APP_LOG.Info("开始清理过期的pmacct数据")
 				if err := s.pmacctService.CleanupOldPmacctData(90); err != nil {

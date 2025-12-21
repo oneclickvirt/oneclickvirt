@@ -233,10 +233,11 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		// 消费预留资源（实例已创建成功）
 		reservationService := resources.GetResourceReservationService()
 		if err := reservationService.ConsumeReservationBySessionInTx(tx, taskReq.SessionId); err != nil {
-			global.APP_LOG.Warn("消费预留资源失败（可能已过期）",
+			global.APP_LOG.Error("消费预留资源失败，回滚事务",
 				zap.String("sessionId", taskReq.SessionId),
 				zap.Error(err))
-			// 这里不返回错误，因为实例已经创建成功，预留资源可能已过期
+			// 消费失败必须返回错误，触发事务回滚，避免资源重复计算
+			return fmt.Errorf("消费预留资源失败: %v", err)
 		}
 
 		return nil

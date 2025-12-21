@@ -178,47 +178,68 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	instanceType := instance.InstanceType
 	instanceUserID := instance.UserID
 
+	// 分离事务操作
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-		// 删除端口映射
+		// 1. 删除端口映射（在独立的事务中）
 		portMappingService := resources.PortMappingService{}
-		if err := portMappingService.DeleteInstancePortMappings(instanceID); err != nil {
+		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instanceID); err != nil {
 			global.APP_LOG.Warn("删除实例端口映射失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instanceID),
 				zap.Error(err))
+			// 端口映射删除失败不阻止整个流程
 		}
 
-		// 释放Provider资源
+		// 2. 释放Provider资源
 		resourceService := &resources.ResourceService{}
 		if err := resourceService.ReleaseResourcesInTx(tx, instanceProviderID, instanceType,
 			instanceCPU, instanceMemory, instanceDisk); err != nil {
-			global.APP_LOG.Error("释放Provider资源失败",
+			global.APP_LOG.Warn("释放Provider资源失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instanceID),
 				zap.Error(err))
+			// Provider资源释放失败不阻止整个流程
 		}
 
-		// 软删除当前实例记录（保留流量数据以供统计）
-		if err := tx.Delete(&instance).Error; err != nil {
-			return fmt.Errorf("删除实例记录失败: %v", err)
-		}
-
-		// 释放用户配额
+		// 3. 释放用户配额
 		resourceUsage := resources.ResourceUsage{
 			CPU:       instanceCPU,
 			Memory:    instanceMemory,
 			Disk:      instanceDisk,
 			Bandwidth: instanceBandwidth,
 		}
-
 		if err := quotaService.UpdateUserQuotaAfterDeletionWithTx(tx, instanceUserID, resourceUsage); err != nil {
-			return fmt.Errorf("释放用户配额失败: %v", err)
+			global.APP_LOG.Warn("释放用户配额失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID),
+				zap.Error(err))
+			// 配额释放失败不阻止整个流程
+		}
+
+		// 4. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
+		if err := tx.Delete(&instance).Error; err != nil {
+			return fmt.Errorf("删除实例记录失败: %v", err)
 		}
 
 		return nil
 	})
 
 	if err != nil {
+		// 即使删除失败，也尝试恢复实例状态
+		global.APP_LOG.Error("数据库清理失败，尝试恢复实例状态",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("instanceId", instanceID),
+			zap.Error(err))
+
+		// 恢复实例状态为stopped，避免卡在deleting状态
+		if recoverErr := global.APP_DB.Model(&providerModel.Instance{}).
+			Where("id = ?", instanceID).
+			Update("status", "stopped").Error; recoverErr != nil {
+			global.APP_LOG.Error("恢复实例状态失败",
+				zap.Uint("instanceId", instanceID),
+				zap.Error(recoverErr))
+		}
+
 		return err
 	}
 

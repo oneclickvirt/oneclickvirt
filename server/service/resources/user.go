@@ -7,7 +7,6 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
-	resourceModel "oneclickvirt/model/resource"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/cache"
 	trafficService "oneclickvirt/service/traffic"
@@ -42,6 +41,8 @@ func (s *UserDashboardService) GetUserDashboard(userID uint) (*userModel.UserDas
 }
 
 // fetchUserDashboard 从数据库获取用户仪表板数据
+// 注意：资源统计中不包含预留资源，预留是临时的防并发机制
+// 用户看到的是实际分配的实例资源，预留会在实例创建成功后被消费（删除）
 func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserDashboardResponse, error) {
 	var user userModel.User
 	if err := global.APP_DB.First(&user, userID).Error; err != nil {
@@ -94,32 +95,18 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 		return nil, fmt.Errorf("查询用户实例失败: %v", err)
 	}
 
-	// 统计当前预留的资源只查询未过期的预留
-	var activeReservations []resourceModel.ResourceReservation
-	if err := global.APP_DB.Where("user_id = ? AND expires_at > ?", userID, time.Now()).Find(&activeReservations).Error; err != nil {
-		return nil, fmt.Errorf("查询用户预留资源失败: %v", err)
-	}
-
-	// 计算总使用资源（实例 + 预留）
+	// 计算总使用资源（只统计实际实例，不包含预留）
+	// 预留是临时的防并发机制，不应计入用户实际使用量
 	totalCPU := 0
 	totalMemory := int64(0)
 	totalDisk := int64(0)
 	totalBandwidth := 0
-	instanceCountWithReservations := len(currentInstances)
 
 	for _, instance := range currentInstances {
 		totalCPU += instance.CPU
 		totalMemory += instance.Memory
 		totalDisk += instance.Disk
 		totalBandwidth += instance.Bandwidth
-	}
-
-	for _, reservation := range activeReservations {
-		totalCPU += reservation.CPU
-		totalMemory += reservation.Memory
-		totalDisk += reservation.Disk
-		totalBandwidth += reservation.Bandwidth
-		instanceCountWithReservations++ // 预留也算作实例数量
 	}
 
 	// 获取最大允许资源
@@ -139,13 +126,13 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 	dashboard.Instances.Containers = int(stats.Containers)
 	dashboard.Instances.VMs = int(stats.VMs)
 
-	// 详细的资源使用信息（包含预留资源）
+	// 详细的资源使用信息（只包含实际实例，不包含临时预留）
 	dashboard.ResourceUsage = &userModel.ResourceUsageInfo{
-		CPU:              totalCPU,                      // 包含预留的CPU
-		Memory:           totalMemory,                   // 包含预留的内存
-		Disk:             totalDisk,                     // 包含预留的磁盘
-		MaxInstances:     levelLimits.MaxInstances,      // 最大实例数
-		CurrentInstances: instanceCountWithReservations, // 包含预留的实例数量
+		CPU:              totalCPU,                 // 实际使用的CPU
+		Memory:           totalMemory,              // 实际使用的内存
+		Disk:             totalDisk,                // 实际使用的磁盘
+		MaxInstances:     levelLimits.MaxInstances, // 最大实例数
+		CurrentInstances: len(currentInstances),    // 实际实例数量
 		MaxCPU:           maxResources.CPU,
 		MaxMemory:        maxResources.Memory,
 		MaxDisk:          maxResources.Disk,
@@ -155,6 +142,8 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 }
 
 // GetUserLimits 获取用户资源限制
+// 注意：资源统计中不包含预留资源，预留是临时的防并发机制
+// 用户实际使用量仅统计已创建的实例，不包含临时预留
 func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimitsResponse, error) {
 	var user userModel.User
 	if err := global.APP_DB.First(&user, userID).Error; err != nil {
@@ -200,37 +189,13 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 		return nil, fmt.Errorf("统计用户资源使用失败: %v", err)
 	}
 
-	// 统计预留资源
-	type ReservationStats struct {
-		ReservationCount  int64
-		ReservedCPU       int64
-		ReservedMemory    int64
-		ReservedDisk      int64
-		ReservedBandwidth int64
-	}
-
-	var reservationStats ReservationStats
-	err = global.APP_DB.Raw(`
-		SELECT 
-			COUNT(*) as reservation_count,
-			COALESCE(SUM(cpu), 0) as reserved_cpu,
-			COALESCE(SUM(memory), 0) as reserved_memory,
-			COALESCE(SUM(disk), 0) as reserved_disk,
-			COALESCE(SUM(bandwidth), 0) as reserved_bandwidth
-		FROM resource_reservations
-		WHERE user_id = ? AND expires_at > ?
-	`, userID, time.Now()).Scan(&reservationStats).Error
-
-	if err != nil {
-		return nil, fmt.Errorf("统计用户预留资源失败: %v", err)
-	}
-
-	// 计算总使用量（实例 + 预留）
-	usedInstances := int(resourceStats.UsedInstances) + int(reservationStats.ReservationCount)
-	usedCPU := int(resourceStats.UsedCPU) + int(reservationStats.ReservedCPU)
-	usedMemory := int(resourceStats.UsedMemory) + int(reservationStats.ReservedMemory)
-	usedDisk := int(resourceStats.UsedDisk) + int(reservationStats.ReservedDisk)
-	usedBandwidth := int(resourceStats.UsedBandwidth) + int(reservationStats.ReservedBandwidth)
+	// 直接使用实际实例统计（不包含预留）
+	// 预留是临时的防并发机制，成功后会被消费，不应计入用户使用量
+	usedInstances := int(resourceStats.UsedInstances)
+	usedCPU := int(resourceStats.UsedCPU)
+	usedMemory := int(resourceStats.UsedMemory)
+	usedDisk := int(resourceStats.UsedDisk)
+	usedBandwidth := int(resourceStats.UsedBandwidth)
 	containerCount := int(resourceStats.ContainerCount)
 	vmCount := int(resourceStats.VMCount)
 

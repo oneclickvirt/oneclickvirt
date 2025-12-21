@@ -32,6 +32,63 @@ type AdminServiceInterface interface {
 	DeleteInstance(instanceID uint) error
 }
 
+// RepairStuckInstances 修复卡住的实例状态
+// 主要修复 deleting/resetting 等中间状态超时的实例
+func (s *InstanceCleanupService) RepairStuckInstances() error {
+	// 修复超过30分钟仍在deleting状态的实例
+	cutoffTime := time.Now().Add(-30 * time.Minute)
+
+	var stuckInstances []providerModel.Instance
+	if err := global.APP_DB.Where("status IN (?) AND updated_at < ?",
+		[]string{"deleting", "resetting", "creating"}, cutoffTime).Find(&stuckInstances).Error; err != nil {
+		global.APP_LOG.Error("查询卡住的实例失败", zap.Error(err))
+		return err
+	}
+
+	if len(stuckInstances) == 0 {
+		return nil
+	}
+
+	global.APP_LOG.Warn("发现卡住的实例，尝试修复",
+		zap.Int("count", len(stuckInstances)))
+
+	for _, instance := range stuckInstances {
+		var newStatus string
+		switch instance.Status {
+		case "deleting":
+			// deleting状态超时，恢复为stopped
+			newStatus = "stopped"
+		case "resetting":
+			// resetting状态超时，恢复为stopped
+			newStatus = "stopped"
+		case "creating":
+			// creating状态超时，标记为failed
+			newStatus = "failed"
+		}
+
+		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{
+			"status":     newStatus,
+			"updated_at": time.Now(),
+		}).Error; err != nil {
+			global.APP_LOG.Error("修复实例状态失败",
+				zap.Uint("instanceId", instance.ID),
+				zap.String("oldStatus", instance.Status),
+				zap.String("newStatus", newStatus),
+				zap.Error(err))
+			continue
+		}
+
+		global.APP_LOG.Info("成功修复卡住的实例",
+			zap.Uint("instanceId", instance.ID),
+			zap.String("instanceName", instance.Name),
+			zap.String("oldStatus", instance.Status),
+			zap.String("newStatus", newStatus),
+			zap.Time("stuckSince", instance.UpdatedAt))
+	}
+
+	return nil
+}
+
 // CleanupOldFailedInstances 清理旧的失败实例（兜底机制）
 // 清理超过24小时的失败实例，作为即时清理机制的兜底
 func (s *InstanceCleanupService) CleanupOldFailedInstances() error {

@@ -282,10 +282,11 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 
 		// 2. 消费预留的资源
 		if err := reservationService.ConsumeReservationBySessionInTx(tx, sessionID); err != nil {
-			global.APP_LOG.Warn("消费预留资源失败（可能已过期）",
+			global.APP_LOG.Error("消费预留资源失败，回滚事务",
 				zap.String("sessionId", sessionID),
 				zap.Error(err))
-			// 不阻断流程，预留会自动过期清理
+			// 消费失败必须返回错误，触发事务回滚，避免资源重复计算
+			return fmt.Errorf("消费预留资源失败: %v", err)
 		}
 
 		// 3. 更新用户配额

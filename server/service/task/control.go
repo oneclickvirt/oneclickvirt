@@ -193,13 +193,17 @@ func (s *TaskService) cancelRunningTask(tx *gorm.DB, taskID uint, reason string)
 		return fmt.Errorf("任务状态已变更，无法取消")
 	}
 
-	// 2. 发送取消信号（异步处理，避免阻塞事务）
+	// 2. 发送取消信号并清理实例状态（异步处理，避免阻塞事务）
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
 		if taskCtx, exists := s.contextManager.Get(taskID); exists {
 			taskCtx.CancelFunc()
 		}
+		// 等待一小段时间让任务有机会正常退出
+		time.Sleep(5 * time.Second)
+		// 清理实例状态
+		s.handleCancelledTaskCleanup(taskID)
 	}()
 
 	return nil
@@ -223,7 +227,7 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 		return err
 	}
 
-	// 强制清理上下文（异步处理）
+	// 强制清理上下文和实例状态（异步处理）
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -245,6 +249,9 @@ func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) err
 
 		// 释放资源
 		s.releaseTaskResources(taskID)
+
+		// 清理实例状态
+		s.handleCancelledTaskCleanup(taskID)
 	}()
 
 	return nil
@@ -259,9 +266,7 @@ func (s *TaskService) ForceStopTask(taskID uint, reason string) error {
 }
 
 // handleCancelledTaskCleanup 处理被取消任务的清理工作
-// 此函数仅用于处理 pending 状态下被取消的任务
-// 对于 running 状态的任务，由于可能已经部分执行并修改了资源，
-// 不应该简单地恢复实例状态，而应该由具体的任务执行逻辑来处理取消后的清理
+// 无论任务在什么状态被取消，都需要恢复实例状态，避免状态锁死
 func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 	var task adminModel.Task
 	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
@@ -269,14 +274,10 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 		return
 	}
 
-	// 额外检查：确保只处理在 pending 状态下被取消的任务
-	// 如果任务曾经进入 running 状态（started_at 不为空），则不应该恢复状态
-	if task.StartedAt != nil {
-		global.APP_LOG.Info("任务已经开始执行，不恢复实例状态",
-			zap.Uint("taskId", taskID),
-			zap.String("taskType", task.TaskType))
-		return
-	}
+	global.APP_LOG.Info("开始清理被取消任务",
+		zap.Uint("taskId", taskID),
+		zap.String("taskType", task.TaskType),
+		zap.Bool("wasRunning", task.StartedAt != nil))
 
 	// 处理删除任务的清理
 	if task.TaskType == "delete" && task.InstanceID != nil {

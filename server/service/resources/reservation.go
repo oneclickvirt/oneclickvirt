@@ -16,6 +16,11 @@ import (
 )
 
 // ResourceReservationService 资源预留服务 - 基于会话ID
+// 资源预留机制说明：
+// 1. 预留的目的：防止并发创建实例时的资源超配
+// 2. 预留的生命周期：创建实例时预留 → 成功后立即消费（硬删除） → 失败时释放或自动过期
+// 3. 预留不计入用户资源统计：用户看到的是实际分配的实例，预留是临时防并发机制
+// 4. 预留用于Provider资源计算：计算Provider可用资源时需考虑预留，防止超配
 type ResourceReservationService struct {
 	dbService   *database.DatabaseService
 	stopCleanup chan bool
@@ -90,13 +95,14 @@ func (s *ResourceReservationService) StopCleanup() {
 
 // cleanupExpiredReservations 清理过期的预留记录
 func (s *ResourceReservationService) cleanupExpiredReservations() error {
-	result := global.APP_DB.Where("expires_at < ?", time.Now()).Delete(&resource.ResourceReservation{})
+	// 使用Unscoped进行硬删除，确保过期预留记录真正从数据库中移除
+	result := global.APP_DB.Unscoped().Where("expires_at < ?", time.Now()).Delete(&resource.ResourceReservation{})
 	if result.Error != nil {
 		return result.Error
 	}
 
 	if result.RowsAffected > 0 {
-		global.APP_LOG.Info("清理过期预留记录", zap.Int64("删除数量", result.RowsAffected))
+		global.APP_LOG.Info("清理过期预留记录（硬删除）", zap.Int64("删除数量", result.RowsAffected))
 	}
 
 	return nil
@@ -219,15 +225,15 @@ func (s *ResourceReservationService) ReserveAndConsumeInTx(tx *gorm.DB, userID u
 		return err
 	}
 
-	// 立即消费（软删除预留记录）
-	if err := tx.Delete(reservation).Error; err != nil {
+	// 立即消费（硬删除预留记录）- 使用Unscoped确保真正删除
+	if err := tx.Unscoped().Delete(reservation).Error; err != nil {
 		global.APP_LOG.Error("事务中消费预留记录失败",
 			zap.Error(err),
 			zap.String("sessionId", sessionID))
 		return err
 	}
 
-	global.APP_LOG.Info("事务中原子化预留并消费资源成功",
+	global.APP_LOG.Info("事务中原子化预留并消费资源成功（硬删除）",
 		zap.String("sessionId", sessionID),
 		zap.Uint("userId", userID),
 		zap.Uint("providerId", providerID))
@@ -257,15 +263,15 @@ func (s *ResourceReservationService) ConsumeReservationBySessionInTx(tx *gorm.DB
 		return fmt.Errorf("预留记录已过期: %s", sessionID)
 	}
 
-	// 软删除预留记录（消费）
-	if err := tx.Delete(&reservation).Error; err != nil {
+	// 硬删除预留记录（消费）- 使用Unscoped确保真正删除，避免资源重复计算
+	if err := tx.Unscoped().Delete(&reservation).Error; err != nil {
 		global.APP_LOG.Error("消费预留记录失败",
 			zap.Error(err),
 			zap.String("sessionId", sessionID))
 		return err
 	}
 
-	global.APP_LOG.Info("消费预留记录成功",
+	global.APP_LOG.Info("消费预留记录成功（硬删除）",
 		zap.String("sessionId", sessionID),
 		zap.Uint("userId", reservation.UserID),
 		zap.Uint("providerId", reservation.ProviderID))

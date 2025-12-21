@@ -57,6 +57,20 @@ func (s *TaskService) CleanupTimeoutTasksWithLockRelease(timeoutThreshold time.T
 		count2 = result2.RowsAffected
 	}
 
+	// 异步清理超时任务的实例状态
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		// 清理running超时任务的实例状态
+		for _, task := range timeoutRunningTasks {
+			s.handleCancelledTaskCleanup(task.ID)
+		}
+		// 清理cancelling超时任务的实例状态
+		for _, task := range timeoutCancellingTasks {
+			s.handleCancelledTaskCleanup(task.ID)
+		}
+	}()
+
 	return count1, count2
 }
 
