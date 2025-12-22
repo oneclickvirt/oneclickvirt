@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
+	"oneclickvirt/service/log"
 	oauth2Service "oneclickvirt/service/oauth2"
 	"oneclickvirt/service/resources"
 	"os"
@@ -92,6 +93,10 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 
 		// 停止并清理所有Provider Transport连接
 		provider.GetTransportCleanupManager().Stop()
+
+		// 关闭日志轮换服务（同步并关闭所有日志文件）
+		logRotationService := log.GetLogRotationService()
+		logRotationService.Stop()
 
 		// 关闭数据库连接管理器（包含心跳检测和连接池）
 		if dbManager := GetDatabaseManager(); dbManager != nil {

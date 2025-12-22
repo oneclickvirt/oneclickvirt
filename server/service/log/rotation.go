@@ -2,6 +2,7 @@ package log
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"oneclickvirt/service/storage"
@@ -20,6 +21,68 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
+// CleanupCoordinator 全局清理协调器，防止并发清理冲突
+type CleanupCoordinator struct {
+	mu             sync.Mutex
+	lastCleanupDay string     // 最后清理的日期
+	cleanupOnce    *sync.Once // 每天的清理只执行一次
+	ctx            context.Context
+}
+
+var (
+	globalCleanupCoordinator *CleanupCoordinator
+	cleanupCoordinatorOnce   sync.Once
+)
+
+// GetCleanupCoordinator 获取全局清理协调器
+func GetCleanupCoordinator() *CleanupCoordinator {
+	cleanupCoordinatorOnce.Do(func() {
+		globalCleanupCoordinator = &CleanupCoordinator{
+			cleanupOnce: &sync.Once{},
+			ctx:         context.Background(),
+		}
+	})
+	return globalCleanupCoordinator
+}
+
+// SetContext 设置上下文（用于优雅关闭）
+func (c *CleanupCoordinator) SetContext(ctx context.Context) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.ctx = ctx
+}
+
+// ShouldCleanup 检查是否应该执行清理（每天只允许一次）
+func (c *CleanupCoordinator) ShouldCleanup() bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	// 检查上下文是否已取消
+	select {
+	case <-c.ctx.Done():
+		return false
+	default:
+	}
+
+	todayStr := time.Now().Format("2006-01-02")
+	if c.lastCleanupDay != todayStr {
+		// 新的一天，重置sync.Once
+		c.lastCleanupDay = todayStr
+		c.cleanupOnce = &sync.Once{}
+		return true
+	}
+	return false
+}
+
+// ExecuteCleanup 执行清理（通过sync.Once保证只执行一次）
+func (c *CleanupCoordinator) ExecuteCleanup(cleanupFunc func() error) error {
+	var err error
+	c.cleanupOnce.Do(func() {
+		err = cleanupFunc()
+	})
+	return err
+}
+
 // LogRotationService 日志轮转服务
 type LogRotationService struct {
 	mu      sync.RWMutex
@@ -37,6 +100,10 @@ func GetLogRotationService() *LogRotationService {
 		logRotationService = &LogRotationService{
 			writers: make(map[string]*RotatingFileWriter),
 		}
+		// 初始化cleanup coordinator的上下文
+		if global.APP_SHUTDOWN_CONTEXT != nil {
+			GetCleanupCoordinator().SetContext(global.APP_SHUTDOWN_CONTEXT)
+		}
 	})
 	return logRotationService
 }
@@ -46,9 +113,16 @@ func (s *LogRotationService) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for _, writer := range s.writers {
-		// 忽略关闭错误，避免日志调用导致递归死锁
-		_ = writer.Close()
+	for level, writer := range s.writers {
+		// 先同步数据到磁盘
+		if err := writer.Sync(); err != nil {
+			// 只记录到stderr，避免递归日志调用
+			fmt.Fprintf(os.Stderr, "[WARN] 同步日志文件失败 [%s]: %v\n", level, err)
+		}
+		// 关闭文件
+		if err := writer.Close(); err != nil {
+			fmt.Fprintf(os.Stderr, "[WARN] 关闭日志文件失败 [%s]: %v\n", level, err)
+		}
 	}
 	s.writers = make(map[string]*RotatingFileWriter)
 }
@@ -268,7 +342,9 @@ func (w *RotatingFileWriter) rotate() error {
 	if w.file != nil {
 		currentPath := w.file.Name()
 
-		// 关闭当前文件（忽略错误，避免日志调用导致递归死锁）
+		// 同步数据到磁盘
+		_ = w.file.Sync()
+		// 关闭当前文件
 		_ = w.file.Close()
 		w.file = nil
 		w.size = 0
@@ -280,13 +356,23 @@ func (w *RotatingFileWriter) rotate() error {
 		}
 	}
 
-	// 清理旧文件（在后台异步执行，避免阻塞日志写入）
-	go func() {
-		_ = w.cleanup()
-	}()
-
 	// 打开新文件
-	return w.openNewFile()
+	if err := w.openNewFile(); err != nil {
+		return err
+	}
+
+	// 通过全局协调器执行清理（每天只执行一次，避免并发）
+	coordinator := GetCleanupCoordinator()
+	if coordinator.ShouldCleanup() {
+		// 在goroutine中执行，但通过coordinator控制并发
+		go func() {
+			_ = coordinator.ExecuteCleanup(func() error {
+				return w.cleanup()
+			})
+		}()
+	}
+
+	return nil
 }
 
 // hasTimestamp 检查文件名是否包含时间戳
@@ -367,41 +453,62 @@ func (w *RotatingFileWriter) cleanup() error {
 		return dateDirs[i] > dateDirs[j]
 	})
 
-	// 删除超过保留数量的目录
-	deletedByCount := 0
+	// 计算需要删除的目录（避免重复删除）
+	toDelete := make(map[string]bool)
+
+	// 标记超过保留数量的目录
 	if len(dateDirs) > w.config.MaxBackups {
 		for _, dateDir := range dateDirs[w.config.MaxBackups:] {
-			dirPath := filepath.Join(w.config.BaseDir, dateDir)
-			os.RemoveAll(dirPath)
-			deletedByCount++
+			toDelete[dateDir] = true
 		}
 	}
 
-	// 删除超过保留时间的目录
+	// 标记超过保留时间的目录
 	cutoff := time.Now().AddDate(0, 0, -w.config.MaxAge)
 	cutoffDateStr := cutoff.Format("2006-01-02")
-
-	deletedByAge := 0
 	for _, dateDir := range dateDirs {
 		if dateDir < cutoffDateStr {
-			dirPath := filepath.Join(w.config.BaseDir, dateDir)
-			os.RemoveAll(dirPath)
-			deletedByAge++
+			toDelete[dateDir] = true
 		}
 	}
 
-	// 删除结果不记录日志，避免递归调用
-	// 可以通过检查文件系统来验证清理结果
-	_ = deletedByCount
-	_ = deletedByAge
+	// 执行删除
+	deletedCount := 0
+	for dateDir := range toDelete {
+		dirPath := filepath.Join(w.config.BaseDir, dateDir)
+		if err := os.RemoveAll(dirPath); err != nil {
+			// 只记录到stderr，避免递归日志调用
+			fmt.Fprintf(os.Stderr, "[WARN] 删除旧日志目录失败 [%s]: %v\n", dirPath, err)
+		} else {
+			deletedCount++
+		}
+	}
+
+	// 输出清理结果到stderr
+	if deletedCount > 0 {
+		fmt.Fprintf(os.Stderr, "[INFO] 清理了 %d 个旧日志目录\n", deletedCount)
+	}
 
 	return nil
-} // Close 关闭文件写入器
+} // Sync 同步数据到磁盘
+func (w *RotatingFileWriter) Sync() error {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+
+	if w.file != nil {
+		return w.file.Sync()
+	}
+	return nil
+}
+
+// Close 关闭文件写入器
 func (w *RotatingFileWriter) Close() error {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 
 	if w.file != nil {
+		// 关闭前先同步
+		_ = w.file.Sync()
 		err := w.file.Close()
 		w.file = nil
 		w.size = 0
@@ -486,44 +593,77 @@ func (s *LogRotationService) customTimeEncoder(t time.Time, enc zapcore.Primitiv
 	enc.AppendString(t.Format(global.APP_CONFIG.Zap.Prefix + "2006/01/02 - 15:04:05.000"))
 }
 
-// CleanupOldLogs 清理旧日志文件
+// CleanupOldLogs 清理旧日志文件（通过全局协调器执行）
 func (s *LogRotationService) CleanupOldLogs() error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	// 使用全局协调器确保不会与rotate的cleanup并发执行
+	coordinator := GetCleanupCoordinator()
 
-	logConfig := GetDefaultDailyLogConfig()
-	cutoffTime := time.Now().AddDate(0, 0, -logConfig.MaxAge)
-	cutoffDateStr := cutoffTime.Format("2006-01-02")
-
-	// 获取所有日期目录
-	entries, err := os.ReadDir(logConfig.BaseDir)
-	if err != nil {
-		global.APP_LOG.Error("读取日志目录失败", zap.Error(err))
-		return err
+	// 检查是否应该清理
+	if !coordinator.ShouldCleanup() {
+		// 今天已经清理过了，跳过
+		return nil
 	}
 
-	// 统计清理结果
-	cleanedCount := 0
-	errorCount := 0
+	// 通过协调器执行清理（只执行一次）
+	return coordinator.ExecuteCleanup(func() error {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 
-	for _, entry := range entries {
-		if !entry.IsDir() {
-			continue
+		logConfig := GetDefaultDailyLogConfig()
+		cutoffTime := time.Now().AddDate(0, 0, -logConfig.MaxAge)
+		cutoffDateStr := cutoffTime.Format("2006-01-02")
+
+		// 获取所有日期目录
+		entries, err := os.ReadDir(logConfig.BaseDir)
+		if err != nil {
+			global.APP_LOG.Error("读取日志目录失败", zap.Error(err))
+			return err
 		}
 
-		// 检查是否是日期格式的目录名
-		dirName := entry.Name()
-		if matched, _ := filepath.Match("????-??-??", dirName); !matched {
-			continue
+		// 收集所有日期目录
+		var dateDirs []string
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				continue
+			}
+
+			// 检查是否是日期格式的目录名
+			dirName := entry.Name()
+			if matched, _ := filepath.Match("????-??-??", dirName); !matched {
+				continue
+			}
+			dateDirs = append(dateDirs, dirName)
 		}
 
-		// 检查目录日期是否过期
-		if dirName < cutoffDateStr {
-			dirPath := filepath.Join(logConfig.BaseDir, dirName)
+		// 按日期排序
+		sort.Slice(dateDirs, func(i, j int) bool {
+			return dateDirs[i] > dateDirs[j]
+		})
 
+		// 收集需要删除的目录（避免重复删除）
+		toDelete := make(map[string]bool)
+
+		// 超过保留数量的目录
+		if len(dateDirs) > logConfig.MaxBackups {
+			for _, dateDir := range dateDirs[logConfig.MaxBackups:] {
+				toDelete[dateDir] = true
+			}
+		}
+
+		// 超过保留时间的目录
+		for _, dateDir := range dateDirs {
+			if dateDir < cutoffDateStr {
+				toDelete[dateDir] = true
+			}
+		}
+
+		// 执行删除
+		cleanedCount := 0
+		errorCount := 0
+		for dateDir := range toDelete {
+			dirPath := filepath.Join(logConfig.BaseDir, dateDir)
 			if err := os.RemoveAll(dirPath); err != nil {
 				errorCount++
-				// 只记录第一个错误的详细信息
 				if errorCount == 1 {
 					global.APP_LOG.Warn("删除过期日志目录失败",
 						zap.String("dir", dirPath),
@@ -533,17 +673,17 @@ func (s *LogRotationService) CleanupOldLogs() error {
 				cleanedCount++
 			}
 		}
-	}
 
-	// 汇总记录清理结果
-	if cleanedCount > 0 || errorCount > 0 {
-		global.APP_LOG.Info("清理过期日志目录完成",
-			zap.Int("cleaned", cleanedCount),
-			zap.Int("errors", errorCount),
-			zap.String("cutoffDate", cutoffDateStr))
-	}
+		// 汇总记录清理结果
+		if cleanedCount > 0 || errorCount > 0 {
+			global.APP_LOG.Info("清理过期日志目录完成",
+				zap.Int("cleaned", cleanedCount),
+				zap.Int("errors", errorCount),
+				zap.String("cutoffDate", cutoffDateStr))
+		}
 
-	return nil
+		return nil
+	})
 } // GetLogFiles 获取日志文件列表（按日期分文件夹结构）
 func (s *LogRotationService) GetLogFiles() ([]LogFileInfo, error) {
 	s.mu.RLock()

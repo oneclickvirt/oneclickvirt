@@ -100,7 +100,10 @@ func initializeLogRotation() {
 	if global.APP_CONFIG.Zap.RetentionDay > 0 {
 		logRotationService := log.GetLogRotationService()
 
-		// 启动定时清理任务（每天凌晨3点执行），支持优雅退出
+		// 设置cleanup coordinator的上下文
+		log.GetCleanupCoordinator().SetContext(global.APP_SHUTDOWN_CONTEXT)
+
+		// 启动定时清理任务（每天凌晨1点执行，避开零点轮换高峰），支持优雅退出
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -110,8 +113,8 @@ func initializeLogRotation() {
 
 			for {
 				now := time.Now()
-				// 计算到下一个凌晨3点的时间
-				next := time.Date(now.Year(), now.Month(), now.Day(), 3, 0, 0, 0, now.Location())
+				// 计算到下一个凌晨1点的时间（避开零点的rotate高峰）
+				next := time.Date(now.Year(), now.Month(), now.Day(), 1, 0, 0, 0, now.Location())
 				if now.After(next) {
 					next = next.Add(24 * time.Hour)
 				}
@@ -125,12 +128,12 @@ func initializeLogRotation() {
 				timer := time.NewTimer(duration)
 				select {
 				case <-timer.C:
-					// 执行日志清理（删除过期的日志目录）
-					global.APP_LOG.Info("开始执行日志清理任务")
+					// 执行日志清理（通过CleanupOldLogs，它内部也使用coordinator）
+					global.APP_LOG.Info("开始执行定时日志清理任务")
 					if err := logRotationService.CleanupOldLogs(); err != nil {
-						global.APP_LOG.Error("日志清理失败", zap.Error(err))
+						global.APP_LOG.Error("定时日志清理失败", zap.Error(err))
 					} else {
-						global.APP_LOG.Info("日志清理完成")
+						global.APP_LOG.Info("定时日志清理完成")
 					}
 				case <-global.APP_SHUTDOWN_CONTEXT.Done():
 					// 系统关闭，停止日志轮转任务
