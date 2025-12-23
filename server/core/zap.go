@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"oneclickvirt/service/log"
+	"os"
 	"time"
 
 	"oneclickvirt/global"
@@ -133,14 +134,21 @@ func GetEncoderConfig() (config zapcore.EncoderConfig) {
 
 // GetWriteSyncer 获取zapcore.WriteSyncer
 func GetWriteSyncer(level string) zapcore.WriteSyncer {
-	// 使用新的日志轮转服务
-	logRotationService := log.GetLogRotationService()
+	// 获取日志配置
 	config := log.GetDefaultDailyLogConfig()
 
-	// 创建按日期分存储的日志写入器
-	writer := logRotationService.CreateDailyLogWriter(level, config)
+	// 直接创建日志写入器
+	cutter := log.NewRotatingFileWriter(level, config)
 
-	return writer
+	// 如果需要同时输出到控制台
+	if global.APP_CONFIG.Zap.LogInConsole {
+		return zapcore.NewMultiWriteSyncer(
+			zapcore.AddSync(os.Stdout),
+			zapcore.AddSync(cutter),
+		)
+	}
+
+	return zapcore.AddSync(cutter)
 }
 
 // CustomTimeEncoder 自定义日志输出时间格式
