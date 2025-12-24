@@ -292,7 +292,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxInstances']" 
                           :min="1" 
-                          :max="100"
+                          :max="1000"
                           :controls="false"
                           :step="1"
                           style="width: 100%" 
@@ -304,7 +304,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['cpu']" 
                           :min="1" 
-                          :max="64"
+                          :max="128"
                           :controls="false"
                           :step="1"
                           style="width: 100%" 
@@ -316,7 +316,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['memory']" 
                           :min="128" 
-                          :max="65536"
+                          :max="131072"
                           :controls="false"
                           :step="128"
                           style="width: 100%" 
@@ -328,7 +328,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['disk']" 
                           :min="512" 
-                          :max="102400"
+                          :max="1048576"
                           :controls="false"
                           :step="512"
                           style="width: 100%" 

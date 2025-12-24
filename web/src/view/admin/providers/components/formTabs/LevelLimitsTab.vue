@@ -42,7 +42,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxInstances"
                 :min="0"
-                :max="100"
+                :max="1000"
                 :controls="false"
                 style="width: 100%;"
               />
@@ -53,7 +53,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxTraffic"
                 :min="0"
-                :max="10240000"
+                :max="10485760"
                 :step="1024"
                 :controls="false"
                 style="width: 100%;"
