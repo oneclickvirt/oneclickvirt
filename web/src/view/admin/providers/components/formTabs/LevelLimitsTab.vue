@@ -53,7 +53,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxTraffic"
                 :min="0"
-                :max="10485760"
+                :max="1048576000"
                 :step="1024"
                 :controls="false"
                 style="width: 100%;"
@@ -68,7 +68,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxResources.cpu"
                 :min="1"
-                :max="128"
+                :max="10240"
                 :controls="false"
                 style="width: 100%;"
               />
@@ -79,7 +79,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxResources.memory"
                 :min="128"
-                :max="131072"
+                :max="10485760"
                 :step="128"
                 :controls="false"
                 style="width: 100%;"
@@ -94,7 +94,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxResources.disk"
                 :min="1024"
-                :max="1048576"
+                :max="1024000000"
                 :step="1024"
                 :controls="false"
                 style="width: 100%;"
@@ -106,7 +106,7 @@
               <el-input-number
                 v-model="modelValue.levelLimits[level].maxResources.bandwidth"
                 :min="10"
-                :max="10000"
+                :max="1000000"
                 :step="10"
                 :controls="false"
                 style="width: 100%;"

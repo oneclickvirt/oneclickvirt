@@ -17,7 +17,7 @@
           <el-input-number
             v-model="modelValue.defaultInboundBandwidth"
             :min="1"
-            :max="10000"
+            :max="1000000"
             :step="50"
             :controls="false"
             placeholder="300"
@@ -41,7 +41,7 @@
           <el-input-number
             v-model="modelValue.defaultOutboundBandwidth"
             :min="1"
-            :max="10000"
+            :max="1000000"
             :step="50"
             :controls="false"
             placeholder="300"
@@ -68,7 +68,7 @@
           <el-input-number
             v-model="modelValue.maxInboundBandwidth"
             :min="1"
-            :max="10000"
+            :max="1000000"
             :step="50"
             :controls="false"
             placeholder="1000"
@@ -92,7 +92,7 @@
           <el-input-number
             v-model="modelValue.maxOutboundBandwidth"
             :min="1"
-            :max="10000"
+            :max="1000000"
             :step="50"
             :controls="false"
             placeholder="1000"

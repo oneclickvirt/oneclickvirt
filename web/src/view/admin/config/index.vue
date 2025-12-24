@@ -304,7 +304,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['cpu']" 
                           :min="1" 
-                          :max="128"
+                          :max="10240"
                           :controls="false"
                           :step="1"
                           style="width: 100%" 
@@ -316,7 +316,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['memory']" 
                           :min="128" 
-                          :max="131072"
+                          :max="10485760"
                           :controls="false"
                           :step="128"
                           style="width: 100%" 
@@ -328,7 +328,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['disk']" 
                           :min="512" 
-                          :max="1048576"
+                          :max="1024000000"
                           :controls="false"
                           :step="512"
                           style="width: 100%" 
@@ -342,7 +342,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxResources']['bandwidth']" 
                           :min="1" 
-                          :max="10000"
+                          :max="1000000"
                           :controls="false"
                           :step="1"
                           style="width: 100%" 
@@ -354,7 +354,7 @@
                         <el-input-number 
                           v-model="config.quota.levelLimits[level]['maxTraffic']" 
                           :min="1024" 
-                          :max="10485760"
+                          :max="1024000000"
                           :controls="false"
                           :step="1024"
                           style="width: 100%" 
