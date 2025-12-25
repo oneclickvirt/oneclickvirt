@@ -307,7 +307,7 @@ const formatLocation = (provider) => {
   return parts.length > 0 ? parts.join(', ') : '-'
 }
 
-// 解析等级限制配置
+// 解析等级限制配置（后端 kebab-case -> 前端 camelCase）
 const parseLevelLimits = (levelLimitsStr) => {
   const defaultLevelLimits = {
     1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
@@ -318,37 +318,62 @@ const parseLevelLimits = (levelLimitsStr) => {
   }
 
   if (!levelLimitsStr) {
-    return defaultLevelLimits
+    return JSON.parse(JSON.stringify(defaultLevelLimits))
   }
 
   try {
     const parsed = typeof levelLimitsStr === 'string' ? JSON.parse(levelLimitsStr) : levelLimitsStr
+    const result = {}
+    
     for (let i = 1; i <= 5; i++) {
       if (!parsed[i]) {
-        parsed[i] = defaultLevelLimits[i]
+        // 如果该等级不存在，使用默认值
+        result[i] = JSON.parse(JSON.stringify(defaultLevelLimits[i]))
       } else {
-        // 确保maxResources对象存在并包含所有必需字段
-        if (!parsed[i].maxResources) {
-          parsed[i].maxResources = defaultLevelLimits[i].maxResources
-        } else {
-          // 确保maxResources的每个字段都存在
-          parsed[i].maxResources = {
-            cpu: parsed[i].maxResources.cpu ?? defaultLevelLimits[i].maxResources.cpu,
-            memory: parsed[i].maxResources.memory ?? defaultLevelLimits[i].maxResources.memory,
-            disk: parsed[i].maxResources.disk ?? defaultLevelLimits[i].maxResources.disk,
-            bandwidth: parsed[i].maxResources.bandwidth ?? defaultLevelLimits[i].maxResources.bandwidth
+        // 后端返回的字段名可能是 kebab-case (max-instances) 或 camelCase (maxInstances)
+        // 需要兼容两种格式
+        const levelData = parsed[i]
+        const maxInstances = levelData.maxInstances ?? levelData['max-instances']
+        const maxTraffic = levelData.maxTraffic ?? levelData['max-traffic']
+        const maxResourcesData = levelData.maxResources ?? levelData['max-resources']
+        
+        result[i] = {
+          maxInstances: maxInstances ?? defaultLevelLimits[i].maxInstances,
+          maxTraffic: maxTraffic ?? defaultLevelLimits[i].maxTraffic,
+          maxResources: {
+            cpu: maxResourcesData?.cpu ?? defaultLevelLimits[i].maxResources.cpu,
+            memory: maxResourcesData?.memory ?? defaultLevelLimits[i].maxResources.memory,
+            disk: maxResourcesData?.disk ?? defaultLevelLimits[i].maxResources.disk,
+            bandwidth: maxResourcesData?.bandwidth ?? defaultLevelLimits[i].maxResources.bandwidth
           }
         }
-        // 确保其他字段也存在
-        parsed[i].maxInstances = parsed[i].maxInstances ?? defaultLevelLimits[i].maxInstances
-        parsed[i].maxTraffic = parsed[i].maxTraffic ?? defaultLevelLimits[i].maxTraffic
       }
     }
-    return parsed
+    return result
   } catch (e) {
     console.error('解析等级限制配置失败:', e)
-    return defaultLevelLimits
+    return JSON.parse(JSON.stringify(defaultLevelLimits))
   }
+}
+
+// 转换等级限制配置为后端格式（前端 camelCase -> 后端 kebab-case）
+const formatLevelLimitsForBackend = (levelLimits) => {
+  const result = {}
+  for (let i = 1; i <= 5; i++) {
+    if (levelLimits[i]) {
+      result[i] = {
+        'max-instances': levelLimits[i].maxInstances,
+        'max-traffic': levelLimits[i].maxTraffic,
+        'max-resources': {
+          cpu: levelLimits[i].maxResources.cpu,
+          memory: levelLimits[i].maxResources.memory,
+          disk: levelLimits[i].maxResources.disk,
+          bandwidth: levelLimits[i].maxResources.bandwidth
+        }
+      }
+    }
+  }
+  return result
 }
 
 const loadProviders = async () => {
@@ -483,47 +508,41 @@ const submitAddServer = async (formData) => {
     const serverData = {
       name: formData.name,
       type: formData.type,
-      endpoint: formData.host, // 只存储主机地址
-      portIP: formData.portIP, // 端口映射使用的公网IP
-      sshPort: formData.port, // 单独存储SSH端口
+      endpoint: formData.host,
+      portIP: formData.portIP,
+      sshPort: formData.port,
       username: formData.username,
-      // 密码和SSH密钥根据认证方式在后面单独处理，这里不设置
       config: '',
       region: formData.region,
       country: formData.country,
       countryCode: formData.countryCode,
       city: formData.city,
-      container_enabled: formData.containerEnabled,
-      vm_enabled: formData.vmEnabled,
-      architecture: formData.architecture, // 架构字段
+      container_enabled: formData.containerEnabled,  // 后端使用 snake_case
+      vm_enabled: formData.vmEnabled,                // 后端使用 snake_case
+      architecture: formData.architecture,
       totalQuota: 0,
       allowClaim: true,
-      status: formData.status, // 节点状态（active/offline/frozen）
-      expiresAt: formData.expiresAt || '', // 过期时间字段
-      maxContainerInstances: formData.maxContainerInstances || 0, // 最大容器数
-      maxVMInstances: formData.maxVMInstances || 0, // 最大虚拟机数
-      allowConcurrentTasks: formData.allowConcurrentTasks, // 是否允许并发任务
-      maxConcurrentTasks: formData.maxConcurrentTasks || 1, // 最大并发任务数
-      taskPollInterval: formData.taskPollInterval || 60, // 任务轮询间隔
-      enableTaskPolling: formData.enableTaskPolling !== undefined ? formData.enableTaskPolling : true, // 是否启用任务轮询
-      // 存储配置（ProxmoxVE专用）
-      storagePool: formData.storagePool || 'local', // 存储池名称
-      // 端口映射配置
+      status: formData.status,
+      expiresAt: formData.expiresAt || '',
+      maxContainerInstances: formData.maxContainerInstances || 0,
+      maxVMInstances: formData.maxVMInstances || 0,
+      allowConcurrentTasks: formData.allowConcurrentTasks,
+      maxConcurrentTasks: formData.maxConcurrentTasks || 1,
+      taskPollInterval: formData.taskPollInterval || 60,
+      enableTaskPolling: formData.enableTaskPolling !== undefined ? formData.enableTaskPolling : true,
+      storagePool: formData.storagePool || 'local',
       defaultPortCount: formData.defaultPortCount || 10,
       portRangeStart: formData.portRangeStart || 10000,
       portRangeEnd: formData.portRangeEnd || 65535,
-      networkType: formData.networkType || 'nat_ipv4', // 网络配置类型
-      // 带宽配置
+      networkType: formData.networkType || 'nat_ipv4',
       defaultInboundBandwidth: formData.defaultInboundBandwidth || 300,
       defaultOutboundBandwidth: formData.defaultOutboundBandwidth || 300,
       maxInboundBandwidth: formData.maxInboundBandwidth || 1000,
       maxOutboundBandwidth: formData.maxOutboundBandwidth || 1000,
-      // 流量配置
       enableTrafficControl: formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : false,
       maxTraffic: formData.maxTraffic || 1048576,
-      trafficCountMode: formData.trafficCountMode || 'both', // 流量统计模式
-      trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0, // 流量计费倍率
-      // 流量统计配置
+      trafficCountMode: formData.trafficCountMode || 'both',
+      trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0,
       trafficStatsMode: formData.trafficStatsMode || 'light',
       trafficCollectInterval: formData.trafficCollectInterval || 60,
       trafficCollectBatchSize: formData.trafficCollectBatchSize || 10,
@@ -531,21 +550,25 @@ const submitAddServer = async (formData) => {
       trafficLimitCheckBatchSize: formData.trafficLimitCheckBatchSize || 10,
       trafficAutoResetInterval: formData.trafficAutoResetInterval || 1800,
       trafficAutoResetBatchSize: formData.trafficAutoResetBatchSize || 10,
-      // 操作执行规则
-      executionRule: formData.executionRule || 'auto', // 操作轮转规则
-      // SSH超时配置
+      executionRule: formData.executionRule || 'auto',
       sshConnectTimeout: formData.sshConnectTimeout || 30,
       sshExecuteTimeout: formData.sshExecuteTimeout || 300,
-      // 容器资源限制配置
       containerLimitCpu: formData.containerLimitCpu !== undefined ? formData.containerLimitCpu : false,
       containerLimitMemory: formData.containerLimitMemory !== undefined ? formData.containerLimitMemory : false,
       containerLimitDisk: formData.containerLimitDisk !== undefined ? formData.containerLimitDisk : true,
-      // 虚拟机资源限制配置
       vmLimitCpu: formData.vmLimitCpu !== undefined ? formData.vmLimitCpu : true,
       vmLimitMemory: formData.vmLimitMemory !== undefined ? formData.vmLimitMemory : true,
       vmLimitDisk: formData.vmLimitDisk !== undefined ? formData.vmLimitDisk : true,
-      // 节点等级限制配置
-      levelLimits: formData.levelLimits || {}
+      // 节点等级限制配置 - 转换为后端 kebab-case 格式
+      levelLimits: JSON.stringify(formatLevelLimitsForBackend(formData.levelLimits || {})),
+      // 容器特殊配置（LXD/Incus）
+      containerPrivileged: formData.containerPrivileged || false,
+      containerAllowNesting: formData.containerAllowNesting || false,
+      containerEnableLxcfs: formData.containerEnableLxcfs !== undefined ? formData.containerEnableLxcfs : true,
+      containerCpuAllowance: formData.containerCpuAllowance || '100%',
+      containerMemorySwap: formData.containerMemorySwap !== undefined ? formData.containerMemorySwap : true,
+      containerMaxProcesses: formData.containerMaxProcesses || 0,
+      containerDiskIoLimit: formData.containerDiskIoLimit || ''
     }
 
     // 根据Provider类型设置端口映射方式
@@ -642,77 +665,69 @@ const editProvider = (provider) => {
   // 使用数据库中的sshPort字段，如果没有则默认为22
   const port = provider.sshPort || 22
   
-  // 填充表单数据
-  Object.assign(addProviderForm, {
-    id: provider.id,
-    name: provider.name,
-    type: provider.type,
-    host: host,
-    portIP: provider.portIP || '', // 端口IP
-    port: parseInt(port) || 22,
-    username: provider.username || '',
-    password: '', // 编辑时不显示密码，留空表示不修改
-    sshKey: '', // 编辑时不显示SSH密钥，留空表示不修改
-    authMethod: provider.authMethod || 'password', // 使用后端返回的认证方式
-    description: provider.description || '',
-    region: provider.region || '',
-    country: provider.country || '',
-    countryCode: provider.countryCode || '',
-    city: provider.city || '',
-    // 确保正确转换布尔值，防止字符串或其他类型
-    containerEnabled: Boolean(provider.container_enabled),
-    vmEnabled: Boolean(provider.vm_enabled),
-    architecture: provider.architecture || 'amd64', // 架构字段
-    status: provider.status || 'active',
-    expiresAt: provider.expiresAt || '', // 过期时间字段
-    maxContainerInstances: provider.maxContainerInstances || 0, // 最大容器数
-    maxVMInstances: provider.maxVMInstances || 0, // 最大虚拟机数
-    allowConcurrentTasks: provider.allowConcurrentTasks || false, // 是否允许并发任务
-    maxConcurrentTasks: provider.maxConcurrentTasks || 1, // 最大并发任务数
-    taskPollInterval: provider.taskPollInterval || 60, // 任务轮询间隔
-    enableTaskPolling: provider.enableTaskPolling !== undefined ? provider.enableTaskPolling : true, // 是否启用任务轮询
-    // 存储配置（ProxmoxVE专用）
-    storagePool: provider.storagePool || 'local', // 存储池名称
-    // 端口映射配置
-    defaultPortCount: provider.defaultPortCount || 10,
-    enableIPv6: provider.enableIPv6 || false, // 兼容字段
-    portRangeStart: provider.portRangeStart || 10000,
-    portRangeEnd: provider.portRangeEnd || 65535,
-    networkType: provider.networkType || 'nat_ipv4', // 网络配置类型
-    // 带宽配置
-    defaultInboundBandwidth: provider.defaultInboundBandwidth || 300,
-    defaultOutboundBandwidth: provider.defaultOutboundBandwidth || 300,
-    maxInboundBandwidth: provider.maxInboundBandwidth || 1000,
-    maxOutboundBandwidth: provider.maxOutboundBandwidth || 1000,
-    // 流量配置
-    enableTrafficControl: provider.enableTrafficControl !== undefined ? provider.enableTrafficControl : false,
-    maxTraffic: provider.maxTraffic || 1048576,
-    trafficCountMode: provider.trafficCountMode || 'both', // 流量统计模式
-    trafficMultiplier: provider.trafficMultiplier || 1.0, // 流量倍率
-    // 流量统计配置
-    trafficStatsMode: provider.trafficStatsMode || 'light',
-    trafficCollectInterval: provider.trafficCollectInterval || 60,
-    trafficCollectBatchSize: provider.trafficCollectBatchSize || 10,
-    trafficLimitCheckInterval: provider.trafficLimitCheckInterval || 180,
-    trafficLimitCheckBatchSize: provider.trafficLimitCheckBatchSize || 10,
-    trafficAutoResetInterval: provider.trafficAutoResetInterval || 1800,
-    trafficAutoResetBatchSize: provider.trafficAutoResetBatchSize || 10,
-    // 操作执行规则
-    executionRule: provider.executionRule || 'auto', // 默认自动切换
-    // SSH超时配置
-    sshConnectTimeout: provider.sshConnectTimeout || 30,
-    sshExecuteTimeout: provider.sshExecuteTimeout || 300,
-    // 容器资源限制配置
-    containerLimitCpu: provider.containerLimitCpu !== undefined ? provider.containerLimitCpu : false,
-    containerLimitMemory: provider.containerLimitMemory !== undefined ? provider.containerLimitMemory : false,
-    containerLimitDisk: provider.containerLimitDisk !== undefined ? provider.containerLimitDisk : true,
-    // 虚拟机资源限制配置
-    vmLimitCpu: provider.vmLimitCpu !== undefined ? provider.vmLimitCpu : true,
-    vmLimitMemory: provider.vmLimitMemory !== undefined ? provider.vmLimitMemory : true,
-    vmLimitDisk: provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true,
-    // 节点等级限制配置 - 从后端解析JSON或使用默认值
-    levelLimits: parseLevelLimits(provider.levelLimits)
-  })
+  // 解析等级限制配置
+  const parsedLevelLimits = parseLevelLimits(provider.levelLimits)
+  
+  // 直接替换整个 levelLimits 对象
+  addProviderForm.levelLimits = parsedLevelLimits
+  
+  // 填充其他表单数据
+  addProviderForm.id = provider.id
+  addProviderForm.name = provider.name
+  addProviderForm.type = provider.type
+  addProviderForm.host = host
+  addProviderForm.portIP = provider.portIP || ''
+  addProviderForm.port = parseInt(port) || 22
+  addProviderForm.username = provider.username || ''
+  addProviderForm.password = ''
+  addProviderForm.sshKey = ''
+  addProviderForm.authMethod = provider.authMethod || 'password'
+  addProviderForm.description = provider.description || ''
+  addProviderForm.region = provider.region || ''
+  addProviderForm.country = provider.country || ''
+  addProviderForm.countryCode = provider.countryCode || ''
+  addProviderForm.city = provider.city || ''
+  addProviderForm.containerEnabled = Boolean(provider.container_enabled)
+  addProviderForm.vmEnabled = Boolean(provider.vm_enabled)
+  addProviderForm.architecture = provider.architecture || 'amd64'
+  addProviderForm.status = provider.status || 'active'
+  addProviderForm.expiresAt = provider.expiresAt || ''
+  addProviderForm.maxContainerInstances = provider.maxContainerInstances || 0
+  addProviderForm.maxVMInstances = provider.maxVMInstances || 0
+  addProviderForm.allowConcurrentTasks = provider.allowConcurrentTasks || false
+  addProviderForm.maxConcurrentTasks = provider.maxConcurrentTasks || 1
+  addProviderForm.taskPollInterval = provider.taskPollInterval || 60
+  addProviderForm.enableTaskPolling = provider.enableTaskPolling !== undefined ? provider.enableTaskPolling : true
+  addProviderForm.storagePool = provider.storagePool || 'local'
+  addProviderForm.defaultPortCount = provider.defaultPortCount || 10
+  addProviderForm.enableIPv6 = provider.enableIPv6 || false
+  addProviderForm.portRangeStart = provider.portRangeStart || 10000
+  addProviderForm.portRangeEnd = provider.portRangeEnd || 65535
+  addProviderForm.networkType = provider.networkType || 'nat_ipv4'
+  addProviderForm.defaultInboundBandwidth = provider.defaultInboundBandwidth || 300
+  addProviderForm.defaultOutboundBandwidth = provider.defaultOutboundBandwidth || 300
+  addProviderForm.maxInboundBandwidth = provider.maxInboundBandwidth || 1000
+  addProviderForm.maxOutboundBandwidth = provider.maxOutboundBandwidth || 1000
+  addProviderForm.enableTrafficControl = provider.enableTrafficControl !== undefined ? provider.enableTrafficControl : false
+  addProviderForm.maxTraffic = provider.maxTraffic || 1048576
+  addProviderForm.trafficCountMode = provider.trafficCountMode || 'both'
+  addProviderForm.trafficMultiplier = provider.trafficMultiplier || 1.0
+  addProviderForm.trafficStatsMode = provider.trafficStatsMode || 'light'
+  addProviderForm.trafficCollectInterval = provider.trafficCollectInterval || 60
+  addProviderForm.trafficCollectBatchSize = provider.trafficCollectBatchSize || 10
+  addProviderForm.trafficLimitCheckInterval = provider.trafficLimitCheckInterval || 180
+  addProviderForm.trafficLimitCheckBatchSize = provider.trafficLimitCheckBatchSize || 10
+  addProviderForm.trafficAutoResetInterval = provider.trafficAutoResetInterval || 1800
+  addProviderForm.trafficAutoResetBatchSize = provider.trafficAutoResetBatchSize || 10
+  addProviderForm.executionRule = provider.executionRule || 'auto'
+  addProviderForm.sshConnectTimeout = provider.sshConnectTimeout || 30
+  addProviderForm.sshExecuteTimeout = provider.sshExecuteTimeout || 300
+  addProviderForm.containerLimitCpu = provider.containerLimitCpu !== undefined ? provider.containerLimitCpu : false
+  addProviderForm.containerLimitMemory = provider.containerLimitMemory !== undefined ? provider.containerLimitMemory : false
+  addProviderForm.containerLimitDisk = provider.containerLimitDisk !== undefined ? provider.containerLimitDisk : true
+  addProviderForm.vmLimitCpu = provider.vmLimitCpu !== undefined ? provider.vmLimitCpu : true
+  addProviderForm.vmLimitMemory = provider.vmLimitMemory !== undefined ? provider.vmLimitMemory : true
+  addProviderForm.vmLimitDisk = provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true
 
   // 根据Provider类型设置端口映射方式，优先使用数据库中保存的值，没有时使用类型默认值
   // Docker 类型固定为 native

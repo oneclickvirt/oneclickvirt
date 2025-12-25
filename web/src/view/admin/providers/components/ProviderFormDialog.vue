@@ -368,8 +368,8 @@ const rules = {
 // 只在对话框首次打开时同步数据，避免用户编辑过程中被覆盖
 watch(() => props.visible, (isVisible) => {
   if (isVisible && props.providerData && Object.keys(props.providerData).length > 0) {
-    // 对话框打开时，同步父组件的数据到表单
-    Object.assign(formData.value, props.providerData)
+    // 对话框打开时，同步父组件的数据到表单（使用深拷贝避免引用问题）
+    Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
   }
 }, { immediate: true })
 

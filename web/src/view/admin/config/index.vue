@@ -887,7 +887,7 @@ const saveConfig = async () => {
     const newLanguage = config.value.other.defaultLanguage
     const languageChanged = oldLanguage !== newLanguage
     
-    // 转换 levelLimits 为 kebab-case 格式
+    // 转换 levelLimits 为 kebab-case 格式（外层字段），max-resources 内部保持 camelCase
     const configToSave = JSON.parse(JSON.stringify(config.value))
     if (configToSave.quota && configToSave.quota.levelLimits) {
       const convertedLimits = {}
@@ -895,7 +895,12 @@ const saveConfig = async () => {
         const limit = configToSave.quota.levelLimits[level]
         convertedLimits[level] = {
           'max-instances': limit.maxInstances,
-          'max-resources': limit.maxResources,
+          'max-resources': {
+            cpu: limit.maxResources.cpu,
+            memory: limit.maxResources.memory,
+            disk: limit.maxResources.disk,
+            bandwidth: limit.maxResources.bandwidth
+          },
           'max-traffic': limit.maxTraffic
         }
       })
