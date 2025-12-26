@@ -559,8 +559,8 @@ const submitAddServer = async (formData) => {
       vmLimitCpu: formData.vmLimitCpu !== undefined ? formData.vmLimitCpu : true,
       vmLimitMemory: formData.vmLimitMemory !== undefined ? formData.vmLimitMemory : true,
       vmLimitDisk: formData.vmLimitDisk !== undefined ? formData.vmLimitDisk : true,
-      // 节点等级限制配置 - 转换为后端 kebab-case 格式
-      levelLimits: JSON.stringify(formatLevelLimitsForBackend(formData.levelLimits || {})),
+      // 节点等级限制配置 - 转换为后端 kebab-case 格式（直接发送对象，不转换为字符串）
+      levelLimits: formatLevelLimitsForBackend(formData.levelLimits || {}),
       // 容器特殊配置（LXD/Incus）
       containerPrivileged: formData.containerPrivileged || false,
       containerAllowNesting: formData.containerAllowNesting || false,

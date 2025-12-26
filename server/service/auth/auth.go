@@ -254,9 +254,9 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return err
 	}
 
-	// 检查用户名是否已存在
+	// 检查用户名是否已存在（排除已软删除的用户）
 	var existingUser userModel.User
-	if err := global.APP_DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
+	if err := global.APP_DB.Unscoped().Where("username = ? AND deleted_at IS NULL", req.Username).First(&existingUser).Error; err == nil {
 		return common.NewError(common.CodeUsernameExists, "用户名已存在")
 	}
 

@@ -311,10 +311,11 @@ func (s *Service) DeleteUser(userID uint) error {
 		return errors.New("用户还有实例，无法删除")
 	}
 
-	// 使用数据库抽象层删除
+	// 使用数据库抽象层进行硬删除（永久删除）
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&userModel.User{}, userID).Error
+		// 使用Unscoped().Delete进行硬删除，彻底从数据库中移除记录
+		return tx.Unscoped().Delete(&userModel.User{}, userID).Error
 	}); err != nil {
 		global.APP_LOG.Error("用户删除失败", zap.Uint("userID", userID), zap.Error(err))
 		return err
@@ -377,7 +378,8 @@ func (s *Service) BatchDeleteUsers(userIDs []uint) error {
 
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&userModel.User{}, userIDs).Error
+		// 使用Unscoped().Delete进行硬删除，彻底从数据库中移除记录
+		return tx.Unscoped().Delete(&userModel.User{}, userIDs).Error
 	})
 }
 
