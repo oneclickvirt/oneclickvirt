@@ -174,15 +174,36 @@ func init() {
 	initBandwidthSpecs()
 }
 
-// initCPUSpecs 初始化CPU规格配置 (1-20核)
+// initCPUSpecs 初始化CPU规格配置 (1-10240核，渐进式步长)
 func initCPUSpecs() {
-	for i := 1; i <= 20; i++ {
-		spec := CPUSpec{
-			ID:    fmt.Sprintf("cpu-%d", i),
-			Cores: i,
-			Name:  fmt.Sprintf("%d核", i),
+	// 定义各个范围及其步长
+	ranges := []struct {
+		start int
+		end   int
+		step  int
+	}{
+		{1, 16, 1},          // 1~16: 步长1
+		{18, 32, 2},         // 17~32: 步长2
+		{36, 64, 4},         // 33~64: 步长4
+		{72, 128, 8},        // 65~128: 步长8
+		{144, 256, 16},      // 129~256: 步长16
+		{288, 512, 32},      // 257~512: 步长32
+		{576, 1024, 64},     // 513~1024: 步长64
+		{1152, 2048, 128},   // 1025~2048: 步长128
+		{2304, 4096, 256},   // 2049~4096: 步长256
+		{4608, 8192, 512},   // 4097~8192: 步长512
+		{9216, 10240, 1024}, // 8193~10240: 步长1024
+	}
+
+	for _, r := range ranges {
+		for i := r.start; i <= r.end; i += r.step {
+			spec := CPUSpec{
+				ID:    fmt.Sprintf("cpu-%d", i),
+				Cores: i,
+				Name:  fmt.Sprintf("%d核", i),
+			}
+			PredefinedCPUSpecs = append(PredefinedCPUSpecs, spec)
 		}
-		PredefinedCPUSpecs = append(PredefinedCPUSpecs, spec)
 	}
 }
 
@@ -272,7 +293,6 @@ func initDiskSpecs() {
 		// 500TB - 1PB (50TB步长)
 		{563200000}, {614400000}, {665600000}, {716800000}, {768000000}, {819200000}, {870400000}, {921600000}, {972800000}, {1024000000},
 	}
-
 	for _, spec := range mbSpecs {
 		diskSpec := DiskSpec{
 			ID:     fmt.Sprintf("disk-%dmb", spec.sizeMB),
