@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -361,7 +362,7 @@ func (l *LXDProvider) getInstanceType(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
 
-	instanceType := strings.TrimSpace(output)
+	instanceType := utils.CleanCommandOutput(output)
 	global.APP_LOG.Debug("检测到实例类型",
 		zap.String("instanceName", instanceName),
 		zap.String("type", instanceType))
@@ -1054,7 +1055,7 @@ func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) 
 		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
 	}
 
-	vethName := strings.TrimSpace(output)
+	vethName := utils.CleanCommandOutput(output)
 	if vethName == "" {
 		return "", fmt.Errorf("未找到veth接口名称")
 	}
@@ -1075,7 +1076,7 @@ func (l *LXDProvider) GetVethInterfaceNameV6(instanceName string) (string, error
 		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)
 	}
 
-	vethName := strings.TrimSpace(output)
+	vethName := utils.CleanCommandOutput(output)
 	if vethName == "" {
 		// 如果没有eth1，可能使用eth0，返回eth0的veth接口
 		return l.GetVethInterfaceName(instanceName)
@@ -1100,7 +1101,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		return fmt.Errorf("检查实例状态失败: %w", err)
 	}
 
-	status := strings.TrimSpace(output)
+	status := utils.CleanCommandOutput(output)
 	if status != "RUNNING" {
 		global.APP_LOG.Warn("实例未运行，尝试启动",
 			zap.String("instanceName", config.Name),

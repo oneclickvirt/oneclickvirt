@@ -160,7 +160,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	// 检测容器操作系统类型
 	osCmd := fmt.Sprintf("docker exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", instanceID)
 	osOutput, err := d.sshClient.Execute(osCmd)
-	osType := strings.TrimSpace(osOutput)
+	osType := utils.CleanCommandOutput(osOutput)
 	if err != nil || osType == "" {
 		// 如果无法检测，默认为非Alpine系统
 		osType = "debian"

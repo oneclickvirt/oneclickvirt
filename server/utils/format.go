@@ -143,3 +143,14 @@ func FormatMB(mb float64) string {
 	}
 	return fmt.Sprintf("%.2f KB", mb*1024)
 }
+
+// CleanCommandOutput 清理SSH命令输出，移除所有空白字符和控制字符
+// 此函数专门用于清理可能包含 \r、\n 等控制字符的命令输出
+// 特别适用于网络接口名称、设备名称等需要精确匹配的字符串
+func CleanCommandOutput(output string) string {
+	// 移除所有回车符
+	output = strings.ReplaceAll(output, "\r", "")
+	// 移除前后的空白字符（包括空格、制表符、换行符等）
+	output = strings.TrimSpace(output)
+	return output
+}

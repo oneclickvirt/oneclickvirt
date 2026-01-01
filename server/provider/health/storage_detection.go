@@ -2,6 +2,7 @@ package health
 
 import (
 	"fmt"
+	"oneclickvirt/utils"
 	"strings"
 
 	"go.uber.org/zap"
@@ -38,8 +39,8 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 	// 使用pvesm命令查询存储池路径
 	cmd := fmt.Sprintf("pvesm path %s: 2>/dev/null | head -1", storagePoolName)
 	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		// pvesm path返回的是完整路径，我们需要提取挂载点
 		// 例如: /var/lib/vz/images/100/vm-100-disk-0.raw -> /var/lib/vz
 		if idx := strings.Index(path, "/images/"); idx != -1 {
@@ -56,8 +57,8 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 	// 如果pvesm命令失败，尝试从配置文件读取
 	cmd = fmt.Sprintf("grep -A 10 \"^%s:\" /etc/pve/storage.cfg 2>/dev/null | grep -E '^\\s+path' | awk '{print $2}' | head -1", storagePoolName)
 	output, err = phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("从配置文件检测到Proxmox存储池路径",
 				zap.String("storagePool", storagePoolName),
@@ -92,8 +93,8 @@ func (phc *ProviderHealthChecker) detectLXDStoragePath(client *ssh.Client, stora
 	// 使用lxc storage info命令查询存储池路径
 	cmd := fmt.Sprintf("lxc storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storagePoolName)
 	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("检测到LXD存储池路径",
 				zap.String("storagePool", storagePoolName),
@@ -105,8 +106,8 @@ func (phc *ProviderHealthChecker) detectLXDStoragePath(client *ssh.Client, stora
 	// 尝试从配置目录获取
 	cmd = "ls -d /var/lib/lxd/storage-pools/* 2>/dev/null | head -1"
 	output, err = phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("从目录检测到LXD存储池路径",
 				zap.String("path", path))
@@ -132,8 +133,8 @@ func (phc *ProviderHealthChecker) detectIncusStoragePath(client *ssh.Client, sto
 	// 使用incus storage info命令查询存储池路径
 	cmd := fmt.Sprintf("incus storage info %s 2>/dev/null | grep -E '^\\s+source:' | awk '{print $2}'", storagePoolName)
 	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("检测到Incus存储池路径",
 				zap.String("storagePool", storagePoolName),
@@ -145,8 +146,8 @@ func (phc *ProviderHealthChecker) detectIncusStoragePath(client *ssh.Client, sto
 	// 尝试从配置目录获取
 	cmd = "ls -d /var/lib/incus/storage-pools/* 2>/dev/null | head -1"
 	output, err = phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("从目录检测到Incus存储池路径",
 				zap.String("path", path))
@@ -168,8 +169,8 @@ func (phc *ProviderHealthChecker) detectDockerStoragePath(client *ssh.Client) (s
 	// 尝试从docker info获取数据根目录
 	cmd := "docker info 2>/dev/null | grep -E 'Docker Root Dir:|Data Root:' | awk -F': ' '{print $2}' | head -1"
 	output, err := phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("检测到Docker存储路径",
 				zap.String("path", path))
@@ -180,8 +181,8 @@ func (phc *ProviderHealthChecker) detectDockerStoragePath(client *ssh.Client) (s
 	// 尝试从配置文件读取
 	cmd = "grep -E '\"data-root\"|\"graph\"' /etc/docker/daemon.json 2>/dev/null | awk -F'\"' '{print $4}' | head -1"
 	output, err = phc.executeSSHCommand(client, cmd)
-	if err == nil && strings.TrimSpace(output) != "" {
-		path := strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		path := utils.CleanCommandOutput(output)
 		if phc.logger != nil {
 			phc.logger.Info("从配置文件检测到Docker存储路径",
 				zap.String("path", path))

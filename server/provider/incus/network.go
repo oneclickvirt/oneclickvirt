@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -510,7 +511,7 @@ func (i *IncusProvider) getInstanceType(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
 
-	instanceType := strings.TrimSpace(output)
+	instanceType := utils.CleanCommandOutput(output)
 	global.APP_LOG.Debug("检测到实例类型",
 		zap.String("instanceName", instanceName),
 		zap.String("type", instanceType))
@@ -574,8 +575,8 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", instanceName)
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
-	if err == nil && strings.TrimSpace(output) != "" {
-		targetInterface = strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		targetInterface = utils.CleanCommandOutput(output)
 	} else {
 		targetInterface = "eth0" // 默认接口
 	}
@@ -947,8 +948,8 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 	cmd := fmt.Sprintf("incus config show %s | grep -A5 \"devices:\" | grep \"type: nic\" -B3 | grep \"^  \" | head -n1 | sed 's/://g'", instanceName)
 	output, err := i.sshClient.Execute(cmd)
 	var targetInterface string
-	if err == nil && strings.TrimSpace(output) != "" {
-		targetInterface = strings.TrimSpace(output)
+	if err == nil && utils.CleanCommandOutput(output) != "" {
+		targetInterface = utils.CleanCommandOutput(output)
 	}
 
 	// 如果没有找到网络接口，默认尝试eth0
@@ -1013,7 +1014,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		return fmt.Errorf("检查实例状态失败: %w", err)
 	}
 
-	status := strings.TrimSpace(output)
+	status := utils.CleanCommandOutput(output)
 	if status != "RUNNING" {
 		global.APP_LOG.Warn("实例未运行，尝试启动",
 			zap.String("instanceName", config.Name),

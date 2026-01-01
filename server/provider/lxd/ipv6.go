@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -125,7 +126,7 @@ func (l *LXDProvider) GetInstanceIPv6(instanceName string) (string, error) {
 		return "", fmt.Errorf("获取IPv6地址失败: %w", err)
 	}
 
-	ipv6 := strings.TrimSpace(ipv6Output)
+	ipv6 := utils.CleanCommandOutput(ipv6Output)
 	if ipv6 == "" {
 		return "", fmt.Errorf("实例未分配IPv6地址")
 	}
@@ -139,7 +140,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	publicIPv6Cmd := fmt.Sprintf("cat %s_v6 2>/dev/null | tail -1", instanceName)
 	publicIPv6Output, err := l.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
-		publicIPv6 := strings.TrimSpace(publicIPv6Output)
+		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
 		if publicIPv6 != "" && !l.isPrivateIPv6(publicIPv6) {
 			global.APP_LOG.Info("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
@@ -152,7 +153,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	eth1Cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth1.addresses[]? | select(.family==\"inet6\" and .scope==\"global\") | .address' 2>/dev/null", instanceName)
 	eth1Output, err := l.sshClient.Execute(eth1Cmd)
 	if err == nil {
-		eth1IPv6 := strings.TrimSpace(eth1Output)
+		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
 		if eth1IPv6 != "" && !l.isPrivateIPv6(eth1IPv6) {
 			global.APP_LOG.Info("从eth1获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
@@ -362,7 +363,7 @@ func (l *LXDProvider) installSipcalc(ctx context.Context) error {
 		return fmt.Errorf("检测操作系统失败: %w", err)
 	}
 
-	osType := strings.TrimSpace(osOutput)
+	osType := utils.CleanCommandOutput(osOutput)
 	global.APP_LOG.Info("检测到操作系统类型", zap.String("os", osType))
 
 	switch osType {
@@ -392,7 +393,7 @@ func (l *LXDProvider) installSipcalcRHEL(ctx context.Context) error {
 		return fmt.Errorf("获取系统架构失败: %w", err)
 	}
 
-	arch := strings.TrimSpace(archOutput)
+	arch := utils.CleanCommandOutput(archOutput)
 	var relPath string
 
 	switch arch {
@@ -490,7 +491,8 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		if err != nil {
 			return "", fmt.Errorf("获取网络接口失败: %w", err)
 		}
-		ipv6NetworkName = strings.TrimSpace(output)
+		// 清理输出，移除所有空白字符和回车符
+		ipv6NetworkName = utils.CleanCommandOutput(output)
 
 		cmd = fmt.Sprintf("ip -6 addr show %s | grep global | awk '{print $2}' | head -n 1", ipv6NetworkName)
 		output, err = l.sshClient.Execute(cmd)
@@ -786,7 +788,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		return "", fmt.Errorf("获取IPv6子网长度失败: %w", err)
 	}
 
-	ipv6AddressWithLength := strings.TrimSpace(output)
+	ipv6AddressWithLength := utils.CleanCommandOutput(output)
 	if !strings.Contains(ipv6AddressWithLength, "/") {
 		return "", fmt.Errorf("查询不到IPv6的子网大小")
 	}
@@ -801,7 +803,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		interfaceCmd = "ip route | grep default | awk '{print $5}' | head -1"
 		interfaceOutput, _ = l.sshClient.Execute(interfaceCmd)
 	}
-	interfaceName := strings.TrimSpace(interfaceOutput)
+	interfaceName := utils.CleanCommandOutput(interfaceOutput)
 	if interfaceName == "" {
 		return "", fmt.Errorf("无法获取网络接口名称")
 	}

@@ -74,7 +74,7 @@ func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 		cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", instance.Name)
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
-			ipAddress := strings.TrimSpace(output)
+			ipAddress := utils.CleanCommandOutput(output)
 			if ipAddress != "" && ipAddress != "<no value>" {
 				instance.PrivateIP = ipAddress
 				instance.IP = ipAddress // 保持向后兼容
@@ -103,7 +103,7 @@ fi
 
 		vethOutput, err := d.sshClient.Execute(vethCmd)
 		if err == nil {
-			vethInterface := strings.TrimSpace(vethOutput)
+			vethInterface := utils.CleanCommandOutput(vethOutput)
 			if vethInterface != "" {
 				if instance.Metadata == nil {
 					instance.Metadata = make(map[string]string)
@@ -1104,7 +1104,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 	// 检测系统类型
 	output, err := d.sshClient.Execute(fmt.Sprintf("docker exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", config.Name))
 	if err == nil {
-		osType := strings.TrimSpace(strings.ToLower(output))
+		osType := utils.CleanCommandOutput(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
 			scriptName = "ssh_sh.sh"
 		} else {
@@ -1188,7 +1188,7 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 		return "", fmt.Errorf("failed to get container IP: %w", err)
 	}
 
-	ipAddress := strings.TrimSpace(output)
+	ipAddress := utils.CleanCommandOutput(output)
 	if ipAddress == "" || ipAddress == "<no value>" {
 		// 尝试使用默认网络
 		cmd = fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", containerName)
@@ -1196,7 +1196,7 @@ func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, er
 		if err != nil {
 			return "", fmt.Errorf("failed to get container IP from default network: %w", err)
 		}
-		ipAddress = strings.TrimSpace(output)
+		ipAddress = utils.CleanCommandOutput(output)
 	}
 
 	if ipAddress == "" || ipAddress == "<no value>" {

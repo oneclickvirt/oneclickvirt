@@ -438,8 +438,8 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		// 对于容器，首先尝试从配置中获取静态IP
 		cmd = fmt.Sprintf("pct config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
 		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			return strings.TrimSpace(output), nil
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			return utils.CleanCommandOutput(output), nil
 		}
 
 		// 如果没有静态IP，尝试从容器内部获取动态IP
@@ -448,15 +448,15 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		// 对于虚拟机，首先尝试从配置中获取静态IP
 		cmd = fmt.Sprintf("qm config %s | grep -oP 'ip=\\K[0-9.]+' || true", vmid)
 		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			return strings.TrimSpace(output), nil
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			return utils.CleanCommandOutput(output), nil
 		}
 
 		// 如果没有静态IP配置，尝试通过guest agent获取IP
 		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -oP '\"ip-address\":\\s*\"\\K[^\"]+' | grep -E '^(172\\.|192\\.|10\\.)' | head -1 || true", vmid)
 		output, err = p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			return strings.TrimSpace(output), nil
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			return utils.CleanCommandOutput(output), nil
 		}
 
 		// 最后尝试从网络配置推断IP地址 (如果使用标准内网配置)
@@ -478,7 +478,7 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		return "", err
 	}
 
-	ip := strings.TrimSpace(output)
+	ip := utils.CleanCommandOutput(output)
 	if ip == "" {
 		return "", fmt.Errorf("no IP address found for %s %s", instanceType, vmid)
 	}

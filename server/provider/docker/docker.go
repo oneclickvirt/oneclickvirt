@@ -487,7 +487,7 @@ fi
 
 	vethOutput, err := d.sshClient.Execute(vethCmd)
 	if err == nil {
-		vethInterface := strings.TrimSpace(vethOutput)
+		vethInterface := utils.CleanCommandOutput(vethOutput)
 		if vethInterface != "" {
 			if instance.Metadata == nil {
 				instance.Metadata = make(map[string]string)

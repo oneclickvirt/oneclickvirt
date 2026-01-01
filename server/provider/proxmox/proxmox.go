@@ -300,7 +300,7 @@ func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	p.node = strings.TrimSpace(output)
+	p.node = utils.CleanCommandOutput(output)
 	return nil
 }
 

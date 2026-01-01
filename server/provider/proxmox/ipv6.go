@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 	"strconv"
 	"strings"
 
@@ -154,7 +155,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_check_ipv6 ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_check_ipv6")
 		if err == nil {
-			info.HostIPv6Address = strings.TrimSpace(output)
+			info.HostIPv6Address = utils.CleanCommandOutput(output)
 			// 生成IPv6地址前缀
 			if info.HostIPv6Address != "" {
 				parts := strings.Split(info.HostIPv6Address, ":")
@@ -169,7 +170,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_prefixlen ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_prefixlen")
 		if err == nil {
-			info.IPv6PrefixLen = strings.TrimSpace(output)
+			info.IPv6PrefixLen = utils.CleanCommandOutput(output)
 		}
 	}
 
@@ -177,7 +178,7 @@ func (p *ProxmoxProvider) getIPv6Info(ctx context.Context) (*IPv6Info, error) {
 	if _, err := p.sshClient.Execute("[ -f /usr/local/bin/pve_ipv6_gateway ]"); err == nil {
 		output, err := p.sshClient.Execute("cat /usr/local/bin/pve_ipv6_gateway")
 		if err == nil {
-			info.IPv6Gateway = strings.TrimSpace(output)
+			info.IPv6Gateway = utils.CleanCommandOutput(output)
 		}
 	}
 
@@ -581,7 +582,7 @@ func (p *ProxmoxProvider) GetInstancePublicIPv6(ctx context.Context, instanceNam
 	publicIPv6Cmd := fmt.Sprintf("cat %s_v6 2>/dev/null | tail -1", instanceName)
 	publicIPv6Output, err := p.sshClient.Execute(publicIPv6Cmd)
 	if err == nil {
-		publicIPv6 := strings.TrimSpace(publicIPv6Output)
+		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
 		if publicIPv6 != "" && !p.isPrivateIPv6(publicIPv6) {
 			global.APP_LOG.Info("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
@@ -603,8 +604,8 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		// 支持 net0, net1 等多个网络接口的IPv6配置
 		cmd = fmt.Sprintf("pct config %s | grep -E 'net[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
 		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			ipv6 := strings.TrimSpace(output)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			ipv6 := utils.CleanCommandOutput(output)
 			if ipv6 != "auto" && ipv6 != "dhcp" {
 				return ipv6, nil
 			}
@@ -617,8 +618,8 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		// 支持 ipconfig0, ipconfig1 等多个网络接口的IPv6配置
 		cmd = fmt.Sprintf("qm config %s | grep -E 'ipconfig[0-9]+:.*ip6=' | sed -n 's/.*ip6=\\([^/,[:space:]]*\\).*/\\1/p' | head -1", vmid)
 		output, err := p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			ipv6 := strings.TrimSpace(output)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			ipv6 := utils.CleanCommandOutput(output)
 			if ipv6 != "auto" && ipv6 != "dhcp" {
 				return ipv6, nil
 			}
@@ -627,8 +628,8 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		// 如果没有静态IPv6配置，尝试通过guest agent获取IPv6
 		cmd = fmt.Sprintf("qm guest cmd %s network-get-interfaces 2>/dev/null | grep -o '\"ip-address\":[[:space:]]*\"[^\"]*:' | sed 's/.*\"\\([^\"]*\\)\".*/\\1/' | head -1 || true", vmid)
 		output, err = p.sshClient.Execute(cmd)
-		if err == nil && strings.TrimSpace(output) != "" {
-			return strings.TrimSpace(output), nil
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			return utils.CleanCommandOutput(output), nil
 		}
 
 		// 最后尝试从虚拟机内部获取IPv6地址
@@ -640,7 +641,7 @@ func (p *ProxmoxProvider) getInstanceIPv6ByVMID(ctx context.Context, vmid string
 		return "", err
 	}
 
-	ipv6 := strings.TrimSpace(output)
+	ipv6 := utils.CleanCommandOutput(output)
 	if ipv6 == "" {
 		return "", fmt.Errorf("no IPv6 address found for %s %s", instanceType, vmid)
 	}

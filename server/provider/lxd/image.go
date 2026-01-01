@@ -88,13 +88,12 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 						// 如果没找到VM镜像，尝试查找tar.xz
 						findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
 						vmImagePath, err = l.sshClient.Execute(findCmd)
-						if err != nil || strings.TrimSpace(vmImagePath) == "" {
+						if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
 							return fmt.Errorf("未找到解压后的LXD虚拟机镜像文件")
 						}
 					}
 
-					vmImagePath = strings.TrimSpace(vmImagePath)
-
+					vmImagePath = utils.CleanCommandOutput(vmImagePath)
 					// 检查是否需要导入lxd.tar.xz和disk文件
 					lxdTarPath := fmt.Sprintf("%s/lxd.tar.xz", extractDir)
 					diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
@@ -128,10 +127,10 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 						// 查找任何tar.xz文件
 						findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
 						tarPath, err := l.sshClient.Execute(findCmd)
-						if err != nil || strings.TrimSpace(tarPath) == "" {
+						if err != nil || utils.CleanCommandOutput(tarPath) == "" {
 							return fmt.Errorf("未找到解压后的LXD容器镜像文件")
 						}
-						tarPath = strings.TrimSpace(tarPath)
+						tarPath = utils.CleanCommandOutput(tarPath)
 						importCmd = fmt.Sprintf("lxc image import %s --alias %s", tarPath, config.Image)
 					}
 

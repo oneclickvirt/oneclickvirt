@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 	"regexp"
 	"strings"
 	"time"
@@ -98,7 +99,7 @@ echo "eth0"  # 使用默认值作为后备
 		return "eth0", nil // 返回默认值而不是错误
 	}
 
-	networkInterface := strings.TrimSpace(output)
+	networkInterface := utils.CleanCommandOutput(output)
 	if networkInterface == "" {
 		global.APP_LOG.Warn("检测到空接口名，使用默认值eth0")
 		return "eth0", nil
@@ -247,7 +248,7 @@ exit 1
 		return "", fmt.Errorf("failed to execute veth detection command: %w", err)
 	}
 
-	vethName := strings.TrimSpace(output)
+	vethName := utils.CleanCommandOutput(output)
 	if vethName == "" || strings.HasPrefix(vethName, "ERROR:") {
 		return "", fmt.Errorf("无法检测容器 %s 的veth接口: %s", instanceName, vethName)
 	}
@@ -357,7 +358,7 @@ exit 1
 		return "", fmt.Errorf("failed to execute Proxmox interface detection: %w", err)
 	}
 
-	interfaceName := strings.TrimSpace(output)
+	interfaceName := utils.CleanCommandOutput(output)
 	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
 		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的网络接口: %s", instanceName, instanceID, interfaceName)
 	}
@@ -432,7 +433,7 @@ exit 1
 		return "", fmt.Errorf("failed to detect interface by MAC: %w", err)
 	}
 
-	interfaceName := strings.TrimSpace(output)
+	interfaceName := utils.CleanCommandOutput(output)
 	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
 		return "", fmt.Errorf("无法通过MAC地址 %s 找到接口", macAddress)
 	}

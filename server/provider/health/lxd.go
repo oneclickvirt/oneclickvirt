@@ -384,7 +384,7 @@ func (l *LXDHealthChecker) getHostname(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("执行hostname命令失败: %w", err)
 	}
 
-	hostname := strings.TrimSpace(string(output))
+	hostname := utils.CleanCommandOutput(string(output))
 	if hostname == "" {
 		return "", fmt.Errorf("hostname为空")
 	}

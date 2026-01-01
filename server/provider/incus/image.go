@@ -88,13 +88,12 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 						// 如果没找到VM镜像，尝试查找tar.xz
 						findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
 						vmImagePath, err = i.sshClient.Execute(findCmd)
-						if err != nil || strings.TrimSpace(vmImagePath) == "" {
+						if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
 							return fmt.Errorf("未找到解压后的Incus虚拟机镜像文件")
 						}
 					}
 
-					vmImagePath = strings.TrimSpace(vmImagePath)
-
+					vmImagePath = utils.CleanCommandOutput(vmImagePath)
 					// 检查是否需要导入incus.tar.xz和disk文件
 					incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
 					diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
@@ -129,10 +128,10 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 						// 查找任何tar.xz文件
 						findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
 						tarPath, err := i.sshClient.Execute(findCmd)
-						if err != nil || strings.TrimSpace(tarPath) == "" {
+						if err != nil || utils.CleanCommandOutput(tarPath) == "" {
 							return fmt.Errorf("未找到解压后的Incus容器镜像文件")
 						}
-						tarPath = strings.TrimSpace(tarPath)
+						tarPath = utils.CleanCommandOutput(tarPath)
 						importCmd = fmt.Sprintf("incus image import %s --alias %s", tarPath, config.Image)
 					}
 

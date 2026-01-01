@@ -196,7 +196,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	// 获取节点hostname用于日志
 	hostname := "unknown"
 	if output, err := i.sshClient.Execute("hostname"); err == nil {
-		hostname = strings.TrimSpace(output)
+		hostname = utils.CleanCommandOutput(output)
 	}
 
 	global.APP_LOG.Info("开始在Incus节点上创建实例（使用SSH）",
@@ -619,7 +619,7 @@ func (i *IncusProvider) sshDeleteInstance(id string) error {
 	// 获取节点hostname用于日志
 	hostname := "unknown"
 	if output, err := i.sshClient.Execute("hostname"); err == nil {
-		hostname = strings.TrimSpace(output)
+		hostname = utils.CleanCommandOutput(output)
 	}
 
 	global.APP_LOG.Info("开始在Incus节点上删除实例（使用SSH）",
