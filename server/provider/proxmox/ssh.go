@@ -1282,51 +1282,83 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 }
 
 // updateInstanceNotes 更新虚拟机/容器的notes，将配置信息写入到配置文件中
+// 完全按照shell项目的方式实现，确保100%行为一致
 func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, config provider.InstanceConfig) error {
-	// 构建配置信息
-	var notesBuilder strings.Builder
-	// Prefix each line with '#' so the notes are clearly comments in Proxmox
-	notesBuilder.WriteString(fmt.Sprintf("#VMID: %d", vmid))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#Name: %s", config.Name))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#CPU: %s", config.CPU))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#Memory: %s", config.Memory))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#Disk: %s", config.Disk))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#Image: %s", config.Image))
-	notesBuilder.WriteString("\n")
-	notesBuilder.WriteString(fmt.Sprintf("#Type: %s", config.InstanceType))
-	notesBuilder.WriteString("\n")
-	// 添加网络信息（使用VMID到IP的映射函数）
-	internalIP := VMIDToInternalIP(vmid)
-	notesBuilder.WriteString(fmt.Sprintf("#Internal IP: %s", internalIP))
-	notesBuilder.WriteString("\n")
-	// 添加端口信息（如果有），并尝试解析SSH端口映射
-	if len(config.Ports) > 0 {
-		notesBuilder.WriteString("#Ports: ")
-		for i, port := range config.Ports {
-			if i > 0 {
-				notesBuilder.WriteString(", ")
-			}
-			notesBuilder.WriteString(port)
-		}
-		notesBuilder.WriteString("")
+	// 根据实例类型确定配置文件路径
+	var configPath string
+	var instancePrefix string
+	if config.InstanceType == "container" {
+		configPath = fmt.Sprintf("/etc/pve/lxc/%d.conf", vmid)
+		instancePrefix = "ct"
+	} else {
+		configPath = fmt.Sprintf("/etc/pve/qemu-server/%d.conf", vmid)
+		instancePrefix = "vm"
+	}
 
-		// 尝试从端口映射中找到宿主机SSH端口（guest 22）
+	// 1. 构建data行（字段名）和values行（字段值）
+	var dataFields []string
+	var valueFields []string
+
+	// 基本信息
+	dataFields = append(dataFields, "VMID")
+	valueFields = append(valueFields, fmt.Sprintf("%d", vmid))
+
+	if config.Name != "" {
+		dataFields = append(dataFields, "用户名-username")
+		valueFields = append(valueFields, config.Name)
+	}
+
+	// 密码从Metadata中获取
+	if password, ok := config.Metadata["password"]; ok && password != "" {
+		dataFields = append(dataFields, "密码-password")
+		valueFields = append(valueFields, password)
+	}
+
+	if config.CPU != "" {
+		dataFields = append(dataFields, "CPU核数-CPU")
+		valueFields = append(valueFields, config.CPU)
+	}
+
+	if config.Memory != "" {
+		dataFields = append(dataFields, "内存-memory")
+		valueFields = append(valueFields, config.Memory)
+	}
+
+	if config.Disk != "" {
+		dataFields = append(dataFields, "硬盘-disk")
+		valueFields = append(valueFields, config.Disk)
+	}
+
+	if config.Image != "" {
+		dataFields = append(dataFields, "系统-system")
+		valueFields = append(valueFields, config.Image)
+	}
+
+	// 存储盘从Metadata中获取
+	if storage, ok := config.Metadata["storage"]; ok && storage != "" {
+		dataFields = append(dataFields, "存储盘-storage")
+		valueFields = append(valueFields, storage)
+	}
+
+	// 内网IP
+	internalIP := VMIDToInternalIP(vmid)
+	if internalIP != "" {
+		dataFields = append(dataFields, "内网IP-internal-ip")
+		valueFields = append(valueFields, internalIP)
+	}
+
+	// 端口信息
+	if len(config.Ports) > 0 {
+		// 查找SSH端口
 		for _, port := range config.Ports {
-			// 常见格式："0.0.0.0:10000:22/tcp" 或 "10000:22/tcp" 或 "10000:22"
 			parts := strings.Split(port, ":")
 			if len(parts) >= 3 {
-				// 取倒数两段: hostPort, guestPart
 				hostPort := parts[len(parts)-2]
 				guestPart := parts[len(parts)-1]
 				guestPort := strings.SplitN(guestPart, "/", 2)[0]
 				if guestPort == "22" {
-					notesBuilder.WriteString(fmt.Sprintf("#SSH Port: %s", hostPort))
-					notesBuilder.WriteString("\n")
+					dataFields = append(dataFields, "SSH端口")
+					valueFields = append(valueFields, hostPort)
 					break
 				}
 			} else if len(parts) == 2 {
@@ -1334,47 +1366,72 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 				guestPart := parts[1]
 				guestPort := strings.SplitN(guestPart, "/", 2)[0]
 				if guestPort == "22" {
-					notesBuilder.WriteString(fmt.Sprintf("#SSH Port: %s", hostPort))
-					notesBuilder.WriteString("\n")
+					dataFields = append(dataFields, "SSH端口")
+					valueFields = append(valueFields, hostPort)
 					break
 				}
 			}
 		}
 	}
 
-	// 添加创建时间
-	notesBuilder.WriteString(fmt.Sprintf("#Created: %s", time.Now().Format("2006-01-02 15:04:05")))
-	notesBuilder.WriteString("\n")
-	notes := notesBuilder.String()
+	// 2. 先将values写入临时文件（类似shell的 echo "$values" > "vm${vm_num}"）
+	tmpDataFile := fmt.Sprintf("/tmp/%s%d", instancePrefix, vmid)
+	valuesLine := strings.Join(valueFields, " ")
 
-	// 根据实例类型更新配置文件
-	var configPath string
-	if config.InstanceType == "container" {
-		configPath = fmt.Sprintf("/etc/pve/lxc/%d.conf", vmid)
-	} else {
-		configPath = fmt.Sprintf("/etc/pve/qemu-server/%d.conf", vmid)
-	}
-
-	// 创建临时文件并写入notes
-	tmpFile := fmt.Sprintf("/tmp/notes_%d.txt", vmid)
-
-	// 将notes内容写入临时文件，每行前加#作为注释
-	escapedNotes := strings.ReplaceAll(notes, "'", "'\\''")
-	writeNotesCmd := fmt.Sprintf("echo '%s' | sed 's/^/# /' > %s", escapedNotes, tmpFile)
-	_, err := p.sshClient.Execute(writeNotesCmd)
+	// 使用echo写入，完全模拟shell行为
+	writeValuesCmd := fmt.Sprintf("echo '%s' > %s", valuesLine, tmpDataFile)
+	_, err := p.sshClient.Execute(writeValuesCmd)
 	if err != nil {
-		return fmt.Errorf("写入临时文件失败: %w", err)
+		return fmt.Errorf("写入数据文件失败: %w", err)
 	}
 
-	// 在配置文件末尾追加notes（跳过已存在的注释行）
-	appendNotesCmd := fmt.Sprintf("cat %s >> %s", tmpFile, configPath)
-	_, err = p.sshClient.Execute(appendNotesCmd)
+	// 3. 构建格式化的输出（模拟shell的for循环）
+	tmpFormatFile := fmt.Sprintf("/tmp/temp%d.txt", vmid)
+
+	// 使用echo逐行写入格式化内容
+	var formatCommands []string
+	formatCommands = append(formatCommands, fmt.Sprintf("> %s", tmpFormatFile)) // 清空文件
+
+	for i := 0; i < len(dataFields); i++ {
+		// 每个字段占两行：字段名+值，然后空行
+		formatCommands = append(formatCommands,
+			fmt.Sprintf("echo '%s %s' >> %s", dataFields[i], valueFields[i], tmpFormatFile))
+		formatCommands = append(formatCommands,
+			fmt.Sprintf("echo '' >> %s", tmpFormatFile))
+	}
+
+	// 执行格式化命令
+	for _, cmd := range formatCommands {
+		_, err = p.sshClient.Execute(cmd)
+		if err != nil {
+			global.APP_LOG.Warn("执行格式化命令失败", zap.String("cmd", cmd), zap.Error(err))
+		}
+	}
+
+	// 4. 给每行添加 # 注释符（完全模拟 sed -i 's/^/# /' ）
+	sedCmd := fmt.Sprintf("sed -i 's/^/# /' %s", tmpFormatFile)
+	_, err = p.sshClient.Execute(sedCmd)
 	if err != nil {
-		return fmt.Errorf("追加notes到配置文件失败: %w", err)
+		return fmt.Errorf("添加注释符失败: %w", err)
 	}
 
-	// 删除临时文件
-	_, _ = p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpFile))
+	// 5. 追加原配置文件内容（完全模拟 cat configPath >> tmpFile）
+	catCmd := fmt.Sprintf("cat %s >> %s", configPath, tmpFormatFile)
+	_, err = p.sshClient.Execute(catCmd)
+	if err != nil {
+		return fmt.Errorf("追加配置文件失败: %w", err)
+	}
+
+	// 6. 替换原配置文件（完全模拟 cp tmpFile configPath）
+	cpCmd := fmt.Sprintf("cp %s %s", tmpFormatFile, configPath)
+	_, err = p.sshClient.Execute(cpCmd)
+	if err != nil {
+		return fmt.Errorf("替换配置文件失败: %w", err)
+	}
+
+	// 7. 清理临时文件（完全模拟 rm -rf）
+	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpFormatFile))
+	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpDataFile))
 
 	global.APP_LOG.Info("成功更新Proxmox实例notes",
 		zap.Int("vmid", vmid),
