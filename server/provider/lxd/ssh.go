@@ -405,6 +405,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	updateProgress(50, "配置实例安全设置...")
 	// 配置安全设置
+	time.Sleep(6 * time.Second)
 	if err := l.configureInstanceSecurity(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置实例安全设置失败，但继续", zap.Error(err))
 	}

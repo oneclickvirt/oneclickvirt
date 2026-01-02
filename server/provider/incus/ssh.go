@@ -274,6 +274,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 	updateProgress(50, "启动实例...")
 	// 启动实例
+	time.Sleep(6 * time.Second)
 	_, err = i.sshClient.Execute(fmt.Sprintf("incus start %s", config.Name))
 	if err != nil {
 		return fmt.Errorf("启动实例失败: %w", err)
