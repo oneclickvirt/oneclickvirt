@@ -422,6 +422,31 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		global.APP_LOG.Warn("等待实例就绪失败，但继续", zap.Error(err))
 	}
 
+	// 验证实例可以执行命令（容器和虚拟机都需要）
+	if config.InstanceType == "vm" {
+		updateProgress(63, "等待虚拟机Agent启动...")
+		if err := l.waitForInstanceExecReady(config.Name, 120); err != nil {
+			global.APP_LOG.Warn("等待虚拟机Agent启动超时",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
+		} else {
+			global.APP_LOG.Info("虚拟机Agent已启动",
+				zap.String("instanceName", config.Name))
+		}
+	} else {
+		updateProgress(63, "等待容器启动...")
+		if err := l.waitForInstanceExecReady(config.Name, 30); err != nil {
+			global.APP_LOG.Warn("等待容器启动超时",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+			// 容器超时只是警告，继续尝试
+		} else {
+			global.APP_LOG.Info("容器已启动",
+				zap.String("instanceName", config.Name))
+		}
+	}
+
 	updateProgress(65, "配置实例网络...")
 	if err := l.configureInstanceNetworkSettings(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置网络失败", zap.Error(err))
@@ -531,16 +556,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				zap.String("instanceName", config.Name))
 		}
 	}
-	updateProgress(90, "等待Agent启动...")
-	if err := l.waitForVMAgentReady(config.Name, 120); err != nil {
-		global.APP_LOG.Warn("等待Agent启动超时，尝试直接设置SSH密码",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-	} else {
-		global.APP_LOG.Info("Agent已启动，可以设置SSH密码",
-			zap.String("instanceName", config.Name))
-	}
-	// 最后设置SSH密码 - 在所有其他配置完成后
+	// 最后设置SSH密码 - Agent已在启动后等待完成
 	updateProgress(95, "配置SSH密码...")
 	if err := l.configureInstanceSSHPassword(ctx, config); err != nil {
 		// SSH密码设置失败也不应该阻止实例创建，记录错误即可

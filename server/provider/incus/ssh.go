@@ -286,6 +286,31 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 			zap.Error(err))
 	}
 
+	// 验证实例可以执行命令（容器和虚拟机都需要）
+	if config.InstanceType == "vm" {
+		updateProgress(58, "等待虚拟机Agent启动...")
+		if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
+			global.APP_LOG.Warn("等待虚拟机Agent启动超时",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
+		} else {
+			global.APP_LOG.Info("虚拟机Agent已启动",
+				zap.String("instanceName", config.Name))
+		}
+	} else {
+		updateProgress(58, "等待容器启动...")
+		if err := i.waitForInstanceExecReady(config.Name, 30); err != nil {
+			global.APP_LOG.Warn("等待容器启动超时",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+			// 容器超时只是警告，继续尝试
+		} else {
+			global.APP_LOG.Info("容器已启动",
+				zap.String("instanceName", config.Name))
+		}
+	}
+
 	updateProgress(60, "配置实例资源限制...")
 	if err := i.configureInstanceLimits(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置资源限制失败", zap.Error(err))
@@ -409,16 +434,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 				zap.String("instanceName", config.Name))
 		}
 	}
-	updateProgress(95, "等待Agent启动...")
-	if err := i.waitForVMAgentReady(config.Name, 120); err != nil {
-		global.APP_LOG.Warn("等待Agent启动超时，尝试直接设置SSH密码",
-			zap.String("instanceName", config.Name),
-			zap.Error(err))
-	} else {
-		global.APP_LOG.Info("Agent已启动，可以设置SSH密码",
-			zap.String("instanceName", config.Name))
-	}
-	// 最后设置SSH密码 - 在所有其他配置完成后
+	// 最后设置SSH密码 - Agent已在启动后等待完成
 	updateProgress(98, "配置SSH密码...")
 	if err := i.configureInstanceSSHPassword(ctx, config); err != nil {
 		// SSH密码设置失败也不应该阻止实例创建，记录错误即可

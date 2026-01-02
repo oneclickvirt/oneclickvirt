@@ -367,31 +367,30 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 	return nil
 }
 
-// waitForVMAgentReady 等待Agent启动完成
-func (l *LXDProvider) waitForVMAgentReady(instanceName string, timeoutSeconds int) error {
-	global.APP_LOG.Info("开始等待Agent启动",
+// waitForInstanceExecReady 等待实例可以执行命令（容器直接可用，虚拟机需要等待Agent）
+func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSeconds int) error {
+	global.APP_LOG.Info("开始等待实例可执行命令",
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
-
+	time.Sleep(12 * time.Second)
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
 		// 尝试执行一个简单的命令来检测VM agent是否就绪
 		cmd := fmt.Sprintf("lxc exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
-			global.APP_LOG.Info("虚拟机Agent已就绪",
+			global.APP_LOG.Info("实例可执行命令",
 				zap.String("instanceName", instanceName),
 				zap.Int("elapsed", elapsed))
+			time.Sleep(12 * time.Second)
 			return nil
 		}
-
-		global.APP_LOG.Debug("等待虚拟机Agent启动",
+		global.APP_LOG.Debug("等待实例就绪",
 			zap.String("instanceName", instanceName),
 			zap.Int("elapsed", elapsed),
 			zap.Int("timeout", timeoutSeconds),
 			zap.Error(err))
-
 		time.Sleep(5 * time.Second)
 	}
 
-	return fmt.Errorf("等待虚拟机Agent启动超时 (%d秒)", timeoutSeconds)
+	return fmt.Errorf("等待实例可执行命令超时 (%d秒)", timeoutSeconds)
 }
