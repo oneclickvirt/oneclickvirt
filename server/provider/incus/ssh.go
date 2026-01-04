@@ -301,7 +301,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		}
 	} else {
 		updateProgress(58, "等待容器启动...")
-		if err := i.waitForInstanceExecReady(config.Name, 30); err != nil {
+		if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
 			global.APP_LOG.Warn("等待容器启动超时",
 				zap.String("instanceName", config.Name),
 				zap.Error(err))
@@ -335,6 +335,15 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	}
 
 	updateProgress(80, "等待实例完全启动...")
+	if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
+		global.APP_LOG.Warn("等待容器启动超时",
+			zap.String("instanceName", config.Name),
+			zap.Error(err))
+		// 容器超时只是警告，继续尝试
+	} else {
+		global.APP_LOG.Info("容器已启动",
+			zap.String("instanceName", config.Name))
+	}
 	// 查找实例ID用于pmacct初始化
 	var instanceID uint
 	var instance providerModel.Instance
