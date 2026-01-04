@@ -376,7 +376,25 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
 	time.Sleep(12 * time.Second)
+	loopCount := 0
 	for elapsed := 0; elapsed < timeoutSeconds; elapsed += 5 {
+		// 每两轮循环（10秒）尝试启动实例，避免实例因故障停止导致一直干等待
+		if loopCount > 0 && loopCount%2 == 0 {
+			startCmd := fmt.Sprintf("incus start %s", instanceName)
+			startOutput, startErr := i.sshClient.Execute(startCmd)
+			// "already running" 不是错误，而是实例已在运行的正常状态
+			if startErr == nil || strings.Contains(startOutput, "already running") {
+				global.APP_LOG.Debug("实例已启动或正在运行",
+					zap.String("instanceName", instanceName),
+					zap.Int("loopCount", loopCount))
+			} else {
+				global.APP_LOG.Warn("启动实例失败",
+					zap.String("instanceName", instanceName),
+					zap.String("output", startOutput),
+					zap.Error(startErr))
+			}
+		}
+
 		// 尝试执行一个简单的命令来检测VM agent是否就绪
 		cmd := fmt.Sprintf("incus exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
 		output, err := i.sshClient.Execute(cmd)
@@ -392,8 +410,8 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 			zap.Int("elapsed", elapsed),
 			zap.Int("timeout", timeoutSeconds),
 			zap.Error(err))
+		loopCount++
 		time.Sleep(5 * time.Second)
 	}
-
 	return fmt.Errorf("等待实例可执行命令超时 (%d秒)", timeoutSeconds)
 }

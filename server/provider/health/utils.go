@@ -524,24 +524,25 @@ func (phc *ProviderHealthChecker) GetSystemResourceInfoWithKey(ctx context.Conte
 				}
 			}
 		}
+	}
 
-		now := time.Now()
-		resourceInfo.StoragePoolPath = storagePoolPath // 保存检测到的存储池路径
-		resourceInfo.Synced = true
-		resourceInfo.SyncedAt = &now
+	// 无论哪种方式获取磁盘信息，都需要设置这些字段
+	now := time.Now()
+	resourceInfo.StoragePoolPath = storagePoolPath // 保存检测到的存储池路径
+	resourceInfo.Synced = true
+	resourceInfo.SyncedAt = &now
 
-		if phc.logger != nil {
-			phc.logger.Info("系统资源信息获取成功",
-				zap.Uint("providerID", localProviderID),
-				zap.String("providerName", localProviderName),
-				zap.String("host", localHost),
-				zap.Int("cpu_cores", resourceInfo.CPUCores),
-				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal),
-				zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
-				zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
-				zap.Int64("disk_free_mb", resourceInfo.DiskFree),
-				zap.String("storage_pool_path", storagePoolPath))
-		}
+	if phc.logger != nil {
+		phc.logger.Info("系统资源信息获取成功",
+			zap.Uint("providerID", localProviderID),
+			zap.String("providerName", localProviderName),
+			zap.String("host", localHost),
+			zap.Int("cpu_cores", resourceInfo.CPUCores),
+			zap.Int64("memory_total_mb", resourceInfo.MemoryTotal),
+			zap.Int64("swap_total_mb", resourceInfo.SwapTotal),
+			zap.Int64("disk_total_mb", resourceInfo.DiskTotal),
+			zap.Int64("disk_free_mb", resourceInfo.DiskFree),
+			zap.String("storage_pool_path", storagePoolPath))
 	}
 
 	return resourceInfo, nil
