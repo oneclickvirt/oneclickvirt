@@ -218,6 +218,14 @@ const addProviderForm = reactive({
   vmLimitCpu: true, // 虚拟机是否限制CPU，默认限制
   vmLimitMemory: true, // 虚拟机是否限制内存，默认限制
   vmLimitDisk: true, // 虚拟机是否限制硬盘，默认限制
+  // 硬件配置（容器特殊配置）
+  containerPrivileged: false, // 特权模式，默认关闭
+  containerAllowNesting: true, // 允许嵌套，默认开启
+  containerEnableLxcfs: true, // LXCFS资源视图，默认开启
+  containerCpuAllowance: '100%', // CPU限制百分比，默认100%（不限制）
+  containerMemorySwap: true, // 内存交换，默认开启
+  containerMaxProcesses: 0, // 最大进程数，0表示不限制
+  containerDiskIoLimit: '', // 磁盘IO限制，空表示不限制
   // 节点级别等级限制配置
   levelLimits: {
     1: { maxInstances: 1, maxResources: { cpu: 1, memory: 350, disk: 1025, bandwidth: 100 }, maxTraffic: 102400 },
@@ -728,6 +736,15 @@ const editProvider = (provider) => {
   addProviderForm.vmLimitCpu = provider.vmLimitCpu !== undefined ? provider.vmLimitCpu : true
   addProviderForm.vmLimitMemory = provider.vmLimitMemory !== undefined ? provider.vmLimitMemory : true
   addProviderForm.vmLimitDisk = provider.vmLimitDisk !== undefined ? provider.vmLimitDisk : true
+
+  // 硬件配置（容器特殊配置）
+  addProviderForm.containerPrivileged = provider.containerPrivileged !== undefined ? provider.containerPrivileged : false
+  addProviderForm.containerAllowNesting = provider.containerAllowNesting !== undefined ? provider.containerAllowNesting : false
+  addProviderForm.containerEnableLxcfs = provider.containerEnableLxcfs !== undefined ? provider.containerEnableLxcfs : true
+  addProviderForm.containerCpuAllowance = provider.containerCpuAllowance || '100%'
+  addProviderForm.containerMemorySwap = provider.containerMemorySwap !== undefined ? provider.containerMemorySwap : true
+  addProviderForm.containerMaxProcesses = provider.containerMaxProcesses || 0
+  addProviderForm.containerDiskIoLimit = provider.containerDiskIoLimit || ''
 
   // 根据Provider类型设置端口映射方式，优先使用数据库中保存的值，没有时使用类型默认值
   // Docker 类型固定为 native
