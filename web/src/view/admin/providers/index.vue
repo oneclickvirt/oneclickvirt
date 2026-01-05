@@ -1075,14 +1075,14 @@ const handleBatchFreeze = async () => {
 const handleSetProviderExpiry = async (provider) => {
   try {
     const { value: expiresAt } = await ElMessageBox.prompt(
-      '请输入过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则清除过期时间',
-      '设置过期时间',
+      t('admin.providers.setExpiryPrompt'),
+      t('admin.providers.setExpiry'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
-        inputErrorMessage: t('admin.providers.validation.dateFormatError'),
-        inputPlaceholder: provider.expiresAt || '如：2024-12-31 23:59:59 或留空',
+        inputErrorMessage: t('admin.providers.dateFormatError'),
+        inputPlaceholder: provider.expiresAt ? new Date(provider.expiresAt).toISOString().slice(0, 19).replace('T', ' ') : '2024-12-31 23:59:59',
         inputValue: provider.expiresAt ? new Date(provider.expiresAt).toISOString().slice(0, 19).replace('T', ' ') : ''
       }
     )

@@ -108,5 +108,10 @@ export default {
   batchDeleteSuccess: "已成功为 {count} 个实例创建删除任务，请查看任务列表了解进度",
   batchDeleteAllFailed: "批量删除失败，所有实例删除任务创建失败",
   batchDeletePartialSuccess: "成功创建 {success} 个删除任务，{fail} 个失败",
-  batchDeleteFailed: "批量删除失败"
+  batchDeleteFailed: "批量删除失败",
+  setExpiry: "设置过期时间",
+  setExpiryPrompt: "请输入过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则清除过期时间",
+  setExpirySuccess: "设置过期时间成功",
+  setExpiryFailed: "设置过期时间失败",
+  dateFormatError: "请输入正确的日期格式或留空"
 }

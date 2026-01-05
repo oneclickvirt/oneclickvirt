@@ -108,5 +108,10 @@ export default {
   batchDeleteSuccess: "Successfully created deletion tasks for {count} instances, please check the task list for progress",
   batchDeleteAllFailed: "Batch deletion failed, all instance deletion tasks failed to create",
   batchDeletePartialSuccess: "Successfully created {success} deletion tasks, {fail} failed",
-  batchDeleteFailed: "Batch deletion failed"
+  batchDeleteFailed: "Batch deletion failed",
+  setExpiry: "Set Expiry Time",
+  setExpiryPrompt: "Please enter expiry time (Format: YYYY-MM-DD HH:MM:SS or YYYY-MM-DD), leave blank to clear",
+  setExpirySuccess: "Expiry time set successfully",
+  setExpiryFailed: "Failed to set expiry time",
+  dateFormatError: "Please enter correct date format or leave blank"
 }
