@@ -151,17 +151,17 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
 
 	global.APP_LOG.Info("发现过期的用户", zap.Int("count", len(users)))
 
-	// 批量处理过期的用户
+	// 批量处理过期的用户 - 禁用状态
 	for _, u := range users {
-		if err := s.freezeUser(&u); err != nil {
-			global.APP_LOG.Error("冻结用户失败",
+		if err := s.disableUser(&u); err != nil {
+			global.APP_LOG.Error("禁用过期用户失败",
 				zap.Uint("user_id", u.ID),
 				zap.String("username", u.Username),
 				zap.Error(err))
 			continue
 		}
 
-		global.APP_LOG.Info("已冻结过期用户",
+		global.APP_LOG.Info("已禁用过期用户",
 			zap.Uint("user_id", u.ID),
 			zap.String("username", u.Username))
 	}
@@ -169,16 +169,9 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
 	return nil
 }
 
-// freezeUser 冻结单个用户
-func (s *ExpiryFreezeService) freezeUser(u *user.User) error {
-	now := time.Now()
-
-	return global.APP_DB.Model(u).Updates(map[string]interface{}{
-		"is_frozen":     true,
-		"frozen_at":     now,
-		"frozen_reason": "expired",
-		"status":        0, // 设置为禁用状态，禁止登录
-	}).Error
+// disableUser 禁用单个过期用户
+func (s *ExpiryFreezeService) disableUser(u *user.User) error {
+	return global.APP_DB.Model(u).Update("status", 0).Error
 }
 
 // CheckAndFreezeAll 检查并冻结所有过期的资源

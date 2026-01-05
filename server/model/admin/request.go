@@ -239,20 +239,9 @@ type SetInstanceExpiryRequest struct {
 	ExpiresAt  time.Time `json:"expiresAt" binding:"required"`
 }
 
-// UnfreezeUserRequest 解冻用户请求
-type UnfreezeUserRequest struct {
-	UserID uint `json:"userId" binding:"required"`
-}
-
 // UnfreezeInstanceRequest 解冻实例请求
 type UnfreezeInstanceRequest struct {
 	InstanceID uint `json:"instanceId" binding:"required"`
-}
-
-// FreezeUserRequest 手动冻结用户请求
-type FreezeUserRequest struct {
-	UserID uint   `json:"userId" binding:"required"`
-	Reason string `json:"reason"`
 }
 
 // FreezeInstanceRequest 手动冻结实例请求

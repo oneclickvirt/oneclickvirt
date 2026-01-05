@@ -118,6 +118,7 @@ export default {
   freeze: "冻结",
   unfreeze: "解冻",
   freezePrompt: "确定要冻结该实例吗？冻结后实例将无法使用。",
+  enterFreezeReason: "请输入冻结原因（可选）",
   unfreezePrompt: "确定要解冻该实例吗？",
   freezeSuccess: "冻结成功",
   freezeFailed: "冻结失败",

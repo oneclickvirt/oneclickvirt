@@ -87,31 +87,6 @@ func SetInstanceExpiry(c *gin.Context) {
 	})
 }
 
-// FreezeUser 手动冻结用户
-func FreezeUser(c *gin.Context) {
-	var req adminModel.FreezeUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: common.CodeInvalidParam,
-			Msg:  "参数错误: " + err.Error(),
-		})
-		return
-	}
-
-	if err := freezeService.FreezeUser(req.UserID, req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: common.CodeInternalError,
-			Msg:  "冻结用户失败: " + err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Msg:  "冻结成功",
-	})
-}
-
 // FreezeProviderManual 手动冻结Provider
 func FreezeProviderManual(c *gin.Context) {
 	var req adminModel.FreezeProviderRequest
@@ -159,31 +134,6 @@ func FreezeInstance(c *gin.Context) {
 	c.JSON(http.StatusOK, common.Response{
 		Code: common.CodeSuccess,
 		Msg:  "冻结成功",
-	})
-}
-
-// UnfreezeUser 解冻用户
-func UnfreezeUser(c *gin.Context) {
-	var req adminModel.UnfreezeUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: common.CodeInvalidParam,
-			Msg:  "参数错误: " + err.Error(),
-		})
-		return
-	}
-
-	if err := freezeService.UnfreezeUser(req.UserID); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: common.CodeInternalError,
-			Msg:  "解冻用户失败: " + err.Error(),
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Msg:  "解冻成功",
 	})
 }
 

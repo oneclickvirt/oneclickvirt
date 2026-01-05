@@ -55,20 +55,11 @@ export default {
   passwordResetInfo: "新密码已生成，请复制并发送给用户",
   copyPassword: "复制密码",
   loadUsersFailed: "加载用户列表失败",
-  freezeManage: "冻结管理",
   setExpiry: "设置过期时间",
   setExpiryPrompt: "请输入过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则清除过期时间",
   setExpirySuccess: "设置过期时间成功",
   setExpiryFailed: "设置过期时间失败",
   dateFormatError: "请输入正确的日期格式或留空",
   expiresAt: "过期时间",
-  selectExpiryTime: "请选择过期时间",
-  freeze: "冻结用户",
-  unfreeze: "解冻用户",
-  freezeStatus: "冻结状态",
-  freezeReason: "冻结原因",
-  freezeSuccess: "冻结成功",
-  freezeFailed: "冻结失败",
-  unfreezeSuccess: "解冻成功",
-  unfreezeFailed: "解冻失败"
+  selectExpiryTime: "请选择过期时间"
 }
