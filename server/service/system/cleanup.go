@@ -6,6 +6,7 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	userModel "oneclickvirt/model/user"
 
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/resources"
@@ -339,6 +340,41 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 
 		return nil
 	})
+}
+
+// RepairUserQuotas 修复所有用户的配额（定期运行）
+// 重新计算每个用户的实际资源占用，修复因重置、删除等操作导致的配额不准确问题
+func (s *InstanceCleanupService) RepairUserQuotas() error {
+	global.APP_LOG.Info("开始修复用户配额...")
+
+	var users []userModel.User
+	if err := global.APP_DB.Find(&users).Error; err != nil {
+		global.APP_LOG.Error("查询用户列表失败", zap.Error(err))
+		return err
+	}
+
+	quotaService := resources.NewQuotaService()
+	repairedCount := 0
+	errorCount := 0
+
+	for _, user := range users {
+		if err := quotaService.RecalculateUserQuota(user.ID); err != nil {
+			global.APP_LOG.Error("修复用户配额失败",
+				zap.Uint("userId", user.ID),
+				zap.String("username", user.Username),
+				zap.Error(err))
+			errorCount++
+		} else {
+			repairedCount++
+		}
+	}
+
+	global.APP_LOG.Info("用户配额修复完成",
+		zap.Int("totalUsers", len(users)),
+		zap.Int("repaired", repairedCount),
+		zap.Int("errors", errorCount))
+
+	return nil
 }
 
 // GetInstanceCleanupService 获取实例清理服务实例

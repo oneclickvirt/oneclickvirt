@@ -282,8 +282,10 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 	// 使用 LOCK IN SHARE MODE 共享锁，允许其他事务读取但不允许修改
 	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
 	// 这样可以防止在统计过程中有新实例被创建（防止幻读）
+	// 排除所有中间状态和无效状态：deleting(删除中)、deleted(已删除)、failed(失败)、creating(创建中)、resetting(重置中)
+	// 只计算稳定状态的实例：running、stopped、paused等
 	err := tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
-		Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed"}).
+		Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed", "creating", "resetting"}).
 		Find(&instances).Error
 	if err != nil {
 		return 0, ResourceUsage{}, err
@@ -313,10 +315,11 @@ func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint,
 
 	// 使用 LOCK IN SHARE MODE 共享锁，防止幻读
 	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
+	// 排除所有中间状态和无效状态，只计算稳定状态的实例
 	err := tx.Model(&provider.Instance{}).
 		Set("gorm:query_option", "LOCK IN SHARE MODE").
 		Where("user_id = ? AND provider_id = ? AND status NOT IN (?)",
-			userID, providerID, []string{"deleting", "deleted", "failed"}).
+			userID, providerID, []string{"deleting", "deleted", "failed", "creating", "resetting"}).
 		Count(&count).Error
 
 	if err != nil {

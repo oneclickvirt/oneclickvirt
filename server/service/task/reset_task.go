@@ -61,11 +61,14 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 
 	// 阶段3: Provider操作 - 删除旧实例（无事务）
 	if err := s.resetTask_DeleteOldInstance(ctx, task, &resetCtx); err != nil {
+		// 删除旧实例失败，回滚数据库操作
+		s.resetTask_RollbackDatabaseChanges(ctx, &resetCtx)
 		return err
 	}
 
 	// 阶段4: Provider操作 - 创建新实例（无事务）
 	if err := s.resetTask_CreateNewInstance(ctx, task, &resetCtx); err != nil {
+		// 创建新实例失败，已在函数内部标记为failed，不需要回滚
 		return err
 	}
 
@@ -199,6 +202,12 @@ func (s *TaskService) resetTask_RenameAndCreateNew(ctx context.Context, task *ad
 		}
 
 		resetCtx.NewInstanceID = newInstance.ID
+
+		// 注意：重置操作不应增加用户配额占用
+		// 因为旧实例被软删除，新实例是替换旧实例，总资源占用不变
+		// 用户配额在旧实例创建时已经计算，这里只是替换实例记录
+		// getCurrentResourceUsage会排除deleted和creating/resetting状态，所以不会重复计算
+
 		return nil
 	})
 
@@ -498,6 +507,53 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		zap.Int("失败", failCount))
 
 	return nil
+}
+
+// resetTask_RollbackDatabaseChanges 回滚数据库更改（当Provider操作失败时）
+func (s *TaskService) resetTask_RollbackDatabaseChanges(ctx context.Context, resetCtx *ResetTaskContext) {
+	global.APP_LOG.Warn("重置任务失败，开始回滚数据库更改",
+		zap.Uint("oldInstanceId", resetCtx.OldInstanceID),
+		zap.Uint("newInstanceId", resetCtx.NewInstanceID))
+
+	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		// 1. 删除新创建的实例记录
+		if resetCtx.NewInstanceID > 0 {
+			if err := tx.Unscoped().Delete(&providerModel.Instance{}, resetCtx.NewInstanceID).Error; err != nil {
+				global.APP_LOG.Error("删除新实例记录失败", zap.Error(err))
+			}
+		}
+
+		// 2. 恢复旧实例：取消软删除并恢复原始名称
+		if resetCtx.OldInstanceID > 0 {
+			// 先取消软删除
+			if err := tx.Model(&providerModel.Instance{}).Unscoped().
+				Where("id = ?", resetCtx.OldInstanceID).
+				Update("deleted_at", nil).Error; err != nil {
+				global.APP_LOG.Error("恢复旧实例软删除状态失败", zap.Error(err))
+				return err
+			}
+
+			// 再恢复原始名称和状态
+			if err := tx.Model(&providerModel.Instance{}).
+				Where("id = ?", resetCtx.OldInstanceID).
+				Updates(map[string]interface{}{
+					"name":   resetCtx.OldInstanceName,
+					"status": "stopped", // 恢复为stopped状态，等待用户手动处理
+				}).Error; err != nil {
+				global.APP_LOG.Error("恢复旧实例名称和状态失败", zap.Error(err))
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		global.APP_LOG.Error("回滚数据库更改失败", zap.Error(err))
+	} else {
+		global.APP_LOG.Info("数据库更改已回滚",
+			zap.Uint("oldInstanceId", resetCtx.OldInstanceID))
+	}
 }
 
 // resetTask_ReinitializeMonitoring 阶段8: 重新初始化监控
