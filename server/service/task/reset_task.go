@@ -12,6 +12,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
+	userModel "oneclickvirt/model/user"
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/provider/portmapping"
@@ -261,32 +262,63 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 	providerApiService := &provider2.ProviderApiService{}
 
-	// 准备创建请求
+	// 获取用户信息（用于带宽限制配置）
+	var user userModel.User
+	if err := global.APP_DB.First(&user, task.UserID).Error; err != nil {
+		return fmt.Errorf("获取用户信息失败: %v", err)
+	}
+
+	// 准备创建请求 - 与正常创建逻辑保持一致
 	createReq := provider2.CreateInstanceRequest{
 		InstanceConfig: providerModel.ProviderInstanceConfig{
 			Name:         resetCtx.OldInstanceName,
 			Image:        resetCtx.Instance.Image,
 			InstanceType: resetCtx.Instance.InstanceType,
 			CPU:          fmt.Sprintf("%d", resetCtx.Instance.CPU),
-			Memory:       fmt.Sprintf("%dMB", resetCtx.Instance.Memory),
-			Disk:         fmt.Sprintf("%dMB", resetCtx.Instance.Disk),
+			Memory:       fmt.Sprintf("%dm", resetCtx.Instance.Memory), // 使用m格式（与正常创建一致）
+			Disk:         fmt.Sprintf("%dm", resetCtx.Instance.Disk),   // 使用m格式（与正常创建一致）
 			Env:          map[string]string{"RESET_OPERATION": "true"},
-			Metadata:     make(map[string]string),
+			// 完整的Metadata配置（与正常创建保持一致）
+			Metadata: map[string]string{
+				"user_level":               fmt.Sprintf("%d", user.Level),                  // 用户等级，用于带宽限制配置
+				"bandwidth_spec":           fmt.Sprintf("%d", resetCtx.Instance.Bandwidth), // 带宽规格
+				"ipv4_port_mapping_method": resetCtx.Provider.IPv4PortMappingMethod,        // IPv4端口映射方式
+				"ipv6_port_mapping_method": resetCtx.Provider.IPv6PortMappingMethod,        // IPv6端口映射方式
+				"network_type":             resetCtx.Provider.NetworkType,                  // 网络配置类型
+				"instance_id":              fmt.Sprintf("%d", resetCtx.NewInstanceID),      // 新实例ID
+				"provider_id":              fmt.Sprintf("%d", resetCtx.Provider.ID),        // Provider ID
+				"reset_from_instance_id":   fmt.Sprintf("%d", resetCtx.OldInstanceID),      // 标记从哪个实例重置而来
+			},
+			// 容器特殊配置（继承Provider配置，与正常创建保持一致）
+			Privileged:   boolPtr(resetCtx.Provider.ContainerPrivileged),
+			AllowNesting: boolPtr(resetCtx.Provider.ContainerAllowNesting),
+			EnableLXCFS:  boolPtr(resetCtx.Provider.ContainerEnableLXCFS),
+			CPUAllowance: stringPtr(resetCtx.Provider.ContainerCPUAllowance),
+			MemorySwap:   boolPtr(resetCtx.Provider.ContainerMemorySwap),
+			MaxProcesses: intPtr(resetCtx.Provider.ContainerMaxProcesses),
+			DiskIOLimit:  stringPtr(resetCtx.Provider.ContainerDiskIOLimit),
 		},
 		SystemImageID: resetCtx.SystemImage.ID,
 	}
 
-	// Docker特殊处理：端口映射
+	// Docker特殊处理：端口映射（继承旧实例的端口配置）
 	if resetCtx.Provider.Type == "docker" && len(resetCtx.OldPortMappings) > 0 {
 		var ports []string
 		for _, oldPort := range resetCtx.OldPortMappings {
-			portMapping := fmt.Sprintf("0.0.0.0:%d:%d/%s", oldPort.HostPort, oldPort.GuestPort, oldPort.Protocol)
-			ports = append(ports, portMapping)
+			// 处理both协议（需要分成tcp和udp两个映射）
+			if oldPort.Protocol == "both" {
+				tcpMapping := fmt.Sprintf("0.0.0.0:%d:%d/tcp", oldPort.HostPort, oldPort.GuestPort)
+				udpMapping := fmt.Sprintf("0.0.0.0:%d:%d/udp", oldPort.HostPort, oldPort.GuestPort)
+				ports = append(ports, tcpMapping, udpMapping)
+			} else {
+				portMapping := fmt.Sprintf("0.0.0.0:%d:%d/%s", oldPort.HostPort, oldPort.GuestPort, oldPort.Protocol)
+				ports = append(ports, portMapping)
+			}
 		}
 		createReq.InstanceConfig.Ports = ports
 	}
 
-	// 调用Provider API创建
+	// 调用Provider API创建（会自动准备镜像URL）
 	if err := providerApiService.CreateInstanceByProviderID(ctx, resetCtx.Provider.ID, createReq); err != nil {
 		// 创建失败，更新数据库状态
 		s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
@@ -295,8 +327,28 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		return fmt.Errorf("重置实例失败（重建阶段）: %v", err)
 	}
 
-	// 等待实例启动
+	// 等待实例启动并获取网络配置
 	time.Sleep(15 * time.Second)
+
+	// 确保实例正在运行
+	provInstance, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
+	if err == nil {
+		// 检查实例状态
+		if instance, err := provInstance.GetInstance(ctx, resetCtx.OldInstanceName); err == nil {
+			if instance.Status != "running" {
+				// 尝试启动实例
+				global.APP_LOG.Info("实例未运行，正在启动",
+					zap.String("instanceName", resetCtx.OldInstanceName),
+					zap.String("status", instance.Status))
+				if err := provInstance.StartInstance(ctx, resetCtx.OldInstanceName); err != nil {
+					global.APP_LOG.Warn("启动实例失败", zap.Error(err))
+				} else {
+					// 等待实例启动完成
+					time.Sleep(10 * time.Second)
+				}
+			}
+		}
+	}
 
 	global.APP_LOG.Info("新实例创建完成",
 		zap.Uint("newInstanceId", resetCtx.NewInstanceID),
@@ -406,6 +458,47 @@ func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *ad
 // resetTask_RestorePortMappings 阶段7: 恢复端口映射
 func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
 	s.updateTaskProgress(task.ID, 88, "正在恢复端口映射...")
+
+	// 对于LXD/Incus，需要等待实例获取到IP地址后才能配置端口映射
+	if resetCtx.Provider.Type == "lxd" || resetCtx.Provider.Type == "incus" {
+		global.APP_LOG.Info("等待实例获取IP地址",
+			zap.String("instanceName", resetCtx.OldInstanceName),
+			zap.String("providerType", resetCtx.Provider.Type))
+
+		// 多次尝试获取IP，最多等待30秒
+		providerApiService := &provider2.ProviderApiService{}
+		for attempt := 1; attempt <= 10; attempt++ {
+			if prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID); err == nil {
+				var ip string
+				switch resetCtx.Provider.Type {
+				case "lxd":
+					if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
+						ip, _ = lxdProv.GetInstanceIPv4(ctx, resetCtx.OldInstanceName)
+					}
+				case "incus":
+					if incusProv, ok := prov.(*incus.IncusProvider); ok {
+						ip, _ = incusProv.GetInstanceIPv4(ctx, resetCtx.OldInstanceName)
+					}
+				}
+				if ip != "" {
+					global.APP_LOG.Info("实例IP获取成功",
+						zap.String("instanceName", resetCtx.OldInstanceName),
+						zap.String("ip", ip),
+						zap.Int("attempt", attempt))
+					resetCtx.NewPrivateIP = ip
+					break
+				}
+			}
+			if attempt < 10 {
+				time.Sleep(3 * time.Second)
+			}
+		}
+
+		if resetCtx.NewPrivateIP == "" {
+			global.APP_LOG.Warn("无法获取实例IP地址，端口映射可能失败",
+				zap.String("instanceName", resetCtx.OldInstanceName))
+		}
+	}
 
 	if len(resetCtx.OldPortMappings) == 0 {
 		// 创建默认端口映射
@@ -585,4 +678,23 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 	}
 
 	return nil
+}
+
+// 辅助函数：创建指针类型（与正常创建逻辑保持一致）
+func boolPtr(b bool) *bool {
+	return &b
+}
+
+func stringPtr(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
+}
+
+func intPtr(i int) *int {
+	if i == 0 {
+		return nil
+	}
+	return &i
 }

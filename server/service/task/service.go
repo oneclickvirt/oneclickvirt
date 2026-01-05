@@ -333,22 +333,28 @@ func (s *TaskService) restorePortMappingsOptimized(
 
 	// 处理每个分组
 	for _, group := range consecutiveGroups {
-		// 判断是否应该使用范围映射
-		// LXD/Incus 支持范围映射，Proxmox 使用 iptables 需要逐个创建
-		useRangeMapping := (provider.Type == "lxd" || provider.Type == "incus") && len(group) >= 3
+		// 对于重置任务，所有端口映射都需要重新创建到远程服务器
+		// 因为旧实例已被删除，新实例上没有任何端口映射配置
+		for _, oldPort := range group {
+			isSSH := oldPort.IsSSH
+			portReq := &portmapping.PortMappingRequest{
+				InstanceID:    fmt.Sprintf("%d", instance.ID),
+				ProviderID:    provider.ID,
+				Protocol:      oldPort.Protocol,
+				HostPort:      oldPort.HostPort,
+				GuestPort:     oldPort.GuestPort,
+				Description:   oldPort.Description,
+				MappingMethod: provider.IPv4PortMappingMethod,
+				IsSSH:         &isSSH,
+			}
 
-		if useRangeMapping {
-			// 3个或以上连续端口，使用范围映射（避免创建重复设备）
-			// 直接操作provider层，跳过portmapping manager以避免创建独立代理
-			global.APP_LOG.Info("检测到连续端口范围，跳过portmapping创建（已由实例创建时处理）",
-				zap.String("providerType", provider.Type),
-				zap.String("protocol", group[0].Protocol),
-				zap.Int("startPort", group[0].HostPort),
-				zap.Int("endPort", group[len(group)-1].HostPort),
-				zap.Int("count", len(group)))
+			result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
+			if err != nil {
+				global.APP_LOG.Warn("应用端口映射到远程服务器失败",
+					zap.Int("hostPort", oldPort.HostPort),
+					zap.Error(err))
 
-			// 只恢复数据库记录，不创建实际代理（因为范围代理已存在）
-			for _, oldPort := range group {
+				// 即使失败也创建数据库记录（状态为failed）
 				newPort := providerModel.Port{
 					InstanceID:    instance.ID,
 					ProviderID:    provider.ID,
@@ -356,67 +362,21 @@ func (s *TaskService) restorePortMappingsOptimized(
 					GuestPort:     oldPort.GuestPort,
 					Protocol:      oldPort.Protocol,
 					Description:   oldPort.Description,
-					Status:        "active",
+					Status:        "failed",
 					IsSSH:         oldPort.IsSSH,
 					IsAutomatic:   oldPort.IsAutomatic,
 					PortType:      oldPort.PortType,
 					MappingMethod: oldPort.MappingMethod,
 					IPv6Enabled:   oldPort.IPv6Enabled,
 				}
-				if err := global.APP_DB.Create(&newPort).Error; err != nil {
-					global.APP_LOG.Warn("恢复端口映射数据库记录失败",
-						zap.Int("hostPort", oldPort.HostPort),
-						zap.Error(err))
-					failCount++
-				} else {
-					successCount++
-				}
-			}
-		} else {
-			// Proxmox 或少于3个端口，逐个处理
-			for _, oldPort := range group {
-				isSSH := oldPort.IsSSH
-				portReq := &portmapping.PortMappingRequest{
-					InstanceID:    fmt.Sprintf("%d", instance.ID),
-					ProviderID:    provider.ID,
-					Protocol:      oldPort.Protocol,
-					HostPort:      oldPort.HostPort,
-					GuestPort:     oldPort.GuestPort,
-					Description:   oldPort.Description,
-					MappingMethod: provider.IPv4PortMappingMethod,
-					IsSSH:         &isSSH,
-				}
-
-				result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
-				if err != nil {
-					global.APP_LOG.Warn("应用端口映射到远程服务器失败",
-						zap.Int("hostPort", oldPort.HostPort),
-						zap.Error(err))
-
-					// 即使失败也创建数据库记录（状态为failed）
-					newPort := providerModel.Port{
-						InstanceID:    instance.ID,
-						ProviderID:    provider.ID,
-						HostPort:      oldPort.HostPort,
-						GuestPort:     oldPort.GuestPort,
-						Protocol:      oldPort.Protocol,
-						Description:   oldPort.Description,
-						Status:        "failed",
-						IsSSH:         oldPort.IsSSH,
-						IsAutomatic:   oldPort.IsAutomatic,
-						PortType:      oldPort.PortType,
-						MappingMethod: oldPort.MappingMethod,
-						IPv6Enabled:   oldPort.IPv6Enabled,
-					}
-					global.APP_DB.Create(&newPort)
-					failCount++
-				} else {
-					successCount++
-					global.APP_LOG.Debug("端口映射已应用到远程服务器",
-						zap.Uint("portId", result.ID),
-						zap.Int("hostPort", result.HostPort),
-						zap.Int("guestPort", result.GuestPort))
-				}
+				global.APP_DB.Create(&newPort)
+				failCount++
+			} else {
+				successCount++
+				global.APP_LOG.Debug("端口映射已应用到远程服务器",
+					zap.Uint("portId", result.ID),
+					zap.Int("hostPort", result.HostPort),
+					zap.Int("guestPort", result.GuestPort))
 			}
 		}
 	}
