@@ -270,7 +270,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		InstanceType: req.InstanceType,
 		UserID:       userID,
 		Status:       "creating",
-		ExpiredAt:    expiredAt,
+		ExpiresAt:    &expiredAt,
 	}
 
 	// ===== 阶段3: 短事务 - 创建实例、消费预留、更新配额 =====

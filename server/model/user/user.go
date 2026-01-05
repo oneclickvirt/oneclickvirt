@@ -51,6 +51,13 @@ type User struct {
 	InviteCode  string     `json:"inviteCode" gorm:"size:32"` // 注册时使用的邀请码
 	LastLoginAt *time.Time `json:"lastLoginAt"`               // 最后登录时间
 
+	// 过期和冻结管理
+	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at"`          // 用户过期时间，过期后自动冻结禁用
+	IsFrozen       bool       `json:"isFrozen" gorm:"default:false;index:idx_frozen"` // 是否被冻结（冻结后禁止登录操作）
+	IsManualExpiry bool       `json:"isManualExpiry" gorm:"default:false"`            // 是否手动设置了过期时间（手动设置优先级高于全局配置）
+	FrozenReason   string     `json:"frozenReason" gorm:"size:255"`                   // 冻结原因
+	FrozenAt       *time.Time `json:"frozenAt"`                                       // 冻结时间
+
 	// OAuth2关联信息
 	OAuth2ProviderID uint   `json:"oauth2ProviderId" gorm:"index"`   // OAuth2提供商ID（关联oauth2_providers表）
 	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识

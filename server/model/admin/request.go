@@ -1,6 +1,9 @@
 package admin
 
-import "oneclickvirt/model/common"
+import (
+	"oneclickvirt/model/common"
+	"time"
+)
 
 type CreateUserRequest struct {
 	Username   string `json:"username" binding:"required"`
@@ -216,8 +219,51 @@ type ProviderListRequest struct {
 	Status string `json:"status" form:"status"`
 }
 
+// 冻结管理相关请求
+
+// SetUserExpiryRequest 设置用户过期时间请求
+type SetUserExpiryRequest struct {
+	UserID    uint      `json:"userId" binding:"required"`
+	ExpiresAt time.Time `json:"expiresAt" binding:"required"`
+}
+
+// SetProviderExpiryRequest 设置Provider过期时间请求
+type SetProviderExpiryRequest struct {
+	ProviderID uint      `json:"providerId" binding:"required"`
+	ExpiresAt  time.Time `json:"expiresAt" binding:"required"`
+}
+
+// SetInstanceExpiryRequest 设置实例过期时间请求
+type SetInstanceExpiryRequest struct {
+	InstanceID uint      `json:"instanceId" binding:"required"`
+	ExpiresAt  time.Time `json:"expiresAt" binding:"required"`
+}
+
+// UnfreezeUserRequest 解冻用户请求
+type UnfreezeUserRequest struct {
+	UserID uint `json:"userId" binding:"required"`
+}
+
+// UnfreezeInstanceRequest 解冻实例请求
+type UnfreezeInstanceRequest struct {
+	InstanceID uint `json:"instanceId" binding:"required"`
+}
+
+// FreezeUserRequest 手动冻结用户请求
+type FreezeUserRequest struct {
+	UserID uint   `json:"userId" binding:"required"`
+	Reason string `json:"reason"`
+}
+
+// FreezeInstanceRequest 手动冻结实例请求
+type FreezeInstanceRequest struct {
+	InstanceID uint   `json:"instanceId" binding:"required"`
+	Reason     string `json:"reason"`
+}
+
 type FreezeProviderRequest struct {
-	ID uint `json:"id" binding:"required"`
+	ID     uint   `json:"id" binding:"required"`
+	Reason string `json:"reason"`
 }
 
 type UnfreezeProviderRequest struct {

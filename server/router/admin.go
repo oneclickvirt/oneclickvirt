@@ -152,5 +152,16 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/traffic-monitor/tasks", admin.GetTrafficMonitorTaskList)
 		AdminGroup.GET("/providers/traffic-monitor/tasks/:id", admin.GetTrafficMonitorTaskDetail)
 		AdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
+
+		// 冻结管理
+		AdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
+		AdminGroup.POST("/users/freeze", admin.FreezeUser)
+		AdminGroup.POST("/users/unfreeze", admin.UnfreezeUser)
+		AdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)
+		AdminGroup.POST("/providers/freeze-manual", admin.FreezeProviderManual)
+		AdminGroup.POST("/providers/unfreeze-manual", admin.UnfreezeProviderManual)
+		AdminGroup.POST("/instances/set-expiry", admin.SetInstanceExpiry)
+		AdminGroup.POST("/instances/freeze", admin.FreezeInstance)
+		AdminGroup.POST("/instances/unfreeze", admin.UnfreezeInstance)
 	}
 }

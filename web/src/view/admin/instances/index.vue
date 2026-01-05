@@ -230,11 +230,26 @@
             <span :class="{ 'expired': isExpired(scope.row.expiredAt), 'expiring-soon': isExpiringSoon(scope.row.expiredAt) }">
               {{ formatDate(scope.row.expiredAt) }}
             </span>
+            <div v-if="scope.row.isManualExpiry" style="margin-top: 4px;">
+              <el-tag size="small" type="info">{{ $t('admin.instances.manualExpiry') }}</el-tag>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="isFrozen"
+          :label="$t('admin.instances.freezeStatus')"
+          width="100"
+          align="center"
+        >
+          <template #default="scope">
+            <el-tag :type="scope.row.isFrozen ? 'danger' : 'success'" size="small">
+              {{ scope.row.isFrozen ? $t('admin.instances.frozen') : $t('admin.instances.normal') }}
+            </el-tag>
           </template>
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="220"
+          width="280"
           fixed="right"
         >
           <template #default="scope">
@@ -486,6 +501,31 @@
           <el-icon><RefreshRight /></el-icon>
           {{ $t('admin.instances.resetSystem') }}
         </el-button>
+        <el-divider />
+        <el-button
+          type="info"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('setExpiry')"
+        >
+          {{ $t('admin.instances.setExpiry') }}
+        </el-button>
+        <el-button
+          v-if="!actionInstance.isFrozen"
+          type="warning"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('freeze')"
+        >
+          {{ $t('admin.instances.freeze') }}
+        </el-button>
+        <el-button
+          v-else
+          type="success"
+          style="width: 100%; margin-bottom: 10px;"
+          @click="performAction('unfreeze')"
+        >
+          {{ $t('admin.instances.unfreeze') }}
+        </el-button>
+        <el-divider />
         <el-button
           type="danger"
           :loading="actionLoading"
@@ -511,7 +551,7 @@ import {
   Lock, 
   Delete 
 } from '@element-plus/icons-vue'
-import { getAllInstances, deleteInstance as deleteInstanceApi, adminInstanceAction, resetInstancePassword } from '@/api/admin'
+import { getAllInstances, deleteInstance as deleteInstanceApi, adminInstanceAction, resetInstancePassword, setInstanceExpiry, freezeInstance, unfreezeInstance } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -616,6 +656,28 @@ const showActionDialog = (instance) => {
 
 // 执行操作
 const performAction = async (action) => {
+  // 处理冻结管理操作
+  if (action === 'setExpiry') {
+    actionDialogVisible.value = false
+    await handleSetInstanceExpiry(actionInstance.value)
+    actionInstance.value = null
+    return
+  }
+  
+  if (action === 'freeze') {
+    actionDialogVisible.value = false
+    await handleFreezeInstance(actionInstance.value)
+    actionInstance.value = null
+    return
+  }
+  
+  if (action === 'unfreeze') {
+    actionDialogVisible.value = false
+    await handleUnfreezeInstance(actionInstance.value)
+    actionInstance.value = null
+    return
+  }
+  
   const actionText = {
     'start': t('common.start'),
     'stop': t('common.stop'),
@@ -939,6 +1001,82 @@ const batchStopInstances = async () => {
   } catch (err) {
     ElMessage.error(t('admin.instances.batchStopFailed'))
     await loadInstances()
+  }
+}
+
+// 冻结管理函数
+const handleSetInstanceExpiry = async (instance) => {
+  try {
+    const { value: expiresAt } = await ElMessageBox.prompt(
+      t('admin.instances.setExpiryPrompt'),
+      t('admin.instances.setExpiry'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
+        inputErrorMessage: t('admin.instances.dateFormatError'),
+        inputPlaceholder: instance.expiredAt ? formatDate(instance.expiredAt) : '2024-12-31 23:59:59',
+        inputValue: instance.expiredAt ? formatDate(instance.expiredAt) : ''
+      }
+    )
+
+    await setInstanceExpiry({
+      instanceID: instance.id,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
+    })
+    ElMessage.success(t('admin.instances.setExpirySuccess'))
+    await loadInstances()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.instances.setExpiryFailed'))
+    }
+  }
+}
+
+const handleFreezeInstance = async (instance) => {
+  try {
+    const { value: reason } = await ElMessageBox.prompt(
+      t('admin.instances.freezePrompt'),
+      t('admin.instances.freeze'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        inputPlaceholder: t('admin.instances.enterFreezeReason')
+      }
+    )
+
+    await freezeInstance({
+      instanceID: instance.id,
+      reason: reason || ''
+    })
+    ElMessage.success(t('admin.instances.freezeSuccess'))
+    await loadInstances()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.instances.freezeFailed'))
+    }
+  }
+}
+
+const handleUnfreezeInstance = async (instance) => {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.instances.unfreezeConfirm'),
+      t('admin.instances.unfreeze'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+
+    await unfreezeInstance({ instanceID: instance.id })
+    ElMessage.success(t('admin.instances.unfreezeSuccess'))
+    await loadInstances()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.instances.unfreezeFailed'))
+    }
   }
 }
 

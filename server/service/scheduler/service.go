@@ -116,15 +116,20 @@ func (s *SchedulerService) runTaskScheduler() {
 	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理保持1分钟
 	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护保持10分钟
 	trafficAggTicker := time.NewTicker(5 * time.Minute)   // 流量聚合保持5分钟
+	expiryCheckTicker := time.NewTicker(1 * time.Hour)    // 过期检查保持1小时
 
 	defer func() {
 		taskTicker.Stop()
 		cleanupTicker.Stop()
 		maintenanceTicker.Stop()
 		trafficAggTicker.Stop()
+		expiryCheckTicker.Stop()
 	}()
 
-	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation")
+	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation and expiry check")
+
+	// 启动时立即执行一次过期检查
+	s.checkExpiredResources()
 
 	for {
 		select {
@@ -145,6 +150,10 @@ func (s *SchedulerService) runTaskScheduler() {
 
 		case <-maintenanceTicker.C:
 			s.performMaintenance()
+
+		case <-expiryCheckTicker.C:
+			// 定期检查过期资源并冻结
+			s.checkExpiredResources()
 
 		case <-trafficAggTicker.C:
 			// 定期聚合流量数据，更新缓存
@@ -348,4 +357,25 @@ func (s *SchedulerService) aggregateTrafficData() {
 	}
 
 	global.APP_LOG.Debug("流量聚合任务完成")
+}
+
+// checkExpiredResources 检查并冻结过期的资源（用户、节点、实例）
+func (s *SchedulerService) checkExpiredResources() {
+	// 检查数据库是否已初始化
+	if global.APP_DB == nil {
+		global.APP_LOG.Debug("数据库未初始化，跳过过期资源检查")
+		return
+	}
+
+	global.APP_LOG.Info("开始检查过期资源")
+
+	// 创建过期冻结服务
+	expiryService := &ExpiryFreezeService{}
+
+	// 检查并冻结所有过期资源
+	if err := expiryService.CheckAndFreezeAll(); err != nil {
+		global.APP_LOG.Error("检查过期资源失败", zap.Error(err))
+	} else {
+		global.APP_LOG.Info("过期资源检查完成")
+	}
 }

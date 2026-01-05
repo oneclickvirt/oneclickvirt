@@ -216,8 +216,48 @@
           </template>
         </el-table-column>
         <el-table-column
+          prop="expiresAt"
+          :label="$t('admin.users.expiresAt')"
+          width="180"
+          align="center"
+        >
+          <template #default="scope">
+            <div v-if="scope.row.expiresAt">
+              <el-tag 
+                :type="isExpired(scope.row.expiresAt) ? 'danger' : 'success'"
+                size="small"
+              >
+                {{ formatDateTime(scope.row.expiresAt) }}
+              </el-tag>
+              <div v-if="scope.row.isManualExpiry" style="margin-top: 4px;">
+                <el-tag size="small" type="info">{{ $t('admin.users.manualExpiry') }}</el-tag>
+              </div>
+            </div>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          prop="isFrozen"
+          :label="$t('admin.users.freezeStatus')"
+          width="120"
+          align="center"
+        >
+          <template #default="scope">
+            <div>
+              <el-tag :type="scope.row.isFrozen ? 'danger' : 'success'">
+                {{ scope.row.isFrozen ? $t('admin.users.frozen') : $t('admin.users.normal') }}
+              </el-tag>
+              <div v-if="scope.row.isFrozen && scope.row.frozenReason" style="margin-top: 4px;">
+                <el-tooltip :content="scope.row.frozenReason">
+                  <el-tag size="small" type="warning">{{ $t('admin.users.hasReason') }}</el-tag>
+                </el-tooltip>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column
           :label="$t('common.actions')"
-          width="250"
+          width="350"
           fixed="right"
           align="center"
         >
@@ -254,6 +294,35 @@
                     </el-dropdown-item>
                     <el-dropdown-item :command="5">
                       {{ $t('admin.users.setToLevel', { level: 5 }) }}
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
+              <el-dropdown @command="(cmd) => handleFreezeCommand(scope.row, cmd)">
+                <el-button
+                  size="small"
+                  :type="scope.row.isFrozen ? 'success' : 'warning'"
+                >
+                  {{ $t('admin.users.freezeManage') }}<el-icon class="el-icon--right">
+                    <arrow-down />
+                  </el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="setExpiry">
+                      {{ $t('admin.users.setExpiry') }}
+                    </el-dropdown-item>
+                    <el-dropdown-item 
+                      command="freeze"
+                      :disabled="scope.row.isFrozen"
+                    >
+                      {{ $t('admin.users.freeze') }}
+                    </el-dropdown-item>
+                    <el-dropdown-item 
+                      command="unfreeze"
+                      :disabled="!scope.row.isFrozen"
+                    >
+                      {{ $t('admin.users.unfreeze') }}
                     </el-dropdown-item>
                   </el-dropdown-menu>
                 </template>
@@ -575,6 +644,88 @@
         </div>
       </template>
     </el-dialog>
+
+    <!-- 设置过期时间对话框 -->
+    <el-dialog
+      v-model="showSetExpiryDialog"
+      :title="$t('admin.users.setExpiry')"
+      width="500px"
+    >
+      <el-form
+        label-width="120px"
+      >
+        <el-form-item :label="$t('admin.users.username')">
+          <el-input 
+            v-model="freezeForm.username" 
+            disabled
+          />
+        </el-form-item>
+        <el-form-item :label="$t('admin.users.expiresAt')">
+          <el-date-picker
+            v-model="freezeForm.expiresAt"
+            type="datetime"
+            :placeholder="$t('admin.users.selectExpiryTime')"
+            format="YYYY-MM-DD HH:mm:ss"
+            value-format="YYYY-MM-DDTHH:mm:ssZ"
+            style="width: 100%;"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="showSetExpiryDialog = false">
+            {{ $t('common.cancel') }}
+          </el-button>
+          <el-button
+            type="primary"
+            :loading="freezeLoading"
+            @click="confirmSetExpiry"
+          >
+            {{ $t('common.confirm') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
+
+    <!-- 冻结对话框 -->
+    <el-dialog
+      v-model="showFreezeDialog"
+      :title="$t('admin.users.freeze')"
+      width="500px"
+    >
+      <el-form
+        label-width="120px"
+      >
+        <el-form-item :label="$t('admin.users.username')">
+          <el-input 
+            v-model="freezeForm.username" 
+            disabled
+          />
+        </el-form-item>
+        <el-form-item :label="$t('admin.users.freezeReason')">
+          <el-input
+            v-model="freezeForm.reason"
+            type="textarea"
+            :rows="4"
+            :placeholder="$t('admin.users.enterFreezeReason')"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <div class="dialog-footer">
+          <el-button @click="showFreezeDialog = false">
+            {{ $t('common.cancel') }}
+          </el-button>
+          <el-button
+            type="warning"
+            :loading="freezeLoading"
+            @click="confirmFreeze"
+          >
+            {{ $t('common.confirm') }}
+          </el-button>
+        </div>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -592,7 +743,10 @@ import {
   batchUpdateUserStatus,
   batchUpdateUserLevel,
   updateUserLevel,
-  resetUserPassword
+  resetUserPassword,
+  setUserExpiry,
+  freezeUser,
+  unfreezeUser
 } from '@/api/admin'
 
 const { t } = useI18n()
@@ -614,6 +768,17 @@ const resetPasswordForm = reactive({
 })
 const resetPasswordLoading = ref(false)
 const generatedPassword = ref('')
+
+// 冻结管理相关
+const showSetExpiryDialog = ref(false)
+const showFreezeDialog = ref(false)
+const freezeLoading = ref(false)
+const freezeForm = reactive({
+  userId: null,
+  username: '',
+  expiresAt: null,
+  reason: ''
+})
 
 // 搜索相关
 const searchUsername = ref('')
@@ -1081,6 +1246,104 @@ const copyPassword = async () => {
     console.error('复制失败:', error)
     ElMessage.error(t('user.profile.copyFailed'))
   }
+}
+
+// 冻结管理命令处理
+const handleFreezeCommand = (user, command) => {
+  freezeForm.userId = user.id
+  freezeForm.username = user.username
+  
+  switch (command) {
+    case 'setExpiry':
+      freezeForm.expiresAt = user.expiresAt || null
+      showSetExpiryDialog.value = true
+      break
+    case 'freeze':
+      freezeForm.reason = ''
+      showFreezeDialog.value = true
+      break
+    case 'unfreeze':
+      handleUnfreeze(user)
+      break
+  }
+}
+
+// 确认设置过期时间
+const confirmSetExpiry = async () => {
+  try {
+    freezeLoading.value = true
+    await setUserExpiry({
+      userID: freezeForm.userId,
+      expiresAt: freezeForm.expiresAt
+    })
+    ElMessage.success(t('admin.users.setExpirySuccess'))
+    showSetExpiryDialog.value = false
+    await loadUsers()
+  } catch (error) {
+    ElMessage.error(t('admin.users.setExpiryFailed'))
+  } finally {
+    freezeLoading.value = false
+  }
+}
+
+// 确认冻结
+const confirmFreeze = async () => {
+  try {
+    freezeLoading.value = true
+    await freezeUser({
+      userID: freezeForm.userId,
+      reason: freezeForm.reason || ''
+    })
+    ElMessage.success(t('admin.users.freezeSuccess'))
+    showFreezeDialog.value = false
+    await loadUsers()
+  } catch (error) {
+    ElMessage.error(t('admin.users.freezeFailed'))
+  } finally {
+    freezeLoading.value = false
+  }
+}
+
+// 解冻用户
+const handleUnfreeze = async (user) => {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.users.confirmUnfreeze'),
+      t('common.confirm'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+    
+    await unfreezeUser({ userID: user.id })
+    ElMessage.success(t('admin.users.unfreezeSuccess'))
+    await loadUsers()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.users.unfreezeFailed'))
+    }
+  }
+}
+
+// 格式化日期时间
+const formatDateTime = (dateTimeStr) => {
+  if (!dateTimeStr) return '-'
+  const date = new Date(dateTimeStr)
+  return date.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit'
+  })
+}
+
+// 检查是否已过期
+const isExpired = (dateTimeStr) => {
+  if (!dateTimeStr) return false
+  return new Date(dateTimeStr) < new Date()
 }
 
 // 分页处理

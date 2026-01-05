@@ -312,7 +312,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		// 保存需要用于日志的字段
 		instanceID := instance.ID
 		instanceName := instance.Name
-		instanceExpiredAt := instance.ExpiredAt
+		instanceExpiresAt := instance.ExpiresAt
 		instanceProviderID := instance.ProviderID
 
 		// 从预加载的map获取Provider信息并更新使用配额
@@ -335,7 +335,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 		global.APP_LOG.Info("成功清理过期实例",
 			zap.Uint("instanceId", instanceID),
 			zap.String("instanceName", instanceName),
-			zap.Time("expiredAt", instanceExpiredAt))
+			zap.Timep("expiredAt", instanceExpiresAt))
 
 		return nil
 	})

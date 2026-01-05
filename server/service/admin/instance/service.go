@@ -300,7 +300,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 		InstanceType: req.InstanceType,
 		UserID:       req.UserID,
 		Status:       "creating",
-		ExpiredAt:    expiredAt,
+		ExpiresAt:    &expiredAt,
 		PublicIP:     provider.Endpoint, // 设置公网IP为Provider的地址
 	}
 

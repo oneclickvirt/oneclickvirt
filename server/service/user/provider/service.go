@@ -180,15 +180,14 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		// 生成实例名称
 		instanceName := s.generateInstanceName(provider.Name)
 
-		// 设置实例到期时间，与Provider的到期时间同步
-		var expiredAt time.Time
+		// 设置实例到期时间
+		// 默认与Provider的到期时间同步，但如果Provider没有到期时间则使用1年后
+		var expiredAt *time.Time
 		if provider.ExpiresAt != nil {
 			// 如果Provider有到期时间，使用Provider的到期时间
-			expiredAt = *provider.ExpiresAt
-		} else {
-			// 如果Provider没有到期时间，默认为1年后
-			expiredAt = time.Now().AddDate(1, 0, 0)
+			expiredAt = provider.ExpiresAt
 		}
+		// 如果Provider没有到期时间，实例也不设置到期时间（由管理员手动管理）
 
 		// 创建实例记录
 		instance = providerModel.Instance{
@@ -204,7 +203,8 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 			UserID:             task.UserID,
 			Status:             "creating",
 			OSType:             systemImage.OSType,
-			ExpiredAt:          expiredAt,
+			ExpiresAt:          expiredAt,
+			IsManualExpiry:     false, // 默认非手动设置，跟随节点
 			MaxTraffic:         0,     // 默认为0，表示继承用户等级限制，不单独限制实例
 			TrafficLimited:     false, // 显式设置为false，确保不会因流量误判为超限
 			TrafficLimitReason: "",    // 初始无限制原因

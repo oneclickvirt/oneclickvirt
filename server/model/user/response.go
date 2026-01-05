@@ -115,31 +115,31 @@ type TaskResponse = UserTaskResponse
 
 // UserInstanceDetailResponse 用户实例详情响应
 type UserInstanceDetailResponse struct {
-	ID              uint      `json:"id"`
-	Name            string    `json:"name"`
-	Type            string    `json:"type"`
-	Status          string    `json:"status"`
-	CPU             int       `json:"cpu"`
-	Memory          int       `json:"memory"`
-	Disk            int       `json:"disk"`
-	Bandwidth       int       `json:"bandwidth"`
-	OsType          string    `json:"osType"`
-	PrivateIP       string    `json:"privateIP"`   // 内网IPv4地址
-	PublicIP        string    `json:"publicIP"`    // 公网IPv4地址
-	IPv6Address     string    `json:"ipv6Address"` // 内网IPv6地址
-	PublicIPv6      string    `json:"publicIPv6"`  // 公网IPv6地址
-	SSHPort         int       `json:"sshPort"`
-	Username        string    `json:"username"`
-	Password        string    `json:"password"`
-	ProviderName    string    `json:"providerName"`
-	ProviderType    string    `json:"providerType"`    // Provider虚拟化类型：docker, lxd, incus, proxmox
-	ProviderStatus  string    `json:"providerStatus"`  // Provider状态：active, inactive, partial
-	PortRangeStart  int       `json:"portRangeStart"`  // 端口范围起始
-	PortRangeEnd    int       `json:"portRangeEnd"`    // 端口范围结束
-	IPv4MappingType string    `json:"ipv4MappingType"` // IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
-	NetworkType     string    `json:"networkType"`     // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
-	CreatedAt       time.Time `json:"createdAt"`
-	ExpiredAt       time.Time `json:"expiredAt"`
+	ID              uint       `json:"id"`
+	Name            string     `json:"name"`
+	Type            string     `json:"type"`
+	Status          string     `json:"status"`
+	CPU             int        `json:"cpu"`
+	Memory          int        `json:"memory"`
+	Disk            int        `json:"disk"`
+	Bandwidth       int        `json:"bandwidth"`
+	OsType          string     `json:"osType"`
+	PrivateIP       string     `json:"privateIP"`   // 内网IPv4地址
+	PublicIP        string     `json:"publicIP"`    // 公网IPv4地址
+	IPv6Address     string     `json:"ipv6Address"` // 内网IPv6地址
+	PublicIPv6      string     `json:"publicIPv6"`  // 公网IPv6地址
+	SSHPort         int        `json:"sshPort"`
+	Username        string     `json:"username"`
+	Password        string     `json:"password"`
+	ProviderName    string     `json:"providerName"`
+	ProviderType    string     `json:"providerType"`    // Provider虚拟化类型：docker, lxd, incus, proxmox
+	ProviderStatus  string     `json:"providerStatus"`  // Provider状态：active, inactive, partial
+	PortRangeStart  int        `json:"portRangeStart"`  // 端口范围起始
+	PortRangeEnd    int        `json:"portRangeEnd"`    // 端口范围结束
+	IPv4MappingType string     `json:"ipv4MappingType"` // IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
+	NetworkType     string     `json:"networkType"`     // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	CreatedAt       time.Time  `json:"createdAt"`
+	ExpiresAt       *time.Time `json:"expiresAt"` // 实例过期时间
 	// 关联任务信息
 	RelatedTask *UserTaskResponse `json:"relatedTask,omitempty"` // 关联的最新任务（如果有）
 }

@@ -114,11 +114,14 @@ type Provider struct {
 	IPv6PortMappingMethod string `json:"ipv6PortMappingMethod" gorm:"size:16;default:device_proxy"` // IPv6端口映射方式：device_proxy, iptables, native
 
 	// 配额管理
-	UsedQuota    int        `json:"usedQuota" gorm:"default:0"`                // 已使用配额（传统字段，兼容性保留）
-	TotalQuota   int        `json:"totalQuota" gorm:"default:0"`               // 总配额（传统字段，兼容性保留）
-	Architecture string     `json:"architecture" gorm:"size:16;default:amd64"` // CPU架构：amd64, arm64, s390x等
-	ExpiresAt    *time.Time `json:"expiresAt" gorm:"index;column:expires_at"`  // Provider过期时间
-	IsFrozen     bool       `json:"isFrozen" gorm:"default:false"`             // 是否被冻结（冻结后无法使用）
+	UsedQuota      int        `json:"usedQuota" gorm:"default:0"`                     // 已使用配额（传统字段，兼容性保留）
+	TotalQuota     int        `json:"totalQuota" gorm:"default:0"`                    // 总配额（传统字段，兼容性保留）
+	Architecture   string     `json:"architecture" gorm:"size:16;default:amd64"`      // CPU架构：amd64, arm64, s390x等
+	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index;column:expires_at"`       // Provider过期时间
+	IsFrozen       bool       `json:"isFrozen" gorm:"default:false;index:idx_frozen"` // 是否被冻结（冻结后无法使用，除了删除操作）
+	IsManualExpiry bool       `json:"isManualExpiry" gorm:"default:false"`            // 是否手动设置了过期时间
+	FrozenReason   string     `json:"frozenReason" gorm:"size:255"`                   // 冻结原因
+	FrozenAt       *time.Time `json:"frozenAt"`                                       // 冻结时间
 
 	// 存储配置（所有Provider类型通用）
 	StoragePool     string `json:"storagePool" gorm:"size:64;default:local"`   // 存储池名称，用于存储虚拟机磁盘和容器
@@ -350,8 +353,12 @@ type Instance struct {
 	PmacctInterfaceV4  string `json:"pmacctInterfaceV4" gorm:"size:32"`             // pmacct 监控的IPv4网络接口名称
 	PmacctInterfaceV6  string `json:"pmacctInterfaceV6" gorm:"size:32"`             // pmacct 监控的IPv6网络接口名称
 
-	// 生命周期
-	ExpiredAt time.Time `json:"expiredAt" gorm:"column:expired_at"` // 实例到期时间
+	// 生命周期和冻结管理
+	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）
+	IsFrozen       bool       `json:"isFrozen" gorm:"default:false;index:idx_frozen"`          // 是否被冻结（冻结后无法操作，除了删除）
+	IsManualExpiry bool       `json:"isManualExpiry" gorm:"default:false"`                     // 是否手动设置了过期时间（手动设置的优先级高于节点）
+	FrozenReason   string     `json:"frozenReason" gorm:"size:255"`                            // 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
+	FrozenAt       *time.Time `json:"frozenAt"`                                                // 冻结时间
 
 	// 关联关系
 	// 添加UserID索引以支持按用户查询

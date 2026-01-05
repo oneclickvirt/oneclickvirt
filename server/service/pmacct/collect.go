@@ -579,8 +579,9 @@ LIMIT 10000;
 			TotalUsed  int64
 		}
 
+		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
 		err := global.APP_DB.Table("pmacct_traffic_records").
-			Select("instance_id, provider_id, user_id, MAX(rx_bytes) as traffic_in, MAX(tx_bytes) as traffic_out, MAX(total_bytes) as total_used").
+			Select("instance_id, provider_id, user_id, MAX(rx_bytes)/1048576.0 as traffic_in, MAX(tx_bytes)/1048576.0 as traffic_out, MAX(total_bytes)/1048576.0 as total_used").
 			Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
 			Group("instance_id, provider_id, user_id, year, month, day, hour").
 			Scan(&hourlyData).Error
@@ -641,14 +642,15 @@ LIMIT 10000;
 			TotalUsed  int64
 		}
 
+		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
 		err = global.APP_DB.Raw(`
 			SELECT 
 				instance_id,
 				provider_id,
 				user_id,
-				COALESCE(SUM(segment_max_rx), 0) as traffic_in,
-				COALESCE(SUM(segment_max_tx), 0) as traffic_out,
-				COALESCE(SUM(segment_max_total), 0) as total_used
+				COALESCE(SUM(segment_max_rx), 0) / 1048576.0 as traffic_in,
+				COALESCE(SUM(segment_max_tx), 0) / 1048576.0 as traffic_out,
+				COALESCE(SUM(segment_max_total), 0) / 1048576.0 as total_used
 			FROM (
 				SELECT 
 					instance_id, provider_id, user_id,

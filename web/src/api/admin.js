@@ -705,3 +705,78 @@ export const clearUserTrafficRecords = (userId) => {
   })
 }
 
+// 冻结管理相关API
+// 用户冻结管理
+export const setUserExpiry = (data) => {
+  return request({
+    url: '/v1/admin/users/set-expiry',
+    method: 'post',
+    data
+  })
+}
+
+export const freezeUser = (data) => {
+  return request({
+    url: '/v1/admin/users/freeze',
+    method: 'post',
+    data
+  })
+}
+
+export const unfreezeUser = (data) => {
+  return request({
+    url: '/v1/admin/users/unfreeze',
+    method: 'post',
+    data
+  })
+}
+
+// Provider冻结管理
+export const setProviderExpiry = (data) => {
+  return request({
+    url: '/v1/admin/providers/set-expiry',
+    method: 'post',
+    data
+  })
+}
+
+export const freezeProviderManual = (data) => {
+  return request({
+    url: '/v1/admin/providers/freeze-manual',
+    method: 'post',
+    data
+  })
+}
+
+export const unfreezeProviderManual = (data) => {
+  return request({
+    url: '/v1/admin/providers/unfreeze-manual',
+    method: 'post',
+    data
+  })
+}
+
+// 实例冻结管理
+export const setInstanceExpiry = (data) => {
+  return request({
+    url: '/v1/admin/instances/set-expiry',
+    method: 'post',
+    data
+  })
+}
+
+export const freezeInstance = (data) => {
+  return request({
+    url: '/v1/admin/instances/freeze',
+    method: 'post',
+    data
+  })
+}
+
+export const unfreezeInstance = (data) => {
+  return request({
+    url: '/v1/admin/instances/unfreeze',
+    method: 'post',
+    data
+  })
+}

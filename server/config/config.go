@@ -61,6 +61,7 @@ type LevelLimitInfo struct {
 	MaxInstances int                    `mapstructure:"max-instances" json:"max-instances" yaml:"max-instances"`
 	MaxResources map[string]interface{} `mapstructure:"max-resources" json:"max-resources" yaml:"max-resources"`
 	MaxTraffic   int64                  `mapstructure:"max-traffic" json:"max-traffic" yaml:"max-traffic"` // 最大流量限制（MB）
+	ExpiryDays   int                    `mapstructure:"expiry-days" json:"expiry-days" yaml:"expiry-days"` // 新注册用户的默认过期天数，0表示不过期
 }
 
 type System struct {

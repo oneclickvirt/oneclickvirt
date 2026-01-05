@@ -189,7 +189,7 @@ func (s *TaskService) resetTask_RenameAndCreateNew(ctx context.Context, task *ad
 			UserID:       task.UserID,
 			Status:       "creating",
 			OSType:       resetCtx.Instance.OSType,
-			ExpiredAt:    resetCtx.Instance.ExpiredAt,
+			ExpiresAt:    resetCtx.Instance.ExpiresAt,
 			PublicIP:     resetCtx.Provider.Endpoint,
 			MaxTraffic:   resetCtx.Instance.MaxTraffic,
 		}

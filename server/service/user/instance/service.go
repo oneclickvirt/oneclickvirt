@@ -362,7 +362,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		Username:    instance.Username,
 		Password:    instance.Password,
 		CreatedAt:   instance.CreatedAt,
-		ExpiredAt:   instance.ExpiredAt,
+		ExpiresAt:   instance.ExpiresAt,
 	}
 
 	// 查询关联的 Provider 信息

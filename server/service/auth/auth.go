@@ -286,6 +286,20 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	resetTime := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
 	user.TrafficResetAt = &resetTime
 
+	// 根据全局配置设置用户过期时间
+	levelLimits := global.APP_CONFIG.Quota.LevelLimits
+	if levelLimit, exists := levelLimits[user.Level]; exists && levelLimit.ExpiryDays > 0 {
+		// 如果配置了该等级的过期天数，设置过期时间
+		expiryTime := now.AddDate(0, 0, levelLimit.ExpiryDays)
+		user.ExpiresAt = &expiryTime
+		user.IsManualExpiry = false // 标记为非手动设置
+		global.APP_LOG.Info("为新注册用户设置过期时间",
+			zap.String("username", req.Username),
+			zap.Int("level", user.Level),
+			zap.Int("expiry_days", levelLimit.ExpiryDays),
+			zap.Time("expires_at", expiryTime))
+	}
+
 	// 使用数据库抽象层进行事务处理
 	dbService := database.GetDatabaseService()
 	transactionErr := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {

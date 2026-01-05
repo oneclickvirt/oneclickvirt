@@ -551,6 +551,7 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 
 	// 查询用户月度流量汇总，关联providers表获取流量模式和倍率
 	// 直接使用instance_traffic_histories表按user_id聚合
+	// 注意：instance_traffic_histories 表中 traffic_in/traffic_out/total_used 已经是 MB 单位
 	query := `
 		SELECT 
 			u.id as user_id,

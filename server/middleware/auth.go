@@ -220,6 +220,15 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 		return nil, fmt.Errorf("账户已被禁用")
 	}
 
+	// 检查用户是否被冻结
+	if user.IsFrozen {
+		global.APP_LOG.Warn("用户账户已被冻结",
+			zap.Uint("userID", userID),
+			zap.String("username", user.Username),
+			zap.String("frozenReason", user.FrozenReason))
+		return nil, fmt.Errorf("账户已冻结，请联系管理员")
+	}
+
 	// 使用权限服务获取用户有效权限（服务端独立验证）
 	permissionService := auth2.PermissionService{}
 	effectivePermission, err := permissionService.GetUserEffectivePermission(userID)

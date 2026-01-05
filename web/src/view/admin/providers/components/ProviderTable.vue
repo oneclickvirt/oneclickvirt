@@ -532,6 +532,14 @@
         </el-button>
 
         <el-button
+          class="action-button"
+          type="info"
+          @click="handleAction('set-expiry')"
+        >
+          {{ $t('admin.providers.setExpiry') }}
+        </el-button>
+
+        <el-button
           v-if="currentRow.isFrozen"
           class="action-button"
           type="success"
@@ -601,6 +609,7 @@ const emit = defineEmits([
   'auto-configure',
   'traffic-monitor',
   'health-check',
+  'set-expiry',
   'freeze',
   'unfreeze',
   'delete',
@@ -634,6 +643,9 @@ const handleAction = (action) => {
       break
     case 'health-check':
       emit('health-check', currentRow.value.id)
+      break
+    case 'set-expiry':
+      emit('set-expiry', currentRow.value)
       break
     case 'freeze':
       emit('freeze', currentRow.value.id)

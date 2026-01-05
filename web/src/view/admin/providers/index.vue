@@ -52,6 +52,7 @@
         @auto-configure="autoConfigureAPI"
         @traffic-monitor="handleEnableTrafficMonitor"
         @health-check="checkHealth"
+        @set-expiry="handleSetProviderExpiry"
         @freeze="freezeServer"
         @unfreeze="unfreezeServer"
         @delete="handleDeleteProvider"
@@ -120,7 +121,7 @@ import { ref, reactive, computed, onMounted, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox, ElLoading } from 'element-plus'
 import { Search, Delete, Lock } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, trafficMonitorOperation, getLatestTrafficMonitorTask, getTrafficMonitorTasks, getTrafficMonitorTaskDetail } from '@/api/admin'
+import { getProviderList, createProvider, updateProvider, deleteProvider, freezeProvider, unfreezeProvider, setProviderExpiry, checkProviderHealth, autoConfigureProvider, getConfigurationTaskDetail, trafficMonitorOperation, getLatestTrafficMonitorTask, getTrafficMonitorTasks, getTrafficMonitorTaskDetail } from '@/api/admin'
 import { countries, getCountryByName, getCountriesByRegion } from '@/utils/countries'
 import { useUserStore } from '@/pinia/modules/user'
 // 导入拆分的组件
@@ -1070,6 +1071,34 @@ const handleBatchFreeze = async () => {
 }
 
 
+
+const handleSetProviderExpiry = async (provider) => {
+  try {
+    const { value: expiresAt } = await ElMessageBox.prompt(
+      '请输入过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则清除过期时间',
+      '设置过期时间',
+      {
+        confirmButtonText: '确定',
+        cancelButtonText: '取消',
+        inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
+        inputErrorMessage: t('admin.providers.validation.dateFormatError'),
+        inputPlaceholder: provider.expiresAt || '如：2024-12-31 23:59:59 或留空',
+        inputValue: provider.expiresAt ? new Date(provider.expiresAt).toISOString().slice(0, 19).replace('T', ' ') : ''
+      }
+    )
+
+    await setProviderExpiry({
+      providerID: provider.id,
+      expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
+    })
+    ElMessage.success(t('admin.providers.setExpirySuccess'))
+    await loadProviders()
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(t('admin.providers.setExpiryFailed'))
+    }
+  }
+}
 
 const freezeServer = async (id) => {
   try {

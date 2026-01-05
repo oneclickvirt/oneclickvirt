@@ -361,6 +361,21 @@
                         />
                       </el-form-item>
                     </el-col>
+                    <el-col :span="6">
+                      <el-form-item :label="$t('admin.config.expiryDays')">
+                        <el-input-number 
+                          v-model="config.quota.levelLimits[level]['expiryDays']" 
+                          :min="0" 
+                          :max="36500"
+                          :controls="false"
+                          :step="1"
+                          style="width: 100%" 
+                        />
+                        <div class="form-item-hint">
+                          {{ $t('admin.config.expiryDaysHint') }}
+                        </div>
+                      </el-form-item>
+                    </el-col>
                   </el-row>
                 </el-card>
               </el-col>
@@ -702,11 +717,11 @@ const config = ref({
   quota: {
     defaultLevel: 1,
     levelLimits: {
-      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 1024, bandwidth: 100 }, maxTraffic: 102400 },    // 磁盘1GB, 流量100MB
-      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 2048, bandwidth: 200 }, maxTraffic: 204800 },   // 磁盘2GB, 流量200MB  
-      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 4096, bandwidth: 500 }, maxTraffic: 409600 },   // 磁盘4GB, 流量400MB
-      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 819200 },  // 磁盘8GB, 流量800MB
-      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 1638400 } // 磁盘16GB, 流量1600MB
+      1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 1024, bandwidth: 100 }, maxTraffic: 102400, expiryDays: 30 },    // 磁盘1GB, 流量100MB
+      2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 2048, bandwidth: 200 }, maxTraffic: 204800, expiryDays: 30 },   // 磁盘2GB, 流量200MB  
+      3: { maxInstances: 5, maxResources: { cpu: 4, memory: 2048, disk: 4096, bandwidth: 500 }, maxTraffic: 409600, expiryDays: 30 },   // 磁盘4GB, 流量400MB
+      4: { maxInstances: 10, maxResources: { cpu: 8, memory: 4096, disk: 8192, bandwidth: 1000 }, maxTraffic: 819200, expiryDays: 30 },  // 磁盘8GB, 流量800MB
+      5: { maxInstances: 20, maxResources: { cpu: 16, memory: 8192, disk: 16384, bandwidth: 2000 }, maxTraffic: 1638400, expiryDays: 30 } // 磁盘16GB, 流量1600MB
     }
   },
   inviteCode: {
@@ -782,7 +797,8 @@ const loadConfig = async () => {
                 disk: limitData['max-resources']?.disk || (10240 * Math.pow(2, level - 1)),
                 bandwidth: limitData['max-resources']?.bandwidth || (10 * level)
               },
-              maxTraffic: limitData['max-traffic'] || (1024 * level)
+              maxTraffic: limitData['max-traffic'] || (1024 * level),
+              expiryDays: limitData['expiry-days'] || 30
             }
           } else {
             // 如果没有数据，使用默认值
@@ -794,7 +810,8 @@ const loadConfig = async () => {
                 disk: 10240 * Math.pow(2, level - 1),
                 bandwidth: 10 * level
               },
-              maxTraffic: 1024 * level
+              maxTraffic: 1024 * level,
+              expiryDays: 30
             }
           }
         }
@@ -901,7 +918,8 @@ const saveConfig = async () => {
             disk: limit.maxResources.disk,
             bandwidth: limit.maxResources.bandwidth
           },
-          'max-traffic': limit.maxTraffic
+          'max-traffic': limit.maxTraffic,
+          'expiry-days': limit.expiryDays || 30
         }
       })
       configToSave.quota.levelLimits = convertedLimits
