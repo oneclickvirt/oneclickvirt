@@ -221,8 +221,9 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 
 	providerApiService := &provider2.ProviderApiService{}
 
-	// Provider操作，不在事务中
-	deleteErr := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.NewOldName)
+	// 注意：数据库中已经将实例重命名为 NewOldName，但Provider上的实例名称还是原来的 OldInstanceName
+	// 所以这里要使用 OldInstanceName（原始名称）来删除Provider上的实例
+	deleteErr := providerApiService.DeleteInstanceByProviderID(ctx, resetCtx.Provider.ID, resetCtx.OldInstanceName)
 	if deleteErr != nil {
 		errorStr := strings.ToLower(deleteErr.Error())
 		isNotFoundError := strings.Contains(errorStr, "no such container") ||
@@ -240,7 +241,7 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 	time.Sleep(10 * time.Second)
 
 	global.APP_LOG.Info("旧实例删除完成",
-		zap.String("instanceName", resetCtx.NewOldName))
+		zap.String("instanceName", resetCtx.OldInstanceName))
 
 	return nil
 }
