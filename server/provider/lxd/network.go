@@ -85,7 +85,13 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		global.APP_LOG.Warn("设置IP地址绑定失败", zap.Error(err))
 	}
 
-	// 启动实例 - 先启动实例，确保有静态IP地址后再配置端口映射
+	// 配置端口映射 - 在实例停止时添加 proxy 设备
+	// LXD 的 proxy 设备必须在容器停止时添加，然后启动容器时才能正确初始化
+	if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
+		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
+	}
+
+	// 启动实例 - 在配置完端口映射后启动，让 proxy 设备正确初始化
 	if err := l.StartInstance(ctx, config.Name); err != nil {
 		return fmt.Errorf("启动实例失败: %w", err)
 	}
@@ -93,11 +99,6 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 	// 等待实例完全启动并获取IP地址
 	if err := l.waitForInstanceReady(ctx, config.Name); err != nil {
 		global.APP_LOG.Warn("等待实例就绪超时，但继续配置", zap.Error(err))
-	}
-
-	// 配置端口映射 - 在实例启动后配置，确保有静态IP地址
-	if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
-		global.APP_LOG.Warn("配置端口映射失败", zap.Error(err))
 	}
 
 	// 配置防火墙端口
@@ -1166,11 +1167,30 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
 
-	// 尝试配置端口映射（如果失败只记录警告，不中断流程）
-	if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
-		global.APP_LOG.Warn("配置端口映射失败，但继续",
+	// 为了确保 proxy 设备正确初始化，停止容器后添加设备再启动
+	// 这是 LXD 的最佳实践，特别是在 Ubuntu 24 上
+	global.APP_LOG.Info("停止实例以配置端口映射",
+		zap.String("instanceName", config.Name))
+
+	if err := l.stopInstanceForConfig(config.Name); err != nil {
+		global.APP_LOG.Warn("停止实例失败，尝试直接配置",
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
+	} else {
+		// 尝试配置端口映射（容器停止状态）
+		if err := l.configurePortMappingsWithIP(config.Name, networkConfig, instanceIP); err != nil {
+			global.APP_LOG.Warn("配置端口映射失败，但继续",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+		}
+
+		// 重新启动实例
+		ctx := context.Background()
+		if err := l.StartInstance(ctx, config.Name); err != nil {
+			global.APP_LOG.Warn("启动实例失败",
+				zap.String("instanceName", config.Name),
+				zap.Error(err))
+		}
 	}
 
 	// 尝试配置防火墙端口（如果失败只记录警告）
