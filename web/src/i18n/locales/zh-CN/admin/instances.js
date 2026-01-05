@@ -39,6 +39,7 @@ export default {
   trafficStatus: "流量状态",
   limited: "已限制",
   expiryTime: "到期时间",
+  freezeStatus: "冻结状态",
   resetPassword: "重置密码",
   resetSystem: "重置系统",
   connect: "连接",
@@ -113,5 +114,13 @@ export default {
   setExpiryPrompt: "请输入过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则清除过期时间",
   setExpirySuccess: "设置过期时间成功",
   setExpiryFailed: "设置过期时间失败",
-  dateFormatError: "请输入正确的日期格式或留空"
+  dateFormatError: "请输入正确的日期格式或留空",
+  freeze: "冻结",
+  unfreeze: "解冻",
+  freezePrompt: "确定要冻结该实例吗？冻结后实例将无法使用。",
+  unfreezePrompt: "确定要解冻该实例吗？",
+  freezeSuccess: "冻结成功",
+  freezeFailed: "冻结失败",
+  unfreezeSuccess: "解冻成功",
+  unfreezeFailed: "解冻失败"
 }
