@@ -411,38 +411,70 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 	}
 }
 
-// releaseTaskResources 释放任务资源
+// releaseTaskResources 释放任务资源（包括待确认配额）
 func (s *TaskService) releaseTaskResources(taskID uint) {
-	// 获取任务信息以提取sessionId
+	// 获取任务信息
 	var task adminModel.Task
 	if err := global.APP_DB.First(&task, taskID).Error; err != nil {
 		global.APP_LOG.Error("获取任务信息失败", zap.Uint("taskId", taskID), zap.Error(err))
 		return
 	}
 
-	// 解析任务数据以获取sessionId
+	// 解析任务数据
 	var taskData map[string]interface{}
 	if err := json.Unmarshal([]byte(task.TaskData), &taskData); err != nil {
 		global.APP_LOG.Error("解析任务数据失败", zap.Uint("taskId", taskID), zap.Error(err))
 		return
 	}
 
+	// 1. 释放预留资源（Provider资源）
 	sessionID, ok := taskData["sessionId"].(string)
-	if !ok || sessionID == "" {
-		global.APP_LOG.Warn("任务数据中没有sessionId", zap.Uint("taskId", taskID))
-		return
+	if ok && sessionID != "" {
+		reservationService := resources.GetResourceReservationService()
+		if err := reservationService.ReleaseReservationBySession(sessionID); err != nil {
+			global.APP_LOG.Warn("释放预留资源失败",
+				zap.Uint("taskId", taskID),
+				zap.String("sessionId", sessionID),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("任务预留资源已释放",
+				zap.Uint("taskId", taskID),
+				zap.String("sessionId", sessionID))
+		}
 	}
 
-	// 释放预留资源
-	reservationService := resources.GetResourceReservationService()
-	if err := reservationService.ReleaseReservationBySession(sessionID); err != nil {
-		global.APP_LOG.Warn("释放预留资源失败",
-			zap.Uint("taskId", taskID),
-			zap.String("sessionId", sessionID),
-			zap.Error(err))
-	} else {
-		global.APP_LOG.Info("任务预留资源已释放",
-			zap.Uint("taskId", taskID),
-			zap.String("sessionId", sessionID))
+	// 2. 释放待确认配额（用户配额）
+	// 对于创建任务，如果实例没有创建成功，需要释放已分配的待确认配额
+	if task.TaskType == "create_instance" && task.InstanceID == nil {
+		// 从 taskData 中提取资源信息
+		cpu, cpuOk := taskData["cpu"].(float64)
+		memory, memOk := taskData["memory"].(float64)
+		disk, diskOk := taskData["disk"].(float64)
+		bandwidth, bwOk := taskData["bandwidth"].(float64)
+
+		if cpuOk && memOk && diskOk && bwOk {
+			resourceUsage := resources.ResourceUsage{
+				CPU:       int(cpu),
+				Memory:    int64(memory),
+				Disk:      int64(disk),
+				Bandwidth: int(bandwidth),
+			}
+
+			quotaService := resources.NewQuotaService()
+			err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+				return quotaService.ReleasePendingQuota(tx, task.UserID, resourceUsage)
+			})
+
+			if err != nil {
+				global.APP_LOG.Warn("释放待确认配额失败",
+					zap.Uint("taskId", taskID),
+					zap.Uint("userId", task.UserID),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("任务待确认配额已释放",
+					zap.Uint("taskId", taskID),
+					zap.Uint("userId", task.UserID))
+			}
+		}
 	}
 }

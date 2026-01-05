@@ -201,19 +201,35 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			// Provider资源释放失败不阻止整个流程
 		}
 
-		// 3. 释放用户配额
+		// 3. 释放用户配额（根据实例状态决定释放哪种配额）
+		// 如果实例处于 creating/resetting 状态，释放 pending_quota
+		// 如果实例处于其他稳定状态，释放 used_quota
 		resourceUsage := resources.ResourceUsage{
 			CPU:       instanceCPU,
 			Memory:    instanceMemory,
 			Disk:      instanceDisk,
 			Bandwidth: instanceBandwidth,
 		}
-		if err := quotaService.UpdateUserQuotaAfterDeletionWithTx(tx, instanceUserID, resourceUsage); err != nil {
-			global.APP_LOG.Warn("释放用户配额失败",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("instanceId", instanceID),
-				zap.Error(err))
-			// 配额释放失败不阻止整个流程
+
+		isPendingState := instance.Status == "creating" || instance.Status == "resetting"
+		if isPendingState {
+			if err := quotaService.ReleasePendingQuota(tx, instanceUserID, resourceUsage); err != nil {
+				global.APP_LOG.Warn("释放待确认配额失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instanceID),
+					zap.String("status", instance.Status),
+					zap.Error(err))
+				// 配额释放失败不阻止整个流程
+			}
+		} else {
+			if err := quotaService.ReleaseUsedQuota(tx, instanceUserID, resourceUsage); err != nil {
+				global.APP_LOG.Warn("释放已使用配额失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instanceID),
+					zap.String("status", instance.Status),
+					zap.Error(err))
+				// 配额释放失败不阻止整个流程
+			}
 		}
 
 		// 4. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作

@@ -114,7 +114,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 
 	// 核心策略：直接查询每个时间点的累积值，不按时间分组
 	// - pmacct的acct_v9表中每条记录的bytes字段是该记录的流量增量
-	// - 我们需要按时间顺序累加这些增量，得到每个时间点的累积值
+	// - 需要按时间顺序累加这些增量，得到每个时间点的累积值
 	// - MySQL存储每个时间点的累积值，前端通过差值计算实际流量
 	// - 每天4点重置后，累积值从0重新开始
 	global.APP_LOG.Info("SQLite查询参数，计算累积值",

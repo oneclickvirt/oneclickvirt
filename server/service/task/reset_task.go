@@ -204,10 +204,33 @@ func (s *TaskService) resetTask_RenameAndCreateNew(ctx context.Context, task *ad
 
 		resetCtx.NewInstanceID = newInstance.ID
 
-		// 注意：重置操作不应增加用户配额占用
-		// 因为旧实例被软删除，新实例是替换旧实例，总资源占用不变
-		// 用户配额在旧实例创建时已经计算，这里只是替换实例记录
-		// getCurrentResourceUsage会排除deleted和creating/resetting状态，所以不会重复计算
+		// 配额转换：将旧实例的 used_quota 转为新实例的 pending_quota
+		// 1. 旧实例被软删除后，其配额已经不在 used_quota 中（因为软删除的实例不被统计）
+		// 2. 新实例是 creating 状态，应该占用 pending_quota
+		// 3. 由于资源配置完全相同，直接转换配额即可
+		quotaService := resources.NewQuotaService()
+		resourceUsage := resources.ResourceUsage{
+			CPU:       resetCtx.Instance.CPU,
+			Memory:    resetCtx.Instance.Memory,
+			Disk:      resetCtx.Instance.Disk,
+			Bandwidth: resetCtx.Instance.Bandwidth,
+		}
+
+		// 先释放旧实例的 used_quota（如果旧实例是稳定状态）
+		if resetCtx.Instance.Status == "running" || resetCtx.Instance.Status == "stopped" || resetCtx.Instance.Status == "paused" {
+			if err := quotaService.ReleaseUsedQuota(tx, task.UserID, resourceUsage); err != nil {
+				global.APP_LOG.Warn("释放旧实例配额失败，继续重置流程",
+					zap.Uint("instanceId", resetCtx.OldInstanceID),
+					zap.Error(err))
+			}
+		}
+
+		// 然后为新实例分配 pending_quota
+		if err := quotaService.AllocatePendingQuota(tx, task.UserID, resourceUsage); err != nil {
+			global.APP_LOG.Warn("分配新实例待确认配额失败，继续重置流程",
+				zap.Uint("instanceId", resetCtx.NewInstanceID),
+				zap.Error(err))
+		}
 
 		return nil
 	})
@@ -426,7 +449,7 @@ func (s *TaskService) resetTask_GetPrivateIP(ctx context.Context, resetCtx *Rese
 	}
 }
 
-// resetTask_UpdateInstanceInfo 阶段6: 更新实例信息
+// resetTask_UpdateInstanceInfo 阶段6: 更新实例信息并确认配额
 func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
 	s.updateTaskProgress(task.ID, 80, "正在更新实例信息...")
 
@@ -442,7 +465,26 @@ func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *ad
 			updates["private_ip"] = resetCtx.NewPrivateIP
 		}
 
-		return tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).Updates(updates).Error
+		if err := tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).Updates(updates).Error; err != nil {
+			return err
+		}
+
+		// 确认待确认配额（将 pending_quota 转为 used_quota）
+		quotaService := resources.NewQuotaService()
+		resourceUsage := resources.ResourceUsage{
+			CPU:       resetCtx.Instance.CPU,
+			Memory:    resetCtx.Instance.Memory,
+			Disk:      resetCtx.Instance.Disk,
+			Bandwidth: resetCtx.Instance.Bandwidth,
+		}
+		if err := quotaService.ConfirmPendingQuota(tx, task.UserID, resourceUsage); err != nil {
+			global.APP_LOG.Warn("确认配额失败，继续重置流程",
+				zap.Uint("instanceId", resetCtx.NewInstanceID),
+				zap.Error(err))
+			// 不阻止重置流程
+		}
+
+		return nil
 	})
 
 	if err != nil {
@@ -568,17 +610,17 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 
 		// 分别处理
 		if len(tcpPorts) > 0 {
-			processed, failed := s.restorePortMappingsOptimized(ctx, tcpPorts, resetCtx.Instance, resetCtx.Provider, manager, portMappingType)
+			processed, failed := s.restorePortMappingsOptimized(ctx, tcpPorts, resetCtx.NewInstanceID, resetCtx.OldInstanceName, resetCtx.Provider, manager, portMappingType)
 			successCount += processed
 			failCount += failed
 		}
 		if len(udpPorts) > 0 {
-			processed, failed := s.restorePortMappingsOptimized(ctx, udpPorts, resetCtx.Instance, resetCtx.Provider, manager, portMappingType)
+			processed, failed := s.restorePortMappingsOptimized(ctx, udpPorts, resetCtx.NewInstanceID, resetCtx.OldInstanceName, resetCtx.Provider, manager, portMappingType)
 			successCount += processed
 			failCount += failed
 		}
 		if len(bothPorts) > 0 {
-			processed, failed := s.restorePortMappingsOptimized(ctx, bothPorts, resetCtx.Instance, resetCtx.Provider, manager, portMappingType)
+			processed, failed := s.restorePortMappingsOptimized(ctx, bothPorts, resetCtx.NewInstanceID, resetCtx.OldInstanceName, resetCtx.Provider, manager, portMappingType)
 			successCount += processed
 			failCount += failed
 		}

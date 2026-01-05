@@ -41,7 +41,7 @@ func (phc *ProviderHealthChecker) detectProxmoxStoragePath(client *ssh.Client, s
 	output, err := phc.executeSSHCommand(client, cmd)
 	if err == nil && utils.CleanCommandOutput(output) != "" {
 		path := utils.CleanCommandOutput(output)
-		// pvesm path返回的是完整路径，我们需要提取挂载点
+		// pvesm path返回的是完整路径，需要提取挂载点
 		// 例如: /var/lib/vz/images/100/vm-100-disk-0.raw -> /var/lib/vz
 		if idx := strings.Index(path, "/images/"); idx != -1 {
 			path = path[:idx]

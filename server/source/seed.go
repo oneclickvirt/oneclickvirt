@@ -63,8 +63,8 @@ func initDefaultAnnouncements() {
 		},
 		{
 			Title:       "系统维护通知",
-			Content:     "为了提供更好的服务质量，我们会定期进行系统维护。维护期间可能会影响部分功能的使用，请您谅解。",
-			ContentHTML: "<p>为了提供更好的服务质量，我们会定期进行系统维护。</p>",
+			Content:     "为了提供更好的服务质量，会定期进行系统维护。维护期间可能会影响部分功能的使用，请您谅解。",
+			ContentHTML: "<p>为了提供更好的服务质量，会定期进行系统维护。</p>",
 			Type:        "topbar",
 			Status:      1,
 			Priority:    5,

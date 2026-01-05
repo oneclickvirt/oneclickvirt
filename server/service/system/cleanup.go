@@ -342,35 +342,58 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 	})
 }
 
-// RepairUserQuotas 修复所有用户的配额（定期运行）
-// 重新计算每个用户的实际资源占用，修复因重置、删除等操作导致的配额不准确问题
+// RepairUserQuotas 修复所有用户的配额（定期运行，批量处理，避免N+1和竞态）
+// 重新计算每个用户的实际资源占用，修复因异常、删除等操作导致的配额不准确问题
 func (s *InstanceCleanupService) RepairUserQuotas() error {
-	global.APP_LOG.Info("开始修复用户配额...")
+	global.APP_LOG.Info("开始批量修复用户配额...")
 
-	var users []userModel.User
-	if err := global.APP_DB.Find(&users).Error; err != nil {
-		global.APP_LOG.Error("查询用户列表失败", zap.Error(err))
+	// 1. 获取所有用户ID（只查询ID，避免加载大量数据）
+	var userIDs []uint
+	if err := global.APP_DB.Model(&userModel.User{}).
+		Pluck("id", &userIDs).Error; err != nil {
+		global.APP_LOG.Error("查询用户ID列表失败", zap.Error(err))
 		return err
+	}
+
+	if len(userIDs) == 0 {
+		global.APP_LOG.Info("没有用户需要修复配额")
+		return nil
 	}
 
 	quotaService := resources.NewQuotaService()
 	repairedCount := 0
 	errorCount := 0
 
-	for _, user := range users {
-		if err := quotaService.RecalculateUserQuota(user.ID); err != nil {
-			global.APP_LOG.Error("修复用户配额失败",
-				zap.Uint("userId", user.ID),
-				zap.String("username", user.Username),
-				zap.Error(err))
-			errorCount++
-		} else {
-			repairedCount++
+	// 2. 批量处理，每批20个用户，避免长时间锁定
+	batchSize := 20
+	for i := 0; i < len(userIDs); i += batchSize {
+		end := i + batchSize
+		if end > len(userIDs) {
+			end = len(userIDs)
+		}
+		batch := userIDs[i:end]
+
+		// 3. 对每个用户单独处理（使用短事务）
+		for _, userID := range batch {
+			// 使用独立的短事务，避免长时间锁表
+			if err := quotaService.RecalculateUserQuota(userID); err != nil {
+				global.APP_LOG.Warn("修复用户配额失败",
+					zap.Uint("userId", userID),
+					zap.Error(err))
+				errorCount++
+			} else {
+				repairedCount++
+			}
+		}
+
+		// 4. 批次间休眠，避免对数据库造成过大压力
+		if end < len(userIDs) {
+			time.Sleep(100 * time.Millisecond)
 		}
 	}
 
-	global.APP_LOG.Info("用户配额修复完成",
-		zap.Int("totalUsers", len(users)),
+	global.APP_LOG.Info("用户配额批量修复完成",
+		zap.Int("totalUsers", len(userIDs)),
 		zap.Int("repaired", repairedCount),
 		zap.Int("errors", errorCount))
 

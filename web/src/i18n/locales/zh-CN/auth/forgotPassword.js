@@ -1,6 +1,6 @@
 export default {
   title: '忘记密码',
-  subtitle: '请输入您的邮箱地址，我们将发送重置密码链接',
+  subtitle: '请输入您的邮箱地址，系统将发送重置密码链接',
   email: '邮箱地址',
   pleaseEnterEmail: '请输入邮箱地址',
   sendResetLink: '发送重置链接',

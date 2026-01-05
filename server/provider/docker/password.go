@@ -18,7 +18,7 @@ func (d *DockerProvider) SetInstancePassword(ctx context.Context, instanceID, pa
 		return fmt.Errorf("provider not connected")
 	}
 
-	// 对于Docker容器，我们通过SSH方式设置密码
+	// 对于Docker容器，通过SSH方式设置密码
 	return d.sshSetInstancePassword(ctx, instanceID, password)
 }
 

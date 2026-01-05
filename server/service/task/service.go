@@ -290,7 +290,8 @@ func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminM
 func (s *TaskService) restorePortMappingsOptimized(
 	ctx context.Context,
 	ports []providerModel.Port,
-	instance providerModel.Instance,
+	instanceID uint,
+	instanceName string,
 	provider providerModel.Provider,
 	manager *portmapping.Manager,
 	portMappingType string,
@@ -338,7 +339,7 @@ func (s *TaskService) restorePortMappingsOptimized(
 		for _, oldPort := range group {
 			isSSH := oldPort.IsSSH
 			portReq := &portmapping.PortMappingRequest{
-				InstanceID:    fmt.Sprintf("%d", instance.ID),
+				InstanceID:    fmt.Sprintf("%d", instanceID),
 				ProviderID:    provider.ID,
 				Protocol:      oldPort.Protocol,
 				HostPort:      oldPort.HostPort,
@@ -356,7 +357,7 @@ func (s *TaskService) restorePortMappingsOptimized(
 
 				// 即使失败也创建数据库记录（状态为failed）
 				newPort := providerModel.Port{
-					InstanceID:    instance.ID,
+					InstanceID:    instanceID,
 					ProviderID:    provider.ID,
 					HostPort:      oldPort.HostPort,
 					GuestPort:     oldPort.GuestPort,

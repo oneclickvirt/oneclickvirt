@@ -233,7 +233,7 @@ func batchCheckWithSS(sshClient *SSHClient, ports []int) *PortScanResult {
 
 	occupiedPorts := parseSSOutput(output)
 
-	// 筛选出我们关心的端口
+	// 筛选出关心的端口
 	for _, port := range ports {
 		if occupiedPorts[port] {
 			result.OccupiedPorts[port] = true
@@ -276,7 +276,7 @@ func batchCheckWithNetstat(sshClient *SSHClient, ports []int) *PortScanResult {
 	// 解析netstat输出
 	occupiedPorts := parseNetstatOutput(output)
 
-	// 筛选出我们关心的端口
+	// 筛选出关心的端口
 	for _, port := range ports {
 		if occupiedPorts[port] {
 			result.OccupiedPorts[port] = true

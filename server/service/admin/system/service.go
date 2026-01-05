@@ -130,7 +130,7 @@ func (s *Service) UpdateAnnouncement(req admin.UpdateAnnouncementRequest) error 
 		announcement.Type = req.Type
 	}
 
-	// 对于数值字段，我们需要检查是否在请求中被设置
+	// 对于数值字段，需要检查是否在请求中被设置
 	// Priority 和 IsSticky 应该总是被更新，因为它们有明确的默认值
 	announcement.Priority = req.Priority
 	announcement.IsSticky = req.IsSticky

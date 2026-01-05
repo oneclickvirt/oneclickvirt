@@ -343,7 +343,7 @@ fi
 echo "pmacct安装成功: $(pmacctd -V 2>&1 | head -1)"
 echo "sqlite3安装成功: $(sqlite3 --version 2>&1 | head -1)"
 
-# 确保pmacct默认服务停止（我们将手动管理配置）
+# 确保pmacct默认服务停止（将手动管理配置）
 systemctl stop pmacct 2>/dev/null || service pmacct stop 2>/dev/null || rc-service pmacct stop 2>/dev/null || true
 systemctl disable pmacct 2>/dev/null || chkconfig pmacct off 2>/dev/null || rc-update del pmacct 2>/dev/null || true
 `

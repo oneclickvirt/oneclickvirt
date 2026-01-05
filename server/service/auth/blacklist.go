@@ -163,7 +163,7 @@ func (s *JWTBlacklistService) CleanExpiredTokens() error {
 
 // extractTokenInfo 从Token字符串中提取JTI和过期时间
 func (s *JWTBlacklistService) extractTokenInfo(tokenString string) (string, time.Time, error) {
-	// 解析Token但不验证签名（因为我们只需要提取信息）
+	// 解析Token但不验证签名（因为只需要提取信息）
 	parser := jwt.NewParser(jwt.WithoutClaimsValidation())
 	token, _, err := parser.ParseUnverified(tokenString, jwt.MapClaims{})
 	if err != nil {

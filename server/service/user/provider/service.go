@@ -858,7 +858,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		if err := tx.Model(instance).Updates(instanceUpdates).Error; err != nil {
 			return fmt.Errorf("更新实例信息失败: %v", err)
 		}
-		// 更新用户配额
+		// 确认待确认配额（将pending_quota转为used_quota）
 		quotaService := resources.NewQuotaService()
 		resourceUsage := resources.ResourceUsage{
 			CPU:       instance.CPU,
@@ -866,12 +866,13 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			Disk:      instance.Disk,
 			Bandwidth: instance.Bandwidth,
 		}
-		if err := quotaService.UpdateUserQuotaAfterCreationWithTx(tx, task.UserID, resourceUsage); err != nil {
-			global.APP_LOG.Error("更新用户配额失败",
+		// 实例创建成功，将待确认配额转为已使用配额
+		if err := quotaService.ConfirmPendingQuota(tx, task.UserID, resourceUsage); err != nil {
+			global.APP_LOG.Error("确认用户配额失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("userId", task.UserID),
 				zap.Error(err))
-			return fmt.Errorf("更新用户配额失败: %v", err)
+			return fmt.Errorf("确认用户配额失败: %v", err)
 		}
 		// 更新任务状态为处理中，等待后处理任务完成
 		if err := tx.Model(task).Updates(map[string]interface{}{

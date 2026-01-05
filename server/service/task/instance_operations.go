@@ -10,6 +10,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	provider2 "oneclickvirt/service/provider"
+	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
 	"time"
@@ -89,10 +90,44 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	// 更新进度 (80%)
 	s.updateTaskProgress(task.ID, 80, "正在更新实例状态...")
 
-	// 更新实例状态为运行中
-	if err := global.APP_DB.Model(&instance).Update("status", "running").Error; err != nil {
-		global.APP_LOG.Error("更新实例状态失败", zap.Error(err))
-		return fmt.Errorf("更新实例状态失败: %v", err)
+	// 在事务中更新实例状态并确认配额（如果需要）
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 先获取当前状态
+		var currentInstance providerModel.Instance
+		if err := tx.First(&currentInstance, instance.ID).Error; err != nil {
+			return fmt.Errorf("获取实例信息失败: %v", err)
+		}
+
+		wasCreating := currentInstance.Status == "creating"
+
+		// 更新实例状态为运行中
+		if err := tx.Model(&currentInstance).Update("status", "running").Error; err != nil {
+			return fmt.Errorf("更新实例状态失败: %v", err)
+		}
+
+		// 如果实例之前是 creating 状态，需要将 pending_quota 转为 used_quota
+		if wasCreating {
+			quotaService := resources.NewQuotaService()
+			resourceUsage := resources.ResourceUsage{
+				CPU:       instance.CPU,
+				Memory:    instance.Memory,
+				Disk:      instance.Disk,
+				Bandwidth: instance.Bandwidth,
+			}
+			if err := quotaService.ConfirmPendingQuota(tx, instance.UserID, resourceUsage); err != nil {
+				global.APP_LOG.Warn("确认配额失败，继续启动流程",
+					zap.Uint("instanceId", instance.ID),
+					zap.Error(err))
+				// 不阻止启动流程
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		global.APP_LOG.Error("更新实例状态和配额失败", zap.Error(err))
+		return err
 	}
 
 	// 更新进度 (90%)
@@ -385,10 +420,44 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	// 更新进度 (75%)
 	s.updateTaskProgress(task.ID, 75, "正在更新实例状态...")
 
-	// 更新实例状态为运行中
-	if err := global.APP_DB.Model(&instance).Update("status", "running").Error; err != nil {
-		global.APP_LOG.Error("更新实例状态失败", zap.Error(err))
-		return fmt.Errorf("更新实例状态失败: %v", err)
+	// 在事务中更新实例状态并确认配额（如果需要）
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 先获取当前状态
+		var currentInstance providerModel.Instance
+		if err := tx.First(&currentInstance, instance.ID).Error; err != nil {
+			return fmt.Errorf("获取实例信息失败: %v", err)
+		}
+
+		wasCreating := currentInstance.Status == "creating"
+
+		// 更新实例状态为运行中
+		if err := tx.Model(&currentInstance).Update("status", "running").Error; err != nil {
+			return fmt.Errorf("更新实例状态失败: %v", err)
+		}
+
+		// 如果实例之前是 creating 状态，需要将 pending_quota 转为 used_quota
+		if wasCreating {
+			quotaService := resources.NewQuotaService()
+			resourceUsage := resources.ResourceUsage{
+				CPU:       instance.CPU,
+				Memory:    instance.Memory,
+				Disk:      instance.Disk,
+				Bandwidth: instance.Bandwidth,
+			}
+			if err := quotaService.ConfirmPendingQuota(tx, instance.UserID, resourceUsage); err != nil {
+				global.APP_LOG.Warn("确认配额失败，继续重启流程",
+					zap.Uint("instanceId", instance.ID),
+					zap.Error(err))
+				// 不阻止重启流程
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		global.APP_LOG.Error("更新实例状态和配额失败", zap.Error(err))
+		return err
 	}
 
 	// 更新进度 (80%)

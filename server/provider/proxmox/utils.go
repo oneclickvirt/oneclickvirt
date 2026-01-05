@@ -497,7 +497,7 @@ func (p *ProxmoxProvider) isPrivateIPv6(address string) bool {
 		"::1",          // 回环地址
 		"::ffff:",      // IPv4映射地址
 		"fd42:",        // Docker等使用的私有地址
-		"2001:db8:1::", // 我们在NAT映射中使用的内部地址
+		"2001:db8:1::", // 在NAT映射中使用的内部地址
 	}
 
 	for _, prefix := range privateRanges {

@@ -45,7 +45,8 @@ type QuotaCheckResult struct {
 	Reason            string
 	CurrentInstances  int
 	MaxInstances      int
-	CurrentResources  ResourceUsage
+	CurrentResources  ResourceUsage // 已确认使用的资源（稳定状态）
+	PendingResources  ResourceUsage // 待确认的资源（创建中/重置中）
 	MaxResources      ResourceUsage
 	MaxQuota          ResourceUsage // MaxQuota字段
 	RequiredResources ResourceUsage
@@ -99,10 +100,9 @@ func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	return s.validateInTransaction(tx, req)
 }
 
-// validateInTransaction 在事务中进行配额验证（增强版，防止并发竞争）
+// validateInTransaction 在事务中进行配额验证（两阶段配额系统）
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
 	// 使用 SELECT FOR UPDATE 锁定用户记录
-	// MySQL 5.x和部分MariaDB不支持NOWAIT，使用标准FOR UPDATE（兼容所有版本）
 	var user user.User
 	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, req.UserID).Error; err != nil {
 		if strings.Contains(err.Error(), "Lock wait timeout") || strings.Contains(err.Error(), "timeout") {
@@ -151,8 +151,8 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		}
 	}
 
-	// 统计当前实例数量和资源使用
-	currentInstances, currentResources, err := s.getCurrentResourceUsage(tx, req.UserID)
+	// 统计当前资源使用：分别统计稳定状态和待确认状态
+	currentInstances, currentResources, pendingResources, err := s.getCurrentResourceUsageWithPending(tx, req.UserID)
 	if err != nil {
 		return nil, fmt.Errorf("获取当前资源使用情况失败: %v", err)
 	}
@@ -181,12 +181,13 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		CurrentInstances:  currentInstances,
 		MaxInstances:      levelLimits.MaxInstances,
 		CurrentResources:  currentResources,
+		PendingResources:  pendingResources,
 		MaxResources:      maxResources,
-		MaxQuota:          maxResources, // 设置MaxQuota字段
+		MaxQuota:          maxResources,
 		RequiredResources: requestedResources,
 	}
 
-	// 1. 检查用户全局实例数量限制
+	// 1. 检查用户全局实例数量限制（包含待确认实例）
 	if currentInstances >= levelLimits.MaxInstances {
 		result.Allowed = false
 		result.Reason = fmt.Sprintf("实例数量已达上限：当前 %d/%d", currentInstances, levelLimits.MaxInstances)
@@ -195,7 +196,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 
 	// 1.5 如果有 Provider 限制，还需要检查用户在该节点的实例数量
 	if req.ProviderID > 0 && providerLevelLimits != nil && providerLevelLimits.MaxInstances > 0 {
-		// 这里使用的是合并前的 providerLevelLimits，因为我们要检查节点本身的限制
+		// 这里使用的是合并前的 providerLevelLimits，因为要检查节点本身的限制
 		if currentProviderInstances >= providerLevelLimits.MaxInstances {
 			result.Allowed = false
 			result.Reason = fmt.Sprintf("该节点实例数量已达上限：当前在此节点 %d/%d",
@@ -204,7 +205,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		}
 	}
 
-	// 2. 检查CPU限制（考虑超分配设置）
+	// 2. 检查CPU限制（包含待确认资源，考虑超分配设置）
 	shouldCheckCPU := true
 	if req.ProviderID > 0 && prov != nil {
 		switch req.InstanceType {
@@ -214,14 +215,15 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 			shouldCheckCPU = prov.VMLimitCPU
 		}
 	}
-	if shouldCheckCPU && currentResources.CPU+requestedResources.CPU > maxResources.CPU {
+	totalCPU := currentResources.CPU + pendingResources.CPU + requestedResources.CPU
+	if shouldCheckCPU && totalCPU > maxResources.CPU {
 		result.Allowed = false
-		result.Reason = fmt.Sprintf("CPU资源不足：需要 %d，当前使用 %d，最大允许 %d",
-			requestedResources.CPU, currentResources.CPU, maxResources.CPU)
+		result.Reason = fmt.Sprintf("CPU资源不足：需要 %d，当前使用 %d（含待确认 %d），最大允许 %d",
+			requestedResources.CPU, currentResources.CPU, pendingResources.CPU, maxResources.CPU)
 		return result, nil
 	}
 
-	// 3. 检查内存限制（考虑超分配设置）
+	// 3. 检查内存限制（包含待确认资源，考虑超分配设置）
 	shouldCheckMemory := true
 	if req.ProviderID > 0 && prov != nil {
 		switch req.InstanceType {
@@ -231,14 +233,15 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 			shouldCheckMemory = prov.VMLimitMemory
 		}
 	}
-	if shouldCheckMemory && currentResources.Memory+requestedResources.Memory > maxResources.Memory {
+	totalMemory := currentResources.Memory + pendingResources.Memory + requestedResources.Memory
+	if shouldCheckMemory && totalMemory > maxResources.Memory {
 		result.Allowed = false
-		result.Reason = fmt.Sprintf("内存资源不足：需要 %dMB，当前使用 %dMB，最大允许 %dMB",
-			requestedResources.Memory, currentResources.Memory, maxResources.Memory)
+		result.Reason = fmt.Sprintf("内存资源不足：需要 %dMB，当前使用 %dMB（含待确认 %dMB），最大允许 %dMB",
+			requestedResources.Memory, currentResources.Memory, pendingResources.Memory, maxResources.Memory)
 		return result, nil
 	}
 
-	// 4. 检查磁盘限制（考虑超分配设置）
+	// 4. 检查磁盘限制（包含待确认资源，考虑超分配设置）
 	shouldCheckDisk := true
 	if req.ProviderID > 0 && prov != nil {
 		switch req.InstanceType {
@@ -248,10 +251,11 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 			shouldCheckDisk = prov.VMLimitDisk
 		}
 	}
-	if shouldCheckDisk && currentResources.Disk+requestedResources.Disk > maxResources.Disk {
+	totalDisk := currentResources.Disk + pendingResources.Disk + requestedResources.Disk
+	if shouldCheckDisk && totalDisk > maxResources.Disk {
 		result.Allowed = false
-		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %dMB，当前使用 %dMB，最大允许 %dMB",
-			requestedResources.Disk, currentResources.Disk, maxResources.Disk)
+		result.Reason = fmt.Sprintf("磁盘资源不足：需要 %dMB，当前使用 %dMB（含待确认 %dMB），最大允许 %dMB",
+			requestedResources.Disk, currentResources.Disk, pendingResources.Disk, maxResources.Disk)
 		return result, nil
 	}
 
@@ -275,38 +279,54 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	return result, nil
 }
 
-// getCurrentResourceUsage 获取当前资源使用情况（增强版，使用共享锁防止幻读）
+// getCurrentResourceUsage 获取当前资源使用情况（仅稳定状态，用于向后兼容）
 func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, ResourceUsage, error) {
-	var instances []provider.Instance
+	count, resources, _, err := s.getCurrentResourceUsageWithPending(tx, userID)
+	return count, resources, err
+}
 
-	// 使用 LOCK IN SHARE MODE 共享锁，允许其他事务读取但不允许修改
-	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
-	// 这样可以防止在统计过程中有新实例被创建（防止幻读）
-	// 排除所有中间状态和无效状态：deleting(删除中)、deleted(已删除)、failed(失败)、creating(创建中)、resetting(重置中)
-	// 只计算稳定状态的实例：running、stopped、paused等
+// getCurrentResourceUsageWithPending 获取当前资源使用情况（分别统计稳定和待确认）
+func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID uint) (int, ResourceUsage, ResourceUsage, error) {
+	// 稳定状态：running、stopped、paused 等（排除 creating、resetting、deleting、deleted、failed）
+	var stableInstances []provider.Instance
 	err := tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
-		Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed", "creating", "resetting"}).
-		Find(&instances).Error
+		Where("user_id = ? AND status IN (?)", userID, []string{"running", "stopped", "paused"}).
+		Find(&stableInstances).Error
 	if err != nil {
-		return 0, ResourceUsage{}, err
+		return 0, ResourceUsage{}, ResourceUsage{}, err
 	}
 
-	instanceCount := len(instances)
-	totalResources := ResourceUsage{
-		CPU:       0,
-		Memory:    0,
-		Disk:      0,
-		Bandwidth: 0,
+	// 待确认状态：creating、resetting
+	var pendingInstances []provider.Instance
+	err = tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
+		Where("user_id = ? AND status IN (?)", userID, []string{"creating", "resetting"}).
+		Find(&pendingInstances).Error
+	if err != nil {
+		return 0, ResourceUsage{}, ResourceUsage{}, err
 	}
 
-	for _, instance := range instances {
-		totalResources.CPU += instance.CPU
-		totalResources.Memory += instance.Memory
-		totalResources.Disk += instance.Disk
-		totalResources.Bandwidth += instance.Bandwidth
+	// 总实例数 = 稳定状态 + 待确认状态
+	totalCount := len(stableInstances) + len(pendingInstances)
+
+	// 统计稳定状态资源
+	stableResources := ResourceUsage{}
+	for _, instance := range stableInstances {
+		stableResources.CPU += instance.CPU
+		stableResources.Memory += instance.Memory
+		stableResources.Disk += instance.Disk
+		stableResources.Bandwidth += instance.Bandwidth
 	}
 
-	return instanceCount, totalResources, nil
+	// 统计待确认状态资源
+	pendingResources := ResourceUsage{}
+	for _, instance := range pendingInstances {
+		pendingResources.CPU += instance.CPU
+		pendingResources.Memory += instance.Memory
+		pendingResources.Disk += instance.Disk
+		pendingResources.Bandwidth += instance.Bandwidth
+	}
+
+	return totalCount, stableResources, pendingResources, nil
 }
 
 // getCurrentProviderInstanceCount 获取用户在指定 Provider 上的实例数量（增强版）
@@ -406,70 +426,106 @@ func (s *QuotaService) checkInstanceTypePermission(level int, instanceType strin
 	}
 }
 
-// UpdateUserQuotaAfterCreationWithTx 在指定事务中更新用户配额
-func (s *QuotaService) UpdateUserQuotaAfterCreationWithTx(tx *gorm.DB, userID uint, resources ResourceUsage) error {
-	// 直接使用事务，依赖数据库FOR UPDATE锁保证原子性
-	updateOperation := func(db *gorm.DB) error {
-		var user user.User
-		// 使用FOR UPDATE防止并发修改
-		query := db.Set("gorm:query_option", "FOR UPDATE").First(&user, userID)
-
-		if err := query.Error; err != nil {
-			return fmt.Errorf("用户不存在: %v", err)
-		}
-
-		// 更新用户的使用配额
-		newUsedQuota := user.UsedQuota + resources.GetResourceUsage()
-		if err := db.Model(&user).Update("used_quota", newUsedQuota).Error; err != nil {
-			return fmt.Errorf("更新用户配额失败: %v", err)
-		}
-
-		global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已更新: %d -> %d", userID, user.UsedQuota, newUsedQuota))
-		return nil
+// AllocatePendingQuota 分配待确认配额（创建实例时调用）
+func (s *QuotaService) AllocatePendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
+	var user user.User
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+		return fmt.Errorf("用户不存在: %v", err)
 	}
 
-	// 如果传入了事务，直接使用；否则创建新事务
-	if tx != nil {
-		return updateOperation(tx)
+	newPendingQuota := user.PendingQuota + resources.GetResourceUsage()
+	if err := tx.Model(&user).Update("pending_quota", newPendingQuota).Error; err != nil {
+		return fmt.Errorf("更新待确认配额失败: %v", err)
 	}
 
-	// 使用事务执行
-	return global.APP_DB.Transaction(updateOperation)
+	global.APP_LOG.Info(fmt.Sprintf("用户 %d 待确认配额已分配: %d -> %d (+%d)",
+		userID, user.PendingQuota, newPendingQuota, resources.GetResourceUsage()))
+	return nil
 }
 
-// UpdateUserQuotaAfterDeletionWithTx 在指定事务中删除用户配额
+// ConfirmPendingQuota 确认待确认配额（实例创建成功时调用）
+func (s *QuotaService) ConfirmPendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
+	var user user.User
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+		return fmt.Errorf("用户不存在: %v", err)
+	}
+
+	resourceUsage := resources.GetResourceUsage()
+	newPendingQuota := user.PendingQuota - resourceUsage
+	if newPendingQuota < 0 {
+		newPendingQuota = 0
+	}
+	newUsedQuota := user.UsedQuota + resourceUsage
+
+	updates := map[string]interface{}{
+		"pending_quota": newPendingQuota,
+		"used_quota":    newUsedQuota,
+	}
+	if err := tx.Model(&user).Updates(updates).Error; err != nil {
+		return fmt.Errorf("确认配额失败: %v", err)
+	}
+
+	global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已确认: pending %d -> %d, used %d -> %d",
+		userID, user.PendingQuota, newPendingQuota, user.UsedQuota, newUsedQuota))
+	return nil
+}
+
+// ReleasePendingQuota 释放待确认配额（实例创建失败时调用）
+func (s *QuotaService) ReleasePendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
+	var user user.User
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+		return fmt.Errorf("用户不存在: %v", err)
+	}
+
+	resourceUsage := resources.GetResourceUsage()
+	newPendingQuota := user.PendingQuota - resourceUsage
+	if newPendingQuota < 0 {
+		newPendingQuota = 0
+	}
+
+	if err := tx.Model(&user).Update("pending_quota", newPendingQuota).Error; err != nil {
+		return fmt.Errorf("释放待确认配额失败: %v", err)
+	}
+
+	global.APP_LOG.Info(fmt.Sprintf("用户 %d 待确认配额已释放: %d -> %d (-%d)",
+		userID, user.PendingQuota, newPendingQuota, resourceUsage))
+	return nil
+}
+
+// ReleaseUsedQuota 释放已使用配额（删除稳定状态实例时调用）
+func (s *QuotaService) ReleaseUsedQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
+	var user user.User
+	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+		return fmt.Errorf("用户不存在: %v", err)
+	}
+
+	resourceUsage := resources.GetResourceUsage()
+	newUsedQuota := user.UsedQuota - resourceUsage
+	if newUsedQuota < 0 {
+		newUsedQuota = 0
+	}
+
+	if err := tx.Model(&user).Update("used_quota", newUsedQuota).Error; err != nil {
+		return fmt.Errorf("释放已使用配额失败: %v", err)
+	}
+
+	global.APP_LOG.Info(fmt.Sprintf("用户 %d 已使用配额已释放: %d -> %d (-%d)",
+		userID, user.UsedQuota, newUsedQuota, resourceUsage))
+	return nil
+}
+
+// UpdateUserQuotaAfterCreationWithTx 在指定事务中更新用户配额（向后兼容，已废弃，使用 AllocatePendingQuota）
+func (s *QuotaService) UpdateUserQuotaAfterCreationWithTx(tx *gorm.DB, userID uint, resources ResourceUsage) error {
+	// 为了向后兼容，这里调用新的 AllocatePendingQuota 方法
+	return s.AllocatePendingQuota(tx, userID, resources)
+}
+
+// UpdateUserQuotaAfterDeletionWithTx 在指定事务中删除用户配额（向后兼容，根据实例状态决定释放哪种配额）
 func (s *QuotaService) UpdateUserQuotaAfterDeletionWithTx(tx *gorm.DB, userID uint, resources ResourceUsage) error {
-	// 直接使用事务，依赖数据库FOR UPDATE锁保证原子性
-	updateOperation := func(db *gorm.DB) error {
-		var user user.User
-		// 使用FOR UPDATE防止并发修改
-		query := db.Set("gorm:query_option", "FOR UPDATE").First(&user, userID)
-
-		if err := query.Error; err != nil {
-			return fmt.Errorf("用户不存在: %v", err)
-		}
-
-		// 释放用户的使用配额
-		newUsedQuota := user.UsedQuota - resources.GetResourceUsage()
-		if newUsedQuota < 0 {
-			newUsedQuota = 0 // 防止负数
-		}
-
-		if err := db.Model(&user).Update("used_quota", newUsedQuota).Error; err != nil {
-			return fmt.Errorf("更新用户配额失败: %v", err)
-		}
-
-		global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已释放: %d -> %d", userID, user.UsedQuota, newUsedQuota))
-		return nil
-	}
-
-	// 如果传入了事务，直接使用；否则创建新事务
-	if tx != nil {
-		return updateOperation(tx)
-	}
-
-	// 使用事务执行
-	return global.APP_DB.Transaction(updateOperation)
+	// 这个方法需要根据实例状态来决定释放 used_quota 还是 pending_quota
+	// 但由于调用方已经删除了实例，无法再查询状态
+	// 因此这个兼容方法默认释放 used_quota
+	return s.ReleaseUsedQuota(tx, userID, resources)
 }
 
 // ValidateAdminInstanceCreation 管理员创建实例的配额验证
@@ -479,29 +535,46 @@ func (s *QuotaService) ValidateAdminInstanceCreation(req ResourceRequest) (*Quot
 	return s.ValidateInstanceCreation(req)
 }
 
-// RecalculateUserQuota 重新计算用户配额
-// 由于系统会重新初始化数据库，这个功能主要用于运行时的配额同步
+// RecalculateUserQuota 重新计算用户配额（两阶段配额系统）
 func (s *QuotaService) RecalculateUserQuota(userID uint) error {
-	// 直接使用事务，依赖数据库FOR UPDATE锁保证原子性
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var user user.User
 		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
 			return fmt.Errorf("用户不存在: %v", err)
 		}
 
-		// 重新计算实际使用的配额
-		_, currentResources, err := s.getCurrentResourceUsage(tx, userID)
+		// 分别计算稳定状态和待确认状态的资源使用
+		_, stableResources, pendingResources, err := s.getCurrentResourceUsageWithPending(tx, userID)
 		if err != nil {
 			return fmt.Errorf("获取当前资源使用情况失败: %v", err)
 		}
 
-		actualUsedQuota := currentResources.GetResourceUsage()
+		actualUsedQuota := stableResources.GetResourceUsage()
+		actualPendingQuota := pendingResources.GetResourceUsage()
 
-		if err := tx.Model(&user).Update("used_quota", actualUsedQuota).Error; err != nil {
-			return fmt.Errorf("更新用户配额失败: %v", err)
+		// 只有在配额不一致时才更新
+		needUpdate := false
+		updates := make(map[string]interface{})
+
+		if user.UsedQuota != actualUsedQuota {
+			updates["used_quota"] = actualUsedQuota
+			needUpdate = true
 		}
 
-		global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已重新计算: %d -> %d", userID, user.UsedQuota, actualUsedQuota))
+		if user.PendingQuota != actualPendingQuota {
+			updates["pending_quota"] = actualPendingQuota
+			needUpdate = true
+		}
+
+		if needUpdate {
+			if err := tx.Model(&user).Updates(updates).Error; err != nil {
+				return fmt.Errorf("更新用户配额失败: %v", err)
+			}
+
+			global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已重新计算: used %d -> %d, pending %d -> %d",
+				userID, user.UsedQuota, actualUsedQuota, user.PendingQuota, actualPendingQuota))
+		}
+
 		return nil
 	})
 }

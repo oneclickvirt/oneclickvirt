@@ -1055,7 +1055,7 @@ func (cm *ConfigManager) RegisterChangeCallback(callback ConfigChangeCallback) {
 
 // syncToGlobalConfig 同步配置到全局配置并写回YAML文件
 func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error {
-	// 这个方法需要导入 global 包，但为了避免循环导入，我们需要通过依赖注入或回调的方式实现
+	// 这个方法需要导入 global 包，但为了避免循环导入，需要通过依赖注入或回调的方式实现
 	// 暂时先记录日志，具体实现需要在初始化时注册同步回调
 	cm.logger.Info("配置已更新，需要同步到全局配置", zap.Any("config", config))
 
@@ -1187,7 +1187,7 @@ func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 
 	// 遍历配置并同步到全局配置
 	// 这里需要导入 global 包，但为了避免循环导入
-	// 我们通过回调机制来实现同步
+	// 通过回调机制来实现同步
 	for key, value := range nestedConfig {
 		cm.logger.Info("触发配置同步回调",
 			zap.String("key", key),

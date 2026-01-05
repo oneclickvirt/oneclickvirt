@@ -194,7 +194,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		return fmt.Errorf("添加端口映射失败: %v", err)
 	}
 
-	// Provider 会创建一条新的数据库记录，我们需要删除它并更新我们原有的记录
+	// Provider 会创建一条新的数据库记录，需要删除它并更新原有的记录
 	if result.ID != 0 && result.ID != port.ID {
 		// 删除 provider 创建的重复记录
 		global.APP_DB.Delete(&providerModel.Port{}, result.ID)

@@ -175,7 +175,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	}
 
 	// 创建数据库记录（状态为 pending）
-	// 对于端口段，我们创建一个主记录来代表整个端口段
+	// 对于端口段，创建一个主记录来代表整个端口段
 	port := provider.Port{
 		InstanceID:    req.InstanceID,
 		ProviderID:    providerInfo.ID,

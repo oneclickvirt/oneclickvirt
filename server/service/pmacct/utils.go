@@ -107,7 +107,7 @@ func (s *Service) initializePmacctDatabase(providerInstance provider.Provider, d
 	global.APP_LOG.Info("初始化pmacct数据库表结构", zap.String("dbPath", dbPath))
 
 	// acct_v9 表结构（兼容方案 - 同时支持 aggregate 字段名和标准 v9 列名）
-	// pmacct 可能使用 ip_src/ip_dst 或 src_host/dst_host，我们都支持
+	// pmacct 可能使用 ip_src/ip_dst 或 src_host/dst_host，都支持
 	// aggregate: src_host, dst_host（端口和协议字段已禁用）
 	createTableSQL := `
 -- 删除旧表（如果存在），确保表结构正确
