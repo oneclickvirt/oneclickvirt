@@ -54,5 +54,15 @@ export default {
   newPassword: "新密码",
   passwordResetInfo: "新密码已生成，请复制并发送给用户",
   copyPassword: "复制密码",
-  loadUsersFailed: "加载用户列表失败"
+  loadUsersFailed: "加载用户列表失败",
+  freezeManage: "冻结管理",
+  setExpiry: "设置过期时间",
+  freeze: "冻结用户",
+  unfreeze: "解冻用户",
+  freezeStatus: "冻结状态",
+  freezeReason: "冻结原因",
+  freezeSuccess: "冻结成功",
+  freezeFailed: "冻结失败",
+  unfreezeSuccess: "解冻成功",
+  unfreezeFailed: "解冻失败"
 }

@@ -54,5 +54,15 @@ export default {
   newPassword: "New Password",
   passwordResetInfo: "New password generated, please copy and send to user",
   copyPassword: "Copy Password",
-  loadUsersFailed: "Failed to load user list"
+  loadUsersFailed: "Failed to load user list",
+  freezeManage: "Freeze Management",
+  setExpiry: "Set Expiry Time",
+  freeze: "Freeze User",
+  unfreeze: "Unfreeze User",
+  freezeStatus: "Freeze Status",
+  freezeReason: "Freeze Reason",
+  freezeSuccess: "Frozen successfully",
+  freezeFailed: "Freeze failed",
+  unfreezeSuccess: "Unfrozen successfully",
+  unfreezeFailed: "Unfreeze failed"
 }

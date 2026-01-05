@@ -628,6 +628,7 @@ func initLevelConfigurations() {
 			"bandwidth": 100,  // 100Mbps
 		},
 		MaxTraffic: 102400, // 100GB
+		ExpiryDays: 0,      // 0表示不过期
 	}
 
 	// 等级2: 中级档次
@@ -640,6 +641,7 @@ func initLevelConfigurations() {
 			"bandwidth": 200,   // 200Mbps
 		},
 		MaxTraffic: 204800, // 200GB
+		ExpiryDays: 0,      // 0表示不过期
 	}
 
 	// 等级3: 高级档次
@@ -652,6 +654,7 @@ func initLevelConfigurations() {
 			"bandwidth": 500,   // 500Mbps
 		},
 		MaxTraffic: 307200, // 300GB
+		ExpiryDays: 0,      // 0表示不过期
 	}
 
 	// 等级4: 超级档次
@@ -664,6 +667,7 @@ func initLevelConfigurations() {
 			"bandwidth": 1000,  // 1000Mbps
 		},
 		MaxTraffic: 409600, // 400GB
+		ExpiryDays: 0,      // 0表示不过期
 	}
 
 	// 等级5: 管理员档次
@@ -676,6 +680,7 @@ func initLevelConfigurations() {
 			"bandwidth": 2000,   // 2000Mbps
 		},
 		MaxTraffic: 512000, // 500GB
+		ExpiryDays: 0,      // 0表示不过期
 	}
 
 	global.APP_LOG.Info("等级与带宽配置初始化完成")

@@ -58,6 +58,8 @@ export default {
   maxDiskMB: "Max Disk (MB)",
   maxBandwidthMbps: "Max Bandwidth (Mbps)",
   trafficLimitMB: "Traffic Limit (MB)",
+  expiryDays: "Expiry Days",
+  expiryDaysHint: "User resource expiration time, unit: days",
   instancePermissions: "Instance Permissions",
   instancePermissionsDesc: "Instance Type Permissions Description",
   instancePermissionsHint: "Configure minimum user level requirements for different instance types and operations. You can separately set minimum levels for container and VM creation, deletion, and system reset operations.",
