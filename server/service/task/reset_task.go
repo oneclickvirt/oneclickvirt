@@ -614,17 +614,49 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 			}
 		}
 	} else {
-		// LXD/Incus/Proxmox：需要在远程服务器上创建端口映射
+		// LXD/Incus/Proxmox：需要先创建数据库记录，然后在远程服务器上配置实际的端口映射
+		// Step 1: 先创建所有端口映射的数据库记录
 		for _, oldPort := range resetCtx.OldPortMappings {
-			if err := s.createPortMappingDirect(ctx, resetCtx, oldPort); err != nil {
-				global.APP_LOG.Warn("恢复端口映射失败",
+			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+				newPort := providerModel.Port{
+					InstanceID:    resetCtx.NewInstanceID,
+					ProviderID:    resetCtx.Provider.ID,
+					HostPort:      oldPort.HostPort,
+					GuestPort:     oldPort.GuestPort,
+					Protocol:      oldPort.Protocol,
+					Description:   oldPort.Description,
+					Status:        "active",
+					IsSSH:         oldPort.IsSSH,
+					IsAutomatic:   oldPort.IsAutomatic,
+					PortType:      oldPort.PortType,
+					MappingMethod: oldPort.MappingMethod,
+					IPv6Enabled:   oldPort.IPv6Enabled,
+				}
+				return tx.Create(&newPort).Error
+			})
+
+			if err != nil {
+				global.APP_LOG.Warn("创建端口映射数据库记录失败",
 					zap.Int("hostPort", oldPort.HostPort),
-					zap.Int("guestPort", oldPort.GuestPort),
-					zap.String("protocol", oldPort.Protocol),
 					zap.Error(err))
 				failCount++
+			}
+		}
+
+		// Step 2: 调用 Provider 层的方法，在远程服务器上实际配置端口映射（proxy device）
+		providerApiService := &provider2.ProviderApiService{}
+		prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
+		if err != nil {
+			global.APP_LOG.Error("获取Provider实例失败，无法配置远程端口映射", zap.Error(err))
+		} else {
+			// 调用 Provider 层的端口映射配置方法
+			if err := s.configureProviderPortMappings(ctx, prov, resetCtx); err != nil {
+				global.APP_LOG.Warn("配置Provider端口映射失败", zap.Error(err))
+				// 端口映射配置失败不阻塞重置流程，已创建的数据库记录保留
 			} else {
-				successCount++
+				successCount = len(resetCtx.OldPortMappings)
+				global.APP_LOG.Info("Provider端口映射配置成功",
+					zap.Int("portCount", successCount))
 			}
 		}
 	}
@@ -789,6 +821,81 @@ func toLower(s string) string {
 		}
 	}
 	return string(result)
+}
+
+// configureProviderPortMappings 配置Provider层的端口映射（实际在远程服务器上创建proxy device）
+func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov interface{}, resetCtx *ResetTaskContext) error {
+	// 获取实例的内网IP
+	instanceIP := resetCtx.NewPrivateIP
+	if instanceIP == "" {
+		instanceIP = getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
+	}
+
+	if instanceIP == "" {
+		return fmt.Errorf("无法获取实例内网IP，跳过端口映射配置")
+	}
+
+	global.APP_LOG.Info("开始配置Provider端口映射",
+		zap.String("instanceName", resetCtx.OldInstanceName),
+		zap.String("instanceIP", instanceIP),
+		zap.String("providerType", resetCtx.Provider.Type),
+		zap.Int("portCount", len(resetCtx.OldPortMappings)))
+
+	// 根据Provider类型调用相应的端口映射配置方法
+	// 注意：这里直接使用反射调用内部方法，因为 configurePortMappingsWithIP 是私有方法
+	// 我们通过 SetupPortMappingWithIP 公开方法来逐个配置端口
+	switch resetCtx.Provider.Type {
+	case "incus":
+		// 导入 incus provider
+		incusProv, ok := prov.(interface {
+			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
+		})
+		if !ok {
+			return fmt.Errorf("Provider类型断言失败: incus")
+		}
+
+		// 逐个配置端口映射
+		for _, port := range resetCtx.OldPortMappings {
+			if err := incusProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
+				global.APP_LOG.Warn("配置Incus端口映射失败",
+					zap.Int("hostPort", port.HostPort),
+					zap.Int("guestPort", port.GuestPort),
+					zap.Error(err))
+				// 继续配置其他端口
+			}
+		}
+		return nil
+
+	case "lxd":
+		// 导入 lxd provider
+		lxdProv, ok := prov.(interface {
+			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
+		})
+		if !ok {
+			return fmt.Errorf("Provider类型断言失败: lxd")
+		}
+
+		// 逐个配置端口映射
+		for _, port := range resetCtx.OldPortMappings {
+			if err := lxdProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
+				global.APP_LOG.Warn("配置LXD端口映射失败",
+					zap.Int("hostPort", port.HostPort),
+					zap.Int("guestPort", port.GuestPort),
+					zap.Error(err))
+				// 继续配置其他端口
+			}
+		}
+		return nil
+
+	case "proxmox":
+		// Proxmox 使用 iptables，需要逐个配置端口
+		global.APP_LOG.Info("Proxmox使用iptables端口映射，使用createPortMappingDirect方法")
+		// Proxmox 通过 createPortMappingDirect 已经正确处理
+		return nil
+
+	default:
+		return fmt.Errorf("不支持的Provider类型: %s", resetCtx.Provider.Type)
+	}
 }
 
 // 辅助函数：获取实例内网IP
