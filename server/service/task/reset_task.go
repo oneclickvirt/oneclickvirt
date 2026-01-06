@@ -255,7 +255,14 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 			}
 		}
 
-		// 4. 软删除实例记录
+		// 4. 重命名并软删除实例记录（避免唯一索引冲突，同时保留流量统计）
+		// 在旧实例名后添加时间戳，释放 name+provider_id 的唯一索引
+		deletedName := fmt.Sprintf("%s_deleted_%d", resetCtx.Instance.Name, time.Now().Unix())
+		if err := tx.Model(&resetCtx.Instance).Update("name", deletedName).Error; err != nil {
+			return fmt.Errorf("重命名实例失败: %v", err)
+		}
+
+		// 软删除实例记录，保留流量统计数据
 		if err := tx.Delete(&resetCtx.Instance).Error; err != nil {
 			return fmt.Errorf("删除实例记录失败: %v", err)
 		}
@@ -267,7 +274,7 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 		return err
 	}
 
-	global.APP_LOG.Info("旧实例清理完成",
+	global.APP_LOG.Info("旧实例清理完成（重命名后软删除）",
 		zap.Uint("instanceId", resetCtx.OldInstanceID))
 
 	return nil
