@@ -68,7 +68,9 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 			SUM(CASE WHEN instance_type = 'container' AND status NOT IN ('deleting', 'deleted', 'failed') THEN 1 ELSE 0 END) as containers,
 			SUM(CASE WHEN instance_type = 'vm' AND status NOT IN ('deleting', 'deleted', 'failed') THEN 1 ELSE 0 END) as vms
 		FROM instances
-		WHERE user_id = ? AND status NOT IN ('deleting', 'deleted', 'failed')
+		WHERE user_id = ? 
+		  AND deleted_at IS NULL
+		  AND status NOT IN ('deleting', 'deleted', 'failed')
 	`, userID).Scan(&stats).Error
 
 	if err != nil {
@@ -76,7 +78,7 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 	}
 
 	var recentInstances []providerModel.Instance
-	global.APP_DB.Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed"}).Order("created_at DESC").Limit(5).Find(&recentInstances)
+	global.APP_DB.Where("user_id = ? AND deleted_at IS NULL AND status NOT IN (?)", userID, []string{"deleting", "deleted", "failed"}).Order("created_at DESC").Limit(5).Find(&recentInstances)
 
 	// 处理最近实例的IP地址显示（移除端口号）
 	for i := range recentInstances {
@@ -91,7 +93,7 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 
 	// 统计当前实例使用的资源
 	var currentInstances []providerModel.Instance
-	if err := global.APP_DB.Where("user_id = ? AND status NOT IN (?)", userID, []string{"deleting", "deleted"}).Find(&currentInstances).Error; err != nil {
+	if err := global.APP_DB.Where("user_id = ? AND deleted_at IS NULL AND status NOT IN (?)", userID, []string{"deleting", "deleted"}).Find(&currentInstances).Error; err != nil {
 		return nil, fmt.Errorf("查询用户实例失败: %v", err)
 	}
 
@@ -182,7 +184,9 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 			COALESCE(SUM(disk), 0) as used_disk,
 			COALESCE(SUM(bandwidth), 0) as used_bandwidth
 		FROM instances
-		WHERE user_id = ? AND status NOT IN ('deleting', 'deleted', 'failed')
+		WHERE user_id = ? 
+		  AND deleted_at IS NULL
+		  AND status NOT IN ('deleting', 'deleted', 'failed')
 	`, userID).Scan(&resourceStats).Error
 
 	if err != nil {

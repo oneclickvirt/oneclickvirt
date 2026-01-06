@@ -54,7 +54,7 @@ type ResetTaskContext struct {
 }
 
 // executeResetTask 执行实例重置任务
-// 重构：直接复用删除和创建逻辑，避免代码重复和资源管理错误
+// 直接复用删除和创建逻辑，避免代码重复和资源管理错误
 func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Task) error {
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
