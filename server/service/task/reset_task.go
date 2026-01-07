@@ -843,7 +843,7 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 
 	// 根据Provider类型调用相应的端口映射配置方法
 	// 注意：这里直接使用反射调用内部方法，因为 configurePortMappingsWithIP 是私有方法
-	// 我们通过 SetupPortMappingWithIP 公开方法来逐个配置端口
+	// 通过 SetupPortMappingWithIP 公开方法来逐个配置端口
 	switch resetCtx.Provider.Type {
 	case "incus":
 		// 导入 incus provider

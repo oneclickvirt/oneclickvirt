@@ -18,6 +18,8 @@ An extensible universal virtualization management platform that supports LXD, In
 
 ## Quick Deployment
 
+Avoid compiling from source whenever possible. We recommend deploying using separate binary files or directly pulling the Docker image for deployment.
+
 ### Method 1: Using Pre-built Images
 
 Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture.
