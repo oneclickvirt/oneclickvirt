@@ -454,23 +454,8 @@ func (s *Service) FindOrCreateUser(provider *oauth2Model.OAuth2Provider, userInf
 	err := global.APP_DB.Where(&user.User{OAuth2ProviderID: provider.ID, OAuth2UID: userInfo.ID}).First(&usr).Error
 
 	if err == nil {
-		// 用户已存在，更新OAuth2相关信息
-		updates := map[string]interface{}{
-			"OAuth2Username": userInfo.Username,
-			"OAuth2Email":    userInfo.Email,
-			"OAuth2Avatar":   userInfo.Avatar,
-			"OAuth2Extra":    userInfo.RawData,
-		}
-
-		// 更新昵称和头像（如果用户未自定义）
-		if userInfo.Nickname != "" && usr.Nickname == "" {
-			updates["nickname"] = userInfo.Nickname
-		}
-		if userInfo.Avatar != "" && usr.Avatar == "" {
-			updates["avatar"] = userInfo.Avatar
-		}
-
-		global.APP_DB.Model(&usr).Updates(updates)
+		// 用户已存在，同步用户信息和等级
+		s.SyncUserInfo(&usr, provider, userInfo)
 		return &usr, false, nil
 	}
 
@@ -480,6 +465,66 @@ func (s *Service) FindOrCreateUser(provider *oauth2Model.OAuth2Provider, userInf
 
 	// 用户不存在，创建新用户
 	return s.CreateUser(provider, userInfo)
+}
+
+// SyncUserInfo 同步OAuth2用户信息和等级
+func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provider, userInfo *UserInfo) {
+	// 计算新的用户等级
+	newLevel := s.GetUserLevel(provider, userInfo.TrustLevel)
+
+	// 准备更新数据
+	updates := map[string]interface{}{
+		"OAuth2Username": userInfo.Username,
+		"OAuth2Email":    userInfo.Email,
+		"OAuth2Avatar":   userInfo.Avatar,
+		"OAuth2Extra":    userInfo.RawData,
+	}
+
+	// 更新昵称和头像（如果用户未自定义）
+	if userInfo.Nickname != "" && usr.Nickname == "" {
+		updates["nickname"] = userInfo.Nickname
+	}
+	if userInfo.Avatar != "" && usr.Avatar == "" {
+		updates["avatar"] = userInfo.Avatar
+	}
+
+	// 如果等级发生变化，更新等级和配额
+	levelChanged := false
+	if usr.Level != newLevel {
+		usr.Level = newLevel
+		updates["level"] = newLevel
+		levelChanged = true
+
+		global.APP_LOG.Info("OAuth2用户等级已更新",
+			zap.String("username", usr.Username),
+			zap.Int("old_level", usr.Level),
+			zap.Int("new_level", newLevel),
+			zap.Int("trust_level", userInfo.TrustLevel))
+	}
+
+	// 更新基本信息
+	global.APP_DB.Model(usr).Updates(updates)
+
+	// 如果等级发生变化，重新设置配额
+	if levelChanged {
+		s.SetUserQuotaByLevel(usr)
+
+		// 更新配额信息到数据库
+		quotaUpdates := map[string]interface{}{
+			"max_instances": usr.MaxInstances,
+			"max_cpu":       usr.MaxCPU,
+			"max_memory":    usr.MaxMemory,
+			"max_disk":      usr.MaxDisk,
+			"max_bandwidth": usr.MaxBandwidth,
+			"total_traffic": usr.TotalTraffic,
+		}
+		global.APP_DB.Model(usr).Updates(quotaUpdates)
+
+		global.APP_LOG.Info("OAuth2用户配额已更新",
+			zap.String("username", usr.Username),
+			zap.Int("level", newLevel),
+			zap.Int("max_instances", usr.MaxInstances))
+	}
 }
 
 // CreateUser 创建新用户

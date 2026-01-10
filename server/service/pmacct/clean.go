@@ -53,6 +53,21 @@ func (s *Service) CleanupPmacctDataWithContext(ctx context.Context, instanceID u
 			return err
 		}
 
+		// 清除实例表中保存的网络接口信息，确保下次重新检测
+		// 这样可以避免容器重启后网卡名变化导致的问题
+		if err := tx.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Updates(map[string]interface{}{
+			"pmacct_interface_v4": "",
+			"pmacct_interface_v6": "",
+		}).Error; err != nil {
+			global.APP_LOG.Warn("清除实例网络接口信息失败（不影响整体清理）",
+				zap.Uint("instanceID", instanceID),
+				zap.Error(err))
+			// 不返回错误，继续清理流程
+		} else {
+			global.APP_LOG.Info("已清除实例网络接口信息，下次将重新检测",
+				zap.Uint("instanceID", instanceID))
+		}
+
 		global.APP_LOG.Info("pmacct监控配置清理完成（流量历史数据已保留）",
 			zap.Uint("instanceID", instanceID))
 
