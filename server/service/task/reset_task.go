@@ -46,6 +46,7 @@ type ResetTaskContext struct {
 	OldInstanceID      uint
 	OldInstanceName    string
 	OriginalUserID     uint
+	OriginalStatus     string // 实例重置前的原始状态（用于正确释放配额）
 	OriginalExpiresAt  *time.Time
 	OriginalMaxTraffic uint64
 	NewInstanceID      uint
@@ -123,6 +124,16 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Task, taskReq *adminModel.InstanceOperationTaskRequest, resetCtx *ResetTaskContext) error {
 	s.updateTaskProgress(task.ID, 5, "正在准备重置...")
 
+	// 解析taskData获取originalStatus（实例重置前的原始状态）
+	var taskData map[string]interface{}
+	if err := json.Unmarshal([]byte(task.TaskData), &taskData); err == nil {
+		if originalStatus, ok := taskData["originalStatus"].(string); ok {
+			resetCtx.OriginalStatus = originalStatus
+			global.APP_LOG.Info("从任务数据中解析到原始状态",
+				zap.String("originalStatus", originalStatus))
+		}
+	}
+
 	// 使用单个短事务查询所有需要的数据
 	err := s.dbService.ExecuteQuery(ctx, func() error {
 		// 1. 查询实例
@@ -161,6 +172,13 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 
 	if err != nil {
 		return err
+	}
+
+	// 如果无法从taskData解析originalStatus，则使用当前状态作为兜底
+	if resetCtx.OriginalStatus == "" {
+		resetCtx.OriginalStatus = resetCtx.Instance.Status
+		global.APP_LOG.Warn("无法从任务数据解析原始状态，使用当前状态作为兜底",
+			zap.String("currentStatus", resetCtx.Instance.Status))
 	}
 
 	// 保存必要信息
@@ -234,7 +252,9 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 			global.APP_LOG.Warn("释放Provider资源失败", zap.Error(err))
 		}
 
-		// 3. 释放用户配额（根据实例状态）
+		// 3. 释放用户配额（根据实例的原始状态，而非当前状态）
+		// 实例在重置前可能是running/stopped等稳定状态，但触发重置后状态被更新为resetting
+		// 应该根据原始状态判断配额类型，而不是当前的resetting状态
 		quotaService := resources.NewQuotaService()
 		resourceUsage := resources.ResourceUsage{
 			CPU:       resetCtx.Instance.CPU,
@@ -243,16 +263,22 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 			Bandwidth: resetCtx.Instance.Bandwidth,
 		}
 
-		// 根据实例状态释放对应的配额
-		isPendingState := resetCtx.Instance.Status == "creating" || resetCtx.Instance.Status == "resetting"
+		// 根据实例的原始状态（重置前的状态）释放对应的配额
+		isPendingState := resetCtx.OriginalStatus == "creating" || resetCtx.OriginalStatus == "resetting"
 		if isPendingState {
 			if err := quotaService.ReleasePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败", zap.Error(err))
 			}
+			global.APP_LOG.Info("已释放待确认配额",
+				zap.String("originalStatus", resetCtx.OriginalStatus),
+				zap.Uint("userId", resetCtx.OriginalUserID))
 		} else {
 			if err := quotaService.ReleaseUsedQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放已使用配额失败", zap.Error(err))
 			}
+			global.APP_LOG.Info("已释放已使用配额",
+				zap.String("originalStatus", resetCtx.OriginalStatus),
+				zap.Uint("userId", resetCtx.OriginalUserID))
 		}
 
 		// 4. 重命名并软删除实例记录（避免唯一索引冲突，同时保留流量统计）
