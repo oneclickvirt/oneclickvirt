@@ -52,14 +52,11 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 
 // loginWithPassword 用户名密码登录
 func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User, string, error) {
-	// 验证图形验证码（开发模式下可以跳过）
-	if req.CaptchaId != "" && req.Captcha != "" {
-		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return nil, "", common.NewError(common.CodeCaptchaInvalid)
+	// 先检查验证码格式，但不消费
+	if global.APP_CONFIG.System.Env != "development" {
+		if req.CaptchaId == "" || req.Captcha == "" {
+			return nil, "", common.NewError(common.CodeCaptchaRequired)
 		}
-	} else if global.APP_CONFIG.System.Env != "development" {
-		// 只在非开发环境下强制要求验证码
-		return nil, "", common.NewError(common.CodeCaptchaRequired)
 	}
 
 	// 检查必要参数
@@ -84,6 +81,14 @@ func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User,
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
 		global.APP_LOG.Debug("用户密码验证失败", zap.String("username", utils.SanitizeUserInput(req.Username)), zap.String("userType", user.UserType))
 		return nil, "", common.NewError(common.CodeInvalidCredentials)
+	}
+
+	// 所有检查通过后，验证并消费验证码
+	// 这样可以避免用户名或密码错误时验证码被消费
+	if req.CaptchaId != "" && req.Captcha != "" {
+		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
+			return nil, "", common.NewError(common.CodeCaptchaInvalid)
+		}
 	}
 
 	global.APP_LOG.Info("用户登录成功", zap.String("username", user.Username), zap.String("userType", user.UserType), zap.Uint("userID", user.ID))
@@ -235,8 +240,14 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
-	// 验证码验证已经在 API 层通过 ValidateCaptchaRequired 完成
-	// 这里不再重复验证，避免验证码被重复消费
+	// 先验证验证码（在所有其他检查之前），但在检查用户名是否存在之后再消费
+	// 注意：此时只验证格式，不消费验证码
+	authValidationService := AuthValidationService{}
+	if authValidationService.ShouldCheckCaptcha() {
+		if req.CaptchaId == "" || req.Captcha == "" {
+			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
+		}
+	}
 
 	// 邀请码验证逻辑
 	// 如果启用邀请码系统且未启用公开注册，则必须要邀请码
@@ -258,6 +269,14 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	var existingUser userModel.User
 	if err := global.APP_DB.Unscoped().Where("username = ? AND deleted_at IS NULL", req.Username).First(&existingUser).Error; err == nil {
 		return common.NewError(common.CodeUsernameExists, "用户名已存在")
+	}
+
+	// 用户名检查通过后，验证并消费验证码
+	// 这样可以避免用户名已存在时验证码被消费的问题
+	if authValidationService.ShouldCheckCaptcha() {
+		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
+			return common.NewError(common.CodeCaptchaInvalid, err.Error())
+		}
 	}
 
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
@@ -379,7 +398,15 @@ func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, user
 	return s.Login(loginReq)
 }
 
-func (s *AuthService) SendVerifyCode(codeType, target string) error {
+func (s *AuthService) SendVerifyCode(codeType, target, captchaId, captcha string) error {
+	// 先检查图形验证码格式，但不消费
+	authValidationService := AuthValidationService{}
+	if authValidationService.ShouldCheckCaptcha() {
+		if captchaId == "" || captcha == "" {
+			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
+		}
+	}
+
 	// 检查对应的通信渠道是否启用
 	switch codeType {
 	case "email":
@@ -396,6 +423,13 @@ func (s *AuthService) SendVerifyCode(codeType, target string) error {
 		}
 	default:
 		return errors.New("不支持的验证码类型")
+	}
+
+	// 所有检查通过后，验证并消费图形验证码
+	if authValidationService.ShouldCheckCaptcha() {
+		if err := s.verifyCaptcha(captchaId, captcha); err != nil {
+			return common.NewError(common.CodeCaptchaInvalid, err.Error())
+		}
 	}
 
 	// 生成6位数字验证码
@@ -463,7 +497,24 @@ func (s *AuthService) verifyCode(codeType, target, code string) error {
 }
 
 func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
-	// 验证验证码（开发模式下可以跳过）
+	// 先检查验证码格式，但不消费
+	if global.APP_CONFIG.System.Env != "development" {
+		if req.CaptchaId == "" || req.Captcha == "" {
+			return errors.New("请填写验证码")
+		}
+	}
+
+	// 查询用户
+	var user userModel.User
+	query := global.APP_DB.Where("email = ?", req.Email)
+	if req.UserType != "" {
+		query = query.Where("user_type = ?", req.UserType)
+	}
+	if err := query.First(&user).Error; err != nil {
+		return errors.New("未找到该邮箱对应的用户")
+	}
+
+	// 用户存在，现在验证并消费验证码
 	if global.APP_CONFIG.System.Env != "development" {
 		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
 			return err
@@ -477,15 +528,6 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 		}
 	}
 
-	// 查询用户
-	var user userModel.User
-	query := global.APP_DB.Where("email = ?", req.Email)
-	if req.UserType != "" {
-		query = query.Where("user_type = ?", req.UserType)
-	}
-	if err := query.First(&user).Error; err != nil {
-		return errors.New("未找到该邮箱对应的用户")
-	}
 	// 生成重置令牌
 	resetToken := GenerateRandomString(32)
 	// 保存重置令牌

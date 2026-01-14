@@ -124,14 +124,6 @@ func Register(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-
-	// 使用认证验证服务检查验证码
-	authValidationService := auth2.AuthValidationService{}
-	if err := authValidationService.ValidateCaptchaRequired(req.CaptchaId, req.Captcha); err != nil {
-		common.ResponseWithError(c, err)
-		return
-	}
-
 	authService := auth2.AuthService{}
 	user, token, err := authService.RegisterAndLogin(req, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {
@@ -141,6 +133,7 @@ func Register(c *gin.Context) {
 			zap.String("ip", c.ClientIP()))
 
 		// 使用认证验证服务分类错误
+		authValidationService := auth2.AuthValidationService{}
 		appErr := authValidationService.ClassifyAuthError(err)
 		common.ResponseWithError(c, appErr)
 		return
@@ -247,16 +240,8 @@ func SendVerifyCode(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-
-	// 验证图形验证码
-	authValidationService := auth2.AuthValidationService{}
-	if err := authValidationService.ValidateCaptchaRequired(req.CaptchaId, req.Captcha); err != nil {
-		common.ResponseWithError(c, err)
-		return
-	}
-
 	authService := auth2.AuthService{}
-	if err := authService.SendVerifyCode(req.Type, req.Target); err != nil {
+	if err := authService.SendVerifyCode(req.Type, req.Target, req.CaptchaId, req.Captcha); err != nil {
 		global.APP_LOG.Warn("发送验证码失败",
 			zap.String("type", req.Type),
 			zap.String("target", req.Target),
