@@ -260,6 +260,14 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
+	// 如果提供了邀请码，提前验证邀请码的有效性（不消费）
+	// 这样可以在验证码被消费前就发现邀请码无效的问题
+	if req.InviteCode != "" {
+		if err := s.validateInviteCodeBeforeUse(req.InviteCode); err != nil {
+			return err
+		}
+	}
+
 	// 密码强度验证（仅在非初始化场景下执行）
 	if err := utils.ValidatePasswordStrength(req.Password, utils.DefaultPasswordPolicy, req.Username); err != nil {
 		return err
@@ -1106,6 +1114,33 @@ func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, ip string, u
 	if err := db.Create(&usage).Error; err != nil {
 		return err
 	}
+	return nil
+}
+
+// validateInviteCodeBeforeUse 提前验证邀请码（不消费，只检查有效性）
+// 用于在注册流程的早期阶段验证邀请码，避免验证码被消费后才发现邀请码无效
+func (s *AuthService) validateInviteCodeBeforeUse(code string) error {
+	var inviteCode system.InviteCode
+
+	// 查询邀请码记录
+	err := global.APP_DB.Where("code = ? AND status = ?", code, 1).First(&inviteCode).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return common.NewError(common.CodeInviteCodeInvalid, "邀请码无效")
+		}
+		return err
+	}
+
+	// 检查过期时间
+	if inviteCode.ExpiresAt != nil && inviteCode.ExpiresAt.Before(time.Now()) {
+		return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+	}
+
+	// 检查使用次数
+	if inviteCode.MaxUses > 0 && inviteCode.UsedCount >= inviteCode.MaxUses {
+		return common.NewError(common.CodeInviteCodeUsed, "邀请码已被使用")
+	}
+
 	return nil
 }
 
