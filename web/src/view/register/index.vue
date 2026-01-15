@@ -290,16 +290,41 @@ const handleRegister = async () => {
         // 注册成功，直接设置用户登录状态
         const responseData = result.data.data // 正确获取嵌套的data数据
         
-        // 导入用户store
-        const { useUserStore } = await import('@/pinia/modules/user')
-        const userStore = useUserStore()
+        console.log('注册成功，准备自动登录:', responseData)
         
-        // 设置用户登录状态
-        userStore.setToken(responseData.token)
-        userStore.setUser(responseData.user)
-        
-        // 跳转到用户仪表盘
-        router.push('/user/dashboard')
+        if (responseData && responseData.token && responseData.user) {
+          // 导入用户store
+          const { useUserStore } = await import('@/pinia/modules/user')
+          const userStore = useUserStore()
+          
+          // 设置用户登录状态
+          userStore.setToken(responseData.token)
+          userStore.setUser(responseData.user)
+          
+          // 保存token到localStorage和sessionStorage
+          localStorage.setItem('token', responseData.token)
+          sessionStorage.setItem('token', responseData.token)
+          
+          console.log('自动登录成功，准备跳转到用户界面')
+          
+          // 获取用户信息确保完整性
+          try {
+            await userStore.fetchUserInfo()
+          } catch (err) {
+            console.warn('获取用户详细信息失败，但仍然跳转:', err)
+          }
+          
+          // 根据用户类型跳转到对应的dashboard
+          const userType = responseData.user.userType || 'user'
+          if (userType === 'admin') {
+            router.push('/admin/dashboard')
+          } else {
+            router.push('/user/dashboard')
+          }
+        } else {
+          console.error('注册响应数据不完整:', responseData)
+          refreshCaptcha()
+        }
       } else {
         refreshCaptcha() // 注册失败刷新验证码
       }

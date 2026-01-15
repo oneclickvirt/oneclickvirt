@@ -56,11 +56,11 @@ export function setupRouterGuards(router) {
         
         // 只有管理员可以访问管理员界面，且只有管理员可以切换视图
         if (userType === 'admin' && viewMode === 'admin') {
-          next('/admin')
+          next('/admin/dashboard')
           return
         } else {
           // 普通用户只能访问用户界面
-          next('/user')
+          next('/user/dashboard')
           return
         }
       } catch (error) {
@@ -113,11 +113,11 @@ export function setupRouterGuards(router) {
           
           // 只有管理员可以访问管理员界面
           if (userType === 'admin' && viewMode === 'admin') {
-            next('/admin')
+            next('/admin/dashboard')
             return
           } else {
             // 普通用户或管理员切换到用户视图时，进入用户界面
-            next('/user')
+            next('/user/dashboard')
             return
           }
         }

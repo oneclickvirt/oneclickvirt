@@ -228,7 +228,19 @@ const handleLogin = async () => {
       })
 
       if (result.success) {
-        router.push('/user/dashboard')
+        // 根据用户类型和视图模式跳转
+        const userType = userStore.userType
+        const viewMode = userStore.viewMode || userType
+        
+        console.log('登录成功，用户类型:', userType, '视图模式:', viewMode)
+        
+        // 只有管理员可以访问管理员界面
+        if (userType === 'admin' && viewMode === 'admin') {
+          router.push('/admin/dashboard')
+        } else {
+          // 普通用户或管理员的用户视图
+          router.push('/user/dashboard')
+        }
       } else {
         refreshCaptcha() // 登录失败刷新验证码
       }

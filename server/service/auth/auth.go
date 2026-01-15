@@ -260,23 +260,24 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
+	// 密码强度验证（仅在非初始化场景下执行）
+	if err := utils.ValidatePasswordStrength(req.Password, utils.DefaultPasswordPolicy, req.Username); err != nil {
+		return err
+	}
+
+	// 优先检查用户名是否已存在（排除已软删除的用户）
+	// 这样可以在邀请码验证之前就发现用户名冲突，避免误导用户
+	var existingUser userModel.User
+	if err := global.APP_DB.Unscoped().Where("username = ? AND deleted_at IS NULL", req.Username).First(&existingUser).Error; err == nil {
+		return common.NewError(common.CodeUsernameExists, "用户名已存在")
+	}
+
 	// 如果提供了邀请码，提前验证邀请码的有效性（不消费）
 	// 这样可以在验证码被消费前就发现邀请码无效的问题
 	if req.InviteCode != "" {
 		if err := s.validateInviteCodeBeforeUse(req.InviteCode); err != nil {
 			return err
 		}
-	}
-
-	// 密码强度验证（仅在非初始化场景下执行）
-	if err := utils.ValidatePasswordStrength(req.Password, utils.DefaultPasswordPolicy, req.Username); err != nil {
-		return err
-	}
-
-	// 检查用户名是否已存在（排除已软删除的用户）
-	var existingUser userModel.User
-	if err := global.APP_DB.Unscoped().Where("username = ? AND deleted_at IS NULL", req.Username).First(&existingUser).Error; err == nil {
-		return common.NewError(common.CodeUsernameExists, "用户名已存在")
 	}
 
 	// 用户名检查通过后，验证并消费验证码
