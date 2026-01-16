@@ -44,6 +44,8 @@ func (s *AuthValidationService) ClassifyAuthError(err error) *common.AppError {
 	errMsg := err.Error()
 	switch {
 	case errMsg == "用户名已存在":
+		return common.NewError(common.CodeUsernameExists, errMsg)
+	case errMsg == "邮箱已被使用":
 		return common.NewError(common.CodeUserExists, errMsg)
 	case errMsg == "注册功能已被禁用":
 		return common.NewError(common.CodeForbidden, errMsg)

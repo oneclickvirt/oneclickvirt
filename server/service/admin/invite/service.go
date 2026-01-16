@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -82,14 +83,33 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 	}
 
 	var codeResponses []admin.InviteCodeResponse
+	now := time.Now()
 	for _, code := range inviteCodes {
 		var createdByUser string
 		if code.CreatorID != 0 {
 			createdByUser = userMap[code.CreatorID]
 		}
 
+		// 检查邀请码是否真实过期（优先级高于数据库status字段）
+		actualStatus := code.Status
+		if code.ExpiresAt != nil && code.ExpiresAt.Before(now) {
+			actualStatus = 0 // 已过期
+			global.APP_LOG.Debug("邀请码列表检测到过期码",
+				zap.String("code", code.Code),
+				zap.Time("expiresAt", *code.ExpiresAt),
+				zap.Time("now", now))
+		}
+		// 检查是否已达到最大使用次数
+		if code.MaxUses > 0 && code.UsedCount >= code.MaxUses {
+			actualStatus = 0 // 已用完
+		}
+
+		// 创建响应时使用实际状态
+		codeWithActualStatus := code
+		codeWithActualStatus.Status = actualStatus
+
 		codeResponse := admin.InviteCodeResponse{
-			InviteCode:    code,
+			InviteCode:    codeWithActualStatus,
 			CreatedByUser: createdByUser,
 		}
 		codeResponses = append(codeResponses, codeResponse)
@@ -116,8 +136,17 @@ func (s *Service) CreateInviteCode(req admin.CreateInviteCodeRequest, createdBy 
 		}
 		var expiresAt *time.Time
 		if req.ExpiresAt != "" {
-			if parsedTime, err := time.Parse("2006-01-02 15:04:05", req.ExpiresAt); err == nil {
+			// 使用本地时区解析时间，避免时区问题
+			if parsedTime, err := time.ParseInLocation("2006-01-02 15:04:05", req.ExpiresAt, time.Local); err == nil {
 				expiresAt = &parsedTime
+				global.APP_LOG.Debug("解析自定义邀请码过期时间",
+					zap.String("input", req.ExpiresAt),
+					zap.Time("parsed", parsedTime),
+					zap.String("timezone", parsedTime.Location().String()))
+			} else {
+				global.APP_LOG.Warn("邀请码过期时间解析失败",
+					zap.String("input", req.ExpiresAt),
+					zap.Error(err))
 			}
 		}
 		inviteCode := system.InviteCode{
@@ -159,8 +188,17 @@ func (s *Service) CreateInviteCode(req admin.CreateInviteCodeRequest, createdBy 
 		}
 		var expiresAt *time.Time
 		if req.ExpiresAt != "" {
-			if parsedTime, err := time.Parse("2006-01-02 15:04:05", req.ExpiresAt); err == nil {
+			// 使用本地时区解析时间，避免时区问题
+			if parsedTime, err := time.ParseInLocation("2006-01-02 15:04:05", req.ExpiresAt, time.Local); err == nil {
 				expiresAt = &parsedTime
+				global.APP_LOG.Debug("解析批量邀请码过期时间",
+					zap.String("input", req.ExpiresAt),
+					zap.Time("parsed", parsedTime),
+					zap.String("timezone", parsedTime.Location().String()))
+			} else {
+				global.APP_LOG.Warn("批量邀请码过期时间解析失败",
+					zap.String("input", req.ExpiresAt),
+					zap.Error(err))
 			}
 		}
 		inviteCode := system.InviteCode{

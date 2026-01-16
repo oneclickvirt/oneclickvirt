@@ -265,11 +265,19 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return err
 	}
 
-	// 优先检查用户名是否已存在（排除已软删除的用户）
-	// 这样可以在邀请码验证之前就发现用户名冲突，避免误导用户
+	// 优先检查用户名和邮箱是否已存在（排除已软删除的用户）
+	// 这样可以在邀请码和验证码验证之前就发现冲突，避免误导用户和浪费资源
 	var existingUser userModel.User
 	if err := global.APP_DB.Unscoped().Where("username = ? AND deleted_at IS NULL", req.Username).First(&existingUser).Error; err == nil {
 		return common.NewError(common.CodeUsernameExists, "用户名已存在")
+	}
+
+	// 检查邮箱是否已存在（如果提供了邮箱）
+	if req.Email != "" {
+		var existingEmailUser userModel.User
+		if err := global.APP_DB.Unscoped().Where("email = ? AND email != '' AND deleted_at IS NULL", req.Email).First(&existingEmailUser).Error; err == nil {
+			return common.NewError(common.CodeUserExists, "邮箱已被使用")
+		}
 	}
 
 	// 如果提供了邀请码，提前验证邀请码的有效性（不消费）
@@ -1061,8 +1069,17 @@ func (s *AuthService) verifyInviteCode(code string) error {
 		return common.NewError(common.CodeInviteCodeUsed)
 	}
 	// 检查过期时间
-	if inviteCode.ExpiresAt != nil && inviteCode.ExpiresAt.Before(time.Now()) {
-		return common.NewError(common.CodeInviteCodeExpired)
+	if inviteCode.ExpiresAt != nil {
+		now := time.Now()
+		global.APP_LOG.Debug("verifyInviteCode邀请码过期时间检查",
+			zap.String("code", code),
+			zap.Time("expiresAt", *inviteCode.ExpiresAt),
+			zap.Time("now", now),
+			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
+
+		if inviteCode.ExpiresAt.Before(now) {
+			return common.NewError(common.CodeInviteCodeExpired)
+		}
 	}
 	return nil
 }
@@ -1084,8 +1101,21 @@ func (s *AuthService) useInviteCodeWithTx(db *gorm.DB, code string, ip string, u
 	}
 
 	// 检查过期时间
-	if inviteCode.ExpiresAt != nil && inviteCode.ExpiresAt.Before(time.Now()) {
-		return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+	if inviteCode.ExpiresAt != nil {
+		now := time.Now()
+		global.APP_LOG.Debug("useInviteCodeWithTx邀请码过期时间检查",
+			zap.String("code", code),
+			zap.Time("expiresAt", *inviteCode.ExpiresAt),
+			zap.Time("now", now),
+			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
+
+		if inviteCode.ExpiresAt.Before(now) {
+			global.APP_LOG.Warn("使用邀请码时检测到已过期",
+				zap.String("code", code),
+				zap.Time("expiresAt", *inviteCode.ExpiresAt),
+				zap.Time("now", now))
+			return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+		}
 	}
 
 	// 检查使用次数
@@ -1133,8 +1163,22 @@ func (s *AuthService) validateInviteCodeBeforeUse(code string) error {
 	}
 
 	// 检查过期时间
-	if inviteCode.ExpiresAt != nil && inviteCode.ExpiresAt.Before(time.Now()) {
-		return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+	if inviteCode.ExpiresAt != nil {
+		now := time.Now()
+		// 添加详细日志帮助调试
+		global.APP_LOG.Debug("邀请码过期时间检查",
+			zap.String("code", code),
+			zap.Time("expiresAt", *inviteCode.ExpiresAt),
+			zap.Time("now", now),
+			zap.Bool("isExpired", inviteCode.ExpiresAt.Before(now)))
+
+		if inviteCode.ExpiresAt.Before(now) {
+			global.APP_LOG.Warn("邀请码已过期",
+				zap.String("code", code),
+				zap.Time("expiresAt", *inviteCode.ExpiresAt),
+				zap.Time("now", now))
+			return common.NewError(common.CodeInviteCodeExpired, "邀请码已过期")
+		}
 	}
 
 	// 检查使用次数
