@@ -124,6 +124,15 @@ func Register(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
+
+	// 添加调试日志
+	global.APP_LOG.Debug("收到注册请求",
+		zap.String("username", req.Username),
+		zap.String("captchaId", req.CaptchaId),
+		zap.String("captcha", req.Captcha),
+		zap.String("inviteCode", req.InviteCode),
+		zap.String("registerType", req.RegisterType))
+
 	authService := auth2.AuthService{}
 	user, token, err := authService.RegisterAndLogin(req, c.ClientIP(), c.GetHeader("User-Agent"))
 	if err != nil {

@@ -22,16 +22,17 @@ type SendVerifyCodeRequest struct {
 
 // RegisterRequest 注册请求
 type RegisterRequest struct {
-	Username   string `json:"username" binding:"required" example:"user123"`
-	Password   string `json:"password" binding:"required" example:"password123"`
-	Nickname   string `json:"nickname" example:"昵称"`
-	Email      string `json:"email" example:"user@example.com"`
-	Phone      string `json:"phone,omitempty" example:"13800138000"`
-	Telegram   string `json:"telegram,omitempty"`
-	QQ         string `json:"qq,omitempty"`
-	InviteCode string `json:"inviteCode" example:"INVITE123"`
-	Captcha    string `json:"captcha"`
-	CaptchaId  string `json:"captchaId"`
+	Username     string `json:"username" binding:"required" example:"user123"`
+	Password     string `json:"password" binding:"required" example:"password123"`
+	Nickname     string `json:"nickname" example:"昵称"`
+	Email        string `json:"email" example:"user@example.com"`
+	Phone        string `json:"phone,omitempty" example:"13800138000"`
+	Telegram     string `json:"telegram,omitempty"`
+	QQ           string `json:"qq,omitempty"`
+	InviteCode   string `json:"inviteCode" example:"INVITE123"`
+	Captcha      string `json:"captcha"`
+	CaptchaId    string `json:"captchaId"`
+	RegisterType string `json:"registerType,omitempty"` // 注册类型，前端兼容字段
 }
 
 // ForgotPasswordRequest 忘记密码请求

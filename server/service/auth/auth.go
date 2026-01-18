@@ -244,9 +244,25 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	// 注意：此时只验证格式，不消费验证码
 	authValidationService := AuthValidationService{}
 	if authValidationService.ShouldCheckCaptcha() {
+		global.APP_LOG.Debug("注册时检查验证码",
+			zap.String("username", req.Username),
+			zap.String("captchaId", req.CaptchaId),
+			zap.String("captcha", req.Captcha),
+			zap.Bool("shouldCheck", authValidationService.ShouldCheckCaptcha()),
+			zap.String("env", global.APP_CONFIG.System.Env),
+			zap.Bool("captchaEnabled", global.APP_CONFIG.Captcha.Enabled))
 		if req.CaptchaId == "" || req.Captcha == "" {
+			global.APP_LOG.Warn("注册验证码参数缺失",
+				zap.String("username", req.Username),
+				zap.String("captchaId", req.CaptchaId),
+				zap.String("captcha", req.Captcha))
 			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 		}
+	} else {
+		global.APP_LOG.Debug("注册跳过验证码检查",
+			zap.String("username", req.Username),
+			zap.String("env", global.APP_CONFIG.System.Env),
+			zap.Bool("captchaEnabled", global.APP_CONFIG.Captcha.Enabled))
 	}
 
 	// 邀请码验证逻辑

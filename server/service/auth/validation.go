@@ -11,7 +11,12 @@ type AuthValidationService struct{}
 
 // ShouldCheckCaptcha 检查是否需要验证码
 func (s *AuthValidationService) ShouldCheckCaptcha() bool {
-	return global.APP_CONFIG.System.Env != "development"
+	// 开发环境下不需要验证码
+	if global.APP_CONFIG.System.Env == "development" {
+		return false
+	}
+	// 检查验证码是否启用
+	return global.APP_CONFIG.Captcha.Enabled
 }
 
 // ValidateCaptchaRequired 验证验证码是否必需
