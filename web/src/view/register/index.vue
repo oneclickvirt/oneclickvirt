@@ -288,24 +288,32 @@ const handleRegister = async () => {
 
       if (result.success && result.data) {
         // 注册成功，直接设置用户登录状态
-        const responseData = result.data.data // 正确获取嵌套的data数据
+        // 兼容不同的响应结构：result.data.data 或 result.data
+        const responseData = result.data.data || result.data
         
-        console.log('注册成功，准备自动登录:', responseData)
+        console.log('注册成功，准备自动登录. result.success:', result.success, 'result.data:', result.data, 'responseData:', responseData)
         
-        if (responseData && responseData.token && responseData.user) {
+        // 检查是否有token和user数据
+        const hasToken = responseData && (responseData.token || responseData.accessToken)
+        const hasUser = responseData && responseData.user
+        
+        if (hasToken && hasUser) {
           // 导入用户store
           const { useUserStore } = await import('@/pinia/modules/user')
           const userStore = useUserStore()
           
+          // 获取token（兼容不同字段名）
+          const token = responseData.token || responseData.accessToken
+          
           // 设置用户登录状态
-          userStore.setToken(responseData.token)
+          userStore.setToken(token)
           userStore.setUser(responseData.user)
           
           // 保存token到localStorage和sessionStorage
-          localStorage.setItem('token', responseData.token)
-          sessionStorage.setItem('token', responseData.token)
+          localStorage.setItem('token', token)
+          sessionStorage.setItem('token', token)
           
-          console.log('自动登录成功，准备跳转到用户界面')
+          console.log('自动登录成功，准备跳转到用户界面. Token:', token, 'User:', responseData.user)
           
           // 获取用户信息确保完整性
           try {
@@ -316,16 +324,18 @@ const handleRegister = async () => {
           
           // 根据用户类型跳转到对应的dashboard
           const userType = responseData.user.userType || 'user'
+          console.log('准备跳转, userType:', userType)
           if (userType === 'admin') {
             router.push('/admin/dashboard')
           } else {
             router.push('/user/dashboard')
           }
         } else {
-          console.error('注册响应数据不完整:', responseData)
+          console.error('注册响应数据不完整. hasToken:', hasToken, 'hasUser:', hasUser, 'responseData:', responseData, 'result.data:', result.data)
           refreshCaptcha()
         }
       } else {
+        console.error('注册失败. result.success:', result.success, 'result.data:', result.data)
         refreshCaptcha() // 注册失败刷新验证码
       }
     } finally {
