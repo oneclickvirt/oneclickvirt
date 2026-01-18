@@ -421,14 +421,29 @@ func (s *AuthService) RegisterAndLogin(req auth.RegisterRequest, ip string, user
 	if err := s.RegisterWithContext(req, ip, userAgent); err != nil {
 		return nil, "", err
 	}
-	// 注册成功后自动登录
-	loginReq := auth.LoginRequest{
-		Username:  req.Username,
-		Password:  req.Password,
-		LoginType: "username",
-		UserType:  "user",
+
+	// 注册成功后直接查询用户并生成token，不走登录流程
+	// 避免登录时的验证码检查导致注册成功但返回错误
+	var user userModel.User
+	if err := global.APP_DB.Where("username = ?", req.Username).First(&user).Error; err != nil {
+		return nil, "", errors.New("用户查询失败")
 	}
-	return s.Login(loginReq)
+
+	// 生成JWT令牌
+	token, err := utils.GenerateToken(user.ID, user.Username, user.UserType)
+	if err != nil {
+		global.APP_LOG.Error("注册后生成JWT令牌失败", zap.Error(err))
+		return nil, "", errors.New("登录失败，请稍后重试")
+	}
+
+	// 更新最后登录时间
+	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+
+	global.APP_LOG.Info("用户注册并自动登录成功",
+		zap.String("username", user.Username),
+		zap.Uint("user_id", user.ID))
+
+	return &user, token, nil
 }
 
 func (s *AuthService) SendVerifyCode(codeType, target, captchaId, captcha string) error {
