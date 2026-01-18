@@ -39,7 +39,7 @@ jwt:
     signing-key: ""
 mysql:
     auto-create: true
-    config: charset=utf8mb4&parseTime=True&loc=Local
+    config: charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27
     db-name: oneclickvirt
     engine: InnoDB
     log-mode: error

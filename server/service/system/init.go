@@ -54,7 +54,7 @@ func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error
 	}
 
 	// 构建DSN，先不指定数据库名
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/?charset=utf8mb4&parseTime=True&loc=Local&time_zone=%%27%%2B08%%3A00%%27",
 		config.Username, config.Password, config.Host, config.Port)
 
 	// 尝试连接数据库服务器（MySQL或MariaDB使用相同的连接方式）
@@ -93,7 +93,7 @@ func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error
 	}
 
 	// 测试连接到具体数据库
-	dsnWithDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local",
+	dsnWithDB := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=utf8mb4&parseTime=True&loc=Local&time_zone=%%27%%2B08%%3A00%%27",
 		config.Username, config.Password, config.Host, config.Port, config.Database)
 
 	dbWithDB, err := gorm.Open(mysql.Open(dsnWithDB), &gorm.Config{
@@ -212,7 +212,7 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 			updates["mysql.db-name"] = dbConfig.Database
 			updates["mysql.username"] = dbConfig.Username
 			updates["mysql.password"] = dbConfig.Password
-			updates["mysql.config"] = "charset=utf8mb4&parseTime=True&loc=Local"
+			updates["mysql.config"] = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
 			updates["mysql.prefix"] = ""
 			updates["mysql.singular"] = false
 			updates["mysql.engine"] = "InnoDB"
@@ -253,7 +253,7 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 			"mysql.db-name":        dbConfig.Database,
 			"mysql.username":       dbConfig.Username,
 			"mysql.password":       dbConfig.Password,
-			"mysql.config":         "charset=utf8mb4&parseTime=True&loc=Local",
+			"mysql.config":         "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
 			"mysql.prefix":         "",
 			"mysql.singular":       "false",
 			"mysql.engine":         "InnoDB",

@@ -29,7 +29,7 @@ func GormMysql(m config.MysqlConfig) (*gorm.DB, error) {
 		m.Port = "3306"
 	}
 	if m.Config == "" {
-		m.Config = "charset=utf8mb4&parseTime=True&loc=Local"
+		m.Config = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
 	}
 
 	// 如果没有指定数据库名且需要自动创建，则设置默认数据库名
