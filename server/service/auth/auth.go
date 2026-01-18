@@ -53,9 +53,10 @@ func (s *AuthService) Login(req auth.LoginRequest) (*userModel.User, string, err
 // loginWithPassword 用户名密码登录
 func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User, string, error) {
 	// 先检查验证码格式，但不消费
-	if global.APP_CONFIG.System.Env != "development" {
+	authValidationService := AuthValidationService{}
+	if authValidationService.ShouldCheckCaptcha() {
 		if req.CaptchaId == "" || req.Captcha == "" {
-			return nil, "", common.NewError(common.CodeCaptchaRequired)
+			return nil, "", common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 		}
 	}
 
@@ -85,9 +86,9 @@ func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User,
 
 	// 所有检查通过后，验证并消费验证码
 	// 这样可以避免用户名或密码错误时验证码被消费
-	if req.CaptchaId != "" && req.Captcha != "" {
+	if authValidationService.ShouldCheckCaptcha() {
 		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return nil, "", common.NewError(common.CodeCaptchaInvalid)
+			return nil, "", common.NewError(common.CodeCaptchaInvalid, err.Error())
 		}
 	}
 
@@ -546,9 +547,10 @@ func (s *AuthService) verifyCode(codeType, target, code string) error {
 
 func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 	// 先检查验证码格式，但不消费
-	if global.APP_CONFIG.System.Env != "development" {
+	authValidationService := AuthValidationService{}
+	if authValidationService.ShouldCheckCaptcha() {
 		if req.CaptchaId == "" || req.Captcha == "" {
-			return errors.New("请填写验证码")
+			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 		}
 	}
 
@@ -563,16 +565,9 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 	}
 
 	// 用户存在，现在验证并消费验证码
-	if global.APP_CONFIG.System.Env != "development" {
+	if authValidationService.ShouldCheckCaptcha() {
 		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return err
-		}
-	} else {
-		// 开发环境下，如果提供了验证码就验证，没提供就跳过
-		if req.CaptchaId != "" && req.Captcha != "" {
-			if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-				return err
-			}
+			return common.NewError(common.CodeCaptchaInvalid, err.Error())
 		}
 	}
 
