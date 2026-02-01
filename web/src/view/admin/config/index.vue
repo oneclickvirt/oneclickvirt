@@ -567,55 +567,6 @@
             label-width="140px"
             class="config-form"
           >
-            <el-alert
-              :title="$t('admin.config.avatarUploadConfig')"
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-bottom: 20px;"
-            >
-              {{ $t('admin.config.avatarUploadDesc') }}
-            </el-alert>
-
-            <el-divider content-position="left">
-              {{ $t('admin.config.avatarUploadSettings') }}
-            </el-divider>
-
-            <el-row :gutter="20">
-              <el-col :span="12">
-                <el-form-item :label="$t('admin.config.maxAvatarSize')">
-                  <el-input-number
-                    v-model="config.other.maxAvatarSize"
-                    :min="0.5"
-                    :max="10"
-                    :step="0.5"
-                    :precision="1"
-                    :controls="false"
-                    style="width: 100%"
-                  />
-                  <div class="form-item-hint">
-                    {{ $t('admin.config.maxAvatarSizeHint') }}
-                  </div>
-                </el-form-item>
-              </el-col>
-              <el-col :span="12">
-                <el-form-item :label="$t('admin.config.supportedFormats')">
-                  <el-tag
-                    type="info"
-                    style="margin-right: 8px;"
-                  >
-                    PNG
-                  </el-tag>
-                  <el-tag type="info">
-                    JPEG
-                  </el-tag>
-                  <div class="form-item-hint">
-                    {{ $t('admin.config.supportedFormatsHint') }}
-                  </div>
-                </el-form-item>
-              </el-col>
-            </el-row>
-
             <el-divider content-position="left">
               {{ $t('admin.config.languageSettings') }}
             </el-divider>

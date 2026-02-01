@@ -401,8 +401,6 @@ func GetPublicSystemConfig(c *gin.Context) {
 				switch config.Key {
 				case "other.default-language":
 					result["default_language"] = config.Value
-				case "other.max-avatar-size":
-					result["max_avatar_size"] = config.Value
 				default:
 					result[config.Key] = config.Value
 				}
@@ -423,15 +421,8 @@ func GetPublicSystemConfig(c *gin.Context) {
 			result["default_language"] = "zh" // 默认中文
 		}
 
-		if global.APP_CONFIG.Other.MaxAvatarSize > 0 {
-			result["max_avatar_size"] = strconv.FormatFloat(global.APP_CONFIG.Other.MaxAvatarSize, 'f', -1, 64)
-		} else {
-			result["max_avatar_size"] = "2" // 默认2MB
-		}
-
 		global.APP_LOG.Info("使用默认配置",
-			zap.String("default_language", result["default_language"].(string)),
-			zap.String("max_avatar_size", result["max_avatar_size"].(string)))
+			zap.String("default_language", result["default_language"].(string)))
 	}
 
 	c.JSON(http.StatusOK, common.Success(result))

@@ -299,7 +299,6 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 
 	// 其他配置
 	result["other"] = map[string]interface{}{
-		"maxAvatarSize":   global.APP_CONFIG.Other.MaxAvatarSize,
 		"defaultLanguage": global.APP_CONFIG.Other.DefaultLanguage,
 	}
 

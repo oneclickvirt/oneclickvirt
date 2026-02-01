@@ -480,12 +480,9 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 		"OAuth2Extra":    userInfo.RawData,
 	}
 
-	// 更新昵称和头像（如果用户未自定义）
+	// 更新昵称（如果用户未自定义）
 	if userInfo.Nickname != "" && usr.Nickname == "" {
 		updates["nickname"] = userInfo.Nickname
-	}
-	if userInfo.Avatar != "" && usr.Avatar == "" {
-		updates["avatar"] = userInfo.Avatar
 	}
 
 	// 如果等级发生变化，更新等级和配额
@@ -548,7 +545,6 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 		Password:         string(hashedPassword),
 		Nickname:         userInfo.Nickname,
 		Email:            userInfo.Email,
-		Avatar:           userInfo.Avatar,
 		Status:           1,
 		Level:            userLevel,
 		UserType:         "user",
@@ -556,7 +552,6 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 		OAuth2UID:        userInfo.ID,
 		OAuth2Username:   userInfo.Username,
 		OAuth2Email:      userInfo.Email,
-		OAuth2Avatar:     userInfo.Avatar,
 		OAuth2Extra:      userInfo.RawData,
 	}
 

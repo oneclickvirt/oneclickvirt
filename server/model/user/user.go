@@ -24,7 +24,6 @@ type User struct {
 	Phone    string `json:"phone" gorm:"size:32"`                         // 手机号码
 	Telegram string `json:"telegram" gorm:"size:64"`                      // Telegram用户名
 	QQ       string `json:"qq" gorm:"size:32"`                            // QQ号码
-	Avatar   string `json:"avatar" gorm:"size:255"`                       // 头像图片路径
 
 	// 状态和权限
 	Status   int    `json:"status" gorm:"default:1;index:idx_status"` // 用户状态：0=禁用（不可登录），1=正常
@@ -61,7 +60,6 @@ type User struct {
 	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识
 	OAuth2Username   string `json:"oauth2Username" gorm:"size:255"`  // OAuth2提供商返回的用户名
 	OAuth2Email      string `json:"oauth2Email" gorm:"size:255"`     // OAuth2提供商返回的邮箱
-	OAuth2Avatar     string `json:"oauth2Avatar" gorm:"size:512"`    // OAuth2提供商返回的头像URL
 	OAuth2Extra      string `json:"oauth2Extra" gorm:"type:text"`    // OAuth2提供商返回的额外信息（JSON格式）
 }
 

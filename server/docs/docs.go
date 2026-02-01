@@ -4432,34 +4432,6 @@ const docTemplate = `{
                 }
             }
         },
-        "/api/v1/admin/logs/compress": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "压缩昨天之前的日志文件以节省存储空间",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "System"
-                ],
-                "summary": "压缩旧日志文件",
-                "responses": {
-                    "200": {
-                        "description": "success",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/api/v1/admin/logs/files": {
             "get": {
                 "security": [
@@ -6837,7 +6809,7 @@ const docTemplate = `{
         },
         "/public/system-config": {
             "get": {
-                "description": "获取系统公开配置信息（不需要认证），如默认语言等",
+                "description": "获取系统公开配置信息（不需要认证），如默认语言等，从内存配置读取",
                 "consumes": [
                     "application/json"
                 ],
@@ -6909,141 +6881,6 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "连接失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/static/{type}/{path}": {
-            "get": {
-                "description": "获取上传的静态文件（如头像）",
-                "produces": [
-                    "application/octet-stream"
-                ],
-                "tags": [
-                    "文件访问"
-                ],
-                "summary": "获取静态文件",
-                "parameters": [
-                    {
-                        "enum": [
-                            "avatars"
-                        ],
-                        "type": "string",
-                        "description": "文件类型",
-                        "name": "type",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "string",
-                        "description": "文件路径",
-                        "name": "path",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "文件内容",
-                        "schema": {
-                            "type": "file"
-                        }
-                    },
-                    "403": {
-                        "description": "访问被拒绝",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "404": {
-                        "description": "文件不存在",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/upload/avatar": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "上传用户头像图片，仅支持PNG和JPEG格式，最大2MB",
-                "consumes": [
-                    "multipart/form-data"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "文件上传"
-                ],
-                "summary": "上传用户头像",
-                "parameters": [
-                    {
-                        "type": "file",
-                        "description": "头像文件",
-                        "name": "avatar",
-                        "in": "formData",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "上传成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "properties": {
-                                                "url": {
-                                                    "type": "string"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "401": {
-                        "description": "用户未登录",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "413": {
-                        "description": "文件过大",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "415": {
-                        "description": "文件类型不支持",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器内部错误",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -10819,6 +10656,10 @@ const docTemplate = `{
                 "qq": {
                     "type": "string"
                 },
+                "registerType": {
+                    "description": "注册类型，前端兼容字段",
+                    "type": "string"
+                },
                 "telegram": {
                     "type": "string"
                 },
@@ -10899,9 +10740,6 @@ const docTemplate = `{
                 "date": {
                     "description": "日期字段，格式为 YYYY-MM-DD",
                     "type": "string"
-                },
-                "is_gzip": {
-                    "type": "boolean"
                 },
                 "mod_time": {
                     "type": "string"
@@ -12518,7 +12356,8 @@ const docTemplate = `{
                 "disk": {
                     "type": "integer"
                 },
-                "expiredAt": {
+                "expiresAt": {
+                    "description": "实例过期时间",
                     "type": "string"
                 },
                 "id": {

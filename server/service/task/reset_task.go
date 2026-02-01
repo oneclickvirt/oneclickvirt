@@ -914,9 +914,25 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 		return nil
 
 	case "proxmox":
-		// Proxmox 使用 iptables，需要逐个配置端口
-		global.APP_LOG.Info("Proxmox使用iptables端口映射，使用createPortMappingDirect方法")
-		// Proxmox 通过 createPortMappingDirect 已经正确处理
+		// Proxmox 使用 iptables，通过 SetupPortMappingWithIP 在远程服务器上创建端口映射规则
+		// 注意：数据库记录已在 Step 1 中创建，此处仅配置 iptables 规则
+		proxmoxProv, ok := prov.(interface {
+			SetupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error
+		})
+		if !ok {
+			return fmt.Errorf("Provider类型断言失败: proxmox")
+		}
+
+		// 逐个配置端口映射
+		for _, port := range resetCtx.OldPortMappings {
+			if err := proxmoxProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
+				global.APP_LOG.Warn("配置Proxmox端口映射失败",
+					zap.Int("hostPort", port.HostPort),
+					zap.Int("guestPort", port.GuestPort),
+					zap.Error(err))
+				// 继续配置其他端口
+			}
+		}
 		return nil
 
 	default:

@@ -542,7 +542,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		if provider.ExpiresAt != nil {
 			if err := tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND status NOT IN (?)", provider.ID, []string{"deleting", "deleted"}).
-				Update("expired_at", *provider.ExpiresAt).Error; err != nil {
+				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
 				global.APP_LOG.Error("同步实例到期时间失败",
 					zap.Uint("providerID", provider.ID),
 					zap.Time("newExpiresAt", *provider.ExpiresAt),
@@ -745,7 +745,7 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 		if provider.ExpiresAt != nil {
 			if err := tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND status NOT IN (?)", provider.ID, []string{"deleting", "deleted"}).
-				Update("expired_at", *provider.ExpiresAt).Error; err != nil {
+				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
 				global.APP_LOG.Error("同步实例到期时间失败",
 					zap.Uint("providerID", provider.ID),
 					zap.Time("newExpiresAt", *provider.ExpiresAt),

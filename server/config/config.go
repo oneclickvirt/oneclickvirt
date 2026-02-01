@@ -18,8 +18,7 @@ type Server struct {
 }
 
 type Other struct {
-	MaxAvatarSize   float64 `mapstructure:"max-avatar-size" json:"max-avatar-size" yaml:"max-avatar-size"`    // 头像最大大小（MB）
-	DefaultLanguage string  `mapstructure:"default-language" json:"default-language" yaml:"default-language"` // 默认语言
+	DefaultLanguage string `mapstructure:"default-language" json:"default-language" yaml:"default-language"` // 默认语言
 }
 
 type CORS struct {
@@ -138,5 +137,5 @@ type Task struct {
 
 // Upload 上传配置
 type Upload struct {
-	MaxAvatarSize int64 `mapstructure:"max-avatar-size" json:"max-avatar-size" yaml:"max-avatar-size"` // 头像最大大小（MB）
+	// 头像上传功能已移除
 }

@@ -260,9 +260,10 @@ func (s *ProviderApiService) RestartInstanceByProviderID(ctx context.Context, pr
 }
 
 // DeleteInstanceByProviderID 根据Provider ID删除实例（确保使用正确的Provider）
+// 删除操作允许访问冻结的Provider
 func (s *ProviderApiService) DeleteInstanceByProviderID(ctx context.Context, providerID uint, instanceID string) error {
-	// 使用新的GetProviderByID方法
-	prov, _, err := s.GetProviderByID(providerID)
+	// 使用GetProviderByIDForOperation方法，允许访问冻结的Provider
+	prov, _, err := s.GetProviderByIDForOperation(providerID, "delete")
 	if err != nil {
 		return err
 	}

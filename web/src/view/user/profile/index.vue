@@ -27,13 +27,6 @@
               :size="100"
               :src="userStore.getUserAvatar()"
             />
-            <el-button
-              type="primary"
-              size="small"
-              @click="showAvatarDialog = true"
-            >
-              {{ t('user.profile.changeAvatar') }}
-            </el-button>
           </div>
           <div class="user-info">
             <h2>{{ userStore.getUserDisplayName() }}</h2>
@@ -216,46 +209,6 @@
           </el-tabs>
         </div>
       </el-card>
-
-      <!-- 头像上传对话框 -->
-      <el-dialog
-        v-model="showAvatarDialog"
-        :title="t('user.profile.changeAvatar')"
-        width="400px"
-      >
-        <el-upload
-          class="avatar-uploader"
-          action="/api/v1/upload/avatar"
-          :headers="{ Authorization: `Bearer ${userStore.token}` }"
-          :show-file-list="false"
-          :on-success="handleAvatarSuccess"
-          :before-upload="beforeAvatarUpload"
-        >
-          <img
-            v-if="newAvatar"
-            :src="newAvatar"
-            class="avatar-preview"
-          >
-          <el-icon
-            v-else
-            class="avatar-uploader-icon"
-          >
-            <Plus />
-          </el-icon>
-        </el-upload>
-        <template #footer>
-          <el-button @click="showAvatarDialog = false">
-            {{ t('common.cancel') }}
-          </el-button>
-          <el-button
-            type="primary"
-            :disabled="!newAvatar"
-            @click="confirmAvatar"
-          >
-            确认
-          </el-button>
-        </template>
-      </el-dialog>
     </div> <!-- 结束主要内容区域 -->
   </div>
 </template>
@@ -283,10 +236,6 @@ const loading = ref(true)
 const updating = ref(false)
 const resetPasswordLoading = ref(false)
 
-// 头像相关
-const showAvatarDialog = ref(false)
-const newAvatar = ref('')
-
 // 密码重置相关
 const generatedPassword = ref('')
 
@@ -304,10 +253,8 @@ const profileRules = reactive({
     { min: 2, max: 20, message: '昵称长度在 2 到 20 个字符', trigger: 'blur' }
   ],
   email: [
-    { type: 'email', message: '请输入正确的邮箱地址', trigger: 'blur' }
-  ],
-  phone: [
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号', trigger: 'blur' }
+    { typuseUserStore } from '@/pinia/modules/user'
+import { updateProfile as updateProfileApi, resetPassword } from '@/api/use'blur' }
   ]
 })
 
@@ -373,40 +320,6 @@ const beforeAvatarUpload = async (file) => {
       maxSize: 2 * 1024 * 1024, // 2MB
       allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
       showError: true
-    })
-    
-    if (!validation.valid) {
-      console.error('头像验证失败:', validation.errors)
-    }
-    
-    return validation.valid
-  } catch (error) {
-    console.error('头像验证异常:', error)
-    ElMessage.error(t('user.profile.fileValidationFailed'))
-    return false
-  }
-}
-
-const handleAvatarSuccess = (response) => {
-  if (response.code === 0 || response.code === 200) {
-    newAvatar.value = response.data.url
-  } else {
-    ElMessage.error(t('user.profile.avatarUploadFailed'))
-  }
-}
-
-const confirmAvatar = () => {
-  ElMessage.success(t('user.profile.avatarUpdateSuccess'))
-  showAvatarDialog.value = false
-  newAvatar.value = ''
-}
-
-// 确认密码重置
-const confirmPasswordReset = async () => {
-  try {
-    await ElMessageBox.confirm(
-      t('user.profile.confirmResetPasswordMessage'),
-      t('user.profile.confirmResetPasswordTitle'),
       {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
@@ -644,20 +557,4 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
-.generated-password {
-  margin-top: 20px;
-  padding: 20px;
-  border: 1px solid #e4e7ed;
-  border-radius: 8px;
-  background-color: #f9f9f9;
-}
-
-.password-reset-section h3 {
-  margin-bottom: 15px;
-  color: #333;
-}
-
-.reset-intro {
-  margin-bottom: 20px;
-}
-</style>
+.

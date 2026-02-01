@@ -44,22 +44,6 @@ func (s *Service) UpdateProfile(userID uint, req userModel.UpdateProfileRequest)
 	})
 }
 
-// UpdateAvatar 更新用户头像
-func (s *Service) UpdateAvatar(userID uint, avatarURL string) error {
-	var user userModel.User
-	if err := global.APP_DB.First(&user, userID).Error; err != nil {
-		return err
-	}
-
-	user.Avatar = avatarURL
-
-	// 使用数据库抽象层保存
-	dbService := database.GetDatabaseService()
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
-	})
-}
-
 // ChangePassword 修改密码
 func (s *Service) ChangePassword(userID uint, oldPassword, newPassword string) error {
 	var user userModel.User

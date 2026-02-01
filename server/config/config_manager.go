@@ -85,7 +85,6 @@ func isSystemLevelConfig(key string) bool {
 var publicConfigKeys = map[string]bool{
 	"auth.enable-public-registration": true,
 	"other.default-language":          true,
-	"other.max-avatar-size":           true,
 }
 
 // SystemConfig 系统配置模型（避免循环导入）
@@ -1453,11 +1452,7 @@ func getDefaultConfigMap() map[string]interface{} {
 			"buffer-time":  "1d",
 			"issuer":       "oneclickvirt",
 		},
-		"upload": map[string]interface{}{
-			"max-avatar-size": 5242880, // 5MB in bytes
-		},
 		"other": map[string]interface{}{
-			"max-avatar-size":  5.0,
 			"default-language": "zh",
 		},
 	}

@@ -4,7 +4,6 @@ import (
 	"log"
 	"net/http"
 	"oneclickvirt/api/v1/public"
-	"oneclickvirt/api/v1/system"
 	"oneclickvirt/middleware"
 	authModel "oneclickvirt/model/auth"
 	"strings"
@@ -72,18 +71,12 @@ func SetupRouter() *gin.Engine {
 				InitPublicGroup.GET("system-config", public.GetPublicSystemConfig)            // 获取系统配置（优先从数据库读取，降级到内存配置）
 			}
 
-			// 2. 静态文件服务（不需要数据库）
-			StaticRouter := NoDBGroup.Group("v1/static")
-			{
-				StaticRouter.GET(":type/*path", system.ServeStaticFile) // 提供静态文件（头像等）
-			}
-
-			// 3. 认证相关API（登录、注册、验证码等需要数据库但在初始化前必须可用）
+			// 2. 认证相关API（登录、注册、验证码等需要数据库但在初始化前必须可用）
 			// 这些API内部会查询数据库，但不应被DatabaseHealthCheck拦截
 			// 因为它们需要在系统初始化过程中可用
 			InitAuthRouter(NoDBGroup)
 
-			// 4. OAuth2认证路由（第三方登录回调不依赖数据库健康检查）
+			// 3. OAuth2认证路由（第三方登录回调不依赖数据库健康检查）
 			// 注意：OAuth2的管理和公开API会在下面单独配置
 			InitOAuth2AuthRouter(NoDBGroup)
 		}

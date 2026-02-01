@@ -71,10 +71,6 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 		if captchaConfig, ok := newValue.(map[string]interface{}); ok {
 			syncCaptchaConfig(captchaConfig)
 		}
-	case "upload":
-		if uploadConfig, ok := newValue.(map[string]interface{}); ok {
-			syncUploadConfig(uploadConfig)
-		}
 	case "other":
 		if otherConfig, ok := newValue.(map[string]interface{}); ok {
 			syncOtherConfig(otherConfig)
@@ -306,22 +302,8 @@ func syncCaptchaConfig(captchaConfig map[string]interface{}) {
 	}
 }
 
-// syncUploadConfig 同步上传配置
-func syncUploadConfig(uploadConfig map[string]interface{}) {
-	if v, ok := uploadConfig["max-avatar-size"].(float64); ok {
-		global.APP_CONFIG.Upload.MaxAvatarSize = int64(v)
-	} else if v, ok := uploadConfig["max-avatar-size"].(int64); ok {
-		global.APP_CONFIG.Upload.MaxAvatarSize = v
-	} else if v, ok := uploadConfig["max-avatar-size"].(int); ok {
-		global.APP_CONFIG.Upload.MaxAvatarSize = int64(v)
-	}
-}
-
 // syncOtherConfig 同步其他配置
 func syncOtherConfig(otherConfig map[string]interface{}) {
-	if v, ok := otherConfig["max-avatar-size"].(float64); ok {
-		global.APP_CONFIG.Other.MaxAvatarSize = v
-	}
 	if v, ok := otherConfig["default-language"].(string); ok {
 		global.APP_CONFIG.Other.DefaultLanguage = v
 	}

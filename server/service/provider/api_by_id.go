@@ -14,6 +14,12 @@ import (
 
 // GetProviderByID 根据Provider ID获取Provider实例（如果未连接则尝试连接）
 func (s *ProviderApiService) GetProviderByID(providerID uint) (provider.Provider, *providerModel.Provider, error) {
+	return s.GetProviderByIDForOperation(providerID, "")
+}
+
+// GetProviderByIDForOperation 根据Provider ID和操作类型获取Provider实例
+// operationType: 操作类型，如"delete"等，某些操作允许访问冻结的Provider
+func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operationType string) (provider.Provider, *providerModel.Provider, error) {
 	// 从数据库获取Provider配置
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
@@ -25,7 +31,9 @@ func (s *ProviderApiService) GetProviderByID(providerID uint) (provider.Provider
 		return nil, nil, fmt.Errorf("Provider未激活")
 	}
 
-	if dbProvider.IsFrozen {
+	// 删除操作允许访问冻结的Provider
+	allowFrozen := operationType == "delete"
+	if dbProvider.IsFrozen && !allowFrozen {
 		return nil, nil, fmt.Errorf("Provider已被冻结")
 	}
 
@@ -45,7 +53,8 @@ func (s *ProviderApiService) GetProviderByID(providerID uint) (provider.Provider
 	}
 
 	// 如果未连接，尝试加载并连接
-	if err := providerService.LoadProvider(dbProvider); err != nil {
+	// 删除操作允许加载冻结的Provider（使用已定义的allowFrozen变量）
+	if err := providerService.LoadProviderWithOptions(dbProvider, allowFrozen); err != nil {
 		global.APP_LOG.Error("加载Provider失败",
 			zap.Uint("providerId", providerID),
 			zap.String("name", dbProvider.Name),

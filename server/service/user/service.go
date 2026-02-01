@@ -83,11 +83,6 @@ func (s *Service) UpdateProfile(userID uint, req userModel.UpdateProfileRequest)
 	return s.profile.UpdateProfile(userID, req)
 }
 
-// UpdateAvatar 更新用户头像
-func (s *Service) UpdateAvatar(userID uint, avatarURL string) error {
-	return s.profile.UpdateAvatar(userID, avatarURL)
-}
-
 // ChangePassword 修改密码
 func (s *Service) ChangePassword(userID uint, oldPassword, newPassword string) error {
 	return s.profile.ChangePassword(userID, oldPassword, newPassword)

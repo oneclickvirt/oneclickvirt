@@ -223,7 +223,7 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 	now := time.Now()
 
 	var expiredInstances []providerModel.Instance
-	if err := global.APP_DB.Where("expired_at < ? AND status NOT IN ?",
+	if err := global.APP_DB.Where("expires_at < ? AND status NOT IN ?",
 		now, []string{"deleted", "deleting"}).Find(&expiredInstances).Error; err != nil {
 		global.APP_LOG.Error("查询过期实例失败", zap.Error(err))
 		return err

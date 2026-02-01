@@ -76,13 +76,27 @@ func (ps *ProviderService) InitializeProviders() error {
 
 // LoadProvider 加载单个Provider
 func (ps *ProviderService) LoadProvider(dbProvider providerModel.Provider) error {
+	return ps.LoadProviderWithOptions(dbProvider, false)
+}
+
+// LoadProviderWithOptions 加载单个Provider（支持选项）
+// allowFrozen: 是否允许加载冻结的Provider（用于删除等特定操作）
+func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Provider, allowFrozen bool) error {
 	ps.mutex.Lock()
 	defer ps.mutex.Unlock()
 
 	// 检查Provider是否过期或冻结
-	if dbProvider.IsFrozen {
+	if dbProvider.IsFrozen && !allowFrozen {
 		global.APP_LOG.Debug("Provider已冻结，跳过加载", zap.String("name", dbProvider.Name), zap.Uint("id", dbProvider.ID))
 		return nil
+	}
+
+	// 如果允许冻结状态，记录日志
+	if dbProvider.IsFrozen && allowFrozen {
+		global.APP_LOG.Info("允许加载冻结的Provider用于特定操作",
+			zap.String("name", dbProvider.Name),
+			zap.Uint("id", dbProvider.ID),
+			zap.String("frozen_reason", dbProvider.FrozenReason))
 	}
 
 	if dbProvider.ExpiresAt != nil && dbProvider.ExpiresAt.Before(time.Now()) {

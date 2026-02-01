@@ -21,7 +21,6 @@ type InstanceServiceInterface interface {
 // ProfileServiceInterface 用户资料服务接口
 type ProfileServiceInterface interface {
 	UpdateProfile(userID uint, req userModel.UpdateProfileRequest) error
-	UpdateAvatar(userID uint, avatarURL string) error
 	ChangePassword(userID uint, oldPassword, newPassword string) error
 	BatchDeleteUsers(userIDs []uint) (map[string]interface{}, error)
 	SearchUsers(req auth.SearchUsersRequest) ([]userModel.User, int64, error)

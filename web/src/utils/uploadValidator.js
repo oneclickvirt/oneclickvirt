@@ -1,26 +1,10 @@
 /**
  * 文件上传验证工具
+ * 头像上传功能已移除
  */
 
-// 后端请求大小限制 (2MB for avatars)
-const MAX_AVATAR_SIZE = 2 * 1024 * 1024 // 2MB
+// 通用文件上传限制
 const MAX_REQUEST_SIZE = 1024 * 1024 // 1MB (通用文件)
-
-// 允许的头像文件类型
-const ALLOWED_AVATAR_TYPES = [
-  'image/jpeg',
-  'image/jpg', 
-  'image/png',
-  'image/webp'
-]
-
-// 允许的头像文件扩展名
-const ALLOWED_AVATAR_EXTS = [
-  '.jpg',
-  '.jpeg', 
-  '.png',
-  '.webp'
-]
 
 // 危险文件扩展名黑名单
 const DANGEROUS_EXTS = [

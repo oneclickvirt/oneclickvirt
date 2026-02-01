@@ -3,7 +3,6 @@ package router
 import (
 	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/public"
-	"oneclickvirt/api/v1/system"
 	"oneclickvirt/api/v1/traffic"
 	"oneclickvirt/api/v1/user"
 	"oneclickvirt/middleware"
@@ -64,13 +63,6 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/traffic/pmacct/:instanceId", trafficAPI.GetPmacctData)
 		UserGroup.GET("/user/traffic/history", trafficAPI.GetUserTrafficHistory)
 		UserGroup.GET("/user/instances/:id/traffic/history", trafficAPI.GetInstanceTrafficHistory)
-
-		// 文件上传
-		uploadGroup := UserGroup.Group("/upload")
-		uploadGroup.Use(middleware.AvatarUploadLimit()) // 上传大小限制
-		{
-			uploadGroup.POST("/avatar", system.UploadAvatar)
-		}
 
 		// 仪表盘统计
 		UserGroup.GET("/dashboard/stats", public.GetDashboardStats)

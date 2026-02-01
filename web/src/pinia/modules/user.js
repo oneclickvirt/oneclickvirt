@@ -240,12 +240,9 @@ export const useUserStore = defineStore('user', {
       return this.userType === role
     },
 
-    // 获取用户头像
+    // 获取用户头像 - 使用固定的默认头像
     getUserAvatar() {
-      if (this.user?.avatar) {
-        return this.user.avatar
-      }
-      // 默认头像
+      // 统一使用默认头像生成器
       return `https://api.dicebear.com/7.x/initials/svg?seed=${this.user?.username || 'User'}`
     },
 

@@ -1,16 +1,8 @@
 auth:
-    email-password: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    email-username: root
     enable-email: false
-    enable-oauth2: false
-    enable-public-registration: false
+    enable-public-registration: true
     enable-qq: false
     enable-telegram: false
-    qq-app-id: ""
-    qq-app-key: ""
-    telegram-bot-token: ""
 captcha:
     enabled: false
     expire-time: 5
@@ -30,7 +22,7 @@ cors:
         - http://localhost:8080
         - http://127.0.0.1:8080
 invite-code:
-    enabled: true
+    enabled: false
     required: false
 jwt:
     buffer-time: 1d
@@ -54,13 +46,48 @@ mysql:
     singular: "false"
     username: root
 quota:
-    instance-type-permissions:
-        min-level-for-container: 1
-        min-level-for-delete-container: 1
-        min-level-for-delete-vm: 2
-        min-level-for-reset-container: 1
-        min-level-for-reset-vm: 2
-        min-level-for-vm: 3
+    default-level: 1
+    level-limits:
+        "1":
+            max-instances: 6
+            max-resources:
+                bandwidth: 1000
+                cpu: 6
+                disk: 66024
+                memory: 6350
+            max-traffic: 1.024e+06
+        "2":
+            max-instances: 3
+            max-resources:
+                bandwidth: 200
+                cpu: 2
+                disk: 20480
+                memory: 1024
+            max-traffic: 204800
+        "3":
+            max-instances: 5
+            max-resources:
+                bandwidth: 500
+                cpu: 4
+                disk: 40960
+                memory: 2048
+            max-traffic: 307200
+        "4":
+            max-instances: 10
+            max-resources:
+                bandwidth: 1000
+                cpu: 8
+                disk: 81920
+                memory: 4096
+            max-traffic: 409600
+        "5":
+            max-instances: 20
+            max-resources:
+                bandwidth: 2000
+                cpu: 16
+                disk: 163840
+                memory: 8192
+            max-traffic: 512000
 redis:
     addr: ""
     db: 0
@@ -80,11 +107,8 @@ system:
 task:
     delete-retry-count: 3
     delete-retry-delay: 2
-upload:
-    max-avatar-size: 5242880
 other:
     default-language: en-US
-    max-avatar-size: 5
 zap:
     director: storage/logs
     encode-level: LowercaseLevelEncoder
@@ -100,7 +124,6 @@ zap:
     retention-day: 7
     show-line: true
     stacktrace-key: stacktrace
-max_avatar_size: 2
 default_language:
 signing_key_v1:
     created_at: "2025-12-10T11:50:42.233262+08:00"
