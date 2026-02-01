@@ -234,8 +234,8 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	// 检查Provider的实际状态，而不仅仅是allow_claim标志
 	// allow_claim可能因临时健康检查失败而被误设为false
 	// 但如果Provider实际上是active状态且未冻结，应该允许任务继续执行
-	// 对于删除任务，即使Provider被冻结，也允许执行（特别是管理员发起的删除任务）
-	if provider.IsFrozen && task.TaskType != "delete" {
+	// 对于删除和停止任务，即使Provider被冻结，也允许执行（特别是管理员发起的操作）
+	if provider.IsFrozen && task.TaskType != "delete" && task.TaskType != "stop" {
 		global.APP_LOG.Warn("Provider is frozen, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
@@ -245,9 +245,9 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 		return
 	}
 
-	// 如果是删除任务且Provider被冻结，记录日志但允许继续执行
-	if provider.IsFrozen && task.TaskType == "delete" {
-		global.APP_LOG.Info("Provider is frozen but allowing delete task to proceed",
+	// 如果是删除或停止任务且Provider被冻结，记录日志但允许继续执行
+	if provider.IsFrozen && (task.TaskType == "delete" || task.TaskType == "stop") {
+		global.APP_LOG.Info("Provider is frozen but allowing delete/stop task to proceed",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("task_type", task.TaskType),
@@ -256,17 +256,32 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 
 	// 检查Provider是否过期
 	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		global.APP_LOG.Warn("Provider has expired, cancelling task",
-			zap.Uint("provider_id", *task.ProviderID),
-			zap.String("provider_name", provider.Name),
-			zap.Uint("task_id", task.ID))
-		s.taskService.CancelTaskByAdmin(task.ID, "Provider has expired")
-		return
+		// 对于删除和停止任务，即使Provider过期也允许继续执行
+		// 删除任务：用户需要清理过期Provider上的实例
+		// 停止任务：可能是流量超限等紧急场景需要强制停止
+		if task.TaskType == "delete" || task.TaskType == "stop" {
+			global.APP_LOG.Info("Provider has expired but allowing delete/stop task to proceed",
+				zap.Uint("provider_id", *task.ProviderID),
+				zap.String("provider_name", provider.Name),
+				zap.String("task_type", task.TaskType),
+				zap.Uint("task_id", task.ID))
+		} else {
+			// 其他任务类型，取消执行
+			global.APP_LOG.Warn("Provider has expired, cancelling task",
+				zap.Uint("provider_id", *task.ProviderID),
+				zap.String("provider_name", provider.Name),
+				zap.String("task_type", task.TaskType),
+				zap.Uint("task_id", task.ID))
+			s.taskService.CancelTaskByAdmin(task.ID, "Provider has expired")
+			return
+		}
 	}
 
-	// 对于删除任务，允许inactive状态的Provider，因为GetProviderByID会自动尝试重新连接
+	// 对于删除和停止任务，允许inactive状态的Provider，因为GetProviderByID会自动尝试重新连接
+	// 删除任务：需要清理资源
+	// 停止任务：可能是紧急场景（如流量超限）需要强制停止
 	// 其他任务类型仍需检查Provider状态
-	if provider.Status == "inactive" && task.TaskType != "delete" {
+	if provider.Status == "inactive" && task.TaskType != "delete" && task.TaskType != "stop" {
 		global.APP_LOG.Warn("Provider is inactive, cancelling task",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
@@ -278,10 +293,10 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 		return
 	}
 
-	// 对于删除任务，即使Provider状态为inactive，也允许继续执行
-	// GetProviderByID会尝试重新连接，确保删除操作能够完成
-	if provider.Status == "inactive" && task.TaskType == "delete" {
-		global.APP_LOG.Info("Provider is inactive but allowing delete task to proceed, will attempt reconnection",
+	// 对于删除和停止任务，即使Provider状态为inactive，也允许继续执行
+	// GetProviderByID会尝试重新连接，确保操作能够完成
+	if provider.Status == "inactive" && (task.TaskType == "delete" || task.TaskType == "stop") {
+		global.APP_LOG.Info("Provider is inactive but allowing delete/stop task to proceed, will attempt reconnection",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("task_type", task.TaskType),
