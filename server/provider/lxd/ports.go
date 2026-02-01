@@ -607,6 +607,25 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 	return nil
 }
 
+// SaveIptablesRules 保存iptables规则到文件（公开方法）
+func (l *LXDProvider) SaveIptablesRules() error {
+	// 创建iptables目录
+	_, err := l.sshClient.Execute("mkdir -p /etc/iptables")
+	if err != nil {
+		global.APP_LOG.Warn("创建iptables目录失败", zap.Error(err))
+	}
+
+	// 保存IPv4规则
+	saveCmd := "iptables-save > /etc/iptables/rules.v4"
+	_, err = l.sshClient.Execute(saveCmd)
+	if err != nil {
+		return fmt.Errorf("保存iptables规则失败: %w", err)
+	}
+
+	global.APP_LOG.Info("LXD iptables规则保存成功")
+	return nil
+}
+
 // removePortMapping 移除端口映射
 func (l *LXDProvider) removePortMapping(instanceName string, hostPort int, protocol string, method string) error {
 	global.APP_LOG.Info("移除端口映射",

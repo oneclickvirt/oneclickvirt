@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"oneclickvirt/constant"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
@@ -35,11 +36,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 	var instances []providerModel.Instance
 	var total int64
 
-	// 基础查询：过滤掉失败、创建中、删除中的实例，这些实例不应该在用户界面显示
-	// 同时排除有进行中的reset任务的实例（包括新旧实例）
+	// 获取可显示的状态：只显示稳定状态的实例
+	// 过渡状态(creating, resetting)和终止状态(deleting, deleted, failed)不应显示
+	displayableStatuses := constant.GetStableStatuses()
+
 	query := global.APP_DB.Model(&providerModel.Instance{}).
-		Where("user_id = ? AND status NOT IN (?)", userID, []string{"failed", "creating", "deleting"}).
-		Where("id NOT IN (SELECT instance_id FROM tasks WHERE task_type = 'reset' AND status IN ('pending', 'running') AND instance_id IS NOT NULL)")
+		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, displayableStatuses)
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")

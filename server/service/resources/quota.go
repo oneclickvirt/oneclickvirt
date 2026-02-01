@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/service/database"
 
 	"oneclickvirt/config"
@@ -287,10 +288,14 @@ func (s *QuotaService) getCurrentResourceUsage(tx *gorm.DB, userID uint) (int, R
 
 // getCurrentResourceUsageWithPending 获取当前资源使用情况（分别统计稳定和待确认）
 func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID uint) (int, ResourceUsage, ResourceUsage, error) {
-	// 稳定状态：running、stopped、paused 等（排除 creating、resetting、deleting、deleted、failed）
+	// 使用状态常量分别查询稳定状态和过渡状态的实例
+	stableStatuses := constant.GetStableStatuses()
+	transitionalStatuses := constant.GetTransitionalStatuses()
+
+	// 稳定状态：running、stopped、error
 	var stableInstances []provider.Instance
 	err := tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
-		Where("user_id = ? AND status IN (?)", userID, []string{"running", "stopped", "paused"}).
+		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, stableStatuses).
 		Find(&stableInstances).Error
 	if err != nil {
 		return 0, ResourceUsage{}, ResourceUsage{}, err
@@ -299,7 +304,7 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 	// 待确认状态：creating、resetting
 	var pendingInstances []provider.Instance
 	err = tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
-		Where("user_id = ? AND status IN (?)", userID, []string{"creating", "resetting"}).
+		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, transitionalStatuses).
 		Find(&pendingInstances).Error
 	if err != nil {
 		return 0, ResourceUsage{}, ResourceUsage{}, err

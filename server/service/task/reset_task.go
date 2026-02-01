@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -264,7 +265,7 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 		}
 
 		// 根据实例的原始状态（重置前的状态）释放对应的配额
-		isPendingState := resetCtx.OriginalStatus == "creating" || resetCtx.OriginalStatus == "resetting"
+		isPendingState := constant.IsTransitionalStatus(resetCtx.OriginalStatus)
 		if isPendingState {
 			if err := quotaService.ReleasePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败", zap.Error(err))
@@ -890,6 +891,20 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 				// 继续配置其他端口
 			}
 		}
+
+		// 如果使用 iptables 方法，保存规则到 /etc/iptables/rules.v4
+		if resetCtx.Provider.IPv4PortMappingMethod == "iptables" {
+			if provWithSave, ok := prov.(interface {
+				SaveIptablesRules() error
+			}); ok {
+				if err := provWithSave.SaveIptablesRules(); err != nil {
+					global.APP_LOG.Warn("保存Incus iptables规则失败，重启后可能丢失", zap.Error(err))
+				} else {
+					global.APP_LOG.Info("Incus iptables规则已保存到 /etc/iptables/rules.v4")
+				}
+			}
+		}
+
 		return nil
 
 	case "lxd":
@@ -911,6 +926,20 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 				// 继续配置其他端口
 			}
 		}
+
+		// 如果使用 iptables 方法，保存规则到 /etc/iptables/rules.v4
+		if resetCtx.Provider.IPv4PortMappingMethod == "iptables" {
+			if provWithSave, ok := prov.(interface {
+				SaveIptablesRules() error
+			}); ok {
+				if err := provWithSave.SaveIptablesRules(); err != nil {
+					global.APP_LOG.Warn("保存LXD iptables规则失败，重启后可能丢失", zap.Error(err))
+				} else {
+					global.APP_LOG.Info("LXD iptables规则已保存到 /etc/iptables/rules.v4")
+				}
+			}
+		}
+
 		return nil
 
 	case "proxmox":
@@ -933,6 +962,18 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 				// 继续配置其他端口
 			}
 		}
+
+		// 保存iptables规则到 /etc/iptables/rules.v4
+		if provWithSave, ok := prov.(interface {
+			SaveIptablesRules() error
+		}); ok {
+			if err := provWithSave.SaveIptablesRules(); err != nil {
+				global.APP_LOG.Warn("保存iptables规则失败，重启后可能丢失", zap.Error(err))
+			} else {
+				global.APP_LOG.Info("iptables规则已保存到 /etc/iptables/rules.v4")
+			}
+		}
+
 		return nil
 
 	default:

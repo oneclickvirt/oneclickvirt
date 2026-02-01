@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"oneclickvirt/constant"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
 	"time"
@@ -190,15 +191,16 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 
 		// 检查缓存是否过期
 		if provider.CountCacheExpiry == nil || time.Now().After(*provider.CountCacheExpiry) {
-			// 缓存过期，需要重新查询（排除deleted、deleting、failed状态）
+			// 缓存过期，需要重新查询（只统计稳定状态，避免重置时双倍计数）
+			stableStatuses := constant.GetQuotaCountableStatuses()
 			var freshContainerCount, freshVMCount int64
 			tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-					provider.ID, "container", []string{"deleted", "deleting", "failed"}).
+				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status IN (?)",
+					provider.ID, "container", stableStatuses).
 				Count(&freshContainerCount)
 			tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND instance_type = ? AND status NOT IN (?)",
-					provider.ID, "vm", []string{"deleted", "deleting", "failed"}).
+				Where("provider_id = ? AND instance_type = ? AND deleted_at IS NULL AND status IN (?)",
+					provider.ID, "vm", stableStatuses).
 				Count(&freshVMCount)
 
 			containerCount = int(freshContainerCount)

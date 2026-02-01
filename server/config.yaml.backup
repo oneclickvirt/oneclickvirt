@@ -132,3 +132,4 @@ signing_key_v1:
     key: b938fc5e2557e899f93f97a6edb1ca12e1a1216c0664df7c4adf171d8f1bec78
     version: 1
 active_version: 1
+max_avatar_size: 2

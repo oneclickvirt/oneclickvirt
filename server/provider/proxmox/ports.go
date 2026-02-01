@@ -437,7 +437,7 @@ func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceNam
 	return nil
 }
 
-// saveIptablesRules 保存iptables规则
+// saveIptablesRules 保存iptables规则（内部方法）
 func (p *ProxmoxProvider) saveIptablesRules() error {
 	// 创建iptables目录
 	_, err := p.sshClient.Execute("mkdir -p /etc/iptables")
@@ -454,6 +454,11 @@ func (p *ProxmoxProvider) saveIptablesRules() error {
 
 	global.APP_LOG.Info("iptables规则保存成功")
 	return nil
+}
+
+// SaveIptablesRules 保存iptables规则（公开方法）
+func (p *ProxmoxProvider) SaveIptablesRules() error {
+	return p.saveIptablesRules()
 }
 
 // getInstancePrivateIP 获取实例的内网IP地址

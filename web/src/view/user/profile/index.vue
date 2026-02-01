@@ -217,10 +217,8 @@
 import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 import { updateProfile as updateProfileApi, resetPassword } from '@/api/user'
-import { validateImageFileSecure } from '@/utils/uploadValidator'
 
 const { t } = useI18n()
 const userStore = useUserStore()
@@ -253,8 +251,10 @@ const profileRules = reactive({
     { min: 2, max: 20, message: '昵称长度在 2 到 20 个字符', trigger: 'blur' }
   ],
   email: [
-    { typuseUserStore } from '@/pinia/modules/user'
-import { updateProfile as updateProfileApi, resetPassword } from '@/api/use'blur' }
+    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+  ],
+  phone: [
+    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号格式', trigger: 'blur' }
   ]
 })
 
@@ -314,12 +314,12 @@ const resetForm = () => {
   initForm()
 }
 
-const beforeAvatarUpload = async (file) => {
+// 确认密码重置
+const confirmPasswordReset = async () => {
   try {
-    const validation = await validateImageFileSecure(file, {
-      maxSize: 2 * 1024 * 1024, // 2MB
-      allowedTypes: ['image/jpeg', 'image/png', 'image/webp'],
-      showError: true
+    await ElMessageBox.confirm(
+      t('user.profile.passwordResetConfirm'),
+      t('common.warning'),
       {
         confirmButtonText: t('common.confirm'),
         cancelButtonText: t('common.cancel'),
@@ -404,34 +404,34 @@ const closePasswordDialog = () => {
   generatedPassword.value = ''
 }
 
-onMounted(async () => {
+onMounted(() => {
   // 强制页面刷新监听器
   window.addEventListener('force-page-refresh', handleForceRefresh)
   
   loading.value = true
   try {
-    await initForm()
+    initForm()
   } finally {
     loading.value = false
   }
 })
 
 // 使用 onActivated 确保每次页面激活时都重新加载数据
-onActivated(async () => {
+onActivated(() => {
   loading.value = true
   try {
-    await initForm()
+    initForm()
   } finally {
     loading.value = false
   }
 })
 
 // 处理强制刷新事件
-const handleForceRefresh = async (event) => {
+const handleForceRefresh = (event) => {
   if (event.detail && event.detail.path === '/user/profile') {
     loading.value = true
     try {
-      await initForm()
+      initForm()
     } finally {
       loading.value = false
     }
@@ -557,4 +557,20 @@ onUnmounted(() => {
   line-height: 1.4;
 }
 
-.
+.password-reset-section {
+  margin-bottom: 30px;
+}
+
+.reset-intro {
+  margin-top: 15px;
+}
+
+.generated-password {
+  margin-top: 20px;
+  text-align: center;
+}
+
+.profile-tabs {
+  margin-top: 20px;
+}
+</style>

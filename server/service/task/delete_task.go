@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
@@ -202,8 +203,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		}
 
 		// 3. 释放用户配额（根据实例状态决定释放哪种配额）
-		// 如果实例处于 creating/resetting 状态，释放 pending_quota
-		// 如果实例处于其他稳定状态，释放 used_quota
+		// 如果实例处于过渡状态(creating/resetting)，释放 pending_quota
+		// 稳定状态（running/stopped/error等）释放 used_quota
+		// 终止状态(deleting/deleted/failed)不释放配额（已被移除）
 		resourceUsage := resources.ResourceUsage{
 			CPU:       instanceCPU,
 			Memory:    instanceMemory,
@@ -211,7 +213,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			Bandwidth: instanceBandwidth,
 		}
 
-		isPendingState := instance.Status == "creating" || instance.Status == "resetting"
+		isPendingState := constant.IsTransitionalStatus(instance.Status)
 		if isPendingState {
 			if err := quotaService.ReleasePendingQuota(tx, instanceUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败",

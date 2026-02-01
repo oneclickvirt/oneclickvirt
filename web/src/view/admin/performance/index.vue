@@ -9,13 +9,6 @@
           </h2>
           <p class="subtitle">{{ $t('admin.performance.subtitle') }}</p>
         </div>
-        <div class="refresh-section">
-          <el-switch
-            v-model="autoRefresh"
-            :active-text="$t('admin.performance.autoRefresh')"
-            @change="toggleAutoRefresh"
-          />
-        </div>
       </div>
     </el-card>
 
@@ -302,7 +295,6 @@ const { t } = useI18n()
 
 // 响应式数据
 const loading = ref(false)
-const autoRefresh = ref(true)
 const timeRange = ref('1h')
 const metrics = reactive({})
 const dbStats = reactive({})
@@ -502,14 +494,6 @@ const getSSHPoolUtilizationType = (utilization) => {
 }
 
 // 自动刷新
-const toggleAutoRefresh = (value) => {
-  if (value) {
-    startAutoRefresh()
-  } else {
-    stopAutoRefresh()
-  }
-}
-
 const startAutoRefresh = () => {
   stopAutoRefresh()
   refreshTimer = setInterval(() => {
@@ -558,9 +542,8 @@ onMounted(async () => {
   await nextTick()
   initCharts()
   
-  if (autoRefresh.value) {
-    startAutoRefresh()
-  }
+  // 强制启动自动刷新
+  startAutoRefresh()
 })
 
 onUnmounted(() => {
@@ -622,12 +605,6 @@ export default {
           color: #909399;
           font-size: 14px;
         }
-      }
-      
-      .refresh-section {
-        display: flex;
-        gap: 10px;
-        align-items: center;
       }
     }
   }

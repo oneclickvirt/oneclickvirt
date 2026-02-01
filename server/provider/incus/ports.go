@@ -366,6 +366,25 @@ func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort
 	return nil
 }
 
+// SaveIptablesRules 保存iptables规则到文件（公开方法）
+func (i *IncusProvider) SaveIptablesRules() error {
+	// 创建iptables目录
+	_, err := i.sshClient.Execute("mkdir -p /etc/iptables")
+	if err != nil {
+		global.APP_LOG.Warn("创建iptables目录失败", zap.Error(err))
+	}
+
+	// 保存IPv4规则
+	saveCmd := "iptables-save > /etc/iptables/rules.v4"
+	_, err = i.sshClient.Execute(saveCmd)
+	if err != nil {
+		return fmt.Errorf("保存iptables规则失败: %w", err)
+	}
+
+	global.APP_LOG.Info("Incus iptables规则保存成功")
+	return nil
+}
+
 // setupPortRangeMappingWithIP 设置端口范围映射
 func (i *IncusProvider) setupPortRangeMappingWithIP(instanceName string, ports []providerModel.Port, method string, instanceIP string) error {
 	if len(ports) == 0 {
