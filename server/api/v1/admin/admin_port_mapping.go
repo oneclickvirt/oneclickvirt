@@ -550,3 +550,57 @@ func CheckPortAvailability(c *gin.Context) {
 
 	common.ResponseSuccess(c, response, "检查完成")
 }
+
+// SyncPortMappings godoc
+// @Summary 同步端口映射
+// @Description 创建一个后台任务，检测并清理孤立的端口映射（实例已删除但数据库记录仍存在）。为每个Provider创建独立的同步任务
+// @Tags Admin-Port-Mapping
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param data body admin.SyncPortMappingsTaskRequest false "同步参数（可选指定Provider IDs）"
+// @Success 200 {object} common.Response "同步任务已创建"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "未授权"
+// @Failure 500 {object} common.Response "服务器错误"
+// @Router /admin/port-mappings/sync [post]
+func SyncPortMappings(c *gin.Context) {
+	var req admin.SyncPortMappingsTaskRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	// 获取当前用户ID
+	userID, err := getUserIDFromContext(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
+		return
+	}
+
+	// 创建同步任务（为每个Provider创建独立任务）
+	taskService := task.GetTaskService()
+	tasks, err := taskService.CreateSyncPortMappingsTask(userID, &req)
+	if err != nil {
+		global.APP_LOG.Error("创建端口映射同步任务失败",
+			zap.Uint("userId", userID),
+			zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+
+	taskIDs := make([]uint, len(tasks))
+	for i, t := range tasks {
+		taskIDs[i] = t.ID
+	}
+
+	global.APP_LOG.Info("创建端口映射同步任务成功",
+		zap.Uint("userId", userID),
+		zap.Int("taskCount", len(tasks)),
+		zap.Uints("taskIds", taskIDs))
+
+	common.ResponseSuccess(c, map[string]interface{}{
+		"tasks":     tasks,
+		"taskCount": len(tasks),
+	}, fmt.Sprintf("已创建 %d 个同步任务，正在后台执行", len(tasks)))
+}

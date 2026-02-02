@@ -590,6 +590,15 @@ export const batchDeletePortMappings = (ids) => {
   })
 }
 
+// 同步端口映射（检测并清理孤立的端口映射记录）
+export const syncPortMappings = (data) => {
+  return request({
+    url: '/v1/admin/port-mappings/sync',
+    method: 'post',
+    data
+  })
+}
+
 // 检查端口可用性
 export const checkPortAvailable = (data) => {
   return request({

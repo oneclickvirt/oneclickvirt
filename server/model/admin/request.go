@@ -517,6 +517,11 @@ type DeletePortMappingTaskRequest struct {
 	ProviderID uint `json:"providerId"` // Provider ID
 }
 
+// SyncPortMappingsTaskRequest 同步端口映射任务数据结构
+type SyncPortMappingsTaskRequest struct {
+	ProviderIDs []uint `json:"providerIds,omitempty"` // 指定要同步的Provider IDs（为空则同步所有）
+}
+
 // CheckPortAvailabilityRequest 检查端口可用性请求
 type CheckPortAvailabilityRequest struct {
 	ProviderID uint   `json:"providerId" binding:"required"`                  // Provider ID

@@ -13,10 +13,77 @@ import (
 	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/provider/proxmox"
 	provider2 "oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// CreateSyncPortMappingsTask 创建同步端口映射任务（为每个Provider创建独立任务）
+func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.SyncPortMappingsTaskRequest) ([]*adminModel.Task, error) {
+	// 获取需要同步的Provider列表
+	var providers []providerModel.Provider
+	query := global.APP_DB.Where("status = ?", "active")
+	if len(req.ProviderIDs) > 0 {
+		query = query.Where("id IN ?", req.ProviderIDs)
+	}
+	if err := query.Find(&providers).Error; err != nil {
+		return nil, fmt.Errorf("查询Provider列表失败: %v", err)
+	}
+
+	if len(providers) == 0 {
+		return nil, fmt.Errorf("没有找到活跃的Provider")
+	}
+
+	// 为每个Provider创建一个任务
+	tasks := make([]*adminModel.Task, 0, len(providers))
+	for _, prov := range providers {
+		// 序列化任务数据
+		taskData, err := json.Marshal(req)
+		if err != nil {
+			global.APP_LOG.Error("序列化任务数据失败",
+				zap.Uint("providerId", prov.ID),
+				zap.Error(err))
+			continue
+		}
+
+		// 获取默认超时时间（30分钟）
+		timeoutDuration := utils.GetDefaultTaskTimeout("sync-port-mappings")
+
+		// 创建任务，绑定到特定Provider
+		task, err := s.CreateTask(userID, &prov.ID, nil, "sync-port-mappings", string(taskData), timeoutDuration)
+		if err != nil {
+			global.APP_LOG.Error("创建同步任务失败",
+				zap.Uint("providerId", prov.ID),
+				zap.String("providerName", prov.Name),
+				zap.Error(err))
+			continue
+		}
+
+		// 立即启动任务
+		if err := s.StartTask(task.ID); err != nil {
+			global.APP_LOG.Error("启动同步端口映射任务失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("providerId", prov.ID),
+				zap.String("providerName", prov.Name),
+				zap.Error(err))
+			continue
+		}
+
+		global.APP_LOG.Info("创建并启动同步任务",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("providerId", prov.ID),
+			zap.String("providerName", prov.Name))
+
+		tasks = append(tasks, task)
+	}
+
+	if len(tasks) == 0 {
+		return nil, fmt.Errorf("所有Provider的任务创建都失败了")
+	}
+
+	return tasks, nil
+}
 
 // executeCreatePortMappingTask 执行创建端口映射任务
 func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *adminModel.Task) error {

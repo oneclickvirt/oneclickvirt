@@ -128,6 +128,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/port-mappings", admin.CreatePortMapping)                   // 支持单个端口和端口段批量添加（LXD/Incus/PVE）
 		AdminGroup.DELETE("/port-mappings/:id", admin.DeletePortMapping)             // 仅支持删除手动添加的端口
 		AdminGroup.POST("/port-mappings/batch-delete", admin.BatchDeletePortMapping) // 仅支持删除手动添加的端口
+		AdminGroup.POST("/port-mappings/sync", admin.SyncPortMappings)               // 同步端口映射，清理孤立记录
 		AdminGroup.POST("/ports/check", admin.CheckPortAvailability)                 // 检查端口可用性
 		AdminGroup.PUT("/providers/:id/port-config", admin.UpdateProviderPortConfig)
 		AdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)

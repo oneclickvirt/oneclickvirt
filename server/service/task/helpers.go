@@ -95,6 +95,8 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 		return s.executeCreatePortMappingTask(ctx, task)
 	case "delete-port-mapping":
 		return s.executeDeletePortMappingTask(ctx, task)
+	case "sync-port-mappings":
+		return s.executeSyncPortMappingsTask(ctx, task)
 	default:
 		return fmt.Errorf("未知的任务类型: %s", task.TaskType)
 	}

@@ -31,6 +31,18 @@
             >
               {{ $t('admin.portMapping.batchDelete') }} ({{ selectedPortMappings.length }})
             </el-button>
+            <el-tooltip
+              :content="$t('admin.portMapping.syncPortMappingsTooltip')"
+              placement="bottom"
+            >
+              <el-button
+                type="warning"
+                @click="handleSyncPortMappings"
+              >
+                <el-icon><RefreshRight /></el-icon>
+                {{ $t('admin.portMapping.syncPortMappings') }}
+              </el-button>
+            </el-tooltip>
           </div>
         </div>
       </template>
@@ -552,7 +564,7 @@
 <script setup>
 import { ref, reactive, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Loading, Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
+import { Plus, Loading, Search, CircleCheck, CircleClose, RefreshRight } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { 
   getPortMappings, 
@@ -561,7 +573,8 @@ import {
   batchDeletePortMappings,
   checkPortAvailable,
   getProviderList,
-  getAllInstances
+  getAllInstances,
+  syncPortMappings
 } from '@/api/admin'
 
 const { t } = useI18n()
@@ -1108,6 +1121,33 @@ const submitAdd = async () => {
     ElMessage.error(error.message || t('admin.portMapping.addPortFailed'))
   } finally {
     addLoading.value = false
+  }
+}
+
+// 同步端口映射
+const handleSyncPortMappings = async () => {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.portMapping.syncConfirmMessage'),
+      t('admin.portMapping.syncConfirmTitle'),
+      {
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    )
+
+    const response = await syncPortMappings({})
+    ElMessage.success(t('admin.portMapping.syncTaskCreated'))
+    
+    // 刷新列表
+    setTimeout(() => {
+      loadPortMappings()
+    }, 1000)
+  } catch (error) {
+    if (error !== 'cancel') {
+      ElMessage.error(error.message || t('admin.portMapping.syncFailed'))
+    }
   }
 }
 
