@@ -51,15 +51,15 @@
         v-model="modelValue.host"
         :placeholder="$t('admin.providers.hostPlaceholder')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.hostTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.hostTip') }}
+      </el-text>
+    </div>
     <el-form-item
       :label="$t('admin.providers.portIP')"
       prop="portIP"
@@ -68,15 +68,15 @@
         v-model="modelValue.portIP"
         :placeholder="$t('admin.providers.portIPPlaceholder')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.portIPTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.portIPTip') }}
+      </el-text>
+    </div>
     <el-form-item
       :label="$t('admin.providers.port')"
       prop="port"
@@ -88,6 +88,87 @@
         :controls="false"
       />
     </el-form-item>
+
+    <!-- 节点模式选择 -->
+    <el-form-item
+      :label="$t('admin.providers.nodeMode')"
+      prop="discoverMode"
+    >
+      <el-radio-group v-model="modelValue.discoverMode">
+        <el-radio :label="false">{{ $t('admin.providers.cleanNode') }}</el-radio>
+        <el-radio :label="true">{{ $t('admin.providers.nodeWithInstances') }}</el-radio>
+      </el-radio-group>
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.nodeModeTip') }}
+      </el-text>
+    </div>
+
+    <!-- 发现模式配置 - 仅在选择"有实例的节点"时显示 -->
+    <template v-if="modelValue.discoverMode">
+      <el-form-item
+        :label="$t('admin.providers.autoImport')"
+        prop="autoImport"
+      >
+        <el-switch
+          v-model="modelValue.autoImport"
+          :active-text="$t('common.enabled')"
+          :inactive-text="$t('common.disabled')"
+        />
+      </el-form-item>
+      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.autoImportTip') }}
+        </el-text>
+      </div>
+
+      <el-form-item
+        v-if="modelValue.autoImport"
+        :label="$t('admin.providers.autoAdjustQuota')"
+        prop="autoAdjustQuota"
+      >
+        <el-switch
+          v-model="modelValue.autoAdjustQuota"
+          :active-text="$t('common.enabled')"
+          :inactive-text="$t('common.disabled')"
+        />
+      </el-form-item>
+      <div v-if="modelValue.autoImport" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.autoAdjustQuotaTip') }}
+        </el-text>
+      </div>
+
+      <el-form-item
+        v-if="modelValue.autoImport"
+        :label="$t('admin.providers.importedInstanceOwner')"
+        prop="importedInstanceOwner"
+      >
+        <el-input
+          v-model="modelValue.importedInstanceOwner"
+          :placeholder="$t('admin.providers.importedInstanceOwnerPlaceholder')"
+        />
+      </el-form-item>
+      <div v-if="modelValue.autoImport" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.importedInstanceOwnerTip') }}
+        </el-text>
+      </div>
+    </template>
+
     <el-form-item
       :label="$t('common.description')"
       prop="description"
@@ -138,15 +219,15 @@
           value="s390x"
         />
       </el-select>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.architectureTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.architectureTip') }}
+      </el-text>
+    </div>
   </el-form>
 </template>
 

@@ -378,15 +378,15 @@
           <el-icon><FolderOpened /></el-icon>
         </template>
       </el-input>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.proxmoxStorageTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.type === 'proxmox'" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.proxmoxStorageTip') }}
+      </el-text>
+    </div>
   </el-form>
 </template>
 

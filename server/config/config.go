@@ -75,6 +75,11 @@ type System struct {
 	FrontendURL             string `mapstructure:"frontend-url" json:"frontend-url" yaml:"frontend-url"`                                           // 前端URL，用于OAuth2回调跳转
 	ProviderInactiveHours   int    `mapstructure:"provider-inactive-hours" json:"provider-inactive-hours" yaml:"provider-inactive-hours"`          // Provider不活动阈值（小时），默认72小时
 	OAuth2StateTokenMinutes int    `mapstructure:"oauth2-state-token-minutes" json:"oauth2-state-token-minutes" yaml:"oauth2-state-token-minutes"` // OAuth2 State令牌有效期（分钟），默认15分钟
+
+	// 实例同步配置
+	EnableInstanceSync    bool `mapstructure:"enable-instance-sync" json:"enable-instance-sync" yaml:"enable-instance-sync"`          // 是否启用实例同步检查，默认false
+	InstanceSyncInterval  int  `mapstructure:"instance-sync-interval" json:"instance-sync-interval" yaml:"instance-sync-interval"`    // 实例同步检查间隔（分钟），默认30分钟
+	ImportedInstanceOwner uint `mapstructure:"imported-instance-owner" json:"imported-instance-owner" yaml:"imported-instance-owner"` // 导入实例的默认所有者用户ID，默认1（管理员）
 }
 
 type JWT struct {

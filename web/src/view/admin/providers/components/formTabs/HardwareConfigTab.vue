@@ -27,15 +27,15 @@
         :active-text="$t('common.enable')"
         :inactive-text="$t('common.disable')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.containerMemorySwapTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.containerMemorySwapTip') }}
+      </el-text>
+    </div>
 
     <!-- 容器专用配置 -->
     <template v-if="modelValue.containerEnabled">
@@ -53,15 +53,15 @@
         :active-text="$t('common.enable')"
         :inactive-text="$t('common.disable')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="warning"
-        >
-          {{ $t('admin.providers.containerPrivilegedTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="warning"
+      >
+        {{ $t('admin.providers.containerPrivilegedTip') }}
+      </el-text>
+    </div>
 
     <!-- 容器嵌套 -->
     <el-form-item
@@ -73,15 +73,15 @@
         :active-text="$t('common.enable')"
         :inactive-text="$t('common.disable')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.containerAllowNestingTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.containerAllowNestingTip') }}
+      </el-text>
+    </div>
 
     <!-- CPU限制（容器专用：与limits.cpu互斥） -->
     <el-form-item
@@ -93,15 +93,15 @@
         :placeholder="$t('admin.providers.containerCpuAllowancePlaceholder')"
         style="width: 200px"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="warning"
-        >
-          {{ $t('admin.providers.containerCpuAllowanceTip') || 'CPU使用率限制，设置为100%等同于不限制。与limits.cpu互斥，优先使用此配置。' }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="warning"
+      >
+        {{ $t('admin.providers.containerCpuAllowanceTip') || 'CPU使用率限制，设置为100%等同于不限制。与limits.cpu互斥，优先使用此配置。' }}
+      </el-text>
+    </div>
 
     <!-- 最大进程数 -->
     <el-form-item
@@ -117,15 +117,15 @@
         :placeholder="$t('admin.providers.containerMaxProcessesPlaceholder')"
         style="width: 200px"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.containerMaxProcessesTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.containerMaxProcessesTip') }}
+      </el-text>
+    </div>
 
     <!-- 磁盘IO限制 -->
     <el-form-item
@@ -137,15 +137,15 @@
         :placeholder="$t('admin.providers.containerDiskIoLimitPlaceholder')"
         style="width: 200px"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.containerDiskIoLimitTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.containerDiskIoLimitTip') }}
+      </el-text>
+    </div>
     </template>
 
     <!-- 虚拟机配置提示 -->

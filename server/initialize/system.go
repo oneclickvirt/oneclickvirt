@@ -342,6 +342,11 @@ func initializeSchedulers() {
 	providerHealthSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
 	lifecycleMgr.Register("ProviderHealthScheduler", providerHealthSchedulerService)
 
+	// 启动Provider实例同步调度器（使用全局shutdown context确保可以正确关闭）
+	instanceSyncSchedulerService := scheduler.NewInstanceSyncSchedulerService()
+	instanceSyncSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("InstanceSyncScheduler", instanceSyncSchedulerService)
+
 	// 注册pmacct批处理器
 	pmacctBatchProcessor := pmacct.GetBatchProcessor()
 	lifecycleMgr.Register("PmacctBatchProcessor", pmacctBatchProcessor)

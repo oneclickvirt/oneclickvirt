@@ -40,19 +40,20 @@ type PortMappingRequest struct {
 
 // ResetTaskContext 重置任务上下文
 type ResetTaskContext struct {
-	Instance           providerModel.Instance
-	Provider           providerModel.Provider
-	SystemImage        systemModel.SystemImage
-	OldPortMappings    []providerModel.Port
-	OldInstanceID      uint
-	OldInstanceName    string
-	OriginalUserID     uint
-	OriginalStatus     string // 实例重置前的原始状态（用于正确释放配额）
-	OriginalExpiresAt  *time.Time
-	OriginalMaxTraffic uint64
-	NewInstanceID      uint
-	NewPassword        string
-	NewPrivateIP       string
+	Instance               providerModel.Instance
+	Provider               providerModel.Provider
+	SystemImage            systemModel.SystemImage
+	OldPortMappings        []providerModel.Port
+	OldInstanceID          uint
+	OldInstanceName        string
+	OriginalUserID         uint
+	OriginalStatus         string // 实例重置前的原始状态（用于正确释放配额）
+	OriginalExpiresAt      *time.Time
+	OriginalIsManualExpiry bool // 实例重置前的手动过期时间设置
+	OriginalMaxTraffic     uint64
+	NewInstanceID          uint
+	NewPassword            string
+	NewPrivateIP           string
 }
 
 // executeResetTask 执行实例重置任务
@@ -187,6 +188,7 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 	resetCtx.OldInstanceName = resetCtx.Instance.Name
 	resetCtx.OriginalUserID = resetCtx.Instance.UserID
 	resetCtx.OriginalExpiresAt = resetCtx.Instance.ExpiresAt
+	resetCtx.OriginalIsManualExpiry = resetCtx.Instance.IsManualExpiry
 	resetCtx.OriginalMaxTraffic = uint64(resetCtx.Instance.MaxTraffic)
 
 	global.APP_LOG.Info("准备阶段完成",
@@ -321,21 +323,22 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		// 创建新实例记录
 		newInstance := providerModel.Instance{
-			Name:         resetCtx.OldInstanceName,
-			Provider:     resetCtx.Provider.Name,
-			ProviderID:   resetCtx.Provider.ID,
-			Image:        resetCtx.Instance.Image,
-			InstanceType: resetCtx.Instance.InstanceType,
-			CPU:          resetCtx.Instance.CPU,
-			Memory:       resetCtx.Instance.Memory,
-			Disk:         resetCtx.Instance.Disk,
-			Bandwidth:    resetCtx.Instance.Bandwidth,
-			UserID:       resetCtx.OriginalUserID,
-			Status:       "creating",
-			OSType:       resetCtx.Instance.OSType,
-			ExpiresAt:    resetCtx.OriginalExpiresAt,
-			PublicIP:     resetCtx.Provider.Endpoint,
-			MaxTraffic:   int64(resetCtx.OriginalMaxTraffic),
+			Name:           resetCtx.OldInstanceName,
+			Provider:       resetCtx.Provider.Name,
+			ProviderID:     resetCtx.Provider.ID,
+			Image:          resetCtx.Instance.Image,
+			InstanceType:   resetCtx.Instance.InstanceType,
+			CPU:            resetCtx.Instance.CPU,
+			Memory:         resetCtx.Instance.Memory,
+			Disk:           resetCtx.Instance.Disk,
+			Bandwidth:      resetCtx.Instance.Bandwidth,
+			UserID:         resetCtx.OriginalUserID,
+			Status:         "creating",
+			OSType:         resetCtx.Instance.OSType,
+			ExpiresAt:      resetCtx.OriginalExpiresAt,
+			IsManualExpiry: resetCtx.OriginalIsManualExpiry, // 继承原实例的手动过期时间设置
+			PublicIP:       resetCtx.Provider.Endpoint,
+			MaxTraffic:     int64(resetCtx.OriginalMaxTraffic),
 		}
 
 		if err := tx.Create(&newInstance).Error; err != nil {

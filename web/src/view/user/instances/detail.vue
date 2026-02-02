@@ -369,7 +369,7 @@
                 </div>
                 <div class="info-item">
                   <span class="label">{{ t('user.instanceDetail.expiredAt') }}</span>
-                  <span class="value">{{ formatDate(instance.expiredAt) }}</span>
+                  <span class="value">{{ formatDate(instance.expiresAt) }}</span>
                 </div>
                 <div
                   v-if="instance.networkType || instance.ipv4MappingType"
@@ -716,7 +716,7 @@ const instance = ref({
   username: '',
   password: '',
   createdAt: '',
-  expiredAt: '',
+  expiresAt: '',
   portRangeStart: 0,
   portRangeEnd: 0
 })

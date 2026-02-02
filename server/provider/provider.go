@@ -59,6 +59,38 @@ type Provider interface {
 
 	// SSH命令执行
 	ExecuteSSHCommand(ctx context.Context, command string) (string, error)
+
+	// 实例发现（用于纳管已有实例的provider）
+	DiscoverInstances(ctx context.Context) ([]DiscoveredInstance, error)
+}
+
+// DiscoveredInstance 发现的实例信息结构体
+type DiscoveredInstance struct {
+	// 基本标识
+	UUID         string `json:"uuid"`         // 实例唯一标识
+	Name         string `json:"name"`         // 实例名称
+	Status       string `json:"status"`       // 实例状态（running, stopped等）
+	InstanceType string `json:"instanceType"` // 实例类型（container或vm）
+
+	// 资源配置
+	CPU    int   `json:"cpu"`    // CPU核心数
+	Memory int64 `json:"memory"` // 内存大小（MB）
+	Disk   int64 `json:"disk"`   // 磁盘大小（MB）
+
+	// 网络配置
+	PrivateIP   string `json:"privateIP"`   // 内网IPv4地址
+	PublicIP    string `json:"publicIP"`    // 公网IPv4地址
+	IPv6Address string `json:"ipv6Address"` // IPv6地址
+	SSHPort     int    `json:"sshPort"`     // SSH端口
+	ExtraPorts  []int  `json:"extraPorts"`  // 其他开放端口
+	MACAddress  string `json:"macAddress"`  // MAC地址
+
+	// 系统信息
+	Image  string `json:"image"`  // 使用的镜像
+	OSType string `json:"osType"` // 操作系统类型
+
+	// 原始数据（用于调试）
+	RawData interface{} `json:"rawData"` // provider特定的原始数据
 }
 
 // Registry Provider 注册表

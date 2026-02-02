@@ -16,15 +16,15 @@
         value-format="YYYY-MM-DD HH:mm:ss"
         :disabled-date="(time) => time.getTime() < Date.now() - 8.64e7"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.expiresAtTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.expiresAtTip') }}
+      </el-text>
+    </div>
 
     <!-- 并发控制设置 -->
     <el-divider content-position="left">
@@ -40,15 +40,15 @@
         :active-text="$t('common.yes')"
         :inactive-text="$t('common.no')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.allowConcurrentTasksTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.allowConcurrentTasksTip') }}
+      </el-text>
+    </div>
 
     <el-form-item
       v-if="modelValue.allowConcurrentTasks"
@@ -64,15 +64,15 @@
         placeholder="1"
         style="width: 200px"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.maxConcurrentTasksTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.allowConcurrentTasks" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.maxConcurrentTasksTip') }}
+      </el-text>
+    </div>
 
     <!-- 任务轮询设置 -->
     <el-divider content-position="left">
@@ -88,15 +88,15 @@
         :active-text="$t('common.yes')"
         :inactive-text="$t('common.no')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.enableTaskPollingTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.enableTaskPollingTip') }}
+      </el-text>
+    </div>
 
     <el-form-item
       v-if="modelValue.enableTaskPolling"
@@ -113,15 +113,15 @@
         style="width: 200px"
       />
       <span style="margin-left: 10px; color: #666;">{{ $t('common.seconds') }}</span>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.taskPollIntervalTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div v-if="modelValue.enableTaskPolling" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.taskPollIntervalTip') }}
+      </el-text>
+    </div>
 
     <!-- 操作执行规则设置 -->
     <el-divider content-position="left">
@@ -159,15 +159,15 @@
           <span style="float: right; color: #8492a6; font-size: 12px;">{{ $t('admin.providers.executionRuleSSHOnlyTip') }}</span>
         </el-option>
       </el-select>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.executionRuleTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.executionRuleTip') }}
+      </el-text>
+    </div>
   </el-form>
 </template>
 

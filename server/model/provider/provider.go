@@ -363,6 +363,13 @@ type Instance struct {
 	// 关联关系
 	// 添加UserID索引以支持按用户查询
 	UserID uint `json:"userId" gorm:"index:idx_user_id;index:idx_user_status,priority:1"` // 所属用户ID
+
+	// 实例导入相关字段
+	IsImported         bool       `json:"isImported" gorm:"default:false;index:idx_imported"` // 是否为导入的实例（从已有provider发现）
+	ImportedAt         *time.Time `json:"importedAt"`                                         // 导入时间
+	HasPortConflict    bool       `json:"hasPortConflict" gorm:"default:false"`               // 是否存在端口冲突
+	PortConflictDetail string     `json:"portConflictDetail" gorm:"type:text"`                // 端口冲突详情（JSON格式记录冲突端口信息）
+	DiscoveredData     string     `json:"discoveredData" gorm:"type:text"`                    // 发现时的原始数据（JSON格式，用于调试和审计）
 }
 
 func (i *Instance) BeforeCreate(tx *gorm.DB) error {

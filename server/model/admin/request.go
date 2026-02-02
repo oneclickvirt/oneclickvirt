@@ -125,6 +125,12 @@ type CreateProviderRequest struct {
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
 	LevelLimits map[int]map[string]interface{} `json:"levelLimits"` // 等级限制配置
+
+	// 实例发现与导入配置
+	DiscoverMode          bool `json:"discoverMode"`          // 是否启用实例发现模式（发现并导入已有实例）
+	AutoImport            bool `json:"autoImport"`            // 是否自动导入发现的实例
+	AutoAdjustQuota       bool `json:"autoAdjustQuota"`       // 是否自动调整quota以适应导入的实例
+	ImportedInstanceOwner uint `json:"importedInstanceOwner"` // 导入实例的所有者用户ID（默认为管理员）
 }
 
 type UpdateProviderRequest struct {

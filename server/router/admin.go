@@ -92,6 +92,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/check-name", admin.CheckProviderName)
 		AdminGroup.GET("/providers/check-endpoint", admin.CheckProviderEndpoint)
 
+		// Provider实例发现与导入
+		AdminGroup.POST("/providers/:id/discover", admin.DiscoverProviderInstances)
+		AdminGroup.POST("/providers/:id/import", admin.ImportProviderInstances)
+		AdminGroup.GET("/providers/:id/orphaned", admin.GetOrphanedInstances)
+		AdminGroup.POST("/providers/:id/sync-check", admin.CheckInstanceSync)
+
 		// 证书管理
 		AdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)
 		AdminGroup.POST("/providers/:id/auto-configure-stream", admin.AutoConfigureProviderStream)

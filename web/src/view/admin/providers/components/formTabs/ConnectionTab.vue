@@ -99,15 +99,15 @@
         placeholder="30"
       />
       <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.connectTimeoutTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.connectTimeoutTip') }}
+      </el-text>
+    </div>
     
     <el-form-item
       :label="$t('admin.providers.executeTimeout')"
@@ -122,15 +122,15 @@
         placeholder="300"
       />
       <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.executeTimeoutTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.executeTimeoutTip') }}
+      </el-text>
+    </div>
     
     <el-form-item :label="$t('admin.providers.connectionTest')">
       <el-button

@@ -325,5 +325,66 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
 		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
+
+	// 如果启用了实例发现模式，则在创建成功后执行实例发现和导入
+	if req.DiscoverMode {
+		global.APP_LOG.Info("Provider创建成功，开始发现实例",
+			zap.String("provider", req.Name),
+			zap.Uint("providerId", provider.ID),
+			zap.Bool("autoImport", req.AutoImport))
+
+		// 异步执行发现和导入，避免阻塞Provider创建流程
+		go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, req.ImportedInstanceOwner)
+	}
+
 	return nil
+}
+
+// discoverAndImportInstances 发现并导入实例（异步执行）
+func (s *Service) discoverAndImportInstances(providerID uint, autoImport, autoAdjustQuota bool, adminUserID uint) {
+	ctx := context.Background()
+
+	// 等待一小段时间确保Provider连接已建立
+	time.Sleep(5 * time.Second)
+
+	// 执行实例发现
+	discoveryResult, err := s.DiscoverProviderInstances(ctx, providerID)
+	if err != nil {
+		global.APP_LOG.Error("Provider实例发现失败",
+			zap.Uint("providerId", providerID),
+			zap.Error(err))
+		return
+	}
+
+	global.APP_LOG.Info("Provider实例发现完成",
+		zap.Uint("providerId", providerID),
+		zap.Int("totalInstances", discoveryResult.TotalCount),
+		zap.Int("newInstances", discoveryResult.NewInstances),
+		zap.Int("alreadyManaged", discoveryResult.AlreadyManaged))
+
+	// 如果启用了自动导入且有新实例，执行导入
+	if autoImport && discoveryResult.NewInstances > 0 {
+		importOptions := ImportOptions{
+			ProviderID:      providerID,
+			InstanceUUIDs:   nil, // 导入所有新实例
+			AdminUserID:     adminUserID,
+			AutoAdjustQuota: autoAdjustQuota,
+			MarkConflicts:   true,
+		}
+
+		importResult, err := s.ImportDiscoveredInstances(ctx, importOptions)
+		if err != nil {
+			global.APP_LOG.Error("Provider实例导入失败",
+				zap.Uint("providerId", providerID),
+				zap.Error(err))
+			return
+		}
+
+		global.APP_LOG.Info("Provider实例导入完成",
+			zap.Uint("providerId", providerID),
+			zap.Int("attempted", importResult.TotalAttempted),
+			zap.Int("success", importResult.SuccessCount),
+			zap.Int("failed", importResult.FailedCount),
+			zap.Int("portConflicts", importResult.PortConflicts))
+	}
 }

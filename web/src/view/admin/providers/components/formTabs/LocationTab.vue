@@ -35,15 +35,15 @@
           />
         </el-option-group>
       </el-select>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.countryTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.countryTip') }}
+      </el-text>
+    </div>
     <el-form-item
       :label="$t('admin.providers.city')"
       prop="city"
@@ -53,15 +53,15 @@
         :placeholder="$t('admin.providers.cityPlaceholder')"
         clearable
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.cityTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.cityTip') }}
+      </el-text>
+    </div>
   </el-form>
 </template>
 

@@ -23,15 +23,15 @@
             placeholder="300"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text
-              size="small"
-              type="info"
-            >
-              {{ $t('admin.providers.defaultInboundBandwidthTip') }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.defaultInboundBandwidthTip') }}
+          </el-text>
+        </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
@@ -47,15 +47,15 @@
             placeholder="300"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text
-              size="small"
-              type="info"
-            >
-              {{ $t('admin.providers.defaultOutboundBandwidthTip') }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.defaultOutboundBandwidthTip') }}
+          </el-text>
+        </div>
       </el-col>
     </el-row>
 
@@ -74,15 +74,15 @@
             placeholder="1000"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text
-              size="small"
-              type="info"
-            >
-              {{ $t('admin.providers.maxInboundBandwidthTip') }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.maxInboundBandwidthTip') }}
+          </el-text>
+        </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
@@ -98,15 +98,15 @@
             placeholder="1000"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text
-              size="small"
-              type="info"
-            >
-              {{ $t('admin.providers.maxOutboundBandwidthTip') }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.maxOutboundBandwidthTip') }}
+          </el-text>
+        </div>
       </el-col>
     </el-row>
 
@@ -123,15 +123,15 @@
         :active-text="$t('admin.providers.enabled')"
         :inactive-text="$t('admin.providers.disabled')"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.enableTrafficControlTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.enableTrafficControlTip') }}
+      </el-text>
+    </div>
 
     <el-form-item
       :label="$t('admin.providers.maxTraffic')"
@@ -148,15 +148,15 @@
         placeholder="1"
         style="width: 100%"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.maxTrafficTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.maxTrafficTip') }}
+      </el-text>
+    </div>
 
     <el-form-item
       :label="$t('admin.providers.trafficCountMode')"
@@ -181,15 +181,15 @@
           value="in"
         />
       </el-select>
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.trafficCountModeTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.trafficCountModeTip') }}
+      </el-text>
+    </div>
 
     <el-form-item
       :label="$t('admin.providers.trafficMultiplier')"
@@ -206,15 +206,15 @@
         placeholder="1.0"
         style="width: 100%"
       />
-      <div class="form-tip">
-        <el-text
-          size="small"
-          type="info"
-        >
-          {{ $t('admin.providers.trafficMultiplierTip') }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.trafficMultiplierTip') }}
+      </el-text>
+    </div>
 
     <el-divider content-position="left" v-show="modelValue.enableTrafficControl">
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficStatsConfig') || '流量统计配置' }}</span>
@@ -237,12 +237,12 @@
         <el-option :label="$t('admin.providers.trafficStatsModeMinimal')" value="minimal" />
         <el-option :label="$t('admin.providers.trafficStatsModeCustom')" value="custom" />
       </el-select>
-      <div class="form-tip">
-        <el-text size="small" type="info">
-          {{ $t('admin.providers.trafficStatsModeTip') || '选择预设的流量统计模式，或选择自定义进行详细配置' }}
-        </el-text>
-      </div>
     </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+      <el-text size="small" type="info">
+        {{ $t('admin.providers.trafficStatsModeTip') || '选择预设的流量统计模式，或选择自定义进行详细配置' }}
+      </el-text>
+    </div>
 
     <!-- 流量统计详细配置 - 始终显示，但非自定义模式为只读 -->
     <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
@@ -261,12 +261,12 @@
             placeholder="300"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text size="small" type="info">
-              {{ $t('admin.providers.trafficCollectIntervalTip') || '从Provider采集流量数据并同步统计的间隔，最长不超过5分钟（300秒）' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">
+            {{ $t('admin.providers.trafficCollectIntervalTip') || '从Provider采集流量数据并同步统计的间隔，最长不超过5分钟（300秒）' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+          </el-text>
+        </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
@@ -283,12 +283,12 @@
             placeholder="10"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text size="small" type="info">
-              {{ $t('admin.providers.trafficCollectBatchSizeTip') || '每次采集处理的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">
+            {{ $t('admin.providers.trafficCollectBatchSizeTip') || '每次采集处理的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+          </el-text>
+        </div>
       </el-col>
     </el-row>
 
@@ -308,12 +308,12 @@
             placeholder="600"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text size="small" type="info">
-              {{ $t('admin.providers.trafficLimitCheckIntervalTip') || '检查实例是否超出流量限制的间隔' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">
+            {{ $t('admin.providers.trafficLimitCheckIntervalTip') || '检查实例是否超出流量限制的间隔' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+          </el-text>
+        </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
@@ -330,12 +330,12 @@
             placeholder="10"
             style="width: 100%"
           />
-          <div class="form-tip">
-            <el-text size="small" type="info">
-              {{ $t('admin.providers.trafficLimitCheckBatchSizeTip') || '每次检测的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
-            </el-text>
-          </div>
         </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">
+            {{ $t('admin.providers.trafficLimitCheckBatchSizeTip') || '每次检测的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+          </el-text>
+        </div>
       </el-col>
     </el-row>
   </el-form>

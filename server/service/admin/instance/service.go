@@ -290,18 +290,19 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 
 	// 创建实例
 	instance := providerModel.Instance{
-		Name:         req.Name,
-		Provider:     req.Provider,
-		ProviderID:   provider.ID,
-		Image:        req.Image,
-		CPU:          req.CPU,
-		Memory:       req.Memory,
-		Disk:         req.Disk,
-		InstanceType: req.InstanceType,
-		UserID:       req.UserID,
-		Status:       "creating",
-		ExpiresAt:    &expiredAt,
-		PublicIP:     provider.Endpoint, // 设置公网IP为Provider的地址
+		Name:           req.Name,
+		Provider:       req.Provider,
+		ProviderID:     provider.ID,
+		Image:          req.Image,
+		CPU:            req.CPU,
+		Memory:         req.Memory,
+		Disk:           req.Disk,
+		InstanceType:   req.InstanceType,
+		UserID:         req.UserID,
+		Status:         "creating",
+		ExpiresAt:      &expiredAt,
+		IsManualExpiry: false,             // 默认跟随节点过期时间
+		PublicIP:       provider.Endpoint, // 设置公网IP为Provider的地址
 	}
 
 	// 初始化数据库服务

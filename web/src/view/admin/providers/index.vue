@@ -227,6 +227,11 @@ const addProviderForm = reactive({
   containerMemorySwap: true, // 内存交换，默认开启
   containerMaxProcesses: 0, // 最大进程数，0表示不限制
   containerDiskIoLimit: '', // 磁盘IO限制，空表示不限制
+  // 节点发现模式配置
+  discoverMode: false, // 是否为发现模式，默认false（纯净节点）
+  autoImport: true, // 是否自动导入发现的实例，默认true
+  autoAdjustQuota: true, // 是否自动调整配额，默认true
+  importedInstanceOwner: 'admin', // 导入实例的默认所有者，默认admin
   // 节点级别等级限制配置
   levelLimits: {
     1: { maxInstances: 1, maxResources: { cpu: 1, memory: 350, disk: 1025, bandwidth: 100 }, maxTraffic: 102400 },
@@ -482,6 +487,10 @@ const cancelAddServer = () => {
     vmLimitCpu: true,
     vmLimitMemory: true,
     vmLimitDisk: true,
+    discoverMode: false,
+    autoImport: true,
+    autoAdjustQuota: true,
+    importedInstanceOwner: 'admin',
     levelLimits: {
       1: { maxInstances: 1, maxResources: { cpu: 1, memory: 512, disk: 10240, bandwidth: 100 }, maxTraffic: 102400 },
       2: { maxInstances: 3, maxResources: { cpu: 2, memory: 1024, disk: 20480, bandwidth: 200 }, maxTraffic: 204800 },
@@ -575,6 +584,11 @@ const submitAddServer = async (formData) => {
       containerAllowNesting: formData.containerAllowNesting || false,
       containerEnableLxcfs: formData.containerEnableLxcfs !== undefined ? formData.containerEnableLxcfs : true,
       containerCpuAllowance: formData.containerCpuAllowance || '100%',
+      // 节点发现模式配置
+      discoverMode: formData.discoverMode !== undefined ? formData.discoverMode : false,
+      autoImport: formData.autoImport !== undefined ? formData.autoImport : true,
+      autoAdjustQuota: formData.autoAdjustQuota !== undefined ? formData.autoAdjustQuota : true,
+      importedInstanceOwner: formData.importedInstanceOwner || 'admin',
       containerMemorySwap: formData.containerMemorySwap !== undefined ? formData.containerMemorySwap : true,
       containerMaxProcesses: formData.containerMaxProcesses || 0,
       containerDiskIoLimit: formData.containerDiskIoLimit || ''
@@ -1365,9 +1379,9 @@ watch(() => addProviderForm.type, (newType) => {
 })
 
 // 监听网络类型变化，当Proxmox从NAT改为独立IP时，自动调整端口映射方法
-// 编辑模式下不应该覆盖用户已保存的配置
 watch(() => [addProviderForm.type, addProviderForm.networkType], ([type, networkType]) => {
-  // 编辑模式下不自动修改端口映射配置，保持用户已保存的配置
+  // 编辑模式下不自动修改虚拟化类型设置，但仍需处理端口映射方式的联动
+  // 端口映射方式的联动由 MappingTab.vue 组件处理
   if (isEditing.value) {
     return
   }

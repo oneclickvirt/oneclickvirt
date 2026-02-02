@@ -447,6 +447,27 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.Float64("oldValue", oldValue),
 			zap.Float64("newValue", req.TrafficMultiplier))
 	}
+
+	// 检查Provider过期时间是否发生变化，需要同步到非手动设置过期时间的实例
+	var oldProvider providerModel.Provider
+	if err := global.APP_DB.First(&oldProvider, req.ID).Error; err == nil {
+		// 比较新旧过期时间是否不同
+		expireTimeChanged := false
+		if (oldProvider.ExpiresAt == nil && provider.ExpiresAt != nil) ||
+			(oldProvider.ExpiresAt != nil && provider.ExpiresAt == nil) ||
+			(oldProvider.ExpiresAt != nil && provider.ExpiresAt != nil && !oldProvider.ExpiresAt.Equal(*provider.ExpiresAt)) {
+			expireTimeChanged = true
+		}
+
+		// 如果过期时间发生变化，记录日志并准备同步
+		if expireTimeChanged {
+			global.APP_LOG.Info("Provider过期时间发生变化，将同步非手动设置过期时间的实例",
+				zap.Uint("providerID", req.ID),
+				zap.Any("oldExpiresAt", oldProvider.ExpiresAt),
+				zap.Any("newExpiresAt", provider.ExpiresAt))
+		}
+	}
+
 	// 端口映射方式更新
 	// Docker 类型固定使用 native，忽略前端传入的值
 	if provider.Type == "docker" {
@@ -538,10 +559,10 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			return err
 		}
 
-		// 同步更新该Provider下所有实例的到期时间
+		// 同步更新该Provider下所有非手动设置过期时间的实例的到期时间
 		if provider.ExpiresAt != nil {
 			if err := tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND status NOT IN (?)", provider.ID, []string{"deleting", "deleted"}).
+				Where("provider_id = ? AND is_manual_expiry = ? AND status NOT IN (?)", provider.ID, false, []string{"deleting", "deleted"}).
 				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
 				global.APP_LOG.Error("同步实例到期时间失败",
 					zap.Uint("providerID", provider.ID),
@@ -549,7 +570,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 					zap.Error(err))
 				return fmt.Errorf("同步实例到期时间失败: %v", err)
 			}
-			global.APP_LOG.Info("已同步实例到期时间",
+			global.APP_LOG.Info("已同步非手动设置过期时间的实例到期时间",
 				zap.Uint("providerID", provider.ID),
 				zap.Time("newExpiresAt", *provider.ExpiresAt))
 		}
@@ -741,10 +762,10 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 			return err
 		}
 
-		// 同步更新该Provider下所有实例的到期时间
+		// 同步更新该Provider下所有非手动设置过期时间的实例的到期时间
 		if provider.ExpiresAt != nil {
 			if err := tx.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND status NOT IN (?)", provider.ID, []string{"deleting", "deleted"}).
+				Where("provider_id = ? AND is_manual_expiry = ? AND status NOT IN (?)", provider.ID, false, []string{"deleting", "deleted"}).
 				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
 				global.APP_LOG.Error("同步实例到期时间失败",
 					zap.Uint("providerID", provider.ID),
@@ -752,7 +773,7 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 					zap.Error(err))
 				return fmt.Errorf("同步实例到期时间失败: %v", err)
 			}
-			global.APP_LOG.Info("已同步实例到期时间",
+			global.APP_LOG.Info("已同步非手动设置过期时间的实例到期时间",
 				zap.Uint("providerID", provider.ID),
 				zap.Time("newExpiresAt", *provider.ExpiresAt))
 		}
