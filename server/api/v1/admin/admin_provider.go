@@ -87,9 +87,10 @@ func GetProviderList(c *gin.Context) {
 func CreateProvider(c *gin.Context) {
 	var req admin.CreateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		global.APP_LOG.Error("CreateProvider参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, common.Response{
 			Code: 400,
-			Msg:  "参数错误",
+			Msg:  "参数错误: " + err.Error(),
 		})
 		return
 	}

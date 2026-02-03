@@ -126,10 +126,10 @@ zap:
     stacktrace-key: stacktrace
 default_language:
 signing_key_v1:
-    created_at: "2025-12-10T11:50:42.233262+08:00"
-    expires_at: "2025-12-11T11:50:42.233262+08:00"
+    created_at: "2026-02-02T12:59:16.067965+08:00"
+    expires_at: "2026-02-03T12:59:16.067965+08:00"
     is_active: false
-    key: b938fc5e2557e899f93f97a6edb1ca12e1a1216c0664df7c4adf171d8f1bec78
+    key: 886536f0fb7496511f97eb8d4617c9d8044bf59afe9ab4e31dd475564733cb5a
     version: 1
 active_version: 1
 max_avatar_size: 2

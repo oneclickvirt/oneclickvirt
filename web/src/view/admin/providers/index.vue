@@ -584,11 +584,11 @@ const submitAddServer = async (formData) => {
       containerAllowNesting: formData.containerAllowNesting || false,
       containerEnableLxcfs: formData.containerEnableLxcfs !== undefined ? formData.containerEnableLxcfs : true,
       containerCpuAllowance: formData.containerCpuAllowance || '100%',
-      // 节点发现模式配置
+      // 节点发现模式配置 - 只在发现模式为true时才设置导入相关参数
       discoverMode: formData.discoverMode !== undefined ? formData.discoverMode : false,
-      autoImport: formData.autoImport !== undefined ? formData.autoImport : true,
-      autoAdjustQuota: formData.autoAdjustQuota !== undefined ? formData.autoAdjustQuota : true,
-      importedInstanceOwner: formData.importedInstanceOwner || 'admin',
+      autoImport: formData.discoverMode ? (formData.autoImport !== undefined ? formData.autoImport : true) : false,
+      autoAdjustQuota: formData.discoverMode ? (formData.autoAdjustQuota !== undefined ? formData.autoAdjustQuota : true) : false,
+      importedInstanceOwner: formData.discoverMode ? (formData.importedInstanceOwner || 'admin') : null,
       containerMemorySwap: formData.containerMemorySwap !== undefined ? formData.containerMemorySwap : true,
       containerMaxProcesses: formData.containerMaxProcesses || 0,
       containerDiskIoLimit: formData.containerDiskIoLimit || ''

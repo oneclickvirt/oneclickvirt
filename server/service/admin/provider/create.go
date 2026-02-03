@@ -328,13 +328,31 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 
 	// 如果启用了实例发现模式，则在创建成功后执行实例发现和导入
 	if req.DiscoverMode {
+		// 解析导入实例的所有者用户ID
+		var ownerUserID uint = 1 // 默认为管理员（ID=1）
+		if req.ImportedInstanceOwner != nil && *req.ImportedInstanceOwner != "" {
+			// 根据用户名查询用户ID
+			var user struct {
+				ID uint
+			}
+			if err := global.APP_DB.Table("users").Select("id").Where("username = ?", *req.ImportedInstanceOwner).First(&user).Error; err != nil {
+				global.APP_LOG.Warn("导入实例所有者用户不存在，使用默认管理员",
+					zap.String("username", *req.ImportedInstanceOwner),
+					zap.Error(err))
+				ownerUserID = 1
+			} else {
+				ownerUserID = user.ID
+			}
+		}
+
 		global.APP_LOG.Info("Provider创建成功，开始发现实例",
 			zap.String("provider", req.Name),
 			zap.Uint("providerId", provider.ID),
-			zap.Bool("autoImport", req.AutoImport))
+			zap.Bool("autoImport", req.AutoImport),
+			zap.Uint("ownerUserID", ownerUserID))
 
 		// 异步执行发现和导入，避免阻塞Provider创建流程
-		go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, req.ImportedInstanceOwner)
+		go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, ownerUserID)
 	}
 
 	return nil
