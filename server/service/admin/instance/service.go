@@ -393,7 +393,7 @@ func (s *Service) DeleteInstance(instanceID uint) error {
 	}
 
 	// 创建删除任务，设置为不可被用户取消
-	task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 1800)
+	task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 0)
 	if err != nil {
 		return fmt.Errorf("创建删除任务失败: %v", err)
 	}
@@ -481,7 +481,7 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 		}
 
 		// 创建管理员删除任务，设置为不可被用户取消
-		task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 1800)
+		task, err := s.taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 0)
 		if err != nil {
 			return fmt.Errorf("创建删除任务失败: %v", err)
 		}

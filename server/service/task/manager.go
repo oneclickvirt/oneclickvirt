@@ -53,7 +53,7 @@ func (s *TaskService) calculateEstimatedDuration(taskType string, instanceType s
 		}
 		return 60 // 1分钟 - 容器重启
 	case "delete":
-		return 300 // 5分钟 - 删除操作
+		return 600 // 10分钟 - 删除操作（包含重试和清理时间）
 	case "reset-password":
 		return 30 // 30秒 - 密码重置操作快
 	default:

@@ -90,7 +90,7 @@ func GetDefaultTaskTimeout(taskType string) int {
 		"stop":                300,  // 5分钟
 		"restart":             600,  // 10分钟
 		"reset":               1200, // 20分钟
-		"delete":              600,  // 10分钟
+		"delete":              1800, // 30分钟 - 删除操作需要更长时间处理重试和清理
 		"create-port-mapping": 600,  // 10分钟
 		"delete-port-mapping": 300,  // 5分钟
 		"reset-password":      600,  // 10分钟

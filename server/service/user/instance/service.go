@@ -308,7 +308,7 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		// 创建删除任务
 		taskService := getTaskService()
 		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instance.ID, instance.ProviderID)
-		_, err := taskService.CreateTask(userID, &instance.ProviderID, &instance.ID, "delete", taskData, 1800)
+		_, err := taskService.CreateTask(userID, &instance.ProviderID, &instance.ID, "delete", taskData, 0)
 		if err != nil {
 			return fmt.Errorf("创建删除任务失败: %v", err)
 		}

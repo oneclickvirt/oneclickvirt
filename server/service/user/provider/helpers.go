@@ -127,7 +127,7 @@ func (s *Service) executeAdminDeleteInstance(instanceID uint, taskService interf
 	}
 
 	// 创建删除任务，设置为不可被用户取消
-	task, err := taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 1800)
+	task, err := taskService.CreateTask(instance.UserID, &instance.ProviderID, &instanceID, "delete", string(taskDataJSON), 0)
 	if err != nil {
 		return fmt.Errorf("创建删除任务失败: %v", err)
 	}

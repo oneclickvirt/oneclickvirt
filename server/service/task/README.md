@@ -17,9 +17,9 @@
 - **start**: 启动实例 (5分钟超时)
 - **stop**: 停止实例 (5分钟超时)
 - **restart**: 重启实例 (10分钟超时)
-- **delete**: 删除实例 (10分钟超时)
+- **delete**: 删除实例 (30分钟超时)
 - **reset**: 重置实例 (20分钟超时)
-- **reset-password**: 重置密码 (5分钟超时)
+- **reset-password**: 重置密码 (10分钟超时)
 
 ## 任务状态管理
 
@@ -613,7 +613,7 @@ create:         1800s (30分钟)
 start:          300s  (5分钟)
 stop:           300s  (5分钟)
 restart:        600s  (10分钟)
-delete:         600s  (10分钟)
+delete:         1800s (30分钟)
 reset:          1200s (20分钟)
 reset-password: 300s  (5分钟)
 create-port:    300s  (5分钟)
