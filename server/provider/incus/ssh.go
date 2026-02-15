@@ -538,18 +538,22 @@ func (i *IncusProvider) configureInstanceNetworkSettings(ctx context.Context, co
 
 // configureInstanceStorage 配置实例存储
 func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config provider.InstanceConfig) error {
-	// 如果是容器，配置IO限制（类似LXD的做法）
+	// 参考: https://github.com/oneclickvirt/incus/blob/main/scripts/buildct.sh
+	// 磁盘大小已在创建容器时通过 -d root,size=... 参数设置
+	// 此函数仅保留用于IO限制配置
+
+	// 如果是容器，配置IO限制
 	if config.InstanceType != "vm" {
-		// 设置读写限制
+		// 设置读写带宽限制
 		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置读取限制失败", zap.Error(err))
+			global.APP_LOG.Warn("设置读取带宽限制失败", zap.Error(err))
 		}
 
 		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置写入限制失败", zap.Error(err))
+			global.APP_LOG.Warn("设置写入带宽限制失败", zap.Error(err))
 		}
 
-		// 设置IOPS限制
+		// 设置IOPS限制（会覆盖上面的带宽限制，按官方脚本逻辑）
 		if err := i.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "5000iops"); err != nil {
 			global.APP_LOG.Warn("设置读取IOPS限制失败", zap.Error(err))
 		}

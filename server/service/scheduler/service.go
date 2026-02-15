@@ -112,10 +112,10 @@ func (s *SchedulerService) runTaskScheduler() {
 	defer s.wg.Done()
 
 	// 创建定时器
-	taskTicker := time.NewTicker(5 * time.Second)         // 任务处理保持5秒
+	taskTicker := time.NewTicker(10 * time.Second)        // 任务处理保持10秒
 	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理保持1分钟
 	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护保持10分钟
-	trafficAggTicker := time.NewTicker(5 * time.Minute)   // 流量聚合保持5分钟
+	trafficAggTicker := time.NewTicker(10 * time.Minute)  // 流量聚合保持10分钟
 	expiryCheckTicker := time.NewTicker(1 * time.Hour)    // 过期检查保持1小时
 
 	defer func() {
@@ -171,9 +171,11 @@ func (s *SchedulerService) processPendingTasks() {
 	}
 
 	// 获取所有待处理任务，按创建时间排序
+	// 优化：添加LIMIT限制，避免一次性加载过多任务，减少内存和数据库压力
 	var pendingTasks []adminModel.Task
 	err := global.APP_DB.Where("status = ?", "pending").
 		Order("created_at ASC").
+		Limit(50).
 		Find(&pendingTasks).Error
 
 	if err != nil {

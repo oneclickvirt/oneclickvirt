@@ -16,18 +16,38 @@ import (
 
 // configureInstanceStorage 配置实例存储
 func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provider.InstanceConfig) error {
+	// 参考: https://github.com/oneclickvirt/lxd/blob/main/scripts/buildct.sh
+	// 硬盘大小已在创建容器时通过 -d root,size=... 参数设置
+	// 这里只设置额外的硬盘配额限制
+
+	// 如果指定了磁盘大小，设置limits.max（官方脚本做法）
+	if config.Disk != "" {
+		diskFormatted := convertDiskFormat(config.Disk)
+		// 注意：这里设置的是 limits.max 而不是 size（size已在创建时设置）
+		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", config.Name, diskFormatted)
+		if _, err := l.sshClient.Execute(setMaxCmd); err != nil {
+			global.APP_LOG.Warn("设置磁盘limits.max失败",
+				zap.String("command", setMaxCmd),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("已设置磁盘limits.max限制",
+				zap.String("instance", config.Name),
+				zap.String("limits.max", diskFormatted))
+		}
+	}
+
 	// 如果是容器，配置IO限制
 	if config.InstanceType != "vm" {
-		// 设置读写限制
+		// 设置读写带宽限制
 		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置读取限制失败", zap.Error(err))
+			global.APP_LOG.Warn("设置读取带宽限制失败", zap.Error(err))
 		}
 
 		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.write", "500MB"); err != nil {
-			global.APP_LOG.Warn("设置写入限制失败", zap.Error(err))
+			global.APP_LOG.Warn("设置写入带宽限制失败", zap.Error(err))
 		}
 
-		// 设置IOPS限制
+		// 设置IOPS限制（会覆盖上面的带宽限制，按官方脚本逻辑）
 		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "5000iops"); err != nil {
 			global.APP_LOG.Warn("设置读取IOPS限制失败", zap.Error(err))
 		}

@@ -382,25 +382,18 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	}
 
 	updateProgress(45, "配置实例存储...")
-	// 配置存储（如果需要）
+	// 配置存储（包括磁盘大小限制和IO限制）
 	if err := l.configureInstanceStorage(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置实例存储失败，但继续", zap.Error(err))
 	}
 
-	// 配置设备级别的IO限制（参考官方脚本：limits.read/write可设置为带宽或IOPS）
-	if config.InstanceType != "vm" {
-		// 容器磁盘IO默认限制（参考buildct.sh）
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read 5000iops", config.Name))
-		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write 5000iops", config.Name))
-
-		// 如果用户指定了自定义IO限制
-		if config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
-			// 解析格式："10MB"（带宽）或 "100iops"（IOPS）
-			limit := *config.DiskIOLimit
-			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", config.Name, limit))
-			_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", config.Name, limit))
-			global.APP_LOG.Info("已应用自定义磁盘IO限制", zap.String("limit", limit))
-		}
+	// 如果用户指定了自定义IO限制，在存储配置后应用
+	if config.InstanceType != "vm" && config.DiskIOLimit != nil && *config.DiskIOLimit != "" {
+		// 解析格式："10MB"（带宽）或 "100iops"（IOPS）
+		limit := *config.DiskIOLimit
+		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", config.Name, limit))
+		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", config.Name, limit))
+		global.APP_LOG.Info("已应用自定义磁盘IO限制", zap.String("limit", limit))
 	}
 
 	updateProgress(50, "配置实例安全设置...")
