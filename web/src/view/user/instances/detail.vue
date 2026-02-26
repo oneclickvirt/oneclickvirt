@@ -647,678 +647,88 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useI18n } from 'vue-i18n'
-import { ElMessage, ElMessageBox } from 'element-plus'
-import { 
-  ArrowLeft, 
-  VideoPlay, 
-  VideoPause, 
-  Refresh, 
-  Delete,
-  Monitor
-} from '@element-plus/icons-vue'
-import { 
-  getUserInstanceDetail, 
-  performInstanceAction,
-  getInstanceMonitoring,
-  getUserInstancePorts,
-  getUserInstanceTypePermissions,
-  resetInstancePassword
-} from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
-import { useSSHStore } from '@/pinia/modules/ssh'
+import {
+  ArrowLeft,
+  VideoPlay,
+  VideoPause,
+  Refresh,
+  Delete,
+  Monitor
+} from '@element-plus/icons-vue'
+import { useInstanceDetail } from './composables/useInstanceDetail'
+import { useInstanceActions } from './composables/useInstanceActions'
+import { useInstanceFormatters } from './composables/useInstanceFormatters'
 
 const route = useRoute()
 const router = useRouter()
-const { t } = useI18n()
-const sshStore = useSSHStore()
+const activeTab = ref('overview')
 
-const loading = ref(false)
-const actionLoading = ref(false)
-const showPassword = ref(false)
-const showTrafficDetail = ref(false)
-const portMappings = ref([])
-const activeTab = ref('overview') // 默认显示概览标签页
-const trafficChartRef = ref(null) // TrafficHistoryChart 组件引用
+const {
+  loading,
+  portMappings,
+  trafficChartRef,
+  instanceTypePermissions,
+  instance,
+  monitoring,
+  updateInstancePermissions,
+  loadInstanceDetail,
+  refreshPortMappings,
+  refreshMonitoring,
+  loadInstanceTypePermissions
+} = useInstanceDetail()
 
-// 实例类型权限配置
-const instanceTypePermissions = ref({
-  canCreateContainer: false,
-  canCreateVM: false,
-  canDeleteInstance: false,
-  canResetInstance: false,
-  canDeleteContainer: false,
-  canDeleteVM: false,
-  canResetContainer: false,
-  canResetVM: false
-})
+const {
+  actionLoading,
+  showPassword,
+  showTrafficDetail,
+  viewTaskDetail,
+  performAction,
+  openSSHTerminal,
+  showResetPasswordDialog,
+  togglePassword,
+  truncateIP,
+  formatSSHCommand,
+  formatIPPort,
+  copyToClipboard
+} = useInstanceActions(instance, monitoring, loadInstanceDetail)
 
-const instance = ref({
-  id: '',
-  name: '',
-  type: '',
-  status: '',
-  providerName: '',
-  osType: '',
-  cpu: 0,
-  memory: 0,
-  disk: 0,
-  bandwidth: 0,
-  privateIP: '',
-  publicIP: '',
-  ipv6Address: '',
-  publicIPv6: '',
-  sshPort: '',
-  username: '',
-  password: '',
-  createdAt: '',
-  expiresAt: '',
-  portRangeStart: 0,
-  portRangeEnd: 0
-})
+const {
+  getNetworkTypeFromLegacy,
+  getNetworkTypeDisplayName,
+  getNetworkTypeTagType,
+  getProviderTypeName,
+  getProviderTypeColor,
+  getTaskTitle,
+  getTaskTypeText,
+  getTaskAlertType,
+  getStatusType,
+  getStatusText,
+  getTrafficProgressColor,
+  formatTraffic,
+  formatDate,
+  getTrafficLimitTitle: _getTrafficLimitTitle,
+  getTrafficLimitType: _getTrafficLimitType
+} = useInstanceFormatters()
 
-const monitoring = reactive({
-  trafficData: {
-    currentMonth: 0,
-    totalLimit: 102400,
-    usagePercent: 0,
-    isLimited: false,
-    history: []
-  }
-})
+// wrap monitoring-dependent helpers
+const getTrafficLimitTitle = () => _getTrafficLimitTitle(monitoring)
+const getTrafficLimitType = () => _getTrafficLimitType(monitoring)
 
-// 网络类型相关方法
-const getNetworkTypeFromLegacy = (ipv4MappingType, hasIPv6) => {
-  if (ipv4MappingType === 'nat') {
-    return hasIPv6 ? 'nat_ipv4_ipv6' : 'nat_ipv4'
-  } else if (ipv4MappingType === 'dedicated') {
-    return hasIPv6 ? 'dedicated_ipv4_ipv6' : 'dedicated_ipv4'
-  } else if (ipv4MappingType === 'ipv6_only') {
-    return 'ipv6_only'
-  }
-  return 'nat_ipv4'
-}
+// 标志位，防止 watch 循环触发
+let isUpdatingFromRoute = false
 
-const getNetworkTypeDisplayName = (networkType) => {
-  const typeNames = {
-    'nat_ipv4': 'NAT IPv4',
-    'nat_ipv4_ipv6': `NAT IPv4 + ${t('user.apply.networkConfig.dedicatedIPv6')}`,
-    'dedicated_ipv4': t('user.apply.networkConfig.dedicatedIPv4'),
-    'dedicated_ipv4_ipv6': `${t('user.apply.networkConfig.dedicatedIPv4')} + ${t('user.apply.networkConfig.dedicatedIPv6')}`,
-    'ipv6_only': t('user.apply.networkConfig.ipv6Only')
-  }
-  return typeNames[networkType] || t('user.instanceDetail.unknownType')
-}
-
-const getNetworkTypeTagType = (networkType) => {
-  const tagTypes = {
-    'nat_ipv4': 'primary',
-    'nat_ipv4_ipv6': 'success',
-    'dedicated_ipv4': 'warning',
-    'dedicated_ipv4_ipv6': 'success',
-    'ipv6_only': 'info'
-  }
-  return tagTypes[networkType] || 'default'
-}
-
-// 获取Provider类型名称
-const getProviderTypeName = (type) => {
-  const names = {
-    docker: 'Docker',
-    lxd: 'LXD',
-    incus: 'Incus',
-    proxmox: 'Proxmox'
-  }
-  return names[type] || type
-}
-
-// 获取Provider类型颜色
-const getProviderTypeColor = (type) => {
-  const colors = {
-    docker: 'info',
-    lxd: 'success',
-    incus: 'warning',
-    proxmox: ''
-  }
-  return colors[type] || ''
-}
-
-// 任务相关方法
-const getTaskTitle = (task) => {
-  const taskTypes = {
-    create: '创建实例',
-    delete: '删除实例',
-    start: '启动实例',
-    stop: '停止实例',
-    restart: '重启实例',
-    reset: '重置实例',
-    reset_password: '重置密码'
-  }
-  return taskTypes[task.taskType] || '实例操作'
-}
-
-const getTaskTypeText = (taskType) => {
-  const taskTypes = {
-    create: '创建',
-    delete: '删除',
-    start: '启动',
-    stop: '停止',
-    restart: '重启',
-    reset: '重置',
-    reset_password: '重置密码',
-    create_redemption_instance: '兑换开设'
-  }
-  return taskTypes[taskType] || '处理'
-}
-
-const getTaskAlertType = (status) => {
-  const types = {
-    pending: 'info',
-    processing: 'warning',
-    running: 'warning',
-    completed: 'success',
-    failed: 'error',
-    cancelled: 'info'
-  }
-  return types[status] || 'info'
-}
-
-const viewTaskDetail = (taskId) => {
-  // 跳转到任务列表页面并高亮该任务
-  router.push({
-    path: '/user/tasks',
-    query: { taskId }
-  })
-}
-
-// 获取实例详情
-const loadInstanceDetail = async (skipPermissionUpdate = false) => {
-  // 检查实例ID是否有效
-  if (!route.params.id || route.params.id === 'undefined') {
-    console.error('实例ID无效，返回实例列表')
-    ElMessage.error(t('user.instances.instanceInvalid'))
-    router.push('/user/instances')
-    return false
-  }
-
-  try {
-    loading.value = true
-    const response = await getUserInstanceDetail(route.params.id)
-    if (response.code === 0 || response.code === 200) {
-      // 后端返回的字段名是 type，前端需要映射为 instance_type
-      const data = response.data
-      if (data.type && !data.instance_type) {
-        data.instance_type = data.type
-      }
-      Object.assign(instance.value, data)
-      // 如果不跳过权限更新，则更新权限（用于页面初始化时已并行加载权限的情况）
-      if (!skipPermissionUpdate) {
-        updateInstancePermissions()
-      }
-      return true
-    }
-    return false
-  } catch (error) {
-    console.error('获取实例详情失败:', error)
-    ElMessage.error(t('user.instanceDetail.getDetailFailed'))
-    router.back()
-    return false
-  } finally {
-    loading.value = false
-  }
-}
-
-// 获取端口映射数据
-const refreshPortMappings = async () => {
-  if (!route.params.id) {
-    return
-  }
-  
-  try {
-    const response = await getUserInstancePorts(route.params.id)
-    if (response.code === 0 || response.code === 200) {
-      portMappings.value = response.data.list || []
-      // 更新实例的公网IP信息（从端口映射API获取更准确的数据）
-      if (response.data.publicIP) {
-        instance.value.publicIP = response.data.publicIP
-      }
-      if (response.data.instance) {
-        instance.value.username = response.data.instance.username || instance.value.username
-      }
-    }
-  } catch (error) {
-    console.error('获取端口映射失败:', error)
-    // 不显示错误信息，因为某些实例可能没有端口映射
-  }
-}
-
-// 获取监控数据
-const refreshMonitoring = async () => {
-  // 检查实例ID是否有效
-  if (!route.params.id || route.params.id === 'undefined') {
-    console.warn('实例ID无效，跳过监控数据获取')
-    return
-  }
-
-  try {
-    const response = await getInstanceMonitoring(route.params.id)
-    if (response.code === 0 || response.code === 200) {
-      Object.assign(monitoring, response.data)
-      
-      // 如果流量已限制，显示警告
-      if (monitoring.trafficData?.isLimited) {
-        ElMessage.warning(t('user.instanceDetail.trafficLimitWarning'))
-      }
-    }
-  } catch (error) {
-    console.error('获取监控数据失败:', error)
-    // 如果监控API失败，使用默认值
-    monitoring.trafficData = {
-      currentMonth: 0,
-      totalLimit: 102400,
-      usagePercent: 0,
-      isLimited: false,
-      history: []
-    }
-    ElMessage.error(t('user.instanceDetail.getMonitoringFailed'))
-  }
-  
-  // 刷新流量历史图表
-  if (trafficChartRef.value && trafficChartRef.value.refresh) {
-    trafficChartRef.value.refresh()
-  }
-}
-
-// 加载用户权限配置
-const loadInstanceTypePermissions = async () => {
-  try {
-    const response = await getUserInstanceTypePermissions()
-    if (response.code === 0 || response.code === 200) {
-      const data = response.data || {}
-      instanceTypePermissions.value = {
-        canCreateContainer: data.canCreateContainer || false,
-        canCreateVM: data.canCreateVM || false,
-        canDeleteContainer: data.canDeleteContainer || false,
-        canDeleteVM: data.canDeleteVM || false,
-        canResetContainer: data.canResetContainer || false,
-        canResetVM: data.canResetVM || false,
-        canDeleteInstance: false, // 初始化，后续根据实例类型动态设置
-        canResetInstance: false  // 初始化，后续根据实例类型动态设置
-      }
-      return true
-    }
-    return false
-  } catch (error) {
-    console.error('获取实例类型权限失败:', error)
-    instanceTypePermissions.value = {
-      canCreateContainer: false,
-      canCreateVM: false,
-      canDeleteInstance: false,
-      canResetInstance: false,
-      canDeleteContainer: false,
-      canDeleteVM: false,
-      canResetContainer: false,
-      canResetVM: false
-    }
-    return false
-  }
-}
-
-// 根据实例类型更新权限
-const updateInstancePermissions = () => {
-  if (instance.value.instance_type === 'vm') {
-    instanceTypePermissions.value.canDeleteInstance = instanceTypePermissions.value.canDeleteVM
-    instanceTypePermissions.value.canResetInstance = instanceTypePermissions.value.canResetVM
-  } else {
-    // container 或其他类型
-    instanceTypePermissions.value.canDeleteInstance = instanceTypePermissions.value.canDeleteContainer
-    instanceTypePermissions.value.canResetInstance = instanceTypePermissions.value.canResetContainer
-  }
-}
-
-// 执行实例操作
-const performAction = async (action) => {
-  // 防止重复操作：如果正在执行操作，直接返回
-  if (actionLoading.value) {
-    ElMessage.warning(t('user.instanceDetail.operationInProgress'))
-    return
-  }
-
-  const actionText = {
-    'start': t('user.instanceDetail.actionStart'),
-    'stop': t('user.instanceDetail.actionStop'),
-    'restart': t('user.instanceDetail.actionRestart'),
-    'reset': t('user.instanceDetail.actionReset'),
-    'delete': t('user.instanceDetail.actionDelete')
-  }[action]
-
-  const confirmText = action === 'delete' 
-    ? `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.delete')}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}${t('user.profile.deleteConfirmNote')}`
-    : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}`
-
-  // 如果是启动操作且流量已限制，特殊提示
-  if (action === 'start' && monitoring.trafficData?.isLimited) {
-    const trafficLimitConfirm = await ElMessageBox.confirm(
-      `${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.trafficLimitWarning')}${t('common.comma')}${t('user.instances.title')}${t('user.instanceDetail.actionStart')}${t('common.period')}`,
-      t('user.instanceDetail.trafficLimitNotice'),
-      {
-        confirmButtonText: t('user.instanceDetail.gotIt'),
-        showCancelButton: false,
-        type: 'warning'
-      }
-    ).catch(() => false)
-    
-    if (!trafficLimitConfirm) return
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      confirmText,
-      t('user.instanceDetail.confirmOperation'),
-      {
-        confirmButtonText: t('user.instanceDetail.confirm'),
-        cancelButtonText: t('user.instanceDetail.cancel'),
-        type: action === 'delete' ? 'error' : 'warning'
-      }
-    )
-
-    // 设置加载状态，防止重复点击
-    actionLoading.value = true
-    
-    const response = await performInstanceAction({
-      instanceId: instance.value.id,
-      action: action
-    })
-
-    if (response.code === 0 || response.code === 200) {
-      ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
-      
-      if (action === 'delete' || action === 'reset') {
-        // 删除和重置系统后返回列表页，避免显示过期数据
-        if (action === 'reset') {
-          ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
-        }
-        router.push('/user/instances')
-      } else {
-        // 其他操作强制等待3秒后刷新详情并恢复按钮
-        setTimeout(async () => {
-          await loadInstanceDetail()
-          actionLoading.value = false
-        }, 3000)
-      }
-    } else {
-      // 操作失败时立即恢复按钮
-      actionLoading.value = false
-    }
-  } catch (error) {
-    if (error !== 'cancel') {
-      console.error(`${actionText}实例失败:`, error)
-      ElMessage.error(`${actionText}${t('user.instances.title')}${t('common.failed')}`)
-    }
-    // 操作失败或取消时立即恢复按钮
-    actionLoading.value = false
-  }
-  // 成功执行非删除/重置操作时，不立即重置loading，等待3秒后再重置
-}
-
-// 打开SSH终端
-const openSSHTerminal = () => {
-  if (!instance.value.id) {
-    ElMessage.error(t('user.instanceDetail.instanceNotFound'))
-    return
-  }
-  
-  if (instance.value.status !== 'running') {
-    ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
-    return
-  }
-  
-  if (!instance.value.password) {
-    ElMessage.warning(t('user.instanceDetail.noPassword'))
-    return
-  }
-  
-  // 创建或显示SSH连接（由全局管理器处理）
-  if (!sshStore.hasConnection(instance.value.id)) {
-    sshStore.createConnection(instance.value.id, instance.value.name)
-  } else {
-    sshStore.showConnection(instance.value.id)
-  }
-}
-
-// 显示重置密码对话框
-const showResetPasswordDialog = async () => {
-  // 防止重复操作：如果正在执行操作，直接返回
-  if (actionLoading.value) {
-    ElMessage.warning(t('user.instanceDetail.operationInProgress'))
-    return
-  }
-
-  try {
-    await ElMessageBox.confirm(
-      `${t('user.instanceDetail.confirm')}${t('user.instanceDetail.resetPassword')}${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.password')}${t('common.questionMark')}\n${t('user.tasks.system')}${t('user.tasks.willCreateTask')}${t('user.instanceDetail.resetPassword')}${t('user.tasks.operation')}${t('common.period')}`,
-      t('user.instanceDetail.resetPasswordTitle'),
-      {
-        confirmButtonText: t('user.instanceDetail.confirm'),
-        cancelButtonText: t('user.instanceDetail.cancel'),
-        type: 'warning'
-      }
-    )
-
-    // 设置加载状态，防止重复点击
-    actionLoading.value = true
-
-    try {
-      const response = await resetInstancePassword(instance.value.id)
-
-      if (response.code === 0 || response.code === 200) {
-        const taskId = response.data.taskId
-        
-        ElMessage.success(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.checkProgress')}${t('user.tasks.taskList')}${t('common.inLocation')}`)
-        
-        // 强制等待3秒后恢复按钮
-        setTimeout(() => {
-          actionLoading.value = false
-        }, 3000)
-      } else {
-        ElMessage.error(response.message || t('user.instanceDetail.resetPasswordFailed'))
-        // 失败时立即恢复按钮
-        actionLoading.value = false
-      }
-    } catch (error) {
-      console.error('创建密码重置任务失败:', error)
-      ElMessage.error(t('user.instanceDetail.resetPasswordFailed'))
-      // 失败时立即恢复按钮
-      actionLoading.value = false
-    }
-  } catch (error) {
-    // 用户取消操作，不需要设置loading状态
-  }
-}
-
-// 切换密码显示
-const togglePassword = () => {
-  showPassword.value = !showPassword.value
-}
-
-// 复制到剪贴板
-// 截断长IP地址用于显示
-const truncateIP = (ip, maxLength = 25) => {
-  if (!ip || ip.length <= maxLength) {
-    return ip
-  }
-  
-  // 只在末尾省略，保留前面部分
-  return ip.substring(0, maxLength - 3) + '...'
-}
-
-// 格式化SSH命令用于显示
-const formatSSHCommand = (username, ip, port) => {
-  const fullCommand = `ssh ${username || 'root'}@${ip} -p ${port}`
-  if (fullCommand.length <= 40) {
-    return fullCommand
-  }
-  
-  // 如果命令太长，截断IP地址部分
-  const truncatedIP = truncateIP(ip, 20)
-  return `ssh ${username || 'root'}@${truncatedIP} -p ${port}`
-}
-
-// 格式化IP:端口用于显示
-const formatIPPort = (ip, port) => {
-  const fullAddress = `${ip}:${port}`
-  if (fullAddress.length <= 30) {
-    return fullAddress
-  }
-  
-  // 如果地址太长，截断IP地址部分
-  const truncatedIP = truncateIP(ip, 20)
-  return `${truncatedIP}:${port}`
-}
-
-const copyToClipboard = async (text) => {
-  if (!text) {
-    ElMessage.warning(t('user.instanceDetail.nothingToCopy'))
-    return
-  }
-  
-  try {
-    // 优先使用 Clipboard API
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(text)
-      ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
-      return
-    }
-    
-    // 降级方案：使用传统的 document.execCommand
-    const textArea = document.createElement('textarea')
-    textArea.value = text
-    textArea.style.position = 'fixed'
-    textArea.style.left = '-999999px'
-    textArea.style.top = '-999999px'
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    
-    try {
-      // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
-      const successful = document.execCommand('copy')
-      if (successful) {
-        ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
-      } else {
-        throw new Error('execCommand failed')
-      }
-    } finally {
-      document.body.removeChild(textArea)
-    }
-  } catch (error) {
-    console.error('复制失败:', error)
-    ElMessage.error(t('user.profile.copyFailed'))
-  }
-}
-
-// 获取状态类型
-const getStatusType = (status) => {
-  const statusMap = {
-    'running': 'success',
-    'stopped': 'info',
-    'paused': 'warning',
-    'starting': 'warning',
-    'stopping': 'warning',
-    'restarting': 'warning',
-    'resetting': 'warning',
-    'processing': 'warning',
-    'unavailable': 'danger',
-    'error': 'danger',
-    'failed': 'danger'
-  }
-  return statusMap[status] || 'info'
-}
-
-// 获取状态文本
-const getStatusText = (status) => {
-  const statusMap = {
-    'running': t('user.instanceDetail.statusRunning'),
-    'stopped': t('user.instanceDetail.statusStopped'),
-    'paused': t('user.instanceDetail.statusPaused'),
-    'starting': t('user.instanceDetail.statusStarting'),
-    'stopping': t('user.instanceDetail.statusStopping'),
-    'restarting': t('user.instanceDetail.statusRestarting'),
-    'resetting': t('user.instanceDetail.statusResetting'),
-    'processing': t('user.instanceDetail.statusProcessing'),
-    'unavailable': t('user.instanceDetail.statusUnavailable'),
-    'error': t('user.instanceDetail.statusError'),
-    'failed': t('user.instanceDetail.statusFailed')
-  }
-  return statusMap[status] || status
-}
-
-// 获取流量进度条颜色
-const getTrafficProgressColor = (percentage) => {
-  if (percentage < 70) return '#67c23a'
-  if (percentage < 90) return '#e6a23c'
-  return '#f56c6c'
-}
-
-// 格式化流量
-const formatTraffic = (mb) => {
-  if (!mb || mb === 0) return '0 MB'
-  if (mb < 1024) return `${mb} MB`
-  if (mb < 1024 * 1024) return `${(mb / 1024).toFixed(1)} GB`
-  return `${(mb / (1024 * 1024)).toFixed(1)} TB`
-}
-
-// 格式化日期
-const formatDate = (dateString) => {
-  if (!dateString) return '暂无'
-  return new Date(dateString).toLocaleString('zh-CN')
-}
-
-// 获取流量限制标题
-const getTrafficLimitTitle = () => {
-  const limitType = monitoring?.trafficData?.limitType
-  switch (limitType) {
-    case 'user':
-      return t('user.instanceDetail.userTrafficWarning')
-    case 'provider':
-      return t('user.instanceDetail.trafficWarning')
-    case 'both':
-      return t('user.instanceDetail.dualTrafficWarning')
-    default:
-      return t('user.instanceDetail.trafficWarning')
-  }
-}
-
-// 获取流量限制类型
-const getTrafficLimitType = () => {
-  const limitType = monitoring?.trafficData?.limitType
-  switch (limitType) {
-    case 'provider':
-    case 'both':
-      return 'error'  // Provider流量限制更严重，显示为错误
-    case 'user':
-      return 'warning'  // 用户流量限制显示为警告
-    default:
-      return 'warning'
-  }
-}
-
-// 监听路由参数变化
 watch(() => route.params.id, async (newId, oldId) => {
   if (newId && newId !== oldId && newId !== 'undefined') {
     try {
-      // 并行加载实例详情和权限配置
       const [detailSuccess, permissionsSuccess] = await Promise.all([
         loadInstanceDetail(true),
         loadInstanceTypePermissions()
       ])
-      
-      // 两个请求都成功后，统一更新权限并刷新其他数据
       if (detailSuccess && permissionsSuccess) {
         updateInstancePermissions()
         refreshMonitoring()
@@ -1330,82 +740,42 @@ watch(() => route.params.id, async (newId, oldId) => {
   }
 })
 
-// 标志位，防止 watch 循环触发
-let isUpdatingFromRoute = false
-
-// 监听路由 query 参数变化来切换标签页
 watch(() => route.query.tab, (newTab, oldTab) => {
-  // 如果tab没有实际变化，直接返回
-  if (newTab === oldTab) {
-    return
-  }
-  
+  if (newTab === oldTab) return
   if (newTab && ['overview', 'ports', 'stats'].includes(newTab)) {
-    // 如果当前标签已经是目标标签，不需要更新
-    if (activeTab.value === newTab) {
-      return
-    }
+    if (activeTab.value === newTab) return
     isUpdatingFromRoute = true
     activeTab.value = newTab
-    // 下一个 tick 后重置标志
-    nextTick(() => {
-      isUpdatingFromRoute = false
-    })
+    nextTick(() => { isUpdatingFromRoute = false })
   } else {
-    // 如果没有tab参数，默认显示overview
     if (activeTab.value !== 'overview') {
       isUpdatingFromRoute = true
       activeTab.value = 'overview'
-      nextTick(() => {
-        isUpdatingFromRoute = false
-      })
+      nextTick(() => { isUpdatingFromRoute = false })
     }
   }
 }, { immediate: true })
 
-// 切换标签页时更新 URL query 参数
 watch(activeTab, (newTab, oldTab) => {
-  // 如果标签没有实际变化，直接返回
-  if (newTab === oldTab) {
-    return
-  }
-  
-  // 如果是从路由更新触发的，不再更新路由，避免循环
-  if (isUpdatingFromRoute) {
-    return
-  }
-  
-  if (newTab) {
-    // 只在 query 参数真正不同时才更新
-    if (route.query.tab !== newTab) {
-      router.replace({
-        query: { ...route.query, tab: newTab }
-      })
-    }
+  if (newTab === oldTab || isUpdatingFromRoute) return
+  if (newTab && route.query.tab !== newTab) {
+    router.replace({ query: { ...route.query, tab: newTab } })
   }
 })
 
-// 定时器引用
 let monitoringTimer = null
 
 onMounted(async () => {
-  // 等待下一个tick，确保路由参数已经加载
   await nextTick()
-  
-  // 使用 Promise.all 并行加载实例详情和权限配置，确保两者都完成
   try {
     const [detailSuccess, permissionsSuccess] = await Promise.all([
-      loadInstanceDetail(true), // 跳过实例详情加载时的权限更新
+      loadInstanceDetail(true),
       loadInstanceTypePermissions()
     ])
-    
-    // 两个请求都成功后，再统一更新权限，确保按钮渲染一致
     if (detailSuccess && permissionsSuccess) {
       updateInstancePermissions()
       refreshMonitoring()
       refreshPortMappings()
-      
-      // 定时刷新监控数据
       monitoringTimer = setInterval(refreshMonitoring, 30000)
     }
   } catch (error) {
@@ -1413,7 +783,6 @@ onMounted(async () => {
   }
 })
 
-// 组件卸载时清除定时器
 onUnmounted(() => {
   if (monitoringTimer) {
     clearInterval(monitoringTimer)

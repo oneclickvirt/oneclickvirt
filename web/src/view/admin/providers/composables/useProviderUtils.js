@@ -126,6 +126,53 @@ export const getQuotaProgressStatus = (current, max) => {
   return 'success'
 }
 
+// 格式化位置信息
+export const formatLocation = (provider) => {
+  const parts = []
+  if (provider.city) parts.push(provider.city)
+  if (provider.country) parts.push(provider.country)
+  else if (provider.region) parts.push(provider.region)
+  return parts.length > 0 ? parts.join(', ') : '-'
+}
+
+// 格式化相对时间
+export const formatRelativeTime = (dateTime) => {
+  if (!dateTime) return ''
+  const now = new Date()
+  const date = new Date(dateTime)
+  const diffInMinutes = Math.floor((now - date) / (1000 * 60))
+  if (diffInMinutes < 1) return '刚刚'
+  if (diffInMinutes < 60) return `${diffInMinutes}分钟前`
+  const diffInHours = Math.floor(diffInMinutes / 60)
+  if (diffInHours < 24) return `${diffInHours}小时前`
+  const diffInDays = Math.floor(diffInHours / 24)
+  if (diffInDays < 7) return `${diffInDays}天前`
+  return date.toLocaleDateString()
+}
+
+// 获取任务状态类型
+export const getTaskStatusType = (status) => {
+  switch (status) {
+    case 'completed': return 'success'
+    case 'failed': return 'danger'
+    case 'running': return 'warning'
+    case 'cancelled': return 'info'
+    default: return 'info'
+  }
+}
+
+// 获取任务状态文本
+export const getTaskStatusText = (status) => {
+  switch (status) {
+    case 'completed': return '已完成'
+    case 'failed': return '失败'
+    case 'running': return '运行中'
+    case 'cancelled': return '已取消'
+    case 'pending': return '等待中'
+    default: return '未知'
+  }
+}
+
 // 导出常用工具函数
 export {
   formatMemorySize,
