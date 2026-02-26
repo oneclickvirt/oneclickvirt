@@ -108,6 +108,11 @@ func createDatabaseIfNotExists(m config.MysqlConfig) error {
 		return fmt.Errorf("连接数据库服务器失败: %w", err)
 	}
 
+	// 确保临时连接在函数退出时关闭，防止连接泄漏
+	if tmpDB, err := db.DB(); err == nil {
+		defer tmpDB.Close()
+	}
+
 	// 检查数据库是否存在
 	var count int64
 	err = db.Raw("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?", m.Dbname).Scan(&count).Error

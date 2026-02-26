@@ -125,6 +125,7 @@ jobs:
       contents: read
       packages: write
     strategy:
+      fail-fast: false
       matrix:
         include:
           - arch: amd64
@@ -160,6 +161,8 @@ jobs:
             network=host
       
       - name: Login to GitHub Container Registry
+        id: login-ghcr
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -167,6 +170,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
       
       - name: Extract metadata for GHCR
+        if: steps.login-ghcr.outcome == 'success'
         id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
@@ -177,7 +181,9 @@ jobs:
             suffix=-${{ matrix.arch }}
       
       - name: Build and push to GHCR
+        if: steps.login-ghcr.outcome == 'success'
         id: build-ghcr
+        continue-on-error: true
         uses: docker/build-push-action@v5
         with:
           context: .
@@ -291,6 +297,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
       
       - name: Login to GitHub Container Registry
+        id: login-ghcr
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -302,6 +310,8 @@ jobs:
         run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
       
       - name: Download GHCR digests
+        id: download-ghcr
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: digests-ghcr-full-*
@@ -309,6 +319,7 @@ jobs:
           path: /tmp/digests-ghcr
       
       - name: Extract metadata for GHCR
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
         id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
@@ -319,12 +330,16 @@ jobs:
             type=raw,value={{date 'YYYYMMDD'}}
       
       - name: Create manifest list and push to GHCR
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
+        continue-on-error: true
         working-directory: /tmp/digests-ghcr
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
       
       - name: Inspect GHCR image
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
+        continue-on-error: true
         run: |
           docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:latest
 
@@ -405,6 +420,8 @@ jobs:
         uses: docker/setup-buildx-action@v3
       
       - name: Login to GitHub Container Registry
+        id: login-ghcr
+        continue-on-error: true
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -416,6 +433,8 @@ jobs:
         run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
       
       - name: Download GHCR digests
+        id: download-ghcr
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           pattern: digests-ghcr-no-db-*
@@ -423,6 +442,7 @@ jobs:
           path: /tmp/digests-ghcr
       
       - name: Extract metadata for GHCR
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
         id: meta-ghcr
         uses: docker/metadata-action@v5
         with:
@@ -433,12 +453,16 @@ jobs:
             type=raw,value=no-db-{{date 'YYYYMMDD'}}
       
       - name: Create manifest list and push to GHCR
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
+        continue-on-error: true
         working-directory: /tmp/digests-ghcr
         run: |
           docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
             $(printf '${{ env.GHCR_IMAGE }}@sha256:%s ' *)
       
       - name: Inspect GHCR image
+        if: steps.login-ghcr.outcome == 'success' && steps.download-ghcr.outcome == 'success'
+        continue-on-error: true
         run: |
           docker buildx imagetools inspect ${{ env.GHCR_IMAGE }}:no-db
 
