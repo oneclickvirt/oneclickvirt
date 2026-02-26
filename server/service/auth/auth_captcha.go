@@ -11,7 +11,7 @@ import (
 
 // GenerateCaptcha 生成图形验证码
 func (s *AuthService) GenerateCaptcha(width, height int) (*auth.CaptchaResponse, error) {
-	captchaLen := global.APP_CONFIG.Captcha.Length
+	captchaLen := global.GetAppConfig().Captcha.Length
 	if captchaLen <= 0 {
 		captchaLen = 4
 	}
@@ -43,7 +43,7 @@ func (s *AuthService) verifyCaptcha(captchaId, code string) error {
 	}
 
 	// 开发环境下允许测试验证码
-	if global.APP_CONFIG.System.Env == "development" && code == "test" {
+	if global.GetAppConfig().System.Env == "development" && code == "test" {
 		return nil
 	}
 

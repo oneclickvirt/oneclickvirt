@@ -89,11 +89,11 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 
 	// 调用Provider删除实例，重试机制
 	providerApiService := &provider2.ProviderApiService{}
-	maxRetries := global.APP_CONFIG.Task.DeleteRetryCount
+	maxRetries := global.GetAppConfig().Task.DeleteRetryCount
 	if maxRetries <= 0 {
 		maxRetries = 3
 	}
-	retryDelay := time.Duration(global.APP_CONFIG.Task.DeleteRetryDelay) * time.Second
+	retryDelay := time.Duration(global.GetAppConfig().Task.DeleteRetryDelay) * time.Second
 	if retryDelay <= 0 {
 		retryDelay = 2 * time.Second
 	}
@@ -135,7 +135,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			global.APP_LOG.Info("Provider删除实例成功",
 				zap.Uint("taskId", task.ID),
 				zap.String("instanceName", instance.Name),
-				zap.String("provider", provider.Name),
+				zap.String("provider", localProviderName),
 				zap.Int("attempt", attempt))
 			break
 		}
@@ -145,7 +145,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		global.APP_LOG.Error("Provider删除实例最终失败，已重试最大次数",
 			zap.Uint("taskId", task.ID),
 			zap.String("instanceName", instance.Name),
-			zap.String("provider", provider.Name),
+			zap.String("provider", localProviderName),
 			zap.Int("maxRetries", maxRetries),
 			zap.Error(lastErr))
 	}
@@ -182,6 +182,14 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 
 	// 分离事务操作
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		// 事务内重新读取实例最新状态（消除 TOCTOU：事务外读到的 instance.Status 可能已过时）
+		var freshStatus struct{ Status string }
+		if err := tx.Model(&providerModel.Instance{}).Unscoped().
+			Select("status").Where("id = ?", instanceID).
+			Scan(&freshStatus).Error; err == nil && freshStatus.Status != "" {
+			instance.Status = freshStatus.Status
+		}
+
 		// 1. 删除端口映射（在独立的事务中）
 		portMappingService := resources.PortMappingService{}
 		if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instanceID); err != nil {

@@ -143,7 +143,7 @@ func (s *LimitService) GetUserTrafficUsageWithPmacct(userID uint) (map[string]in
 
 	// 自动同步用户流量限额：如果TotalTraffic为0，从等级配置中获取
 	if u.TotalTraffic == 0 {
-		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[u.Level]
+		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[u.Level]
 		if exists && levelLimits.MaxTraffic > 0 {
 			u.TotalTraffic = levelLimits.MaxTraffic
 		}

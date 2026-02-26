@@ -174,7 +174,7 @@ func (s *PermissionService) CheckInstancePermission(userID uint, instanceType st
 	}
 
 	// 根据配置检查用户等级是否满足实例类型要求
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 	switch instanceType {
 	case "container":
 		return effective.EffectiveLevel >= permissions.MinLevelForContainer
@@ -198,7 +198,7 @@ func (s *PermissionService) CheckInstanceDeletePermission(userID uint, instanceT
 	}
 
 	// 根据配置和实例类型检查用户等级是否满足删除权限要求
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 	switch instanceType {
 	case "container":
 		return effective.EffectiveLevel >= permissions.MinLevelForDeleteContainer
@@ -222,7 +222,7 @@ func (s *PermissionService) CheckInstanceResetPermission(userID uint, instanceTy
 	}
 
 	// 根据配置和实例类型检查用户等级是否满足重置权限要求
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 	switch instanceType {
 	case "container":
 		return effective.EffectiveLevel >= permissions.MinLevelForResetContainer

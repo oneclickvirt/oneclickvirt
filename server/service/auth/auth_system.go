@@ -123,7 +123,7 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 // syncNewUserResourceLimits 同步新用户的资源限制（避免循环导入）
 func syncNewUserResourceLimits(level int, userID uint) error {
 	// 获取等级配置
-	levelConfig, exists := global.APP_CONFIG.Quota.LevelLimits[level]
+	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
 	if !exists {
 		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
 		// 使用默认配置

@@ -13,6 +13,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // RedeemCode 用户兑换码兑换实例
@@ -27,7 +28,7 @@ func (s *Service) RedeemCode(userID uint, code string) error {
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 查询并锁定兑换码（FOR UPDATE 防止并发兑换同一个码）
 		var redemptionCode systemModel.RedemptionCode
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
 			Where("code = ?", code).
 			First(&redemptionCode).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {

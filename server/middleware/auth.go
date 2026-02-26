@@ -275,7 +275,7 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 	}
 
 	// 记录权限获取成功的调试信息（仅在开发环境）
-	if global.APP_CONFIG.System.Env == "debug" {
+	if global.GetAppConfig().System.Env == "debug" {
 		global.APP_LOG.Debug("用户权限验证成功",
 			zap.Uint("userID", authCtx.UserID),
 			zap.String("username", authCtx.Username),

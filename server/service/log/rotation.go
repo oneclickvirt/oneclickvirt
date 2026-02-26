@@ -132,19 +132,19 @@ func GetDefaultDailyLogConfig() *config.DailyLogConfig {
 	storageService := storage.GetStorageService()
 
 	// 从配置文件读取日志保留天数，如果配置为0或负数，则使用默认值7天
-	retentionDays := global.APP_CONFIG.Zap.RetentionDay
+	retentionDays := global.GetAppConfig().Zap.RetentionDay
 	if retentionDays <= 0 {
 		retentionDays = 7
 	}
 
 	// 从配置文件读取日志文件大小，如果配置为0或负数，则使用默认值10MB
-	maxFileSize := global.APP_CONFIG.Zap.MaxFileSize
+	maxFileSize := global.GetAppConfig().Zap.MaxFileSize
 	if maxFileSize <= 0 {
 		maxFileSize = 10
 	}
 
 	// 从配置文件读取最大备份数量，如果配置为0或负数，则使用默认值30
-	maxBackups := global.APP_CONFIG.Zap.MaxBackups
+	maxBackups := global.GetAppConfig().Zap.MaxBackups
 	if maxBackups <= 0 {
 		maxBackups = 30
 	}
@@ -392,7 +392,7 @@ func (s *LogRotationService) CreateDailyLogWriter(level string, config *config.D
 	s.mu.Unlock()
 
 	// 如果需要同时输出到控制台
-	if global.APP_CONFIG.Zap.LogInConsole {
+	if global.GetAppConfig().Zap.LogInConsole {
 		return zapcore.NewMultiWriteSyncer(
 			zapcore.AddSync(os.Stdout),
 			zapcore.AddSync(rotatingWriter),
@@ -415,7 +415,8 @@ func (s *LogRotationService) CreateDailyLogger() *zap.Logger {
 
 	// 创建不同级别的日志核心
 	cores := make([]zapcore.Core, 0, 7)
-	levels := global.APP_CONFIG.Zap.Levels()
+	zapCfg := global.GetAppConfig().Zap
+	levels := zapCfg.Levels()
 
 	for _, level := range levels {
 		core := s.CreateDailyLoggerCore(level, dailyLogConfig)
@@ -424,7 +425,7 @@ func (s *LogRotationService) CreateDailyLogger() *zap.Logger {
 
 	logger := zap.New(zapcore.NewTee(cores...))
 
-	if global.APP_CONFIG.Zap.ShowLine {
+	if global.GetAppConfig().Zap.ShowLine {
 		logger = logger.WithOptions(zap.AddCaller())
 	}
 
@@ -433,21 +434,22 @@ func (s *LogRotationService) CreateDailyLogger() *zap.Logger {
 
 // getEncoder 获取日志编码器
 func (s *LogRotationService) getEncoder() zapcore.Encoder {
+	zapCfg := global.GetAppConfig().Zap
 	encoderConfig := zapcore.EncoderConfig{
 		MessageKey:     "message",
 		LevelKey:       "level",
 		TimeKey:        "time",
 		NameKey:        "logger",
 		CallerKey:      "caller",
-		StacktraceKey:  global.APP_CONFIG.Zap.StacktraceKey,
+		StacktraceKey:  zapCfg.StacktraceKey,
 		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    global.APP_CONFIG.Zap.LevelEncoder(),
+		EncodeLevel:    zapCfg.LevelEncoder(),
 		EncodeTime:     s.customTimeEncoder,
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		EncodeCaller:   zapcore.ShortCallerEncoder,
 	}
 
-	if global.APP_CONFIG.Zap.Format == "json" {
+	if zapCfg.Format == "json" {
 		return zapcore.NewJSONEncoder(encoderConfig)
 	}
 	return zapcore.NewConsoleEncoder(encoderConfig)
@@ -455,7 +457,7 @@ func (s *LogRotationService) getEncoder() zapcore.Encoder {
 
 // customTimeEncoder 自定义时间编码器，包含日期信息
 func (s *LogRotationService) customTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-	enc.AppendString(t.Format(global.APP_CONFIG.Zap.Prefix + "2006/01/02 - 15:04:05.000"))
+	enc.AppendString(t.Format(global.GetAppConfig().Zap.Prefix + "2006/01/02 - 15:04:05.000"))
 }
 
 // CleanupOldLogs 清理旧日志文件（通过全局协调器执行）

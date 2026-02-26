@@ -15,6 +15,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // ResourceService 资源管理服务 - 使用数据库级锁，移除应用级锁
@@ -218,7 +219,7 @@ func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, in
 
 	var provider providerModel.Provider
 	// 使用悲观锁锁定Provider记录
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&provider, providerID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, providerID).Error; err != nil {
 		global.APP_LOG.Error("锁定Provider失败",
 			zap.Uint("providerId", providerID),
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
@@ -318,7 +319,7 @@ func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, ins
 
 	var provider providerModel.Provider
 	// 使用悲观锁锁定Provider记录
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&provider, providerID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, providerID).Error; err != nil {
 		global.APP_LOG.Error("锁定Provider失败",
 			zap.Uint("providerId", providerID),
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
@@ -332,7 +333,7 @@ func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, ins
 
 	// 根据实例类型和资源限制配置更新资源占用
 	if instanceType == "vm" {
-		// 虚拟机：根据VMLimitXXX配置决定是否回收资源
+		// 虚拟机：根据 VMLimitXXX配置决定是否回收资源
 		if provider.VMLimitCPU {
 			newCPU := provider.UsedCPUCores - cpu
 			if newCPU < 0 {

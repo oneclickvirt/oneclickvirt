@@ -28,7 +28,7 @@ var oauthService = oauth2Svc.NewService()
 // @Router /auth/oauth2/login [get]
 func OAuth2Login(c *gin.Context) {
 	// 检查是否启用OAuth2
-	if !global.APP_CONFIG.Auth.EnableOAuth2 {
+	if !global.GetAppConfig().Auth.EnableOAuth2 {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "OAuth2登录未启用"))
 		return
 	}
@@ -91,7 +91,7 @@ func OAuth2Login(c *gin.Context) {
 // @Router /auth/oauth2/callback [get]
 func OAuth2Callback(c *gin.Context) {
 	// 检查是否启用OAuth2
-	if !global.APP_CONFIG.Auth.EnableOAuth2 {
+	if !global.GetAppConfig().Auth.EnableOAuth2 {
 		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "OAuth2登录未启用"))
 		return
 	}
@@ -134,7 +134,7 @@ func OAuth2Callback(c *gin.Context) {
 		zap.Uint("user_id", usr.ID))
 
 	// 获取前端URL配置，如果没有配置，尝试智能检测
-	frontendURL := global.APP_CONFIG.System.FrontendURL
+	frontendURL := global.GetAppConfig().System.FrontendURL
 
 	// 返回HTML页面，通过JavaScript跳转并携带token参数
 	// localStorage在不同端口/域名下是隔离的，所以必须通过URL参数传递

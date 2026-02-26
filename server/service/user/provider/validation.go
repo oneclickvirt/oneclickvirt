@@ -55,7 +55,7 @@ func (s *Service) validateProviderImageCompatibility(provider *providerModel.Pro
 // validateUserSpecPermissions 验证用户等级限制和资源规格权限
 //
 // 功能说明：
-// 1. 获取用户全局等级限制（从 global.APP_CONFIG.Quota.LevelLimits）
+// 1. 获取用户全局等级限制（从 global.GetAppConfig().Quota.LevelLimits）
 // 2. 获取Provider节点等级限制（从 provider.LevelLimits）
 // 3. 合并两者限制，取最小值作为最终限制
 // 4. 验证所选规格（CPU、内存、磁盘、带宽）是否超过限制
@@ -77,7 +77,7 @@ func (s *Service) validateUserSpecPermissions(userID uint, providerID uint, cpuS
 	}
 
 	// 获取用户全局等级限制
-	levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[effective.EffectiveLevel]
+	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[effective.EffectiveLevel]
 	if !exists {
 		return fmt.Errorf("用户等级 %d 没有配置资源限制", effective.EffectiveLevel)
 	}

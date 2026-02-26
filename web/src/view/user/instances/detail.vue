@@ -649,6 +649,7 @@
 <script setup>
 import { ref, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
@@ -666,6 +667,7 @@ import { useInstanceFormatters } from './composables/useInstanceFormatters'
 
 const route = useRoute()
 const router = useRouter()
+const { t } = useI18n()
 const activeTab = ref('overview')
 
 const {

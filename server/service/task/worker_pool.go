@@ -32,7 +32,22 @@ func (pool *ProviderWorkerPool) worker(workerID int) {
 	for {
 		select {
 		case <-pool.Ctx.Done():
-			return
+			// 排空队列，对已入队但尚未执行的任务发送失败响应，防止调用方永久阻塞
+			for {
+				select {
+				case taskReq := <-pool.TaskQueue:
+					select {
+					case taskReq.ResponseCh <- TaskResult{
+						Success: false,
+						Error:   fmt.Errorf("工作池已关闭，任务被取消"),
+						Data:    make(map[string]interface{}),
+					}:
+					default:
+					}
+				default:
+					return
+				}
+			}
 		case taskReq := <-pool.TaskQueue:
 			pool.executeTask(taskReq)
 		}
@@ -264,6 +279,10 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 			zap.Uint("taskId", taskID),
 			zap.Uint("providerId", *task.ProviderID),
 			zap.Int("queueLength", len(pool.TaskQueue)))
+	case <-pool.Ctx.Done():
+		// 工作池已关闭，立即拒绝任务提交
+		close(taskReq.ResponseCh)
+		return fmt.Errorf("工作池已关闭，任务提交被拒绝")
 	case <-timer.C:
 		// 发送失败，关闭ResponseCh防止泄漏
 		close(taskReq.ResponseCh)

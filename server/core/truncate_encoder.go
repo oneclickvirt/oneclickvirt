@@ -23,9 +23,9 @@ type TruncateConfig struct {
 // NewTruncateEncoder 创建截断编码器
 func NewTruncateEncoder(enc zapcore.Encoder) zapcore.Encoder {
 	config := &TruncateConfig{
-		MaxLogLength:     global.APP_CONFIG.Zap.MaxLogLength,
-		MaxArrayElements: global.APP_CONFIG.Zap.MaxArrayElements,
-		MaxStringLength:  global.APP_CONFIG.Zap.MaxStringLength,
+		MaxLogLength:     global.GetAppConfig().Zap.MaxLogLength,
+		MaxArrayElements: global.GetAppConfig().Zap.MaxArrayElements,
+		MaxStringLength:  global.GetAppConfig().Zap.MaxStringLength,
 	}
 
 	// 设置默认值

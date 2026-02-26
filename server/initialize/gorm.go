@@ -21,7 +21,7 @@ import (
 // Gorm 初始化数据库并产生数据库全局变量
 // 使用DatabaseManager实现连接管理、自动重连和心跳检测
 func Gorm() *gorm.DB {
-	dbType := global.APP_CONFIG.System.DbType
+	dbType := global.GetAppConfig().System.DbType
 	if dbType == "" {
 		dbType = "mysql"
 	}
@@ -31,18 +31,18 @@ func Gorm() *gorm.DB {
 
 	// 初始化数据库连接（包含自动重连和心跳检测）
 	mysqlConfig := config.MysqlConfig{
-		Path:         global.APP_CONFIG.Mysql.Path,
-		Port:         global.APP_CONFIG.Mysql.Port,
-		Config:       global.APP_CONFIG.Mysql.Config,
-		Dbname:       global.APP_CONFIG.Mysql.Dbname,
-		Username:     global.APP_CONFIG.Mysql.Username,
-		Password:     global.APP_CONFIG.Mysql.Password,
-		MaxIdleConns: global.APP_CONFIG.Mysql.MaxIdleConns,
-		MaxOpenConns: global.APP_CONFIG.Mysql.MaxOpenConns,
-		LogMode:      global.APP_CONFIG.Mysql.LogMode,
-		LogZap:       global.APP_CONFIG.Mysql.LogZap,
-		MaxLifetime:  global.APP_CONFIG.Mysql.MaxLifetime,
-		AutoCreate:   global.APP_CONFIG.Mysql.AutoCreate,
+		Path:         global.GetAppConfig().Mysql.Path,
+		Port:         global.GetAppConfig().Mysql.Port,
+		Config:       global.GetAppConfig().Mysql.Config,
+		Dbname:       global.GetAppConfig().Mysql.Dbname,
+		Username:     global.GetAppConfig().Mysql.Username,
+		Password:     global.GetAppConfig().Mysql.Password,
+		MaxIdleConns: global.GetAppConfig().Mysql.MaxIdleConns,
+		MaxOpenConns: global.GetAppConfig().Mysql.MaxOpenConns,
+		LogMode:      global.GetAppConfig().Mysql.LogMode,
+		LogZap:       global.GetAppConfig().Mysql.LogZap,
+		MaxLifetime:  global.GetAppConfig().Mysql.MaxLifetime,
+		AutoCreate:   global.GetAppConfig().Mysql.AutoCreate,
 	}
 
 	db, err := dbManager.Initialize(mysqlConfig)
@@ -55,7 +55,7 @@ func Gorm() *gorm.DB {
 
 	global.APP_LOG.Info("数据库连接成功",
 		zap.String("dbType", dbType),
-		zap.String("engine", global.APP_CONFIG.Mysql.Engine))
+		zap.String("engine", global.GetAppConfig().Mysql.Engine))
 
 	// 只有在数据库连接成功时才进行表结构迁移
 	global.APP_LOG.Info("开始数据库表结构自动迁移")

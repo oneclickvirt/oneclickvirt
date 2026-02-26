@@ -31,15 +31,15 @@ func (s *AuthService) SendVerifyCode(codeType, target, captchaId, captcha string
 	// 检查对应的通信渠道是否启用
 	switch codeType {
 	case "email":
-		if !global.APP_CONFIG.Auth.EnableEmail {
+		if !global.GetAppConfig().Auth.EnableEmail {
 			return common.NewError(common.CodeInvalidParam, "邮箱登录未启用")
 		}
 	case "telegram":
-		if !global.APP_CONFIG.Auth.EnableTelegram {
+		if !global.GetAppConfig().Auth.EnableTelegram {
 			return common.NewError(common.CodeInvalidParam, "Telegram登录未启用")
 		}
 	case "qq":
-		if !global.APP_CONFIG.Auth.EnableQQ {
+		if !global.GetAppConfig().Auth.EnableQQ {
 			return common.NewError(common.CodeInvalidParam, "QQ登录未启用")
 		}
 	default:
@@ -132,7 +132,7 @@ func (s *AuthService) sendEmailCode(email, code string) error {
 }
 
 func (s *AuthService) sendTelegramCode(telegram, code string) error {
-	config := global.APP_CONFIG.Auth
+	config := global.GetAppConfig().Auth
 
 	// 检查Telegram是否启用
 	if !config.EnableTelegram {
@@ -149,7 +149,7 @@ func (s *AuthService) sendTelegramCode(telegram, code string) error {
 		zap.String("operation", "send_telegram_verify_code"))
 
 	// 在开发环境下直接返回成功并记录验证码
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟发送Telegram验证码",
 			zap.String("telegram", telegram),
 			zap.String("code", code))
@@ -184,7 +184,7 @@ func (s *AuthService) sendTelegramCode(telegram, code string) error {
 }
 
 func (s *AuthService) sendQQCode(qq, code string) error {
-	config := global.APP_CONFIG.Auth
+	config := global.GetAppConfig().Auth
 
 	// 检查QQ是否启用
 	if !config.EnableQQ {
@@ -201,7 +201,7 @@ func (s *AuthService) sendQQCode(qq, code string) error {
 		zap.String("operation", "send_qq_verify_code"))
 
 	// 在开发环境下直接返回成功并记录验证码
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟发送QQ验证码",
 			zap.String("qq", qq),
 			zap.String("code", code))
@@ -231,7 +231,7 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 		zap.String("operation", "send_verification_code"))
 
 	// 在开发环境下直接返回成功
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟验证码发送成功", zap.String("code", code))
 		return nil
 	}
@@ -253,7 +253,7 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 }
 
 func (s *AuthService) sendEmail(to, subject, body string) error {
-	config := global.APP_CONFIG.Auth
+	config := global.GetAppConfig().Auth
 	if config.EmailSMTPHost == "" {
 		return errors.New("邮件服务未配置")
 	}

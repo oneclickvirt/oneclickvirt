@@ -27,7 +27,7 @@ func GetJWTKey() string {
 	}
 
 	// 兜底使用配置文件中的密钥
-	return global.APP_CONFIG.JWT.SigningKey
+	return global.GetAppConfig().JWT.SigningKey
 }
 
 // parseDuration 解析配置中的时间字符串（支持 1d, 7d, 24h 等格式）
@@ -60,7 +60,7 @@ func GenerateToken(userID uint, username, userType string) (string, error) {
 	now := time.Now()
 
 	// 从配置读取过期时间
-	expiresTime := parseDuration(global.APP_CONFIG.JWT.ExpiresTime)
+	expiresTime := parseDuration(global.GetAppConfig().JWT.ExpiresTime)
 
 	claims := jwt.MapClaims{
 		"user_id":   userID,

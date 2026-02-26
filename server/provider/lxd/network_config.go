@@ -273,7 +273,7 @@ func (l *LXDProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed
 // getUserLevelBandwidth 根据用户等级获取带宽限制
 func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
 	// 从全局配置中获取用户等级对应的带宽限制
-	if levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[userLevel]; exists {
+	if levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[userLevel]; exists {
 		if bandwidth, ok := levelLimits.MaxResources["bandwidth"].(int); ok {
 			return bandwidth
 		} else if bandwidthFloat, ok := levelLimits.MaxResources["bandwidth"].(float64); ok {

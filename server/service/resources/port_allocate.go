@@ -9,6 +9,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // allocateConsecutivePortsInTx 在事务中分配连续的端口区间
@@ -164,7 +165,7 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 	// 第二步：使用短事务进行最终分配（仅更新操作）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 获取Provider信息并锁定
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
 
@@ -272,7 +273,7 @@ func (s *PortMappingService) allocateHostPortWithRetry(providerID uint, rangeSta
 
 	// 使用短事务进行分配
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
 
@@ -395,7 +396,7 @@ func (s *PortMappingService) allocateConsecutivePorts(providerID uint, rangeStar
 	var allocatedPort int
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 锁定Provider行
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
 

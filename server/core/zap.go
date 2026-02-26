@@ -26,7 +26,7 @@ func Zap() (logger *zap.Logger) {
 	cores := GetZapCores()
 	logger = zap.New(zapcore.NewTee(cores...))
 
-	if global.APP_CONFIG.Zap.ShowLine {
+	if global.GetAppConfig().Zap.ShowLine {
 		logger = logger.WithOptions(zap.AddCaller())
 	}
 
@@ -70,7 +70,8 @@ func cleanupAllSamplers() {
 // GetZapCores 根据配置文件的Level获取 []zapcore.Core
 func GetZapCores() []zapcore.Core {
 	cores := make([]zapcore.Core, 0, 7)
-	levels := global.APP_CONFIG.Zap.Levels()
+	zapCfg := global.GetAppConfig().Zap
+	levels := zapCfg.Levels()
 	for _, level := range levels {
 		core := GetZapCore(level)
 		// 对于Debug和Info级别，使用采样核心来减少日志量
@@ -91,7 +92,7 @@ func GetZapCore(level zapcore.Level) (core zapcore.Core) {
 // GetEncoder 获取zapcore.Encoder
 func GetEncoder() zapcore.Encoder {
 	var enc zapcore.Encoder
-	if global.APP_CONFIG.Zap.Format == "json" {
+	if global.GetAppConfig().Zap.Format == "json" {
 		enc = zapcore.NewJSONEncoder(GetEncoderConfig())
 	} else {
 		enc = zapcore.NewConsoleEncoder(GetEncoderConfig())
@@ -103,28 +104,29 @@ func GetEncoder() zapcore.Encoder {
 
 // GetEncoderConfig 获取zapcore.EncoderConfig
 func GetEncoderConfig() (config zapcore.EncoderConfig) {
+	zapCfg := global.GetAppConfig().Zap
 	config = zapcore.EncoderConfig{
 		MessageKey:     "message",
 		LevelKey:       "level",
 		TimeKey:        "time",
 		NameKey:        "logger",
 		CallerKey:      "caller",
-		StacktraceKey:  global.APP_CONFIG.Zap.StacktraceKey,
+		StacktraceKey:  zapCfg.StacktraceKey,
 		LineEnding:     zapcore.DefaultLineEnding,
-		EncodeLevel:    global.APP_CONFIG.Zap.LevelEncoder(),
+		EncodeLevel:    zapCfg.LevelEncoder(),
 		EncodeTime:     CustomTimeEncoder,
 		EncodeDuration: zapcore.SecondsDurationEncoder,
 		// 使用短路径编码器减少日志长度
 		EncodeCaller: zapcore.ShortCallerEncoder,
 	}
 	switch {
-	case global.APP_CONFIG.Zap.EncodeLevel == "LowercaseLevelEncoder": // 小写编码器(默认)
+	case global.GetAppConfig().Zap.EncodeLevel == "LowercaseLevelEncoder": // 小写编码器(默认)
 		config.EncodeLevel = zapcore.LowercaseLevelEncoder
-	case global.APP_CONFIG.Zap.EncodeLevel == "LowercaseColorLevelEncoder": // 小写编码器带颜色
+	case global.GetAppConfig().Zap.EncodeLevel == "LowercaseColorLevelEncoder": // 小写编码器带颜色
 		config.EncodeLevel = zapcore.LowercaseColorLevelEncoder
-	case global.APP_CONFIG.Zap.EncodeLevel == "CapitalLevelEncoder": // 大写编码器
+	case global.GetAppConfig().Zap.EncodeLevel == "CapitalLevelEncoder": // 大写编码器
 		config.EncodeLevel = zapcore.CapitalLevelEncoder
-	case global.APP_CONFIG.Zap.EncodeLevel == "CapitalColorLevelEncoder": // 大写编码器带颜色
+	case global.GetAppConfig().Zap.EncodeLevel == "CapitalColorLevelEncoder": // 大写编码器带颜色
 		config.EncodeLevel = zapcore.CapitalColorLevelEncoder
 	default:
 		config.EncodeLevel = zapcore.LowercaseLevelEncoder
@@ -141,7 +143,7 @@ func GetWriteSyncer(level string) zapcore.WriteSyncer {
 	cutter := log.NewRotatingFileWriter(level, config)
 
 	// 如果需要同时输出到控制台
-	if global.APP_CONFIG.Zap.LogInConsole {
+	if global.GetAppConfig().Zap.LogInConsole {
 		return zapcore.NewMultiWriteSyncer(
 			zapcore.AddSync(os.Stdout),
 			zapcore.AddSync(cutter),
@@ -153,5 +155,5 @@ func GetWriteSyncer(level string) zapcore.WriteSyncer {
 
 // CustomTimeEncoder 自定义日志输出时间格式
 func CustomTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
-	enc.AppendString(t.Format(global.APP_CONFIG.Zap.Prefix + "2006/01/02 - 15:04:05.000"))
+	enc.AppendString(t.Format(global.GetAppConfig().Zap.Prefix + "2006/01/02 - 15:04:05.000"))
 }

@@ -44,7 +44,7 @@ func (s *JWTSecretService) InitializeJWTSecret(db *gorm.DB) error {
 			return fmt.Errorf("环境变量JWT_SIGNING_KEY长度不足32字符")
 		}
 		s.secretKey = envKey
-		global.APP_CONFIG.JWT.SigningKey = envKey
+
 		global.APP_LOG.Info("使用环境变量中的JWT密钥")
 		return nil
 	}
@@ -56,7 +56,7 @@ func (s *JWTSecretService) InitializeJWTSecret(db *gorm.DB) error {
 	if err == nil {
 		// 找到了密钥，使用它
 		s.secretKey = jwtSecret.SecretKey
-		global.APP_CONFIG.JWT.SigningKey = jwtSecret.SecretKey
+
 		global.APP_LOG.Info("从数据库加载JWT密钥")
 		return nil
 	}
@@ -81,22 +81,16 @@ func (s *JWTSecretService) InitializeJWTSecret(db *gorm.DB) error {
 	}
 
 	s.secretKey = newKey
-	global.APP_CONFIG.JWT.SigningKey = newKey
+
 	global.APP_LOG.Info("生成并保存新的JWT密钥到数据库")
 
 	return nil
 }
 
-// GetSecretKey 获取当前的JWT密钥
+// GetSecretKey 获取当前的JWT密饰（优先使用内部缓存）
 func (s *JWTSecretService) GetSecretKey() string {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-
-	// 如果缓存为空，返回全局配置中的密钥
-	if s.secretKey == "" {
-		return global.APP_CONFIG.JWT.SigningKey
-	}
-
 	return s.secretKey
 }
 
@@ -126,7 +120,6 @@ func (s *JWTSecretService) RotateSecret(db *gorm.DB) (string, error) {
 	}
 
 	s.secretKey = newKey
-	global.APP_CONFIG.JWT.SigningKey = newKey
 
 	global.APP_LOG.Warn("JWT密钥已轮换，所有现有token将失效",
 		zap.String("newKeyPrefix", newKey[:8]+"..."))

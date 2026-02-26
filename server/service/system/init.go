@@ -543,14 +543,14 @@ func (s *InitService) reloadConfig() error {
 		if err := cm.ReloadFromYAML(); err != nil {
 			global.APP_LOG.Error("通过ConfigManager重新加载配置失败", zap.Error(err))
 			// 降级处理：直接加载到 global.APP_CONFIG
-			global.APP_CONFIG = tempConfig
+			global.SetAppConfig(tempConfig)
 			global.APP_LOG.Warn("配置已直接加载到global.APP_CONFIG，但未同步到数据库")
 		} else {
 			global.APP_LOG.Info("配置已通过ConfigManager重新加载并同步到数据库")
 		}
 	} else {
 		// ConfigManager 未初始化，直接加载
-		global.APP_CONFIG = tempConfig
+		global.SetAppConfig(tempConfig)
 		global.APP_LOG.Warn("ConfigManager未初始化，配置仅加载到global.APP_CONFIG")
 	}
 

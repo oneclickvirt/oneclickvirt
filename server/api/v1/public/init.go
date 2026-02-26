@@ -69,7 +69,7 @@ func CheckInit(c *gin.Context) {
 			global.APP_LOG.Warn("数据库连接ping失败", zap.Error(err))
 		} else {
 			// 检查数据库配置是否完整
-			if global.APP_CONFIG.Mysql.Dbname == "" || global.APP_CONFIG.Mysql.Path == "" {
+			if global.GetAppConfig().Mysql.Dbname == "" || global.GetAppConfig().Mysql.Path == "" {
 				message = "数据库配置不完整，需要初始化"
 				needInit = true
 				global.APP_LOG.Info("数据库配置不完整，需要初始化")
@@ -351,12 +351,12 @@ func InitSystem(c *gin.Context) {
 func GetRegisterConfig(c *gin.Context) {
 	config := map[string]interface{}{
 		"auth": map[string]interface{}{
-			"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
+			"enablePublicRegistration": global.GetAppConfig().Auth.EnablePublicRegistration,
 		},
 		"inviteCode": map[string]interface{}{
-			"enabled": global.APP_CONFIG.InviteCode.Enabled,
+			"enabled": global.GetAppConfig().InviteCode.Enabled,
 		},
-		"oauth2Enabled": global.APP_CONFIG.Auth.EnableOAuth2,
+		"oauth2Enabled": global.GetAppConfig().Auth.EnableOAuth2,
 	}
 	c.JSON(http.StatusOK, common.Success(config))
 }
@@ -415,8 +415,8 @@ func GetPublicSystemConfig(c *gin.Context) {
 	// 如果数据库不可用或未配置，提供默认值
 	if len(result) == 0 {
 		// 从配置中读取默认值
-		if global.APP_CONFIG.Other.DefaultLanguage != "" {
-			result["default_language"] = global.APP_CONFIG.Other.DefaultLanguage
+		if global.GetAppConfig().Other.DefaultLanguage != "" {
+			result["default_language"] = global.GetAppConfig().Other.DefaultLanguage
 		} else {
 			result["default_language"] = "zh" // 默认中文
 		}

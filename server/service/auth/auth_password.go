@@ -59,7 +59,7 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 		return err
 	}
 	// 发送重置邮件（开发环境下只模拟发送）
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境：模拟发送密码重置邮件",
 			zap.String("email", req.Email),
 			zap.String("token", resetToken))
@@ -225,7 +225,7 @@ func (s *AuthService) sendPasswordByEmail(email, username, newPassword string) e
 
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword string) error {
-	config := global.APP_CONFIG.Auth
+	config := global.GetAppConfig().Auth
 
 	// 检查Telegram是否启用
 	if !config.EnableTelegram {
@@ -243,7 +243,7 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 		zap.String("operation", "password_reset_by_token"))
 
 	// 在开发环境下直接返回成功
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟发送成功")
 		return nil
 	}
@@ -277,7 +277,7 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
-	config := global.APP_CONFIG.Auth
+	config := global.GetAppConfig().Auth
 
 	// 检查QQ是否启用
 	if !config.EnableQQ {
@@ -295,7 +295,7 @@ func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 		zap.String("operation", "password_reset_by_token"))
 
 	// 在开发环境下直接返回成功
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟发送成功")
 		return nil
 	}
@@ -325,7 +325,7 @@ func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) err
 		zap.String("operation", "password_reset_by_token"))
 
 	// 在开发环境下直接返回成功
-	if global.APP_CONFIG.System.Env == "development" {
+	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Info("开发环境模拟发送成功")
 		return nil
 	}

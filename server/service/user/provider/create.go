@@ -17,6 +17,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // GetAvailableProviders 获取可用节点列表
@@ -175,7 +176,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 
 		// 1. 获取用户记录并加锁（FOR UPDATE）
 		var currentUser userModel.User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&currentUser, userID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&currentUser, userID).Error; err != nil {
 			return fmt.Errorf("获取用户信息失败: %v", err)
 		}
 
@@ -185,7 +186,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		}
 
 		// 2. 验证用户全局实例数量限制
-		levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[currentUser.Level]
+		levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[currentUser.Level]
 		if !exists {
 			return fmt.Errorf("用户等级 %d 没有配置资源限制", currentUser.Level)
 		}
@@ -203,7 +204,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		if req.ProviderId > 0 {
 			// 获取Provider并加锁（防止并发超配）
 			var provider providerModel.Provider
-			if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&provider, req.ProviderId).Error; err != nil {
+			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderId).Error; err != nil {
 				return fmt.Errorf("获取节点信息失败: %v", err)
 			}
 
@@ -232,6 +233,19 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 					zap.Uint("providerID", provider.ID),
 					zap.Int("containerCount", containerCount),
 					zap.Int("vmCount", vmCount))
+
+				// 已持有 FOR UPDATE 行锁，直接回写缓存，避免下次过期时重复 COUNT
+				newExpiry := time.Now().Add(5 * time.Minute)
+				if wbErr := tx.Model(&providerModel.Provider{}).Where("id = ?", provider.ID).Updates(map[string]interface{}{
+					"container_count":    containerCount,
+					"vm_count":           vmCount,
+					"count_cache_expiry": newExpiry,
+				}).Error; wbErr != nil {
+					global.APP_LOG.Warn("写回Provider实例数量缓存失败",
+						zap.Uint("providerID", provider.ID),
+						zap.Error(wbErr))
+					// 写回失败不阻止创建流程
+				}
 			} else {
 				global.APP_LOG.Debug("使用缓存的实例数量",
 					zap.Uint("providerID", provider.ID),

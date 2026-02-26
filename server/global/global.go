@@ -3,6 +3,7 @@ package global
 import (
 	"context"
 	"oneclickvirt/config"
+	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
 	"github.com/spf13/viper"
@@ -60,10 +61,24 @@ type DBManagerStats struct {
 	ReconnectInterval string `json:"reconnect_interval"`
 }
 
+// GetAppConfig returns a consistent snapshot of the application configuration.
+// Safe to call from any goroutine without additional locking.
+func GetAppConfig() config.Server {
+	if p := APP_CONFIG.Load(); p != nil {
+		return *p
+	}
+	return config.Server{}
+}
+
+// SetAppConfig atomically replaces the global application configuration (copy-on-write).
+func SetAppConfig(cfg config.Server) {
+	APP_CONFIG.Store(&cfg)
+}
+
 var (
 	APP_DB                        *gorm.DB
 	APP_LOG                       *zap.Logger
-	APP_CONFIG                    config.Server
+	APP_CONFIG                    atomic.Pointer[config.Server] // access via GetAppConfig/SetAppConfig
 	APP_VP                        *viper.Viper
 	APP_ENGINE                    *gin.Engine
 	APP_SCHEDULER                 Scheduler                    // 任务调度器全局变量

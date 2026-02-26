@@ -30,7 +30,7 @@ func NewService() *Service {
 
 // GetUserTrafficLimitByLevel 根据用户等级获取流量限制
 func (s *Service) GetUserTrafficLimitByLevel(level int) int64 {
-	configManager := global.APP_CONFIG.Quota.LevelLimits
+	configManager := global.GetAppConfig().Quota.LevelLimits
 	if levelConfig, exists := configManager[level]; exists {
 		return levelConfig.MaxTraffic
 	}

@@ -36,7 +36,7 @@ func NewInstanceSyncSchedulerService() *InstanceSyncSchedulerService {
 // Start 启动实例同步调度器
 func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 	// 检查是否启用实例同步
-	if !global.APP_CONFIG.System.EnableInstanceSync {
+	if !global.GetAppConfig().System.EnableInstanceSync {
 		global.APP_LOG.Info("实例同步功能未启用，跳过调度器启动")
 		return
 	}
@@ -48,7 +48,7 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 
 	s.isRunning = true
 	global.APP_LOG.Info("启动Provider实例同步调度器",
-		zap.Int("syncInterval", global.APP_CONFIG.System.InstanceSyncInterval))
+		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval))
 
 	// 启动定期同步任务
 	go s.startSyncTask(ctx)
@@ -79,7 +79,7 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 	s.syncAllProvidersInstances()
 
 	// 获取同步间隔（分钟），默认30分钟
-	syncInterval := global.APP_CONFIG.System.InstanceSyncInterval
+	syncInterval := global.GetAppConfig().System.InstanceSyncInterval
 	if syncInterval <= 0 {
 		syncInterval = 30
 	}

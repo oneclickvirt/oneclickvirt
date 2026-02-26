@@ -15,6 +15,7 @@ import (
 	"oneclickvirt/model/user"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // QuotaService 资源配额验证服务
@@ -105,7 +106,7 @@ func (s *QuotaService) ValidateInTransaction(tx *gorm.DB, req ResourceRequest) (
 func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (*QuotaCheckResult, error) {
 	// 使用 SELECT FOR UPDATE 锁定用户记录
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, req.UserID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, req.UserID).Error; err != nil {
 		if strings.Contains(err.Error(), "Lock wait timeout") || strings.Contains(err.Error(), "timeout") {
 			return nil, fmt.Errorf("系统繁忙，请稍后重试")
 		}
@@ -121,7 +122,7 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[user.Level]
+	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
 	if !exists {
 		return &QuotaCheckResult{
 			Allowed: false,
@@ -294,7 +295,7 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 
 	// 稳定状态：running、stopped、error
 	var stableInstances []provider.Instance
-	err := tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
+	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
 		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, stableStatuses).
 		Find(&stableInstances).Error
 	if err != nil {
@@ -303,7 +304,7 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 
 	// 待确认状态：creating、resetting
 	var pendingInstances []provider.Instance
-	err = tx.Set("gorm:query_option", "LOCK IN SHARE MODE").
+	err = tx.Clauses(clause.Locking{Strength: "SHARE"}).
 		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, transitionalStatuses).
 		Find(&pendingInstances).Error
 	if err != nil {
@@ -338,11 +339,9 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 func (s *QuotaService) getCurrentProviderInstanceCount(tx *gorm.DB, userID uint, providerID uint) (int, error) {
 	var count int64
 
-	// 使用 LOCK IN SHARE MODE 共享锁，防止幻读
-	// MySQL 5.5 不支持 FOR SHARE，使用 LOCK IN SHARE MODE（MySQL 5.x/9.x 和 MariaDB 都支持）
-	// 排除所有中间状态和无效状态，只计算稳定状态的实例
-	err := tx.Model(&provider.Instance{}).
-		Set("gorm:query_option", "LOCK IN SHARE MODE").
+	// 使用 FOR SHARE 共享锁，防止幻读
+	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&provider.Instance{}).
 		Where("user_id = ? AND provider_id = ? AND status NOT IN (?)",
 			userID, providerID, []string{"deleting", "deleted", "failed", "creating", "resetting"}).
 		Count(&count).Error
@@ -417,7 +416,7 @@ func (s *QuotaService) getLevelBandwidthLimit(level int) int {
 // checkInstanceTypePermission 检查实例类型权限
 func (s *QuotaService) checkInstanceTypePermission(level int, instanceType string) bool {
 	// 从配置中获取实例类型权限设置
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 
 	switch instanceType {
 	case "container":
@@ -434,7 +433,7 @@ func (s *QuotaService) checkInstanceTypePermission(level int, instanceType strin
 // AllocatePendingQuota 分配待确认配额（创建实例时调用）
 func (s *QuotaService) AllocatePendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		return fmt.Errorf("用户不存在: %v", err)
 	}
 
@@ -451,7 +450,7 @@ func (s *QuotaService) AllocatePendingQuota(tx *gorm.DB, userID uint, resources 
 // ConfirmPendingQuota 确认待确认配额（实例创建成功时调用）
 func (s *QuotaService) ConfirmPendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		return fmt.Errorf("用户不存在: %v", err)
 	}
 
@@ -478,7 +477,7 @@ func (s *QuotaService) ConfirmPendingQuota(tx *gorm.DB, userID uint, resources R
 // ReleasePendingQuota 释放待确认配额（实例创建失败时调用）
 func (s *QuotaService) ReleasePendingQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		return fmt.Errorf("用户不存在: %v", err)
 	}
 
@@ -500,7 +499,7 @@ func (s *QuotaService) ReleasePendingQuota(tx *gorm.DB, userID uint, resources R
 // ReleaseUsedQuota 释放已使用配额（删除稳定状态实例时调用）
 func (s *QuotaService) ReleaseUsedQuota(tx *gorm.DB, userID uint, resources ResourceUsage) error {
 	var user user.User
-	if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+	if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 		return fmt.Errorf("用户不存在: %v", err)
 	}
 
@@ -544,7 +543,7 @@ func (s *QuotaService) ValidateAdminInstanceCreation(req ResourceRequest) (*Quot
 func (s *QuotaService) RecalculateUserQuota(userID uint) error {
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var user user.User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&user, userID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, userID).Error; err != nil {
 			return fmt.Errorf("用户不存在: %v", err)
 		}
 
@@ -593,7 +592,7 @@ func (s *QuotaService) GetUserQuotaInfo(userID uint) (*QuotaCheckResult, error) 
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[user.Level]
+	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
 	if !exists {
 		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
 	}

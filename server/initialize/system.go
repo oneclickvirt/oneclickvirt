@@ -36,9 +36,9 @@ func InitializeSystem() {
 
 	global.APP_LOG.Info("系统初始化开始")
 	global.APP_LOG.Info("系统配置加载完成",
-		zap.String("env", global.APP_CONFIG.System.Env),
-		zap.Int("addr", global.APP_CONFIG.System.Addr),
-		zap.Bool("captcha_enabled", global.APP_CONFIG.Captcha.Enabled),
+		zap.String("env", global.GetAppConfig().System.Env),
+		zap.Int("addr", global.GetAppConfig().System.Addr),
+		zap.Bool("captcha_enabled", global.GetAppConfig().Captcha.Enabled),
 	)
 
 	// 创建系统级别的关闭上下文
@@ -97,7 +97,7 @@ func initializeStorage() {
 
 // initializeLogRotation 初始化日志轮转定时任务
 func initializeLogRotation() {
-	if global.APP_CONFIG.Zap.RetentionDay > 0 {
+	if global.GetAppConfig().Zap.RetentionDay > 0 {
 		logRotationService := log.GetLogRotationService()
 
 		// 设置cleanup coordinator的上下文
@@ -236,7 +236,7 @@ func initializeJWTSecret() {
 	if err := jwtSecretService.InitializeJWTSecret(global.APP_DB); err != nil {
 		global.APP_LOG.Error("JWT密钥初始化失败", zap.Error(err))
 		// 使用配置文件中的默认密钥作为后备
-		global.APP_JWT_SECRET = global.APP_CONFIG.JWT.SigningKey
+		global.APP_JWT_SECRET = global.GetAppConfig().JWT.SigningKey
 	} else {
 		// 更新全局变量
 		global.APP_JWT_SECRET = jwtSecretService.GetSecretKey()

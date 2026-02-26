@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 
 	"github.com/fsnotify/fsnotify"
@@ -15,16 +16,16 @@ import (
 
 // Viper 初始化配置文件
 func Viper(path ...string) *viper.Viper {
-	var config string
+	var cfgFile string
 
 	if len(path) == 0 {
-		config = "config.yaml"
+		cfgFile = "config.yaml"
 	} else {
-		config = path[0]
+		cfgFile = path[0]
 	}
 
 	v := viper.New()
-	v.SetConfigFile(config)
+	v.SetConfigFile(cfgFile)
 	v.SetConfigType("yaml")
 
 	err := v.ReadInConfig()
@@ -37,13 +38,19 @@ func Viper(path ...string) *viper.Viper {
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
 		fmt.Printf("[VIPER] 配置文件已更改: %s\n", e.Name)
-		if err := v.Unmarshal(&global.APP_CONFIG); err != nil {
+		var newCfg config.Server
+		if err := v.Unmarshal(&newCfg); err != nil {
 			fmt.Printf("[VIPER] 配置解析失败: %v\n", err)
+		} else {
+			global.SetAppConfig(newCfg)
 		}
 	})
 
-	if err := v.Unmarshal(&global.APP_CONFIG); err != nil {
+	var initCfg config.Server
+	if err := v.Unmarshal(&initCfg); err != nil {
 		fmt.Printf("[VIPER] 配置解析失败: %v\n", err)
+	} else {
+		global.SetAppConfig(initCfg)
 	}
 
 	// 设置默认值

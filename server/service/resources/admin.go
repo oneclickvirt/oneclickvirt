@@ -61,7 +61,7 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 
 // GetInstanceTypePermissions 获取实例类型权限配置
 func (s *AdminDashboardService) GetInstanceTypePermissions() map[string]interface{} {
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 
 	return map[string]interface{}{
 		"minLevelForContainer":       permissions.MinLevelForContainer,

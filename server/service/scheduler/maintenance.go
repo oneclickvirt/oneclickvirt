@@ -71,7 +71,7 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 	}
 
 	// 从配置读取不活动阈值，默认72小时（3天）
-	inactiveHours := global.APP_CONFIG.System.ProviderInactiveHours
+	inactiveHours := global.GetAppConfig().System.ProviderInactiveHours
 	if inactiveHours <= 0 {
 		inactiveHours = 72 // 默认72小时
 	}

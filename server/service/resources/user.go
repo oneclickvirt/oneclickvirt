@@ -87,7 +87,7 @@ func (s *UserDashboardService) fetchUserDashboard(userID uint) (*userModel.UserD
 	}
 
 	// 获取用户等级限制
-	levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[user.Level]
+	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
 	if !exists {
 		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
 	}
@@ -155,7 +155,7 @@ func (s *UserDashboardService) GetUserLimits(userID uint) (*userModel.UserLimits
 	}
 
 	// 获取等级限制
-	levelLimits, exists := global.APP_CONFIG.Quota.LevelLimits[user.Level]
+	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
 	if !exists {
 		return nil, fmt.Errorf("用户等级 %d 没有配置资源限制", user.Level)
 	}

@@ -456,7 +456,7 @@ func (s *Service) syncUserResourceLimits(userIDs []uint) error {
 
 	// 为每个等级的用户更新资源限制
 	for level, userIDList := range levelGroups {
-		if levelConfig, exists := global.APP_CONFIG.Quota.LevelLimits[level]; exists {
+		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
 			// 构建完整的资源限制更新数据
 			updateData := map[string]interface{}{
 				"total_traffic": levelConfig.MaxTraffic,
@@ -837,7 +837,7 @@ func (s *Service) generateRandomPassword(length int) string {
 // syncSingleUserResourceLimits 同步单个用户的资源限制
 func (s *Service) syncSingleUserResourceLimits(level int, userID uint) error {
 	// 获取等级配置
-	levelConfig, exists := global.APP_CONFIG.Quota.LevelLimits[level]
+	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
 	if !exists {
 		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
 		// 使用默认配置

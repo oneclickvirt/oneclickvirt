@@ -15,8 +15,9 @@ import (
 type ProviderPoolManager struct {
 	pools      sync.Map // map[uint]*ProviderWorkerPool
 	count      atomic.Int64
-	lastAccess sync.Map // map[uint]time.Time 记录最后访问时间
-	createdAt  sync.Map // map[uint]time.Time 记录创建时间（用于强制过期）
+	lastAccess sync.Map   // map[uint]time.Time 记录最后访问时间
+	createdAt  sync.Map   // map[uint]time.Time 记录创建时间（用于强制过期）
+	createMu   sync.Mutex // 保护工作池创建的互斥锁（防止并发创建导致goroutine泄漏）
 }
 
 // NewProviderPoolManager 创建Provider工作池管理器
@@ -24,21 +25,34 @@ func NewProviderPoolManager() *ProviderPoolManager {
 	return &ProviderPoolManager{}
 }
 
-// GetOrCreate 获取或创建Provider工作池
+// GetOrCreate 获取或创建 Provider 工作池（并发安全）
 func (m *ProviderPoolManager) GetOrCreate(providerID uint, concurrency int, taskService *TaskService) *ProviderWorkerPool {
 	// 更新最后访问时间
 	m.lastAccess.Store(providerID, time.Now())
 
-	// 快速路径：工作池已存在
+	// 快速路径：工作池已存在且并发数匹配
 	if value, ok := m.pools.Load(providerID); ok {
 		pool := value.(*ProviderWorkerPool)
-		// 检查并发数是否需要调整
 		if pool.WorkerCount == concurrency {
 			return pool
 		}
-		// 需要调整并发数，关闭旧池并创建新池
+	}
+
+	// 慢速路径：需要创建或重建工作池，加互斥锁防止并发操作导致goroutine泄漏
+	m.createMu.Lock()
+	defer m.createMu.Unlock()
+
+	// Double-check under lock
+	if value, ok := m.pools.Load(providerID); ok {
+		pool := value.(*ProviderWorkerPool)
+		if pool.WorkerCount == concurrency {
+			return pool
+		}
+		// 并发数发生变化，关闭旧池并重建
 		pool.Cancel()
 		m.pools.Delete(providerID)
+		m.lastAccess.Delete(providerID)
+		m.createdAt.Delete(providerID)
 		m.count.Add(-1)
 	}
 
@@ -59,14 +73,15 @@ func (m *ProviderPoolManager) GetOrCreate(providerID uint, concurrency int, task
 		TaskService: taskService,
 	}
 
+	// 先存入 map 再启动 worker，确保任何 goroutine 都能找到对应的池
+	m.pools.Store(providerID, pool)
+	m.createdAt.Store(providerID, time.Now())
+	m.count.Add(1)
+
 	// 启动工作者
 	for i := 0; i < concurrency; i++ {
 		go pool.worker(i)
 	}
-
-	m.pools.Store(providerID, pool)
-	m.createdAt.Store(providerID, time.Now()) // 记录创建时间
-	m.count.Add(1)
 
 	global.APP_LOG.Info("创建Provider工作池",
 		zap.Uint("providerId", providerID),

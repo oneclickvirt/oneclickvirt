@@ -9,12 +9,12 @@ func GetCDNEndpoints() []string {
 	cdnEndpoints := make([]string, 0)
 
 	// 先添加配置文件中的额外端点
-	if global.APP_CONFIG.CDN.Endpoints != nil {
-		cdnEndpoints = append(cdnEndpoints, global.APP_CONFIG.CDN.Endpoints...)
+	if global.GetAppConfig().CDN.Endpoints != nil {
+		cdnEndpoints = append(cdnEndpoints, global.GetAppConfig().CDN.Endpoints...)
 	}
 
 	// 确保基础端点在列表中
-	baseEndpoint := global.APP_CONFIG.CDN.BaseEndpoint
+	baseEndpoint := global.GetAppConfig().CDN.BaseEndpoint
 	if baseEndpoint == "" {
 		baseEndpoint = "https://cdn.spiritlhl.net/" // 默认基础端点
 	}
@@ -38,7 +38,7 @@ func GetCDNEndpoints() []string {
 
 // GetBaseCDNEndpoint 获取基础CDN端点
 func GetBaseCDNEndpoint() string {
-	baseEndpoint := global.APP_CONFIG.CDN.BaseEndpoint
+	baseEndpoint := global.GetAppConfig().CDN.BaseEndpoint
 	if baseEndpoint == "" {
 		baseEndpoint = "https://cdn.spiritlhl.net/" // 默认基础端点
 	}

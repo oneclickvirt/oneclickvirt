@@ -306,7 +306,7 @@ func (s *QuotaSyncService) SyncAllUsersToCurrentConfig() error {
 	global.APP_LOG.Info("开始同步所有用户到当前等级配置")
 
 	for level := 1; level <= 5; level++ {
-		if levelConfig, exists := global.APP_CONFIG.Quota.LevelLimits[level]; exists {
+		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
 			if err := s.syncLevelUsers(level, &levelConfig); err != nil {
 				global.APP_LOG.Error("同步等级用户失败",
 					zap.Int("level", level),
@@ -327,7 +327,7 @@ func (s *QuotaSyncService) SyncUserToLevel(level int, userIDs []uint) error {
 	}
 
 	// 获取等级配置
-	levelConfig, exists := global.APP_CONFIG.Quota.LevelLimits[level]
+	levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]
 	if !exists {
 		global.APP_LOG.Warn("等级配置不存在，使用默认配置", zap.Int("level", level))
 		// 使用默认配置

@@ -121,7 +121,7 @@ func (s *Service) GenerateStateToken(providerID uint) (string, error) {
 	state := base64.URLEncoding.EncodeToString(b)
 
 	// 从配置读取state令牌有效期，默认15分钟
-	stateTokenMinutes := global.APP_CONFIG.System.OAuth2StateTokenMinutes
+	stateTokenMinutes := global.GetAppConfig().System.OAuth2StateTokenMinutes
 	if stateTokenMinutes <= 0 {
 		stateTokenMinutes = 15 // 默认15分钟
 	}
@@ -611,10 +611,10 @@ func (s *Service) GenerateUniqueUsername(baseUsername string) string {
 
 // SetUserQuotaByLevel 根据用户等级设置配额
 func (s *Service) SetUserQuotaByLevel(usr *user.User) {
-	levelLimits, ok := global.APP_CONFIG.Quota.LevelLimits[usr.Level]
+	levelLimits, ok := global.GetAppConfig().Quota.LevelLimits[usr.Level]
 	if !ok {
 		// 使用默认等级配置
-		levelLimits = global.APP_CONFIG.Quota.LevelLimits[global.APP_CONFIG.Quota.DefaultLevel]
+		levelLimits = global.GetAppConfig().Quota.LevelLimits[global.GetAppConfig().Quota.DefaultLevel]
 	}
 
 	usr.MaxInstances = levelLimits.MaxInstances

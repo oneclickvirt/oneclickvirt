@@ -16,6 +16,7 @@ import (
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Service 处理用户资源相关功能
@@ -130,7 +131,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 1. 获取并锁定用户（防止并发）
 		var currentUser userModel.User
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&currentUser, userID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&currentUser, userID).Error; err != nil {
 			return fmt.Errorf("获取用户信息失败: %v", err)
 		}
 
@@ -140,7 +141,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		}
 
 		// 2. 获取并锁定Provider（防止并发）
-		if err := tx.Set("gorm:query_option", "FOR UPDATE").First(&provider, req.ProviderID).Error; err != nil {
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderID).Error; err != nil {
 			return errors.New("提供商不存在")
 		}
 

@@ -227,8 +227,7 @@ func InitConfig(configPath ...string) *viper.Viper {
 		fmt.Printf("[CONFIG] 配置文件 %s 不存在，创建默认配置...\n", config)
 		if err := createDefaultConfigFile(config); err != nil {
 			fmt.Printf("[CONFIG] 创建默认配置文件失败: %v，使用内存默认配置\n", err)
-			// 使用内存中的默认配置而不是panic
-			global.APP_CONFIG = getDefaultConfig()
+			global.SetAppConfig(getDefaultConfig())
 			return v
 		}
 	}
@@ -236,7 +235,7 @@ func InitConfig(configPath ...string) *viper.Viper {
 	// 读取配置文件
 	if err := v.ReadInConfig(); err != nil {
 		fmt.Printf("[CONFIG] 读取配置文件失败: %v，使用内存默认配置\n", err)
-		global.APP_CONFIG = getDefaultConfig()
+		global.SetAppConfig(getDefaultConfig())
 		return v
 	}
 
@@ -245,44 +244,40 @@ func InitConfig(configPath ...string) *viper.Viper {
 	v.OnConfigChange(func(e fsnotify.Event) {
 		fmt.Printf("[CONFIG] 配置文件已更改: %s\n", e.Name)
 
-		// 尝试重新加载配置
-		newConfig := getDefaultConfig() // 先用默认配置作为基础
+		newConfig := getDefaultConfig()
 		if err := v.Unmarshal(&newConfig); err != nil {
 			fmt.Printf("[CONFIG] 重新加载配置失败: %v，保持原有配置\n", err)
 			return
 		}
 
-		// 验证新配置的有效性
 		if err := validateConfig(&newConfig); err != nil {
 			fmt.Printf("[CONFIG] 新配置验证失败: %v，保持原有配置\n", err)
 			return
 		}
 
-		// 应用新配置
-		global.APP_CONFIG = newConfig
-		selectDatabaseType(&global.APP_CONFIG)
+		selectDatabaseType(&newConfig)
+		global.SetAppConfig(newConfig)
 		fmt.Println("[CONFIG] 配置已重新加载")
 
-		// 记录配置变更
 		if global.APP_LOG != nil {
 			global.APP_LOG.Info("配置文件重新加载成功", zap.String("file", e.Name))
 		}
 	})
 
 	// 解析配置到全局变量
-	if err := v.Unmarshal(&global.APP_CONFIG); err != nil {
+	loadedConfig := getDefaultConfig()
+	if err := v.Unmarshal(&loadedConfig); err != nil {
 		fmt.Printf("[CONFIG] 解析配置文件失败: %v，使用内存默认配置\n", err)
-		global.APP_CONFIG = getDefaultConfig()
+		global.SetAppConfig(getDefaultConfig())
 	} else {
-		// 验证配置
-		if err := validateConfig(&global.APP_CONFIG); err != nil {
+		if err := validateConfig(&loadedConfig); err != nil {
 			fmt.Printf("[CONFIG] 配置验证失败: %v，使用内存默认配置\n", err)
-			global.APP_CONFIG = getDefaultConfig()
+			global.SetAppConfig(getDefaultConfig())
+		} else {
+			selectDatabaseType(&loadedConfig)
+			global.SetAppConfig(loadedConfig)
 		}
 	}
-
-	// 智能选择数据库类型
-	selectDatabaseType(&global.APP_CONFIG)
 
 	return v
 }

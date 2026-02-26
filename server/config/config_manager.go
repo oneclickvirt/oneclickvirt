@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -127,8 +128,9 @@ type ConfigValidationRule struct {
 type ConfigChangeCallback func(key string, oldValue, newValue interface{}) error
 
 var (
-	configManager *ConfigManager
-	once          sync.Once
+	configManager   *ConfigManager
+	configManagerMu sync.RWMutex // 保护包级 configManager 变量
+	once            sync.Once
 )
 
 // NewConfigManager 创建新的配置管理器
@@ -143,20 +145,24 @@ func NewConfigManager(db *gorm.DB, logger *zap.Logger) *ConfigManager {
 
 // GetConfigManager 获取配置管理器实例
 func GetConfigManager() *ConfigManager {
+	configManagerMu.RLock()
+	defer configManagerMu.RUnlock()
 	return configManager
 }
 
 // PreInitializeConfigManager 预初始化配置管理器并注册回调（在InitializeConfigManager之前调用）
 func PreInitializeConfigManager(db *gorm.DB, logger *zap.Logger, callback ConfigChangeCallback) {
-	// 如果配置管理器还不存在，创建它但不加载配置
+	configManagerMu.Lock()
 	if configManager == nil {
 		configManager = NewConfigManager(db, logger)
 		configManager.initValidationRules()
 	}
+	cm := configManager
+	configManagerMu.Unlock()
 
-	// 注册回调
+	// 注册回调（RegisterChangeCallback 内部有自己的锁）
 	if callback != nil {
-		configManager.RegisterChangeCallback(callback)
+		cm.RegisterChangeCallback(callback)
 		logger.Info("配置变更回调已提前注册")
 	}
 }
@@ -164,13 +170,15 @@ func PreInitializeConfigManager(db *gorm.DB, logger *zap.Logger, callback Config
 // InitializeConfigManager 初始化配置管理器
 func InitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 	once.Do(func() {
-		// 如果配置管理器还不存在，创建它
+		configManagerMu.Lock()
 		if configManager == nil {
 			configManager = NewConfigManager(db, logger)
 			configManager.initValidationRules()
 		}
-		// 加载配置（此时回调已经注册好了）
-		configManager.loadConfigFromDB()
+		cm := configManager
+		configManagerMu.Unlock()
+		// 加载配置在锁外执行（可能耗时），此时回调已经注册好了
+		cm.loadConfigFromDB()
 	})
 }
 
@@ -183,18 +191,20 @@ func ReInitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 		return
 	}
 
-	// 直接重新创建配置管理器实例（如果不存在）或更新现有实例
+	configManagerMu.Lock()
 	if configManager == nil {
 		configManager = NewConfigManager(db, logger)
 		configManager.initValidationRules()
 	} else {
-		// 更新数据库和日志记录器引用
+		// 更新数据库和日志记录器引用（受 configManagerMu 保护）
 		configManager.db = db
 		configManager.logger = logger
 	}
+	cm := configManager
+	configManagerMu.Unlock()
 
-	// 重新加载配置（此时回调应该已经注册好了）
-	configManager.loadConfigFromDB()
+	// 重新加载配置在锁外执行（可能耗时），此时回调应该已经注册好了
+	cm.loadConfigFromDB()
 
 	logger.Info("配置管理器重新初始化完成")
 }
@@ -223,10 +233,10 @@ func (cm *ConfigManager) GetAllConfig() map[string]interface{} {
 // SetConfig 设置单个配置项
 func (cm *ConfigManager) SetConfig(key string, value interface{}) error {
 	cm.mu.Lock()
-	defer cm.mu.Unlock()
 
 	// 验证配置值
 	if err := cm.validateConfig(key, value); err != nil {
+		cm.mu.Unlock()
 		return fmt.Errorf("配置验证失败: %v", err)
 	}
 
@@ -241,19 +251,68 @@ func (cm *ConfigManager) SetConfig(key string, value interface{}) error {
 	if err := cm.saveConfigToDB(key, value); err != nil {
 		// 回滚
 		cm.configCache[key] = oldValue
+		cm.mu.Unlock()
 		return fmt.Errorf("保存配置到数据库失败: %v", err)
 	}
 
-	// 触发回调
-	for _, callback := range cm.changeCallbacks {
-		if err := callback(key, oldValue, value); err != nil {
-			cm.logger.Error("配置变更回调失败",
-				zap.String("key", key),
-				zap.Error(err))
+	// 提取 top-level category 并构建 category map（用于回调）
+	category, categoryMap := cm.buildCategoryMapFromCache(key)
+
+	// 复制回调列表（避免持锁时调用回调）
+	callbacks := make([]ConfigChangeCallback, len(cm.changeCallbacks))
+	copy(callbacks, cm.changeCallbacks)
+	cm.mu.Unlock()
+
+	// 在锁外触发回调
+	// 优先尝试 category 级别的回调（与 UpdateConfig 保持一致）
+	if category != "" && categoryMap != nil {
+		for _, callback := range callbacks {
+			if err := callback(category, nil, categoryMap); err != nil {
+				cm.logger.Error("配置变更回调失败",
+					zap.String("key", key),
+					zap.String("category", category),
+					zap.Error(err))
+			}
+		}
+	} else {
+		// 无法提取 category 时，使用原始 flat key 回调
+		for _, callback := range callbacks {
+			if err := callback(key, oldValue, value); err != nil {
+				cm.logger.Error("配置变更回调失败",
+					zap.String("key", key),
+					zap.Error(err))
+			}
 		}
 	}
 
 	return nil
+}
+
+// buildCategoryMapFromCache 从 configCache 中提取 top-level category 及其完整 map
+// key 格式为 "category.sub-key"，返回 category 名称和该 category 下的所有配置
+func (cm *ConfigManager) buildCategoryMapFromCache(key string) (string, map[string]interface{}) {
+	dotIdx := strings.Index(key, ".")
+	if dotIdx <= 0 {
+		// key 本身就是 top-level category（没有 dot）
+		if v, ok := cm.configCache[key]; ok {
+			if m, ok := v.(map[string]interface{}); ok {
+				return key, m
+			}
+		}
+		return "", nil
+	}
+	category := key[:dotIdx]
+	prefix := category + "."
+	result := make(map[string]interface{})
+	for k, v := range cm.configCache {
+		if strings.HasPrefix(k, prefix) {
+			result[k[len(prefix):]] = v
+		}
+	}
+	if len(result) == 0 {
+		return "", nil
+	}
+	return category, result
 }
 
 // UpdateConfig 批量更新配置

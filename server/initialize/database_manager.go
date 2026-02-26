@@ -297,8 +297,8 @@ func (dm *DatabaseManager) Shutdown() {
 
 // GormMysqlConnect 直接连接数据库（不经过管理器）
 func GormMysqlConnect(cfg config.MysqlConfig) (*gorm.DB, error) {
-	m := global.APP_CONFIG.Mysql
-	dbType := global.APP_CONFIG.System.DbType
+	m := global.GetAppConfig().Mysql
+	dbType := global.GetAppConfig().System.DbType
 	if dbType == "" {
 		dbType = "mysql"
 	}

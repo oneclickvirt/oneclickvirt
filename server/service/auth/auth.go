@@ -98,7 +98,7 @@ func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User,
 // loginWithEmailCode 邮箱验证码登录
 func (s *AuthService) loginWithEmailCode(req auth.LoginRequest) (*userModel.User, string, error) {
 	// 检查邮箱登录是否启用
-	if !global.APP_CONFIG.Auth.EnableEmail {
+	if !global.GetAppConfig().Auth.EnableEmail {
 		return nil, "", common.NewError(common.CodeInvalidParam, "邮箱登录未启用")
 	}
 
@@ -141,7 +141,7 @@ func (s *AuthService) loginWithEmailCode(req auth.LoginRequest) (*userModel.User
 // loginWithTelegramCode Telegram验证码登录
 func (s *AuthService) loginWithTelegramCode(req auth.LoginRequest) (*userModel.User, string, error) {
 	// 检查Telegram登录是否启用
-	if !global.APP_CONFIG.Auth.EnableTelegram {
+	if !global.GetAppConfig().Auth.EnableTelegram {
 		return nil, "", common.NewError(common.CodeInvalidParam, "Telegram登录未启用")
 	}
 
@@ -184,7 +184,7 @@ func (s *AuthService) loginWithTelegramCode(req auth.LoginRequest) (*userModel.U
 // loginWithQQCode QQ验证码登录
 func (s *AuthService) loginWithQQCode(req auth.LoginRequest) (*userModel.User, string, error) {
 	// 检查QQ登录是否启用
-	if !global.APP_CONFIG.Auth.EnableQQ {
+	if !global.GetAppConfig().Auth.EnableQQ {
 		return nil, "", common.NewError(common.CodeInvalidParam, "QQ登录未启用")
 	}
 
@@ -226,8 +226,8 @@ func (s *AuthService) loginWithQQCode(req auth.LoginRequest) (*userModel.User, s
 
 func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, userAgent string) error {
 	// 检查注册是否启用
-	enableRegistration := global.APP_CONFIG.Auth.EnablePublicRegistration
-	if !enableRegistration && !global.APP_CONFIG.InviteCode.Enabled {
+	enableRegistration := global.GetAppConfig().Auth.EnablePublicRegistration
+	if !enableRegistration && !global.GetAppConfig().InviteCode.Enabled {
 		return errors.New("注册功能已被禁用")
 	}
 
@@ -240,8 +240,8 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 			zap.String("captchaId", req.CaptchaId),
 			zap.String("captcha", req.Captcha),
 			zap.Bool("shouldCheck", authValidationService.ShouldCheckCaptcha()),
-			zap.String("env", global.APP_CONFIG.System.Env),
-			zap.Bool("captchaEnabled", global.APP_CONFIG.Captcha.Enabled))
+			zap.String("env", global.GetAppConfig().System.Env),
+			zap.Bool("captchaEnabled", global.GetAppConfig().Captcha.Enabled))
 		if req.CaptchaId == "" || req.Captcha == "" {
 			global.APP_LOG.Warn("注册验证码参数缺失",
 				zap.String("username", req.Username),
@@ -252,13 +252,13 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	} else {
 		global.APP_LOG.Debug("注册跳过验证码检查",
 			zap.String("username", req.Username),
-			zap.String("env", global.APP_CONFIG.System.Env),
-			zap.Bool("captchaEnabled", global.APP_CONFIG.Captcha.Enabled))
+			zap.String("env", global.GetAppConfig().System.Env),
+			zap.Bool("captchaEnabled", global.GetAppConfig().Captcha.Enabled))
 	}
 
 	// 邀请码验证逻辑
 	// 如果启用邀请码系统且未启用公开注册，则必须要邀请码
-	if global.APP_CONFIG.InviteCode.Enabled && !global.APP_CONFIG.Auth.EnablePublicRegistration {
+	if global.GetAppConfig().InviteCode.Enabled && !global.GetAppConfig().Auth.EnablePublicRegistration {
 		if req.InviteCode == "" {
 			return common.NewError(common.CodeInvalidParam, "邀请码不能为空")
 		}
@@ -316,7 +316,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		Telegram: req.Telegram,
 		QQ:       req.QQ,
 		UserType: "user",
-		Level:    global.APP_CONFIG.Quota.DefaultLevel,
+		Level:    global.GetAppConfig().Quota.DefaultLevel,
 		Status:   1, // 默认状态为正常
 		// 资源限制将在创建后通过同步服务自动设置
 		// UsedTraffic字段已删除，流量数据从pmacct_traffic_records实时查询
@@ -330,7 +330,7 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 	user.TrafficResetAt = &resetTime
 
 	// 根据全局配置设置用户过期时间
-	levelLimits := global.APP_CONFIG.Quota.LevelLimits
+	levelLimits := global.GetAppConfig().Quota.LevelLimits
 	if levelLimit, exists := levelLimits[user.Level]; exists && levelLimit.ExpiryDays > 0 {
 		// 如果配置了该等级的过期天数，设置过期时间
 		expiryTime := now.AddDate(0, 0, levelLimit.ExpiryDays)

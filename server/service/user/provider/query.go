@@ -462,7 +462,7 @@ func (s *Service) GetInstanceTypePermissions(userID uint) (map[string]interface{
 	}
 
 	// 从配置获取实例类型权限
-	permissions := global.APP_CONFIG.Quota.InstanceTypePermissions
+	permissions := global.GetAppConfig().Quota.InstanceTypePermissions
 
 	// 检查用户等级是否允许创建容器和虚拟机
 	canCreateContainer := user.Level >= permissions.MinLevelForContainer

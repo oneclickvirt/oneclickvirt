@@ -214,12 +214,12 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 
 	// 基础配置 - 所有用户可见
 	result["auth"] = map[string]interface{}{
-		"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
+		"enablePublicRegistration": global.GetAppConfig().Auth.EnablePublicRegistration,
 	}
 
 	// 配额配置 - 从 global.APP_CONFIG 获取完整配置
 	levelLimits := make(map[string]interface{})
-	for level, limitInfo := range global.APP_CONFIG.Quota.LevelLimits {
+	for level, limitInfo := range global.GetAppConfig().Quota.LevelLimits {
 		levelKey := fmt.Sprintf("%d", level)
 		levelLimits[levelKey] = map[string]interface{}{
 			"max-instances": limitInfo.MaxInstances,
@@ -229,7 +229,7 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 	}
 
 	result["quota"] = map[string]interface{}{
-		"defaultLevel": global.APP_CONFIG.Quota.DefaultLevel,
+		"defaultLevel": global.GetAppConfig().Quota.DefaultLevel,
 		"levelLimits":  levelLimits,
 	}
 
@@ -237,9 +237,9 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 	hasAdminPermission := permissionService.HasPermission(authCtx.UserID, "admin")
 	if hasAdminPermission {
 		authConfig := result["auth"].(map[string]interface{})
-		authConfig["enableEmail"] = global.APP_CONFIG.Auth.EnableEmail
-		authConfig["enableTelegram"] = global.APP_CONFIG.Auth.EnableTelegram
-		authConfig["enableQQ"] = global.APP_CONFIG.Auth.EnableQQ
+		authConfig["enableEmail"] = global.GetAppConfig().Auth.EnableEmail
+		authConfig["enableTelegram"] = global.GetAppConfig().Auth.EnableTelegram
+		authConfig["enableQQ"] = global.GetAppConfig().Auth.EnableQQ
 	}
 
 	return result
@@ -253,29 +253,29 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 
 	// 认证配置
 	result["auth"] = map[string]interface{}{
-		"enableEmail":              global.APP_CONFIG.Auth.EnableEmail,
-		"enableTelegram":           global.APP_CONFIG.Auth.EnableTelegram,
-		"enableQQ":                 global.APP_CONFIG.Auth.EnableQQ,
-		"enableOAuth2":             global.APP_CONFIG.Auth.EnableOAuth2,
-		"enablePublicRegistration": global.APP_CONFIG.Auth.EnablePublicRegistration,
-		"emailSMTPHost":            global.APP_CONFIG.Auth.EmailSMTPHost,
-		"emailSMTPPort":            global.APP_CONFIG.Auth.EmailSMTPPort,
-		"emailUsername":            global.APP_CONFIG.Auth.EmailUsername,
-		"emailPassword":            global.APP_CONFIG.Auth.EmailPassword,
-		"telegramBotToken":         global.APP_CONFIG.Auth.TelegramBotToken,
-		"qqAppID":                  global.APP_CONFIG.Auth.QQAppID,
-		"qqAppKey":                 global.APP_CONFIG.Auth.QQAppKey,
+		"enableEmail":              global.GetAppConfig().Auth.EnableEmail,
+		"enableTelegram":           global.GetAppConfig().Auth.EnableTelegram,
+		"enableQQ":                 global.GetAppConfig().Auth.EnableQQ,
+		"enableOAuth2":             global.GetAppConfig().Auth.EnableOAuth2,
+		"enablePublicRegistration": global.GetAppConfig().Auth.EnablePublicRegistration,
+		"emailSMTPHost":            global.GetAppConfig().Auth.EmailSMTPHost,
+		"emailSMTPPort":            global.GetAppConfig().Auth.EmailSMTPPort,
+		"emailUsername":            global.GetAppConfig().Auth.EmailUsername,
+		"emailPassword":            global.GetAppConfig().Auth.EmailPassword,
+		"telegramBotToken":         global.GetAppConfig().Auth.TelegramBotToken,
+		"qqAppID":                  global.GetAppConfig().Auth.QQAppID,
+		"qqAppKey":                 global.GetAppConfig().Auth.QQAppKey,
 	}
 
 	// 邀请码配置
 	result["inviteCode"] = map[string]interface{}{
-		"enabled":  global.APP_CONFIG.InviteCode.Enabled,
-		"required": global.APP_CONFIG.InviteCode.Required,
+		"enabled":  global.GetAppConfig().InviteCode.Enabled,
+		"required": global.GetAppConfig().InviteCode.Required,
 	}
 
 	// 配额配置 - 从 global.APP_CONFIG 获取完整的等级限制
 	levelLimits := make(map[string]interface{})
-	for level, limitInfo := range global.APP_CONFIG.Quota.LevelLimits {
+	for level, limitInfo := range global.GetAppConfig().Quota.LevelLimits {
 		levelKey := fmt.Sprintf("%d", level)
 		levelLimits[levelKey] = map[string]interface{}{
 			"max-instances": limitInfo.MaxInstances,
@@ -285,21 +285,21 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 	}
 
 	result["quota"] = map[string]interface{}{
-		"defaultLevel": global.APP_CONFIG.Quota.DefaultLevel,
+		"defaultLevel": global.GetAppConfig().Quota.DefaultLevel,
 		"levelLimits":  levelLimits,
 		"instanceTypePermissions": map[string]interface{}{
-			"minLevelForContainer":       global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForContainer,
-			"minLevelForVM":              global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForVM,
-			"minLevelForDeleteContainer": global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteContainer,
-			"minLevelForDeleteVM":        global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForDeleteVM,
-			"minLevelForResetContainer":  global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetContainer,
-			"minLevelForResetVM":         global.APP_CONFIG.Quota.InstanceTypePermissions.MinLevelForResetVM,
+			"minLevelForContainer":       global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForContainer,
+			"minLevelForVM":              global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForVM,
+			"minLevelForDeleteContainer": global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForDeleteContainer,
+			"minLevelForDeleteVM":        global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForDeleteVM,
+			"minLevelForResetContainer":  global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForResetContainer,
+			"minLevelForResetVM":         global.GetAppConfig().Quota.InstanceTypePermissions.MinLevelForResetVM,
 		},
 	}
 
 	// 其他配置
 	result["other"] = map[string]interface{}{
-		"defaultLanguage": global.APP_CONFIG.Other.DefaultLanguage,
+		"defaultLanguage": global.GetAppConfig().Other.DefaultLanguage,
 	}
 
 	return result
