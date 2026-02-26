@@ -105,9 +105,14 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 	var users []userModel.User
 	if len(userIDs) > 0 {
 		// 只查询必要字段，减少数据传输
-		global.APP_DB.Select("id, username, email, level, status").
+		if err := global.APP_DB.Select("id, username, email, level, status").
 			Where("id IN ?", userIDs).
-			Find(&users)
+			Find(&users).Error; err != nil {
+			// 查询用户失败时记录日志但不中断流程
+			global.APP_LOG.Warn("批量查询实例关联用户信息失败，将返回不含用户名的列表",
+				zap.Error(err),
+				zap.Int("userCount", len(userIDs)))
+		}
 	}
 
 	// 将用户信息按ID映射

@@ -94,11 +94,16 @@ func (s *Service) BatchDeleteUsers(userIDs []uint) (map[string]interface{}, erro
 		InstanceCount int64
 	}
 	var countResults []InstanceCountResult
-	global.APP_DB.Model(&providerModel.Instance{}).
+	if err := global.APP_DB.Model(&providerModel.Instance{}).
 		Select("user_id, COUNT(*) as instance_count").
 		Where("user_id IN ?", userIDs).
 		Group("user_id").
-		Scan(&countResults)
+		Scan(&countResults).Error; err != nil {
+		// 查询实例统计失败时记录日志但不中断流程
+		global.APP_LOG.Warn("批量查询用户实例数量失败",
+			zap.Error(err),
+			zap.Int("userCount", len(userIDs)))
+	}
 
 	// 将实例数量按user_id映射
 	instanceCountMap := make(map[uint]int64)

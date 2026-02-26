@@ -71,11 +71,16 @@ func (s *Service) GetUserList(req admin.UserListRequest) ([]admin.UserManageResp
 	}
 	var countResults []InstanceCountResult
 	if len(userIDs) > 0 {
-		global.APP_DB.Model(&providerModel.Instance{}).
+		if err := global.APP_DB.Model(&providerModel.Instance{}).
 			Select("user_id, COUNT(*) as instance_count").
 			Where("user_id IN ?", userIDs).
 			Group("user_id").
-			Scan(&countResults)
+			Scan(&countResults).Error; err != nil {
+			// 查询实例统计失败时记录日志但不中断流程
+			global.APP_LOG.Warn("批量查询用户实例数量失败",
+				zap.Error(err),
+				zap.Int("userCount", len(userIDs)))
+		}
 	}
 
 	// 将统计结果按user_id映射
@@ -524,7 +529,13 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 
 	// 检查是否有管理员用户，管理员用户应该始终是最高等级
 	var specialUsers []userModel.User
-	global.APP_DB.Where("id IN ? AND user_type IN ?", userIDs, []string{"admin"}).Find(&specialUsers)
+	if err := global.APP_DB.Where("id IN ? AND user_type IN ?", userIDs, []string{"admin"}).Find(&specialUsers).Error; err != nil {
+		global.APP_LOG.Warn("检查管理员用户失败",
+			zap.Error(err),
+			zap.Int("userCount", len(userIDs)))
+		// 出错时继续，假设没有特殊用户
+		specialUsers = []userModel.User{}
+	}
 
 	// 为特殊用户设置最高等级
 	if len(specialUsers) > 0 {

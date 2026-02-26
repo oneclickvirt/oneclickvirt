@@ -465,6 +465,11 @@ func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]admi
 			for _, user := range users {
 				userMap[user.ID] = user
 			}
+		} else {
+			// 查询用户失败时记录日志
+			global.APP_LOG.Warn("批量查询任务关联用户信息失败",
+				zap.Error(err),
+				zap.Int("userCount", len(userIDs)))
 		}
 	}
 
