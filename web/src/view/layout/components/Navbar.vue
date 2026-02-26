@@ -186,13 +186,14 @@ const logout = async () => {
       .el-button {
         color: var(--text-color-primary);
         background: transparent;
-        border: 1px solid rgba(22, 163, 74, 0.2);
+        border: 1px solid var(--border-color);
         display: flex;
         align-items: center;
         justify-content: center;
-        padding: 8px;
-        border-radius: 20px;
-        min-width: 36px;
+        padding: 8px 12px;
+        border-radius: 25px;
+        min-width: 40px;
+        font-size: 16px;
 
         &:hover {
           background: rgba(22, 163, 74, 0.08);
@@ -209,12 +210,13 @@ const logout = async () => {
       .el-button {
         color: var(--text-color-primary);
         background: transparent;
-        border: 1px solid rgba(22, 163, 74, 0.2);
+        border: 1px solid var(--border-color);
         display: flex;
         align-items: center;
         gap: 6px;
-        padding: 8px 15px;
-        border-radius: 20px;
+        padding: 8px 20px;
+        border-radius: 25px;
+        font-size: 16px;
         
         &:hover {
           background: rgba(22, 163, 74, 0.08);
@@ -223,7 +225,7 @@ const logout = async () => {
         }
 
         .language-text {
-          font-size: 14px;
+          font-size: 16px;
           font-weight: 500;
         }
       }
@@ -264,7 +266,8 @@ const logout = async () => {
         .username {
           margin-left: 10px;
           margin-right: 5px;
-          font-size: var(--font-size-sm);
+          font-size: 15px;
+          font-weight: 500;
         }
 
         .el-icon-caret-bottom {
