@@ -13,6 +13,13 @@
         </div>
         <nav class="nav-actions">
           <button
+            class="nav-link theme-btn"
+            :title="themeStore.isDark ? t('navbar.lightMode') : t('navbar.darkMode')"
+            @click="toggleTheme"
+          >
+            <el-icon><component :is="themeStore.isDark ? Sunny : Moon" /></el-icon>
+          </button>
+          <button
             class="nav-link language-btn"
             @click="switchLanguage"
           >
@@ -163,15 +170,17 @@ import { getCaptcha } from '@/api/auth'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 import { getPublicConfig } from '@/api/public'
 import { getEnabledOAuth2Providers } from '@/api/oauth2'
-import { Connection, Operation, HomeFilled } from '@element-plus/icons-vue'
+import { Connection, Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useLanguageStore } from '@/pinia/modules/language'
+import { useThemeStore } from '@/pinia/modules/theme'
 
 const router = useRouter()
 const userStore = useUserStore()
 const { t, locale } = useI18n()
 const { executeAsync, handleSubmit } = useErrorHandler()
 const languageStore = useLanguageStore()
+const themeStore = useThemeStore()
 
 const loginFormRef = ref()
 const loading = ref(false)
@@ -299,6 +308,10 @@ const switchLanguage = () => {
   ElMessage.success(t('navbar.languageSwitched'))
 }
 
+const toggleTheme = () => {
+  themeStore.toggleTheme()
+}
+
 onMounted(() => {
   refreshCaptcha()
   checkOAuth2Config()
@@ -310,25 +323,13 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background-color: #f5f7fa;
+  background: var(--auth-page-bg);
 }
 
-.login-container::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, #74b9ff 0%, #0984e3 100%);
-  background-size: cover;
-  opacity: 0.1;
-  z-index: -1;
-}
 
 /* 顶部栏样式 */
 .auth-header {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--auth-header-bg);
   backdrop-filter: blur(20px);
   box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
   border-bottom: 1px solid rgba(22, 163, 74, 0.1);
@@ -373,6 +374,10 @@ onMounted(() => {
   gap: 12px;
 }
 
+.nav-link.theme-btn {
+  padding: 10px 12px;
+}
+
 .nav-link {
   text-decoration: none;
   display: flex;
@@ -380,9 +385,9 @@ onMounted(() => {
   gap: 6px;
   padding: 12px 24px;
   border-radius: 25px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   background: transparent;
-  color: #374151;
+  color: var(--text-color-primary);
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
@@ -412,11 +417,14 @@ onMounted(() => {
   margin: auto;
   margin-top: 60px;
   margin-bottom: 60px;
-  width: 400px;
-  padding: 40px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  width: 420px;
+  padding: 48px 44px;
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(22, 163, 74, 0.12), 0 4px 20px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(22, 163, 74, 0.1);
 }
 
 .login-form :deep(.el-form) {
@@ -448,9 +456,13 @@ onMounted(() => {
 }
 
 .login-header h2 {
-  font-size: 24px;
-  color: #303133;
+  font-size: 26px;
+  font-weight: 700;
   margin-bottom: 10px;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
 }
 
 .login-header p {
@@ -467,8 +479,14 @@ onMounted(() => {
 }
 
 .forgot-link {
-  color: #409eff;
+  color: #16a34a;
   text-decoration: none;
+  font-weight: 500;
+  transition: color 0.2s;
+}
+
+.forgot-link:hover {
+  color: #15803d;
 }
 
 .form-actions {
@@ -488,8 +506,9 @@ onMounted(() => {
 }
 
 .form-footer a {
-  color: #409eff;
+  color: #16a34a;
   text-decoration: none;
+  font-weight: 500;
 }
 
 .admin-login {
@@ -505,7 +524,7 @@ onMounted(() => {
 }
 
 .admin-link:hover {
-  color: #409eff;
+  color: #16a34a;
 }
 
 .captcha-container {
@@ -523,7 +542,7 @@ onMounted(() => {
 .captcha-image {
   width: 120px;
   height: 40px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   overflow: hidden;
   cursor: pointer;
@@ -569,7 +588,7 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   background: white;
   color: #606266;
   margin: 0 !important;
@@ -578,8 +597,8 @@ onMounted(() => {
 }
 
 .oauth2-button:hover {
-  border-color: #409eff;
-  color: #409eff;
+  border-color: #16a34a;
+  color: #16a34a;
 }
 
 .oauth2-providers :deep(.el-button) {

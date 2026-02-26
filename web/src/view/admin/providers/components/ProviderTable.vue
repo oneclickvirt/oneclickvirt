@@ -759,13 +759,13 @@ const handleAction = (action) => {
 
 .table-action-link {
   cursor: pointer;
-  color: #409eff;
+  color: #16a34a;
   text-decoration: none;
   font-size: 13px;
 }
 
 .table-action-link:hover {
-  color: #66b1ff;
+  color: #15803d;
 }
 
 .table-action-link.success {

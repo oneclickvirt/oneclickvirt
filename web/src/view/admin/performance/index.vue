@@ -602,7 +602,7 @@ export default {
         
         .subtitle {
           margin: 5px 0 0;
-          color: #909399;
+          color: var(--text-color-secondary);
           font-size: 14px;
         }
       }
@@ -639,10 +639,10 @@ export default {
         color: white;
         margin-right: 15px;
         
-        &.goroutine { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); }
-        &.memory { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
-        &.gc { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
-        &.database { background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%); }
+        &.goroutine { background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%); }
+        &.memory { background: linear-gradient(135deg, #059669 0%, #10b981 100%); }
+        &.gc { background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%); }
+        &.database { background: linear-gradient(135deg, #65a30d 0%, #84cc16 100%); }
       }
       
       .metric-content {
@@ -650,7 +650,7 @@ export default {
         
         .metric-label {
           font-size: 14px;
-          color: #909399;
+          color: var(--text-color-secondary);
           margin-bottom: 5px;
         }
         
@@ -667,17 +667,17 @@ export default {
           display: inline-block;
           
           &.normal {
-            background: #f0f9ff;
-            color: #409eff;
+            background: var(--success-bg);
+            color: #16a34a;
           }
           
           &.warning {
-            background: #fdf6ec;
+            background: var(--warning-bg);
             color: #e6a23c;
           }
           
           &.critical {
-            background: #fef0f0;
+            background: var(--error-bg);
             color: #f56c6c;
           }
         }

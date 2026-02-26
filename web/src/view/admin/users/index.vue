@@ -1244,7 +1244,7 @@ const handleCurrentChange = (page) => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
   
   .header-actions {
@@ -1316,7 +1316,7 @@ const handleCurrentChange = (page) => {
   align-items: center;
   gap: 12px;
   padding: 12px 16px;
-  background-color: #f5f7fa;
+  background-color: var(--neutral-bg);
   border-radius: 4px;
   
   .el-button {
@@ -1325,7 +1325,7 @@ const handleCurrentChange = (page) => {
 }
 
 .selection-info {
-  color: #409eff;
+  color: #16a34a;
   font-weight: 500;
 }
 
@@ -1343,7 +1343,7 @@ const handleCurrentChange = (page) => {
   margin-top: 5px;
   font-size: 12px;
   line-height: 1.4;
-  color: #909399;
+  color: var(--text-color-secondary);
 }
 
 .dialog-footer {

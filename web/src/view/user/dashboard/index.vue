@@ -402,7 +402,7 @@ onUnmounted(() => {
 
 .dashboard-header h1 {
   margin: 0 0 8px 0;
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-size: 28px;
   font-weight: 600;
   display: flex;
@@ -413,7 +413,7 @@ onUnmounted(() => {
 
 .dashboard-header p {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 16px;
 }
 
@@ -427,7 +427,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 /* 资源限制信息 */
@@ -443,9 +443,9 @@ onUnmounted(() => {
 
 .limit-item {
   padding: 16px;
-  background: #f9fafb;
+  background: var(--neutral-bg);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
 }
 
 .limit-header {
@@ -457,12 +457,12 @@ onUnmounted(() => {
 
 .limit-title {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .limit-usage {
   font-weight: 600;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .limit-description {
@@ -489,14 +489,14 @@ onUnmounted(() => {
 
 .announcement-item {
   padding: 16px;
-  background: #f8fafc;
+  background: var(--neutral-bg);
   border-radius: 8px;
   border-left: 4px solid #10b981;
 }
 
 .announcement-title {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 8px;
 }
 

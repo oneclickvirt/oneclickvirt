@@ -1437,7 +1437,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 14px;
 }
 
@@ -1472,7 +1472,7 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 28px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .server-meta {
@@ -1482,7 +1482,7 @@ onUnmounted(() => {
 }
 
 .server-provider {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 14px;
 }
 
@@ -1506,7 +1506,7 @@ onUnmounted(() => {
   margin: 0 0 16px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .hardware-grid {
@@ -1520,17 +1520,17 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 8px 12px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 6px;
 }
 
 .hardware-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 14px;
 }
 
 .hardware-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 600;
   font-size: 14px;
 }
@@ -1565,7 +1565,7 @@ onUnmounted(() => {
   margin: 0 0 20px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .connection-grid,
@@ -1581,14 +1581,14 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 8px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
 }
 
 .connection-item .label,
 .info-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
   font-size: 14px;
 }
@@ -1601,7 +1601,7 @@ onUnmounted(() => {
 
 .connection-item .value,
 .info-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 500;
   font-size: 14px;
 }
@@ -1626,7 +1626,7 @@ onUnmounted(() => {
   align-items: center;
   margin-bottom: 20px;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 8px;
 }
 
@@ -1643,14 +1643,14 @@ onUnmounted(() => {
 
 .summary-item .label {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
 }
 
 .summary-item .value {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .ports-table {
@@ -1663,7 +1663,7 @@ onUnmounted(() => {
 
 .command-text {
   font-size: 12px;
-  color: #374151;
+  color: var(--text-color-primary);
   background: #f3f4f6;
   padding: 4px 8px;
   border-radius: 4px;
@@ -1688,7 +1688,7 @@ onUnmounted(() => {
 .no-ports {
   text-align: center;
   padding: 60px 20px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 /* 统计标签页 */
@@ -1716,7 +1716,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .section-actions {
@@ -1733,12 +1733,12 @@ onUnmounted(() => {
 .monitor-item {
   text-align: center;
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 8px;
 }
 
 .monitor-label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 14px;
   margin-bottom: 12px;
   font-weight: 500;
@@ -1752,7 +1752,7 @@ onUnmounted(() => {
 
 .traffic-usage {
   padding: 20px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 8px;
   margin-bottom: 0;
 }
@@ -1767,12 +1767,12 @@ onUnmounted(() => {
 .usage-label {
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .usage-info {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .usage-details {
@@ -1789,14 +1789,14 @@ onUnmounted(() => {
 }
 
 .reset-info {
-  color: #909399;
+  color: var(--text-color-secondary);
 }
 
 .traffic-breakdown h4 {
   margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .history-list {
@@ -1809,23 +1809,23 @@ onUnmounted(() => {
   grid-template-columns: 100px 120px 1fr;
   gap: 16px;
   padding: 12px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 6px;
   font-size: 14px;
 }
 
 .history-item .month {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
 }
 
 .history-item .traffic {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 600;
 }
 
 .history-item .breakdown {
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 /* 响应式设计 */
@@ -1907,7 +1907,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px 20px;
-  background-color: #ffffff;
+  background-color: var(--card-bg-solid);
 }
 
 .ssh-dialog-title {
@@ -1922,7 +1922,7 @@ onUnmounted(() => {
 }
 
 .ssh-dialog-actions .el-button {
-  background-color: #ffffff;
+  background-color: var(--card-bg-solid);
   color: #000000;
   border: 1px solid #d0d0d0;
   font-weight: 500;
@@ -1946,7 +1946,7 @@ onUnmounted(() => {
   bottom: 20px;
   right: 20px;
   z-index: 9999;
-  background-color: #ffffff;
+  background-color: var(--card-bg-solid);
   border-radius: 8px;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
   cursor: pointer;
@@ -1968,7 +1968,7 @@ onUnmounted(() => {
   font-size: 14px;
   font-weight: 600;
   min-width: 280px;
-  background-color: #ffffff;
+  background-color: var(--card-bg-solid);
   border-radius: 8px;
 }
 

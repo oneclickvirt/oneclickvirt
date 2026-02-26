@@ -1004,7 +1004,7 @@ const submitApplication = async () => {
     const confirmMessage = `
       <div style="text-align: left; line-height: 2;">
         <p style="margin-bottom: 12px; color: #606266;">${t('user.apply.confirmDialogMessage')}</p>
-        <div style="padding: 12px; background: #f5f7fa; border-radius: 4px;">
+        <div style="padding: 12px; background: var(--neutral-bg); border-radius: 4px;">
           <p><strong>${t('user.apply.confirmProvider')}:</strong> ${selectedProvider.value.name}</p>
           <p><strong>${t('user.apply.confirmInstanceType')}:</strong> ${configForm.type === 'container' ? t('user.apply.container') : t('user.apply.vm')}</p>
           <p><strong>${t('user.apply.confirmImage')}:</strong> ${selectedImage?.name || '-'}</p>
@@ -1258,12 +1258,12 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .page-header p {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .user-limits-card,
@@ -1282,7 +1282,7 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .limits-grid {
@@ -1296,17 +1296,17 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 12px;
-  background: #f9fafb;
+  background: var(--neutral-bg);
   border-radius: 8px;
 }
 
 .limit-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
 }
 
 .limit-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 600;
 }
 
@@ -1317,12 +1317,12 @@ onUnmounted(() => {
 }
 
 .provider-card {
-  border: 2px solid #e5e7eb;
+  border: 2px solid var(--border-color);
   border-radius: 12px;
   padding: 16px;
   cursor: pointer;
   transition: all 0.3s ease;
-  background-color: #ffffff;
+  background-color: var(--card-bg-solid);
 }
 
 .provider-card:hover {
@@ -1333,14 +1333,14 @@ onUnmounted(() => {
 
 .provider-card.selected {
   border-color: #3b82f6;
-  background-color: #eff6ff;
+  background-color: var(--info-bg);
   box-shadow: 0 4px 16px rgba(59, 130, 246, 0.2);
 }
 
 /* Active状态 - 绿色 */
 .provider-card.active {
   border-color: #10b981;
-  background-color: #f0fdf4;
+  background-color: var(--success-bg);
 }
 
 .provider-card.active:hover {
@@ -1350,14 +1350,14 @@ onUnmounted(() => {
 
 .provider-card.active.selected {
   border-color: #059669;
-  background-color: #dcfce7;
+  background-color: var(--success-bg);
   box-shadow: 0 4px 16px rgba(16, 185, 129, 0.25);
 }
 
 /* Offline状态 - 红色 */
 .provider-card.offline {
   border-color: #ef4444;
-  background-color: #fef2f2;
+  background-color: var(--error-bg);
   cursor: not-allowed;
   opacity: 0.7;
   position: relative;
@@ -1388,7 +1388,7 @@ onUnmounted(() => {
 /* Partial状态 - 黄色 */
 .provider-card.partial {
   border-color: #f59e0b;
-  background-color: #fffbeb;
+  background-color: var(--warning-bg);
 }
 
 .provider-card.partial:hover {
@@ -1398,7 +1398,7 @@ onUnmounted(() => {
 
 .provider-card.partial.selected {
   border-color: #d97706;
-  background-color: #fef3c7;
+  background-color: var(--warning-bg);
   box-shadow: 0 4px 16px rgba(245, 158, 11, 0.25);
 }
 
@@ -1413,7 +1413,7 @@ onUnmounted(() => {
   margin: 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .provider-info {
@@ -1436,7 +1436,7 @@ onUnmounted(() => {
 .info-item {
   margin-bottom: 4px;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .loading-container {

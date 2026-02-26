@@ -60,7 +60,7 @@ defineExpose({
   position: relative;
   overflow: hidden;
   padding: var(--spacing-lg);
-  background-color: var(--background-white);
+  background-color: var(--bg-color-tertiary, #f9fafb);
 }
 
 .fade-transform-enter-active,

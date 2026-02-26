@@ -221,7 +221,7 @@ const getTaskStatusText = (status) => {
 <style scoped>
 h4 {
   margin: 16px 0 12px 0;
-  color: #303133;
+  color: var(--text-color-primary);
   font-size: 16px;
   font-weight: 600;
 }

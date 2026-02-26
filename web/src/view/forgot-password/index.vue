@@ -13,6 +13,13 @@
         </div>
         <nav class="nav-actions">
           <button
+            class="nav-link theme-btn"
+            :title="themeStore.isDark ? t('navbar.lightMode') : t('navbar.darkMode')"
+            @click="toggleTheme"
+          >
+            <el-icon><component :is="themeStore.isDark ? Sunny : Moon" /></el-icon>
+          </button>
+          <button
             class="nav-link language-btn"
             @click="switchLanguage"
           >
@@ -125,12 +132,14 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { forgotPassword } from '@/api/auth'
 import { getCaptcha } from '@/api/auth'
-import { Operation, HomeFilled } from '@element-plus/icons-vue'
+import { Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
+import { useThemeStore } from '@/pinia/modules/theme'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
+const themeStore = useThemeStore()
 const forgotFormRef = ref()
 const loading = ref(false)
 const emailSent = ref(false)
@@ -203,6 +212,10 @@ const switchLanguage = () => {
   ElMessage.success(t('navbar.languageSwitched'))
 }
 
+const toggleTheme = () => {
+  themeStore.toggleTheme()
+}
+
 onMounted(() => {
   refreshCaptcha()
 })
@@ -213,12 +226,12 @@ onMounted(() => {
   display: flex;
   flex-direction: column;
   min-height: 100vh;
-  background-color: #f5f7fa;
+  background: var(--auth-page-bg);
 }
 
 /* 顶部栏样式 */
 .auth-header {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--auth-header-bg);
   backdrop-filter: blur(20px);
   box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
   border-bottom: 1px solid rgba(22, 163, 74, 0.1);
@@ -263,6 +276,10 @@ onMounted(() => {
   gap: 12px;
 }
 
+.nav-link.theme-btn {
+  padding: 10px 12px;
+}
+
 .nav-link {
   text-decoration: none;
   display: flex;
@@ -270,9 +287,9 @@ onMounted(() => {
   gap: 6px;
   padding: 12px 24px;
   border-radius: 25px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
   background: transparent;
-  color: #374151;
+  color: var(--text-color-primary);
   font-size: 16px;
   font-weight: 500;
   cursor: pointer;
@@ -302,16 +319,20 @@ onMounted(() => {
   margin: auto;
   margin-top: 60px;
   margin-bottom: 60px;
-  width: 400px;
-  padding: 40px;
-  background-color: #fff;
-  border-radius: 8px;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  width: 420px;
+  padding: 48px 44px;
+  background: var(--card-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  border-radius: 20px;
+  box-shadow: 0 20px 60px rgba(22, 163, 74, 0.12), 0 4px 20px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(22, 163, 74, 0.1);
 }
 
 .forgot-password-form h2 {
-  font-size: 24px;
-  color: #303133;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-color-primary);
   margin-bottom: 10px;
   text-align: center;
 }
@@ -329,8 +350,9 @@ onMounted(() => {
 }
 
 .form-footer a {
-  color: #409eff;
+  color: #16a34a;
   text-decoration: none;
+  font-weight: 500;
 }
 
 .success-message {
@@ -346,7 +368,7 @@ onMounted(() => {
 .captcha-image {
   width: 38%;
   height: 40px;
-  border: 1px solid #dcdfe6;
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   overflow: hidden;
   cursor: pointer;

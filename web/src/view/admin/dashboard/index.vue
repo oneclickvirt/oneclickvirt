@@ -159,7 +159,7 @@ onMounted(async () => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -200,23 +200,23 @@ onMounted(async () => {
 }
 
 .user-icon {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+  background: linear-gradient(135deg, #16a34a 0%, #22c55e 100%);
+  box-shadow: 0 4px 12px rgba(22, 163, 74, 0.4);
 }
 
 .server-icon {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
-  box-shadow: 0 4px 12px rgba(240, 147, 251, 0.4);
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  box-shadow: 0 4px 12px rgba(5, 150, 105, 0.4);
 }
 
 .vm-icon {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
-  box-shadow: 0 4px 12px rgba(79, 172, 254, 0.4);
+  background: linear-gradient(135deg, #0f766e 0%, #14b8a6 100%);
+  box-shadow: 0 4px 12px rgba(15, 118, 110, 0.4);
 }
 
 .container-icon {
-  background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
-  box-shadow: 0 4px 12px rgba(67, 233, 123, 0.4);
+  background: linear-gradient(135deg, #65a30d 0%, #84cc16 100%);
+  box-shadow: 0 4px 12px rgba(101, 163, 13, 0.4);
 }
 
 .stat-info {
@@ -227,7 +227,7 @@ onMounted(async () => {
 .stat-number {
   font-size: 36px;
   font-weight: 700;
-  color: #303133;
+  color: var(--text-color-primary);
   line-height: 1.2;
   margin-bottom: 8px;
 }

@@ -8,5 +8,8 @@ export default {
   confirmLogout: 'Are you sure you want to logout?',
   tip: 'Tip',
   switchLanguage: 'Switch Language',
-  languageSwitched: 'Language switched'
+  languageSwitched: 'Language switched',
+  switchTheme: 'Switch Theme',
+  darkMode: 'Dark Mode',
+  lightMode: 'Light Mode'
 }

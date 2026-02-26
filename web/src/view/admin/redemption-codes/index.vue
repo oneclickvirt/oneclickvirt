@@ -658,7 +658,7 @@ onMounted(async () => {
 .card-header > span {
   font-size: 18px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-color-primary);
 }
 .filter-bar {
   margin-bottom: 16px;
@@ -666,7 +666,7 @@ onMounted(async () => {
 .batch-actions {
   margin-bottom: 12px;
   padding: 10px 12px;
-  background-color: #f5f7fa;
+  background-color: var(--neutral-bg);
   border-radius: 4px;
   display: flex;
   align-items: center;

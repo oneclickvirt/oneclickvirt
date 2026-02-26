@@ -12,6 +12,20 @@
   --shadow-medium: 0 4px 20px rgba(0, 0, 0, 0.06);
   --shadow-button: 0 2px 8px rgba(34, 197, 94, 0.25);
   --shadow-button-hover: 0 4px 12px rgba(34, 197, 94, 0.35);
+
+  /* Element Plus 主题颜色覆盖 - 绿色主题 */
+  --el-color-primary: #16a34a;
+  --el-color-primary-dark-2: #15803d;
+  --el-color-primary-light-3: #5cbf80;
+  --el-color-primary-light-5: #8bd1a5;
+  --el-color-primary-light-7: #b9e3c9;
+  --el-color-primary-light-8: #d0eddb;
+  --el-color-primary-light-9: #e8f6ed;
+  --el-color-primary-light-10: #f0faf4;
+
+  /* Element Plus 链接颜色覆盖 */
+  --el-text-color-primary: #1f2937;
+  --el-border-color-hover: rgba(22, 163, 74, 0.3);
   
   /* 间距变量 */
   --spacing-xs: 5px;

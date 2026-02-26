@@ -844,16 +844,16 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .page-header p {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .filter-section {
-  background: white;
+  background: var(--card-bg-solid);
   padding: 16px;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -867,7 +867,7 @@ onUnmounted(() => {
 }
 
 .server-group {
-  background: white;
+  background: var(--card-bg-solid);
   border-radius: 12px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
   overflow: hidden;
@@ -878,15 +878,15 @@ onUnmounted(() => {
   justify-content: space-between;
   align-items: center;
   padding: 20px;
-  background: #f8fafc;
-  border-bottom: 1px solid #e2e8f0;
+  background: var(--neutral-bg);
+  border-bottom: 1px solid var(--border-color);
 }
 
 .server-header h2 {
   margin: 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .current-tasks {
@@ -897,7 +897,7 @@ onUnmounted(() => {
   margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .current-task {
@@ -910,7 +910,7 @@ onUnmounted(() => {
 
 .task-card.current {
   border-left: 4px solid #f59e0b;
-  background: #fffbeb;
+  background: var(--warning-bg);
 }
 
 .task-header {
@@ -924,12 +924,12 @@ onUnmounted(() => {
   margin: 0 0 4px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .task-target {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .task-progress {
@@ -939,7 +939,7 @@ onUnmounted(() => {
 .progress-text {
   margin-top: 8px;
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .task-details {
@@ -954,11 +954,11 @@ onUnmounted(() => {
 }
 
 .detail-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .detail-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 500;
 }
 
@@ -972,7 +972,7 @@ onUnmounted(() => {
   margin: 0 0 16px 0;
   font-size: 16px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .tasks-list {
@@ -991,17 +991,17 @@ onUnmounted(() => {
 }
 
 .task-item.pending {
-  background: #f0f9ff;
+  background: var(--info-bg);
   border-color: #0ea5e9;
 }
 
 .task-item.completed {
-  background: #f0fdf4;
+  background: var(--success-bg);
   border-color: #10b981;
 }
 
 .task-item.failed {
-  background: #fef2f2;
+  background: var(--error-bg);
   border-color: #ef4444;
 }
 
@@ -1024,13 +1024,13 @@ onUnmounted(() => {
 
 .task-name {
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 2px;
 }
 
 .task-target {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin-bottom: 2px;
 }
 

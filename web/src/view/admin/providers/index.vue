@@ -1818,7 +1818,7 @@ const formatRelativeTime = (dateTime) => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -1883,13 +1883,13 @@ const formatRelativeTime = (dateTime) => {
 
 .location-country {
   font-weight: 500;
-  color: #303133;
+  color: var(--text-color-primary);
   text-align: center;
 }
 
 .location-city {
   font-size: 11px;
-  color: #909399;
+  color: var(--text-color-secondary);
   text-align: center;
 }
 
@@ -1967,7 +1967,7 @@ const formatRelativeTime = (dateTime) => {
 
 .resource-item .el-icon {
   font-size: 14px;
-  color: #909399;
+  color: var(--text-color-secondary);
 }
 
 .resource-placeholder {
@@ -2017,13 +2017,13 @@ const formatRelativeTime = (dateTime) => {
   align-items: center;
   gap: 12px;
   padding: 20px;
-  background: #f5f7fa;
+  background: var(--neutral-bg);
   border-radius: 8px;
   transition: all 0.3s;
 }
 
 .resource-limit-item:hover {
-  background: #ecf0f3;
+  background: var(--bg-color-hover);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
 }
 
@@ -2033,12 +2033,12 @@ const formatRelativeTime = (dateTime) => {
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-color-primary);
 }
 
 .resource-limit-label .el-icon {
   font-size: 18px;
-  color: #409eff;
+  color: #16a34a;
 }
 
 .resource-limit-tip {
@@ -2046,12 +2046,12 @@ const formatRelativeTime = (dateTime) => {
   align-items: center;
   gap: 4px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-secondary);
   text-align: center;
 }
 
 .resource-limit-tip .el-icon {
-  color: #409eff;
+  color: #16a34a;
 }
 
 /* 等级限制配置样式 */
@@ -2067,7 +2067,7 @@ const formatRelativeTime = (dateTime) => {
 }
 
 .level-limits-container::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--neutral-bg);
   border-radius: 4px;
 }
 
@@ -2083,9 +2083,9 @@ const formatRelativeTime = (dateTime) => {
 .level-config-card {
   margin-bottom: 16px;
   padding: 16px;
-  background: #f8f9fa;
+  background: var(--neutral-bg);
   border-radius: 6px;
-  border: 1px solid #e4e7ed;
+  border: 1px solid var(--border-color);
   transition: all 0.3s;
 }
 

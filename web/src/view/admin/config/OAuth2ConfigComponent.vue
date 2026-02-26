@@ -442,13 +442,13 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
 .form-item-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-secondary);
   margin-top: 5px;
   display: flex;
   align-items: center;
@@ -467,7 +467,7 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 10px;
-  background: #f5f7fa;
+  background: var(--neutral-bg);
   border-radius: 4px;
 }
 
@@ -478,6 +478,6 @@ onMounted(() => {
 
 :deep(.el-divider__text) {
   font-weight: 600;
-  color: #303133;
+  color: var(--text-color-primary);
 }
 </style>

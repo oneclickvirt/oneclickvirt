@@ -207,11 +207,11 @@ const openSSHInNewWindow = (conn) => {
       transition: all 0.2s;
     }
     .btn-reconnect {
-      background-color: #409eff;
+      background-color: #16a34a;
       color: white;
     }
     .btn-reconnect:hover {
-      background-color: #66b1ff;
+      background-color: #15803d;
     }
     .btn-close {
       background-color: #f56c6c;

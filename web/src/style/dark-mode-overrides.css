@@ -1,0 +1,510 @@
+/*
+ * 全局暗黑模式补丁
+ * 处理无法通过 CSS 变量覆盖的 Element Plus 内置样式和硬绑定方式
+ * 通过 html.dark 类激活
+ */
+
+/* =============================================
+   Element Plus 表格 - 覆盖动态 header-cell-style 绑定
+   ============================================= */
+html.dark .el-table thead th.el-table__cell,
+html.dark .el-table th.el-table__cell {
+  background: var(--neutral-bg) !important;
+  color: var(--text-color-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+html.dark .el-table,
+html.dark .el-table tr,
+html.dark .el-table td.el-table__cell {
+  background-color: var(--bg-color-secondary) !important;
+  color: var(--text-color-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+html.dark .el-table--striped .el-table__body tr.el-table__row--striped td.el-table__cell {
+  background: var(--subtle-bg) !important;
+}
+
+html.dark .el-table .el-table__row:hover > td.el-table__cell {
+  background: var(--bg-color-hover) !important;
+}
+
+html.dark .el-table::before,
+html.dark .el-table__inner-wrapper::before {
+  background-color: var(--border-color) !important;
+}
+
+/* =============================================
+   Element Plus 卡片
+   ============================================= */
+html.dark .el-card {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-card__header {
+  border-bottom-color: var(--border-color) !important;
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus 分页
+   ============================================= */
+html.dark .el-pagination .el-pagination__total,
+html.dark .el-pagination .el-pagination__sizes,
+html.dark .el-pagination .el-pagination__jump,
+html.dark .el-pager li,
+html.dark .el-pagination button {
+  color: var(--text-color-secondary) !important;
+  background: transparent !important;
+}
+
+html.dark .el-pager li.is-active {
+  color: var(--primary-color) !important;
+}
+
+/* =============================================
+   Element Plus 描述列表 (Descriptions)
+   ============================================= */
+html.dark .el-descriptions__header,
+html.dark .el-descriptions__label,
+html.dark .el-descriptions__content,
+html.dark .el-descriptions__body {
+  background-color: var(--bg-color-secondary) !important;
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-descriptions__cell {
+  border-color: var(--border-color) !important;
+}
+
+/* =============================================
+   Element Plus 折叠面板
+   ============================================= */
+html.dark .el-collapse,
+html.dark .el-collapse-item__header,
+html.dark .el-collapse-item__wrap,
+html.dark .el-collapse-item__content {
+  background-color: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus 标签（Tabs）
+   ============================================= */
+html.dark .el-tabs__nav-wrap::after {
+  background-color: var(--border-color) !important;
+}
+
+html.dark .el-tabs__item {
+  color: var(--text-color-secondary) !important;
+}
+
+html.dark .el-tabs__item.is-active {
+  color: var(--primary-color) !important;
+}
+
+html.dark .el-tab-pane {
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus 时间线
+   ============================================= */
+html.dark .el-timeline-item__tail {
+  border-color: var(--border-color) !important;
+}
+
+html.dark .el-timeline-item__content {
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus 步骤条
+   ============================================= */
+html.dark .el-step__title,
+html.dark .el-step__description {
+  color: var(--text-color-secondary) !important;
+}
+
+html.dark .el-step__title.is-finish,
+html.dark .el-step__title.is-process {
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus 对话框
+   ============================================= */
+html.dark .el-dialog {
+  background: var(--bg-color-secondary) !important;
+  border: 1px solid var(--border-color) !important;
+}
+
+html.dark .el-dialog__title,
+html.dark .el-dialog__header {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-dialog__body {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-dialog__footer {
+  border-top-color: var(--border-color) !important;
+}
+
+/* =============================================
+   Element Plus 抽屉
+   ============================================= */
+html.dark .el-drawer {
+  background: var(--bg-color-secondary) !important;
+}
+
+html.dark .el-drawer__header {
+  color: var(--text-color-primary) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+/* =============================================
+   Element Plus 下拉框
+   ============================================= */
+html.dark .el-dropdown-menu {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .el-dropdown-menu__item {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-dropdown-menu__item:hover,
+html.dark .el-dropdown-menu__item:focus {
+  background: var(--bg-color-hover) !important;
+  color: var(--primary-color) !important;
+}
+
+/* =============================================
+   Element Plus 弹出框
+   ============================================= */
+html.dark .el-popover.el-popper,
+html.dark .el-tooltip__trigger + .el-popper {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   Element Plus Select 下拉
+   ============================================= */
+html.dark .el-select-dropdown {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .el-select-dropdown__item {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-select-dropdown__item:hover,
+html.dark .el-select-dropdown__item.hover {
+  background: var(--bg-color-hover) !important;
+}
+
+html.dark .el-select-dropdown__item.is-selected {
+  color: var(--primary-color) !important;
+}
+
+/* =============================================
+   Element Plus 表单 / 输入框
+   ============================================= */
+html.dark .el-input__wrapper,
+html.dark .el-textarea__inner {
+  background: var(--neutral-bg) !important;
+  box-shadow: 0 0 0 1px var(--border-color) inset !important;
+}
+
+html.dark .el-input__inner,
+html.dark .el-textarea__inner {
+  color: var(--text-color-primary) !important;
+  background: transparent !important;
+}
+
+html.dark .el-form-item__label {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-form-item__error {
+  color: var(--error-color) !important;
+}
+
+/* =============================================
+   Element Plus 标签 Tag
+   ============================================= */
+html.dark .el-tag {
+  border-color: var(--border-color) !important;
+}
+
+/* =============================================
+   Element Plus 菜单
+   ============================================= */
+html.dark .el-menu {
+  background-color: var(--bg-color-sidebar) !important;
+  border-right-color: var(--border-color) !important;
+}
+
+html.dark .el-menu-item,
+html.dark .el-sub-menu__title {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-menu-item:hover,
+html.dark .el-sub-menu__title:hover {
+  background-color: var(--bg-color-hover) !important;
+}
+
+/* =============================================
+   portmapping 页面 inline style 文字颜色
+   ============================================= */
+html.dark [style*="color: #909399"],
+html.dark [style*="color:#909399"] {
+  color: var(--text-color-tertiary) !important;
+}
+
+html.dark [style*="color: #e6a23c"],
+html.dark [style*="color:#e6a23c"] {
+  color: #f59e0b !important;
+}
+
+/* =============================================
+   全局文本颜色补丁（#303133, #606266, #5a5e66 等）
+   通过选择器覆盖 Element Plus 默认深色文字
+   ============================================= */
+html.dark .el-statistic__head,
+html.dark .el-statistic .el-statistic__number {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .el-text,
+html.dark .el-link {
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   SSH 终端管理器 - 弹窗及最小化窗口
+   ============================================= */
+html.dark .ssh-dialog-header {
+  background-color: #1a2332 !important;
+  border-bottom-color: rgba(22, 163, 74, 0.2) !important;
+}
+
+html.dark .ssh-dialog-title {
+  color: #e2e8f0 !important;
+}
+
+html.dark .ssh-dialog-actions .el-button {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+  border-color: rgba(22, 163, 74, 0.3) !important;
+}
+
+html.dark .ssh-dialog-actions .el-button:hover {
+  background-color: #2d3f52 !important;
+  border-color: rgba(22, 163, 74, 0.5) !important;
+}
+
+html.dark .ssh-minimized-container {
+  background-color: #1e293b !important;
+  border-color: rgba(22, 163, 74, 0.25) !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4) !important;
+}
+
+html.dark .ssh-minimized-header {
+  background-color: #1e293b !important;
+  color: #e2e8f0 !important;
+}
+
+html.dark .ssh-minimized-header .close-btn {
+  color: #94a3b8 !important;
+}
+
+html.dark .ssh-minimized-header .close-btn:hover {
+  color: #e2e8f0 !important;
+  background-color: rgba(255, 255, 255, 0.08) !important;
+}
+
+html.dark .ssh-terminal-dialog .el-dialog__header {
+  border-bottom-color: rgba(22, 163, 74, 0.2) !important;
+}
+
+/* =============================================
+   Sidebar Logo 暗色模式
+   ============================================= */
+html.dark .sidebar-logo {
+  background: #052e16 !important; /* 暗绿色品牌色，适配暗色主题 */
+  border-bottom: 1px solid rgba(22, 163, 74, 0.2) !important;
+}
+
+/* =============================================
+   Navbar 暗色模式
+   ============================================= */
+html.dark .navbar {
+  background: rgba(15, 23, 42, 0.95) !important;
+  border-bottom-color: rgba(22, 163, 74, 0.15) !important;
+}
+
+/* =============================================
+   init 页面
+   ============================================= */
+html.dark .init-container {
+  background: var(--bg-color-primary) !important;
+}
+
+html.dark .init-form {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .form-header h2 {
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   认证页面 - 登录 / 注册 / 忘记密码 / 管理员登录
+   ============================================= */
+html.dark .login-container,
+html.dark .register-container,
+html.dark .forgot-password-container,
+html.dark .admin-login-container {
+  background: var(--auth-page-bg) !important;
+}
+
+html.dark .auth-header {
+  background: var(--auth-header-bg) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+html.dark .auth-header .nav-link {
+  color: var(--text-color-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .auth-header .nav-link:hover {
+  background: var(--bg-color-hover) !important;
+  color: var(--primary-color) !important;
+}
+
+/* 表单卡片 */
+html.dark .login-form,
+html.dark .register-form,
+html.dark .forgot-form,
+html.dark .admin-login-form {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), 0 4px 20px rgba(0, 0, 0, 0.15) !important;
+}
+
+/* 表单内文字 */
+html.dark .login-form .tips,
+html.dark .register-form .tips,
+html.dark .forgot-form .tips,
+html.dark .admin-login-form .tips {
+  color: var(--text-color-secondary) !important;
+}
+
+html.dark .login-form .forgot-link,
+html.dark .login-form .admin-link,
+html.dark .register-form a,
+html.dark .forgot-form a {
+  color: var(--primary-color) !important;
+}
+
+html.dark .login-form .form-footer,
+html.dark .register-form .form-footer,
+html.dark .forgot-form .form-footer {
+  color: var(--text-color-secondary) !important;
+  border-top-color: var(--border-color) !important;
+}
+
+/* captcha / code input 背景 */
+html.dark .captcha-image {
+  border-color: var(--border-color) !important;
+  background: var(--neutral-bg) !important;
+}
+
+/* =============================================
+   主页 (home/index.vue)
+   ============================================= */
+html.dark .home-container {
+  background: var(--auth-page-bg) !important;
+}
+
+html.dark .home-header {
+  background: var(--auth-header-bg) !important;
+  border-bottom-color: var(--border-color) !important;
+}
+
+html.dark .home-header .nav-link,
+html.dark .home-header .nav-menu a {
+  color: var(--text-color-primary) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .home-header .nav-link:hover,
+html.dark .home-header .nav-menu a:hover {
+  background: var(--bg-color-hover) !important;
+  color: var(--primary-color) !important;
+}
+
+/* 首页各 section 内文字 */
+html.dark .hero-title,
+html.dark .section-title,
+html.dark .platform-name,
+html.dark .feature-title,
+html.dark .stat-title,
+html.dark .announcement-title,
+html.dark .announcement-item-title {
+  color: var(--text-color-primary) !important;
+}
+
+html.dark .hero-subtitle,
+html.dark .section-desc,
+html.dark .platform-desc,
+html.dark .feature-desc,
+html.dark .stat-desc,
+html.dark .announcement-desc,
+html.dark .announcement-date {
+  color: var(--text-color-secondary) !important;
+}
+
+/* 首页 stats 卡片 */
+html.dark .stats-section,
+html.dark .stat-card,
+html.dark .announcement-card,
+html.dark .feature-card,
+html.dark .platform-card {
+  background: var(--bg-color-secondary) !important;
+  border-color: var(--border-color) !important;
+  color: var(--text-color-primary) !important;
+}
+
+/* =============================================
+   oauth2-callback 页面
+   ============================================= */
+html.dark .oauth2-callback-container,
+html.dark .callback-container {
+  background: var(--auth-page-bg) !important;
+}
+
+html.dark .callback-card {
+  background: var(--card-bg) !important;
+  border-color: var(--border-color) !important;
+}
+
+html.dark .callback-message,
+html.dark .callback-title {
+  color: var(--text-color-primary) !important;
+}
+

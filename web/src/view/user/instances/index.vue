@@ -537,16 +537,16 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 24px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .page-header p {
   margin: 0;
-  color: #6b7280;
+  color: var(--text-color-secondary);
 }
 
 .filter-section {
-  background: white;
+  background: var(--card-bg-solid);
   padding: 16px;
   border-radius: 8px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
@@ -561,8 +561,8 @@ onUnmounted(() => {
 }
 
 .instance-card {
-  background: white;
-  border: 1px solid #e5e7eb;
+  background: var(--card-bg-solid);
+  border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 20px;
   cursor: pointer;
@@ -587,7 +587,7 @@ onUnmounted(() => {
   margin: 0 0 8px 0;
   font-size: 18px;
   font-weight: 600;
-  color: #1f2937;
+  color: var(--text-color-primary);
 }
 
 .instance-details {
@@ -608,13 +608,13 @@ onUnmounted(() => {
 }
 
 .detail-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
   min-width: 80px;
 }
 
 .detail-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   text-align: right;
   flex: 1;
 }
@@ -658,13 +658,13 @@ onUnmounted(() => {
 }
 
 .detail-item .label {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
   min-width: 80px;
 }
 
 .detail-item .value {
-  color: #1f2937;
+  color: var(--text-color-primary);
   text-align: right;
   flex: 1;
 }

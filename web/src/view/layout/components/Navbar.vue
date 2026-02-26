@@ -10,7 +10,15 @@
       />
     </div>
     
-    <div class="right-menu">
+    <div class="right-menu">      <!-- 主题切换按鈕 -->
+      <div class="theme-switcher">
+        <el-button
+          :title="themeStore.isDark ? t('navbar.lightMode') : t('navbar.darkMode')"
+          @click="toggleTheme"
+        >
+          <el-icon><component :is="themeStore.isDark ? Sunny : Moon" /></el-icon>
+        </el-button>
+      </div>
       <!-- 语言切换按钮 -->
       <div class="language-switcher">
         <el-button
@@ -71,9 +79,10 @@ import { computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessageBox, ElMessage } from 'element-plus'
-import { Switch, SwitchButton, User, CaretBottom, Menu, Operation } from '@element-plus/icons-vue'
+import { Switch, SwitchButton, User, CaretBottom, Menu, Operation, Sunny, Moon } from '@element-plus/icons-vue'
 import { useUserStore } from '@/pinia/modules/user'
 import { useLanguageStore } from '@/pinia/modules/language'
+import { useThemeStore } from '@/pinia/modules/theme'
 
 const emit = defineEmits(['toggle-sidebar'])
 const router = useRouter()
@@ -81,7 +90,12 @@ const userStore = useUserStore()
 const languageStore = useLanguageStore()
 const { t, locale } = useI18n()
 
+const themeStore = useThemeStore()
 const userInfo = computed(() => userStore.user || {})
+
+const toggleTheme = () => {
+  themeStore.toggleTheme()
+}
 
 const toggleSidebar = () => {
   emit('toggle-sidebar')
@@ -131,8 +145,11 @@ const logout = async () => {
   height: var(--navbar-height);
   overflow: hidden;
   position: relative;
-  background: #fff;
-  box-shadow: 0 1px 4px rgba(0,21,41,.08);
+  background: var(--auth-header-bg);
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: 0 2px 20px rgba(22, 163, 74, 0.08);
+  border-bottom: 1px solid rgba(22, 163, 74, 0.1);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -162,6 +179,29 @@ const logout = async () => {
       outline: none;
     }
 
+    .theme-switcher {
+      display: flex;
+      align-items: center;
+
+      .el-button {
+        color: var(--text-color-primary);
+        background: transparent;
+        border: 1px solid rgba(22, 163, 74, 0.2);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 8px;
+        border-radius: 20px;
+        min-width: 36px;
+
+        &:hover {
+          background: rgba(22, 163, 74, 0.08);
+          border-color: rgba(22, 163, 74, 0.4);
+          color: var(--primary-color);
+        }
+      }
+    }
+
     .language-switcher {
       display: flex;
       align-items: center;
@@ -169,15 +209,17 @@ const logout = async () => {
       .el-button {
         color: var(--text-color-primary);
         background: transparent;
-        border: 1px solid var(--border-color-base);
+        border: 1px solid rgba(22, 163, 74, 0.2);
         display: flex;
         align-items: center;
         gap: 6px;
         padding: 8px 15px;
+        border-radius: 20px;
         
         &:hover {
-          background: var(--bg-color-hover);
-          border-color: var(--el-color-primary);
+          background: rgba(22, 163, 74, 0.08);
+          border-color: rgba(22, 163, 74, 0.4);
+          color: var(--primary-color);
         }
 
         .language-text {
@@ -192,7 +234,7 @@ const logout = async () => {
       padding: 0 8px;
       height: 100%;
       font-size: 18px;
-      color: #5a5e66;
+      color: var(--text-color-secondary);
       vertical-align: text-bottom;
 
       &.hover-effect {
@@ -211,6 +253,13 @@ const logout = async () => {
         display: flex;
         align-items: center;
         cursor: pointer;
+        padding: 6px 10px;
+        border-radius: 24px;
+        transition: all 0.25s ease;
+
+        &:hover {
+          background: rgba(22, 163, 74, 0.08);
+        }
 
         .username {
           margin-left: 10px;

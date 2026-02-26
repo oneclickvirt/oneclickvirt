@@ -1036,7 +1036,7 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -1126,14 +1126,14 @@ onMounted(() => {
   align-items: center;
   gap: 10px;
   padding: 12px;
-  background-color: #f0f9ff;
-  border: 1px solid #b3e0ff;
+  background-color: var(--info-bg);
+  border: 1px solid rgba(22, 163, 74, 0.2);
   border-radius: 4px;
 }
 
 .selection-info {
   font-size: 14px;
-  color: #409eff;
+  color: #16a34a;
   font-weight: 500;
   margin-right: 10px;
 }

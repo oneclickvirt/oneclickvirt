@@ -12,6 +12,14 @@
           <h1>{{ t('home.title') }}</h1>
         </div>
         <nav class="nav-menu">
+          <!-- 主题切换按钮 -->
+          <button
+            class="nav-link theme-btn"
+            :title="themeStore.isDark ? t('navbar.lightMode') : t('navbar.darkMode')"
+            @click="toggleTheme"
+          >
+            <el-icon><component :is="themeStore.isDark ? Sunny : Moon" /></el-icon>
+          </button>
           <!-- 语言切换按钮 -->
           <button
             class="nav-link language-btn"
@@ -240,127 +248,181 @@
     
     <!-- 页脚 -->
     <footer class="home-footer">
-      <div class="footer-content">
-        <div class="footer-section">
-          <h3>OneClickVirt</h3>
-          <div class="social-links">
-            <a
-              href="https://github.com/oneclickvirt"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="social-link"
+      <div class="footer-glow-top" />
+      <div class="footer-inner">
+        <div class="footer-brand">
+          <div class="footer-logo">
+            <img
+              src="@/assets/images/logo.png"
+              alt="OneClickVirt Logo"
+              class="footer-logo-img"
             >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="currentColor"
-              >
-                <path
-                  d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"
-                />
-              </svg>
-              GitHub
-            </a>
+            <span class="footer-logo-text">OneClickVirt</span>
           </div>
-        </div>
-        <div class="footer-section">
-          <h4>{{ t('home.footer.coreProjects') }}</h4>
-          <ul>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/oneclickvirt"
-                target="_blank"
-                rel="noopener noreferrer"
-              >OneClickVirt</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/ecs"
-                target="_blank"
-                rel="noopener noreferrer"
-              >ECS</a>
-            </li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>{{ t('home.footer.relatedProjects') }}</h4>
-          <ul>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/pve"
-                target="_blank"
-                rel="noopener noreferrer"
-              >Proxmox VE</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/incus"
-                target="_blank"
-                rel="noopener noreferrer"
-              >Incus</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/docker"
-                target="_blank"
-                rel="noopener noreferrer"
-              >Docker</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/lxd"
-                target="_blank"
-                rel="noopener noreferrer"
-              >LXD</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ t('home.footer.moreProjects') }}</a>
-            </li>
-          </ul>
-        </div>
-        <div class="footer-section">
-          <h4>{{ t('home.footer.supportAndDocs') }}</h4>
-          <ul>
-            <li>
-              <a
-                href="https://www.spiritlhl.net/"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ t('home.footer.documentation') }}</a>
-            </li>
-            <li>
-              <a
-                href="https://github.com/oneclickvirt/oneclickvirt/issues"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ t('home.footer.feedback') }}</a>
-            </li>
-            <li>
-              <a
-                href="https://t.me/oneclickvirt"
-                target="_blank"
-                rel="noopener noreferrer"
-              >{{ t('home.footer.communityGroup') }}</a>
-            </li>
-          </ul>
-        </div>
-      </div>
-      <div class="footer-bottom">
-        <p>
-          &copy; 2026 OneClickVirt. {{ t('home.footer.allRightsReserved') }} |
+          <p class="footer-tagline">
+            {{ t('home.hero.description') }}
+          </p>
           <a
             href="https://github.com/oneclickvirt"
             target="_blank"
             rel="noopener noreferrer"
+            class="footer-github-btn"
           >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+            >
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+            </svg>
+            GitHub
+          </a>
+        </div>
+
+        <div class="footer-links-grid">
+          <div class="footer-col">
+            <h4 class="footer-col-title">
+              <span class="footer-col-dot" />
+              {{ t('home.footer.coreProjects') }}
+            </h4>
+            <ul class="footer-link-list">
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/oneclickvirt"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>OneClickVirt
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/ecs"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>ECS
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h4 class="footer-col-title">
+              <span class="footer-col-dot" />
+              {{ t('home.footer.relatedProjects') }}
+            </h4>
+            <ul class="footer-link-list">
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/pve"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>Proxmox VE
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/incus"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>Incus
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/docker"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>Docker
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/lxd"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>LXD
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="more-link"
+                >
+                  <span class="link-arrow">›</span>{{ t('home.footer.moreProjects') }}
+                </a>
+              </li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h4 class="footer-col-title">
+              <span class="footer-col-dot" />
+              {{ t('home.footer.supportAndDocs') }}
+            </h4>
+            <ul class="footer-link-list">
+              <li>
+                <a
+                  href="https://www.spiritlhl.net/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>{{ t('home.footer.documentation') }}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://github.com/oneclickvirt/oneclickvirt/issues"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>{{ t('home.footer.feedback') }}
+                </a>
+              </li>
+              <li>
+                <a
+                  href="https://t.me/oneclickvirt"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  <span class="link-arrow">›</span>{{ t('home.footer.communityGroup') }}
+                </a>
+              </li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <div class="footer-bottom-inner">
+          <span class="footer-copyright">&copy; 2026 OneClickVirt. {{ t('home.footer.allRightsReserved') }}</span>
+          <span class="footer-divider" />
+          <a
+            href="https://github.com/oneclickvirt"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="footer-bottom-link"
+          >
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="currentColor"
+              style="margin-right:4px;vertical-align:middle"
+            >
+              <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z" />
+            </svg>
             {{ t('home.footer.openSourceProject') }}
           </a>
-        </p>
+        </div>
       </div>
     </footer>
   </div>
@@ -373,12 +435,14 @@ import { useI18n } from 'vue-i18n'
 import { getPublicAnnouncements, getPublicStats } from '@/api/public'
 import { checkSystemInit } from '@/api/init'
 import { ElTag, ElMessage } from 'element-plus'
-import { Operation } from '@element-plus/icons-vue'
+import { Operation, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
+import { useThemeStore } from '@/pinia/modules/theme'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
+const themeStore = useThemeStore()
 const announcements = ref([])
 // 统计数据
 const usersCount = ref(null)
@@ -395,6 +459,10 @@ const switchLanguage = () => {
   const newLang = languageStore.toggleLanguage()
   locale.value = newLang
   ElMessage.success(t('navbar.languageSwitched'))
+}
+
+const toggleTheme = () => {
+  themeStore.toggleTheme()
 }
 
 const formatDate = (dateString) => {
@@ -476,12 +544,12 @@ onMounted(() => {
 <style scoped>
 .home-container {
   min-height: 100vh;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  background: var(--auth-page-bg);
 }
 
 /* 头部样式 */
 .home-header {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--auth-header-bg);
   backdrop-filter: blur(20px);
   box-shadow: 0 2px 20px rgba(22, 163, 74, 0.1);
   position: sticky;
@@ -530,7 +598,7 @@ onMounted(() => {
 
 .nav-link {
   text-decoration: none;
-  color: #374151;
+  color: var(--text-color-primary);
   padding: 12px 24px;
   border-radius: 25px;
   transition: all 0.3s ease;
@@ -548,7 +616,12 @@ onMounted(() => {
 }
 
 .nav-link.language-btn {
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--border-color);
+}
+
+.nav-link.theme-btn {
+  border: 1px solid var(--border-color);
+  padding: 8px 10px;
 }
 
 .nav-link:hover {
@@ -593,7 +666,7 @@ onMounted(() => {
 
 .hero-title {
   font-size: 52px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 24px;
   line-height: 1.2;
   font-weight: 800;
@@ -605,7 +678,7 @@ onMounted(() => {
 
 .hero-description {
   font-size: 20px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin-bottom: 40px;
   line-height: 1.6;
   font-weight: 400;
@@ -669,7 +742,7 @@ onMounted(() => {
 }
 
 .preview-card {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--card-bg);
   backdrop-filter: blur(10px);
   padding: 24px;
   border-radius: 20px;
@@ -692,14 +765,14 @@ onMounted(() => {
 
 .preview-card h3 {
   font-size: 18px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 8px;
   font-weight: 600;
 }
 
 .preview-card p {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   line-height: 1.5;
 }
 
@@ -717,7 +790,7 @@ onMounted(() => {
 
 .section-header h2 {
   font-size: 42px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin: 0 0 16px 0;
   font-weight: 700;
   background: linear-gradient(135deg, #1f2937, #374151);
@@ -728,7 +801,7 @@ onMounted(() => {
 
 .section-header p {
   font-size: 18px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin: 0;
   font-weight: 400;
 }
@@ -760,7 +833,7 @@ onMounted(() => {
 }
 
 .platform-item {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--card-bg);
   backdrop-filter: blur(10px);
   padding: 40px 24px;
   border-radius: 24px;
@@ -786,14 +859,14 @@ onMounted(() => {
 
 .platform-item h3 {
   font-size: 20px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 12px;
   font-weight: 600;
 }
 
 .platform-item p {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   line-height: 1.5;
 }
 
@@ -811,7 +884,7 @@ onMounted(() => {
 }
 
 .announcement-item {
-  background: rgba(255, 255, 255, 0.9);
+  background: var(--card-bg);
   backdrop-filter: blur(10px);
   padding: 24px;
   border-radius: 16px;
@@ -837,7 +910,7 @@ onMounted(() => {
 
 .announcement-header h3 {
   font-size: 18px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 600;
   margin: 0;
   flex: 1;
@@ -853,13 +926,13 @@ onMounted(() => {
 
 .announcement-date {
   font-size: 14px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 400;
 }
 
 .announcement-content {
   font-size: 16px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   line-height: 1.6;
   margin: 0;
 }
@@ -886,7 +959,7 @@ onMounted(() => {
 }
 
 .announcement-content :deep(strong) {
-  color: #1f2937;
+  color: var(--text-color-primary);
   font-weight: 600;
 }
 
@@ -900,85 +973,215 @@ onMounted(() => {
 
 /* 页脚 */
 .home-footer {
-  background: linear-gradient(135deg, #1f2937, #374151);
+  position: relative;
+  background: linear-gradient(160deg, #0d1a12 0%, #0f2318 40%, #111827 100%);
   color: white;
-  padding: 60px 24px 24px;
   font-size: 14px;
   margin-top: 100px;
+  overflow: hidden;
 }
 
-.footer-content {
+.footer-glow-top {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 600px;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #16a34a, #22c55e, #16a34a, transparent);
+  box-shadow: 0 0 24px 6px rgba(34, 197, 94, 0.35);
+}
+
+.footer-inner {
   max-width: 1200px;
   margin: 0 auto;
+  padding: 60px 24px 40px;
+  display: grid;
+  grid-template-columns: 1fr 2fr;
+  gap: 64px;
+  align-items: start;
+}
+
+/* 品牌栏 */
+.footer-brand {
   display: flex;
-  justify-content: space-between;
-  flex-wrap: wrap;
-  gap: 40px;
+  flex-direction: column;
+  gap: 16px;
 }
 
-.footer-section {
-  flex: 1;
-  min-width: 200px;
+.footer-logo {
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
-.footer-section h3,
-.footer-section h4 {
-  color: white;
-  margin-bottom: 20px;
-  font-size: 18px;
+.footer-logo-img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  filter: drop-shadow(0 0 8px rgba(34, 197, 94, 0.5));
+}
+
+.footer-logo-text {
+  font-size: 22px;
+  font-weight: 700;
+  background: linear-gradient(135deg, #22c55e, #4ade80);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.footer-tagline {
+  color: rgba(255, 255, 255, 0.5);
+  line-height: 1.6;
+  font-size: 13px;
+  margin: 0;
+  max-width: 260px;
+}
+
+.footer-github-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 20px;
+  border-radius: 24px;
+  background: rgba(34, 197, 94, 0.1);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  color: #4ade80;
+  text-decoration: none;
+  font-size: 13px;
   font-weight: 600;
+  transition: all 0.3s ease;
+  width: fit-content;
+  backdrop-filter: blur(8px);
 }
 
-.footer-section ul {
+.footer-github-btn:hover {
+  background: rgba(34, 197, 94, 0.2);
+  border-color: rgba(34, 197, 94, 0.5);
+  box-shadow: 0 0 18px rgba(34, 197, 94, 0.3);
+  transform: translateY(-2px);
+  color: #86efac;
+}
+
+/* 链接网格 */
+.footer-links-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 32px;
+}
+
+.footer-col-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  color: rgba(255, 255, 255, 0.9);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 16px;
+}
+
+.footer-col-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.7);
+  flex-shrink: 0;
+}
+
+.footer-link-list {
   list-style: none;
   padding: 0;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
-.footer-section ul li {
-  margin-bottom: 8px;
-}
-
-.footer-section ul li a,
-.social-link {
-  color: rgba(255, 255, 255, 0.7);
-  text-decoration: none;
-  transition: all 0.3s ease;
+.footer-link-list li a {
   display: flex;
   align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.55);
+  text-decoration: none;
+  font-size: 13.5px;
+  padding: 5px 8px;
+  border-radius: 8px;
+  transition: all 0.25s ease;
   font-weight: 400;
 }
 
-.footer-section ul li a:hover,
-.social-link:hover {
-  color: #22c55e;
-  transform: translateX(5px);
+.footer-link-list li a:hover {
+  color: #4ade80;
+  background: rgba(34, 197, 94, 0.08);
+  transform: translateX(4px);
 }
 
-.social-link svg {
-  margin-right: 8px;
+.link-arrow {
+  font-size: 16px;
+  line-height: 1;
+  color: #16a34a;
+  opacity: 0.6;
+  transition: opacity 0.25s;
+  flex-shrink: 0;
 }
 
+.footer-link-list li a:hover .link-arrow {
+  opacity: 1;
+}
+
+.more-link {
+  font-style: italic;
+}
+
+/* 底部版权栏 */
 .footer-bottom {
-  text-align: center;
-  margin-top: 40px;
-  padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(4px);
+  padding: 18px 24px;
 }
 
-.footer-bottom p {
-  color: rgba(255, 255, 255, 0.7);
-  margin: 0;
+.footer-bottom-inner {
+  max-width: 1200px;
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 
-.footer-bottom a {
-  color: #22c55e;
+.footer-copyright {
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 13px;
+}
+
+.footer-divider {
+  display: inline-block;
+  width: 1px;
+  height: 14px;
+  background: rgba(255, 255, 255, 0.15);
+  border-radius: 1px;
+}
+
+.footer-bottom-link {
+  display: inline-flex;
+  align-items: center;
+  color: rgba(34, 197, 94, 0.75);
   text-decoration: none;
-  transition: all 0.3s ease;
+  font-size: 13px;
+  transition: all 0.25s ease;
+  font-weight: 500;
 }
 
-.footer-bottom a:hover {
-  color: #34d399;
+.footer-bottom-link:hover {
+  color: #4ade80;
+  text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
 }
 
 /* 响应式调整 */
@@ -1020,22 +1223,19 @@ onMounted(() => {
     padding: 32px 20px;
   }
 
-  .footer-content {
-    flex-direction: column;
-    text-align: center;
+  .footer-inner {
+    grid-template-columns: 1fr;
+    gap: 40px;
+    padding: 48px 20px 32px;
   }
 
-  .footer-section {
-    margin-bottom: 32px;
+  .footer-links-grid {
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
   }
 
-  .footer-section ul li a,
-  .social-link {
-    justify-content: center;
-  }
-
-  .footer-section ul li a:hover {
-    transform: none;
+  .footer-tagline {
+    max-width: 100%;
   }
 
   .header-content {
@@ -1068,6 +1268,10 @@ onMounted(() => {
   .platforms-section,
   .announcements-section {
     padding: 40px 20px;
+  }
+
+  .footer-links-grid {
+    grid-template-columns: 1fr;
   }
 
   .section-header h2 {

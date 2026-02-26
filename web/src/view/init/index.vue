@@ -723,7 +723,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f8fffe;
+  background: var(--bg-color-primary);
   padding: 20px;
   position: relative;
   overflow: hidden;
@@ -741,7 +741,7 @@ onUnmounted(() => {
 }
 
 .init-form {
-  background: rgba(255, 255, 255, 0.95);
+  background: var(--auth-header-bg);
   backdrop-filter: blur(10px);
   padding: 50px 45px;
   border-radius: 16px;
@@ -759,14 +759,14 @@ onUnmounted(() => {
 }
 
 .form-header h2 {
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin-bottom: 12px;
   font-weight: 700;
   font-size: 32px;
 }
 
 .form-header p {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin: 0;
   font-size: 16px;
   line-height: 1.5;
@@ -787,7 +787,7 @@ onUnmounted(() => {
 .mysql-config {
   margin-top: 20px;
   padding-top: 20px;
-  border-top: 1px solid #e5e7eb;
+  border-top: 1px solid var(--border-color);
 }
 
 .action-buttons {
@@ -808,7 +808,7 @@ onUnmounted(() => {
 
 .init-info li {
   margin: 8px 0;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   line-height: 1.5;
 }
 
@@ -829,7 +829,7 @@ onUnmounted(() => {
 }
 
 :deep(.el-tabs__item) {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-weight: 500;
 }
 
@@ -840,7 +840,7 @@ onUnmounted(() => {
 
 :deep(.el-button--info) {
   background: #6b7280;
-  border-color: #6b7280;
+  border-color: var(--text-color-secondary);
   border-radius: 12px;
   height: 50px;
   font-size: 16px;
@@ -859,7 +859,7 @@ onUnmounted(() => {
 }
 
 :deep(.el-form-item__label) {
-  color: #374151;
+  color: var(--text-color-primary);
   font-weight: 500;
   font-size: 15px;
 }
@@ -879,17 +879,17 @@ onUnmounted(() => {
 
 :deep(.el-input__wrapper:hover) {
   border-color: rgba(34, 197, 94, 0.3);
-  background: white;
+  background: var(--card-bg-solid);
 }
 
 :deep(.el-input__wrapper.is-focus) {
   border-color: #16a34a;
-  background: white;
+  background: var(--card-bg-solid);
   box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
 }
 
 :deep(.el-input__inner) {
-  color: #374151;
+  color: var(--text-color-primary);
   font-size: 15px;
   font-weight: 500;
 }
@@ -930,13 +930,13 @@ onUnmounted(() => {
 }
 
 :deep(.el-alert__title) {
-  color: #374151;
+  color: var(--text-color-primary);
   font-weight: 600;
   font-size: 15px;
 }
 
 :deep(.el-alert__content) {
-  color: #6b7280;
+  color: var(--text-color-secondary);
   font-size: 14px;
   line-height: 1.6;
 }

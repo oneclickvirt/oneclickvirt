@@ -421,8 +421,8 @@ defineProps({
 }
 
 .resource-limit-item:hover {
-  border-color: #409eff;
-  background-color: #f5f7fa;
+  border-color: #16a34a;
+  background-color: var(--success-bg);
 }
 
 .resource-limit-label {
@@ -444,7 +444,7 @@ defineProps({
   justify-content: center;
   margin-top: 10px;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-secondary);
 }
 
 .resource-limit-tip .el-icon {

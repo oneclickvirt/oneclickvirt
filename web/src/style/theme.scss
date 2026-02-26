@@ -107,7 +107,7 @@
   --transition-all: all 0.3s ease;
   
   /* 布局尺寸 */
-  --navbar-height: 60px;
+  --navbar-height: 70px;
   --sidebar-width: 240px;
   --sidebar-width-collapsed: 64px;
   --content-max-width: 1200px;
@@ -118,6 +118,18 @@
   --z-sidebar: 1001;
   --z-navbar: 1002;
   --z-drawer-bg: 999;
+
+  /* 语义化背景色（用于状态/信息块和卡片，暗模式下切换） */
+  --neutral-bg: #f5f7fa;
+  --subtle-bg: #f8fafc;
+  --card-bg-solid: #ffffff;
+  --card-bg: rgba(255, 255, 255, 0.96);
+  --auth-page-bg: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  --auth-header-bg: rgba(255, 255, 255, 0.95);
+  --success-bg: #f0fdf4;
+  --info-bg: #eff6ff;
+  --warning-bg: #fffbeb;
+  --error-bg: #fef2f2;
   --z-sticky: 1020;
   --z-fixed: 1030;
   --z-modal-backdrop: 1040;
@@ -741,4 +753,72 @@ tr:hover {
 @keyframes spin {
   0% { transform: rotate(0deg); }
   100% { transform: rotate(360deg); }
+}
+
+/* ======================================
+ * 暗色模式 CSS 变量覆盖
+ * 通过 html.dark 类名激活
+ * ====================================== */
+html.dark {
+  /* 文本颜色 */
+  --text-color-primary: #f1f5f9;
+  --text-color-secondary: #94a3b8;
+  --text-color-tertiary: #64748b;
+  --text-color-light: #475569;
+  --text-color-sidebar-inactive: #64748b;
+  --text-color-sidebar-primary: #e2e8f0;
+
+  /* 背景颜色 */
+  --bg-color-primary: #0f172a;
+  --bg-color-secondary: #1e293b;
+  --bg-color-tertiary: #0f172a;
+  --bg-color-sidebar: #1e293b;
+  --bg-color-sidebar-logo: #0f172a;
+  --bg-color-sidebar-light: #1e293b;
+  --bg-color-hover: rgba(22, 163, 74, 0.08);
+  --bg-color-active: rgba(22, 163, 74, 0.15);
+  --bg-color-overlay: rgba(0, 0, 0, 0.7);
+
+  /* 边框颜色 */
+  --border-color: rgba(22, 163, 74, 0.15);
+  --border-color-light: rgba(22, 163, 74, 0.08);
+  --border-color-hover: rgba(22, 163, 74, 0.3);
+  --border-color-focus: rgba(22, 163, 74, 0.45);
+  --border-color-disabled: #334155;
+
+  /* 阴影 */
+  --box-shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
+  --box-shadow-light: 0 4px 15px rgba(0, 0, 0, 0.2);
+  --box-shadow-medium: 0 8px 25px rgba(0, 0, 0, 0.25);
+  --box-shadow-heavy: 0 15px 35px rgba(0, 0, 0, 0.35);
+  --box-shadow-hover: 0 20px 40px rgba(0, 0, 0, 0.4);
+
+  /* Element Plus 暗色覆盖 */
+  --el-bg-color: #1e293b;
+  --el-bg-color-page: #0f172a;
+  --el-bg-color-overlay: #1e293b;
+  --el-text-color-primary: #f1f5f9;
+  --el-text-color-regular: #94a3b8;
+  --el-text-color-secondary: #64748b;
+  --el-text-color-placeholder: #475569;
+  --el-border-color: rgba(22, 163, 74, 0.2);
+  --el-border-color-light: rgba(22, 163, 74, 0.12);
+  --el-border-color-lighter: rgba(22, 163, 74, 0.08);
+  --el-fill-color: #1e293b;
+  --el-fill-color-light: #162032;
+  --el-fill-color-lighter: #0f172a;
+  --el-fill-color-blank: #1e293b;
+  --el-mask-color: rgba(0, 0, 0, 0.6);
+
+  /* 语义化背景色 - 暗色版本 */
+  --neutral-bg: #1e293b;
+  --subtle-bg: #162032;
+  --card-bg-solid: #1e293b;
+  --card-bg: rgba(30, 41, 59, 0.96);
+  --auth-page-bg: linear-gradient(135deg, #060e09 0%, #0a1a10 100%);
+  --auth-header-bg: rgba(15, 23, 42, 0.95);
+  --success-bg: #0a2015;
+  --info-bg: #0a1628;
+  --warning-bg: #1c1500;
+  --error-bg: #1c0a0a;
 }

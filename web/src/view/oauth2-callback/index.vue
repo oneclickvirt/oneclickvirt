@@ -123,7 +123,7 @@ const goToLogin = () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: var(--auth-page-bg);
   
   .callback-card {
     width: 400px;
@@ -145,7 +145,7 @@ const goToLogin = () => {
       }
       
       .loading-text {
-        color: #409eff;
+        color: #16a34a;
       }
       
       .error-text {

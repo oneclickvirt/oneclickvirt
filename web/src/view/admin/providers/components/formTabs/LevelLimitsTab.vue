@@ -154,13 +154,13 @@ const getLevelTagType = (level) => {
   border-radius: 8px;
   padding: 15px;
   margin-bottom: 15px;
-  background-color: #f9fafb;
+  background-color: var(--subtle-bg);
   transition: all 0.3s;
 }
 
 .level-config-card:hover {
-  border-color: #409eff;
-  box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+  border-color: #16a34a;
+  box-shadow: 0 2px 12px 0 rgba(22, 163, 74, 0.12);
 }
 
 .level-header {

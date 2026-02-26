@@ -1015,7 +1015,7 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -1065,7 +1065,7 @@ onMounted(() => {
 
 .url-text {
   cursor: pointer;
-  color: #409eff;
+  color: #16a34a;
   display: inline-block;
   max-width: 100%;
   overflow: hidden;

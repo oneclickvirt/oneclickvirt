@@ -51,7 +51,7 @@ const goBack = () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 100%);
+  background: var(--auth-page-bg);
   padding: 24px;
 }
 
@@ -104,14 +104,14 @@ const goBack = () => {
 
 .error-title {
   font-size: 32px;
-  color: #1f2937;
+  color: var(--text-color-primary);
   margin: 0 0 16px 0;
   font-weight: 700;
 }
 
 .error-message {
   font-size: 18px;
-  color: #6b7280;
+  color: var(--text-color-secondary);
   margin: 0 0 40px 0;
   line-height: 1.6;
 }
@@ -149,8 +149,8 @@ const goBack = () => {
 
 .btn-secondary {
   background: white;
-  color: #374151;
-  border: 1px solid #e5e7eb;
+  color: var(--text-color-primary);
+  border: 1px solid var(--border-color);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05);
 }
 

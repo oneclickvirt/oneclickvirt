@@ -533,7 +533,7 @@ onUnmounted(() => {
 }
 
 .avatar-uploader .el-upload:hover {
-  border-color: #409eff;
+  border-color: #16a34a;
 }
 
 .avatar-uploader-icon {

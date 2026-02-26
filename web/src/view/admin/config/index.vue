@@ -943,7 +943,7 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -976,13 +976,13 @@ onMounted(() => {
 }
 
 .level-card:hover {
-  border-color: #409eff;
-  box-shadow: 0 2px 12px 0 rgba(64, 158, 255, 0.1);
+  border-color: #16a34a;
+  box-shadow: 0 2px 12px 0 rgba(22, 163, 74, 0.15);
 }
 
 .level-card.default-level {
-  border-color: #67c23a;
-  background-color: #f0f9ff;
+  border-color: #16a34a;
+  background-color: var(--success-bg);
 }
 
 .level-header {
@@ -993,7 +993,7 @@ onMounted(() => {
 
 .level-title {
   font-weight: 600;
-  color: #303133;
+  color: var(--text-color-primary);
 }
 
 .config-actions {
@@ -1047,7 +1047,7 @@ onMounted(() => {
 /* 表单样式 */
 .config-form :deep(.el-form-item__label) {
   font-weight: 500;
-  color: #606266;
+  color: var(--text-color-secondary);
 }
 
 .config-form :deep(.el-alert) {
@@ -1056,7 +1056,7 @@ onMounted(() => {
 
 .form-item-hint {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-tertiary);
   margin-top: 4px;
   line-height: 1.4;
 }

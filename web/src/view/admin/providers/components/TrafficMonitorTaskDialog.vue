@@ -381,7 +381,7 @@ const getTaskStatusTagType = (status) => {
   gap: 20px;
   margin-top: 8px;
   font-size: 13px;
-  color: #606266;
+  color: var(--text-color-secondary);
 }
 
 .success-count {
@@ -407,12 +407,12 @@ const getTaskStatusTagType = (status) => {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-color-primary);
 }
 
 .output-content {
-  background: #f5f7fa;
-  border: 1px solid #e4e7ed;
+  background: var(--neutral-bg);
+  border: 1px solid var(--border-color);
   border-radius: 4px;
   padding: 12px;
   max-height: 400px;
@@ -424,7 +424,7 @@ const getTaskStatusTagType = (status) => {
   font-family: 'Courier New', Courier, monospace;
   font-size: 12px;
   line-height: 1.6;
-  color: #303133;
+  color: var(--text-color-primary);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -438,7 +438,7 @@ const getTaskStatusTagType = (status) => {
 
 .task-container::-webkit-scrollbar-track,
 .output-content::-webkit-scrollbar-track {
-  background: #f1f1f1;
+  background: var(--neutral-bg);
   border-radius: 4px;
 }
 

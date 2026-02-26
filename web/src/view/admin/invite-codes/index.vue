@@ -668,7 +668,7 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
@@ -679,7 +679,7 @@ onMounted(() => {
 .batch-actions {
   margin-bottom: 15px;
   padding: 10px;
-  background-color: #f5f7fa;
+  background-color: var(--neutral-bg);
   border-radius: 4px;
 }
 
@@ -697,7 +697,7 @@ onMounted(() => {
 
 .form-tip {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-color-secondary);
   margin-top: 4px;
 }
 

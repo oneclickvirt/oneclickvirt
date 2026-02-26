@@ -879,12 +879,12 @@ onMounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
   
   .header-subtitle {
     margin: 8px 0 0 0;
-    color: #909399;
+    color: var(--text-color-secondary);
     font-size: 14px;
   }
 }
@@ -943,7 +943,7 @@ onMounted(() => {
 }
 
 .filter-form {
-  background: #f5f5f5;
+  background: var(--neutral-bg);
   padding: 20px;
   border-radius: 4px;
 }
@@ -992,7 +992,7 @@ onMounted(() => {
 }
 
 .task-info {
-  background: #f5f5f5;
+  background: var(--neutral-bg);
   padding: 15px;
   border-radius: 4px;
 }

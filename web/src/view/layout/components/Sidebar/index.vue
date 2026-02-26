@@ -26,8 +26,6 @@
         :unique-opened="false"
         :collapse-transition="false"
         mode="vertical"
-        background-color="#f0f9f4"
-        text-color="#374151"
         active-text-color="#16a34a"
         @select="handleMenuSelect"
       >
@@ -305,7 +303,7 @@ watch(() => userStore.userType, (newType, oldType) => {
 .sidebar-container {
   transition: width 0.28s;
   width: var(--sidebar-width);
-  background-color: #f0f9f4; /* 浅绿色背景 */
+  background-color: var(--bg-color-sidebar-light);
 
   .sidebar-logo {
     height: var(--navbar-height);
@@ -383,7 +381,7 @@ watch(() => userStore.userType, (newType, oldType) => {
   .el-menu {
     border: none;
     height: 100%;
-    background-color: #f0f9f4 !important;
+    background-color: var(--bg-color-sidebar-light) !important;
   }
 
   /* 菜单项悬停效果 */
@@ -391,12 +389,12 @@ watch(() => userStore.userType, (newType, oldType) => {
     background-color: transparent !important;
     
     &:hover {
-      background-color: #dcfce7 !important;
+      background-color: var(--bg-color-hover) !important;
       color: #16a34a !important;
     }
     
     &.is-active {
-      background-color: #bbf7d0 !important;
+      background-color: var(--bg-color-active) !important;
       color: #16a34a !important;
       border-right: 3px solid #16a34a;
     }
@@ -406,7 +404,7 @@ watch(() => userStore.userType, (newType, oldType) => {
     background-color: transparent !important;
     
     &:hover {
-      background-color: #dcfce7 !important;
+      background-color: var(--bg-color-hover) !important;
       color: #16a34a !important;
     }
   }

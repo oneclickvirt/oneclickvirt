@@ -467,7 +467,7 @@
           </div>
           <div
             v-if="portRangePreview"
-            style="color: #409eff; font-size: 12px; margin-top: 5px;"
+            style="color: #16a34a; font-size: 12px; margin-top: 5px;"
           >
             <strong>{{ $t('admin.portMapping.portRangePreview') }}:</strong> {{ portRangePreview }}
           </div>
@@ -1177,7 +1177,7 @@ onUnmounted(() => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 

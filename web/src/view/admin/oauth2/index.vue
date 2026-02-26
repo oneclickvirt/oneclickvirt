@@ -896,7 +896,7 @@ const removeLevelMapping = (key) => {
   > span {
     font-size: 18px;
     font-weight: 600;
-    color: #303133;
+    color: var(--text-color-primary);
   }
 }
 
