@@ -358,3 +358,11 @@ export function getInstanceTrafficHistory(instanceId, params) {
     params
   })
 }
+
+export function redeemCode(code) {
+  return request({
+    url: '/v1/user/redemption-codes/redeem',
+    method: 'post',
+    data: { code }
+  })
+}

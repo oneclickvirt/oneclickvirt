@@ -89,5 +89,10 @@ export default {
   confirmDescription: "备注说明",
   confirmSubmit: "确认提交",
   confirmCancel: "取消",
-  confirmWarning: "提交后将创建实例任务，请确认配置无误！"
+  confirmWarning: "提交后将创建实例任务，请确认配置无误！",
+  redeemCodeTitle: "兑换码兑换",
+  redeemCodePlaceholder: "请输入兑换码",
+  redeemCodeSubmit: "立即兑换",
+  redeemCodeSuccess: "兑换成功，实例已绑定到您的账户",
+  redeemCodeRequired: "请输入兑换码"
 }

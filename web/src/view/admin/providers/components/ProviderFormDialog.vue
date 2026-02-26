@@ -243,6 +243,7 @@ const formData = ref({
   trafficCountMode: 'both',
   trafficMultiplier: 1.0,
   executionRule: 'auto',
+  redeemCodeOnly: false,
   ipv4PortMappingMethod: 'device_proxy',
   ipv6PortMappingMethod: 'device_proxy',
   sshConnectTimeout: 30,

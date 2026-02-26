@@ -168,6 +168,30 @@
         {{ $t('admin.providers.executionRuleTip') }}
       </el-text>
     </div>
+
+    <!-- 申请领取控制 -->
+    <el-divider content-position="left">
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.applicationControl') }}</span>
+    </el-divider>
+
+    <el-form-item
+      :label="$t('admin.providers.redeemCodeOnly')"
+      prop="redeemCodeOnly"
+    >
+      <el-switch
+        v-model="modelValue.redeemCodeOnly"
+        :active-text="$t('common.yes')"
+        :inactive-text="$t('common.no')"
+      />
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.redeemCodeOnlyTip') }}
+      </el-text>
+    </div>
   </el-form>
 </template>
 

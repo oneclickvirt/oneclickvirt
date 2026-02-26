@@ -280,6 +280,12 @@ func (s *TaskService) executeCreateInstanceTask(ctx context.Context, task *admin
 	return userProviderService.ProcessCreateInstanceTask(ctx, task)
 }
 
+// executeCreateRedemptionInstanceTask 执行兑换码实例创建任务
+func (s *TaskService) executeCreateRedemptionInstanceTask(ctx context.Context, task *adminModel.Task) error {
+	userProviderService := userprovider.NewService()
+	return userProviderService.ProcessCreateRedemptionInstanceTask(ctx, task)
+}
+
 // executeResetInstanceTask 执行重置实例任务
 func (s *TaskService) executeResetInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	return s.executeResetTask(ctx, task)

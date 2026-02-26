@@ -123,5 +123,8 @@ export default {
   freezeSuccess: "冻结成功",
   freezeFailed: "冻结失败",
   unfreezeSuccess: "解冻成功",
-  unfreezeFailed: "解冻失败"
+  unfreezeFailed: "解冻失败",
+  manualExpiry: "手动设置",
+  frozen: "已冻结",
+  normal: "正常"
 }

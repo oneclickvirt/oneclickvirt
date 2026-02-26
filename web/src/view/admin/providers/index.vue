@@ -227,6 +227,7 @@ const addProviderForm = reactive({
   containerMemorySwap: true, // 内存交换，默认开启
   containerMaxProcesses: 0, // 最大进程数，0表示不限制
   containerDiskIoLimit: '', // 磁盘IO限制，空表示不限制
+  redeemCodeOnly: false, // 是否仅允许兑换码领取，默认false
   // 节点发现模式配置
   discoverMode: false, // 是否为发现模式，默认false（纯净节点）
   autoImport: true, // 是否自动导入发现的实例，默认true
@@ -487,6 +488,7 @@ const cancelAddServer = () => {
     vmLimitCpu: true,
     vmLimitMemory: true,
     vmLimitDisk: true,
+    redeemCodeOnly: false,
     discoverMode: false,
     autoImport: true,
     autoAdjustQuota: true,
@@ -591,7 +593,8 @@ const submitAddServer = async (formData) => {
       importedInstanceOwner: formData.discoverMode ? (formData.importedInstanceOwner || 'admin') : null,
       containerMemorySwap: formData.containerMemorySwap !== undefined ? formData.containerMemorySwap : true,
       containerMaxProcesses: formData.containerMaxProcesses || 0,
-      containerDiskIoLimit: formData.containerDiskIoLimit || ''
+      containerDiskIoLimit: formData.containerDiskIoLimit || '',
+      redeemCodeOnly: formData.redeemCodeOnly !== undefined ? formData.redeemCodeOnly : false
     }
 
     // 根据Provider类型设置端口映射方式
@@ -760,6 +763,7 @@ const editProvider = (provider) => {
   addProviderForm.containerMemorySwap = provider.containerMemorySwap !== undefined ? provider.containerMemorySwap : true
   addProviderForm.containerMaxProcesses = provider.containerMaxProcesses || 0
   addProviderForm.containerDiskIoLimit = provider.containerDiskIoLimit || ''
+  addProviderForm.redeemCodeOnly = provider.redeemCodeOnly !== undefined ? provider.redeemCodeOnly : false
 
   // 根据Provider类型设置端口映射方式，优先使用数据库中保存的值，没有时使用类型默认值
   // Docker 类型固定为 native

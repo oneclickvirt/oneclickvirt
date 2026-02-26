@@ -635,7 +635,8 @@ const getTaskTypeText = (type) => {
     'stop': t('user.tasks.taskTypeStop'),
     'restart': t('user.tasks.taskTypeRestart'),
     'reset': t('user.tasks.taskTypeReset'),
-    'delete': t('user.tasks.taskTypeDelete')
+    'delete': t('user.tasks.taskTypeDelete'),
+    'create_redemption_instance': t('user.tasks.taskTypeCreateRedemptionInstance')
   }
   return typeMap[type] || type
 }

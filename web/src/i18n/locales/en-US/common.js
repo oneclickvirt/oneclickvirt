@@ -15,6 +15,7 @@ export default {
   reset: 'Reset',
   back: 'Back',
   close: 'Close',
+  selected: 'selected',
   loading: 'Loading...',
   success: 'Success',
   error: 'Error',

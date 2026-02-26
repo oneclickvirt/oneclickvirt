@@ -176,6 +176,16 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 	return s.provider.ProcessCreateInstanceTask(ctx, task)
 }
 
+// ProcessCreateRedemptionInstanceTask 处理兑换码实例创建的后台任务
+func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task *adminModel.Task) error {
+	return s.provider.ProcessCreateRedemptionInstanceTask(ctx, task)
+}
+
+// RedeemCode 用户兑换码兑换实例
+func (s *Service) RedeemCode(userID uint, code string) error {
+	return s.provider.RedeemCode(userID, code)
+}
+
 // HasInstanceAccess 检查用户是否有权限访问实例
 func (s *Service) HasInstanceAccess(userID, instanceID uint) bool {
 	return s.instance.HasInstanceAccess(userID, instanceID)

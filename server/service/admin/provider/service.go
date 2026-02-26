@@ -347,6 +347,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.VirtualMachineEnabled = req.VirtualMachineEnabled
 	provider.TotalQuota = req.TotalQuota
 	provider.AllowClaim = req.AllowClaim
+	provider.RedeemCodeOnly = req.RedeemCodeOnly
 	provider.Status = req.Status
 	provider.MaxContainerInstances = req.MaxContainerInstances
 	provider.MaxVMInstances = req.MaxVMInstances

@@ -11,6 +11,7 @@ export default {
   taskTypeRestart: "Restart Instance",
   taskTypeReset: "Reset System",
   taskTypeDelete: "Delete Instance",
+  taskTypeCreateRedemptionInstance: "Redeem Code Instance",
   statusPending: "Pending",
   statusProcessing: "Processing",
   statusRunning: "Running",

@@ -79,6 +79,8 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 	switch task.TaskType {
 	case "create":
 		return s.executeCreateInstanceTask(ctx, task)
+	case "create_redemption_instance":
+		return s.executeCreateRedemptionInstanceTask(ctx, task)
 	case "start":
 		return s.executeStartInstanceTask(ctx, task)
 	case "stop":

@@ -188,6 +188,16 @@ const routes = [
         }
       },
       {
+        path: 'redemption-codes',
+        name: 'AdminRedemptionCodes',
+        component: () => import('@/view/admin/redemption-codes/index.vue'),
+        meta: {
+          title: '兑换码管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'providers',
         name: 'AdminProviders',
         component: () => import('@/view/admin/providers/index.vue'),

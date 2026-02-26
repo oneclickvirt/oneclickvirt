@@ -153,6 +153,10 @@
                 :label="$t('admin.tasks.taskTypeResetPassword')"
                 value="reset-password"
               />
+              <el-option
+                :label="$t('admin.tasks.taskTypeCreateRedemptionInstance')"
+                value="create_redemption_instance"
+              />
             </el-select>
           </el-form-item>
           <el-form-item>
@@ -792,7 +796,8 @@ const getTaskTypeText = (type) => {
     'delete': t('admin.tasks.taskTypeDelete'),
     'reset-password': t('admin.tasks.taskTypeResetPassword'),
     'create-port-mapping': t('admin.tasks.taskTypeCreatePortMapping'),
-    'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping')
+    'delete-port-mapping': t('admin.tasks.taskTypeDeletePortMapping'),
+    'create_redemption_instance': t('admin.tasks.taskTypeCreateRedemptionInstance')
   }
   return typeMap[type] || type
 }

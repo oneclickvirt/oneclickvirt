@@ -6,6 +6,7 @@ export default {
   personalCenter: 'Personal Center',
   userManagement: 'User Management',
   inviteCodeManagement: 'Invite Code Management',
+  redemptionCodeManagement: 'Redemption Code Management',
   providerManagement: 'Provider Management',
   taskManagement: 'Task Management',
   instanceManagement: 'Instance Management',

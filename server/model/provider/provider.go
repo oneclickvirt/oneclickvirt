@@ -108,6 +108,7 @@ type Provider struct {
 	VirtualMachineEnabled bool   `json:"vm_enabled" gorm:"default:false"`       // 是否支持虚拟机实例
 	SupportedTypes        string `json:"supported_types" gorm:"size:128"`       // 支持的实例类型列表
 	AllowClaim            bool   `json:"allowClaim" gorm:"default:true"`        // 是否允许用户使用此Provider
+	RedeemCodeOnly        bool   `json:"redeemCodeOnly" gorm:"default:false"`   // 是否仅支持兑换码兑换（开启后用户申请界面隐藏常规配置表单）
 
 	// 端口映射配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod" gorm:"size:16;default:device_proxy"` // IPv4端口映射方式：device_proxy, iptables, native

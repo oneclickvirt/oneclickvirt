@@ -112,6 +112,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		VirtualMachineEnabled: req.VirtualMachineEnabled,
 		TotalQuota:            req.TotalQuota,
 		AllowClaim:            req.AllowClaim,
+		RedeemCodeOnly:        req.RedeemCodeOnly,
 		Status:                "active",
 		ExpiresAt:             expiresAt,
 		IsFrozen:              false,

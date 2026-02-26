@@ -63,6 +63,7 @@ type CreateProviderRequest struct {
 	VirtualMachineEnabled bool   `json:"vm_enabled"`
 	TotalQuota            int    `json:"totalQuota"`
 	AllowClaim            bool   `json:"allowClaim"`
+	RedeemCodeOnly        bool   `json:"redeemCodeOnly"` // 是否仅支持兑换码兑换
 	Status                string `json:"status"`
 	ExpiresAt             string `json:"expiresAt"`             // 过期时间，格式: "2006-01-02 15:04:05"
 	MaxContainerInstances int    `json:"maxContainerInstances"` // 最大容器数量限制
@@ -154,6 +155,7 @@ type UpdateProviderRequest struct {
 	VirtualMachineEnabled bool    `json:"vm_enabled"`
 	TotalQuota            int     `json:"totalQuota"`
 	AllowClaim            bool    `json:"allowClaim"`
+	RedeemCodeOnly        bool    `json:"redeemCodeOnly"` // 是否仅支持兑换码兑换
 	Status                string  `json:"status"`
 	ExpiresAt             string  `json:"expiresAt"`             // 过期时间，格式: "2006-01-02 15:04:05"
 	MaxContainerInstances int     `json:"maxContainerInstances"` // 最大容器数量限制
@@ -481,6 +483,48 @@ type CreateInstanceTaskRequest struct {
 	BandwidthId string `json:"bandwidthId"`
 	Description string `json:"description"`
 	SessionId   string `json:"sessionId"` // 会话ID，用于新的资源预留机制
+}
+
+// CreateRedemptionInstanceTaskRequest 创建兑换码实例任务数据结构
+type CreateRedemptionInstanceTaskRequest struct {
+	RedemptionCodeID uint   `json:"redemptionCodeId"` // 兑换码 ID
+	ProviderId       uint   `json:"providerId"`
+	ImageId          uint   `json:"imageId"`
+	CPUId            string `json:"cpuId"`
+	MemoryId         string `json:"memoryId"`
+	DiskId           string `json:"diskId"`
+	BandwidthId      string `json:"bandwidthId"`
+}
+
+// RedemptionCodeListRequest 兑换码列表请求
+type RedemptionCodeListRequest struct {
+	common.PageInfo
+	Code       string `json:"code" form:"code"`
+	Status     string `json:"status" form:"status"`
+	ProviderID uint   `json:"providerId" form:"providerId"`
+}
+
+// BatchCreateRedemptionCodesRequest 批量创建兑换码请求
+type BatchCreateRedemptionCodesRequest struct {
+	ProviderID   uint   `json:"providerId" binding:"required"`
+	InstanceType string `json:"instanceType" binding:"required,oneof=container vm"`
+	ImageId      uint   `json:"imageId" binding:"required"`
+	CPUId        string `json:"cpuId" binding:"required"`
+	MemoryId     string `json:"memoryId" binding:"required"`
+	DiskId       string `json:"diskId" binding:"required"`
+	BandwidthId  string `json:"bandwidthId" binding:"required"`
+	Count        int    `json:"count" binding:"required,min=1,max=100"`
+	Remark       string `json:"remark"`
+}
+
+// BatchDeleteRedemptionCodesRequest 批量删除兑换码请求
+type BatchDeleteRedemptionCodesRequest struct {
+	IDs []uint `json:"ids" binding:"required,min=1"`
+}
+
+// ExportRedemptionCodesRequest 导出兑换码请求
+type ExportRedemptionCodesRequest struct {
+	IDs []uint `json:"ids"` // 为空则导出所有
 }
 
 // InstanceOperationTaskRequest 实例操作任务数据结构（启动、停止、重启、重置）

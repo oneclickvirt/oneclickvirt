@@ -63,6 +63,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
 		AdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
 
+		// 兑换码管理
+		AdminGroup.GET("/redemption-codes", admin.GetRedemptionCodeList)
+		AdminGroup.POST("/redemption-codes/batch-create", admin.BatchCreateRedemptionCodes)
+		AdminGroup.POST("/redemption-codes/export", admin.ExportRedemptionCodes)
+		AdminGroup.POST("/redemption-codes/batch-delete", admin.BatchDeleteRedemptionCodes)
+
 		// 系统监控
 		AdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)
 		AdminGroup.GET("/monitoring/audit-logs", system.GetOperationLogs)

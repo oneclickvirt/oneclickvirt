@@ -127,6 +127,7 @@
         </div>
       </template>
       <el-form 
+        v-if="!selectedProvider.redeemCodeOnly"
         ref="formRef"
         :model="configForm"
         :rules="configRules"
@@ -301,6 +302,30 @@
           </el-button>
         </el-form-item>
       </el-form>
+
+      <!-- 兑换码兑换表单 -->
+      <div v-else class="redeem-card">
+        <el-form label-width="120px">
+          <el-form-item :label="t('user.apply.redeemCodeTitle')">
+            <el-input
+              v-model="redeemCodeInput"
+              :placeholder="t('user.apply.redeemCodePlaceholder')"
+              style="max-width: 340px"
+              @keyup.enter="submitRedemption"
+            />
+          </el-form-item>
+          <el-form-item>
+            <el-button
+              type="primary"
+              :loading="redeemSubmitting"
+              size="large"
+              @click="submitRedemption"
+            >
+              {{ t('user.apply.redeemCodeSubmit') }}
+            </el-button>
+          </el-form-item>
+        </el-form>
+      </div>
     </el-card>
 
     <!-- 空状态 -->
@@ -348,7 +373,8 @@ import {
   getProviderCapabilities,
   getUserInstanceTypePermissions,
   getInstanceConfig,
-  createInstance
+  createInstance,
+  redeemCode
 } from '@/api/user'
 import { formatMemorySize, formatDiskSize, formatResourceUsage } from '@/utils/unit-formatter'
 import { getFlagEmoji } from '@/utils/countries'
@@ -360,6 +386,8 @@ const route = useRoute()
 const loading = ref(false)
 const refreshing = ref(false)
 const submitting = ref(false)
+const redeemCodeInput = ref('')
+const redeemSubmitting = ref(false)
 const selectedProvider = ref(null)
 const providers = ref([])
 const availableImages = ref([])
@@ -882,6 +910,25 @@ const selectProvider = async (provider) => {
   autoSelectFirstAvailableSpecs()
 }
 
+// 兑换码兑换
+const submitRedemption = async () => {
+  const code = redeemCodeInput.value.trim()
+  if (!code) {
+    ElMessage.warning(t('user.apply.redeemCodeRequired'))
+    return
+  }
+  redeemSubmitting.value = true
+  try {
+    await redeemCode(code)
+    ElMessage.success(t('user.apply.redeemCodeSuccess'))
+    redeemCodeInput.value = ''
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || e.message)
+  } finally {
+    redeemSubmitting.value = false
+  }
+}
+
 // 重置表单
 const resetForm = async () => {
   if (formRef.value) {
@@ -1224,6 +1271,10 @@ onUnmounted(() => {
 .config-card {
   margin-bottom: 24px;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.redeem-card {
+  padding: 8px 0;
 }
 
 .card-header {

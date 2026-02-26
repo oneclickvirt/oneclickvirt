@@ -72,5 +72,8 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.POST("/instances", user.CreateUserInstance)
 		UserGroup.PUT("/instances/:id", admin.UpdateInstance)
 		UserGroup.DELETE("/instances/:id", admin.DeleteInstance)
+
+		// 兑换码兑换
+		UserGroup.POST("/user/redemption-codes/redeem", user.RedeemCode)
 	}
 }

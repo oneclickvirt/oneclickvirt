@@ -37,6 +37,7 @@ import adminProviders from './en-US/admin/providers.js'
 import adminConfig from './en-US/admin/config.js'
 import adminAnnouncements from './en-US/admin/announcements.js'
 import adminInviteCodes from './en-US/admin/inviteCodes.js'
+import adminRedemptionCodes from './en-US/admin/redemptionCodes.js'
 import adminSystemImages from './en-US/admin/systemImages.js'
 import adminInstances from './en-US/admin/instances.js'
 import adminTasks from './en-US/admin/tasks.js'
@@ -75,6 +76,7 @@ export default {
     config: adminConfig,
     announcements: adminAnnouncements,
     inviteCodes: adminInviteCodes,
+    redemptionCodes: adminRedemptionCodes,
     systemImages: adminSystemImages,
     instances: adminInstances,
     tasks: adminTasks,

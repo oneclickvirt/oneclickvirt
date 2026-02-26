@@ -809,7 +809,8 @@ const getTaskTypeText = (taskType) => {
     stop: '停止',
     restart: '重启',
     reset: '重置',
-    reset_password: '重置密码'
+    reset_password: '重置密码',
+    create_redemption_instance: '兑换开设'
   }
   return taskTypes[taskType] || '处理'
 }

@@ -89,5 +89,10 @@ export default {
   confirmDescription: "Remarks",
   confirmSubmit: "Confirm Submit",
   confirmCancel: "Cancel",
-  confirmWarning: "An instance creation task will be initiated after submission. Please ensure the configuration is correct!"
+  confirmWarning: "An instance creation task will be initiated after submission. Please ensure the configuration is correct!",
+  redeemCodeTitle: "Redeem Code",
+  redeemCodePlaceholder: "Enter your redemption code",
+  redeemCodeSubmit: "Redeem Now",
+  redeemCodeSuccess: "Redeemed successfully! The instance has been assigned to your account.",
+  redeemCodeRequired: "Please enter a redemption code"
 }

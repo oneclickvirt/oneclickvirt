@@ -377,6 +377,38 @@ export const exportInviteCodes = (data) => {
   })
 }
 
+export const getRedemptionCodes = (params) => {
+  return request({
+    url: '/v1/admin/redemption-codes',
+    method: 'get',
+    params
+  })
+}
+
+export const batchCreateRedemptionCodes = (data) => {
+  return request({
+    url: '/v1/admin/redemption-codes/batch-create',
+    method: 'post',
+    data
+  })
+}
+
+export const exportRedemptionCodes = (data) => {
+  return request({
+    url: '/v1/admin/redemption-codes/export',
+    method: 'post',
+    data
+  })
+}
+
+export const batchDeleteRedemptionCodes = (data) => {
+  return request({
+    url: '/v1/admin/redemption-codes/batch-delete',
+    method: 'post',
+    data
+  })
+}
+
 export const getProviderMonitoring = (params) => {
   return request({
     url: '/v1/admin/monitoring/providers',

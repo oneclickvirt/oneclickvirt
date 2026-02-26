@@ -180,6 +180,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 				MemoryUsage:             memoryUsage,
 				ContainerEnabled:        provider.ContainerEnabled,
 				VmEnabled:               provider.VirtualMachineEnabled,
+				RedeemCodeOnly:          provider.RedeemCodeOnly,
 			}
 			providers = append(providers, providerResp)
 		}

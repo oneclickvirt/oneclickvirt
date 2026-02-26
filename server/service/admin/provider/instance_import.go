@@ -2,12 +2,15 @@ package provider
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider"
 
 	"go.uber.org/zap"
@@ -239,6 +242,59 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			} else {
 				result.SuccessCount++
 				importDetail.InstanceID = instance.ID
+
+				// 为导入的实例自动生成 ORI 前缀兑换码（一对一绑定，状态直接为 pending_use）
+				const oriCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+				var oriCode string
+				for oriAttempt := 0; oriAttempt < 10; oriAttempt++ {
+					buf := make([]byte, 13)
+					ok := true
+					for j := range buf {
+						n, randErr := rand.Int(rand.Reader, big.NewInt(int64(len(oriCharset))))
+						if randErr != nil {
+							ok = false
+							break
+						}
+						buf[j] = oriCharset[n.Int64()]
+					}
+					if !ok {
+						break
+					}
+					candidate := "ORI" + string(buf)
+					var existingOriCode systemModel.RedemptionCode
+					if tx.Where("code = ?", candidate).First(&existingOriCode).Error != nil {
+						oriCode = candidate
+						break
+					}
+				}
+				if oriCode != "" {
+					instanceType := discovered.InstanceType
+					if instanceType == "" {
+						instanceType = "container"
+					}
+					oriRedemptionCode := systemModel.RedemptionCode{
+						Code:         oriCode,
+						Status:       systemModel.RedemptionStatusPendingUse,
+						ProviderID:   options.ProviderID,
+						ProviderName: providerInfo.Name,
+						InstanceType: instanceType,
+						InstanceID:   &instance.ID,
+						CreatedBy:    adminUserID,
+						Remark:       "节点导入自动生成",
+					}
+					if createCodeErr := tx.Create(&oriRedemptionCode).Error; createCodeErr != nil {
+						global.APP_LOG.Warn("为导入实例创建ORI兑换码失败",
+							zap.Uint("instanceId", instance.ID),
+							zap.Error(createCodeErr))
+					} else {
+						global.APP_LOG.Info("为导入实例自动生成ORI兑换码",
+							zap.Uint("instanceId", instance.ID),
+							zap.String("code", oriCode))
+					}
+				} else {
+					global.APP_LOG.Warn("无法为导入实例生成唯一ORI兑换码",
+						zap.Uint("instanceId", instance.ID))
+				}
 
 				// 累计资源占用
 				totalCPU += int64(discovered.CPU)

@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	systemModel "oneclickvirt/model/system"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/database"
 	provider2 "oneclickvirt/service/provider"
@@ -234,7 +235,19 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			}
 		}
 
-		// 4. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
+		// 4. 删除绑定的兑换码（未被使用的，即 pending_use 状态）
+		// 实例被删除后兑换码无效，需要一并清理避免残留
+		if err := tx.Unscoped().
+			Where("instance_id = ? AND status != ?", instanceID, systemModel.RedemptionStatusUsed).
+			Delete(&systemModel.RedemptionCode{}).Error; err != nil {
+			global.APP_LOG.Warn("清理实例绑定的兑换码失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID),
+				zap.Error(err))
+			// 兑换码清理失败不阻止整个流程
+		}
+
+		// 5. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
 		if err := tx.Delete(&instance).Error; err != nil {
 			return fmt.Errorf("删除实例记录失败: %v", err)
 		}

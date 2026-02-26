@@ -43,6 +43,7 @@ export default {
   taskTypeResetPassword: "重置密码",
   taskTypeCreatePortMapping: "创建端口映射",
   taskTypeDeletePortMapping: "删除端口映射",
+  taskTypeCreateRedemptionInstance: "兑换开设实例",
   statusPending: "等待中",
   statusProcessing: "处理中",
   statusRunning: "执行中",

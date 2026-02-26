@@ -199,6 +199,7 @@ type AvailableProviderResponse struct {
 	MemoryUsage             float64 `json:"memoryUsage"`
 	ContainerEnabled        bool    `json:"containerEnabled"`
 	VmEnabled               bool    `json:"vmEnabled"`
+	RedeemCodeOnly          bool    `json:"redeemCodeOnly"` // 是否仅支持兑换码兑换
 }
 
 // SystemImageResponse 系统镜像响应

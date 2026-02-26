@@ -65,6 +65,12 @@ type InviteCodeResponse struct {
 	CreatedByUser string `json:"createdByUser"`
 }
 
+// RedemptionCodeResponse 兑换码响应
+type RedemptionCodeResponse struct {
+	system.RedemptionCode
+	CreatedByUser string `json:"createdByUser"` // 创建者用户名（冗余，便于展示）
+}
+
 type InstanceManageResponse struct {
 	provider.Instance
 	UserName       string `json:"userName"`

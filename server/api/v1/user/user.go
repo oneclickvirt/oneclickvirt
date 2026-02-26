@@ -1089,3 +1089,39 @@ func QueryInstancePmacctData(c *gin.Context) {
 
 	common.ResponseSuccess(c, summary, "查询pmacct数据成功")
 }
+
+// RedeemCode 用户兑换码兑换实例
+// @Summary 兑换码兑换
+// @Description 通过兑换码获取对应的云实例
+// @Tags 用户实例管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body object true "兑换码请求 {\"code\": \"XXXXXXXXXXXXXXXX\"}"
+// @Success 200 {object} common.Response "兑换成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "未登录"
+// @Router /user/redemption-codes/redeem [post]
+func RedeemCode(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	var req struct {
+		Code string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "请输入兑换码"))
+		return
+	}
+
+	userServiceInstance := userService.NewService()
+	if err := userServiceInstance.RedeemCode(userID, req.Code); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeError, err.Error()))
+		return
+	}
+
+	common.ResponseSuccess(c, nil, "兑换成功，实例已绑定到您的账户")
+}

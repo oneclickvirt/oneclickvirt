@@ -11,6 +11,7 @@ export default {
   taskTypeRestart: "重启实例",
   taskTypeReset: "重置系统",
   taskTypeDelete: "删除实例",
+  taskTypeCreateRedemptionInstance: "兑换开设实例",
   statusPending: "等待中",
   statusProcessing: "处理中",
   statusRunning: "执行中",

@@ -15,6 +15,7 @@ export default {
   reset: '重置',
   back: '返回',
   close: '关闭',
+  selected: '已选择',
   loading: '加载中...',
   success: '成功',
   error: '错误',

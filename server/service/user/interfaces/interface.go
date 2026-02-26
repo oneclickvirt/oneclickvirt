@@ -50,4 +50,6 @@ type ProviderServiceInterface interface {
 	GetProviderCapabilities(userID uint, providerID uint) (map[string]interface{}, error)
 	GetInstanceTypePermissions(userID uint) (map[string]interface{}, error)
 	ProcessCreateInstanceTask(ctx context.Context, task *adminModel.Task) error
+	ProcessCreateRedemptionInstanceTask(ctx context.Context, task *adminModel.Task) error
+	RedeemCode(userID uint, code string) error
 }

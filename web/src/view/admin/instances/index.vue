@@ -222,13 +222,13 @@
           </template>
         </el-table-column>
         <el-table-column
-          prop="expiredAt"
+          prop="expiresAt"
           :label="$t('admin.instances.expiryTime')"
           width="140"
         >
           <template #default="scope">
-            <span :class="{ 'expired': isExpired(scope.row.expiredAt), 'expiring-soon': isExpiringSoon(scope.row.expiredAt) }">
-              {{ formatDate(scope.row.expiredAt) }}
+            <span :class="{ 'expired': isExpired(scope.row.expiresAt), 'expiring-soon': isExpiringSoon(scope.row.expiresAt) }">
+              {{ formatDate(scope.row.expiresAt) }}
             </span>
             <div v-if="scope.row.isManualExpiry" style="margin-top: 4px;">
               <el-tag size="small" type="info">{{ $t('admin.instances.manualExpiry') }}</el-tag>
@@ -410,8 +410,8 @@
             {{ formatDate(selectedInstance.updatedAt) }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.expiryTime')">
-            <span :class="{ 'expired': isExpired(selectedInstance.expiredAt), 'expiring-soon': isExpiringSoon(selectedInstance.expiredAt) }">
-              {{ formatDate(selectedInstance.expiredAt) }}
+            <span :class="{ 'expired': isExpired(selectedInstance.expiresAt), 'expiring-soon': isExpiringSoon(selectedInstance.expiresAt) }">
+              {{ formatDate(selectedInstance.expiresAt) }}
             </span>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.healthStatus')">
@@ -1015,8 +1015,8 @@ const handleSetInstanceExpiry = async (instance) => {
         cancelButtonText: t('common.cancel'),
         inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
         inputErrorMessage: t('admin.instances.dateFormatError'),
-        inputPlaceholder: instance.expiredAt ? formatDate(instance.expiredAt) : '2024-12-31 23:59:59',
-        inputValue: instance.expiredAt ? formatDate(instance.expiredAt) : ''
+        inputPlaceholder: instance.expiresAt ? formatDate(instance.expiresAt) : '2024-12-31 23:59:59',
+        inputValue: instance.expiresAt ? formatDate(instance.expiresAt) : ''
       }
     )
 

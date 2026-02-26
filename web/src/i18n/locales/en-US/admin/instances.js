@@ -122,5 +122,9 @@ export default {
   freezeSuccess: "Frozen successfully",
   freezeFailed: "Failed to freeze",
   unfreezeSuccess: "Unfrozen successfully",
-  unfreezeFailed: "Failed to unfreeze"
+  unfreezeFailed: "Failed to unfreeze",
+  manualExpiry: "Manual",
+  frozen: "Frozen",
+  normal: "Normal",
+  enterFreezeReason: "Please enter freeze reason (optional)"
 }

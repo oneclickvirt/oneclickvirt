@@ -180,6 +180,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/redemption-codes',
+        name: 'AdminRedemptionCodes',
+        meta: {
+          title: t('sidebar.redemptionCodeManagement'),
+          icon: 'Discount'
+        }
+      },
+      {
         path: '/admin/providers',
         name: 'AdminProviders',
         meta: {
