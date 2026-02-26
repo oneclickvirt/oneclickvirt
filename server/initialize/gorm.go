@@ -133,6 +133,7 @@ func RegisterTables(db *gorm.DB) {
 		// 邀请码相关表
 		&systemModel.InviteCode{},      // 邀请码表
 		&systemModel.InviteCodeUsage{}, // 邀请码使用记录表
+		&systemModel.RedemptionCode{},  // 兑换码表
 
 		// 权限管理表
 		&permissionModel.UserPermission{}, // 用户权限组合表

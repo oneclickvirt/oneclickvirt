@@ -73,9 +73,15 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest) ([]adminMode
 	userMap := make(map[uint]string)
 	if len(creatorIDs) > 0 {
 		var users []userModel.User
-		global.APP_DB.Select("id, username").Where("id IN ?", creatorIDs).Limit(500).Find(&users)
-		for _, u := range users {
-			userMap[u.ID] = u.Username
+		if err := global.APP_DB.Select("id, username").Where("id IN ?", creatorIDs).Limit(500).Find(&users).Error; err != nil {
+			// 查询用户失败时记录日志但不中断流程，仅返回没有用户名的兑换码列表
+			global.APP_LOG.Warn("查询兑换码创建者用户信息失败，将返回不含用户名的列表",
+				zap.Error(err),
+				zap.Int("creatorCount", len(creatorIDs)))
+		} else {
+			for _, u := range users {
+				userMap[u.ID] = u.Username
+			}
 		}
 	}
 

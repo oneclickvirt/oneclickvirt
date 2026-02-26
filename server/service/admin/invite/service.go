@@ -73,12 +73,18 @@ func (s *Service) GetInviteCodeList(req admin.InviteCodeListRequest) ([]admin.In
 	var users []userModel.User
 	userMap := make(map[uint]string)
 	if len(creatorIDs) > 0 {
-		global.APP_DB.Select("id, username").
+		if err := global.APP_DB.Select("id, username").
 			Where("id IN ?", creatorIDs).
 			Limit(500).
-			Find(&users)
-		for _, user := range users {
-			userMap[user.ID] = user.Username
+			Find(&users).Error; err != nil {
+			// 查询用户失败时记录日志但不中断流程，仅返回没有用户名的邀请码列表
+			global.APP_LOG.Warn("查询邀请码创建者用户信息失败，将返回不含用户名的列表",
+				zap.Error(err),
+				zap.Int("creatorCount", len(creatorIDs)))
+		} else {
+			for _, user := range users {
+				userMap[user.ID] = user.Username
+			}
 		}
 	}
 
