@@ -248,11 +248,11 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		if err := tx.Unscoped().
 			Where("instance_id = ? AND status != ?", instanceID, systemModel.RedemptionStatusUsed).
 			Delete(&systemModel.RedemptionCode{}).Error; err != nil {
-			global.APP_LOG.Warn("清理实例绑定的兑换码失败",
+			global.APP_LOG.Warn("清理实例绑定的兔换码失败",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instanceID),
 				zap.Error(err))
-			// 兑换码清理失败不阻止整个流程
+			// 兔换码清理失败不阻止整个流程
 		}
 
 		// 5. 软删除当前实例记录（保留流量数据以供统计）- 这是最关键的操作
@@ -280,6 +280,23 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 		}
 
 		return err
+	}
+
+	// 事务提交成功后，释放IPv4池地址（事务外执行，避免事务回滚时误释放）
+	if provider.NetworkType == "dedicated_ipv4" || provider.NetworkType == "dedicated_ipv4_ipv6" {
+		releaseErr := global.APP_DB.Model(&providerModel.ProviderIPv4Pool{}).
+			Where("instance_id = ?", instanceID).
+			Updates(map[string]interface{}{"is_allocated": false, "instance_id": nil}).Error
+		if releaseErr != nil {
+			global.APP_LOG.Warn("释放IPv4池地址失败（可能未配置池）",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID),
+				zap.Error(releaseErr))
+		} else {
+			global.APP_LOG.Info("释放IPv4池地址成功",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instanceID))
+		}
 	}
 
 	// 标记任务完成

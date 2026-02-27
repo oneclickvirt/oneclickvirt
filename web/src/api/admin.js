@@ -805,3 +805,34 @@ export const unfreezeInstance = (data) => {
     data
   })
 }
+
+// IPv4地址池管理
+export const getProviderIPv4Pool = (providerId, params) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/ipv4-pool`,
+    method: 'get',
+    params
+  })
+}
+
+export const setProviderIPv4Pool = (providerId, data) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/ipv4-pool`,
+    method: 'post',
+    data
+  })
+}
+
+export const clearProviderIPv4Pool = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/ipv4-pool`,
+    method: 'delete'
+  })
+}
+
+export const deleteProviderIPv4PoolEntry = (providerId, entryId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/ipv4-pool/${entryId}`,
+    method: 'delete'
+  })
+}

@@ -150,6 +150,10 @@ func (s *UserCacheService) Shutdown() {
 
 // CacheKeys 缓存键常量
 const (
+	// 认证上下文缓存 - 30秒（安全敏感，短TTL）
+	KeyUserAuthContext = "user:auth:ctx:%d" // userID
+	TTLUserAuthContext = 30 * time.Second
+
 	// Dashboard缓存 - 1分钟
 	KeyUserDashboard = "user:dashboard:%d" // userID
 	TTLUserDashboard = 1 * time.Minute
@@ -166,6 +170,11 @@ const (
 	KeyInstanceTrafficDetail = "instance:traffic:detail:%d" // instanceID
 	TTLInstanceTrafficDetail = 2 * time.Minute
 )
+
+// MakeUserAuthContextKey 生成用户认证上下文缓存键
+func MakeUserAuthContextKey(userID uint) string {
+	return fmt.Sprintf(KeyUserAuthContext, userID)
+}
 
 // MakeUserDashboardKey 生成用户Dashboard缓存键
 func MakeUserDashboardKey(userID uint) string {
@@ -189,6 +198,9 @@ func MakeInstanceTrafficDetailKey(instanceID uint) string {
 
 // InvalidateUserCache 使用户所有缓存失效
 func (s *UserCacheService) InvalidateUserCache(userID uint) {
+	// 删除认证上下文缓存
+	s.Delete(MakeUserAuthContextKey(userID))
+
 	// 删除Dashboard缓存
 	s.Delete(MakeUserDashboardKey(userID))
 

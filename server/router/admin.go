@@ -146,6 +146,12 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)
 		AdminGroup.GET("/instances/:id/port-mappings", admin.GetInstancePortMappings)
 
+		// IPv4地址池管理（dedicated_ipv4 / dedicated_ipv4_ipv6 类型服务商）
+		AdminGroup.GET("/providers/:id/ipv4-pool", admin.GetProviderIPv4Pool)
+		AdminGroup.POST("/providers/:id/ipv4-pool", admin.SetProviderIPv4Pool)
+		AdminGroup.DELETE("/providers/:id/ipv4-pool", admin.ClearProviderIPv4Pool)
+		AdminGroup.DELETE("/providers/:id/ipv4-pool/:entry_id", admin.DeleteProviderIPv4PoolEntry)
+
 		// 流量管理API
 		adminTrafficAPI := &traffic.AdminTrafficAPI{}
 		AdminGroup.GET("/traffic/overview", adminTrafficAPI.GetSystemTrafficOverview)

@@ -279,16 +279,204 @@
         <li><strong>Proxmox VE:</strong> {{ $t('admin.providers.proxmoxMappingDesc') }}</li>
       </ul>
     </el-alert>
+
+    <!-- IPv4 地址池管理（仅对 dedicated_ipv4 / dedicated_ipv4_ipv6 显示） -->
+    <template v-if="modelValue.networkType === 'dedicated_ipv4' || modelValue.networkType === 'dedicated_ipv4_ipv6'">
+      <el-divider content-position="left" style="margin-top: 24px;">
+        <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.ipv4Pool.management') }}</span>
+      </el-divider>
+
+      <!-- 新提供商提示 -->
+      <el-alert
+        v-if="!modelValue.id"
+        type="info"
+        :closable="false"
+        :title="$t('admin.providers.ipv4Pool.newProviderNote')"
+        style="margin-bottom: 16px;"
+      />
+
+      <template v-else>
+        <!-- 池统计 -->
+        <el-row :gutter="16" style="margin-bottom: 16px;">
+          <el-col :span="8">
+            <el-statistic :title="$t('admin.providers.ipv4Pool.total')" :value="poolStats.total" />
+          </el-col>
+          <el-col :span="8">
+            <el-statistic :title="$t('admin.providers.ipv4Pool.allocated')" :value="poolStats.allocated" />
+          </el-col>
+          <el-col :span="8">
+            <el-statistic :title="$t('admin.providers.ipv4Pool.available')" :value="poolStats.available" />
+          </el-col>
+        </el-row>
+
+        <!-- 添加地址 -->
+        <el-form-item :label="$t('admin.providers.ipv4Pool.addresses')">
+          <div style="width: 100%;">
+            <el-input
+              v-model="newAddresses"
+              type="textarea"
+              :rows="4"
+              :placeholder="$t('admin.providers.ipv4Pool.addressesPlaceholder')"
+              style="width: 100%; margin-bottom: 8px;"
+            />
+            <el-space>
+              <el-button
+                type="primary"
+                :loading="saving"
+                @click="addToPool"
+              >
+                {{ $t('admin.providers.ipv4Pool.addBtn') }}
+              </el-button>
+              <el-popconfirm
+                :title="$t('admin.providers.ipv4Pool.clearConfirm')"
+                @confirm="clearPool"
+              >
+                <template #reference>
+                  <el-button type="danger" plain>{{ $t('admin.providers.ipv4Pool.clearBtn') }}</el-button>
+                </template>
+              </el-popconfirm>
+            </el-space>
+          </div>
+        </el-form-item>
+
+        <!-- 当前地址列表 -->
+        <el-form-item :label="$t('admin.providers.ipv4Pool.list')">
+          <el-table
+            v-loading="poolLoading"
+            :data="poolEntries"
+            style="width: 100%"
+            size="small"
+            max-height="240"
+          >
+            <el-table-column
+              :label="$t('admin.providers.ipv4Pool.address')"
+              prop="address"
+              min-width="140"
+            />
+            <el-table-column
+              :label="$t('admin.providers.ipv4Pool.status')"
+              min-width="100"
+            >
+              <template #default="{ row }">
+                <el-tag :type="row.is_allocated ? 'warning' : 'success'" size="small">
+                  {{ row.is_allocated ? $t('admin.providers.ipv4Pool.statusAllocated') : $t('admin.providers.ipv4Pool.statusFree') }}
+                </el-tag>
+              </template>
+            </el-table-column>
+            <el-table-column
+              :label="$t('admin.providers.ipv4Pool.instance')"
+              prop="instance_id"
+              min-width="90"
+            >
+              <template #default="{ row }">
+                <span>{{ row.instance_id || '-' }}</span>
+              </template>
+            </el-table-column>
+            <el-table-column
+              width="80"
+              align="center"
+            >
+              <template #default="{ row }">
+                <el-popconfirm
+                  v-if="!row.is_allocated"
+                  :title="$t('admin.providers.ipv4Pool.deleteConfirm')"
+                  @confirm="deleteEntry(row.id)"
+                >
+                  <template #reference>
+                    <el-button type="danger" link size="small">{{ $t('common.delete') }}</el-button>
+                  </template>
+                </el-popconfirm>
+              </template>
+            </el-table-column>
+          </el-table>
+        </el-form-item>
+      </template>
+    </template>
   </el-form>
 </template>
 
 <script setup>
-import { watch } from 'vue'
+import { ref, watch } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { getProviderIPv4Pool, setProviderIPv4Pool, clearProviderIPv4Pool, deleteProviderIPv4PoolEntry } from '@/api/admin'
 
 const props = defineProps({
   modelValue: {
     type: Object,
     required: true
+  }
+})
+
+const { t } = useI18n()
+
+// ---- IPv4 地址池状态 ----
+const poolEntries = ref([])
+const poolStats = ref({ total: 0, allocated: 0, available: 0 })
+const poolLoading = ref(false)
+const newAddresses = ref('')
+const saving = ref(false)
+
+async function loadPool() {
+  if (!props.modelValue.id) return
+  poolLoading.value = true
+  try {
+    const res = await getProviderIPv4Pool(props.modelValue.id, { page: 1, page_size: 200 })
+    if (res.data) {
+      poolEntries.value = res.data.list || []
+      poolStats.value = res.data.stats || { total: 0, allocated: 0, available: 0 }
+    }
+  } catch {
+    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
+  } finally {
+    poolLoading.value = false
+  }
+}
+
+async function addToPool() {
+  if (!newAddresses.value.trim()) return
+  saving.value = true
+  try {
+    await setProviderIPv4Pool(props.modelValue.id, { addresses: newAddresses.value })
+    ElMessage.success(t('admin.providers.ipv4Pool.addSuccess'))
+    newAddresses.value = ''
+    await loadPool()
+  } catch {
+    ElMessage.error(t('admin.providers.ipv4Pool.addFailed'))
+  } finally {
+    saving.value = false
+  }
+}
+
+async function clearPool() {
+  try {
+    await clearProviderIPv4Pool(props.modelValue.id)
+    ElMessage.success(t('admin.providers.ipv4Pool.clearSuccess'))
+    await loadPool()
+  } catch {
+    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
+  }
+}
+
+async function deleteEntry(entryId) {
+  try {
+    await deleteProviderIPv4PoolEntry(props.modelValue.id, entryId)
+    ElMessage.success(t('admin.providers.ipv4Pool.deleteSuccess'))
+    await loadPool()
+  } catch {
+    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
+  }
+}
+
+// 当提供商 ID 变更（首次登载 / 的切换编辑）时重收pool
+watch(() => props.modelValue.id, (id) => {
+  if (id) loadPool()
+}, { immediate: true })
+
+// 当 networkType 切换为 dedicated_ipv4* 且已有 id 时加载
+watch(() => props.modelValue.networkType, (nt) => {
+  if ((nt === 'dedicated_ipv4' || nt === 'dedicated_ipv4_ipv6') && props.modelValue.id) {
+    loadPool()
   }
 })
 

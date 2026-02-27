@@ -111,10 +111,11 @@ func RegisterTables(db *gorm.DB) {
 		&oauth2Model.OAuth2Provider{}, // OAuth2提供商配置表
 
 		// 实例相关表
-		&providerModel.Instance{}, // 虚拟机/容器实例表
-		&providerModel.Provider{}, // 服务提供商配置表
-		&providerModel.Port{},     // 端口映射表
-		&adminModel.Task{},        // 用户任务表
+		&providerModel.Instance{},         // 虚拟机/容器实例表
+		&providerModel.Provider{},         // 服务提供商配置表
+		&providerModel.Port{},             // 端口映射表
+		&providerModel.ProviderIPv4Pool{}, // IPv4地址池表（dedicated_ipv4类型服务商）
+		&adminModel.Task{},                // 用户任务表
 
 		// 资源管理表
 		&resourceModel.ResourceReservation{}, // 资源预留表

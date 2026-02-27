@@ -17,43 +17,29 @@ import (
 
 // CompleteTask 完成任务
 func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage string, resultData map[string]interface{}) error {
-	// 首先获取任务信息
-	var task adminModel.Task
-	err := global.APP_DB.First(&task, taskID).Error
-	if err != nil {
-		global.APP_LOG.Error("获取任务信息失败",
-			zap.Uint("taskId", taskID),
-			zap.Error(err))
-		return err
-	}
-
-	// 幂等性检查：如果任务已经是完成状态，避免重复处理
-	if task.Status == "completed" || task.Status == "failed" || task.Status == "cancelled" {
-		global.APP_LOG.Info("任务已经是完成状态，跳过重复处理",
-			zap.Uint("taskId", taskID),
-			zap.String("currentStatus", task.Status),
-			zap.Bool("requestedSuccess", success))
-		return nil
-	}
-
 	now := time.Now()
 	status := "completed"
 	if !success {
 		status = "failed"
 	}
 
-	err = s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		updates := map[string]interface{}{
-			"status":       status,
-			"completed_at": &now,
-		}
+	updates := map[string]interface{}{
+		"status":       status,
+		"completed_at": &now,
+	}
+	if !success && errorMessage != "" {
+		updates["error_message"] = errorMessage
+	}
 
-		// 只在失败时设置 error_message，成功时不设置
-		if !success && errorMessage != "" {
-			updates["error_message"] = errorMessage
-		}
-
-		return tx.Model(&adminModel.Task{}).Where("id = ?", taskID).Updates(updates).Error
+	// CAS风格更新：WHERE status NOT IN (terminal states) 确保不覆盖已完成/取消/超时状态
+	// 这样即使forceKill和CompleteTask并发执行，也不会互相覆盖
+	var rowsAffected int64
+	err := s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		result := tx.Model(&adminModel.Task{}).
+			Where("id = ? AND status NOT IN (?)", taskID, []string{"completed", "failed", "cancelled", "timeout"}).
+			Updates(updates)
+		rowsAffected = result.RowsAffected
+		return result.Error
 	})
 
 	if err != nil {
@@ -63,13 +49,24 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 		return err
 	}
 
-	// 如果任务失败且没有创建实例，释放预留资源
-	if !success && task.InstanceID == nil {
-		s.wg.Add(1)
-		go func() {
-			defer s.wg.Done()
-			s.releaseTaskResources(taskID)
-		}()
+	// RowsAffected == 0 说明任务已处于终态（幂等，不报错）
+	if rowsAffected == 0 {
+		global.APP_LOG.Info("任务已处于终态，跳过重复更新",
+			zap.Uint("taskId", taskID),
+			zap.Bool("requestedSuccess", success))
+		return nil
+	}
+
+	// 若任务失败且无关联实例，释放预留资源
+	if !success {
+		var task adminModel.Task
+		if err := global.APP_DB.Select("instance_id").First(&task, taskID).Error; err == nil && task.InstanceID == nil {
+			s.wg.Add(1)
+			go func() {
+				defer s.wg.Done()
+				s.releaseTaskResources(taskID)
+			}()
+		}
 	}
 
 	global.APP_LOG.Info("任务完成",

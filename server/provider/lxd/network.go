@@ -34,6 +34,20 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		zap.String("networkType", networkConfig.NetworkType),
 		zap.Bool("hasIPv6", hasIPv6))
 
+	// 对于独立IPv4模式，预先检查并确保该IPv4地址已绑定到宿主机网络接口
+	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" {
+		if config.Metadata != nil {
+			if staticIPv4, ok := config.Metadata["static_ipv4"]; ok && staticIPv4 != "" {
+				if err := l.ensureIPv4OnHostInterface(staticIPv4); err != nil {
+					global.APP_LOG.Warn("独立IPv4宿主机接口绑定检查失败，继续执行",
+						zap.String("instanceName", config.Name),
+						zap.String("ipv4", staticIPv4),
+						zap.Error(err))
+				}
+			}
+		}
+	}
+
 	// 重启实例以获取IP地址（增强容错）
 	if err := l.restartInstanceForNetwork(config.Name); err != nil {
 		global.APP_LOG.Warn("重启实例获取网络配置失败，尝试直接获取现有网络配置",

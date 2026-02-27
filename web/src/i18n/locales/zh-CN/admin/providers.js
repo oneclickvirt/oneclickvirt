@@ -453,5 +453,30 @@ export default {
     formValidationFailed: "表单验证失败，请检查必填项",
     trafficCollectIntervalRange: "流量采集间隔必须在10-300秒之间（最长5分钟）"
   },
-  pleaseCheckRequiredFields: "请检查必填项"
+  pleaseCheckRequiredFields: "请检查必填项",
+  ipv4Pool: {
+    management: "IPv4地址池",
+    addresses: "添加地址",
+    addressesPlaceholder: "每行一个IP或CIDR\n示例：\n192.168.1.10\n10.0.0.0/29",
+    addBtn: "添加到池",
+    clearBtn: "清除未分配",
+    stats: "池统计",
+    total: "总计",
+    allocated: "已分配",
+    available: "可用",
+    list: "当前地址池",
+    address: "IP地址",
+    status: "状态",
+    statusFree: "可用",
+    statusAllocated: "已分配",
+    instance: "实例",
+    addSuccess: "IP已添加到地址池",
+    addFailed: "添加IP失败",
+    clearSuccess: "未分配的IP已清除",
+    clearConfirm: "确认清除地址池中所有未分配的IP吗？",
+    deleteSuccess: "IP已从地址池删除",
+    deleteConfirm: "确认从地址池删除此IP吗？",
+    newProviderNote: "请先保存提供商，然后再配置IPv4地址池",
+    loadFailed: "加载地址池失败"
+  }
 }

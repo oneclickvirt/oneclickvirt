@@ -121,12 +121,14 @@ func (dm *DatabaseManager) connect() (*gorm.DB, error) {
 
 // startHeartbeat 启动心跳检测
 func (dm *DatabaseManager) startHeartbeat() {
-	// 如果已经在运行，先停止
-	if dm.heartbeatTicker != nil {
-		dm.stopHeartbeat()
-	}
-
+	// 如果已经在运行，先停止（通过dm.mu保护，防止并发双关闭）
+	dm.mu.Lock()
+	dm.stopHeartbeat()
 	dm.heartbeatTicker = time.NewTicker(30 * time.Second) // 每30秒检测一次
+	// 捕获当前 channel 和 ticker 引用（goroutine启动后字段可能被替换，必须提前捕获）
+	stopChan := dm.heartbeatStop
+	ticker := dm.heartbeatTicker
+	dm.mu.Unlock()
 
 	go func() {
 		global.APP_LOG.Info("数据库心跳检测已启动")
@@ -135,10 +137,10 @@ func (dm *DatabaseManager) startHeartbeat() {
 			case <-dm.ctx.Done():
 				global.APP_LOG.Info("数据库心跳检测已停止（系统关闭）")
 				return
-			case <-dm.heartbeatStop:
+			case <-stopChan:
 				global.APP_LOG.Info("数据库心跳检测已停止")
 				return
-			case <-dm.heartbeatTicker.C:
+			case <-ticker.C:
 				dm.performHeartbeat()
 			}
 		}
@@ -149,6 +151,7 @@ func (dm *DatabaseManager) startHeartbeat() {
 func (dm *DatabaseManager) stopHeartbeat() {
 	if dm.heartbeatTicker != nil {
 		dm.heartbeatTicker.Stop()
+		dm.heartbeatTicker = nil // 清除指针，防止重复调用
 		close(dm.heartbeatStop)
 		dm.heartbeatStop = make(chan struct{})
 	}
@@ -273,11 +276,11 @@ func (dm *DatabaseManager) reconnect() {
 func (dm *DatabaseManager) Shutdown() {
 	global.APP_LOG.Info("正在关闭数据库连接管理器...")
 
-	// 停止心跳检测
+	// 停止心跳检测（先取锁再关闭，未避免并发双关闭）
 	dm.cancel()
-	if dm.heartbeatTicker != nil {
-		dm.stopHeartbeat()
-	}
+	dm.mu.Lock()
+	dm.stopHeartbeat()
+	dm.mu.Unlock()
 
 	// 关闭数据库连接
 	dm.mu.Lock()

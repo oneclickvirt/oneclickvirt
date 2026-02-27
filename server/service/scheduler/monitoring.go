@@ -39,7 +39,7 @@ type MonitoringSchedulerService struct {
 	providerStateManager *ProviderStateManager // Provider状态管理器
 	lastResetTime        sync.Map              // map[uint]time.Time - pmacct重置时间记录
 	lastResetCleanup     time.Time             // 最后清理时间
-	mu                   sync.Mutex            // 保护 lastResetCleanup
+	mu                   sync.RWMutex          // 保护 isRunning 和 lastResetCleanup
 }
 
 // NewMonitoringSchedulerService 创建监控调度服务
@@ -55,12 +55,15 @@ func NewMonitoringSchedulerService(pmacctService PmacctServiceInterface) *Monito
 
 // Start 启动监控调度器
 func (s *MonitoringSchedulerService) Start(ctx context.Context) {
+	s.mu.Lock()
 	if s.isRunning {
+		s.mu.Unlock()
 		global.APP_LOG.Warn("监控调度器已在运行中")
 		return
 	}
-
 	s.isRunning = true
+	s.mu.Unlock()
+
 	global.APP_LOG.Info("启动监控调度器")
 
 	// 启动pmacct流量数据收集任务
@@ -75,13 +78,16 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 
 // Stop 停止监控调度器
 func (s *MonitoringSchedulerService) Stop() {
+	s.mu.Lock()
 	if !s.isRunning {
+		s.mu.Unlock()
 		return
 	}
+	s.isRunning = false
+	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止监控调度器")
 	close(s.stopChan)
-	s.isRunning = false
 
 	// 等待所有goroutine完成（最多30秒）
 	done := make(chan struct{})
@@ -103,6 +109,8 @@ func (s *MonitoringSchedulerService) Stop() {
 
 // IsRunning 检查调度器是否正在运行
 func (s *MonitoringSchedulerService) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.isRunning
 }
 

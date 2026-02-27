@@ -56,7 +56,7 @@ const (
 	maxRunningContexts     = 1000             // 最大运行中的任务context数量
 	maxTaskQueueSize       = 1000             // 每个Provider工作池的最大队列容量
 	contextCleanupInterval = 30 * time.Second // 定期清理
-	maxContextAge          = 15 * time.Minute // 超时强制清理
+	maxContextAge          = 40 * time.Minute // 超时强制清理（需大于最长任务超时时间30分钟）
 	poolCleanupInterval    = 5 * time.Minute  // Provider工作池清理间隔
 	maxPoolIdleTime        = 30 * time.Minute // 工作池最大空闲时间
 )

@@ -27,68 +27,33 @@ type TrafficStats struct {
 	ActualUsageMB float64 `json:"actual_usage_mb"` // 实际使用量（MB，已应用流量计算模式）
 }
 
+// rawTrafficRecord 用于分段流量计算的原始记录类型
+type rawTrafficRecord struct {
+	RxBytes int64
+	TxBytes int64
+}
+
 // GetInstanceMonthlyTraffic 获取实例当月流量统计
 // 返回原始流量和应用Provider流量计算模式后的实际使用量
 func (s *QueryService) GetInstanceMonthlyTraffic(instanceID uint, year, month int) (*TrafficStats, error) {
-	query := `
-		SELECT 
-			COALESCE(SUM(max_rx), 0) as rx_bytes,
-			COALESCE(SUM(max_tx), 0) as tx_bytes
-		FROM (
-			-- 检测重启并分段
-			SELECT 
-				segment_id,
-				MAX(rx_bytes) as max_rx,
-				MAX(tx_bytes) as max_tx
-			FROM (
-				-- 计算累积重启次数作为segment_id
-				SELECT 
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					(
-						SELECT COUNT(*)
-						FROM pmacct_traffic_records t2
-						LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-							AND t3.timestamp = (
-							SELECT MAX(timestamp) 
-							FROM pmacct_traffic_records 
-							WHERE instance_id = t2.instance_id 
-								AND timestamp < t2.timestamp
-								AND year = ? AND month = ?
-						)
-					WHERE t2.instance_id = ?
-						AND t2.year = ? AND t2.month = ?
-						AND t2.timestamp <= t1.timestamp
-						AND (
-								(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-								OR
-								(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-							)
-					) as segment_id
-			FROM pmacct_traffic_records t1
-			WHERE t1.instance_id = ? AND t1.year = ? AND t1.month = ?
-			) AS segments
-			GROUP BY segment_id
-		) AS segment_max
-	`
-
-	var result struct {
-		RxBytes int64
-		TxBytes int64
-	}
-
-	err := global.APP_DB.Raw(query, year, month, instanceID, year, month, instanceID, year, month).Scan(&result).Error
+	// 一次性加载当月所有原始记录，按时间戳排序，在 Go 层做分段检测（避免 O(n²) 关联子查询）
+	var records []rawTrafficRecord
+	err := global.APP_DB.Table("pmacct_traffic_records").
+		Select("rx_bytes, tx_bytes").
+		Where("instance_id = ? AND year = ? AND month = ?", instanceID, year, month).
+		Order("timestamp ASC").
+		Find(&records).Error
 	if err != nil {
 		return nil, fmt.Errorf("查询实例月度流量失败: %w", err)
 	}
+
+	rxBytes, txBytes := computeSegmentTraffic(records)
 
 	// 获取Provider配置用于计算实际使用量
 	var providerConfig struct {
 		TrafficCountMode  string
 		TrafficMultiplier float64
 	}
-
 	err = global.APP_DB.Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
 		Select("COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
@@ -99,20 +64,47 @@ func (s *QueryService) GetInstanceMonthlyTraffic(instanceID uint, year, month in
 	}
 
 	stats := &TrafficStats{
-		RxBytes:    result.RxBytes,
-		TxBytes:    result.TxBytes,
-		TotalBytes: result.RxBytes + result.TxBytes,
+		RxBytes:    rxBytes,
+		TxBytes:    txBytes,
+		TotalBytes: rxBytes + txBytes,
 	}
-
-	// 应用流量计算模式
 	stats.ActualUsageMB = s.calculateActualUsage(
-		result.RxBytes,
-		result.TxBytes,
+		rxBytes,
+		txBytes,
 		providerConfig.TrafficCountMode,
 		providerConfig.TrafficMultiplier,
 	)
-
 	return stats, nil
+}
+
+// computeSegmentTraffic 在 Go 层执行 pmacct 重启检测与分段求和（O(n) 复杂度）。
+// 输入记录必须按时间戳升序排列。
+func computeSegmentTraffic(records []rawTrafficRecord) (totalRx, totalTx int64) {
+	if len(records) == 0 {
+		return 0, 0
+	}
+
+	var segMaxRx, segMaxTx int64
+	var prevRx, prevTx int64
+
+	for i, r := range records {
+		// 检测计数器重置（当前值 < 前一个值）
+		if i > 0 && (r.RxBytes < prevRx || r.TxBytes < prevTx) {
+			totalRx += segMaxRx
+			totalTx += segMaxTx
+			segMaxRx, segMaxTx = 0, 0
+		}
+		if r.RxBytes > segMaxRx {
+			segMaxRx = r.RxBytes
+		}
+		if r.TxBytes > segMaxTx {
+			segMaxTx = r.TxBytes
+		}
+		prevRx, prevTx = r.RxBytes, r.TxBytes
+	}
+	totalRx += segMaxRx
+	totalTx += segMaxTx
+	return
 }
 
 // GetUserMonthlyTraffic 获取用户当月所有实例的流量统计
@@ -299,91 +291,49 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 	return statsMap
 }
 
-// computeBatchMonthlyTraffic 实时计算多个实例的月度流量（正确处理pmacct重启）
-// 使用与GetInstanceMonthlyTraffic相同的正确分段逻辑
+// computeBatchMonthlyTraffic 实时批量计算多个实例的月度流量（O(n) 复杂度，正确处理pmacct重启）
+// 一次性加载所有原始记录，在 Go 层分组并分段求和，避免 O(n²) 关联子查询
 func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, month int) (map[uint]*TrafficStats, error) {
 	if len(instanceIDs) == 0 {
 		return make(map[uint]*TrafficStats), nil
 	}
 
-	// 完整的分段计算逻辑：检测pmacct重启并正确累加各段流量
-	// 与GetInstanceMonthlyTraffic保持一致，确保计算准确性
-	query := `
-		SELECT 
-			segment_max.instance_id,
-			COALESCE(SUM(max_rx), 0) as rx_bytes,
-			COALESCE(SUM(max_tx), 0) as tx_bytes
-		FROM (
-			-- 检测重启并分段：每个segment_id代表一个连续累积段
-			SELECT 
-				instance_id,
-				segment_id,
-				MAX(rx_bytes) as max_rx,
-				MAX(tx_bytes) as max_tx
-			FROM (
-				-- 计算累积重启次数作为segment_id
-				-- 当检测到计数器重置（当前值 < 之前最大值）时，segment_id递增
-				SELECT 
-					t1.instance_id,
-					t1.timestamp,
-					t1.rx_bytes,
-					t1.tx_bytes,
-					(
-						SELECT COUNT(*)
-						FROM pmacct_traffic_records t2
-						LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-							AND t3.timestamp = (
-								SELECT MAX(timestamp) 
-								FROM pmacct_traffic_records 
-								WHERE instance_id = t2.instance_id 
-									AND timestamp < t2.timestamp
-									AND year = ? AND month = ?
-							)
-						WHERE t2.instance_id = t1.instance_id
-							AND t2.year = ? AND t2.month = ?
-							AND t2.timestamp <= t1.timestamp
-							AND (
-								(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-								OR
-								(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-							)
-					) as segment_id
-				FROM pmacct_traffic_records t1
-				WHERE t1.instance_id IN (?) AND t1.year = ? AND t1.month = ?
-			) AS segments
-			GROUP BY instance_id, segment_id
-		) AS segment_max
-		GROUP BY segment_max.instance_id
-	`
-
-	type RawResult struct {
+	// 一次性加载所有实例当月的原始记录，按 instance_id + timestamp 排序
+	type BatchRawRecord struct {
 		InstanceID uint
 		RxBytes    int64
 		TxBytes    int64
 	}
-
-	var rawResults []RawResult
-	err := global.APP_DB.Raw(query, year, month, year, month, instanceIDs, year, month).Scan(&rawResults).Error
+	var allRecords []BatchRawRecord
+	err := global.APP_DB.Table("pmacct_traffic_records").
+		Select("instance_id, rx_bytes, tx_bytes").
+		Where("instance_id IN ? AND year = ? AND month = ?", instanceIDs, year, month).
+		Order("instance_id ASC, timestamp ASC").
+		Find(&allRecords).Error
 	if err != nil {
-		return nil, fmt.Errorf("批量计算实例月度流量失败: %w", err)
+		return nil, fmt.Errorf("批量加载流量原始记录失败: %w", err)
 	}
 
-	// 如果没有流量数据，直接返回空结果
-	if len(rawResults) == 0 {
-		statsMap := make(map[uint]*TrafficStats)
-		for _, id := range instanceIDs {
-			statsMap[id] = &TrafficStats{}
+	// 按 instance_id 分组后在 Go 层做分段求和
+	type groupSlice struct {
+		records []rawTrafficRecord
+	}
+	groups := make(map[uint]*groupSlice, len(instanceIDs))
+	for _, rec := range allRecords {
+		g := groups[rec.InstanceID]
+		if g == nil {
+			g = &groupSlice{}
+			groups[rec.InstanceID] = g
 		}
-		return statsMap, nil
+		g.records = append(g.records, rawTrafficRecord{RxBytes: rec.RxBytes, TxBytes: rec.TxBytes})
 	}
 
-	// 批量获取Provider配置
+	// 批量获取 Provider 配置（一次查询）
 	var providerConfigs []struct {
 		InstanceID        uint
 		TrafficCountMode  string
 		TrafficMultiplier float64
 	}
-
 	err = global.APP_DB.Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
 		Select("i.id as instance_id, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
@@ -393,50 +343,34 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 		return nil, fmt.Errorf("批量查询Provider配置失败: %w", err)
 	}
 
-	// 构建配置映射
-	configMap := make(map[uint]struct {
+	type cfgEntry struct {
 		CountMode  string
 		Multiplier float64
-	})
+	}
+	configMap := make(map[uint]cfgEntry, len(providerConfigs))
 	for _, cfg := range providerConfigs {
-		configMap[cfg.InstanceID] = struct {
-			CountMode  string
-			Multiplier float64
-		}{
-			CountMode:  cfg.TrafficCountMode,
-			Multiplier: cfg.TrafficMultiplier,
-		}
+		configMap[cfg.InstanceID] = cfgEntry{CountMode: cfg.TrafficCountMode, Multiplier: cfg.TrafficMultiplier}
 	}
 
-	// 计算实际使用量并构建结果
-	statsMap := make(map[uint]*TrafficStats)
-	for _, raw := range rawResults {
-		stats := &TrafficStats{
-			RxBytes:    raw.RxBytes,
-			TxBytes:    raw.TxBytes,
-			TotalBytes: raw.RxBytes + raw.TxBytes,
-		}
-
-		// 应用流量计算模式
-		if config, ok := configMap[raw.InstanceID]; ok {
-			stats.ActualUsageMB = s.calculateActualUsage(
-				raw.RxBytes,
-				raw.TxBytes,
-				config.CountMode,
-				config.Multiplier,
-			)
-		}
-
-		statsMap[raw.InstanceID] = stats
-	}
-
-	// 确保所有请求的实例都有结果
+	// 为每个实例计算分段流量并应用Provider配置
+	statsMap := make(map[uint]*TrafficStats, len(instanceIDs))
 	for _, id := range instanceIDs {
-		if _, ok := statsMap[id]; !ok {
-			statsMap[id] = &TrafficStats{}
+		g := groups[id]
+		var rxBytes, txBytes int64
+		if g != nil && len(g.records) > 0 {
+			rxBytes, txBytes = computeSegmentTraffic(g.records)
 		}
-	}
 
+		stats := &TrafficStats{
+			RxBytes:    rxBytes,
+			TxBytes:    txBytes,
+			TotalBytes: rxBytes + txBytes,
+		}
+		if cfg, ok := configMap[id]; ok {
+			stats.ActualUsageMB = s.calculateActualUsage(rxBytes, txBytes, cfg.CountMode, cfg.Multiplier)
+		}
+		statsMap[id] = stats
+	}
 	return statsMap, nil
 }
 

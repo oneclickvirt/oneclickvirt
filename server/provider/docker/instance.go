@@ -305,6 +305,20 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	}
 
+	// 对于独立IPv4模式，预先检查并确保该IPv4地址已绑定到宿主机网络接口
+	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
+		if config.Metadata != nil {
+			if staticIPv4, ok := config.Metadata["static_ipv4"]; ok && staticIPv4 != "" {
+				if err := d.ensureIPv4OnHostInterface(staticIPv4); err != nil {
+					global.APP_LOG.Warn("独立IPv4宿主机接口绑定检查失败，继续执行",
+						zap.String("instance", config.Name),
+						zap.String("ipv4", staticIPv4),
+						zap.Error(err))
+				}
+			}
+		}
+	}
+
 	// 始终应用CPU限制参数（资源限制配置只影响Provider层面的资源预算计算）
 	if config.CPU != "" {
 		cmd += fmt.Sprintf(" --cpus=%s", config.CPU)

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	auth2 "oneclickvirt/service/auth"
+	"oneclickvirt/service/cache"
 	"strings"
 
 	"oneclickvirt/global"
@@ -201,6 +202,15 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 
 // getUserAuthInfo 从数据库获取用户认证信息和权限
 func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
+	// 尝试从缓存获取（短TTL确保安全性）
+	cacheService := cache.GetUserCacheService()
+	cacheKey := cache.MakeUserAuthContextKey(userID)
+	if cached, ok := cacheService.Get(cacheKey); ok {
+		if authCtx, ok := cached.(*auth.AuthContext); ok {
+			return authCtx, nil
+		}
+	}
+
 	// 获取用户基本信息和状态
 	var user user.User
 	if err := global.APP_DB.Select("id, username, user_type, status, level").First(&user, userID).Error; err != nil {
@@ -284,6 +294,9 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 			zap.String("baseType", authCtx.BaseUserType),
 			zap.Strings("allTypes", authCtx.AllUserTypes))
 	}
+
+	// 缓存认证上下文（仅缓存成功的结果）
+	cacheService.Set(cacheKey, authCtx, cache.TTLUserAuthContext)
 
 	return authCtx, nil
 }

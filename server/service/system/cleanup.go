@@ -63,8 +63,24 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 			// resetting状态超时，恢复为stopped
 			newStatus = "stopped"
 		case "creating":
-			// creating状态超时，标记为failed
-			newStatus = "failed"
+			// creating状态超时：需判断是否是重置操作中创建的实例
+			// 重置操作会将旧实例重命名为 "<name>_deleted_<timestamp>" 后软删除，再创建同名新实例
+			// 若存在对应的软删除旧实例，说明这是重置中途中断遗留的新实例，应恢复为stopped
+			var deletedCount int64
+			global.APP_DB.Unscoped().Model(&providerModel.Instance{}).
+				Where("name LIKE ? AND deleted_at IS NOT NULL", instance.Name+"_deleted_%").
+				Count(&deletedCount)
+			if deletedCount > 0 {
+				// 重置操作中断，新实例实际上已在Provider侧创建（或部分创建），恢复为stopped
+				newStatus = "stopped"
+				global.APP_LOG.Info("检测到重置操作遗留的creating实例，恢复为stopped",
+					zap.Uint("instanceId", instance.ID),
+					zap.String("instanceName", instance.Name),
+					zap.Int64("deletedPredecessors", deletedCount))
+			} else {
+				// 普通创建超时，标记为failed
+				newStatus = "failed"
+			}
 		}
 
 		if err := global.APP_DB.Model(&instance).Updates(map[string]interface{}{

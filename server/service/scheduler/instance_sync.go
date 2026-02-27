@@ -16,6 +16,7 @@ import (
 type InstanceSyncSchedulerService struct {
 	providerService *adminProviderService.Service
 	stopChan        chan struct{}
+	mu              sync.RWMutex
 	isRunning       bool
 	maxConcurrency  int           // 最大并发数
 	semaphore       chan struct{} // 信号量，用于限制并发
@@ -41,12 +42,15 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 		return
 	}
 
+	s.mu.Lock()
 	if s.isRunning {
+		s.mu.Unlock()
 		global.APP_LOG.Warn("Provider实例同步调度器已在运行中")
 		return
 	}
-
 	s.isRunning = true
+	s.mu.Unlock()
+
 	global.APP_LOG.Info("启动Provider实例同步调度器",
 		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval))
 
@@ -56,17 +60,22 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 
 // Stop 停止实例同步调度器
 func (s *InstanceSyncSchedulerService) Stop() {
+	s.mu.Lock()
 	if !s.isRunning {
+		s.mu.Unlock()
 		return
 	}
+	s.isRunning = false
+	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider实例同步调度器")
 	close(s.stopChan)
-	s.isRunning = false
 }
 
 // IsRunning 检查调度器是否正在运行
 func (s *InstanceSyncSchedulerService) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.isRunning
 }
 

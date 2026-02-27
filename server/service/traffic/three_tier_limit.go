@@ -3,6 +3,8 @@ package traffic
 import (
 	"context"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"oneclickvirt/global"
@@ -11,6 +13,7 @@ import (
 	"oneclickvirt/model/user"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // ThreeTierLimitService 三层级流量限制服务
@@ -63,39 +66,81 @@ func (s *ThreeTierLimitService) CheckAllTrafficLimits(ctx context.Context) error
 
 // CheckAllInstancesTrafficLimit 检查所有实例的流量限制
 func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Context) error {
-	// 获取所有活跃实例（未被用户级或Provider级限制的）
-	var instances []provider.Instance
-	err := global.APP_DB.Where("status NOT IN (?) AND traffic_limited = ? AND (traffic_limit_reason = ? OR traffic_limit_reason = ?)",
-		[]string{"deleted", "deleting"}, false, "", "instance").
-		Limit(1000). // 限制最多1000个实例
-		Find(&instances).Error
-	if err != nil {
-		return fmt.Errorf("获取实例列表失败: %w", err)
-	}
-
+	const batchSize = 200
+	var lastID uint = 0
 	limitedCount := 0
-	for _, instance := range instances {
+	totalCount := 0
+
+	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
 
-		isLimited, err := s.CheckInstanceTrafficLimit(instance.ID)
+		// 游标分页：每次获取200条，按id升序，从上次最大id之后开始
+		var instances []provider.Instance
+		err := global.APP_DB.
+			Where("id > ? AND status NOT IN (?) AND traffic_limited = ? AND (traffic_limit_reason = ? OR traffic_limit_reason = ?)",
+				lastID, []string{"deleted", "deleting"}, false, "", "instance").
+			Order("id ASC").
+			Limit(batchSize).
+			Find(&instances).Error
 		if err != nil {
-			global.APP_LOG.Error("检查实例流量限制失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(err))
-			continue
+			return fmt.Errorf("获取实例列表失败: %w", err)
 		}
 
-		if isLimited {
-			limitedCount++
+		if len(instances) == 0 {
+			break
+		}
+
+		// 并发检查当前批次（上限 20 个 goroutine）
+		const concurrency = 20
+		sem := make(chan struct{}, concurrency)
+		var wg sync.WaitGroup
+		var batchLimited int32
+
+		for _, instance := range instances {
+			select {
+			case <-ctx.Done():
+				wg.Wait()
+				return ctx.Err()
+			default:
+			}
+
+			instanceID := instance.ID
+			sem <- struct{}{}
+			wg.Add(1)
+			go func() {
+				defer func() {
+					<-sem
+					wg.Done()
+				}()
+				isLimited, err := s.CheckInstanceTrafficLimit(instanceID)
+				if err != nil {
+					global.APP_LOG.Error("检查实例流量限制失败",
+						zap.Uint("instanceID", instanceID),
+						zap.Error(err))
+					return
+				}
+				if isLimited {
+					atomic.AddInt32(&batchLimited, 1)
+				}
+			}()
+		}
+		wg.Wait()
+		limitedCount += int(batchLimited)
+
+		totalCount += len(instances)
+		lastID = instances[len(instances)-1].ID
+
+		if len(instances) < batchSize {
+			break
 		}
 	}
 
 	global.APP_LOG.Info("实例层级流量检查完成",
-		zap.Int("总实例数", len(instances)),
+		zap.Int("总实例数", totalCount),
 		zap.Int("超限实例数", limitedCount))
 	return nil
 }
@@ -179,35 +224,39 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 	return false, nil
 }
 
-// limitInstance 限制单个实例
+// limitInstance 限制单个实例（原子性：实例状态更新与停止任务创建在同一事务中）
 func (s *ThreeTierLimitService) limitInstance(instanceID uint, reason string, message string) (bool, error) {
 	var instance provider.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return false, err
 	}
 
-	// 保存需要使用的字段
 	userID := instance.UserID
 	providerID := instance.ProviderID
 
-	// 标记实例为受限状态
-	updates := map[string]interface{}{
-		"traffic_limited":      true,
-		"traffic_limit_reason": reason,
-		"status":               "stopped",
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 原子性标记实例为受限状态
+		updates := map[string]interface{}{
+			"traffic_limited":      true,
+			"traffic_limit_reason": reason,
+			"status":               "stopped",
+		}
+		if err := tx.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("标记实例为受限状态失败: %w", err)
+		}
+
+		// 在同一事务中创建停止任务，防止状态与任务不一致
+		return s.createStopTaskTx(tx, userID, instanceID, providerID, message)
+	})
+
+	if err != nil {
+		return false, err
 	}
 
-	if err := global.APP_DB.Model(&instance).Updates(updates).Error; err != nil {
-		return false, fmt.Errorf("标记实例为受限状态失败: %w", err)
+	// 事务提交后触发调度器（事务外执行，避免长事务）
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
 	}
-
-	// 创建停止任务
-	if err := s.createStopTask(userID, instanceID, providerID, message); err != nil {
-		global.APP_LOG.Error("创建实例停止任务失败",
-			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
-	}
-
 	return true, nil
 }
 
@@ -295,11 +344,6 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 	}
 
 	// checkAndResetMonthlyTraffic方法已删除，流量重置由单独的调度器处理
-
-	// 重新加载用户数据
-	if err := global.APP_DB.First(&u, userID).Error; err != nil {
-		return false, fmt.Errorf("重新加载用户信息失败: %w", err)
-	}
 
 	// 自动同步用户流量限额
 	if u.TotalTraffic == 0 {
@@ -490,11 +534,6 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 
 	// checkAndResetProviderMonthlyTraffic方法已删除，流量重置由单独的调度器处理
 
-	// 重新加载 Provider 数据
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		return false, fmt.Errorf("重新加载Provider信息失败: %w", err)
-	}
-
 	// 如果Provider没有流量限制，解除可能存在的限制
 	if p.MaxTraffic <= 0 {
 		if p.TrafficLimited {
@@ -623,7 +662,17 @@ func (s *ThreeTierLimitService) unlimitProviderInstances(providerID uint, reason
 
 // createStopTask 创建停止实例的任务
 func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID uint, message string) error {
-	// 构建任务数据
+	if err := s.createStopTaskTx(global.APP_DB, userID, instanceID, providerID, message); err != nil {
+		return err
+	}
+	if global.APP_SCHEDULER != nil {
+		global.APP_SCHEDULER.TriggerTaskProcessing()
+	}
+	return nil
+}
+
+// createStopTaskTx 在指定的DB/事务中创建停止任务（供事务内调用）
+func (s *ThreeTierLimitService) createStopTaskTx(db *gorm.DB, userID, instanceID, providerID uint, message string) error {
 	taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d}`, instanceID, providerID)
 
 	task := &adminModel.Task{
@@ -640,16 +689,7 @@ func (s *ThreeTierLimitService) createStopTask(userID, instanceID, providerID ui
 		CanForceStop:     false,
 	}
 
-	if err := global.APP_DB.Create(task).Error; err != nil {
-		return err
-	}
-
-	// 触发调度器立即处理任务
-	if global.APP_SCHEDULER != nil {
-		global.APP_SCHEDULER.TriggerTaskProcessing()
-	}
-
-	return nil
+	return db.Create(task).Error
 }
 
 // batchCreateStopTasks 批量创建停止任务（用户层级限流）

@@ -16,9 +16,9 @@ import (
 type ProviderHealthSchedulerService struct {
 	providerService *adminProviderService.Service
 	stopChan        chan struct{}
+	mu              sync.RWMutex
 	isRunning       bool
-	maxConcurrency  int           // 最大并发数
-	semaphore       chan struct{} // 信号量，用于限制并发
+	maxConcurrency  int // 最大并发数
 }
 
 // NewProviderHealthSchedulerService 创建Provider健康检查调度服务
@@ -29,18 +29,20 @@ func NewProviderHealthSchedulerService() *ProviderHealthSchedulerService {
 		stopChan:        make(chan struct{}),
 		isRunning:       false,
 		maxConcurrency:  maxConcurrency,
-		semaphore:       make(chan struct{}, maxConcurrency),
 	}
 }
 
 // Start 启动健康检查调度器
 func (s *ProviderHealthSchedulerService) Start(ctx context.Context) {
+	s.mu.Lock()
 	if s.isRunning {
+		s.mu.Unlock()
 		global.APP_LOG.Warn("Provider健康检查调度器已在运行中")
 		return
 	}
-
 	s.isRunning = true
+	s.mu.Unlock()
+
 	global.APP_LOG.Info("启动Provider健康检查调度器")
 
 	// 启动定期健康检查任务
@@ -49,17 +51,22 @@ func (s *ProviderHealthSchedulerService) Start(ctx context.Context) {
 
 // Stop 停止健康检查调度器
 func (s *ProviderHealthSchedulerService) Stop() {
+	s.mu.Lock()
 	if !s.isRunning {
+		s.mu.Unlock()
 		return
 	}
+	s.isRunning = false
+	s.mu.Unlock()
 
 	global.APP_LOG.Info("停止Provider健康检查调度器")
 	close(s.stopChan)
-	s.isRunning = false
 }
 
 // IsRunning 检查调度器是否正在运行
 func (s *ProviderHealthSchedulerService) IsRunning() bool {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	return s.isRunning
 }
 

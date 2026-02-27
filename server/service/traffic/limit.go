@@ -208,86 +208,87 @@ func (s *LimitService) hasAnyProviderWithTrafficControlEnabled(userID uint) (boo
 	return count > 0, nil
 }
 
-// getUserYearlyTrafficFromPmacct 从pmacct数据获取用户年度流量使用量
+// getUserYearlyTrafficFromPmacct 从pmacct数据获取用户年度流量使用量（O(n) 复杂度）
 func (s *LimitService) getUserYearlyTrafficFromPmacct(userID uint) (int64, error) {
-	// 获取用户所有实例（包含软删除的实例）
-	var instances []provider.Instance
-	err := global.APP_DB.Unscoped().
+	currentYear := time.Now().Year()
+
+	// 获取用户所有实例 ID（包含软删除），游标分页避免 Limit(1000) 截断
+	var instanceIDs []uint
+	if err := global.APP_DB.Unscoped().Table("instances").
 		Where("user_id = ?", userID).
-		Limit(1000). // 限制最多1000个实例
-		Find(&instances).Error
-	if err != nil {
+		Pluck("id", &instanceIDs).Error; err != nil {
 		return 0, fmt.Errorf("获取用户实例列表失败: %w", err)
 	}
-
-	if len(instances) == 0 {
+	if len(instanceIDs) == 0 {
 		return 0, nil
 	}
 
-	// 收集所有实例ID
-	instanceIDs := make([]uint, 0, len(instances))
-	for _, instance := range instances {
-		instanceIDs = append(instanceIDs, instance.ID)
+	// 批量获取 Provider 流量模式配置（一次查询）
+	type cfgRow struct {
+		InstanceID        uint
+		TrafficCountMode  string
+		TrafficMultiplier float64
+	}
+	var cfgRows []cfgRow
+	if err := global.APP_DB.Unscoped().Table("instances i").
+		Joins("INNER JOIN providers p ON i.provider_id = p.id").
+		Select("i.id as instance_id, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
+		Where("i.id IN ?", instanceIDs).
+		Find(&cfgRows).Error; err != nil {
+		return 0, fmt.Errorf("批量查询Provider配置失败: %w", err)
+	}
+	type cfg struct {
+		Mode string
+		Mult float64
+	}
+	cfgMap := make(map[uint]cfg, len(cfgRows))
+	for _, r := range cfgRows {
+		cfgMap[r.InstanceID] = cfg{Mode: r.TrafficCountMode, Mult: r.TrafficMultiplier}
 	}
 
-	// 一次性批量查询所有实例的年度流量（当前年度）
-	// 处理pmacct重启导致的累积值重置问题
-	var totalTrafficMB float64
-	currentYear := time.Now().Year()
-	err = global.APP_DB.Raw(`
-		SELECT COALESCE(SUM(segment_total), 0) / 1048576.0
-		FROM (
-			-- 对每个instance按segment求和（处理pmacct重启）
-			SELECT 
-				instance_id,
-				SUM(max_rx + max_tx) as segment_total
-			FROM (
-				-- 检测重启并分段，每段取MAX
-				SELECT 
-					instance_id,
-					segment_id,
-					MAX(rx_bytes) as max_rx,
-					MAX(tx_bytes) as max_tx
-				FROM (
-					-- 计算每条记录的segment_id（累积重启次数）
-					SELECT 
-						t1.instance_id,
-						t1.rx_bytes,
-						t1.tx_bytes,
-						(
-							SELECT COUNT(*)
-							FROM pmacct_traffic_records t2
-							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-								AND t3.timestamp = (
-									SELECT MAX(timestamp) 
-									FROM pmacct_traffic_records 
-									WHERE instance_id = t2.instance_id 
-										AND timestamp < t2.timestamp
-										AND year = ?
-								)
-							WHERE t2.instance_id = t1.instance_id
-								AND t2.year = ?
-								AND t2.timestamp <= t1.timestamp
-								AND (
-									(t3.rx_bytes IS NOT NULL AND t2.rx_bytes < t3.rx_bytes)
-									OR
-									(t3.tx_bytes IS NOT NULL AND t2.tx_bytes < t3.tx_bytes)
-								)
-						) as segment_id
-					FROM pmacct_traffic_records t1
-					WHERE t1.instance_id IN ? AND t1.year = ?
-				) AS segments
-				GROUP BY instance_id, segment_id
-			) AS instance_segments
-			GROUP BY instance_id
-		) AS instance_totals
-	`, currentYear, currentYear, instanceIDs, currentYear).Scan(&totalTrafficMB).Error
-
-	if err != nil {
-		return 0, fmt.Errorf("获取用户年度流量失败: %w", err)
+	// 一次性加载全年原始记录，按 (instance_id, month, timestamp) 排序
+	type yearRec struct {
+		InstanceID uint
+		Month      int
+		RxBytes    int64
+		TxBytes    int64
+	}
+	var allRecs []yearRec
+	if err := global.APP_DB.Table("pmacct_traffic_records").
+		Select("instance_id, month, rx_bytes, tx_bytes").
+		Where("instance_id IN ? AND year = ?", instanceIDs, currentYear).
+		Order("instance_id ASC, month ASC, timestamp ASC").
+		Find(&allRecs).Error; err != nil {
+		return 0, fmt.Errorf("加载年度流量原始记录失败: %w", err)
 	}
 
-	return int64(totalTrafficMB), nil
+	// 按 (instance_id, month) 分组，每组做分段求和，最后汇总
+	type groupKey struct {
+		InstanceID uint
+		Month      int
+	}
+	type groupBuf struct{ records []rawTrafficRecord }
+	groups := make(map[groupKey]*groupBuf, len(allRecs)/10+1)
+	for _, r := range allRecs {
+		k := groupKey{r.InstanceID, r.Month}
+		g := groups[k]
+		if g == nil {
+			g = &groupBuf{}
+			groups[k] = g
+		}
+		g.records = append(g.records, rawTrafficRecord{RxBytes: r.RxBytes, TxBytes: r.TxBytes})
+	}
+
+	var totalMB float64
+	qs := NewQueryService()
+	for k, g := range groups {
+		rx, tx := computeSegmentTraffic(g.records)
+		c := cfgMap[k.InstanceID]
+		// calculateActualUsage 接受字节数，返回 MB
+		totalMB += qs.calculateActualUsage(rx, tx, c.Mode, c.Mult)
+	}
+
+	return int64(totalMB), nil
 }
 
 // getUserTrafficHistoryFromPmacct 从聚合表获取用户流量历史
@@ -349,24 +350,17 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 	now := time.Now()
 	year, month, _ := now.Date()
 
-	// 获取系统总流量（所有实例本月流量总和）
-	// 兼容MySQL 5.x：直接取MAX累积值
+	// 获取系统总流量（使用 instance_traffic_histories 月度汇总，已正确处理 pmacct 重启分段）
+	// day=0, hour=0 为月度汇总记录
 	var totalTraffic dashboardModel.TrafficStats
 
 	err := global.APP_DB.Raw(`
 		SELECT 
-			COALESCE(SUM(max_rx), 0) as total_rx, 
-			COALESCE(SUM(max_tx), 0) as total_tx, 
-			COALESCE(SUM(max_rx + max_tx), 0) as total_bytes
-		FROM (
-			SELECT 
-				instance_id,
-				MAX(rx_bytes) as max_rx,
-				MAX(tx_bytes) as max_tx
-			FROM pmacct_traffic_records
-			WHERE year = ? AND month = ?
-			GROUP BY instance_id
-		) AS instance_max
+			COALESCE(SUM(traffic_in), 0) * 1048576 as total_rx,
+			COALESCE(SUM(traffic_out), 0) * 1048576 as total_tx,
+			COALESCE(SUM(total_used), 0) * 1048576 as total_bytes
+		FROM instance_traffic_histories
+		WHERE year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
 	`, year, int(month)).Scan(&totalTraffic).Error
 
 	if err != nil {

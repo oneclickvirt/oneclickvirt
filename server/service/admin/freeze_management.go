@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/scheduler"
 
 	"go.uber.org/zap"
@@ -47,6 +48,9 @@ func (s *FreezeManagementService) SetUserExpiry(userID uint, expiresAt time.Time
 	if err := global.APP_DB.Model(&u).Updates(updates).Error; err != nil {
 		return err
 	}
+
+	// 清除用户认证缓存，确保状态变更克即生效
+	cache.GetUserCacheService().InvalidateUserCache(userID)
 
 	global.APP_LOG.Info("管理员设置用户过期时间",
 		zap.Uint("user_id", userID),

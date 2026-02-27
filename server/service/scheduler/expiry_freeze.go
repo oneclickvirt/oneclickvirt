@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
+	"oneclickvirt/service/cache"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -171,7 +172,12 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
 
 // disableUser 禁用单个过期用户
 func (s *ExpiryFreezeService) disableUser(u *user.User) error {
-	return global.APP_DB.Model(u).Update("status", 0).Error
+	if err := global.APP_DB.Model(u).Update("status", 0).Error; err != nil {
+		return err
+	}
+	// 清除认证缓存，确保禁用状态即则生效
+	cache.GetUserCacheService().InvalidateUserCache(u.ID)
+	return nil
 }
 
 // CheckAndFreezeAll 检查并冻结所有过期的资源

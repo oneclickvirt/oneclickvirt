@@ -66,6 +66,31 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 
 	var resetCtx ResetTaskContext
 
+	// 当任务context被取消时（超时/强制停止），确保新实例不会卡在creating状态
+	// 使用独立的background context执行清理，避免被取消的ctx影响
+	defer func() {
+		if ctx.Err() != nil && resetCtx.NewInstanceID != 0 {
+			bgCtx := context.Background()
+			result := global.APP_DB.WithContext(bgCtx).
+				Model(&providerModel.Instance{}).
+				Where("id = ? AND status = ?", resetCtx.NewInstanceID, "creating").
+				Updates(map[string]interface{}{
+					"status":     "stopped",
+					"updated_at": time.Now(),
+				})
+			if result.Error != nil {
+				global.APP_LOG.Error("重置任务context取消后清理新实例状态失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("newInstanceId", resetCtx.NewInstanceID),
+					zap.Error(result.Error))
+			} else if result.RowsAffected > 0 {
+				global.APP_LOG.Warn("重置任务因context取消而中断，已将新实例状态从creating恢复为stopped",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("newInstanceId", resetCtx.NewInstanceID))
+			}
+		}
+	}()
+
 	// 阶段1: 准备阶段 - 收集必要信息
 	if err := s.resetTask_Prepare(ctx, task, &taskReq, &resetCtx); err != nil {
 		return err
@@ -430,7 +455,8 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	providerApiService := &provider2.ProviderApiService{}
 	if err := providerApiService.CreateInstanceByProviderID(ctx, resetCtx.Provider.ID, createReq); err != nil {
 		// 创建失败，更新实例状态为failed，但不回滚数据库（保留记录供排查）
-		s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		// 使用独立的background context，避免ctx已被取消时无法更新状态
+		s.dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 			return tx.Model(&providerModel.Instance{}).Where("id = ?", resetCtx.NewInstanceID).
 				Update("status", "failed").Error
 		})

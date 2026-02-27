@@ -17,6 +17,7 @@ import (
 	"oneclickvirt/service/resources"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // executeProviderCreation 阶段2: Provider API调用 (30% -> 60%)
@@ -176,6 +177,55 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	// 预分配端口映射（所有Provider类型都需要）
 	portMappingService := &resources.PortMappingService{}
+
+	// 对于 dedicated_ipv4/dedicated_ipv4_ipv6 类型，尝试从IP池分配地址
+	// 如果池中有可用地址，则预设给实例并通过metadata传递给创建逻辑
+	if localProviderNetworkType == "dedicated_ipv4" || localProviderNetworkType == "dedicated_ipv4_ipv6" {
+		var allocatedIP string
+		allocErr := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			var entry struct {
+				ID      uint
+				Address string
+			}
+			rawSQL := `SELECT id, address FROM provider_ipv4_pools
+			           WHERE provider_id = ? AND is_allocated = 0 AND deleted_at IS NULL
+			           ORDER BY id ASC LIMIT 1 FOR UPDATE`
+			if err := tx.Raw(rawSQL, localProviderID).Scan(&entry).Error; err != nil {
+				return fmt.Errorf("查询可用IPv4地址失败: %w", err)
+			}
+			if entry.ID == 0 {
+				return fmt.Errorf("地址池已耗尽，没有可用的IPv4地址")
+			}
+			if err := tx.Exec(
+				`UPDATE provider_ipv4_pools SET is_allocated = 1, instance_id = ?, updated_at = NOW() WHERE id = ? AND is_allocated = 0`,
+				instance.ID, entry.ID,
+			).Error; err != nil {
+				return fmt.Errorf("分配IPv4地址失败: %w", err)
+			}
+			allocatedIP = entry.Address
+			return nil
+		})
+		if allocErr == nil && allocatedIP != "" {
+			instanceConfig.Metadata["static_ipv4"] = allocatedIP
+			// 预先写入公网IP（方便未启动实例时展示，finalize阶段会校验更新）
+			if dbErr := global.APP_DB.Model(instance).Update("public_ip", allocatedIP).Error; dbErr != nil {
+				global.APP_LOG.Warn("预设实例public_ip失败",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instance.ID),
+					zap.Error(dbErr))
+			}
+			global.APP_LOG.Info("从 IPv4 池分配地址成功",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instance.ID),
+				zap.String("allocatedIP", allocatedIP))
+		} else if allocErr != nil {
+			// 池未配置或已耗尽：记录警告但不阻止实例创建（网络侧 DHCP 仍可工作）
+			global.APP_LOG.Warn("未能从 IPv4 池分配地址（池未配置或已耗尽），继续创建",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("instanceId", instance.ID),
+				zap.Error(allocErr))
+		}
+	}
 
 	// 预先创建端口映射记录，用于统一的端口管理
 	if err := portMappingService.CreateDefaultPortMappings(instance.ID, localProviderID); err != nil {

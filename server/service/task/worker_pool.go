@@ -110,9 +110,6 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 		pool.TaskService.contextManager.Delete(task.ID)
 	}()
 
-	// 任务完成时清理上下文
-	defer pool.TaskService.contextManager.Delete(task.ID)
-
 	// 更新任务状态为运行中 - 使用SELECT FOR UPDATE确保原子性
 	updateErr := pool.TaskService.dbService.ExecuteTransaction(taskCtx, func(tx *gorm.DB) error {
 		// 使用行锁查询任务，确保原子性

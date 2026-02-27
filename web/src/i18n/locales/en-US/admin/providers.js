@@ -439,5 +439,30 @@ export default {
     autoConfiguring: "Auto-configuring, please wait...",
     healthChecking: "Performing health check, please wait...",
     trafficCollectIntervalRange: "Traffic collection interval must be between 10-300 seconds (max 5 minutes)"
+  },
+  ipv4Pool: {
+    management: "IPv4 Address Pool",
+    addresses: "Add Addresses",
+    addressesPlaceholder: "One IP or CIDR per line\nExample:\n192.168.1.10\n10.0.0.0/29",
+    addBtn: "Add to Pool",
+    clearBtn: "Clear Unallocated",
+    stats: "Pool Stats",
+    total: "Total",
+    allocated: "Allocated",
+    available: "Available",
+    list: "Current Pool",
+    address: "IP Address",
+    status: "Status",
+    statusFree: "Available",
+    statusAllocated: "Allocated",
+    instance: "Instance",
+    addSuccess: "IPs added to pool",
+    addFailed: "Failed to add IPs",
+    clearSuccess: "Unallocated IPs cleared",
+    clearConfirm: "Clear all unallocated IPs from pool?",
+    deleteSuccess: "IP deleted from pool",
+    deleteConfirm: "Delete this IP from the pool?",
+    newProviderNote: "Save the provider first, then configure the IPv4 pool",
+    loadFailed: "Failed to load pool"
   }
 }

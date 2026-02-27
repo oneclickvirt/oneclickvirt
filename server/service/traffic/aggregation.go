@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -9,6 +10,13 @@ import (
 
 	"go.uber.org/zap"
 )
+
+// aggregationInstanceInfo 内部用于记录实例层级信息的辅助结构
+type aggregationInstanceInfo struct {
+	ID         uint
+	ProviderID uint
+	UserID     uint
+}
 
 // AggregationService 流量聚合服务 - 定期将pmacct原始数据聚合到缓存表
 type AggregationService struct {
@@ -49,12 +57,7 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 		zap.Int("count", len(instanceIDs)))
 
 	// 预加载所有实例的provider_id和user_id
-	type InstanceInfo struct {
-		ID         uint
-		ProviderID uint
-		UserID     uint
-	}
-	var instanceInfos []InstanceInfo
+	var instanceInfos []aggregationInstanceInfo
 	err = global.APP_DB.Table("instances").
 		Select("id, provider_id, user_id").
 		Where("id IN ?", instanceIDs).
@@ -64,7 +67,7 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 	}
 
 	// 创建实例信息映射
-	instanceInfoMap := make(map[uint]InstanceInfo)
+	instanceInfoMap := make(map[uint]aggregationInstanceInfo)
 	for _, info := range instanceInfos {
 		instanceInfoMap[info.ID] = info
 	}
@@ -92,25 +95,16 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 			continue
 		}
 
-		// 保存到缓存表
-		for instanceID, stats := range statsMap {
-			instanceInfo, exists := instanceInfoMap[instanceID]
-			if !exists {
-				global.APP_LOG.Warn("实例信息不存在",
-					zap.Uint("instance_id", instanceID))
-				errorCount++
-				continue
-			}
-			err = s.saveToCacheWithInfo(instanceID, instanceInfo.ProviderID, instanceInfo.UserID, year, month, stats)
-			if err != nil {
-				global.APP_LOG.Error("保存流量缓存失败",
-					zap.Error(err),
-					zap.Uint("instance_id", instanceID))
-				errorCount++
-			} else {
-				successCount++
-			}
+		// 批量保存到缓存表（一条 SQL 替代 N 条）
+		batchSuccess, batchErr := s.saveBatchToCacheWithInfo(statsMap, instanceInfoMap, year, month)
+		if batchErr > 0 {
+			global.APP_LOG.Error("批量保存流量缓存部分失败",
+				zap.Int("errCount", batchErr),
+				zap.Int("batch_start", i),
+				zap.Int("batch_end", end))
 		}
+		successCount += batchSuccess
+		errorCount += batchErr
 	}
 
 	global.APP_LOG.Info("流量聚合完成",
@@ -118,6 +112,74 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 		zap.Int("error", errorCount))
 
 	return nil
+}
+
+// saveBatchToCacheWithInfo 批量保存流量统计到缓存表（一多行 INSERT ON DUPLICATE KEY UPDATE）
+func (s *AggregationService) saveBatchToCacheWithInfo(
+	statsMap map[uint]*TrafficStats,
+	instanceInfoMap map[uint]aggregationInstanceInfo,
+	year, month int,
+) (successCount, errCount int) {
+	now := time.Now()
+
+	type batchRow struct {
+		instanceID, providerID, userID   uint
+		trafficIn, trafficOut, totalUsed int64
+	}
+	var rows []batchRow
+
+	for instanceID, stats := range statsMap {
+		info, exists := instanceInfoMap[instanceID]
+		if !exists {
+			global.APP_LOG.Warn("实例信息不存在",
+				zap.Uint("instance_id", instanceID))
+			errCount++
+			continue
+		}
+		rows = append(rows, batchRow{
+			instanceID: instanceID,
+			providerID: info.ProviderID,
+			userID:     info.UserID,
+			trafficIn:  stats.RxBytes / 1048576,
+			trafficOut: stats.TxBytes / 1048576,
+			totalUsed:  int64(stats.ActualUsageMB),
+		})
+	}
+
+	if len(rows) == 0 {
+		return 0, errCount
+	}
+
+	// 构建批量 INSERT ON DUPLICATE KEY UPDATE
+	placeholders := make([]string, len(rows))
+	args := make([]interface{}, 0, len(rows)*9)
+	for i, r := range rows {
+		placeholders[i] = "(?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?, NOW(), NOW())"
+		args = append(args, r.instanceID, r.providerID, r.userID,
+			r.trafficIn, r.trafficOut, r.totalUsed,
+			year, month, now)
+	}
+
+	sql := `INSERT INTO instance_traffic_histories
+		(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used,
+		 year, month, day, hour, record_time, created_at, updated_at)
+		VALUES ` + strings.Join(placeholders, ", ") + `
+		ON DUPLICATE KEY UPDATE
+			provider_id = VALUES(provider_id),
+			user_id = VALUES(user_id),
+			traffic_in = VALUES(traffic_in),
+			traffic_out = VALUES(traffic_out),
+			total_used = VALUES(total_used),
+			record_time = VALUES(record_time),
+			updated_at = NOW()`
+
+	if err := global.APP_DB.Exec(sql, args...).Error; err != nil {
+		global.APP_LOG.Error("批量保存流量缓存失败",
+			zap.Error(err),
+			zap.Int("rows", len(rows)))
+		return 0, errCount + len(rows)
+	}
+	return len(rows), errCount
 }
 
 // saveToCacheWithInfo 保存流量统计到缓存表（使用预加载的实例信息）

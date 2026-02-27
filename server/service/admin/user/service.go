@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math/big"
 	auth2 "oneclickvirt/service/auth"
+	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 
 	"oneclickvirt/config"
@@ -294,8 +295,8 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 		return err
 	} // 清除用户权限缓存，确保权限变更立即生效
 	permissionService := auth2.PermissionService{}
-	permissionService.ClearUserPermissionCache(user.ID)
-
+	permissionService.ClearUserPermissionCache(user.ID) // 同时清除认证上下文缓存（包括用户状态/类型/权限变更）
+	cache.GetUserCacheService().InvalidateUserCache(user.ID)
 	global.APP_LOG.Info("用户更新成功",
 		zap.Uint("userID", req.ID),
 		zap.String("username", utils.TruncateString(user.Username, 32)),
