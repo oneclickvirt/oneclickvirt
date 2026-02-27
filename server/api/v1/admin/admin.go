@@ -28,7 +28,7 @@ import (
 // @Failure 500 {object} common.Response "获取失败"
 // @Router /admin/dashboard [get]
 func GetAdminDashboard(c *gin.Context) {
-	global.APP_LOG.Info("管理员获取仪表板数据", zap.String("admin_ip", c.ClientIP()))
+	global.APP_LOG.Debug("管理员获取仪表板数据", zap.String("admin_ip", c.ClientIP()))
 	dashboardService := &resources.AdminDashboardService{}
 	dashboard, err := dashboardService.GetAdminDashboard()
 	if err != nil {
@@ -112,7 +112,7 @@ func CreateInstance(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("管理员开始创建实例",
+	global.APP_LOG.Debug("管理员开始创建实例",
 		zap.String("instance_name", utils.TruncateString(req.Name, 50)),
 		zap.String("provider", req.Provider),
 		zap.String("admin_ip", c.ClientIP()))
@@ -154,7 +154,7 @@ func UpdateInstance(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("管理员开始更新实例",
+	global.APP_LOG.Debug("管理员开始更新实例",
 		zap.Uint("instance_id", req.ID),
 		zap.String("admin_ip", c.ClientIP()))
 
@@ -197,7 +197,7 @@ func DeleteInstance(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("管理员开始删除实例",
+	global.APP_LOG.Debug("管理员开始删除实例",
 		zap.Uint64("instance_id", instanceID),
 		zap.String("admin_ip", c.ClientIP()))
 

@@ -78,7 +78,7 @@ func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 			// 生成新token
 			newToken, err := utils.GenerateToken(authCtx.UserID, authCtx.Username, authCtx.UserType)
 			if err != nil {
-				global.APP_LOG.Error("生成刷新token失败",
+				global.APP_LOG.Warn("生成刷新token失败",
 					zap.Uint("userID", authCtx.UserID),
 					zap.Error(err))
 			} else {
@@ -123,7 +123,7 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 		// 检查用户是否有访问该资源的权限
 		hasPermission, err := permissionService.CanAccessResource(authCtx.UserID, path, method)
 		if err != nil {
-			global.APP_LOG.Warn("权限检查失败", zap.String("error", utils.FormatError(err)), zap.Uint("userID", authCtx.UserID), zap.String("resource", resource), zap.String("path", path), zap.String("method", method))
+			global.APP_LOG.Error("权限检查失败", zap.String("error", utils.FormatError(err)), zap.Uint("userID", authCtx.UserID), zap.String("resource", resource), zap.String("path", path), zap.String("method", method))
 			c.JSON(http.StatusInternalServerError, common.Response{
 				Code: 500,
 				Msg:  "权限检查失败",
@@ -172,7 +172,7 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 	// 提取JWT Token ID (JTI)用于黑名单检查
 	jti, ok := (*claims)["jti"].(string)
 	if !ok || jti == "" {
-		global.APP_LOG.Warn("Token缺少JTI字段",
+		global.APP_LOG.Error("Token缺少JTI字段",
 			zap.Any("claims", *claims))
 		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的认证令牌格式")
 	}
@@ -180,7 +180,7 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 	// 检查Token是否在黑名单中
 	blacklistService := auth2.GetJWTBlacklistService()
 	if blacklistService.IsBlacklisted(jti) {
-		global.APP_LOG.Warn("尝试使用已撤销的Token",
+		global.APP_LOG.Error("尝试使用已撤销的Token",
 			zap.String("jti", jti))
 		return nil, nil, common.NewError(common.CodeUnauthorized, "认证令牌已失效")
 	}

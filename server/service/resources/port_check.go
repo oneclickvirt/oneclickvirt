@@ -90,7 +90,7 @@ func (s *PortMappingService) CheckPortAvailability(req admin.CheckPortAvailabili
 		}
 	}
 
-	global.APP_LOG.Info("端口可用性检查完成",
+	global.APP_LOG.Debug("端口可用性检查完成",
 		zap.Uint("providerId", req.ProviderID),
 		zap.String("portRange", response.PortRange),
 		zap.Bool("available", response.Available),
@@ -149,7 +149,7 @@ func (s *PortMappingService) suggestAlternativePorts(providerInfo *provider.Prov
 func (s *PortMappingService) BatchCheckPortAvailability(providerID uint, ports []int, protocol string) map[int]bool {
 	var providerInfo provider.Provider
 	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
-		global.APP_LOG.Error("获取Provider信息失败", zap.Error(err))
+		global.APP_LOG.Warn("获取Provider信息失败", zap.Error(err))
 		// 返回全部不可用
 		result := make(map[int]bool)
 		for _, port := range ports {
@@ -322,7 +322,7 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 		Find(&dbPorts).Error
 
 	if err != nil && err != gorm.ErrRecordNotFound {
-		global.APP_LOG.Error("批量查询数据库端口占用失败", zap.Error(err))
+		global.APP_LOG.Warn("批量查询数据库端口占用失败", zap.Error(err))
 	}
 
 	for _, p := range dbPorts {
@@ -369,7 +369,7 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 		}
 	}
 
-	global.APP_LOG.Info("批量端口检查完成",
+	global.APP_LOG.Debug("批量端口检查完成",
 		zap.Int("总端口数", len(portsToCheck)),
 		zap.Int("可用端口", len(availablePorts)),
 		zap.Int("不可用端口", len(unavailablePorts)))

@@ -92,7 +92,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 	if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&existingMonitor).Error; err == nil {
 		// 如果已存在且启用，说明是正常状态，跳过初始化
 		if existingMonitor.IsEnabled {
-			global.APP_LOG.Info("实例已存在启用的监控记录，跳过初始化",
+			global.APP_LOG.Debug("实例已存在启用的监控记录，跳过初始化",
 				zap.Uint("instanceID", instanceID),
 				zap.Uint("monitorID", existingMonitor.ID),
 				zap.String("mappedIP", existingMonitor.MappedIP))
@@ -100,7 +100,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 		}
 
 		// 如果已存在但停用，说明是重置等场景，先删除旧记录
-		global.APP_LOG.Info("发现停用的监控记录，删除后重新创建",
+		global.APP_LOG.Debug("发现停用的监控记录，删除后重新创建",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("oldMonitorID", existingMonitor.ID),
 			zap.Bool("oldIsEnabled", existingMonitor.IsEnabled))
@@ -149,7 +149,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 		return fmt.Errorf("provider has no IPv4 or IPv6 address configured")
 	}
 
-	global.APP_LOG.Info("确定pmacct监控IP",
+	global.APP_LOG.Debug("确定pmacct监控IP",
 		zap.Uint("instanceID", instanceID),
 		zap.String("publicIPv4", monitorIPv4),
 		zap.String("ipv4Source", ipv4Source),
@@ -188,7 +188,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 			// 更新数据库中的 PrivateIP
 			global.APP_DB.Model(&instance).Update("private_ip", privateIP)
 			instance.PrivateIP = privateIP // 更新内存中的值
-			global.APP_LOG.Info("成功通过Provider获取并更新实例PrivateIP",
+			global.APP_LOG.Debug("成功通过Provider获取并更新实例PrivateIP",
 				zap.String("instanceName", instance.Name),
 				zap.String("privateIP", privateIP),
 				zap.String("providerType", providerInstance.GetType()))
@@ -220,7 +220,7 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 			zap.String("IPv6", monitorIPv6))
 	}
 
-	global.APP_LOG.Info("配置pmacct监控",
+	global.APP_LOG.Debug("配置pmacct监控",
 		zap.String("bpfIPv4", bpfIPv4),
 		zap.String("bpfIPv6", bpfIPv6),
 		zap.String("mappedIPv4", monitorIPv4),
@@ -349,7 +349,7 @@ func (s *Service) updateInstanceNetworkInterfaces(instanceName, ipv4Interface, i
 				zap.String("instance", instanceName),
 				zap.Error(err))
 		} else {
-			global.APP_LOG.Info("成功更新实例网络接口信息",
+			global.APP_LOG.Debug("成功更新实例网络接口信息",
 				zap.String("instance", instanceName),
 				zap.String("ipv4Interface", ipv4Interface),
 				zap.String("ipv6Interface", ipv6Interface))

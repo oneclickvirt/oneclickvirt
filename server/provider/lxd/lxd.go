@@ -71,7 +71,7 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 
 	// 如果有证书配置，设置TLS配置
 	if config.CertPath != "" && config.KeyPath != "" {
-		global.APP_LOG.Info("尝试配置LXD证书认证",
+		global.APP_LOG.Debug("尝试配置LXD证书认证",
 			zap.String("host", utils.TruncateString(config.Host, 50)),
 			zap.String("certPath", utils.TruncateString(config.CertPath, 100)),
 			zap.String("keyPath", utils.TruncateString(config.KeyPath, 100)))
@@ -84,12 +84,12 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 				zap.String("keyPath", utils.TruncateString(config.KeyPath, 100)))
 		} else {
 			l.transport.TLSClientConfig = tlsConfig
-			global.APP_LOG.Info("LXD provider证书认证配置成功",
+			global.APP_LOG.Debug("LXD provider证书认证配置成功",
 				zap.String("host", utils.TruncateString(config.Host, 50)),
 				zap.String("certPath", utils.TruncateString(config.CertPath, 100)))
 		}
 	} else {
-		global.APP_LOG.Info("未找到LXD证书配置，仅使用SSH",
+		global.APP_LOG.Debug("未找到LXD证书配置，仅使用SSH",
 			zap.String("host", utils.TruncateString(config.Host, 50)))
 	}
 
@@ -187,7 +187,7 @@ func (l *LXDProvider) getLXDVersion() error {
 		}
 		// 提取第一个非空行作为版本号
 		l.version = line
-		global.APP_LOG.Info("获取 LXD 版本成功",
+		global.APP_LOG.Debug("获取 LXD 版本成功",
 			zap.String("version", l.version))
 		return nil
 	}
@@ -273,7 +273,7 @@ func (l *LXDProvider) ListInstances(ctx context.Context) ([]provider.Instance, e
 		if !l.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH执行 - 列出实例")
+		global.APP_LOG.Debug("回退到SSH执行 - 列出实例")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
@@ -293,7 +293,7 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiCreateInstance(ctx, config); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -302,7 +302,7 @@ func (l *LXDProvider) CreateInstance(ctx context.Context, config provider.Instan
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -323,7 +323,7 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -332,7 +332,7 @@ func (l *LXDProvider) CreateInstanceWithProgress(ctx context.Context, config pro
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -353,7 +353,7 @@ func (l *LXDProvider) StartInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiStartInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -362,7 +362,7 @@ func (l *LXDProvider) StartInstance(ctx context.Context, id string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -383,7 +383,7 @@ func (l *LXDProvider) StopInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiStopInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -392,7 +392,7 @@ func (l *LXDProvider) StopInstance(ctx context.Context, id string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -413,7 +413,7 @@ func (l *LXDProvider) RestartInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiRestartInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -422,7 +422,7 @@ func (l *LXDProvider) RestartInstance(ctx context.Context, id string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -443,7 +443,7 @@ func (l *LXDProvider) DeleteInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiDeleteInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -452,7 +452,7 @@ func (l *LXDProvider) DeleteInstance(ctx context.Context, id string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -489,7 +489,7 @@ func (l *LXDProvider) ListImages(ctx context.Context) ([]provider.Image, error) 
 	if l.shouldUseAPI() {
 		images, err := l.apiListImages(ctx)
 		if err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 获取镜像列表")
+			global.APP_LOG.Debug("LXD API调用成功 - 获取镜像列表")
 			return images, nil
 		}
 		global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -498,7 +498,7 @@ func (l *LXDProvider) ListImages(ctx context.Context) ([]provider.Image, error) 
 		if !l.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH执行 - 获取镜像列表")
+		global.APP_LOG.Debug("回退到SSH执行 - 获取镜像列表")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
@@ -518,7 +518,7 @@ func (l *LXDProvider) PullImage(ctx context.Context, image string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiPullImage(ctx, image); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+			global.APP_LOG.Debug("LXD API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -527,7 +527,7 @@ func (l *LXDProvider) PullImage(ctx context.Context, image string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+			global.APP_LOG.Debug("回退到SSH执行 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 		}
 	}
 
@@ -548,7 +548,7 @@ func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if l.shouldUseAPI() {
 		if err := l.apiDeleteImage(ctx, id); err == nil {
-			global.APP_LOG.Info("LXD API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("LXD API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
@@ -557,7 +557,7 @@ func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -587,7 +587,7 @@ func (l *LXDProvider) createTLSConfig(certPath, keyPath string) (*tls.Config, er
 	}
 
 	// 验证证书和私钥是否匹配
-	global.APP_LOG.Info("LXD客户端证书加载成功",
+	global.APP_LOG.Debug("LXD客户端证书加载成功",
 		zap.String("certPath", certPath),
 		zap.String("keyPath", keyPath))
 
@@ -679,7 +679,7 @@ func (l *LXDProvider) ensureSSHBeforeFallback(apiErr error, operation string) er
 		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	global.APP_LOG.Debug(fmt.Sprintf("回退到SSH方式 - %s", operation))
 	return nil
 }
 

@@ -16,7 +16,7 @@ import (
 
 // stopInstanceForConfig 停止实例进行配置
 func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
-	global.APP_LOG.Info("安全停止实例进行配置", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("安全停止实例进行配置", zap.String("instanceName", instanceName))
 
 	// 停止实例
 	time.Sleep(6 * time.Second)
@@ -32,13 +32,13 @@ func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
 		cmd := fmt.Sprintf("lxc info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
-			global.APP_LOG.Info("实例已安全停止", zap.String("instanceName", instanceName))
+			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
 			return nil
 		}
 
 		time.Sleep(2 * time.Second)
 		waited += 2
-		global.APP_LOG.Info("等待实例停止",
+		global.APP_LOG.Debug("等待实例停止",
 			zap.String("instanceName", instanceName),
 			zap.Int("waited", waited),
 			zap.Int("maxWait", maxWait))
@@ -50,7 +50,7 @@ func (l *LXDProvider) stopInstanceForConfig(instanceName string) error {
 
 // configureNetworkLimits 配置网络限速
 func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig NetworkConfig) error {
-	global.APP_LOG.Info("配置网络限速",
+	global.APP_LOG.Debug("配置网络限速",
 		zap.String("instanceName", instanceName),
 		zap.Int("inSpeed", networkConfig.InSpeed),
 		zap.Int("outSpeed", networkConfig.OutSpeed))
@@ -100,7 +100,7 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 	if err != nil {
 		// 如果失败且不是eth0，再试一次eth0
 		if targetInterface != "eth0" {
-			global.APP_LOG.Info("配置主接口失败，尝试eth0",
+			global.APP_LOG.Debug("配置主接口失败，尝试eth0",
 				zap.String("interface", targetInterface),
 				zap.Error(err))
 
@@ -117,7 +117,7 @@ func (l *LXDProvider) configureNetworkLimits(instanceName string, networkConfig 
 		}
 	}
 
-	global.APP_LOG.Info("网络限速配置成功",
+	global.APP_LOG.Debug("网络限速配置成功",
 		zap.String("instanceName", instanceName),
 		zap.String("interface", targetInterface),
 		zap.Int("speedLimit", speedLimit))
@@ -138,7 +138,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 		cleanIP = strings.Split(cleanIP, "/")[0]
 	}
 
-	global.APP_LOG.Info("设置IP地址绑定",
+	global.APP_LOG.Debug("设置IP地址绑定",
 		zap.String("instanceName", instanceName),
 		zap.String("originalIP", instanceIP),
 		zap.String("cleanIP", cleanIP))
@@ -205,7 +205,7 @@ func (l *LXDProvider) setIPAddressBinding(instanceName, instanceIP string) error
 		}
 	}
 
-	global.APP_LOG.Info("IP地址绑定成功",
+	global.APP_LOG.Debug("IP地址绑定成功",
 		zap.String("instanceName", instanceName),
 		zap.String("interface", targetInterface),
 		zap.String("cleanIP", cleanIP))
@@ -259,7 +259,7 @@ func (l *LXDProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpeed
 		outSpeed = providerInfo.MaxOutboundBandwidth
 	}
 
-	global.APP_LOG.Info("从Provider配置和用户等级获取带宽设置",
+	global.APP_LOG.Debug("从Provider配置和用户等级获取带宽设置",
 		zap.String("provider", l.config.Name),
 		zap.Int("inSpeed", inSpeed),
 		zap.Int("outSpeed", outSpeed),
@@ -288,7 +288,7 @@ func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
 
 // tryUseExistingNetworkConfig 尝试使用现有的网络配置继续
 func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig, networkConfig NetworkConfig) error {
-	global.APP_LOG.Info("尝试使用现有网络配置",
+	global.APP_LOG.Debug("尝试使用现有网络配置",
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
@@ -312,7 +312,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		}
 
 		// 等待实例网络就绪（根据实例类型选择合适的等待方法）
-		global.APP_LOG.Info("等待实例网络就绪后再配置端口映射",
+		global.APP_LOG.Debug("等待实例网络就绪后再配置端口映射",
 			zap.String("instanceName", config.Name))
 
 		// 判断实例类型
@@ -346,7 +346,7 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		return fmt.Errorf("无法获取实例IP地址: %w", err)
 	}
 
-	global.APP_LOG.Info("成功获取现有实例IP地址",
+	global.APP_LOG.Debug("成功获取现有实例IP地址",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
@@ -358,14 +358,14 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		hostIP = "0.0.0.0" // 使用默认值
 	}
 
-	global.APP_LOG.Info("使用现有网络配置继续配置",
+	global.APP_LOG.Debug("使用现有网络配置继续配置",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
 
 	// 为了确保 proxy 设备正确初始化，停止容器后添加设备再启动
 	// 这是 LXD 的最佳实践，特别是在 Ubuntu 24 上
-	global.APP_LOG.Info("停止实例以配置端口映射",
+	global.APP_LOG.Debug("停止实例以配置端口映射",
 		zap.String("instanceName", config.Name))
 
 	if err := l.stopInstanceForConfig(config.Name); err != nil {
@@ -416,19 +416,19 @@ func (l *LXDProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("检查独立IPv4是否已绑定到宿主机网络接口",
+	global.APP_LOG.Debug("检查独立IPv4是否已绑定到宿主机网络接口",
 		zap.String("ip", cleanIP))
 
 	// 检查该 IP 是否已绑定到宿主机的任意网络接口
 	checkCmd := fmt.Sprintf("ip addr show | grep -w '%s'", cleanIP)
 	output, err := l.sshClient.Execute(checkCmd)
 	if err == nil && strings.Contains(output, cleanIP) {
-		global.APP_LOG.Info("独立IPv4已绑定到宿主机接口，无需添加",
+		global.APP_LOG.Debug("独立IPv4已绑定到宿主机接口，无需添加",
 			zap.String("ip", cleanIP))
 		return nil
 	}
 
-	global.APP_LOG.Info("独立IPv4未绑定到宿主机接口，正在自动添加",
+	global.APP_LOG.Debug("独立IPv4未绑定到宿主机接口，正在自动添加",
 		zap.String("ip", cleanIP))
 
 	// 获取宿主机出口网络接口（具有默认路由的接口）
@@ -451,14 +451,14 @@ func (l *LXDProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		// 并发场景下可能已被其他操作添加，再次确认
 		output2, checkErr2 := l.sshClient.Execute(checkCmd)
 		if checkErr2 == nil && strings.Contains(output2, cleanIP) {
-			global.APP_LOG.Info("独立IPv4已由并发操作绑定，跳过",
+			global.APP_LOG.Debug("独立IPv4已由并发操作绑定，跳过",
 				zap.String("ip", cleanIP))
 			return nil
 		}
 		return fmt.Errorf("自动绑定独立IPv4 %s 到宿主机接口 %s 失败: %w", cleanIP, primaryIface, addErr)
 	}
 
-	global.APP_LOG.Info("成功将独立IPv4绑定到宿主机接口",
+	global.APP_LOG.Debug("成功将独立IPv4绑定到宿主机接口",
 		zap.String("ip", cleanIP),
 		zap.String("interface", primaryIface))
 	return nil

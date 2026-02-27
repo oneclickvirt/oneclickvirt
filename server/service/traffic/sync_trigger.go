@@ -73,7 +73,7 @@ func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason 
 		// 检查服务是否已取消
 		select {
 		case <-s.ctx.Done():
-			global.APP_LOG.Info("流量同步已取消",
+			global.APP_LOG.Debug("流量同步已取消",
 				zap.Uint("instanceID", instanceID),
 				zap.String("reason", reason))
 			return
@@ -107,7 +107,7 @@ func (s *SyncTriggerService) TriggerUserTrafficSync(userID uint, reason string) 
 		// 检查服务是否已取消
 		select {
 		case <-s.ctx.Done():
-			global.APP_LOG.Info("用户流量同步已取消",
+			global.APP_LOG.Debug("用户流量同步已取消",
 				zap.Uint("userID", userID),
 				zap.String("reason", reason))
 			return
@@ -166,7 +166,7 @@ func (s *SyncTriggerService) TriggerProviderTrafficSync(providerID uint, reason 
 		// 检查服务是否已取消
 		select {
 		case <-s.ctx.Done():
-			global.APP_LOG.Info("Provider流量同步已取消",
+			global.APP_LOG.Debug("Provider流量同步已取消",
 				zap.Uint("providerID", providerID),
 				zap.String("reason", reason))
 			return
@@ -256,7 +256,7 @@ func (s *SyncTriggerService) TriggerDelayedInstanceTrafficSync(instanceID uint, 
 			s.TriggerInstanceTrafficSync(instanceID, reason+" (延迟触发)")
 		case <-s.ctx.Done():
 			// 服务被取消
-			global.APP_LOG.Info("延迟流量同步已取消",
+			global.APP_LOG.Debug("延迟流量同步已取消",
 				zap.Uint("instanceID", instanceID),
 				zap.Duration("delay", delay))
 			return

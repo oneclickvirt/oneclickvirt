@@ -169,7 +169,7 @@ func (s *ProviderApiService) CreateInstanceByProviderID(ctx context.Context, pro
 		}
 
 		config.ImageURL = imageURL
-		global.APP_LOG.Info("镜像信息准备完成", zap.String("imageURL", imageURL))
+		global.APP_LOG.Debug("镜像信息准备完成", zap.String("imageURL", imageURL))
 	}
 
 	if err := prov.CreateInstance(ctx, config); err != nil {

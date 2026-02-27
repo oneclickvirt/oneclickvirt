@@ -71,49 +71,49 @@ func (m *LifecycleManager) ShutdownAll(timeout time.Duration) {
 	for i := len(m.services) - 1; i >= 0; i-- {
 		entry := m.services[i]
 
-		global.APP_LOG.Info("正在关闭服务",
+		global.APP_LOG.Debug("正在关闭服务",
 			zap.String("name", entry.name))
 
 		// 尝试不同的关闭接口
 		switch svc := entry.service.(type) {
 		case ServiceWithTimeout:
 			if err := svc.Stop(timeout); err != nil {
-				global.APP_LOG.Error("服务关闭失败",
+				global.APP_LOG.Warn("服务关闭失败",
 					zap.String("name", entry.name),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("服务已关闭",
+				global.APP_LOG.Debug("服务已关闭",
 					zap.String("name", entry.name))
 			}
 		case Service:
 			svc.Stop()
-			global.APP_LOG.Info("服务已关闭",
+			global.APP_LOG.Debug("服务已关闭",
 				zap.String("name", entry.name))
 		case interface{ Close() }:
 			svc.Close()
-			global.APP_LOG.Info("服务已关闭",
+			global.APP_LOG.Debug("服务已关闭",
 				zap.String("name", entry.name))
 		case interface{ Close() error }:
 			if err := svc.Close(); err != nil {
-				global.APP_LOG.Error("服务关闭失败",
+				global.APP_LOG.Warn("服务关闭失败",
 					zap.String("name", entry.name),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("服务已关闭",
+				global.APP_LOG.Debug("服务已关闭",
 					zap.String("name", entry.name))
 			}
 		case interface{ Shutdown() }:
 			svc.Shutdown()
-			global.APP_LOG.Info("服务已关闭",
+			global.APP_LOG.Debug("服务已关闭",
 				zap.String("name", entry.name))
 		case interface{ StopCleanup() }:
 			svc.StopCleanup()
-			global.APP_LOG.Info("服务已关闭",
+			global.APP_LOG.Debug("服务已关闭",
 				zap.String("name", entry.name))
 		case interface{ CloseAll() }:
 			// 支持SSH连接池的CloseAll方法
 			svc.CloseAll()
-			global.APP_LOG.Info("服务已关闭",
+			global.APP_LOG.Debug("服务已关闭",
 				zap.String("name", entry.name))
 		default:
 			global.APP_LOG.Warn("服务没有实现已知的关闭接口",

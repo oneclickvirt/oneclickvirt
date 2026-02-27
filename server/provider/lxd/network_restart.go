@@ -11,7 +11,7 @@ import (
 
 // restartInstanceForNetwork 重启实例以获取网络配置
 func (l *LXDProvider) restartInstanceForNetwork(instanceName string) error {
-	global.APP_LOG.Info("重启实例获取网络配置", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("重启实例获取网络配置", zap.String("instanceName", instanceName))
 
 	// 检查实例类型以决定重启策略
 	instanceType, err := l.getInstanceType(instanceName)
@@ -32,7 +32,7 @@ func (l *LXDProvider) restartInstanceForNetwork(instanceName string) error {
 
 // restartVMForNetwork 重启虚拟机以获取网络配置
 func (l *LXDProvider) restartVMForNetwork(instanceName string) error {
-	global.APP_LOG.Info("重启虚拟机获取网络配置", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("重启虚拟机获取网络配置", zap.String("instanceName", instanceName))
 
 	// 尝试优雅重启，给虚拟机足够的超时时间
 	restartCmd := fmt.Sprintf("lxc restart %s --timeout=120", instanceName)
@@ -53,7 +53,7 @@ func (l *LXDProvider) restartVMForNetwork(instanceName string) error {
 
 // restartContainerForNetwork 重启容器以获取网络配置
 func (l *LXDProvider) restartContainerForNetwork(instanceName string) error {
-	global.APP_LOG.Info("重启容器获取网络配置", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("重启容器获取网络配置", zap.String("instanceName", instanceName))
 	restartCmd := fmt.Sprintf("lxc restart %s --timeout=60", instanceName)
 	_, err := l.sshClient.Execute(restartCmd)
 
@@ -72,7 +72,7 @@ func (l *LXDProvider) restartContainerForNetwork(instanceName string) error {
 
 // forceRestartVM 强制重启虚拟机
 func (l *LXDProvider) forceRestartVM(instanceName string) error {
-	global.APP_LOG.Info("强制重启虚拟机", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("强制重启虚拟机", zap.String("instanceName", instanceName))
 
 	// 强制停止虚拟机
 	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=60", instanceName)
@@ -100,7 +100,7 @@ func (l *LXDProvider) forceRestartVM(instanceName string) error {
 
 // forceRestartContainer 强制重启容器
 func (l *LXDProvider) forceRestartContainer(instanceName string) error {
-	global.APP_LOG.Info("强制重启容器", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("强制重启容器", zap.String("instanceName", instanceName))
 
 	// 强制停止容器
 	stopCmd := fmt.Sprintf("lxc stop %s --force --timeout=30", instanceName)

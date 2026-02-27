@@ -256,14 +256,14 @@ func (s *ImageService) PrepareImageForInstance(req image.DownloadImageRequest) (
 		baseCDN := utils.GetBaseCDNEndpoint()
 		if baseCDN != "" {
 			imageURL = baseCDN + systemImage.URL
-			global.APP_LOG.Info("使用CDN加速镜像下载",
+			global.APP_LOG.Debug("使用CDN加速镜像下载",
 				zap.Uint("imageId", req.ImageID),
 				zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
 				zap.String("cdnURL", utils.TruncateString(imageURL, 100)))
 		}
 	}
 
-	global.APP_LOG.Info("镜像信息准备完成",
+	global.APP_LOG.Debug("镜像信息准备完成",
 		zap.Uint("imageId", req.ImageID),
 		zap.String("imageURL", utils.TruncateString(imageURL, 200)),
 		zap.Bool("useCDN", systemImage.UseCDN))

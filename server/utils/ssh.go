@@ -259,7 +259,7 @@ func (c *SSHClient) Close() error {
 
 // Reconnect 重新建立SSH连接
 func (c *SSHClient) Reconnect() error {
-	global.APP_LOG.Info("尝试重新建立SSH连接",
+	global.APP_LOG.Debug("尝试重新建立SSH连接",
 		zap.String("host", c.config.Host),
 		zap.Int("port", c.config.Port))
 
@@ -439,7 +439,7 @@ func TestSSHConnectionLatency(config SSHConfig, testCount int) (minLatency, maxL
 		}
 
 		if cmdErr != nil {
-			global.APP_LOG.Error("SSH命令执行失败",
+			global.APP_LOG.Warn("SSH命令执行失败",
 				zap.Int("attempt", i+1),
 				zap.Error(cmdErr))
 			lastError = fmt.Errorf("命令执行失败(第%d次): %w", i+1, cmdErr)
@@ -453,7 +453,7 @@ func TestSSHConnectionLatency(config SSHConfig, testCount int) (minLatency, maxL
 		totalLatency += latency
 		successCount++
 
-		global.APP_LOG.Info("SSH连接测试完成",
+		global.APP_LOG.Debug("SSH连接测试完成",
 			zap.Int("attempt", i+1),
 			zap.Duration("latency", latency))
 

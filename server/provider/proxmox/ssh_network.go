@@ -30,7 +30,7 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	// 解析网络配置
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 
-	global.APP_LOG.Info("配置容器网络",
+	global.APP_LOG.Debug("配置容器网络",
 		zap.Int("vmid", vmid),
 		zap.String("networkType", networkConfig.NetworkType))
 
@@ -86,7 +86,7 @@ func (p *ProxmoxProvider) configureVMNetwork(ctx context.Context, vmid int, conf
 	// 解析网络配置
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 
-	global.APP_LOG.Info("配置虚拟机网络",
+	global.APP_LOG.Debug("配置虚拟机网络",
 		zap.Int("vmid", vmid),
 		zap.String("networkType", networkConfig.NetworkType))
 
@@ -172,11 +172,11 @@ func (p *ProxmoxProvider) configureContainerSSH(ctx context.Context, vmid int) {
 	// 等待容器完全启动
 	time.Sleep(3 * time.Second)
 
-	global.APP_LOG.Info("开始配置容器SSH", zap.Int("vmid", vmid))
+	global.APP_LOG.Debug("开始配置容器SSH", zap.Int("vmid", vmid))
 
 	// 检测容器包管理器类型
 	pkgManager := p.detectContainerPackageManager(vmid)
-	global.APP_LOG.Info("检测到容器包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
+	global.APP_LOG.Debug("检测到容器包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
 
 	// 备份并配置DNS
 	p.configureContainerDNS(vmid)
@@ -201,7 +201,7 @@ func (p *ProxmoxProvider) configureContainerSSH(ctx context.Context, vmid int) {
 		p.configureDebianBasedSSH(vmid)
 	}
 
-	global.APP_LOG.Info("容器SSH配置完成", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
+	global.APP_LOG.Debug("容器SSH配置完成", zap.Int("vmid", vmid), zap.String("packageManager", pkgManager))
 }
 
 // executeContainerCommands 执行容器命令的辅助函数
@@ -259,7 +259,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 		statusOutput, err := p.sshClient.Execute(statusCmd)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			isRunning = true
-			global.APP_LOG.Info("实例已确认运行，准备初始化pmacct",
+			global.APP_LOG.Debug("实例已确认运行，准备初始化pmacct",
 				zap.String("instance_name", instanceName),
 				zap.Int("vmid", vmid),
 				zap.Duration("wait_time", time.Since(startTime)))
@@ -309,7 +309,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	if privateIP, err := p.GetInstanceIPv4(ctx2, instanceName); err == nil && privateIP != "" {
 		// 更新数据库中的PrivateIP
 		if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-			global.APP_LOG.Info("已更新Proxmox实例内网IP",
+			global.APP_LOG.Debug("已更新Proxmox实例内网IP",
 				zap.String("instanceName", instanceName),
 				zap.String("privateIP", privateIP))
 		}
@@ -324,7 +324,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	pmacctService := pmacct.NewService()
 	if interfaceV4, err := pmacctService.DetectProxmoxNetworkInterface(p, instanceName, vmidStr); err == nil && interfaceV4 != "" {
 		if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", interfaceV4).Error; err == nil {
-			global.APP_LOG.Info("已更新Proxmox实例IPv4网络接口",
+			global.APP_LOG.Debug("已更新Proxmox实例IPv4网络接口",
 				zap.String("instanceName", instanceName),
 				zap.String("interfaceV4", interfaceV4))
 		}
@@ -340,7 +340,7 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	defer cancel4()
 	if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {
 		if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
-			global.APP_LOG.Info("已更新Proxmox实例IPv6网络接口",
+			global.APP_LOG.Debug("已更新Proxmox实例IPv6网络接口",
 				zap.String("instanceName", instanceName),
 				zap.String("interfaceV6", interfaceV6))
 		}
@@ -406,19 +406,19 @@ func (p *ProxmoxProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("检查独立IPv4是否已绑定到宿主机网络接口",
+	global.APP_LOG.Debug("检查独立IPv4是否已绑定到宿主机网络接口",
 		zap.String("ip", cleanIP))
 
 	// 检查该 IP 是否已绑定到宿主机的任意网络接口
 	checkCmd := fmt.Sprintf("ip addr show | grep -w '%s'", cleanIP)
 	output, err := p.sshClient.Execute(checkCmd)
 	if err == nil && strings.Contains(output, cleanIP) {
-		global.APP_LOG.Info("独立IPv4已绑定到宿主机接口，无需添加",
+		global.APP_LOG.Debug("独立IPv4已绑定到宿主机接口，无需添加",
 			zap.String("ip", cleanIP))
 		return nil
 	}
 
-	global.APP_LOG.Info("独立IPv4未绑定到宿主机接口，正在自动添加",
+	global.APP_LOG.Debug("独立IPv4未绑定到宿主机接口，正在自动添加",
 		zap.String("ip", cleanIP))
 
 	// 获取宿主机出口网络接口（具有默认路由的接口）
@@ -441,14 +441,14 @@ func (p *ProxmoxProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		// 并发场景下可能已被其他操作添加，再次确认
 		output2, checkErr2 := p.sshClient.Execute(checkCmd)
 		if checkErr2 == nil && strings.Contains(output2, cleanIP) {
-			global.APP_LOG.Info("独立IPv4已由并发操作绑定，跳过",
+			global.APP_LOG.Debug("独立IPv4已由并发操作绑定，跳过",
 				zap.String("ip", cleanIP))
 			return nil
 		}
 		return fmt.Errorf("自动绑定独立IPv4 %s 到宿主机接口 %s 失败: %w", cleanIP, primaryIface, addErr)
 	}
 
-	global.APP_LOG.Info("成功将独立IPv4绑定到宿主机接口",
+	global.APP_LOG.Debug("成功将独立IPv4绑定到宿主机接口",
 		zap.String("ip", cleanIP),
 		zap.String("interface", primaryIface))
 	return nil

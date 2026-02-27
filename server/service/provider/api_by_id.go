@@ -47,7 +47,7 @@ func (s *ProviderApiService) GetProviderByIDForOperation(providerID uint, operat
 		if prov.IsConnected() {
 			return prov, &dbProvider, nil
 		}
-		global.APP_LOG.Info("Provider已存在但未连接，尝试重新连接",
+		global.APP_LOG.Debug("Provider已存在但未连接，尝试重新连接",
 			zap.Uint("providerId", providerID),
 			zap.String("name", dbProvider.Name))
 	}

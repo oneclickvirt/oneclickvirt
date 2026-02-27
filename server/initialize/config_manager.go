@@ -110,7 +110,7 @@ func syncAuthConfig(cfg *config.Server, authConfig map[string]interface{}) {
 func syncInviteCodeConfig(cfg *config.Server, inviteConfig map[string]interface{}) {
 	if enabled, ok := inviteConfig["enabled"].(bool); ok {
 		cfg.InviteCode.Enabled = enabled
-		global.APP_LOG.Info("同步邀请码启用状态", zap.Bool("enabled", enabled))
+		global.APP_LOG.Debug("同步邀请码启用状态", zap.Bool("enabled", enabled))
 	} else {
 		global.APP_LOG.Warn("邀请码配置中的enabled字段类型错误或不存在",
 			zap.Any("value", inviteConfig["enabled"]),
@@ -118,7 +118,7 @@ func syncInviteCodeConfig(cfg *config.Server, inviteConfig map[string]interface{
 	}
 	if required, ok := inviteConfig["required"].(bool); ok {
 		cfg.InviteCode.Required = required
-		global.APP_LOG.Info("同步邀请码必需状态", zap.Bool("required", required))
+		global.APP_LOG.Debug("同步邀请码必需状态", zap.Bool("required", required))
 	} else {
 		global.APP_LOG.Warn("邀请码配置中的required字段类型错误或不存在",
 			zap.Any("value", inviteConfig["required"]),

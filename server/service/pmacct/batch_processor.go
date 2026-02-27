@@ -140,7 +140,7 @@ func (bp *BatchProcessor) isIdle() bool {
 // enterIdleMode 进入空闲休眠模式
 func (bp *BatchProcessor) enterIdleMode() {
 	if bp.isActive.Load() {
-		global.APP_LOG.Info("批量处理器进入空闲休眠模式")
+		global.APP_LOG.Debug("批量处理器进入空闲休眠模式")
 		bp.isActive.Store(false)
 	}
 
@@ -308,7 +308,7 @@ func (bp *BatchProcessor) QueueDelete(instanceID uint) {
 func (bp *BatchProcessor) wakeUp() {
 	bp.lastActive = time.Now()
 	if !bp.isActive.Load() {
-		global.APP_LOG.Info("批量处理器被唤醒（检测到新任务）")
+		global.APP_LOG.Debug("批量处理器被唤醒（检测到新任务）")
 		bp.isActive.Store(true)
 	}
 }
@@ -350,7 +350,7 @@ process:
 	// 计算动态并发数
 	concurrency := bp.calculateConcurrency(len(addOps) + len(deleteOps))
 
-	global.APP_LOG.Info("开始批量处理pmacct操作",
+	global.APP_LOG.Debug("开始批量处理pmacct操作",
 		zap.Int("addCount", len(addOps)),
 		zap.Int("deleteCount", len(deleteOps)),
 		zap.Int("concurrency", concurrency))
@@ -365,7 +365,7 @@ process:
 		bp.batchAdd(addOps, concurrency)
 	}
 
-	global.APP_LOG.Info("批量处理完成",
+	global.APP_LOG.Debug("批量处理完成",
 		zap.Int("addCount", len(addOps)),
 		zap.Int("deleteCount", len(deleteOps)))
 
@@ -394,7 +394,7 @@ func (bp *BatchProcessor) batchAdd(instanceIDs []uint, concurrency int) {
 	providerGroups := bp.groupByProvider(instanceIDs)
 
 	for providerID, instances := range providerGroups {
-		global.APP_LOG.Info("批量初始化流量监控",
+		global.APP_LOG.Debug("批量初始化流量监控",
 			zap.Uint("providerID", providerID),
 			zap.Int("instanceCount", len(instances)),
 			zap.Int("concurrency", concurrency))
@@ -432,7 +432,7 @@ func (bp *BatchProcessor) batchAdd(instanceIDs []uint, concurrency int) {
 					}
 
 					if err := bp.service.InitializePmacctForInstance(iid); err != nil {
-						global.APP_LOG.Error("批量初始化pmacct失败",
+						global.APP_LOG.Warn("批量初始化pmacct失败",
 							zap.Uint("instanceID", iid),
 							zap.Error(err))
 					}
@@ -453,7 +453,7 @@ func (bp *BatchProcessor) batchDelete(instanceIDs []uint, concurrency int) {
 	providerGroups := bp.groupByProvider(instanceIDs)
 
 	for providerID, instances := range providerGroups {
-		global.APP_LOG.Info("批量清理pmacct监控",
+		global.APP_LOG.Debug("批量清理pmacct监控",
 			zap.Uint("providerID", providerID),
 			zap.Int("instanceCount", len(instances)),
 			zap.Int("concurrency", concurrency))
@@ -491,7 +491,7 @@ func (bp *BatchProcessor) batchDelete(instanceIDs []uint, concurrency int) {
 					}
 
 					if err := bp.service.CleanupPmacctData(iid); err != nil {
-						global.APP_LOG.Error("批量清理pmacct失败",
+						global.APP_LOG.Warn("批量清理pmacct失败",
 							zap.Uint("instanceID", iid),
 							zap.Error(err))
 					}

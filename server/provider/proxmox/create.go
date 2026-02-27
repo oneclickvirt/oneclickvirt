@@ -20,7 +20,7 @@ func (p *ProxmoxProvider) sshCreateInstance(ctx context.Context, config provider
 }
 
 func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
-	global.APP_LOG.Info("开始在Proxmox节点上创建实例（使用SSH）",
+	global.APP_LOG.Debug("开始在Proxmox节点上创建实例（使用SSH）",
 		zap.String("node", p.node),
 		zap.String("host", utils.TruncateString(p.config.Host, 32)),
 		zap.String("instance_name", config.Name),
@@ -30,7 +30,7 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("Proxmox实例创建进度",
+		global.APP_LOG.Debug("Proxmox实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))
@@ -155,7 +155,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 
 		// 确定下载URL（支持CDN）
 		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
-		global.APP_LOG.Info("下载容器镜像",
+		global.APP_LOG.Debug("下载容器镜像",
 			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
 			zap.Bool("useCDN", config.UseCDN))
 
@@ -165,7 +165,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 		if err != nil {
 			return fmt.Errorf("下载镜像失败: %v", err)
 		}
-		global.APP_LOG.Info("容器镜像下载完成",
+		global.APP_LOG.Debug("容器镜像下载完成",
 			zap.String("image_path", localImagePath),
 			zap.String("url", downloadURL))
 	}
@@ -188,7 +188,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	memoryFormatted := convertMemoryFormat(config.Memory)
 	diskFormatted := convertDiskFormat(config.Disk)
 
-	global.APP_LOG.Info("转换参数格式",
+	global.APP_LOG.Debug("转换参数格式",
 		zap.String("原始CPU", config.CPU), zap.String("转换后CPU", cpuFormatted),
 		zap.String("原始Memory", config.Memory), zap.String("转换后Memory", memoryFormatted),
 		zap.String("原始Disk", config.Disk), zap.String("转换后Disk", diskFormatted))
@@ -205,7 +205,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 		config.Name,
 	)
 
-	global.APP_LOG.Info("执行容器创建命令", zap.String("command", createCmd))
+	global.APP_LOG.Debug("执行容器创建命令", zap.String("command", createCmd))
 
 	_, err = p.sshClient.Execute(createCmd)
 	if err != nil {
@@ -307,7 +307,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 		// 确定下载URL（支持CDN）
 		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
-		global.APP_LOG.Info("下载虚拟机镜像",
+		global.APP_LOG.Debug("下载虚拟机镜像",
 			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
 			zap.Bool("useCDN", config.UseCDN))
 
@@ -317,7 +317,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		if err != nil {
 			return fmt.Errorf("下载镜像失败: %v", err)
 		}
-		global.APP_LOG.Info("虚拟机镜像下载完成",
+		global.APP_LOG.Debug("虚拟机镜像下载完成",
 			zap.String("image_path", localImagePath),
 			zap.String("url", systemConfig.ImageURL))
 	}
@@ -358,7 +358,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	memoryFormatted := convertMemoryFormat(config.Memory)
 	diskFormatted := convertDiskFormat(config.Disk)
 
-	global.APP_LOG.Info("转换虚拟机参数格式",
+	global.APP_LOG.Debug("转换虚拟机参数格式",
 		zap.String("原始CPU", config.CPU), zap.String("转换后CPU", cpuFormatted),
 		zap.String("原始Memory", config.Memory), zap.String("转换后Memory", memoryFormatted),
 		zap.String("原始Disk", config.Disk), zap.String("转换后Disk", diskFormatted))
@@ -396,7 +396,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		if ipv6Info != nil && (ipv6Info.HasAppendedAddresses ||
 			(ipv6Info.HostIPv6Address != "" && ipv6Info.IPv6Gateway != "")) {
 			net1Bridge = "vmbr2"
-			global.APP_LOG.Info("检测到IPv6环境，使用vmbr2",
+			global.APP_LOG.Debug("检测到IPv6环境，使用vmbr2",
 				zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses),
 				zap.String("hostIPv6", ipv6Info.HostIPv6Address))
 		} else {
@@ -408,7 +408,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	} else {
 		// 纯IPv4模式，只使用vmbr1
 		net1Bridge = ""
-		global.APP_LOG.Info("使用IPv4-only配置，不创建vmbr2接口",
+		global.APP_LOG.Debug("使用IPv4-only配置，不创建vmbr2接口",
 			zap.String("networkType", networkConfig.NetworkType))
 	}
 
@@ -619,7 +619,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 				// 只有当目标大小大于当前大小时才resize
 				if currentGB > 0 && targetDiskGB <= currentGB {
 					shouldResize = false
-					global.APP_LOG.Info("磁盘无需调整",
+					global.APP_LOG.Debug("磁盘无需调整",
 						zap.Int("vmid", vmid),
 						zap.Int("current_gb", currentGB),
 						zap.Int("target_gb", targetDiskGB))
@@ -685,7 +685,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	if err != nil {
 		global.APP_LOG.Warn("设置虚拟机名称失败", zap.Int("vmid", vmid), zap.String("name", config.Name), zap.Error(err))
 	} else {
-		global.APP_LOG.Info("虚拟机名称设置成功", zap.Int("vmid", vmid), zap.String("name", config.Name))
+		global.APP_LOG.Debug("虚拟机名称设置成功", zap.Int("vmid", vmid), zap.String("name", config.Name))
 	}
 
 	updateProgress(95, "启动虚拟机...")
@@ -709,7 +709,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		statusOutput, err := p.sshClient.Execute(statusCmd)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			vmRunning = true
-			global.APP_LOG.Info("虚拟机已启动",
+			global.APP_LOG.Debug("虚拟机已启动",
 				zap.Int("vmid", vmid),
 				zap.Duration("elapsed", time.Since(startTime)))
 			break
@@ -734,7 +734,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 			_, err := p.sshClient.Execute(agentCmd)
 			if err == nil {
 				agentSupported = true
-				global.APP_LOG.Info("检测到QEMU Guest Agent已安装并就绪",
+				global.APP_LOG.Debug("检测到QEMU Guest Agent已安装并就绪",
 					zap.Int("vmid", vmid))
 				break
 			}
@@ -743,7 +743,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 
 		// 如果快速检测失败，说明镜像可能没有安装Agent，进行较短的等待
 		if !agentSupported {
-			global.APP_LOG.Info("镜像可能未安装QEMU Guest Agent，进行短时等待...",
+			global.APP_LOG.Debug("镜像可能未安装QEMU Guest Agent，进行短时等待...",
 				zap.Int("vmid", vmid))
 
 			// 只再等待15秒，给系统更多启动时间
@@ -754,7 +754,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 				agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
 				_, err := p.sshClient.Execute(agentCmd)
 				if err == nil {
-					global.APP_LOG.Info("QEMU Guest Agent已就绪",
+					global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 						zap.Int("vmid", vmid),
 						zap.Duration("elapsed", time.Since(agentStartTime)))
 					agentSupported = true

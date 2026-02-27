@@ -80,7 +80,7 @@ func (d *DockerProvider) sshDeleteImage(ctx context.Context, id string) error {
 func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) error {
 	loadCmd := fmt.Sprintf("docker load -i %s", imagePath)
 
-	global.APP_LOG.Info("开始加载Docker镜像",
+	global.APP_LOG.Debug("开始加载Docker镜像",
 		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
 		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)),
 		zap.String("command", utils.TruncateString(loadCmd, 200)))
@@ -110,7 +110,7 @@ func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) er
 	// 如果找到了加载的镜像名称且与目标名称不同，则重新标记
 	if loadedImageName != "" && loadedImageName != targetImageName {
 		tagCmd := fmt.Sprintf("docker tag %s %s", loadedImageName, targetImageName)
-		global.APP_LOG.Info("重新标记Docker镜像",
+		global.APP_LOG.Debug("重新标记Docker镜像",
 			zap.String("sourceImage", utils.TruncateString(loadedImageName, 64)),
 			zap.String("targetImage", utils.TruncateString(targetImageName, 64)),
 			zap.String("command", utils.TruncateString(tagCmd, 200)))
@@ -124,11 +124,11 @@ func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) er
 				zap.Error(err))
 			return fmt.Errorf("failed to tag image from %s to %s: %w", loadedImageName, targetImageName, err)
 		}
-		global.APP_LOG.Info("Docker镜像重新标记成功",
+		global.APP_LOG.Debug("Docker镜像重新标记成功",
 			zap.String("sourceImage", utils.TruncateString(loadedImageName, 64)),
 			zap.String("targetImage", utils.TruncateString(targetImageName, 64)))
 	}
-	global.APP_LOG.Info("Docker镜像加载成功",
+	global.APP_LOG.Debug("Docker镜像加载成功",
 		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
 		zap.String("targetImageName", utils.TruncateString(targetImageName, 64)))
 	return nil
@@ -140,7 +140,7 @@ func (d *DockerProvider) cleanupDockerImage(imageName string) {
 	d.sshClient.Execute(fmt.Sprintf("docker rmi -f %s", imageName))
 	// 清理未使用的镜像
 	d.sshClient.Execute("docker image prune -f")
-	global.APP_LOG.Info("清理Docker镜像", zap.String("imageName", utils.TruncateString(imageName, 64)))
+	global.APP_LOG.Debug("清理Docker镜像", zap.String("imageName", utils.TruncateString(imageName, 64)))
 }
 
 // imageExists 检查Docker镜像是否已存在

@@ -142,7 +142,7 @@ func (m *TransportCleanupManager) periodicCleanup() {
 		select {
 		case <-m.ctx.Done():
 			if global.APP_LOG != nil {
-				global.APP_LOG.Info("Transport清理goroutine已停止")
+				global.APP_LOG.Debug("Transport清理goroutine已停止")
 			}
 			return
 		case <-ticker.C:
@@ -219,7 +219,7 @@ func (m *TransportCleanupManager) cleanupExpired() {
 	}
 
 	if cleaned > 0 && global.APP_LOG != nil {
-		global.APP_LOG.Info("清理过期Transport对象",
+		global.APP_LOG.Debug("清理过期Transport对象",
 			zap.Int("cleaned", cleaned),
 			zap.Int("remaining", len(m.transports)))
 	}
@@ -242,7 +242,7 @@ func (m *TransportCleanupManager) CleanupAll() {
 	m.transports = make(map[*http.Transport]transportMetadata)
 
 	if cleaned > 0 {
-		global.APP_LOG.Info("已清理所有Provider Transport连接",
+		global.APP_LOG.Debug("已清理所有Provider Transport连接",
 			zap.Int("count", cleaned))
 	}
 }

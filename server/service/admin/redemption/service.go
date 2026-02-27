@@ -257,7 +257,7 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 					taskDataJSON, err := json.Marshal(taskData)
 					if err == nil {
 						if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
-							global.APP_LOG.Error("创建实例删除任务失败",
+							global.APP_LOG.Warn("创建实例删除任务失败",
 								zap.Uint("codeId", codeID),
 								zap.Uint("instanceId", instance.ID),
 								zap.Error(tErr))
@@ -270,7 +270,7 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
 			}); err != nil {
-				global.APP_LOG.Error("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
+				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
 			}
 
 		case systemModel.RedemptionStatusPendingCreate, systemModel.RedemptionStatusCreating:
@@ -288,7 +288,7 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
 			}); err != nil {
-				global.APP_LOG.Error("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
+				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
 			}
 
 		default:
@@ -296,7 +296,7 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
 			}); err != nil {
-				global.APP_LOG.Error("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
+				global.APP_LOG.Warn("硬删除兑换码失败", zap.Uint("codeId", codeID), zap.Error(err))
 			}
 		}
 	}

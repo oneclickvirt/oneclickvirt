@@ -15,5 +15,6 @@ export default {
   systemImages: '系统镜像',
   announcementManagement: '公告管理',
   systemConfiguration: '系统配置',
-  performanceMonitoring: '性能监控'
+  performanceMonitoring: '性能监控',
+  logViewer: '日志查看'
 }

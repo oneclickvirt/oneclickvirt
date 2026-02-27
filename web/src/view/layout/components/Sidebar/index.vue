@@ -264,6 +264,14 @@ const userRoutes = computed(() => {
           title: t('sidebar.performanceMonitoring'),
           icon: 'Histogram'
         }
+      },
+      {
+        path: '/admin/logs',
+        name: 'AdminLogs',
+        meta: {
+          title: t('sidebar.logViewer'),
+          icon: 'Document'
+        }
       }
     ]
   }

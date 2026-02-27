@@ -287,7 +287,7 @@ func (i *IptablesPortMapping) getPublicIP(providerInfo *provider.Provider) strin
 
 // createIptablesRule 创建iptables规则
 func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	global.APP_LOG.Info("Creating iptables rule",
+	global.APP_LOG.Debug("Creating iptables rule",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -323,7 +323,7 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
 	}
 
-	global.APP_LOG.Info("Executing iptables commands",
+	global.APP_LOG.Debug("Executing iptables commands",
 		zap.String("protocol", protocol),
 		zap.Int("commandCount", len(allCommands)))
 
@@ -362,7 +362,7 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Successfully created iptables rules",
+	global.APP_LOG.Debug("Successfully created iptables rules",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort))
@@ -401,7 +401,7 @@ func (i *IptablesPortMapping) createIptablesRuleWithTempSSH(ctx context.Context,
 		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Successfully created iptables rules",
+	global.APP_LOG.Debug("Successfully created iptables rules",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort))
@@ -411,7 +411,7 @@ func (i *IptablesPortMapping) createIptablesRuleWithTempSSH(ctx context.Context,
 
 // removeIptablesRule 删除iptables规则
 func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	global.APP_LOG.Info("Removing iptables rule",
+	global.APP_LOG.Debug("Removing iptables rule",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -447,7 +447,7 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
 	}
 
-	global.APP_LOG.Info("Executing iptables removal commands",
+	global.APP_LOG.Debug("Executing iptables removal commands",
 		zap.String("protocol", protocol),
 		zap.Int("commandCount", len(allCommands)))
 
@@ -485,7 +485,7 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Successfully removed iptables rules",
+	global.APP_LOG.Debug("Successfully removed iptables rules",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort))

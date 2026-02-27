@@ -160,7 +160,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("Docker实例创建进度",
+		global.APP_LOG.Debug("Docker实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))
@@ -251,7 +251,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		}
 	} else {
 		updateProgress(60, "Docker镜像已存在，跳过下载...")
-		global.APP_LOG.Info("Docker镜像已存在，跳过下载",
+		global.APP_LOG.Debug("Docker镜像已存在，跳过下载",
 			zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
 	}
 
@@ -270,7 +270,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("output", utils.TruncateString(cleanupOutput, 200)),
 			zap.Error(cleanupErr))
 	} else if cleanupOutput != "" {
-		global.APP_LOG.Info("已清理同名残留容器",
+		global.APP_LOG.Debug("已清理同名残留容器",
 			zap.String("instance", utils.TruncateString(config.Name, 32)),
 			zap.String("cleanedContainers", utils.TruncateString(cleanupOutput, 200)))
 	}
@@ -285,7 +285,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if config.Metadata != nil {
 		if metaNetworkType, ok := config.Metadata["network_type"]; ok {
 			networkType = metaNetworkType
-			global.APP_LOG.Info("使用实例级别的网络类型配置",
+			global.APP_LOG.Debug("使用实例级别的网络类型配置",
 				zap.String("instance", config.Name),
 				zap.String("networkType", networkType))
 		}
@@ -294,7 +294,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
 	if hasIPv6 && d.checkIPv6NetworkAvailable() {
 		cmd += " --network=ipv6_net"
-		global.APP_LOG.Info("启用IPv6网络",
+		global.APP_LOG.Debug("启用IPv6网络",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("provider", d.config.Name))
 	} else {
@@ -383,7 +383,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			}
 
 			cmd += fmt.Sprintf(" --storage-opt size=%s", finalDiskSize)
-			global.APP_LOG.Info("已启用硬盘大小限制",
+			global.APP_LOG.Debug("已启用硬盘大小限制",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("original_disk", config.Disk),
 				zap.String("final_disk_size", finalDiskSize),
@@ -458,7 +458,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		for _, volume := range lxcfsVolumes {
 			cmd += " " + volume
 		}
-		global.APP_LOG.Info("已启用LXCFS卷挂载，提供真实的容器内资源视图",
+		global.APP_LOG.Debug("已启用LXCFS卷挂载，提供真实的容器内资源视图",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("reason", lxcfsReason),
 			zap.Int("mount_count", len(lxcfsVolumes)))
@@ -479,7 +479,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	cmd += fmt.Sprintf(" %s", imageNameWithPrefix)
 
 	updateProgress(95, "执行Docker创建命令...")
-	global.APP_LOG.Info("开始执行Docker创建命令",
+	global.APP_LOG.Debug("开始执行Docker创建命令",
 		zap.String("name", utils.TruncateString(config.Name, 32)),
 		zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
 		zap.String("command", utils.TruncateString(cmd, 200)))
@@ -517,7 +517,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if status == "running" {
 				isRunning = true
-				global.APP_LOG.Info("Docker容器已确认运行",
+				global.APP_LOG.Debug("Docker容器已确认运行",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
 					zap.Duration("wait_time", time.Since(startTime)))
 				break
@@ -550,7 +550,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err == nil {
 			if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err == nil {
 				if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-					global.APP_LOG.Info("已更新Docker实例内网IP",
+					global.APP_LOG.Debug("已更新Docker实例内网IP",
 						zap.String("instanceName", config.Name),
 						zap.String("privateIP", privateIP))
 				}

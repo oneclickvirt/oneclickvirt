@@ -22,7 +22,7 @@ import (
 
 // executeProviderCreation 阶段2: Provider API调用 (30% -> 60%)
 func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance) error {
-	global.APP_LOG.Info("开始Provider API调用阶段", zap.Uint("taskId", task.ID))
+	global.APP_LOG.Debug("开始Provider API调用阶段", zap.Uint("taskId", task.ID))
 
 	// 检查上下文状态
 	if ctx.Err() != nil {
@@ -78,7 +78,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 	if !exists {
 		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Info("Provider未连接，尝试动态加载", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName))
+		global.APP_LOG.Debug("Provider未连接，尝试动态加载", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName))
 		if err := providerSvc.LoadProvider(dbProvider); err != nil {
 			global.APP_LOG.Error("动态加载Provider失败", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName), zap.Error(err))
 			err := fmt.Errorf("Provider ID %d 连接失败: %v", localProviderID, err)
@@ -139,7 +139,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
-	global.APP_LOG.Info("规格ID转换为实际数值",
+	global.APP_LOG.Debug("规格ID转换为实际数值",
 		zap.Uint("taskId", task.ID),
 		zap.String("cpuId", taskReq.CPUId), zap.Int("cpuCores", cpuSpec.Cores),
 		zap.String("memoryId", taskReq.MemoryId), zap.Int("memorySizeMB", memorySpec.SizeMB),
@@ -214,7 +214,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 					zap.Uint("instanceId", instance.ID),
 					zap.Error(dbErr))
 			}
-			global.APP_LOG.Info("从 IPv4 池分配地址成功",
+			global.APP_LOG.Debug("从 IPv4 池分配地址成功",
 				zap.Uint("taskId", task.ID),
 				zap.Uint("instanceId", instance.ID),
 				zap.String("allocatedIP", allocatedIP))
@@ -260,14 +260,14 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				}
 				instanceConfig.Ports = ports
 
-				global.APP_LOG.Info("Docker容器端口映射预分配成功",
+				global.APP_LOG.Debug("Docker容器端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
 					zap.Int("portCount", len(ports)),
 					zap.Strings("ports", ports))
 			} else {
 				// 对于LXD等其他Provider，端口映射信息已保存在数据库中，将在实例创建时读取
-				global.APP_LOG.Info("端口映射预分配成功",
+				global.APP_LOG.Debug("端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
 					zap.String("providerType", localProviderType),
@@ -285,14 +285,14 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		s.updateTaskProgress(task.ID, adjustedPercentage, message)
 	}
 
-	global.APP_LOG.Info("准备调用Provider创建实例方法",
+	global.APP_LOG.Debug("准备调用Provider创建实例方法",
 		zap.Uint("taskId", task.ID),
 		zap.String("instanceName", instance.Name),
 		zap.String("providerName", localProviderName),
 		zap.String("providerType", localProviderType))
 
 	// 使用带进度的创建方法
-	global.APP_LOG.Info("开始调用CreateInstanceWithProgress",
+	global.APP_LOG.Debug("开始调用CreateInstanceWithProgress",
 		zap.Uint("taskId", task.ID),
 		zap.String("instanceName", instance.Name))
 
@@ -302,7 +302,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
-	global.APP_LOG.Info("Provider API调用成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
+	global.APP_LOG.Debug("Provider API调用成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
 	// 更新进度到70%
 	s.updateTaskProgress(task.ID, 70, "Provider API调用成功")

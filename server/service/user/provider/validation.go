@@ -228,7 +228,7 @@ func (s *Service) validateInstanceMinimumRequirements(image *systemModel.SystemI
 			instanceTypeDesc, image.Name, minDiskMB, diskSpec.SizeMB)
 	}
 
-	global.APP_LOG.Info("实例最低硬件要求验证通过",
+	global.APP_LOG.Debug("实例最低硬件要求验证通过",
 		zap.String("imageName", image.Name),
 		zap.String("instanceType", image.InstanceType),
 		zap.String("providerType", provider.Type),
@@ -297,7 +297,7 @@ func (s *Service) validateCreateTaskPermissionsInTx(tx *gorm.DB, userID uint, pr
 		return fmt.Errorf("Provider并发限制验证失败: %v", err)
 	}
 
-	global.APP_LOG.Info("事务内任务创建三重验证通过",
+	global.APP_LOG.Debug("事务内任务创建三重验证通过",
 		zap.Uint("userID", userID),
 		zap.Uint("providerID", providerID),
 		zap.String("instanceType", instanceType),
@@ -364,7 +364,7 @@ func (s *Service) validateCreateTaskPermissions(userID uint, providerID uint, in
 		return fmt.Errorf("Provider并发限制验证失败: %v", err)
 	}
 
-	global.APP_LOG.Info("任务创建三重验证通过",
+	global.APP_LOG.Debug("任务创建三重验证通过",
 		zap.Uint("userID", userID),
 		zap.Uint("providerID", providerID),
 		zap.String("instanceType", instanceType),
@@ -409,7 +409,7 @@ func (s *Service) validateProviderConcurrencyLimitInTx(tx *gorm.DB, providerID u
 
 	// pending任务可以排队，可无限制排队
 
-	global.APP_LOG.Info("事务内Provider并发验证通过",
+	global.APP_LOG.Debug("事务内Provider并发验证通过",
 		zap.Uint("providerID", providerID),
 		zap.Int64("runningTasks", runningTaskCount),
 		zap.Int64("pendingTasks", pendingTaskCount),
@@ -452,7 +452,7 @@ func (s *Service) validateProviderConcurrencyLimit(providerID uint, maxConcurren
 
 	// pending任务可以排队，可无限制排队
 
-	global.APP_LOG.Info("Provider并发验证通过",
+	global.APP_LOG.Debug("Provider并发验证通过",
 		zap.Uint("providerID", providerID),
 		zap.Int64("runningTasks", runningTaskCount),
 		zap.Int64("pendingTasks", pendingTaskCount),

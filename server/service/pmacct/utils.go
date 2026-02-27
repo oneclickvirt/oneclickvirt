@@ -104,7 +104,7 @@ func (s *Service) uploadFileViaSFTP(providerInstance provider.Provider, content,
 // initializePmacctDatabase 初始化pmacct SQLite数据库表结构
 // pmacct不会自动创建表，需要手动创建acct_v9表结构
 func (s *Service) initializePmacctDatabase(providerInstance provider.Provider, dbPath string) error {
-	global.APP_LOG.Info("初始化pmacct数据库表结构", zap.String("dbPath", dbPath))
+	global.APP_LOG.Debug("初始化pmacct数据库表结构", zap.String("dbPath", dbPath))
 
 	// acct_v9 表结构（兼容方案 - 同时支持 aggregate 字段名和标准 v9 列名）
 	// pmacct 可能使用 ip_src/ip_dst 或 src_host/dst_host，都支持
@@ -247,7 +247,7 @@ fi
 
 // refreshProviderCache 刷新provider缓存
 func (s *Service) refreshProviderCache(providerID uint, providerRecord *providerModel.Provider) error {
-	global.APP_LOG.Info("刷新provider缓存", zap.Uint("providerID", providerID))
+	global.APP_LOG.Debug("刷新provider缓存", zap.Uint("providerID", providerID))
 
 	// 使用ProviderService的ReloadProvider方法重新加载provider
 	providerSvc := providerService.GetProviderService()
@@ -255,13 +255,13 @@ func (s *Service) refreshProviderCache(providerID uint, providerRecord *provider
 		return fmt.Errorf("failed to reload provider: %w", err)
 	}
 
-	global.APP_LOG.Info("provider缓存刷新成功", zap.Uint("providerID", providerID))
+	global.APP_LOG.Debug("provider缓存刷新成功", zap.Uint("providerID", providerID))
 	return nil
 }
 
 // aggregateToDailyBetween 将小时级数据聚合为日度统计
 func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
-	global.APP_LOG.Info("开始聚合小时数据到日度统计",
+	global.APP_LOG.Debug("开始聚合小时数据到日度统计",
 		zap.Time("startTime", startTime),
 		zap.Time("endTime", endTime))
 
@@ -306,7 +306,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 		return fmt.Errorf("failed to aggregate to daily: %w", result.Error)
 	}
 
-	global.APP_LOG.Info("日度统计聚合完成",
+	global.APP_LOG.Debug("日度统计聚合完成",
 		zap.Int64("aggregatedDays", result.RowsAffected))
 
 	return nil
@@ -314,7 +314,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 
 // aggregateToHourlyBetween 将5分钟数据聚合为小时级统计
 func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
-	global.APP_LOG.Info("开始聚合5分钟数据到小时统计",
+	global.APP_LOG.Debug("开始聚合5分钟数据到小时统计",
 		zap.Time("startTime", startTime),
 		zap.Time("endTime", endTime))
 
@@ -359,7 +359,7 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 		return fmt.Errorf("failed to aggregate to hourly: %w", result.Error)
 	}
 
-	global.APP_LOG.Info("小时统计聚合完成",
+	global.APP_LOG.Debug("小时统计聚合完成",
 		zap.Int64("aggregatedHours", result.RowsAffected))
 
 	return nil

@@ -30,7 +30,7 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 
 	// 检查远程文件是否已存在
 	if d.isRemoteFileValid(remotePath) {
-		global.APP_LOG.Info("远程镜像文件已存在且完整，跳过下载",
+		global.APP_LOG.Debug("远程镜像文件已存在且完整，跳过下载",
 			zap.String("imageName", imageName),
 			zap.String("remotePath", remotePath))
 		return remotePath, nil
@@ -39,7 +39,7 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 	// 确定下载URL，传递 useCDN 参数
 	downloadURL := d.getDownloadURL(imageURL, providerCountry, useCDN)
 
-	global.APP_LOG.Info("开始在远程服务器下载镜像",
+	global.APP_LOG.Debug("开始在远程服务器下载镜像",
 		zap.String("imageName", imageName),
 		zap.String("downloadURL", downloadURL),
 		zap.String("remotePath", remotePath),
@@ -52,7 +52,7 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 		return "", fmt.Errorf("远程下载镜像失败: %w", err)
 	}
 
-	global.APP_LOG.Info("远程镜像下载完成",
+	global.APP_LOG.Debug("远程镜像下载完成",
 		zap.String("imageName", imageName),
 		zap.String("remotePath", remotePath))
 
@@ -111,7 +111,7 @@ func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 		tmpPath, url,
 	)
 
-	global.APP_LOG.Info("执行远程下载命令",
+	global.APP_LOG.Debug("执行远程下载命令",
 		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := d.sshClient.Execute(curlCmd)
@@ -138,7 +138,7 @@ func (d *DockerProvider) downloadFileToRemote(url, remotePath string) error {
 		return fmt.Errorf("移动文件失败: %w", err)
 	}
 
-	global.APP_LOG.Info("远程下载成功",
+	global.APP_LOG.Debug("远程下载成功",
 		zap.String("url", utils.TruncateString(url, 100)),
 		zap.String("remotePath", remotePath))
 
@@ -156,26 +156,26 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		scriptPath := filepath.Join(scriptsDir, script)
 		if !d.isRemoteFileValid(scriptPath) {
 			allExist = false
-			global.APP_LOG.Info("SSH脚本文件不存在或无效",
+			global.APP_LOG.Debug("SSH脚本文件不存在或无效",
 				zap.String("scriptPath", scriptPath))
 			break
 		}
 	}
 
 	if allExist {
-		global.APP_LOG.Info("SSH脚本文件都已存在且有效")
+		global.APP_LOG.Debug("SSH脚本文件都已存在且有效")
 		return nil
 	}
 
 	// 下载缺失的脚本
-	global.APP_LOG.Info("开始下载SSH脚本文件")
+	global.APP_LOG.Debug("开始下载SSH脚本文件")
 
 	for _, script := range scripts {
 		scriptPath := filepath.Join(scriptsDir, script)
 
 		// 如果脚本已存在且有效，跳过
 		if d.isRemoteFileValid(scriptPath) {
-			global.APP_LOG.Info("SSH脚本已存在，跳过下载",
+			global.APP_LOG.Debug("SSH脚本已存在，跳过下载",
 				zap.String("script", script))
 			continue
 		}
@@ -184,7 +184,7 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		baseURL := "https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/" + script
 		downloadURL := d.getSSHScriptDownloadURL(baseURL, providerCountry)
 
-		global.APP_LOG.Info("开始下载SSH脚本",
+		global.APP_LOG.Debug("开始下载SSH脚本",
 			zap.String("script", script),
 			zap.String("downloadURL", downloadURL),
 			zap.String("scriptPath", scriptPath))
@@ -210,12 +210,12 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
 		d.sshClient.Execute(dos2unixCmd)
 
-		global.APP_LOG.Info("SSH脚本下载并设置完成",
+		global.APP_LOG.Debug("SSH脚本下载并设置完成",
 			zap.String("script", script),
 			zap.String("scriptPath", scriptPath))
 	}
 
-	global.APP_LOG.Info("所有SSH脚本文件下载完成")
+	global.APP_LOG.Debug("所有SSH脚本文件下载完成")
 	return nil
 }
 
@@ -227,7 +227,7 @@ func (d *DockerProvider) getSSHScriptDownloadURL(originalURL, providerCountry st
 			// 测试CDN可用性
 			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
 			if _, err := d.sshClient.Execute(testCmd); err == nil {
-				global.APP_LOG.Info("使用CDN下载SSH脚本",
+				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
 				return cdnURL
 			}

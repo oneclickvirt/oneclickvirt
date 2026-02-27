@@ -50,7 +50,7 @@ func (i *IncusProvider) instanceExists(name string) (bool, error) {
 func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (string, error) {
 	var cmd string
 
-	global.APP_LOG.Info("开始构建创建命令",
+	global.APP_LOG.Debug("开始构建创建命令",
 		zap.String("instance_name", config.Name),
 		zap.String("image", config.Image),
 		zap.String("instance_type", config.InstanceType),
@@ -156,7 +156,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 		cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)
 	}
 
-	global.APP_LOG.Info("构建的完整创建命令",
+	global.APP_LOG.Debug("构建的完整创建命令",
 		zap.String("full_command", cmd),
 		zap.Strings("config_params", configParams))
 
@@ -166,7 +166,7 @@ func (i *IncusProvider) buildCreateCommand(config provider.InstanceConfig) (stri
 // executeCreateCommand 执行创建命令
 func (i *IncusProvider) executeCreateCommand(cmd string) error {
 	// 输出完整的创建命令用于调试
-	global.APP_LOG.Info("准备执行实例创建命令",
+	global.APP_LOG.Debug("准备执行实例创建命令",
 		zap.String("full_command", cmd))
 
 	output, err := i.sshClient.Execute(cmd)
@@ -192,7 +192,7 @@ func (i *IncusProvider) executeCreateCommand(cmd string) error {
 		return fmt.Errorf("创建实例失败: %w", err)
 	}
 
-	global.APP_LOG.Info("实例创建命令执行成功", zap.String("output", output))
+	global.APP_LOG.Debug("实例创建命令执行成功", zap.String("output", output))
 	return nil
 }
 
@@ -211,7 +211,7 @@ func (i *IncusProvider) waitForInstanceState(name, expectedState string, timeout
 
 		currentState := strings.TrimSpace(output)
 		if currentState == expectedState {
-			global.APP_LOG.Info("实例达到期望状态",
+			global.APP_LOG.Debug("实例达到期望状态",
 				zap.String("name", name),
 				zap.String("state", expectedState))
 			return nil
@@ -231,7 +231,7 @@ func (i *IncusProvider) waitForInstanceState(name, expectedState string, timeout
 
 // checkVMSupport 检查Incus是否支持虚拟机
 func (i *IncusProvider) checkVMSupport() error {
-	global.APP_LOG.Info("检查Incus虚拟机支持...")
+	global.APP_LOG.Debug("检查Incus虚拟机支持...")
 
 	// 检查incus命令是否可用
 	_, err := i.sshClient.Execute("command -v incus")
@@ -252,13 +252,13 @@ func (i *IncusProvider) checkVMSupport() error {
 		return fmt.Errorf("Incus不支持虚拟机 (未找到qemu驱动)，此系统仅支持容器")
 	}
 
-	global.APP_LOG.Info("已确认Incus支持虚拟机 - qemu驱动可用")
+	global.APP_LOG.Debug("已确认Incus支持虚拟机 - qemu驱动可用")
 	return nil
 }
 
 // configureVMSettings 配置虚拟机特有设置
 func (i *IncusProvider) configureVMSettings(ctx context.Context, instanceName string) error {
-	global.APP_LOG.Info("配置虚拟机特有设置", zap.String("instance", instanceName))
+	global.APP_LOG.Debug("配置虚拟机特有设置", zap.String("instance", instanceName))
 
 	// 禁用安全启动（虚拟机常用配置）
 	if err := i.setInstanceConfig(ctx, instanceName, "security.secureboot", "false"); err != nil {
@@ -272,7 +272,7 @@ func (i *IncusProvider) configureVMSettings(ctx context.Context, instanceName st
 
 // configureInstanceSSHPassword 专门用于设置实例的SSH密码
 func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置实例SSH密码",
+	global.APP_LOG.Debug("开始配置实例SSH密码",
 		zap.String("instanceName", config.Name))
 
 	// 生成随机密码
@@ -345,7 +345,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 			zap.Error(err))
 	}
 
-	global.APP_LOG.Info("实例SSH密码设置完成",
+	global.APP_LOG.Debug("实例SSH密码设置完成",
 		zap.String("instanceName", config.Name),
 		zap.String("rootPassword", password))
 
@@ -363,7 +363,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
 	} else {
-		global.APP_LOG.Info("实例密码已同步到数据库",
+		global.APP_LOG.Debug("实例密码已同步到数据库",
 			zap.String("instanceName", config.Name))
 	}
 
@@ -372,7 +372,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 
 // waitForInstanceExecReady 等待实例可以执行命令（容器直接可用，虚拟机需要等待Agent）
 func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSeconds int) error {
-	global.APP_LOG.Info("开始等待实例可执行命令",
+	global.APP_LOG.Debug("开始等待实例可执行命令",
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
 	time.Sleep(12 * time.Second)
@@ -399,7 +399,7 @@ func (i *IncusProvider) waitForInstanceExecReady(instanceName string, timeoutSec
 		cmd := fmt.Sprintf("incus exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
-			global.APP_LOG.Info("实例可执行命令",
+			global.APP_LOG.Debug("实例可执行命令",
 				zap.String("instanceName", instanceName),
 				zap.Int("elapsed", elapsed))
 			time.Sleep(12 * time.Second)

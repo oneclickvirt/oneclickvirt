@@ -144,13 +144,13 @@ func (s *AuthService) sendTelegramCode(telegram, code string) error {
 		return errors.New("Telegram Bot Token未配置")
 	}
 
-	global.APP_LOG.Info("发送验证码到Telegram",
+	global.APP_LOG.Debug("发送验证码到Telegram",
 		zap.String("telegram", telegram),
 		zap.String("operation", "send_telegram_verify_code"))
 
 	// 在开发环境下直接返回成功并记录验证码
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送Telegram验证码",
+		global.APP_LOG.Debug("开发环境模拟发送Telegram验证码",
 			zap.String("telegram", telegram),
 			zap.String("code", code))
 		return nil
@@ -196,13 +196,13 @@ func (s *AuthService) sendQQCode(qq, code string) error {
 		return errors.New("QQ应用配置不完整")
 	}
 
-	global.APP_LOG.Info("发送验证码到QQ",
+	global.APP_LOG.Debug("发送验证码到QQ",
 		zap.String("qq", qq),
 		zap.String("operation", "send_qq_verify_code"))
 
 	// 在开发环境下直接返回成功并记录验证码
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送QQ验证码",
+		global.APP_LOG.Debug("开发环境模拟发送QQ验证码",
 			zap.String("qq", qq),
 			zap.String("code", code))
 		return nil
@@ -226,13 +226,13 @@ func (s *AuthService) sendQQCode(qq, code string) error {
 }
 
 func (s *AuthService) sendSMSCode(phone, code string) error {
-	global.APP_LOG.Info("发送验证码到手机",
+	global.APP_LOG.Debug("发送验证码到手机",
 		zap.String("phone", phone),
 		zap.String("operation", "send_verification_code"))
 
 	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟验证码发送成功", zap.String("code", code))
+		global.APP_LOG.Debug("开发环境模拟验证码发送成功", zap.String("code", code))
 		return nil
 	}
 

@@ -171,22 +171,23 @@ func createDefaultConfigFile(configPath string) error {
 		return fmt.Errorf("写入配置文件失败: %v", err)
 	}
 
+	// 此时日志系统尚未就绪，使用 stdout 输出提示性信息
 	fmt.Printf("[CONFIG] 已创建默认配置文件: %s\n", configPath)
 	return nil
 }
 
-// 智能选择数据库类型
+// selectDatabaseType 根据配置中的 DbType 进行合法性校验并必要时自动检测则修正。
+// 注意：该函数在日志系统初始化之前调用，必须使用 fmt 输出。
 func selectDatabaseType(cfg *config.Server) {
 	switch cfg.System.DbType {
 	case "mysql", "mariadb":
 		if cfg.Mysql.Dbname == "" && !cfg.Mysql.AutoCreate {
-			fmt.Printf("[CONFIG] %s配置不完整且未启用自动创建数据库\n", cfg.System.DbType)
+			fmt.Fprintf(os.Stderr, "[CONFIG WARN] %s 数据库名为空且未开启 AutoCreate，请检查配置\n", cfg.System.DbType)
 		}
 		fmt.Printf("[CONFIG] 使用数据库类型: %s\n", cfg.System.DbType)
 	default:
-		// 默认使用MySQL，但允许在Docker环境中动态检测
 		detectedType := detectDatabaseType()
-		fmt.Printf("[CONFIG] 不支持的数据库类型: %s，自动检测为: %s\n", cfg.System.DbType, detectedType)
+		fmt.Fprintf(os.Stderr, "[CONFIG WARN] 不支持的数据库类型 %q，自动模式检测为: %s\n", cfg.System.DbType, detectedType)
 		cfg.System.DbType = detectedType
 	}
 }
@@ -222,11 +223,11 @@ func InitConfig(configPath ...string) *viper.Viper {
 	v.SetConfigFile(config)
 	v.SetConfigType("yaml")
 
-	// 如果配置文件不存在，创建默认配置
+	// 配置文件不存在时自动生成默认配置
 	if _, err := os.Stat(config); os.IsNotExist(err) {
-		fmt.Printf("[CONFIG] 配置文件 %s 不存在，创建默认配置...\n", config)
+		fmt.Printf("[CONFIG] 配置文件 %q 不存在，正在生成默认配置...\n", config)
 		if err := createDefaultConfigFile(config); err != nil {
-			fmt.Printf("[CONFIG] 创建默认配置文件失败: %v，使用内存默认配置\n", err)
+			fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 创建默认配置文件失败: %v，降级为内存配置\n", err)
 			global.SetAppConfig(getDefaultConfig())
 			return v
 		}
@@ -234,7 +235,7 @@ func InitConfig(configPath ...string) *viper.Viper {
 
 	// 读取配置文件
 	if err := v.ReadInConfig(); err != nil {
-		fmt.Printf("[CONFIG] 读取配置文件失败: %v，使用内存默认配置\n", err)
+		fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 读取配置文件失败: %v，降级为内存默认配置\n", err)
 		global.SetAppConfig(getDefaultConfig())
 		return v
 	}
@@ -242,23 +243,24 @@ func InitConfig(configPath ...string) *viper.Viper {
 	// 监听配置文件变化
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Printf("[CONFIG] 配置文件已更改: %s\n", e.Name)
+		fmt.Printf("[CONFIG] 配置文件变更: %s\n", e.Name)
 
 		newConfig := getDefaultConfig()
 		if err := v.Unmarshal(&newConfig); err != nil {
-			fmt.Printf("[CONFIG] 重新加载配置失败: %v，保持原有配置\n", err)
+			fmt.Fprintf(os.Stderr, "[CONFIG WARN] 重载配置失败: %v，保持原有配置\n", err)
 			return
 		}
 
 		if err := validateConfig(&newConfig); err != nil {
-			fmt.Printf("[CONFIG] 新配置验证失败: %v，保持原有配置\n", err)
+			fmt.Fprintf(os.Stderr, "[CONFIG WARN] 新配置校验失败: %v，保持原有配置\n", err)
 			return
 		}
 
 		selectDatabaseType(&newConfig)
 		global.SetAppConfig(newConfig)
-		fmt.Println("[CONFIG] 配置已重新加载")
+		fmt.Println("[CONFIG] 配置已成功重新加载")
 
+		// 日志系统已就绪后同步写入结构化日志
 		if global.APP_LOG != nil {
 			global.APP_LOG.Info("配置文件重新加载成功", zap.String("file", e.Name))
 		}
@@ -267,11 +269,11 @@ func InitConfig(configPath ...string) *viper.Viper {
 	// 解析配置到全局变量
 	loadedConfig := getDefaultConfig()
 	if err := v.Unmarshal(&loadedConfig); err != nil {
-		fmt.Printf("[CONFIG] 解析配置文件失败: %v，使用内存默认配置\n", err)
+		fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 解析配置文件失败: %v，降级为内存默认配置\n", err)
 		global.SetAppConfig(getDefaultConfig())
 	} else {
 		if err := validateConfig(&loadedConfig); err != nil {
-			fmt.Printf("[CONFIG] 配置验证失败: %v，使用内存默认配置\n", err)
+			fmt.Fprintf(os.Stderr, "[CONFIG ERROR] 配置校验失败: %v，降级为内存默认配置\n", err)
 			global.SetAppConfig(getDefaultConfig())
 		} else {
 			selectDatabaseType(&loadedConfig)

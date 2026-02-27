@@ -142,7 +142,7 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 	if err == nil && strings.Contains(statusOutput, "status: running") {
 		// 实例已经在运行，等待3秒认为启动成功
 		time.Sleep(3 * time.Second)
-		global.APP_LOG.Info("Proxmox实例已经在运行",
+		global.APP_LOG.Debug("Proxmox实例已经在运行",
 			zap.String("id", utils.TruncateString(id, 50)),
 			zap.String("vmid", vmid),
 			zap.String("type", instanceType))
@@ -166,7 +166,7 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("failed to start %s %s: %w", instanceType, vmid, err)
 	}
 
-	global.APP_LOG.Info("已发送启动命令，等待实例启动",
+	global.APP_LOG.Debug("已发送启动命令，等待实例启动",
 		zap.String("id", utils.TruncateString(id, 50)),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
@@ -189,7 +189,7 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 		statusOutput, err := p.sshClient.Execute(statusCommand)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			// 实例已经启动
-			global.APP_LOG.Info("Proxmox实例已成功启动",
+			global.APP_LOG.Debug("Proxmox实例已成功启动",
 				zap.String("id", utils.TruncateString(id, 50)),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
@@ -204,7 +204,7 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 					_, err := p.sshClient.Execute(agentCmd)
 					if err == nil {
 						agentSupported = true
-						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+						global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 							zap.String("vmid", vmid))
 						break
 					}
@@ -219,7 +219,7 @@ func (p *ProxmoxProvider) sshStartInstance(ctx context.Context, id string) error
 						agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
 						_, err := p.sshClient.Execute(agentCmd)
 						if err == nil {
-							global.APP_LOG.Info("QEMU Guest Agent已就绪",
+							global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 								zap.String("vmid", vmid),
 								zap.Duration("elapsed", time.Since(agentStartTime)))
 							break

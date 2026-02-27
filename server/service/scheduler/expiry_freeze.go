@@ -38,14 +38,14 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredProviders() error {
 	// 批量处理过期的Provider
 	for _, p := range providers {
 		if err := s.freezeProvider(&p); err != nil {
-			global.APP_LOG.Error("冻结Provider失败",
+			global.APP_LOG.Warn("冻结Provider失败",
 				zap.Uint("provider_id", p.ID),
 				zap.String("provider_name", p.Name),
 				zap.Error(err))
 			continue
 		}
 
-		global.APP_LOG.Info("已冻结过期Provider",
+		global.APP_LOG.Debug("已冻结过期Provider",
 			zap.Uint("provider_id", p.ID),
 			zap.String("provider_name", p.Name))
 	}
@@ -106,14 +106,14 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredInstances() error {
 	// 批量处理过期的实例
 	for _, inst := range instances {
 		if err := s.freezeInstance(&inst); err != nil {
-			global.APP_LOG.Error("冻结实例失败",
+			global.APP_LOG.Warn("冻结实例失败",
 				zap.Uint("instance_id", inst.ID),
 				zap.String("instance_name", inst.Name),
 				zap.Error(err))
 			continue
 		}
 
-		global.APP_LOG.Info("已冻结过期实例",
+		global.APP_LOG.Debug("已冻结过期实例",
 			zap.Uint("instance_id", inst.ID),
 			zap.String("instance_name", inst.Name))
 	}
@@ -155,14 +155,14 @@ func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
 	// 批量处理过期的用户 - 禁用状态
 	for _, u := range users {
 		if err := s.disableUser(&u); err != nil {
-			global.APP_LOG.Error("禁用过期用户失败",
+			global.APP_LOG.Warn("禁用过期用户失败",
 				zap.Uint("user_id", u.ID),
 				zap.String("username", u.Username),
 				zap.Error(err))
 			continue
 		}
 
-		global.APP_LOG.Info("已禁用过期用户",
+		global.APP_LOG.Debug("已禁用过期用户",
 			zap.Uint("user_id", u.ID),
 			zap.String("username", u.Username))
 	}
@@ -185,17 +185,17 @@ func (s *ExpiryFreezeService) disableUser(u *user.User) error {
 func (s *ExpiryFreezeService) CheckAndFreezeAll() error {
 	// 1. 先冻结过期用户
 	if err := s.CheckAndFreezeExpiredUsers(); err != nil {
-		global.APP_LOG.Error("检查过期用户失败", zap.Error(err))
+		global.APP_LOG.Warn("检查过期用户失败", zap.Error(err))
 	}
 
 	// 2. 再冻结过期Provider
 	if err := s.CheckAndFreezeExpiredProviders(); err != nil {
-		global.APP_LOG.Error("检查过期Provider失败", zap.Error(err))
+		global.APP_LOG.Warn("检查过期Provider失败", zap.Error(err))
 	}
 
 	// 3. 最后冻结过期实例
 	if err := s.CheckAndFreezeExpiredInstances(); err != nil {
-		global.APP_LOG.Error("检查过期实例失败", zap.Error(err))
+		global.APP_LOG.Warn("检查过期实例失败", zap.Error(err))
 	}
 
 	return nil

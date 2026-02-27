@@ -218,7 +218,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
 		}
 		provider.LevelLimits = string(levelLimitsJSON)
-		global.APP_LOG.Info("使用默认节点等级限制配置",
+		global.APP_LOG.Debug("使用默认节点等级限制配置",
 			zap.String("providerName", req.Name))
 	}
 

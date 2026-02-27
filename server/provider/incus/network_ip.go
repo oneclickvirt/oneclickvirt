@@ -72,7 +72,7 @@ func (i *IncusProvider) getVMInstanceIP(instanceName string) (string, error) {
 
 			if err == nil && strings.TrimSpace(output) != "" {
 				vmIP := strings.TrimSpace(output)
-				global.APP_LOG.Info("虚拟机IPv4地址获取成功",
+				global.APP_LOG.Debug("虚拟机IPv4地址获取成功",
 					zap.String("instanceName", instanceName),
 					zap.String("interface", iface),
 					zap.String("ip", vmIP),
@@ -113,7 +113,7 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 
 		if err == nil && strings.TrimSpace(output) != "" {
 			containerIP := strings.TrimSpace(output)
-			global.APP_LOG.Info("容器IPv4地址获取成功",
+			global.APP_LOG.Debug("容器IPv4地址获取成功",
 				zap.String("instanceName", instanceName),
 				zap.String("ip", containerIP),
 				zap.Int("attempt", attempt))
@@ -176,7 +176,7 @@ func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error
 						// 验证是否是有效的IPv4地址
 						parts := strings.Split(addr, ".")
 						if len(parts) == 4 {
-							global.APP_LOG.Info("通过incus list找到有效IP地址",
+							global.APP_LOG.Debug("通过incus list找到有效IP地址",
 								zap.String("instanceName", instanceName),
 								zap.String("ip", addr),
 								zap.Int("attempt", attempt))
@@ -240,7 +240,7 @@ func (i *IncusProvider) getHostIP() (string, error) {
 	}
 
 	// 3. 最后才从宿主机动态获取 IP地址
-	global.APP_LOG.Info("从宿主机动态获取IP地址")
+	global.APP_LOG.Debug("从宿主机动态获取IP地址")
 	cmd := "ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p' | cut -d/ -f1"
 	output, err := i.sshClient.Execute(cmd)
 	if err != nil {

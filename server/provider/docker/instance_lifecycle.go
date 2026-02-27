@@ -27,15 +27,15 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 	var startCmd string
 	startCmd = fmt.Sprintf("docker restart %s", id)
 	if strings.Contains(status, "exited") {
-		global.APP_LOG.Info("检测到容器为Exited状态，使用restart命令",
+		global.APP_LOG.Debug("检测到容器为Exited状态，使用restart命令",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("status", status))
 	} else if strings.Contains(status, "running") {
-		global.APP_LOG.Info("容器已在运行", zap.String("id", utils.TruncateString(id, 32)))
+		global.APP_LOG.Debug("容器已在运行", zap.String("id", utils.TruncateString(id, 32)))
 		return nil
 	}
 
-	global.APP_LOG.Info("开始启动Docker实例",
+	global.APP_LOG.Debug("开始启动Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", startCmd))
 
@@ -70,7 +70,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 			if currentStatus == "running" {
 				// 容器已经启动，再等待额外的时间确保服务完全就绪
 				time.Sleep(2 * time.Second)
-				global.APP_LOG.Info("Docker容器已成功启动并就绪",
+				global.APP_LOG.Debug("Docker容器已成功启动并就绪",
 					zap.String("id", utils.TruncateString(id, 32)),
 					zap.Duration("wait_time", time.Since(startTime)))
 				return nil
@@ -86,7 +86,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 // sshStopInstance 停止实例
 func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 	stopCmd := fmt.Sprintf("docker stop %s", id)
-	global.APP_LOG.Info("开始停止Docker实例",
+	global.APP_LOG.Debug("开始停止Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", stopCmd))
 	output, err := d.sshClient.Execute(stopCmd)
@@ -115,7 +115,7 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 
 		status := strings.ToLower(strings.TrimSpace(statusOutput))
 		if strings.Contains(status, "exited") {
-			global.APP_LOG.Info("Docker实例停止成功并已确认状态",
+			global.APP_LOG.Debug("Docker实例停止成功并已确认状态",
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.String("status", status))
 			return nil
@@ -136,7 +136,7 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 // sshRestartInstance 重启实例
 func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) error {
 	restartCmd := fmt.Sprintf("docker restart %s", id)
-	global.APP_LOG.Info("开始重启Docker实例",
+	global.APP_LOG.Debug("开始重启Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", restartCmd))
 
@@ -156,7 +156,7 @@ func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) erro
 
 // sshDeleteInstance 删除实例 - 增强版，多重删除策略
 func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error {
-	global.APP_LOG.Info("开始删除Docker实例",
+	global.APP_LOG.Debug("开始删除Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)))
 
 	// 预清理：先尝试删除所有同名的已停止容器（Exited状态）
@@ -221,7 +221,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 
 	// 尝试每种删除策略
 	for strategyIndex, strategy := range deleteStrategies {
-		global.APP_LOG.Info("尝试删除策略",
+		global.APP_LOG.Debug("尝试删除策略",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("strategy", strategy.name),
 			zap.String("description", strategy.description),
@@ -328,7 +328,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 	}
 
 	// 最后的强制清理：尝试删除所有同名的已停止容器
-	global.APP_LOG.Info("执行最终清理，删除所有同名已停止容器",
+	global.APP_LOG.Debug("执行最终清理，删除所有同名已停止容器",
 		zap.String("id", utils.TruncateString(id, 32)))
 
 	finalCleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ -q | xargs -r docker rm -f", id)

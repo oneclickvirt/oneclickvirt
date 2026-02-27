@@ -23,7 +23,7 @@ func (i *IncusProvider) configurePortMappingsWithIP(ctx context.Context, instanc
 	// dedicated_ipv4_ipv6: 独立IPv4 + 独立IPv6，不需要端口映射
 	// ipv6_only: 纯IPv6，不允许任何IPv4操作
 	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only" {
-		global.APP_LOG.Info("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
+		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
 			zap.String("instance", instanceName),
 			zap.String("networkType", networkConfig.NetworkType))
 		return nil
@@ -234,7 +234,7 @@ func (i *IncusProvider) configureUfwPorts(portMappings []providerModel.Port) err
 
 // setupPortMappingWithIP 使用指定的实例IP设置端口映射
 func (i *IncusProvider) setupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
-	global.APP_LOG.Info("设置端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -249,7 +249,7 @@ func (i *IncusProvider) setupPortMappingWithIP(instanceName string, hostPort, gu
 		return i.setupIptablesMappingWithIP(instanceName, hostPort, guestPort, protocol, instanceIP)
 	case "native":
 		// 独立IPv4模式下使用native方法，跳过端口映射
-		global.APP_LOG.Info("独立IPv4模式，跳过端口映射",
+		global.APP_LOG.Debug("独立IPv4模式，跳过端口映射",
 			zap.String("instance", instanceName),
 			zap.Int("hostPort", hostPort),
 			zap.Int("guestPort", guestPort),
@@ -290,7 +290,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 			return fmt.Errorf("设置UDP device proxy映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("device proxy端口映射配置成功(TCP+UDP)",
+		global.APP_LOG.Debug("device proxy端口映射配置成功(TCP+UDP)",
 			zap.String("instanceName", instanceName),
 			zap.String("tcpDeviceName", tcpDeviceName),
 			zap.String("udpDeviceName", udpDeviceName),
@@ -307,7 +307,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 			return fmt.Errorf("设置device proxy映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("device proxy端口映射配置成功",
+		global.APP_LOG.Debug("device proxy端口映射配置成功",
 			zap.String("instanceName", instanceName),
 			zap.String("deviceName", deviceName),
 			zap.Int("hostPort", hostPort),
@@ -319,7 +319,7 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 
 // setupIptablesMappingWithIP 使用iptables设置端口映射
 func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Info("使用iptables设置端口映射",
+	global.APP_LOG.Debug("使用iptables设置端口映射",
 		zap.String("instanceName", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -381,7 +381,7 @@ func (i *IncusProvider) SaveIptablesRules() error {
 		return fmt.Errorf("保存iptables规则失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Incus iptables规则保存成功")
+	global.APP_LOG.Debug("Incus iptables规则保存成功")
 	return nil
 }
 
@@ -517,7 +517,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 			return fmt.Errorf("设置UDP端口范围映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("端口范围映射配置成功(TCP+UDP)",
+		global.APP_LOG.Debug("端口范围映射配置成功(TCP+UDP)",
 			zap.String("instanceName", instanceName),
 			zap.String("tcpDeviceName", tcpDeviceName),
 			zap.String("udpDeviceName", udpDeviceName),
@@ -534,7 +534,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 			return fmt.Errorf("设置端口范围映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("端口范围映射配置成功",
+		global.APP_LOG.Debug("端口范围映射配置成功",
 			zap.String("instanceName", instanceName),
 			zap.String("deviceName", deviceName),
 			zap.Int("startPort", startPort),
@@ -546,7 +546,7 @@ func (i *IncusProvider) setupPortRangeMapping(instanceName string, startPort, en
 
 // removePortMapping 移除端口映射
 func (i *IncusProvider) removePortMapping(instanceName string, hostPort int, protocol string, method string) error {
-	global.APP_LOG.Info("移除端口映射",
+	global.APP_LOG.Debug("移除端口映射",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.String("protocol", protocol),
@@ -589,7 +589,7 @@ func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort i
 				zap.Error(err))
 		}
 
-		global.APP_LOG.Info("Device proxy端口映射移除成功(TCP+UDP)",
+		global.APP_LOG.Debug("Device proxy端口映射移除成功(TCP+UDP)",
 			zap.String("instance", instanceName),
 			zap.Int("hostPort", hostPort))
 	} else {
@@ -601,7 +601,7 @@ func (i *IncusProvider) removeDeviceProxyMapping(instanceName string, hostPort i
 			return fmt.Errorf("移除proxy设备失败: %w", err)
 		}
 
-		global.APP_LOG.Info("Device proxy端口映射移除成功",
+		global.APP_LOG.Debug("Device proxy端口映射移除成功",
 			zap.String("instance", instanceName),
 			zap.String("device", deviceName))
 	}

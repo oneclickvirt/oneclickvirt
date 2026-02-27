@@ -167,7 +167,7 @@ func (d *DockerProvider) getDockerVersion() error {
 	// 使用 docker version 命令获取版本
 	output, err := d.sshClient.Execute("docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version")
 	if err != nil {
-		global.APP_LOG.Warn("获取 Docker 版本失败",
+		global.APP_LOG.Error("获取 Docker 版本失败",
 			zap.Error(err))
 		d.version = "unknown"
 		return err
@@ -220,7 +220,7 @@ func (d *DockerProvider) CreateInstance(ctx context.Context, config provider.Ins
 }
 
 func (d *DockerProvider) CreateInstanceWithProgress(ctx context.Context, config provider.InstanceConfig, progressCallback provider.ProgressCallback) error {
-	global.APP_LOG.Info("Docker.CreateInstanceWithProgress被调用",
+	global.APP_LOG.Debug("Docker.CreateInstanceWithProgress被调用",
 		zap.String("instanceName", config.Name),
 		zap.Bool("connected", d.connected))
 
@@ -234,7 +234,7 @@ func (d *DockerProvider) CreateInstanceWithProgress(ctx context.Context, config 
 		return fmt.Errorf("Docker provider不支持API调用，无法使用api_only执行规则")
 	}
 
-	global.APP_LOG.Info("准备调用sshCreateInstanceWithProgress",
+	global.APP_LOG.Debug("准备调用sshCreateInstanceWithProgress",
 		zap.String("instanceName", config.Name),
 		zap.String("providerHost", d.config.Host))
 
@@ -297,7 +297,7 @@ func (d *DockerProvider) DeleteInstance(ctx context.Context, id string) error {
 
 			// 尝试重连
 			if err := d.Connect(ctx, d.config); err != nil {
-				global.APP_LOG.Error("Docker Provider重连失败",
+				global.APP_LOG.Warn("Docker Provider重连失败",
 					zap.String("id", utils.TruncateString(id, 32)),
 					zap.Int("attempt", attempt),
 					zap.Error(err))
@@ -415,7 +415,7 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	// 按|分割字段
 	fields := strings.Split(output, "|")
 	if len(fields) < 4 {
-		global.APP_LOG.Warn("Docker inspect输出格式不正确",
+		global.APP_LOG.Error("Docker inspect输出格式不正确",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.String("output", utils.TruncateString(output, 200)),
 			zap.Int("fields_count", len(fields)))

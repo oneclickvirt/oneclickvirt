@@ -73,7 +73,7 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 			if deletedCount > 0 {
 				// 重置操作中断，新实例实际上已在Provider侧创建（或部分创建），恢复为stopped
 				newStatus = "stopped"
-				global.APP_LOG.Info("检测到重置操作遗留的creating实例，恢复为stopped",
+				global.APP_LOG.Debug("检测到重置操作遗留的creating实例，恢复为stopped",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("instanceName", instance.Name),
 					zap.Int64("deletedPredecessors", deletedCount))
@@ -95,7 +95,7 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 			continue
 		}
 
-		global.APP_LOG.Info("成功修复卡住的实例",
+		global.APP_LOG.Debug("成功修复卡住的实例",
 			zap.Uint("instanceId", instance.ID),
 			zap.String("instanceName", instance.Name),
 			zap.String("oldStatus", instance.Status),
@@ -149,7 +149,7 @@ func (s *InstanceCleanupService) CleanupOldFailedInstances() error {
 	// 逐个清理失败实例
 	for _, instance := range failedInstances {
 		if err := s.cleanupSingleFailedInstance(&instance, providerMap); err != nil {
-			global.APP_LOG.Error("清理旧失败实例时发生错误",
+			global.APP_LOG.Warn("清理旧失败实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name),
 				zap.Error(err))
@@ -176,7 +176,7 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 				zap.Error(err))
 			// 不返回错误，继续其他清理操作
 		} else {
-			global.APP_LOG.Info("清理失败实例端口映射成功",
+			global.APP_LOG.Debug("清理失败实例端口映射成功",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name))
 		}
@@ -196,7 +196,7 @@ func (s *InstanceCleanupService) cleanupSingleFailedInstance(instance *providerM
 				zap.Error(err))
 			// 不返回错误，继续其他清理操作
 		} else {
-			global.APP_LOG.Info("释放失败实例物理资源成功",
+			global.APP_LOG.Debug("释放失败实例物理资源成功",
 				zap.Uint("instanceId", instance.ID))
 		}
 
@@ -275,7 +275,7 @@ func (s *InstanceCleanupService) CleanupExpiredInstances() error {
 	// 逐个清理过期实例
 	for _, instance := range expiredInstances {
 		if err := s.cleanupSingleExpiredInstance(&instance, providerMap); err != nil {
-			global.APP_LOG.Error("清理过期实例时发生错误",
+			global.APP_LOG.Warn("清理过期实例时发生错误",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("instanceName", instance.Name),
 				zap.Error(err))
@@ -322,7 +322,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 				zap.Error(err))
 			// 不返回错误，继续其他清理操作
 		} else {
-			global.APP_LOG.Info("成功删除过期实例端口映射",
+			global.APP_LOG.Debug("成功删除过期实例端口映射",
 				zap.Uint("instanceId", instance.ID))
 		}
 
@@ -349,7 +349,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 			return err
 		}
 
-		global.APP_LOG.Info("成功清理过期实例",
+		global.APP_LOG.Debug("成功清理过期实例",
 			zap.Uint("instanceId", instanceID),
 			zap.String("instanceName", instanceName),
 			zap.Timep("expiredAt", instanceExpiresAt))
@@ -361,7 +361,7 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 // RepairUserQuotas 修复所有用户的配额（定期运行，批量处理，避免N+1和竞态）
 // 重新计算每个用户的实际资源占用，修复因异常、删除等操作导致的配额不准确问题
 func (s *InstanceCleanupService) RepairUserQuotas() error {
-	global.APP_LOG.Info("开始批量修复用户配额...")
+	global.APP_LOG.Debug("开始批量修复用户配额...")
 
 	// 1. 获取所有用户ID（只查询ID，避免加载大量数据）
 	var userIDs []uint
@@ -372,7 +372,7 @@ func (s *InstanceCleanupService) RepairUserQuotas() error {
 	}
 
 	if len(userIDs) == 0 {
-		global.APP_LOG.Info("没有用户需要修复配额")
+		global.APP_LOG.Debug("没有用户需要修复配额")
 		return nil
 	}
 

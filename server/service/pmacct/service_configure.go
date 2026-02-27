@@ -17,7 +17,7 @@ import (
 // bpfIPv4/bpfIPv6: BPF过滤器使用的IP（容器用内网IP，虚拟机用公网IP）
 // publicIPv4/publicIPv6: 记录用的公网IP（用于数据库存储和显示）
 func (s *Service) configurePmacctForIPs(providerInstance provider.Provider, instanceName, bpfIPv4, bpfIPv6, publicIPv4, publicIPv6 string) error {
-	global.APP_LOG.Info("配置pmacct监控",
+	global.APP_LOG.Debug("配置pmacct监控",
 		zap.String("instance", instanceName),
 		zap.String("bpfIPv4", bpfIPv4),
 		zap.String("bpfIPv6", bpfIPv6),
@@ -40,7 +40,7 @@ func (s *Service) configurePmacctForIPs(providerInstance provider.Provider, inst
 		return fmt.Errorf("failed to detect network interfaces: %w", err)
 	}
 
-	global.APP_LOG.Info("检测到网络接口",
+	global.APP_LOG.Debug("检测到网络接口",
 		zap.String("instance", instanceName),
 		zap.String("ipv4Interface", networkInterfaces.IPv4Interface),
 		zap.String("ipv6Interface", networkInterfaces.IPv6Interface))
@@ -220,7 +220,7 @@ fi
 	}
 
 	initSystem = strings.TrimSpace(initSystem)
-	global.APP_LOG.Info("检测到init系统", zap.String("initSystem", initSystem))
+	global.APP_LOG.Debug("检测到init系统", zap.String("initSystem", initSystem))
 
 	// 根据init系统类型创建服务
 	switch initSystem {

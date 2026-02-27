@@ -50,7 +50,7 @@ func (s *SchedulerService) performMaintenance() {
 func (s *SchedulerService) cleanupExpiredInstances() {
 	cleanupService := system.GetInstanceCleanupService()
 	if err := cleanupService.CleanupExpiredInstances(); err != nil {
-		global.APP_LOG.Error("清理过期实例时发生错误", zap.Error(err))
+		global.APP_LOG.Warn("清理过期实例时发生错误", zap.Error(err))
 	}
 }
 
@@ -58,7 +58,7 @@ func (s *SchedulerService) cleanupExpiredInstances() {
 func (s *SchedulerService) repairUserQuotas() {
 	cleanupService := system.GetInstanceCleanupService()
 	if err := cleanupService.RepairUserQuotas(); err != nil {
-		global.APP_LOG.Error("修复用户配额时发生错误", zap.Error(err))
+		global.APP_LOG.Warn("修复用户配额时发生错误", zap.Error(err))
 	}
 }
 
@@ -122,7 +122,7 @@ func (s *SchedulerService) cleanupExpiredProviders() {
 	}, 3)
 
 	if err != nil {
-		global.APP_LOG.Error("Failed to cleanup inactive provider", zap.Error(err))
+		global.APP_LOG.Warn("Failed to cleanup inactive provider", zap.Error(err))
 	}
 }
 
@@ -142,7 +142,7 @@ func (s *SchedulerService) cleanupOldTasks() {
 		Delete(&adminModel.Task{})
 
 	if result.Error != nil {
-		global.APP_LOG.Error("Failed to cleanup old tasks", zap.Error(result.Error))
+		global.APP_LOG.Warn("Failed to cleanup old tasks", zap.Error(result.Error))
 	} else if result.RowsAffected > 0 {
 		global.APP_LOG.Info("Cleaned up old tasks",
 			zap.Int64("count", result.RowsAffected))

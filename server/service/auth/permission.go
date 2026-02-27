@@ -64,7 +64,7 @@ func (s *PermissionService) GetUserEffectivePermission(userID uint) (*UserEffect
 
 	// 验证有效权限的合法性
 	if !validTypes[effective.EffectiveType] {
-		global.APP_LOG.Error("计算出的有效权限类型无效",
+		global.APP_LOG.Warn("计算出的有效权限类型无效",
 			zap.Uint("userID", userID),
 			zap.String("effectiveType", effective.EffectiveType))
 		effective.EffectiveType = user.UserType
@@ -132,7 +132,7 @@ func (s *PermissionService) calculateEffectivePermission(user *user.User, permis
 func (s *PermissionService) HasPermission(userID uint, requiredType string) bool {
 	effective, err := s.GetUserEffectivePermission(userID)
 	if err != nil {
-		global.APP_LOG.Error("获取用户权限失败", zap.Uint("userID", userID), zap.Error(err))
+		global.APP_LOG.Warn("获取用户权限失败", zap.Uint("userID", userID), zap.Error(err))
 		return false
 	}
 
@@ -282,7 +282,7 @@ func (s *PermissionService) VerifyAdminPrivilege(userID uint) bool {
 	// 从数据库直接查询用户的基础权限类型
 	var user user.User
 	if err := global.APP_DB.Select("user_type, status").First(&user, userID).Error; err != nil {
-		global.APP_LOG.Error("验证管理员权限时查询用户失败",
+		global.APP_LOG.Warn("验证管理员权限时查询用户失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
 		return false
@@ -302,7 +302,7 @@ func (s *PermissionService) VerifyAdminPrivilege(userID uint) bool {
 	var permissions []permission.UserPermission
 	if err := global.APP_DB.Where("user_id = ? AND is_active = ?", userID, true).
 		Find(&permissions).Error; err != nil {
-		global.APP_LOG.Error("验证管理员权限组合时查询失败",
+		global.APP_LOG.Warn("验证管理员权限组合时查询失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
 		return false

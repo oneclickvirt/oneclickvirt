@@ -78,7 +78,7 @@ func (s *Service) ResetPasswordAndNotify(userID uint) (string, error) {
 	// 发送新密码到用户绑定的通信渠道
 	if err := s.sendPasswordToUser(&user, newPassword); err != nil {
 		// 记录日志但不阻止密码重置完成
-		global.APP_LOG.Error("发送新密码失败",
+		global.APP_LOG.Warn("发送新密码失败",
 			zap.Uint("user_id", userID),
 			zap.String("username", user.Username),
 			zap.Error(err))
@@ -126,14 +126,14 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 		return errors.New("邮箱SMTP配置不完整")
 	}
 
-	global.APP_LOG.Info("发送新密码到邮箱",
+	global.APP_LOG.Debug("发送新密码到邮箱",
 		zap.String("email", email),
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
 	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送成功")
+		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
@@ -174,14 +174,14 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 		return errors.New("Telegram Bot Token未配置")
 	}
 
-	global.APP_LOG.Info("发送新密码到Telegram",
+	global.APP_LOG.Debug("发送新密码到Telegram",
 		zap.String("telegram", telegram),
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
 	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送成功")
+		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
@@ -209,14 +209,14 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 		return errors.New("QQ应用配置不完整")
 	}
 
-	global.APP_LOG.Info("发送新密码到QQ",
+	global.APP_LOG.Debug("发送新密码到QQ",
 		zap.String("qq", qq),
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
 	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送成功")
+		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
@@ -232,14 +232,14 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 
 // sendPasswordBySMS 通过短信发送新密码
 func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
-	global.APP_LOG.Info("发送新密码到手机",
+	global.APP_LOG.Debug("发送新密码到手机",
 		zap.String("phone", phone),
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
 	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Info("开发环境模拟发送成功")
+		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 

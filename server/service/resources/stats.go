@@ -66,7 +66,7 @@ func (s *SystemStatsService) GetUserStats() (map[string]interface{}, error) {
 func (s *SystemStatsService) CheckUserExists() (bool, error) {
 	var count int64
 	if err := global.APP_DB.Model(&user.User{}).Count(&count).Error; err != nil {
-		global.APP_LOG.Warn("检查用户数据失败", zap.Error(err))
+		global.APP_LOG.Error("检查用户数据失败", zap.Error(err))
 		return false, err
 	}
 	return count > 0, nil

@@ -19,7 +19,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 		return nil, fmt.Errorf("not connected")
 	}
 
-	global.APP_LOG.Info("开始发现Docker容器", zap.String("provider", d.config.Name))
+	global.APP_LOG.Debug("开始发现Docker容器", zap.String("provider", d.config.Name))
 
 	if d.sshClient == nil {
 		return nil, fmt.Errorf("SSH client not initialized")
@@ -33,7 +33,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 	}
 
 	if strings.TrimSpace(output) == "" {
-		global.APP_LOG.Info("未发现任何Docker容器", zap.String("provider", d.config.Name))
+		global.APP_LOG.Debug("未发现任何Docker容器", zap.String("provider", d.config.Name))
 		return []provider.DiscoveredInstance{}, nil
 	}
 
@@ -159,7 +159,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 		discoveredInstances = append(discoveredInstances, discovered)
 	}
 
-	global.APP_LOG.Info("Docker容器发现完成",
+	global.APP_LOG.Debug("Docker容器发现完成",
 		zap.String("provider", d.config.Name),
 		zap.Int("count", len(discoveredInstances)))
 

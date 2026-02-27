@@ -501,7 +501,7 @@ func (s *Service) syncUserResourceLimits(userIDs []uint) error {
 				return err
 			}
 
-			global.APP_LOG.Info("同步用户资源限制成功",
+			global.APP_LOG.Debug("同步用户资源限制成功",
 				zap.Int("level", level),
 				zap.Int("userCount", len(userIDList)),
 				zap.Int64("newTrafficLimit", levelConfig.MaxTraffic),
@@ -586,7 +586,7 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 
 	// 同步所有更新用户的资源限制
 	if err := s.syncUserResourceLimits(allUserIDs); err != nil {
-		global.APP_LOG.Error("同步用户资源限制失败", zap.Error(err))
+		global.APP_LOG.Warn("同步用户资源限制失败", zap.Error(err))
 		// 不返回错误，因为等级更新已经成功，资源限制同步失败只记录日志
 	}
 
@@ -624,7 +624,7 @@ func (s *Service) UpdateUserLevel(userID uint, level int) error {
 
 	// 同步用户资源限制
 	if err := s.syncUserResourceLimits([]uint{userID}); err != nil {
-		global.APP_LOG.Error("同步用户资源限制失败",
+		global.APP_LOG.Warn("同步用户资源限制失败",
 			zap.Uint("userID", userID),
 			zap.Int("level", level),
 			zap.Error(err))
@@ -797,7 +797,7 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string) error {
 	// TODO: 实现Telegram发送功能
-	global.APP_LOG.Info("管理员操作：模拟发送新密码到Telegram",
+	global.APP_LOG.Debug("管理员操作：模拟发送新密码到Telegram",
 		zap.String("telegram", telegram),
 		zap.String("username", username))
 	return nil
@@ -806,7 +806,7 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 	// TODO: 实现QQ发送功能
-	global.APP_LOG.Info("管理员操作：模拟发送新密码到QQ",
+	global.APP_LOG.Debug("管理员操作：模拟发送新密码到QQ",
 		zap.String("qq", qq),
 		zap.String("username", username))
 	return nil
@@ -815,7 +815,7 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 // sendPasswordBySMS 通过短信发送新密码
 func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
 	// TODO: 实现短信发送功能
-	global.APP_LOG.Info("管理员操作：模拟发送新密码到手机",
+	global.APP_LOG.Debug("管理员操作：模拟发送新密码到手机",
 		zap.String("phone", phone),
 		zap.String("username", username))
 	return nil
@@ -915,7 +915,7 @@ func (s *Service) isEmailConfigured() bool {
 func (s *Service) sendEmail(to, subject, body string) error {
 	// 这里应该集成真正的邮件服务，如SMTP
 	// 目前只做记录，实际项目需要根据配置的邮件服务商实现
-	global.APP_LOG.Info("邮件发送请求",
+	global.APP_LOG.Debug("邮件发送请求",
 		zap.String("to", to),
 		zap.String("subject", subject))
 

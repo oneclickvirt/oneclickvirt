@@ -18,13 +18,13 @@ func (p *ProxmoxProvider) DiscoverInstances(ctx context.Context) ([]provider.Dis
 		return nil, fmt.Errorf("not connected")
 	}
 
-	global.APP_LOG.Info("开始发现Proxmox实例", zap.String("provider", p.config.Name))
+	global.APP_LOG.Debug("开始发现Proxmox实例", zap.String("provider", p.config.Name))
 
 	// Proxmox主要通过API访问，但也支持SSH备份
 	if p.hasAPIAccess() {
 		instances, err := p.apiDiscoverInstances(ctx)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API发现实例成功",
+			global.APP_LOG.Debug("Proxmox API发现实例成功",
 				zap.String("provider", p.config.Name),
 				zap.Int("count", len(instances)))
 			return instances, nil
@@ -121,7 +121,7 @@ func (p *ProxmoxProvider) sshDiscoverInstances(ctx context.Context) ([]provider.
 		}
 	}
 
-	global.APP_LOG.Info("Proxmox SSH发现实例完成",
+	global.APP_LOG.Debug("Proxmox SSH发现实例完成",
 		zap.String("provider", p.config.Name),
 		zap.Int("count", len(discoveredInstances)))
 

@@ -46,7 +46,7 @@ func (d *DockerProvider) checkStorageDriver() (bool, string, error) {
 	// 目前只有btrfs存储驱动支持--storage-opt size参数
 	supportsDiskLimit := storageDriver == "btrfs"
 
-	global.APP_LOG.Info("Docker存储驱动检测结果",
+	global.APP_LOG.Debug("Docker存储驱动检测结果",
 		zap.String("provider", d.config.Name),
 		zap.String("storage_driver", storageDriver),
 		zap.Bool("supports_disk_limit", supportsDiskLimit))
@@ -109,7 +109,7 @@ func (d *DockerProvider) checkLXCFS() (bool, []string, string, error) {
 	}
 
 	reason := fmt.Sprintf("LXCFS可用，找到%d个可挂载文件", len(availableVolumes))
-	global.APP_LOG.Info("LXCFS检测结果",
+	global.APP_LOG.Debug("LXCFS检测结果",
 		zap.String("provider", d.config.Name),
 		zap.String("reason", reason),
 		zap.Strings("available_files", availableFiles))
@@ -119,7 +119,7 @@ func (d *DockerProvider) checkLXCFS() (bool, []string, string, error) {
 
 // configureInstanceSSHPassword 专门用于设置Docker容器的SSH密码
 func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置Docker容器SSH密码",
+	global.APP_LOG.Debug("开始配置Docker容器SSH密码",
 		zap.String("instanceName", config.Name))
 
 	// 生成随机密码
@@ -199,7 +199,7 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
 	} else {
-		global.APP_LOG.Info("实例密码已同步到数据库",
+		global.APP_LOG.Debug("实例密码已同步到数据库",
 			zap.String("instanceName", config.Name))
 	}
 
@@ -237,7 +237,7 @@ func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config 
 	// 查找provider记录
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", d.config.Name).First(&providerRecord).Error; err != nil {
-		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
+		global.APP_LOG.Error("查找provider记录失败，跳过pmacct初始化",
 			zap.String("provider_name", d.config.Name),
 			zap.Error(err))
 		return fmt.Errorf("查找provider记录失败: %w", err)
@@ -247,7 +247,7 @@ func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config 
 	var instanceID uint
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("name = ? AND provider_id = ?", config.Name, providerRecord.ID).First(&instance).Error; err != nil {
-		global.APP_LOG.Warn("查找实例记录失败，跳过pmacct初始化",
+		global.APP_LOG.Error("查找实例记录失败，跳过pmacct初始化",
 			zap.String("instance_name", config.Name),
 			zap.Uint("provider_id", providerRecord.ID),
 			zap.Error(err))
@@ -264,13 +264,13 @@ func (d *DockerProvider) initializePmacctMonitoring(ctx context.Context, config 
 		return nil
 	}
 
-	global.APP_LOG.Info("开始初始化Docker容器pmacct监控",
+	global.APP_LOG.Debug("开始初始化Docker容器pmacct监控",
 		zap.String("instanceName", config.Name))
 
 	// 初始化流量监控
 	pmacctService := pmacct.NewService()
 	if pmacctErr := pmacctService.InitializePmacctForInstance(instanceID); pmacctErr != nil {
-		global.APP_LOG.Warn("Docker容器创建后初始化 pmacct 监控失败",
+		global.APP_LOG.Error("Docker容器创建后初始化 pmacct 监控失败",
 			zap.Uint("instanceId", instanceID),
 			zap.String("instanceName", config.Name),
 			zap.Error(pmacctErr))

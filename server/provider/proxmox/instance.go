@@ -20,7 +20,7 @@ func (p *ProxmoxProvider) ListInstances(ctx context.Context) ([]provider.Instanc
 	if p.shouldUseAPI() {
 		instances, err := p.apiListInstances(ctx)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 获取实例列表")
+			global.APP_LOG.Debug("Proxmox API调用成功 - 获取实例列表")
 			return instances, nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 获取实例列表", zap.Error(err))
@@ -29,7 +29,7 @@ func (p *ProxmoxProvider) ListInstances(ctx context.Context) ([]provider.Instanc
 		if !p.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 获取实例列表")
+		global.APP_LOG.Debug("回退到SSH方式 - 获取实例列表")
 	}
 
 	// 使用SSH方式
@@ -49,7 +49,7 @@ func (p *ProxmoxProvider) CreateInstance(ctx context.Context, config provider.In
 	if p.shouldUseAPI() {
 		err := p.apiCreateInstance(ctx, config)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)), zap.Error(err))
@@ -58,7 +58,7 @@ func (p *ProxmoxProvider) CreateInstance(ctx context.Context, config provider.In
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 	}
 
 	// 使用SSH方式
@@ -78,7 +78,7 @@ func (p *ProxmoxProvider) CreateInstanceWithProgress(ctx context.Context, config
 	if p.shouldUseAPI() {
 		err := p.apiCreateInstanceWithProgress(ctx, config, progressCallback)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)), zap.Error(err))
@@ -87,7 +87,7 @@ func (p *ProxmoxProvider) CreateInstanceWithProgress(ctx context.Context, config
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 	}
 
 	// 使用SSH方式
@@ -107,7 +107,7 @@ func (p *ProxmoxProvider) StartInstance(ctx context.Context, id string) error {
 	if p.shouldUseAPI() {
 		err := p.apiStartInstance(ctx, id)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 启动实例", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
@@ -116,7 +116,7 @@ func (p *ProxmoxProvider) StartInstance(ctx context.Context, id string) error {
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
 	// 使用SSH方式
@@ -136,7 +136,7 @@ func (p *ProxmoxProvider) StopInstance(ctx context.Context, id string) error {
 	if p.shouldUseAPI() {
 		err := p.apiStopInstance(ctx, id)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 停止实例", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
@@ -145,7 +145,7 @@ func (p *ProxmoxProvider) StopInstance(ctx context.Context, id string) error {
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
 	// 使用SSH方式
@@ -165,7 +165,7 @@ func (p *ProxmoxProvider) RestartInstance(ctx context.Context, id string) error 
 	if p.shouldUseAPI() {
 		err := p.apiRestartInstance(ctx, id)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 重启实例", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
@@ -174,7 +174,7 @@ func (p *ProxmoxProvider) RestartInstance(ctx context.Context, id string) error 
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
 	// 使用SSH方式
@@ -194,7 +194,7 @@ func (p *ProxmoxProvider) DeleteInstance(ctx context.Context, id string) error {
 	if p.shouldUseAPI() {
 		err := p.apiDeleteInstance(ctx, id)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 删除实例", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
@@ -203,7 +203,7 @@ func (p *ProxmoxProvider) DeleteInstance(ctx context.Context, id string) error {
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
 	// 使用SSH方式

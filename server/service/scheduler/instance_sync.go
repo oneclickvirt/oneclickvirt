@@ -38,7 +38,7 @@ func NewInstanceSyncSchedulerService() *InstanceSyncSchedulerService {
 func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 	// 检查是否启用实例同步
 	if !global.GetAppConfig().System.EnableInstanceSync {
-		global.APP_LOG.Info("实例同步功能未启用，跳过调度器启动")
+		global.APP_LOG.Debug("实例同步功能未启用，跳过调度器启动")
 		return
 	}
 
@@ -124,7 +124,7 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 // syncAllProvidersInstances 同步所有Provider的实例
 func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	startTime := time.Now()
-	global.APP_LOG.Info("开始Provider实例同步检查")
+	global.APP_LOG.Debug("开始Provider实例同步检查")
 
 	// 获取所有活跃的Provider
 	var providers []providerModel.Provider
@@ -137,11 +137,11 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	}
 
 	if len(providers) == 0 {
-		global.APP_LOG.Info("没有活跃的Provider需要同步")
+		global.APP_LOG.Debug("没有活跃的Provider需要同步")
 		return
 	}
 
-	global.APP_LOG.Info("准备同步Provider实例",
+	global.APP_LOG.Debug("准备同步Provider实例",
 		zap.Int("providerCount", len(providers)))
 
 	// 使用WaitGroup等待所有同步任务完成
@@ -172,7 +172,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 			// 执行实例比对
 			report, err := s.providerService.CompareInstancesWithRemote(context.Background(), provider.ID)
 			if err != nil {
-				global.APP_LOG.Error("Provider实例同步失败",
+				global.APP_LOG.Warn("Provider实例同步失败",
 					zap.Uint("providerId", provider.ID),
 					zap.String("providerName", provider.Name),
 					zap.Error(err))
@@ -199,7 +199,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 
 				// 记录详细变化
 				if len(report.NewInstances) > 0 {
-					global.APP_LOG.Info("发现新增实例",
+					global.APP_LOG.Debug("发现新增实例",
 						zap.Uint("providerId", provider.ID),
 						zap.String("providerName", provider.Name),
 						zap.Int("count", len(report.NewInstances)))
@@ -214,7 +214,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 
 				if len(report.ChangedInstances) > 0 {
 					for _, change := range report.ChangedInstances {
-						global.APP_LOG.Info("实例状态变化",
+						global.APP_LOG.Debug("实例状态变化",
 							zap.Uint("providerId", provider.ID),
 							zap.String("instanceName", change.Name),
 							zap.String("oldStatus", change.OldStatus),
@@ -232,7 +232,7 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	wg.Wait()
 
 	duration := time.Since(startTime)
-	global.APP_LOG.Info("Provider实例同步检查完成",
+	global.APP_LOG.Debug("Provider实例同步检查完成",
 		zap.Int("totalProviders", len(providers)),
 		zap.Int("successCount", successCount),
 		zap.Int("failedCount", failedCount),

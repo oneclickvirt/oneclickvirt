@@ -59,7 +59,7 @@ func (i *IncusProvider) checkIPv6(ctx context.Context) (string, error) {
 	if err == nil {
 		ipv6 := strings.TrimSpace(output)
 		if !i.isPrivateIPv6(ipv6) {
-			global.APP_LOG.Info("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
+			global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
 			return ipv6, nil
 		}
 	}
@@ -77,7 +77,7 @@ func (i *IncusProvider) checkIPv6(ctx context.Context) (string, error) {
 		if err == nil {
 			ipv6 := strings.TrimSpace(output)
 			if ipv6 != "" && !strings.Contains(output, "error") && !i.isPrivateIPv6(ipv6) {
-				global.APP_LOG.Info("通过API获取到IPv6地址",
+				global.APP_LOG.Debug("通过API获取到IPv6地址",
 					zap.String("endpoint", endpoint),
 					zap.String("ipv6", ipv6))
 				return ipv6, nil
@@ -101,7 +101,7 @@ func (i *IncusProvider) getContainerIPv6(ctx context.Context, containerName stri
 		return "", fmt.Errorf("容器无内网IPv6地址")
 	}
 
-	global.APP_LOG.Info("获取到容器IPv6地址",
+	global.APP_LOG.Debug("获取到容器IPv6地址",
 		zap.String("container", containerName),
 		zap.String("ipv6", ipv6))
 	return ipv6, nil
@@ -126,7 +126,7 @@ func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName 
 	if err == nil {
 		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
 		if publicIPv6 != "" && !i.isPrivateIPv6(publicIPv6) {
-			global.APP_LOG.Info("从文件获取到公网IPv6地址",
+			global.APP_LOG.Debug("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", publicIPv6))
 			return publicIPv6, nil
@@ -139,7 +139,7 @@ func (i *IncusProvider) GetInstancePublicIPv6(ctx context.Context, instanceName 
 	if err == nil {
 		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
 		if eth1IPv6 != "" && !i.isPrivateIPv6(eth1IPv6) {
-			global.APP_LOG.Info("从eth1获取到公网IPv6地址",
+			global.APP_LOG.Debug("从eth1获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", eth1IPv6))
 			return eth1IPv6, nil
@@ -207,7 +207,7 @@ func (i *IncusProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
 	}
 
 	prefix = prefix + ":"
-	global.APP_LOG.Info("获取到IPv6子网前缀", zap.String("prefix", prefix))
+	global.APP_LOG.Debug("获取到IPv6子网前缀", zap.String("prefix", prefix))
 	return prefix, nil
 }
 
@@ -251,7 +251,7 @@ func (i *IncusProvider) installSipcalc(ctx context.Context) error {
 		return nil // 已安装
 	}
 
-	global.APP_LOG.Info("开始安装sipcalc工具")
+	global.APP_LOG.Debug("开始安装sipcalc工具")
 
 	// 检测OS类型
 	osCmd := "cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '\"'"
@@ -261,7 +261,7 @@ func (i *IncusProvider) installSipcalc(ctx context.Context) error {
 	}
 
 	osType := utils.CleanCommandOutput(osOutput)
-	global.APP_LOG.Info("检测到操作系统类型", zap.String("os", osType))
+	global.APP_LOG.Debug("检测到操作系统类型", zap.String("os", osType))
 
 	switch osType {
 	case "centos", "almalinux", "rocky":
@@ -312,7 +312,7 @@ func (i *IncusProvider) installSipcalcRHEL(ctx context.Context) error {
 	filename := "sipcalc-1.1.6-17.el8." + arch + ".rpm"
 
 	for _, mirror := range mirrors {
-		global.APP_LOG.Info("尝试从镜像下载sipcalc", zap.String("mirror", mirror))
+		global.APP_LOG.Debug("尝试从镜像下载sipcalc", zap.String("mirror", mirror))
 		downloadCmd := fmt.Sprintf("curl -fLO '%s'", mirror)
 		_, err := i.sshClient.Execute(downloadCmd)
 		if err == nil {
@@ -352,7 +352,7 @@ func (i *IncusProvider) installSipcalcDebian(ctx context.Context) error {
 
 // setupNetworkDeviceIPv6 配置网络设备方式的IPv6
 func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
-	global.APP_LOG.Info("开始配置网络设备IPv6",
+	global.APP_LOG.Debug("开始配置网络设备IPv6",
 		zap.String("container", config.ContainerName))
 
 	// 安装sipcalc
@@ -402,7 +402,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 		return "", fmt.Errorf("无法获取本地IPv6网络配置")
 	}
 
-	global.APP_LOG.Info("本地IPv6地址", zap.String("address", ipNetworkGam))
+	global.APP_LOG.Debug("本地IPv6地址", zap.String("address", ipNetworkGam))
 
 	// 配置系统参数
 	sysctlConfigs := []string{
@@ -437,7 +437,7 @@ func (i *IncusProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6C
 	randBits := strings.TrimSpace(output)
 	containerIPv6 := ipv6Prefix + randBits
 
-	global.APP_LOG.Info("生成容器IPv6地址",
+	global.APP_LOG.Debug("生成容器IPv6地址",
 		zap.String("container", config.ContainerName),
 		zap.String("ipv6", containerIPv6))
 
@@ -581,11 +581,11 @@ func (i *IncusProvider) handleIPv6Gateway(ctx context.Context, interfaceName str
 // configureIPv6Network 主要的IPv6网络配置函数
 func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod string) error {
 	if !enableIPv6 {
-		global.APP_LOG.Info("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
+		global.APP_LOG.Debug("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
 		return nil
 	}
 
-	global.APP_LOG.Info("开始配置IPv6网络",
+	global.APP_LOG.Debug("开始配置IPv6网络",
 		zap.String("container", containerName),
 		zap.String("portMappingMethod", portMappingMethod))
 
@@ -598,7 +598,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 		return nil // 宿主机不支持IPv6时，静默跳过IPv6配置，不返回错误
 	}
 
-	global.APP_LOG.Info("宿主机IPv6环境检查通过",
+	global.APP_LOG.Debug("宿主机IPv6环境检查通过",
 		zap.String("container", containerName),
 		zap.String("hostIPv6", hostIPv6))
 
@@ -653,7 +653,7 @@ func (i *IncusProvider) configureIPv6Network(ctx context.Context, containerName 
 
 // setupIptablesIPv6 使用iptables方式配置IPv6映射
 func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) (string, error) {
-	global.APP_LOG.Info("开始配置iptables IPv6映射",
+	global.APP_LOG.Debug("开始配置iptables IPv6映射",
 		zap.String("container", config.ContainerName))
 
 	// 检测操作系统类型
@@ -720,7 +720,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 		return "", fmt.Errorf("无法获取网络接口名称")
 	}
 
-	global.APP_LOG.Info("网络配置信息",
+	global.APP_LOG.Debug("网络配置信息",
 		zap.String("interface", interfaceName),
 		zap.String("subnetPrefix", subnetPrefix),
 		zap.String("ipv6Length", ipv6Length),
@@ -768,7 +768,7 @@ func (i *IncusProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config
 
 		// 找到可用地址
 		mappedIPv6 = testIPv6
-		global.APP_LOG.Info("找到可用IPv6地址", zap.String("ipv6", mappedIPv6))
+		global.APP_LOG.Debug("找到可用IPv6地址", zap.String("ipv6", mappedIPv6))
 		break
 	}
 
@@ -840,7 +840,7 @@ func (i *IncusProvider) detectOS(ctx context.Context) (string, error) {
 	}
 
 	osType := strings.TrimSpace(output)
-	global.APP_LOG.Info("检测到操作系统类型", zap.String("os", osType))
+	global.APP_LOG.Debug("检测到操作系统类型", zap.String("os", osType))
 
 	// 标准化操作系统名称
 	switch osType {
@@ -978,7 +978,7 @@ func (i *IncusProvider) saveNetfilterRules(ctx context.Context, useFirewalld boo
 
 // testIPv6Connectivity 测试IPv6连通性
 func (i *IncusProvider) testIPv6Connectivity(ctx context.Context, ipv6Addr, containerName string) error {
-	global.APP_LOG.Info("测试IPv6连通性", zap.String("ipv6", ipv6Addr))
+	global.APP_LOG.Debug("测试IPv6连通性", zap.String("ipv6", ipv6Addr))
 
 	testCmd := fmt.Sprintf("ping6 -c 3 %s", ipv6Addr)
 	_, err := i.sshClient.Execute(testCmd)

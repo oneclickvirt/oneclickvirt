@@ -46,7 +46,7 @@ func (s *ImageDownloadService) DownloadImageForProvider(imageURL, imageName, pro
 
 	// 检查文件是否已存在且完整
 	if s.isFileValid(filePath, imageURL) {
-		global.APP_LOG.Info("镜像文件已存在且完整，跳过下载",
+		global.APP_LOG.Debug("镜像文件已存在且完整，跳过下载",
 			zap.String("imageName", imageName),
 			zap.String("filePath", filePath))
 		return filePath, nil
@@ -163,7 +163,7 @@ func (s *ImageDownloadService) performIntegrityCheck(filePath, imageURL string, 
 
 	// 3. 如果URL包含校验和信息，进行校验
 	if s.checkChecksum(filePath, imageURL) {
-		global.APP_LOG.Info("文件校验和验证通过", zap.String("filePath", filePath))
+		global.APP_LOG.Debug("文件校验和验证通过", zap.String("filePath", filePath))
 	}
 
 	// 4. 检查是否为有效的压缩文件格式
@@ -313,7 +313,7 @@ func (s *ImageDownloadService) getCDNURL(originalURL string) string {
 	for _, endpoint := range endpoints {
 		cdnURL := endpoint + originalURL
 		if s.testCDNEndpoint(cdnURL) {
-			global.APP_LOG.Info("使用CDN加速下载",
+			global.APP_LOG.Debug("使用CDN加速下载",
 				zap.String("originalURL", originalURL),
 				zap.String("cdnURL", cdnURL),
 				zap.String("endpoint", endpoint))

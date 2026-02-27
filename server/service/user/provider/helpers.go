@@ -67,7 +67,7 @@ func (s *Service) getInstanceDetailsAfterCreation(ctx context.Context, instance 
 
 // delayedDeleteFailedInstance 延迟删除失败的实例
 func (s *Service) delayedDeleteFailedInstance(instanceID uint) {
-	global.APP_LOG.Info("启动延迟删除任务",
+	global.APP_LOG.Debug("启动延迟删除任务",
 		zap.Uint("instanceId", instanceID),
 		zap.String("reason", "创建失败自动清理"))
 
@@ -87,7 +87,7 @@ func (s *Service) delayedDeleteFailedInstance(instanceID uint) {
 			zap.Uint("instanceId", instanceID),
 			zap.Error(err))
 	} else {
-		global.APP_LOG.Info("延迟删除失败实例成功",
+		global.APP_LOG.Debug("延迟删除失败实例成功",
 			zap.Uint("instanceId", instanceID))
 	}
 }

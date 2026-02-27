@@ -187,7 +187,7 @@ func (s *TaskService) syncProviderPortMappings(ctx context.Context, prov *provid
 			cleanedPorts += int(portCount)
 			cleanedInstanceNames = append(cleanedInstanceNames, orphanInst.Name)
 
-			global.APP_LOG.Info("清理孤立实例成功",
+			global.APP_LOG.Debug("清理孤立实例成功",
 				zap.Uint("instanceId", orphanInst.ID),
 				zap.String("instanceName", orphanInst.Name),
 				zap.Int64("portCount", portCount))

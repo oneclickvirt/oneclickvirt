@@ -24,7 +24,7 @@ func (p *ProxmoxProvider) getUsedInternalIPs(ctx context.Context) (map[string]bo
 	cmd := fmt.Sprintf("iptables -t nat -L PREROUTING -n | grep -oP '%s\\.\\d+' | sort -u", InternalIPPrefix)
 	output, err := p.sshClient.Execute(cmd)
 	if err != nil {
-		global.APP_LOG.Warn("获取iptables规则失败",
+		global.APP_LOG.Error("获取iptables规则失败",
 			zap.Error(err))
 		return usedIPs, err
 	}
@@ -55,7 +55,7 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 
 	// VMID/CTID范围：100-999（Proxmox标准，VM和Container共享ID空间）
 	// 使用全局常量确保一致性
-	global.APP_LOG.Info("开始分配VMID/CTID",
+	global.APP_LOG.Debug("开始分配VMID/CTID",
 		zap.String("instanceType", instanceType),
 		zap.Int("minVMID", MinVMID),
 		zap.Int("maxVMID", MaxVMID),
@@ -134,7 +134,7 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 		}
 
 		// 找到了同时满足ID和IP都可用的ID
-		global.APP_LOG.Info("分配VMID/CTID成功（已验证IP可用）",
+		global.APP_LOG.Debug("分配VMID/CTID成功（已验证IP可用）",
 			zap.String("instanceType", instanceType),
 			zap.Int("id", id),
 			zap.String("assignedIP", mappedIP),
@@ -219,13 +219,13 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 					zap.Error(err))
 				// 不返回错误，因为密码已经设置，只是可能需要手动重启
 			} else {
-				global.APP_LOG.Info("已重启虚拟机以应用密码更改",
+				global.APP_LOG.Debug("已重启虚拟机以应用密码更改",
 					zap.String("instanceID", instanceID),
 					zap.String("vmid", vmid))
 			}
 		} else {
 			// 虚拟机未运行，无需重启，密码将在下次启动时生效
-			global.APP_LOG.Info("虚拟机未运行，密码将在启动时生效",
+			global.APP_LOG.Debug("虚拟机未运行，密码将在启动时生效",
 				zap.String("instanceID", instanceID),
 				zap.String("vmid", vmid))
 		}
@@ -260,7 +260,7 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 
 // configureInstanceSSHPasswordByVMID 专门用于设置Proxmox实例的SSH密码（使用VMID）
 func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context, vmid int, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置Proxmox实例SSH密码",
+	global.APP_LOG.Debug("开始配置Proxmox实例SSH密码",
 		zap.String("instanceName", config.Name),
 		zap.Int("vmid", vmid))
 
@@ -298,7 +298,7 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 		statusOutput, err := p.sshClient.Execute(statusCmd)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			isRunning = true
-			global.APP_LOG.Info("实例已确认运行，准备设置密码",
+			global.APP_LOG.Debug("实例已确认运行，准备设置密码",
 				zap.String("instanceName", config.Name),
 				zap.Int("vmid", vmid),
 				zap.Duration("wait_time", time.Since(startTime)))
@@ -496,7 +496,7 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpFormatFile))
 	p.sshClient.Execute(fmt.Sprintf("rm -rf %s", tmpDataFile))
 
-	global.APP_LOG.Info("成功更新Proxmox实例notes",
+	global.APP_LOG.Debug("成功更新Proxmox实例notes",
 		zap.Int("vmid", vmid),
 		zap.String("name", config.Name))
 

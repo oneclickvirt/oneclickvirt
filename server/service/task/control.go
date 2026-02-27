@@ -51,7 +51,7 @@ func (s *TaskService) CompleteTask(taskID uint, success bool, errorMessage strin
 
 	// RowsAffected == 0 说明任务已处于终态（幂等，不报错）
 	if rowsAffected == 0 {
-		global.APP_LOG.Info("任务已处于终态，跳过重复更新",
+		global.APP_LOG.Debug("任务已处于终态，跳过重复更新",
 			zap.Uint("taskId", taskID),
 			zap.Bool("requestedSuccess", success))
 		return nil
@@ -271,14 +271,14 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 		return
 	}
 
-	global.APP_LOG.Info("开始清理被取消任务",
+	global.APP_LOG.Debug("开始清理被取消任务",
 		zap.Uint("taskId", taskID),
 		zap.String("taskType", task.TaskType),
 		zap.Bool("wasRunning", task.StartedAt != nil))
 
 	// 处理删除任务的清理
 	if task.TaskType == "delete" && task.InstanceID != nil {
-		global.APP_LOG.Info("开始清理被取消的删除任务的资源",
+		global.APP_LOG.Debug("开始清理被取消的删除任务的资源",
 			zap.Uint("taskId", taskID),
 			zap.Uint("instanceId", *task.InstanceID))
 
@@ -308,7 +308,7 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 					zap.String("newStatus", newStatus),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("已恢复被取消删除任务的实例状态",
+				global.APP_LOG.Debug("已恢复被取消删除任务的实例状态",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("status", newStatus))
 			}
@@ -317,7 +317,7 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 
 	// 处理重置任务的清理
 	if task.TaskType == "reset" && task.InstanceID != nil {
-		global.APP_LOG.Info("开始清理被取消的重置任务的资源",
+		global.APP_LOG.Debug("开始清理被取消的重置任务的资源",
 			zap.Uint("taskId", taskID),
 			zap.Uint("instanceId", *task.InstanceID))
 
@@ -351,7 +351,7 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 					zap.String("newStatus", originalStatus),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("已恢复被取消重置任务的实例状态",
+				global.APP_LOG.Debug("已恢复被取消重置任务的实例状态",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("status", originalStatus))
 			}
@@ -399,7 +399,7 @@ func (s *TaskService) handleCancelledTaskCleanup(taskID uint) {
 					zap.String("newStatus", originalStatus),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("已恢复被取消任务的实例状态",
+				global.APP_LOG.Debug("已恢复被取消任务的实例状态",
 					zap.Uint("instanceId", instance.ID),
 					zap.String("taskType", task.TaskType),
 					zap.String("status", originalStatus))
@@ -434,7 +434,7 @@ func (s *TaskService) releaseTaskResources(taskID uint) {
 				zap.String("sessionId", sessionID),
 				zap.Error(err))
 		} else {
-			global.APP_LOG.Info("任务预留资源已释放",
+			global.APP_LOG.Debug("任务预留资源已释放",
 				zap.Uint("taskId", taskID),
 				zap.String("sessionId", sessionID))
 		}
@@ -468,7 +468,7 @@ func (s *TaskService) releaseTaskResources(taskID uint) {
 					zap.Uint("userId", task.UserID),
 					zap.Error(err))
 			} else {
-				global.APP_LOG.Info("任务待确认配额已释放",
+				global.APP_LOG.Debug("任务待确认配额已释放",
 					zap.Uint("taskId", taskID),
 					zap.Uint("userId", task.UserID))
 			}

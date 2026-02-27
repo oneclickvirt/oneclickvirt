@@ -165,7 +165,7 @@ func (l *LXDProvider) handleImageDownloadAndImport(ctx context.Context, config *
 				}
 			}
 		} else {
-			global.APP_LOG.Info("LXD"+imageTypeStr+"镜像已存在，跳过导入",
+			global.APP_LOG.Debug("LXD"+imageTypeStr+"镜像已存在，跳过导入",
 				zap.String("alias", utils.TruncateString(config.Image, 100)),
 				zap.String("type", config.InstanceType))
 		}
@@ -215,7 +215,7 @@ func (l *LXDProvider) queryAndSetSystemImage(ctx context.Context, config *provid
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
 		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
-		global.APP_LOG.Info("从数据库获取到系统镜像配置",
+		global.APP_LOG.Debug("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
 			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
 			zap.Bool("useCDN", systemImage.UseCDN),
@@ -269,7 +269,7 @@ func (l *LXDProvider) downloadImageToRemote(imageURL, imageName, providerCountry
 
 	// 检查远程文件是否已存在
 	if l.isRemoteFileValid(remotePath) {
-		global.APP_LOG.Info("远程LXD镜像文件已存在且完整，跳过下载",
+		global.APP_LOG.Debug("远程LXD镜像文件已存在且完整，跳过下载",
 			zap.String("imageName", imageName),
 			zap.String("remotePath", remotePath),
 			zap.String("instanceType", instanceType))
@@ -371,7 +371,7 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 		tmpPath, url,
 	)
 
-	global.APP_LOG.Info("执行远程下载命令",
+	global.APP_LOG.Debug("执行远程下载命令",
 		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := l.sshClient.Execute(curlCmd)
@@ -416,26 +416,26 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 		scriptPath := filepath.Join(scriptsDir, script)
 		if !l.isRemoteFileValid(scriptPath) {
 			allExist = false
-			global.APP_LOG.Info("SSH脚本文件不存在或无效",
+			global.APP_LOG.Debug("SSH脚本文件不存在或无效",
 				zap.String("scriptPath", scriptPath))
 			break
 		}
 	}
 
 	if allExist {
-		global.APP_LOG.Info("SSH脚本文件都已存在且有效")
+		global.APP_LOG.Debug("SSH脚本文件都已存在且有效")
 		return nil
 	}
 
 	// 下载缺失的脚本
-	global.APP_LOG.Info("开始下载SSH脚本文件")
+	global.APP_LOG.Debug("开始下载SSH脚本文件")
 
 	for _, script := range scripts {
 		scriptPath := filepath.Join(scriptsDir, script)
 
 		// 如果脚本已存在且有效，跳过
 		if l.isRemoteFileValid(scriptPath) {
-			global.APP_LOG.Info("SSH脚本已存在，跳过下载",
+			global.APP_LOG.Debug("SSH脚本已存在，跳过下载",
 				zap.String("script", script))
 			continue
 		}
@@ -444,7 +444,7 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 		baseURL := "https://raw.githubusercontent.com/oneclickvirt/lxd/main/scripts/" + script
 		downloadURL := l.getSSHScriptDownloadURL(baseURL, providerCountry)
 
-		global.APP_LOG.Info("开始下载SSH脚本",
+		global.APP_LOG.Debug("开始下载SSH脚本",
 			zap.String("script", script),
 			zap.String("downloadURL", downloadURL),
 			zap.String("scriptPath", scriptPath))
@@ -470,7 +470,7 @@ func (l *LXDProvider) ensureSSHScriptsAvailable(providerCountry string) error {
 		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
 		l.sshClient.Execute(dos2unixCmd)
 
-		global.APP_LOG.Info("SSH脚本下载并设置完成",
+		global.APP_LOG.Debug("SSH脚本下载并设置完成",
 			zap.String("script", script),
 			zap.String("scriptPath", scriptPath))
 	}
@@ -487,7 +487,7 @@ func (l *LXDProvider) getSSHScriptDownloadURL(originalURL, providerCountry strin
 			// 测试CDN可用性
 			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
 			if _, err := l.sshClient.Execute(testCmd); err == nil {
-				global.APP_LOG.Info("使用CDN下载SSH脚本",
+				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
 				return cdnURL
 			}

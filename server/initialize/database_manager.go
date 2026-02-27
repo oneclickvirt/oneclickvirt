@@ -168,14 +168,14 @@ func (dm *DatabaseManager) performHeartbeat() {
 
 	sqlDB, err := db.DB()
 	if err != nil {
-		global.APP_LOG.Error("获取数据库连接失败，尝试重连", zap.Error(err))
+		global.APP_LOG.Warn("获取数据库连接失败，尝试重连", zap.Error(err))
 		dm.reconnect()
 		return
 	}
 
 	// Ping测试
 	if err := sqlDB.Ping(); err != nil {
-		global.APP_LOG.Error("数据库心跳检测失败，尝试重连", zap.Error(err))
+		global.APP_LOG.Warn("数据库心跳检测失败，尝试重连", zap.Error(err))
 		dm.reconnect()
 		return
 	}
@@ -183,7 +183,7 @@ func (dm *DatabaseManager) performHeartbeat() {
 	// 简单查询测试
 	var result int
 	if err := db.Raw("SELECT 1").Scan(&result).Error; err != nil {
-		global.APP_LOG.Error("数据库查询测试失败，尝试重连", zap.Error(err))
+		global.APP_LOG.Warn("数据库查询测试失败，尝试重连", zap.Error(err))
 		dm.reconnect()
 		return
 	}
@@ -231,12 +231,12 @@ func (dm *DatabaseManager) reconnect() {
 		default:
 		}
 
-		global.APP_LOG.Info("尝试重连数据库", zap.Int("attempt", i+1), zap.Int("max", dm.maxReconnectRetry))
+		global.APP_LOG.Debug("尝试重连数据库", zap.Int("attempt", i+1), zap.Int("max", dm.maxReconnectRetry))
 
 		// 尝试连接
 		newDB, err := dm.connect()
 		if err != nil {
-			global.APP_LOG.Error("数据库重连失败",
+			global.APP_LOG.Warn("数据库重连失败",
 				zap.Int("attempt", i+1),
 				zap.Error(err))
 

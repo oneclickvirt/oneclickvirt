@@ -69,7 +69,7 @@ func (s *Service) CheckProviderTrafficLimit(providerID uint) (bool, error) {
 		nextReset := time.Date(now.Year(), now.Month()+1, 1, 0, 0, 0, 0, now.Location())
 		p.TrafficResetAt = &nextReset
 		if err := global.APP_DB.Model(&p).Update("traffic_reset_at", nextReset).Error; err != nil {
-			global.APP_LOG.Error("初始化Provider流量重置时间失败",
+			global.APP_LOG.Warn("初始化Provider流量重置时间失败",
 				zap.Uint("providerID", providerID),
 				zap.Error(err))
 		}
@@ -130,7 +130,7 @@ func (s *Service) resumeProviderInstances(providerID uint) error {
 			})
 
 		if result.Error != nil {
-			global.APP_LOG.Error("恢复Provider实例状态失败",
+			global.APP_LOG.Warn("恢复Provider实例状态失败",
 				zap.Uint("instanceID", instance.ID),
 				zap.Error(result.Error))
 			continue

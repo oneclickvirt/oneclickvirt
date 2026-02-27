@@ -101,7 +101,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 	result.TotalAttempted = len(instancesToImport)
 
 	if result.TotalAttempted == 0 {
-		global.APP_LOG.Info("没有需要导入的实例")
+		global.APP_LOG.Debug("没有需要导入的实例")
 		return result, nil
 	}
 
@@ -236,7 +236,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				importDetail.Status = "failed"
 				importDetail.Error = err.Error()
 				result.Errors = append(result.Errors, fmt.Sprintf("导入实例 %s 失败: %v", discovered.Name, err))
-				global.APP_LOG.Error("创建实例记录失败",
+				global.APP_LOG.Warn("创建实例记录失败",
 					zap.String("name", discovered.Name),
 					zap.Error(err))
 			} else {
@@ -287,7 +287,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 							zap.Uint("instanceId", instance.ID),
 							zap.Error(createCodeErr))
 					} else {
-						global.APP_LOG.Info("为导入实例自动生成ORI兑换码",
+						global.APP_LOG.Debug("为导入实例自动生成ORI兑换码",
 							zap.Uint("instanceId", instance.ID),
 							zap.String("code", oriCode))
 					}
@@ -309,7 +309,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 					occupiedPorts[port] = true
 				}
 
-				global.APP_LOG.Info("实例导入成功",
+				global.APP_LOG.Debug("实例导入成功",
 					zap.String("name", discovered.Name),
 					zap.Uint("instanceId", instance.ID),
 					zap.Bool("hasPortConflict", hasPortConflict))

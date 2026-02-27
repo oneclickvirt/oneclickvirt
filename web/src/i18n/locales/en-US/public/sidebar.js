@@ -15,5 +15,6 @@ export default {
   systemImages: 'System Images',
   announcementManagement: 'Announcement Management',
   systemConfiguration: 'System Configuration',
-  performanceMonitoring: 'Performance Monitoring'
+  performanceMonitoring: 'Performance Monitoring',
+  logViewer: 'Log Viewer'
 }

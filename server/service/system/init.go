@@ -458,7 +458,7 @@ func (s *InitService) ReinitializeDatabase() error {
 	config, _ := mysqlConfig["config"].(string)
 
 	// 记录读取到的数据库配置，用于调试
-	global.APP_LOG.Info("从配置文件读取到的数据库配置",
+	global.APP_LOG.Debug("从配置文件读取到的数据库配置",
 		zap.String("host", host),
 		zap.String("dbname", dbname),
 		zap.String("username", username))
@@ -541,7 +541,7 @@ func (s *InitService) reloadConfig() error {
 	cm := configManager.GetConfigManager()
 	if cm != nil {
 		if err := cm.ReloadFromYAML(); err != nil {
-			global.APP_LOG.Error("通过ConfigManager重新加载配置失败", zap.Error(err))
+			global.APP_LOG.Warn("通过ConfigManager重新加载配置失败", zap.Error(err))
 			// 降级处理：直接加载到 global.APP_CONFIG
 			global.SetAppConfig(tempConfig)
 			global.APP_LOG.Warn("配置已直接加载到global.APP_CONFIG，但未同步到数据库")

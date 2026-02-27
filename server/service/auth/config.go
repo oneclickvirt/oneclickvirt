@@ -16,7 +16,7 @@ import (
 type ConfigService struct{}
 
 func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error {
-	global.APP_LOG.Info("开始更新配置")
+	global.APP_LOG.Debug("开始更新配置")
 
 	// 获取配置管理器
 	configManager := config.GetConfigManager()
@@ -131,7 +131,7 @@ func (s *ConfigService) UpdateConfig(req configModel.UpdateConfigRequest) error 
 		return fmt.Errorf("配置更新失败: %v", err)
 	}
 
-	global.APP_LOG.Info("配置更新完成")
+	global.APP_LOG.Debug("配置更新完成")
 	return nil
 }
 
@@ -139,18 +139,18 @@ func (s *ConfigService) GetConfig() map[string]interface{} {
 	// 获取配置管理器
 	configManager := config.GetConfigManager()
 	if configManager == nil {
-		global.APP_LOG.Error("配置管理器未初始化")
+		global.APP_LOG.Warn("配置管理器未初始化")
 		return map[string]interface{}{}
 	}
 
 	// 从配置管理器获取扁平化配置
 	flatConfig := configManager.GetAllConfig()
-	global.APP_LOG.Info("获取扁平化配置", zap.Int("count", len(flatConfig)))
+	global.APP_LOG.Debug("获取扁平化配置", zap.Int("count", len(flatConfig)))
 
 	// 记录所有auth相关的配置
 	for key, value := range flatConfig {
 		if len(key) >= 4 && key[:4] == "auth" {
-			global.APP_LOG.Info("扁平化配置项", zap.String("key", key), zap.Any("value", value))
+			global.APP_LOG.Debug("扁平化配置项", zap.String("key", key), zap.Any("value", value))
 		}
 	}
 
@@ -159,7 +159,7 @@ func (s *ConfigService) GetConfig() map[string]interface{} {
 
 	// 记录转换后的auth配置
 	if auth, exists := result["auth"]; exists {
-		global.APP_LOG.Info("转换后的auth配置", zap.Any("auth", auth))
+		global.APP_LOG.Debug("转换后的auth配置", zap.Any("auth", auth))
 	}
 
 	// 从 system_configs 表读取 other 配置
@@ -189,11 +189,11 @@ func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
 		return nil, err
 	}
 
-	global.APP_LOG.Info("从数据库读取其他配置", zap.Int("count", len(configs)))
+	global.APP_LOG.Debug("从数据库读取其他配置", zap.Int("count", len(configs)))
 
 	result := make(map[string]interface{})
 	for _, cfg := range configs {
-		global.APP_LOG.Info("配置项", zap.String("key", cfg.Key), zap.String("value", cfg.Value))
+		global.APP_LOG.Debug("配置项", zap.String("key", cfg.Key), zap.String("value", cfg.Value))
 		switch cfg.Key {
 		case "max_avatar_size":
 			// 转换为 float64
@@ -205,13 +205,13 @@ func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
 		}
 	}
 
-	global.APP_LOG.Info("返回其他配置", zap.Any("result", result))
+	global.APP_LOG.Debug("返回其他配置", zap.Any("result", result))
 	return result, nil
 }
 
 // updateOtherConfigs 更新其他配置到 system_configs 表
 func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error {
-	global.APP_LOG.Info("开始更新其他配置",
+	global.APP_LOG.Debug("开始更新其他配置",
 		zap.Float64("maxAvatarSize", other.MaxAvatarSize),
 		zap.String("defaultLanguage", other.DefaultLanguage))
 
@@ -243,14 +243,14 @@ func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error 
 			if err := global.APP_DB.Create(&newConfig).Error; err != nil {
 				return err
 			}
-			global.APP_LOG.Info("创建max_avatar_size配置", zap.String("value", valueStr))
+			global.APP_LOG.Debug("创建max_avatar_size配置", zap.String("value", valueStr))
 		} else {
 			// 更新配置
 			existingConfig.Value = valueStr
 			if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
 				return err
 			}
-			global.APP_LOG.Info("更新max_avatar_size配置", zap.String("value", valueStr))
+			global.APP_LOG.Debug("更新max_avatar_size配置", zap.String("value", valueStr))
 		}
 	}
 
@@ -275,14 +275,14 @@ func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error 
 		if err := global.APP_DB.Create(&newConfig).Error; err != nil {
 			return err
 		}
-		global.APP_LOG.Info("创建default_language配置", zap.String("value", other.DefaultLanguage))
+		global.APP_LOG.Debug("创建default_language配置", zap.String("value", other.DefaultLanguage))
 	} else {
 		// 更新配置
 		existingConfig.Value = other.DefaultLanguage
 		if err := global.APP_DB.Save(&existingConfig).Error; err != nil {
 			return err
 		}
-		global.APP_LOG.Info("更新default_language配置",
+		global.APP_LOG.Debug("更新default_language配置",
 			zap.String("oldValue", existingConfig.Value),
 			zap.String("newValue", other.DefaultLanguage))
 	}

@@ -27,7 +27,7 @@ type DiscoveryResult struct {
 
 // DiscoverProviderInstances 发现指定provider上的所有实例
 func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint) (*DiscoveryResult, error) {
-	global.APP_LOG.Info("开始发现Provider实例", zap.Uint("providerId", providerID))
+	global.APP_LOG.Debug("开始发现Provider实例", zap.Uint("providerId", providerID))
 
 	// 1. 获取Provider信息
 	var providerInfo providerModel.Provider
@@ -91,7 +91,7 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 		DiscoveredAt:        time.Now(),
 	}
 
-	global.APP_LOG.Info("Provider实例发现完成",
+	global.APP_LOG.Debug("Provider实例发现完成",
 		zap.Uint("providerId", providerID),
 		zap.String("provider", providerInfo.Name),
 		zap.Int("total", result.TotalCount),
@@ -134,7 +134,7 @@ func (s *Service) GetOrphanedInstances(ctx context.Context, providerID uint) ([]
 		}
 	}
 
-	global.APP_LOG.Info("获取未纳管实例完成",
+	global.APP_LOG.Debug("获取未纳管实例完成",
 		zap.Uint("providerId", providerID),
 		zap.Int("orphanedCount", len(orphanedInstances)))
 
@@ -143,7 +143,7 @@ func (s *Service) GetOrphanedInstances(ctx context.Context, providerID uint) ([]
 
 // CompareInstancesWithRemote 比较数据库实例与远程实例，检测变化
 func (s *Service) CompareInstancesWithRemote(ctx context.Context, providerID uint) (*InstanceSyncReport, error) {
-	global.APP_LOG.Info("开始比较实例变化", zap.Uint("providerId", providerID))
+	global.APP_LOG.Debug("开始比较实例变化", zap.Uint("providerId", providerID))
 
 	// 1. 发现远程实例
 	discoveryResult, err := s.DiscoverProviderInstances(ctx, providerID)
@@ -225,7 +225,7 @@ func (s *Service) CompareInstancesWithRemote(ctx context.Context, providerID uin
 		CheckedAt:        time.Now(),
 	}
 
-	global.APP_LOG.Info("实例变化检测完成",
+	global.APP_LOG.Debug("实例变化检测完成",
 		zap.Uint("providerId", providerID),
 		zap.Int("newCount", len(newInstances)),
 		zap.Int("deletedCount", len(deletedInstances)),

@@ -158,7 +158,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		// 检查是服务关闭还是正常超时
 		if s.ctx.Err() != nil {
 			// 服务正在关闭
-			global.APP_LOG.Info("启动实例后处理被服务关闭中断",
+			global.APP_LOG.Debug("启动实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
 			return
@@ -192,7 +192,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			}
 			pmacctSuccess = false
 		} else {
-			global.APP_LOG.Info("启动实例后pmacct监控初始化成功",
+			global.APP_LOG.Debug("启动实例后pmacct监控初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
 
@@ -215,7 +215,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
 		}
 
-		global.APP_LOG.Info("启动实例后处理任务完成",
+		global.APP_LOG.Debug("启动实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
 			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)
@@ -488,7 +488,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		// 检查是服务关闭还是正常超时
 		if s.ctx.Err() != nil {
 			// 服务正在关闭
-			global.APP_LOG.Info("重启实例后处理被服务关闭中断",
+			global.APP_LOG.Debug("重启实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
 			return
@@ -522,7 +522,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			}
 			pmacctSuccess = false
 		} else {
-			global.APP_LOG.Info("重启实例后pmacct监控重新初始化成功",
+			global.APP_LOG.Debug("重启实例后pmacct监控重新初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
 
@@ -545,7 +545,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", taskID), zap.Error(err))
 		}
 
-		global.APP_LOG.Info("重启实例后处理任务完成",
+		global.APP_LOG.Debug("重启实例后处理任务完成",
 			zap.Uint("instanceId", instanceID),
 			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)

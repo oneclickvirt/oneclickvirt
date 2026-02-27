@@ -23,7 +23,7 @@ func (l *LXDProvider) configurePortMappingsWithIP(instanceName string, networkCo
 	// dedicated_ipv4_ipv6: 独立IPv4 + 独立IPv6，不需要端口映射
 	// ipv6_only: 纯IPv6，不允许任何IPv4操作
 	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only" {
-		global.APP_LOG.Info("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
+		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
 			zap.String("instance", instanceName),
 			zap.String("networkType", networkConfig.NetworkType))
 		return nil
@@ -195,7 +195,7 @@ func (l *LXDProvider) setupPortRangeByProtocol(instanceName string, ports []prov
 
 // setupDeviceProxyRangeMapping 使用LXD device proxy设置端口范围映射
 func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPort, endPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Info("设置LXD端口区间映射",
+	global.APP_LOG.Debug("设置LXD端口区间映射",
 		zap.String("instance", instanceName),
 		zap.Int("startPort", startPort),
 		zap.Int("endPort", endPort),
@@ -214,7 +214,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
 			instanceName, tcpDeviceName, "tcp", hostIP, startPort, endPort, "tcp", instanceIP, startPort, endPort)
 
-		global.APP_LOG.Info("执行TCP端口区间映射命令",
+		global.APP_LOG.Debug("执行TCP端口区间映射命令",
 			zap.String("command", tcpProxyCmd))
 
 		_, err = l.sshClient.Execute(tcpProxyCmd)
@@ -227,7 +227,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
 			instanceName, udpDeviceName, "udp", hostIP, startPort, endPort, "udp", instanceIP, startPort, endPort)
 
-		global.APP_LOG.Info("执行UDP端口区间映射命令",
+		global.APP_LOG.Debug("执行UDP端口区间映射命令",
 			zap.String("command", udpProxyCmd))
 
 		_, err = l.sshClient.Execute(udpProxyCmd)
@@ -235,7 +235,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 			return fmt.Errorf("创建UDP端口区间映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("LXD端口区间映射设置成功(TCP+UDP)",
+		global.APP_LOG.Debug("LXD端口区间映射设置成功(TCP+UDP)",
 			zap.String("instance", instanceName),
 			zap.String("tcpDevice", tcpDeviceName),
 			zap.String("udpDevice", udpDeviceName),
@@ -250,7 +250,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d-%d connect=%s:%s:%d-%d",
 			instanceName, deviceName, protocol, hostIP, startPort, endPort, protocol, instanceIP, startPort, endPort)
 
-		global.APP_LOG.Info("执行LXD端口区间映射命令",
+		global.APP_LOG.Debug("执行LXD端口区间映射命令",
 			zap.String("command", proxyCmd))
 
 		_, err = l.sshClient.Execute(proxyCmd)
@@ -258,7 +258,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 			return fmt.Errorf("创建LXD端口区间映射失败: %w", err)
 		}
 
-		global.APP_LOG.Info("LXD端口区间映射设置成功",
+		global.APP_LOG.Debug("LXD端口区间映射设置成功",
 			zap.String("instance", instanceName),
 			zap.String("device", deviceName),
 			zap.Int("startPort", startPort),
@@ -270,7 +270,7 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 
 // setupNATPortRangeMappingWithIP 使用指定的实例IP设置NAT端口范围映射
 func (l *LXDProvider) setupNATPortRangeMappingWithIP(instanceName string, startPort, endPort int, method, instanceIP string) error {
-	global.APP_LOG.Info("设置NAT端口范围映射",
+	global.APP_LOG.Debug("设置NAT端口范围映射",
 		zap.String("instance", instanceName),
 		zap.Int("startPort", startPort),
 		zap.Int("endPort", endPort),
@@ -307,7 +307,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 	tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=tcp:%s:%d-%d connect=tcp:0.0.0.0:%d-%d nat=true",
 		instanceName, tcpDeviceName, hostIP, startPort, endPort, startPort, endPort)
 
-	global.APP_LOG.Info("执行TCP NAT端口范围映射命令",
+	global.APP_LOG.Debug("执行TCP NAT端口范围映射命令",
 		zap.String("command", tcpProxyCmd))
 
 	_, err = l.sshClient.Execute(tcpProxyCmd)
@@ -320,7 +320,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 	udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=udp:%s:%d-%d connect=udp:0.0.0.0:%d-%d nat=true",
 		instanceName, udpDeviceName, hostIP, startPort, endPort, startPort, endPort)
 
-	global.APP_LOG.Info("执行UDP NAT端口范围映射命令",
+	global.APP_LOG.Debug("执行UDP NAT端口范围映射命令",
 		zap.String("command", udpProxyCmd))
 
 	_, err = l.sshClient.Execute(udpProxyCmd)
@@ -328,7 +328,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 		return fmt.Errorf("创建UDP NAT端口范围proxy设备失败: %w", err)
 	}
 
-	global.APP_LOG.Info("NAT端口范围映射设置成功",
+	global.APP_LOG.Debug("NAT端口范围映射设置成功",
 		zap.String("instance", instanceName),
 		zap.Int("startPort", startPort),
 		zap.Int("endPort", endPort))
@@ -338,7 +338,7 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 
 // setupPortMapping 设置端口映射
 func (l *LXDProvider) setupPortMapping(instanceName string, hostPort, guestPort int, protocol, method string) error {
-	global.APP_LOG.Info("设置端口映射",
+	global.APP_LOG.Debug("设置端口映射",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -358,7 +358,7 @@ func (l *LXDProvider) setupPortMapping(instanceName string, hostPort, guestPort 
 
 // setupPortMappingWithIP 使用指定的实例IP设置端口映射
 func (l *LXDProvider) setupPortMappingWithIP(instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
-	global.APP_LOG.Info("设置端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -373,7 +373,7 @@ func (l *LXDProvider) setupPortMappingWithIP(instanceName string, hostPort, gues
 		return l.setupIptablesMappingWithIP(instanceName, hostPort, guestPort, protocol, instanceIP)
 	case "native":
 		// 独立IPv4模式下使用native方法，跳过端口映射
-		global.APP_LOG.Info("独立IPv4模式，跳过端口映射",
+		global.APP_LOG.Debug("独立IPv4模式，跳过端口映射",
 			zap.String("instance", instanceName),
 			zap.Int("hostPort", hostPort),
 			zap.Int("guestPort", guestPort),
@@ -423,7 +423,7 @@ func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, gue
 		return fmt.Errorf("创建proxy设备失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Device proxy端口映射设置成功",
+	global.APP_LOG.Debug("Device proxy端口映射设置成功",
 		zap.String("instance", instanceName),
 		zap.String("device", deviceName))
 
@@ -432,7 +432,7 @@ func (l *LXDProvider) setupDeviceProxyMapping(instanceName string, hostPort, gue
 
 // setupDeviceProxyMappingWithIP 使用指定的实例IP设置LXD device proxy端口映射
 func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Info("设置Device proxy端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置Device proxy端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("protocol", protocol),
 		zap.String("instanceIP", instanceIP))
@@ -465,7 +465,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		tcpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
 			instanceName, tcpDeviceName, "tcp", hostIP, hostPort, "tcp", cleanInstanceIP, guestPort)
 
-		global.APP_LOG.Info("执行TCP端口映射命令",
+		global.APP_LOG.Debug("执行TCP端口映射命令",
 			zap.String("command", tcpProxyCmd))
 
 		_, err = l.sshClient.Execute(tcpProxyCmd)
@@ -478,7 +478,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		udpProxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
 			instanceName, udpDeviceName, "udp", hostIP, hostPort, "udp", cleanInstanceIP, guestPort)
 
-		global.APP_LOG.Info("执行UDP端口映射命令",
+		global.APP_LOG.Debug("执行UDP端口映射命令",
 			zap.String("command", udpProxyCmd))
 
 		_, err = l.sshClient.Execute(udpProxyCmd)
@@ -486,7 +486,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 			return fmt.Errorf("创建UDP proxy设备失败: %w", err)
 		}
 
-		global.APP_LOG.Info("Device proxy端口映射设置成功(TCP+UDP)",
+		global.APP_LOG.Debug("Device proxy端口映射设置成功(TCP+UDP)",
 			zap.String("instance", instanceName),
 			zap.String("tcpDevice", tcpDeviceName),
 			zap.String("udpDevice", udpDeviceName))
@@ -498,7 +498,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 		proxyCmd := fmt.Sprintf("lxc config device add %s %s proxy listen=%s:%s:%d connect=%s:%s:%d nat=true",
 			instanceName, deviceName, protocol, hostIP, hostPort, protocol, cleanInstanceIP, guestPort)
 
-		global.APP_LOG.Info("执行端口映射命令",
+		global.APP_LOG.Debug("执行端口映射命令",
 			zap.String("command", proxyCmd))
 
 		_, err = l.sshClient.Execute(proxyCmd)
@@ -506,7 +506,7 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 			return fmt.Errorf("创建proxy设备失败: %w", err)
 		}
 
-		global.APP_LOG.Info("Device proxy端口映射设置成功",
+		global.APP_LOG.Debug("Device proxy端口映射设置成功",
 			zap.String("instance", instanceName),
 			zap.String("device", deviceName))
 	}
@@ -549,7 +549,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 		return fmt.Errorf("添加MASQUERADE规则失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Iptables端口映射设置成功",
+	global.APP_LOG.Debug("Iptables端口映射设置成功",
 		zap.String("instance", instanceName),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
@@ -558,7 +558,7 @@ func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestP
 
 // setupIptablesMappingWithIP 使用指定的实例IP设置iptables端口映射
 func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Info("设置Iptables端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置Iptables端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("instanceIP", instanceIP),
 		zap.String("protocol", protocol),
@@ -598,7 +598,7 @@ func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, 
 			return fmt.Errorf("添加%s MASQUERADE规则失败: %w", proto, err)
 		}
 
-		global.APP_LOG.Info("Iptables端口映射设置成功",
+		global.APP_LOG.Debug("Iptables端口映射设置成功",
 			zap.String("instance", instanceName),
 			zap.String("protocol", proto),
 			zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
@@ -622,7 +622,7 @@ func (l *LXDProvider) SaveIptablesRules() error {
 		return fmt.Errorf("保存iptables规则失败: %w", err)
 	}
 
-	global.APP_LOG.Info("LXD iptables规则保存成功")
+	global.APP_LOG.Debug("LXD iptables规则保存成功")
 	return nil
 }
 
@@ -655,7 +655,7 @@ func (l *LXDProvider) removeDeviceProxyMapping(instanceName string, hostPort int
 		return fmt.Errorf("移除proxy设备失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Device proxy端口映射移除成功",
+	global.APP_LOG.Debug("Device proxy端口映射移除成功",
 		zap.String("instance", instanceName),
 		zap.String("device", deviceName))
 
@@ -692,7 +692,7 @@ func (l *LXDProvider) removeIptablesMapping(instanceName string, hostPort int, p
 			zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Iptables端口映射移除成功",
+	global.APP_LOG.Debug("Iptables端口映射移除成功",
 		zap.String("instance", instanceName))
 
 	return nil
@@ -728,14 +728,14 @@ func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 		return nil // 非阻塞，返回 nil
 	}
 
-	global.APP_LOG.Info("配置防火墙端口",
+	global.APP_LOG.Debug("配置防火墙端口",
 		zap.String("instance", instanceName),
 		zap.Int("portCount", len(portMappings)))
 
 	// 检查firewall-cmd是否可用
 	_, err := l.sshClient.Execute("command -v firewall-cmd")
 	if err == nil {
-		global.APP_LOG.Info("使用firewall-cmd配置防火墙")
+		global.APP_LOG.Debug("使用firewall-cmd配置防火墙")
 
 		// 为每个端口映射配置防火墙规则
 		for _, port := range portMappings {
@@ -760,7 +760,7 @@ func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 	// 检查ufw是否可用
 	_, err = l.sshClient.Execute("command -v ufw")
 	if err == nil {
-		global.APP_LOG.Info("使用ufw配置防火墙")
+		global.APP_LOG.Debug("使用ufw配置防火墙")
 
 		// 为每个端口映射配置ufw规则
 		for _, port := range portMappings {
@@ -782,6 +782,6 @@ func (l *LXDProvider) configureFirewallPorts(instanceName string) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("未找到支持的防火墙管理工具，跳过防火墙配置")
+	global.APP_LOG.Debug("未找到支持的防火墙管理工具，跳过防火墙配置")
 	return nil
 }

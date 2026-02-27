@@ -14,13 +14,20 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// Zap 获取 zap.Logger
+// Zap 构建并返回应用级 zap.Logger。
+//
+// 流程：
+//  1. 确保日志目录 ./storage/logs 存在；
+//  2. 根据配置将每个日志级别分别写入独立文件，Debug/Info 限流采样降噪；
+//  3. 若配置开启 Show-Line，日志自动携带调用者文件/行号。
+//
+// 注意：采样器清理协程将延迟到 InitializeSystem 中启动，
+// 因为该函数执行时 global.APP_SHUTDOWN_CONTEXT 还未就绪。
 func Zap() (logger *zap.Logger) {
-	// 确保日志目录存在 - 使用./storage/logs目录
+	// 确保日志目录存在——此时日志系统尚未完全就绪，使用 stderr 输出更合适
 	logDir := "./storage/logs"
 	if err := utils.EnsureDir(logDir); err != nil {
-		// 在日志系统未完全初始化时，使用标准输出
-		fmt.Printf("[SYSTEM] 日志目录创建失败 %v: %v，将使用控制台输出\n", logDir, err)
+		fmt.Fprintf(os.Stderr, "[WARN] 日志目录初始化失败 %q: %v，将仅使用控制台输出\n", logDir, err)
 	}
 
 	cores := GetZapCores()
@@ -30,51 +37,48 @@ func Zap() (logger *zap.Logger) {
 		logger = logger.WithOptions(zap.AddCaller())
 	}
 
-	// 采样器清理协程的启动将在 InitializeSystem 中进行
-	// 这里不启动，因为 global.APP_SHUTDOWN_CONTEXT 还未初始化
-
+	// 采样器清理协程在 InitializeSystem 中通过 StartSamplerCleanup 启动
 	return logger
 }
 
-// StartSamplerCleanup 启动采样器清理任务（导出供外部调用）
+// StartSamplerCleanup 启动采样器定期清理得协程。
+// 必须在 global.APP_SHUTDOWN_CONTEXT 就绪后（InitializeSystem 中）调用。
 func StartSamplerCleanup(ctx context.Context) {
 	go startSamplerCleanup(ctx)
 }
 
-// startSamplerCleanup 启动采样器清理任务
+// startSamplerCleanup 櫳第采样器现有缓存，每 30 分钟清理一次长期未使用的采样动态表进入。
 func startSamplerCleanup(ctx context.Context) {
-	ticker := time.NewTicker(30 * time.Minute) // 每30分钟清理一次
+	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			if global.APP_LOG != nil {
-				global.APP_LOG.Info("采样器清理任务已停止")
+				global.APP_LOG.Info("采样器清理协程已停止")
 			}
 			return
 		case <-ticker.C:
-			// 遍历所有采样核心并清理
 			cleanupAllSamplers()
 		}
 	}
 }
 
-// cleanupAllSamplers 清理所有采样器
+// cleanupAllSamplers 代理调用 sampling_core.go 中的全局清理入口。
 func cleanupAllSamplers() {
-	// 需要导入sampling_core.go中的全局变量
-	// 这里直接调用清理函数
 	CleanupAllSamplingCores()
 }
 
-// GetZapCores 根据配置文件的Level获取 []zapcore.Core
+// GetZapCores 根据配置中的起始级别，生成覆盖该级别岩上的所有级别的 Core 列表。
+// Debug 和 Info 级别自动包裹采样层，降低高频重复日志的写入压力。
 func GetZapCores() []zapcore.Core {
 	cores := make([]zapcore.Core, 0, 7)
 	zapCfg := global.GetAppConfig().Zap
 	levels := zapCfg.Levels()
 	for _, level := range levels {
 		core := GetZapCore(level)
-		// 对于Debug和Info级别，使用采样核心来减少日志量
+		// Debug/Info 级别使用采样核心，高频重复消息按时间窗口限流
 		if level <= zapcore.InfoLevel {
 			core = NewSamplingCore(core)
 		}
@@ -83,13 +87,15 @@ func GetZapCores() []zapcore.Core {
 	return cores
 }
 
-// GetZapCore 获取Encoder的 zapcore.Core
+// GetZapCore 为指定级别创建一个独立的 zapcore.Core，
+// 使用分所写入对应级别的日志文件中。
 func GetZapCore(level zapcore.Level) (core zapcore.Core) {
-	writer := GetWriteSyncer(level.String()) // 使用file-rotatelogs进行日志分割
+	writer := GetWriteSyncer(level.String()) // 按日滚动切片写入
 	return zapcore.NewCore(GetEncoder(), writer, level)
 }
 
-// GetEncoder 获取zapcore.Encoder
+// GetEncoder 根据配置返回 JSON 或 console 格式的编码器，
+// 外层通过 TruncateEncoder 封装，不同内容过长时自动截断。
 func GetEncoder() zapcore.Encoder {
 	var enc zapcore.Encoder
 	if global.GetAppConfig().Zap.Format == "json" {
@@ -97,12 +103,11 @@ func GetEncoder() zapcore.Encoder {
 	} else {
 		enc = zapcore.NewConsoleEncoder(GetEncoderConfig())
 	}
-
-	// 包装为截断编码器
 	return NewTruncateEncoder(enc)
 }
 
-// GetEncoderConfig 获取zapcore.EncoderConfig
+// GetEncoderConfig 返回稳定的 zapcore.EncoderConfig。
+// 时间格式由 CustomTimeEncoder 处理，caller 使用短路径减少轮序长度。
 func GetEncoderConfig() (config zapcore.EncoderConfig) {
 	zapCfg := global.GetAppConfig().Zap
 	config = zapcore.EncoderConfig{
@@ -134,7 +139,8 @@ func GetEncoderConfig() (config zapcore.EncoderConfig) {
 	return config
 }
 
-// GetWriteSyncer 获取zapcore.WriteSyncer
+// GetWriteSyncer 返回指定级别的输出展汇器。
+// 若配置了 LogInConsole，日志将同时写入文件和标准输出；否则仅写入文件。
 func GetWriteSyncer(level string) zapcore.WriteSyncer {
 	// 获取日志配置
 	config := log.GetDefaultDailyLogConfig()
@@ -153,7 +159,7 @@ func GetWriteSyncer(level string) zapcore.WriteSyncer {
 	return zapcore.AddSync(cutter)
 }
 
-// CustomTimeEncoder 自定义日志输出时间格式
+// CustomTimeEncoder 以 "[prefix]YYYY/MM/DD - HH:mm:ss.mmm" 格式写入时间字段。
 func CustomTimeEncoder(t time.Time, enc zapcore.PrimitiveArrayEncoder) {
 	enc.AppendString(t.Format(global.GetAppConfig().Zap.Prefix + "2006/01/02 - 15:04:05.000"))
 }

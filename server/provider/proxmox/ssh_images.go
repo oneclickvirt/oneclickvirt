@@ -63,7 +63,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 
 	remotePath := fmt.Sprintf("%s/%s", downloadDir, fileName)
 
-	global.APP_LOG.Info("开始下载Proxmox镜像",
+	global.APP_LOG.Debug("开始下载Proxmox镜像",
 		zap.String("imageURL", utils.TruncateString(imageURL, 200)),
 		zap.String("remotePath", remotePath))
 
@@ -71,7 +71,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", remotePath)
 	output, _ := p.sshClient.Execute(checkCmd)
 	if strings.TrimSpace(output) == "exists" {
-		global.APP_LOG.Info("镜像已存在，跳过下载", zap.String("path", remotePath))
+		global.APP_LOG.Debug("镜像已存在，跳过下载", zap.String("path", remotePath))
 		return remotePath, nil
 	}
 
@@ -87,7 +87,7 @@ func (p *ProxmoxProvider) sshPullImageToPath(ctx context.Context, imageURL, imag
 		}
 	}
 
-	global.APP_LOG.Info("Proxmox镜像下载完成", zap.String("remotePath", remotePath))
+	global.APP_LOG.Debug("Proxmox镜像下载完成", zap.String("remotePath", remotePath))
 
 	// 根据文件类型移动到相应目录
 	if strings.HasSuffix(fileName, ".iso") {

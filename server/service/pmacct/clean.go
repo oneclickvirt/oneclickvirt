@@ -309,7 +309,7 @@ echo "=== pmacct 资源清理完成: %s ==="
 		verifyOutput = strings.TrimSpace(verifyOutput)
 
 		if strings.Contains(verifyOutput, "NOT_FOUND") {
-			global.APP_LOG.Info(fmt.Sprintf("✓ %s已清理", vc.name),
+			global.APP_LOG.Debug(fmt.Sprintf("✓ %s已清理", vc.name),
 				zap.Uint("instanceID", instanceID),
 				zap.String("instanceName", instanceName))
 		} else {
@@ -349,7 +349,7 @@ func (s *Service) CleanupOldPmacctData(retentionDays int) error {
 		return result90Days.Error
 	}
 
-	global.APP_LOG.Info("清理90天以上的pmacct数据",
+	global.APP_LOG.Debug("清理90天以上的pmacct数据",
 		zap.Int64("deletedRecords", result90Days.RowsAffected))
 
 	// 第二步：聚合30-90天的数据为日度（保留hour=0, minute=0）
@@ -366,7 +366,7 @@ func (s *Service) CleanupOldPmacctData(retentionDays int) error {
 		return result30_90.Error
 	}
 
-	global.APP_LOG.Info("清理30-90天的非日度pmacct数据",
+	global.APP_LOG.Debug("清理30-90天的非日度pmacct数据",
 		zap.Int64("deletedRecords", result30_90.RowsAffected))
 
 	// 第三步：聚合7-30天的数据为小时级（保留minute=0）
@@ -383,7 +383,7 @@ func (s *Service) CleanupOldPmacctData(retentionDays int) error {
 		return result7_30.Error
 	}
 
-	global.APP_LOG.Info("清理7-30天的5分钟级pmacct数据",
+	global.APP_LOG.Debug("清理7-30天的5分钟级pmacct数据",
 		zap.Int64("deletedRecords", result7_30.RowsAffected))
 
 	totalDeleted := result90Days.RowsAffected + result30_90.RowsAffected + result7_30.RowsAffected

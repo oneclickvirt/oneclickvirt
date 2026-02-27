@@ -382,7 +382,7 @@ func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 		for _, userID := range req.UserIDs {
 			// 这里可以调用实际的同步逻辑
 			// 目前只是记录日志
-			global.APP_LOG.Info("触发用户流量同步",
+			global.APP_LOG.Debug("触发用户流量同步",
 				zap.Uint("userID", userID))
 		}
 	}()

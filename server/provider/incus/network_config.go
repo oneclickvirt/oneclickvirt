@@ -14,7 +14,7 @@ import (
 
 // stopInstanceForConfig 停止实例进行配置
 func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
-	global.APP_LOG.Info("停止实例进行配置", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("停止实例进行配置", zap.String("instanceName", instanceName))
 
 	// 等待一段时间确保实例已经获取到IP
 	time.Sleep(6 * time.Second)
@@ -30,13 +30,13 @@ func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
 		cmd := fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", instanceName)
 		output, err := i.sshClient.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) == "STOPPED" {
-			global.APP_LOG.Info("实例已安全停止", zap.String("instanceName", instanceName))
+			global.APP_LOG.Debug("实例已安全停止", zap.String("instanceName", instanceName))
 			return nil
 		}
 
 		time.Sleep(2 * time.Second)
 		waited += 2
-		global.APP_LOG.Info("等待实例停止",
+		global.APP_LOG.Debug("等待实例停止",
 			zap.String("instanceName", instanceName),
 			zap.Int("waited", waited),
 			zap.Int("maxWait", maxWait))
@@ -48,7 +48,7 @@ func (i *IncusProvider) stopInstanceForConfig(instanceName string) error {
 
 // configureNetworkLimits 配置网络限速
 func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfig NetworkConfig) error {
-	global.APP_LOG.Info("配置网络限速",
+	global.APP_LOG.Debug("配置网络限速",
 		zap.String("instanceName", instanceName),
 		zap.Int("inSpeed", networkConfig.InSpeed),
 		zap.Int("outSpeed", networkConfig.OutSpeed))
@@ -83,14 +83,14 @@ func (i *IncusProvider) configureNetworkLimits(instanceName string, networkConfi
 		instanceName, targetInterface, outSpeedMbit, inSpeedMbit, maxSpeedMbit)
 	_, err = i.sshClient.Execute(cmd)
 	if err != nil {
-		global.APP_LOG.Warn("网络限速配置失败",
+		global.APP_LOG.Error("网络限速配置失败",
 			zap.String("instanceName", instanceName),
 			zap.String("interface", targetInterface),
 			zap.Error(err))
 		return err
 	}
 
-	global.APP_LOG.Info("网络限速配置成功",
+	global.APP_LOG.Debug("网络限速配置成功",
 		zap.String("instanceName", instanceName),
 		zap.String("interface", targetInterface),
 		zap.String("inSpeed", inSpeedMbit),
@@ -145,7 +145,7 @@ func (i *IncusProvider) getBandwidthFromProvider(userLevel int) (inSpeed, outSpe
 		outSpeed = providerInfo.MaxOutboundBandwidth
 	}
 
-	global.APP_LOG.Info("从Provider配置和用户等级获取带宽设置",
+	global.APP_LOG.Debug("从Provider配置和用户等级获取带宽设置",
 		zap.String("provider", i.config.Name),
 		zap.Int("inSpeed", inSpeed),
 		zap.Int("outSpeed", outSpeed),
@@ -174,7 +174,7 @@ func (i *IncusProvider) getUserLevelBandwidth(userLevel int) int {
 
 // setIPAddressBinding 设置IP地址绑定
 func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) error {
-	global.APP_LOG.Info("设置IP地址绑定",
+	global.APP_LOG.Debug("设置IP地址绑定",
 		zap.String("instanceName", instanceName),
 		zap.String("instanceIP", instanceIP))
 
@@ -234,7 +234,7 @@ func (i *IncusProvider) setIPAddressBinding(instanceName, instanceIP string) err
 		}
 	}
 
-	global.APP_LOG.Info("IP地址绑定成功",
+	global.APP_LOG.Debug("IP地址绑定成功",
 		zap.String("instanceName", instanceName),
 		zap.String("interface", targetInterface),
 		zap.String("cleanIP", cleanIP))
@@ -259,19 +259,19 @@ func (i *IncusProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("检查独立IPv4是否已绑定到宿主机网络接口",
+	global.APP_LOG.Debug("检查独立IPv4是否已绑定到宿主机网络接口",
 		zap.String("ip", cleanIP))
 
 	// 检查该 IP 是否已绑定到宿主机的任意网络接口
 	checkCmd := fmt.Sprintf("ip addr show | grep -w '%s'", cleanIP)
 	output, err := i.sshClient.Execute(checkCmd)
 	if err == nil && strings.Contains(output, cleanIP) {
-		global.APP_LOG.Info("独立IPv4已绑定到宿主机接口，无需添加",
+		global.APP_LOG.Debug("独立IPv4已绑定到宿主机接口，无需添加",
 			zap.String("ip", cleanIP))
 		return nil
 	}
 
-	global.APP_LOG.Info("独立IPv4未绑定到宿主机接口，正在自动添加",
+	global.APP_LOG.Debug("独立IPv4未绑定到宿主机接口，正在自动添加",
 		zap.String("ip", cleanIP))
 
 	// 获取宿主机出口网络接口（具有默认路由的接口）
@@ -294,14 +294,14 @@ func (i *IncusProvider) ensureIPv4OnHostInterface(ipv4 string) error {
 		// 并发场景下可能已被其他操作添加，再次确认
 		output2, checkErr2 := i.sshClient.Execute(checkCmd)
 		if checkErr2 == nil && strings.Contains(output2, cleanIP) {
-			global.APP_LOG.Info("独立IPv4已由并发操作绑定，跳过",
+			global.APP_LOG.Debug("独立IPv4已由并发操作绑定，跳过",
 				zap.String("ip", cleanIP))
 			return nil
 		}
 		return fmt.Errorf("自动绑定独立IPv4 %s 到宿主机接口 %s 失败: %w", cleanIP, primaryIface, addErr)
 	}
 
-	global.APP_LOG.Info("成功将独立IPv4绑定到宿主机接口",
+	global.APP_LOG.Debug("成功将独立IPv4绑定到宿主机接口",
 		zap.String("ip", cleanIP),
 		zap.String("interface", primaryIface))
 	return nil

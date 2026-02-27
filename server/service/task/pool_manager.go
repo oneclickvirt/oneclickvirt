@@ -106,7 +106,7 @@ func (m *ProviderPoolManager) Delete(providerID uint) {
 		// 关闭工作池（可能阻塞，但已经从所有map中删除）
 		pool.Cancel()
 
-		global.APP_LOG.Info("原子性删除Provider工作池及所有相关资源",
+		global.APP_LOG.Debug("原子性删除Provider工作池及所有相关资源",
 			zap.Uint("providerId", providerID),
 			zap.Int("workerCount", pool.WorkerCount),
 			zap.Int("queueSize", len(pool.TaskQueue)))
@@ -164,7 +164,7 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 			if shouldCleanup {
 				m.Delete(providerID)
 				cleaned++
-				global.APP_LOG.Info("清理Provider工作池",
+				global.APP_LOG.Debug("清理Provider工作池",
 					zap.Uint("providerId", providerID),
 					zap.String("reason", reason),
 					zap.Duration("idleTime", now.Sub(lastAccess)))
@@ -175,7 +175,7 @@ func (m *ProviderPoolManager) CleanupIdle(idleTimeout time.Duration) int {
 	})
 
 	if warned > 0 {
-		global.APP_LOG.Info("工作池队列容量检查完成",
+		global.APP_LOG.Debug("工作池队列容量检查完成",
 			zap.Int("warned", warned),
 			zap.Int("cleaned", cleaned))
 	}
@@ -242,7 +242,7 @@ func (m *ProviderPoolManager) CleanupDeleted(validIDs []uint) int {
 	})
 
 	if cleaned > 0 {
-		global.APP_LOG.Info("清理已删除Provider的工作池",
+		global.APP_LOG.Debug("清理已删除Provider的工作池",
 			zap.Int("cleaned", cleaned))
 	}
 

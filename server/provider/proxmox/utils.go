@@ -19,7 +19,7 @@ import (
 func (p *ProxmoxProvider) getDownloadURL(originalURL string, useCDN bool) string {
 	// 如果不使用CDN，直接返回原始URL
 	if !useCDN {
-		global.APP_LOG.Info("镜像配置不使用CDN，使用原始URL",
+		global.APP_LOG.Debug("镜像配置不使用CDN，使用原始URL",
 			zap.String("originalURL", utils.TruncateString(originalURL, 100)))
 		return originalURL
 	}
@@ -200,7 +200,7 @@ func (p *ProxmoxProvider) safeRemove(ctx context.Context, path string) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("删除路径", zap.String("path", path))
+	global.APP_LOG.Debug("删除路径", zap.String("path", path))
 	removeCmd := fmt.Sprintf("rm -rf '%s'", path)
 	_, err = p.sshClient.Execute(removeCmd)
 	return err
@@ -220,7 +220,7 @@ func (p *ProxmoxProvider) cleanupIPv6NATRules(ctx context.Context, vmctid string
 		return nil
 	}
 
-	global.APP_LOG.Info("清理IPv6 NAT规则", zap.String("vmctid", vmctid))
+	global.APP_LOG.Debug("清理IPv6 NAT规则", zap.String("vmctid", vmctid))
 	vmInternalIPv6 := fmt.Sprintf("2001:db8:1::%s", vmctid)
 
 	// 查找外部IPv6地址
@@ -231,7 +231,7 @@ func (p *ProxmoxProvider) cleanupIPv6NATRules(ctx context.Context, vmctid string
 		hostExternalIPv6 = strings.TrimSpace(hostExternalIPv6)
 
 		if hostExternalIPv6 != "" {
-			global.APP_LOG.Info("删除IPv6 NAT规则",
+			global.APP_LOG.Debug("删除IPv6 NAT规则",
 				zap.String("internal", vmInternalIPv6),
 				zap.String("external", hostExternalIPv6))
 
@@ -246,7 +246,7 @@ func (p *ProxmoxProvider) cleanupIPv6NATRules(ctx context.Context, vmctid string
 			// 从已使用IP文件中删除
 			if _, err := p.sshClient.Execute(fmt.Sprintf("[ -f '%s' ]", usedIPsFile)); err == nil {
 				_, _ = p.sshClient.Execute(fmt.Sprintf("sed -i '/^%s$/d' '%s' 2>/dev/null || true", hostExternalIPv6, usedIPsFile))
-				global.APP_LOG.Info("释放IPv6地址", zap.String("ipv6", hostExternalIPv6))
+				global.APP_LOG.Debug("释放IPv6地址", zap.String("ipv6", hostExternalIPv6))
 			}
 
 			// 重启服务
@@ -260,7 +260,7 @@ func (p *ProxmoxProvider) cleanupIPv6NATRules(ctx context.Context, vmctid string
 
 // cleanupVMFiles 清理VM相关文件
 func (p *ProxmoxProvider) cleanupVMFiles(ctx context.Context, vmid string) error {
-	global.APP_LOG.Info("清理VM文件", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("清理VM文件", zap.String("vmid", vmid))
 
 	// 获取所有存储名称并清理相关卷
 	storageListCmd := "pvesm status | awk 'NR > 1 {print $1}'"
@@ -318,7 +318,7 @@ func (p *ProxmoxProvider) cleanupVMFiles(ctx context.Context, vmid string) error
 
 // cleanupCTFiles 清理CT相关文件
 func (p *ProxmoxProvider) cleanupCTFiles(ctx context.Context, ctid string) error {
-	global.APP_LOG.Info("清理CT文件", zap.String("ctid", ctid))
+	global.APP_LOG.Debug("清理CT文件", zap.String("ctid", ctid))
 
 	// 获取所有存储名称并清理相关卷
 	storageListCmd := "pvesm status | awk 'NR > 1 {print $1}'"
@@ -388,7 +388,7 @@ func (p *ProxmoxProvider) updateIPTablesRules(ctx context.Context, ipAddress str
 		return nil
 	}
 
-	global.APP_LOG.Info("删除iptables规则", zap.String("ip", ipAddress))
+	global.APP_LOG.Debug("删除iptables规则", zap.String("ip", ipAddress))
 
 	// 从rules文件中删除包含该IP的规则
 	removeCmd := fmt.Sprintf("sed -i '/%s:/d' '%s'", ipAddress, rulesFile)
@@ -406,7 +406,7 @@ func (p *ProxmoxProvider) rebuildIPTablesRules(ctx context.Context) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("重建iptables规则")
+	global.APP_LOG.Debug("重建iptables规则")
 
 	// 应用规则文件
 	restoreCmd := fmt.Sprintf("cat '%s' | iptables-restore", rulesFile)
@@ -424,7 +424,7 @@ func (p *ProxmoxProvider) restartNDPResponder(ctx context.Context) error {
 		return nil
 	}
 
-	global.APP_LOG.Info("重启ndpresponder服务")
+	global.APP_LOG.Debug("重启ndpresponder服务")
 	_, err := p.sshClient.Execute("systemctl restart ndpresponder.service")
 	return err
 }
@@ -458,7 +458,7 @@ func (p *ProxmoxProvider) cleanupPmacctMonitoring(ctx context.Context, vmid stri
 	}
 
 	if instanceID > 0 {
-		global.APP_LOG.Info("找到实例记录，开始清理pmacct监控",
+		global.APP_LOG.Debug("找到实例记录，开始清理pmacct监控",
 			zap.String("vmid", vmid),
 			zap.Uint("instance_id", instanceID))
 
@@ -471,11 +471,11 @@ func (p *ProxmoxProvider) cleanupPmacctMonitoring(ctx context.Context, vmid stri
 			return err
 		}
 
-		global.APP_LOG.Info("pmacct监控清理完成",
+		global.APP_LOG.Debug("pmacct监控清理完成",
 			zap.String("vmid", vmid),
 			zap.Uint("instance_id", instanceID))
 	} else {
-		global.APP_LOG.Warn("未找到对应的实例记录，跳过pmacct清理",
+		global.APP_LOG.Debug("未找到对应的实例记录，跳过pmacct清理",
 			zap.String("vmid", vmid))
 	}
 
@@ -541,7 +541,7 @@ func (p *ProxmoxProvider) detectContainerPackageManager(vmid int) string {
 		checkCmd := fmt.Sprintf("pct exec %d -- sh -c \"%s >/dev/null 2>&1 && echo 'found'\"", vmid, pm.command)
 		output, err := p.sshClient.Execute(checkCmd)
 		if err == nil && strings.TrimSpace(output) == "found" {
-			global.APP_LOG.Info("检测到包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pm.name))
+			global.APP_LOG.Debug("检测到包管理器", zap.Int("vmid", vmid), zap.String("packageManager", pm.name))
 			return pm.name
 		}
 	}

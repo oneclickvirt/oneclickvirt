@@ -58,7 +58,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		if err := l.tryUseExistingNetworkConfig(config, networkConfig); err != nil {
 			return fmt.Errorf("重启实例获取网络配置失败且无法使用现有配置: %w", err)
 		}
-		global.APP_LOG.Info("使用现有网络配置继续",
+		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
 		return nil
 	}
@@ -75,7 +75,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		return fmt.Errorf("获取主机IP地址失败: %w", err)
 	}
 
-	global.APP_LOG.Info("开始配置实例网络",
+	global.APP_LOG.Debug("开始配置实例网络",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
@@ -123,7 +123,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 		zap.String("ipv6PortMappingMethod", networkConfig.IPv6PortMappingMethod))
 
 	if hasIPv6 {
-		global.APP_LOG.Info("开始配置IPv6网络",
+		global.APP_LOG.Debug("开始配置IPv6网络",
 			zap.String("instanceName", config.Name),
 			zap.String("ipv6PortMappingMethod", networkConfig.IPv6PortMappingMethod))
 
@@ -131,11 +131,11 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 			global.APP_LOG.Warn("配置IPv6网络失败", zap.Error(err))
 		}
 	} else {
-		global.APP_LOG.Info("IPv6未启用，跳过IPv6网络配置",
+		global.APP_LOG.Debug("IPv6未启用，跳过IPv6网络配置",
 			zap.String("instanceName", config.Name))
 	}
 
-	global.APP_LOG.Info("实例网络配置完成",
+	global.APP_LOG.Debug("实例网络配置完成",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
@@ -186,7 +186,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 	if config.Metadata != nil {
 		if metaNetworkType, ok := config.Metadata["network_type"]; ok {
 			networkType = metaNetworkType
-			global.APP_LOG.Info("使用实例级别的网络类型配置",
+			global.APP_LOG.Debug("使用实例级别的网络类型配置",
 				zap.String("instance", config.Name),
 				zap.String("networkType", networkType))
 		}
@@ -221,7 +221,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 		zap.String("providerIPv6PortMappingMethod", networkConfig.IPv6PortMappingMethod),
 		zap.String("providerIPv4PortMappingMethod", networkConfig.IPv4PortMappingMethod))
 
-	global.APP_LOG.Info("从Provider配置读取网络设置",
+	global.APP_LOG.Debug("从Provider配置读取网络设置",
 		zap.String("provider", l.config.Name),
 		zap.Bool("enableIPv6", hasIPv6),
 		zap.String("ipv4PortMethod", networkConfig.IPv4PortMappingMethod),
@@ -251,7 +251,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 		if inSpeed, ok := config.Metadata["in_speed"]; ok {
 			if speed, err := strconv.Atoi(inSpeed); err == nil {
 				networkConfig.InSpeed = speed
-				global.APP_LOG.Info("实例级别带宽配置覆盖Provider配置",
+				global.APP_LOG.Debug("实例级别带宽配置覆盖Provider配置",
 					zap.String("instance", config.Name),
 					zap.Int("customInSpeed", speed))
 			}
@@ -260,7 +260,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 		if outSpeed, ok := config.Metadata["out_speed"]; ok {
 			if speed, err := strconv.Atoi(outSpeed); err == nil {
 				networkConfig.OutSpeed = speed
-				global.APP_LOG.Info("实例级别带宽配置覆盖Provider配置",
+				global.APP_LOG.Debug("实例级别带宽配置覆盖Provider配置",
 					zap.String("instance", config.Name),
 					zap.Int("customOutSpeed", speed))
 			}
@@ -273,7 +273,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 				zap.String("metadata_enable_ipv6", enableIPv6),
 				zap.Bool("provider_enable_ipv6", hasIPv6))
 
-			global.APP_LOG.Info("IPv6配置以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6配置以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", enableIPv6),
 				zap.Bool("final_enable_ipv6", hasIPv6))
@@ -290,7 +290,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 				zap.String("metadata_ipv4_port_method", ipv4PortMethod),
 				zap.String("provider_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
 
-			global.APP_LOG.Info("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv4PortMethod),
 				zap.String("final_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
@@ -306,7 +306,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 				zap.String("metadata_ipv6_port_method", ipv6PortMethod),
 				zap.String("provider_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
 
-			global.APP_LOG.Info("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv6PortMethod),
 				zap.String("final_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
@@ -317,7 +317,7 @@ func (l *LXDProvider) parseNetworkConfigFromInstanceConfig(config provider.Insta
 	}
 
 	// 输出最终的网络配置结果
-	global.APP_LOG.Info("LXD网络配置解析完成",
+	global.APP_LOG.Debug("LXD网络配置解析完成",
 		zap.String("instanceName", config.Name),
 		zap.Int("sshPort", networkConfig.SSHPort),
 		zap.Int("inSpeed", networkConfig.InSpeed),

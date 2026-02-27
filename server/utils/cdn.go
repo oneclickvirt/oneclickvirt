@@ -36,7 +36,7 @@ func GetCDNURL(sshClient SSHExecutor, originalURL, providerType string) string {
 		result, err := sshClient.Execute(testCmd)
 		if err == nil && strings.TrimSpace(result) == "ok" {
 			cdnURL := endpoint + originalURL
-			global.APP_LOG.Info(fmt.Sprintf("找到可用CDN，使用CDN下载%s镜像", providerType),
+			global.APP_LOG.Debug(fmt.Sprintf("找到可用CDN，使用CDN下载%s镜像", providerType),
 				zap.String("originalURL", TruncateString(originalURL, 100)),
 				zap.String("cdnURL", TruncateString(cdnURL, 100)),
 				zap.String("cdnEndpoint", endpoint))
@@ -46,7 +46,7 @@ func GetCDNURL(sshClient SSHExecutor, originalURL, providerType string) string {
 		sshClient.Execute("sleep 0.5")
 	}
 
-	global.APP_LOG.Info("未找到可用CDN，使用原始URL",
+	global.APP_LOG.Debug("未找到可用CDN，使用原始URL",
 		zap.String("originalURL", TruncateString(originalURL, 100)))
 	return ""
 }

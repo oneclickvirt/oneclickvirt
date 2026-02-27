@@ -115,7 +115,7 @@ func ValidateToken(tokenString string) (*jwt.MapClaims, error) {
 	})
 
 	if err != nil {
-		global.APP_LOG.Warn("JWT token验证失败", zap.Error(err))
+		global.APP_LOG.Error("JWT token验证失败", zap.Error(err))
 		return nil, err
 	}
 

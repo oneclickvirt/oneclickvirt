@@ -57,7 +57,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", instanceID)
 		output, err := d.sshClient.Execute(checkCmd)
 		if err != nil {
-			global.APP_LOG.Error("检查容器状态失败",
+			global.APP_LOG.Warn("检查容器状态失败",
 				zap.String("instanceID", instanceID),
 				zap.Int("attempt", i+1),
 				zap.Error(err))
@@ -71,21 +71,21 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		containerStatus = strings.TrimSpace(output)
 		if containerStatus == "running" {
 			// 容器运行中，再等待额外时间确保容器内部服务完全启动
-			global.APP_LOG.Info("容器已启动，等待内部服务完全初始化",
+			global.APP_LOG.Debug("容器已启动，等待内部服务完全初始化",
 				zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 				zap.Int("waitSeconds", 10))
 			time.Sleep(10 * time.Second)
 			break
 		}
 
-		global.APP_LOG.Info("容器状态检查",
+		global.APP_LOG.Debug("容器状态检查",
 			zap.String("instanceID", instanceID),
 			zap.String("status", containerStatus),
 			zap.Int("attempt", i+1))
 
 		if i < maxRetries-1 {
 			waitSeconds := 10 // 等待时间
-			global.APP_LOG.Info("等待容器启动",
+			global.APP_LOG.Debug("等待容器启动",
 				zap.String("instanceID", instanceID),
 				zap.Int("waitSeconds", waitSeconds))
 			time.Sleep(time.Duration(waitSeconds) * time.Second)
@@ -133,7 +133,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			time.Sleep(10 * time.Second)
 			sshOutput, err = d.sshClient.Execute(sshReadinessCmd)
 			if err == nil && strings.Contains(sshOutput, "ssh_ready") {
-				global.APP_LOG.Info("SSH服务已就绪",
+				global.APP_LOG.Debug("SSH服务已就绪",
 					zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 					zap.Int("waitAttempts", i+1))
 				break
@@ -147,14 +147,14 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 				return fmt.Errorf("容器 %s SSH服务未就绪，无法设置密码", instanceID)
 			}
 
-			global.APP_LOG.Info("等待SSH服务就绪",
+			global.APP_LOG.Debug("等待SSH服务就绪",
 				zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 				zap.Int("attempt", i+1),
 				zap.Int("maxRetries", maxSSHRetries))
 		}
 	}
 
-	global.APP_LOG.Info("容器状态和SSH服务检查通过",
+	global.APP_LOG.Debug("容器状态和SSH服务检查通过",
 		zap.String("instanceID", utils.TruncateString(instanceID, 12)))
 
 	// 检测容器操作系统类型
@@ -168,7 +168,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 			zap.String("instanceID", instanceID))
 	}
 
-	global.APP_LOG.Info("检测到容器操作系统类型",
+	global.APP_LOG.Debug("检测到容器操作系统类型",
 		zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 		zap.String("osType", osType))
 
@@ -202,7 +202,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 
 	if err != nil {
 		// 脚本不存在，需要复制
-		global.APP_LOG.Info("容器内SSH脚本不存在，正在从宿主机复制",
+		global.APP_LOG.Debug("容器内SSH脚本不存在，正在从宿主机复制",
 			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 			zap.String("scriptName", scriptName))
 
@@ -227,11 +227,11 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 				zap.Error(err))
 		}
 
-		global.APP_LOG.Info("SSH脚本复制到容器成功",
+		global.APP_LOG.Debug("SSH脚本复制到容器成功",
 			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 			zap.String("scriptName", scriptName))
 	} else {
-		global.APP_LOG.Info("容器内SSH脚本已存在",
+		global.APP_LOG.Debug("容器内SSH脚本已存在",
 			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
 			zap.String("scriptName", scriptName))
 	}

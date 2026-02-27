@@ -87,7 +87,7 @@ func GetProviderList(c *gin.Context) {
 func CreateProvider(c *gin.Context) {
 	var req admin.CreateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("CreateProvider参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("CreateProvider参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, common.Response{
 			Code: 400,
 			Msg:  "参数错误: " + err.Error(),
@@ -125,7 +125,7 @@ func UpdateProvider(c *gin.Context) {
 
 	var req admin.UpdateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("UpdateProvider参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("UpdateProvider参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, common.Response{
 			Code: 400,
 			Msg:  "参数错误: " + err.Error(),
@@ -537,7 +537,7 @@ func TestSSHConnection(c *gin.Context) {
 		req.TestCount = 10 // 最多测试10次
 	}
 
-	global.APP_LOG.Info("开始测试SSH连接",
+	global.APP_LOG.Debug("开始测试SSH连接",
 		zap.String("host", req.Host),
 		zap.Int("port", req.Port),
 		zap.String("username", req.Username),
@@ -596,7 +596,7 @@ func TestSSHConnection(c *gin.Context) {
 		TestCount:          req.TestCount,
 	}
 
-	global.APP_LOG.Info("SSH连接测试成功",
+	global.APP_LOG.Debug("SSH连接测试成功",
 		zap.String("host", req.Host),
 		zap.Int("port", req.Port),
 		zap.Int64("minLatency", response.MinLatency),

@@ -31,7 +31,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 		return nil, err
 	}
 
-	global.APP_LOG.Info("开始处理Provider列表",
+	global.APP_LOG.Debug("开始处理Provider列表",
 		zap.Int("totalProviders", len(dbProviders)),
 		zap.Uint("userID", userID))
 
@@ -60,7 +60,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 	for _, provider := range dbProviders {
 		// 只在资源信息完全缺失时才进行同步，避免阻塞用户请求
 		if !provider.ResourceSynced && provider.NodeCPUCores == 0 && provider.NodeMemoryTotal == 0 && provider.NodeDiskTotal == 0 {
-			global.APP_LOG.Info("节点资源信息缺失，跳过该节点",
+			global.APP_LOG.Debug("节点资源信息缺失，跳过该节点",
 				zap.String("provider", provider.Name),
 				zap.Uint("id", provider.ID))
 
@@ -186,7 +186,7 @@ func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProvi
 		}
 	}
 
-	global.APP_LOG.Info("Provider列表处理完成",
+	global.APP_LOG.Debug("Provider列表处理完成",
 		zap.Int("totalProviders", len(dbProviders)),
 		zap.Int("availableProviders", len(providers)),
 		zap.Int("skippedProviders", skippedCount),

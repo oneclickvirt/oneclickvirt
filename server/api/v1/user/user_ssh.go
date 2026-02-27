@@ -98,7 +98,7 @@ func SSHWebSocket(c *gin.Context) {
 			return
 		}
 		sshPort = sshPortMapping.HostPort
-		global.APP_LOG.Info("使用SSH端口映射连接",
+		global.APP_LOG.Debug("使用SSH端口映射连接",
 			zap.String("host", sshHost),
 			zap.Int("hostPort", sshPortMapping.HostPort),
 			zap.Int("guestPort", sshPortMapping.GuestPort))
@@ -114,7 +114,7 @@ func SSHWebSocket(c *gin.Context) {
 			return
 		}
 		sshPort = instance.SSHPort
-		global.APP_LOG.Info("直接使用实例IP和SSH端口连接",
+		global.APP_LOG.Debug("直接使用实例IP和SSH端口连接",
 			zap.String("host", sshHost),
 			zap.Int("sshPort", instance.SSHPort))
 	}
@@ -337,9 +337,9 @@ func SSHWebSocket(c *gin.Context) {
 	// 等待连接结束或超时
 	select {
 	case <-done:
-		global.APP_LOG.Info("WebSocket连接关闭")
+		global.APP_LOG.Debug("WebSocket连接关闭")
 	case <-ctx.Done():
-		global.APP_LOG.Info("WebSocket连接超时")
+		global.APP_LOG.Warn("WebSocket连接超时")
 	case err := <-errChan:
 		if err != nil && err != io.EOF {
 			global.APP_LOG.Error("SSH会话错误", zap.Error(err))

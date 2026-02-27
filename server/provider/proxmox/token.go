@@ -52,7 +52,7 @@ func (p *ProxmoxProvider) saveTokenToFiles(tokenID, tokenSecret string) error {
 		return fmt.Errorf("failed to write token file: %w", err)
 	}
 
-	global.APP_LOG.Info("Proxmox token saved to local file",
+	global.APP_LOG.Debug("Proxmox token saved to local file",
 		zap.String("provider", p.providerUUID),
 		zap.String("tokenPath", tokenPath),
 		zap.String("tokenID", tokenID))
@@ -89,7 +89,7 @@ func (p *ProxmoxProvider) loadTokenFromFiles() error {
 	p.config.TokenID = tokenInfo.TokenID
 	p.config.Token = tokenInfo.TokenSecret
 
-	global.APP_LOG.Info("Proxmox token loaded from local file",
+	global.APP_LOG.Debug("Proxmox token loaded from local file",
 		zap.String("provider", p.providerUUID),
 		zap.String("tokenPath", tokenPath),
 		zap.String("tokenID", tokenInfo.TokenID))
@@ -111,7 +111,7 @@ func (p *ProxmoxProvider) UpdateToken(tokenID, tokenSecret string) error {
 func (p *ProxmoxProvider) loadTokenFromConfig() error {
 	// 如果没有扩展配置，尝试使用直接的 Token 和 TokenID 字段
 	if p.config.TokenID != "" && p.config.Token != "" {
-		global.APP_LOG.Info("Using direct token fields from config",
+		global.APP_LOG.Debug("Using direct token fields from config",
 			zap.String("tokenID", p.config.TokenID))
 		return nil
 	}

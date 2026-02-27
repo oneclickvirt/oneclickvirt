@@ -118,7 +118,7 @@ func (m *ProviderStateManager) CleanupExpired(threshold time.Duration) int {
 	})
 
 	if cleaned > 0 {
-		global.APP_LOG.Info("清理过期provider状态",
+		global.APP_LOG.Debug("清理过期provider状态",
 			zap.Int("cleaned", cleaned),
 			zap.Int64("remaining", m.stateCount.Load()))
 	}
@@ -149,7 +149,7 @@ func (m *ProviderStateManager) CleanupDeleted(validIDs []uint) int {
 	})
 
 	if cleaned > 0 {
-		global.APP_LOG.Info("清理已删除provider的状态",
+		global.APP_LOG.Debug("清理已删除provider的状态",
 			zap.Int("cleaned", cleaned),
 			zap.Int64("remaining", m.stateCount.Load()))
 	}

@@ -83,7 +83,7 @@ func validateDatabaseConnection(db *gorm.DB) error {
 
 	// 检查连接池状态
 	stats := sqlDB.Stats()
-	global.APP_LOG.Info("数据库连接池状态",
+	global.APP_LOG.Debug("数据库连接池状态",
 		zap.Int("max_open_connections", stats.MaxOpenConnections),
 		zap.Int("open_connections", stats.OpenConnections),
 		zap.Int("in_use", stats.InUse),

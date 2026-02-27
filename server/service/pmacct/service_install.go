@@ -30,7 +30,7 @@ func (s *Service) installPmacct(providerInstance provider.Provider) error {
 			global.APP_LOG.Warn("pmacct版本检查失败，将尝试重新安装", zap.Error(err))
 			// 版本不符合要求，继续安装流程
 		} else {
-			global.APP_LOG.Info("pmacct已安装且版本符合要求")
+			global.APP_LOG.Debug("pmacct已安装且版本符合要求")
 			return nil
 		}
 	}

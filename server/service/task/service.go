@@ -158,7 +158,7 @@ func (s *TaskService) cleanupStaleContexts() {
 				zap.Any("panic", r),
 				zap.Stack("stack"))
 		}
-		global.APP_LOG.Info("任务context清理goroutine已停止")
+		global.APP_LOG.Debug("任务context清理goroutine已停止")
 	}()
 
 	for {
@@ -173,7 +173,7 @@ func (s *TaskService) cleanupStaleContexts() {
 			s.contextManager.ForceLimitSize()
 
 			if cleaned > 0 || s.contextManager.Count() > int64(maxRunningContexts/2) {
-				global.APP_LOG.Info("Context清理完成",
+				global.APP_LOG.Debug("Context清理完成",
 					zap.Int("cleaned", cleaned),
 					zap.Int64("total", s.contextManager.Count()))
 			}
@@ -192,7 +192,7 @@ func (s *TaskService) cleanupIdleProviderPools() {
 				zap.Any("panic", r),
 				zap.Stack("stack"))
 		}
-		global.APP_LOG.Info("Provider工作池清理goroutine已停止")
+		global.APP_LOG.Debug("Provider工作池清理goroutine已停止")
 	}()
 
 	for {
@@ -213,7 +213,7 @@ func (s *TaskService) cleanupIdleProviderPools() {
 			}
 
 			if cleaned > 0 {
-				global.APP_LOG.Info("Provider工作池清理完成",
+				global.APP_LOG.Debug("Provider工作池清理完成",
 					zap.Int("cleaned", cleaned),
 					zap.Int64("remaining", s.poolManager.Count()))
 			}
@@ -334,7 +334,7 @@ func (s *TaskService) restorePortMappingsOptimized(
 	// 保存最后一组
 	consecutiveGroups = append(consecutiveGroups, currentGroup)
 
-	global.APP_LOG.Info("端口映射分组完成",
+	global.APP_LOG.Debug("端口映射分组完成",
 		zap.Int("totalPorts", len(ports)),
 		zap.Int("groups", len(consecutiveGroups)))
 

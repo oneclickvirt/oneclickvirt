@@ -183,7 +183,7 @@ func (i *IncusProvider) sshListInstances() ([]provider.Instance, error) {
 		instances = append(instances, instance)
 	}
 
-	global.APP_LOG.Info("通过 SSH 成功获取 Incus 实例列表",
+	global.APP_LOG.Debug("通过 SSH 成功获取 Incus 实例列表",
 		zap.Int("count", len(instances)))
 	return instances, nil
 }
@@ -199,7 +199,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		hostname = utils.CleanCommandOutput(output)
 	}
 
-	global.APP_LOG.Info("开始在Incus节点上创建实例（使用SSH）",
+	global.APP_LOG.Debug("开始在Incus节点上创建实例（使用SSH）",
 		zap.String("hostname", hostname),
 		zap.String("host", utils.TruncateString(i.config.Host, 32)),
 		zap.String("instance_name", config.Name),
@@ -210,7 +210,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("Incus实例创建进度",
+		global.APP_LOG.Debug("Incus实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))
@@ -291,12 +291,12 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	if config.InstanceType == "vm" {
 		updateProgress(58, "等待虚拟机Agent启动...")
 		if err := i.waitForInstanceExecReady(config.Name, 120); err != nil {
-			global.APP_LOG.Warn("等待虚拟机Agent启动超时",
+			global.APP_LOG.Error("等待虚拟机Agent启动超时",
 				zap.String("instanceName", config.Name),
 				zap.Error(err))
 			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
 		} else {
-			global.APP_LOG.Info("虚拟机Agent已启动",
+			global.APP_LOG.Debug("虚拟机Agent已启动",
 				zap.String("instanceName", config.Name))
 		}
 	} else {
@@ -307,7 +307,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 				zap.Error(err))
 			// 容器超时只是警告，继续尝试
 		} else {
-			global.APP_LOG.Info("容器已启动",
+			global.APP_LOG.Debug("容器已启动",
 				zap.String("instanceName", config.Name))
 		}
 	}
@@ -341,7 +341,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 			zap.Error(err))
 		// 容器超时只是警告，继续尝试
 	} else {
-		global.APP_LOG.Info("容器已启动",
+		global.APP_LOG.Debug("容器已启动",
 			zap.String("instanceName", config.Name))
 	}
 	// 查找实例ID用于pmacct初始化
@@ -368,7 +368,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		if privateIP, err := i.GetInstanceIPv4(ctx2, config.Name); err == nil && privateIP != "" {
 			// 更新数据库中的PrivateIP
 			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-				global.APP_LOG.Info("已更新Incus实例内网IP",
+				global.APP_LOG.Debug("已更新Incus实例内网IP",
 					zap.String("instanceName", config.Name),
 					zap.String("privateIP", privateIP))
 			}
@@ -387,7 +387,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 			// 获取IPv4的veth接口
 			if vethV4, err := i.GetVethInterfaceName(ctx3, config.Name); err == nil && vethV4 != "" {
 				if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", vethV4).Error; err == nil {
-					global.APP_LOG.Info("已更新Incus实例IPv4网络接口",
+					global.APP_LOG.Debug("已更新Incus实例IPv4网络接口",
 						zap.String("instanceName", config.Name),
 						zap.String("interfaceV4", vethV4))
 				}
@@ -405,7 +405,7 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 				// 实例有公网IPv6，获取对应的veth接口
 				if vethV6, err := i.GetVethInterfaceNameV6(ctx4, config.Name); err == nil && vethV6 != "" {
 					if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", vethV6).Error; err == nil {
-						global.APP_LOG.Info("已更新Incus实例IPv6网络接口",
+						global.APP_LOG.Debug("已更新Incus实例IPv6网络接口",
 							zap.String("instanceName", config.Name),
 							zap.String("interfaceV6", vethV6))
 					}
@@ -563,7 +563,7 @@ func (i *IncusProvider) configureInstanceStorage(ctx context.Context, config pro
 		}
 	}
 
-	global.APP_LOG.Info("实例存储配置完成",
+	global.APP_LOG.Debug("实例存储配置完成",
 		zap.String("instance", config.Name),
 		zap.String("instanceType", config.InstanceType))
 
@@ -574,7 +574,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 	// 先检查实例状态，如果已经在运行则跳过启动
 	output, err := i.sshClient.Execute(fmt.Sprintf("incus info %s | grep \"Status:\" | awk '{print $2}'", id))
 	if err == nil && strings.TrimSpace(output) == "RUNNING" {
-		global.APP_LOG.Info("Incus 实例已在运行，跳过启动", zap.String("id", id))
+		global.APP_LOG.Debug("Incus 实例已在运行，跳过启动", zap.String("id", id))
 		return nil
 	}
 
@@ -584,13 +584,13 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 		// 如果错误信息提示实例已在运行，则不视为错误
 		if strings.Contains(err.Error(), "already running") ||
 			strings.Contains(err.Error(), "The instance is already running") {
-			global.APP_LOG.Info("Incus 实例已在运行", zap.String("id", id))
+			global.APP_LOG.Debug("Incus 实例已在运行", zap.String("id", id))
 			return nil
 		}
 		return fmt.Errorf("failed to start instance: %w", err)
 	}
 
-	global.APP_LOG.Info("已发送启动命令，等待实例启动", zap.String("id", id))
+	global.APP_LOG.Debug("已发送启动命令，等待实例启动", zap.String("id", id))
 
 	// 等待实例真正启动 - 最多等待60秒
 	maxWaitTime := 90 * time.Second
@@ -613,7 +613,7 @@ func (i *IncusProvider) sshStartInstance(id string) error {
 			if status == "RUNNING" || status == "Running" {
 				// 实例已经启动，再等待额外的时间确保系统完全就绪
 				time.Sleep(3 * time.Second)
-				global.APP_LOG.Info("Incus实例已成功启动并就绪",
+				global.APP_LOG.Debug("Incus实例已成功启动并就绪",
 					zap.String("id", id),
 					zap.Duration("wait_time", time.Since(startTime)))
 				return nil
@@ -652,7 +652,7 @@ func (i *IncusProvider) sshDeleteInstance(id string) error {
 		hostname = utils.CleanCommandOutput(output)
 	}
 
-	global.APP_LOG.Info("开始在Incus节点上删除实例（使用SSH）",
+	global.APP_LOG.Debug("开始在Incus节点上删除实例（使用SSH）",
 		zap.String("hostname", hostname),
 		zap.String("host", utils.TruncateString(i.config.Host, 32)),
 		zap.String("instance_id", id))
@@ -661,7 +661,7 @@ func (i *IncusProvider) sshDeleteInstance(id string) error {
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {
-			global.APP_LOG.Info("实例已不存在，视为删除成功", zap.String("id", id))
+			global.APP_LOG.Debug("实例已不存在，视为删除成功", zap.String("id", id))
 			return nil // 实例不存在，视为删除成功
 		}
 		return fmt.Errorf("failed to delete instance: %w", err)
@@ -698,7 +698,7 @@ func (i *IncusProvider) sshListImages() ([]provider.Image, error) {
 		images = append(images, image)
 	}
 
-	global.APP_LOG.Info("通过 SSH 成功获取 Incus 镜像列表", zap.Int("count", len(images)))
+	global.APP_LOG.Debug("通过 SSH 成功获取 Incus 镜像列表", zap.Int("count", len(images)))
 	return images, nil
 }
 
@@ -724,7 +724,7 @@ func (i *IncusProvider) sshDeleteImage(id string) error {
 
 // configureInstanceSystem 配置实例系统
 func (i *IncusProvider) configureInstanceSystem(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置LXD实例系统",
+	global.APP_LOG.Debug("开始配置LXD实例系统",
 		zap.String("instance", config.Name),
 		zap.String("type", config.InstanceType))
 	if config.InstanceType != "vm" {
@@ -732,7 +732,7 @@ func (i *IncusProvider) configureInstanceSystem(ctx context.Context, config prov
 		_ = i.setInstanceConfig(ctx, config.Name, "boot.autostart.priority", "50")
 		_ = i.setInstanceConfig(ctx, config.Name, "boot.autostart.delay", "10")
 	}
-	global.APP_LOG.Info("实例系统配置完成",
+	global.APP_LOG.Debug("实例系统配置完成",
 		zap.String("instanceName", config.Name))
 	return nil
 }
@@ -785,7 +785,7 @@ func (i *IncusProvider) setInstanceConfig(ctx context.Context, instanceName stri
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 设置实例配置",
+			global.APP_LOG.Debug("回退到SSH执行 - 设置实例配置",
 				zap.String("instance", instanceName),
 				zap.String("key", key))
 		}
@@ -828,7 +828,7 @@ func (i *IncusProvider) setInstanceDeviceConfig(ctx context.Context, instanceNam
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 设置实例设备配置",
+			global.APP_LOG.Debug("回退到SSH执行 - 设置实例设备配置",
 				zap.String("instance", instanceName),
 				zap.String("device", deviceName),
 				zap.String("key", key))
@@ -866,26 +866,26 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 		scriptPath := filepath.Join(scriptsDir, script)
 		if !i.isRemoteFileValid(scriptPath) {
 			allExist = false
-			global.APP_LOG.Info("SSH脚本文件不存在或无效",
+			global.APP_LOG.Debug("SSH脚本文件不存在或无效",
 				zap.String("scriptPath", scriptPath))
 			break
 		}
 	}
 
 	if allExist {
-		global.APP_LOG.Info("SSH脚本文件都已存在且有效")
+		global.APP_LOG.Debug("SSH脚本文件都已存在且有效")
 		return nil
 	}
 
 	// 下载缺失的脚本
-	global.APP_LOG.Info("开始下载SSH脚本文件")
+	global.APP_LOG.Debug("开始下载SSH脚本文件")
 
 	for _, script := range scripts {
 		scriptPath := filepath.Join(scriptsDir, script)
 
 		// 如果脚本已存在且有效，跳过
 		if i.isRemoteFileValid(scriptPath) {
-			global.APP_LOG.Info("SSH脚本已存在，跳过下载",
+			global.APP_LOG.Debug("SSH脚本已存在，跳过下载",
 				zap.String("script", script))
 			continue
 		}
@@ -894,7 +894,7 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 		baseURL := "https://raw.githubusercontent.com/oneclickvirt/incus/main/scripts/" + script
 		downloadURL := i.getSSHScriptDownloadURL(baseURL, providerCountry)
 
-		global.APP_LOG.Info("开始下载SSH脚本",
+		global.APP_LOG.Debug("开始下载SSH脚本",
 			zap.String("script", script),
 			zap.String("downloadURL", downloadURL),
 			zap.String("scriptPath", scriptPath))
@@ -920,7 +920,7 @@ func (i *IncusProvider) ensureSSHScriptsAvailable(providerCountry string) error 
 		dos2unixCmd := fmt.Sprintf("command -v dos2unix >/dev/null 2>&1 && dos2unix %s || true", scriptPath)
 		i.sshClient.Execute(dos2unixCmd)
 
-		global.APP_LOG.Info("SSH脚本下载并设置完成",
+		global.APP_LOG.Debug("SSH脚本下载并设置完成",
 			zap.String("script", script),
 			zap.String("scriptPath", scriptPath))
 	}
@@ -937,7 +937,7 @@ func (i *IncusProvider) getSSHScriptDownloadURL(originalURL, providerCountry str
 			// 测试CDN可用性
 			testCmd := fmt.Sprintf("curl -s -I --max-time 5 '%s' | head -n 1 | grep -q '200'", cdnURL)
 			if _, err := i.sshClient.Execute(testCmd); err == nil {
-				global.APP_LOG.Info("使用CDN下载SSH脚本",
+				global.APP_LOG.Debug("使用CDN下载SSH脚本",
 					zap.String("cdnURL", cdnURL))
 				return cdnURL
 			}

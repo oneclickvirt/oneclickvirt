@@ -19,7 +19,7 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 	// 等待实例完全启动
 	time.Sleep(3 * time.Second)
 
-	global.APP_LOG.Info("开始配置PVE实例端口映射",
+	global.APP_LOG.Debug("开始配置PVE实例端口映射",
 		zap.String("instance", config.Name),
 		zap.Int("vmid", vmid))
 
@@ -47,7 +47,7 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 		return fmt.Errorf("无法获取实例 %s 的IP地址", config.Name)
 	}
 
-	global.APP_LOG.Info("获取到实例内网IP",
+	global.APP_LOG.Debug("获取到实例内网IP",
 		zap.String("instance", config.Name),
 		zap.Int("vmid", vmid),
 		zap.String("instanceIP", instanceIP))
@@ -64,7 +64,7 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 		return fmt.Errorf("配置端口映射失败: %w", err)
 	}
 
-	global.APP_LOG.Info("PVE实例端口映射配置成功",
+	global.APP_LOG.Debug("PVE实例端口映射配置成功",
 		zap.String("instance", config.Name),
 		zap.Int("vmid", vmid))
 
@@ -73,7 +73,7 @@ func (p *ProxmoxProvider) configureInstancePortMappings(ctx context.Context, con
 
 // cleanupInstancePortMappings 清理实例的端口映射
 func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid string, instanceType string) error {
-	global.APP_LOG.Info("开始清理实例端口映射",
+	global.APP_LOG.Debug("开始清理实例端口映射",
 		zap.String("vmid", vmid),
 		zap.String("instanceType", instanceType))
 
@@ -95,7 +95,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 
 	// 2. 如果找到了实例名称，尝试从数据库获取端口映射进行清理
 	if instanceName != "" {
-		global.APP_LOG.Info("找到实例名称，开始清理数据库中的端口映射",
+		global.APP_LOG.Debug("找到实例名称，开始清理数据库中的端口映射",
 			zap.String("vmid", vmid),
 			zap.String("instanceName", instanceName))
 
@@ -118,7 +118,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 							zap.String("protocol", port.Protocol),
 							zap.Error(err))
 					} else {
-						global.APP_LOG.Info("端口映射清理成功",
+						global.APP_LOG.Debug("端口映射清理成功",
 							zap.String("instanceName", instanceName),
 							zap.Int("hostPort", port.HostPort),
 							zap.String("protocol", port.Protocol))
@@ -133,7 +133,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 		vmidInt, err := strconv.Atoi(vmid)
 		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
 			inferredIP := VMIDToInternalIP(vmidInt)
-			global.APP_LOG.Info("尝试基于推断IP清理iptables规则",
+			global.APP_LOG.Debug("尝试基于推断IP清理iptables规则",
 				zap.String("vmid", vmid),
 				zap.String("inferredIP", inferredIP))
 
@@ -146,7 +146,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 		}
 	}
 
-	global.APP_LOG.Info("实例端口映射清理完成",
+	global.APP_LOG.Debug("实例端口映射清理完成",
 		zap.String("vmid", vmid),
 		zap.String("instanceType", instanceType))
 
@@ -155,7 +155,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 
 // cleanupIptablesRulesForIP 清理指定IP地址的iptables规则
 func (p *ProxmoxProvider) cleanupIptablesRulesForIP(ctx context.Context, ipAddress string) error {
-	global.APP_LOG.Info("清理IP地址的iptables规则", zap.String("ipAddress", ipAddress))
+	global.APP_LOG.Debug("清理IP地址的iptables规则", zap.String("ipAddress", ipAddress))
 
 	// 清理DNAT规则
 	dnatCmd := fmt.Sprintf("iptables -t nat -S PREROUTING | grep 'DNAT.*%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
@@ -205,7 +205,7 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 	// dedicated_ipv4_ipv6: 独立IPv4 + 独立IPv6，不需要端口映射
 	// ipv6_only: 纯IPv6，不允许任何IPv4操作
 	if networkConfig.NetworkType == "dedicated_ipv4" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only" {
-		global.APP_LOG.Info("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
+		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过IPv4端口映射配置",
 			zap.String("instance", instanceName),
 			zap.String("networkType", networkConfig.NetworkType))
 		return nil
@@ -224,7 +224,7 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 	}
 
 	if len(portMappings) == 0 {
-		global.APP_LOG.Warn("未找到端口映射配置", zap.String("instance", instanceName))
+		global.APP_LOG.Debug("未找到端口映射配置", zap.String("instance", instanceName))
 		return nil
 	}
 
@@ -272,7 +272,7 @@ func (p *ProxmoxProvider) configurePortMappingsWithIP(ctx context.Context, insta
 
 // setupPortMappingWithIP 使用指定的实例IP设置端口映射
 func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
-	global.APP_LOG.Info("设置端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -297,7 +297,7 @@ func (p *ProxmoxProvider) setupPortMappingWithIP(ctx context.Context, instanceNa
 
 // setupSinglePortMapping 设置单个协议的端口映射
 func (p *ProxmoxProvider) setupSinglePortMapping(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, method, instanceIP string) error {
-	global.APP_LOG.Info("设置单个协议端口映射",
+	global.APP_LOG.Debug("设置单个协议端口映射",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -319,7 +319,7 @@ func (p *ProxmoxProvider) setupSinglePortMapping(ctx context.Context, instanceNa
 
 // setupIptablesMappingWithIP 使用指定的实例IP设置iptables端口映射
 func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Info("设置Iptables端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置Iptables端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("instanceIP", instanceIP),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
@@ -357,7 +357,7 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 		return fmt.Errorf("添加MASQUERADE规则失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Iptables端口映射设置成功",
+	global.APP_LOG.Debug("Iptables端口映射设置成功",
 		zap.String("instance", instanceName),
 		zap.String("target", fmt.Sprintf("%s:%d", cleanInstanceIP, guestPort)))
 
@@ -366,7 +366,7 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 
 // removePortMapping 移除端口映射
 func (p *ProxmoxProvider) removePortMapping(ctx context.Context, instanceName string, hostPort int, protocol string, method string) error {
-	global.APP_LOG.Info("移除端口映射",
+	global.APP_LOG.Debug("移除端口映射",
 		zap.String("instance", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.String("protocol", protocol),
@@ -431,7 +431,7 @@ func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceNam
 			zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Iptables端口映射移除成功",
+	global.APP_LOG.Debug("Iptables端口映射移除成功",
 		zap.String("instance", instanceName))
 
 	return nil
@@ -452,7 +452,7 @@ func (p *ProxmoxProvider) saveIptablesRules() error {
 		return fmt.Errorf("保存iptables规则失败: %w", err)
 	}
 
-	global.APP_LOG.Info("iptables规则保存成功")
+	global.APP_LOG.Debug("iptables规则保存成功")
 	return nil
 }
 

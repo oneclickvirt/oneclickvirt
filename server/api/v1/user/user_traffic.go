@@ -65,7 +65,7 @@ func GetInstancePmacctSummary(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("用户获取实例pmacct汇总成功",
+	global.APP_LOG.Debug("用户获取实例pmacct汇总成功",
 		zap.Uint("userID", userID),
 		zap.Uint64("instanceID", instanceID))
 
@@ -124,7 +124,7 @@ func QueryInstancePmacctData(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("用户查询pmacct数据成功",
+	global.APP_LOG.Debug("用户查询pmacct数据成功",
 		zap.Uint("userID", userID),
 		zap.Uint64("instanceID", instanceID))
 

@@ -442,7 +442,7 @@ func (s *QuotaService) AllocatePendingQuota(tx *gorm.DB, userID uint, resources 
 		return fmt.Errorf("更新待确认配额失败: %v", err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("用户 %d 待确认配额已分配: %d -> %d (+%d)",
+	global.APP_LOG.Debug(fmt.Sprintf("用户 %d 待确认配额已分配: %d -> %d (+%d)",
 		userID, user.PendingQuota, newPendingQuota, resources.GetResourceUsage()))
 	return nil
 }
@@ -469,7 +469,7 @@ func (s *QuotaService) ConfirmPendingQuota(tx *gorm.DB, userID uint, resources R
 		return fmt.Errorf("确认配额失败: %v", err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已确认: pending %d -> %d, used %d -> %d",
+	global.APP_LOG.Debug(fmt.Sprintf("用户 %d 配额已确认: pending %d -> %d, used %d -> %d",
 		userID, user.PendingQuota, newPendingQuota, user.UsedQuota, newUsedQuota))
 	return nil
 }
@@ -491,7 +491,7 @@ func (s *QuotaService) ReleasePendingQuota(tx *gorm.DB, userID uint, resources R
 		return fmt.Errorf("释放待确认配额失败: %v", err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("用户 %d 待确认配额已释放: %d -> %d (-%d)",
+	global.APP_LOG.Debug(fmt.Sprintf("用户 %d 待确认配额已释放: %d -> %d (-%d)",
 		userID, user.PendingQuota, newPendingQuota, resourceUsage))
 	return nil
 }
@@ -513,7 +513,7 @@ func (s *QuotaService) ReleaseUsedQuota(tx *gorm.DB, userID uint, resources Reso
 		return fmt.Errorf("释放已使用配额失败: %v", err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("用户 %d 已使用配额已释放: %d -> %d (-%d)",
+	global.APP_LOG.Debug(fmt.Sprintf("用户 %d 已使用配额已释放: %d -> %d (-%d)",
 		userID, user.UsedQuota, newUsedQuota, resourceUsage))
 	return nil
 }
@@ -575,7 +575,7 @@ func (s *QuotaService) RecalculateUserQuota(userID uint) error {
 				return fmt.Errorf("更新用户配额失败: %v", err)
 			}
 
-			global.APP_LOG.Info(fmt.Sprintf("用户 %d 配额已重新计算: used %d -> %d, pending %d -> %d",
+			global.APP_LOG.Debug(fmt.Sprintf("用户 %d 配额已重新计算: used %d -> %d, pending %d -> %d",
 				userID, user.UsedQuota, actualUsedQuota, user.PendingQuota, actualPendingQuota))
 		}
 

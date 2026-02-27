@@ -154,7 +154,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		if lxdProv, ok := prov.(*lxd.LXDProvider); ok {
 			if ip, err := lxdProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
 				currentPrivateIP = ip
-				global.APP_LOG.Info("成功获取LXD实例最新内网IP",
+				global.APP_LOG.Debug("成功获取LXD实例最新内网IP",
 					zap.String("instanceName", instance.Name),
 					zap.String("privateIP", currentPrivateIP))
 			} else {
@@ -169,7 +169,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		if incusProv, ok := prov.(*incus.IncusProvider); ok {
 			if ip, err := incusProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
 				currentPrivateIP = ip
-				global.APP_LOG.Info("成功获取Incus实例最新内网IP",
+				global.APP_LOG.Debug("成功获取Incus实例最新内网IP",
 					zap.String("instanceName", instance.Name),
 					zap.String("privateIP", currentPrivateIP))
 			} else {
@@ -184,7 +184,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		if proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider); ok {
 			if ip, err := proxmoxProv.GetInstanceIPv4(ctx, instance.Name); err == nil {
 				currentPrivateIP = ip
-				global.APP_LOG.Info("成功获取Proxmox实例最新内网IP",
+				global.APP_LOG.Debug("成功获取Proxmox实例最新内网IP",
 					zap.String("instanceName", instance.Name),
 					zap.String("privateIP", currentPrivateIP))
 			} else {
@@ -211,7 +211,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 				zap.String("newPrivateIP", currentPrivateIP),
 				zap.Error(err))
 		} else {
-			global.APP_LOG.Info("实例内网IP已更新到数据库",
+			global.APP_LOG.Debug("实例内网IP已更新到数据库",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("oldPrivateIP", instance.PrivateIP),
 				zap.String("newPrivateIP", currentPrivateIP))
@@ -265,7 +265,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	if result.ID != 0 && result.ID != port.ID {
 		// 删除 provider 创建的重复记录
 		global.APP_DB.Delete(&providerModel.Port{}, result.ID)
-		global.APP_LOG.Info("删除 provider 创建的重复端口记录",
+		global.APP_LOG.Debug("删除 provider 创建的重复端口记录",
 			zap.Uint("duplicatePortId", result.ID),
 			zap.Uint("originalPortId", port.ID))
 	}

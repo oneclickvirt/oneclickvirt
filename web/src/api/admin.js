@@ -836,3 +836,19 @@ export const deleteProviderIPv4PoolEntry = (providerId, entryId) => {
     method: 'delete'
   })
 }
+
+// 日志查看
+export const getLogDates = () => {
+  return request({
+    url: '/v1/admin/logs/dates',
+    method: 'get'
+  })
+}
+
+export const getLogContent = (params) => {
+  return request({
+    url: '/v1/admin/logs/content',
+    method: 'get',
+    params
+  })
+}

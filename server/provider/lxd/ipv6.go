@@ -26,7 +26,7 @@ type IPv6Config struct {
 
 // ConfigureIPv6 配置实例的IPv6网络
 func (l *LXDProvider) ConfigureIPv6(instanceName string, enable bool) error {
-	global.APP_LOG.Info("配置IPv6网络",
+	global.APP_LOG.Debug("配置IPv6网络",
 		zap.String("instance", instanceName),
 		zap.Bool("enable", enable))
 
@@ -73,7 +73,7 @@ func (l *LXDProvider) enableIPv6(instanceName string) error {
 		// 不阻断流程
 	}
 
-	global.APP_LOG.Info("IPv6网络配置成功",
+	global.APP_LOG.Debug("IPv6网络配置成功",
 		zap.String("instance", instanceName))
 
 	return nil
@@ -111,7 +111,7 @@ func (l *LXDProvider) disableIPv6(instanceName string) error {
 		// 不阻断流程
 	}
 
-	global.APP_LOG.Info("IPv6网络禁用成功",
+	global.APP_LOG.Debug("IPv6网络禁用成功",
 		zap.String("instance", instanceName))
 
 	return nil
@@ -142,7 +142,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	if err == nil {
 		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
 		if publicIPv6 != "" && !l.isPrivateIPv6(publicIPv6) {
-			global.APP_LOG.Info("从文件获取到公网IPv6地址",
+			global.APP_LOG.Debug("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", publicIPv6))
 			return publicIPv6, nil
@@ -155,7 +155,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 	if err == nil {
 		eth1IPv6 := utils.CleanCommandOutput(eth1Output)
 		if eth1IPv6 != "" && !l.isPrivateIPv6(eth1IPv6) {
-			global.APP_LOG.Info("从eth1获取到公网IPv6地址",
+			global.APP_LOG.Debug("从eth1获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", eth1IPv6))
 			return eth1IPv6, nil
@@ -168,7 +168,7 @@ func (l *LXDProvider) GetInstancePublicIPv6(instanceName string) (string, error)
 
 // ConfigureIPv6Profile 为LXD profile配置IPv6网络
 func (l *LXDProvider) ConfigureIPv6Profile(profileName string, enable bool) error {
-	global.APP_LOG.Info("配置IPv6 Profile",
+	global.APP_LOG.Debug("配置IPv6 Profile",
 		zap.String("profile", profileName),
 		zap.Bool("enable", enable))
 
@@ -204,7 +204,7 @@ func (l *LXDProvider) ConfigureIPv6Profile(profileName string, enable bool) erro
 		}
 	}
 
-	global.APP_LOG.Info("IPv6 Profile配置完成",
+	global.APP_LOG.Debug("IPv6 Profile配置完成",
 		zap.String("profile", profileName))
 
 	return nil
@@ -245,7 +245,7 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 	if err == nil {
 		ipv6 := strings.TrimSpace(output)
 		if !l.isPrivateIPv6(ipv6) {
-			global.APP_LOG.Info("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
+			global.APP_LOG.Debug("从本地接口获取到IPv6地址", zap.String("ipv6", ipv6))
 			return ipv6, nil
 		}
 	}
@@ -265,7 +265,7 @@ func (l *LXDProvider) checkIPv6(ctx context.Context) (string, error) {
 		if err == nil {
 			ipv6 := strings.TrimSpace(output)
 			if ipv6 != "" && !strings.Contains(output, "error") && !l.isPrivateIPv6(ipv6) {
-				global.APP_LOG.Info("通过API获取到IPv6地址",
+				global.APP_LOG.Debug("通过API获取到IPv6地址",
 					zap.String("endpoint", endpoint),
 					zap.String("ipv6", ipv6))
 				return ipv6, nil
@@ -290,7 +290,7 @@ func (l *LXDProvider) getContainerIPv6(ctx context.Context, containerName string
 		return "", fmt.Errorf("容器无内网IPv6地址")
 	}
 
-	global.APP_LOG.Info("获取到容器IPv6地址",
+	global.APP_LOG.Debug("获取到容器IPv6地址",
 		zap.String("container", containerName),
 		zap.String("ipv6", ipv6))
 	return ipv6, nil
@@ -310,7 +310,7 @@ func (l *LXDProvider) getHostIPv6Prefix(ctx context.Context) (string, error) {
 	}
 
 	prefix = prefix + ":"
-	global.APP_LOG.Info("获取到IPv6子网前缀", zap.String("prefix", prefix))
+	global.APP_LOG.Debug("获取到IPv6子网前缀", zap.String("prefix", prefix))
 	return prefix, nil
 }
 
@@ -354,7 +354,7 @@ func (l *LXDProvider) installSipcalc(ctx context.Context) error {
 		return nil // 已安装
 	}
 
-	global.APP_LOG.Info("开始安装sipcalc工具")
+	global.APP_LOG.Debug("开始安装sipcalc工具")
 
 	// 检测OS类型
 	osCmd := "cat /etc/os-release | grep ^ID= | cut -d= -f2 | tr -d '\"'"
@@ -364,7 +364,7 @@ func (l *LXDProvider) installSipcalc(ctx context.Context) error {
 	}
 
 	osType := utils.CleanCommandOutput(osOutput)
-	global.APP_LOG.Info("检测到操作系统类型", zap.String("os", osType))
+	global.APP_LOG.Debug("检测到操作系统类型", zap.String("os", osType))
 
 	switch osType {
 	case "centos", "almalinux", "rocky":
@@ -415,7 +415,7 @@ func (l *LXDProvider) installSipcalcRHEL(ctx context.Context) error {
 	filename := "sipcalc-1.1.6-17.el8." + arch + ".rpm"
 
 	for _, mirror := range mirrors {
-		global.APP_LOG.Info("尝试从镜像下载sipcalc", zap.String("mirror", mirror))
+		global.APP_LOG.Debug("尝试从镜像下载sipcalc", zap.String("mirror", mirror))
 		downloadCmd := fmt.Sprintf("curl -fLO '%s'", mirror)
 		_, err := l.sshClient.Execute(downloadCmd)
 		if err == nil {
@@ -455,7 +455,7 @@ func (l *LXDProvider) installSipcalcDebian(ctx context.Context) error {
 
 // setupNetworkDeviceIPv6 配置网络设备方式的IPv6
 func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Config) (string, error) {
-	global.APP_LOG.Info("开始配置网络设备IPv6",
+	global.APP_LOG.Debug("开始配置网络设备IPv6",
 		zap.String("container", config.ContainerName))
 
 	// 安装sipcalc
@@ -505,7 +505,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 		return "", fmt.Errorf("无法获取本地IPv6网络配置")
 	}
 
-	global.APP_LOG.Info("本地IPv6地址", zap.String("address", ipNetworkGam))
+	global.APP_LOG.Debug("本地IPv6地址", zap.String("address", ipNetworkGam))
 
 	// 配置系统参数
 	sysctlConfigs := []string{
@@ -540,7 +540,7 @@ func (l *LXDProvider) setupNetworkDeviceIPv6(ctx context.Context, config IPv6Con
 	randBits := strings.TrimSpace(output)
 	containerIPv6 := ipv6Prefix + randBits
 
-	global.APP_LOG.Info("生成容器IPv6地址",
+	global.APP_LOG.Debug("生成容器IPv6地址",
 		zap.String("container", config.ContainerName),
 		zap.String("ipv6", containerIPv6))
 
@@ -690,11 +690,11 @@ func (l *LXDProvider) handleIPv6Gateway(ctx context.Context, interfaceName strin
 // configureIPv6Network 主要的IPv6网络配置函数
 func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName string, enableIPv6 bool, portMappingMethod string) error {
 	if !enableIPv6 {
-		global.APP_LOG.Info("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
+		global.APP_LOG.Debug("IPv6未启用，跳过IPv6配置", zap.String("container", containerName))
 		return nil
 	}
 
-	global.APP_LOG.Info("开始配置IPv6网络",
+	global.APP_LOG.Debug("开始配置IPv6网络",
 		zap.String("container", containerName),
 		zap.String("portMappingMethod", portMappingMethod))
 
@@ -707,7 +707,7 @@ func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName st
 		return nil // 宿主机不支持IPv6时，静默跳过IPv6配置，不返回错误
 	}
 
-	global.APP_LOG.Info("宿主机IPv6环境检查通过",
+	global.APP_LOG.Debug("宿主机IPv6环境检查通过",
 		zap.String("container", containerName),
 		zap.String("hostIPv6", hostIPv6))
 
@@ -752,7 +752,7 @@ func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName st
 	saveCmd := fmt.Sprintf("echo \"%s\" >> %s_v6", containerIPv6, containerName)
 	l.sshClient.Execute(saveCmd)
 
-	global.APP_LOG.Info("IPv6网络配置完成",
+	global.APP_LOG.Debug("IPv6网络配置完成",
 		zap.String("container", containerName),
 		zap.String("ipv6", containerIPv6),
 		zap.String("method", portMappingMethod))
@@ -762,7 +762,7 @@ func (l *LXDProvider) configureIPv6Network(ctx context.Context, containerName st
 
 // setupIptablesIPv6 使用iptables方式配置IPv6映射
 func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) (string, error) {
-	global.APP_LOG.Info("开始配置iptables IPv6映射",
+	global.APP_LOG.Debug("开始配置iptables IPv6映射",
 		zap.String("container", config.ContainerName))
 
 	// 安装必要的包
@@ -808,7 +808,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 		return "", fmt.Errorf("无法获取网络接口名称")
 	}
 
-	global.APP_LOG.Info("网络配置信息",
+	global.APP_LOG.Debug("网络配置信息",
 		zap.String("interface", interfaceName),
 		zap.String("subnetPrefix", subnetPrefix),
 		zap.String("ipv6Length", ipv6Length),
@@ -851,7 +851,7 @@ func (l *LXDProvider) setupIptablesIPv6(ctx context.Context, config IPv6Config) 
 
 		// 找到可用地址
 		mappedIPv6 = testIPv6
-		global.APP_LOG.Info("找到可用IPv6地址", zap.String("ipv6", mappedIPv6))
+		global.APP_LOG.Debug("找到可用IPv6地址", zap.String("ipv6", mappedIPv6))
 		break
 	}
 
@@ -980,7 +980,7 @@ func (l *LXDProvider) saveIp6tablesRules(ctx context.Context) error {
 
 // testIPv6Connectivity 测试IPv6连通性
 func (l *LXDProvider) testIPv6Connectivity(ctx context.Context, ipv6Addr, containerName string) error {
-	global.APP_LOG.Info("测试IPv6连通性", zap.String("ipv6", ipv6Addr))
+	global.APP_LOG.Debug("测试IPv6连通性", zap.String("ipv6", ipv6Addr))
 
 	testCmd := fmt.Sprintf("ping6 -c 3 %s", ipv6Addr)
 	_, err := l.sshClient.Execute(testCmd)
@@ -991,7 +991,7 @@ func (l *LXDProvider) testIPv6Connectivity(ctx context.Context, ipv6Addr, contai
 		return fmt.Errorf("映射失败")
 	}
 
-	global.APP_LOG.Info("IPv6映射成功",
+	global.APP_LOG.Debug("IPv6映射成功",
 		zap.String("container", containerName),
 		zap.String("ipv6", ipv6Addr))
 

@@ -393,7 +393,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 				// 只有当目标大小大于当前大小时才resize
 				if currentGB > 0 && targetDiskGB <= currentGB {
 					shouldResize = false
-					global.APP_LOG.Info("磁盘无需调整",
+					global.APP_LOG.Debug("磁盘无需调整",
 						zap.Int("vmid", vmid),
 						zap.Int("current_gb", currentGB),
 						zap.Int("target_gb", targetDiskGB))
@@ -443,7 +443,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 			statusOutput, err := p.sshClient.Execute(statusCmd)
 			if err == nil && strings.Contains(statusOutput, "status: running") {
 				vmRunning = true
-				global.APP_LOG.Info("虚拟机已启动",
+				global.APP_LOG.Debug("虚拟机已启动",
 					zap.Int("vmid", vmid),
 					zap.Duration("elapsed", time.Since(startTime)))
 				break
@@ -468,7 +468,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 				_, err := p.sshClient.Execute(agentCmd)
 				if err == nil {
 					agentSupported = true
-					global.APP_LOG.Info("检测到QEMU Guest Agent已安装并就绪",
+					global.APP_LOG.Debug("检测到QEMU Guest Agent已安装并就绪",
 						zap.Int("vmid", vmid))
 					break
 				}
@@ -477,7 +477,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 			// 如果快速检测失败，进行较短的等待
 			if !agentSupported {
-				global.APP_LOG.Info("镜像可能未安装QEMU Guest Agent，进行短时等待...",
+				global.APP_LOG.Debug("镜像可能未安装QEMU Guest Agent，进行短时等待...",
 					zap.Int("vmid", vmid))
 
 				agentWaitTime := 15 * time.Second
@@ -487,7 +487,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 					agentCmd := fmt.Sprintf("qm agent %d ping 2>/dev/null", vmid)
 					_, err := p.sshClient.Execute(agentCmd)
 					if err == nil {
-						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+						global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 							zap.Int("vmid", vmid),
 							zap.Duration("elapsed", time.Since(agentStartTime)))
 						agentSupported = true

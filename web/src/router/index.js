@@ -288,6 +288,16 @@ const routes = [
         }
       },
       {
+        path: 'logs',
+        name: 'AdminLogs',
+        component: () => import('@/view/admin/logs/index.vue'),
+        meta: {
+          title: '日志查看',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'oauth2-providers',
         name: 'AdminOAuth2Providers',
         component: () => import('@/view/admin/oauth2/index.vue'),

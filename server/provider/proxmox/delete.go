@@ -10,7 +10,7 @@ import (
 )
 
 func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) error {
-	global.APP_LOG.Info("开始在Proxmox节点上删除实例（使用SSH）",
+	global.APP_LOG.Debug("开始在Proxmox节点上删除实例（使用SSH）",
 		zap.String("node", p.node),
 		zap.String("host", utils.TruncateString(p.config.Host, 32)),
 		zap.String("instance_id", id))
@@ -33,7 +33,7 @@ func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) erro
 		ipAddress = "" // 继续执行，但IP地址为空
 	}
 
-	global.APP_LOG.Info("开始删除Proxmox实例",
+	global.APP_LOG.Debug("开始删除Proxmox实例",
 		zap.String("id", id),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType),
@@ -57,19 +57,19 @@ func (p *ProxmoxProvider) sshDeleteInstance(ctx context.Context, id string) erro
 
 // handleVMDeletion 处理VM删除
 func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipAddress string) error {
-	global.APP_LOG.Info("开始VM删除流程",
+	global.APP_LOG.Debug("开始VM删除流程",
 		zap.String("vmid", vmid),
 		zap.String("ip", ipAddress))
 
 	// 1. 解锁VM
-	global.APP_LOG.Info("解锁VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("解锁VM", zap.String("vmid", vmid))
 	_, err := p.sshClient.Execute(fmt.Sprintf("qm unlock %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("解锁VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
 	// 2. 停止VM
-	global.APP_LOG.Info("停止VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("停止VM", zap.String("vmid", vmid))
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm stop %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("停止VM失败", zap.String("vmid", vmid), zap.Error(err))
@@ -88,7 +88,7 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 	}
 
 	// 5. 删除VM
-	global.APP_LOG.Info("销毁VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("销毁VM", zap.String("vmid", vmid))
 	_, err = p.sshClient.Execute(fmt.Sprintf("qm destroy %s", vmid))
 	if err != nil {
 		global.APP_LOG.Error("销毁VM失败", zap.String("vmid", vmid), zap.Error(err))
@@ -128,12 +128,12 @@ func (p *ProxmoxProvider) handleVMDeletion(ctx context.Context, vmid string, ipA
 
 // handleCTDeletion 处理CT删除
 func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipAddress string) error {
-	global.APP_LOG.Info("开始CT删除流程",
+	global.APP_LOG.Debug("开始CT删除流程",
 		zap.String("ctid", ctid),
 		zap.String("ip", ipAddress))
 
 	// 1. 停止容器
-	global.APP_LOG.Info("停止CT", zap.String("ctid", ctid))
+	global.APP_LOG.Debug("停止CT", zap.String("ctid", ctid))
 	_, err := p.sshClient.Execute(fmt.Sprintf("pct stop %s 2>/dev/null || true", ctid))
 	if err != nil {
 		global.APP_LOG.Warn("停止CT失败", zap.String("ctid", ctid), zap.Error(err))
@@ -152,7 +152,7 @@ func (p *ProxmoxProvider) handleCTDeletion(ctx context.Context, ctid string, ipA
 	}
 
 	// 4. 删除容器
-	global.APP_LOG.Info("销毁CT", zap.String("ctid", ctid))
+	global.APP_LOG.Debug("销毁CT", zap.String("ctid", ctid))
 	_, err = p.sshClient.Execute(fmt.Sprintf("pct destroy %s", ctid))
 	if err != nil {
 		global.APP_LOG.Error("销毁CT失败", zap.String("ctid", ctid), zap.Error(err))

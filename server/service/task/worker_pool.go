@@ -21,11 +21,11 @@ func (s *TaskService) getOrCreateProviderPool(providerID uint, concurrency int) 
 
 // worker 工作者goroutine
 func (pool *ProviderWorkerPool) worker(workerID int) {
-	global.APP_LOG.Info("启动Provider工作者",
+	global.APP_LOG.Debug("启动Provider工作者",
 		zap.Uint("providerId", pool.ProviderID),
 		zap.Int("workerId", workerID))
 
-	defer global.APP_LOG.Info("Provider工作者退出",
+	defer global.APP_LOG.Debug("Provider工作者退出",
 		zap.Uint("providerId", pool.ProviderID),
 		zap.Int("workerId", workerID))
 
@@ -272,7 +272,7 @@ func (s *TaskService) StartTaskWithPool(taskID uint) error {
 
 	select {
 	case pool.TaskQueue <- taskReq:
-		global.APP_LOG.Info("任务已发送到工作池",
+		global.APP_LOG.Debug("任务已发送到工作池",
 			zap.Uint("taskId", taskID),
 			zap.Uint("providerId", *task.ProviderID),
 			zap.Int("queueLength", len(pool.TaskQueue)))

@@ -41,24 +41,24 @@ const (
 // CheckAllTrafficLimits 检查所有三层级的流量限制
 // 按优先级顺序检查: Provider > User > Instance
 func (s *ThreeTierLimitService) CheckAllTrafficLimits(ctx context.Context) error {
-	global.APP_LOG.Info("开始三层级流量限制检查")
+	global.APP_LOG.Debug("开始三层级流量限制检查")
 
 	// 第一层：检查Provider层级（最高优先级）
 	if err := s.CheckAllProvidersTrafficLimit(ctx); err != nil {
-		global.APP_LOG.Error("Provider层级流量检查失败", zap.Error(err))
+		global.APP_LOG.Warn("Provider层级流量检查失败", zap.Error(err))
 	}
 
 	// 第二层：检查用户层级
 	if err := s.CheckAllUsersTrafficLimit(ctx); err != nil {
-		global.APP_LOG.Error("用户层级流量检查失败", zap.Error(err))
+		global.APP_LOG.Warn("用户层级流量检查失败", zap.Error(err))
 	}
 
 	// 第三层：检查实例层级（最低优先级）
 	if err := s.CheckAllInstancesTrafficLimit(ctx); err != nil {
-		global.APP_LOG.Error("实例层级流量检查失败", zap.Error(err))
+		global.APP_LOG.Warn("实例层级流量检查失败", zap.Error(err))
 	}
 
-	global.APP_LOG.Info("三层级流量限制检查完成")
+	global.APP_LOG.Debug("三层级流量限制检查完成")
 	return nil
 }
 
@@ -118,7 +118,7 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 				}()
 				isLimited, err := s.CheckInstanceTrafficLimit(instanceID)
 				if err != nil {
-					global.APP_LOG.Error("检查实例流量限制失败",
+					global.APP_LOG.Warn("检查实例流量限制失败",
 						zap.Uint("instanceID", instanceID),
 						zap.Error(err))
 					return
@@ -139,7 +139,7 @@ func (s *ThreeTierLimitService) CheckAllInstancesTrafficLimit(ctx context.Contex
 		}
 	}
 
-	global.APP_LOG.Info("实例层级流量检查完成",
+	global.APP_LOG.Debug("实例层级流量检查完成",
 		zap.Int("总实例数", totalCount),
 		zap.Int("超限实例数", limitedCount))
 	return nil
@@ -298,7 +298,7 @@ func (s *ThreeTierLimitService) CheckAllUsersTrafficLimit(ctx context.Context) e
 
 		isLimited, err := s.CheckUserTrafficLimit(u.ID)
 		if err != nil {
-			global.APP_LOG.Error("检查用户流量限制失败",
+			global.APP_LOG.Warn("检查用户流量限制失败",
 				zap.Uint("userID", u.ID),
 				zap.Error(err))
 			continue
@@ -309,7 +309,7 @@ func (s *ThreeTierLimitService) CheckAllUsersTrafficLimit(ctx context.Context) e
 		}
 	}
 
-	global.APP_LOG.Info("用户层级流量检查完成",
+	global.APP_LOG.Debug("用户层级流量检查完成",
 		zap.Int("总用户数", len(users)),
 		zap.Int("超限用户数", limitedCount))
 	return nil
@@ -431,12 +431,12 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 		Where("user_id = ? AND traffic_limited = ? AND traffic_limit_reason = ?",
 			userID, true, "user").
 		Find(&instances).Error; err != nil {
-		global.APP_LOG.Error("获取受限实例列表失败", zap.Error(err))
+		global.APP_LOG.Warn("获取受限实例列表失败", zap.Error(err))
 		// 不返回错误，状态已更新，任务创建是次要的
 	} else if len(instances) > 0 {
 		// 批量创建停止任务
 		if err := s.batchCreateStopTasks(userID, instances, message); err != nil {
-			global.APP_LOG.Error("批量创建实例停止任务失败",
+			global.APP_LOG.Warn("批量创建实例停止任务失败",
 				zap.Uint("userID", userID),
 				zap.Int("instanceCount", len(instances)),
 				zap.Error(err))
@@ -496,7 +496,7 @@ func (s *ThreeTierLimitService) CheckAllProvidersTrafficLimit(ctx context.Contex
 
 		isLimited, err := s.CheckProviderTrafficLimit(p.ID)
 		if err != nil {
-			global.APP_LOG.Error("检查Provider流量限制失败",
+			global.APP_LOG.Warn("检查Provider流量限制失败",
 				zap.Uint("providerID", p.ID),
 				zap.Error(err))
 			continue
@@ -507,7 +507,7 @@ func (s *ThreeTierLimitService) CheckAllProvidersTrafficLimit(ctx context.Contex
 		}
 	}
 
-	global.APP_LOG.Info("Provider层级流量检查完成",
+	global.APP_LOG.Debug("Provider层级流量检查完成",
 		zap.Int("总Provider数", len(providers)),
 		zap.Int("超限Provider数", limitedCount))
 	return nil
@@ -611,13 +611,13 @@ func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message 
 		Where("provider_id = ? AND traffic_limited = ? AND traffic_limit_reason = ?",
 			providerID, true, "provider").
 		Find(&instances).Error; err != nil {
-		global.APP_LOG.Error("获取受限实例列表失败", zap.Error(err))
+		global.APP_LOG.Warn("获取受限实例列表失败", zap.Error(err))
 		// 不返回错误，状态已更新，任务创建是次要的
 	} else if len(instances) > 0 {
 		// 批量创建停止任务
 		// 这里的userID来自instance，需要特殊处理
 		if err := s.batchCreateStopTasksForProvider(providerID, instances, message); err != nil {
-			global.APP_LOG.Error("批量创建实例停止任务失败",
+			global.APP_LOG.Warn("批量创建实例停止任务失败",
 				zap.Uint("providerID", providerID),
 				zap.Int("instanceCount", len(instances)),
 				zap.Error(err))

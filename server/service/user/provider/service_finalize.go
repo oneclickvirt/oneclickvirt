@@ -25,7 +25,7 @@ import (
 
 // finalizeInstanceCreation 阶段3: 结果处理
 func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance, apiError error) error {
-	global.APP_LOG.Info("开始最终化实例创建", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
+	global.APP_LOG.Debug("开始最终化实例创建", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 
 	dbService := database.GetDatabaseService()
 
@@ -45,12 +45,12 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 清理预分配的端口映射
 			portMappingService := &resources.PortMappingService{}
 			if err := portMappingService.DeleteInstancePortMappingsInTx(tx, instance.ID); err != nil {
-				global.APP_LOG.Error("清理失败实例端口映射失败",
+				global.APP_LOG.Warn("清理失败实例端口映射失败",
 					zap.Uint("instanceId", instance.ID),
 					zap.Error(err))
 				// 不返回错误，继续其他清理操作
 			} else {
-				global.APP_LOG.Info("清理失败实例端口映射成功",
+				global.APP_LOG.Debug("清理失败实例端口映射成功",
 					zap.Uint("instanceId", instance.ID))
 			}
 
@@ -58,10 +58,10 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			resourceService := &resources.ResourceService{}
 			if err := resourceService.ReleaseResourcesInTx(tx, instance.ProviderID, instance.InstanceType,
 				instance.CPU, instance.Memory, instance.Disk); err != nil {
-				global.APP_LOG.Error("释放Provider资源失败", zap.Uint("instanceId", instance.ID), zap.Error(err))
+				global.APP_LOG.Warn("释放Provider资源失败", zap.Uint("instanceId", instance.ID), zap.Error(err))
 				// 不返回错误，因为这不是关键操作
 			} else {
-				global.APP_LOG.Info("Provider资源释放成功", zap.Uint("instanceId", instance.ID))
+				global.APP_LOG.Debug("Provider资源释放成功", zap.Uint("instanceId", instance.ID))
 			}
 
 			// 资源预留已在创建时被原子化消费，无需额外释放
@@ -82,7 +82,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		}
 
 		// API调用成功的处理
-		global.APP_LOG.Info("Provider API调用成功，获取实例详细信息", zap.Uint("taskId", task.ID))
+		global.APP_LOG.Debug("Provider API调用成功，获取实例详细信息", zap.Uint("taskId", task.ID))
 
 		// 尝试从Provider获取实例详细信息
 		actualInstance, err := s.getInstanceDetailsAfterCreation(ctx, instance)
@@ -120,7 +120,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 					instanceUpdates["public_ip"] = publicIPSource
 				}
 
-				global.APP_LOG.Info("设置实例公网IP",
+				global.APP_LOG.Debug("设置实例公网IP",
 					zap.String("instanceName", instance.Name),
 					zap.String("portIP", dbProvider.PortIP),
 					zap.String("endpoint", dbProvider.Endpoint),
@@ -181,7 +181,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						ctx := context.Background()
 						if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
 							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Info("获取到实例内网IPv4地址",
+							global.APP_LOG.Debug("获取到实例内网IPv4地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv4Address", ipv4Address))
 						} else {
@@ -192,14 +192,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						// 获取内网IPv6地址
 						if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
 							instanceUpdates["ipv6_address"] = ipv6Address
-							global.APP_LOG.Info("获取到实例内网IPv6地址",
+							global.APP_LOG.Debug("获取到实例内网IPv6地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv6Address", ipv6Address))
 						}
 						// 获取公网IPv6地址
 						if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
 							instanceUpdates["public_ipv6"] = publicIPv6
-							global.APP_LOG.Info("获取到实例公网IPv6地址",
+							global.APP_LOG.Debug("获取到实例公网IPv6地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("publicIPv6", publicIPv6))
 						} else {
@@ -213,7 +213,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						// 获取内网IPv4地址
 						if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
 							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Info("获取到实例内网IPv4地址",
+							global.APP_LOG.Debug("获取到实例内网IPv4地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv4Address", ipv4Address))
 						} else {
@@ -224,14 +224,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						// 获取内网IPv6地址
 						if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
 							instanceUpdates["ipv6_address"] = ipv6Address
-							global.APP_LOG.Info("获取到实例内网IPv6地址",
+							global.APP_LOG.Debug("获取到实例内网IPv6地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv6Address", ipv6Address))
 						}
 						// 获取公网IPv6地址
 						if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
 							instanceUpdates["public_ipv6"] = publicIPv6
-							global.APP_LOG.Info("获取到实例公网IPv6地址",
+							global.APP_LOG.Debug("获取到实例公网IPv6地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("publicIPv6", publicIPv6))
 						} else {
@@ -250,7 +250,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						// 获取内网IPv4地址
 						if ipv4Address, err := proxmoxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
 							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
+							global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
 								zap.String("instanceName", instance.Name),
 								zap.String("ipv4Address", ipv4Address))
 
@@ -259,7 +259,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
 								// 独立IP模式：内网IP就是公网IP
 								instanceUpdates["public_ip"] = ipv4Address
-								global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+								global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
 									zap.String("instanceName", instance.Name),
 									zap.String("networkType", dbProvider.NetworkType),
 									zap.String("publicIP", ipv4Address))
@@ -277,14 +277,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							if dbProvider.NetworkType == "nat_ipv4_ipv6" {
 								// NAT模式：获取到的是内网IPv6地址
 								instanceUpdates["ipv6_address"] = ipv6Address
-								global.APP_LOG.Info("获取到Proxmox实例内网IPv6地址（NAT模式）",
+								global.APP_LOG.Debug("获取到Proxmox实例内网IPv6地址（NAT模式）",
 									zap.String("instanceName", instance.Name),
 									zap.String("ipv6Address", ipv6Address))
 
 								// 获取公网IPv6地址
 								if publicIPv6, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
 									instanceUpdates["public_ipv6"] = publicIPv6
-									global.APP_LOG.Info("获取到Proxmox实例公网IPv6地址（NAT模式）",
+									global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（NAT模式）",
 										zap.String("instanceName", instance.Name),
 										zap.String("publicIPv6", publicIPv6))
 								} else {
@@ -295,7 +295,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
 								// 直接分配模式（dedicated_ipv4_ipv6, ipv6_only）：获取到的就是公网IPv6地址
 								instanceUpdates["public_ipv6"] = ipv6Address
-								global.APP_LOG.Info("获取到Proxmox实例公网IPv6地址（直接分配模式）",
+								global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（直接分配模式）",
 									zap.String("instanceName", instance.Name),
 									zap.String("networkType", dbProvider.NetworkType),
 									zap.String("publicIPv6", ipv6Address))
@@ -313,28 +313,28 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							if proxmoxInstance, err := proxmoxProvider.GetInstance(ctx, instance.Name); err == nil && proxmoxInstance != nil {
 								if proxmoxInstance.IP != "" {
 									instanceUpdates["private_ip"] = proxmoxInstance.IP
-									global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
+									global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
 										zap.String("instanceName", instance.Name),
 										zap.String("privateIP", proxmoxInstance.IP))
 
 									// 对于独立IP模式，内网IP就是公网IP
 									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
 										instanceUpdates["public_ip"] = proxmoxInstance.IP
-										global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+										global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
 											zap.String("instanceName", instance.Name),
 											zap.String("networkType", dbProvider.NetworkType),
 											zap.String("publicIP", proxmoxInstance.IP))
 									}
 								} else if proxmoxInstance.PrivateIP != "" {
 									instanceUpdates["private_ip"] = proxmoxInstance.PrivateIP
-									global.APP_LOG.Info("获取到Proxmox实例内网IPv4地址",
+									global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
 										zap.String("instanceName", instance.Name),
 										zap.String("privateIP", proxmoxInstance.PrivateIP))
 
 									// 对于独立IP模式，内网IP就是公网IP
 									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
 										instanceUpdates["public_ip"] = proxmoxInstance.PrivateIP
-										global.APP_LOG.Info("Proxmox独立IP模式，使用实例IP作为公网IP",
+										global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
 											zap.String("instanceName", instance.Name),
 											zap.String("networkType", dbProvider.NetworkType),
 											zap.String("publicIP", proxmoxInstance.PrivateIP))
@@ -350,13 +350,13 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 									if dbProvider.NetworkType == "nat_ipv4_ipv6" {
 										// NAT模式：这是内网IPv6地址
 										instanceUpdates["ipv6_address"] = proxmoxInstance.IPv6Address
-										global.APP_LOG.Info("获取到Proxmox实例内网IPv6地址（NAT模式）",
+										global.APP_LOG.Debug("获取到Proxmox实例内网IPv6地址（NAT模式）",
 											zap.String("instanceName", instance.Name),
 											zap.String("ipv6Address", proxmoxInstance.IPv6Address))
 									} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
 										// 直接分配模式：这是公网IPv6地址
 										instanceUpdates["public_ipv6"] = proxmoxInstance.IPv6Address
-										global.APP_LOG.Info("获取到Proxmox实例公网IPv6地址（直接分配模式）",
+										global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（直接分配模式）",
 											zap.String("instanceName", instance.Name),
 											zap.String("networkType", dbProvider.NetworkType),
 											zap.String("publicIPv6", proxmoxInstance.IPv6Address))
@@ -445,12 +445,12 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 			// 如果任务状态不是running，说明任务已经被其他地方处理（可能失败了），跳过后处理
 			if currentTask.Status != "running" {
-				global.APP_LOG.Info("任务状态已非running，跳过后处理任务",
+				global.APP_LOG.Debug("任务状态已非running，跳过后处理任务",
 					zap.Uint("taskId", taskID),
 					zap.String("currentStatus", currentTask.Status))
 				return
 			}
-			global.APP_LOG.Info("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
+			global.APP_LOG.Debug("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
 
 			// 更新进度到75% (等待实例SSH服务就绪)
 			s.updateTaskProgress(taskID, 75, "等待实例SSH服务就绪...")
@@ -478,11 +478,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						zap.Uint("instanceId", instanceID),
 						zap.Error(err))
 				} else {
-					global.APP_LOG.Info("默认端口映射创建成功",
+					global.APP_LOG.Debug("默认端口映射创建成功",
 						zap.Uint("instanceId", instanceID))
 				}
 			} else {
-				global.APP_LOG.Info("实例已有端口映射，跳过创建",
+				global.APP_LOG.Debug("实例已有端口映射，跳过创建",
 					zap.Uint("instanceId", instanceID),
 					zap.Int("existingPortCount", len(existingPorts)))
 			}
@@ -505,7 +505,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 检查pmacct监控是否已存在
 			var existingMonitor monitoringModel.PmacctMonitor
 			if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&existingMonitor).Error; err == nil {
-				global.APP_LOG.Info("pmacct监控已在实例创建时初始化",
+				global.APP_LOG.Debug("pmacct监控已在实例创建时初始化",
 					zap.Uint("instanceId", instanceID),
 					zap.Uint("monitorId", existingMonitor.ID))
 				pmacctInitSuccess = true
@@ -547,12 +547,12 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 							zap.Int("maxRetries", maxRetries),
 							zap.Error(err))
 						if i < maxRetries-1 {
-							global.APP_LOG.Info("等待10秒后重试设置SSH密码",
+							global.APP_LOG.Debug("等待10秒后重试设置SSH密码",
 								zap.Uint("instanceId", instanceID))
 							time.Sleep(10 * time.Second) // 重试间隔10秒
 						}
 					} else {
-						global.APP_LOG.Info("实例SSH密码设置成功",
+						global.APP_LOG.Debug("实例SSH密码设置成功",
 							zap.Uint("instanceId", instanceID),
 							zap.String("instanceName", currentInstance.Name))
 						passwordSetSuccess = true
@@ -567,10 +567,10 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 4. pmacct监控已在初始化时完成配置，无需额外步骤
 			if !pmacctInitSuccess {
 				if trafficEnabled {
-					global.APP_LOG.Info("跳过流量监控（pmacct初始化失败）",
+					global.APP_LOG.Debug("跳过流量监控（pmacct初始化失败）",
 						zap.Uint("instanceId", instanceID))
 				} else {
-					global.APP_LOG.Info("跳过流量监控（Provider未启用流量统计）",
+					global.APP_LOG.Debug("跳过流量监控（Provider未启用流量统计）",
 						zap.Uint("instanceId", instanceID),
 						zap.Uint("providerId", providerID))
 				}
@@ -584,11 +584,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				syncTrigger := traffic.NewSyncTriggerService()
 				syncTrigger.TriggerInstanceTrafficSync(instanceID, "实例创建后初始同步")
 
-				global.APP_LOG.Info("实例流量同步已触发",
+				global.APP_LOG.Debug("实例流量同步已触发",
 					zap.Uint("instanceId", instanceID))
 			} else {
 				if trafficEnabled {
-					global.APP_LOG.Info("跳过流量同步触发（pmacct初始化失败）",
+					global.APP_LOG.Debug("跳过流量同步触发（pmacct初始化失败）",
 						zap.Uint("instanceId", instanceID))
 				} else {
 					global.APP_LOG.Debug("跳过流量同步触发（Provider未启用流量统计）",
@@ -617,7 +617,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				global.APP_LOG.Error("状态管理器未初始化", zap.Uint("taskId", taskID))
 			}
 
-			global.APP_LOG.Info("实例创建后处理任务完成",
+			global.APP_LOG.Debug("实例创建后处理任务完成",
 				zap.Uint("instanceId", instanceID),
 				zap.Bool("passwordSetSuccess", passwordSetSuccess))
 		}(instance.ID, instance.ProviderID, task.ID)
@@ -668,7 +668,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		}
 	}
 
-	global.APP_LOG.Info("开始等待实例SSH服务就绪",
+	global.APP_LOG.Debug("开始等待实例 SSH服务就绪",
 		zap.Uint("instanceId", instanceID),
 		zap.String("instanceName", instance.Name),
 		zap.String("sshHost", sshHost),
@@ -718,7 +718,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		if err == nil {
 			// SSH连接成功
 			client.Close()
-			global.APP_LOG.Info("实例SSH服务已就绪",
+			global.APP_LOG.Debug("实例SSH服务已就绪",
 				zap.Uint("instanceId", instanceID),
 				zap.String("instanceName", instance.Name),
 				zap.Duration("waitTime", elapsed),

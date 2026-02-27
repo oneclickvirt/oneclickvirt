@@ -54,7 +54,7 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理
-	global.APP_LOG.Info("开始处理兑换码实例创建结果",
+	global.APP_LOG.Debug("开始处理兑换码实例创建结果",
 		zap.Uint("taskId", task.ID),
 		zap.Bool("hasApiError", apiError != nil))
 
@@ -74,7 +74,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		return nil, fmt.Errorf("解析兑换码任务数据失败: %v", err)
 	}
 
-	global.APP_LOG.Info("开始兑换码实例预处理",
+	global.APP_LOG.Debug("开始兑换码实例预处理",
 		zap.Uint("taskId", task.ID),
 		zap.Uint("redemptionCodeId", taskReq.RedemptionCodeID))
 
@@ -172,7 +172,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		return nil, err
 	}
 
-	global.APP_LOG.Info("兑换码实例预处理完成",
+	global.APP_LOG.Debug("兑换码实例预处理完成",
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", instance.ID))
 
@@ -195,7 +195,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		// 检查任务是否已被管理员取消（防止竞争条件导致孤儿实例）
 		var taskStatus string
 		if fetchErr := tx.Model(&adminModel.Task{}).Select("status").Where("id = ?", task.ID).Scan(&taskStatus).Error; fetchErr == nil && taskStatus == "cancelled" {
-			global.APP_LOG.Info("兑换码实例任务已被管理员取消，跳过最终化并清理实例",
+			global.APP_LOG.Debug("兑换码实例任务已被管理员取消，跳过最终化并清理实例",
 				zap.Uint("taskId", task.ID))
 			go s.delayedDeleteFailedInstance(instance.ID)
 			return nil
@@ -234,7 +234,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			// 硬删除兑换码记录（实例创建失败则兑换码无效）
 			if taskReq.RedemptionCodeID != 0 {
 				if err := tx.Unscoped().Delete(&systemModel.RedemptionCode{}, taskReq.RedemptionCodeID).Error; err != nil {
-					global.APP_LOG.Error("删除失败兑换码记录失败",
+					global.APP_LOG.Warn("删除失败兑换码记录失败",
 						zap.Uint("codeId", taskReq.RedemptionCodeID), zap.Error(err))
 					// 不阻断主流程
 				}
@@ -247,7 +247,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		}
 
 		// ——— 成功处理 ———
-		global.APP_LOG.Info("Provider API调用成功，处理兑换码实例",
+		global.APP_LOG.Debug("Provider API调用成功，处理兑换码实例",
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID))
 
@@ -460,9 +460,9 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		if pmacctInitSuccess {
 			syncTrigger := traffic.NewSyncTriggerService()
 			syncTrigger.TriggerInstanceTrafficSync(instanceID, "兑换码实例创建后初始同步")
-			global.APP_LOG.Info("兑换码实例流量同步已触发", zap.Uint("instanceId", instanceID))
+			global.APP_LOG.Debug("兑换码实例流量同步已触发", zap.Uint("instanceId", instanceID))
 		} else if trafficEnabled {
-			global.APP_LOG.Info("跳过流量同步触发（pmacct初始化失败）", zap.Uint("instanceId", instanceID))
+			global.APP_LOG.Debug("跳过流量同步触发（pmacct初始化失败）", zap.Uint("instanceId", instanceID))
 		}
 
 		s.updateTaskProgress(taskID, 99, "兑换码实例创建完成")
@@ -472,7 +472,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			_ = stateManager.CompleteMainTask(taskID, true, "兑换码实例创建成功", nil)
 		}
 
-		global.APP_LOG.Info("兑换码实例后处理完成", zap.Uint("instanceId", instanceID))
+		global.APP_LOG.Debug("兑换码实例后处理完成", zap.Uint("instanceId", instanceID))
 	}(instance.ID, instance.ProviderID, task.ID)
 
 	return nil

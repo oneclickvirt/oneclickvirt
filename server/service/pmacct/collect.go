@@ -53,7 +53,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	// SQLite数据库路径（每个实例独立）
 	dbPath := fmt.Sprintf("/var/lib/pmacct/%s/traffic.db", instance.Name)
 
-	global.APP_LOG.Info("开始从 SQLite 采集流量数据",
+	global.APP_LOG.Debug("开始从 SQLite 采集流量数据",
 		zap.Uint("instanceID", instanceID),
 		zap.String("instanceName", instance.Name),
 		zap.String("dbPath", dbPath))
@@ -63,7 +63,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	var lastSync time.Time
 	if monitor.LastSync.IsZero() {
 		lastSync = time.Now().Add(-30 * time.Minute)
-		global.APP_LOG.Info("首次采集（固定查询最近30分钟）",
+		global.APP_LOG.Debug("首次采集（固定查询最近30分钟）",
 			zap.Uint("instanceID", instanceID))
 	} else {
 		lastSync = monitor.LastSync
@@ -117,7 +117,7 @@ func (s *Service) CollectTrafficFromSQLite(instance *providerModel.Instance, mon
 	// - 需要按时间顺序累加这些增量，得到每个时间点的累积值
 	// - MySQL存储每个时间点的累积值，前端通过差值计算实际流量
 	// - 每天4点重置后，累积值从0重新开始
-	global.APP_LOG.Info("SQLite查询参数，计算累积值",
+	global.APP_LOG.Debug("SQLite查询参数，计算累积值",
 		zap.Uint("instanceID", instanceID),
 		zap.String("instanceName", instance.Name),
 		zap.String("queryIPv4", queryIPv4),
@@ -239,7 +239,7 @@ LIMIT 10000;
 		// 解析数据行: year|month|day|hour|minute|timestamp|tx_bytes|rx_bytes
 		parts := strings.Split(line, "|")
 		if len(parts) != 8 {
-			global.APP_LOG.Warn("跳过无效数据行",
+			global.APP_LOG.Debug("跳过无效数据行",
 				zap.String("line", line),
 				zap.Int("parts", len(parts)))
 			continue
@@ -257,7 +257,7 @@ LIMIT 10000;
 		// 解析时间戳
 		timestamp, err := time.Parse("2006-01-02 15:04:05", timestampStr)
 		if err != nil {
-			global.APP_LOG.Warn("解析时间戳失败",
+			global.APP_LOG.Debug("解析时间戳失败",
 				zap.String("timestamp", timestampStr),
 				zap.Error(err))
 			continue
@@ -464,7 +464,7 @@ LIMIT 10000;
 					}
 				}
 
-				global.APP_LOG.Info("已填补空白期数据",
+				global.APP_LOG.Debug("已填补空白期数据",
 					zap.Uint("instanceID", instanceID),
 					zap.Int("fillCount", len(fillRecords)),
 					zap.Time("fillStart", fillStart),
@@ -865,7 +865,7 @@ LIMIT 10000;
 	// 2. 增量清理不会导致数据不准确
 	// 3. 完整的清理由定期重置pmacct守护进程完成（见ResetPmacctDaemon）
 
-	global.APP_LOG.Info("SQLite 流量数据采集完成",
+	global.APP_LOG.Debug("SQLite 流量数据采集完成",
 		zap.Uint("instanceID", instanceID),
 		zap.Int("records", imported),
 		zap.String("deduplication", "MySQL自动去重累加"),

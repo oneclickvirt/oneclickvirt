@@ -93,7 +93,7 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 
 	// 如果允许冻结状态，记录日志
 	if dbProvider.IsFrozen && allowFrozen {
-		global.APP_LOG.Info("允许加载冻结的Provider用于特定操作",
+		global.APP_LOG.Debug("允许加载冻结的Provider用于特定操作",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
 			zap.String("frozen_reason", dbProvider.FrozenReason))

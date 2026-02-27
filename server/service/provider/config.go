@@ -278,7 +278,7 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 				if err := os.WriteFile(certPath, []byte(cert.CertContent), 0644); err != nil {
 					return fmt.Errorf("创建证书文件失败: %w", err)
 				}
-				global.APP_LOG.Info("创建证书文件",
+				global.APP_LOG.Debug("创建证书文件",
 					zap.String("provider", backup.ProviderName),
 					zap.String("file", certPath))
 			}
@@ -289,7 +289,7 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 				if err := os.WriteFile(keyPath, []byte(cert.KeyContent), 0600); err != nil {
 					return fmt.Errorf("创建私钥文件失败: %w", err)
 				}
-				global.APP_LOG.Info("创建私钥文件",
+				global.APP_LOG.Debug("创建私钥文件",
 					zap.String("provider", backup.ProviderName),
 					zap.String("file", keyPath))
 			}
@@ -317,7 +317,7 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 			if err := os.WriteFile(tokenPath, tokenData, 0600); err != nil {
 				return fmt.Errorf("创建Token文件失败: %w", err)
 			}
-			global.APP_LOG.Info("创建Token文件",
+			global.APP_LOG.Debug("创建Token文件",
 				zap.String("provider", backup.ProviderName),
 				zap.String("file", tokenPath))
 		}
@@ -401,7 +401,7 @@ func (s *ProviderConfigService) ExportAllConfigs(exportDir string) error {
 			continue
 		}
 
-		global.APP_LOG.Info("导出配置成功",
+		global.APP_LOG.Debug("导出配置成功",
 			zap.String("provider", provider.Name),
 			zap.String("path", exportPath))
 	}

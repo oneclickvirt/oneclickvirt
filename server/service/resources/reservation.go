@@ -76,7 +76,7 @@ func (s *ResourceReservationService) startPeriodicCleanup() {
 				if count > 0 {
 					newInterval = 10 * time.Minute
 					if err := s.cleanupExpiredReservations(); err != nil {
-						global.APP_LOG.Error("清理过期预留记录失败", zap.Error(err))
+						global.APP_LOG.Warn("清理过期预留记录失败", zap.Error(err))
 					}
 				}
 				ticker.Reset(newInterval)
@@ -102,7 +102,7 @@ func (s *ResourceReservationService) cleanupExpiredReservations() error {
 	}
 
 	if result.RowsAffected > 0 {
-		global.APP_LOG.Info("清理过期预留记录（硬删除）", zap.Int64("删除数量", result.RowsAffected))
+		global.APP_LOG.Debug("清理过期预留记录（硬删除）", zap.Int64("删除数量", result.RowsAffected))
 	}
 
 	return nil
@@ -248,7 +248,7 @@ func (s *ResourceReservationService) ConsumeReservationBySessionInTx(tx *gorm.DB
 	// 查找预留记录
 	if err := tx.Where("session_id = ?", sessionID).First(&reservation).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			global.APP_LOG.Warn("预留记录不存在", zap.String("sessionId", sessionID))
+			global.APP_LOG.Error("预留记录不存在", zap.String("sessionId", sessionID))
 			return fmt.Errorf("预留记录不存在: %s", sessionID)
 		}
 		global.APP_LOG.Error("查询预留记录失败", zap.Error(err), zap.String("sessionId", sessionID))
@@ -257,7 +257,7 @@ func (s *ResourceReservationService) ConsumeReservationBySessionInTx(tx *gorm.DB
 
 	// 检查是否过期
 	if reservation.IsExpired() {
-		global.APP_LOG.Warn("预留记录已过期",
+		global.APP_LOG.Error("预留记录已过期",
 			zap.String("sessionId", sessionID),
 			zap.Time("expiresAt", reservation.ExpiresAt))
 		return fmt.Errorf("预留记录已过期: %s", sessionID)

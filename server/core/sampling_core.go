@@ -8,7 +8,9 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// SamplingCore 是一个包装的zapcore.Core，用于控制日志采样
+// SamplingCore 是对 zapcore.Core 的采样封装层。
+// 对于 Debug 和 Info 级别的高频重复消息，根据配置的时间窗口和最大跳过次数进行限流，
+// 减少日志文件写入量与内存占用；Error 级别及以上的日志始终通过。
 type SamplingCore struct {
 	zapcore.Core
 	samplers map[string]*sampler
@@ -21,7 +23,7 @@ var (
 	samplingCoresMu sync.RWMutex
 )
 
-// sampler 用于控制特定消息的采样频率
+// sampler 维护单条日志消息的采样状态。
 type sampler struct {
 	interval    time.Duration
 	lastLog     time.Time
@@ -29,7 +31,8 @@ type sampler struct {
 	maxSkipLogs int64
 }
 
-// NewSamplingCore 创建一个新的采样核心
+// NewSamplingCore 创建并注册一个新的采样核心。
+// 创建后会自动加入全局列表，居然通过 CleanupAllSamplingCores 批量清理。
 func NewSamplingCore(core zapcore.Core) *SamplingCore {
 	sc := &SamplingCore{
 		Core:     core,
@@ -44,7 +47,8 @@ func NewSamplingCore(core zapcore.Core) *SamplingCore {
 	return sc
 }
 
-// Check 检查是否应该记录该日志
+// Check 实现 zapcore.Core 接口。
+// Error 级别及以上直接放行；Debug/Info 级别进入采样逻辑。
 func (s *SamplingCore) Check(entry zapcore.Entry, ce *zapcore.CheckedEntry) *zapcore.CheckedEntry {
 	// 对于错误和致命级别的日志，总是记录
 	if entry.Level >= zapcore.ErrorLevel {
@@ -152,7 +156,7 @@ func findSubstring(s, substr string) bool {
 	return false
 }
 
-// CleanupOldSamplers 定期清理旧的采样器
+// CleanupOldSamplers 清理超过30分钟未使用的采样器记录，并在超过 1000 个时强制删除最旧的 50%。
 func (s *SamplingCore) CleanupOldSamplers() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -203,7 +207,7 @@ func (s *SamplingCore) CleanupOldSamplers() {
 	}
 }
 
-// CleanupAllSamplingCores 清理所有采样核心的旧采样器
+// CleanupAllSamplingCores 对所有已注册的采样核心执行 CleanupOldSamplers。
 func CleanupAllSamplingCores() {
 	samplingCoresMu.RLock()
 	cores := make([]*SamplingCore, len(samplingCores))

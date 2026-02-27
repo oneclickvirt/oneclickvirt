@@ -155,7 +155,7 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 	if err := json.Unmarshal([]byte(task.TaskData), &taskData); err == nil {
 		if originalStatus, ok := taskData["originalStatus"].(string); ok {
 			resetCtx.OriginalStatus = originalStatus
-			global.APP_LOG.Info("从任务数据中解析到原始状态",
+			global.APP_LOG.Debug("从任务数据中解析到原始状态",
 				zap.String("originalStatus", originalStatus))
 		}
 	}
@@ -296,14 +296,14 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 			if err := quotaService.ReleasePendingQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放待确认配额失败", zap.Error(err))
 			}
-			global.APP_LOG.Info("已释放待确认配额",
+			global.APP_LOG.Debug("已释放待确认配额",
 				zap.String("originalStatus", resetCtx.OriginalStatus),
 				zap.Uint("userId", resetCtx.OriginalUserID))
 		} else {
 			if err := quotaService.ReleaseUsedQuota(tx, resetCtx.OriginalUserID, resourceUsage); err != nil {
 				global.APP_LOG.Warn("释放已使用配额失败", zap.Error(err))
 			}
-			global.APP_LOG.Info("已释放已使用配额",
+			global.APP_LOG.Debug("已释放已使用配额",
 				zap.String("originalStatus", resetCtx.OriginalStatus),
 				zap.Uint("userId", resetCtx.OriginalUserID))
 		}
@@ -470,7 +470,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 	if prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID); err == nil {
 		if instance, err := prov.GetInstance(ctx, resetCtx.OldInstanceName); err == nil {
 			if instance.Status != "running" {
-				global.APP_LOG.Info("实例未运行，尝试启动",
+				global.APP_LOG.Debug("实例未运行，尝试启动",
 					zap.String("instanceName", resetCtx.OldInstanceName),
 					zap.String("status", instance.Status))
 				if err := prov.StartInstance(ctx, resetCtx.OldInstanceName); err != nil {
@@ -522,7 +522,7 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 			continue
 		}
 
-		global.APP_LOG.Info("密码设置成功",
+		global.APP_LOG.Debug("密码设置成功",
 			zap.Uint("instanceId", resetCtx.NewInstanceID),
 			zap.Int("attempt", attempt))
 		return nil

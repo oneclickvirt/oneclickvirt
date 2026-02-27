@@ -98,7 +98,7 @@ func (l *LXDProvider) min(a, b int) int {
 func (l *LXDProvider) getDownloadURL(originalURL, providerCountry string, useCDN bool) string {
 	// 如果不使用CDN，直接返回原始URL
 	if !useCDN {
-		global.APP_LOG.Info("镜像配置不使用CDN，使用原始URL",
+		global.APP_LOG.Debug("镜像配置不使用CDN，使用原始URL",
 			zap.String("originalURL", utils.TruncateString(originalURL, 100)))
 		return originalURL
 	}

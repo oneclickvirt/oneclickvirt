@@ -191,14 +191,14 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 				continue
 			} else {
 				// 监控已存在但未启用，先删除旧记录（确保完全清理）
-				global.APP_LOG.Info("发现未启用的监控记录，先删除后重新初始化",
+				global.APP_LOG.Debug("发现未启用的监控记录，先删除后重新初始化",
 					zap.Uint("instanceID", inst.ID),
 					zap.Uint("oldMonitorID", existingMonitor.ID))
 
 				if err := global.APP_DB.Unscoped().Delete(&existingMonitor).Error; err != nil {
 					outputBuilder.WriteString(fmt.Sprintf("  ✗ 删除旧监控记录失败: %v\n\n", err))
 					failedCount++
-					global.APP_LOG.Error("删除旧监控记录失败",
+					global.APP_LOG.Warn("删除旧监控记录失败",
 						zap.Uint("instanceID", inst.ID),
 						zap.String("instanceName", inst.Name),
 						zap.Uint("monitorID", existingMonitor.ID),
@@ -213,7 +213,7 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 		if err := pmacctService.InitializePmacctForInstance(inst.ID); err != nil {
 			outputBuilder.WriteString(fmt.Sprintf("  ✗ 失败: %v\n\n", err))
 			failedCount++
-			global.APP_LOG.Error("启用流量监控失败",
+			global.APP_LOG.Warn("启用流量监控失败",
 				zap.Uint("instanceID", inst.ID),
 				zap.String("instanceName", inst.Name),
 				zap.Error(err))
@@ -344,7 +344,7 @@ func (m *LifecycleManager) BatchDisableMonitoring(ctx context.Context, providerI
 			}
 			failedCount++
 
-			global.APP_LOG.Error("删除流量监控失败",
+			global.APP_LOG.Warn("删除流量监控失败",
 				zap.Uint("instanceID", record.InstanceID),
 				zap.String("instanceName", instanceName),
 				zap.Error(cleanupErr))
@@ -446,7 +446,7 @@ func (m *LifecycleManager) BatchDetectMonitoring(ctx context.Context, providerID
 	var monitors []monitoringModel.PmacctMonitor
 	monitorMap := make(map[uint]*monitoringModel.PmacctMonitor)
 	if err := global.APP_DB.Where("instance_id IN ?", instanceIDs).Find(&monitors).Error; err != nil {
-		global.APP_LOG.Error("批量查询监控配置失败", zap.Error(err))
+		global.APP_LOG.Warn("批量查询监控配置失败", zap.Error(err))
 	} else {
 		for i := range monitors {
 			monitorMap[monitors[i].InstanceID] = &monitors[i]
@@ -464,7 +464,7 @@ func (m *LifecycleManager) BatchDetectMonitoring(ctx context.Context, providerID
 		Where("instance_id IN ?", instanceIDs).
 		Group("instance_id").
 		Find(&trafficCounts).Error; err != nil {
-		global.APP_LOG.Error("批量查询流量记录失败", zap.Error(err))
+		global.APP_LOG.Warn("批量查询流量记录失败", zap.Error(err))
 	} else {
 		for _, tc := range trafficCounts {
 			trafficExistsMap[tc.InstanceID] = tc.Count > 0
@@ -691,7 +691,7 @@ func (m *LifecycleManager) batchCheckPmacctProcesses(providerInstance provider.P
 
 	// 上传脚本
 	if err := m.uploadScriptViaSFTP(providerInstance, scriptContent, scriptPath); err != nil {
-		global.APP_LOG.Error("上传检查脚本失败", zap.Error(err))
+		global.APP_LOG.Warn("上传检查脚本失败", zap.Error(err))
 		return resultMap
 	}
 
@@ -701,7 +701,7 @@ func (m *LifecycleManager) batchCheckPmacctProcesses(providerInstance provider.P
 
 	output, err := providerInstance.ExecuteSSHCommand(execCtx, fmt.Sprintf("bash %s", scriptPath))
 	if err != nil {
-		global.APP_LOG.Error("批量检查pmacct服务失败", zap.Error(err))
+		global.APP_LOG.Warn("批量检查pmacct服务失败", zap.Error(err))
 		// 尝试手动清理脚本（以防自动清理失败）
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cleanupCancel()

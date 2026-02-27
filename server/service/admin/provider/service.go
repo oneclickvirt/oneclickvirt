@@ -409,7 +409,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 		// 如果切换到非自定义模式，强制应用预设配置
 		if req.TrafficStatsMode != providerModel.TrafficStatsModeCustom {
-			global.APP_LOG.Info("应用流量统计预设配置",
+			global.APP_LOG.Debug("应用流量统计预设配置",
 				zap.Uint("providerID", req.ID),
 				zap.String("oldMode", oldMode),
 				zap.String("newMode", req.TrafficStatsMode))
@@ -621,7 +621,7 @@ func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
 	}
 
 	if len(instances) == 0 {
-		global.APP_LOG.Info("Provider没有活跃实例，无需处理",
+		global.APP_LOG.Debug("Provider没有活跃实例，无需处理",
 			zap.Uint("providerID", providerID))
 		return
 	}
@@ -661,7 +661,7 @@ func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
 					zap.Error(err))
 				failCount++
 			} else {
-				global.APP_LOG.Info("实例监控初始化成功",
+				global.APP_LOG.Debug("实例监控初始化成功",
 					zap.Uint("instanceID", instance.ID),
 					zap.String("instanceName", instance.Name))
 				successCount++
@@ -692,7 +692,7 @@ func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
 					zap.Error(err))
 				failCount++
 			} else {
-				global.APP_LOG.Info("实例监控清理成功",
+				global.APP_LOG.Debug("实例监控清理成功",
 					zap.Uint("instanceID", instance.ID),
 					zap.String("instanceName", instance.Name))
 				successCount++

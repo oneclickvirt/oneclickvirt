@@ -8,7 +8,8 @@ import (
 	"go.uber.org/zap/zapcore"
 )
 
-// TruncateEncoder 包装原始编码器，对过长内容进行截断
+// TruncateEncoder 包裹原始编码器，对过长的日志内容进行截断。
+// 可配置单条日志最大长度、字段字符串最大长度、数组元素最大个数。
 type TruncateEncoder struct {
 	zapcore.Encoder
 	config *TruncateConfig
@@ -20,7 +21,7 @@ type TruncateConfig struct {
 	MaxStringLength  int
 }
 
-// NewTruncateEncoder 创建截断编码器
+// NewTruncateEncoder 创建截断编码器，公用配置项从全局 Zap 配置读取，未配置时使用 utils 包中的安全默认值。
 func NewTruncateEncoder(enc zapcore.Encoder) zapcore.Encoder {
 	config := &TruncateConfig{
 		MaxLogLength:     global.GetAppConfig().Zap.MaxLogLength,
@@ -53,7 +54,7 @@ func (enc *TruncateEncoder) Clone() zapcore.Encoder {
 	}
 }
 
-// EncodeEntry 编码日志条目，对过长内容进行截断
+// EncodeEntry 对日志条目的消息和字段进行截断，再将最终输出串控很在单条上限内。
 func (enc *TruncateEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
 	// 处理消息内容
 	if len(ent.Message) > enc.config.MaxStringLength {
@@ -82,7 +83,8 @@ func (enc *TruncateEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Fiel
 	return buf, nil
 }
 
-// truncateField 截断字段内容
+// truncateField 对单个 zap 字段按类型截断内容。
+// 特殊调试字段（complete_output 等）唔不截断。
 func (enc *TruncateEncoder) truncateField(field zapcore.Field) zapcore.Field {
 	// 特殊字段不截断（用于调试重要错误信息）
 	noTruncateFields := map[string]bool{

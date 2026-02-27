@@ -185,7 +185,7 @@ func (bp *BaseProvider) FromDBModel(port *provider.Port) *PortMappingResult {
 
 // Cleanup 清理资源
 func (bp *BaseProvider) Cleanup(ctx context.Context) error {
-	global.APP_LOG.Info("Cleanup called for base provider", zap.String("type", bp.providerType))
+	global.APP_LOG.Debug("Cleanup called for base provider", zap.String("type", bp.providerType))
 	return nil
 }
 

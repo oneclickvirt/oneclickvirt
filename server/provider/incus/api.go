@@ -201,7 +201,7 @@ func (i *IncusProvider) apiCreateInstanceWithProgress(ctx context.Context, confi
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("Incus API实例创建进度",
+		global.APP_LOG.Debug("Incus API实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))

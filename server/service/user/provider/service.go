@@ -55,7 +55,7 @@ func NewService() *Service {
 // GetInstanceTypePermissions 获取实例类型权限
 // ProcessCreateInstanceTask 处理创建实例的后台任务 - 三阶段处理
 func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminModel.Task) error {
-	global.APP_LOG.Info("开始处理创建实例任务", zap.Uint("taskId", task.ID))
+	global.APP_LOG.Debug("开始处理创建实例任务", zap.Uint("taskId", task.ID))
 
 	// 初始化进度 (5%)
 	s.updateTaskProgress(task.ID, 5, "正在准备实例创建...")
@@ -83,12 +83,12 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理（快速事务）
-	global.APP_LOG.Info("开始处理实例创建结果", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
+	global.APP_LOG.Debug("开始处理实例创建结果", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 	if finalizeErr := s.finalizeInstanceCreation(context.Background(), task, instance, apiError); finalizeErr != nil {
 		global.APP_LOG.Error("实例创建最终化失败", zap.Uint("taskId", task.ID), zap.Error(finalizeErr))
 		return finalizeErr
 	}
-	global.APP_LOG.Info("实例创建结果处理完成", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
+	global.APP_LOG.Debug("实例创建结果处理完成", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 
 	// 不再返回apiError，因为业务逻辑已经完全处理了任务状态
 	if apiError != nil {

@@ -129,7 +129,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("Proxmox API实例创建进度",
+		global.APP_LOG.Debug("Proxmox API实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))
@@ -254,7 +254,7 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("failed to start %s: %d", instanceType, resp.StatusCode)
 	}
 
-	global.APP_LOG.Info("已发送启动命令，等待实例启动",
+	global.APP_LOG.Debug("已发送启动命令，等待实例启动",
 		zap.String("id", id),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType))
@@ -285,7 +285,7 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 		statusOutput, err := p.sshClient.Execute(statusCmd)
 		if err == nil && strings.Contains(statusOutput, "status: running") {
 			// 实例已经启动
-			global.APP_LOG.Info("Proxmox实例已成功启动",
+			global.APP_LOG.Debug("Proxmox实例已成功启动",
 				zap.String("id", id),
 				zap.String("vmid", vmid),
 				zap.String("type", instanceType),
@@ -300,7 +300,7 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 					_, err := p.sshClient.Execute(agentCmd)
 					if err == nil {
 						agentSupported = true
-						global.APP_LOG.Info("QEMU Guest Agent已就绪",
+						global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 							zap.String("vmid", vmid))
 						break
 					}
@@ -315,7 +315,7 @@ func (p *ProxmoxProvider) apiStartInstance(ctx context.Context, id string) error
 						agentCmd := fmt.Sprintf("qm agent %s ping 2>/dev/null", vmid)
 						_, err := p.sshClient.Execute(agentCmd)
 						if err == nil {
-							global.APP_LOG.Info("QEMU Guest Agent已就绪",
+							global.APP_LOG.Debug("QEMU Guest Agent已就绪",
 								zap.String("vmid", vmid),
 								zap.Duration("elapsed", time.Since(agentStartTime)))
 							break

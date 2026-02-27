@@ -30,7 +30,7 @@ var providerApiService = &provider.ProviderApiService{}
 func (p *ProviderApi) ConnectProvider(c *gin.Context) {
 	var req provider.ConnectProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
 			"msg":  "参数错误: " + err.Error(),
@@ -187,7 +187,7 @@ func (p *ProviderApi) CreateInstance(c *gin.Context) {
 
 	var req provider.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
 			"msg":  "参数错误: " + err.Error(),
@@ -363,7 +363,7 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, gin.H{
 			"code": 400,
 			"msg":  "参数错误: " + err.Error(),

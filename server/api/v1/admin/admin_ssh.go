@@ -225,7 +225,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 			messageType, p, err := ws.ReadMessage()
 			if err != nil {
 				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
-					global.APP_LOG.Error("WebSocket读取错误", zap.Error(err))
+					global.APP_LOG.Warn("WebSocket读取错误", zap.Error(err))
 				}
 				return
 			}
@@ -242,7 +242,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 								if cols, ok := msg["cols"].(float64); ok {
 									if rows, ok := msg["rows"].(float64); ok {
 										if err := sshSession.WindowChange(int(rows), int(cols)); err != nil {
-											global.APP_LOG.Error("窗口大小调整失败", zap.Error(err))
+											global.APP_LOG.Warn("窗口大小调整失败", zap.Error(err))
 										}
 										continue
 									}
@@ -258,7 +258,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 
 				// 发送数据到SSH - 直接写入原始字节
 				if _, err := sshStdin.Write(p); err != nil {
-					global.APP_LOG.Error("写入SSH stdin失败", zap.Error(err))
+					global.APP_LOG.Warn("写入SSH stdin失败", zap.Error(err))
 					return
 				}
 			}
@@ -287,14 +287,14 @@ func AdminSSHWebSocket(c *gin.Context) {
 			n, err := sshStdout.Read(buf)
 			if err != nil {
 				if err != io.EOF {
-					global.APP_LOG.Error("读取SSH stdout失败", zap.Error(err))
+					global.APP_LOG.Warn("读取SSH stdout失败", zap.Error(err))
 				}
 				return
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage，避免UTF-8验证问题
 				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-					global.APP_LOG.Error("写入WebSocket失败", zap.Error(err))
+					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(err))
 					return
 				}
 			}
@@ -323,14 +323,14 @@ func AdminSSHWebSocket(c *gin.Context) {
 			n, err := sshStderr.Read(buf)
 			if err != nil {
 				if err != io.EOF {
-					global.APP_LOG.Error("读取SSH stderr失败", zap.Error(err))
+					global.APP_LOG.Warn("读取SSH stderr失败", zap.Error(err))
 				}
 				return
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage
 				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-					global.APP_LOG.Error("写入WebSocket失败", zap.Error(err))
+					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(err))
 					return
 				}
 			}

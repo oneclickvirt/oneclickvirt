@@ -82,7 +82,7 @@ func (s *Service) calculatePmacctBufferSizes(bandwidthMbps int) (int, int, int, 
 		sqlCacheEntries = 1024
 	}
 
-	global.APP_LOG.Info("根据带宽计算pmacct缓冲区大小",
+	global.APP_LOG.Debug("根据带宽计算pmacct缓冲区大小",
 		zap.Int("bandwidthMbps", bandwidthMbps),
 		zap.Int("pluginBufferSize", pluginBufferSize),
 		zap.Int("pluginPipeSize", pluginPipeSize),

@@ -215,7 +215,7 @@ func (s *MonitoringService) checkDatabaseHealth() string {
 	}
 
 	if err := sqlDB.Ping(); err != nil {
-		global.APP_LOG.Error("数据库健康检查失败", zap.Error(err))
+		global.APP_LOG.Warn("数据库健康检查失败", zap.Error(err))
 		return "unhealthy"
 	}
 

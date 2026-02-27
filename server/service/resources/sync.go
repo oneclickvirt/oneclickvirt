@@ -39,7 +39,7 @@ func (s *QuotaSyncService) DetectAndSyncLevelChanges(oldConfig, newConfig map[st
 	// 同步变更的等级用户限制
 	for _, change := range changes {
 		if err := s.syncLevelUsers(change.Level, change.NewLimits); err != nil {
-			global.APP_LOG.Error("同步等级用户限制失败",
+			global.APP_LOG.Warn("同步等级用户限制失败",
 				zap.Int("level", change.Level),
 				zap.Error(err))
 			continue // 继续处理其他等级，不中断整个过程
@@ -171,7 +171,7 @@ func (s *QuotaSyncService) detectLevelLimitChanges(oldLimits, newLimits map[int]
 				NewLimits: &newLimit,
 			})
 
-			global.APP_LOG.Info("检测到等级配置变更",
+			global.APP_LOG.Debug("检测到等级配置变更",
 				zap.Int("level", level),
 				zap.Bool("wasConfigured", oldExists),
 				zap.Any("oldLimits", oldLimitPtr),
@@ -308,7 +308,7 @@ func (s *QuotaSyncService) SyncAllUsersToCurrentConfig() error {
 	for level := 1; level <= 5; level++ {
 		if levelConfig, exists := global.GetAppConfig().Quota.LevelLimits[level]; exists {
 			if err := s.syncLevelUsers(level, &levelConfig); err != nil {
-				global.APP_LOG.Error("同步等级用户失败",
+				global.APP_LOG.Warn("同步等级用户失败",
 					zap.Int("level", level),
 					zap.Error(err))
 				continue

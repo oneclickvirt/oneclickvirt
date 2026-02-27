@@ -49,11 +49,11 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 	}
 
 	if len(instanceIDs) == 0 {
-		global.APP_LOG.Info("没有需要聚合的流量数据")
+		global.APP_LOG.Debug("没有需要聚合的流量数据")
 		return nil
 	}
 
-	global.APP_LOG.Info("找到需要聚合的实例",
+	global.APP_LOG.Debug("找到需要聚合的实例",
 		zap.Int("count", len(instanceIDs)))
 
 	// 预加载所有实例的provider_id和user_id
@@ -87,7 +87,7 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 		// 计算这批实例的流量
 		statsMap, err := s.queryService.computeBatchMonthlyTraffic(batch, year, month)
 		if err != nil {
-			global.APP_LOG.Error("计算流量失败",
+			global.APP_LOG.Warn("计算流量失败",
 				zap.Error(err),
 				zap.Int("batch_start", i),
 				zap.Int("batch_end", end))
@@ -98,7 +98,7 @@ func (s *AggregationService) AggregateMonthlyTraffic(year, month int) error {
 		// 批量保存到缓存表（一条 SQL 替代 N 条）
 		batchSuccess, batchErr := s.saveBatchToCacheWithInfo(statsMap, instanceInfoMap, year, month)
 		if batchErr > 0 {
-			global.APP_LOG.Error("批量保存流量缓存部分失败",
+			global.APP_LOG.Warn("批量保存流量缓存部分失败",
 				zap.Int("errCount", batchErr),
 				zap.Int("batch_start", i),
 				zap.Int("batch_end", end))
@@ -303,7 +303,7 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 
 		dailyStats, err := s.computeDailyTraffic(instanceID, year, month, day)
 		if err != nil {
-			global.APP_LOG.Error("计算每日流量失败",
+			global.APP_LOG.Warn("计算每日流量失败",
 				zap.Uint("instance_id", instanceID),
 				zap.Error(err))
 			continue
@@ -312,7 +312,7 @@ func (s *AggregationService) AggregateDailyTraffic(year, month, day int) error {
 		// 保存到缓存表（day!=0, hour=0表示按天缓存）
 		err = s.saveDailyCacheWithInfo(instanceID, instanceInfo.ProviderID, instanceInfo.UserID, year, month, day, dailyStats)
 		if err != nil {
-			global.APP_LOG.Error("保存每日缓存失败",
+			global.APP_LOG.Warn("保存每日缓存失败",
 				zap.Uint("instance_id", instanceID),
 				zap.Error(err))
 		}

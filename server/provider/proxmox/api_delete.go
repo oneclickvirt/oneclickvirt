@@ -31,7 +31,7 @@ func (p *ProxmoxProvider) apiDeleteInstance(ctx context.Context, id string) erro
 		ipAddress = "" // 继续执行，但IP地址为空
 	}
 
-	global.APP_LOG.Info("开始API删除Proxmox实例",
+	global.APP_LOG.Debug("开始API删除Proxmox实例",
 		zap.String("id", id),
 		zap.String("vmid", vmid),
 		zap.String("type", instanceType),
@@ -55,19 +55,19 @@ func (p *ProxmoxProvider) apiDeleteInstance(ctx context.Context, id string) erro
 
 // apiDeleteVM 通过API删除虚拟机
 func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddress string) error {
-	global.APP_LOG.Info("开始API删除VM流程",
+	global.APP_LOG.Debug("开始API删除VM流程",
 		zap.String("vmid", vmid),
 		zap.String("ip", ipAddress))
 
 	// 1. 解锁VM（通过SSH，因为API可能不支持unlock操作）
-	global.APP_LOG.Info("解锁VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("解锁VM", zap.String("vmid", vmid))
 	_, err := p.sshClient.Execute(fmt.Sprintf("qm unlock %s 2>/dev/null || true", vmid))
 	if err != nil {
 		global.APP_LOG.Warn("解锁VM失败", zap.String("vmid", vmid), zap.Error(err))
 	}
 
 	// 2. 停止VM
-	global.APP_LOG.Info("停止VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("停止VM", zap.String("vmid", vmid))
 	stopURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/stop", p.config.Host, p.node, vmid)
 	stopReq, err := http.NewRequestWithContext(ctx, "POST", stopURL, nil)
 	if err != nil {
@@ -90,7 +90,7 @@ func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddres
 	}
 
 	// 4. 删除VM
-	global.APP_LOG.Info("销毁VM", zap.String("vmid", vmid))
+	global.APP_LOG.Debug("销毁VM", zap.String("vmid", vmid))
 	deleteURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s", p.config.Host, p.node, vmid)
 	deleteReq, err := http.NewRequestWithContext(ctx, "DELETE", deleteURL, nil)
 	if err != nil {
@@ -114,12 +114,12 @@ func (p *ProxmoxProvider) apiDeleteVM(ctx context.Context, vmid string, ipAddres
 
 // apiDeleteContainer 通过API删除容器
 func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, ipAddress string) error {
-	global.APP_LOG.Info("开始API删除CT流程",
+	global.APP_LOG.Debug("开始API删除CT流程",
 		zap.String("ctid", ctid),
 		zap.String("ip", ipAddress))
 
 	// 1. 停止容器
-	global.APP_LOG.Info("停止CT", zap.String("ctid", ctid))
+	global.APP_LOG.Debug("停止CT", zap.String("ctid", ctid))
 	stopURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s/status/stop", p.config.Host, p.node, ctid)
 	stopReq, err := http.NewRequestWithContext(ctx, "POST", stopURL, nil)
 	if err != nil {
@@ -142,7 +142,7 @@ func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, i
 	}
 
 	// 3. 删除容器
-	global.APP_LOG.Info("销毁CT", zap.String("ctid", ctid))
+	global.APP_LOG.Debug("销毁CT", zap.String("ctid", ctid))
 	deleteURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%s", p.config.Host, p.node, ctid)
 	deleteReq, err := http.NewRequestWithContext(ctx, "DELETE", deleteURL, nil)
 	if err != nil {
@@ -166,7 +166,7 @@ func (p *ProxmoxProvider) apiDeleteContainer(ctx context.Context, ctid string, i
 
 // performPostDeletionCleanup 执行删除后的清理工作
 func (p *ProxmoxProvider) performPostDeletionCleanup(ctx context.Context, vmctid string, ipAddress string, instanceType string) error {
-	global.APP_LOG.Info("执行删除后清理工作",
+	global.APP_LOG.Debug("执行删除后清理工作",
 		zap.String("vmctid", vmctid),
 		zap.String("type", instanceType),
 		zap.String("ip", ipAddress))

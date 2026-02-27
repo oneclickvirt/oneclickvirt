@@ -34,7 +34,7 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 		if err := global.APP_DB.Model(&provider.Instance{}).
 			Where("name LIKE ?", "%"+req.Keyword+"%").
 			Pluck("id", &instanceIDs).Error; err != nil {
-			global.APP_LOG.Error("搜索实例失败", zap.Error(err))
+			global.APP_LOG.Warn("搜索实例失败", zap.Error(err))
 		} else if len(instanceIDs) > 0 {
 			query = query.Where("instance_id IN ?", instanceIDs)
 		} else {
@@ -279,7 +279,7 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 
 	// 检查是否为独立IPv4模式或纯IPv6模式，如果是则跳过默认端口映射创建
 	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" {
-		global.APP_LOG.Info("独立IP模式或纯IPv6模式，跳过默认端口映射创建",
+		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过默认端口映射创建",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", providerID),
 			zap.String("networkType", providerInfo.NetworkType))

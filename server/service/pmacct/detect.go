@@ -27,7 +27,7 @@ func (s *Service) checkPmacctVersion(providerInstance provider.Provider) error {
 	}
 
 	output = strings.TrimSpace(output)
-	global.APP_LOG.Info("检测到pmacct版本", zap.String("version_output", output))
+	global.APP_LOG.Debug("检测到pmacct版本", zap.String("version_output", output))
 
 	// 从输出中提取版本号
 	// 示例输出: "pmacctd (1.7.8)"
@@ -44,7 +44,7 @@ func (s *Service) checkPmacctVersion(providerInstance provider.Provider) error {
 		return fmt.Errorf("pmacct版本过低: 当前版本 %s, 最低要求 1.7.0", s.versionToString(version))
 	}
 
-	global.APP_LOG.Info("pmacct版本符合要求",
+	global.APP_LOG.Debug("pmacct版本符合要求",
 		zap.String("current_version", s.versionToString(version)),
 		zap.String("min_version", "1.7.0"))
 
@@ -159,7 +159,7 @@ func (s *Service) detectVethInterface(providerInstance provider.Provider, instan
 		}); ok {
 			vethName, err := lxdProv.GetVethInterfaceName(instanceName)
 			if err == nil && vethName != "" {
-				global.APP_LOG.Info("通过LXD Provider方法成功获取veth接口",
+				global.APP_LOG.Debug("通过LXD Provider方法成功获取veth接口",
 					zap.String("instance", instanceName),
 					zap.String("veth", vethName))
 				return vethName, nil
@@ -176,7 +176,7 @@ func (s *Service) detectVethInterface(providerInstance provider.Provider, instan
 			defer cancel()
 			vethName, err := incusProv.GetVethInterfaceName(ctx, instanceName)
 			if err == nil && vethName != "" {
-				global.APP_LOG.Info("通过Incus Provider方法成功获取veth接口",
+				global.APP_LOG.Debug("通过Incus Provider方法成功获取veth接口",
 					zap.String("instance", instanceName),
 					zap.String("veth", vethName))
 				return vethName, nil
@@ -293,7 +293,7 @@ exit 1
 		return "", fmt.Errorf("invalid veth interface name: %s", vethName)
 	}
 
-	global.APP_LOG.Info("成功检测到容器veth接口",
+	global.APP_LOG.Debug("成功检测到容器veth接口",
 		zap.String("instance", instanceName),
 		zap.String("providerType", providerType),
 		zap.String("veth", vethName))
@@ -315,7 +315,7 @@ func (s *Service) DetectProxmoxNetworkInterface(providerInstance provider.Provid
 // - LXC容器：veth<ctid>i0 格式（如 veth178i0）
 // - KVM虚拟机：tap<vmid>i0 格式（如 tap101i0）
 func (s *Service) detectProxmoxNetworkInterface(providerInstance provider.Provider, instanceName string, instanceID string) (string, error) {
-	global.APP_LOG.Info("开始检测Proxmox网络接口",
+	global.APP_LOG.Debug("开始检测Proxmox网络接口",
 		zap.String("instance", instanceName),
 		zap.String("instanceID", instanceID))
 
@@ -414,7 +414,7 @@ exit 1
 		interfaceType = "KVM虚拟机"
 	}
 
-	global.APP_LOG.Info("成功检测到Proxmox网络接口",
+	global.APP_LOG.Debug("成功检测到Proxmox网络接口",
 		zap.String("instance", instanceName),
 		zap.String("instanceID", instanceID),
 		zap.String("interface", interfaceName),
@@ -430,7 +430,7 @@ func (s *Service) detectProxmoxInterfaceByMAC(providerInstance provider.Provider
 		return "", fmt.Errorf("MAC地址为空")
 	}
 
-	global.APP_LOG.Info("通过MAC地址检测Proxmox网络接口",
+	global.APP_LOG.Debug("通过MAC地址检测Proxmox网络接口",
 		zap.String("instance", instanceName),
 		zap.String("mac", macAddress))
 
@@ -470,7 +470,7 @@ exit 1
 		return "", fmt.Errorf("无法通过MAC地址 %s 找到接口", macAddress)
 	}
 
-	global.APP_LOG.Info("通过MAC地址成功检测到网络接口",
+	global.APP_LOG.Debug("通过MAC地址成功检测到网络接口",
 		zap.String("instance", instanceName),
 		zap.String("mac", macAddress),
 		zap.String("interface", interfaceName))
@@ -498,7 +498,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		// 验证保存的网卡是否仍然存在（避免容器重启后网卡名变化）
 		if s.verifyInterfaceExists(providerInstance, instance.PmacctInterfaceV4) {
 			info.IPv4Interface = instance.PmacctInterfaceV4
-			global.APP_LOG.Info("使用数据库中保存的IPv4网络接口（已验证存在）",
+			global.APP_LOG.Debug("使用数据库中保存的IPv4网络接口（已验证存在）",
 				zap.String("instance", instanceName),
 				zap.String("interfaceV4", info.IPv4Interface))
 		} else {
@@ -512,7 +512,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		// 验证保存的网卡是否仍然存在
 		if s.verifyInterfaceExists(providerInstance, instance.PmacctInterfaceV6) {
 			info.IPv6Interface = instance.PmacctInterfaceV6
-			global.APP_LOG.Info("使用数据库中保存的IPv6网络接口（已验证存在）",
+			global.APP_LOG.Debug("使用数据库中保存的IPv6网络接口（已验证存在）",
 				zap.String("instance", instanceName),
 				zap.String("interfaceV6", info.IPv6Interface))
 		} else {
@@ -529,7 +529,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 	}
 
 	// 否则进行动态检测
-	global.APP_LOG.Info("数据库中无完整网络接口信息，开始动态检测",
+	global.APP_LOG.Debug("数据库中无完整网络接口信息，开始动态检测",
 		zap.String("instance", instanceName),
 		zap.Bool("hasIPv6", hasIPv6))
 
@@ -582,7 +582,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 
 		// 方法2: 如果方法1失败，回退到主网络接口检测
 		if proxmoxInterface == "" {
-			global.APP_LOG.Info("使用通用方法检测Proxmox网络接口",
+			global.APP_LOG.Debug("使用通用方法检测Proxmox网络接口",
 				zap.String("instance", instanceName))
 			mainInterface, err := s.detectNetworkInterface(providerInstance)
 			if err != nil {
@@ -612,7 +612,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		}
 	}
 
-	global.APP_LOG.Info("检测到网络接口",
+	global.APP_LOG.Debug("检测到网络接口",
 		zap.String("instance", instanceName),
 		zap.String("providerType", providerType),
 		zap.String("ipv4Interface", info.IPv4Interface),

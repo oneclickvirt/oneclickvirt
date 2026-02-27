@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -14,10 +15,15 @@ import (
 	"github.com/spf13/viper"
 )
 
-// Viper 初始化配置文件
+// Viper 初始化并返回 viper 实例。
+//
+// 说明：
+//   - 该函数在日志系统（global.APP_LOG）就绪之前执行，所有输出均使用 fmt 包；
+//   - 错误与告警写入 stderr，提示性信息写入 stdout；
+//   - 读取失败时不 panic，改为使用内存默认配置继续运行，保证服务可启动；
+//   - 通过 OnConfigChange 热重载配置，日志系统就绪后同步写入结构化日志。
 func Viper(path ...string) *viper.Viper {
 	var cfgFile string
-
 	if len(path) == 0 {
 		cfgFile = "config.yaml"
 	} else {
@@ -28,19 +34,18 @@ func Viper(path ...string) *viper.Viper {
 	v.SetConfigFile(cfgFile)
 	v.SetConfigType("yaml")
 
-	err := v.ReadInConfig()
-	if err != nil {
-		fmt.Printf("[VIPER] 配置文件读取错误: %s，使用默认配置\n", err)
-		// 不要panic，而是使用默认配置继续运行
+	if err := v.ReadInConfig(); err != nil {
+		// 读取失败降级为内存默认配置，不中断启动流程
+		fmt.Fprintf(os.Stderr, "[VIPER WARN] 配置文件读取失败: %v，将使用默认配置\n", err)
 		return v
 	}
 
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
-		fmt.Printf("[VIPER] 配置文件已更改: %s\n", e.Name)
+		fmt.Printf("[VIPER] 配置文件变更: %s\n", e.Name)
 		var newCfg config.Server
 		if err := v.Unmarshal(&newCfg); err != nil {
-			fmt.Printf("[VIPER] 配置解析失败: %v\n", err)
+			fmt.Fprintf(os.Stderr, "[VIPER WARN] 热重载配置解析失败: %v，保持原有配置\n", err)
 		} else {
 			global.SetAppConfig(newCfg)
 		}
@@ -48,17 +53,19 @@ func Viper(path ...string) *viper.Viper {
 
 	var initCfg config.Server
 	if err := v.Unmarshal(&initCfg); err != nil {
-		fmt.Printf("[VIPER] 配置解析失败: %v\n", err)
+		fmt.Fprintf(os.Stderr, "[VIPER WARN] 初始配置解析失败: %v，将使用默认配置\n", err)
 	} else {
 		global.SetAppConfig(initCfg)
 	}
 
-	// 设置默认值
+	// 设置各字段的安全默认值
 	setDefaults(v)
 
 	return v
 }
 
+// setDefaults 设置配置项安全默认值。
+// 注意：对于已在 config.yaml 中定义的重项，viper 的 SetDefault 不会覆盖文件中的值。
 func setDefaults(v *viper.Viper) {
 	v.SetDefault("system.env", "public")
 	v.SetDefault("system.addr", 8080)
@@ -69,13 +76,11 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("system.iplimit-count", 15000)
 	v.SetDefault("system.iplimit-time", 3600)
 
-	// 生成强制的安全JWT签名密钥
+	// 生成随机安全的 JWT 默认签名密钒（如果 config.yaml 未配置）
 	randomKey := generateSecureJWTKey()
-
-	// 验证密钥强度
 	if err := validateJWTKeyStrength(randomKey); err != nil {
-		fmt.Printf("[VIPER] JWT密钥强度验证失败: %v，重新生成密钥\n", err)
-		// 重新生成密钥
+		// 此时日志系统尚未就绪，必须使用 fmt 输出
+		fmt.Fprintf(os.Stderr, "[VIPER WARN] JWT 密钒强度不足: %v，将重新生成\n", err)
 		randomKey = generateSecureJWTKey()
 	}
 
@@ -94,22 +99,24 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("zap.log-in-console", true)
 }
 
-// generateSecureJWTKey 生成安全的JWT密钥
+// generateSecureJWTKey 生成一个随机 256 位十六进制字符串作为 JWT 签名密钒。
+// 如果 “crypto/rand” 失败，降级为基于纳秒级时间戳的后备密钒。
 func generateSecureJWTKey() string {
-	bytes := make([]byte, 32) // 强制256位密钥
-	if _, err := rand.Read(bytes); err != nil {
-		// 如果生成失败，使用时间戳作为后备，但确保足够长度
+	b := make([]byte, 32) // 256 位 = 64 个十六进制字符
+	if _, err := rand.Read(b); err != nil {
+		// 极低概率失败，使用纳秒时间戳拼接得到足夠长度的密钒
 		backupKey := fmt.Sprintf("oneclickvirt-backup-%d", time.Now().UnixNano())
-		// 确保至少64字符长度
 		for len(backupKey) < 64 {
 			backupKey += fmt.Sprintf("-%d", time.Now().UnixNano())
 		}
-		return backupKey[:64] // 截取到64字符
+		return backupKey[:64]
 	}
-	return hex.EncodeToString(bytes)
+	return hex.EncodeToString(b)
 }
 
-// validateJWTKeyStrength 验证JWT密钥强度
+// validateJWTKeyStrength 校验 JWT 签名密钒的强度要求：
+//   - 长度不少于 32 字符；
+//   - 不包含常见弱密钒模式。
 func validateJWTKeyStrength(key string) error {
 	if len(key) < 32 {
 		return fmt.Errorf("JWT密钥长度不足，当前长度: %d，最小要求: 32", len(key))

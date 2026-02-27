@@ -109,7 +109,7 @@ func CreateUserInstance(c *gin.Context) {
 
 	var req user.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("CreateUserInstance binding error: " + err.Error())
+		global.APP_LOG.Warn("CreateUserInstance binding error: " + err.Error())
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}

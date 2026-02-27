@@ -24,7 +24,7 @@ func (p *ProxmoxProvider) ListImages(ctx context.Context) ([]provider.Image, err
 	if p.shouldUseAPI() {
 		images, err := p.apiListImages(ctx)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 获取镜像列表")
+			global.APP_LOG.Debug("Proxmox API调用成功 - 获取镜像列表")
 			return images, nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 获取镜像列表", zap.Error(err))
@@ -33,7 +33,7 @@ func (p *ProxmoxProvider) ListImages(ctx context.Context) ([]provider.Image, err
 		if !p.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 获取镜像列表")
+		global.APP_LOG.Debug("回退到SSH方式 - 获取镜像列表")
 	}
 
 	// 使用SSH方式
@@ -58,7 +58,7 @@ func (p *ProxmoxProvider) PullImage(ctx context.Context, image string) error {
 	if p.shouldUseAPI() {
 		err := p.apiPullImage(ctx, image)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)), zap.Error(err))
@@ -67,7 +67,7 @@ func (p *ProxmoxProvider) PullImage(ctx context.Context, image string) error {
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+		global.APP_LOG.Debug("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
 	}
 
 	// 使用SSH方式
@@ -80,7 +80,7 @@ func (p *ProxmoxProvider) PullImage(ctx context.Context, image string) error {
 
 // handleImageDownload 处理镜像下载
 func (p *ProxmoxProvider) handleImageDownload(ctx context.Context, imageURL string) error {
-	global.APP_LOG.Info("开始处理Proxmox镜像下载",
+	global.APP_LOG.Debug("开始处理Proxmox镜像下载",
 		zap.String("imageURL", utils.TruncateString(imageURL, 200)))
 
 	// 从URL中提取镜像名
@@ -88,7 +88,7 @@ func (p *ProxmoxProvider) handleImageDownload(ctx context.Context, imageURL stri
 
 	// 检查镜像是否已存在
 	if p.imageExists(imageName) {
-		global.APP_LOG.Info("Proxmox镜像已存在，跳过下载",
+		global.APP_LOG.Debug("Proxmox镜像已存在，跳过下载",
 			zap.String("imageName", imageName))
 		return nil
 	}
@@ -99,7 +99,7 @@ func (p *ProxmoxProvider) handleImageDownload(ctx context.Context, imageURL stri
 		return fmt.Errorf("下载镜像失败: %w", err)
 	}
 
-	global.APP_LOG.Info("Proxmox镜像下载完成",
+	global.APP_LOG.Debug("Proxmox镜像下载完成",
 		zap.String("imageName", imageName),
 		zap.String("remotePath", remotePath))
 
@@ -162,7 +162,7 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 	checkCmd := fmt.Sprintf("test -f %s && echo 'exists'", remotePath)
 	output, _ := p.sshClient.Execute(checkCmd)
 	if strings.TrimSpace(output) == "exists" {
-		global.APP_LOG.Info("镜像文件已存在", zap.String("path", remotePath))
+		global.APP_LOG.Debug("镜像文件已存在", zap.String("path", remotePath))
 		return remotePath, nil
 	}
 
@@ -171,7 +171,7 @@ func (p *ProxmoxProvider) downloadImageToRemote(ctx context.Context, imageURL, i
 		return "", err
 	}
 
-	global.APP_LOG.Info("镜像下载到远程服务器完成",
+	global.APP_LOG.Debug("镜像下载到远程服务器完成",
 		zap.String("imageName", imageName),
 		zap.String("remotePath", remotePath))
 
@@ -190,7 +190,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 
 	var lastErr error
 	for _, cmd := range downloadCmds {
-		global.APP_LOG.Info("执行下载命令",
+		global.APP_LOG.Debug("执行下载命令",
 			zap.String("url", utils.TruncateString(url, 100)))
 
 		output, err := p.sshClient.Execute(cmd)
@@ -206,7 +206,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 				return fmt.Errorf("移动文件失败: %w", err)
 			}
 
-			global.APP_LOG.Info("下载成功",
+			global.APP_LOG.Debug("下载成功",
 				zap.String("url", utils.TruncateString(url, 100)),
 				zap.String("remotePath", remotePath))
 			return nil
@@ -233,7 +233,7 @@ func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {
 	if p.shouldUseAPI() {
 		err := p.apiDeleteImage(ctx, id)
 		if err == nil {
-			global.APP_LOG.Info("Proxmox API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Proxmox API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		}
 		global.APP_LOG.Warn("Proxmox API失败 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)), zap.Error(err))
@@ -242,7 +242,7 @@ func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {
 		if !p.shouldFallbackToSSH() {
 			return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+		global.APP_LOG.Debug("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 	}
 
 	// 使用SSH方式
@@ -255,7 +255,7 @@ func (p *ProxmoxProvider) DeleteImage(ctx context.Context, id string) error {
 
 // prepareImage 准备镜像，确保镜像存在且可用
 func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceType string) error {
-	global.APP_LOG.Info("准备Proxmox镜像",
+	global.APP_LOG.Debug("准备Proxmox镜像",
 		zap.String("image", imageName),
 		zap.String("type", instanceType))
 
@@ -274,7 +274,7 @@ func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceT
 
 	// 如果有ImageURL，使用下载逻辑
 	if config.ImageURL != "" {
-		global.APP_LOG.Info("从数据库获取到镜像下载URL，开始下载",
+		global.APP_LOG.Debug("从数据库获取到镜像下载URL，开始下载",
 			zap.String("imageURL", utils.TruncateString(config.ImageURL, 100)))
 
 		return p.downloadImageFromURL(ctx, config.ImageURL, imageName, instanceType)
@@ -300,7 +300,7 @@ func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceT
 			return p.downloadImage(ctx, imageName, instanceType)
 		}
 
-		global.APP_LOG.Info("Proxmox VM镜像已存在",
+		global.APP_LOG.Debug("Proxmox VM镜像已存在",
 			zap.String("image", imageName),
 			zap.String("type", instanceType))
 		return nil
@@ -309,7 +309,7 @@ func (p *ProxmoxProvider) prepareImage(ctx context.Context, imageName, instanceT
 
 // downloadImage 下载镜像
 func (p *ProxmoxProvider) downloadImage(ctx context.Context, imageName, instanceType string) error {
-	global.APP_LOG.Info("开始下载Proxmox镜像",
+	global.APP_LOG.Debug("开始下载Proxmox镜像",
 		zap.String("image", imageName),
 		zap.String("type", instanceType))
 
@@ -354,13 +354,13 @@ func (p *ProxmoxProvider) downloadImageFromURL(ctx context.Context, imageURL, im
 
 	// 检查远程文件是否已存在且完整
 	if p.isRemoteFileValid(remotePath) {
-		global.APP_LOG.Info("远程镜像文件已存在且完整，跳过下载",
+		global.APP_LOG.Debug("远程镜像文件已存在且完整，跳过下载",
 			zap.String("imageName", imageName),
 			zap.String("remotePath", remotePath))
 		return nil
 	}
 
-	global.APP_LOG.Info("开始在远程服务器下载镜像",
+	global.APP_LOG.Debug("开始在远程服务器下载镜像",
 		zap.String("imageName", imageName),
 		zap.String("downloadURL", imageURL),
 		zap.String("remotePath", remotePath))
@@ -372,7 +372,7 @@ func (p *ProxmoxProvider) downloadImageFromURL(ctx context.Context, imageURL, im
 		return fmt.Errorf("远程下载镜像失败: %w", err)
 	}
 
-	global.APP_LOG.Info("远程镜像下载完成",
+	global.APP_LOG.Debug("远程镜像下载完成",
 		zap.String("imageName", imageName),
 		zap.String("remotePath", remotePath))
 
@@ -490,7 +490,7 @@ func (p *ProxmoxProvider) queryAndSetSystemImage(ctx context.Context, config *pr
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
 		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
-		global.APP_LOG.Info("从数据库获取到系统镜像配置",
+		global.APP_LOG.Debug("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
 			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
 			zap.Bool("useCDN", systemImage.UseCDN),

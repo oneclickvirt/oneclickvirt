@@ -95,7 +95,7 @@ func UpdateProviderStatus(c *gin.Context) {
 	}
 	var req admin.UpdateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		global.APP_LOG.Error("UpdateProvider参数绑定失败", zap.Error(err))
+		global.APP_LOG.Warn("UpdateProvider参数绑定失败", zap.Error(err))
 		c.JSON(http.StatusBadRequest, common.Response{
 			Code: 400,
 			Msg:  "参数错误: " + err.Error(),

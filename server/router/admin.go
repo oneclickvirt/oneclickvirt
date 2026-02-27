@@ -77,6 +77,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/performance/metrics", system.GetPerformanceMetrics)
 		AdminGroup.GET("/performance/history", system.GetPerformanceHistory)
 
+		// 日志查看
+		AdminGroup.GET("/logs/dates", system.GetLogDates)
+		AdminGroup.GET("/logs/content", system.GetLogContent)
+
 		// 流量同步管理
 		AdminGroup.POST("/traffic/sync/instance/:instance_id", admin.SyncInstanceTraffic)
 		AdminGroup.POST("/traffic/sync/user/:user_id", admin.SyncUserTraffic)

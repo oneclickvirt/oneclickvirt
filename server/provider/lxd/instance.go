@@ -30,7 +30,7 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 				zap.String("command", setMaxCmd),
 				zap.Error(err))
 		} else {
-			global.APP_LOG.Info("已设置磁盘limits.max限制",
+			global.APP_LOG.Debug("已设置磁盘limits.max限制",
 				zap.String("instance", config.Name),
 				zap.String("limits.max", diskFormatted))
 		}
@@ -108,7 +108,7 @@ func (l *LXDProvider) setInstanceConfig(ctx context.Context, instanceName string
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 设置实例配置",
+			global.APP_LOG.Debug("回退到SSH执行 - 设置实例配置",
 				zap.String("instance", instanceName),
 				zap.String("key", key))
 		}
@@ -151,7 +151,7 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 			if !l.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 设置实例设备配置",
+			global.APP_LOG.Debug("回退到SSH执行 - 设置实例设备配置",
 				zap.String("instance", instanceName),
 				zap.String("device", deviceName),
 				zap.String("key", key))
@@ -180,7 +180,7 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 
 // waitForInstanceReady 等待实例就绪
 func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName string) error {
-	global.APP_LOG.Info("等待LXD实例就绪", zap.String("instance", instanceName))
+	global.APP_LOG.Debug("等待LXD实例就绪", zap.String("instance", instanceName))
 
 	timeout := 50 * time.Second
 	interval := 3 * time.Second
@@ -217,7 +217,7 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 			zap.String("status", status))
 
 		if strings.ToLower(status) == "running" {
-			global.APP_LOG.Info("LXD实例已就绪", zap.String("instance", instanceName))
+			global.APP_LOG.Debug("LXD实例已就绪", zap.String("instance", instanceName))
 			return nil
 		}
 
@@ -233,7 +233,7 @@ func (l *LXDProvider) waitForInstanceReady(ctx context.Context, instanceName str
 
 // configureInstanceSystem 配置实例系统
 func (l *LXDProvider) configureInstanceSystem(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置LXD实例系统",
+	global.APP_LOG.Debug("开始配置LXD实例系统",
 		zap.String("instance", config.Name),
 		zap.String("type", config.InstanceType))
 	if config.InstanceType != "vm" {
@@ -241,14 +241,14 @@ func (l *LXDProvider) configureInstanceSystem(ctx context.Context, config provid
 		_ = l.setInstanceConfig(ctx, config.Name, "boot.autostart.priority", "50")
 		_ = l.setInstanceConfig(ctx, config.Name, "boot.autostart.delay", "10")
 	}
-	global.APP_LOG.Info("实例系统配置完成",
+	global.APP_LOG.Debug("实例系统配置完成",
 		zap.String("instanceName", config.Name))
 	return nil
 }
 
 // checkVMSupport 检查LXD是否支持虚拟机（参考官方buildvm.sh的check_vm_support函数）
 func (l *LXDProvider) checkVMSupport() error {
-	global.APP_LOG.Info("检查LXD虚拟机支持...")
+	global.APP_LOG.Debug("检查LXD虚拟机支持...")
 
 	// 检查lxc命令是否可用
 	_, err := l.sshClient.Execute("command -v lxc")
@@ -269,13 +269,13 @@ func (l *LXDProvider) checkVMSupport() error {
 		return fmt.Errorf("LXD不支持虚拟机 (未找到qemu驱动)，此系统仅支持容器")
 	}
 
-	global.APP_LOG.Info("已确认LXD支持虚拟机 - qemu驱动可用")
+	global.APP_LOG.Debug("已确认LXD支持虚拟机 - qemu驱动可用")
 	return nil
 }
 
 // configureVMSettings 配置虚拟机特有设置（参考官方buildvm.sh的configure_limits函数）
 func (l *LXDProvider) configureVMSettings(ctx context.Context, instanceName string) error {
-	global.APP_LOG.Info("配置虚拟机特有设置", zap.String("instance", instanceName))
+	global.APP_LOG.Debug("配置虚拟机特有设置", zap.String("instance", instanceName))
 
 	// 禁用安全启动（虚拟机常用配置）
 	if err := l.setInstanceConfig(ctx, instanceName, "security.secureboot", "false"); err != nil {
@@ -289,7 +289,7 @@ func (l *LXDProvider) configureVMSettings(ctx context.Context, instanceName stri
 
 // configureInstanceSSHPassword 专门用于设置实例的SSH密码
 func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config provider.InstanceConfig) error {
-	global.APP_LOG.Info("开始配置实例SSH密码",
+	global.APP_LOG.Debug("开始配置实例SSH密码",
 		zap.String("instanceName", config.Name))
 
 	// 生成随机密码
@@ -362,7 +362,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 			zap.Error(err))
 	}
 
-	global.APP_LOG.Info("实例SSH密码设置完成",
+	global.APP_LOG.Debug("实例SSH密码设置完成",
 		zap.String("instanceName", config.Name),
 		zap.String("rootPassword", password))
 
@@ -380,7 +380,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
 	} else {
-		global.APP_LOG.Info("实例密码已同步到数据库",
+		global.APP_LOG.Debug("实例密码已同步到数据库",
 			zap.String("instanceName", config.Name))
 	}
 	return nil
@@ -388,7 +388,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 
 // waitForInstanceExecReady 等待实例可以执行命令（容器直接可用，虚拟机需要等待Agent）
 func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSeconds int) error {
-	global.APP_LOG.Info("开始等待实例可执行命令",
+	global.APP_LOG.Debug("开始等待实例可执行命令",
 		zap.String("instanceName", instanceName),
 		zap.Int("timeout", timeoutSeconds))
 	time.Sleep(12 * time.Second)
@@ -415,7 +415,7 @@ func (l *LXDProvider) waitForInstanceExecReady(instanceName string, timeoutSecon
 		cmd := fmt.Sprintf("lxc exec %s -- echo 'agent-ready' 2>/dev/null", instanceName)
 		output, err := l.sshClient.Execute(cmd)
 		if err == nil && strings.Contains(output, "agent-ready") {
-			global.APP_LOG.Info("实例可执行命令",
+			global.APP_LOG.Debug("实例可执行命令",
 				zap.String("instanceName", instanceName),
 				zap.Int("elapsed", elapsed))
 			time.Sleep(12 * time.Second)

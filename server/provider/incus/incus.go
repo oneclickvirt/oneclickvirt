@@ -70,7 +70,7 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	}
 
 	if config.CertPath != "" && config.KeyPath != "" {
-		global.APP_LOG.Info("尝试配置Incus证书认证",
+		global.APP_LOG.Debug("尝试配置Incus证书认证",
 			zap.String("host", utils.TruncateString(config.Host, 32)),
 			zap.String("certPath", utils.TruncateString(config.CertPath, 64)),
 			zap.String("keyPath", utils.TruncateString(config.KeyPath, 64)))
@@ -84,12 +84,12 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 		} else {
 			// 更新transport的TLS配置
 			i.transport.TLSClientConfig = tlsConfig
-			global.APP_LOG.Info("Incus provider证书认证配置成功",
+			global.APP_LOG.Debug("Incus provider证书认证配置成功",
 				zap.String("host", utils.TruncateString(config.Host, 32)),
 				zap.String("certPath", utils.TruncateString(config.CertPath, 64)))
 		}
 	} else {
-		global.APP_LOG.Info("未找到Incus证书配置，仅使用SSH",
+		global.APP_LOG.Debug("未找到Incus证书配置，仅使用SSH",
 			zap.String("host", utils.TruncateString(config.Host, 32)))
 	}
 
@@ -183,7 +183,7 @@ func (i *IncusProvider) getIncusVersion() error {
 		}
 		// 提取第一个非空行作为版本号
 		i.version = line
-		global.APP_LOG.Info("获取 Incus 版本成功",
+		global.APP_LOG.Debug("获取 Incus 版本成功",
 			zap.String("version", i.version))
 		return nil
 	}
@@ -269,7 +269,7 @@ func (i *IncusProvider) ListInstances(ctx context.Context) ([]provider.Instance,
 		if !i.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH执行 - 列出实例")
+		global.APP_LOG.Debug("回退到SSH执行 - 列出实例")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误
@@ -289,7 +289,7 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiCreateInstance(ctx, config); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -298,7 +298,7 @@ func (i *IncusProvider) CreateInstance(ctx context.Context, config provider.Inst
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("回退到SSH执行 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -319,7 +319,7 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiCreateInstanceWithProgress(ctx, config, progressCallback); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -328,7 +328,7 @@ func (i *IncusProvider) CreateInstanceWithProgress(ctx context.Context, config p
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 创建实例", zap.String("name", utils.TruncateString(config.Name, 50)))
 		}
 	}
 
@@ -348,7 +348,7 @@ func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiStartInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -357,7 +357,7 @@ func (i *IncusProvider) StartInstance(ctx context.Context, id string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 启动实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -377,7 +377,7 @@ func (i *IncusProvider) StopInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiStopInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -386,7 +386,7 @@ func (i *IncusProvider) StopInstance(ctx context.Context, id string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 停止实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -406,7 +406,7 @@ func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiRestartInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -415,7 +415,7 @@ func (i *IncusProvider) RestartInstance(ctx context.Context, id string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 重启实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -435,7 +435,7 @@ func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiDeleteInstance(ctx, id); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -444,7 +444,7 @@ func (i *IncusProvider) DeleteInstance(ctx context.Context, id string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 删除实例", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -489,7 +489,7 @@ func (i *IncusProvider) ListImages(ctx context.Context) ([]provider.Image, error
 		if !i.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH方式 - 列出镜像")
+		global.APP_LOG.Debug("回退到SSH方式 - 列出镜像")
 	}
 
 	// 使用SSH方式
@@ -508,7 +508,7 @@ func (i *IncusProvider) PullImage(ctx context.Context, image string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiPullImage(ctx, image); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -517,7 +517,7 @@ func (i *IncusProvider) PullImage(ctx context.Context, image string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
 		}
 	}
 
@@ -537,7 +537,7 @@ func (i *IncusProvider) DeleteImage(ctx context.Context, id string) error {
 	// 根据执行规则判断使用哪种方式
 	if i.shouldUseAPI() {
 		if err := i.apiDeleteImage(ctx, id); err == nil {
-			global.APP_LOG.Info("Incus API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("Incus API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 			return nil
 		} else {
 			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
@@ -546,7 +546,7 @@ func (i *IncusProvider) DeleteImage(ctx context.Context, id string) error {
 			if !i.shouldFallbackToSSH() {
 				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 			}
-			global.APP_LOG.Info("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
 		}
 	}
 
@@ -667,7 +667,7 @@ func (i *IncusProvider) ensureSSHBeforeFallback(apiErr error, operation string) 
 		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	global.APP_LOG.Debug(fmt.Sprintf("回退到SSH方式 - %s", operation))
 	return nil
 }
 

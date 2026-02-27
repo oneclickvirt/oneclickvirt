@@ -44,7 +44,7 @@ func (m *TaskContextManager) Add(taskID uint, ctx context.Context, cancel contex
 	if currentCount >= int64(float64(m.maxSize)*0.8) {
 		cleaned := m.CleanupStale()
 		if cleaned > 0 {
-			global.APP_LOG.Info("容量接近上限，主动清理陈旧context",
+			global.APP_LOG.Warn("容量接近上限，主动清理陈旧context",
 				zap.Int("cleaned", cleaned),
 				zap.Int64("remaining", m.count.Load()))
 		}

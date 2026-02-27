@@ -251,7 +251,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 			return fmt.Errorf("资源分配失败: %v", err)
 		}
 
-		global.APP_LOG.Info("资源预留成功，准备创建实例",
+		global.APP_LOG.Debug("资源预留成功，准备创建实例",
 			zap.Uint("userId", userID),
 			zap.String("sessionId", sessionID))
 

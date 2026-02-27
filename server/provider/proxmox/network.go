@@ -59,7 +59,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 	if config.Metadata != nil {
 		if metaNetworkType, ok := config.Metadata["network_type"]; ok {
 			networkType = metaNetworkType
-			global.APP_LOG.Info("使用实例级别的网络类型配置",
+			global.APP_LOG.Debug("使用实例级别的网络类型配置",
 				zap.String("instance", config.Name),
 				zap.String("networkType", networkType))
 		}
@@ -123,7 +123,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				// 取更小的值
 				if speed < networkConfig.InSpeed {
 					networkConfig.InSpeed = speed
-					global.APP_LOG.Info("使用更低的实例级别入站带宽限制",
+					global.APP_LOG.Debug("使用更低的实例级别入站带宽限制",
 						zap.String("instance", config.Name),
 						zap.Int("metadataInSpeed", speed),
 						zap.Int("finalInSpeed", networkConfig.InSpeed))
@@ -136,7 +136,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				// 取更小的值
 				if speed < networkConfig.OutSpeed {
 					networkConfig.OutSpeed = speed
-					global.APP_LOG.Info("使用更低的实例级别出站带宽限制",
+					global.APP_LOG.Debug("使用更低的实例级别出站带宽限制",
 						zap.String("instance", config.Name),
 						zap.Int("metadataOutSpeed", speed),
 						zap.Int("finalOutSpeed", networkConfig.OutSpeed))
@@ -152,7 +152,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				zap.String("metadata_enable_ipv6", enableIPv6),
 				zap.Bool("provider_enable_ipv6", hasIPv6))
 
-			global.APP_LOG.Info("IPv6配置以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6配置以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", enableIPv6),
 				zap.Bool("final_enable_ipv6", hasIPv6))
@@ -170,7 +170,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				zap.String("metadata_ipv4_port_method", ipv4PortMethod),
 				zap.String("provider_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
 
-			global.APP_LOG.Info("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv4PortMethod),
 				zap.String("final_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
@@ -187,7 +187,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 				zap.String("metadata_ipv6_port_method", ipv6PortMethod),
 				zap.String("provider_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
 
-			global.APP_LOG.Info("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv6PortMethod),
 				zap.String("final_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
@@ -196,7 +196,7 @@ func (p *ProxmoxProvider) parseNetworkConfigFromInstanceConfig(config provider.I
 
 	// 输出最终的网络配置结果
 	hasIPv6 := networkConfig.NetworkType == "nat_ipv4_ipv6" || networkConfig.NetworkType == "dedicated_ipv4_ipv6" || networkConfig.NetworkType == "ipv6_only"
-	global.APP_LOG.Info("Proxmox网络配置解析完成",
+	global.APP_LOG.Debug("Proxmox网络配置解析完成",
 		zap.String("instanceName", config.Name),
 		zap.Int("sshPort", networkConfig.SSHPort),
 		zap.Int("inSpeed", networkConfig.InSpeed),
@@ -255,7 +255,7 @@ func (p *ProxmoxProvider) getBandwidthFromProvider(ctx context.Context, userLeve
 		outSpeed = providerInfo.MaxOutboundBandwidth
 	}
 
-	global.APP_LOG.Info("从Provider配置和用户等级获取带宽设置",
+	global.APP_LOG.Debug("从Provider配置和用户等级获取带宽设置",
 		zap.String("provider", p.config.Name),
 		zap.Int("inSpeed", inSpeed),
 		zap.Int("outSpeed", outSpeed),
@@ -294,7 +294,7 @@ func (p *ProxmoxProvider) getNetworkConfigFromProvider(ctx context.Context) (ena
 	}
 
 	hasIPv6 := providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only"
-	global.APP_LOG.Info("从Provider配置获取网络设置",
+	global.APP_LOG.Debug("从Provider配置获取网络设置",
 		zap.String("provider", p.config.Name),
 		zap.Bool("enableIPv6", hasIPv6),
 		zap.String("networkType", providerInfo.NetworkType),

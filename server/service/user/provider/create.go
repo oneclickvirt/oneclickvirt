@@ -87,7 +87,7 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 	}
 
 	// 验证规格ID并获取规格信息，同时验证用户权限
-	global.APP_LOG.Info("开始验证规格ID",
+	global.APP_LOG.Debug("开始验证规格ID",
 		zap.String("cpuId", req.CPUId),
 		zap.String("memoryId", req.MemoryId),
 		zap.String("diskId", req.DiskId),
@@ -98,28 +98,28 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		global.APP_LOG.Error("无效的CPU规格ID", zap.String("cpuId", req.CPUId), zap.Error(err))
 		return nil, fmt.Errorf("无效的CPU规格ID: %v", err)
 	}
-	global.APP_LOG.Info("CPU规格验证成功", zap.String("cpuId", req.CPUId), zap.Int("cores", cpuSpec.Cores), zap.String("name", cpuSpec.Name))
+	global.APP_LOG.Debug("CPU规格验证成功", zap.String("cpuId", req.CPUId), zap.Int("cores", cpuSpec.Cores), zap.String("name", cpuSpec.Name))
 
 	memorySpec, err := constant.GetMemorySpecByID(req.MemoryId)
 	if err != nil {
 		global.APP_LOG.Error("无效的内存规格ID", zap.String("memoryId", req.MemoryId), zap.Error(err))
 		return nil, fmt.Errorf("无效的内存规格ID: %v", err)
 	}
-	global.APP_LOG.Info("内存规格验证成功", zap.String("memoryId", req.MemoryId), zap.Int("sizeMB", memorySpec.SizeMB), zap.String("name", memorySpec.Name))
+	global.APP_LOG.Debug("内存规格验证成功", zap.String("memoryId", req.MemoryId), zap.Int("sizeMB", memorySpec.SizeMB), zap.String("name", memorySpec.Name))
 
 	diskSpec, err := constant.GetDiskSpecByID(req.DiskId)
 	if err != nil {
 		global.APP_LOG.Error("无效的磁盘规格ID", zap.String("diskId", req.DiskId), zap.Error(err))
 		return nil, fmt.Errorf("无效的磁盘规格ID: %v", err)
 	}
-	global.APP_LOG.Info("磁盘规格验证成功", zap.String("diskId", req.DiskId), zap.Int("sizeMB", diskSpec.SizeMB), zap.String("name", diskSpec.Name))
+	global.APP_LOG.Debug("磁盘规格验证成功", zap.String("diskId", req.DiskId), zap.Int("sizeMB", diskSpec.SizeMB), zap.String("name", diskSpec.Name))
 
 	bandwidthSpec, err := constant.GetBandwidthSpecByID(req.BandwidthId)
 	if err != nil {
 		global.APP_LOG.Error("无效的带宽规格ID", zap.String("bandwidthId", req.BandwidthId), zap.Error(err))
 		return nil, fmt.Errorf("无效的带宽规格ID: %v", err)
 	}
-	global.APP_LOG.Info("带宽规格验证成功", zap.String("bandwidthId", req.BandwidthId), zap.Int("speedMbps", bandwidthSpec.SpeedMbps), zap.String("name", bandwidthSpec.Name))
+	global.APP_LOG.Debug("带宽规格验证成功", zap.String("bandwidthId", req.BandwidthId), zap.Int("speedMbps", bandwidthSpec.SpeedMbps), zap.String("name", bandwidthSpec.Name))
 
 	// 验证用户等级限制和资源规格权限
 	// 包含：全局等级限制 + Provider节点等级限制（取最小值）
@@ -150,7 +150,7 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, err
 	}
 
-	global.APP_LOG.Info("所有验证通过，开始创建实例",
+	global.APP_LOG.Debug("所有验证通过，开始创建实例",
 		zap.Uint("userID", userID),
 		zap.Uint("providerId", req.ProviderId),
 		zap.Uint("imageId", req.ImageId))
@@ -277,7 +277,7 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			}
 		}
 
-		global.APP_LOG.Info("事务内实例数量验证通过",
+		global.APP_LOG.Debug("事务内实例数量验证通过",
 			zap.Uint("userID", userID),
 			zap.Int("currentInstances", currentInstances),
 			zap.Int("maxInstances", levelLimits.MaxInstances))

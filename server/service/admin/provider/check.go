@@ -61,7 +61,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	// 解析endpoint获取主机
 	host := strings.Split(localEndpoint, ":")[0]
 
-	global.APP_LOG.Info("开始检查Provider健康状态",
+	global.APP_LOG.Debug("开始检查Provider健康状态",
 		zap.Uint("providerId", localProviderID),
 		zap.String("providerName", localProviderName),
 		zap.String("providerType", localProviderType),
@@ -160,12 +160,12 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			// 更新主机名（如果资源信息中包含）
 			if resourceInfo.HostName != "" {
 				provider.HostName = resourceInfo.HostName
-				global.APP_LOG.Info("从资源同步中获取主机名",
+				global.APP_LOG.Debug("从资源同步中获取主机名",
 					zap.String("provider", localProviderName),
 					zap.String("hostName", resourceInfo.HostName))
 			}
 
-			global.APP_LOG.Info("节点资源信息同步成功",
+			global.APP_LOG.Debug("节点资源信息同步成功",
 				zap.String("provider", localProviderName),
 				zap.Int("cpu_cores", resourceInfo.CPUCores),
 				zap.Int64("memory_total_mb", resourceInfo.MemoryTotal+resourceInfo.SwapTotal),
@@ -183,7 +183,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 
 	// 更新主机名（如果获取到了）
 	if hostName != "" && provider.HostName != hostName {
-		global.APP_LOG.Info("更新Provider主机名",
+		global.APP_LOG.Debug("更新Provider主机名",
 			zap.String("provider", localProviderName),
 			zap.String("oldHostName", provider.HostName),
 			zap.String("newHostName", hostName))
@@ -196,7 +196,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		if providerInstance, exists := providerSvc.GetProviderByID(localProviderID); exists {
 			version := providerInstance.GetVersion()
 			if version != "" && provider.Version != version {
-				global.APP_LOG.Info("更新Provider版本信息",
+				global.APP_LOG.Debug("更新Provider版本信息",
 					zap.String("provider", localProviderName),
 					zap.String("oldVersion", provider.Version),
 					zap.String("newVersion", version))

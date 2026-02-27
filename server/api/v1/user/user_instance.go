@@ -202,7 +202,7 @@ func ResetInstancePassword(c *gin.Context) {
 		// 由于不需要参数，忽略绑定错误
 	}
 
-	global.APP_LOG.Info("用户创建重置实例密码任务",
+	global.APP_LOG.Debug("用户创建重置实例密码任务",
 		zap.Uint("userID", userID),
 		zap.Uint64("instanceID", instanceID))
 
@@ -295,7 +295,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 		ResetTime:   resetTime,
 	}
 
-	global.APP_LOG.Info("用户获取实例新密码成功",
+	global.APP_LOG.Debug("用户获取实例新密码成功",
 		zap.Uint("userID", userID),
 		zap.Uint64("instanceID", instanceID),
 		zap.Uint64("taskID", taskID))

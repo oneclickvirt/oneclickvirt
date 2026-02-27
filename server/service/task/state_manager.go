@@ -44,7 +44,7 @@ type TaskInfo struct {
 
 // CompleteMainTask 完成主任务（admin.Task表）- 简化版，无锁管理
 func (tsm *TaskStateManager) CompleteMainTask(taskID uint, success bool, errorMessage string, resultData map[string]interface{}) error {
-	global.APP_LOG.Info("统一任务状态管理器：完成主任务",
+	global.APP_LOG.Debug("统一任务状态管理器：完成主任务",
 		zap.Uint("taskId", taskID),
 		zap.Bool("success", success))
 
@@ -54,7 +54,7 @@ func (tsm *TaskStateManager) CompleteMainTask(taskID uint, success bool, errorMe
 
 // CompleteConfigTask 完成配置任务（admin.ConfigurationTask表）
 func (tsm *TaskStateManager) CompleteConfigTask(taskID uint, success bool, errorMessage string, resultData map[string]interface{}) error {
-	global.APP_LOG.Info("统一任务状态管理器：完成配置任务",
+	global.APP_LOG.Debug("统一任务状态管理器：完成配置任务",
 		zap.Uint("taskId", taskID),
 		zap.Bool("success", success))
 
@@ -86,7 +86,7 @@ func (tsm *TaskStateManager) CompleteConfigTask(taskID uint, success bool, error
 
 // CancelMainTask 取消主任务 - 简化版，无锁管理
 func (tsm *TaskStateManager) CancelMainTask(taskID uint, reason string) error {
-	global.APP_LOG.Info("统一任务状态管理器：取消主任务",
+	global.APP_LOG.Debug("统一任务状态管理器：取消主任务",
 		zap.Uint("taskId", taskID),
 		zap.String("reason", reason))
 
@@ -106,7 +106,7 @@ func (tsm *TaskStateManager) CancelMainTask(taskID uint, reason string) error {
 
 // CancelConfigTask 取消配置任务
 func (tsm *TaskStateManager) CancelConfigTask(taskID uint, reason string) error {
-	global.APP_LOG.Info("统一任务状态管理器：取消配置任务",
+	global.APP_LOG.Debug("统一任务状态管理器：取消配置任务",
 		zap.Uint("taskId", taskID),
 		zap.String("reason", reason))
 
@@ -190,7 +190,7 @@ func InitTaskStateManager(taskService *TaskService) {
 
 // StartConfigTask 启动配置任务
 func (tsm *TaskStateManager) StartConfigTask(taskID uint) error {
-	global.APP_LOG.Info("统一任务状态管理器：启动配置任务",
+	global.APP_LOG.Debug("统一任务状态管理器：启动配置任务",
 		zap.Uint("taskId", taskID))
 
 	// 获取配置任务信息

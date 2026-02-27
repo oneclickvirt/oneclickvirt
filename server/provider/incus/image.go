@@ -166,7 +166,7 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 				}
 			}
 		} else {
-			global.APP_LOG.Info("Incus"+imageTypeStr+"镜像已存在，跳过导入",
+			global.APP_LOG.Debug("Incus"+imageTypeStr+"镜像已存在，跳过导入",
 				zap.String("alias", utils.TruncateString(config.Image, 100)),
 				zap.String("type", config.InstanceType))
 		}
@@ -216,7 +216,7 @@ func (i *IncusProvider) queryAndSetSystemImage(ctx context.Context, config *prov
 	if systemImage.URL != "" {
 		config.ImageURL = systemImage.URL
 		config.UseCDN = systemImage.UseCDN // 传递UseCDN配置给后续流程
-		global.APP_LOG.Info("从数据库获取到系统镜像配置",
+		global.APP_LOG.Debug("从数据库获取到系统镜像配置",
 			zap.String("imageName", systemImage.Name),
 			zap.String("originalURL", utils.TruncateString(systemImage.URL, 100)),
 			zap.Bool("useCDN", systemImage.UseCDN),
@@ -280,7 +280,7 @@ func (i *IncusProvider) downloadImageToRemote(imageURL, imageName, architecture,
 
 	// 检查远程文件是否已存在
 	if i.isRemoteFileValid(remotePath) {
-		global.APP_LOG.Info("远程镜像文件已存在且完整，跳过下载",
+		global.APP_LOG.Debug("远程镜像文件已存在且完整，跳过下载",
 			zap.String("imageName", imageName),
 			zap.String("remotePath", remotePath))
 		return remotePath, nil
@@ -349,7 +349,7 @@ func (i *IncusProvider) downloadFileToRemote(url, remotePath string) error {
 		tmpPath, url,
 	)
 
-	global.APP_LOG.Info("执行远程下载命令",
+	global.APP_LOG.Debug("执行远程下载命令",
 		zap.String("url", utils.TruncateString(url, 100)))
 
 	output, err := i.sshClient.Execute(curlCmd)

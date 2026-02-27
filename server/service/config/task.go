@@ -96,7 +96,7 @@ func (s *TaskService) cleanupUnfinishedTasks() {
 		global.APP_LOG.Debug("清理未完成任务", zap.Uint("taskId", task.ID), zap.Uint("providerId", task.ProviderID), zap.String("taskType", task.TaskType))
 
 		if err := stateManager.CancelConfigTask(task.ID, "服务重启，任务已取消"); err != nil {
-			global.APP_LOG.Error("清理任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+			global.APP_LOG.Warn("清理任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
 		}
 	}
 }
@@ -266,7 +266,7 @@ func (s *TaskService) StartTask(taskID uint) error {
 	}
 
 	if task.Status != admin.TaskStatusPending {
-		global.APP_LOG.Warn("配置任务状态不允许启动",
+		global.APP_LOG.Error("配置任务状态不允许启动",
 			zap.Uint("taskID", taskID),
 			zap.String("status", task.Status))
 		return fmt.Errorf("任务状态不允许启动: %s", task.Status)
@@ -276,7 +276,7 @@ func (s *TaskService) StartTask(taskID uint) error {
 	s.mutex.Lock()
 	if ctx, exists := s.runningTasks[task.ProviderID]; exists {
 		s.mutex.Unlock()
-		global.APP_LOG.Warn("Provider已有正在运行的任务",
+		global.APP_LOG.Error("Provider已有正在运行的任务",
 			zap.Uint("providerID", task.ProviderID),
 			zap.Uint("existingTaskID", ctx.Task.ID),
 			zap.Uint("newTaskID", taskID))

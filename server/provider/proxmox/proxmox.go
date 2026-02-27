@@ -171,7 +171,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	// 获取节点名：优先使用配置中的HostName（数据库存储的），否则动态获取
 	if config.HostName != "" {
 		p.node = config.HostName
-		global.APP_LOG.Info("使用数据库配置的Proxmox主机名",
+		global.APP_LOG.Debug("使用数据库配置的Proxmox主机名",
 			zap.String("hostName", p.node),
 			zap.String("provider", config.Name),
 			zap.String("host", utils.TruncateString(config.Host, 32)))
@@ -183,7 +183,7 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 				zap.String("host", utils.TruncateString(config.Host, 32)))
 			p.node = "pve" // 默认节点名
 		} else {
-			global.APP_LOG.Info("动态获取Proxmox主机名成功",
+			global.APP_LOG.Debug("动态获取Proxmox主机名成功",
 				zap.String("hostName", p.node),
 				zap.String("provider", config.Name),
 				zap.String("host", utils.TruncateString(config.Host, 32)))
@@ -403,7 +403,7 @@ func (p *ProxmoxProvider) GetIPv6NetworkInterface(ctx context.Context, instanceN
 			checkIPv6Cmd := fmt.Sprintf("ip -6 addr show dev %s | grep -q 'inet6.*global'", interfaceName)
 			_, err := p.sshClient.Execute(checkIPv6Cmd)
 			if err == nil {
-				global.APP_LOG.Info("检测到Proxmox实例的IPv6网络接口",
+				global.APP_LOG.Debug("检测到Proxmox实例的IPv6网络接口",
 					zap.String("instanceName", instanceName),
 					zap.String("vmid", vmid),
 					zap.String("type", instanceType),
@@ -472,7 +472,7 @@ func (p *ProxmoxProvider) ensureSSHBeforeFallback(apiErr error, operation string
 		return fmt.Errorf("API失败且SSH连接不可用: API错误=%v, SSH错误=%v", apiErr, err)
 	}
 
-	global.APP_LOG.Info(fmt.Sprintf("回退到SSH方式 - %s", operation))
+	global.APP_LOG.Debug(fmt.Sprintf("回退到SSH方式 - %s", operation))
 	return nil
 }
 
@@ -513,7 +513,7 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 			if len(parts) >= 2 {
 				versionStr := parts[1]
 				p.version = versionStr
-				global.APP_LOG.Info("获取 Proxmox 版本成功",
+				global.APP_LOG.Debug("获取 Proxmox 版本成功",
 					zap.String("version", p.version),
 					zap.String("node", p.node))
 				return nil

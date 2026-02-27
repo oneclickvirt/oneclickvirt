@@ -55,7 +55,7 @@ func CheckInit(c *gin.Context) {
 	if global.APP_DB == nil {
 		message = "数据库未连接，需要初始化"
 		needInit = true
-		global.APP_LOG.Info("数据库连接为空，需要初始化")
+		global.APP_LOG.Debug("数据库连接为空，需要初始化")
 	} else {
 		// 验证数据库连接是否有效
 		sqlDB, err := global.APP_DB.DB()
@@ -72,14 +72,14 @@ func CheckInit(c *gin.Context) {
 			if global.GetAppConfig().Mysql.Dbname == "" || global.GetAppConfig().Mysql.Path == "" {
 				message = "数据库配置不完整，需要初始化"
 				needInit = true
-				global.APP_LOG.Info("数据库配置不完整，需要初始化")
+				global.APP_LOG.Debug("数据库配置不完整，需要初始化")
 			} else {
 				// 检查users表是否存在
 				hasUsersTable := global.APP_DB.Migrator().HasTable("users")
 				if !hasUsersTable {
 					message = "数据库表未初始化，需要初始化"
 					needInit = true
-					global.APP_LOG.Info("users表不存在，需要初始化")
+					global.APP_LOG.Debug("users表不存在，需要初始化")
 				} else {
 					// 使用服务层检查是否有用户数据
 					// 使用defer + recover捕获可能的panic
@@ -101,7 +101,7 @@ func CheckInit(c *gin.Context) {
 						} else if !hasUsers {
 							message = "未找到用户数据，需要初始化"
 							needInit = true
-							global.APP_LOG.Info("数据库中无用户数据，需要初始化")
+							global.APP_LOG.Debug("数据库中无用户数据，需要初始化")
 						} else {
 							message = "数据库无需初始化"
 							needInit = false
@@ -186,7 +186,7 @@ func TestDatabaseConnection(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("数据库连接测试成功",
+	global.APP_LOG.Debug("数据库连接测试成功",
 		zap.String("host", req.Host),
 		zap.String("port", req.Port),
 		zap.String("database", req.Database),
@@ -394,7 +394,7 @@ func GetPublicSystemConfig(c *gin.Context) {
 			Select("`key`, `value`").
 			Where("is_public = ? AND deleted_at IS NULL", true).
 			Find(&configs).Error; err == nil {
-			global.APP_LOG.Info("从数据库查询到的公开配置数量", zap.Int("count", len(configs)))
+			global.APP_LOG.Debug("从数据库查询到的公开配置数量", zap.Int("count", len(configs)))
 
 			// 转换为map格式并进行字段映射
 			for _, config := range configs {
@@ -409,7 +409,7 @@ func GetPublicSystemConfig(c *gin.Context) {
 			global.APP_LOG.Warn("从数据库获取公开系统配置失败，使用默认配置", zap.Error(err))
 		}
 	} else {
-		global.APP_LOG.Info("数据库不可用，使用默认配置")
+		global.APP_LOG.Debug("数据库不可用，使用默认配置")
 	}
 
 	// 如果数据库不可用或未配置，提供默认值
@@ -421,7 +421,7 @@ func GetPublicSystemConfig(c *gin.Context) {
 			result["default_language"] = "zh" // 默认中文
 		}
 
-		global.APP_LOG.Info("使用默认配置",
+		global.APP_LOG.Debug("使用默认配置",
 			zap.String("default_language", result["default_language"].(string)))
 	}
 

@@ -204,7 +204,7 @@ func SeedSystemImages() {
 	var count int64
 	global.APP_DB.Model(&system.SystemImage{}).Count(&count)
 	if count > 0 {
-		global.APP_LOG.Info("镜像数据已存在，跳过同步", zap.Int64("count", count))
+		global.APP_LOG.Debug("镜像数据已存在，跳过同步", zap.Int64("count", count))
 		return
 	}
 
@@ -250,7 +250,7 @@ func SeedSystemImages() {
 
 	// 如果远程获取失败，使用默认镜像列表
 	if useDefaultImages {
-		global.APP_LOG.Info("使用默认镜像列表进行初始化")
+		global.APP_LOG.Debug("使用默认镜像列表进行初始化")
 		imageURLs = getDefaultImageURLs()
 	}
 
@@ -340,7 +340,7 @@ func SeedSystemImages() {
 				if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 					return tx.Create(&systemImage).Error
 				}); err != nil {
-					global.APP_LOG.Error("创建镜像记录失败", zap.Error(err), zap.String("name", imageInfo.Name))
+					global.APP_LOG.Warn("创建镜像记录失败", zap.Error(err), zap.String("name", imageInfo.Name))
 				} else {
 					processedCount++
 					// 标记该基础镜像已导入
@@ -608,7 +608,7 @@ func initLevelConfigurations() {
 
 	// 检查配置是否已经初始化
 	if len(global.GetAppConfig().Quota.LevelLimits) > 0 {
-		global.APP_LOG.Info("等级配置已存在，跳过初始化")
+		global.APP_LOG.Debug("等级配置已存在，跳过初始化")
 		return
 	}
 
@@ -700,7 +700,7 @@ func initInstanceTypePermissions() {
 	if permissions.MinLevelForContainer != 0 || permissions.MinLevelForVM != 0 ||
 		permissions.MinLevelForDeleteContainer != 0 || permissions.MinLevelForDeleteVM != 0 ||
 		permissions.MinLevelForResetContainer != 0 || permissions.MinLevelForResetVM != 0 {
-		global.APP_LOG.Info("实例类型权限配置已存在，跳过初始化")
+		global.APP_LOG.Debug("实例类型权限配置已存在，跳过初始化")
 		return
 	}
 
@@ -764,12 +764,12 @@ func initOtherConfigurations() {
 			})
 
 			if err != nil {
-				global.APP_LOG.Error(fmt.Sprintf("创建%s配置失败", config.Key), zap.Error(err))
+				global.APP_LOG.Warn(fmt.Sprintf("创建%s配置失败", config.Key), zap.Error(err))
 			} else {
-				global.APP_LOG.Info(fmt.Sprintf("已创建%s默认配置", config.Key), zap.String("value", config.Value))
+				global.APP_LOG.Debug(fmt.Sprintf("已创建%s默认配置", config.Key), zap.String("value", config.Value))
 			}
 		} else {
-			global.APP_LOG.Info(fmt.Sprintf("%s配置已存在，跳过初始化", config.Key))
+			global.APP_LOG.Debug(fmt.Sprintf("%s配置已存在，跳过初始化", config.Key))
 		}
 	}
 }

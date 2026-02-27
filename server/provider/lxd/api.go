@@ -60,7 +60,7 @@ func (l *LXDProvider) apiCreateInstanceWithProgress(ctx context.Context, config 
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("LXD API实例创建进度",
+		global.APP_LOG.Debug("LXD API实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))

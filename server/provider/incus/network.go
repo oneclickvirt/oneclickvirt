@@ -70,7 +70,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 	if config.Metadata != nil {
 		if metaNetworkType, ok := config.Metadata["network_type"]; ok {
 			networkType = metaNetworkType
-			global.APP_LOG.Info("使用实例级别的网络类型配置",
+			global.APP_LOG.Debug("使用实例级别的网络类型配置",
 				zap.String("instance", config.Name),
 				zap.String("networkType", networkType))
 		}
@@ -95,7 +95,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 		networkConfig.IPv4PortMappingMethod = ""
 	}
 
-	global.APP_LOG.Info("从Provider配置读取网络设置",
+	global.APP_LOG.Debug("从Provider配置读取网络设置",
 		zap.String("provider", i.config.Name),
 		zap.String("networkType", networkType),
 		zap.String("ipv4PortMethod", networkConfig.IPv4PortMappingMethod),
@@ -125,7 +125,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 		if inSpeed, ok := config.Metadata["in_speed"]; ok {
 			if speed, err := strconv.Atoi(inSpeed); err == nil {
 				networkConfig.InSpeed = speed
-				global.APP_LOG.Info("实例级别带宽配置覆盖Provider配置",
+				global.APP_LOG.Debug("实例级别带宽配置覆盖Provider配置",
 					zap.String("instance", config.Name),
 					zap.Int("customInSpeed", speed))
 			}
@@ -134,7 +134,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 		if outSpeed, ok := config.Metadata["out_speed"]; ok {
 			if speed, err := strconv.Atoi(outSpeed); err == nil {
 				networkConfig.OutSpeed = speed
-				global.APP_LOG.Info("实例级别带宽配置覆盖Provider配置",
+				global.APP_LOG.Debug("实例级别带宽配置覆盖Provider配置",
 					zap.String("instance", config.Name),
 					zap.Int("customOutSpeed", speed))
 			}
@@ -148,7 +148,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 				zap.String("metadata_enable_ipv6", enableIPv6),
 				zap.Bool("provider_enable_ipv6", hasIPv6))
 
-			global.APP_LOG.Info("IPv6配置以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6配置以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", enableIPv6),
 				zap.Bool("final_enable_ipv6", hasIPv6))
@@ -166,7 +166,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 				zap.String("metadata_ipv4_port_method", ipv4PortMethod),
 				zap.String("provider_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
 
-			global.APP_LOG.Info("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv4端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv4PortMethod),
 				zap.String("final_ipv4_port_method", networkConfig.IPv4PortMappingMethod))
@@ -182,7 +182,7 @@ func (i *IncusProvider) parseNetworkConfigFromInstanceConfig(config provider.Ins
 				zap.String("metadata_ipv6_port_method", ipv6PortMethod),
 				zap.String("provider_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
 
-			global.APP_LOG.Info("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
+			global.APP_LOG.Debug("IPv6端口映射方法以Provider为准，忽略实例Metadata配置",
 				zap.String("instanceName", config.Name),
 				zap.String("metadata_value", ipv6PortMethod),
 				zap.String("final_ipv6_port_method", networkConfig.IPv6PortMappingMethod))
@@ -218,7 +218,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		if err := i.tryUseExistingNetworkConfig(ctx, config, networkConfig); err != nil {
 			return fmt.Errorf("重启实例获取网络配置失败且无法使用现有配置: %w", err)
 		}
-		global.APP_LOG.Info("使用现有网络配置继续",
+		global.APP_LOG.Debug("使用现有网络配置继续",
 			zap.String("instanceName", config.Name))
 		return nil
 	}
@@ -235,7 +235,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		return fmt.Errorf("获取主机IP地址失败: %w", err)
 	}
 
-	global.APP_LOG.Info("开始配置实例网络",
+	global.APP_LOG.Debug("开始配置实例网络",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
@@ -284,7 +284,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 		}
 	}
 
-	global.APP_LOG.Info("实例网络配置完成",
+	global.APP_LOG.Debug("实例网络配置完成",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
@@ -293,7 +293,7 @@ func (i *IncusProvider) configureInstanceNetwork(ctx context.Context, config pro
 
 // tryUseExistingNetworkConfig 尝试使用现有的网络配置继续
 func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
-	global.APP_LOG.Info("尝试使用现有网络配置",
+	global.APP_LOG.Debug("尝试使用现有网络配置",
 		zap.String("instanceName", config.Name))
 
 	// 检查实例是否仍在运行
@@ -317,7 +317,7 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		}
 
 		// 等待实例网络就绪（根据实例类型选择合适的等待方法）
-		global.APP_LOG.Info("等待实例网络就绪后再配置端口映射",
+		global.APP_LOG.Debug("等待实例网络就绪后再配置端口映射",
 			zap.String("instanceName", config.Name))
 
 		// 判断实例类型
@@ -345,13 +345,13 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 	// 尝试获取现有IP地址
 	instanceIP, err := i.getInstanceIP(config.Name)
 	if err != nil {
-		global.APP_LOG.Warn("无法获取实例IP地址，跳过网络配置",
+		global.APP_LOG.Error("无法获取实例IP地址，跳过网络配置",
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
 		return fmt.Errorf("无法获取实例IP地址: %w", err)
 	}
 
-	global.APP_LOG.Info("成功获取现有实例IP地址",
+	global.APP_LOG.Debug("成功获取现有实例IP地址",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP))
 
@@ -363,14 +363,14 @@ func (i *IncusProvider) tryUseExistingNetworkConfig(ctx context.Context, config 
 		hostIP = "0.0.0.0" // 使用默认值
 	}
 
-	global.APP_LOG.Info("使用现有网络配置继续配置",
+	global.APP_LOG.Debug("使用现有网络配置继续配置",
 		zap.String("instanceName", config.Name),
 		zap.String("instanceIP", instanceIP),
 		zap.String("hostIP", hostIP))
 
 	// 为了确保 proxy 设备正确初始化，停止容器后添加设备再启动
 	// 这是 LXD/Incus 的最佳实践，特别是在 Ubuntu 24 上
-	global.APP_LOG.Info("停止实例以配置端口映射",
+	global.APP_LOG.Debug("停止实例以配置端口映射",
 		zap.String("instanceName", config.Name))
 
 	if err := i.stopInstanceForConfig(config.Name); err != nil {

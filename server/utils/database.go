@@ -88,7 +88,7 @@ func RetryableDBOperation(ctx context.Context, operation func() error, maxRetrie
 		err := operation()
 		if err == nil {
 			if i > 0 {
-				global.APP_LOG.Info("数据库操作重试成功",
+				global.APP_LOG.Debug("数据库操作重试成功",
 					zap.Int("retry_count", i),
 					zap.Int("total_attempts", i+1))
 			}

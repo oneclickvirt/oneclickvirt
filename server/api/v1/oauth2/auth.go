@@ -72,7 +72,7 @@ func OAuth2Login(c *gin.Context) {
 	oauth2Cfg := oauthService.GetOAuth2Config(provider)
 	authURL := oauth2Cfg.AuthCodeURL(state)
 
-	global.APP_LOG.Info("OAuth2登录跳转",
+	global.APP_LOG.Debug("OAuth2登录跳转",
 		zap.String("provider", provider.Name),
 		zap.String("state", state))
 
@@ -107,7 +107,7 @@ func OAuth2Callback(c *gin.Context) {
 	// 验证state令牌
 	providerID, valid := oauthService.ValidateStateToken(state)
 	if !valid {
-		global.APP_LOG.Error("无效的state令牌", zap.String("state", state))
+		global.APP_LOG.Warn("无效的state令牌", zap.String("state", state))
 		common.ResponseWithError(c, common.NewError(common.CodeOAuth2Failed, "无效的state令牌"))
 		return
 	}

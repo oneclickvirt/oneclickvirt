@@ -26,7 +26,7 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 	// 解析网络配置
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 
-	global.APP_LOG.Info("开始配置实例IPv6网络",
+	global.APP_LOG.Debug("开始配置实例IPv6网络",
 		zap.Int("vmid", vmid),
 		zap.String("instance", config.Name),
 		zap.String("type", instanceType),
@@ -38,7 +38,7 @@ func (p *ProxmoxProvider) configureInstanceIPv6(ctx context.Context, vmid int, c
 		networkConfig.NetworkType == "ipv6_only"
 
 	if !hasIPv6 {
-		global.APP_LOG.Info("网络类型不包含IPv6，跳过IPv6配置",
+		global.APP_LOG.Debug("网络类型不包含IPv6，跳过IPv6配置",
 			zap.Int("vmid", vmid),
 			zap.String("networkType", networkConfig.NetworkType))
 		return nil
@@ -94,7 +94,7 @@ func (p *ProxmoxProvider) checkIPv6Environment(ctx context.Context) error {
 			return err
 		}
 	} else {
-		global.APP_LOG.Info("检测到额外的IPv6地址用于NAT映射")
+		global.APP_LOG.Debug("检测到额外的IPv6地址用于NAT映射")
 	}
 
 	return nil
@@ -112,7 +112,7 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 		return fmt.Errorf("宿主机没有公网IPv6地址，无法开设带IPv6的服务")
 	}
 
-	global.APP_LOG.Info("宿主机IPv6地址检查通过",
+	global.APP_LOG.Debug("宿主机IPv6地址检查通过",
 		zap.String("provider", p.config.Name),
 		zap.String("ipv6Info", strings.TrimSpace(output)))
 
@@ -137,7 +137,7 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 		return fmt.Errorf("ndpresponder服务状态异常，无法开设带独立IPv6地址的服务")
 	}
 
-	global.APP_LOG.Info("ndpresponder服务运行正常，可以开设带独立IPv6地址的服务")
+	global.APP_LOG.Debug("ndpresponder服务运行正常，可以开设带独立IPv6地址的服务")
 	return nil
 }
 
@@ -201,7 +201,7 @@ func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, co
 		useNATMapping = false
 	}
 
-	global.APP_LOG.Info("配置IPv6网络",
+	global.APP_LOG.Debug("配置IPv6网络",
 		zap.Int("vmid", vmid),
 		zap.String("instanceType", instanceType),
 		zap.String("bridge", bridgeName),
@@ -584,7 +584,7 @@ func (p *ProxmoxProvider) GetInstancePublicIPv6(ctx context.Context, instanceNam
 	if err == nil {
 		publicIPv6 := utils.CleanCommandOutput(publicIPv6Output)
 		if publicIPv6 != "" && !p.isPrivateIPv6(publicIPv6) {
-			global.APP_LOG.Info("从文件获取到公网IPv6地址",
+			global.APP_LOG.Debug("从文件获取到公网IPv6地址",
 				zap.String("instanceName", instanceName),
 				zap.String("publicIPv6", publicIPv6))
 			return publicIPv6, nil

@@ -90,7 +90,7 @@ func (s *ResourceService) CheckProviderResourcesWithTx(tx *gorm.DB, req resource
 		global.APP_LOG.Debug("事务中资源检查通过",
 			zap.Uint("providerId", req.ProviderID))
 	} else {
-		global.APP_LOG.Info("事务中资源检查未通过",
+		global.APP_LOG.Debug("事务中资源检查未通过",
 			zap.Uint("providerId", req.ProviderID),
 			zap.String("reason", utils.TruncateString(result.Reason, 100)))
 	}
@@ -210,7 +210,7 @@ func (s *ResourceService) checkProviderResourceAvailability(provider *providerMo
 // AllocateResourcesInTx 在事务中分配资源（不创建新事务，使用悲观锁）
 // 根据Provider的资源限制配置决定是否扣减资源
 func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, instanceType string, cpu int, memory, disk int64) error {
-	global.APP_LOG.Info("开始分配资源",
+	global.APP_LOG.Debug("开始分配资源",
 		zap.Uint("providerId", providerID),
 		zap.String("instanceType", instanceType),
 		zap.Int("cpu", cpu),
@@ -289,7 +289,7 @@ func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, in
 		return err
 	}
 
-	global.APP_LOG.Info("资源分配成功",
+	global.APP_LOG.Debug("资源分配成功",
 		zap.Uint("providerId", providerID),
 		zap.String("instanceType", instanceType),
 		zap.Int("cpu", cpu),
@@ -310,7 +310,7 @@ func (s *ResourceService) AllocateResources(providerID uint, instanceType string
 // ReleaseResourcesInTx 在事务中释放资源
 // 根据Provider的资源限制配置决定是否回收资源
 func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, instanceType string, cpu int, memory, disk int64) error {
-	global.APP_LOG.Info("开始释放资源",
+	global.APP_LOG.Debug("开始释放资源",
 		zap.Uint("providerId", providerID),
 		zap.String("instanceType", instanceType),
 		zap.Int("cpu", cpu),
@@ -421,7 +421,7 @@ func (s *ResourceService) ReleaseResourcesInTx(tx *gorm.DB, providerID uint, ins
 		return err
 	}
 
-	global.APP_LOG.Info("资源释放成功",
+	global.APP_LOG.Debug("资源释放成功",
 		zap.Uint("providerId", providerID),
 		zap.String("instanceType", instanceType),
 		zap.Int("cpu", cpu),

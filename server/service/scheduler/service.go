@@ -249,7 +249,7 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 
 	// 如果是删除或停止任务且Provider被冻结，记录日志但允许继续执行
 	if provider.IsFrozen && (task.TaskType == "delete" || task.TaskType == "stop") {
-		global.APP_LOG.Info("Provider is frozen but allowing delete/stop task to proceed",
+		global.APP_LOG.Debug("Provider is frozen but allowing delete/stop task to proceed",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("task_type", task.TaskType),
@@ -262,7 +262,7 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 		// 删除任务：用户需要清理过期Provider上的实例
 		// 停止任务：可能是流量超限等紧急场景需要强制停止
 		if task.TaskType == "delete" || task.TaskType == "stop" {
-			global.APP_LOG.Info("Provider has expired but allowing delete/stop task to proceed",
+			global.APP_LOG.Debug("Provider has expired but allowing delete/stop task to proceed",
 				zap.Uint("provider_id", *task.ProviderID),
 				zap.String("provider_name", provider.Name),
 				zap.String("task_type", task.TaskType),
@@ -298,7 +298,7 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 	// 对于删除和停止任务，即使Provider状态为inactive，也允许继续执行
 	// GetProviderByID会尝试重新连接，确保操作能够完成
 	if provider.Status == "inactive" && (task.TaskType == "delete" || task.TaskType == "stop") {
-		global.APP_LOG.Info("Provider is inactive but allowing delete/stop task to proceed, will attempt reconnection",
+		global.APP_LOG.Debug("Provider is inactive but allowing delete/stop task to proceed, will attempt reconnection",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("task_type", task.TaskType),
@@ -307,7 +307,7 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 
 	// 记录当前allow_claim状态，但不阻止任务执行
 	if !provider.AllowClaim {
-		global.APP_LOG.Info("Provider allow_claim is false, but provider is active, allowing task to proceed",
+		global.APP_LOG.Debug("Provider allow_claim is false, but provider is active, allowing task to proceed",
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("provider_name", provider.Name),
 			zap.String("status", provider.Status),
@@ -324,7 +324,7 @@ func (s *SchedulerService) tryStartTask(task adminModel.Task) {
 			zap.Uint("provider_id", *task.ProviderID),
 			zap.String("reason", err.Error()))
 	} else {
-		global.APP_LOG.Info("Task started successfully",
+		global.APP_LOG.Debug("Task started successfully",
 			zap.Uint("task_id", task.ID),
 			zap.Uint("provider_id", *task.ProviderID))
 	}
@@ -384,15 +384,15 @@ func (s *SchedulerService) checkExpiredResources() {
 		return
 	}
 
-	global.APP_LOG.Info("开始检查过期资源")
+	global.APP_LOG.Debug("开始检查过期资源")
 
 	// 创建过期冻结服务
 	expiryService := &ExpiryFreezeService{}
 
 	// 检查并冻结所有过期资源
 	if err := expiryService.CheckAndFreezeAll(); err != nil {
-		global.APP_LOG.Error("检查过期资源失败", zap.Error(err))
+		global.APP_LOG.Warn("检查过期资源失败", zap.Error(err))
 	} else {
-		global.APP_LOG.Info("过期资源检查完成")
+		global.APP_LOG.Debug("过期资源检查完成")
 	}
 }

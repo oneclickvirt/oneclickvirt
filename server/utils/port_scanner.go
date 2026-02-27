@@ -141,7 +141,7 @@ func installNetworkToolsOnHost(sshClient *SSHClient) bool {
 		}
 
 		if err == nil && strings.TrimSpace(output) == "found" {
-			global.APP_LOG.Info("检测到包管理器，尝试安装网络工具", zap.String("distro", cmd.desc))
+			global.APP_LOG.Debug("检测到包管理器，尝试安装网络工具", zap.String("distro", cmd.desc))
 
 			// 执行安装命令
 			if sshClient != nil {
@@ -151,14 +151,14 @@ func installNetworkToolsOnHost(sshClient *SSHClient) bool {
 			}
 
 			if err != nil {
-				global.APP_LOG.Error("安装网络工具失败",
+				global.APP_LOG.Warn("安装网络工具失败",
 					zap.String("distro", cmd.desc),
 					zap.Error(err),
 					zap.String("output", output))
 				continue
 			}
 
-			global.APP_LOG.Info("网络工具安装成功", zap.String("distro", cmd.desc))
+			global.APP_LOG.Debug("网络工具安装成功", zap.String("distro", cmd.desc))
 			return true
 		}
 	}

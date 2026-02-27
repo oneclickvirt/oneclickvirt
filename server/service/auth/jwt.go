@@ -279,7 +279,7 @@ func (s *JWTKeyService) ShouldRotateKey() (bool, error) {
 	}
 
 	if version == 0 {
-		global.APP_LOG.Info("没有活跃密钥，需要生成")
+		global.APP_LOG.Debug("没有活跃密钥，需要生成")
 		return true, nil // 没有活跃密钥，需要生成
 	}
 
@@ -298,7 +298,7 @@ func (s *JWTKeyService) ShouldRotateKey() (bool, error) {
 	shouldRotate := now.After(rotationTime)
 
 	if shouldRotate {
-		global.APP_LOG.Info("JWT密钥需要轮换",
+		global.APP_LOG.Debug("JWT密钥需要轮换",
 			zap.Int("version", version),
 			zap.Time("createdAt", keyInfo.CreatedAt),
 			zap.Time("rotationTime", rotationTime))
@@ -485,7 +485,7 @@ func (s *JWTKeyService) cleanupExpiredKeys() error {
 						zap.String("key", config.Key),
 						zap.String("error", utils.TruncateString(err.Error(), 200)))
 				} else {
-					global.APP_LOG.Info("删除过期密钥",
+					global.APP_LOG.Debug("删除过期密钥",
 						zap.String("key", config.Key),
 						zap.Int("version", keyInfo.Version),
 						zap.Time("expiresAt", keyInfo.ExpiresAt))
@@ -495,7 +495,7 @@ func (s *JWTKeyService) cleanupExpiredKeys() error {
 		}
 
 		if deletedCount > 0 {
-			global.APP_LOG.Info("密钥清理完成", zap.Int("deletedCount", deletedCount))
+			global.APP_LOG.Debug("密钥清理完成", zap.Int("deletedCount", deletedCount))
 		}
 	}
 

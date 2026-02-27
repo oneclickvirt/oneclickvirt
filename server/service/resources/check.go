@@ -25,7 +25,7 @@ func (s *PortMappingService) isGenericPortAvailable(providerInfo *provider.Provi
 
 	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		// 数据库查询出错，为安全起见认为端口不可用
-		global.APP_LOG.Error("检查端口映射时数据库查询失败",
+		global.APP_LOG.Warn("检查端口映射时数据库查询失败",
 			zap.Uint("providerId", providerInfo.ID),
 			zap.Int("port", port),
 			zap.Error(err))

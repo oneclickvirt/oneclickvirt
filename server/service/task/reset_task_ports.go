@@ -32,7 +32,7 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					ip := getInstancePrivateIP(ctx, prov, resetCtx.Provider.Type, resetCtx.OldInstanceName)
 					if ip != "" {
 						resetCtx.NewPrivateIP = ip
-						global.APP_LOG.Info("实例IP获取成功",
+						global.APP_LOG.Debug("实例IP获取成功",
 							zap.String("instanceName", resetCtx.OldInstanceName),
 							zap.String("ip", ip),
 							zap.Int("attempt", attempt))
@@ -136,7 +136,7 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		providerApiService := &provider2.ProviderApiService{}
 		prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
 		if err != nil {
-			global.APP_LOG.Error("获取Provider实例失败，无法配置远程端口映射", zap.Error(err))
+			global.APP_LOG.Warn("获取Provider实例失败，无法配置远程端口映射", zap.Error(err))
 		} else {
 			// 调用 Provider 层的端口映射配置方法
 			if err := s.configureProviderPortMappings(ctx, prov, resetCtx); err != nil {
@@ -255,7 +255,7 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 	if err := trafficMonitorManager.AttachMonitor(ctx, resetCtx.NewInstanceID); err != nil {
 		global.APP_LOG.Warn("重新初始化流量监控失败", zap.Error(err))
 	} else {
-		global.APP_LOG.Info("流量监控重新初始化成功",
+		global.APP_LOG.Debug("流量监控重新初始化成功",
 			zap.Uint("instanceId", resetCtx.NewInstanceID))
 	}
 
@@ -274,7 +274,7 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 		return fmt.Errorf("无法获取实例内网IP，跳过端口映射配置")
 	}
 
-	global.APP_LOG.Info("开始配置Provider端口映射",
+	global.APP_LOG.Debug("开始配置Provider端口映射",
 		zap.String("instanceName", resetCtx.OldInstanceName),
 		zap.String("instanceIP", instanceIP),
 		zap.String("providerType", resetCtx.Provider.Type),
@@ -312,7 +312,7 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 				if err := provWithSave.SaveIptablesRules(); err != nil {
 					global.APP_LOG.Warn("保存Incus iptables规则失败，重启后可能丢失", zap.Error(err))
 				} else {
-					global.APP_LOG.Info("Incus iptables规则已保存到 /etc/iptables/rules.v4")
+					global.APP_LOG.Debug("Incus iptables规则已保存到 /etc/iptables/rules.v4")
 				}
 			}
 		}
@@ -347,7 +347,7 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 				if err := provWithSave.SaveIptablesRules(); err != nil {
 					global.APP_LOG.Warn("保存LXD iptables规则失败，重启后可能丢失", zap.Error(err))
 				} else {
-					global.APP_LOG.Info("LXD iptables规则已保存到 /etc/iptables/rules.v4")
+					global.APP_LOG.Debug("LXD iptables规则已保存到 /etc/iptables/rules.v4")
 				}
 			}
 		}
@@ -382,7 +382,7 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			if err := provWithSave.SaveIptablesRules(); err != nil {
 				global.APP_LOG.Warn("保存iptables规则失败，重启后可能丢失", zap.Error(err))
 			} else {
-				global.APP_LOG.Info("iptables规则已保存到 /etc/iptables/rules.v4")
+				global.APP_LOG.Debug("iptables规则已保存到 /etc/iptables/rules.v4")
 			}
 		}
 

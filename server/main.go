@@ -52,36 +52,43 @@ func main() {
 	runServer()
 }
 
-// ensureCorrectWorkingDirectory 确保从正确的工作目录启动
+// ensureCorrectWorkingDirectory 确认当前工作目录合法。
+// 注意：该函数在日志系统初始化之前运行，必须使用 fmt 标准输出进行错误提示。
 func ensureCorrectWorkingDirectory() {
 	if _, err := os.Stat("config.yaml"); os.IsNotExist(err) {
-		fmt.Println("[ERROR] 未找到 config.yaml 文件")
-		fmt.Println("[HINT] 请确保从项目的 server 目录启动程序")
+		fmt.Fprintln(os.Stderr, "[FATAL] 未找到 config.yaml 文件，请確保从 server 目录启动程序")
 		os.Exit(1)
 	}
 	if err := os.MkdirAll("storage", 0755); err != nil {
-		fmt.Printf("[ERROR] 无法创建 storage 目录: %v\n", err)
-		fmt.Println("[HINT] 请检查当前目录的写入权限")
+		fmt.Fprintf(os.Stderr, "[FATAL] 无法创建 storage 目录: %v，请检查当前目录的写入权限\n", err)
 		os.Exit(1)
 	}
 	if wd, err := os.Getwd(); err == nil {
-		fmt.Printf("[SYSTEM] 工作目录: %s\n", wd)
+		fmt.Printf("[STARTUP] 工作目录: %s\n", wd)
 	}
 }
 
+// runServer 启动 HTTP 服务器。
+// 在调用该函数前，日志系统已经初始化完毕，可安全使用 global.APP_LOG。
 func runServer() {
-	// 启动性能监控
+	// 启动 pprof 性能监控（在调试/预生产环境可用）
 	systemAPI.StartPerformanceMonitoring()
 
 	router := initialize.Routers()
 	global.APP_LOG.Debug("路由初始化完成")
-	address := fmt.Sprintf(":%d", global.GetAppConfig().System.Addr)
+
+	addr := global.GetAppConfig().System.Addr
+	address := fmt.Sprintf(":%d", addr)
 	s := initialize.InitServer(address, router)
-	fmt.Printf("[SUCCESS] 服务器启动成功，监听端口: %d\n", global.GetAppConfig().System.Addr)
-	fmt.Printf("[INFO] API文档路径: /swagger/index.html\n")
-	fmt.Printf("[INFO] 性能监控(pprof)端点: /debug/pprof/\n")
-	global.APP_LOG.Info("服务器启动成功", zap.Int("port", global.GetAppConfig().System.Addr))
+
+	// 使用结构化日志输出关键启动信息，不再与 fmt.Printf 重复输出
+	global.APP_LOG.Info("服务器启动成功",
+		zap.Int("port", addr),
+		zap.String("swagger", fmt.Sprintf("http://0.0.0.0:%d/swagger/index.html", addr)),
+		zap.String("pprof", fmt.Sprintf("http://0.0.0.0:%d/debug/pprof/", addr)),
+	)
+
 	if err := s.ListenAndServe(); err != nil {
-		global.APP_LOG.Fatal("服务器启动失败", zap.Error(err))
+		global.APP_LOG.Fatal("服务器异常退出", zap.Error(err))
 	}
 }

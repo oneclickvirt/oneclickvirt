@@ -20,13 +20,13 @@ func (l *LXDProvider) DiscoverInstances(ctx context.Context) ([]provider.Discove
 		return nil, fmt.Errorf("not connected")
 	}
 
-	global.APP_LOG.Info("开始发现LXD实例", zap.String("provider", l.config.Name))
+	global.APP_LOG.Debug("开始发现LXD实例", zap.String("provider", l.config.Name))
 
 	// 优先使用API方式发现
 	if l.shouldUseAPI() {
 		instances, err := l.apiDiscoverInstances(ctx)
 		if err == nil {
-			global.APP_LOG.Info("LXD API发现实例成功",
+			global.APP_LOG.Debug("LXD API发现实例成功",
 				zap.String("provider", l.config.Name),
 				zap.Int("count", len(instances)))
 			return instances, nil
@@ -37,7 +37,7 @@ func (l *LXDProvider) DiscoverInstances(ctx context.Context) ([]provider.Discove
 		if !l.shouldFallbackToSSH() {
 			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
 		}
-		global.APP_LOG.Info("回退到SSH执行 - 发现实例")
+		global.APP_LOG.Debug("回退到SSH执行 - 发现实例")
 	}
 
 	// 如果执行规则不允许使用SSH，则返回错误

@@ -12,13 +12,13 @@ import (
 
 // waitForVMNetworkReady 等待虚拟机网络就绪
 func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
-	global.APP_LOG.Info("等待虚拟机网络就绪", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("等待虚拟机网络就绪", zap.String("instanceName", instanceName))
 
 	maxRetries := 8 // 增加重试次数
 	delay := 15     // 虚拟机需要更长的启动时间
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		global.APP_LOG.Info("等待虚拟机启动并获取IP地址",
+		global.APP_LOG.Debug("等待虚拟机启动并获取IP地址",
 			zap.String("instanceName", instanceName),
 			zap.Int("attempt", attempt),
 			zap.Int("maxRetries", maxRetries),
@@ -39,7 +39,7 @@ func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 
 		status := strings.TrimSpace(output)
 		if status != "RUNNING" {
-			global.APP_LOG.Info("虚拟机尚未运行",
+			global.APP_LOG.Debug("虚拟机尚未运行",
 				zap.String("instanceName", instanceName),
 				zap.String("status", status),
 				zap.Int("attempt", attempt))
@@ -48,7 +48,7 @@ func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 
 		// 检查是否已获取到IP地址
 		if _, err := l.getInstanceIP(instanceName); err == nil {
-			global.APP_LOG.Info("虚拟机网络已就绪",
+			global.APP_LOG.Debug("虚拟机网络已就绪",
 				zap.String("instanceName", instanceName),
 				zap.Int("attempt", attempt))
 			return nil
@@ -65,13 +65,13 @@ func (l *LXDProvider) waitForVMNetworkReady(instanceName string) error {
 
 // waitForContainerNetworkReady 等待容器网络就绪
 func (l *LXDProvider) waitForContainerNetworkReady(instanceName string) error {
-	global.APP_LOG.Info("等待容器网络就绪", zap.String("instanceName", instanceName))
+	global.APP_LOG.Debug("等待容器网络就绪", zap.String("instanceName", instanceName))
 
 	maxRetries := 10 // 容器启动较快
 	delay := 5       // 容器启动时间较短
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
-		global.APP_LOG.Info("等待容器启动并获取IP地址",
+		global.APP_LOG.Debug("等待容器启动并获取IP地址",
 			zap.String("instanceName", instanceName),
 			zap.Int("attempt", attempt),
 			zap.Int("maxRetries", maxRetries),
@@ -92,7 +92,7 @@ func (l *LXDProvider) waitForContainerNetworkReady(instanceName string) error {
 
 		status := strings.TrimSpace(output)
 		if status != "RUNNING" {
-			global.APP_LOG.Info("容器尚未运行",
+			global.APP_LOG.Debug("容器尚未运行",
 				zap.String("instanceName", instanceName),
 				zap.String("status", status),
 				zap.Int("attempt", attempt))
@@ -101,7 +101,7 @@ func (l *LXDProvider) waitForContainerNetworkReady(instanceName string) error {
 
 		// 检查是否已获取到IP地址
 		if _, err := l.getInstanceIP(instanceName); err == nil {
-			global.APP_LOG.Info("容器网络已就绪",
+			global.APP_LOG.Debug("容器网络已就绪",
 				zap.String("instanceName", instanceName),
 				zap.Int("attempt", attempt))
 			return nil

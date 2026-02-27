@@ -249,7 +249,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 				// 更新状态并开始新轮次
 				roundID := state.UpdateLastCollect()
 
-				global.APP_LOG.Info("开始新的流量采集轮次",
+				global.APP_LOG.Debug("开始新的流量采集轮次",
 					zap.Uint("providerID", p.ID),
 					zap.String("providerName", p.Name),
 					zap.Int64("roundID", roundID),
@@ -289,7 +289,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 					// 检查服务是否已停止
 					select {
 					case <-s.stopChan:
-						global.APP_LOG.Info("服务已停止，取消采集",
+						global.APP_LOG.Debug("服务已停止，取消采集",
 							zap.Uint("providerID", providerID),
 							zap.Int64("roundID", roundID))
 						return
@@ -310,7 +310,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 							zap.Int64("roundID", roundID),
 							zap.Error(err))
 					} else {
-						global.APP_LOG.Info("Provider流量采集完成",
+						global.APP_LOG.Debug("Provider流量采集完成",
 							zap.Uint("providerID", providerID),
 							zap.String("providerName", providerName),
 							zap.Int64("轮次ID", roundID))
@@ -371,11 +371,11 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 
 			// 只在凌晨3点执行数据清理
 			if now.Hour() == 3 {
-				global.APP_LOG.Info("开始清理过期的pmacct数据")
+				global.APP_LOG.Debug("开始清理过期的pmacct数据")
 				if err := s.pmacctService.CleanupOldPmacctData(90); err != nil {
 					global.APP_LOG.Error("清理过期pmacct数据失败", zap.Error(err))
 				} else {
-					global.APP_LOG.Info("清理过期pmacct数据成功")
+					global.APP_LOG.Debug("清理过期pmacct数据成功")
 				}
 			}
 		}
@@ -430,7 +430,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 				continue
 			}
 
-			global.APP_LOG.Info("开始重置pmacct守护进程")
+			global.APP_LOG.Debug("开始重置pmacct守护进程")
 
 			// 获取所有启用流量控制的Provider（只查询需要的字段）
 			var providers []struct {
@@ -483,7 +483,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 					continue
 				}
 
-				global.APP_LOG.Info("开始重置Provider的pmacct守护进程",
+				global.APP_LOG.Debug("开始重置Provider的pmacct守护进程",
 					zap.Uint("providerID", p.ID),
 					zap.String("providerName", p.Name),
 					zap.Int("instanceCount", len(monitors)))
@@ -499,7 +499,7 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 							zap.Error(err))
 						failCount++
 					} else {
-						global.APP_LOG.Info("重置pmacct守护进程成功",
+						global.APP_LOG.Debug("重置pmacct守护进程成功",
 							zap.Uint("instanceID", monitor.InstanceID))
 						successCount++
 					}
@@ -511,14 +511,14 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 				// 更新最后重置时间
 				s.lastResetTime.Store(p.ID, now)
 
-				global.APP_LOG.Info("Provider的pmacct守护进程重置完成",
+				global.APP_LOG.Debug("Provider的pmacct守护进程重置完成",
 					zap.Uint("providerID", p.ID),
 					zap.String("providerName", p.Name),
 					zap.Int("success", successCount),
 					zap.Int("failed", failCount))
 			}
 
-			global.APP_LOG.Info("pmacct守护进程重置任务完成")
+			global.APP_LOG.Debug("pmacct守护进程重置任务完成")
 		}
 	}
 }
@@ -557,7 +557,7 @@ func (s *MonitoringSchedulerService) cleanupDeletedInstanceResetTime() {
 	})
 
 	if cleaned > 0 {
-		global.APP_LOG.Info("按时间清理pmacct重置时间记录",
+		global.APP_LOG.Debug("按时间清理pmacct重置时间记录",
 			zap.Int("cleaned", cleaned))
 	}
 
@@ -592,7 +592,7 @@ func (s *MonitoringSchedulerService) cleanupDeletedInstanceResetTime() {
 	})
 
 	if cleanedDB > 0 {
-		global.APP_LOG.Info("按数据库清理已删除Provider的pmacct重置时间记录",
+		global.APP_LOG.Debug("按数据库清理已删除Provider的pmacct重置时间记录",
 			zap.Int("cleaned", cleanedDB))
 	}
 }
@@ -613,7 +613,7 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 		return nil
 	}
 
-	global.APP_LOG.Info("开始分批采集pmacct数据",
+	global.APP_LOG.Debug("开始分批采集pmacct数据",
 		zap.Uint("providerID", providerID),
 		zap.Int64("roundID", roundID),
 		zap.Int64("totalMonitors", totalCount),
@@ -713,7 +713,7 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 	// 不再更新Provider.used_traffic字段（已删除）
 	// 流量数据统一从pmacct_traffic_records实时聚合查询
 
-	global.APP_LOG.Info("流量采集轮次完成",
+	global.APP_LOG.Debug("流量采集轮次完成",
 		zap.Uint("providerID", providerID),
 		zap.Int64("roundID", roundID),
 		zap.Int("processedCount", processedCount),

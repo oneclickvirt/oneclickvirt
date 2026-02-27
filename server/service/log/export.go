@@ -79,7 +79,7 @@ func (s *ExportService) ExportUsers(req auth.ExportUsersRequest) ([]byte, string
 			zap.Int("dataSize", len(data)))
 		return data, "users.csv", err
 	default:
-		global.APP_LOG.Warn("不支持的导出格式", zap.String("format", req.Format))
+		global.APP_LOG.Error("不支持的导出格式", zap.String("format", req.Format))
 		return nil, "", common.NewError(common.CodeInvalidParam, "目前只支持CSV格式导出")
 	}
 }
@@ -263,7 +263,7 @@ func (s *ExportService) ExportOperationLogs(req auth.ExportOperationLogsRequest)
 			zap.Int("dataSize", len(data)))
 		return data, "operation_logs.csv", err
 	default:
-		global.APP_LOG.Warn("不支持的日志导出格式", zap.String("format", req.Format))
+		global.APP_LOG.Error("不支持的日志导出格式", zap.String("format", req.Format))
 		return nil, "", common.NewError(common.CodeInvalidParam, "目前只支持CSV格式导出")
 	}
 }

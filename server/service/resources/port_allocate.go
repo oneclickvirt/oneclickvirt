@@ -89,7 +89,7 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 				}
 
 				if !conflict {
-					global.APP_LOG.Info("成功分配连续端口区间",
+					global.APP_LOG.Debug("成功分配连续端口区间",
 						zap.Uint("providerId", providerInfo.ID),
 						zap.Int("startPort", startPort),
 						zap.Int("endPort", startPort+count-1),

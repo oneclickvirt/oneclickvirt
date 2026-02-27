@@ -203,7 +203,7 @@ func InstanceAction(c *gin.Context) {
 		return
 	}
 
-	global.APP_LOG.Info("用户执行实例操作",
+	global.APP_LOG.Debug("用户执行实例操作",
 		zap.Uint("userID", userID),
 		zap.Uint("instanceID", req.InstanceID),
 		zap.String("action", req.Action))

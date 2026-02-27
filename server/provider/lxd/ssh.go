@@ -48,7 +48,7 @@ func (l *LXDProvider) sshListInstances(ctx context.Context) ([]provider.Instance
 	// 补充逻辑：尝试通过 JSON 格式获取 IP 地址信息（如果支持的话）
 	l.enrichInstancesWithIPAddresses(&instances)
 
-	global.APP_LOG.Info("通过SSH成功获取LXD实例列表", zap.Int("count", len(instances)))
+	global.APP_LOG.Debug("通过SSH成功获取LXD实例列表", zap.Int("count", len(instances)))
 	return instances, nil
 }
 
@@ -231,7 +231,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		if progressCallback != nil {
 			progressCallback(percentage, message)
 		}
-		global.APP_LOG.Info("LXD实例创建进度",
+		global.APP_LOG.Debug("LXD实例创建进度",
 			zap.String("instance", config.Name),
 			zap.Int("percentage", percentage),
 			zap.String("message", message))
@@ -393,7 +393,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		limit := *config.DiskIOLimit
 		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.read %s", config.Name, limit))
 		_, _ = l.sshClient.Execute(fmt.Sprintf("lxc config device set %s root limits.write %s", config.Name, limit))
-		global.APP_LOG.Info("已应用自定义磁盘IO限制", zap.String("limit", limit))
+		global.APP_LOG.Debug("已应用自定义磁盘IO限制", zap.String("limit", limit))
 	}
 
 	updateProgress(50, "配置实例安全设置...")
@@ -420,12 +420,12 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	if config.InstanceType == "vm" {
 		updateProgress(63, "等待虚拟机Agent启动...")
 		if err := l.waitForInstanceExecReady(config.Name, 120); err != nil {
-			global.APP_LOG.Warn("等待虚拟机Agent启动超时",
+			global.APP_LOG.Error("等待虚拟机Agent启动超时",
 				zap.String("instanceName", config.Name),
 				zap.Error(err))
 			return fmt.Errorf("虚拟机Agent启动超时，无法继续配置: %w", err)
 		} else {
-			global.APP_LOG.Info("虚拟机Agent已启动",
+			global.APP_LOG.Debug("虚拟机Agent已启动",
 				zap.String("instanceName", config.Name))
 		}
 	} else {
@@ -436,7 +436,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				zap.Error(err))
 			// 容器超时只是警告，继续尝试
 		} else {
-			global.APP_LOG.Info("容器已启动",
+			global.APP_LOG.Debug("容器已启动",
 				zap.String("instanceName", config.Name))
 		}
 	}
@@ -460,7 +460,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			zap.Error(err))
 		// 容器超时只是警告，继续尝试
 	} else {
-		global.APP_LOG.Info("容器已启动",
+		global.APP_LOG.Debug("容器已启动",
 			zap.String("instanceName", config.Name))
 	}
 	// 查找实例ID用于pmacct初始化
@@ -486,7 +486,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 		if privateIP, err := l.GetInstanceIPv4(ctx2, config.Name); err == nil && privateIP != "" {
 			// 更新数据库中的PrivateIP
 			if err := global.APP_DB.Model(&instance).Update("private_ip", privateIP).Error; err == nil {
-				global.APP_LOG.Info("已更新LXD实例内网IP",
+				global.APP_LOG.Debug("已更新LXD实例内网IP",
 					zap.String("instanceName", config.Name),
 					zap.String("privateIP", privateIP))
 			}
@@ -503,7 +503,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 			// 获取IPv4的veth接口
 			if vethV4, err := l.GetVethInterfaceName(config.Name); err == nil && vethV4 != "" {
 				if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v4", vethV4).Error; err == nil {
-					global.APP_LOG.Info("已更新LXD实例IPv4网络接口",
+					global.APP_LOG.Debug("已更新LXD实例IPv4网络接口",
 						zap.String("instanceName", config.Name),
 						zap.String("interfaceV4", vethV4))
 				}
@@ -519,7 +519,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 				// 实例有公网IPv6，获取对应的veth接口
 				if vethV6, err := l.GetVethInterfaceNameV6(config.Name); err == nil && vethV6 != "" {
 					if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", vethV6).Error; err == nil {
-						global.APP_LOG.Info("已更新LXD实例IPv6网络接口",
+						global.APP_LOG.Debug("已更新LXD实例IPv6网络接口",
 							zap.String("instanceName", config.Name),
 							zap.String("interfaceV6", vethV6))
 					}
@@ -544,7 +544,7 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 					zap.String("instanceName", config.Name),
 					zap.Error(pmacctErr))
 			} else {
-				global.APP_LOG.Info("LXD实例创建后 pmacct 监控初始化成功",
+				global.APP_LOG.Debug("LXD实例创建后 pmacct 监控初始化成功",
 					zap.Uint("instanceId", instanceID),
 					zap.String("instanceName", config.Name))
 			}
@@ -578,13 +578,13 @@ func (l *LXDProvider) sshStartInstance(ctx context.Context, id string) error {
 		// 如果错误提示实例已在运行，不视为错误
 		if strings.Contains(err.Error(), "already running") ||
 			strings.Contains(err.Error(), "The instance is already running") {
-			global.APP_LOG.Info("LXD实例已在运行", zap.String("id", id))
+			global.APP_LOG.Debug("LXD实例已在运行", zap.String("id", id))
 			return nil
 		}
 		return fmt.Errorf("failed to start instance: %w", err)
 	}
 
-	global.APP_LOG.Info("已发送启动命令，等待实例启动", zap.String("id", id))
+	global.APP_LOG.Debug("已发送启动命令，等待实例启动", zap.String("id", id))
 
 	// 等待实例真正启动 - 最多等待90秒
 	maxWaitTime := 90 * time.Second
@@ -645,7 +645,7 @@ func (l *LXDProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	if err != nil {
 		// 检查是否是实例不存在的错误
 		if strings.Contains(output, "Instance not found") || strings.Contains(output, "not found") {
-			global.APP_LOG.Info("实例已不存在，视为删除成功", zap.String("id", utils.TruncateString(id, 50)))
+			global.APP_LOG.Debug("实例已不存在，视为删除成功", zap.String("id", utils.TruncateString(id, 50)))
 			return nil // 实例不存在，视为删除成功
 		}
 		return fmt.Errorf("failed to delete instance: %w", err)
@@ -682,7 +682,7 @@ func (l *LXDProvider) sshListImages(ctx context.Context) ([]provider.Image, erro
 		images = append(images, image)
 	}
 
-	global.APP_LOG.Info("通过SSH成功获取LXD镜像列表", zap.Int("count", len(images)))
+	global.APP_LOG.Debug("通过SSH成功获取LXD镜像列表", zap.Int("count", len(images)))
 	return images, nil
 }
 

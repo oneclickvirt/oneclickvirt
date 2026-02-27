@@ -285,7 +285,7 @@ func (d *DockerPortMapping) getPublicIP(providerInfo *provider.Provider) string 
 
 // createDockerPortMapping 创建Docker原生端口映射
 func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	global.APP_LOG.Info("Creating Docker native port mapping",
+	global.APP_LOG.Debug("Creating Docker native port mapping",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
@@ -350,7 +350,7 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 			return fmt.Errorf("failed to recreate container with port mapping: %v", err)
 		}
 
-		global.APP_LOG.Info("Container recreated with new port mapping",
+		global.APP_LOG.Debug("Container recreated with new port mapping",
 			zap.String("instance", instance.Name),
 			zap.Int("hostPort", hostPort),
 			zap.Int("guestPort", guestPort))
@@ -416,7 +416,7 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 			return fmt.Errorf("failed to recreate container with port mapping: %v", err)
 		}
 
-		global.APP_LOG.Info("Container recreated with new port mapping",
+		global.APP_LOG.Debug("Container recreated with new port mapping",
 			zap.String("instance", instance.Name),
 			zap.Int("hostPort", hostPort),
 			zap.Int("guestPort", guestPort))
@@ -536,7 +536,7 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 
 // removeDockerPortMapping 删除Docker原生端口映射
 func (d *DockerPortMapping) removeDockerPortMapping(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	global.APP_LOG.Info("Removing Docker native port mapping",
+	global.APP_LOG.Debug("Removing Docker native port mapping",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),

@@ -98,7 +98,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 			return portResult.Error
 		}
 		if portResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider端口映射",
+			global.APP_LOG.Debug("成功删除Provider端口映射",
 				zap.Uint("providerID", providerID),
 				zap.Int64("count", portResult.RowsAffected))
 		}
@@ -110,7 +110,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 			return taskResult.Error
 		}
 		if taskResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider任务",
+			global.APP_LOG.Debug("成功删除Provider任务",
 				zap.Uint("providerID", providerID),
 				zap.Int64("count", taskResult.RowsAffected))
 		}
@@ -122,7 +122,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 			return configTaskResult.Error
 		}
 		if configTaskResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider配置任务",
+			global.APP_LOG.Debug("成功删除Provider配置任务",
 				zap.Uint("providerID", providerID),
 				zap.Int64("count", configTaskResult.RowsAffected))
 		}
@@ -134,7 +134,7 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 			return instanceResult.Error
 		}
 		if instanceResult.RowsAffected > 0 {
-			global.APP_LOG.Info("成功删除Provider实例记录",
+			global.APP_LOG.Debug("成功删除Provider实例记录",
 				zap.Uint("providerID", providerID),
 				zap.Int64("count", instanceResult.RowsAffected))
 		}

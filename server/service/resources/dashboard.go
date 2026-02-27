@@ -62,7 +62,7 @@ func initStatsCache() {
 					return
 				case <-ticker.C:
 					if _, err := statsCache.Update(); err != nil {
-						global.APP_LOG.Error("定时更新统计数据缓存失败", zap.Error(err))
+						global.APP_LOG.Warn("定时更新统计数据缓存失败", zap.Error(err))
 					} else {
 						global.APP_LOG.Debug("定时更新统计数据缓存成功")
 					}

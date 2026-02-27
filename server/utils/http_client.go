@@ -108,10 +108,10 @@ func GetInsecureHTTPClient(timeout time.Duration) *http.Client {
 func CleanupHTTPTransports() {
 	if sharedTransport != nil {
 		sharedTransport.CloseIdleConnections()
-		global.APP_LOG.Info("已清理共享HTTP Transport的空闲连接")
+		global.APP_LOG.Debug("已清理共享HTTP Transport的空闲连接")
 	}
 	if insecureTransport != nil {
 		insecureTransport.CloseIdleConnections()
-		global.APP_LOG.Info("已清理不安全HTTP Transport的空闲连接")
+		global.APP_LOG.Debug("已清理不安全HTTP Transport的空闲连接")
 	}
 }

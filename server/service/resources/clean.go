@@ -96,7 +96,7 @@ func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDelet
 		taskDataList = append(taskDataList, taskData)
 	}
 
-	global.APP_LOG.Info("准备创建批量端口删除任务",
+	global.APP_LOG.Debug("准备创建批量端口删除任务",
 		zap.Int("count", len(taskDataList)),
 		zap.Any("port_ids", req.IDs))
 
@@ -140,13 +140,13 @@ func (s *PortMappingService) DeletePortMappingWithTask(id uint) (*admin.DeletePo
 	}
 
 	if port.PortCount > 1 {
-		global.APP_LOG.Info("准备创建端口段删除任务",
+		global.APP_LOG.Debug("准备创建端口段删除任务",
 			zap.Uint("port_id", port.ID),
 			zap.Uint("instance_id", port.InstanceID),
 			zap.String("port_range", fmt.Sprintf("%d-%d", port.HostPort, port.HostPortEnd)),
 			zap.Int("port_count", port.PortCount))
 	} else {
-		global.APP_LOG.Info("准备创建端口删除任务",
+		global.APP_LOG.Debug("准备创建端口删除任务",
 			zap.Uint("port_id", port.ID),
 			zap.Uint("instance_id", port.InstanceID),
 			zap.Int("host_port", port.HostPort))
