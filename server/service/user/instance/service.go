@@ -206,6 +206,11 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 			return errors.New("实例状态不允许启动")
 		}
 
+		// 禁止流量超限的实例被用户启动
+		if instance.TrafficLimited {
+			return errors.New("实例因流量超限已被系统限制，普通用户无法启动，请联系管理员重置流量或增加流量额度")
+		}
+
 		// 检查是否已有进行中的启动任务
 		var existingTask adminModel.Task
 		if err := global.APP_DB.Where("instance_id = ? AND task_type = 'start' AND status IN ('pending', 'running')", instance.ID).First(&existingTask).Error; err == nil {

@@ -567,6 +567,55 @@
             label-width="140px"
             class="config-form"
           >
+            <!-- Logo 设置 -->
+            <el-divider content-position="left">
+              {{ $t('admin.config.logoSettings') }}
+            </el-divider>
+
+            <el-row :gutter="20">
+              <el-col :span="16">
+                <el-form-item :label="$t('admin.config.customLogoURL')">
+                  <el-input
+                    v-model="config.other.logoURL"
+                    :placeholder="$t('admin.config.customLogoURLPlaceholder')"
+                    clearable
+                  />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.customLogoURLHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col
+                v-if="config.other.logoURL"
+                :span="8"
+              >
+                <el-form-item :label="$t('admin.config.logoPreview')">
+                  <img
+                    :src="config.other.logoURL"
+                    alt="Logo Preview"
+                    style="height:40px;max-width:160px;object-fit:contain;border:1px solid var(--border-color);border-radius:4px;padding:4px;background:var(--bg-color-secondary);"
+                    @error="$event.target.style.display='none'"
+                    @load="$event.target.style.display=''"
+                  >
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-row :gutter="20">
+              <el-col :span="16">
+                <el-form-item :label="$t('admin.config.customSiteName')">
+                  <el-input
+                    v-model="config.other.siteName"
+                    :placeholder="$t('admin.config.customSiteNamePlaceholder')"
+                    clearable
+                  />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.customSiteNameHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+
             <el-divider content-position="left">
               {{ $t('admin.config.languageSettings') }}
             </el-divider>
@@ -643,9 +692,11 @@ import { useI18n } from 'vue-i18n'
 import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
 import { useLanguageStore } from '@/pinia/modules/language'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
+const siteStore = useSiteStore()
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -680,7 +731,9 @@ const config = ref({
   },
   other: {
     maxAvatarSize: 2, // MB
-    defaultLanguage: '' // 默认语言，空字符串表示使用浏览器语言
+    defaultLanguage: '', // 默认语言，空字符串表示使用浏览器语言
+    logoURL: '', // 自定义 Logo URL
+    siteName: '' // 自定义网站名称
   }
 })
 
@@ -885,6 +938,8 @@ const saveConfig = async () => {
     console.log('实例类型权限配置保存结果:', permissionsResult)
     
     ElMessage.success(t('admin.config.saveSuccess'))
+    // 刷新展示的 logo（新的 logoURL 已写入后端，前端需重新拉取）
+    await siteStore.refresh()
     
     // 如果修改了默认语言，强制应用并刷新页面
     if (languageChanged) {

@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/health"
@@ -19,15 +21,16 @@ import (
 )
 
 type LXDProvider struct {
-	config        provider.NodeConfig
-	sshClient     *utils.SSHClient
-	apiClient     *http.Client
-	transport     *http.Transport
-	providerID    uint // 存储providerID用于清理
-	connected     bool
-	healthChecker health.HealthChecker
-	version       string       // LXD 版本
-	mu            sync.RWMutex // 保护并发访问
+	config           provider.NodeConfig
+	sshClient        *utils.SSHClient
+	apiClient        *http.Client
+	transport        *http.Transport
+	providerID       uint // 存储providerID用于清理
+	connected        bool
+	healthChecker    health.HealthChecker
+	version          string             // LXD 版本
+	mu               sync.RWMutex       // 保护并发访问
+	imageImportGroup singleflight.Group // 防止同一镜像并发下载/导入
 }
 
 func NewLXDProvider() provider.Provider {

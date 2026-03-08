@@ -389,8 +389,8 @@ type Port struct {
 	// 端口映射信息
 	// 为常用查询添加复合索引
 	InstanceID   uint   `json:"instanceId" gorm:"index:idx_instance_ssh,priority:1;index:idx_instance_status,priority:1"` // 关联的实例ID
-	ProviderID   uint   `json:"providerId" gorm:"index:idx_provider_id"`                                                  // 关联的Provider ID
-	HostPort     int    `json:"hostPort" gorm:"not null"`                                                                 // 宿主机端口（起始端口）
+	ProviderID   uint   `json:"providerId" gorm:"index:idx_provider_id;uniqueIndex:idx_provider_host_port,priority:1"`    // 关联的Provider ID
+	HostPort     int    `json:"hostPort" gorm:"not null;uniqueIndex:idx_provider_host_port,priority:2"`                   // 宿主机端口（起始端口）
 	HostPortEnd  int    `json:"hostPortEnd" gorm:"default:0"`                                                             // 宿主机端口结束（0表示单端口）
 	GuestPort    int    `json:"guestPort" gorm:"not null"`                                                                // 容器/虚拟机内部端口（起始端口）
 	GuestPortEnd int    `json:"guestPortEnd" gorm:"default:0"`                                                            // 容器/虚拟机内部端口结束（0表示单端口）

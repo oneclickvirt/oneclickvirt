@@ -275,7 +275,12 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 		// 如果证书内容存在但文件不存在，创建文件
 		if cert.CertContent != "" {
 			if _, err := os.Stat(certPath); os.IsNotExist(err) {
-				if err := os.WriteFile(certPath, []byte(cert.CertContent), 0644); err != nil {
+				tmpCert := certPath + ".tmp"
+				if err := os.WriteFile(tmpCert, []byte(cert.CertContent), 0644); err != nil {
+					return fmt.Errorf("创建证书文件失败: %w", err)
+				}
+				if err := os.Rename(tmpCert, certPath); err != nil {
+					os.Remove(tmpCert)
 					return fmt.Errorf("创建证书文件失败: %w", err)
 				}
 				global.APP_LOG.Debug("创建证书文件",
@@ -286,7 +291,12 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 
 		if cert.KeyContent != "" {
 			if _, err := os.Stat(keyPath); os.IsNotExist(err) {
-				if err := os.WriteFile(keyPath, []byte(cert.KeyContent), 0600); err != nil {
+				tmpKey := keyPath + ".tmp"
+				if err := os.WriteFile(tmpKey, []byte(cert.KeyContent), 0600); err != nil {
+					return fmt.Errorf("创建私钥文件失败: %w", err)
+				}
+				if err := os.Rename(tmpKey, keyPath); err != nil {
+					os.Remove(tmpKey)
 					return fmt.Errorf("创建私钥文件失败: %w", err)
 				}
 				global.APP_LOG.Debug("创建私钥文件",
@@ -314,7 +324,12 @@ func (s *ProviderConfigService) syncSingleConfig(configFilePath string) error {
 				return fmt.Errorf("序列化Token失败: %w", err)
 			}
 
-			if err := os.WriteFile(tokenPath, tokenData, 0600); err != nil {
+			tmpToken := tokenPath + ".tmp"
+			if err := os.WriteFile(tmpToken, tokenData, 0600); err != nil {
+				return fmt.Errorf("创建Token文件失败: %w", err)
+			}
+			if err := os.Rename(tmpToken, tokenPath); err != nil {
+				os.Remove(tmpToken)
 				return fmt.Errorf("创建Token文件失败: %w", err)
 			}
 			global.APP_LOG.Debug("创建Token文件",

@@ -55,6 +55,9 @@ type User struct {
 	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at"` // 用户过期时间，过期后自动禁用（Status设为0）
 	IsManualExpiry bool       `json:"isManualExpiry" gorm:"default:false"`   // 是否手动设置了过期时间（手动设置优先级高于全局配置）
 
+	// Token 有效性
+	TokensInvalidatedAt *time.Time `json:"-" gorm:"index"` // 此时间点之前签发的所有 Token 均无效（封号/改密码时设置）
+
 	// OAuth2关联信息
 	OAuth2ProviderID uint   `json:"oauth2ProviderId" gorm:"index"`   // OAuth2提供商ID（关联oauth2_providers表）
 	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识
@@ -95,4 +98,15 @@ type PasswordReset struct {
 	Used      bool      `json:"used" gorm:"default:false"`
 	ExpiresAt time.Time `json:"expires_at" gorm:"not null"`
 	CreatedAt time.Time `json:"created_at"`
+}
+
+// JWTBlacklistedToken JWT 黑名单持久化表（用于存储已吸销的单个 token）
+type JWTBlacklistedToken struct {
+	ID        uint      `gorm:"primarykey"`
+	JTI       string    `gorm:"uniqueIndex;not null;size:64"`
+	UserID    uint      `gorm:"index;not null"`
+	ExpiresAt time.Time `gorm:"not null;index"`
+	Reason    string    `gorm:"size:128"`
+	RevokedBy uint
+	CreatedAt time.Time
 }

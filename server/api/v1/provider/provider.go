@@ -1,7 +1,10 @@
 package provider
 
 import (
+	"context"
 	"net/http"
+	"time"
+
 	"oneclickvirt/service/provider"
 
 	"oneclickvirt/global"
@@ -38,9 +41,11 @@ func (p *ProviderApi) ConnectProvider(c *gin.Context) {
 		return
 	}
 
-	if err := providerApiService.ConnectProvider(c.Request.Context(), req); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
+	defer cancel()
+	if err := providerApiService.ConnectProvider(ctx, req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"code": 400,
 			"msg":  err.Error(),
 		})
 		return

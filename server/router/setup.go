@@ -40,8 +40,19 @@ func SetupRouter() *gin.Engine {
 	Router.ForwardedByClientIP = true
 
 	// 全局中间件排序：CORS → RequestID → Logger → ErrorHandler → InputValidator
+	frontendURL := global.GetAppConfig().System.FrontendURL
 	Router.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
+		AllowOriginFunc: func(origin string) bool {
+			// 允许配置的前端地址
+			if frontendURL != "" && origin == frontendURL {
+				return true
+			}
+			// 允许 localhost 和 127.0.0.1（开发和本地部署）
+			return strings.HasPrefix(origin, "http://localhost:") ||
+				strings.HasPrefix(origin, "https://localhost:") ||
+				strings.HasPrefix(origin, "http://127.0.0.1:") ||
+				strings.HasPrefix(origin, "https://127.0.0.1:")
+		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowHeaders:     []string{"*"},
 		ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},

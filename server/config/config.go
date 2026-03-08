@@ -19,6 +19,8 @@ type Server struct {
 
 type Other struct {
 	DefaultLanguage string `mapstructure:"default-language" json:"default-language" yaml:"default-language"` // 默认语言
+	LogoURL         string `mapstructure:"logo-url" json:"logo-url" yaml:"logo-url"`                         // 自定义 Logo 图片 URL
+	SiteName        string `mapstructure:"site-name" json:"site-name" yaml:"site-name"`                      // 自定义网站名称
 }
 
 type CORS struct {

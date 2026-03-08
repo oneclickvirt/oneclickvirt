@@ -202,6 +202,10 @@ func (s *ConfigService) getOtherConfigs() (map[string]interface{}, error) {
 			result["maxAvatarSize"] = size
 		case "default_language":
 			result["defaultLanguage"] = cfg.Value
+		case "logo_url":
+			result["logoURL"] = cfg.Value
+		case "site_name":
+			result["siteName"] = cfg.Value
 		}
 	}
 
@@ -288,6 +292,61 @@ func (s *ConfigService) updateOtherConfigs(other configModel.OtherConfig) error 
 	}
 
 	_ = adminSystemService
+
+	// 更新 logo_url
+	var existingLogoConfig admin.SystemConfig
+	errLogo := global.APP_DB.Where("key = ?", "logo_url").First(&existingLogoConfig).Error
+	if errLogo != nil && !errors.Is(errLogo, gorm.ErrRecordNotFound) {
+		return errLogo
+	}
+	if errors.Is(errLogo, gorm.ErrRecordNotFound) {
+		newConfig := admin.SystemConfig{
+			Key:         "logo_url",
+			Value:       other.LogoURL,
+			Description: "自定义 Logo 图片第三方 URL，空表示使用默认logo",
+			Category:    "other",
+			Type:        "string",
+			IsPublic:    true,
+		}
+		if err := global.APP_DB.Create(&newConfig).Error; err != nil {
+			return err
+		}
+		global.APP_LOG.Debug("创建logo_url配置", zap.String("value", other.LogoURL))
+	} else {
+		existingLogoConfig.Value = other.LogoURL
+		if err := global.APP_DB.Save(&existingLogoConfig).Error; err != nil {
+			return err
+		}
+		global.APP_LOG.Debug("更新logo_url配置", zap.String("value", other.LogoURL))
+	}
+
+	// 更新 site_name
+	var existingSiteNameConfig admin.SystemConfig
+	errSiteName := global.APP_DB.Where("key = ?", "site_name").First(&existingSiteNameConfig).Error
+	if errSiteName != nil && !errors.Is(errSiteName, gorm.ErrRecordNotFound) {
+		return errSiteName
+	}
+	if errors.Is(errSiteName, gorm.ErrRecordNotFound) {
+		newSiteNameConfig := admin.SystemConfig{
+			Key:         "site_name",
+			Value:       other.SiteName,
+			Description: "自定义网站名称，空表示使用默认名称 OneClickVirt",
+			Category:    "other",
+			Type:        "string",
+			IsPublic:    true,
+		}
+		if err := global.APP_DB.Create(&newSiteNameConfig).Error; err != nil {
+			return err
+		}
+		global.APP_LOG.Debug("创建site_name配置", zap.String("value", other.SiteName))
+	} else {
+		existingSiteNameConfig.Value = other.SiteName
+		if err := global.APP_DB.Save(&existingSiteNameConfig).Error; err != nil {
+			return err
+		}
+		global.APP_LOG.Debug("更新site_name配置", zap.String("value", other.SiteName))
+	}
+
 	return nil
 }
 

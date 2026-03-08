@@ -106,16 +106,25 @@
           
           <!-- 实例控制按钮 - 移到名称下方 -->
           <div class="control-actions">
-            <el-button 
+            <el-tooltip
               v-if="instance.status === 'stopped'"
-              type="success" 
-              size="small"
-              :loading="actionLoading"
-              @click="performAction('start')"
+              :content="monitoring.trafficData?.isLimited ? t('user.instanceDetail.trafficLimitStartBlocked') : ''"
+              :disabled="!monitoring.trafficData?.isLimited"
+              placement="top"
             >
-              <el-icon><VideoPlay /></el-icon>
-              {{ t('user.instanceDetail.start') }}
-            </el-button>
+              <span>
+                <el-button 
+                  type="success" 
+                  size="small"
+                  :loading="actionLoading"
+                  :disabled="monitoring.trafficData?.isLimited"
+                  @click="performAction('start')"
+                >
+                  <el-icon><VideoPlay /></el-icon>
+                  {{ t('user.instanceDetail.start') }}
+                </el-button>
+              </span>
+            </el-tooltip>
             <el-button 
               v-if="instance.status === 'running'"
               type="warning" 

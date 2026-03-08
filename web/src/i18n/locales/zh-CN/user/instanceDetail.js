@@ -44,6 +44,7 @@ export default {
   unknownType: "未知类型",
   getDetailFailed: "获取实例详情失败",
   trafficLimitWarning: "当前实例因流量超限已被限制使用",
+  trafficLimitStartBlocked: "实例因流量超限已被系统限制，无法启动，请联系管理员重置流量或增加流量额度",
   getMonitoringFailed: "获取监控数据失败",
   actionStart: "启动",
   actionStop: "停止",

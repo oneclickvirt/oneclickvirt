@@ -38,17 +38,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       : `${t('user.instanceDetail.confirm')}${actionText}${t('user.instances.title')} "${instance.value.name}" ${t('common.questionMark')}`
 
     if (action === 'start' && monitoring.trafficData?.isLimited) {
-      const trafficLimitConfirm = await ElMessageBox.confirm(
-        `${t('user.instances.title')} "${instance.value.name}" ${t('user.instanceDetail.trafficLimitWarning')}${t('common.comma')}${t('user.instances.title')}${t('user.instanceDetail.actionStart')}${t('common.period')}`,
-        t('user.instanceDetail.trafficLimitNotice'),
-        {
-          confirmButtonText: t('user.instanceDetail.gotIt'),
-          showCancelButton: false,
-          type: 'warning'
-        }
-      ).catch(() => false)
-
-      if (!trafficLimitConfirm) return
+      ElMessage.error(t('user.instanceDetail.trafficLimitStartBlocked'))
       return
     }
 

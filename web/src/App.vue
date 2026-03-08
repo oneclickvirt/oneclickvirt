@@ -6,12 +6,25 @@
 </template>
 
 <script setup>
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { checkSystemInit } from '@/api/init'
 import GlobalSSHManager from '@/components/GlobalSSHManager.vue'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const router = useRouter()
+const siteStore = useSiteStore()
+
+// 动态更新浏览器 tab favicon
+function updateFavicon(url) {
+  let link = document.querySelector("link[rel~='icon']")
+  if (!link) {
+    link = document.createElement('link')
+    link.rel = 'icon'
+    document.head.appendChild(link)
+  }
+  link.href = url || '/logo.ico'
+}
 
 const checkInitStatus = async () => {
   try {
@@ -29,10 +42,28 @@ const checkInitStatus = async () => {
   }
 }
 
-onMounted(() => {
+onMounted(async () => {
+  // 获取站点配置（包含自定义 logo）
+  await siteStore.fetchSiteConfig()
+  // 初始化 favicon
+  if (siteStore.logoURL) {
+    updateFavicon(siteStore.logoURL)
+  }
   // 应用启动时检查初始化状态
   checkInitStatus()
 })
+
+// 当 logo URL 变化时更新 favicon
+watch(() => siteStore.logoURL, (newURL) => {
+  if (newURL) {
+    updateFavicon(newURL)
+  }
+})
+
+// 当站点名称变化时更新浏览器 tab 标题
+watch(() => siteStore.displaySiteName, (name) => {
+  document.title = name
+}, { immediate: true })
 </script>
 
 <style>

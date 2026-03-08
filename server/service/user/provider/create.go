@@ -295,6 +295,27 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			return fmt.Errorf("资源分配失败: %v", err)
 		}
 
+		// 在同一事务中，乐观地递增节点实例计数缓存值，
+		// 确保持有下一个 FOR UPDATE 锁的 goroutine 能看到最新计数，
+		// 避免在 5 分钟缓存窗口内的并发超配问题。
+		if req.ProviderId > 0 {
+			var countField string
+			if systemImage.InstanceType == "container" {
+				countField = "container_count"
+			} else {
+				countField = "vm_count"
+			}
+			if err := tx.Model(&providerModel.Provider{}).
+				Where("id = ?", req.ProviderId).
+				UpdateColumn(countField, gorm.Expr(countField+" + 1")).Error; err != nil {
+				// 缓存更新失败不阻断创建流程，下次超时后会通过 COUNT 修正
+				global.APP_LOG.Warn("更新节点实例计数缓存失败",
+					zap.Uint("providerID", req.ProviderId),
+					zap.String("field", countField),
+					zap.Error(err))
+			}
+		}
+
 		// 2. 创建任务
 		taskData := fmt.Sprintf(`{"providerId":%d,"imageId":%d,"cpuId":"%s","memoryId":"%s","diskId":"%s","bandwidthId":"%s","description":"%s","sessionId":"%s"}`,
 			req.ProviderId, req.ImageId, req.CPUId, req.MemoryId, req.DiskId, req.BandwidthId, req.Description, sessionID)

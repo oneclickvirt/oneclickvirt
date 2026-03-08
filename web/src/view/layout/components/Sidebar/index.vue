@@ -7,8 +7,14 @@
     }"
   >
     <div class="sidebar-logo">
+      <img
+        v-show="!isCollapse || isMobile"
+        :src="siteStore.logoSrc"
+        alt="Logo"
+        class="sidebar-logo-img"
+      >
       <h1 v-show="!isCollapse || isMobile">
-        OneClickVirt
+        {{ siteStore.displaySiteName }}
       </h1>
       <el-button 
         v-if="!isMobile"
@@ -60,11 +66,13 @@ import { useI18n } from 'vue-i18n'
 import { useUserStore } from '@/pinia/modules/user'
 import { HomeFilled, Expand, Fold } from '@element-plus/icons-vue'
 import SidebarItem from './SidebarItem.vue'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
 const userStore = useUserStore()
+const siteStore = useSiteStore()
 const isCollapse = ref(false)
 
 // 从父组件注入的状态和方法
@@ -320,8 +328,9 @@ watch(() => userStore.userType, (newType, oldType) => {
     text-align: center;
     overflow: hidden;
     display: flex;
-    flex-direction: column;
-    justify-content: center;
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
     padding: 0 var(--spacing-md);
     position: relative;
 
@@ -332,6 +341,15 @@ watch(() => userStore.userType, (newType, oldType) => {
       font-family: Avenir, Helvetica Neue, Arial, Helvetica, sans-serif;
       margin: 0;
       transition: opacity 0.28s;
+    }
+    
+    .sidebar-logo-img {
+      height: 28px;
+      width: 28px;
+      border-radius: 4px;
+      object-fit: contain;
+      flex-shrink: 0;
+      margin-right: 8px;
     }
     
     span {

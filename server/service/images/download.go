@@ -15,7 +15,11 @@ import (
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
+
+// imageDownloadGroup 包级别的 singleflight，确保同一文件路径只有一个下载在进行
+var imageDownloadGroup singleflight.Group
 
 type ImageDownloadService struct {
 	cdnEndpoints []string
@@ -44,34 +48,42 @@ func (s *ImageDownloadService) DownloadImageForProvider(imageURL, imageName, pro
 	fileName := s.generateFileName(imageName, imageURL, architecture)
 	filePath := filepath.Join(downloadDir, fileName)
 
-	// 检查文件是否已存在且完整
-	if s.isFileValid(filePath, imageURL) {
-		global.APP_LOG.Debug("镜像文件已存在且完整，跳过下载",
+	// 使用 singleflight 确保同一文件路径只有一个下载在进行；
+	// 并发请求等待第一个完成，共享结果。
+	result, err, _ := imageDownloadGroup.Do(filePath, func() (interface{}, error) {
+		// 快速检查文件是否已存在且完整
+		if s.isFileValid(filePath, imageURL) {
+			global.APP_LOG.Debug("镜像文件已存在且完整，跳过下载",
+				zap.String("imageName", imageName),
+				zap.String("filePath", filePath))
+			return filePath, nil
+		}
+
+		// 确定下载URL
+		downloadURL := s.getDownloadURL(imageURL, providerCountry)
+
+		global.APP_LOG.Info("开始下载镜像",
+			zap.String("imageName", imageName),
+			zap.String("downloadURL", downloadURL),
+			zap.String("filePath", filePath))
+
+		// 下载文件
+		if err := s.downloadFile(downloadURL, filePath); err != nil {
+			os.Remove(filePath)
+			return "", fmt.Errorf("下载镜像失败: %w", err)
+		}
+
+		global.APP_LOG.Info("镜像下载完成",
 			zap.String("imageName", imageName),
 			zap.String("filePath", filePath))
+
 		return filePath, nil
+	})
+
+	if err != nil {
+		return "", err
 	}
-
-	// 确定下载URL
-	downloadURL := s.getDownloadURL(imageURL, providerCountry)
-
-	global.APP_LOG.Info("开始下载镜像",
-		zap.String("imageName", imageName),
-		zap.String("downloadURL", downloadURL),
-		zap.String("filePath", filePath))
-
-	// 下载文件
-	if err := s.downloadFile(downloadURL, filePath); err != nil {
-		// 下载失败，删除不完整的文件
-		os.Remove(filePath)
-		return "", fmt.Errorf("下载镜像失败: %w", err)
-	}
-
-	global.APP_LOG.Info("镜像下载完成",
-		zap.String("imageName", imageName),
-		zap.String("filePath", filePath))
-
-	return filePath, nil
+	return result.(string), nil
 }
 
 // getDownloadDir 根据provider类型获取下载目录

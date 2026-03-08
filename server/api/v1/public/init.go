@@ -401,6 +401,10 @@ func GetPublicSystemConfig(c *gin.Context) {
 				switch config.Key {
 				case "other.default-language":
 					result["default_language"] = config.Value
+				case "logo_url":
+					result["logo_url"] = config.Value
+				case "site_name":
+					result["site_name"] = config.Value
 				default:
 					result[config.Key] = config.Value
 				}
@@ -419,6 +423,14 @@ func GetPublicSystemConfig(c *gin.Context) {
 			result["default_language"] = global.GetAppConfig().Other.DefaultLanguage
 		} else {
 			result["default_language"] = "zh" // 默认中文
+		}
+
+		if global.GetAppConfig().Other.LogoURL != "" {
+			result["logo_url"] = global.GetAppConfig().Other.LogoURL
+		}
+
+		if global.GetAppConfig().Other.SiteName != "" {
+			result["site_name"] = global.GetAppConfig().Other.SiteName
 		}
 
 		global.APP_LOG.Debug("使用默认配置",

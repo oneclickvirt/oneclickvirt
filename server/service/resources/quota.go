@@ -121,6 +121,14 @@ func (s *QuotaService) validateInTransaction(tx *gorm.DB, req ResourceRequest) (
 		}, nil
 	}
 
+	// 管理员跳过所有配额和等级限制
+	if user.UserType == "admin" || user.UserType == "super_admin" {
+		return &QuotaCheckResult{
+			Allowed: true,
+			Reason:  "管理员无配额限制",
+		}, nil
+	}
+
 	// 获取用户等级限制
 	levelLimits, exists := global.GetAppConfig().Quota.LevelLimits[user.Level]
 	if !exists {

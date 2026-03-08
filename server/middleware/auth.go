@@ -6,6 +6,7 @@ import (
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/auth"
@@ -191,8 +192,14 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 		return nil, nil, common.NewError(common.CodeUnauthorized, "无效的用户信息")
 	}
 
+	// 提取 token 的签发时间（用于检查用户级吸销）
+	var issuedAt time.Time
+	if iat, ok := (*claims)["iat"].(float64); ok {
+		issuedAt = time.Unix(int64(iat), 0)
+	}
+
 	// 从数据库获取用户当前状态和权限（不依赖JWT中的用户类型）
-	userAuth, err := getUserAuthInfo(uint(userID))
+	userAuth, err := getUserAuthInfo(uint(userID), issuedAt)
 	if err != nil {
 		return nil, nil, common.NewError(common.CodeUnauthorized, "获取用户权限失败")
 	}
@@ -201,19 +208,24 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 }
 
 // getUserAuthInfo 从数据库获取用户认证信息和权限
-func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
+// issuedAt 为 JWT 的 iat 字段，用于检查是否当前 token 已被用户级吊销
+func getUserAuthInfo(userID uint, issuedAt time.Time) (*auth.AuthContext, error) {
 	// 尝试从缓存获取（短TTL确保安全性）
 	cacheService := cache.GetUserCacheService()
 	cacheKey := cache.MakeUserAuthContextKey(userID)
 	if cached, ok := cacheService.Get(cacheKey); ok {
 		if authCtx, ok := cached.(*auth.AuthContext); ok {
+			// 检查 token 是否已被用户级吊销
+			if authCtx.TokensInvalidatedAt != nil && !issuedAt.IsZero() && issuedAt.Before(*authCtx.TokensInvalidatedAt) {
+				return nil, fmt.Errorf("认证令牌已失效")
+			}
 			return authCtx, nil
 		}
 	}
 
-	// 获取用户基本信息和状态
-	var user user.User
-	if err := global.APP_DB.Select("id, username, user_type, status, level").First(&user, userID).Error; err != nil {
+	// 获取用户基本信息和状态（含 tokens_invalidated_at）
+	var u user.User
+	if err := global.APP_DB.Select("id, username, user_type, status, level, tokens_invalidated_at").First(&u, userID).Error; err != nil {
 		// 使用Debug级别，因为这可能是过期token导致的正常情况
 		global.APP_LOG.Debug("用户不存在或查询失败(可能是过期token)",
 			zap.Uint("userID", userID),
@@ -221,12 +233,20 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 		return nil, fmt.Errorf("用户不存在")
 	}
 
+	// 检查 token 是否在用户级吊销之前签发
+	if u.TokensInvalidatedAt != nil && !issuedAt.IsZero() && issuedAt.Before(*u.TokensInvalidatedAt) {
+		global.APP_LOG.Warn("用户尝试使用已吊销的Token",
+			zap.Uint("userID", userID),
+			zap.String("username", u.Username))
+		return nil, fmt.Errorf("认证令牌已失效")
+	}
+
 	// 严格检查用户状态
-	if user.Status != 1 {
+	if u.Status != 1 {
 		global.APP_LOG.Warn("用户账户已被禁用",
 			zap.Uint("userID", userID),
-			zap.String("username", user.Username),
-			zap.Int("status", user.Status))
+			zap.String("username", u.Username),
+			zap.Int("status", u.Status))
 		return nil, fmt.Errorf("账户已被禁用")
 	}
 
@@ -237,7 +257,7 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 		// 权限服务失败时，记录详细日志并拒绝访问
 		global.APP_LOG.Error("权限服务失败，拒绝访问以确保安全",
 			zap.Uint("userID", userID),
-			zap.String("username", user.Username),
+			zap.String("username", u.Username),
 			zap.Error(err))
 
 		// 严格的兜底策略：权限服务失败时直接拒绝访问
@@ -258,7 +278,7 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 		global.APP_LOG.Error("权限服务返回无效的权限类型，拒绝访问",
 			zap.Uint("userID", userID),
 			zap.String("invalidType", effectivePermission.EffectiveType),
-			zap.String("baseType", user.UserType))
+			zap.String("baseType", u.UserType))
 		return nil, fmt.Errorf("权限类型无效")
 	}
 
@@ -267,21 +287,22 @@ func getUserAuthInfo(userID uint) (*auth.AuthContext, error) {
 		if !permissionService.VerifyAdminPrivilege(userID) {
 			global.APP_LOG.Warn("管理员权限验证失败，降级为普通用户权限",
 				zap.Uint("userID", userID),
-				zap.String("username", user.Username))
+				zap.String("username", u.Username))
 			effectivePermission.EffectiveType = "user"
 			effectivePermission.EffectiveLevel = 1
 		}
 	}
 
-	// 构建认证上下文
+	// 构建认证上下文（含 TokensInvalidatedAt 以支持缓存命中）
 	authCtx := &auth.AuthContext{
-		UserID:       user.ID,
-		Username:     user.Username,
-		UserType:     effectivePermission.EffectiveType,
-		Level:        effectivePermission.EffectiveLevel,
-		BaseUserType: user.UserType,
-		AllUserTypes: effectivePermission.AllTypes,
-		IsEffective:  true,
+		UserID:              u.ID,
+		Username:            u.Username,
+		UserType:            effectivePermission.EffectiveType,
+		Level:               effectivePermission.EffectiveLevel,
+		BaseUserType:        u.UserType,
+		AllUserTypes:        effectivePermission.AllTypes,
+		IsEffective:         true,
+		TokensInvalidatedAt: u.TokensInvalidatedAt,
 	}
 
 	// 记录权限获取成功的调试信息（仅在开发环境）

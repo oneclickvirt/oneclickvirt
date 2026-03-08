@@ -142,6 +142,7 @@ func (p *ProxmoxProvider) apiCreateInstanceWithProgress(ctx context.Context, con
 	if err != nil {
 		return fmt.Errorf("获取VMID失败: %w", err)
 	}
+	defer p.releasePendingVMID(vmid)
 
 	updateProgress(20, "准备镜像和资源...")
 

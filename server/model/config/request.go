@@ -32,6 +32,8 @@ type InviteCodeConfig struct {
 type OtherConfig struct {
 	MaxAvatarSize   float64 `json:"maxAvatarSize"`   // 头像最大大小(MB)
 	DefaultLanguage string  `json:"defaultLanguage"` // 系统默认语言，空字符串表示使用浏览器语言
+	LogoURL         string  `json:"logoURL"`         // 自定义 Logo 图片第三方 URL，空表示使用默认logo
+	SiteName        string  `json:"siteName"`        // 自定义网站名称，空表示使用默认名称 OneClickVirt
 }
 
 type QuotaConfig struct {

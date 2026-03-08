@@ -302,4 +302,10 @@ func syncOtherConfig(cfg *config.Server, otherConfig map[string]interface{}) {
 	if v, ok := otherConfig["default-language"].(string); ok {
 		cfg.Other.DefaultLanguage = v
 	}
+	if v, ok := otherConfig["logo-url"].(string); ok {
+		cfg.Other.LogoURL = v
+	}
+	if v, ok := otherConfig["site-name"].(string); ok {
+		cfg.Other.SiteName = v
+	}
 }

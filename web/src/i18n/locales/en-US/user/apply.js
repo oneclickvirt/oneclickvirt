@@ -94,5 +94,6 @@ export default {
   redeemCodePlaceholder: "Enter your redemption code",
   redeemCodeSubmit: "Redeem Now",
   redeemCodeSuccess: "Redeemed successfully! The instance has been assigned to your account.",
-  redeemCodeRequired: "Please enter a redemption code"
+  redeemCodeRequired: "Please enter a redemption code",
+  redeemCodeError: "Redemption Failed"
 }

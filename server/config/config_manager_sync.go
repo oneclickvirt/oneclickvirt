@@ -34,16 +34,9 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 
 	switch v := value.(type) {
 	case string:
-		// 空字符串也使用空值表示
-		if v == "" {
-			node.Kind = yaml.ScalarNode
-			node.Tag = "!!null"
-			node.Value = ""
-		} else {
-			node.Kind = yaml.ScalarNode
-			node.Tag = "!!str"
-			node.Value = v
-		}
+		node.Kind = yaml.ScalarNode
+		node.Tag = "!!str"
+		node.Value = v
 	case int:
 		node.Kind = yaml.ScalarNode
 		node.Tag = "!!int"

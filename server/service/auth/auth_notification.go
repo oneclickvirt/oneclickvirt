@@ -255,7 +255,7 @@ func (s *AuthService) sendSMSCode(phone, code string) error {
 func (s *AuthService) sendEmail(to, subject, body string) error {
 	config := global.GetAppConfig().Auth
 	if config.EmailSMTPHost == "" {
-		return errors.New("邮件服务未配置")
+		return common.NewError(common.CodeError, "邮件服务未配置，请联系管理员配置 SMTP 邮件服务")
 	}
 	auth := smtp.PlainAuth("", config.EmailUsername, config.EmailPassword, config.EmailSMTPHost)
 	msg := fmt.Sprintf("To: %s\r\nSubject: %s\r\nContent-Type: text/html; charset=UTF-8\r\n\r\n%s", to, subject, body)

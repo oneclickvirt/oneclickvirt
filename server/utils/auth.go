@@ -1,6 +1,8 @@
 package utils
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
@@ -126,7 +128,12 @@ func ValidateToken(tokenString string) (*jwt.MapClaims, error) {
 	return claims, nil
 }
 
-// generateTokenID 生成唯一的token ID
+// generateTokenID 生成密码学安全的唯一 token ID
 func generateTokenID() string {
-	return fmt.Sprintf("%d_%d", time.Now().UnixNano(), os.Getpid())
+	b := make([]byte, 16)
+	if _, err := rand.Read(b); err != nil {
+		// 如果failed，返回空字符串会导致JWT验证失败，而不是静默失败
+		panic("crypto/rand unavailable: " + err.Error())
+	}
+	return hex.EncodeToString(b)
 }

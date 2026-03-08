@@ -94,5 +94,6 @@ export default {
   redeemCodePlaceholder: "请输入兑换码",
   redeemCodeSubmit: "立即兑换",
   redeemCodeSuccess: "兑换成功，实例已绑定到您的账户",
-  redeemCodeRequired: "请输入兑换码"
+  redeemCodeRequired: "请输入兑换码",
+  redeemCodeError: "兑换失败"
 }

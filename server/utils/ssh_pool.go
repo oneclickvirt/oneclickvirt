@@ -64,18 +64,22 @@ func (p *SSHConnectionPool) GetOrCreate(providerID uint, config SSHConfig) (*SSH
 		createTime, hasTime := p.lastUsed[providerID]
 		tooOld := hasTime && time.Since(createTime) > p.maxAge
 
-		// 如果配置未变更且连接健康且未过期，复用
+		// 如果配置未变更且连接健康且未过期，尝试复用
 		if !configChanged && !tooOld && client.IsHealthy() {
 			p.mu.RUnlock()
-			// 更新最后使用时间（需要写锁）
 			p.mu.Lock()
-			p.lastUsed[providerID] = time.Now()
-			p.mu.Unlock()
-			if p.logger != nil {
-				p.logger.Debug("复用现有SSH连接",
-					zap.Uint("providerID", providerID))
+			// 双重检查：连接可能在读写锁切换窗口期被驱逐
+			recheck, recheckExists := p.conns[providerID]
+			if recheckExists && recheck == client && recheck.IsHealthy() {
+				p.lastUsed[providerID] = time.Now()
+				p.mu.Unlock()
+				if p.logger != nil {
+					p.logger.Debug("复用现有SSH连接", zap.Uint("providerID", providerID))
+				}
+				return recheck, nil
 			}
-			return client, nil
+			p.mu.Unlock()
+			// 连接已在锁切换时被驱遐，继续走创建新连接路径
 		}
 
 		// 配置变更、连接失效或过期，需要重建
@@ -171,15 +175,12 @@ func (p *SSHConnectionPool) evictOldestConnection() {
 	}
 
 	if client, exists := p.conns[oldestID]; exists {
-		// 原子性地从所有Map中删除（必须在同一临界区内）
+		// 在持有写锁的情况下删除所有 Map 中的引用
 		delete(p.conns, oldestID)
 		delete(p.configs, oldestID)
 		delete(p.lastUsed, oldestID)
-		p.mu.Unlock()
-
-		// 释放锁后再关闭连接
-		client.Close()
-		p.mu.Lock()
+		// 异步关闭连接，避免在持有锁时调用可能阻塞的 Close
+		go client.Close()
 
 		if p.logger != nil {
 			p.logger.Warn("达到连接数上限，驱逐最旧连接并清理所有相关资源",

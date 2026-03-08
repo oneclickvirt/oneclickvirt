@@ -8,6 +8,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/health"
@@ -73,17 +75,19 @@ func InternalIPToVMIDCandidates(ip string) []int {
 }
 
 type ProxmoxProvider struct {
-	config        provider.NodeConfig
-	sshClient     *utils.SSHClient
-	apiClient     *http.Client
-	transport     *http.Transport
-	providerID    uint // 存储providerID用于清理
-	connected     bool
-	node          string // Proxmox 节点名
-	providerUUID  string // Provider UUID，用于查询数据库中的配置
-	healthChecker health.HealthChecker
-	version       string       // Proxmox VE 版本，用于兼容性判断
-	mu            sync.RWMutex // 保护并发访问
+	config           provider.NodeConfig
+	sshClient        *utils.SSHClient
+	apiClient        *http.Client
+	transport        *http.Transport
+	providerID       uint // 存储providerID用于清理
+	connected        bool
+	node             string // Proxmox 节点名
+	providerUUID     string // Provider UUID，用于查询数据库中的配置
+	healthChecker    health.HealthChecker
+	version          string             // Proxmox VE 版本，用于兼容性判断
+	mu               sync.RWMutex       // 保护并发访问
+	pendingVMIDs     map[int]bool       // 已分配但尚未创建完成的VMID集合，防止并发重复分配
+	imageImportGroup singleflight.Group // 防止同一镜像并发下载
 }
 
 func NewProxmoxProvider() provider.Provider {
@@ -102,6 +106,7 @@ func NewProxmoxProvider() provider.Provider {
 			Timeout:   30 * time.Second,
 			Transport: transport,
 		},
+		pendingVMIDs: make(map[int]bool),
 	}
 }
 

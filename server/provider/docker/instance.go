@@ -207,42 +207,54 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if !imageExistsResult {
 		// 如果镜像不存在且有镜像URL，先在远程服务器下载镜像
 		if config.ImageURL != "" {
-			updateProgress(30, "下载镜像到远程服务器...")
-			// 在远程服务器上下载镜像
-			remotePath, err := d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture, config.UseCDN)
-			if err != nil {
-				return fmt.Errorf("下载镜像失败: %w", err)
-			}
+			// 使用 singleflight 确保同一镜像只有一个协程执行下载+加载，
+			// 其余协程阻塞等待结果，避免并发下载和 docker load 冲突。
+			imageURL := config.ImageURL
+			imageName := config.Image
+			useCDN := config.UseCDN
+			_, sfErr, _ := d.imageImportGroup.Do(imageNameWithPrefix, func() (interface{}, error) {
+				// 等待期间镜像可能已由其他协程加载完毕，再次检查
+				if d.imageExists(imageNameWithPrefix) {
+					global.APP_LOG.Debug("Docker镜像已由并发协程完成加载，跳过",
+						zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)))
+					return nil, nil
+				}
 
-			updateProgress(50, "加载镜像到Docker...")
-			// 在远程服务器上加载镜像到Docker
-			if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
-				// 加载失败，清理下载的文件并重试
-				global.APP_LOG.Warn("Docker镜像加载失败，尝试重新下载",
-					zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
-					zap.Error(err))
-
-				// 清理损坏的镜像文件和Docker镜像
-				d.cleanupRemoteImage(config.Image, config.ImageURL, d.config.Architecture)
-				d.cleanupDockerImage(imageNameWithPrefix)
-
-				updateProgress(40, "重新下载镜像...")
-				// 重新下载
-				remotePath, err = d.downloadImageToRemote(config.ImageURL, config.Image, d.config.Country, d.config.Architecture, config.UseCDN)
+				updateProgress(30, "下载镜像到远程服务器...")
+				remotePath, err := d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
 				if err != nil {
-					return fmt.Errorf("重新下载镜像失败: %w", err)
+					return nil, fmt.Errorf("下载镜像失败: %w", err)
 				}
 
-				updateProgress(55, "重新加载镜像到Docker...")
-				// 重新加载
+				updateProgress(50, "加载镜像到Docker...")
 				if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
-					return fmt.Errorf("重新加载镜像失败: %w", err)
-				}
-			}
+					global.APP_LOG.Warn("Docker镜像加载失败，尝试重新下载",
+						zap.String("image", utils.TruncateString(imageNameWithPrefix, 64)),
+						zap.Error(err))
 
-			updateProgress(60, "清理临时文件...")
-			// 导入成功后删除文件
-			d.cleanupRemoteImage(config.Image, config.ImageURL, d.config.Architecture)
+					// 清理损坏的镜像文件和Docker镜像
+					d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
+					d.cleanupDockerImage(imageNameWithPrefix)
+
+					updateProgress(40, "重新下载镜像...")
+					remotePath, err = d.downloadImageToRemote(imageURL, imageName, d.config.Country, d.config.Architecture, useCDN)
+					if err != nil {
+						return nil, fmt.Errorf("重新下载镜像失败: %w", err)
+					}
+
+					updateProgress(55, "重新加载镜像到Docker...")
+					if err := d.loadImageToDocker(remotePath, imageNameWithPrefix); err != nil {
+						return nil, fmt.Errorf("重新加载镜像失败: %w", err)
+					}
+				}
+
+				updateProgress(60, "清理临时文件...")
+				d.cleanupRemoteImage(imageName, imageURL, d.config.Architecture)
+				return nil, nil
+			})
+			if sfErr != nil {
+				return sfErr
+			}
 		} else {
 			// 镜像不存在且没有URL，返回错误
 			global.APP_LOG.Error("Docker镜像不存在且没有下载URL",

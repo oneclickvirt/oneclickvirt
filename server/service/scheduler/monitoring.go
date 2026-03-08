@@ -7,13 +7,11 @@ import (
 	"time"
 
 	"oneclickvirt/global"
-	adminModel "oneclickvirt/model/admin"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/system"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
 
 // PmacctServiceInterface pmacct服务接口
@@ -719,131 +717,6 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 		zap.Int("processedCount", processedCount),
 		zap.Int64("totalCount", totalCount),
 		zap.Int64("totalTrafficMB", totalUsed))
-
-	return nil
-}
-
-// checkProviderTrafficLimits 检查Provider的流量限制（独立于采集周期）
-func (s *MonitoringSchedulerService) checkProviderTrafficLimits(ctx context.Context, providerID uint) error {
-	// 获取该Provider下所有实例
-	var instances []providerModel.Instance
-	err := global.APP_DB.Where("provider_id = ? AND status NOT IN ?",
-		providerID, []string{"deleted", "deleting"}).
-		Select("id, name, max_traffic, status, traffic_limited").
-		Find(&instances).Error
-
-	if err != nil {
-		return fmt.Errorf("查询Provider实例失败: %w", err)
-	}
-
-	// 批量查询实例流量数据（从pmacct_traffic_records实时聚合）
-	year, month, _ := time.Now().Date()
-	trafficMap := make(map[uint]int64)
-
-	if len(instances) > 0 {
-		instanceIDs := make([]uint, len(instances))
-		for i, inst := range instances {
-			instanceIDs[i] = inst.ID
-		}
-
-		var trafficRecords []struct {
-			InstanceID uint
-			TotalMB    float64
-		}
-
-		err = global.APP_DB.Model(&monitoringModel.PmacctTrafficRecord{}).
-			Where("provider_id = ? AND year = ? AND month = ? AND instance_id IN ?",
-				providerID, year, int(month), instanceIDs).
-			Select("instance_id, SUM(total_bytes)/1048576 as total_mb").
-			Group("instance_id").
-			Scan(&trafficRecords).Error
-
-		if err != nil {
-			return fmt.Errorf("查询实例流量记录失败: %w", err)
-		}
-
-		for _, record := range trafficRecords {
-			trafficMap[record.InstanceID] = int64(record.TotalMB)
-		}
-	}
-
-	// 检查每个实例的流量限制
-	for _, instance := range instances {
-		usedTraffic := trafficMap[instance.ID] // 从实时查询获取流量
-		if instance.MaxTraffic > 0 && usedTraffic >= instance.MaxTraffic {
-			// 流量超限，需要暂停实例
-			if !instance.TrafficLimited && instance.Status != "stopped" && instance.Status != "suspended" {
-				global.APP_LOG.Warn("实例流量超限",
-					zap.Uint("instanceID", instance.ID),
-					zap.String("instanceName", instance.Name),
-					zap.Int64("usedTraffic", usedTraffic),
-					zap.Int64("maxTraffic", instance.MaxTraffic))
-
-				// 标记流量超限
-				if err := global.APP_DB.Model(&providerModel.Instance{}).
-					Where("id = ?", instance.ID).
-					Updates(map[string]interface{}{
-						"traffic_limited":      true,
-						"traffic_limit_reason": "instance",
-					}).Error; err != nil {
-					global.APP_LOG.Error("标记实例流量超限失败",
-						zap.Uint("instanceID", instance.ID),
-						zap.Error(err))
-				}
-
-				// 实例流量超限处理：创建停止任务
-				// 检查实例是否已经是停止状态
-				if instance.Status != "stopped" && instance.Status != "stopping" {
-					// 检查是否已有停止任务在执行
-					var existingStopTask struct{}
-					notFound := global.APP_DB.Model(&adminModel.Task{}).
-						Select("1").
-						Where("instance_id = ? AND task_type = 'stop' AND status IN ('pending', 'running')", instance.ID).
-						First(&existingStopTask).Error == gorm.ErrRecordNotFound
-
-					if notFound {
-						// 创建停止任务
-						stopTaskData := fmt.Sprintf(`{"instance_id":%d,"reason":"traffic_limit"}`, instance.ID)
-						stopTask := &adminModel.Task{
-							UserID:          instance.UserID,
-							ProviderID:      &instance.ProviderID,
-							InstanceID:      &instance.ID,
-							TaskType:        "stop",
-							Status:          "pending",
-							TaskData:        stopTaskData,
-							TimeoutDuration: 300, // 5分钟超时
-						}
-
-						if err := global.APP_DB.Create(stopTask).Error; err != nil {
-							global.APP_LOG.Error("创建实例停止任务失败",
-								zap.Uint("instanceID", instance.ID),
-								zap.Error(err))
-						} else {
-							global.APP_LOG.Info("已创建实例停止任务（流量超限）",
-								zap.Uint("instanceID", instance.ID),
-								zap.Uint("taskID", stopTask.ID))
-						}
-					}
-				}
-			}
-		} else if instance.TrafficLimited && usedTraffic < instance.MaxTraffic {
-			// 流量恢复正常，清除限制标记
-			global.APP_LOG.Info("实例流量恢复正常",
-				zap.Uint("instanceID", instance.ID),
-				zap.String("instanceName", instance.Name))
-
-			if err := global.APP_DB.Model(&providerModel.Instance{}).
-				Where("id = ?", instance.ID).
-				Updates(map[string]interface{}{
-					"traffic_limited":      false,
-					"traffic_limit_reason": "",
-				}).Error; err != nil {
-				global.APP_LOG.Error("清除实例流量限制标记失败",
-					zap.Uint("instanceID", instance.ID),
-					zap.Error(err))
-			}
-		}
-	}
 
 	return nil
 }

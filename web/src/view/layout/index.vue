@@ -43,13 +43,14 @@
         <navbar @toggle-sidebar="toggleSidebar" />
       </div>
       <app-main />
+      <app-footer />
     </div>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount, nextTick, provide } from 'vue'
-import { Navbar, Sidebar, AppMain } from './components'
+import { Navbar, Sidebar, AppMain, AppFooter } from './components'
 import { useUserStore } from '@/pinia/modules/user'
 import TopbarAnnouncement from '@/components/TopbarAnnouncement.vue'
 
@@ -195,7 +196,7 @@ onBeforeUnmount(() => {
 }
 
 .main-container {
-  min-height: 100%;
+  min-height: 100vh;
   transition: margin-left 0.28s;
   margin-left: var(--sidebar-width);
   position: relative;

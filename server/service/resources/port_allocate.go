@@ -75,12 +75,13 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 
 			// 如果找到了连续的可用端口区间
 			if allAvailable {
-				// 在事务中再次确认（防止并发冲突）
+				// 在事务中再次确认，使用 LOCK IN SHARE MODE 防止并发幻读
 				conflict := false
 				for _, port := range ports {
 					var existingPort provider.Port
-					err := tx.Where("provider_id = ? AND host_port = ? AND status = 'active'",
-						providerInfo.ID, port).First(&existingPort).Error
+					err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+						Where("provider_id = ? AND host_port = ? AND status = 'active'",
+							providerInfo.ID, port).First(&existingPort).Error
 
 					if err != gorm.ErrRecordNotFound {
 						conflict = true
@@ -169,10 +170,11 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
 
-		// 二次确认端口未被占用（防止并发问题）
+		// 二次确认端口未被占用（使用 LOCK IN SHARE MODE 防止并发幻读）
 		var existingPort provider.Port
-		err := tx.Where("provider_id = ? AND host_port = ? AND status = 'active'",
-			providerID, candidatePort).First(&existingPort).Error
+		err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+			Where("provider_id = ? AND host_port = ? AND status = 'active'",
+				providerID, candidatePort).First(&existingPort).Error
 
 		if err != nil && err != gorm.ErrRecordNotFound {
 			return fmt.Errorf("检查端口失败: %v", err)

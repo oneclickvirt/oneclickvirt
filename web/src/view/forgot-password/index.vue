@@ -5,11 +5,11 @@
       <div class="header-content">
         <div class="logo">
           <img
-            src="@/assets/images/logo.png"
+            :src="siteStore.logoSrc"
             alt="OneClickVirt Logo"
             class="logo-image"
           >
-          <h1>OneClickVirt</h1>
+          <h1>{{ siteStore.displaySiteName }}</h1>
         </div>
         <nav class="nav-actions">
           <button
@@ -135,11 +135,13 @@ import { getCaptcha } from '@/api/auth'
 import { Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
 const themeStore = useThemeStore()
+const siteStore = useSiteStore()
 const forgotFormRef = ref()
 const loading = ref(false)
 const emailSent = ref(false)

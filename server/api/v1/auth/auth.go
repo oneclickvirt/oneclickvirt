@@ -77,7 +77,7 @@ func ForgotPassword(c *gin.Context) {
 	}
 	authService := auth2.AuthService{}
 	if err := authService.ForgotPassword(req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, err)
 		return
 	}
 	common.ResponseSuccess(c, nil, "密码重置邮件已发送")

@@ -5,7 +5,7 @@
       <div class="header-content">
         <div class="logo">
           <img
-            src="@/assets/images/logo.png"
+            :src="siteStore.logoSrc"
             alt="OneClickVirt Logo"
             class="logo-image"
           >
@@ -253,11 +253,11 @@
         <div class="footer-brand">
           <div class="footer-logo">
             <img
-              src="@/assets/images/logo.png"
+              :src="siteStore.logoSrc"
               alt="OneClickVirt Logo"
               class="footer-logo-img"
             >
-            <span class="footer-logo-text">OneClickVirt</span>
+            <span class="footer-logo-text">{{ siteStore.displaySiteName }}</span>
           </div>
           <p class="footer-tagline">
             {{ t('home.hero.description') }}
@@ -403,7 +403,7 @@
 
       <div class="footer-bottom">
         <div class="footer-bottom-inner">
-          <span class="footer-copyright">&copy; 2026 OneClickVirt. {{ t('home.footer.allRightsReserved') }}</span>
+          <span class="footer-copyright">&copy; 2026 {{ siteStore.displaySiteName }}. {{ t('home.footer.allRightsReserved') }}</span>
           <span class="footer-divider" />
           <a
             href="https://github.com/oneclickvirt"
@@ -438,11 +438,13 @@ import { ElTag, ElMessage } from 'element-plus'
 import { Operation, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
 const themeStore = useThemeStore()
+const siteStore = useSiteStore()
 const announcements = ref([])
 // 统计数据
 const usersCount = ref(null)

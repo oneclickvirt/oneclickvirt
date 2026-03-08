@@ -7,6 +7,8 @@ import (
 	"sync"
 	"time"
 
+	"golang.org/x/sync/singleflight"
+
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/health"
@@ -16,12 +18,13 @@ import (
 )
 
 type DockerProvider struct {
-	config        provider.NodeConfig
-	sshClient     *utils.SSHClient
-	connected     bool
-	healthChecker health.HealthChecker
-	version       string       // Docker 版本
-	mu            sync.RWMutex // 保护并发访问
+	config           provider.NodeConfig
+	sshClient        *utils.SSHClient
+	connected        bool
+	healthChecker    health.HealthChecker
+	version          string             // Docker 版本
+	mu               sync.RWMutex       // 保护并发访问
+	imageImportGroup singleflight.Group // 防止同一镜像并发下载/加载
 }
 
 func NewDockerProvider() provider.Provider {

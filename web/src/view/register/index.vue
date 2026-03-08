@@ -5,11 +5,11 @@
       <div class="header-content">
         <div class="logo">
           <img
-            src="@/assets/images/logo.png"
+            :src="siteStore.logoSrc"
             alt="OneClickVirt Logo"
             class="logo-image"
           >
-          <h1>OneClickVirt</h1>
+          <h1>{{ siteStore.displaySiteName }}</h1>
         </div>
         <nav class="nav-actions">
           <button
@@ -195,12 +195,14 @@ import { Warning, Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons
 import { ElMessage } from 'element-plus'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
+import { useSiteStore } from '@/pinia/modules/site'
 
 const router = useRouter()
 const { t, locale } = useI18n()
 const { executeAsync, handleSubmit } = useErrorHandler()
 const languageStore = useLanguageStore()
 const themeStore = useThemeStore()
+const siteStore = useSiteStore()
 const registerFormRef = ref()
 const loading = ref(false)
 const showInviteCode = ref(false)

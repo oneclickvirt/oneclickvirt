@@ -120,6 +120,11 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 			continue
 		}
 
+		// 检查ID是否已在等待创建的队列中（防止并发重复分配）
+		if p.pendingVMIDs[id] {
+			continue
+		}
+
 		// 检查该ID映射的IP是否已被占用
 		mappedIP := VMIDToInternalIP(id)
 		if mappedIP == "" {
@@ -134,6 +139,8 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 		}
 
 		// 找到了同时满足ID和IP都可用的ID
+		// 在释放锁之前将其加入 pendingVMIDs，防止并发 goroutine 分配到同一 ID
+		p.pendingVMIDs[id] = true
 		global.APP_LOG.Debug("分配VMID/CTID成功（已验证IP可用）",
 			zap.String("instanceType", instanceType),
 			zap.Int("id", id),
@@ -151,6 +158,14 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 		zap.Int("usedIDs", len(usedIDs)),
 		zap.Int("usedIPs", len(usedIPs)))
 	return 0, fmt.Errorf("在范围 %d-%d 内没有可用的ID（已使用: %d）或所有映射的IP地址已被占用", MinVMID, MaxVMID, len(usedIDs))
+}
+
+// releasePendingVMID 在实例创建完成（无论成功或失败）后释放挂起的 VMID。
+// 此后 getNextVMID 才会再次将该 ID 视为可用候选（前提是 Proxmox 上也没有该 VM）。
+func (p *ProxmoxProvider) releasePendingVMID(id int) {
+	p.mu.Lock()
+	delete(p.pendingVMIDs, id)
+	p.mu.Unlock()
 }
 
 // sshSetInstancePassword 通过SSH设置实例密码

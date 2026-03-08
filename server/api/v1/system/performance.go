@@ -379,24 +379,31 @@ func performanceMonitoringLoop() {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		metrics := collectPerformanceMetrics()
+	for {
+		select {
+		case <-ticker.C:
+			metrics := collectPerformanceMetrics()
 
-		// 记录关键指标
-		global.APP_LOG.Info("性能指标",
-			zap.Int("goroutines", metrics.GoroutineCount),
-			zap.Uint64("memory_alloc_mb", metrics.MemoryAlloc),
-			zap.Uint64("memory_sys_mb", metrics.MemorySys),
-			zap.Uint32("gc_count", metrics.GCCount),
-		)
+			// 记录关键指标
+			global.APP_LOG.Info("性能指标",
+				zap.Int("goroutines", metrics.GoroutineCount),
+				zap.Uint64("memory_alloc_mb", metrics.MemoryAlloc),
+				zap.Uint64("memory_sys_mb", metrics.MemorySys),
+				zap.Uint32("gc_count", metrics.GCCount),
+			)
 
-		// 持久化性能指标到数据库
-		if err := persistPerformanceMetrics(metrics); err != nil {
-			global.APP_LOG.Error("持久化性能指标失败", zap.Error(err))
+			// 持久化性能指标到数据库
+			if err := persistPerformanceMetrics(metrics); err != nil {
+				global.APP_LOG.Error("持久化性能指标失败", zap.Error(err))
+			}
+
+			// 检查告警阈値
+			checkPerformanceAlerts(metrics)
+
+		case <-global.APP_SHUTDOWN_CONTEXT.Done():
+			global.APP_LOG.Info("性能监控循环已收到关闭信号，退出")
+			return
 		}
-
-		// 检查告警阈值
-		checkPerformanceAlerts(metrics)
 	}
 }
 

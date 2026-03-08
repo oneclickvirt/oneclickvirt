@@ -360,7 +360,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       ElMessage.success(t('user.apply.redeemCodeSuccess'))
       redeemCodeInput.value = ''
     } catch (e) {
-      ElMessage.error(e?.response?.data?.msg || e.message)
+      const errData = e?.response?.data
+      const errMsg = errData?.details || errData?.message || e.message
+      ElMessageBox.alert(errMsg, t('user.apply.redeemCodeError'), { type: 'error', confirmButtonText: t('user.apply.confirmCancel') })
     } finally {
       redeemSubmitting.value = false
     }

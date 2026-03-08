@@ -23,7 +23,7 @@ func (e *DBError) Error() string {
 	return e.Err.Error()
 }
 
-// IsDeadlockError 检查是否是死锁错误
+// IsDeadlockError 检查是否是死锁或临时锁冲突（可重试）
 func IsDeadlockError(err error) bool {
 	if err == nil {
 		return false
@@ -33,8 +33,6 @@ func IsDeadlockError(err error) bool {
 		strings.Contains(errMsg, "deadlock") ||
 		strings.Contains(errMsg, "database lock") ||
 		strings.Contains(errMsg, "busy") ||
-		strings.Contains(errMsg, "foreign key constraint failed") ||
-		strings.Contains(errMsg, "constraint failed") ||
 		strings.Contains(errMsg, "lock wait timeout exceeded") ||
 		strings.Contains(errMsg, "error 1205")
 }

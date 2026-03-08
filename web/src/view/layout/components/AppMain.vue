@@ -55,7 +55,8 @@ defineExpose({
 
 <style lang="scss" scoped>
 .app-main {
-  min-height: calc(100vh - 50px);
+  flex: 1 0 auto;
+  min-height: 0;
   width: 100%;
   position: relative;
   overflow: hidden;

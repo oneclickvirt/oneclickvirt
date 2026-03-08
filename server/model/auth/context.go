@@ -1,5 +1,7 @@
 package auth
 
+import "time"
+
 // AuthLevel 权限级别
 type AuthLevel int
 
@@ -18,4 +20,6 @@ type AuthContext struct {
 	BaseUserType string   `json:"base_user_type"` // 用户基础类型
 	AllUserTypes []string `json:"all_user_types"` // 用户拥有的所有权限类型
 	IsEffective  bool     `json:"is_effective"`   // 权限是否有效
+	// TokensInvalidatedAt 用于检查 token 是否在用户级同步吹销之前签发
+	TokensInvalidatedAt *time.Time `json:"-"`
 }

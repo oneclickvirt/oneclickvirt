@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // BaseProvider 基础端口映射Provider实现
@@ -59,70 +61,86 @@ func (bp *BaseProvider) GetAvailablePortRange(ctx context.Context) (startPort, e
 }
 
 // AllocatePort 分配端口
+// 整个查找+更新流程在同一短事务中串行执行，避免并发重复分配同一端口。
+// 调用方在收到端口后仍须立即执行 DB.Create(portModel)；Port 表上的
+// uniqueIndex:idx_provider_host_port 作为最终兜底保障。
 func (bp *BaseProvider) AllocatePort(ctx context.Context, providerID uint, preferredPort int) (int, error) {
-	// 获取Provider信息
-	var providerInfo provider.Provider
-	if err := global.APP_DB.Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
-		return 0, fmt.Errorf("provider not found: %v", err)
-	}
+	var allocatedPort int
 
-	startPort := providerInfo.PortRangeStart
-	endPort := providerInfo.PortRangeEnd
-	if startPort == 0 {
-		startPort = 10000
-	}
-	if endPort == 0 {
-		endPort = 65535
-	}
+	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 锁定 Provider 行，序列化同一节点的端口分配
+		var providerInfo provider.Provider
+		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).
+			Where("id = ?", providerID).First(&providerInfo).Error; err != nil {
+			return fmt.Errorf("provider not found: %v", err)
+		}
 
-	// 如果指定了首选端口，先检查是否可用
-	if preferredPort > 0 {
-		if preferredPort >= startPort && preferredPort <= endPort {
-			if bp.isPortAvailable(providerID, preferredPort) {
-				return preferredPort, nil
+		startPort := providerInfo.PortRangeStart
+		endPort := providerInfo.PortRangeEnd
+		if startPort == 0 {
+			startPort = 10000
+		}
+		if endPort == 0 {
+			endPort = 65535
+		}
+
+		// 如果指定了首选端口，先检查是否可用
+		if preferredPort > 0 {
+			if preferredPort >= startPort && preferredPort <= endPort {
+				if bp.isPortAvailableInTx(tx, providerID, preferredPort) {
+					allocatedPort = preferredPort
+					return nil
+				}
+			}
+			return fmt.Errorf("preferred port %d is not available", preferredPort)
+		}
+
+		// 从下一个可用端口开始分配
+		nextPort := providerInfo.NextAvailablePort
+		if nextPort < startPort {
+			nextPort = startPort
+		}
+
+		// 循环查找可用端口
+		for port := nextPort; port <= endPort; port++ {
+			if bp.isPortAvailableInTx(tx, providerID, port) {
+				bp.updateNextAvailablePortInTx(tx, providerID, port+1)
+				allocatedPort = port
+				return nil
 			}
 		}
-		return 0, fmt.Errorf("preferred port %d is not available", preferredPort)
-	}
 
-	// 从下一个可用端口开始分配
-	nextPort := providerInfo.NextAvailablePort
-	if nextPort < startPort {
-		nextPort = startPort
-	}
-
-	// 循环查找可用端口
-	for port := nextPort; port <= endPort; port++ {
-		if bp.isPortAvailable(providerID, port) {
-			// 更新下一个可用端口
-			bp.updateNextAvailablePort(providerID, port+1)
-			return port, nil
+		// 如果从nextPort到endPort没有找到，从startPort到nextPort再找一遍
+		for port := startPort; port < nextPort; port++ {
+			if bp.isPortAvailableInTx(tx, providerID, port) {
+				bp.updateNextAvailablePortInTx(tx, providerID, port+1)
+				allocatedPort = port
+				return nil
+			}
 		}
-	}
 
-	// 如果从nextPort到endPort没有找到，从startPort到nextPort再找一遍
-	for port := startPort; port < nextPort; port++ {
-		if bp.isPortAvailable(providerID, port) {
-			bp.updateNextAvailablePort(providerID, port+1)
-			return port, nil
-		}
-	}
+		return fmt.Errorf("no available ports in range %d-%d", startPort, endPort)
+	})
 
-	return 0, fmt.Errorf("no available ports in range %d-%d", startPort, endPort)
+	if err != nil {
+		return 0, err
+	}
+	return allocatedPort, nil
 }
 
-// isPortAvailable 检查端口是否可用
-func (bp *BaseProvider) isPortAvailable(providerID uint, port int) bool {
+// isPortAvailableInTx 在已有事务中检查端口是否可用（使用 LOCK IN SHARE MODE 防止幻读）
+func (bp *BaseProvider) isPortAvailableInTx(tx *gorm.DB, providerID uint, port int) bool {
 	var count int64
-	global.APP_DB.Model(&provider.Port{}).
+	tx.Model(&provider.Port{}).
+		Clauses(clause.Locking{Strength: "SHARE"}).
 		Where("provider_id = ? AND host_port = ? AND status = 'active'", providerID, port).
 		Count(&count)
 	return count == 0
 }
 
-// updateNextAvailablePort 更新下一个可用端口
-func (bp *BaseProvider) updateNextAvailablePort(providerID uint, nextPort int) {
-	global.APP_DB.Model(&provider.Provider{}).
+// updateNextAvailablePortInTx 在已有事务中更新下一个可用端口
+func (bp *BaseProvider) updateNextAvailablePortInTx(tx *gorm.DB, providerID uint, nextPort int) {
+	tx.Model(&provider.Provider{}).
 		Where("id = ?", providerID).
 		Update("next_available_port", nextPort)
 }

@@ -44,6 +44,7 @@ export default {
   unknownType: "Unknown Type",
   getDetailFailed: "Failed to get instance details",
   trafficLimitWarning: "This instance has been restricted due to traffic limit exceeded",
+  trafficLimitStartBlocked: "Instance is restricted due to traffic limit exceeded and cannot be started. Please contact an administrator to reset traffic or increase the traffic quota.",
   getMonitoringFailed: "Failed to get monitoring data",
   actionStart: "Start",
   actionStop: "Stop",

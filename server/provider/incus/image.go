@@ -18,7 +18,7 @@ import (
 
 // handleImageDownloadAndImport 处理镜像下载和导入的通用逻辑
 func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config *provider.InstanceConfig) error {
-	// 首先从数据库查询匹配的系统镜像
+	// 首先从数据库查询匹配的系统镜像（单次读查询，无长事务）
 	if err := i.queryAndSetSystemImage(ctx, config); err != nil {
 		global.APP_LOG.Warn("从数据库查询系统镜像失败，使用原有镜像配置",
 			zap.String("image", config.Image),
@@ -37,142 +37,141 @@ func (i *IncusProvider) handleImageDownloadAndImport(ctx context.Context, config
 		imageTypeStr = "容器"
 	}
 
-	// 如果有镜像URL，先在远程服务器下载镜像
+	// 提前计算确定性别名（纯计算，无 I/O），确保并发时 key 一致
 	if config.ImageURL != "" {
-		global.APP_LOG.Info("开始在远程服务器下载Incus"+imageTypeStr+"镜像",
-			zap.String("imageURL", utils.TruncateString(config.ImageURL, 200)),
-			zap.String("type", config.InstanceType),
-			zap.Bool("useCDN", config.UseCDN))
-
-		// 直接在远程服务器上下载镜像
-		imagePath, err := i.downloadImageToRemote(config.ImageURL, originalImageName, i.config.Architecture, config.InstanceType, config.UseCDN)
-		if err != nil {
-			return fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
-		}
-		config.ImagePath = imagePath
-		global.APP_LOG.Info("Incus"+imageTypeStr+"镜像下载成功",
-			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
-			zap.String("type", config.InstanceType))
-
-		// 生成基于URL、架构和实例类型的唯一别名，避免重复
 		config.Image = imageNameWithPrefix + "_" + config.InstanceType + "_" + i.generateImageAlias(config.ImageURL, originalImageName, i.config.Architecture)[len(originalImageName)+1:]
 	} else {
 		config.Image = imageNameWithPrefix + "_" + config.InstanceType
 	}
 
-	// 如果有镜像文件路径，先导入镜像
-	if config.ImagePath != "" {
-		// 检查镜像是否已存在
-		if !i.imageExists(config.Image) {
-			global.APP_LOG.Info("开始导入Incus"+imageTypeStr+"镜像",
-				zap.String("imagePath", utils.TruncateString(config.ImagePath, 200)),
-				zap.String("alias", utils.TruncateString(config.Image, 100)),
-				zap.String("type", config.InstanceType))
-
-			var importCmd string
-			// 根据实例类型确定导入方式
-			if config.InstanceType == "vm" {
-				// 虚拟机镜像导入
-				if strings.HasSuffix(config.ImagePath, ".zip") {
-					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
-					_, err := i.sshClient.Execute(unzipCmd)
-					if err != nil {
-						return fmt.Errorf("解压Incus虚拟机镜像失败: %w", err)
-					}
-
-					// 查找解压后的VM镜像文件（可能是img、qcow2等格式）
-					findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", extractDir)
-					vmImagePath, err := i.sshClient.Execute(findCmd)
-					if err != nil || strings.TrimSpace(vmImagePath) == "" {
-						// 如果没找到VM镜像，尝试查找tar.xz
-						findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
-						vmImagePath, err = i.sshClient.Execute(findCmd)
-						if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
-							return fmt.Errorf("未找到解压后的Incus虚拟机镜像文件")
-						}
-					}
-
-					vmImagePath = utils.CleanCommandOutput(vmImagePath)
-					// 检查是否需要导入incus.tar.xz和disk文件
-					incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
-					diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
-					if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(diskPath) {
-						importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, diskPath, config.Image)
-					} else {
-						importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", vmImagePath, config.Image)
-					}
-
-					// 清理解压后的临时目录
-					defer i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
-				} else {
-					importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", config.ImagePath, config.Image)
-				}
-			} else {
-				// 容器镜像导入
-				if strings.HasSuffix(config.ImagePath, ".zip") {
-					extractDir := strings.TrimSuffix(config.ImagePath, ".zip")
-					unzipCmd := fmt.Sprintf("unzip -o %s -d %s", config.ImagePath, extractDir)
-					_, err := i.sshClient.Execute(unzipCmd)
-					if err != nil {
-						return fmt.Errorf("解压Incus容器镜像失败: %w", err)
-					}
-
-					// 查找解压后的文件
-					incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
-					rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
-
-					if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(rootfsPath) {
-						importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, rootfsPath, config.Image)
-					} else {
-						// 查找任何tar.xz文件
-						findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
-						tarPath, err := i.sshClient.Execute(findCmd)
-						if err != nil || utils.CleanCommandOutput(tarPath) == "" {
-							return fmt.Errorf("未找到解压后的Incus容器镜像文件")
-						}
-						tarPath = utils.CleanCommandOutput(tarPath)
-						importCmd = fmt.Sprintf("incus image import %s --alias %s", tarPath, config.Image)
-					}
-
-					// 清理解压后的临时目录
-					defer i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
-				} else {
-					importCmd = fmt.Sprintf("incus image import %s --alias %s", config.ImagePath, config.Image)
-				}
-			}
-
-			_, err := i.sshClient.Execute(importCmd)
-			if err != nil {
-				return fmt.Errorf("Incus%s镜像导入失败: %w", imageTypeStr, err)
-			}
-
-			global.APP_LOG.Info("Incus"+imageTypeStr+"镜像导入成功",
-				zap.String("imagePath", utils.TruncateString(config.ImagePath, 200)),
-				zap.String("alias", utils.TruncateString(config.Image, 100)),
-				zap.String("type", config.InstanceType))
-
-			// 导入成功后删除远程镜像文件
-			if config.ImageURL != "" {
-				if err := i.cleanupRemoteImage(originalImageName, config.ImageURL, i.config.Architecture, config.InstanceType); err != nil {
-					global.APP_LOG.Warn("删除Incus远程"+imageTypeStr+"镜像文件失败",
-						zap.String("imagePath", utils.TruncateString(config.ImagePath, 100)),
-						zap.String("type", config.InstanceType),
-						zap.Error(err))
-				} else {
-					global.APP_LOG.Info("Incus远程"+imageTypeStr+"镜像文件已删除",
-						zap.String("imagePath", utils.TruncateString(config.ImagePath, 100)),
-						zap.String("type", config.InstanceType))
-				}
-			}
-		} else {
-			global.APP_LOG.Debug("Incus"+imageTypeStr+"镜像已存在，跳过导入",
-				zap.String("alias", utils.TruncateString(config.Image, 100)),
-				zap.String("type", config.InstanceType))
-		}
+	// 没有 URL 说明不需要下载/导入
+	if config.ImageURL == "" {
+		return nil
 	}
 
-	return nil
+	// 快速路径：镜像已存在，直接跳过（避免进入 singleflight）
+	if i.imageExists(config.Image) {
+		global.APP_LOG.Debug("Incus"+imageTypeStr+"镜像已存在，跳过导入",
+			zap.String("alias", utils.TruncateString(config.Image, 100)),
+			zap.String("type", config.InstanceType))
+		return nil
+	}
+
+	// 使用 singleflight 确保同一别名只有一个协程执行下载+导入，
+	// 其余协程阻塞等待，完成后共享同一结果，彻底消除并发解压/导入冲突。
+	aliasKey := config.Image
+	imageURL := config.ImageURL
+	useCDN := config.UseCDN
+	_, err, _ := i.imageImportGroup.Do(aliasKey, func() (interface{}, error) {
+		// 等待期间镜像可能已由其他协程导入完毕，再次检查
+		if i.imageExists(aliasKey) {
+			global.APP_LOG.Debug("Incus"+imageTypeStr+"镜像已由并发协程完成导入，跳过",
+				zap.String("alias", utils.TruncateString(aliasKey, 100)))
+			return nil, nil
+		}
+
+		global.APP_LOG.Info("开始在远程服务器下载Incus"+imageTypeStr+"镜像",
+			zap.String("imageURL", utils.TruncateString(imageURL, 200)),
+			zap.String("type", config.InstanceType),
+			zap.Bool("useCDN", useCDN))
+
+		imagePath, err := i.downloadImageToRemote(imageURL, originalImageName, i.config.Architecture, config.InstanceType, useCDN)
+		if err != nil {
+			return nil, fmt.Errorf("下载%s镜像失败: %w", imageTypeStr, err)
+		}
+
+		global.APP_LOG.Info("Incus"+imageTypeStr+"镜像下载成功",
+			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
+			zap.String("type", config.InstanceType))
+
+		global.APP_LOG.Info("开始导入Incus"+imageTypeStr+"镜像",
+			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
+			zap.String("alias", utils.TruncateString(aliasKey, 100)),
+			zap.String("type", config.InstanceType))
+
+		var importErr error
+		if config.InstanceType == "vm" {
+			if strings.HasSuffix(imagePath, ".zip") {
+				extractDir := strings.TrimSuffix(imagePath, ".zip")
+				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+					return nil, fmt.Errorf("解压Incus虚拟机镜像失败: %w", err)
+				}
+				var importCmd string
+				findCmd := fmt.Sprintf("find %s -name '*.img' -o -name '*.qcow2' -o -name '*.vmdk' | head -1", extractDir)
+				vmImagePath, err := i.sshClient.Execute(findCmd)
+				if err != nil || strings.TrimSpace(vmImagePath) == "" {
+					findCmd = fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					vmImagePath, err = i.sshClient.Execute(findCmd)
+					if err != nil || utils.CleanCommandOutput(vmImagePath) == "" {
+						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						return nil, fmt.Errorf("未找到解压后的Incus虚拟机镜像文件")
+					}
+				}
+				vmImagePath = utils.CleanCommandOutput(vmImagePath)
+				incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
+				diskPath := fmt.Sprintf("%s/disk.qcow2", extractDir)
+				if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(diskPath) {
+					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, diskPath, aliasKey)
+				} else {
+					importCmd = fmt.Sprintf("incus image import %s --alias %s --vm", vmImagePath, aliasKey)
+				}
+				_, importErr = i.sshClient.Execute(importCmd)
+				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+			} else {
+				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s --vm", imagePath, aliasKey))
+			}
+		} else {
+			if strings.HasSuffix(imagePath, ".zip") {
+				extractDir := strings.TrimSuffix(imagePath, ".zip")
+				if _, err := i.sshClient.Execute(fmt.Sprintf("unzip -o %s -d %s", imagePath, extractDir)); err != nil {
+					return nil, fmt.Errorf("解压Incus容器镜像失败: %w", err)
+				}
+				var importCmd string
+				incusTarPath := fmt.Sprintf("%s/incus.tar.xz", extractDir)
+				rootfsPath := fmt.Sprintf("%s/rootfs.squashfs", extractDir)
+				if i.isRemoteFileValid(incusTarPath) && i.isRemoteFileValid(rootfsPath) {
+					importCmd = fmt.Sprintf("incus image import %s %s --alias %s", incusTarPath, rootfsPath, aliasKey)
+				} else {
+					findCmd := fmt.Sprintf("find %s -name '*.tar.xz' | head -1", extractDir)
+					tarPath, err := i.sshClient.Execute(findCmd)
+					if err != nil || utils.CleanCommandOutput(tarPath) == "" {
+						i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir))
+						return nil, fmt.Errorf("未找到解压后的Incus容器镜像文件")
+					}
+					importCmd = fmt.Sprintf("incus image import %s --alias %s", utils.CleanCommandOutput(tarPath), aliasKey)
+				}
+				_, importErr = i.sshClient.Execute(importCmd)
+				i.sshClient.Execute(fmt.Sprintf("rm -rf %s", extractDir)) // 显式清理，避免 defer 被并发协程复用
+			} else {
+				_, importErr = i.sshClient.Execute(fmt.Sprintf("incus image import %s --alias %s", imagePath, aliasKey))
+			}
+		}
+
+		if importErr != nil {
+			return nil, fmt.Errorf("Incus%s镜像导入失败: %w", imageTypeStr, importErr)
+		}
+
+		global.APP_LOG.Info("Incus"+imageTypeStr+"镜像导入成功",
+			zap.String("imagePath", utils.TruncateString(imagePath, 200)),
+			zap.String("alias", utils.TruncateString(aliasKey, 100)),
+			zap.String("type", config.InstanceType))
+
+		// 导入成功后删除远程镜像 zip 文件
+		if err := i.cleanupRemoteImage(originalImageName, imageURL, i.config.Architecture, config.InstanceType); err != nil {
+			global.APP_LOG.Warn("删除Incus远程"+imageTypeStr+"镜像文件失败",
+				zap.String("imagePath", utils.TruncateString(imagePath, 100)),
+				zap.String("type", config.InstanceType),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Info("Incus远程"+imageTypeStr+"镜像文件已删除",
+				zap.String("imagePath", utils.TruncateString(imagePath, 100)),
+				zap.String("type", config.InstanceType))
+		}
+
+		return nil, nil
+	})
+
+	return err
 }
 
 // queryAndSetSystemImage 从数据库查询匹配的系统镜像记录并设置到配置中

@@ -65,12 +65,17 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 			zap.String("token", resetToken))
 		return nil
 	}
-	resetURL := fmt.Sprintf("http://localhost:3000/reset-password?token=%s", resetToken)
+	frontendURL := global.GetAppConfig().System.FrontendURL
+	if frontendURL == "" {
+		frontendURL = "http://localhost:3000"
+	}
+	resetURL := fmt.Sprintf("%s/reset-password?token=%s", frontendURL, resetToken)
 	emailBody := fmt.Sprintf("请点击以下链接重置密码：<br><a href='%s'>重置密码</a><br>链接有效期为24小时。", resetURL)
 	return s.sendEmail(req.Email, "密码重置", emailBody)
 }
 
 func (s *AuthService) ResetPassword(token, newPassword string) error {
+	// 获取用户信息（在事务外做密码强度验证，避免长事务）
 	var passwordReset userModel.PasswordReset
 	err := global.APP_DB.Where("token = ? AND expires_at > ?", token, time.Now()).First(&passwordReset).Error
 	if err != nil {
@@ -80,39 +85,34 @@ func (s *AuthService) ResetPassword(token, newPassword string) error {
 		return err
 	}
 
-	// 获取用户信息进行密码强度验证
 	var user userModel.User
 	if err := global.APP_DB.Where("uuid = ?", passwordReset.UserUUID).First(&user).Error; err != nil {
 		return err
 	}
 
-	// 密码强度验证
+	// 密码强度验证（事务外，避免长事务）
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
 		return err
 	}
 
-	// 加密新密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
-	// 更新密码
-	if err := global.APP_DB.Where("uuid = ?", passwordReset.UserUUID).First(&user).Error; err != nil {
-		return err
-	}
-	user.Password = string(hashedPassword)
+
+	// 原子性事务：检查token有效性 + 删除token + 更新密码
 	dbService := database.GetDatabaseService()
-	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
-	}); err != nil {
-		return err
-	}
-	// 删除重置记录
-	dbService = database.GetDatabaseService()
-	dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&passwordReset).Error
+	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 在事务中再次验证并删除token（原子性防止并发重用）
+		result := tx.Where("token = ? AND expires_at > ?", token, time.Now()).Delete(&userModel.PasswordReset{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("重置链接无效或已过期")
+		}
+		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).UpdateColumn("password", string(hashedPassword)).Error
 	})
-	return nil
 }
 
 // ResetPasswordWithToken 使用令牌重置密码（自动生成新密码并发送到用户通信渠道）
@@ -132,49 +132,39 @@ func (s *AuthService) ResetPasswordWithToken(token string) error {
 		return err
 	}
 
-	// 生成强密码（12位）
+	// 生成强密码（12位）（事务外执行，避免长事务）
 	newPassword := utils.GenerateStrongPassword(12)
-
-	// 密码强度验证（确保生成的密码符合策略）
 	if err := utils.ValidatePasswordStrength(newPassword, utils.DefaultPasswordPolicy, user.Username); err != nil {
 		return err
 	}
-
-	// 加密新密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(newPassword), bcrypt.DefaultCost)
 	if err != nil {
 		return err
 	}
 
-	// 更新密码
-	user.Password = string(hashedPassword)
+	// 原子性事务：删除token + 更新密码
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&user).Error
+		result := tx.Where("token = ? AND expires_at > ?", token, time.Now()).Delete(&userModel.PasswordReset{})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return errors.New("重置链接无效或已过期")
+		}
+		return tx.Model(&userModel.User{}).Where("uuid = ?", passwordReset.UserUUID).UpdateColumn("password", string(hashedPassword)).Error
 	}); err != nil {
 		return err
 	}
 
 	// 发送新密码到用户绑定的通信渠道
 	if err := s.sendPasswordToUser(&user, newPassword); err != nil {
-		// 记录日志但不阻止密码重置完成
-		global.APP_LOG.Error("发送新密码失败",
+		global.APP_LOG.Error("发送新密码失败（密码已重置）",
 			zap.String("user_uuid", user.UUID),
 			zap.String("username", user.Username),
 			zap.Error(err))
-		// 删除重置记录
-		dbService := database.GetDatabaseService()
-		dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Delete(&passwordReset).Error
-		})
 		return errors.New("密码重置成功，但发送新密码到通信渠道失败，请联系管理员")
 	}
-
-	// 删除重置记录
-	dbService = database.GetDatabaseService()
-	dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Delete(&passwordReset).Error
-	})
 	return nil
 }
 

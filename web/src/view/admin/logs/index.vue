@@ -43,11 +43,11 @@
           </el-select>
         </el-col>
 
-        <!-- 类型选择（仅当选择了日期目录时显示） -->
+        <!-- 日志级别选择（仅当选择了日期目录时显示） -->
         <el-col v-if="isDateSelected" :xs="24" :sm="6" :md="4">
           <el-select
             v-model="selectedType"
-            :placeholder="$t('admin.logs.selectType')"
+            :placeholder="$t('admin.logs.selectLevel')"
             style="width: 100%"
             @change="loadLog"
           >
@@ -79,17 +79,9 @@
               type="primary"
               :icon="Refresh"
               :loading="loading"
-              @click="loadLog"
+              @click="refreshAll"
             >
               {{ $t('admin.logs.refresh') }}
-            </el-button>
-            <el-button
-              :type="autoRefresh ? 'warning' : 'default'"
-              :icon="autoRefresh ? VideoPlay : VideoPause"
-              @click="toggleAutoRefresh"
-            >
-              {{ $t('admin.logs.autoRefresh') }}
-              <span v-if="autoRefresh" class="auto-refresh-dot"></span>
             </el-button>
             <el-button :icon="CopyDocument" @click="copyContent">
               {{ $t('admin.logs.copy') }}
@@ -133,12 +125,12 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, computed, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   Document, Refresh, CopyDocument, Folder, Loading, InfoFilled,
-  DocumentDelete, VideoPlay, VideoPause
+  DocumentDelete
 } from '@element-plus/icons-vue'
 import { getLogDates, getLogContent } from '@/api/admin'
 
@@ -153,11 +145,8 @@ const tailLines = ref(200)
 const logContent = ref('')
 const lineCount = ref(0)
 const loading = ref(false)
-const autoRefresh = ref(false)
 const logContainerRef = ref(null)
 const logPreRef = ref(null)
-
-let refreshTimer = null
 
 // 是否选择的是日期目录（非根目录文件）
 const isDateSelected = computed(() => {
@@ -194,13 +183,18 @@ const currentFileLabel = computed(() => {
 const loadDates = async () => {
   try {
     const res = await getLogDates()
-    if (res.data?.code === 200) {
-      dates.value = res.data.data?.dates || []
-      rootFiles.value = res.data.data?.root_files || []
-    }
+    dates.value = res.data?.dates || []
+    rootFiles.value = res.data?.root_files || []
   } catch (e) {
     console.error('获取日志日期失败', e)
+    ElMessage.error(t('admin.logs.loadDatesFailed'))
   }
+}
+
+// 同时刷新日期列表和日志内容
+const refreshAll = async () => {
+  await loadDates()
+  loadLog()
 }
 
 // 当日期变化时，重置类型并尝试加载
@@ -233,24 +227,22 @@ const loadLog = async () => {
   loading.value = true
   try {
     const res = await getLogContent(params)
-    if (res.data?.code === 200) {
-      logContent.value = res.data.data?.content || ''
-      lineCount.value = res.data.data?.lines || 0
-      // 滚动到底部
-      nextTick(() => {
-        if (logContainerRef.value) {
-          logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
-        }
-      })
-    } else if (res.data?.code === 404) {
-      logContent.value = ''
-      lineCount.value = 0
+    logContent.value = res.data?.content || ''
+    lineCount.value = res.data?.lines || 0
+    // 滚动到底部
+    nextTick(() => {
+      if (logContainerRef.value) {
+        logContainerRef.value.scrollTop = logContainerRef.value.scrollHeight
+      }
+    })
+  } catch (e) {
+    logContent.value = ''
+    lineCount.value = 0
+    if (e?.message?.includes('不存在')) {
       ElMessage.warning(t('admin.logs.fileNotFound'))
     } else {
       ElMessage.error(t('admin.logs.loadFailed'))
     }
-  } catch (e) {
-    ElMessage.error(t('admin.logs.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -264,17 +256,6 @@ const copyContent = async () => {
     ElMessage.success(t('admin.logs.copySuccess'))
   } catch (e) {
     ElMessage.error('复制失败')
-  }
-}
-
-// 自动刷新开关
-const toggleAutoRefresh = () => {
-  autoRefresh.value = !autoRefresh.value
-  if (autoRefresh.value) {
-    refreshTimer = setInterval(loadLog, 5000)
-  } else {
-    clearInterval(refreshTimer)
-    refreshTimer = null
   }
 }
 
@@ -293,9 +274,6 @@ onMounted(async () => {
   }
 })
 
-onUnmounted(() => {
-  if (refreshTimer) clearInterval(refreshTimer)
-})
 </script>
 
 <style lang="scss" scoped>
@@ -341,15 +319,6 @@ onUnmounted(() => {
       flex-wrap: wrap;
     }
 
-    .auto-refresh-dot {
-      display: inline-block;
-      width: 7px;
-      height: 7px;
-      border-radius: 50%;
-      background: #fff;
-      margin-left: 6px;
-      animation: pulse 1.2s infinite;
-    }
   }
 
   .content-card {
@@ -418,8 +387,5 @@ onUnmounted(() => {
   }
 }
 
-@keyframes pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.3; }
-}
+
 </style>

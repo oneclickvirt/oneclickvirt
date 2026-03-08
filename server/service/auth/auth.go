@@ -91,7 +91,9 @@ func (s *AuthService) loginWithPassword(req auth.LoginRequest) (*userModel.User,
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
 	// 更新最后登录时间
-	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
+		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
+	}
 	return &user, token, nil
 }
 
@@ -134,7 +136,9 @@ func (s *AuthService) loginWithEmailCode(req auth.LoginRequest) (*userModel.User
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
 	// 更新最后登录时间
-	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
+		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
+	}
 	return &user, token, nil
 }
 
@@ -177,7 +181,9 @@ func (s *AuthService) loginWithTelegramCode(req auth.LoginRequest) (*userModel.U
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
 	// 更新最后登录时间
-	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
+		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
+	}
 	return &user, token, nil
 }
 
@@ -220,7 +226,9 @@ func (s *AuthService) loginWithQQCode(req auth.LoginRequest) (*userModel.User, s
 		return nil, "", errors.New("登录失败，请稍后重试")
 	}
 	// 更新最后登录时间
-	global.APP_DB.Model(&user).Update("last_login_at", time.Now())
+	if err := global.APP_DB.Model(&user).UpdateColumn("last_login_at", time.Now()).Error; err != nil {
+		global.APP_LOG.Warn("更新最后登录时间失败", zap.Uint("userID", user.ID), zap.Error(err))
+	}
 	return &user, token, nil
 }
 

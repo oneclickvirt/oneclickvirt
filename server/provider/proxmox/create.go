@@ -43,6 +43,9 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 	if err != nil {
 		return fmt.Errorf("获取VMID失败: %w", err)
 	}
+	// 确保创建完成（成功或失败）后释放 pendingVMIDs 中的占位，
+	// 避免其他并发创建请求永久跳过该 ID。
+	defer p.releasePendingVMID(vmid)
 
 	updateProgress(20, "准备镜像和资源...")
 
@@ -138,7 +141,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	fileName := p.generateRemoteFileName(config.Image, systemConfig.ImageURL, p.config.Architecture)
 	localImagePath := filepath.Join("/var/lib/vz/template/cache", fileName)
 
-	// 检查镜像是否已存在，不存在则下载
+	// 检查镜像是否已存在，不存在则下载（用 singleflight 防止同一镜像并发重复下载）
 	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
 	output, err := p.sshClient.Execute(checkCmd)
 	if err != nil {
@@ -146,28 +149,47 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	}
 
 	if strings.TrimSpace(output) == "missing" {
-		updateProgress(20, "下载容器镜像...")
-		// 创建缓存目录
-		_, err = p.sshClient.Execute("mkdir -p /var/lib/vz/template/cache")
-		if err != nil {
-			return fmt.Errorf("创建缓存目录失败: %v", err)
-		}
+		_, sfErr, _ := p.imageImportGroup.Do(localImagePath, func() (interface{}, error) {
+			// 等待期间可能已由并发协程下载完毕，再次检查
+			checkAgain, _ := p.sshClient.Execute(checkCmd)
+			if strings.TrimSpace(checkAgain) == "exists" {
+				return nil, nil
+			}
 
-		// 确定下载URL（支持CDN）
-		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
-		global.APP_LOG.Debug("下载容器镜像",
-			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
-			zap.Bool("useCDN", config.UseCDN))
+			updateProgress(20, "下载容器镜像...")
+			// 创建缓存目录
+			_, err = p.sshClient.Execute("mkdir -p /var/lib/vz/template/cache")
+			if err != nil {
+				return nil, fmt.Errorf("创建缓存目录失败: %v", err)
+			}
 
-		// 下载镜像文件
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, downloadURL)
-		_, err = p.sshClient.Execute(downloadCmd)
-		if err != nil {
-			return fmt.Errorf("下载镜像失败: %v", err)
+			// 确定下载URL（支持CDN）
+			downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+			global.APP_LOG.Debug("下载容器镜像",
+				zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
+				zap.Bool("useCDN", config.UseCDN))
+
+			// 下载镜像文件（先下载到临时文件，再 mv，避免并发写冲突）
+			tmpPath := localImagePath + ".tmp"
+			downloadCmd := fmt.Sprintf("curl -L -o %s %s", tmpPath, downloadURL)
+			_, err = p.sshClient.Execute(downloadCmd)
+			if err != nil {
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+				return nil, fmt.Errorf("下载镜像失败: %v", err)
+			}
+			_, err = p.sshClient.Execute(fmt.Sprintf("mv %s %s", tmpPath, localImagePath))
+			if err != nil {
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+				return nil, fmt.Errorf("移动镜像文件失败: %v", err)
+			}
+			global.APP_LOG.Debug("容器镜像下载完成",
+				zap.String("image_path", localImagePath),
+				zap.String("url", downloadURL))
+			return nil, nil
+		})
+		if sfErr != nil {
+			return sfErr
 		}
-		global.APP_LOG.Debug("容器镜像下载完成",
-			zap.String("image_path", localImagePath),
-			zap.String("url", downloadURL))
 	}
 
 	updateProgress(50, "创建LXC容器...")
@@ -290,36 +312,55 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	fileName := p.generateRemoteFileName(config.Image, systemConfig.ImageURL, p.config.Architecture)
 	localImagePath := fmt.Sprintf("/root/qcow/%s", fileName)
 
-	// 检查镜像是否已存在，不存在则下载
-	checkCmd := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
-	output, err := p.sshClient.Execute(checkCmd)
+	// 检查镜像是否已存在，不存在则下载（用 singleflight 防止并发重复下载）
+	checkCmd2 := fmt.Sprintf("[ -f %s ] && echo 'exists' || echo 'missing'", localImagePath)
+	output2, err := p.sshClient.Execute(checkCmd2)
 	if err != nil {
 		return fmt.Errorf("检查镜像文件失败: %v", err)
 	}
 
-	if strings.TrimSpace(output) == "missing" {
-		updateProgress(20, "下载系统镜像...")
-		// 创建qcow目录
-		_, err = p.sshClient.Execute("mkdir -p /root/qcow")
-		if err != nil {
-			return fmt.Errorf("创建qcow目录失败: %v", err)
-		}
+	if strings.TrimSpace(output2) == "missing" {
+		_, sfErr, _ := p.imageImportGroup.Do(localImagePath, func() (interface{}, error) {
+			// 等待期间可能已由并发协程下载完毕，再次检查
+			checkAgain, _ := p.sshClient.Execute(checkCmd2)
+			if strings.TrimSpace(checkAgain) == "exists" {
+				return nil, nil
+			}
 
-		// 确定下载URL（支持CDN）
-		downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
-		global.APP_LOG.Debug("下载虚拟机镜像",
-			zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
-			zap.Bool("useCDN", config.UseCDN))
+			updateProgress(20, "下载系统镜像...")
+			// 创建qcow目录
+			_, err = p.sshClient.Execute("mkdir -p /root/qcow")
+			if err != nil {
+				return nil, fmt.Errorf("创建qcow目录失败: %v", err)
+			}
 
-		// 下载镜像文件
-		downloadCmd := fmt.Sprintf("curl -L -o %s %s", localImagePath, downloadURL)
-		_, err = p.sshClient.Execute(downloadCmd)
-		if err != nil {
-			return fmt.Errorf("下载镜像失败: %v", err)
+			// 确定下载URL（支持CDN）
+			downloadURL := p.getDownloadURL(systemConfig.ImageURL, config.UseCDN)
+			global.APP_LOG.Debug("下载虚拟机镜像",
+				zap.String("downloadURL", utils.TruncateString(downloadURL, 100)),
+				zap.Bool("useCDN", config.UseCDN))
+
+			// 下载镜像文件（先下载到临时文件，再 mv，避免并发写冲突）
+			tmpPath := localImagePath + ".tmp"
+			downloadCmd := fmt.Sprintf("curl -L -o %s %s", tmpPath, downloadURL)
+			_, err = p.sshClient.Execute(downloadCmd)
+			if err != nil {
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+				return nil, fmt.Errorf("下载镜像失败: %v", err)
+			}
+			_, err = p.sshClient.Execute(fmt.Sprintf("mv %s %s", tmpPath, localImagePath))
+			if err != nil {
+				p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
+				return nil, fmt.Errorf("移动镜像文件失败: %v", err)
+			}
+			global.APP_LOG.Debug("虚拟机镜像下载完成",
+				zap.String("image_path", localImagePath),
+				zap.String("url", systemConfig.ImageURL))
+			return nil, nil
+		})
+		if sfErr != nil {
+			return sfErr
 		}
-		global.APP_LOG.Debug("虚拟机镜像下载完成",
-			zap.String("image_path", localImagePath),
-			zap.String("url", systemConfig.ImageURL))
 	}
 
 	updateProgress(30, "获取系统架构和KVM支持...")

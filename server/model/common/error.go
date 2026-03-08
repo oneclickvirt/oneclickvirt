@@ -188,6 +188,8 @@ func getHTTPCode(code int) int {
 		return http.StatusConflict
 	case CodeRequestTooLarge:
 		return http.StatusRequestEntityTooLarge
+	case CodeError:
+		return http.StatusBadRequest
 	default:
 		return http.StatusInternalServerError
 	}

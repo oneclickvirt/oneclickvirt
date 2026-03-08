@@ -18,13 +18,14 @@ import (
 
 // SchedulerService 全局任务调度器
 type SchedulerService struct {
-	taskService TaskServiceInterface
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	running     bool
-	mu          sync.RWMutex
-	triggerChan chan struct{} // 用于立即触发任务处理
+	taskService    TaskServiceInterface
+	ctx            context.Context
+	cancel         context.CancelFunc
+	wg             sync.WaitGroup
+	running        bool
+	mu             sync.RWMutex
+	triggerChan    chan struct{} // 用于立即触发任务处理
+	trafficCheckMu sync.Mutex    // 防止并发流量限制检查
 }
 
 // TaskServiceInterface 任务服务接口
@@ -112,11 +113,12 @@ func (s *SchedulerService) runTaskScheduler() {
 	defer s.wg.Done()
 
 	// 创建定时器
-	taskTicker := time.NewTicker(10 * time.Second)        // 任务处理保持10秒
-	cleanupTicker := time.NewTicker(1 * time.Minute)      // 超时清理保持1分钟
-	maintenanceTicker := time.NewTicker(10 * time.Minute) // 系统维护保持10分钟
-	trafficAggTicker := time.NewTicker(10 * time.Minute)  // 流量聚合保持10分钟
-	expiryCheckTicker := time.NewTicker(1 * time.Hour)    // 过期检查保持1小时
+	taskTicker := time.NewTicker(10 * time.Second)         // 任务处理保持10秒
+	cleanupTicker := time.NewTicker(1 * time.Minute)       // 超时清理保持 1分钟
+	maintenanceTicker := time.NewTicker(10 * time.Minute)  // 系统维护保持 10分钟
+	trafficAggTicker := time.NewTicker(10 * time.Minute)   // 流量聚合保持 10分钟
+	expiryCheckTicker := time.NewTicker(1 * time.Hour)     // 过期检查保持 1小时
+	trafficLimitTicker := time.NewTicker(30 * time.Minute) // 流量限制检查保持 30分钟
 
 	defer func() {
 		taskTicker.Stop()
@@ -124,6 +126,7 @@ func (s *SchedulerService) runTaskScheduler() {
 		maintenanceTicker.Stop()
 		trafficAggTicker.Stop()
 		expiryCheckTicker.Stop()
+		trafficLimitTicker.Stop()
 	}()
 
 	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation and expiry check")
@@ -158,6 +161,10 @@ func (s *SchedulerService) runTaskScheduler() {
 		case <-trafficAggTicker.C:
 			// 定期聚合流量数据，更新缓存
 			s.aggregateTrafficData()
+
+		case <-trafficLimitTicker.C:
+			// 定期执行三层级流量限制检查（Provider > User > Instance）
+			s.checkAndEnforceTrafficLimits()
 		}
 	}
 }
@@ -395,4 +402,33 @@ func (s *SchedulerService) checkExpiredResources() {
 	} else {
 		global.APP_LOG.Debug("过期资源检查完成")
 	}
+}
+
+// checkAndEnforceTrafficLimits 执行三层级流量限制检查（Provider → User → Instance）
+// 使用 TryLock 防止并发执行，尶5层流量检查耐时超过 30 分钟时自动跳过
+func (s *SchedulerService) checkAndEnforceTrafficLimits() {
+	if global.APP_DB == nil {
+		return
+	}
+
+	// TryLock：如果上次检查尚未完成，跳过本次触发，避免两次检查并形模相互
+	if !s.trafficCheckMu.TryLock() {
+		global.APP_LOG.Debug("流量限制检查正在运行中，跳过本次触发")
+		return
+	}
+	defer s.trafficCheckMu.Unlock()
+
+	// 20 分钟超时：足够完成大规模检查，同时不会超过下次 ticker 30min 间隔
+	ctx, cancel := context.WithTimeout(s.ctx, 20*time.Minute)
+	defer cancel()
+
+	global.APP_LOG.Debug("开始自动流量限制检查")
+
+	threeTierService := traffic.NewThreeTierLimitService()
+	if err := threeTierService.CheckAllTrafficLimits(ctx); err != nil {
+		global.APP_LOG.Warn("自动流量限制检查失败", zap.Error(err))
+		return
+	}
+
+	global.APP_LOG.Debug("自动流量限制检查完成")
 }

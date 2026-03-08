@@ -141,8 +141,9 @@ func (s *InitService) AutoMigrateTables() error {
 		&resource.ResourceReservation{}, // 资源预留表
 
 		// 认证相关表
-		&userModel.VerifyCode{},    // 验证码表（邮箱/短信）
-		&userModel.PasswordReset{}, // 密码重置令牌表
+		&userModel.VerifyCode{},          // 验证码表（邮笱/短信）
+		&userModel.PasswordReset{},       // 密码重置令牌表
+		&userModel.JWTBlacklistedToken{}, // JWT黑名单持久化表
 
 		// 系统配置表
 		&adminModel.SystemConfig{}, // 系统配置表

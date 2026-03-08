@@ -245,10 +245,9 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.Instan
 
 // CreateInstance 创建实例
 func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
-	// 使用新的配额验证服务，即使是管理员也需要检查用户配额
 	quotaService := resources.NewQuotaService()
 
-	// 构建资源请求
+	// 构建资源请求（用于事务内配额校验）
 	quotaReq := resources.ResourceRequest{
 		UserID:       req.UserID,
 		CPU:          req.CPU,
@@ -257,17 +256,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 		InstanceType: req.InstanceType,
 	}
 
-	// 验证用户配额（管理员创建也要遵守用户限制）
-	quotaResult, err := quotaService.ValidateAdminInstanceCreation(quotaReq)
-	if err != nil {
-		return fmt.Errorf("配额验证失败: %v", err)
-	}
-
-	if !quotaResult.Allowed {
-		return fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
-	}
-
-	// 检查提供商是否存在和冻结状态
+	// 检查提供商是否存在和冻结状态（这些是非并发敏感的快速读，无需放入创建事务）
 	var provider providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", req.Provider).First(&provider).Error; err != nil {
 		return fmt.Errorf("提供商不存在: %s", req.Provider)
@@ -286,10 +275,8 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 	// 设置实例到期时间，与Provider的到期时间同步
 	var expiredAt time.Time
 	if provider.ExpiresAt != nil {
-		// 如果Provider有到期时间，使用Provider的到期时间
 		expiredAt = *provider.ExpiresAt
 	} else {
-		// 如果Provider没有到期时间，默认为1年后
 		expiredAt = time.Now().AddDate(1, 0, 0)
 	}
 
@@ -306,15 +293,23 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 		UserID:         req.UserID,
 		Status:         "creating",
 		ExpiresAt:      &expiredAt,
-		IsManualExpiry: false,             // 默认跟随节点过期时间
-		PublicIP:       provider.Endpoint, // 设置公网IP为Provider的地址
+		IsManualExpiry: false,
+		PublicIP:       provider.Endpoint,
 	}
 
-	// 初始化数据库服务
 	dbService := database.GetDatabaseService()
 
-	// 在单个事务中创建实例并更新配额
+	// 在单个事务中完成配额验证、实例创建和配额更新，确保原子性（解决 TOCTOU）
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
+		quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
+		if err != nil {
+			return fmt.Errorf("配额验证失败: %v", err)
+		}
+		if !quotaResult.Allowed {
+			return fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
+		}
+
 		// 创建实例
 		if err := tx.Create(&instance).Error; err != nil {
 			return fmt.Errorf("创建实例失败: %v", err)
@@ -334,7 +329,6 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 		// 创建默认端口映射
 		portMappingService := resources.PortMappingService{}
 		if err := portMappingService.CreateDefaultPortMappings(instance.ID, provider.ID); err != nil {
-			// 端口映射创建失败不应该阻止实例创建，只记录警告
 			global.APP_LOG.Warn("创建默认端口映射失败",
 				zap.Uint("instance_id", instance.ID),
 				zap.Error(err))

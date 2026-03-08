@@ -196,9 +196,18 @@ func ReInitializeConfigManager(db *gorm.DB, logger *zap.Logger) {
 		configManager = NewConfigManager(db, logger)
 		configManager.initValidationRules()
 	} else {
-		// 更新数据库和日志记录器引用（受 configManagerMu 保护）
-		configManager.db = db
-		configManager.logger = logger
+		// 不能在持有 configManagerMu 时直接写入 cm.db/cm.logger，
+		// 并发读取方法（GetConfig 等）只持有 cm.mu。
+		// 使用 cm.mu.Lock() 保护字段更新，确保与并发读写互斥。
+		cm := configManager
+		configManagerMu.Unlock()
+		cm.mu.Lock()
+		cm.db = db
+		cm.logger = logger
+		cm.mu.Unlock()
+		cm.loadConfigFromDB()
+		logger.Info("配置管理器重新初始化完成")
+		return
 	}
 	cm := configManager
 	configManagerMu.Unlock()

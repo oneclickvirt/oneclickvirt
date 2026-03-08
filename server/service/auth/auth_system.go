@@ -49,7 +49,10 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 		Status:   1,
 	}
 	// 创建示例用户（默认禁用，防止未授权访问）
-	userPassword, _ := bcrypt.GenerateFromPassword([]byte("user123"), bcrypt.DefaultCost)
+	userPassword, err := bcrypt.GenerateFromPassword([]byte("user123"), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
 	user := userModel.User{
 		Username: "user",
 		Password: string(userPassword),

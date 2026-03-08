@@ -198,11 +198,6 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		return 0, nil, fmt.Errorf("创建端口映射失败: %v", err)
 	}
 
-	// 更新Provider的下一个可用端口
-	if req.HostPort == 0 {
-		global.APP_DB.Model(&providerInfo).Update("next_available_port", hostPort+portCount)
-	}
-
 	// 创建任务数据
 	taskData := &admin.CreatePortMappingTaskRequest{
 		PortID:       port.ID,

@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	_ "net/http/pprof"
 	"os"
 
 	systemAPI "oneclickvirt/api/v1/system"
@@ -85,7 +84,6 @@ func runServer() {
 	global.APP_LOG.Info("服务器启动成功",
 		zap.Int("port", addr),
 		zap.String("swagger", fmt.Sprintf("http://0.0.0.0:%d/swagger/index.html", addr)),
-		zap.String("pprof", fmt.Sprintf("http://0.0.0.0:%d/debug/pprof/", addr)),
 	)
 
 	if err := s.ListenAndServe(); err != nil {
