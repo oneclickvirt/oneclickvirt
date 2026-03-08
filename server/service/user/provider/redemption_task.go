@@ -369,13 +369,23 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		// 更新兑换码状态：绑定实例 ID，状态改为 pending_use
 		if taskReq.RedemptionCodeID != 0 {
-			if err := tx.Model(&systemModel.RedemptionCode{}).
+			result := tx.Model(&systemModel.RedemptionCode{}).
 				Where("id = ?", taskReq.RedemptionCodeID).
 				Updates(map[string]interface{}{
 					"status":      systemModel.RedemptionStatusPendingUse,
 					"instance_id": instance.ID,
-				}).Error; err != nil {
-				return fmt.Errorf("更新兑换码状态失败: %v", err)
+				})
+			if result.Error != nil {
+				return fmt.Errorf("更新兑换码状态失败: %v", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				// 兑换码已被管理员提前删除（竞态窗口）：实例已创建但归属码已消失
+				// 触发异步清理，避免孤儿实例
+				global.APP_LOG.Warn("兑换码已不存在，清理孤儿实例",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("codeId", taskReq.RedemptionCodeID),
+					zap.Uint("instanceId", instance.ID))
+				go s.delayedDeleteFailedInstance(instance.ID)
 			}
 		}
 

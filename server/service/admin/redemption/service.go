@@ -277,12 +277,39 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 			if code.TaskID != nil {
 				taskID := *code.TaskID
 				var t adminModel.Task
-				if err := global.APP_DB.Where("id = ? AND status IN ('pending','running')", taskID).First(&t).Error; err == nil {
-					global.APP_DB.Model(&t).Updates(map[string]interface{}{
-						"status":        "cancelled",
-						"cancel_reason": "兑换码被管理员删除",
-						"completed_at":  time.Now(),
-					})
+				if err := global.APP_DB.First(&t, taskID).Error; err == nil {
+					// 取消仍在运行的任务（含 processing：阶段1已创建实例记录但尚未最终化）
+					if t.Status == "pending" || t.Status == "running" || t.Status == "processing" {
+						global.APP_DB.Model(&t).Updates(map[string]interface{}{
+							"status":        "cancelled",
+							"cancel_reason": "兑换码被管理员删除",
+							"completed_at":  time.Now(),
+						})
+						// finalizeRedemptionInstanceCreation 检测到 cancelled 后会调用
+						// delayedDeleteFailedInstance 清理已创建的实例，无需在此重复处理
+					} else if t.Status == "completed" && t.InstanceID != nil {
+						// 竞态：任务在我们取消前已完成，但兑换码未切换为 pending_use（极窄窗口）
+						// 此时实例已存在于 DB，需手动创建删除任务
+						var instance providerModel.Instance
+						if err := global.APP_DB.First(&instance, *t.InstanceID).Error; err == nil {
+							taskData := map[string]interface{}{
+								"instanceId":     instance.ID,
+								"providerId":     instance.ProviderID,
+								"adminOperation": true,
+							}
+							taskDataJSON, marshalErr := json.Marshal(taskData)
+							if marshalErr == nil {
+								if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
+									global.APP_LOG.Warn("创建孤儿实例删除任务失败",
+										zap.Uint("codeId", codeID),
+										zap.Uint("instanceId", instance.ID),
+										zap.Error(tErr))
+								} else {
+									global.APP_DB.Model(&instance).Update("status", "deleting")
+								}
+							}
+						}
+					}
 				}
 			}
 			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
