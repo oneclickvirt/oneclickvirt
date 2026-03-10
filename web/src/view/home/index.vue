@@ -97,62 +97,12 @@
         </div>
       </section>
 
-      <!-- 支持的虚拟化平台 -->
-      <section class="platforms-section">
+      <!-- 平台概览 -->
+      <section class="overview-section">
         <div class="section-header">
-          <h2>{{ t('home.platforms.title') }}</h2>
-          <p>{{ t('home.platforms.description') }}</p>
+          <h2>{{ t('home.platformOverview.title') }}</h2>
+          <p>{{ t('home.platformOverview.description') }}</p>
         </div>
-        <div class="platforms-grid">
-          <div class="platform-item">
-            <div class="platform-icon pve-icon">
-              <img
-                src="@/assets/images/proxmox.png"
-                alt="Proxmox VE"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Proxmox VE</h3>
-          </div>
-          
-          <div class="platform-item">
-            <div class="platform-icon incus-icon">
-              <img
-                src="@/assets/images/incus.png"
-                alt="Incus"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Incus</h3>
-          </div>
-          
-          <div class="platform-item">
-            <div class="platform-icon docker-icon">
-              <img
-                src="@/assets/images/docker.png"
-                alt="Docker"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>Docker</h3>
-          </div>
-          
-          <div class="platform-item">
-            <div class="platform-icon lxd-icon">
-              <img
-                src="@/assets/images/lxd.png"
-                alt="LXD"
-                width="60"
-                height="60"
-              >
-            </div>
-            <h3>LXD</h3>
-          </div>
-        </div>
-        <!-- 统计概况：与平台卡片相同的框架风格，显示用户/节点/容器/虚拟机数量 -->
         <div
           class="stats-grid"
           aria-label="platform-stats"
@@ -208,6 +158,186 @@
               {{ vmsCountDisplay }}
             </p>
           </div>
+        </div>
+      </section>
+
+      <!-- 支持的虚拟化平台 -->
+      <section class="platforms-section">
+        <div class="section-header">
+          <h2>{{ t('home.platforms.title') }}</h2>
+          <p>{{ t('home.platforms.description') }}</p>
+        </div>
+        <div class="platforms-grid">
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/pve"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon pve-icon">
+              <img
+                src="@/assets/images/proxmox.png"
+                alt="Proxmox VE"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>Proxmox VE</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/pve
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/incus"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon incus-icon">
+              <img
+                src="@/assets/images/incus.png"
+                alt="Incus"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>Incus</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/incus
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/docker"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon docker-icon">
+              <img
+                src="@/assets/images/docker.png"
+                alt="Docker"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>Docker</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/docker
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/lxd"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon lxd-icon">
+              <img
+                src="@/assets/images/lxd.png"
+                alt="LXD"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>LXD</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/lxd
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/podman"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon">
+              <img
+                src="@/assets/images/podman.svg"
+                alt="Podman"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>Podman</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/podman
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link"
+            href="https://github.com/oneclickvirt/containerd"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon">
+              <img
+                src="@/assets/images/containerd.svg"
+                alt="Containerd"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>Containerd</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/containerd
+            </span>
+          </a>
+        </div>
+
+        <!-- 即将支持（居中展示） -->
+        <div class="platforms-wip-row">
+          <a
+            class="platform-item platform-link platform-wip"
+            href="https://github.com/oneclickvirt/qemu"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon">
+              <img
+                src="@/assets/images/qemu.svg"
+                alt="QEMU"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>QEMU</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/qemu
+            </span>
+          </a>
+
+          <a
+            class="platform-item platform-link platform-wip"
+            href="https://github.com/oneclickvirt/kubevirt"
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <div class="platform-icon">
+              <img
+                src="@/assets/images/KubeVirt.png"
+                alt="KubeVirt"
+                width="60"
+                height="60"
+              >
+            </div>
+            <h3>KubeVirt</h3>
+            <span class="platform-link-hint">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
+              oneclickvirt/kubevirt
+            </span>
+          </a>
         </div>
       </section>
 
@@ -778,10 +908,18 @@ onMounted(() => {
   line-height: 1.5;
 }
 
+/* 平台概览 */
+.overview-section {
+  max-width: 1200px;
+  margin: 100px auto 0;
+  padding: 60px 24px;
+  text-align: center;
+}
+
 /* 支持的虚拟化平台 */
 .platforms-section {
   max-width: 1200px;
-  margin: 100px auto;
+  margin: 60px auto 100px;
   padding: 60px 24px;
   text-align: center;
 }
@@ -810,9 +948,22 @@ onMounted(() => {
 
 .platforms-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  grid-template-columns: repeat(3, 1fr);
   gap: 32px;
   margin-top: 60px;
+}
+
+.platforms-wip-row {
+  display: flex;
+  justify-content: center;
+  gap: 32px;
+  margin-top: 32px;
+  flex-wrap: wrap;
+}
+
+.platforms-wip-row .platform-item {
+  width: calc((100% - 32px) / 3);
+  max-width: 340px;
 }
 
 /* 统计概况网格：复用 platform-item 的视觉样式，使其与图标卡片一致 */
@@ -849,6 +1000,44 @@ onMounted(() => {
   transform: translateY(-10px) scale(1.03);
   box-shadow: 0 20px 40px rgba(22, 163, 74, 0.15);
   border-color: rgba(22, 163, 74, 0.3);
+}
+
+/* 可点击平台卡片 */
+.platform-link {
+  text-decoration: none;
+  cursor: pointer;
+  display: block;
+}
+
+.platform-link-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-color-secondary);
+  opacity: 0;
+  margin-top: 8px;
+  transition: opacity 0.2s ease;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+}
+
+.platform-link:hover .platform-link-hint {
+  opacity: 1;
+  color: #16a34a;
+}
+
+/* 未适配平台 */
+.platform-wip {
+  opacity: 0.45;
+  filter: grayscale(60%);
+  cursor: default;
+  pointer-events: auto;
+}
+
+.platform-wip:hover {
+  transform: none;
+  box-shadow: 0 8px 25px rgba(22, 163, 74, 0.08);
+  border-color: rgba(22, 163, 74, 0.1);
 }
 
 .platform-icon {
@@ -1217,8 +1406,16 @@ onMounted(() => {
   }
 
   .platforms-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: repeat(2, 1fr);
     gap: 24px;
+  }
+
+  .platforms-wip-row {
+    gap: 24px;
+  }
+
+  .platforms-wip-row .platform-item {
+    width: calc(50% - 12px);
   }
 
   .platform-item {
@@ -1268,8 +1465,14 @@ onMounted(() => {
   }
 
   .platforms-section,
+  .overview-section,
   .announcements-section {
     padding: 40px 20px;
+  }
+
+  .platforms-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
   }
 
   .footer-links-grid {

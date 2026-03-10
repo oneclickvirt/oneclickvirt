@@ -395,7 +395,9 @@ const getProviderTypeName = (type) => {
     docker: 'Docker',
     lxd: 'LXD',
     incus: 'Incus',
-    proxmox: 'Proxmox'
+    proxmox: 'Proxmox',
+    podman: 'Podman',
+    containerd: 'Containerd'
   }
   return names[type] || type
 }
@@ -406,7 +408,9 @@ const getProviderTypeColor = (type) => {
     docker: 'info',
     lxd: 'success',
     incus: 'warning',
-    proxmox: ''
+    proxmox: '',
+    podman: 'info',
+    containerd: 'info'
   }
   return colors[type] || ''
 }

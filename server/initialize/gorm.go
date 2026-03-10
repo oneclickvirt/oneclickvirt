@@ -13,6 +13,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
+	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -61,6 +62,9 @@ func Gorm() *gorm.DB {
 	global.APP_LOG.Info("开始数据库表结构自动迁移")
 	RegisterTables(db)
 	global.APP_LOG.Info("数据库表结构迁移完成")
+
+	// 检测数据库方言，配置 ON DUPLICATE KEY UPDATE 兼容层
+	dbcompat.Init(db)
 
 	return db
 } // validateDatabaseConnection 验证数据库连接是否可用

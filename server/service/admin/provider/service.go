@@ -158,8 +158,8 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 		runningTasksCount := taskCountMap[provider.ID]
 		usedTraffic := trafficUsageMap[provider.ID]
 
-		// Docker 类型固定使用 native 端口映射方式
-		if provider.Type == "docker" {
+		// Docker/Podman/Containerd 类型固定使用 native 端口映射方式
+		if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
 			provider.IPv4PortMappingMethod = "native"
 			provider.IPv6PortMappingMethod = "native"
 		}
@@ -470,8 +470,8 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 端口映射方式更新
-	// Docker 类型固定使用 native，忽略前端传入的值
-	if provider.Type == "docker" {
+	// Docker/Podman/Containerd 类型固定使用 native，忽略前端传入的値
+	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
 		provider.IPv4PortMappingMethod = "native"
 		provider.IPv6PortMappingMethod = "native"
 	} else {

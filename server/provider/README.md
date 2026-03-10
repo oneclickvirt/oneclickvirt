@@ -6,10 +6,12 @@
 provider/
 ├── provider.go              # Provider统一接口定义和注册表
 ├── transport_cleanup.go     # HTTP Transport清理管理器
-├── docker/                  # Docker容器提供商实现
+├── docker/                  # Docker容器提供商实现（同时支撑 Podman/Containerd）
 ├── health/                  # 健康检查模块
 ├── incus/                   # Incus容器提供商实现
 ├── lxd/                     # LXD容器提供商实现
+├── podman/                  # Podman容器提供商实现
+├── containerd/              # Containerd容器提供商实现
 ├── portmapping/             # 端口映射模块
 └── proxmox/                 # Proxmox虚拟化提供商实现
 ```
@@ -97,6 +99,43 @@ Provider支持三种执行规则，控制操作的执行方式：
   - 容器网络信息获取
   - IPv6网络支持检测
   - 自动重连机制
+  - 使用 `docker` CLI，IPv4 网络：`docker-net`，IPv6 网络：`docker-ipv6`
+
+### Podman
+
+基于Podman容器技术的Provider实现，复用Docker提供商的参数化实现。
+
+- 类型标识: `podman`
+- 支持实例类型: `container`
+- 连接方式: SSH
+- 执行方式: SSH命令行
+- 端口映射方式: 固定使用 `native`
+- 特性:
+  - 使用 `podman` CLI
+  - IPv4 网络：`podman-net`，IPv6 网络：`podman-ipv6`
+  - 镜像存储目录：`/usr/local/bin/podman_ct_images`
+  - 镜像下载目录：`/usr/local/bin/podman_images`
+  - 健康检查服务名：`podman`
+  - 支持的操作系统/架构: ubuntu/rockylinux/openeuler/debian/alpine/almalinux × amd64/arm64
+  - 需前置安装 Podman：参考 <https://github.com/oneclickvirt/podman>
+
+### Containerd
+
+基于Containerd容器运行时的Provider实现，使用 `nerdctl` CLI，复用Docker提供商的参数化实现。
+
+- 类型标识: `containerd`
+- 支持实例类型: `container`
+- 连接方式: SSH
+- 执行方式: SSH命令行
+- 端口映射方式: 固定使用 `native`
+- 特性:
+  - 使用 `nerdctl` CLI（Containerd 的命令行工具）
+  - IPv4 网络：`containerd-net`，IPv6 网络：`containerd-ipv6`
+  - 镜像存储目录：`/usr/local/bin/containerd_ct_images`
+  - 镜像下载目录：`/usr/local/bin/containerd_images`
+  - 健康检查服务名：`nerdctl`
+  - 支持的操作系统/架构: ubuntu/rockylinux/openeuler/debian/alpine/almalinux × amd64/arm64
+  - 需前置安装 Containerd + nerdctl：参考 <https://github.com/oneclickvirt/containerd>
 
 ### Incus
 

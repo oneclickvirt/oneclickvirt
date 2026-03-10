@@ -40,6 +40,7 @@ func (s *ProviderHealthSchedulerService) Start(ctx context.Context) {
 		global.APP_LOG.Warn("Provider健康检查调度器已在运行中")
 		return
 	}
+	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -72,13 +73,8 @@ func (s *ProviderHealthSchedulerService) IsRunning() bool {
 
 // startHealthCheckTask 启动自适应健康检查任务
 func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Context) {
-	// 启动后立即执行一次
-	s.checkAllProvidersHealth()
-
-	// 确俟ticker在panic时也能停止，防止goroutine泄漏
-	ticker := time.NewTicker(3 * time.Minute)
+	// defer recover 必须在函数最开始注册，才能保护首次执行（含首次调用checkAllProvidersHealth）
 	defer func() {
-		ticker.Stop()
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("Provider健康检查goroutine panic",
 				zap.Any("panic", r),
@@ -86,6 +82,13 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 		}
 		global.APP_LOG.Info("Provider健康检查任务已停止")
 	}()
+
+	// 启动后立即执行一次
+	s.checkAllProvidersHealth()
+
+	// 确保ticker在panic时也能停止，防止goroutine泄漏
+	ticker := time.NewTicker(3 * time.Minute)
+	defer ticker.Stop()
 
 	for {
 		select {

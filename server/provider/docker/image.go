@@ -14,7 +14,7 @@ import (
 
 // sshListImages 列出所有镜像
 func (d *DockerProvider) sshListImages(ctx context.Context) ([]provider.Image, error) {
-	output, err := d.sshClient.ExecuteWithLogging("docker images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\\t{{.CreatedAt}}'", "DOCKER_IMAGES")
+	output, err := d.sshClient.ExecuteWithLogging(d.runtime.CLI+" images --format 'table {{.Repository}}\\t{{.Tag}}\\t{{.ID}}\\t{{.Size}}\\t{{.CreatedAt}}'", "DOCKER_IMAGES")
 	if err != nil {
 		return nil, err
 	}
@@ -46,7 +46,7 @@ func (d *DockerProvider) sshListImages(ctx context.Context) ([]provider.Image, e
 
 // sshPullImage 拉取镜像
 func (d *DockerProvider) sshPullImage(ctx context.Context, image string) error {
-	pullCmd := fmt.Sprintf("docker pull %s", image)
+	pullCmd := fmt.Sprintf("%s pull %s", d.runtime.CLI, image)
 	global.APP_LOG.Info("开始拉取Docker镜像",
 		zap.String("image", utils.TruncateString(image, 64)),
 		zap.String("command", pullCmd))
@@ -67,7 +67,7 @@ func (d *DockerProvider) sshPullImage(ctx context.Context, image string) error {
 
 // sshDeleteImage 删除镜像
 func (d *DockerProvider) sshDeleteImage(ctx context.Context, id string) error {
-	_, err := d.sshClient.Execute(fmt.Sprintf("docker rmi -f %s", id))
+	_, err := d.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", d.runtime.CLI, id))
 	if err != nil {
 		return fmt.Errorf("failed to delete image: %w", err)
 	}
@@ -78,7 +78,7 @@ func (d *DockerProvider) sshDeleteImage(ctx context.Context, id string) error {
 
 // loadImageToDocker 加载镜像到Docker
 func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) error {
-	loadCmd := fmt.Sprintf("docker load -i %s", imagePath)
+	loadCmd := fmt.Sprintf("%s load -i %s", d.runtime.CLI, imagePath)
 
 	global.APP_LOG.Debug("开始加载Docker镜像",
 		zap.String("imagePath", utils.TruncateString(imagePath, 64)),
@@ -107,9 +107,8 @@ func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) er
 			}
 		}
 	}
-	// 如果找到了加载的镜像名称且与目标名称不同，则重新标记
 	if loadedImageName != "" && loadedImageName != targetImageName {
-		tagCmd := fmt.Sprintf("docker tag %s %s", loadedImageName, targetImageName)
+		tagCmd := fmt.Sprintf("%s tag %s %s", d.runtime.CLI, loadedImageName, targetImageName)
 		global.APP_LOG.Debug("重新标记Docker镜像",
 			zap.String("sourceImage", utils.TruncateString(loadedImageName, 64)),
 			zap.String("targetImage", utils.TruncateString(targetImageName, 64)),
@@ -136,16 +135,16 @@ func (d *DockerProvider) loadImageToDocker(imagePath, targetImageName string) er
 
 // cleanupDockerImage 清理Docker镜像
 func (d *DockerProvider) cleanupDockerImage(imageName string) {
-	// 删除损坏的Docker镜像（忽略错误）
-	d.sshClient.Execute(fmt.Sprintf("docker rmi -f %s", imageName))
+	// 删除损坏的镜像（忽略错误）
+	d.sshClient.Execute(fmt.Sprintf("%s rmi -f %s", d.runtime.CLI, imageName))
 	// 清理未使用的镜像
-	d.sshClient.Execute("docker image prune -f")
+	d.sshClient.Execute(fmt.Sprintf("%s image prune -f", d.runtime.CLI))
 	global.APP_LOG.Debug("清理Docker镜像", zap.String("imageName", utils.TruncateString(imageName, 64)))
 }
 
 // imageExists 检查Docker镜像是否已存在
 func (d *DockerProvider) imageExists(imageName string) bool {
-	output, err := d.sshClient.Execute(fmt.Sprintf("docker images --format '{{.Repository}}:{{.Tag}}' | grep -E '^%s($|:)'", imageName))
+	output, err := d.sshClient.Execute(fmt.Sprintf("%s images --format '{{.Repository}}:{{.Tag}}' | grep -E '^%s($|:)'", d.runtime.CLI, imageName))
 	if err != nil {
 		global.APP_LOG.Debug("检查Docker镜像存在性失败",
 			zap.String("imageName", utils.TruncateString(imageName, 64)),

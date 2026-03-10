@@ -38,12 +38,12 @@ export function useInstanceFormatters() {
   }
 
   const getProviderTypeName = (type) => {
-    const names = { docker: 'Docker', lxd: 'LXD', incus: 'Incus', proxmox: 'Proxmox' }
+    const names = { docker: 'Docker', lxd: 'LXD', incus: 'Incus', proxmox: 'Proxmox', podman: 'Podman', containerd: 'Containerd' }
     return names[type] || type
   }
 
   const getProviderTypeColor = (type) => {
-    const colors = { docker: 'info', lxd: 'success', incus: 'warning', proxmox: '' }
+    const colors = { docker: 'info', lxd: 'success', incus: 'warning', proxmox: '', podman: 'info', containerd: 'info' }
     return colors[type] || ''
   }
 

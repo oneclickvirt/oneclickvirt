@@ -282,8 +282,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		return fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
 	}
 	// 端口映射方式默认值
-	// Docker 类型固定使用 native
-	if provider.Type == "docker" {
+	// Docker/Podman/Containerd 类型固定使用 native
+	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
 		provider.IPv4PortMappingMethod = "native"
 		provider.IPv6PortMappingMethod = "native"
 	} else {

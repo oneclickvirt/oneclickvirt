@@ -54,7 +54,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	var containerStatus string
 	maxRetries := 3
 	for i := 0; i < maxRetries; i++ {
-		checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", instanceID)
+		checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, instanceID)
 		output, err := d.sshClient.Execute(checkCmd)
 		if err != nil {
 			global.APP_LOG.Warn("检查容器状态失败",
@@ -100,7 +100,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	}
 
 	// 额外检查容器是否真正可用（测试基础命令）
-	healthCheckCmd := fmt.Sprintf("docker exec %s echo 'container_ready' 2>/dev/null", instanceID)
+	healthCheckCmd := fmt.Sprintf("%s exec %s echo 'container_ready' 2>/dev/null", d.runtime.CLI, instanceID)
 	healthOutput, err := d.sshClient.Execute(healthCheckCmd)
 	if err != nil || !strings.Contains(healthOutput, "container_ready") {
 		global.APP_LOG.Warn("容器健康检查失败，再等待一段时间",
@@ -120,7 +120,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 	}
 
 	// 检查SSH相关进程和服务是否可用（更具体的就绪检查）
-	sshReadinessCmd := fmt.Sprintf("docker exec %s sh -c 'command -v passwd >/dev/null 2>&1 && echo ssh_ready' 2>/dev/null", instanceID)
+	sshReadinessCmd := fmt.Sprintf("%s exec %s sh -c 'command -v passwd >/dev/null 2>&1 && echo ssh_ready' 2>/dev/null", d.runtime.CLI, instanceID)
 	sshOutput, err := d.sshClient.Execute(sshReadinessCmd)
 	if err != nil || !strings.Contains(sshOutput, "ssh_ready") {
 		global.APP_LOG.Warn("SSH服务未就绪，等待初始化",
@@ -158,7 +158,7 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		zap.String("instanceID", utils.TruncateString(instanceID, 12)))
 
 	// 检测容器操作系统类型
-	osCmd := fmt.Sprintf("docker exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", instanceID)
+	osCmd := fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep -E '^ID=' | cut -d '=' -f 2 | tr -d '\"'", d.runtime.CLI, instanceID)
 	osOutput, err := d.sshClient.Execute(osCmd)
 	osType := utils.CleanCommandOutput(osOutput)
 	if err != nil || osType == "" {
@@ -183,79 +183,65 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		shellType = "bash"
 	}
 
-	// 检查宿主机上的SSH脚本是否存在
+	// 检查宿主机上的SSH脚本是否存在（非硬性要求，不存在时跳过脚本配置）
 	hostScriptPath := fmt.Sprintf("/usr/local/bin/%s", scriptName)
 	checkHostScriptCmd := fmt.Sprintf("test -f %s && test -x %s", hostScriptPath, hostScriptPath)
-	_, err = d.sshClient.Execute(checkHostScriptCmd)
+	_, hostScriptErr := d.sshClient.Execute(checkHostScriptCmd)
 
-	if err != nil {
-		global.APP_LOG.Error("宿主机上SSH脚本不存在或无执行权限",
-			zap.String("instanceID", instanceID),
-			zap.String("scriptPath", hostScriptPath),
-			zap.Error(err))
-		return fmt.Errorf("宿主机上SSH脚本不存在或无执行权限: %s", hostScriptPath)
-	}
+	if hostScriptErr == nil {
+		// 检查容器内是否已存在SSH脚本
+		checkScriptCmd := fmt.Sprintf("%s exec %s %s -c '[ -f /%s ]'", d.runtime.CLI, instanceID, shellType, scriptName)
+		_, err = d.sshClient.Execute(checkScriptCmd)
 
-	// 检查容器内是否已存在SSH脚本
-	checkScriptCmd := fmt.Sprintf("docker exec %s %s -c '[ -f /%s ]'", instanceID, shellType, scriptName)
-	_, err = d.sshClient.Execute(checkScriptCmd)
-
-	if err != nil {
-		// 脚本不存在，需要复制
-		global.APP_LOG.Debug("容器内SSH脚本不存在，正在从宿主机复制",
-			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
-			zap.String("scriptName", scriptName))
-
-		// 复制脚本到容器内
-		copyCmd := fmt.Sprintf("docker cp \"%s\" \"%s:/%s\"", hostScriptPath, instanceID, scriptName)
-		_, err = d.sshClient.Execute(copyCmd)
 		if err != nil {
-			global.APP_LOG.Error("复制SSH脚本到容器失败",
-				zap.String("instanceID", instanceID),
-				zap.String("scriptName", scriptName),
-				zap.Error(err))
-			return fmt.Errorf("复制SSH脚本到容器失败: %w", err)
+			// 脚本不存在，需要复制
+			global.APP_LOG.Debug("容器内SSH脚本不存在，正在从宿主机复制",
+				zap.String("instanceID", utils.TruncateString(instanceID, 12)),
+				zap.String("scriptName", scriptName))
+
+			// 复制脚本到容器内
+			copyCmd := fmt.Sprintf("%s cp \"%s\" \"%s:/%s\"", d.runtime.CLI, hostScriptPath, instanceID, scriptName)
+			_, err = d.sshClient.Execute(copyCmd)
+			if err != nil {
+				global.APP_LOG.Warn("复制SSH脚本到容器失败，将跳过脚本配置直接设置密码",
+					zap.String("instanceID", instanceID),
+					zap.String("scriptName", scriptName),
+					zap.Error(err))
+			} else {
+				// 给脚本添加执行权限
+				chmodCmd := fmt.Sprintf("%s exec %s %s -c 'chmod +x /%s'", d.runtime.CLI, instanceID, shellType, scriptName)
+				d.sshClient.Execute(chmodCmd)
+
+				global.APP_LOG.Debug("SSH脚本复制到容器成功",
+					zap.String("instanceID", utils.TruncateString(instanceID, 12)),
+					zap.String("scriptName", scriptName))
+			}
+		} else {
+			global.APP_LOG.Debug("容器内SSH脚本已存在",
+				zap.String("instanceID", utils.TruncateString(instanceID, 12)),
+				zap.String("scriptName", scriptName))
 		}
 
-		// 给脚本添加执行权限
-		chmodCmd := fmt.Sprintf("docker exec %s %s -c 'chmod +x /%s'", instanceID, shellType, scriptName)
-		_, err = d.sshClient.Execute(chmodCmd)
-		if err != nil {
-			global.APP_LOG.Error("设置SSH脚本执行权限失败",
+		// 执行SSH配置脚本（失败不阻塞后续密码设置）
+		executeScriptCmd := fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /%s %s'", d.runtime.CLI, instanceID, shellType, shellType, scriptName, password)
+		scriptOutput, scriptErr := d.sshClient.Execute(executeScriptCmd)
+		if scriptErr != nil {
+			global.APP_LOG.Warn("执行SSH配置脚本失败，将直接用chpasswd设置密码",
 				zap.String("instanceID", instanceID),
 				zap.String("scriptName", scriptName),
-				zap.Error(err))
+				zap.String("output", utils.TruncateString(scriptOutput, 500)),
+				zap.Error(scriptErr))
+			// OOM/exit 137 后等待容器稳定
+			time.Sleep(5 * time.Second)
 		}
-
-		global.APP_LOG.Debug("SSH脚本复制到容器成功",
-			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
-			zap.String("scriptName", scriptName))
 	} else {
-		global.APP_LOG.Debug("容器内SSH脚本已存在",
-			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
-			zap.String("scriptName", scriptName))
-	}
-
-	// 设置interactionless环境变量，避免交互式操作
-	envCmd := fmt.Sprintf("docker exec %s %s -c 'export interactionless=true'", instanceID, shellType)
-	d.sshClient.Execute(envCmd)
-
-	// 执行SSH配置脚本
-	executeScriptCmd := fmt.Sprintf("docker exec %s %s -c 'interactionless=true %s /%s %s'", instanceID, shellType, shellType, scriptName, password)
-	scriptOutput, err := d.sshClient.Execute(executeScriptCmd)
-	if err != nil {
-		global.APP_LOG.Error("执行SSH配置脚本失败",
+		global.APP_LOG.Warn("宿主机上SSH脚本不存在或无执行权限，跳过脚本配置，直接设置密码",
 			zap.String("instanceID", instanceID),
-			zap.String("scriptName", scriptName),
-			zap.String("output", utils.TruncateString(scriptOutput, 500)),
-			zap.Error(err))
-		return fmt.Errorf("执行SSH配置脚本失败: %w", err)
+			zap.String("scriptPath", hostScriptPath))
 	}
 
-	// 额外使用chpasswd命令确保密码设置
-	setPasswordCmd := fmt.Sprintf("docker exec %s %s -c 'echo \"root:%s\" | chpasswd'", instanceID, shellType, password)
-	_, err = d.sshClient.Execute(setPasswordCmd)
-	if err != nil {
+	// 使用 chpasswd 设置密码（多 shell 回退 + 重试，处理 exit 255 等短暂错误）
+	if err := d.setContainerPasswordWithRetry(instanceID, password, shellType); err != nil {
 		global.APP_LOG.Error("使用chpasswd设置密码失败",
 			zap.String("instanceID", instanceID),
 			zap.Error(err))

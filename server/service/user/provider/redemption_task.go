@@ -16,6 +16,7 @@ import (
 	"oneclickvirt/provider/incus"
 	lxd "oneclickvirt/provider/lxd"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	traffic "oneclickvirt/service/traffic"
@@ -48,9 +49,9 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 		return err
 	}
 
-	s.updateTaskProgress(task.ID, 30, "正在调用Provider API创建实例...")
+	s.updateTaskProgress(task.ID, 30, "正在调用Provider创建实例...")
 
-	// 阶段2: Provider API 调用（30% -> 70%）—— 直接复用
+	// 阶段2: Provider创建实例（30% -> 70%）—— 直接复用，根据ExecutionRule自动选择API或SSH
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理
@@ -203,7 +204,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		if apiError != nil {
 			// ——— 失败处理 ———
-			global.APP_LOG.Error("Provider API调用失败，回滚兑换码实例",
+			global.APP_LOG.Error("Provider创建实例失败，回滚兑换码实例",
 				zap.Uint("taskId", task.ID), zap.Error(apiError))
 
 			// 更新实例状态为失败
@@ -247,7 +248,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		}
 
 		// ——— 成功处理 ———
-		global.APP_LOG.Debug("Provider API调用成功，处理兑换码实例",
+		global.APP_LOG.Debug("Provider创建实例成功，处理兑换码实例",
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID))
 
@@ -434,7 +435,18 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		portMappingService := &resources.PortMappingService{}
 		existingPorts, _ := portMappingService.GetInstancePortMappings(instanceID)
 		if len(existingPorts) == 0 {
-			_ = portMappingService.CreateDefaultPortMappings(instanceID, providerID)
+			if err := portMappingService.CreateDefaultPortMappings(instanceID, providerID); err != nil {
+				global.APP_LOG.Warn("兑换码实例创建默认端口映射失败",
+					zap.Uint("instanceId", instanceID),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Debug("兑换码实例默认端口映射创建成功",
+					zap.Uint("instanceId", instanceID))
+			}
+		} else {
+			global.APP_LOG.Debug("兑换码实例已有端口映射，跳过创建",
+				zap.Uint("instanceId", instanceID),
+				zap.Int("existingPortCount", len(existingPorts)))
 		}
 
 		s.updateTaskProgress(taskID, 85, "正在验证监控状态...")
@@ -485,7 +497,8 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		global.APP_LOG.Debug("兑换码实例后处理完成", zap.Uint("instanceId", instanceID))
 	}(instance.ID, instance.ProviderID, task.ID)
 
-	return nil
+	// 后台goroutine已接管，通知worker pool跳过CompleteTask
+	return interfaces.ErrAsyncCompletion
 }
 
 // hardDeleteRedemptionCodeByTask 根据任务数据硬删除关联的兑换码（用于预处理失败场景）

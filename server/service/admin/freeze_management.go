@@ -194,10 +194,7 @@ func (s *FreezeManagementService) UnfreezeUser(userID uint) error {
 	return global.APP_DB.Model(&user.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
-			"is_frozen":     false,
-			"frozen_at":     nil,
-			"frozen_reason": "",
-			"status":        1, // 恢复为正常状态
+			"status": 1, // 恢复为正常状态
 		}).Error
 }
 

@@ -20,13 +20,13 @@ import (
 // checkStorageDriver 检查Docker存储驱动并判断是否支持硬盘大小限制
 func (d *DockerProvider) checkStorageDriver() (bool, string, error) {
 	// 首先尝试从缓存文件读取存储驱动信息
-	cacheCmd := "cat /usr/local/bin/docker_storage_driver 2>/dev/null || echo ''"
+	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", d.runtime.StorageDriverFile)
 	cacheOutput, _ := d.sshClient.Execute(cacheCmd)
 	storageDriver := strings.TrimSpace(cacheOutput)
 
 	// 如果缓存文件不存在或为空，则通过docker info命令获取
 	if storageDriver == "" {
-		infoCmd := "docker info --format '{{.Driver}}' 2>/dev/null || docker info | grep 'Storage Driver:' | awk '{print $3}'"
+		infoCmd := fmt.Sprintf("%s info --format '{{.Driver}}' 2>/dev/null || %s info | grep 'Storage Driver:' | awk '{print $3}'", d.runtime.CLI, d.runtime.CLI)
 		output, err := d.sshClient.Execute(infoCmd)
 		if err != nil {
 			global.APP_LOG.Error("获取Docker存储驱动信息失败",
@@ -117,6 +117,77 @@ func (d *DockerProvider) checkLXCFS() (bool, []string, string, error) {
 	return true, availableVolumes, reason, nil
 }
 
+// ensureContainerRunning 确保容器处于运行状态；若已退出则重启并等待
+func (d *DockerProvider) ensureContainerRunning(containerName string) error {
+	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, containerName)
+	output, err := d.sshClient.Execute(checkCmd)
+	if err != nil {
+		return fmt.Errorf("检查容器状态失败: %w", err)
+	}
+	status := strings.ToLower(strings.TrimSpace(output))
+	if status == "running" {
+		return nil
+	}
+	// 容器可能因 OOM 等原因退出，尝试重启
+	global.APP_LOG.Warn("容器未处于运行状态，尝试重启",
+		zap.String("containerName", containerName),
+		zap.String("status", status))
+	restartCmd := fmt.Sprintf("%s restart %s", d.runtime.CLI, containerName)
+	if _, restartErr := d.sshClient.Execute(restartCmd); restartErr != nil {
+		return fmt.Errorf("重启容器失败: %w", restartErr)
+	}
+	// 等待容器重新运行，最多 30 秒
+	for i := 0; i < 15; i++ {
+		time.Sleep(2 * time.Second)
+		out, err2 := d.sshClient.Execute(checkCmd)
+		if err2 == nil && strings.ToLower(strings.TrimSpace(out)) == "running" {
+			global.APP_LOG.Debug("容器重启后已恢复运行",
+				zap.String("containerName", containerName))
+			return nil
+		}
+	}
+	return fmt.Errorf("等待容器重启超时")
+}
+
+// setContainerPasswordWithRetry 使用多种 shell 回退方式设置容器 root 密码，带重试
+func (d *DockerProvider) setContainerPasswordWithRetry(containerName, password, preferShell string) error {
+	shells := []string{preferShell}
+	if preferShell != "sh" {
+		shells = append(shells, "sh")
+	}
+
+	maxRetries := 3
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		for _, shell := range shells {
+			cmd := fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
+				d.runtime.CLI, containerName, shell, password)
+			_, err := d.sshClient.Execute(cmd)
+			if err == nil {
+				global.APP_LOG.Info("容器密码设置成功",
+					zap.String("containerName", containerName),
+					zap.String("shell", shell),
+					zap.Int("attempt", attempt))
+				return nil
+			}
+			global.APP_LOG.Warn("使用 chpasswd 设置密码失败，尝试备用方式",
+				zap.String("containerName", containerName),
+				zap.String("shell", shell),
+				zap.Int("attempt", attempt),
+				zap.Error(err))
+		}
+		if attempt < maxRetries {
+			// 等待后重试；若容器退出则重启
+			time.Sleep(5 * time.Second)
+			if err := d.ensureContainerRunning(containerName); err != nil {
+				global.APP_LOG.Warn("重试前确认容器运行状态失败",
+					zap.String("containerName", containerName),
+					zap.Error(err))
+			}
+		}
+	}
+	return fmt.Errorf("所有 shell 方式均无法设置容器密码: %s", containerName)
+}
+
 // configureInstanceSSHPassword 专门用于设置Docker容器的SSH密码
 func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, config provider.InstanceConfig) error {
 	global.APP_LOG.Debug("开始配置Docker容器SSH密码",
@@ -125,62 +196,58 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 	// 生成随机密码
 	password := d.generateRandomPassword()
 
-	// 根据系统类型选择脚本
-	var scriptName string
-	// 检测系统类型
-	output, err := d.sshClient.Execute(fmt.Sprintf("docker exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", config.Name))
+	// 检测系统类型选择 shell 和脚本
+	shellType := "bash"
+	scriptName := "ssh_bash.sh"
+	output, err := d.sshClient.Execute(fmt.Sprintf("%s exec %s cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", d.runtime.CLI, config.Name))
 	if err == nil {
 		osType := utils.CleanCommandOutput(strings.ToLower(output))
 		if osType == "alpine" || osType == "openwrt" {
+			shellType = "sh"
 			scriptName = "ssh_sh.sh"
-		} else {
-			scriptName = "ssh_bash.sh"
 		}
-	} else {
-		// 默认使用bash脚本
-		scriptName = "ssh_bash.sh"
 	}
 
 	scriptPath := filepath.Join("/usr/local/bin", scriptName)
-	// 检查脚本是否存在
-	if !d.isRemoteFileValid(scriptPath) {
-		global.APP_LOG.Warn("SSH脚本不存在，仅设置密码不配置SSH",
-			zap.String("scriptPath", scriptPath))
-		// 即使脚本不存在，也要设置密码
-	} else {
+	if d.isRemoteFileValid(scriptPath) {
 		time.Sleep(3 * time.Second)
-		// 复制脚本到容器
-		copyCmd := fmt.Sprintf("docker cp %s %s:/root/", scriptPath, config.Name)
-		_, err = d.sshClient.Execute(copyCmd)
-		if err != nil {
+		copyCmd := fmt.Sprintf("%s cp %s %s:/root/", d.runtime.CLI, scriptPath, config.Name)
+		_, copyErr := d.sshClient.Execute(copyCmd)
+		if copyErr != nil {
 			global.APP_LOG.Warn("复制SSH脚本到容器失败",
 				zap.String("instanceName", config.Name),
 				zap.String("scriptPath", scriptPath),
-				zap.Error(err))
+				zap.Error(copyErr))
 		} else {
-			// 设置脚本权限
-			_, err = d.sshClient.Execute(fmt.Sprintf("docker exec %s chmod +x /root/%s", config.Name, scriptName))
-			if err != nil {
-				global.APP_LOG.Warn("设置脚本权限失败", zap.Error(err))
-			} else {
-				// 执行脚本配置SSH和密码
-				execCmd := fmt.Sprintf("docker exec %s /root/%s %s", config.Name, scriptName, password)
-				_, execErr := d.sshClient.Execute(execCmd)
-				if execErr != nil {
-					global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
-						zap.String("instanceName", config.Name),
-						zap.String("scriptName", scriptName),
-						zap.Error(execErr))
-				}
-				time.Sleep(3 * time.Second)
+			d.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c 'chmod +x /root/%s'", d.runtime.CLI, config.Name, shellType, scriptName))
+			// 使用 interactionless=true 减少脚本交互内存占用
+			execCmd := fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
+				d.runtime.CLI, config.Name, shellType, shellType, scriptName, password)
+			_, execErr := d.sshClient.Execute(execCmd)
+			if execErr != nil {
+				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
+					zap.String("instanceName", config.Name),
+					zap.String("scriptName", scriptName),
+					zap.Error(execErr))
 			}
+			// 脚本运行后稍等，让容器内部稳定（OOM 后容器可能需要恢复）
+			time.Sleep(5 * time.Second)
 		}
+	} else {
+		global.APP_LOG.Warn("SSH脚本不存在，仅设置密码不配置SSH",
+			zap.String("scriptPath", scriptPath))
 	}
 
-	// 直接使用docker exec设置密码
-	directPasswordCmd := fmt.Sprintf("docker exec %s bash -c 'echo \"root:%s\" | chpasswd'", config.Name, password)
-	_, err = d.sshClient.Execute(directPasswordCmd)
-	if err != nil {
+	// 确保容器仍在运行（OOM / cgroup v2 可能导致容器退出）
+	if ensureErr := d.ensureContainerRunning(config.Name); ensureErr != nil {
+		global.APP_LOG.Error("配置SSH密码前确认容器运行状态失败",
+			zap.String("instanceName", config.Name),
+			zap.Error(ensureErr))
+		return fmt.Errorf("配置SSH密码前确认容器运行状态失败: %w", ensureErr)
+	}
+
+	// 直接通过 chpasswd 设置密码（多 shell 回退 + 重试）
+	if err := d.setContainerPasswordWithRetry(config.Name, password, shellType); err != nil {
 		global.APP_LOG.Error("设置容器密码失败",
 			zap.String("instanceName", config.Name),
 			zap.Error(err))
@@ -191,13 +258,12 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 		zap.String("instanceName", config.Name))
 
 	// 更新数据库中的密码记录，确保数据库与实际密码一致
-	err = global.APP_DB.Model(&providerModel.Instance{}).
+	if dbErr := global.APP_DB.Model(&providerModel.Instance{}).
 		Where("name = ?", config.Name).
-		Update("password", password).Error
-	if err != nil {
+		Update("password", password).Error; dbErr != nil {
 		global.APP_LOG.Warn("更新实例密码到数据库失败",
 			zap.String("instanceName", config.Name),
-			zap.Error(err))
+			zap.Error(dbErr))
 	} else {
 		global.APP_LOG.Debug("实例密码已同步到数据库",
 			zap.String("instanceName", config.Name))
@@ -208,28 +274,40 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 
 // getContainerPrivateIP 获取容器的内网IP地址
 func (d *DockerProvider) getContainerPrivateIP(containerName string) (string, error) {
-	cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", containerName)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, containerName)
 	output, err := d.sshClient.Execute(cmd)
+	if err == nil {
+		ipAddress := utils.CleanCommandOutput(output)
+		if ipAddress != "" && ipAddress != "<no value>" {
+			return ipAddress, nil
+		}
+	}
+
+	// 尝试使用默认网络字段
+	cmd = fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, containerName)
+	output, err = d.sshClient.Execute(cmd)
+	if err == nil {
+		ipAddress := utils.CleanCommandOutput(output)
+		if ipAddress != "" && ipAddress != "<no value>" {
+			return ipAddress, nil
+		}
+	}
+
+	// 终极回退：直接在容器内执行 hostname -I（适用于 podman/containerd 等 inspect 格式差异）
+	hostCmd := fmt.Sprintf("%s exec %s hostname -I 2>/dev/null", d.runtime.CLI, containerName)
+	hostOutput, hostErr := d.sshClient.Execute(hostCmd)
+	if hostErr == nil {
+		// hostname -I 可能返回多个 IP，取第一个
+		ips := strings.Fields(strings.TrimSpace(hostOutput))
+		if len(ips) > 0 && ips[0] != "" {
+			return ips[0], nil
+		}
+	}
+
 	if err != nil {
 		return "", fmt.Errorf("failed to get container IP: %w", err)
 	}
-
-	ipAddress := utils.CleanCommandOutput(output)
-	if ipAddress == "" || ipAddress == "<no value>" {
-		// 尝试使用默认网络
-		cmd = fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", containerName)
-		output, err = d.sshClient.Execute(cmd)
-		if err != nil {
-			return "", fmt.Errorf("failed to get container IP from default network: %w", err)
-		}
-		ipAddress = utils.CleanCommandOutput(output)
-	}
-
-	if ipAddress == "" || ipAddress == "<no value>" {
-		return "", fmt.Errorf("container IP is empty")
-	}
-
-	return ipAddress, nil
+	return "", fmt.Errorf("container IP is empty")
 }
 
 // initializePmacctMonitoring 初始化流量监控

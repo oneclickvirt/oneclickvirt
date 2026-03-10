@@ -67,15 +67,18 @@ func (s *SchedulerService) Start() error {
 // Stop 停止调度器
 func (s *SchedulerService) Stop() error {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	if !s.running {
+		s.mu.Unlock()
 		return fmt.Errorf("scheduler is not running")
 	}
-
 	s.cancel()
+	s.mu.Unlock() // 先释放锁，再等待goroutine结束，避免goroutine调用IsRunning()时死锁
+
 	s.wg.Wait()
+
+	s.mu.Lock()
 	s.running = false
+	s.mu.Unlock()
 
 	global.APP_LOG.Info("Task scheduler stopped")
 	return nil

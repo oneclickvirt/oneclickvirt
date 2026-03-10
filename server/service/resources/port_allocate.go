@@ -79,8 +79,9 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 				conflict := false
 				for _, port := range ports {
 					var existingPort provider.Port
+					// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 					err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-						Where("provider_id = ? AND host_port = ? AND status = 'active'",
+						Where("provider_id = ? AND host_port = ?",
 							providerInfo.ID, port).First(&existingPort).Error
 
 					if err != gorm.ErrRecordNotFound {
@@ -121,10 +122,11 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 		startPort = rangeStart
 	}
 
-	// 一次性查询该Provider所有活动端口，构建已用端口集合
+	// 一次性查询该Provider所有端口，构建已用端口集合
+	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 	var usedPorts []int
 	if err := global.APP_DB.Model(&provider.Port{}).
-		Where("provider_id = ? AND status = 'active'", providerID).
+		Where("provider_id = ?", providerID).
 		Pluck("host_port", &usedPorts).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return 0, fmt.Errorf("查询已用端口失败: %v", err)
 	}
@@ -171,9 +173,10 @@ func (s *PortMappingService) allocateHostPort(providerID uint, rangeStart, range
 		}
 
 		// 二次确认端口未被占用（使用 LOCK IN SHARE MODE 防止并发幻读）
+		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 		var existingPort provider.Port
 		err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-			Where("provider_id = ? AND host_port = ? AND status = 'active'",
+			Where("provider_id = ? AND host_port = ?",
 				providerID, candidatePort).First(&existingPort).Error
 
 		if err != nil && err != gorm.ErrRecordNotFound {
@@ -236,9 +239,10 @@ func (s *PortMappingService) allocateHostPortWithRetry(providerID uint, rangeSta
 		startPort = rangeStart
 	}
 
+	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 	var usedPorts []int
 	if err := global.APP_DB.Model(&provider.Port{}).
-		Where("provider_id = ? AND status = 'active'", providerID).
+		Where("provider_id = ?", providerID).
 		Pluck("host_port", &usedPorts).Error; err != nil && err != gorm.ErrRecordNotFound {
 		return 0, fmt.Errorf("查询已用端口失败: %v", err)
 	}
@@ -279,8 +283,9 @@ func (s *PortMappingService) allocateHostPortWithRetry(providerID uint, rangeSta
 			return fmt.Errorf("Provider不存在: %v", err)
 		}
 
+		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 		var existingPort provider.Port
-		err := tx.Where("provider_id = ? AND host_port = ? AND status = 'active'",
+		err := tx.Where("provider_id = ? AND host_port = ?",
 			providerID, candidatePort).First(&existingPort).Error
 
 		if err != nil && err != gorm.ErrRecordNotFound {
@@ -403,10 +408,11 @@ func (s *PortMappingService) allocateConsecutivePorts(providerID uint, rangeStar
 		}
 
 		// 再次确认端口段可用（防止并发冲突）
+		// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
 		for i := 0; i < portCount; i++ {
 			checkPort := candidateStart + i
 			var existingPort provider.Port
-			err := tx.Where("provider_id = ? AND host_port = ? AND status = 'active'",
+			err := tx.Where("provider_id = ? AND host_port = ?",
 				providerID, checkPort).First(&existingPort).Error
 
 			if err != nil && err != gorm.ErrRecordNotFound {

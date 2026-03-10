@@ -3,15 +3,18 @@ package main
 import (
 	"fmt"
 	"os"
+	_ "time/tzdata" // 嵌入时区数据，确保 Alpine/无 tzdata 环境（如 Docker）中 Asia/Shanghai 可用
 
 	systemAPI "oneclickvirt/api/v1/system"
 	"oneclickvirt/global"
 	"oneclickvirt/initialize"
 
 	_ "oneclickvirt/docs"
+	_ "oneclickvirt/provider/containerd"
 	_ "oneclickvirt/provider/docker"
 	_ "oneclickvirt/provider/incus"
 	_ "oneclickvirt/provider/lxd"
+	_ "oneclickvirt/provider/podman"
 	_ "oneclickvirt/provider/proxmox"
 
 	"go.uber.org/zap"

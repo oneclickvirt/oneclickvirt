@@ -30,6 +30,14 @@
           value="docker"
         />
         <el-option
+          label="Podman"
+          value="podman"
+        />
+        <el-option
+          label="Containerd"
+          value="containerd"
+        />
+        <el-option
           label="LXD"
           value="lxd"
         />
@@ -195,6 +203,10 @@
         <el-option
           :label="$t('common.disabled')"
           value="inactive"
+        />
+        <el-option
+          :label="$t('common.partial')"
+          value="partial"
         />
       </el-select>
     </el-form-item>

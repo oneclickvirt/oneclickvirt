@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/provider"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
+	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
 )
@@ -265,43 +266,56 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 		zap.Time("startTime", startTime),
 		zap.Time("endTime", endTime))
 
-	aggregateSQL := `
-		INSERT INTO pmacct_traffic_records (
+	result := dbcompat.Exec(global.APP_DB,
+		// MariaDB / MySQL < 9
+		`INSERT INTO pmacct_traffic_records (
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
 			rx_bytes, tx_bytes, total_bytes,
 			timestamp, year, month, day, hour, minute,
 			record_time, created_at, updated_at
 		)
 		SELECT 
-			instance_id,
-			user_id,
-			provider_id,
-			provider_type,
-			mapped_ip,
-			MAX(rx_bytes) as rx_bytes,
-			MAX(tx_bytes) as tx_bytes,
-			MAX(total_bytes) as total_bytes,
+			instance_id, user_id, provider_id, provider_type, mapped_ip,
+			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
 			DATE_FORMAT(timestamp, '%Y-%m-%d 00:00:00') as timestamp,
-			year,
-			month,
-			day,
-			0 as hour,
-			0 as minute,
-			MAX(record_time) as record_time,
-			NOW() as created_at,
-			NOW() as updated_at
+			year, month, day, 0 as hour, 0 as minute,
+			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 		FROM pmacct_traffic_records
-		WHERE record_time >= ? AND record_time < ?
-			AND (hour > 0 OR minute > 0)
+		WHERE record_time >= ? AND record_time < ? AND (hour > 0 OR minute > 0)
 		GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day
 		ON DUPLICATE KEY UPDATE
 			rx_bytes = VALUES(rx_bytes),
 			tx_bytes = VALUES(tx_bytes),
 			total_bytes = VALUES(total_bytes),
-			updated_at = VALUES(updated_at)
-	`
-
-	result := global.APP_DB.Exec(aggregateSQL, startTime, endTime)
+			updated_at = VALUES(updated_at)`,
+		// MySQL 9.0+
+		`INSERT INTO pmacct_traffic_records (
+			instance_id, user_id, provider_id, provider_type, mapped_ip,
+			rx_bytes, tx_bytes, total_bytes,
+			timestamp, year, month, day, hour, minute,
+			record_time, created_at, updated_at
+		)
+		SELECT instance_id, user_id, provider_id, provider_type, mapped_ip,
+			rx_bytes, tx_bytes, total_bytes,
+			timestamp, year, month, day, hour, minute,
+			record_time, created_at, updated_at
+		FROM (
+			SELECT 
+				instance_id, user_id, provider_id, provider_type, mapped_ip,
+				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+				DATE_FORMAT(timestamp, '%Y-%m-%d 00:00:00') as timestamp,
+				year, month, day, 0 as hour, 0 as minute,
+				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
+			FROM pmacct_traffic_records
+			WHERE record_time >= ? AND record_time < ? AND (hour > 0 OR minute > 0)
+			GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day
+		) AS _src
+		ON DUPLICATE KEY UPDATE
+			rx_bytes = _src.rx_bytes,
+			tx_bytes = _src.tx_bytes,
+			total_bytes = _src.total_bytes,
+			updated_at = _src.updated_at`,
+		startTime, endTime)
 	if result.Error != nil {
 		return fmt.Errorf("failed to aggregate to daily: %w", result.Error)
 	}
@@ -318,43 +332,56 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 		zap.Time("startTime", startTime),
 		zap.Time("endTime", endTime))
 
-	aggregateSQL := `
-		INSERT INTO pmacct_traffic_records (
+	result := dbcompat.Exec(global.APP_DB,
+		// MariaDB / MySQL < 9
+		`INSERT INTO pmacct_traffic_records (
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
 			rx_bytes, tx_bytes, total_bytes,
 			timestamp, year, month, day, hour, minute,
 			record_time, created_at, updated_at
 		)
 		SELECT 
-			instance_id,
-			user_id,
-			provider_id,
-			provider_type,
-			mapped_ip,
-			MAX(rx_bytes) as rx_bytes,
-			MAX(tx_bytes) as tx_bytes,
-			MAX(total_bytes) as total_bytes,
+			instance_id, user_id, provider_id, provider_type, mapped_ip,
+			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
 			DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as timestamp,
-			year,
-			month,
-			day,
-			hour,
-			0 as minute,
-			MAX(record_time) as record_time,
-			NOW() as created_at,
-			NOW() as updated_at
+			year, month, day, hour, 0 as minute,
+			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 		FROM pmacct_traffic_records
-		WHERE record_time >= ? AND record_time < ?
-			AND minute > 0
+		WHERE record_time >= ? AND record_time < ? AND minute > 0
 		GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day, hour
 		ON DUPLICATE KEY UPDATE
 			rx_bytes = VALUES(rx_bytes),
 			tx_bytes = VALUES(tx_bytes),
 			total_bytes = VALUES(total_bytes),
-			updated_at = VALUES(updated_at)
-	`
-
-	result := global.APP_DB.Exec(aggregateSQL, startTime, endTime)
+			updated_at = VALUES(updated_at)`,
+		// MySQL 9.0+
+		`INSERT INTO pmacct_traffic_records (
+			instance_id, user_id, provider_id, provider_type, mapped_ip,
+			rx_bytes, tx_bytes, total_bytes,
+			timestamp, year, month, day, hour, minute,
+			record_time, created_at, updated_at
+		)
+		SELECT instance_id, user_id, provider_id, provider_type, mapped_ip,
+			rx_bytes, tx_bytes, total_bytes,
+			timestamp, year, month, day, hour, minute,
+			record_time, created_at, updated_at
+		FROM (
+			SELECT 
+				instance_id, user_id, provider_id, provider_type, mapped_ip,
+				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
+				DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as timestamp,
+				year, month, day, hour, 0 as minute,
+				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
+			FROM pmacct_traffic_records
+			WHERE record_time >= ? AND record_time < ? AND minute > 0
+			GROUP BY instance_id, user_id, provider_id, provider_type, mapped_ip, year, month, day, hour
+		) AS _src
+		ON DUPLICATE KEY UPDATE
+			rx_bytes = _src.rx_bytes,
+			tx_bytes = _src.tx_bytes,
+			total_bytes = _src.total_bytes,
+			updated_at = _src.updated_at`,
+		startTime, endTime)
 	if result.Error != nil {
 		return fmt.Errorf("failed to aggregate to hourly: %w", result.Error)
 	}

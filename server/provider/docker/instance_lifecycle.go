@@ -15,9 +15,9 @@ import (
 // sshStartInstance 启动实例
 func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error {
 	// 先检查容器状态，如果是Exited状态则使用restart命令
-	statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id))
+	statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, id))
 	if err != nil {
-		global.APP_LOG.Error("检查Docker容器状态失败",
+		global.APP_LOG.Error("检查容器状态失败",
 			zap.String("id", utils.TruncateString(id, 32)),
 			zap.Error(err))
 		return fmt.Errorf("failed to check container status: %w", err)
@@ -25,7 +25,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 
 	status := strings.ToLower(strings.TrimSpace(statusOutput))
 	var startCmd string
-	startCmd = fmt.Sprintf("docker restart %s", id)
+	startCmd = fmt.Sprintf("%s restart %s", d.runtime.CLI, id)
 	if strings.Contains(status, "exited") {
 		global.APP_LOG.Debug("检测到容器为Exited状态，使用restart命令",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -64,13 +64,13 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 		time.Sleep(checkInterval)
 
 		// 检查容器状态
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id))
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, id))
 		if err == nil {
 			currentStatus := strings.ToLower(strings.TrimSpace(statusOutput))
 			if currentStatus == "running" {
 				// 容器已经启动，再等待额外的时间确保服务完全就绪
 				time.Sleep(2 * time.Second)
-				global.APP_LOG.Debug("Docker容器已成功启动并就绪",
+				global.APP_LOG.Debug("容器已成功启动并就绪",
 					zap.String("id", utils.TruncateString(id, 32)),
 					zap.Duration("wait_time", time.Since(startTime)))
 				return nil
@@ -85,7 +85,7 @@ func (d *DockerProvider) sshStartInstance(ctx context.Context, id string) error 
 
 // sshStopInstance 停止实例
 func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
-	stopCmd := fmt.Sprintf("docker stop %s", id)
+	stopCmd := fmt.Sprintf("%s stop %s", d.runtime.CLI, id)
 	global.APP_LOG.Debug("开始停止Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", stopCmd))
@@ -103,9 +103,9 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 	maxRetries := 10
 	retryInterval := 1 * time.Second
 	for i := 0; i < maxRetries; i++ {
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id))
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, id))
 		if err != nil {
-			global.APP_LOG.Warn("检查Docker容器停止状态失败",
+			global.APP_LOG.Warn("检查容器停止状态失败",
 				zap.String("id", utils.TruncateString(id, 32)),
 				zap.Int("retry", i+1),
 				zap.Error(err))
@@ -135,7 +135,7 @@ func (d *DockerProvider) sshStopInstance(ctx context.Context, id string) error {
 
 // sshRestartInstance 重启实例
 func (d *DockerProvider) sshRestartInstance(ctx context.Context, id string) error {
-	restartCmd := fmt.Sprintf("docker restart %s", id)
+	restartCmd := fmt.Sprintf("%s restart %s", d.runtime.CLI, id)
 	global.APP_LOG.Debug("开始重启Docker实例",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", restartCmd))
@@ -160,7 +160,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		zap.String("id", utils.TruncateString(id, 32)))
 
 	// 预清理：先尝试删除所有同名的已停止容器（Exited状态）
-	cleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ --filter status=exited -q | xargs -r docker rm -f", id)
+	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ --filter status=exited -q | xargs -r %s rm -f", d.runtime.CLI, id, d.runtime.CLI)
 	global.APP_LOG.Debug("清理已停止的同名容器",
 		zap.String("id", utils.TruncateString(id, 32)),
 		zap.String("command", cleanupCmd))
@@ -186,31 +186,31 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 		{
 			name: "graceful_stop_and_remove",
 			commands: []string{
-				fmt.Sprintf("docker stop %s", id),
-				fmt.Sprintf("docker rm %s", id),
+				fmt.Sprintf("%s stop %s", d.runtime.CLI, id),
+				fmt.Sprintf("%s rm %s", d.runtime.CLI, id),
 			},
 			description: "优雅停止并删除容器",
 		},
 		{
 			name: "force_remove_running",
 			commands: []string{
-				fmt.Sprintf("docker rm -f %s", id),
+				fmt.Sprintf("%s rm -f %s", d.runtime.CLI, id),
 			},
 			description: "强制删除正在运行的容器",
 		},
 		{
 			name: "kill_and_remove",
 			commands: []string{
-				fmt.Sprintf("docker kill %s", id),
-				fmt.Sprintf("docker rm %s", id),
+				fmt.Sprintf("%s kill %s", d.runtime.CLI, id),
+				fmt.Sprintf("%s rm %s", d.runtime.CLI, id),
 			},
 			description: "强制杀死进程并删除容器",
 		},
 		{
 			name: "system_prune_targeted",
 			commands: []string{
-				fmt.Sprintf("docker rm -f %s", id),
-				"docker system prune -f --volumes",
+				fmt.Sprintf("%s rm -f %s", d.runtime.CLI, id),
+				fmt.Sprintf("%s system prune -f --volumes", d.runtime.CLI),
 			},
 			description: "删除容器并清理系统资源",
 		},
@@ -331,7 +331,7 @@ func (d *DockerProvider) sshDeleteInstance(ctx context.Context, id string) error
 	global.APP_LOG.Debug("执行最终清理，删除所有同名已停止容器",
 		zap.String("id", utils.TruncateString(id, 32)))
 
-	finalCleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ -q | xargs -r docker rm -f", id)
+	finalCleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", d.runtime.CLI, id, d.runtime.CLI)
 	finalOutput, finalErr := d.sshClient.Execute(finalCleanupCmd)
 	if finalErr != nil {
 		global.APP_LOG.Debug("最终清理失败（可忽略）",
@@ -381,7 +381,7 @@ func (d *DockerProvider) isAcceptableError(err error, output string) bool {
 // verifyContainerDeleted 验证容器是否真的被删除（包括已停止的容器）
 func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) bool {
 	// 方法1：检查运行中的容器
-	checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", id)
+	checkCmd := fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, id)
 	output, err := d.sshClient.Execute(checkCmd)
 
 	if err != nil {
@@ -410,7 +410,7 @@ func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) 
 
 	// 方法2：通过docker ps -a检查所有状态的容器（包括已停止的）
 	// 使用精确匹配的name filter
-	listByNameCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ --format '{{.Names}}:{{.Status}}'", id)
+	listByNameCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ --format '{{.Names}}:{{.Status}}'", d.runtime.CLI, id)
 	listByNameOutput, listByNameErr := d.sshClient.Execute(listByNameCmd)
 
 	if listByNameErr == nil {
@@ -425,7 +425,7 @@ func (d *DockerProvider) verifyContainerDeleted(ctx context.Context, id string) 
 	}
 
 	// 方法3：用ID进行filter检查
-	listCmd := fmt.Sprintf("docker ps -a --filter id=%s --format '{{.ID}}'", id)
+	listCmd := fmt.Sprintf("%s ps -a --filter id=%s --format '{{.ID}}'", d.runtime.CLI, id)
 	listOutput, listErr := d.sshClient.Execute(listCmd)
 
 	if listErr == nil && strings.TrimSpace(listOutput) != "" {

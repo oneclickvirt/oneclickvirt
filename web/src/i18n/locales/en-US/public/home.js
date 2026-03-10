@@ -24,9 +24,13 @@ export default {
       description: 'Real-time resource usage monitoring'
     }
   },
+  platformOverview: {
+    title: 'Platform Overview',
+    description: 'Real-time platform operational statistics'
+  },
   platforms: {
     title: 'Supported Virtualization Platforms',
-    description: 'One-click integration with multiple mainstream virtualization technologies'
+    description: 'One-click integration with multiple mainstream virtualization technologies. Click a card to view the open-source project'
   },
   stats: {
     users: 'Users',

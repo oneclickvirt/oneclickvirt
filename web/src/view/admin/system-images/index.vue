@@ -62,6 +62,14 @@
                 label="Docker"
                 value="docker"
               />
+              <el-option
+                label="Podman"
+                value="podman"
+              />
+              <el-option
+                label="Containerd"
+                value="containerd"
+              />
             </el-select>
           </el-col>
           <el-col :span="3">
@@ -383,6 +391,14 @@
                 <el-option
                   label="Docker"
                   value="docker"
+                />
+                <el-option
+                  label="Podman"
+                  value="podman"
+                />
+                <el-option
+                  label="Containerd"
+                  value="containerd"
                 />
               </el-select>
             </el-form-item>
@@ -928,7 +944,7 @@ const resetForm = () => {
 // Provider类型变化
 const handleProviderTypeChange = () => {
   // 根据Provider类型清除不兼容的实例类型
-  if (form.providerType === 'docker' && form.instanceType === 'vm') {
+  if (['docker', 'podman', 'containerd'].includes(form.providerType) && form.instanceType === 'vm') {
     form.instanceType = ''
   }
 }
@@ -952,8 +968,8 @@ const getUrlHint = () => {
     return 'ProxmoxVE虚拟机镜像必须是 .qcow2 文件'
   } else if ((form.providerType === 'lxd' || form.providerType === 'incus')) {
     return 'LXD/Incus镜像必须是 .zip 文件'
-  } else if (form.providerType === 'docker' && form.instanceType === 'container') {
-    return 'Docker容器镜像必须是 .tar.gz 文件'
+  } else if (['docker', 'podman', 'containerd'].includes(form.providerType) && form.instanceType === 'container') {
+    return form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) + '容器镜像必须是 .tar.gz 文件'
   }
   return ''
 }
@@ -964,7 +980,9 @@ const getProviderTypeName = (type) => {
     proxmox: 'ProxmoxVE',
     lxd: 'LXD',
     incus: 'Incus',
-    docker: 'Docker'
+    docker: 'Docker',
+    podman: 'Podman',
+    containerd: 'Containerd'
   }
   return names[type] || type
 }
@@ -975,7 +993,9 @@ const getProviderTypeColor = (type) => {
     proxmox: 'primary',
     lxd: 'success',
     incus: 'warning',
-    docker: 'info'
+    docker: 'info',
+    podman: 'info',
+    containerd: 'info'
   }
   return colors[type] || ''
 }

@@ -220,7 +220,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)
 
-	global.APP_LOG.Info("用户实例启动API调用成功",
+	global.APP_LOG.Info("用户实例启动操作成功",
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", instance.ID),
 		zap.String("instanceName", instance.Name),
@@ -550,7 +550,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			zap.Bool("pmacctSuccess", pmacctSuccess))
 	}(instance.ID, task.ID)
 
-	global.APP_LOG.Info("用户实例重启API调用成功",
+	global.APP_LOG.Info("用户实例重启操作成功",
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", instance.ID),
 		zap.String("instanceName", instance.Name),
