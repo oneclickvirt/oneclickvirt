@@ -197,11 +197,21 @@ func (s *Service) SearchUsers(req auth.SearchUsersRequest) ([]userModel.User, in
 	// 排序
 	orderBy := "created_at DESC"
 	if req.SortBy != "" {
+		allowedSortCols := map[string]bool{
+			"created_at": true,
+			"updated_at": true,
+			"username":   true,
+			"email":      true,
+			"status":     true,
+		}
+		if !allowedSortCols[req.SortBy] {
+			return nil, 0, errors.New("不支持的排序字段")
+		}
 		direction := "ASC"
 		if req.SortOrder == "desc" {
 			direction = "DESC"
 		}
-		orderBy = fmt.Sprintf("%s %s", req.SortBy, direction)
+		orderBy = req.SortBy + " " + direction
 	}
 	db = db.Order(orderBy)
 

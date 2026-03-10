@@ -15,7 +15,7 @@ import (
 // downloadImageToRemote 在远程服务器上下载镜像
 func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCountry, architecture string, useCDN bool) (string, error) {
 	// 根据provider类型确定远程下载目录
-	downloadDir := "/usr/local/bin/docker_ct_images"
+	downloadDir := d.runtime.ImageDir
 
 	// 在远程服务器上创建下载目录
 	cmd := fmt.Sprintf("mkdir -p %s", downloadDir)
@@ -61,7 +61,7 @@ func (d *DockerProvider) downloadImageToRemote(imageURL, imageName, providerCoun
 
 // cleanupRemoteImage 清理远程镜像文件
 func (d *DockerProvider) cleanupRemoteImage(imageName, imageURL, architecture string) error {
-	downloadDir := "/usr/local/bin/docker_ct_images"
+	downloadDir := d.runtime.ImageDir
 	fileName := d.generateRemoteFileName(imageName, imageURL, architecture)
 	remotePath := filepath.Join(downloadDir, fileName)
 
@@ -181,7 +181,7 @@ func (d *DockerProvider) ensureSSHScriptsAvailable(providerCountry string) error
 		}
 
 		// 构建下载URL
-		baseURL := "https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/" + script
+		baseURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/scripts/", d.runtime.ScriptRepo) + script
 		downloadURL := d.getSSHScriptDownloadURL(baseURL, providerCountry)
 
 		global.APP_LOG.Debug("开始下载SSH脚本",

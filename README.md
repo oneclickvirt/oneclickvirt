@@ -1,44 +1,57 @@
-# OneClickVirt 虚拟化管理平台
+# OneClickVirt Virtualization Management Platform
 
-[![Build and Release oneclickvirt](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml) 
+[![Build and Release oneclickvirt](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build.yml)
 
 [![Build and Push Docker Images](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml)
 
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=license) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=security)
 
-一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker 和 Proxmox VE。
+An extensible universal virtualization management platform that supports LXD, Incus, Docker, Podman, Containerd, and Proxmox VE.
 
-## **语言**
+## **Language**
 
-[中文文档](README.md) | [English Docs](README_EN.md)
+[English Docs](README.md) | [中文文档](README_ZH.md)
 
-## 详细说明
+## Detailed Description
 
-[www.spiritlhl.net](https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_precheck.html)
+[www.spiritlhl.net](https://www.spiritlhl.net/en/guide/oneclickvirt/oneclickvirt_precheck.html)
 
-## 快速部署
+## Supported Virtualization Platforms
 
-尽量不要自行编译，推荐使用二进制文件分离部署或直接docker拉取镜像部署
+| Type ID | Platform | Instance Types | Port Mapping | Prerequisites |
+|---------|----------|---------------|--------------|---------------|
+| `lxd` | LXD | container, vm | iptables/native | - |
+| `incus` | Incus | container, vm | iptables/native | - |
+| `docker` | Docker | container | native | - |
+| `podman` | Podman | container | native | [oneclickvirt/podman](https://github.com/oneclickvirt/podman) |
+| `containerd` | Containerd (nerdctl) | container | native | [oneclickvirt/containerd](https://github.com/oneclickvirt/containerd) |
+| `proxmox` | Proxmox VE | vm | iptables/native | - |
 
-### 方式一：使用预构建镜像
+> Podman and Containerd nodes require running their respective one-click setup scripts before adding as a provider node.
 
-使用已构建好的多架构镜像，会自动根据当前系统架构下载对应版本。
+## Quick Deployment
 
-**镜像标签说明：**
+Avoid compiling from source whenever possible. We recommend deploying using separate binary files or directly pulling the Docker image for deployment.
 
-| 镜像标签 | 说明 | 适用场景 |
-|---------|------|---------|
-| `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20260308` | 一体化版本特定日期版本 | 需要固定版本 |
-| `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20260308` | 独立数据库版本特定日期 | 不内置数据库 |
+### Method 1: Using Pre-built Images
 
-所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
+Use pre-built multi-architecture images that automatically downloads the appropriate version for your system architecture.
+
+**Image Tags:**
+
+| Image Tag | Description | Use Case |
+|-----------|-------------|----------|
+| `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
+| `spiritlhl/oneclickvirt:20260308` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
+| `spiritlhl/oneclickvirt:no-db-20260308` | Standalone database version with date | Without database |
+
+All images support both `linux/amd64` and `linux/arm64` architectures.
 
 <details>
-<summary>展开查看一体化版本（内置数据库）</summary>
+<summary>View All-in-One Version (Built-in Database)</summary>
 
-**基础使用（不配置域名）：**
+**Basic Usage (without domain configuration):**
 
 ```bash
 docker run -d \
@@ -50,9 +63,9 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
-**配置域名访问：**
+**Configure Domain Access:**
 
-如果你需要配置域名，需要设置 `FRONTEND_URL` 环境变量：
+If you need to configure a domain, set the `FRONTEND_URL` environment variable:
 
 ```bash
 docker run -d \
@@ -65,7 +78,7 @@ docker run -d \
   spiritlhl/oneclickvirt:latest
 ```
 
-或者使用 GitHub Container Registry：
+Or using GitHub Container Registry:
 
 ```bash
 docker run -d \
@@ -74,7 +87,6 @@ docker run -d \
   -e FRONTEND_URL="https://your-domain.com" \
   -v oneclickvirt-data:/var/lib/mysql \
   -v oneclickvirt-storage:/app/storage \
-
   --restart unless-stopped \
   ghcr.io/oneclickvirt/oneclickvirt:latest
 ```
@@ -82,9 +94,9 @@ docker run -d \
 </details>
 
 <details>
-<summary>展开查看独立数据库版本</summary>
+<summary>View Standalone Database Version</summary>
 
-使用外部数据库，镜像更小，启动更快：
+Use external database for smaller image size and faster startup:
 
 ```bash
 docker run -d \
@@ -101,24 +113,24 @@ docker run -d \
   spiritlhl/oneclickvirt:no-db
 ```
 
-**环境变量说明：**
-- `FRONTEND_URL`: 前端访问地址（必填，支持 http/https）
-- `DB_HOST`: 数据库主机地址
-- `DB_PORT`: 数据库端口（默认 3306）
-- `DB_NAME`: 数据库名称
-- `DB_USER`: 数据库用户名
-- `DB_PASSWORD`: 数据库密码
+**Environment Variables:**
+- `FRONTEND_URL`: Frontend access URL (required, supports http/https)
+- `DB_HOST`: Database host address
+- `DB_PORT`: Database port (default 3306)
+- `DB_NAME`: Database name
+- `DB_USER`: Database username
+- `DB_PASSWORD`: Database password
 
 </details>
 
-> **说明**：`FRONTEND_URL` 用于配置前端访问地址，影响 CORS、OAuth2 回调等功能。系统会自动检测 HTTP/HTTPS 协议并调整相应配置，协议头可以是http或https。
+> **Note**: `FRONTEND_URL` is used to configure the frontend access address, affecting features like CORS and OAuth2 callbacks. The system will automatically detect HTTP/HTTPS protocol and adjust configurations accordingly. The protocol prefix can be either http or https.
 
-### 方式二：使用 Docker Compose
+### Method 2: Using Docker Compose
 
 <details>
-<summary>展开查看 Docker Compose 部署</summary>
+<summary>View Docker Compose Deployment</summary>
 
-使用 Docker Compose 可以一键部署完整的开发环境，采用**分容器部署**架构，包括独立的前端容器、后端容器和数据库容器：
+Use Docker Compose to deploy the complete development environment with one command, using **multi-container deployment** architecture with separate frontend, backend, and database containers:
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -126,48 +138,48 @@ cd oneclickvirt
 docker-compose up -d --build || docker compose up -d --build
 ```
 
-**默认配置说明：**
+**Default Configuration:**
 
-- 前端服务：`http://localhost:8888`
-- 后端 API：通过前端代理访问
-- MySQL 数据库：端口 3306，数据库名 `oneclickvirt`，无密码
-- 数据持久化：
-  - 数据库数据：`./data/mysql`
-  - 应用存储：`./data/app/`
+- Frontend service: `http://localhost:8888`
+- Backend API: Accessed via frontend proxy
+- MySQL Database: Port 3306, database name `oneclickvirt`, no password
+- Data persistence:
+  - Database data: `./data/mysql`
+  - Application storage: `./data/app/`
 
-**初始化配置：**
+**Initialization Configuration:**
 
-首次访问时会进入初始化界面，数据库配置请填写：
-- 数据库地址：`mysql`（容器名称，不是 127.0.0.1）
-- 数据库端口：`3306`
-- 数据库名称：`oneclickvirt`
-- 数据库用户：`root`
-- 数据库密码：留空（无密码）
+When accessing for the first time, you will enter the initialization interface. Please fill in the database configuration as follows:
+- Database Host: `mysql` (container name, not 127.0.0.1)
+- Database Port: `3306`
+- Database Name: `oneclickvirt`
+- Database User: `root`
+- Database Password: Leave empty (no password)
 
-**自定义端口（可选）：**
+**Custom Port (Optional):**
 
-如果需要修改前端访问端口，编辑 `docker-compose.yaml` 文件中的 ports 配置：
+To modify the frontend access port, edit the ports configuration in `docker-compose.yaml`:
 
 ```yaml
 services:
   web:
     ports:
-      - "你的端口:80"  # 例如 "80:80" 或 "8080:80"
+      - "your-port:80"  # e.g., "80:80" or "8080:80"
 ```
 
-**停止服务：**
+**Stop Services:**
 
 ```bash
 docker-compose down
 ```
 
-**查看日志：**
+**View Logs:**
 
 ```bash
 docker-compose logs -f
 ```
 
-**清理数据：**
+**Clean Data:**
 
 ```bash
 docker-compose down
@@ -176,14 +188,14 @@ rm -rf ./data
 
 </details>
 
-### 方式三：自己编译打包
+### Method 3: Build from Source
 
 <details>
-<summary>展开查看编译步骤</summary>
+<summary>View Build Instructions</summary>
 
-如果需要修改源码或自定义构建：
+If you need to modify the source code or build custom images:
 
-**一体化版本（内置数据库）：**
+**All-in-One Version (Built-in Database):**
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -198,7 +210,7 @@ docker run -d \
   oneclickvirt
 ```
 
-**独立数据库版本：**
+**Standalone Database Version:**
 
 ```bash
 git clone https://github.com/oneclickvirt/oneclickvirt.git
@@ -220,65 +232,65 @@ docker run -d \
 
 </details>
 
-### 方式四：手动开发部署
+## Development and Testing
 
 <details>
-<summary>展开查看开发部署步骤</summary>
+<summary>View Development Setup</summary>
 
-#### 环境要求
+### Environment Requirements
 
 * Go 1.24.5
 * Node.js 22+
 * MySQL 5.7+
-* npm 或 yarn
+* npm or yarn
 
-#### 环境部署
+### Environment Deployment
 
-1. 构建前端
+1. Build frontend
 ```bash
 cd web
 npm i
 npm run serve
 ```
 
-2. 构建后端
+2. Build backend
 ```bash
 cd server
 go mod tidy
 go run main.go
 ```
 
-3. 开发模式下不需要反代后端，vite已自带后端代理请求。
+3. In development mode, there's no need to proxy the backend, as Vite already includes backend proxy requests.
 
-5. 在mysql中创建一个空的数据库```oneclickvirt```，记录对应的账户和密码。
+4. Create an empty database named `oneclickvirt` in MySQL, and record the corresponding account and password.
 
-6. 访问前端地址，自动跳转到初始化界面，填写数据库信息和相关信息，点击初始化。
+5. Access the frontend address, which will automatically redirect to the initialization interface. Fill in the database information and related details, then click initialize.
 
-7. 完成初始化后会自动跳转到首页，可以开始开发测试了。
+6. After completing initialization, it will automatically redirect to the homepage, and you can start development and testing.
 
-#### 本地开发
+### Local Development
 
-* 前端：[http://localhost:8080](http://localhost:8080)
-* 后端 API：[http://localhost:8888](http://localhost:8888)
-* API 文档：[http://localhost:8888/swagger/index.html](http://localhost:8888/swagger/index.html)
+* Frontend: [http://localhost:8080](http://localhost:8080)
+* Backend API: [http://localhost:8888](http://localhost:8888)
+* API Documentation: [http://localhost:8888/swagger/index.html](http://localhost:8888/swagger/index.html)
 
 </details>
 
-## 默认账户
+## Default Accounts
 
-系统初始化后会生成以下默认账户：
+After system initialization, the following default accounts will be generated:
 
-* 管理员账户：`admin / Admin123!@#`
+* Administrator account: `admin / Admin123!@#`
 
-> 提示：请在首次登录后立即修改默认密码，修改密码应该在用户管理界面点击对应用户进行修改。
+> Tip: Please change the default passwords immediately after first login.
 
-## 配置文件
+## Configuration File
 
-主要配置文件位于 `server/config.yaml`
+The main configuration file is located at `server/config.yaml`
 
-## 致谢
+## Thanks
 
-感谢以下平台提供测试：
+Thank the following platforms for providing testing:
 
 <a href="https://console.zmto.com/?affid=1524" target="_blank">
   <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" style="height: 50px;">
@@ -292,11 +304,15 @@ go run main.go
   <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="ibm" style="height: 50px;">
 </a>
 
+<a href="https://www.dkly.net/" target="_blank">
+  <img src="https://www.dkly.net/image/e6d8e7b607d3ac82a4894570997d152a.png" alt="dklyIPDatabase" style="height: 50px;">
+</a>
+
 ## LICENSE
 
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=large&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_large&issueType=license)
 
-## 演示截图
+## Demo Screenshots
 
 ![](./.back/1.png)
 ![](./.back/2.png)

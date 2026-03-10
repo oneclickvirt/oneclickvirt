@@ -20,13 +20,13 @@ import (
 	"gorm.io/gorm"
 )
 
-// executeProviderCreation 阶段2: Provider API调用 (30% -> 60%)
+// executeProviderCreation 阶段2: Provider创建实例 (30% -> 60%)，根据ExecutionRule自动选择API或SSH
 func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance) error {
-	global.APP_LOG.Debug("开始Provider API调用阶段", zap.Uint("taskId", task.ID))
+	global.APP_LOG.Debug("开始Provider创建实例阶段", zap.Uint("taskId", task.ID))
 
 	// 检查上下文状态
 	if ctx.Err() != nil {
-		global.APP_LOG.Warn("Provider API调用开始时上下文已取消", zap.Uint("taskId", task.ID), zap.Error(ctx.Err()))
+		global.APP_LOG.Warn("Provider创建实例开始时上下文已取消", zap.Uint("taskId", task.ID), zap.Error(ctx.Err()))
 		return ctx.Err()
 	}
 
@@ -71,7 +71,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
-	// 实现实际的Provider API调用逻辑
+	// 实现实际的Provider操作逻辑（根据ExecutionRule使用API或SSH）
 	// 首先尝试从ProviderService获取已连接的Provider实例（使用ID）
 	providerSvc := providerService.GetProviderService()
 	providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID)
@@ -233,6 +233,11 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			zap.Uint("taskId", task.ID),
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
+		// 对于容器类Provider（docker/podman/containerd），端口映射通过 -p 标志在容器创建时建立，
+		// 预分配失败意味着容器将无任何端口映射，继续创建会产生无法访问的僵尸实例，必须立即终止任务。
+		if localProviderType == "docker" || localProviderType == "podman" || localProviderType == "containerd" {
+			return fmt.Errorf("容器类Provider端口映射预分配失败（podman/containerd/docker 的端口映射在容器创建时绑定，无法事后追加），无法继续创建实例: %v", err)
+		}
 	} else {
 		// 获取已分配的端口映射
 		portMappings, err := portMappingService.GetInstancePortMappings(instance.ID)
@@ -242,8 +247,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				zap.Uint("instanceId", instance.ID),
 				zap.Error(err))
 		} else {
-			// 对于Docker容器，将端口映射信息添加到实例配置中
-			if localProviderType == "docker" {
+			// 对于容器类Provider（docker/podman/containerd），将端口映射信息写入实例配置，
+			// 作为 -p 参数传给容器运行时。LXD/Incus/Proxmox 通过其他机制管理端口，无需此步骤。
+			if localProviderType == "docker" || localProviderType == "podman" || localProviderType == "containerd" {
 				// 将端口映射信息添加到实例配置中
 				var ports []string
 				for _, port := range portMappings {
@@ -260,9 +266,10 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				}
 				instanceConfig.Ports = ports
 
-				global.APP_LOG.Debug("Docker容器端口映射预分配成功",
+				global.APP_LOG.Debug("容器端口映射预分配成功",
 					zap.Uint("taskId", task.ID),
 					zap.Uint("instanceId", instance.ID),
+					zap.String("providerType", localProviderType),
 					zap.Int("portCount", len(ports)),
 					zap.Strings("ports", ports))
 			} else {
@@ -276,7 +283,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		}
 	}
 
-	// 调用Provider API创建实例
+	// 调用Provider创建实例（API或SSH，取决于Provider的ExecutionRule配置）
 	// 创建进度回调函数，与任务系统集成
 	progressCallback := func(percentage int, message string) {
 		// 将Provider内部进度（0-100）映射到任务进度（30-70）
@@ -297,15 +304,15 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		zap.String("instanceName", instance.Name))
 
 	if err := providerInstance.CreateInstanceWithProgress(ctx, instanceConfig, progressCallback); err != nil {
-		err := fmt.Errorf("Provider API创建实例失败: %v", err)
-		global.APP_LOG.Error("Provider API创建实例失败", zap.Uint("taskId", task.ID), zap.Error(err))
+		err := fmt.Errorf("Provider创建实例失败: %v", err)
+		global.APP_LOG.Error("Provider创建实例失败", zap.Uint("taskId", task.ID), zap.Error(err))
 		return err
 	}
 
-	global.APP_LOG.Debug("Provider API调用成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
+	global.APP_LOG.Debug("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
 	// 更新进度到70%
-	s.updateTaskProgress(task.ID, 70, "Provider API调用成功")
+	s.updateTaskProgress(task.ID, 70, "Provider创建实例成功")
 
 	return nil
 }

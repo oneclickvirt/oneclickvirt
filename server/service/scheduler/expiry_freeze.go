@@ -137,9 +137,9 @@ func (s *ExpiryFreezeService) freezeInstance(inst *provider.Instance) error {
 func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
 	now := time.Now()
 
-	// 查询已过期但未冻结的用户
+	// 查询已过期但尚未禁用的用户（users表无is_frozen字段，用status != 0表示未禁用）
 	var users []user.User
-	err := global.APP_DB.Where("expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", now, false).
+	err := global.APP_DB.Where("expires_at IS NOT NULL AND expires_at <= ? AND status != ?", now, 0).
 		Find(&users).Error
 	if err != nil {
 		global.APP_LOG.Error("查询过期用户失败", zap.Error(err))

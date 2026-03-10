@@ -201,7 +201,8 @@ func (s *PortMappingService) GetPortConflictDetails(providerID uint, port int) (
 	// 查询数据库中的端口占用情况
 	var existingPort provider.Port
 	dbConflict := false
-	if err := global.APP_DB.Where("provider_id = ? AND host_port = ? AND status = 'active'",
+	// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
+	if err := global.APP_DB.Where("provider_id = ? AND host_port = ?",
 		providerID, port).First(&existingPort).Error; err == nil {
 		dbConflict = true
 	}
@@ -314,10 +315,14 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 	}
 
 	// 2. 批量查询数据库中已占用的端口（一次查询）
+	// 必须使用 Unscoped() 包含软删除记录：unique index idx_provider_host_port 在 (provider_id, host_port)
+	// 上，软删除行（deleted_at IS NOT NULL）仍然占用唯一键槽位，会导致 INSERT 时出现 Duplicate entry。
+	// 若不使用 Unscoped，GORM 默认添加 AND deleted_at IS NULL 会漏掉这些残留记录，
+	// 使可用性检查误报"可用"，最终在写入时触发重复键错误。
 	dbOccupiedPorts := make(map[int]bool)
 	var dbPorts []provider.Port
-	err := global.APP_DB.Where("provider_id = ? AND host_port >= ? AND host_port <= ? AND status = ?",
-		providerInfo.ID, startPort, endPort, "active").
+	err := global.APP_DB.Unscoped().Where("provider_id = ? AND host_port >= ? AND host_port <= ?",
+		providerInfo.ID, startPort, endPort).
 		Select("host_port").
 		Find(&dbPorts).Error
 

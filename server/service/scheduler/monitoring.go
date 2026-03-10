@@ -59,6 +59,7 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 		global.APP_LOG.Warn("监控调度器已在运行中")
 		return
 	}
+	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
 	s.isRunning = true
 	s.mu.Unlock()
 

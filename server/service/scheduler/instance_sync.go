@@ -48,6 +48,7 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 		global.APP_LOG.Warn("Provider实例同步调度器已在运行中")
 		return
 	}
+	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
 	s.isRunning = true
 	s.mu.Unlock()
 
@@ -81,6 +82,16 @@ func (s *InstanceSyncSchedulerService) IsRunning() bool {
 
 // startSyncTask 启动实例同步任务
 func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
+	// defer recover 必须在函数最开始注册，才能保护整个函数体（包括首次执行）
+	defer func() {
+		if r := recover(); r != nil {
+			global.APP_LOG.Error("Provider实例同步goroutine panic",
+				zap.Any("panic", r),
+				zap.Stack("stack"))
+		}
+		global.APP_LOG.Info("Provider实例同步任务已停止")
+	}()
+
 	// 延迟启动，等待系统初始化完成
 	time.Sleep(2 * time.Minute)
 
@@ -94,15 +105,7 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 	}
 
 	ticker := time.NewTicker(time.Duration(syncInterval) * time.Minute)
-	defer func() {
-		ticker.Stop()
-		if r := recover(); r != nil {
-			global.APP_LOG.Error("Provider实例同步goroutine panic",
-				zap.Any("panic", r),
-				zap.Stack("stack"))
-		}
-		global.APP_LOG.Info("Provider实例同步任务已停止")
-	}()
+	defer ticker.Stop()
 
 	for {
 		select {

@@ -20,6 +20,9 @@ func (phc *ProviderHealthChecker) DetectStoragePoolPath(client *ssh.Client, prov
 		return phc.detectIncusStoragePath(client, storagePoolName)
 	case "docker":
 		return phc.detectDockerStoragePath(client)
+	case "podman", "containerd", "nerdctl":
+		// podman/containerd 的镜像存储通常在 /var/lib/containers 或 /var/lib/containerd
+		return phc.detectContainerStoragePath(client, providerType)
 	default:
 		// 默认返回根目录
 		if phc.logger != nil {
@@ -235,4 +238,54 @@ func (phc *ProviderHealthChecker) getDiskInfoByPath(client *ssh.Client, path str
 	}
 
 	return 0, 0, fmt.Errorf("failed to parse disk info output")
+}
+
+// detectContainerStoragePath 检测 Podman / Containerd 的存储路径
+func (phc *ProviderHealthChecker) detectContainerStoragePath(client *ssh.Client, providerType string) (string, error) {
+	switch strings.ToLower(providerType) {
+	case "podman":
+		// podman info 显示 graphRoot
+		cmd := "podman info 2>/dev/null | grep -E 'graphRoot:|GraphRoot:' | awk -F': ' '{print $2}' | head -1"
+		output, err := phc.executeSSHCommand(client, cmd)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			path := utils.CleanCommandOutput(output)
+			if phc.logger != nil {
+				phc.logger.Info("检测到Podman存储路径", zap.String("path", path))
+			}
+			return path, nil
+		}
+		// 默认路径（rootful）
+		defaultPath := "/var/lib/containers"
+		if phc.logger != nil {
+			phc.logger.Info("使用Podman默认存储路径", zap.String("path", defaultPath))
+		}
+		return defaultPath, nil
+	case "containerd", "nerdctl":
+		// nerdctl/containerd 数据根目录
+		cmd := "nerdctl info 2>/dev/null | grep -E 'Docker Root Dir:|Data Root:' | awk -F': ' '{print $2}' | head -1"
+		output, err := phc.executeSSHCommand(client, cmd)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			path := utils.CleanCommandOutput(output)
+			if phc.logger != nil {
+				phc.logger.Info("检测到containerd(nerdctl)存储路径", zap.String("path", path))
+			}
+			return path, nil
+		}
+		// 通过 containerd 配置查找
+		cmd = "grep -E 'root\\s*=' /etc/containerd/config.toml 2>/dev/null | awk -F'\"' '{print $2}' | head -1"
+		output, err = phc.executeSSHCommand(client, cmd)
+		if err == nil && utils.CleanCommandOutput(output) != "" {
+			path := utils.CleanCommandOutput(output)
+			if phc.logger != nil {
+				phc.logger.Info("从配置文件检测到containerd存储路径", zap.String("path", path))
+			}
+			return path, nil
+		}
+		defaultPath := "/var/lib/containerd"
+		if phc.logger != nil {
+			phc.logger.Info("使用containerd默认存储路径", zap.String("path", defaultPath))
+		}
+		return defaultPath, nil
+	}
+	return "/", nil
 }

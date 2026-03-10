@@ -137,6 +137,10 @@ func (s *ImageService) GetImageDownloadPath(providerType, instanceType string) s
 		return filepath.Join(baseDir, "incus_container_images")
 	case "docker":
 		return filepath.Join(baseDir, "docker_images")
+	case "podman":
+		return filepath.Join(baseDir, "podman_images")
+	case "containerd":
+		return filepath.Join(baseDir, "containerd_images")
 	default:
 		return filepath.Join(baseDir, "images")
 	}

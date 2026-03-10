@@ -76,10 +76,10 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 		return err
 	}
 
-	// 更新进度到30% (开始调用Provider API)
-	s.updateTaskProgress(task.ID, 30, "正在调用Provider API...")
+	// 更新进度到30% (开始调用Provider创建实例)
+	s.updateTaskProgress(task.ID, 30, "正在调用Provider创建实例...")
 
-	// 阶段2: Provider API调用（无事务）(30% -> 60%)
+	// 阶段2: Provider创建实例（无事务，根据ExecutionRule自动选择API或SSH）(30% -> 60%)
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理（快速事务）
@@ -92,7 +92,7 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 
 	// 不再返回apiError，因为业务逻辑已经完全处理了任务状态
 	if apiError != nil {
-		global.APP_LOG.Error("Provider API调用失败", zap.Uint("taskId", task.ID), zap.Error(apiError))
+		global.APP_LOG.Error("Provider创建实例失败", zap.Uint("taskId", task.ID), zap.Error(apiError))
 	}
 
 	global.APP_LOG.Info("实例创建任务处理完成", zap.Uint("taskId", task.ID), zap.Uint("instanceId", instance.ID))

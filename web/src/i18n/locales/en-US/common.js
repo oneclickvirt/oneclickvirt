@@ -47,6 +47,7 @@ export default {
   disable: 'Disable',
   enabled: 'Enabled',
   disabled: 'Disabled',
+  partial: 'Partially Available',
   normal: 'Normal',
   start: 'Start',
   stop: 'Stop',

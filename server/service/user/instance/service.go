@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/service/task"
 	trafficService "oneclickvirt/service/traffic"
 	"oneclickvirt/utils"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
@@ -22,6 +23,14 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+// instanceActionMu 每实例操作互斥锁，防止并发操作同一实例产生重复任务（TOCTOU）
+var instanceActionMu sync.Map // map[uint]*sync.Mutex
+
+func getInstanceActionLock(instanceID uint) *sync.Mutex {
+	mu, _ := instanceActionMu.LoadOrStore(instanceID, &sync.Mutex{})
+	return mu.(*sync.Mutex)
+}
 
 // Service 处理用户实例相关功能
 type Service struct{}
@@ -79,8 +88,10 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 	// 批量查询所有实例的端口映射
 	var allPorts []providerModel.Port
 	if len(instanceIDs) > 0 {
-		global.APP_DB.Where("instance_id IN ? AND status = 'active'", instanceIDs).
-			Order("instance_id, is_ssh DESC, created_at ASC").Find(&allPorts)
+		if err := global.APP_DB.Where("instance_id IN ? AND status = 'active'", instanceIDs).
+			Order("instance_id, is_ssh DESC, created_at ASC").Find(&allPorts).Error; err != nil {
+			return nil, 0, fmt.Errorf("查询端口映射失败: %v", err)
+		}
 	}
 
 	// 将端口映射按instance_id分组
@@ -101,10 +112,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
-		global.APP_DB.Select("id, name, type, status, host, port_ip, endpoint").
+		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint").
 			Where("id IN ?", providerIDs).
 			Limit(1000).
-			Find(&providers)
+			Find(&providers).Error; err != nil {
+			return nil, 0, fmt.Errorf("查询节点信息失败: %v", err)
+		}
 	}
 
 	// 将Provider信息按ID映射
@@ -185,6 +198,11 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 // InstanceAction 执行实例操作
 func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionRequest) error {
+	// 对同一实例加锁，防止并发请求同时通过"已有任务"检查后各自创建任务（TOCTOU）
+	mu := getInstanceActionLock(req.InstanceID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", req.InstanceID, userID).First(&instance).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {

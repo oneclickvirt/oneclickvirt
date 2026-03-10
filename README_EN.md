@@ -277,7 +277,7 @@ The main configuration file is located at `server/config.yaml`
 
 ## Thanks
 
-Thank the following platforms for providing testing:
+We would like to thank the following platforms for providing testing support. Your contribution as our key partners has been invaluable in ensuring the quality and reliability of our services:
 
 <a href="https://console.zmto.com/?affid=1524" target="_blank">
   <img src="https://console.zmto.com/templates/2019/dist/images/logo_dark.svg" alt="zmto" style="height: 50px;">
@@ -289,6 +289,10 @@ Thank the following platforms for providing testing:
 
 <a href="https://community.ibm.com/zsystems/form/l1cc-oss-vm-request/" target="_blank">
   <img src="https://linuxone.cloud.marist.edu/oss/resources/images/linuxonelogo03.png" alt="ibm" style="height: 50px;">
+</a>
+
+<a href="https://www.dkly.net/" target="_blank">
+  <img src="https://www.dkly.net/image/e6d8e7b607d3ac82a4894570997d152a.png" alt="dklyIPDatabase" style="height: 50px;">
 </a>
 
 ## LICENSE

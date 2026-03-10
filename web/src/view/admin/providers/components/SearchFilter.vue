@@ -37,6 +37,14 @@
             :label="$t('admin.providers.docker')"
             value="docker"
           />
+          <el-option
+            :label="$t('admin.providers.podman')"
+            value="podman"
+          />
+          <el-option
+            :label="$t('admin.providers.containerd')"
+            value="containerd"
+          />
         </el-select>
       </el-col>
       <el-col :span="4">

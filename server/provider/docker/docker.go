@@ -17,22 +17,55 @@ import (
 	"go.uber.org/zap"
 )
 
+// ContainerRuntimeConfig 容器运行时配置，用于参数化 docker/podman/containerd 之间的差异
+type ContainerRuntimeConfig struct {
+	ProviderType      string // "docker", "podman", "containerd"
+	CLI               string // "docker", "podman", "nerdctl"
+	IPv4Network       string // "" 表示使用默认 bridge, 否则为 "podman-net" / "containerd-net"
+	IPv4Subnet        string // IPv4子网，用于配置iptables路由规则（podman/containerd: "172.20.0.0/16"，docker留空）
+	IPv6Network       string // "ipv6_net", "podman-ipv6", "containerd-ipv6"
+	ImageDir          string // 远程镜像下载目录
+	IPv6CheckFile     string // IPv6 地址配置文件路径
+	StorageDriverFile string // 存储驱动缓存文件路径
+	ScriptRepo        string // SSH 脚本所在 GitHub 仓库 (org/repo)
+	ServiceCheckName  string // 健康检查使用的 CLI 名称
+}
+
+// defaultDockerRuntime Docker 默认运行时配置
+var defaultDockerRuntime = ContainerRuntimeConfig{
+	ProviderType:      "docker",
+	CLI:               "docker",
+	IPv4Network:       "", // 使用默认 bridge
+	IPv6Network:       "ipv6_net",
+	ImageDir:          "/usr/local/bin/docker_ct_images",
+	IPv6CheckFile:     "/usr/local/bin/docker_check_ipv6",
+	StorageDriverFile: "/usr/local/bin/docker_storage_driver",
+	ScriptRepo:        "oneclickvirt/docker",
+	ServiceCheckName:  "docker",
+}
+
 type DockerProvider struct {
 	config           provider.NodeConfig
+	runtime          ContainerRuntimeConfig
 	sshClient        *utils.SSHClient
 	connected        bool
 	healthChecker    health.HealthChecker
-	version          string             // Docker 版本
+	version          string             // CLI 版本
 	mu               sync.RWMutex       // 保护并发访问
 	imageImportGroup singleflight.Group // 防止同一镜像并发下载/加载
 }
 
 func NewDockerProvider() provider.Provider {
-	return &DockerProvider{}
+	return NewContainerProvider(defaultDockerRuntime)
+}
+
+// NewContainerProvider 创建使用指定运行时配置的容器 Provider
+func NewContainerProvider(runtime ContainerRuntimeConfig) provider.Provider {
+	return &DockerProvider{runtime: runtime}
 }
 
 func (d *DockerProvider) GetType() string {
-	return "docker"
+	return d.runtime.ProviderType
 }
 
 func (d *DockerProvider) GetName() string {
@@ -45,7 +78,8 @@ func (d *DockerProvider) GetSupportedInstanceTypes() []string {
 
 func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig) error {
 	d.config = config
-	global.APP_LOG.Info("Docker provider开始连接",
+	global.APP_LOG.Info("Container provider开始连接",
+		zap.String("type", d.runtime.ProviderType),
 		zap.String("host", utils.TruncateString(config.Host, 32)),
 		zap.Int("port", config.Port))
 
@@ -86,7 +120,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 		APIEnabled:    false, // Docker Provider 不使用 API
 		SSHEnabled:    true,
 		Timeout:       30 * time.Second,
-		ServiceChecks: []string{"docker"},
+		ServiceChecks: []string{d.runtime.ServiceCheckName},
 	}
 
 	// 创建一个简单的zap logger实例给健康检查器使用
@@ -94,13 +128,15 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 	// 使用Provider的SSH连接创建健康检查器，确保在正确的节点上执行命令
 	d.healthChecker = health.NewDockerHealthCheckerWithSSH(healthConfig, zapLogger, client.GetUnderlyingClient())
 
-	// 获取 Docker 版本
+	// 获取 CLI 版本
 	if err := d.getDockerVersion(); err != nil {
-		global.APP_LOG.Warn("Docker 版本获取失败",
+		global.APP_LOG.Warn("容器运行时版本获取失败",
+			zap.String("cli", d.runtime.CLI),
 			zap.Error(err))
 	}
 
-	global.APP_LOG.Info("Docker provider连接成功",
+	global.APP_LOG.Info("Container provider连接成功",
+		zap.String("type", d.runtime.ProviderType),
 		zap.String("host", utils.TruncateString(config.Host, 32)),
 		zap.Int("port", config.Port),
 		zap.String("version", d.version))
@@ -127,8 +163,7 @@ func (d *DockerProvider) EnsureConnection() error {
 	}
 
 	if !d.sshClient.IsHealthy() {
-		global.APP_LOG.Warn("Docker Provider SSH连接不健康，尝试重连",
-			zap.String("host", utils.TruncateString(d.config.Host, 32)),
+		global.APP_LOG.Warn("Docker Provider SSH连接不健康，尝试重连", zap.String("host", utils.TruncateString(d.config.Host, 32)),
 			zap.Int("port", d.config.Port))
 
 		if err := d.sshClient.Reconnect(); err != nil {
@@ -161,16 +196,18 @@ func (d *DockerProvider) GetVersion() string {
 	return d.version
 }
 
-// getDockerVersion 获取 Docker 版本
+// getDockerVersion 获取容器运行时版本
 func (d *DockerProvider) getDockerVersion() error {
 	if d.sshClient == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	// 使用 docker version 命令获取版本
-	output, err := d.sshClient.Execute("docker version --format '{{.Server.Version}}' 2>/dev/null || docker --version")
+	// 尝试结构化版本输出，失败则回退到 --version
+	versionCmd := fmt.Sprintf("%s version --format '{{.Server.Version}}' 2>/dev/null || %s --version 2>/dev/null || echo unknown", d.runtime.CLI, d.runtime.CLI)
+	output, err := d.sshClient.Execute(versionCmd)
 	if err != nil {
-		global.APP_LOG.Error("获取 Docker 版本失败",
+		global.APP_LOG.Error("获取容器运行时版本失败",
+			zap.String("cli", d.runtime.CLI),
 			zap.Error(err))
 		d.version = "unknown"
 		return err
@@ -183,15 +220,15 @@ func (d *DockerProvider) getDockerVersion() error {
 		if line == "" {
 			continue
 		}
-		// 如果是 "Docker version X.Y.Z" 格式，提取版本号
-		if strings.HasPrefix(line, "Docker version") {
+		// 处理 "<CLI> version X.Y.Z" / "Docker version X.Y.Z, build ..." 等格式
+		if strings.Contains(line, " version ") {
 			parts := strings.Fields(line)
 			if len(parts) >= 3 {
-				d.version = parts[2]
+				d.version = strings.TrimSuffix(parts[2], ",")
 				return nil
 			}
 		} else {
-			// 直接返回的版本号
+			// 直接返回的版本号（来自 --format）
 			d.version = line
 			return nil
 		}
@@ -399,7 +436,7 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 	}
 
 	// 使用简单的分隔符格式获取信息，避免table格式的解析问题
-	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("docker inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", id), "DOCKER_INSPECT")
+	output, err := d.sshClient.ExecuteWithLogging(fmt.Sprintf("%s inspect %s --format '{{.Name}}|{{.State.Status}}|{{.Config.Image}}|{{.Id}}|{{.Created}}'", d.runtime.CLI, id), "DOCKER_INSPECT")
 	if err != nil {
 		global.APP_LOG.Debug("Docker inspect命令执行失败",
 			zap.String("id", utils.TruncateString(id, 32)),
@@ -458,14 +495,14 @@ func (d *DockerProvider) GetInstance(ctx context.Context, id string) (*provider.
 // enrichInstanceWithNetworkInfo 补充单个实例的网络信息
 func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instance) {
 	// 1. 获取容器的内网IP地址
-	cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", instance.Name)
+	cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, instance.Name)
 	output, err := d.sshClient.Execute(cmd)
 	if err == nil {
 		ipAddress := strings.TrimSpace(output)
 		if ipAddress != "" && ipAddress != "<no value>" {
 			instance.PrivateIP = ipAddress
 			instance.IP = ipAddress // 保持向后兼容
-			global.APP_LOG.Debug("获取到Docker实例内网IP地址",
+			global.APP_LOG.Debug("获取到容器内网IP地址",
 				zap.String("instance", instance.Name),
 				zap.String("privateIP", ipAddress))
 		}
@@ -474,7 +511,7 @@ func (d *DockerProvider) enrichInstanceWithNetworkInfo(instance *provider.Instan
 	// 2. 获取容器对应的宿主机veth接口
 	vethCmd := fmt.Sprintf(`
 CONTAINER_NAME='%s'
-CONTAINER_PID=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
+CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
 fi
@@ -486,7 +523,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name)
+`, instance.Name, d.runtime.CLI)
 
 	vethOutput, err := d.sshClient.Execute(vethCmd)
 	if err == nil {
@@ -496,7 +533,7 @@ fi
 				instance.Metadata = make(map[string]string)
 			}
 			instance.Metadata["network_interface"] = vethInterface
-			global.APP_LOG.Debug("获取到Docker实例veth接口",
+			global.APP_LOG.Debug("获取到容器veth接口",
 				zap.String("instance", instance.Name),
 				zap.String("veth", vethInterface))
 		}
@@ -504,32 +541,32 @@ fi
 
 	// 如果没有获取到PrivateIP，尝试使用旧方法获取
 	if instance.PrivateIP == "" {
-		cmd := fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", instance.Name)
+		cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, instance.Name)
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
 			ipAddress := strings.TrimSpace(output)
 			if ipAddress != "" && ipAddress != "<no value>" {
 				instance.PrivateIP = ipAddress
 				instance.IP = ipAddress
-				global.APP_LOG.Debug("通过默认网络获取到Docker实例IP地址",
+				global.APP_LOG.Debug("通过默认网络获取到容器IP地址",
 					zap.String("instance", instance.Name),
 					zap.String("privateIP", ipAddress))
 			}
 		}
 	}
 
-	// 3. 检查容器是否连接到ipv6_net网络，如果是则获取IPv6地址
-	checkIPv6Cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", instance.Name)
+	// 3. 检查容器是否连接到 IPv6 网络，如果是则获取IPv6地址
+	checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, instance.Name)
 	networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
-	if err == nil && strings.Contains(networksOutput, "ipv6_net") {
-		// 容器连接到了ipv6_net，获取IPv6地址
-		cmd = fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", instance.Name)
+	if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
+		// 容器连接到了 IPv6 网络，获取IPv6地址
+		cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, instance.Name)
 		output, err = d.sshClient.Execute(cmd)
 		if err == nil {
 			ipv6Address := strings.TrimSpace(output)
 			if ipv6Address != "" && ipv6Address != "<no value>" {
 				instance.IPv6Address = ipv6Address
-				global.APP_LOG.Debug("获取到Docker实例IPv6地址",
+				global.APP_LOG.Debug("获取到容器IPv6地址",
 					zap.String("instance", instance.Name),
 					zap.String("ipv6", ipv6Address))
 			}
@@ -543,17 +580,18 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 		return false
 	}
 
-	// 检查 ipv6_net 网络是否存在
-	_, err := d.sshClient.Execute("docker network inspect ipv6_net")
+	// 检查 IPv6 网络是否存在
+	_, err := d.sshClient.Execute(fmt.Sprintf("%s network inspect %s", d.runtime.CLI, d.runtime.IPv6Network))
 	if err != nil {
-		global.APP_LOG.Debug("IPv6网络检查失败: ipv6_net网络不存在",
+		global.APP_LOG.Debug("IPv6网络检查失败: 网络不存在",
 			zap.String("provider", d.config.Name),
+			zap.String("network", d.runtime.IPv6Network),
 			zap.Error(err))
 		return false
 	}
 
 	// 检查 ndpresponder 容器是否存在且正在运行
-	ndpresponderCmd := "docker inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null"
+	ndpresponderCmd := fmt.Sprintf("%s inspect -f '{{.State.Status}}' ndpresponder 2>/dev/null", d.runtime.CLI)
 	ndpresponderOutput, err := d.sshClient.Execute(ndpresponderCmd)
 	if err != nil {
 		global.APP_LOG.Debug("IPv6网络检查: ndpresponder容器不存在",
@@ -570,7 +608,8 @@ func (d *DockerProvider) checkIPv6NetworkAvailable() bool {
 	}
 
 	// 检查IPv6地址配置文件是否存在且非空
-	ipv6ConfigCmd := "[ -f /usr/local/bin/docker_check_ipv6 ] && [ -s /usr/local/bin/docker_check_ipv6 ] && [ \"$(sed -e '/^[[:space:]]*$/d' /usr/local/bin/docker_check_ipv6)\" != \"\" ] && echo 'valid' || echo 'invalid'"
+	ipv6Cfg := d.runtime.IPv6CheckFile
+	ipv6ConfigCmd := fmt.Sprintf("[ -f %s ] && [ -s %s ] && [ \"$(sed -e '/^[[:space:]]*$/d' %s)\" != \"\" ] && echo 'valid' || echo 'invalid'", ipv6Cfg, ipv6Cfg, ipv6Cfg)
 	ipv6ConfigOutput, err := d.sshClient.Execute(ipv6ConfigCmd)
 	if err != nil || strings.TrimSpace(ipv6ConfigOutput) != "valid" {
 		global.APP_LOG.Debug("IPv6网络检查: IPv6地址配置文件无效或不存在",

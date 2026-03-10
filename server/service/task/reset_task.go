@@ -451,7 +451,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		createReq.InstanceConfig.Ports = ports
 	}
 
-	// 调用Provider API创建实例
+	// 调用Provider创建实例（根据Provider的ExecutionRule配置自动选择API或SSH）
 	providerApiService := &provider2.ProviderApiService{}
 	if err := providerApiService.CreateInstanceByProviderID(ctx, resetCtx.Provider.ID, createReq); err != nil {
 		// 创建失败，更新实例状态为failed，但不回滚数据库（保留记录供排查）

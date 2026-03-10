@@ -14,18 +14,18 @@ type SystemStatsService struct{}
 func (s *SystemStatsService) GetInstanceStats() (map[string]interface{}, error) {
 	var total, running, stopped int64
 
-	// 统计总实例数
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("soft_deleted = ?", false).Count(&total).Error; err != nil {
+	// 统计总实例数（GORM 自动过滤 deleted_at IS NOT NULL 的软删除记录）
+	if err := global.APP_DB.Model(&provider.Instance{}).Count(&total).Error; err != nil {
 		return nil, err
 	}
 
 	// 统计运行中的实例
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("soft_deleted = ? AND status = ?", false, "running").Count(&running).Error; err != nil {
+	if err := global.APP_DB.Model(&provider.Instance{}).Where("status = ?", "running").Count(&running).Error; err != nil {
 		return nil, err
 	}
 
 	// 统计已停止的实例
-	if err := global.APP_DB.Model(&provider.Instance{}).Where("soft_deleted = ? AND status = ?", false, "stopped").Count(&stopped).Error; err != nil {
+	if err := global.APP_DB.Model(&provider.Instance{}).Where("status = ?", "stopped").Count(&stopped).Error; err != nil {
 		return nil, err
 	}
 

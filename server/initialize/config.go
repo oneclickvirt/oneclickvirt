@@ -45,9 +45,10 @@ func getDefaultConfig() config.Server {
 			LogInConsole:  true,
 		},
 		Mysql: config.Mysql{
-			Path:         "127.0.0.1",
-			Port:         "3306",
-			Config:       "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
+			Path:   "127.0.0.1",
+			Port:   "3306",
+			Config: "charset=utf8mb4&parseTime=True&loc=Asia%2FShanghai&time_zone=%27%2B08%3A00%27",
+
 			Dbname:       "oneclickvirt",
 			Username:     "root",
 			Password:     "root",

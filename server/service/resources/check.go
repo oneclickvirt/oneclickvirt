@@ -66,7 +66,7 @@ func (s *PortMappingService) isGenericPortAvailable(providerInfo *provider.Provi
 func (s *PortMappingService) isPortAvailableOnProvider(providerInfo *provider.Provider, port int) bool {
 	// 根据Provider类型检查端口是否被占用
 	switch providerInfo.Type {
-	case "docker":
+	case "docker", "podman", "containerd":
 		return s.isDockerPortAvailable(providerInfo, port)
 	case "lxd", "incus":
 		return s.isLXDPortAvailable(providerInfo, port)

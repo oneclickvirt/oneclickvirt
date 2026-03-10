@@ -2,12 +2,14 @@ package task
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/service/interfaces"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -156,18 +158,22 @@ func (pool *ProviderWorkerPool) executeTask(taskReq TaskRequest) {
 
 	// 执行具体任务逻辑
 	taskError := pool.TaskService.executeTaskLogic(taskCtx, &task)
-	if taskError != nil {
+
+	// 判断是否为"后台goroutine接管完成"哨兵信号
+	if errors.Is(taskError, interfaces.ErrAsyncCompletion) {
+		// 任务逻辑已启动后台goroutine负责标记任务完成，worker pool 无需调用 CompleteTask
+		result.Success = true
+		global.APP_LOG.Debug("任务移交后台goroutine处理，worker pool跳过CompleteTask",
+			zap.Uint("taskId", task.ID))
+	} else if taskError != nil {
 		result.Error = taskError
+		// 更新任务完成状态（失败）
+		pool.TaskService.CompleteTask(task.ID, false, taskError.Error(), result.Data)
 	} else {
 		result.Success = true
+		// 更新任务完成状态（成功）
+		pool.TaskService.CompleteTask(task.ID, true, "", result.Data)
 	}
-
-	// 更新任务完成状态
-	errorMsg := ""
-	if result.Error != nil {
-		errorMsg = result.Error.Error()
-	}
-	pool.TaskService.CompleteTask(task.ID, result.Success, errorMsg, result.Data)
 
 	// 非阻塞发送结果，防止goroutine泄漏
 	// 使用timer代替time.After避免内存泄漏

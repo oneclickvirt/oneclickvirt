@@ -12,10 +12,12 @@ import (
 type ProviderType string
 
 const (
-	ProviderTypeDocker  ProviderType = "docker"
-	ProviderTypeLXD     ProviderType = "lxd"
-	ProviderTypeIncus   ProviderType = "incus"
-	ProviderTypeProxmox ProviderType = "proxmox"
+	ProviderTypeDocker     ProviderType = "docker"
+	ProviderTypeLXD        ProviderType = "lxd"
+	ProviderTypeIncus      ProviderType = "incus"
+	ProviderTypeProxmox    ProviderType = "proxmox"
+	ProviderTypePodman     ProviderType = "podman"
+	ProviderTypeContainerd ProviderType = "containerd"
 )
 
 // HealthManager 健康检查管理器
@@ -64,7 +66,7 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 	var checkerTypeName string
 
 	switch providerType {
-	case ProviderTypeDocker:
+	case ProviderTypeDocker, ProviderTypePodman, ProviderTypeContainerd:
 		if configCopy.APIScheme == "" {
 			configCopy.APIScheme = "http"
 		}

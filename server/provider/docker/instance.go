@@ -17,7 +17,7 @@ import (
 
 // sshListInstances 列出所有实例
 func (d *DockerProvider) sshListInstances(ctx context.Context) ([]provider.Instance, error) {
-	output, err := d.sshClient.ExecuteWithLogging("docker ps -a --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.ID}}\\t{{.CreatedAt}}'", "DOCKER_LIST")
+	output, err := d.sshClient.ExecuteWithLogging(d.runtime.CLI+" ps -a --format 'table {{.Names}}\\t{{.Status}}\\t{{.Image}}\\t{{.ID}}\\t{{.CreatedAt}}'", "DOCKER_LIST")
 	if err != nil {
 		return nil, err
 	}
@@ -54,7 +54,7 @@ func (d *DockerProvider) sshListInstances(ctx context.Context) ([]provider.Insta
 	// 获取每个实例的网络信息（IP地址和网络接口）
 	d.enrichInstancesWithNetworkInfo(&instances)
 
-	global.APP_LOG.Info("获取Docker实例列表成功", zap.Int("count", len(instances)))
+	global.APP_LOG.Info("获取容器实例列表成功", zap.Int("count", len(instances)))
 	return instances, nil
 }
 
@@ -68,14 +68,14 @@ func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 		}
 
 		// 1. 获取容器的内网IP地址
-		cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", instance.Name)
+		cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$config.IPAddress}}{{end}}'", d.runtime.CLI, instance.Name)
 		output, err := d.sshClient.Execute(cmd)
 		if err == nil {
 			ipAddress := utils.CleanCommandOutput(output)
 			if ipAddress != "" && ipAddress != "<no value>" {
 				instance.PrivateIP = ipAddress
 				instance.IP = ipAddress // 保持向后兼容
-				global.APP_LOG.Debug("获取到Docker实例内网IP地址",
+				global.APP_LOG.Debug("获取到容器内网IP地址",
 					zap.String("instance", instance.Name),
 					zap.String("privateIP", ipAddress))
 			}
@@ -84,7 +84,7 @@ func (d *DockerProvider) enrichInstancesWithNetworkInfo(instances *[]provider.In
 		// 2. 获取容器对应的宿主机veth接口
 		vethCmd := fmt.Sprintf(`
 CONTAINER_NAME='%s'
-CONTAINER_PID=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
+CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
 fi
@@ -96,7 +96,7 @@ VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': '
 if [ -n "$VETH_NAME" ]; then
     echo "$VETH_NAME"
 fi
-`, instance.Name)
+`, instance.Name, d.runtime.CLI)
 
 		vethOutput, err := d.sshClient.Execute(vethCmd)
 		if err == nil {
@@ -106,7 +106,7 @@ fi
 					instance.Metadata = make(map[string]string)
 				}
 				instance.Metadata["network_interface"] = vethInterface
-				global.APP_LOG.Debug("获取到Docker实例veth接口",
+				global.APP_LOG.Debug("获取到容器veth接口",
 					zap.String("instance", instance.Name),
 					zap.String("veth", vethInterface))
 			}
@@ -114,32 +114,32 @@ fi
 
 		// 如果没有获取到PrivateIP，尝试使用旧方法获取
 		if instance.PrivateIP == "" {
-			cmd := fmt.Sprintf("docker inspect %s --format '{{.NetworkSettings.IPAddress}}'", instance.Name)
+			cmd := fmt.Sprintf("%s inspect %s --format '{{.NetworkSettings.IPAddress}}'", d.runtime.CLI, instance.Name)
 			output, err := d.sshClient.Execute(cmd)
 			if err == nil {
 				ipAddress := strings.TrimSpace(output)
 				if ipAddress != "" && ipAddress != "<no value>" {
 					instance.PrivateIP = ipAddress
 					instance.IP = ipAddress
-					global.APP_LOG.Debug("通过默认网络获取到Docker实例IP地址",
+					global.APP_LOG.Debug("通过默认网络获取到容器IP地址",
 						zap.String("instance", instance.Name),
 						zap.String("privateIP", ipAddress))
 				}
 			}
 		}
 
-		// 3. 检查容器是否连接到ipv6_net网络，如果是则获取IPv6地址
-		checkIPv6Cmd := fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", instance.Name)
+		// 3. 检查容器是否连接到 IPv6 网络
+		checkIPv6Cmd := fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{$net}}{{println}}{{end}}'", d.runtime.CLI, instance.Name)
 		networksOutput, err := d.sshClient.Execute(checkIPv6Cmd)
-		if err == nil && strings.Contains(networksOutput, "ipv6_net") {
-			// 容器连接到了ipv6_net，获取IPv6地址
-			cmd = fmt.Sprintf("docker inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", instance.Name)
+		if err == nil && strings.Contains(networksOutput, d.runtime.IPv6Network) {
+			// 容器连接到了 IPv6 网络，获取IPv6地址
+			cmd = fmt.Sprintf("%s inspect %s --format '{{range $net, $config := .NetworkSettings.Networks}}{{if $config.GlobalIPv6Address}}{{$config.GlobalIPv6Address}}{{end}}{{end}}'", d.runtime.CLI, instance.Name)
 			output, err = d.sshClient.Execute(cmd)
 			if err == nil {
 				ipv6Address := strings.TrimSpace(output)
 				if ipv6Address != "" && ipv6Address != "<no value>" {
 					instance.IPv6Address = ipv6Address
-					global.APP_LOG.Debug("获取到Docker实例IPv6地址",
+					global.APP_LOG.Debug("获取到容器IPv6地址",
 						zap.String("instance", instance.Name),
 						zap.String("ipv6", ipv6Address))
 				}
@@ -270,7 +270,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(70, "清理同名残留容器...")
 	// 预先清理任何同名的残留容器（包括停止、失败或创建失败的容器）
 	// 这可以避免端口冲突和容器名称冲突
-	cleanupCmd := fmt.Sprintf("docker ps -a --filter name=^%s$ -q | xargs -r docker rm -f", config.Name)
+	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", d.runtime.CLI, config.Name, d.runtime.CLI)
 	global.APP_LOG.Debug("创建前清理同名容器",
 		zap.String("instance", utils.TruncateString(config.Name, 32)),
 		zap.String("command", cleanupCmd))
@@ -288,8 +288,8 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(72, "构建Docker run命令...")
-	// 构建docker run命令
-	cmd := fmt.Sprintf("docker run -d --name %s", config.Name)
+	// 构建 run 命令
+	cmd := fmt.Sprintf("%s run -d --name %s", d.runtime.CLI, config.Name)
 
 	// 检查是否启用IPv6网络（支持标准的网络类型值）
 	networkType := d.config.NetworkType
@@ -305,15 +305,19 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	hasIPv6 := networkType == "nat_ipv4_ipv6" || networkType == "dedicated_ipv4_ipv6" || networkType == "ipv6_only"
 	if hasIPv6 && d.checkIPv6NetworkAvailable() {
-		cmd += " --network=ipv6_net"
+		cmd += fmt.Sprintf(" --network=%s", d.runtime.IPv6Network)
 		global.APP_LOG.Debug("启用IPv6网络",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.String("provider", d.config.Name))
 	} else {
 		if hasIPv6 {
-			global.APP_LOG.Warn("Provider配置启用IPv6但ipv6_net网络不可用",
+			global.APP_LOG.Warn("Provider配置启用IPv6但 IPv6 网络不可用",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("provider", d.config.Name))
+		}
+		// 如果运行时指定了 IPv4 网络（如 podman-net / containerd-net），显式指定
+		if d.runtime.IPv4Network != "" {
+			cmd += fmt.Sprintf(" --network=%s", d.runtime.IPv4Network)
 		}
 	}
 
@@ -483,6 +487,10 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(90, "配置容器能力和环境变量...")
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"
+	// Podman需要NET_ADMIN和NET_RAW才能正确配置iptables转发规则（Docker由daemon管理，不需要）
+	if d.runtime.ProviderType == "podman" {
+		cmd += " --cap-add=NET_ADMIN --cap-add=NET_RAW"
+	}
 
 	for key, value := range config.Env {
 		cmd += fmt.Sprintf(" -e %s=%s", key, value)
@@ -524,7 +532,7 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		time.Sleep(checkInterval)
 
 		// 检查容器状态
-		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", config.Name))
+		statusOutput, err := d.sshClient.Execute(fmt.Sprintf("%s inspect %s --format '{{.State.Status}}'", d.runtime.CLI, config.Name))
 		if err == nil {
 			status := strings.ToLower(strings.TrimSpace(statusOutput))
 			if status == "running" {
@@ -544,6 +552,11 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	if !isRunning {
 		global.APP_LOG.Warn("无法确认容器运行状态，继续执行后续操作",
 			zap.String("name", utils.TruncateString(config.Name, 32)))
+	}
+
+	// 对于podman/containerd，确保宿主机iptables路由规则存在（使容器网络可以正常访问外网）
+	if d.runtime.IPv4Subnet != "" {
+		d.ensureContainerNetworkRouting()
 	}
 
 	// 配置SSH密码
@@ -582,6 +595,27 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(100, "Docker实例创建完成")
-	global.APP_LOG.Info("Docker实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
+	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
 	return nil
+}
+
+// ensureContainerNetworkRouting 确保宿主机上的iptables路由规则存在
+// 用于podman/containerd等不自动配置内核转发规则的容器运行时
+func (d *DockerProvider) ensureContainerNetworkRouting() {
+	subnet := d.runtime.IPv4Subnet
+	if subnet == "" {
+		return
+	}
+	rules := []string{
+		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s ! -d %s -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s %s ! -d %s -j MASQUERADE", subnet, subnet, subnet, subnet),
+		fmt.Sprintf("iptables -C FORWARD -s %s -j ACCEPT 2>/dev/null || iptables -A FORWARD -s %s -j ACCEPT", subnet, subnet),
+		fmt.Sprintf("iptables -C FORWARD -d %s -j ACCEPT 2>/dev/null || iptables -A FORWARD -d %s -j ACCEPT", subnet, subnet),
+	}
+	for _, rule := range rules {
+		if _, err := d.sshClient.Execute(rule); err != nil {
+			global.APP_LOG.Warn("iptables路由规则设置失败（非致命）",
+				zap.String("subnet", subnet),
+				zap.Error(err))
+		}
+	}
 }

@@ -50,7 +50,7 @@
             </el-checkbox>
             <el-checkbox 
               v-model="modelValue.vmEnabled"
-              :disabled="modelValue.type === 'docker'"
+              :disabled="['docker', 'podman', 'containerd'].includes(modelValue.type)"
             >
               <span style="font-size: 14px;">{{ $t('admin.providers.supportVM') }}</span>
               <el-tooltip
@@ -71,7 +71,7 @@
               size="small"
               type="info"
             >
-              {{ modelValue.type === 'docker' ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtualizationType') }}
+              {{ ['docker', 'podman', 'containerd'].includes(modelValue.type) ? $t('admin.providers.dockerOnlyContainer') : $t('admin.providers.selectVirtualizationType') }}
             </el-text>
           </div>
         </el-card>
