@@ -481,25 +481,25 @@ jobs:
         id: date
         run: echo "date=$(date +'%Y%m%d')" >> $GITHUB_OUTPUT
       
-      - name: Update local README.md
+      - name: Update local README_ZH.md
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           
           # Update Chinese README
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | 一体化版本特定日期版本 |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | 一体化版本特定日期版本 |/g" README.md
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | 独立数据库版本特定日期 |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | 独立数据库版本特定日期 |/g" README.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | 一体化版本特定日期版本 |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | 一体化版本特定日期版本 |/g" README_ZH.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | 独立数据库版本特定日期 |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | 独立数据库版本特定日期 |/g" README_ZH.md
           
-          echo "Updated README.md with tag: ${DATE_TAG}"
+          echo "Updated README_ZH.md with tag: ${DATE_TAG}"
       
-      - name: Update local README_EN.md
+      - name: Update local README.md
         run: |
           DATE_TAG="${{ steps.date.outputs.date }}"
           
           # Update English README
-          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" README_EN.md
-          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" README_EN.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:[0-9]\{8\}\` | All-in-one version with specific date |/| \`spiritlhl\/oneclickvirt:${DATE_TAG}\` | All-in-one version with specific date |/g" README.md
+          sed -i "s/| \`spiritlhl\/oneclickvirt:no-db-[0-9]\{8\}\` | Standalone database version with date |/| \`spiritlhl\/oneclickvirt:no-db-${DATE_TAG}\` | Standalone database version with date |/g" README.md
           
-          echo "Updated README_EN.md with tag: ${DATE_TAG}"
+          echo "Updated README.md with tag: ${DATE_TAG}"
       
       - name: Commit and push local changes
         run: |
@@ -509,7 +509,7 @@ jobs:
           if git diff --quiet; then
             echo "No changes to commit in local repo"
           else
-            git add README.md README_EN.md
+            git add README.md README_ZH.md
             git commit -m "chore: update Docker image tags to ${{ steps.date.outputs.date }}"
             git push
             echo "Successfully pushed local documentation updates"
