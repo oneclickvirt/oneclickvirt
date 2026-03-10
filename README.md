@@ -18,16 +18,16 @@ An extensible universal virtualization management platform that supports LXD, In
 
 ## Supported Virtualization Platforms
 
-| Type ID | Platform | Instance Types | Repository | Prerequisites |
-|---------|----------|----------------|------------|---------------|
-| `lxd` | LXD | container, vm | [oneclickvirt/lxd](https://github.com/oneclickvirt/lxd) | - |
-| `incus` | Incus | container, vm | [oneclickvirt/incus](https://github.com/oneclickvirt/incus) | - |
-| `docker` | Docker | container | [oneclickvirt/docker](https://github.com/oneclickvirt/docker) | - |
-| `podman` | Podman | container | [oneclickvirt/podman](https://github.com/oneclickvirt/podman) | [oneclickvirt/podman](https://github.com/oneclickvirt/podman) |
-| `containerd` | Containerd (nerdctl) | container | [oneclickvirt/containerd](https://github.com/oneclickvirt/containerd) | [oneclickvirt/containerd](https://github.com/oneclickvirt/containerd) |
-| `proxmox` | Proxmox VE | vm | [oneclickvirt/pve](https://github.com/oneclickvirt/pve) | - |
-| `qemu` | QEMU | vm | [oneclickvirt/qemu](https://github.com/oneclickvirt/qemu) | - |
-| `kubevirt` | KubeVirt | vm | [oneclickvirt/kubevirt](https://github.com/oneclickvirt/kubevirt) | - |
+| Type ID | Platform | Instance Types | Repository |
+|---------|----------|----------------|------------|
+| `lxd` | LXD | container, vm | [oneclickvirt/lxd](https://github.com/oneclickvirt/lxd) |
+| `incus` | Incus | container, vm | [oneclickvirt/incus](https://github.com/oneclickvirt/incus) |
+| `docker` | Docker | container | [oneclickvirt/docker](https://github.com/oneclickvirt/docker) |
+| `podman` | Podman | container | [oneclickvirt/podman](https://github.com/oneclickvirt/podman) |
+| `containerd` | Containerd (nerdctl) | container | [oneclickvirt/containerd](https://github.com/oneclickvirt/containerd) |
+| `proxmox` | Proxmox VE | container, vm | [oneclickvirt/pve](https://github.com/oneclickvirt/pve) |
+| `qemu` | QEMU | vm | [oneclickvirt/qemu](https://github.com/oneclickvirt/qemu) |
+| `kubevirt` | KubeVirt | vm | [oneclickvirt/kubevirt](https://github.com/oneclickvirt/kubevirt) |
 
 ## Quick Deployment
 
