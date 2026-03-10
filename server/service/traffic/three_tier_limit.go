@@ -378,11 +378,6 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 
 	totalUsedMB := int64(monthlyStats.ActualUsageMB)
 
-	// 更新用户已使用流量
-	if err := global.APP_DB.Model(&u).Update("used_traffic", totalUsedMB).Error; err != nil {
-		return false, fmt.Errorf("更新用户流量失败: %w", err)
-	}
-
 	// 检查是否超限
 	if totalUsedMB >= u.TotalTraffic {
 		// 用户超限，停止用户所有实例

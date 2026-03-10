@@ -18,12 +18,65 @@ import (
 // DockerPortMapping Docker端口映射实现
 type DockerPortMapping struct {
 	*portmapping.BaseProvider
+	cliName string
+}
+
+// cli 返回容器运行时CLI名称
+func (d *DockerPortMapping) cli() string {
+	if d.cliName != "" {
+		return d.cliName
+	}
+	return "docker"
+}
+
+// NewContainerPortMapping 创建Container端口映射Provider
+func NewContainerPortMapping(providerType, cliName string, config *portmapping.ManagerConfig) portmapping.PortMappingProvider {
+	return &DockerPortMapping{
+		BaseProvider: portmapping.NewBaseProvider(providerType, config),
+		cliName:      cliName,
+	}
 }
 
 // NewDockerPortMapping 创建Docker端口映射Provider
 func NewDockerPortMapping(config *portmapping.ManagerConfig) portmapping.PortMappingProvider {
-	return &DockerPortMapping{
-		BaseProvider: portmapping.NewBaseProvider("docker", config),
+	return NewContainerPortMapping("docker", "docker", config)
+}
+
+// containerNetworkName 返回非Docker运行时需要显式指定的IPv4网络名称
+func (d *DockerPortMapping) containerNetworkName() string {
+	switch d.GetProviderType() {
+	case "podman":
+		return "podman-net"
+	case "containerd":
+		return "containerd-net"
+	default:
+		return "" // docker使用默认bridge，无需指定
+	}
+}
+
+// containerSubnet 返回容器运行时IPv4子网（用于iptables规则）
+func (d *DockerPortMapping) containerSubnet() string {
+	switch d.GetProviderType() {
+	case "podman", "containerd":
+		return "172.20.0.0/16"
+	default:
+		return ""
+	}
+}
+
+// ensureSubnetIptables 通过指定的执行函数确保子网iptables路由规则存在（幂等操作）
+func ensureSubnetIptables(subnet string, execute func(cmd string) (string, error)) {
+	rules := []string{
+		fmt.Sprintf("iptables -t nat -C POSTROUTING -s %s ! -d %s -j MASQUERADE 2>/dev/null || iptables -t nat -A POSTROUTING -s %s ! -d %s -j MASQUERADE", subnet, subnet, subnet, subnet),
+		fmt.Sprintf("iptables -C FORWARD -s %s -j ACCEPT 2>/dev/null || iptables -A FORWARD -s %s -j ACCEPT", subnet, subnet),
+		fmt.Sprintf("iptables -C FORWARD -d %s -j ACCEPT 2>/dev/null || iptables -A FORWARD -d %s -j ACCEPT", subnet, subnet),
+	}
+	for _, rule := range rules {
+		if _, err := execute(rule); err != nil {
+			global.APP_LOG.Warn("iptables路由规则设置失败（非致命）",
+				zap.String("subnet", subnet),
+				zap.Error(err))
+		}
 	}
 }
 
@@ -309,7 +362,7 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 		zap.String("providerName", providerInfo.Name))
 
 	// 检查容器是否存在
-	checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", instance.Name)
 	status, err := providerInstance.ExecuteSSHCommand(ctx, checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -320,24 +373,24 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 	// Docker不支持动态端口映射，需要重新创建容器
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
 		// 获取现有容器的配置
-		inspectCmd := fmt.Sprintf("docker inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
 		configInfo, err := providerInstance.ExecuteSSHCommand(ctx, inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
 		// 获取现有的端口映射
-		portsCmd := fmt.Sprintf("docker port %s", instance.Name)
+		portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
 		existingPorts, _ := providerInstance.ExecuteSSHCommand(ctx, portsCmd)
 
 		// 停止并删除现有容器
-		stopCmd := fmt.Sprintf("docker stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
 		_, err = providerInstance.ExecuteSSHCommand(ctx, stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf("docker rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
 		_, err = providerInstance.ExecuteSSHCommand(ctx, removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -348,6 +401,13 @@ func (d *DockerPortMapping) createDockerPortMapping(ctx context.Context, instanc
 		_, err = providerInstance.ExecuteSSHCommand(ctx, recreateCmd)
 		if err != nil {
 			return fmt.Errorf("failed to recreate container with port mapping: %v", err)
+		}
+
+		// 对于podman/containerd，确保iptables路由规则存在（幂等操作，规则已存在时直接跳过）
+		if subnet := d.containerSubnet(); subnet != "" {
+			ensureSubnetIptables(subnet, func(cmd string) (string, error) {
+				return providerInstance.ExecuteSSHCommand(ctx, cmd)
+			})
 		}
 
 		global.APP_LOG.Debug("Container recreated with new port mapping",
@@ -375,7 +435,7 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 	defer sshClient.Close()
 
 	// 检查容器是否存在
-	checkCmd := fmt.Sprintf("docker inspect %s --format '{{.State.Status}}'", instance.Name)
+	checkCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.State.Status}}'", instance.Name)
 	status, err := sshClient.Execute(checkCmd)
 	if err != nil {
 		return fmt.Errorf("failed to check container status: %v", err)
@@ -386,24 +446,24 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 	// Docker不支持动态端口映射，需要重新创建容器
 	if strings.Contains(status, "running") || strings.Contains(status, "exited") {
 		// 获取现有容器的配置
-		inspectCmd := fmt.Sprintf("docker inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+		inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
 		configInfo, err := sshClient.Execute(inspectCmd)
 		if err != nil {
 			return fmt.Errorf("failed to get container config: %v", err)
 		}
 
 		// 获取现有的端口映射
-		portsCmd := fmt.Sprintf("docker port %s", instance.Name)
+		portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
 		existingPorts, _ := sshClient.Execute(portsCmd)
 
 		// 停止并删除现有容器
-		stopCmd := fmt.Sprintf("docker stop %s", instance.Name)
+		stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
 		_, err = sshClient.Execute(stopCmd)
 		if err != nil {
 			global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 		}
 
-		removeCmd := fmt.Sprintf("docker rm %s", instance.Name)
+		removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
 		_, err = sshClient.Execute(removeCmd)
 		if err != nil {
 			return fmt.Errorf("failed to remove container: %v", err)
@@ -414,6 +474,13 @@ func (d *DockerPortMapping) createDockerPortMappingWithTempSSH(ctx context.Conte
 		_, err = sshClient.Execute(recreateCmd)
 		if err != nil {
 			return fmt.Errorf("failed to recreate container with port mapping: %v", err)
+		}
+
+		// 对于podman/containerd，确保iptables路由规则存在（幂等操作，规则已存在时直接跳过）
+		if subnet := d.containerSubnet(); subnet != "" {
+			ensureSubnetIptables(subnet, func(cmd string) (string, error) {
+				return sshClient.Execute(cmd)
+			})
 		}
 
 		global.APP_LOG.Debug("Container recreated with new port mapping",
@@ -481,7 +548,12 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 	image := configParts[0]
 
 	// 构建基础命令
-	cmd := fmt.Sprintf("docker run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", instance.Name)
+
+	// 网络配置（podman/containerd需要明确指定自定义网络，否则重建后丢失网络配置）
+	if networkName := d.containerNetworkName(); networkName != "" {
+		cmd += fmt.Sprintf(" --network=%s", networkName)
+	}
 
 	// 资源限制（如果有的话）
 	if len(configParts) >= 3 && configParts[2] != "0" {
@@ -527,6 +599,10 @@ func (d *DockerPortMapping) buildDockerRunCommand(instance *provider.Instance, c
 
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"
+	// Podman需要NET_ADMIN和NET_RAW才能正确配置iptables转发规则
+	if d.GetProviderType() == "podman" {
+		cmd += " --cap-add=NET_ADMIN --cap-add=NET_RAW"
+	}
 
 	// 镜像
 	cmd += fmt.Sprintf(" %s", image)
@@ -557,27 +633,27 @@ func (d *DockerPortMapping) removeDockerPortMapping(ctx context.Context, instanc
 
 	// Docker不支持动态移除端口映射，需要重新创建容器（不包含该端口映射）
 	// 获取现有容器的配置
-	inspectCmd := fmt.Sprintf("docker inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
+	inspectCmd := fmt.Sprintf(d.cli()+" inspect %s --format '{{.Config.Image}} {{.Config.Cmd}} {{.HostConfig.Memory}} {{.HostConfig.NanoCpus}}'", instance.Name)
 	configInfo, err := sshClient.Execute(inspectCmd)
 	if err != nil {
 		return fmt.Errorf("failed to get container config: %v", err)
 	}
 
 	// 获取现有的端口映射（排除要删除的）
-	portsCmd := fmt.Sprintf("docker port %s", instance.Name)
+	portsCmd := fmt.Sprintf(d.cli()+" port %s", instance.Name)
 	existingPorts, _ := sshClient.Execute(portsCmd)
 
 	// 过滤掉要删除的端口映射
 	filteredPorts := d.filterPortMappings(existingPorts, hostPort, guestPort, protocol)
 
 	// 停止并删除现有容器
-	stopCmd := fmt.Sprintf("docker stop %s", instance.Name)
+	stopCmd := fmt.Sprintf(d.cli()+" stop %s", instance.Name)
 	_, err = sshClient.Execute(stopCmd)
 	if err != nil {
 		global.APP_LOG.Warn("Failed to stop container", zap.Error(err))
 	}
 
-	removeCmd := fmt.Sprintf("docker rm %s", instance.Name)
+	removeCmd := fmt.Sprintf(d.cli()+" rm %s", instance.Name)
 	_, err = sshClient.Execute(removeCmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove container: %v", err)
@@ -588,6 +664,13 @@ func (d *DockerPortMapping) removeDockerPortMapping(ctx context.Context, instanc
 	_, err = sshClient.Execute(recreateCmd)
 	if err != nil {
 		return fmt.Errorf("failed to recreate container: %v", err)
+	}
+
+	// 对于podman/containerd，确保iptables路由规则存在（幂等操作，规则已存在时直接跳过）
+	if subnet := d.containerSubnet(); subnet != "" {
+		ensureSubnetIptables(subnet, func(cmd string) (string, error) {
+			return sshClient.Execute(cmd)
+		})
 	}
 
 	return nil
@@ -657,7 +740,12 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 	image := configParts[0]
 
 	// 构建基础命令
-	cmd := fmt.Sprintf("docker run -d --name %s", instance.Name)
+	cmd := fmt.Sprintf(d.cli()+" run -d --name %s", instance.Name)
+
+	// 网络配置（podman/containerd需要明确指定自定义网络，否则重建后丢失网络配置）
+	if networkName := d.containerNetworkName(); networkName != "" {
+		cmd += fmt.Sprintf(" --network=%s", networkName)
+	}
 
 	// 资源限制
 	if len(configParts) >= 3 && configParts[2] != "0" {
@@ -686,6 +774,10 @@ func (d *DockerPortMapping) buildDockerRunCommandWithFilteredPorts(instance *pro
 
 	// 必要的能力
 	cmd += " --cap-add=MKNOD"
+	// Podman需要NET_ADMIN和NET_RAW才能正确配置iptables转发规则
+	if d.GetProviderType() == "podman" {
+		cmd += " --cap-add=NET_ADMIN --cap-add=NET_RAW"
+	}
 
 	// 镜像
 	cmd += fmt.Sprintf(" %s", image)

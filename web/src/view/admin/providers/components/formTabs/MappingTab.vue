@@ -122,9 +122,9 @@
       </el-text>
     </div>
 
-    <!-- Docker 端口映射方式（固定为 native，不可选择） -->
+    <!-- Docker/Podman/Containerd 端口映射方式（固定为 native，不可选择） -->
     <el-form-item
-      v-if="modelValue.type === 'docker'"
+      v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)"
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
@@ -133,7 +133,7 @@
         style="width: 100%"
       />
     </el-form-item>
-    <div v-if="modelValue.type === 'docker'" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
       <el-text
         size="small"
         type="info"
@@ -484,8 +484,8 @@ watch(() => props.modelValue.networkType, (nt) => {
 watch(() => props.modelValue.type, (newType) => {
   if (!newType) return
   
-  if (newType === 'docker') {
-    // Docker: IPv4和IPv6都固定使用 native
+  if (['docker', 'podman', 'containerd'].includes(newType)) {
+    // Docker/Podman/Containerd: IPv4和IPv6都固定使用 native
     props.modelValue.ipv4PortMappingMethod = 'native'
     props.modelValue.ipv6PortMappingMethod = 'native'
   } else if (newType === 'proxmox') {

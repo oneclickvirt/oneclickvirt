@@ -26,7 +26,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 	}
 
 	// 使用docker inspect命令获取所有容器的详细信息
-	cmd := "docker ps -a --format '{{.ID}}' | xargs -r docker inspect"
+	cmd := fmt.Sprintf("%s ps -a --format '{{.ID}}' | xargs -r %s inspect", d.runtime.CLI, d.runtime.CLI)
 	output, err := d.sshClient.Execute(cmd)
 	if err != nil {
 		return nil, fmt.Errorf("执行SSH命令失败: %w", err)

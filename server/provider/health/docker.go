@@ -312,18 +312,25 @@ func (d *DockerHealthChecker) checkDockerService(ctx context.Context) error {
 	}
 
 	// 设置环境变量来确保PATH正确加载，避免bash -l -c的转义问题
-	envCommand := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; docker version"
+	cliName := "docker"
+	if len(d.config.ServiceChecks) > 0 {
+		cliName = d.config.ServiceChecks[0]
+	}
+	envCommand := "source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; " + cliName + " version"
 	output, err := session.CombinedOutput(envCommand)
 	if err != nil {
-		return fmt.Errorf("Docker服务不可用: %w", err)
+		return fmt.Errorf("%s服务不可用: %w", cliName, err)
 	}
 
-	if !strings.Contains(string(output), "Server:") {
+	// docker version outputs "Server:" section; podman/nerdctl just need non-empty output
+	if cliName == "docker" && !strings.Contains(string(output), "Server:") {
 		return fmt.Errorf("Docker守护进程未运行")
+	} else if cliName != "docker" && strings.TrimSpace(string(output)) == "" {
+		return fmt.Errorf("%s守护进程未运行", cliName)
 	}
 
 	if d.logger != nil {
-		d.logger.Debug("Docker服务检查成功", zap.String("host", d.config.Host))
+		d.logger.Debug("容器运行时服务检查成功", zap.String("cli", cliName), zap.String("host", d.config.Host))
 	}
 	return nil
 }

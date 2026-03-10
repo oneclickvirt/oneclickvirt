@@ -14,6 +14,7 @@ import (
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -32,8 +33,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	// 在事务中处理结果
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		if apiError != nil {
-			// API调用失败的处理
-			global.APP_LOG.Error("Provider API调用失败，回滚实例创建", zap.Uint("taskId", task.ID), zap.Error(apiError))
+			// Provider创建实例失败的处理
+			global.APP_LOG.Error("Provider创建实例失败，回滚实例创建", zap.Uint("taskId", task.ID), zap.Error(apiError))
 
 			// 更新实例状态为失败
 			if err := tx.Model(instance).Updates(map[string]interface{}{
@@ -81,8 +82,8 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			return nil
 		}
 
-		// API调用成功的处理
-		global.APP_LOG.Debug("Provider API调用成功，获取实例详细信息", zap.Uint("taskId", task.ID))
+		// Provider创建实例成功的处理
+		global.APP_LOG.Debug("Provider创建实例成功，获取实例详细信息", zap.Uint("taskId", task.ID))
 
 		// 尝试从Provider获取实例详细信息
 		actualInstance, err := s.getInstanceDetailsAfterCreation(ctx, instance)
@@ -146,8 +147,12 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			if actualInstance.IPv6Address != "" {
 				instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
 			}
-			// SSH端口使用默认值22
-			instanceUpdates["ssh_port"] = 22
+			// 容器类Provider（docker/podman/containerd）的SSH端口由预分配端口映射决定，
+			// CreateDefaultPortMappings 已在 executeProviderCreation 阶段写入正确的值，不覆盖。
+			// 其他Provider（lxd/incus/proxmox）使用默认22端口。
+			if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+				instanceUpdates["ssh_port"] = 22
+			}
 			// 标准化实例状态：将Provider返回的各种运行状态统一为"running"
 			if actualInstance.Status != "" {
 				// 将Provider返回的状态转换为小写进行比较
@@ -167,8 +172,10 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 		} else {
-			// 使用默认值
-			instanceUpdates["ssh_port"] = 22
+			// 使用默认值：容器类Provider不覆盖（保留端口分配设置的值），其他Provider默认22
+			if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+				instanceUpdates["ssh_port"] = 22
+			}
 		}
 
 		// 尝试获取IPv4和IPv6地址（针对LXD、Incus和Proxmox Provider）
@@ -397,7 +404,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		// 更新任务状态为处理中，等待后处理任务完成
 		if err := tx.Model(task).Updates(map[string]interface{}{
 			"status":   "running",
-			"progress": 70, // API调用成功，但还需要后处理任务
+			"progress": 70, // Provider创建实例成功，还需要后处理任务
 		}).Error; err != nil {
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
@@ -415,7 +422,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		}
 	}
 
-	// 如果API调用成功，执行后处理任务（同步完成关键任务后再标记完成）
+	// 如果Provider创建实例成功，执行后处理任务（同步完成关键任务后再标记完成）
 	if apiError == nil {
 		go func(instanceID uint, providerID uint, taskID uint) {
 			defer func() {
@@ -623,6 +630,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		}(instance.ID, instance.ProviderID, task.ID)
 	}
 	global.APP_LOG.Info("实例创建最终化完成", zap.Uint("taskId", task.ID))
+
+	if apiError == nil {
+		// 后台goroutine已接管，通知worker pool跳过CompleteTask
+		return interfaces.ErrAsyncCompletion
+	}
 	return nil
 }
 

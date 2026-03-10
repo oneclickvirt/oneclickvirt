@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
+	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
 )
@@ -160,18 +161,37 @@ func (s *AggregationService) saveBatchToCacheWithInfo(
 			year, month, now)
 	}
 
-	sql := `INSERT INTO instance_traffic_histories
-		(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used,
-		 year, month, day, hour, record_time, created_at, updated_at)
-		VALUES ` + strings.Join(placeholders, ", ") + `
-		ON DUPLICATE KEY UPDATE
-			provider_id = VALUES(provider_id),
-			user_id = VALUES(user_id),
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
-			updated_at = NOW()`
+	valuesClause := strings.Join(placeholders, ", ")
+	var sql string
+	if dbcompat.UseRowAlias() {
+		// MySQL 9.0+: row-alias syntax (VALUES() removed)
+		sql = `INSERT INTO instance_traffic_histories
+			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used,
+			 year, month, day, hour, record_time, created_at, updated_at)
+			VALUES ` + valuesClause + ` AS _new_row
+			ON DUPLICATE KEY UPDATE
+				provider_id = _new_row.provider_id,
+				user_id = _new_row.user_id,
+				traffic_in = _new_row.traffic_in,
+				traffic_out = _new_row.traffic_out,
+				total_used = _new_row.total_used,
+				record_time = _new_row.record_time,
+				updated_at = NOW()`
+	} else {
+		// MariaDB / MySQL < 9: legacy VALUES() syntax
+		sql = `INSERT INTO instance_traffic_histories
+			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used,
+			 year, month, day, hour, record_time, created_at, updated_at)
+			VALUES ` + valuesClause + `
+			ON DUPLICATE KEY UPDATE
+				provider_id = VALUES(provider_id),
+				user_id = VALUES(user_id),
+				traffic_in = VALUES(traffic_in),
+				traffic_out = VALUES(traffic_out),
+				total_used = VALUES(total_used),
+				record_time = VALUES(record_time),
+				updated_at = NOW()`
+	}
 
 	if err := global.APP_DB.Exec(sql, args...).Error; err != nil {
 		global.APP_LOG.Error("批量保存流量缓存失败",
@@ -200,19 +220,19 @@ func (s *AggregationService) saveToCacheWithInfo(instanceID, providerID, userID 
 	}
 
 	// 使用原生SQL实现真正的 UPSERT，避免并发问题和重复数据错误
-	// 兼容 MySQL 5.x/9.x 和 MariaDB 的 ON DUPLICATE KEY UPDATE 语法
+	// 使用重复参数替代 VALUES(col)，对所有数据库版本通用
 	sql := `
 		INSERT INTO instance_traffic_histories 
 			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, 
 			 year, month, day, hour, record_time, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
 		ON DUPLICATE KEY UPDATE
-			provider_id = VALUES(provider_id),
-			user_id = VALUES(user_id),
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
+			provider_id = ?,
+			user_id = ?,
+			traffic_in = ?,
+			traffic_out = ?,
+			total_used = ?,
+			record_time = ?,
 			updated_at = NOW()
 	`
 
@@ -220,6 +240,9 @@ func (s *AggregationService) saveToCacheWithInfo(instanceID, providerID, userID 
 		record.InstanceID, record.ProviderID, record.UserID,
 		record.TrafficIn, record.TrafficOut, record.TotalUsed,
 		record.Year, record.Month, record.Day, record.Hour,
+		record.RecordTime,
+		record.ProviderID, record.UserID,
+		record.TrafficIn, record.TrafficOut, record.TotalUsed,
 		record.RecordTime,
 	).Error
 }
@@ -422,25 +445,28 @@ func (s *AggregationService) saveDailyCacheWithInfo(instanceID, providerID, user
 	totalUsedMB := int64(stats.ActualUsageMB)
 
 	// 使用原生SQL实现真正的 UPSERT（day!=0, hour=0表示按天缓存）
+	// 使用重复参数替代 VALUES(col)，对所有数据库版本通用
 	sql := `
 		INSERT INTO instance_traffic_histories 
 			(instance_id, provider_id, user_id, traffic_in, traffic_out, total_used, 
 			 year, month, day, hour, record_time, created_at, updated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())
 		ON DUPLICATE KEY UPDATE
-			provider_id = VALUES(provider_id),
-			user_id = VALUES(user_id),
-			traffic_in = VALUES(traffic_in),
-			traffic_out = VALUES(traffic_out),
-			total_used = VALUES(total_used),
-			record_time = VALUES(record_time),
+			provider_id = ?,
+			user_id = ?,
+			traffic_in = ?,
+			traffic_out = ?,
+			total_used = ?,
+			record_time = ?,
 			updated_at = NOW()
 	`
-
+	now := time.Now()
 	return global.APP_DB.Exec(sql,
 		instanceID, providerID, userID,
 		trafficInMB, trafficOutMB, totalUsedMB,
-		year, month, day, 0, time.Now(),
+		year, month, day, 0, now,
+		providerID, userID,
+		trafficInMB, trafficOutMB, totalUsedMB, now,
 	).Error
 }
 

@@ -54,8 +54,8 @@ func initDefaultAnnouncements() {
 	announcements := []system.Announcement{
 		{
 			Title:       "欢迎使用虚拟化管理平台",
-			Content:     "欢迎使用虚拟化管理平台，支持Docker、LXD、Incus、Proxmox VE等多种虚拟化技术。本平台提供简单易用的Web界面，让您轻松管理各种虚拟化资源。",
-			ContentHTML: "<p>欢迎使用虚拟化管理平台，支持<strong>Docker</strong>、<strong>LXD</strong>、<strong>Incus</strong>、<strong>Proxmox VE</strong>等多种虚拟化技术。</p><p>本平台提供简单易用的Web界面，让您轻松管理各种虚拟化资源。</p>",
+			Content:     "欢迎使用虚拟化管理平台，支持Docker、Podman、Containerd、LXD、Incus、Proxmox VE等多种虚拟化技术。本平台提供简单易用的Web界面，让您轻松管理各种虚拟化资源。",
+			ContentHTML: "<p>欢迎使用虚拟化管理平台，支持<strong>Docker</strong>、<strong>Podman</strong>、<strong>Containerd</strong>、<strong>LXD</strong>、<strong>Incus</strong>、<strong>Proxmox VE</strong>等多种虚拟化技术。</p><p>本平台提供简单易用的Web界面，让您轻松管理各种虚拟化资源。</p>",
 			Type:        "homepage",
 			Status:      1,
 			Priority:    10,
@@ -465,6 +465,36 @@ func parseImageURL(imageURL string) *ImageInfo {
 			OSType:       matches[2],
 			OSVersion:    "latest",
 			Description:  fmt.Sprintf("Docker %s %s image", matches[2], matches[3]),
+		}
+	}
+
+	// Podman镜像
+	podmanRe := regexp.MustCompile(`https://github\.com/oneclickvirt/podman/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
+	if matches := podmanRe.FindStringSubmatch(imageURL); matches != nil {
+		return &ImageInfo{
+			Name:         fmt.Sprintf("spiritlhl-%s", matches[2]),
+			ProviderType: "podman",
+			InstanceType: "container",
+			Architecture: convertArch(matches[3]),
+			URL:          imageURL,
+			OSType:       matches[2],
+			OSVersion:    "latest",
+			Description:  fmt.Sprintf("Podman %s %s image", matches[2], matches[3]),
+		}
+	}
+
+	// Containerd镜像
+	containerdRe := regexp.MustCompile(`https://github\.com/oneclickvirt/containerd/releases/download/([^/]+)/spiritlhl_([^_]+)_([^.]+)\.tar\.gz`)
+	if matches := containerdRe.FindStringSubmatch(imageURL); matches != nil {
+		return &ImageInfo{
+			Name:         fmt.Sprintf("spiritlhl-%s", matches[2]),
+			ProviderType: "containerd",
+			InstanceType: "container",
+			Architecture: convertArch(matches[3]),
+			URL:          imageURL,
+			OSType:       matches[2],
+			OSVersion:    "latest",
+			Description:  fmt.Sprintf("Containerd %s %s image", matches[2], matches[3]),
 		}
 	}
 

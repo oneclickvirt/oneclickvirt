@@ -166,11 +166,11 @@ watch(() => addProviderForm.type, (newType) => {
   if (isEditing.value) {
     return
   }
-  if (newType === 'docker') {
-    // Docker只支持容器，使用原生端口映射
+  if (['docker', 'podman', 'containerd'].includes(newType)) {
+    // Docker/Podman/Containerd只支持容器，使用原生端口映射
     addProviderForm.containerEnabled = true
     addProviderForm.vmEnabled = false
-    addProviderForm.ipv4PortMappingMethod = 'native' // Docker使用原生实现
+    addProviderForm.ipv4PortMappingMethod = 'native'
     addProviderForm.ipv6PortMappingMethod = 'native'
   } else if (newType === 'proxmox') {
     // Proxmox支持容器和虚拟机

@@ -1085,7 +1085,7 @@ const submitAdd = async () => {
     }
     
     const providerType = getInstanceProviderType(instance)?.toLowerCase()
-    if (providerType === 'docker') {
+    if (['docker', 'podman', 'containerd'].includes(providerType)) {
       ElMessage.error(t('admin.portMapping.dockerNotSupported'))
       return
     }

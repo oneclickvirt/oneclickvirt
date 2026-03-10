@@ -24,9 +24,13 @@ export default {
       description: '实时监控资源使用情况'
     }
   },
+  platformOverview: {
+    title: '平台概览',
+    description: '当前平台运行状态'
+  },
   platforms: {
     title: '支持的虚拟化平台',
-    description: '一键对接多种主流虚拟化技术'
+    description: '一键对接多种主流虚拟化技术，点击卡片查看对应开源项目'
   },
   stats: {
     users: '用户数量',

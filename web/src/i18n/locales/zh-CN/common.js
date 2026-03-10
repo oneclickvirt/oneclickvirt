@@ -47,6 +47,7 @@ export default {
   disable: '禁用',
   enabled: '已启用',
   disabled: '已禁用',
+  partial: '部分可用',
   normal: '正常',
   start: '启动',
   stop: '停止',

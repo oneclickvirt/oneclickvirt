@@ -1,7 +1,6 @@
 package router
 
 import (
-	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/api/v1/traffic"
 	"oneclickvirt/api/v1/user"
@@ -66,12 +65,6 @@ func InitUserRouter(Router *gin.RouterGroup) {
 
 		// 仪表盘统计
 		UserGroup.GET("/dashboard/stats", public.GetDashboardStats)
-
-		// 资源管理（普通用户只能管理自己的资源）
-		UserGroup.GET("/instances", user.GetUserInstances)
-		UserGroup.POST("/instances", user.CreateUserInstance)
-		UserGroup.PUT("/instances/:id", admin.UpdateInstance)
-		UserGroup.DELETE("/instances/:id", admin.DeleteInstance)
 
 		// 兑换码兑换
 		UserGroup.POST("/user/redemption-codes/redeem", user.RedeemCode)

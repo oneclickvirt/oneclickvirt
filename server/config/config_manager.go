@@ -422,6 +422,10 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	cm.lastUpdate = time.Now()
 
+	// 在释放锁之前复制回调列表，避免锁外遍历 changeCallbacks 时与 RegisterChangeCallback 产生数据竞态
+	callbacks := make([]ConfigChangeCallback, len(cm.changeCallbacks))
+	copy(callbacks, cm.changeCallbacks)
+
 	// 释放锁，准备执行可能耗时的操作
 	cm.mu.Unlock()
 
@@ -431,11 +435,10 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
 	}
 
-	// 触发回调 - 使用连接符格式的配置
-	// 这里在锁外执行，避免回调函数执行时间过长阻塞其他读取操作
+	// 触发回调 - 使用连接符格式的配置（使用本地副本，避免数据竞态）
 	for key, newValue := range kebabConfig {
 		oldValue := oldValues[key]
-		for _, callback := range cm.changeCallbacks {
+		for _, callback := range callbacks {
 			if err := callback(key, oldValue, newValue); err != nil {
 				cm.logger.Error("配置变更回调失败",
 					zap.String("key", key),

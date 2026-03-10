@@ -21,10 +21,12 @@ const (
 type ProviderType string
 
 const (
-	ProviderTypeDocker  ProviderType = "docker"
-	ProviderTypeLXD     ProviderType = "lxd"
-	ProviderTypeIncus   ProviderType = "incus"
-	ProviderTypeProxmox ProviderType = "proxmox"
+	ProviderTypeDocker     ProviderType = "docker"
+	ProviderTypePodman     ProviderType = "podman"
+	ProviderTypeContainerd ProviderType = "containerd"
+	ProviderTypeLXD        ProviderType = "lxd"
+	ProviderTypeIncus      ProviderType = "incus"
+	ProviderTypeProxmox    ProviderType = "proxmox"
 )
 
 // Architecture 架构类型

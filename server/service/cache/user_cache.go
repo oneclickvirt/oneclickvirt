@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 
 	"go.uber.org/zap"
+	"golang.org/x/sync/singleflight"
 )
 
 // UserCacheService 用户数据缓存服务
@@ -18,6 +19,7 @@ type UserCacheService struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	cleanupOnce sync.Once
+	sf          singleflight.Group // 防止缓存击穿
 }
 
 // CacheEntry 缓存条目
@@ -46,24 +48,34 @@ func GetUserCacheService() *UserCacheService {
 	return userCacheInstance
 }
 
-// cleanupLoop 定期清理过期缓存
+// cleanupLoop 定期清理过期缓存，panic后自动重启
 func (s *UserCacheService) cleanupLoop() {
-	ticker := time.NewTicker(5 * time.Minute)
-	defer func() {
-		ticker.Stop()
-		if r := recover(); r != nil && global.APP_LOG != nil {
-			global.APP_LOG.Error("用户缓存清理goroutine panic",
-				zap.Any("panic", r),
-				zap.Stack("stack"))
-		}
-	}()
-
 	for {
+		func() {
+			ticker := time.NewTicker(5 * time.Minute)
+			defer func() {
+				ticker.Stop()
+				if r := recover(); r != nil && global.APP_LOG != nil {
+					global.APP_LOG.Error("用户缓存清理goroutine panic，将自动重启",
+						zap.Any("panic", r),
+						zap.Stack("stack"))
+				}
+			}()
+			for {
+				select {
+				case <-s.ctx.Done():
+					return
+				case <-ticker.C:
+					s.cleanupExpired()
+				}
+			}
+		}()
+
+		// ctx已取消则退出，否则panic后短暂等待再重启
 		select {
 		case <-s.ctx.Done():
 			return
-		case <-ticker.C:
-			s.cleanupExpired()
+		case <-time.After(10 * time.Second):
 		}
 	}
 }
@@ -215,21 +227,27 @@ func (s *UserCacheService) InvalidateInstanceCache(instanceID uint) {
 }
 
 // GetOrSet 获取缓存或执行函数并缓存结果
+// 使用 singleflight 防止缓存击穿：同一key并发miss时只执行一次fn，其余请求等待共享结果
 func (s *UserCacheService) GetOrSet(key string, ttl time.Duration, fn func() (interface{}, error)) (interface{}, error) {
 	// 先尝试从缓存获取
 	if data, ok := s.Get(key); ok {
 		return data, nil
 	}
 
-	// 缓存未命中，执行函数
-	data, err := fn()
-	if err != nil {
-		return nil, err
-	}
-
-	// 缓存结果
-	s.Set(key, data, ttl)
-	return data, nil
+	// 缓存未命中，用singleflight合并并发请求，同一key只执行一次fn
+	result, err, _ := s.sf.Do(key, func() (interface{}, error) {
+		// 再次检查缓存（singleflight等待期间可能已被其他goroutine填充）
+		if data, ok := s.Get(key); ok {
+			return data, nil
+		}
+		data, err := fn()
+		if err != nil {
+			return nil, err
+		}
+		s.Set(key, data, ttl)
+		return data, nil
+	})
+	return result, err
 }
 
 // SerializableWrapper 可序列化包装器，用于复杂类型的缓存

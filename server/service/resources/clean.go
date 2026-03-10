@@ -34,8 +34,9 @@ func (s *PortMappingService) DeleteInstancePortMappingsInTx(tx *gorm.DB, instanc
 		return err
 	}
 
-	// 直接删除端口映射记录（失败实例的端口直接释放）
-	if err := tx.Where("instance_id = ?", instanceID).Delete(&provider.Port{}).Error; err != nil {
+	// 硬删除端口映射记录（必须使用硬删除，否则 unique index idx_provider_host_port 上的软删除行
+	// 仍会占用唯一键槽位，导致后续新实例分配同一端口时触发 Duplicate entry 错误）
+	if err := tx.Unscoped().Where("instance_id = ?", instanceID).Delete(&provider.Port{}).Error; err != nil {
 		return fmt.Errorf("删除端口映射失败: %v", err)
 	}
 

@@ -7,6 +7,7 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	providerService "oneclickvirt/service/provider"
+	"oneclickvirt/utils/dbcompat"
 	"strconv"
 	"strings"
 	"time"
@@ -508,7 +509,40 @@ LIMIT 10000;
 				)
 			}
 
-			insertSQL := fmt.Sprintf(`
+			var insertSQL string
+			if dbcompat.UseRowAlias() {
+				// MySQL 9.0+: row-alias syntax (VALUES() removed)
+				insertSQL = fmt.Sprintf(`
+				INSERT INTO pmacct_traffic_records 
+				(instance_id, user_id, provider_id, provider_type, mapped_ip, 
+				 rx_bytes, tx_bytes, total_bytes, timestamp, 
+				 year, month, day, hour, minute, record_time)
+				VALUES %s AS _new_row
+				ON DUPLICATE KEY UPDATE
+					rx_bytes = IF(
+						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.rx_bytes > pmacct_traffic_records.rx_bytes,
+						_new_row.rx_bytes,
+						pmacct_traffic_records.rx_bytes
+					),
+					tx_bytes = IF(
+						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.tx_bytes > pmacct_traffic_records.tx_bytes,
+						_new_row.tx_bytes,
+						pmacct_traffic_records.tx_bytes
+					),
+					total_bytes = IF(
+						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.total_bytes > pmacct_traffic_records.total_bytes,
+						_new_row.total_bytes,
+						pmacct_traffic_records.total_bytes
+					),
+					record_time = IF(
+						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.total_bytes > pmacct_traffic_records.total_bytes,
+						_new_row.record_time,
+						pmacct_traffic_records.record_time
+					)
+			`, strings.Join(values, ","))
+			} else {
+				// MariaDB / MySQL < 9: legacy VALUES() syntax
+				insertSQL = fmt.Sprintf(`
 				INSERT INTO pmacct_traffic_records 
 				(instance_id, user_id, provider_id, provider_type, mapped_ip, 
 				 rx_bytes, tx_bytes, total_bytes, timestamp, 
@@ -536,6 +570,7 @@ LIMIT 10000;
 						pmacct_traffic_records.record_time
 					)
 			`, strings.Join(values, ","))
+			}
 
 			return tx.Exec(insertSQL, args...).Error
 		})
@@ -740,19 +775,17 @@ LIMIT 10000;
 		}
 
 		// 更新Provider流量历史表（小时级，聚合所有实例）
-		if err := global.APP_DB.Exec(`
-			INSERT INTO provider_traffic_histories 
+		if err := dbcompat.Exec(global.APP_DB,
+			`INSERT INTO provider_traffic_histories 
 				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 			SELECT 
 				provider_id,
-				SUM(traffic_in) as traffic_in,      -- 所有实例的累积值之和
+				SUM(traffic_in) as traffic_in,
 				SUM(traffic_out) as traffic_out,
 				SUM(total_used) as total_used,
 				COUNT(DISTINCT instance_id) as instance_count,
 				year, month, day, hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
+				? as record_time, ? as created_at, ? as updated_at
 			FROM instance_traffic_histories
 			WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
 			GROUP BY provider_id, year, month, day, hour
@@ -762,16 +795,39 @@ LIMIT 10000;
 				total_used = VALUES(total_used),
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.ProviderID, year, month, day, hour).Error; err != nil {
+				updated_at = VALUES(updated_at)`,
+			`INSERT INTO provider_traffic_histories 
+				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
+			FROM (
+				SELECT 
+					provider_id,
+					SUM(traffic_in) as traffic_in,
+					SUM(traffic_out) as traffic_out,
+					SUM(total_used) as total_used,
+					COUNT(DISTINCT instance_id) as instance_count,
+					year, month, day, hour,
+					? as record_time, ? as created_at, ? as updated_at
+				FROM instance_traffic_histories
+				WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
+				GROUP BY provider_id, year, month, day, hour
+			) AS _src
+			ON DUPLICATE KEY UPDATE
+				traffic_in = _src.traffic_in,
+				traffic_out = _src.traffic_out,
+				total_used = _src.total_used,
+				instance_count = _src.instance_count,
+				record_time = _src.record_time,
+				updated_at = _src.updated_at`,
+			now, now, now, instance.ProviderID, year, month, day, hour).Error; err != nil {
 			global.APP_LOG.Warn("更新Provider流量历史失败",
 				zap.Uint("providerID", instance.ProviderID),
 				zap.Error(err))
 		}
 
 		// 更新Provider月度汇总（day=0, hour=0）
-		if err := global.APP_DB.Exec(`
-			INSERT INTO provider_traffic_histories 
+		if err := dbcompat.Exec(global.APP_DB,
+			`INSERT INTO provider_traffic_histories 
 				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 			SELECT 
 				provider_id,
@@ -780,9 +836,7 @@ LIMIT 10000;
 				SUM(total_used) as total_used,
 				COUNT(DISTINCT instance_id) as instance_count,
 				year, month, 0 as day, 0 as hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
+				? as record_time, ? as created_at, ? as updated_at
 			FROM instance_traffic_histories
 			WHERE provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
 			GROUP BY provider_id, year, month
@@ -792,27 +846,48 @@ LIMIT 10000;
 				total_used = VALUES(total_used),
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.ProviderID, year, month).Error; err != nil {
+				updated_at = VALUES(updated_at)`,
+			`INSERT INTO provider_traffic_histories 
+				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
+			FROM (
+				SELECT 
+					provider_id,
+					SUM(traffic_in) as traffic_in,
+					SUM(traffic_out) as traffic_out,
+					SUM(total_used) as total_used,
+					COUNT(DISTINCT instance_id) as instance_count,
+					year, month, 0 as day, 0 as hour,
+					? as record_time, ? as created_at, ? as updated_at
+				FROM instance_traffic_histories
+				WHERE provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
+				GROUP BY provider_id, year, month
+			) AS _src
+			ON DUPLICATE KEY UPDATE
+				traffic_in = _src.traffic_in,
+				traffic_out = _src.traffic_out,
+				total_used = _src.total_used,
+				instance_count = _src.instance_count,
+				record_time = _src.record_time,
+				updated_at = _src.updated_at`,
+			now, now, now, instance.ProviderID, year, month).Error; err != nil {
 			global.APP_LOG.Warn("更新Provider月度汇总失败",
 				zap.Uint("providerID", instance.ProviderID),
 				zap.Error(err))
 		}
 
 		// 更新用户流量历史表（小时级，聚合所有实例）
-		if err := global.APP_DB.Exec(`
-			INSERT INTO user_traffic_histories 
+		if err := dbcompat.Exec(global.APP_DB,
+			`INSERT INTO user_traffic_histories 
 				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 			SELECT 
 				user_id,
-				SUM(traffic_in) as traffic_in,      -- 所有实例的累积值之和
+				SUM(traffic_in) as traffic_in,
 				SUM(traffic_out) as traffic_out,
 				SUM(total_used) as total_used,
 				COUNT(DISTINCT instance_id) as instance_count,
 				year, month, day, hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
+				? as record_time, ? as created_at, ? as updated_at
 			FROM instance_traffic_histories
 			WHERE user_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
 			GROUP BY user_id, year, month, day, hour
@@ -822,16 +897,39 @@ LIMIT 10000;
 				total_used = VALUES(total_used),
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.UserID, year, month, day, hour).Error; err != nil {
+				updated_at = VALUES(updated_at)`,
+			`INSERT INTO user_traffic_histories 
+				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
+			FROM (
+				SELECT 
+					user_id,
+					SUM(traffic_in) as traffic_in,
+					SUM(traffic_out) as traffic_out,
+					SUM(total_used) as total_used,
+					COUNT(DISTINCT instance_id) as instance_count,
+					year, month, day, hour,
+					? as record_time, ? as created_at, ? as updated_at
+				FROM instance_traffic_histories
+				WHERE user_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
+				GROUP BY user_id, year, month, day, hour
+			) AS _src
+			ON DUPLICATE KEY UPDATE
+				traffic_in = _src.traffic_in,
+				traffic_out = _src.traffic_out,
+				total_used = _src.total_used,
+				instance_count = _src.instance_count,
+				record_time = _src.record_time,
+				updated_at = _src.updated_at`,
+			now, now, now, instance.UserID, year, month, day, hour).Error; err != nil {
 			global.APP_LOG.Warn("更新用户流量历史失败",
 				zap.Uint("userID", instance.UserID),
 				zap.Error(err))
 		}
 
 		// 更新用户月度汇总（day=0, hour=0）
-		if err := global.APP_DB.Exec(`
-			INSERT INTO user_traffic_histories 
+		if err := dbcompat.Exec(global.APP_DB,
+			`INSERT INTO user_traffic_histories 
 				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
 			SELECT 
 				user_id,
@@ -840,9 +938,7 @@ LIMIT 10000;
 				SUM(total_used) as total_used,
 				COUNT(DISTINCT instance_id) as instance_count,
 				year, month, 0 as day, 0 as hour,
-				? as record_time,
-				? as created_at,
-				? as updated_at
+				? as record_time, ? as created_at, ? as updated_at
 			FROM instance_traffic_histories
 			WHERE user_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
 			GROUP BY user_id, year, month
@@ -852,8 +948,31 @@ LIMIT 10000;
 				total_used = VALUES(total_used),
 				instance_count = VALUES(instance_count),
 				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)
-		`, now, now, now, instance.UserID, year, month).Error; err != nil {
+				updated_at = VALUES(updated_at)`,
+			`INSERT INTO user_traffic_histories 
+				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
+			SELECT user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
+			FROM (
+				SELECT 
+					user_id,
+					SUM(traffic_in) as traffic_in,
+					SUM(traffic_out) as traffic_out,
+					SUM(total_used) as total_used,
+					COUNT(DISTINCT instance_id) as instance_count,
+					year, month, 0 as day, 0 as hour,
+					? as record_time, ? as created_at, ? as updated_at
+				FROM instance_traffic_histories
+				WHERE user_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
+				GROUP BY user_id, year, month
+			) AS _src
+			ON DUPLICATE KEY UPDATE
+				traffic_in = _src.traffic_in,
+				traffic_out = _src.traffic_out,
+				total_used = _src.total_used,
+				instance_count = _src.instance_count,
+				record_time = _src.record_time,
+				updated_at = _src.updated_at`,
+			now, now, now, instance.UserID, year, month).Error; err != nil {
 			global.APP_LOG.Warn("更新用户月度汇总失败",
 				zap.Uint("userID", instance.UserID),
 				zap.Error(err))
