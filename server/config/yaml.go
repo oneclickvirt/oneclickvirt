@@ -141,6 +141,14 @@ func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
 
 				if i == len(keys)-1 {
 					// 到达目标节点，更新值
+					// 对于 map 类型且目标节点本身是映射，执行合并更新而不是整段替换，
+					// 避免局部更新（如 quota.instance-type-permissions）覆盖掉同级其它配置（如 level-limits）。
+					if updateMap, ok := value.(map[string]interface{}); ok && valueNode.Kind == yaml.MappingNode {
+						if err := mergeMappingNode(valueNode, updateMap); err != nil {
+							return err
+						}
+						return nil
+					}
 					if err := setNodeValue(valueNode, value); err != nil {
 						return err
 					}
@@ -180,6 +188,50 @@ func updateYAMLNode(node *yaml.Node, path string, value interface{}) error {
 				current.Content = append(current.Content, newKeyNode, newMapNode)
 				current = newMapNode
 			}
+		}
+	}
+
+	return nil
+}
+
+// mergeMappingNode 递归合并映射节点，只更新提供的键，保留未提及的现有键。
+func mergeMappingNode(target *yaml.Node, updates map[string]interface{}) error {
+	if target.Kind != yaml.MappingNode {
+		return fmt.Errorf("target node is not a mapping node")
+	}
+
+	for key, updateValue := range updates {
+		var existingValueNode *yaml.Node
+		for i := 0; i < len(target.Content); i += 2 {
+			if target.Content[i].Value == key {
+				existingValueNode = target.Content[i+1]
+				break
+			}
+		}
+
+		if existingValueNode == nil {
+			// 新键直接追加
+			newKeyNode := &yaml.Node{
+				Kind:  yaml.ScalarNode,
+				Value: key,
+			}
+			newValueNode := &yaml.Node{}
+			if err := setNodeValue(newValueNode, updateValue); err != nil {
+				return err
+			}
+			target.Content = append(target.Content, newKeyNode, newValueNode)
+			continue
+		}
+
+		// 现有键：如果双方都是映射，递归合并；否则直接覆盖该值
+		if nestedUpdates, ok := updateValue.(map[string]interface{}); ok && existingValueNode.Kind == yaml.MappingNode {
+			if err := mergeMappingNode(existingValueNode, nestedUpdates); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := setNodeValue(existingValueNode, updateValue); err != nil {
+			return err
 		}
 	}
 
