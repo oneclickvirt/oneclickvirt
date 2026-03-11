@@ -7,18 +7,17 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// syncToGlobalConfig 同步配置到全局配置并写回YAML文件
+// syncToGlobalConfig 同步配置到全局配置
+// 此方法不再写回YAML文件，以处理下述边界条件：
+//  1. 每次API保存只包含部分quota字段（如只有level-limits或只有instance-type-permissions），
+//     会导致writeConfigToYAML将整个quota节点替换为仅含请求字段的子集，破坏YAML中其余字段。
+//  2. 上述YAML写入会触发fsnotify文件监听器（InitConfig中注册），
+//     监听器调用v.Unmarshal读取不完整YAML，使LevelLimits等字段被重置为默认值或清空。
+//
+// 全局配置的同步通过UpdateConfig注册的回调（changeCallbacks）完成；
+// YAML文件在重启时通过RestoreConfigFromDatabase从数据库恢复，保持最终一致性。
 func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error {
-	// 这个方法需要导入 global 包，但为了避免循环导入，需要通过依赖注入或回调的方式实现
-	// 暂时先记录日志，具体实现需要在初始化时注册同步回调
-	cm.logger.Info("配置已更新，需要同步到全局配置", zap.Any("config", config))
-
-	// 写回YAML文件
-	if err := cm.writeConfigToYAML(config); err != nil {
-		cm.logger.Error("写回YAML文件失败", zap.Error(err))
-		return err
-	}
-
+	cm.logger.Info("配置已更新，将通过回调同步到全局配置", zap.Any("config", config))
 	return nil
 }
 

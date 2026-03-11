@@ -3,14 +3,13 @@ auth:
     enable-public-registration: true
     enable-qq: false
     enable-telegram: false
+    email-username: root
+    email-smtp-host: ""
+    qq-app-key: ""
+    email-smtp-port: "3306"
+    telegram-bot-token: ""
     qq-app-id: ""
     email-password: ""
-    email-username: root
-    telegram-bot-token: ""
-    email-smtp-host: ""
-    email-smtp-port: "3306"
-    enable-oauth2: false
-    qq-app-key: ""
 captcha:
     enabled: false
     expire-time: 5
@@ -96,13 +95,6 @@ quota:
                 disk: 163840
                 memory: 8192
             max-traffic: 512000
-    instance-type-permissions:
-        min-level-for-reset-vm: 2
-        min-level-for-vm: 2
-        min-level-for-container: 1
-        min-level-for-delete-vm: 2
-        min-level-for-delete-container: 2
-        min-level-for-reset-container: 2
 redis:
     addr: ""
     db: 0
@@ -124,6 +116,8 @@ task:
     delete-retry-delay: 2
 other:
     default-language: en-US
+    logo-url: ""
+    site-name: ""
 zap:
     director: storage/logs
     encode-level: LowercaseLevelEncoder
@@ -141,10 +135,10 @@ zap:
     stacktrace-key: stacktrace
 default_language: ""
 signing_key_v1:
-    created_at: "2026-03-09T19:07:10.911355+08:00"
-    expires_at: "2026-03-10T19:07:10.911355+08:00"
+    created_at: "2026-03-10T11:17:34.306136+08:00"
+    expires_at: "2026-03-11T11:17:34.306136+08:00"
     is_active: false
-    key: 899d40c16624f122e9c94288f02730908d8dcb972f042e69319c813bed83ba38
+    key: 8302b20b276798de0cf5769a7a764c1a236393b88849a4bf1aa753f52d3dce41
     version: 1
 active_version: 1
 max_avatar_size: 2

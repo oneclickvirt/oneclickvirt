@@ -42,6 +42,15 @@ func Viper(path ...string) *viper.Viper {
 
 	v.WatchConfig()
 	v.OnConfigChange(func(e fsnotify.Event) {
+		// 一旦 ConfigManager 已从数据库完成初始化，配置的权威来源由 ConfigManager 管理，
+		// 不再通过 viper 文件监听覆盖 global.APP_CONFIG。
+		// 这避免了以下竞态条件：启动阶段 RestoreConfigFromDatabase 写入 YAML 触发的
+		// 延迟 fsnotify 事件，在用户 API 保存回调更新 global.APP_CONFIG 之后才到达，
+		// 从而将内存中的值重置为启动时的快照。
+		if global.CONFIG_MANAGER_READY.Load() {
+			fmt.Printf("[VIPER] 配置文件变更（ConfigManager 已就绪，跳过热重载）: %s\n", e.Name)
+			return
+		}
 		fmt.Printf("[VIPER] 配置文件变更: %s\n", e.Name)
 		var newCfg config.Server
 		if err := v.Unmarshal(&newCfg); err != nil {

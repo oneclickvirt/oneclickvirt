@@ -76,9 +76,13 @@ func SetAppConfig(cfg config.Server) {
 }
 
 var (
-	APP_DB                        *gorm.DB
-	APP_LOG                       *zap.Logger
-	APP_CONFIG                    atomic.Pointer[config.Server] // access via GetAppConfig/SetAppConfig
+	APP_DB     *gorm.DB
+	APP_LOG    *zap.Logger
+	APP_CONFIG atomic.Pointer[config.Server] // access via GetAppConfig/SetAppConfig
+	// CONFIG_MANAGER_READY 标记 ConfigManager 已从数据库完成初始化。
+	// 设置后，viper 文件监听器（OnConfigChange）将跳过对 global.APP_CONFIG 的覆盖，
+	// 防止启动阶段 YAML 写入触发的延迟事件在 API 保存后把旧值重新写回内存。
+	CONFIG_MANAGER_READY          atomic.Bool
 	APP_VP                        *viper.Viper
 	APP_ENGINE                    *gin.Engine
 	APP_SCHEDULER                 Scheduler                    // 任务调度器全局变量

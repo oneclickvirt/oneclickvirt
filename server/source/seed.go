@@ -12,7 +12,6 @@ import (
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
-	"oneclickvirt/model/admin"
 	"oneclickvirt/model/auth"
 	"oneclickvirt/model/system"
 	"oneclickvirt/utils"
@@ -26,7 +25,6 @@ func InitSeedData() {
 	initDefaultRoles()
 	initDefaultAnnouncements()
 	initLevelConfigurations()
-	initOtherConfigurations()
 	// OAuth2 providers are not automatically initialized
 	// Admin should configure them manually based on their needs
 }
@@ -754,52 +752,4 @@ func initInstanceTypePermissions() {
 		zap.Int("minLevelForDeleteVM", p.MinLevelForDeleteVM),
 		zap.Int("minLevelForResetContainer", p.MinLevelForResetContainer),
 		zap.Int("minLevelForResetVM", p.MinLevelForResetVM))
-}
-
-// initOtherConfigurations 初始化其他配置
-func initOtherConfigurations() {
-	global.APP_LOG.Info("开始初始化其他配置")
-
-	// 定义需要初始化的配置项
-	configs := []admin.SystemConfig{
-		{
-			Key:         "max_avatar_size",
-			Value:       "2", // 默认2MB
-			Description: "用户头像上传的最大文件大小限制（单位：MB），仅支持PNG和JPEG格式",
-			Category:    "other",
-			Type:        "number",
-			IsPublic:    false,
-		},
-		{
-			Key:         "default_language",
-			Value:       "", // 空字符串表示使用浏览器语言
-			Description: "系统默认语言设置，支持zh-CN（中文）和en-US（英文）。留空则根据浏览器语言自动选择，非中文时显示英文，检测不到时默认显示中文",
-			Category:    "other",
-			Type:        "string",
-			IsPublic:    true, // 公开配置，登录前也可访问
-		},
-	}
-
-	dbService := database.GetDatabaseService()
-
-	// 遍历配置项，检查并创建
-	for _, config := range configs {
-		var existingConfig admin.SystemConfig
-		result := global.APP_DB.Where("key = ?", config.Key).First(&existingConfig)
-
-		if result.Error != nil {
-			// 配置不存在，创建默认配置
-			err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-				return tx.Create(&config).Error
-			})
-
-			if err != nil {
-				global.APP_LOG.Warn(fmt.Sprintf("创建%s配置失败", config.Key), zap.Error(err))
-			} else {
-				global.APP_LOG.Debug(fmt.Sprintf("已创建%s默认配置", config.Key), zap.String("value", config.Value))
-			}
-		} else {
-			global.APP_LOG.Debug(fmt.Sprintf("%s配置已存在，跳过初始化", config.Key))
-		}
-	}
 }

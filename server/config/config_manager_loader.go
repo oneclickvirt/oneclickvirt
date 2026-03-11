@@ -61,9 +61,9 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		return
 	}
 
-	// 检查是否存在数据库配置数据
+	// 检查是否存在数据库配置数据（仅统计新格式配置项，即 key 含"."的记录）
 	var configCount int64
-	if err := cm.db.Model(&SystemConfig{}).Count(&configCount).Error; err != nil {
+	if err := cm.db.Model(&SystemConfig{}).Where("`key` LIKE ?", "%.%").Count(&configCount).Error; err != nil {
 		cm.logger.Warn("查询数据库配置数量失败，可能是首次启动", zap.Error(err))
 		configCount = 0
 	}
@@ -111,10 +111,7 @@ func (cm *ConfigManager) loadConfigFromDB() {
 					if err := cm.handleYAMLFirst(); err != nil {
 						cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
 					}
-					// 补全缺失配置
-					if err := cm.EnsureDefaultConfigs(); err != nil {
-						cm.logger.Warn("补全缺失配置项失败", zap.Error(err))
-					}
+					// handleYAMLFirst 内部已调用 EnsureDefaultConfigs 并在补全后再次同步全局配置
 					return
 				}
 			}
@@ -146,11 +143,7 @@ func (cm *ConfigManager) loadConfigFromDB() {
 	if err := cm.handleYAMLFirst(); err != nil {
 		cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
 	}
-
-	// 在配置加载完成后，检查并补全缺失的配置项
-	if err := cm.EnsureDefaultConfigs(); err != nil {
-		cm.logger.Warn("补全缺失配置项失败", zap.Error(err))
-	}
+	// handleYAMLFirst 内部已调用 EnsureDefaultConfigs 并在补全后再次同步到全局配置
 }
 
 // handleDatabaseFirst 处理数据库优先的策略

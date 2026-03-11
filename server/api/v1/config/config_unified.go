@@ -225,6 +225,7 @@ func getUserConfig(cm *config.ConfigManager, authCtx *authModel.AuthContext) map
 			"max-instances": limitInfo.MaxInstances,
 			"max-resources": limitInfo.MaxResources,
 			"max-traffic":   limitInfo.MaxTraffic,
+			"expiry-days":   limitInfo.ExpiryDays,
 		}
 	}
 
@@ -281,6 +282,7 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 			"max-instances": limitInfo.MaxInstances,
 			"max-resources": limitInfo.MaxResources,
 			"max-traffic":   limitInfo.MaxTraffic,
+			"expiry-days":   limitInfo.ExpiryDays,
 		}
 	}
 
@@ -300,6 +302,8 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 	// 其他配置
 	result["other"] = map[string]interface{}{
 		"defaultLanguage": global.GetAppConfig().Other.DefaultLanguage,
+		"logoURL":         global.GetAppConfig().Other.LogoURL,
+		"siteName":        global.GetAppConfig().Other.SiteName,
 	}
 
 	return result

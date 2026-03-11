@@ -221,6 +221,102 @@ func compareValues(a, b interface{}) bool {
 	return a == b
 }
 
+// TestValidateLevelLimitsExpiryDays 测试 expiry-days 字段的验证行为
+func TestValidateLevelLimitsExpiryDays(t *testing.T) {
+	logger, _ := zap.NewDevelopment()
+	cm := &ConfigManager{
+		logger: logger,
+	}
+
+	tests := []struct {
+		name            string
+		input           map[string]interface{}
+		expectError     bool
+		checkExpiryDays map[string]interface{} // level -> expected expiry-days value (nil = not checked)
+	}{
+		{
+			name: "expiry-days 为正整数 - 应该通过并保留",
+			input: map[string]interface{}{
+				"1": map[string]interface{}{
+					"max-instances": 1,
+					"max-traffic":   102400,
+					"max-resources": map[string]interface{}{
+						"cpu": 1, "memory": 350, "disk": 1024, "bandwidth": 100,
+					},
+					"expiry-days": 30,
+				},
+			},
+			expectError: false,
+			checkExpiryDays: map[string]interface{}{
+				"1": 30,
+			},
+		},
+		{
+			name: "expiry-days 为 0 - 表示永不过期，应通过验证并保留 0",
+			input: map[string]interface{}{
+				"2": map[string]interface{}{
+					"max-instances": 3,
+					"max-traffic":   204800,
+					"max-resources": map[string]interface{}{
+						"cpu": 2, "memory": 1024, "disk": 20480, "bandwidth": 200,
+					},
+					"expiry-days": 0,
+				},
+			},
+			expectError: false,
+			checkExpiryDays: map[string]interface{}{
+				"2": 0,
+			},
+		},
+		{
+			name: "不含 expiry-days - 应该通过验证（字段可选）",
+			input: map[string]interface{}{
+				"3": map[string]interface{}{
+					"max-instances": 5,
+					"max-traffic":   307200,
+					"max-resources": map[string]interface{}{
+						"cpu": 4, "memory": 2048, "disk": 40960, "bandwidth": 500,
+					},
+				},
+			},
+			expectError:     false,
+			checkExpiryDays: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := cm.validateLevelLimits(tt.input)
+
+			if tt.expectError {
+				if err == nil {
+					t.Errorf("期望验证失败，但成功了")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("验证失败: %v", err)
+				return
+			}
+
+			if tt.checkExpiryDays != nil {
+				for level, expectedVal := range tt.checkExpiryDays {
+					levelMap, ok := tt.input[level].(map[string]interface{})
+					if !ok {
+						t.Errorf("等级 %s 的配置不是 map 类型", level)
+						continue
+					}
+					actualVal := levelMap["expiry-days"]
+					if !compareValues(actualVal, expectedVal) {
+						t.Errorf("等级 %s 的 expiry-days: 期望 %v, 实际 %v", level, expectedVal, actualVal)
+					}
+				}
+			}
+		})
+	}
+}
+
 // toFloat64 将各种数值类型转换为 float64
 func toFloat64(v interface{}) float64 {
 	switch val := v.(type) {

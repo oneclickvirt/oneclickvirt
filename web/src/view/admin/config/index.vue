@@ -786,36 +786,41 @@ const loadConfig = async () => {
         console.log('当前系统语言配置:', systemConfigLanguage.value)
       }
       
-      // 加载等级配置
-      if (response.data.quota && response.data.quota.levelLimits) {
-        config.value.quota.levelLimits = {}
-        for (let level = 1; level <= 5; level++) {
-          const levelKey = String(level)
-          if (response.data.quota.levelLimits[levelKey]) {
-            const limitData = response.data.quota.levelLimits[levelKey]
-            config.value.quota.levelLimits[level] = {
-              maxInstances: limitData['max-instances'] || (level * 2),
-              maxResources: {
-                cpu: limitData['max-resources']?.cpu || (level * 2),
-                memory: limitData['max-resources']?.memory || (1024 * Math.pow(2, level - 1)),
-                disk: limitData['max-resources']?.disk || (10240 * Math.pow(2, level - 1)),
-                bandwidth: limitData['max-resources']?.bandwidth || (10 * level)
-              },
-              maxTraffic: limitData['max-traffic'] || (1024 * level),
-              expiryDays: limitData['expiry-days'] || 0
-            }
-          } else {
-            // 如果没有数据，使用默认值
-            config.value.quota.levelLimits[level] = {
-              maxInstances: level * 2,
-              maxResources: {
-                cpu: level * 2,
-                memory: 1024 * Math.pow(2, level - 1),
-                disk: 10240 * Math.pow(2, level - 1),
-                bandwidth: 10 * level
-              },
-              maxTraffic: 1024 * level,
-              expiryDays: 0
+      // 加载配额配置
+      if (response.data.quota) {
+        if (response.data.quota.defaultLevel != null) {
+          config.value.quota.defaultLevel = response.data.quota.defaultLevel
+        }
+        if (response.data.quota.levelLimits) {
+          config.value.quota.levelLimits = {}
+          for (let level = 1; level <= 5; level++) {
+            const levelKey = String(level)
+            if (response.data.quota.levelLimits[levelKey]) {
+              const limitData = response.data.quota.levelLimits[levelKey]
+              config.value.quota.levelLimits[level] = {
+                maxInstances: limitData['max-instances'] ?? (level * 2),
+                maxResources: {
+                  cpu: limitData['max-resources']?.cpu ?? (level * 2),
+                  memory: limitData['max-resources']?.memory ?? (1024 * Math.pow(2, level - 1)),
+                  disk: limitData['max-resources']?.disk ?? (10240 * Math.pow(2, level - 1)),
+                  bandwidth: limitData['max-resources']?.bandwidth ?? (10 * level)
+                },
+                maxTraffic: limitData['max-traffic'] ?? (1024 * level),
+                expiryDays: limitData['expiry-days'] ?? 0
+              }
+            } else {
+              // 如果没有数据，使用默认值
+              config.value.quota.levelLimits[level] = {
+                maxInstances: level * 2,
+                maxResources: {
+                  cpu: level * 2,
+                  memory: 1024 * Math.pow(2, level - 1),
+                  disk: 10240 * Math.pow(2, level - 1),
+                  bandwidth: 10 * level
+                },
+                maxTraffic: 1024 * level,
+                expiryDays: 0
+              }
             }
           }
         }
@@ -923,7 +928,7 @@ const saveConfig = async () => {
             bandwidth: limit.maxResources.bandwidth
           },
           'max-traffic': limit.maxTraffic,
-          'expiry-days': limit.expiryDays || 30
+          'expiry-days': limit.expiryDays ?? 30
         }
       })
       configToSave.quota.levelLimits = convertedLimits

@@ -25,9 +25,9 @@ func (cm *ConfigManager) handleYAMLFirst() error {
 	}
 	cm.logger.Info("YAML配置已同步到数据库")
 
-	// 2. 重新从数据库加载以确保缓存一致
+	// 2. 重新从数据库加载以确保缓存一致（仅加载新格式配置，排除旧下划线格式遗留数据）
 	var configs []SystemConfig
-	if err := cm.db.Find(&configs).Error; err != nil {
+	if err := cm.db.Where("`key` LIKE ?", "%.%").Find(&configs).Error; err != nil {
 		cm.logger.Error("重新加载配置失败", zap.Error(err))
 		return err
 	}
@@ -56,9 +56,21 @@ func (cm *ConfigManager) handleYAMLFirst() error {
 	}
 	cm.logger.Info("配置已同步到全局配置")
 
-	// 5. 检查并补全缺失的配置项
+	// 5. 检查并补全缺失的配置项（例如旧版本升级后新增字段的默认值）
+	// batchSaveConfigsToDBOnly 只更新 DB 和 configCache，不触发回调
+	// 所以这里需要在补全后再同步一次，确保 global.APP_CONFIG 也包含新补全的默认值
+	configFilled := false
 	if err := cm.EnsureDefaultConfigs(); err != nil {
 		cm.logger.Warn("补全缺失配置项失败", zap.Error(err))
+	} else {
+		configFilled = true
+	}
+
+	// 6. 如果有新补全的配置，再次同步到全局配置
+	if configFilled {
+		if err := cm.syncDatabaseConfigToGlobal(); err != nil {
+			cm.logger.Warn("补全后同步配置到全局配置失败", zap.Error(err))
+		}
 	}
 
 	return nil
@@ -444,9 +456,9 @@ func (cm *ConfigManager) RestoreConfigFromDatabase() error {
 
 	cm.logger.Info("开始从数据库恢复配置到YAML文件")
 
-	// 从数据库读取所有配置
+	// 从数据库读取所有新格式配置（key 含"."，排除旧下划线格式遗留数据）
 	var configs []SystemConfig
-	if err := cm.db.Find(&configs).Error; err != nil {
+	if err := cm.db.Where("`key` LIKE ?", "%.%").Find(&configs).Error; err != nil {
 		cm.logger.Error("从数据库读取配置失败", zap.Error(err))
 		return fmt.Errorf("从数据库读取配置失败: %v", err)
 	}

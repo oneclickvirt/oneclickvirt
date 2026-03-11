@@ -208,6 +208,8 @@ func getDefaultConfigMap() map[string]interface{} {
 		},
 		"other": map[string]interface{}{
 			"default-language": "zh",
+			"logo-url":         "",
+			"site-name":        "",
 		},
 	}
 }

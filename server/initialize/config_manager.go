@@ -23,6 +23,11 @@ func InitializeConfigManager() {
 
 	// 正式初始化配置管理器（会调用 loadConfigFromDB）
 	config.InitializeConfigManager(global.APP_DB, global.APP_LOG)
+
+	// 标记 ConfigManager 已从数据库完成初始化。
+	// 此后 viper 文件监听器（OnConfigChange）不再覆盖 global.APP_CONFIG，
+	// 防止启动阶段写入 YAML 触发的延迟 fsnotify 事件把旧快照写回内存。
+	global.CONFIG_MANAGER_READY.Store(true)
 }
 
 // ReInitializeConfigManager 重新初始化配置管理器（用于系统初始化完成后）
@@ -34,6 +39,9 @@ func ReInitializeConfigManager() {
 
 	// 不重新注册回调（InitializeConfigManager 已注册过）
 	config.ReInitializeConfigManager(global.APP_DB, global.APP_LOG)
+
+	// 确保标记已设置（ReInitialize 可能在系统初始化完成后调用）
+	global.CONFIG_MANAGER_READY.Store(true)
 
 	global.APP_LOG.Info("配置管理器重新初始化完成")
 }
@@ -104,6 +112,29 @@ func syncAuthConfig(cfg *config.Server, authConfig map[string]interface{}) {
 	if v, ok := authConfig["enable-oauth2"].(bool); ok {
 		cfg.Auth.EnableOAuth2 = v
 	}
+	if v, ok := authConfig["email-smtp-host"].(string); ok {
+		cfg.Auth.EmailSMTPHost = v
+	}
+	if v, ok := authConfig["email-smtp-port"].(float64); ok {
+		cfg.Auth.EmailSMTPPort = int(v)
+	} else if v, ok := authConfig["email-smtp-port"].(int); ok {
+		cfg.Auth.EmailSMTPPort = v
+	}
+	if v, ok := authConfig["email-username"].(string); ok {
+		cfg.Auth.EmailUsername = v
+	}
+	if v, ok := authConfig["email-password"].(string); ok {
+		cfg.Auth.EmailPassword = v
+	}
+	if v, ok := authConfig["telegram-bot-token"].(string); ok {
+		cfg.Auth.TelegramBotToken = v
+	}
+	if v, ok := authConfig["qq-app-id"].(string); ok {
+		cfg.Auth.QQAppID = v
+	}
+	if v, ok := authConfig["qq-app-key"].(string); ok {
+		cfg.Auth.QQAppKey = v
+	}
 }
 
 // syncInviteCodeConfig 同步邀请码配置到配置副本
@@ -163,6 +194,11 @@ func syncQuotaConfig(cfg *config.Server, quotaConfig map[string]interface{}) {
 					levelLimit.MaxTraffic = v
 				} else if v, ok := limitMap["max-traffic"].(int); ok {
 					levelLimit.MaxTraffic = int64(v)
+				}
+				if v, ok := limitMap["expiry-days"].(float64); ok {
+					levelLimit.ExpiryDays = int(v)
+				} else if v, ok := limitMap["expiry-days"].(int); ok {
+					levelLimit.ExpiryDays = v
 				}
 				newMap[level] = levelLimit
 			}
