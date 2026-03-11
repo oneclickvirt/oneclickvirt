@@ -313,25 +313,26 @@ LIMIT 10000;
 		MaxRxBytes    int64
 		MaxTxBytes    int64
 		MaxTotalBytes int64
-		LastTimestamp time.Time
+		LastTimestamp *time.Time // 使用指针避免 COALESCE 导致的 []uint8 扫描错误
 	}
 	var lastMax lastMaxTraffic
 
 	// 查询最近一次有数据的记录（rx_bytes > 0 OR tx_bytes > 0）
 	// 使用子查询确保兼容 MySQL 5.x/9.x 和 MariaDB 5.x/9.x
+	// 注意：不使用 COALESCE(MAX(timestamp), ?) 避免 MySQL 驱动将 COALESCE 结果返回为 []uint8
 	err = global.APP_DB.Raw(`
 		SELECT 
 			COALESCE(MAX(rx_bytes), 0) as max_rx_bytes,
 			COALESCE(MAX(tx_bytes), 0) as max_tx_bytes,
 			COALESCE(MAX(total_bytes), 0) as max_total_bytes,
-			COALESCE(MAX(timestamp), ?) as last_timestamp
+			MAX(timestamp) as last_timestamp
 		FROM pmacct_traffic_records
 		WHERE instance_id = ? 
 		  AND (rx_bytes > 0 OR tx_bytes > 0)
 		  AND timestamp < ?
 		ORDER BY timestamp DESC
 		LIMIT 1
-	`, time.Unix(0, 0), instanceID, dataList[0].timestamp).Scan(&lastMax).Error
+	`, instanceID, dataList[0].timestamp).Scan(&lastMax).Error
 
 	if err != nil {
 		global.APP_LOG.Warn("查询历史最大流量失败，继续执行",
@@ -370,11 +371,15 @@ LIMIT 10000;
 		isContinuous = allGreaterOrEqual
 
 		if isContinuous {
+			var lastTimestampLog time.Time
+			if lastMax.LastTimestamp != nil {
+				lastTimestampLog = *lastMax.LastTimestamp
+			}
 			global.APP_LOG.Info("检测到连接异常恢复场景（所有新数据>=上次最大值），将填补空白期数据",
 				zap.Uint("instanceID", instanceID),
 				zap.Int64("lastMaxRx", lastMax.MaxRxBytes),
 				zap.Int64("lastMaxTx", lastMax.MaxTxBytes),
-				zap.Time("lastTimestamp", lastMax.LastTimestamp),
+				zap.Time("lastTimestamp", lastTimestampLog),
 				zap.Time("firstNewTimestamp", dataList[0].timestamp),
 				zap.Int("newDataCount", len(dataList)))
 		}
@@ -384,7 +389,7 @@ LIMIT 10000;
 	var imported int
 
 	// 第一步：填补空白期数据（如果需要）
-	if isContinuous && !lastMax.LastTimestamp.IsZero() {
+	if isContinuous && lastMax.LastTimestamp != nil && !lastMax.LastTimestamp.IsZero() {
 		fillStart := lastMax.LastTimestamp.Add(time.Minute)
 		fillEnd := dataList[0].timestamp.Add(-time.Minute)
 
@@ -615,8 +620,9 @@ LIMIT 10000;
 		}
 
 		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
+		// 使用 DIV 整数除法，避免浮点除法导致 MySQL 驱动返回 []uint8 无法扫描到 int64
 		err := global.APP_DB.Table("pmacct_traffic_records").
-			Select("instance_id, provider_id, user_id, MAX(rx_bytes)/1048576.0 as traffic_in, MAX(tx_bytes)/1048576.0 as traffic_out, MAX(total_bytes)/1048576.0 as total_used").
+			Select("instance_id, provider_id, user_id, MAX(rx_bytes) DIV 1048576 as traffic_in, MAX(tx_bytes) DIV 1048576 as traffic_out, MAX(total_bytes) DIV 1048576 as total_used").
 			Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
 			Group("instance_id, provider_id, user_id, year, month, day, hour").
 			Scan(&hourlyData).Error
@@ -683,9 +689,9 @@ LIMIT 10000;
 				instance_id,
 				provider_id,
 				user_id,
-				COALESCE(SUM(segment_max_rx), 0) / 1048576.0 as traffic_in,
-				COALESCE(SUM(segment_max_tx), 0) / 1048576.0 as traffic_out,
-				COALESCE(SUM(segment_max_total), 0) / 1048576.0 as total_used
+				COALESCE(SUM(segment_max_rx), 0) DIV 1048576 as traffic_in,
+				COALESCE(SUM(segment_max_tx), 0) DIV 1048576 as traffic_out,
+				COALESCE(SUM(segment_max_total), 0) DIV 1048576 as total_used
 			FROM (
 				SELECT 
 					instance_id, provider_id, user_id,
