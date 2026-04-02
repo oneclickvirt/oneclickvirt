@@ -52,7 +52,8 @@ export default {
     feedback: 'Issue Feedback',
     communityGroup: 'Community Group',
     allRightsReserved: 'All rights reserved.',
-    openSourceProject: 'Open Source Projects by OneClickVirt'
+    openSourceProject: 'Open Source Projects by OneClickVirt',
+    serverVersion: 'Server'
   },
   errors: {
     fetchAnnouncementsFailed: 'Failed to fetch announcements:',

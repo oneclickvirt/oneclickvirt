@@ -52,7 +52,8 @@ export default {
     feedback: '问题反馈',
     communityGroup: '交流群组',
     allRightsReserved: 'All rights reserved.',
-    openSourceProject: '一键虚拟化旗下开源项目'
+    openSourceProject: '一键虚拟化旗下开源项目',
+    serverVersion: '主控版本'
   },
   errors: {
     fetchAnnouncementsFailed: '获取公告失败:',

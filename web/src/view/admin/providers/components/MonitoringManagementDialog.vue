@@ -446,20 +446,20 @@ const handleDeployAgent = async () => {
     )
     deployLoading.value = true
     deployOutput.value = ''
-    const res = await deployAgent({ providerId: props.provider.id })
+    const res = await deployAgent(props.provider.id)
     if (res.code === 0 || res.code === 200) {
       ElMessage.success(t('admin.providers.deployAgentSuccess'))
-      deployOutput.value = res.data?.output || res.data?.message || 'OK'
+      deployOutput.value = res.data?.output || 'OK'
       await loadConfig()
       await loadMonitors()
     } else {
       ElMessage.error(res.msg || t('admin.providers.deployAgentFailed'))
-      deployOutput.value = res.msg || ''
+      deployOutput.value = res.data?.output || res.msg || ''
     }
   } catch (e) {
     if (e !== 'cancel') {
       ElMessage.error(e?.response?.data?.msg || t('admin.providers.deployAgentFailed'))
-      deployOutput.value = e?.response?.data?.msg || e.message || ''
+      deployOutput.value = e?.response?.data?.data?.output || e?.response?.data?.msg || e.message || ''
     }
   } finally {
     deployLoading.value = false

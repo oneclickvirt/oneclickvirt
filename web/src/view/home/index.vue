@@ -552,6 +552,10 @@
             </svg>
             {{ t('home.footer.openSourceProject') }}
           </a>
+          <template v-if="serverVersion">
+            <span class="footer-divider" />
+            <span class="footer-version-tag">{{ t('home.footer.serverVersion') }} {{ serverVersion }}</span>
+          </template>
         </div>
       </div>
     </footer>
@@ -562,7 +566,7 @@
 import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { getPublicAnnouncements, getPublicStats } from '@/api/public'
+import { getPublicAnnouncements, getPublicStats, getServerVersion } from '@/api/public'
 import { checkSystemInit } from '@/api/init'
 import { ElTag, ElMessage } from 'element-plus'
 import { Operation, Sunny, Moon } from '@element-plus/icons-vue'
@@ -581,6 +585,7 @@ const usersCount = ref(null)
 const nodesCount = ref(null)
 const containersCount = ref(null)
 const vmsCount = ref(null)
+const serverVersion = ref('')
 
 const usersCountDisplay = computed(() => (usersCount.value === null ? '-' : usersCount.value))
 const nodesCountDisplay = computed(() => (nodesCount.value === null ? '-' : nodesCount.value))
@@ -670,6 +675,12 @@ onMounted(() => {
   fetchAnnouncements()
   // 获取公开统计数据（用于未登录首页展示）
   fetchPublicStats()
+  // 获取服务器版本信息
+  getServerVersion().then(res => {
+    if (res && (res.code === 0 || res.code === 200) && res.data?.server_version) {
+      serverVersion.value = res.data.server_version
+    }
+  }).catch(() => {})
 })
 </script>
 
@@ -1373,6 +1384,12 @@ onMounted(() => {
 .footer-bottom-link:hover {
   color: #4ade80;
   text-shadow: 0 0 8px rgba(34, 197, 94, 0.5);
+}
+
+.footer-version-tag {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.4);
+  font-family: monospace;
 }
 
 /* 响应式调整 */

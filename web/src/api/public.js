@@ -50,3 +50,11 @@ export const getAvailableSystemImages = (params) => {
     params
   })
 }
+
+// 获取服务器版本信息
+export const getServerVersion = () => {
+  return request({
+    url: '/v1/public/version',
+    method: 'get'
+  })
+}

@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	monitoringModel "oneclickvirt/model/monitoring"
@@ -118,44 +119,54 @@ func UpdateMonitoringConfig(c *gin.Context) {
 }
 
 // DeployAgentRequest is the request body for deploying the agent.
+// Version is optional; when omitted the server's compatible agent version is used.
 type DeployAgentRequest struct {
-	ProviderID uint   `json:"provider_id" binding:"required"`
-	Version    string `json:"version" binding:"required"`
+	Version string `json:"version"`
 }
 
 // DeployAgent deploys the monitoring agent to a provider host.
+// The provider is identified by the :id URL path parameter.
 func DeployAgent(c *gin.Context) {
-	var req DeployAgentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "请求参数错误: " + err.Error()})
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
 		return
 	}
 
-	// Get or create monitoring config
-	config, err := agentService.GetMonitoringConfig(global.APP_DB, req.ProviderID)
+	var req DeployAgentRequest
+	// Body is optional — version is the only field and it has a default.
+	_ = c.ShouldBindJSON(&req)
+
+	if req.Version == "" {
+		req.Version = constant.CompatibleAgentVersion
+	}
+
+	// Get or create monitoring config (token is auto-generated on creation)
+	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
 		return
 	}
 
-	// Generate token if not set
+	// Ensure token exists (legacy configs created before auto-generation was added)
 	if config.AgentToken == "" {
 		config.AgentToken = agentService.GenerateAgentToken()
 		global.APP_DB.Save(config)
 	}
 
 	// Get provider instance from the registry
-	providerInstance, err := providerService.GetProviderInstanceByID(req.ProviderID)
+	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
 		return
 	}
 
 	// Check kernel/nft support first
-	ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer cancel()
+	nftCtx, nftCancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer nftCancel()
 
-	supportsNFT, err := agentService.DetectKernelSupportsNFT(ctx, providerInstance)
+	supportsNFT, err := agentService.DetectKernelSupportsNFT(nftCtx, providerInstance)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "检测内核NFT支持失败: " + err.Error()})
 		return
@@ -168,7 +179,7 @@ func DeployAgent(c *gin.Context) {
 		c.JSON(http.StatusOK, common.Response{
 			Code: 0,
 			Msg:  "内核不支持nft，已自动切换为pmacct模式",
-			Data: config,
+			Data: gin.H{"config": config, "output": "内核不支持nft，已自动切换为pmacct模式\n"},
 		})
 		return
 	}
@@ -184,8 +195,13 @@ func DeployAgent(c *gin.Context) {
 		ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
 		ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
 	}
-	if err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "部署Agent失败: " + err.Error()})
+	logs, err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{
+			Code: 50000,
+			Msg:  "部署Agent失败: " + err.Error(),
+			Data: gin.H{"output": logs},
+		})
 		return
 	}
 
@@ -195,7 +211,11 @@ func DeployAgent(c *gin.Context) {
 	config.MonitoringMode = "agent"
 	global.APP_DB.Save(config)
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "Agent部署成功", Data: config})
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Msg:  "Agent部署成功",
+		Data: gin.H{"config": config, "output": logs},
+	})
 }
 
 // UninstallAgent removes the agent from a provider host.

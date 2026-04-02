@@ -179,7 +179,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// Agent监控管理
 		AdminGroup.GET("/providers/:id/monitoring/config", admin.GetMonitoringConfig)
 		AdminGroup.PUT("/providers/:id/monitoring/config", admin.UpdateMonitoringConfig)
-		AdminGroup.POST("/monitoring/deploy-agent", admin.DeployAgent)
+		AdminGroup.POST("/providers/:id/monitoring/agent", admin.DeployAgent)
 		AdminGroup.DELETE("/providers/:id/monitoring/agent", admin.UninstallAgent)
 		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
 		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)

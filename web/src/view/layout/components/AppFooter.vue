@@ -20,16 +20,34 @@
         </svg>
         {{ t('home.footer.openSourceProject') }}
       </a>
+      <span v-if="serverVersion" class="footer-divider" />
+      <span v-if="serverVersion" class="footer-version">
+        {{ t('home.footer.serverVersion') }} {{ serverVersion }}
+      </span>
     </div>
   </footer>
 </template>
 
 <script setup>
+import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useSiteStore } from '@/pinia/modules/site'
+import { getServerVersion } from '@/api/public'
 
 const { t } = useI18n()
 const siteStore = useSiteStore()
+const serverVersion = ref('')
+
+onMounted(async () => {
+  try {
+    const res = await getServerVersion()
+    if (res && (res.code === 0 || res.code === 200) && res.data?.server_version) {
+      serverVersion.value = res.data.server_version
+    }
+  } catch {
+    // version display is non-critical; silently ignore errors
+  }
+})
 </script>
 
 <style lang="scss" scoped>
@@ -80,5 +98,11 @@ const siteStore = useSiteStore()
 
 .footer-github-icon {
   flex-shrink: 0;
+}
+
+.footer-version {
+  font-size: 12px;
+  color: var(--text-color-placeholder);
+  font-family: monospace;
 }
 </style>

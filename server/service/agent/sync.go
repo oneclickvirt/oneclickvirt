@@ -463,6 +463,7 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 		config = monitoringModel.MonitoringConfig{
 			ProviderID:              providerID,
 			MonitoringMode:          "agent",
+			AgentToken:              GenerateAgentToken(),
 			AgentPort:               AgentPort,
 			CollectInterval:         5,
 			ResourceCollectInterval: 30,

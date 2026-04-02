@@ -14,5 +14,6 @@ func InitPublicRouter(Router *gin.RouterGroup) {
 		PublicRouter.GET("announcements", system.GetAnnouncement)
 		PublicRouter.GET("stats", public.GetDashboardStats)
 		PublicRouter.GET("system-images/available", system.GetAvailableSystemImages)
+		PublicRouter.GET("version", public.GetVersion)
 	}
 }

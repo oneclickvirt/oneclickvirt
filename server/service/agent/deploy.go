@@ -60,12 +60,15 @@ func buildEnvFile(cfg *AgentConfig) string {
 // DeployAgent deploys the agent binary to a provider host via SSH.
 // It downloads the binary from GitHub releases (with CDN fallback), installs it,
 // and creates a systemd service.
-func DeployAgent(ctx context.Context, providerInstance provider.Provider, token string, version string) error {
+// Returns a deployment log string and any error.
+func DeployAgent(ctx context.Context, providerInstance provider.Provider, token string, version string) (string, error) {
 	return DeployAgentWithConfig(ctx, providerInstance, &AgentConfig{Token: token}, version)
 }
 
 // DeployAgentWithConfig deploys the agent binary with full configuration.
-func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, version string) error {
+// It executes each deployment step individually to provide granular logging.
+// Returns a multi-line deployment log string and any error.
+func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, version string) (string, error) {
 	arch, err := detectArchitecture(ctx, providerInstance)
 	if err != nil {
 		arch = "amd64"
@@ -75,24 +78,41 @@ func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provid
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	downloadURL := buildDownloadURL(version, archiveName)
 	cdnURL := buildCDNDownloadURL(version, archiveName)
-
 	envContent := buildEnvFile(cfg)
 
-	commands := []string{
-		fmt.Sprintf("mkdir -p %s", AgentInstallDir),
-		// Try CDN first, fallback to GitHub
-		fmt.Sprintf(
-			`cd %s && (curl -sL --connect-timeout 10 -o %s '%s' || curl -sL --connect-timeout 30 -o %s '%s')`,
-			AgentInstallDir, archiveName, cdnURL, archiveName, downloadURL,
-		),
-		fmt.Sprintf("cd %s && tar -xzf %s && rm -f %s", AgentInstallDir, archiveName, archiveName),
-		fmt.Sprintf("mv %s/%s %s/%s 2>/dev/null; chmod +x %s/%s",
-			AgentInstallDir, binaryName, AgentInstallDir, AgentBinaryName,
-			AgentInstallDir, AgentBinaryName),
-		// Create env file
-		fmt.Sprintf("cat > %s/.env << 'ENVEOF'\n%sENVEOF", AgentInstallDir, envContent),
-		// Create systemd service
-		fmt.Sprintf(`cat > /etc/systemd/system/%s.service << 'SVCEOF'
+	providerName := providerInstance.GetName()
+
+	type step struct {
+		label string
+		cmd   string
+	}
+
+	steps := []step{
+		{
+			label: "create install directory",
+			cmd:   fmt.Sprintf("mkdir -p %s", AgentInstallDir),
+		},
+		{
+			label: "download agent binary",
+			cmd: fmt.Sprintf(
+				`cd %s && (curl -sL --connect-timeout 10 -o %s '%s' || curl -sL --connect-timeout 30 -o %s '%s')`,
+				AgentInstallDir, archiveName, cdnURL, archiveName, downloadURL,
+			),
+		},
+		{
+			label: "extract and install binary",
+			cmd: fmt.Sprintf(
+				`cd %s && tar -xzf %s && rm -f %s && mv %s/%s %s/%s 2>/dev/null; chmod +x %s/%s`,
+				AgentInstallDir, archiveName, archiveName,
+				AgentInstallDir, binaryName, AgentInstallDir, AgentBinaryName,
+				AgentInstallDir, AgentBinaryName,
+			),
+		},
+		{
+			label: "write configuration files",
+			cmd: fmt.Sprintf(
+				"cat > %s/.env << 'ENVEOF'\n%sENVEOF\n"+
+					`cat > /etc/systemd/system/%s.service << 'SVCEOF'
 [Unit]
 Description=OneclickVirt Monitoring Agent
 After=network.target
@@ -107,26 +127,61 @@ LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
-SVCEOF`, AgentServiceName, AgentInstallDir, AgentInstallDir, AgentBinaryName),
-		"systemctl daemon-reload",
-		fmt.Sprintf("systemctl enable %s", AgentServiceName),
-		fmt.Sprintf("systemctl restart %s", AgentServiceName),
+SVCEOF`,
+				AgentInstallDir, envContent,
+				AgentServiceName, AgentInstallDir, AgentInstallDir, AgentBinaryName,
+			),
+		},
+		{
+			label: "enable and start service",
+			cmd: fmt.Sprintf(
+				"systemctl daemon-reload && systemctl enable %s && systemctl restart %s",
+				AgentServiceName, AgentServiceName,
+			),
+		},
 	}
 
-	combined := strings.Join(commands, " && ")
+	var logBuf strings.Builder
+	total := len(steps)
+
 	deployCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
-	_, err = providerInstance.ExecuteSSHCommand(deployCtx, combined)
-	if err != nil {
-		return fmt.Errorf("deploy agent failed: %w", err)
+
+	for i, s := range steps {
+		logBuf.WriteString(fmt.Sprintf("[%d/%d] %s...\n", i+1, total, s.label))
+		out, stepErr := providerInstance.ExecuteSSHCommand(deployCtx, s.cmd)
+		if out = strings.TrimSpace(out); out != "" {
+			logBuf.WriteString(out)
+			logBuf.WriteString("\n")
+		}
+		if stepErr != nil {
+			msg := fmt.Sprintf("[FAIL] step %d/%d (%s): %v", i+1, total, s.label, stepErr)
+			logBuf.WriteString(msg + "\n")
+			if global.APP_LOG != nil {
+				global.APP_LOG.Error("deploy agent step failed",
+					zap.String("provider", providerName),
+					zap.String("version", version),
+					zap.String("step", s.label),
+					zap.Error(stepErr))
+			}
+			return logBuf.String(), fmt.Errorf("deploy step '%s' failed: %w", s.label, stepErr)
+		}
+		logBuf.WriteString(fmt.Sprintf("[OK] %d/%d %s\n", i+1, total, s.label))
+		if global.APP_LOG != nil {
+			global.APP_LOG.Info("deploy agent step completed",
+				zap.String("provider", providerName),
+				zap.String("version", version),
+				zap.String("step", s.label))
+		}
 	}
 
 	if global.APP_LOG != nil {
 		global.APP_LOG.Info("agent deployed successfully",
-			zap.String("provider", providerInstance.GetName()),
+			zap.String("provider", providerName),
+			zap.String("version", version),
 			zap.String("arch", arch))
 	}
-	return nil
+	return logBuf.String(), nil
 }
 
 // UninstallAgent removes the agent from a provider host.

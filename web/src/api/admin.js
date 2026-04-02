@@ -97,11 +97,10 @@ export const updateMonitoringConfig = (providerId, data) => {
   })
 }
 
-export const deployAgent = (data) => {
+export const deployAgent = (providerId) => {
   return createLongTimeoutRequest(180000)({
-    url: '/v1/admin/monitoring/deploy-agent',
-    method: 'post',
-    data
+    url: `/v1/admin/providers/${providerId}/monitoring/agent`,
+    method: 'post'
   })
 }
 
