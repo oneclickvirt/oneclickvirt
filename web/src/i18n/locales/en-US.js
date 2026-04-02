@@ -4,6 +4,7 @@ import common from './en-US/common.js'
 import navbar from './en-US/navbar.js'
 import validation from './en-US/validation.js'
 import message from './en-US/message.js'
+import errors from './en-US/errors.js'
 
 // 认证模块  
 import login from './en-US/auth/login.js'
@@ -89,5 +90,6 @@ export default {
   },
   validation,
   message,
+  errors,
   notFound
 }

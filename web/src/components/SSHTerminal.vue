@@ -13,6 +13,9 @@ import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
 
 const props = defineProps({
   instanceId: {
@@ -192,7 +195,7 @@ const connect = () => {
     websocket.onerror = (error) => {
       console.error('WebSocket错误:', error)
       terminal.writeln('\x1b[31mWebSocket connection error\x1b[0m')
-      ElMessage.error('SSH连接出错')
+      ElMessage.error(t('user.instanceDetail.sshConnectionError'))
       emit('error', error)
       isConnecting = false
     }
@@ -203,7 +206,7 @@ const connect = () => {
       
       if (event.code !== 1000) {
         terminal.writeln('\x1b[33mSSH connection closed\x1b[0m')
-        ElMessage.warning('SSH连接已断开')
+        ElMessage.warning(t('user.instanceDetail.sshConnectionClosed'))
         
         // 如果不是主动关闭，尝试自动重连
         if (!isIntentionallyClosed) {
@@ -219,7 +222,7 @@ const connect = () => {
   } catch (error) {
     console.error('创建WebSocket连接失败:', error)
     terminal.writeln('\x1b[31mFailed to create WebSocket connection\x1b[0m')
-    ElMessage.error('无法创建SSH连接')
+    ElMessage.error(t('user.instanceDetail.sshCreateFailed'))
     emit('error', error)
     isConnecting = false
   }

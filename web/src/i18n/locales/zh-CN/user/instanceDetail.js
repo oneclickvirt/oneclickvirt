@@ -99,5 +99,8 @@ export default {
   instanceNotRunning: "实例未运行",
   noPassword: "实例密码不可用",
   sshConnectFailed: "SSH连接失败",
+  sshConnectionError: "SSH连接出错",
+  sshConnectionClosed: "SSH连接已断开",
+  sshCreateFailed: "无法创建SSH连接",
   operationInProgress: "操作正在进行中，请勿重复点击..."
 }

@@ -2,6 +2,9 @@
  * 文件上传验证工具
  * 头像上传功能已移除
  */
+import i18n from '@/i18n'
+
+const t = (...args) => i18n.global.t(...args)
 
 // 通用文件上传限制
 const MAX_REQUEST_SIZE = 1024 * 1024 // 1MB (通用文件)
@@ -47,20 +50,20 @@ export function validateFilename(filename) {
   // 检查文件名长度
   if (filename.length > 255) {
     result.valid = false
-    result.errors.push('文件名过长（最大255字符）')
+    result.errors.push(t('validation.fileNameTooLong'))
   }
 
   // 检查非法字符
   const illegalChars = /[<>:"/\\|?*\x00-\x1f]/
   if (illegalChars.test(filename)) {
     result.valid = false
-    result.errors.push('文件名包含非法字符')
+    result.errors.push(t('validation.fileNameIllegalChars'))
   }
 
   // 检查危险扩展名
   if (!isFileExtensionSafe(filename)) {
     result.valid = false
-    result.errors.push('不允许上传的文件类型')
+    result.errors.push(t('validation.fileTypeNotAllowed'))
   }
 
   return result
@@ -96,25 +99,25 @@ export function validateImageFile(file, options = {}) {
   if (file.size > maxSize) {
     result.valid = false
     const maxSizeMB = (maxSize / 1024 / 1024).toFixed(1)
-    result.errors.push(`文件大小不能超过 ${maxSizeMB}MB`)
+    result.errors.push(t('validation.fileSizeExceeded', { size: maxSizeMB }))
   }
 
   if (file.size === 0) {
     result.valid = false
-    result.errors.push('文件大小为0')
+    result.errors.push(t('validation.fileEmpty'))
   }
 
   // 验证文件类型
   if (!allowedTypes.includes(file.type)) {
     result.valid = false
-    result.errors.push(`文件类型不支持，仅支持: ${allowedTypes.map(type => type.split('/')[1].toUpperCase()).join(', ')}`)
+    result.errors.push(t('validation.fileTypeNotSupported', { types: allowedTypes.map(type => type.split('/')[1].toUpperCase()).join(', ') }))
   }
 
   // 验证文件扩展名
   const ext = '.' + file.name.toLowerCase().split('.').pop()
   if (!allowedExts.includes(ext)) {
     result.valid = false
-    result.errors.push(`文件扩展名不支持，仅支持: ${allowedExts.join(', ')}`)
+    result.errors.push(t('validation.fileExtNotSupported', { exts: allowedExts.join(', ') }))
   }
 
   // 显示错误消息

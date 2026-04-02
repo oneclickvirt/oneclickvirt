@@ -87,7 +87,10 @@ import { Close, Minus, Refresh, FullScreen } from '@element-plus/icons-vue'
 import { useSSHStore } from '@/pinia/modules/ssh'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
 import SSHTerminal from '@/components/SSHTerminal.vue'
+
+const { t } = useI18n()
 
 const sshStore = useSSHStore()
 const router = useRouter()
@@ -133,20 +136,20 @@ const reconnectSSH = (instanceId) => {
   if (terminal && terminal.reconnect) {
     terminal.reconnect()
   } else {
-    ElMessage.warning('Terminal not ready')
+    ElMessage.warning(t('user.instanceDetail.sshTerminal') + ' not ready')
   }
 }
 
 const handleSSHError = (instanceId, error) => {
   console.error(`SSH连接错误 (${instanceId}):`, error)
-  ElMessage.error('SSH connection failed')
+  ElMessage.error(t('user.instanceDetail.sshConnectFailed'))
 }
 
 const openSSHInNewWindow = (conn) => {
   const token = sessionStorage.getItem('token')
   
   if (!token) {
-    ElMessage.error('Authentication token not found')
+    ElMessage.error(t('errors.unauthorized'))
     return
   }
   
@@ -422,7 +425,7 @@ const openSSHInNewWindow = (conn) => {
     newWindow.document.write(htmlContent)
     newWindow.document.close()
   } else {
-    ElMessage.error('Unable to open new window, please check browser popup settings')
+    ElMessage.error(t('common.popupBlocked'))
   }
 }
 </script>

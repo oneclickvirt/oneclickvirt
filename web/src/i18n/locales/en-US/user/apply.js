@@ -95,5 +95,12 @@ export default {
   redeemCodeSubmit: "Redeem Now",
   redeemCodeSuccess: "Redeemed successfully! The instance has been assigned to your account.",
   redeemCodeRequired: "Please enter a redemption code",
-  redeemCodeError: "Redemption Failed"
+  redeemCodeError: "Redemption Failed",
+  nodeOffline: "This node is currently offline and cannot be selected",
+  nodeInsufficientResources: "This node has insufficient resources to create new instances",
+  imageChangeMemoryReset: "Image type changed, current memory spec does not meet minimum requirement, suitable spec auto-selected",
+  imageChangeDiskReset: "Image type changed, current disk spec does not meet minimum requirement, suitable spec auto-selected",
+  providerChangeDiskReset: "Provider changed, current disk spec does not meet image minimum requirement, auto-reset",
+  pageLoadFailed: "Page loading failed, please retry later",
+  loadProvidersFailed: "Failed to load providers, please check network connection"
 }

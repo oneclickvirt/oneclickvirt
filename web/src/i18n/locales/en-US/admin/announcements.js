@@ -48,5 +48,7 @@ export default {
   thisAnnouncement: "this announcement?",
   toggleStatusTitle: "Toggle Status",
   toggleSuccess: "Status toggle successful",
-  toggleFailed: "Status toggle failed"
+  toggleFailed: "Status toggle failed",
+  editorPlaceholder: "Enter announcement content...",
+  deleteTitle: "Delete Announcement"
 }

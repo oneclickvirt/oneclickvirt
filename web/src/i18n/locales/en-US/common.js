@@ -80,5 +80,15 @@ export default {
   backToHome: 'Back to Home',
   core: ' Core',
   presetValue: 'Preset value, cannot be modified',
-  noData: 'No data available'
+  noData: 'No data available',
+  loginExpired: 'Your login session has expired, please log in again',
+  loginInvalid: 'Your login status has become invalid, please log in again',
+  noPermission: 'You do not have permission to perform this action',
+  accountDisabled: 'Your account has been disabled, please contact the administrator',
+  requestTooLarge: 'The uploaded file or data is too large, please reduce the size',
+  nothingToCopy: 'Nothing to copy',
+  copyFailed: 'Copy failed, please copy manually',
+  cannotSerialize: 'Unable to serialize object',
+  unknownError: 'Unknown error',
+  popupBlocked: 'Unable to open new window, please check browser popup settings'
 }

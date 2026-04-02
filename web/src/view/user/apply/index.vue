@@ -411,13 +411,13 @@ const refreshData = async () => {
 // Bridge: select provider (uses both provider and form state)
 const selectProvider = async (provider) => {
   if (provider.status === 'offline' || provider.status === 'inactive') {
-    ElMessage.warning('该节点当前离线，无法选择')
+    ElMessage.warning(t('user.apply.nodeOffline'))
     return
   }
   const hasAvailableContainer = provider.containerEnabled && (provider.availableContainerSlots === -1 || provider.availableContainerSlots > 0)
   const hasAvailableVM = provider.vmEnabled && (provider.availableVMSlots === -1 || provider.availableVMSlots > 0)
   if (!hasAvailableContainer && !hasAvailableVM) {
-    ElMessage.warning('该节点资源不足，无法创建新实例')
+    ElMessage.warning(t('user.apply.nodeInsufficientResources'))
     return
   }
   selectedProvider.value = provider
@@ -461,7 +461,7 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
         if (currentMemory && currentMemory.sizeMB < minMemoryMB) {
           configForm.memoryId = ''
           needAutoSelect = true
-          ElMessage.warning('镜像类型变更，当前内存规格不符合最低要求，已自动选择合适的规格')
+          ElMessage.warning(t('user.apply.imageChangeMemoryReset'))
         }
       }
       if (configForm.diskId) {
@@ -469,7 +469,7 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
         if (currentDisk && currentDisk.sizeMB < minDiskMB) {
           configForm.diskId = ''
           needAutoSelect = true
-          ElMessage.warning('镜像类型变更，当前磁盘规格不符合最低要求，已自动选择合适的规格')
+          ElMessage.warning(t('user.apply.imageChangeDiskReset'))
         }
       }
       if (needAutoSelect) autoSelectFirstAvailableSpecs()
@@ -485,7 +485,7 @@ watch(() => selectedProvider.value?.type, (newProviderType, oldProviderType) => 
       const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
       if (currentDisk && currentDisk.sizeMB < selectedImage.minDiskMB) {
         configForm.diskId = ''
-        ElMessage.warning('Provider变更，当前磁盘规格不符合镜像的最低要求，已自动重置')
+        ElMessage.warning(t('user.apply.providerChangeDiskReset'))
         if (availableDiskSpecs.value.length > 0) configForm.diskId = availableDiskSpecs.value[0].id
       }
     }
@@ -522,7 +522,7 @@ onMounted(async () => {
     Promise.allSettled([loadInstanceConfig(), loadUserLimits()])
   } catch (error) {
     console.error('页面初始化失败:', error)
-    ElMessage.error('页面加载失败，请稍后重试')
+    ElMessage.error(t('user.apply.pageLoadFailed'))
   }
 })
 

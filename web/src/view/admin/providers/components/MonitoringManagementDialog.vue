@@ -48,7 +48,6 @@
                 {{ config.agentInstalled ? $t('admin.providers.redeployAgent') : $t('admin.providers.deployAgent') }}
               </el-button>
               <el-button
-                v-if="config.agentInstalled"
                 type="danger"
                 :loading="uninstallLoading"
                 @click="handleUninstallAgent"
@@ -87,12 +86,12 @@
                 <el-form-item :label="$t('admin.providers.collectInterval')">
                   <el-input-number v-model="editConfig.collectInterval" :min="1" :max="300" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
-                  <el-text type="info" size="small" style="margin-left: 8px;">Agent端流量采集间隔，默认5秒</el-text>
+                  <el-text type="info" size="small" style="margin-left: 8px;">{{ $t('admin.providers.collectIntervalHint') }}</el-text>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.resourceCollectInterval')">
                   <el-input-number v-model="editConfig.resourceCollectInterval" :min="10" :max="3600" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
-                  <el-text type="info" size="small" style="margin-left: 8px;">Agent端资源采集间隔，默认30秒</el-text>
+                  <el-text type="info" size="small" style="margin-left: 8px;">{{ $t('admin.providers.resourceCollectIntervalHint') }}</el-text>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.extraExcludeCIDRs')">
                   <el-input
@@ -368,6 +367,8 @@ const statusLoading = ref(false)
 const saveConfigLoading = ref(false)
 const deployOutput = ref('')
 const monitors = ref([])
+const agentOnlineChecked = ref(false)
+const agentIsOnline = ref(false)
 
 const config = reactive({
   monitoringMode: 'agent',
@@ -389,19 +390,31 @@ const editConfig = reactive({
 })
 
 const agentStatusType = computed(() => {
-  if (config.agentInstalled) return 'success'
+  if (agentOnlineChecked.value) {
+    return agentIsOnline.value ? 'success' : 'danger'
+  }
+  if (config.agentInstalled) return 'warning'
   return 'info'
 })
 
 const agentStatusText = computed(() => {
+  if (agentOnlineChecked.value) {
+    return agentIsOnline.value ? t('admin.providers.agentOnline') : t('admin.providers.agentOffline')
+  }
   if (config.agentInstalled) return t('admin.providers.agentInstalled')
   return t('admin.providers.agentNotInstalled')
 })
 
 watch(() => props.visible, async (val) => {
   if (val && props.provider) {
+    agentOnlineChecked.value = false
+    agentIsOnline.value = false
     await loadConfig()
     await loadMonitors()
+    // Auto-check agent status when dialog opens
+    if (config.agentInstalled) {
+      handleCheckStatus()
+    }
   }
 })
 
@@ -452,6 +465,8 @@ const handleDeployAgent = async () => {
       deployOutput.value = res.data?.output || 'OK'
       await loadConfig()
       await loadMonitors()
+      // Auto-check status after deploy
+      handleCheckStatus()
     } else {
       ElMessage.error(res.msg || t('admin.providers.deployAgentFailed'))
       deployOutput.value = res.data?.output || res.msg || ''
@@ -499,10 +514,15 @@ const handleCheckStatus = async () => {
     const res = await getAgentStatus(props.provider.id)
     if (res.code === 0 || res.code === 200) {
       const data = res.data
-      if (data.online) {
+      agentOnlineChecked.value = true
+      agentIsOnline.value = !!data.is_running
+      if (data.is_running) {
         ElMessage.success(t('admin.providers.agentOnline') + (data.version ? ` (v${data.version})` : ''))
       } else {
         ElMessage.warning(t('admin.providers.agentOffline'))
+      }
+      if (data.config) {
+        Object.assign(config, data.config)
       }
     }
   } catch (e) {

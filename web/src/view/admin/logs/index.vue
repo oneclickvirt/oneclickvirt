@@ -255,7 +255,7 @@ const copyContent = async () => {
     await navigator.clipboard.writeText(logContent.value)
     ElMessage.success(t('admin.logs.copySuccess'))
   } catch (e) {
-    ElMessage.error('复制失败')
+    ElMessage.error(t('admin.logs.copyFailed'))
   }
 }
 

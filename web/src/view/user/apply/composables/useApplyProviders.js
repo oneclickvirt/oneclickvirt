@@ -85,7 +85,7 @@ export function useApplyProviders() {
     } catch (error) {
       console.error('获取提供商列表失败:', error)
       providers.value = []
-      ElMessage.error('获取提供商列表失败，请检查网络连接')
+      ElMessage.error(t('user.apply.loadProvidersFailed'))
     } finally {
       loading.value = false
     }

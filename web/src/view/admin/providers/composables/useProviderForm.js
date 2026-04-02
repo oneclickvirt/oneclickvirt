@@ -165,9 +165,9 @@ export function useProviderForm(loadProviders) {
 
   const resetLevelLimitsToDefault = () => {
     ElMessageBox.confirm(
-      '确定要恢复所有等级的默认限制值吗？',
-      '确认操作',
-      { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+      t('admin.providers.restoreDefaultLimitsConfirm'),
+      t('admin.providers.confirmOperation'),
+      { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
     ).then(() => {
       addProviderForm.levelLimits = JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
       ElMessage.success(t('admin.providers.levelLimitsRestored'))

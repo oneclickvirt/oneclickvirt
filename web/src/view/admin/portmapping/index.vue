@@ -763,7 +763,7 @@ const checkPortAvailability = async () => {
   // 从实例中获取 providerId
   const selectedInstance = supportedInstances.value.find(inst => inst.id === addForm.instanceId)
   if (!selectedInstance || !selectedInstance.providerId) {
-    ElMessage.error('无法获取实例的 Provider 信息')
+    ElMessage.error(t('admin.portMapping.cannotGetProviderInfo'))
     return
   }
   

@@ -217,6 +217,7 @@ func InitSystem(c *gin.Context) {
 			Username string `json:"username" binding:"required"`
 			Password string `json:"password" binding:"required"`
 			Email    string `json:"email" binding:"required"`
+			Enabled  bool   `json:"enabled"`
 		} `json:"user" binding:"required"`
 		Database struct {
 			Type     string `json:"type" binding:"required"`
@@ -292,6 +293,7 @@ func InitSystem(c *gin.Context) {
 		Username: req.User.Username,
 		Password: req.User.Password,
 		Email:    req.User.Email,
+		Enabled:  req.User.Enabled,
 	}
 	if err := authService.InitSystemWithUsers(adminInfo, userInfo); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Error(err.Error()))

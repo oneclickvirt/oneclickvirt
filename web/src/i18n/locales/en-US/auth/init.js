@@ -2,6 +2,7 @@ export default {
   title: 'System Initialization',
   subtitle: 'First-time use requires system initialization',
   fillDefaults: 'Fill Default Information',
+  nextStep: 'Next Step',
   initSystem: 'Initialize System',
   infoTitle: 'Initialization Instructions',
   infoDescription: 'System initialization requires the following information:',
@@ -45,7 +46,9 @@ export default {
     confirmPassword: 'Confirm Password',
     confirmPasswordPlaceholder: 'Enter password again',
     email: 'User Email',
-    emailPlaceholder: 'Enter user email'
+    emailPlaceholder: 'Enter user email',
+    enableStatus: 'Account Status',
+    enableHint: 'Disabled by default for security. Enable only if this user needs immediate login access.'
   },
   validation: {
     passwordMismatch: 'Passwords do not match',

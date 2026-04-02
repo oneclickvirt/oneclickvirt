@@ -68,11 +68,11 @@ export function useProviderOperations() {
   const deleteProviderHandler = async (id) => {
     try {
       await ElMessageBox.confirm(
-        '此操作将永久删除该服务器，是否继续？',
-        '警告',
+        t('admin.providers.singleDeleteConfirm'),
+        t('common.warning'),
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
           type: 'warning'
         }
       )
@@ -218,11 +218,11 @@ export function useProviderOperations() {
   const freezeProviderHandler = async (id) => {
     try {
       await ElMessageBox.confirm(
-        '此操作将冻结该服务器，冻结后普通用户无法使用该服务器创建实例，是否继续？',
-        '确认冻结',
+        t('admin.providers.singleFreezeConfirm'),
+        t('admin.providers.confirmFreeze'),
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
           type: 'warning'
         }
       )

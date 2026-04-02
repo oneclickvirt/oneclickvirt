@@ -86,5 +86,6 @@ export default {
   showingFirst10: ", showing first 10 (use search to find more)",
   instancesLoadedButNotSupported: "Loaded {count} instances, but none are supported",
   statusDeleting: "Deleting",
-  statusPending: "Pending"
+  statusPending: "Pending",
+  cannotGetProviderInfo: "Unable to get instance Provider info"
 }

@@ -412,7 +412,7 @@ const handleTestConnection = async () => {
   }
 
   if (formData.value.authMethod === 'sshKey' && !formData.value.sshKey) {
-    ElMessage.warning('请填写SSH密钥')
+    ElMessage.warning(t('admin.providers.fillSSHKey'))
     return
   }
 
@@ -438,29 +438,29 @@ const handleTestConnection = async () => {
     if (result.code === 200 && result.data.success) {
       connectionTestResult.value = {
         success: true,
-        title: 'SSH连接测试成功',
+        title: t('admin.providers.sshTestSuccess'),
         type: 'success',
         minLatency: result.data.minLatency,
         maxLatency: result.data.maxLatency,
         avgLatency: result.data.avgLatency,
         recommendedTimeout: result.data.recommendedTimeout
       }
-      ElMessage.success('SSH连接测试成功')
+      ElMessage.success(t('admin.providers.sshTestSuccess'))
     } else {
       connectionTestResult.value = {
         success: false,
-        title: 'SSH连接测试失败',
+        title: t('admin.providers.sshTestFailed'),
         type: 'error',
-        error: result.data.errorMessage || result.msg || '连接失败'
+        error: result.data.errorMessage || result.msg || t('admin.providers.connectionFailed')
       }
-      ElMessage.error('SSH连接测试失败: ' + (result.data.errorMessage || result.msg))
+      ElMessage.error(t('admin.providers.sshTestFailed') + ': ' + (result.data.errorMessage || result.msg))
     }
   } catch (error) {
     connectionTestResult.value = {
       success: false,
-      title: 'SSH连接测试失败',
+      title: t('admin.providers.sshTestFailed'),
       type: 'error',
-      error: error.message || '网络请求失败'
+      error: error.message || t('admin.providers.networkRequestFailed')
     }
     ElMessage.error(t('admin.providers.testFailed') + ': ' + error.message)
   } finally {
@@ -546,7 +546,7 @@ const handleSubmit = async () => {
     // 这里只需要提示用户检查表单
     if (error && typeof error === 'object') {
       // 验证失败，滚动到第一个错误字段
-      ElMessage.error(t('admin.providers.pleaseCheckRequiredFields') || '请检查必填项')
+      ElMessage.error(t('admin.providers.pleaseCheckRequiredFields'))
     }
   }
 }

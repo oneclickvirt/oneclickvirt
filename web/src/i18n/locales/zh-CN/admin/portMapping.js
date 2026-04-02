@@ -86,5 +86,6 @@ export default {
   showingFirst10: "，显示前 10 个（请使用搜索功能查找更多）",
   instancesLoadedButNotSupported: "已加载 {count} 个实例，但都不支持",
   statusDeleting: "删除中",
-  statusPending: "等待中"
+  statusPending: "等待中",
+  cannotGetProviderInfo: "无法获取实例的 Provider 信息"
 }

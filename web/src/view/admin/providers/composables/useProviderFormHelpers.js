@@ -25,7 +25,7 @@ export function useProviderFormHelpers() {
     }
 
     if (formData.authMethod === 'sshKey' && !formData.sshKey) {
-      ElMessage.warning('请填写SSH密钥')
+      ElMessage.warning(t('admin.providers.fillSSHKey'))
       return
     }
 
@@ -53,29 +53,29 @@ export function useProviderFormHelpers() {
       if (result.code === 200 && result.data.success) {
         connectionTestResult.value = {
           success: true,
-          title: 'SSH连接测试成功',
+          title: t('admin.providers.sshTestSuccess'),
           type: 'success',
           minLatency: result.data.minLatency,
           maxLatency: result.data.maxLatency,
           avgLatency: result.data.avgLatency,
           recommendedTimeout: result.data.recommendedTimeout
         }
-        ElMessage.success('SSH连接测试成功')
+        ElMessage.success(t('admin.providers.sshTestSuccess'))
       } else {
         connectionTestResult.value = {
           success: false,
-          title: 'SSH连接测试失败',
+          title: t('admin.providers.sshTestFailed'),
           type: 'error',
-          error: result.data.errorMessage || result.msg || '连接失败'
+          error: result.data.errorMessage || result.msg || t('admin.providers.connectionFailed')
         }
-        ElMessage.error('SSH连接测试失败: ' + (result.data.errorMessage || result.msg))
+        ElMessage.error(t('admin.providers.sshTestFailed') + ': ' + (result.data.errorMessage || result.msg))
       }
     } catch (error) {
       connectionTestResult.value = {
         success: false,
-        title: 'SSH连接测试失败',
+        title: t('admin.providers.sshTestFailed'),
         type: 'error',
-        error: error.message || '网络请求失败'
+        error: error.message || t('admin.providers.networkRequestFailed')
       }
       ElMessage.error(t('admin.providers.testFailed') + ': ' + error.message)
     } finally {
@@ -105,7 +105,7 @@ export function useProviderFormHelpers() {
   // 验证虚拟化类型
   const validateVirtualizationType = (formData) => {
     if (!formData.containerEnabled && !formData.vmEnabled) {
-      ElMessage.error('至少需要选择一种虚拟化类型（容器或虚拟机）')
+      ElMessage.error(t('admin.providers.atLeastOneVirtType'))
       return false
     }
     return true

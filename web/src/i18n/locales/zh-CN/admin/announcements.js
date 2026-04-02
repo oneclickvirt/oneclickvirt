@@ -48,5 +48,7 @@ export default {
   thisAnnouncement: "这条公告吗？",
   toggleStatusTitle: "切换状态",
   toggleSuccess: "状态切换成功",
-  toggleFailed: "状态切换失败"
+  toggleFailed: "状态切换失败",
+  editorPlaceholder: "请输入公告内容...",
+  deleteTitle: "删除公告"
 }

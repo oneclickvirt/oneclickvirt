@@ -84,5 +84,15 @@ export default {
   core: '核',
   days: '天',
   presetValue: '预设值，不可修改',
-  noData: '暂无数据'
+  noData: '暂无数据',
+  loginExpired: '登录已过期，请重新登录',
+  loginInvalid: '您的登录状态已失效，请重新登录',
+  noPermission: '您没有权限执行此操作',
+  accountDisabled: '您的账户已被禁用，请联系管理员',
+  requestTooLarge: '上传的文件或数据过大，请减少文件大小或数据量',
+  nothingToCopy: '没有可复制的内容',
+  copyFailed: '复制失败，请手动复制',
+  cannotSerialize: '无法序列化对象',
+  unknownError: '未知错误',
+  popupBlocked: '无法打开新窗口，请检查浏览器弹窗设置'
 }

@@ -2,6 +2,7 @@ export default {
   title: '系统初始化',
   subtitle: '首次使用需要初始化系统',
   fillDefaults: '一键填入默认信息',
+  nextStep: '下一步',
   initSystem: '初始化系统',
   infoTitle: '初始化说明',
   infoDescription: '系统初始化需要配置以下信息：',
@@ -45,7 +46,9 @@ export default {
     confirmPassword: '确认密码',
     confirmPasswordPlaceholder: '请再次输入密码',
     email: '用户邮箱',
-    emailPlaceholder: '请输入用户邮箱'
+    emailPlaceholder: '请输入用户邮箱',
+    enableStatus: '账户状态',
+    enableHint: '默认禁用以确保安全，仅在需要该用户立即登录时才启用。'
   },
   validation: {
     passwordMismatch: '两次输入的密码不一致',

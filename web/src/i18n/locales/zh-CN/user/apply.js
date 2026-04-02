@@ -95,5 +95,12 @@ export default {
   redeemCodeSubmit: "立即兑换",
   redeemCodeSuccess: "兑换成功，实例已绑定到您的账户",
   redeemCodeRequired: "请输入兑换码",
-  redeemCodeError: "兑换失败"
+  redeemCodeError: "兑换失败",
+  nodeOffline: "该节点当前离线，无法选择",
+  nodeInsufficientResources: "该节点资源不足，无法创建新实例",
+  imageChangeMemoryReset: "镜像类型变更，当前内存规格不符合最低要求，已自动选择合适的规格",
+  imageChangeDiskReset: "镜像类型变更，当前磁盘规格不符合最低要求，已自动选择合适的规格",
+  providerChangeDiskReset: "Provider变更，当前磁盘规格不符合镜像的最低要求，已自动重置",
+  pageLoadFailed: "页面加载失败，请稍后重试",
+  loadProvidersFailed: "获取提供商列表失败，请检查网络连接"
 }

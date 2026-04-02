@@ -1,4 +1,7 @@
 import { ElMessage } from 'element-plus'
+import i18n from '@/i18n'
+
+const t = (...args) => i18n.global.t(...args)
 
 /**
  * 复制文本到剪贴板
@@ -9,10 +12,12 @@ import { ElMessage } from 'element-plus'
  * @param {string} errorMessage - 失败提示信息（可选）
  * @returns {Promise<boolean>} - 返回是否复制成功
  */
-export async function copyToClipboard(text, successMessage = '已复制到剪贴板', errorMessage = '复制失败，请手动复制') {
+export async function copyToClipboard(text, successMessage, errorMessage) {
+  if (successMessage === undefined) successMessage = t('common.saveSuccess')
+  if (errorMessage === undefined) errorMessage = t('common.copyFailed')
   // 检查是否有内容可复制
   if (!text || text.trim() === '') {
-    ElMessage.warning('没有可复制的内容')
+    ElMessage.warning(t('common.nothingToCopy'))
     return false
   }
 
@@ -82,13 +87,15 @@ export async function copyToClipboard(text, successMessage = '已复制到剪贴
  * @param {string} errorMessage - 失败提示信息（可选）
  * @returns {Promise<boolean>} - 返回是否复制成功
  */
-export async function copyObjectAsJSON(obj, pretty = true, successMessage = '已复制到剪贴板', errorMessage = '复制失败') {
+export async function copyObjectAsJSON(obj, pretty = true, successMessage, errorMessage) {
+  if (successMessage === undefined) successMessage = t('common.saveSuccess')
+  if (errorMessage === undefined) errorMessage = t('common.copyFailed')
   try {
     const jsonString = pretty ? JSON.stringify(obj, null, 2) : JSON.stringify(obj)
     return await copyToClipboard(jsonString, successMessage, errorMessage)
   } catch (error) {
     console.error('JSON序列化失败:', error)
-    ElMessage.error('无法序列化对象')
+    ElMessage.error(t('common.cannotSerialize'))
     return false
   }
 }

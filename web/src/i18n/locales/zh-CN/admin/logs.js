@@ -14,6 +14,7 @@ export default {
   lines: '行',
   copy: '复制',
   copySuccess: '已复制到剪贴板',
+  copyFailed: '复制失败',
   loading: '加载中...',
   pleaseSelect: '请先选择日期和日志等级'
 }

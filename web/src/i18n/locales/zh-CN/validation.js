@@ -10,5 +10,12 @@ export default {
   confirmPasswordMatch: '两次输入的密码不一致',
   usernameLength: '用户名长度在 {min} 到 {max} 个字符',
   phoneFormat: '请输入有效的电话号码',
-  urlFormat: '请输入有效的URL'
+  urlFormat: '请输入有效的URL',
+  fileNameTooLong: '文件名过长（最大255字符）',
+  fileNameIllegalChars: '文件名包含非法字符',
+  fileTypeNotAllowed: '不允许上传的文件类型',
+  fileSizeExceeded: '文件大小不能超过 {size}MB',
+  fileEmpty: '文件大小为0',
+  fileTypeNotSupported: '文件类型不支持，仅支持: {types}',
+  fileExtNotSupported: '文件扩展名不支持，仅支持: {exts}'
 }

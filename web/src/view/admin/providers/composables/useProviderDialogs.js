@@ -142,7 +142,7 @@ export function useProviderDialogs(loadProviders) {
         await viewTaskLog(result.taskId)
         await loadProviders()
       } else {
-        ElMessage.success('API 自动配置成功')
+        ElMessage.success(t('admin.providers.apiAutoConfigSuccess'))
         await loadProviders()
       }
     } catch (error) {

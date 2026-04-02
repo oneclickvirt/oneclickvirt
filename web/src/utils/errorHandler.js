@@ -2,59 +2,64 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { ref, readonly } from 'vue'
 import router from '@/router'
 import { useUserStore } from '@/pinia/modules/user'
+import i18n from '@/i18n'
+
+const t = (...args) => i18n.global.t(...args)
 
 /**
  * 统一错误处理工具类
  */
 export const errorHandler = {
   // 错误码映射 - 对应后端的错误码定义
-  codeMap: {
-    // 成功
-    0: '操作成功',
-    200: '操作成功',
+  get codeMap() {
+    return {
+      // 成功
+      0: t('common.success'),
+      200: t('common.success'),
 
-    // 通用错误 1000-1999
-    1000: '操作失败',
-    1001: '请求参数错误',
-    1002: '系统内部错误',
-    1003: '未授权访问',
-    1004: '禁止访问',
-    1005: '资源不存在',
-    1006: '资源冲突',
-    1007: '数据验证失败',
+      // 通用错误 1000-1999
+      1000: t('common.failed'),
+      1001: t('errors.invalidParams'),
+      1002: t('errors.internalError'),
+      1003: t('errors.unauthorized'),
+      1004: t('errors.forbidden'),
+      1005: t('errors.notFound'),
+      1006: t('errors.conflict'),
+      1007: t('errors.validationFailed'),
 
-    // 用户相关错误 2000-2999
-    2001: '用户不存在',
-    2002: '用户已存在',
-    2003: '用户名已存在',
-    2004: '用户名或密码错误',
-    2005: '用户已被禁用，有问题请联系管理员',
-    2006: '用户权限不足',
+      // 用户相关错误 2000-2999
+      2001: t('errors.userNotFound'),
+      2002: t('errors.userExists'),
+      2003: t('errors.usernameExists'),
+      2004: t('errors.wrongCredentials'),
+      2005: t('common.accountDisabled'),
+      2006: t('common.noPermission'),
 
-    // 角色权限相关错误 3000-3999
-    3001: '角色不存在',
-    3002: '角色已存在',
-    3003: '权限不足',
-    3004: '无效的角色',
-    3005: '角色正在使用中，无法删除',
-    3006: '权限不存在',
+      // 角色权限相关错误 3000-3999
+      3001: t('errors.roleNotFound'),
+      3002: t('errors.roleExists'),
+      3003: t('common.noPermission'),
+      3004: t('errors.invalidRole'),
+      3005: t('errors.roleInUse'),
+      3006: t('errors.permissionNotFound'),
 
-    // 业务相关错误 4000-4999
-    4001: '邀请码无效',
-    4002: '邀请码已过期',
-    4003: '邀请码已被使用',
-    4004: '验证码错误',
-    4005: '请提供验证码',
-    4006: '令牌生成失败',
-    4007: 'OAuth2认证失败',
-    4008: 'OAuth2注册已达到限制',
+      // 业务相关错误 4000-4999
+      4001: t('errors.inviteCodeInvalid'),
+      4002: t('errors.inviteCodeExpired'),
+      4003: t('errors.inviteCodeUsed'),
+      4004: t('errors.captchaError'),
+      4005: t('errors.captchaRequired'),
+      4006: t('errors.tokenGenerationFailed'),
+      4007: t('errors.oauth2Failed'),
+      4008: t('errors.oauth2RegistrationLimit'),
 
-    // 系统相关错误 5000-5999
-    5001: '配置错误',
-    5002: '数据库错误',
-    5003: '缓存错误',
-    5004: '外部API调用失败',
-    5005: '请求体过大，请减少数据量'
+      // 系统相关错误 5000-5999
+      5001: t('errors.configError'),
+      5002: t('errors.databaseError'),
+      5003: t('errors.cacheError'),
+      5004: t('errors.externalApiFailed'),
+      5005: t('common.requestTooLarge')
+    }
   },
 
   /**
@@ -79,7 +84,7 @@ export const errorHandler = {
     if (error.response && error.response.data) {
       const { data } = error.response
       code = data.code || data.status || error.response.status
-      message = data.message || data.msg || data.error || '请求失败'
+      message = data.message || data.msg || data.error || t('errors.requestFailed')
       details = data.details || ''
 
       // 使用错误码映射获取标准错误消息
@@ -96,12 +101,12 @@ export const errorHandler = {
     // 处理网络错误或其他错误
     else if (error.request) {
       code = -1
-      message = '网络连接失败，请检查网络设置'
+      message = t('errors.networkError')
     } 
     // 处理请求配置错误
     else {
       code = -2
-      message = '请求配置错误'
+      message = t('errors.requestConfigError')
     }
 
     // 使用自定义消息（如果提供）
@@ -138,12 +143,12 @@ export const errorHandler = {
         if (message && (message.includes('已失效') || message.includes('已撤销') || message.includes('revoked'))) {
           userStore.clearUserData()
           router.push('/login')
-          ElMessage.warning('您的登录状态已失效，请重新登录')
+          ElMessage.warning(t('common.loginInvalid'))
         } else if (currentRoute.meta?.requiresAuth) {
           // 只有在需要认证的页面才处理认证错误
           userStore.clearUserData()
           router.push('/login')
-          ElMessage.warning('登录已过期，请重新登录')
+          ElMessage.warning(t('common.loginExpired'))
         }
         break
 
@@ -151,19 +156,19 @@ export const errorHandler = {
       case 2006: // 用户权限不足
       case 3003: // 权限不足
       case 403:
-        ElMessage.error('您没有权限执行此操作')
+        ElMessage.error(t('common.noPermission'))
         break
 
       case 2005: // 用户已被禁用
         // 用户被禁用时清除本地数据并跳转到登录页
         userStore.clearUserData()
         router.push('/login')
-        ElMessage.error('您的账户已被禁用，请联系管理员')
+        ElMessage.error(t('common.accountDisabled'))
         break
 
       case 5005: // 请求体过大
       case 413:
-        ElMessage.error('上传的文件或数据过大，请减少文件大小或数据量')
+        ElMessage.error(t('common.requestTooLarge'))
         break
 
       default:
@@ -202,17 +207,18 @@ export const errorHandler = {
    * @param {Object} options - 配置选项
    * @returns {Promise} 确认结果
    */
-  async showConfirmDialog(message, title = '确认操作', options = {}) {
+  async showConfirmDialog(message, title, options = {}) {
+    if (!title) title = t('common.confirm')
     const {
-      confirmButtonText = '确定',
-      cancelButtonText = '取消',
+      confirmButtonText,
+      cancelButtonText,
       type = 'warning'
     } = options
 
     try {
       await ElMessageBox.confirm(message, title, {
-        confirmButtonText,
-        cancelButtonText,
+        confirmButtonText: confirmButtonText || t('common.confirm'),
+        cancelButtonText: cancelButtonText || t('common.cancel'),
         type
       })
       return true
@@ -226,7 +232,8 @@ export const errorHandler = {
    * @param {Object} errors - 验证错误对象
    * @param {string} prefix - 错误消息前缀
    */
-  handleValidationErrors(errors, prefix = '表单验证失败') {
+  handleValidationErrors(errors, prefix) {
+    if (!prefix) prefix = t('errors.validationFailed')
     if (!errors || typeof errors !== 'object') {
       ElMessage.error(prefix)
       return

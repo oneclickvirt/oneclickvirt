@@ -1,6 +1,9 @@
 import { useUserStore } from '@/pinia/modules/user'
 import { ElMessage } from 'element-plus'
 import router from '@/router'
+import i18n from '@/i18n'
+
+const t = (...args) => i18n.global.t(...args)
 
 class UserStatusMonitor {
   constructor() {
@@ -75,7 +78,7 @@ class UserStatusMonitor {
         // 只有当前不在首页或登录页时才重定向
         const currentPath = router.currentRoute.value.path
         if (!['/home', '/login', '/register', '/forgot-password'].includes(currentPath)) {
-          ElMessage.warning('您的登录状态已失效，请重新登录')
+          ElMessage.warning(t('common.loginInvalid'))
           router.push('/home')
         }
       }
@@ -90,7 +93,7 @@ class UserStatusMonitor {
         
         const currentPath = router.currentRoute.value.path
         if (!['/home', '/login', '/register', '/forgot-password'].includes(currentPath)) {
-          ElMessage.warning('您的登录状态已失效，请重新登录')
+          ElMessage.warning(t('common.loginInvalid'))
           router.push('/home')
         }
       }

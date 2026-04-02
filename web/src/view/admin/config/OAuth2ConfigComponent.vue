@@ -14,16 +14,16 @@
       >
         <template #header>
           <div class="card-header">
-            <span>OAuth2 登录配置</span>
+            <span>{{ t('admin.config.oauth2LoginConfig') }}</span>
             <el-switch
               v-model="formData.enabled"
-              active-text="启用"
-              inactive-text="禁用"
+              :active-text="t('common.enabled')"
+              :inactive-text="t('common.disabled')"
             />
           </div>
         </template>
         <el-divider content-position="left">
-          基础配置
+          {{ t('admin.config.oauth2BasicConfig') }}
         </el-divider>
 
         <el-form-item
@@ -32,7 +32,7 @@
         >
           <el-input
             v-model="formData.clientId"
-            placeholder="请输入OAuth2 Client ID"
+            :placeholder="t('admin.config.oauth2ClientIdPlaceholder')"
           />
         </el-form-item>
 
@@ -43,7 +43,7 @@
           <el-input
             v-model="formData.clientSecret"
             type="password"
-            placeholder="请输入OAuth2 Client Secret"
+            :placeholder="t('admin.config.oauth2ClientSecretPlaceholder')"
             show-password
           />
         </el-form-item>
@@ -54,46 +54,46 @@
         >
           <el-input
             v-model="formData.redirectUrl"
-            placeholder="例如: http://localhost:8888/api/v1/auth/oauth2/callback"
+            :placeholder="t('admin.config.oauth2RedirectUrlPlaceholder')"
           />
         </el-form-item>
 
         <el-divider content-position="left">
-          OAuth2 端点配置
+          {{ t('admin.config.oauth2EndpointConfig') }}
         </el-divider>
 
         <el-form-item
-          label="授权地址"
+          :label="t('admin.config.oauth2AuthUrlLabel')"
           prop="authUrl"
         >
           <el-input
             v-model="formData.authUrl"
-            placeholder="例如: https://connect.linux.do/oauth2/authorize"
+            :placeholder="t('admin.config.oauth2AuthUrlPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="令牌地址"
+          :label="t('admin.config.oauth2TokenUrlLabel')"
           prop="tokenUrl"
         >
           <el-input
             v-model="formData.tokenUrl"
-            placeholder="例如: https://connect.linux.do/oauth2/token"
+            :placeholder="t('admin.config.oauth2TokenUrlPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="用户信息地址"
+          :label="t('admin.config.oauth2UserInfoUrlLabel')"
           prop="userinfoUrl"
         >
           <el-input
             v-model="formData.userinfoUrl"
-            placeholder="例如: https://connect.linux.do/api/user"
+            :placeholder="t('admin.config.oauth2UserInfoUrlPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="权限范围"
+          :label="t('admin.config.oauth2ScopesLabel')"
           prop="scopes"
         >
           <el-select
@@ -101,108 +101,96 @@
             multiple
             filterable
             allow-create
-            placeholder="请选择或输入权限范围"
+            :placeholder="t('admin.config.oauth2ScopesPlaceholder')"
             style="width: 100%"
           >
-            <el-option
-              label="read"
-              value="read"
-            />
-            <el-option
-              label="openid"
-              value="openid"
-            />
-            <el-option
-              label="profile"
-              value="profile"
-            />
-            <el-option
-              label="email"
-              value="email"
-            />
+            <el-option label="read" value="read" />
+            <el-option label="openid" value="openid" />
+            <el-option label="profile" value="profile" />
+            <el-option label="email" value="email" />
           </el-select>
         </el-form-item>
 
         <el-divider content-position="left">
-          字段映射配置
+          {{ t('admin.config.oauth2FieldMapping') }}
         </el-divider>
 
         <el-form-item
-          label="用户ID字段"
+          :label="t('admin.config.oauth2UserIdFieldLabel')"
           prop="userIdField"
         >
           <el-input
             v-model="formData.userIdField"
-            placeholder="例如: id"
+            :placeholder="t('admin.config.oauth2UserIdFieldPlaceholder')"
           >
             <template #append>
-              支持嵌套，如: user.id
+              {{ t('admin.config.oauth2UserIdFieldAppend') }}
             </template>
           </el-input>
         </el-form-item>
 
         <el-form-item
-          label="用户名字段"
+          :label="t('admin.config.oauth2UsernameFieldLabel')"
           prop="usernameField"
         >
           <el-input
             v-model="formData.usernameField"
-            placeholder="例如: username"
+            :placeholder="t('admin.config.oauth2UsernameFieldPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="邮箱字段"
+          :label="t('admin.config.oauth2EmailFieldLabel')"
           prop="emailField"
         >
           <el-input
             v-model="formData.emailField"
-            placeholder="例如: email"
+            :placeholder="t('admin.config.oauth2EmailFieldPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="头像字段"
+          :label="t('admin.config.oauth2AvatarFieldLabel')"
           prop="avatarField"
         >
           <el-input
             v-model="formData.avatarField"
-            placeholder="例如: avatar_url"
+            :placeholder="t('admin.config.oauth2AvatarFieldPlaceholder')"
           />
         </el-form-item>
 
         <el-form-item
-          label="信任等级字段"
+          :label="t('admin.config.oauth2TrustLevelFieldLabel')"
           prop="trustLevelField"
         >
           <el-input
             v-model="formData.trustLevelField"
-            placeholder="例如: trust_level"
+            :placeholder="t('admin.config.oauth2TrustLevelFieldPlaceholder')"
           />
         </el-form-item>
 
         <el-divider content-position="left">
-          注册限制
+          {{ t('admin.config.oauth2RegistrationLimit') }}
         </el-divider>
 
         <el-form-item
-          label="最大注册数"
+          :label="t('admin.config.oauth2MaxRegistrations')"
           prop="maxRegistrations"
         >
           <el-input-number
             v-model="formData.maxRegistrations"
             :min="0"
             :controls="false"
-            placeholder="0表示无限制"
+            :placeholder="t('admin.config.oauth2MaxRegistrationsPlaceholder')"
             style="width: 100%"
           />
           <div class="form-item-tip">
-            0表示无限制，大于0表示最多允许多少个OAuth2用户注册
+            {{ t('admin.config.oauth2MaxRegistrationsHint') }}
           </div>
         </el-form-item>
 
         <el-form-item
-          label="当前注册数"
+          :label="t('admin.config.oauth2CurrentRegistrations')"
         >
           <el-input-number
             v-model="formData.currentRegistrations"
@@ -212,23 +200,23 @@
             style="width: 100%"
           />
           <div class="form-item-tip">
-            已通过OAuth2注册的用户数量
+            {{ t('admin.config.oauth2CurrentRegistrationsHint') }}
             <el-button
               type="danger"
               size="small"
               plain
               @click="resetRegistrationCount"
             >
-              重置计数
+              {{ t('admin.config.oauth2ResetCount') }}
             </el-button>
           </div>
         </el-form-item>
 
         <el-divider content-position="left">
-          等级映射
+          {{ t('admin.config.oauth2LevelMapping') }}
         </el-divider>
 
-        <el-form-item label="等级映射规则">
+        <el-form-item :label="t('admin.config.oauth2LevelMapping')">
           <div class="level-mapping-container">
             <div
               v-for="(userLevel, trustLevel) in formData.levelMapping"
@@ -239,19 +227,19 @@
               <el-icon><Right /></el-icon>
               <el-select
                 v-model="formData.levelMapping[trustLevel]"
-                placeholder="选择系统等级"
+                :placeholder="t('admin.config.oauth2SelectLevel')"
               >
                 <el-option
                   v-for="level in availableLevels"
                   :key="level"
-                  :label="`等级 ${level}`"
+                  :label="t('admin.config.oauth2LevelLabel', { level })"
                   :value="level"
                 />
               </el-select>
             </div>
           </div>
           <div class="form-item-tip">
-            将LinuxDo的trust_level映射到系统用户等级
+            {{ t('admin.config.oauth2LevelMappingHint') }}
           </div>
         </el-form-item>
 
@@ -261,10 +249,10 @@
             :loading="saving"
             @click="handleSave"
           >
-            保存配置
+            {{ t('admin.config.oauth2SaveConfig') }}
           </el-button>
           <el-button @click="loadConfig">
-            重置
+            {{ t('admin.config.oauth2ResetConfig') }}
           </el-button>
         </el-form-item>
       </el-card>
@@ -351,7 +339,7 @@ const loadConfig = async () => {
       }
     }
   } catch (error) {
-    ElMessage.error('加载OAuth2配置失败')
+    ElMessage.error(t('admin.config.oauth2LoadFailed'))
     console.error(error)
   } finally {
     loading.value = false
@@ -379,13 +367,13 @@ const handleSave = async () => {
 
       const response = await updateOAuth2Config(data)
       if (response.code === 0) {
-        ElMessage.success('OAuth2配置保存成功')
+        ElMessage.success(t('admin.config.oauth2SaveSuccess'))
         await loadConfig()
       } else {
-        ElMessage.error(response.message || '保存失败')
+        ElMessage.error(response.message || t('admin.config.oauth2SaveFailed'))
       }
     } catch (error) {
-      ElMessage.error('保存OAuth2配置失败')
+      ElMessage.error(t('admin.config.oauth2SaveFailed'))
       console.error(error)
     } finally {
       saving.value = false
@@ -396,25 +384,25 @@ const handleSave = async () => {
 const resetRegistrationCount = async () => {
   try {
     await ElMessageBox.confirm(
-      '确定要重置OAuth2注册计数吗？此操作不可撤销。',
-      '警告',
+      t('admin.config.oauth2ResetCountConfirm'),
+      t('common.warning'),
       {
-        confirmButtonText: '确定',
-        cancelButtonText: '取消',
+        confirmButtonText: t('common.confirm'),
+        cancelButtonText: t('common.cancel'),
         type: 'warning'
       }
     )
 
     const response = await resetOAuth2RegistrationCount()
     if (response.code === 0) {
-      ElMessage.success('注册计数已重置')
+      ElMessage.success(t('admin.config.oauth2ResetCountSuccess'))
       await loadConfig()
     } else {
-      ElMessage.error(response.message || '重置失败')
+      ElMessage.error(response.message || t('admin.config.oauth2ResetCountFailed'))
     }
   } catch (error) {
     if (error !== 'cancel') {
-      ElMessage.error('重置失败')
+      ElMessage.error(t('admin.config.oauth2ResetCountFailed'))
       console.error(error)
     }
   }

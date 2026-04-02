@@ -10,5 +10,12 @@ export default {
   confirmPasswordMatch: 'The passwords entered do not match',
   usernameLength: 'Username length must be between {min} and {max} characters',
   phoneFormat: 'Please enter a valid phone number',
-  urlFormat: 'Please enter a valid URL'
+  urlFormat: 'Please enter a valid URL',
+  fileNameTooLong: 'File name is too long (max 255 characters)',
+  fileNameIllegalChars: 'File name contains illegal characters',
+  fileTypeNotAllowed: 'File type not allowed for upload',
+  fileSizeExceeded: 'File size cannot exceed {size}MB',
+  fileEmpty: 'File is empty',
+  fileTypeNotSupported: 'File type not supported, only: {types}',
+  fileExtNotSupported: 'File extension not supported, only: {exts}'
 }

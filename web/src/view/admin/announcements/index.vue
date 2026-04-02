@@ -417,7 +417,7 @@ const rules = reactive({
 
 // 富文本编辑器配置
 const editorOptions = {
-  placeholder: '请输入公告内容...',
+  placeholder: t('admin.announcements.editorPlaceholder'),
   modules: {
     toolbar: [
       ['bold', 'italic', 'underline', 'strike'],
@@ -523,9 +523,9 @@ const editAnnouncement = (announcement) => {
 // 删除公告
 const deleteAnnouncementHandler = async (id) => {
   try {
-    await ElMessageBox.confirm('确定删除这条公告吗？', '删除公告', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+    await ElMessageBox.confirm(t('admin.announcements.confirmDelete'), t('admin.announcements.deleteTitle'), {
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       type: 'warning',
     })
     

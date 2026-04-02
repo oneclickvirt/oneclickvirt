@@ -14,6 +14,7 @@ export default {
   lines: 'lines',
   copy: 'Copy',
   copySuccess: 'Copied to clipboard',
+  copyFailed: 'Copy failed',
   loading: 'Loading...',
   pleaseSelect: 'Please select a date and log level first'
 }

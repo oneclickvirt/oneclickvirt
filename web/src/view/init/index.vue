@@ -1,307 +1,179 @@
 <template>
   <div class="init-container">
-    <div class="init-form">
-      <div class="form-header">
-        <h2>{{ t('init.title') }}</h2>
+    <div class="init-bg-pattern" />
+    <div class="init-card">
+      <!-- Header -->
+      <div class="init-header">
+        <div class="init-logo">
+          <svg viewBox="0 0 24 24" width="40" height="40" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 2L2 7l10 5 10-5-10-5z" />
+            <path d="M2 17l10 5 10-5" />
+            <path d="M2 12l10 5 10-5" />
+          </svg>
+        </div>
+        <h1>{{ t('init.title') }}</h1>
         <p>{{ t('init.subtitle') }}</p>
       </div>
 
-      <!-- 统一的配置标签页 -->
-      <div class="init-tabs">
-        <el-tabs
-          v-model="activeTab"
-          type="border-card"
-          @tab-click="handleTabClick"
-        >
-          <!-- 数据库配置标签页 -->
-          <el-tab-pane
-            :label="t('init.database.tabLabel')"
-            name="database"
-          >
-            <el-form 
-              ref="databaseFormRef" 
-              :model="databaseForm" 
-              :rules="databaseRules" 
-              label-width="120px" 
-              size="large"
-            >
-              <el-form-item
-                :label="t('init.database.type')"
-                prop="type"
-              >
-                <el-radio-group
-                  v-model="databaseForm.type"
-                  @change="onDatabaseTypeChange"
-                >
-                  <el-radio label="mysql">
-                    {{ t('init.database.mysqlRecommended') }}
-                  </el-radio>
-                  <el-radio label="mariadb">
-                    {{ t('init.database.mariadbRecommended') }}
-                  </el-radio>
-                </el-radio-group>
-                <div class="database-type-hint">
-                  <el-text
-                    v-if="dbRecommendation"
-                    size="small"
-                    type="success"
-                  >
-                    {{ dbRecommendation.reason }} ({{ t('init.database.architecture') }}: {{ dbRecommendation.architecture }})
-                  </el-text>
-                  <el-text
-                    v-else
-                    size="small"
-                    type="info"
-                  >
-                    {{ t('init.database.autoSelectHint') }}
-                  </el-text>
-                </div>
-              </el-form-item>
-              
-              <!-- 数据库配置项（MySQL/MariaDB通用） -->
-              <div
-                v-if="databaseForm.type === 'mysql' || databaseForm.type === 'mariadb'"
-                class="database-config"
-              >
-                <el-form-item
-                  :label="t('init.database.host')"
-                  prop="host"
-                >
-                  <el-input
-                    v-model="databaseForm.host"
-                    placeholder="127.0.0.1"
-                  />
-                </el-form-item>
-                <el-form-item
-                  :label="t('init.database.port')"
-                  prop="port"
-                >
-                  <el-input
-                    v-model="databaseForm.port"
-                    placeholder="3306"
-                  />
-                </el-form-item>
-                <el-form-item
-                  :label="t('init.database.dbName')"
-                  prop="database"
-                >
-                  <el-input
-                    v-model="databaseForm.database"
-                    placeholder="oneclickvirt"
-                  />
-                </el-form-item>
-                <el-form-item
-                  :label="t('init.database.username')"
-                  prop="username"
-                >
-                  <el-input
-                    v-model="databaseForm.username"
-                    placeholder="root"
-                  />
-                </el-form-item>
-                <el-form-item
-                  :label="t('init.database.password')"
-                  prop="password"
-                >
-                  <el-input
-                    v-model="databaseForm.password"
-                    type="password"
-                    :placeholder="t('init.database.passwordPlaceholder')"
-                    show-password
-                  />
-                </el-form-item>
-                
-                <!-- 数据库连接测试 -->
-                <el-form-item>
-                  <el-button 
-                    type="info" 
-                    :loading="testingConnection"
-                    @click="testDatabaseConnection"
-                  >
-                    {{ t('init.database.testConnection') }}
-                  </el-button>
-                  <span
-                    v-if="connectionTestResult"
-                    :class="connectionTestResult.success ? 'test-success' : 'test-error'"
-                  >
-                    {{ connectionTestResult.message }}
-                  </span>
-                </el-form-item>
-              </div>
-            </el-form>
-          </el-tab-pane>
+      <!-- Steps indicator -->
+      <el-steps :active="stepIndex" finish-status="success" align-center class="init-steps">
+        <el-step :title="t('init.database.tabLabel')" />
+        <el-step :title="t('init.admin.tabLabel')" />
+        <el-step :title="t('init.user.tabLabel')" />
+      </el-steps>
 
-          <!-- 管理员设置标签页 -->
-          <el-tab-pane
-            :label="t('init.admin.tabLabel')"
-            name="admin"
-          >
-            <el-form
-              ref="adminFormRef"
-              :model="initForm.admin"
-              :rules="adminRules"
-              label-width="120px"
-              size="large"
-            >
-              <el-form-item
-                :label="t('init.admin.username')"
-                prop="username"
-              >
-                <el-input
-                  v-model="initForm.admin.username"
-                  :placeholder="t('init.admin.usernamePlaceholder')"
-                  clearable
-                />
+      <!-- Step 1: Database -->
+      <div v-show="activeTab === 'database'" class="step-content">
+        <el-form 
+          ref="databaseFormRef" 
+          :model="databaseForm" 
+          :rules="databaseRules" 
+          label-width="140px" 
+          label-position="top"
+          size="large"
+        >
+          <el-form-item :label="t('init.database.type')" prop="type">
+            <el-radio-group v-model="databaseForm.type" @change="onDatabaseTypeChange">
+              <el-radio-button label="mysql">MySQL</el-radio-button>
+              <el-radio-button label="mariadb">MariaDB</el-radio-button>
+            </el-radio-group>
+            <div class="field-hint">
+              <el-text v-if="dbRecommendation" size="small" type="success">
+                {{ dbRecommendation.reason }} ({{ t('init.database.architecture') }}: {{ dbRecommendation.architecture }})
+              </el-text>
+              <el-text v-else size="small" type="info">
+                {{ t('init.database.autoSelectHint') }}
+              </el-text>
+            </div>
+          </el-form-item>
+
+          <el-row :gutter="16">
+            <el-col :span="16">
+              <el-form-item :label="t('init.database.host')" prop="host">
+                <el-input v-model="databaseForm.host" placeholder="127.0.0.1" />
               </el-form-item>
-              <el-form-item
-                :label="t('init.admin.password')"
-                prop="password"
-              >
-                <el-input
-                  v-model="initForm.admin.password"
-                  type="password"
-                  :placeholder="t('init.admin.passwordPlaceholder')"
-                  show-password
-                  clearable
-                />
-                <div class="password-hint">
-                  <el-text
-                    size="small"
-                    type="info"
-                  >
-                    {{ t('init.admin.passwordHint') }}
-                  </el-text>
-                </div>
+            </el-col>
+            <el-col :span="8">
+              <el-form-item :label="t('init.database.port')" prop="port">
+                <el-input v-model="databaseForm.port" placeholder="3306" />
               </el-form-item>
-              <el-form-item
-                :label="t('init.admin.confirmPassword')"
-                prop="confirmPassword"
-              >
-                <el-input
-                  v-model="initForm.admin.confirmPassword"
-                  type="password"
-                  :placeholder="t('init.admin.confirmPasswordPlaceholder')"
-                  show-password
-                  clearable
-                />
+            </el-col>
+          </el-row>
+
+          <el-form-item :label="t('init.database.dbName')" prop="database">
+            <el-input v-model="databaseForm.database" placeholder="oneclickvirt" />
+          </el-form-item>
+
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <el-form-item :label="t('init.database.username')" prop="username">
+                <el-input v-model="databaseForm.username" placeholder="root" />
               </el-form-item>
-              <el-form-item
-                :label="t('init.admin.email')"
-                prop="email"
-              >
-                <el-input
-                  v-model="initForm.admin.email"
-                  :placeholder="t('init.admin.emailPlaceholder')"
-                  clearable
-                />
+            </el-col>
+            <el-col :span="12">
+              <el-form-item :label="t('init.database.password')" prop="password">
+                <el-input v-model="databaseForm.password" type="password" :placeholder="t('init.database.passwordPlaceholder')" show-password />
               </el-form-item>
-            </el-form>
-          </el-tab-pane>
-          
-          <!-- 普通用户设置标签页 -->
-          <el-tab-pane
-            :label="t('init.user.tabLabel')"
-            name="user"
-          >
-            <el-form
-              ref="userFormRef"
-              :model="initForm.user"
-              :rules="userRules"
-              label-width="120px"
-              size="large"
-            >
-              <el-form-item
-                :label="t('init.user.username')"
-                prop="username"
-              >
-                <el-input
-                  v-model="initForm.user.username"
-                  :placeholder="t('init.user.usernamePlaceholder')"
-                  clearable
-                />
-              </el-form-item>
-              <el-form-item
-                :label="t('init.user.password')"
-                prop="password"
-              >
-                <el-input
-                  v-model="initForm.user.password"
-                  type="password"
-                  :placeholder="t('init.user.passwordPlaceholder')"
-                  show-password
-                  clearable
-                />
-                <div class="password-hint">
-                  <el-text
-                    size="small"
-                    type="info"
-                  >
-                    {{ t('init.user.passwordHint') }}
-                  </el-text>
-                </div>
-              </el-form-item>
-              <el-form-item
-                :label="t('init.user.confirmPassword')"
-                prop="confirmPassword"
-              >
-                <el-input
-                  v-model="initForm.user.confirmPassword"
-                  type="password"
-                  :placeholder="t('init.user.confirmPasswordPlaceholder')"
-                  show-password
-                  clearable
-                />
-              </el-form-item>
-              <el-form-item
-                :label="t('init.user.email')"
-                prop="email"
-              >
-                <el-input
-                  v-model="initForm.user.email"
-                  :placeholder="t('init.user.emailPlaceholder')"
-                  clearable
-                />
-              </el-form-item>
-            </el-form>
-          </el-tab-pane>
-        </el-tabs>
+            </el-col>
+          </el-row>
+
+          <el-form-item>
+            <el-button type="info" plain :loading="testingConnection" @click="testDatabaseConnection">
+              {{ t('init.database.testConnection') }}
+            </el-button>
+            <span v-if="connectionTestResult" :class="connectionTestResult.success ? 'test-success' : 'test-error'">
+              {{ connectionTestResult.message }}
+            </span>
+          </el-form-item>
+        </el-form>
       </div>
 
-      <div class="action-buttons">
-        <el-button
-          type="info"
-          style="width: 48%"
-          @click="fillDefaultData"
+      <!-- Step 2: Admin -->
+      <div v-show="activeTab === 'admin'" class="step-content">
+        <el-form
+          ref="adminFormRef"
+          :model="initForm.admin"
+          :rules="adminRules"
+          label-position="top"
+          size="large"
         >
+          <el-form-item :label="t('init.admin.username')" prop="username">
+            <el-input v-model="initForm.admin.username" :placeholder="t('init.admin.usernamePlaceholder')" clearable prefix-icon="User" />
+          </el-form-item>
+          <el-form-item :label="t('init.admin.password')" prop="password">
+            <el-input v-model="initForm.admin.password" type="password" :placeholder="t('init.admin.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+            <div class="field-hint">
+              <el-text size="small" type="info">{{ t('init.admin.passwordHint') }}</el-text>
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('init.admin.confirmPassword')" prop="confirmPassword">
+            <el-input v-model="initForm.admin.confirmPassword" type="password" :placeholder="t('init.admin.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
+          </el-form-item>
+          <el-form-item :label="t('init.admin.email')" prop="email">
+            <el-input v-model="initForm.admin.email" :placeholder="t('init.admin.emailPlaceholder')" clearable prefix-icon="Message" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- Step 3: User -->
+      <div v-show="activeTab === 'user'" class="step-content">
+        <el-form
+          ref="userFormRef"
+          :model="initForm.user"
+          :rules="userRules"
+          label-position="top"
+          size="large"
+        >
+          <el-form-item :label="t('init.user.username')" prop="username">
+            <el-input v-model="initForm.user.username" :placeholder="t('init.user.usernamePlaceholder')" clearable prefix-icon="User" />
+          </el-form-item>
+          <el-form-item :label="t('init.user.password')" prop="password">
+            <el-input v-model="initForm.user.password" type="password" :placeholder="t('init.user.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+            <div class="field-hint">
+              <el-text size="small" type="info">{{ t('init.user.passwordHint') }}</el-text>
+            </div>
+          </el-form-item>
+          <el-form-item :label="t('init.user.confirmPassword')" prop="confirmPassword">
+            <el-input v-model="initForm.user.confirmPassword" type="password" :placeholder="t('init.user.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
+          </el-form-item>
+          <el-form-item :label="t('init.user.email')" prop="email">
+            <el-input v-model="initForm.user.email" :placeholder="t('init.user.emailPlaceholder')" clearable prefix-icon="Message" />
+          </el-form-item>
+          <el-form-item :label="t('init.user.enableStatus')">
+            <div class="enable-toggle">
+              <el-switch
+                v-model="initForm.user.enabled"
+                :active-text="t('common.enabled')"
+                :inactive-text="t('common.disabled')"
+              />
+              <el-text size="small" type="warning" class="enable-hint">{{ t('init.user.enableHint') }}</el-text>
+            </div>
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- Navigation buttons -->
+      <div class="init-actions">
+        <el-button v-if="activeTab !== 'database'" @click="prevStep" size="large">
+          {{ t('common.back') }}
+        </el-button>
+        <el-button type="info" plain @click="fillDefaultData" size="large">
           {{ t('init.fillDefaults') }}
         </el-button>
+        <div style="flex: 1" />
+        <el-button v-if="activeTab !== 'user'" type="primary" @click="nextStep" size="large">
+          {{ t('init.nextStep') }}
+        </el-button>
         <el-button
+          v-else
           type="primary"
           :loading="loading"
           :disabled="loading || !isFormValid"
-          style="width: 48%"
           @click="handleInit"
+          size="large"
         >
           {{ t('init.initSystem') }}
         </el-button>
-      </div>
-
-      <div class="init-info">
-        <el-alert
-          :title="t('init.infoTitle')"
-          type="info"
-          :closable="false"
-          show-icon
-        >
-          <template #default>
-            <p>{{ t('init.infoDescription') }}</p>
-            <ul>
-              <li><strong>{{ t('init.database.tabLabel') }}：</strong>{{ t('init.infoDatabaseDesc') }}</li>
-              <li><strong>{{ t('init.admin.tabLabel') }}：</strong>{{ t('init.infoAdminDesc') }}</li>
-              <li><strong>{{ t('init.user.tabLabel') }}：</strong>{{ t('init.infoUserDesc') }}</li>
-            </ul>
-          </template>
-        </el-alert>
       </div>
     </div>
   </div>
@@ -327,6 +199,23 @@ const pollingTimer = ref(null)
 const activeTab = ref('database')
 const dbRecommendation = ref(null)
 
+const steps = ['database', 'admin', 'user']
+const stepIndex = computed(() => steps.indexOf(activeTab.value))
+
+const nextStep = () => {
+  const idx = steps.indexOf(activeTab.value)
+  if (idx < steps.length - 1) {
+    activeTab.value = steps[idx + 1]
+  }
+}
+
+const prevStep = () => {
+  const idx = steps.indexOf(activeTab.value)
+  if (idx > 0) {
+    activeTab.value = steps[idx - 1]
+  }
+}
+
 // 数据库配置表单
 const databaseForm = reactive({
   type: 'mysql',
@@ -348,7 +237,8 @@ const initForm = reactive({
     username: '',
     password: '',
     confirmPassword: '',
-    email: ''
+    email: '',
+    enabled: false
   }
 })
 
@@ -519,10 +409,6 @@ const clearPolling = () => {
   }
 }
 
-const handleTabClick = (tab) => {
-  activeTab.value = tab.name
-}
-
 // 数据库类型变化处理
 const onDatabaseTypeChange = (type) => {
   console.log(t('init.debug.dbTypeChanged'), type)
@@ -586,6 +472,7 @@ const fillDefaultData = () => {
   initForm.user.password = 'TestUser123!@#'
   initForm.user.confirmPassword = 'TestUser123!@#'
   initForm.user.email = 'user@spiritlhl.net'
+  initForm.user.enabled = false
   ElMessage.success(t('init.messages.defaultsFilled'))
 }
 
@@ -672,7 +559,8 @@ const handleInit = async () => {
       user: {
         username: initForm.user.username,
         password: initForm.user.password,
-        email: initForm.user.email
+        email: initForm.user.email,
+        enabled: initForm.user.enabled
       },
       database: databaseForm
     }
@@ -723,278 +611,177 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: var(--bg-color-primary);
-  padding: 20px;
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfdf5 50%, #f0f9ff 100%);
+  padding: 24px;
   position: relative;
   overflow: hidden;
 }
 
-.init-container::before {
-  content: '';
+.init-bg-pattern {
   position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: linear-gradient(135deg, rgba(34, 197, 94, 0.05) 0%, rgba(34, 197, 94, 0.1) 100%);
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(34, 197, 94, 0.08) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(59, 130, 246, 0.06) 0%, transparent 50%);
+  z-index: 0;
+}
+
+.init-card {
+  background: rgba(255, 255, 255, 0.95);
+  backdrop-filter: blur(20px);
+  padding: 48px 40px 36px;
+  border-radius: 20px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  width: 100%;
+  max-width: 620px;
+  border: 1px solid rgba(34, 197, 94, 0.12);
+  position: relative;
   z-index: 1;
 }
 
-.init-form {
-  background: var(--auth-header-bg);
-  backdrop-filter: blur(10px);
-  padding: 50px 45px;
-  border-radius: 16px;
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
-  width: 100%;
-  max-width: 520px;
-  border: 1px solid rgba(34, 197, 94, 0.1);
-  position: relative;
-  z-index: 2;
-}
-
-.form-header {
+.init-header {
   text-align: center;
-  margin-bottom: 40px;
+  margin-bottom: 32px;
 }
 
-.form-header h2 {
-  color: var(--text-color-primary);
-  margin-bottom: 12px;
+.init-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, #16a34a, #22c55e);
+  color: white;
+  margin-bottom: 16px;
+  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.3);
+}
+
+.init-header h1 {
+  font-size: 28px;
   font-weight: 700;
-  font-size: 32px;
+  color: #111827;
+  margin: 0 0 8px;
 }
 
-.form-header p {
-  color: var(--text-color-secondary);
+.init-header p {
+  font-size: 15px;
+  color: #6b7280;
   margin: 0;
-  font-size: 16px;
-  line-height: 1.5;
 }
 
-.user-type-tabs {
-  margin-bottom: 30px;
+.init-steps {
+  margin-bottom: 32px;
 }
 
-.init-tabs {
-  margin-bottom: 30px;
+.step-content {
+  min-height: 280px;
 }
 
-.init-tabs :deep(.el-tabs__content) {
-  padding: 25px 0;
-}
-
-.mysql-config {
-  margin-top: 20px;
-  padding-top: 20px;
-  border-top: 1px solid var(--border-color);
-}
-
-.action-buttons {
+.init-actions {
   display: flex;
-  justify-content: space-between;
-  margin-bottom: 30px;
-  gap: 15px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 24px;
+  padding-top: 24px;
+  border-top: 1px solid #f3f4f6;
 }
 
-.init-info {
-  margin-top: 30px;
+.field-hint {
+  margin-top: 6px;
 }
 
-.init-info ul {
-  margin: 15px 0 0 0;
-  padding-left: 20px;
+.enable-toggle {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
-.init-info li {
-  margin: 8px 0;
-  color: var(--text-color-secondary);
-  line-height: 1.5;
+.enable-hint {
+  line-height: 1.4;
 }
 
-.password-hint {
-  margin-top: 5px;
+.test-success {
+  color: #16a34a;
+  margin-left: 12px;
+  font-size: 14px;
 }
 
-:deep(.el-tabs__header) {
-  margin-bottom: 25px;
+.test-error {
+  color: #ef4444;
+  margin-left: 12px;
+  font-size: 14px;
 }
 
-:deep(.el-tabs__nav-wrap::after) {
-  background-color: rgba(34, 197, 94, 0.1);
+:deep(.el-steps) {
+  padding: 0 20px;
 }
 
-:deep(.el-tabs__active-bar) {
-  background-color: #16a34a;
+:deep(.el-step__title.is-finish) {
+  color: #16a34a;
 }
 
-:deep(.el-tabs__item) {
-  color: var(--text-color-secondary);
-  font-weight: 500;
+:deep(.el-step__head.is-finish) {
+  color: #16a34a;
+  border-color: #16a34a;
 }
 
-:deep(.el-tabs__item.is-active) {
+:deep(.el-step__head.is-process) {
+  color: #16a34a;
+  border-color: #16a34a;
+}
+
+:deep(.el-step__title.is-process) {
   color: #16a34a;
   font-weight: 600;
 }
 
-:deep(.el-button--info) {
-  background: #6b7280;
-  border-color: var(--text-color-secondary);
-  border-radius: 12px;
-  height: 50px;
-  font-size: 16px;
-  font-weight: 600;
-  transition: all 0.3s ease;
-}
-
-:deep(.el-button--info:hover) {
-  background: #4b5563;
-  border-color: #4b5563;
-  transform: translateY(-1px);
-}
-
-:deep(.el-form-item) {
-  margin-bottom: 25px;
-}
-
 :deep(.el-form-item__label) {
-  color: var(--text-color-primary);
   font-weight: 500;
-  font-size: 15px;
-}
-
-:deep(.el-input) {
-  border-radius: 12px;
+  color: #374151;
 }
 
 :deep(.el-input__wrapper) {
-  background: rgba(255, 255, 255, 0.8);
-  border: 2px solid rgba(229, 231, 235, 0.8);
-  border-radius: 12px;
-  transition: all 0.3s ease;
-  padding: 12px 16px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.02);
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px #e5e7eb inset;
+  transition: all 0.2s;
 }
 
 :deep(.el-input__wrapper:hover) {
-  border-color: rgba(34, 197, 94, 0.3);
-  background: var(--card-bg-solid);
+  box-shadow: 0 0 0 1px rgba(34, 197, 94, 0.4) inset;
 }
 
 :deep(.el-input__wrapper.is-focus) {
-  border-color: #16a34a;
-  background: var(--card-bg-solid);
-  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
-}
-
-:deep(.el-input__inner) {
-  color: var(--text-color-primary);
-  font-size: 15px;
-  font-weight: 500;
+  box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.25) inset;
 }
 
 :deep(.el-button--primary) {
   background: #16a34a;
   border-color: #16a34a;
-  border-radius: 12px;
-  height: 50px;
-  font-size: 16px;
-  font-weight: 600;
-  transition: all 0.3s ease;
-  box-shadow: 0 2px 8px rgba(34, 197, 94, 0.25);
-  position: relative;
-  overflow: hidden;
+  border-radius: 10px;
 }
 
 :deep(.el-button--primary:hover) {
   background: #15803d;
   border-color: #15803d;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(34, 197, 94, 0.35);
 }
 
-:deep(.el-button--primary:active) {
-  transform: translateY(0);
+:deep(.el-radio-button__inner) {
+  border-radius: 8px;
 }
 
-:deep(.el-alert--info) {
-  background: rgba(34, 197, 94, 0.05);
-  border: 1px solid rgba(34, 197, 94, 0.15);
-  border-radius: 12px;
-  padding: 20px;
-}
-
-:deep(.el-alert__icon) {
-  color: #16a34a;
-}
-
-:deep(.el-alert__title) {
-  color: var(--text-color-primary);
-  font-weight: 600;
-  font-size: 15px;
-}
-
-:deep(.el-alert__content) {
-  color: var(--text-color-secondary);
-  font-size: 14px;
-  line-height: 1.6;
-}
-
-.password-hint {
-  margin-top: 5px;
-  font-size: 12px;
-  line-height: 1.4;
-}
-
-.database-type-hint {
-  margin-top: 8px;
-  font-size: 12px;
-}
-
-.test-success {
-  color: #67c23a;
-  margin-left: 10px;
-  font-size: 14px;
-}
-
-.test-error {
-  color: #f56c6c;
-  margin-left: 10px;
-  font-size: 14px;
-}
-
-@media (max-width: 768px) {
-  .init-form {
-    padding: 35px 25px;
-    margin: 0 10px;
+@media (max-width: 640px) {
+  .init-card {
+    padding: 32px 20px 24px;
+    border-radius: 16px;
   }
 
-  .form-header h2 {
-    font-size: 26px;
-  }
-
-  :deep(.el-form-item__label) {
-    font-size: 14px;
-  }
-
-  :deep(.el-button--primary) {
-    height: 45px;
-    font-size: 15px;
-  }
-}
-
-@media (max-width: 480px) {
-  .init-container {
-    padding: 15px;
-  }
-
-  .init-form {
-    padding: 30px 20px;
-  }
-
-  .form-header h2 {
+  .init-header h1 {
     font-size: 24px;
+  }
+
+  .init-actions {
+    flex-wrap: wrap;
   }
 }
 </style>

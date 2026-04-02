@@ -97,17 +97,21 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 		Status:   1,
 	}
 
-	// 创建普通用户（默认禁用，防止未授权访问）
+	// 创建普通用户（根据enabled字段设置状态）
 	userPassword, err := bcrypt.GenerateFromPassword([]byte(userInfo.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err
+	}
+	userStatus := 0 // 默认禁用状态
+	if userInfo.Enabled {
+		userStatus = 1
 	}
 	user := userModel.User{
 		Username: userInfo.Username,
 		Password: string(userPassword),
 		Email:    userInfo.Email,
 		UserType: "user",
-		Status:   0, // 默认禁用状态，需要管理员手动启用
+		Status:   userStatus,
 	}
 
 	// 使用数据库服务处理事务

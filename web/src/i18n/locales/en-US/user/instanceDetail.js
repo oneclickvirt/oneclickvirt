@@ -99,5 +99,8 @@ export default {
   instanceNotRunning: "Instance is not running",
   noPassword: "Instance password is not available",
   sshConnectFailed: "SSH connection failed",
+  sshConnectionError: "SSH connection error",
+  sshConnectionClosed: "SSH connection disconnected",
+  sshCreateFailed: "Unable to create SSH connection",
   operationInProgress: "Operation in progress, please do not click repeatedly..."
 }

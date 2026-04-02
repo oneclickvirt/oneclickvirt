@@ -600,7 +600,7 @@ const copyExportedCodes = async () => {
     }
     ElMessage.success(t('admin.redemptionCodes.copiedToClipboard'))
   } catch (_) {
-    ElMessage.error('Copy failed')
+    ElMessage.error(t('common.copyFailed'))
   }
 }
 
