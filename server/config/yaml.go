@@ -684,3 +684,53 @@ func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
 	cm.logger.Info("YAML配置已成功同步到数据库", zap.Int("count", savedCount))
 	return nil
 }
+
+// mergeYAMLDefaultsIntoDatabase 将YAML中存在但数据库中没有的配置项插入数据库（INSERT IGNORE）
+// 用于升级场景：保留DB中已有的用户配置，同时为新版本新增的配置项补充默认值
+func (cm *ConfigManager) mergeYAMLDefaultsIntoDatabase() error {
+	cm.logger.Info("开始将YAML新配置项合并到数据库（INSERT IGNORE）")
+
+	// 读取YAML文件（失败不致命，直接跳过）
+	file, err := os.ReadFile("config.yaml")
+	if err != nil {
+		cm.logger.Warn("读取配置文件失败，跳过YAML合并", zap.Error(err))
+		return nil
+	}
+
+	var yamlConfig map[string]interface{}
+	if err := yaml.Unmarshal(file, &yamlConfig); err != nil {
+		cm.logger.Warn("解析配置文件失败，跳过YAML合并", zap.Error(err))
+		return nil
+	}
+
+	allConfigs := cm.flattenConfig(yamlConfig, "")
+
+	// 过滤掉系统级配置和非点分格式的key（同 syncYAMLConfigToDatabase）
+	var configsToInsert []SystemConfig
+	for key, value := range allConfigs {
+		if isSystemLevelConfig(key) || !strings.Contains(key, ".") {
+			continue
+		}
+		config, err := cm.prepareConfigForDB(key, value)
+		if err != nil {
+			cm.logger.Debug("准备配置失败，跳过", zap.String("key", key), zap.Error(err))
+			continue
+		}
+		configsToInsert = append(configsToInsert, config)
+	}
+
+	if len(configsToInsert) == 0 {
+		cm.logger.Info("YAML中没有可合并的配置项")
+		return nil
+	}
+
+	// INSERT IGNORE：已存在的DB记录保持不变，只插入新增项
+	if err := cm.db.Clauses(clause.OnConflict{DoNothing: true}).
+		CreateInBatches(configsToInsert, 50).Error; err != nil {
+		cm.logger.Warn("YAML配置合并到数据库失败（可忽略）", zap.Error(err))
+		return nil
+	}
+
+	cm.logger.Info("YAML新配置项已合并到数据库（INSERT IGNORE）", zap.Int("attempted", len(configsToInsert)))
+	return nil
+}

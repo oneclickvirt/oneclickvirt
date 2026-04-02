@@ -112,9 +112,10 @@ func (cm *ConfigManager) loadConfigFromDB() {
 }
 
 // handleDatabaseFirst 处理数据库优先的策略
-// 用于升级场景或API修改后重启，完全以数据库为准，不补全默认配置（尊重用户选择）
+// 用于升级场景或API修改后重启：DB记录的值不被覆盖，但YAML中新增的配置项会以
+// INSERT IGNORE 方式补充到DB，确保新版本默认值生效。
 func (cm *ConfigManager) handleDatabaseFirst() error {
-	cm.logger.Info("执行策略：数据库 → YAML → global（保留用户配置，不补全默认值）")
+	cm.logger.Info("执行策略：DB优先 + YAML新键补充 → global")
 
 	// 1. 尝试从数据库恢复到YAML文件（容忍失败，如 config.yaml 挂载为只读时）
 	if err := cm.RestoreConfigFromDatabase(); err != nil {
@@ -123,16 +124,32 @@ func (cm *ConfigManager) handleDatabaseFirst() error {
 		cm.logger.Info("配置已从数据库恢复到YAML文件")
 	}
 
-	// 2. 同步到全局配置（触发回调）——无论YAML写入是否成功，这步必须执行
+	// 2. 将YAML中新增的配置项（尚未在DB中）以INSERT IGNORE方式补充到DB
+	// 场景：升级后新版本config.yaml中的新默认值 / 用户手动在config.yaml添加的新配置项
+	// 已存在的DB值保持不变，不会触发配置回退
+	if err := cm.mergeYAMLDefaultsIntoDatabase(); err != nil {
+		cm.logger.Warn("合并YAML默认配置到数据库失败（可忽略）", zap.Error(err))
+	}
+
+	// 3. 重新从数据库加载，确保configCache包含原有DB值和新合并的YAML值
+	var configs []SystemConfig
+	if err := cm.db.Where("`key` LIKE ?", "%.%").Find(&configs).Error; err != nil {
+		cm.logger.Error("重新加载配置失败", zap.Error(err))
+		return err
+	}
+	cm.mu.Lock()
+	for _, config := range configs {
+		cm.configCache[config.Key] = parseConfigValue(config.Value)
+	}
+	cm.mu.Unlock()
+	cm.logger.Info("配置缓存已重新加载", zap.Int("configCount", len(configs)))
+
+	// 4. 同步到全局配置（触发回调）
 	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
 		cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
 		return err
 	}
 	cm.logger.Info("数据库配置已成功同步到全局配置")
-
-	// 不调用 EnsureDefaultConfigs()
-	// 理由：用户可能在API中删除了某些配置项（如禁用某功能），应该尊重用户选择
-	// 如果需要补全，应该在YAML优先场景（首次启动）时进行
 
 	return nil
 }
