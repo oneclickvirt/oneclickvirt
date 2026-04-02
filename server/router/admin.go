@@ -177,13 +177,13 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
 
 		// Agent监控管理
-		AdminGroup.GET("/providers/:providerId/monitoring/config", admin.GetMonitoringConfig)
-		AdminGroup.PUT("/providers/:providerId/monitoring/config", admin.UpdateMonitoringConfig)
+		AdminGroup.GET("/providers/:id/monitoring/config", admin.GetMonitoringConfig)
+		AdminGroup.PUT("/providers/:id/monitoring/config", admin.UpdateMonitoringConfig)
 		AdminGroup.POST("/monitoring/deploy-agent", admin.DeployAgent)
-		AdminGroup.DELETE("/providers/:providerId/monitoring/agent", admin.UninstallAgent)
-		AdminGroup.GET("/providers/:providerId/monitoring/status", admin.GetAgentStatus)
-		AdminGroup.GET("/providers/:providerId/monitoring/monitors", admin.GetProviderMonitors)
-		AdminGroup.GET("/providers/:providerId/monitoring/resources", admin.GetProviderResourceSummary)
+		AdminGroup.DELETE("/providers/:id/monitoring/agent", admin.UninstallAgent)
+		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
+		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
+		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
 		AdminGroup.GET("/instances/:instanceId/monitoring/resources", admin.GetInstanceResources)
 
 		// 冻结管理

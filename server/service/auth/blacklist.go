@@ -24,6 +24,7 @@ type JWTBlacklistService struct {
 	data        map[string]*blacklistItem
 	mutex       sync.RWMutex
 	stopCleanup chan struct{}
+	stopOnce    sync.Once
 }
 
 var (
@@ -97,7 +98,9 @@ func (s *JWTBlacklistService) startCleanup() {
 
 // Stop 停止清理任务
 func (s *JWTBlacklistService) Stop() {
-	close(s.stopCleanup)
+	s.stopOnce.Do(func() {
+		close(s.stopCleanup)
+	})
 }
 
 // AddToBlacklist 将Token加入黑名单（内存 + 数据库双写）

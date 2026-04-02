@@ -63,6 +63,7 @@ type User struct {
 	OAuth2UID        string `json:"oauth2Uid" gorm:"size:255;index"` // OAuth2提供商返回的用户唯一标识
 	OAuth2Username   string `json:"oauth2Username" gorm:"size:255"`  // OAuth2提供商返回的用户名
 	OAuth2Email      string `json:"oauth2Email" gorm:"size:255"`     // OAuth2提供商返回的邮箱
+	OAuth2Avatar     string `json:"oauth2Avatar" gorm:"size:512"`    // OAuth2提供商返回的头像URL
 	OAuth2Extra      string `json:"oauth2Extra" gorm:"type:text"`    // OAuth2提供商返回的额外信息（JSON格式）
 }
 

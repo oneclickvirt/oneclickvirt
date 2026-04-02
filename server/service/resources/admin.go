@@ -32,7 +32,7 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 
 	// 统计运行中的实例
 	var runningInstances int64
-	global.APP_DB.Model(&providerModel.Instance{}).Where("status = ? AND soft_deleted = ?", "running", false).Count(&runningInstances)
+	global.APP_DB.Model(&providerModel.Instance{}).Where("status = ?", "running").Count(&runningInstances)
 
 	// 返回前端需要的字段名
 	dashboard.Statistics.TotalUsers = int(totalUsers)

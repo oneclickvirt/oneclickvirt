@@ -277,7 +277,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 		SELECT 
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
 			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
-			DATE_FORMAT(timestamp, '%Y-%m-%d 00:00:00') as timestamp,
+			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
 			year, month, day, 0 as hour, 0 as minute,
 			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 		FROM pmacct_traffic_records
@@ -303,7 +303,7 @@ func (s *Service) aggregateToDailyBetween(startTime, endTime time.Time) error {
 			SELECT 
 				instance_id, user_id, provider_id, provider_type, mapped_ip,
 				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
-				DATE_FORMAT(timestamp, '%Y-%m-%d 00:00:00') as timestamp,
+				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' 00:00:00') as timestamp,
 				year, month, day, 0 as hour, 0 as minute,
 				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 			FROM pmacct_traffic_records
@@ -343,7 +343,7 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 		SELECT 
 			instance_id, user_id, provider_id, provider_type, mapped_ip,
 			MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
-			DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as timestamp,
+			CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
 			year, month, day, hour, 0 as minute,
 			MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 		FROM pmacct_traffic_records
@@ -369,7 +369,7 @@ func (s *Service) aggregateToHourlyBetween(startTime, endTime time.Time) error {
 			SELECT 
 				instance_id, user_id, provider_id, provider_type, mapped_ip,
 				MAX(rx_bytes) as rx_bytes, MAX(tx_bytes) as tx_bytes, MAX(total_bytes) as total_bytes,
-				DATE_FORMAT(timestamp, '%Y-%m-%d %H:00:00') as timestamp,
+				CONCAT(year, '-', LPAD(month, 2, '0'), '-', LPAD(day, 2, '0'), ' ', LPAD(hour, 2, '0'), ':00:00') as timestamp,
 				year, month, day, hour, 0 as minute,
 				MAX(record_time) as record_time, NOW() as created_at, NOW() as updated_at
 			FROM pmacct_traffic_records

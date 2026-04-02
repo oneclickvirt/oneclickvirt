@@ -17,7 +17,7 @@ import (
 
 // GetMonitoringConfig returns the monitoring configuration for a provider.
 func GetMonitoringConfig(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
@@ -46,7 +46,7 @@ type UpdateMonitoringConfigRequest struct {
 // UpdateMonitoringConfig updates the monitoring configuration for a provider.
 // If the agent is installed, it also syncs the config to the remote agent and restarts it.
 func UpdateMonitoringConfig(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
@@ -200,7 +200,7 @@ func DeployAgent(c *gin.Context) {
 
 // UninstallAgent removes the agent from a provider host.
 func UninstallAgent(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
@@ -234,7 +234,7 @@ func UninstallAgent(c *gin.Context) {
 
 // GetAgentStatus checks the agent status on a provider host.
 func GetAgentStatus(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
@@ -272,7 +272,7 @@ func GetAgentStatus(c *gin.Context) {
 
 // GetProviderMonitors returns all agent monitors for a provider.
 func GetProviderMonitors(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
@@ -316,7 +316,7 @@ func GetInstanceResources(c *gin.Context) {
 
 // GetProviderResourceSummary returns latest resource usage for all instances of a provider.
 func GetProviderResourceSummary(c *gin.Context) {
-	providerIDStr := c.Param("providerId")
+	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
