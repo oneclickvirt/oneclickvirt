@@ -10,7 +10,7 @@ mod nft;
 mod resource;
 
 use app_state::AppState;
-use axum::{Router, middleware, routing::post};
+use axum::{Router, middleware, routing::{get, post}};
 use collector::start_collector;
 use db::init_db;
 use docs::ApiDoc;
@@ -82,6 +82,7 @@ async fn main() {
         .route("/api/v1/info", post(handlers::info_monitor))
         .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
         .route("/api/v1/resources", post(handlers::query_resources))
+        .route("/api/v1/list", get(handlers::list_monitors))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,

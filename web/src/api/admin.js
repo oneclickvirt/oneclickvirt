@@ -125,6 +125,20 @@ export const getProviderMonitors = (providerId) => {
   })
 }
 
+export const syncProviderMonitors = (providerId) => {
+  return createLongTimeoutRequest(300000)({
+    url: `/v1/admin/providers/${providerId}/monitoring/sync`,
+    method: 'post'
+  })
+}
+
+export const listAgentMonitors = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/monitoring/agent-monitors`,
+    method: 'get'
+  })
+}
+
 export const getProviderResources = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/monitoring/resources`,

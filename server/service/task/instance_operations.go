@@ -9,6 +9,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	agentLifecycle "oneclickvirt/service/agent"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -195,6 +196,11 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 			global.APP_LOG.Debug("启动实例后pmacct监控初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
+
+		// Agent监控：无论是否启用流量监控，都尝试注册Agent监控以记录网络接口
+		agentCtx, agentCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		agentLifecycle.OnInstanceStarted(agentCtx, global.APP_DB, instanceID)
+		agentCancel()
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")
@@ -525,6 +531,11 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 			global.APP_LOG.Debug("重启实例后pmacct监控重新初始化成功",
 				zap.Uint("instanceId", instanceID))
 		}
+
+		// Agent监控：重启后重新检测接口
+		agentCtx, agentCancel := context.WithTimeout(s.ctx, 2*time.Minute)
+		agentLifecycle.OnInstanceStarted(agentCtx, global.APP_DB, instanceID)
+		agentCancel()
 
 		// 更新进度
 		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")

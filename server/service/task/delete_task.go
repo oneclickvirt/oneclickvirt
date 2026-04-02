@@ -11,6 +11,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	systemModel "oneclickvirt/model/system"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
@@ -162,6 +163,11 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			zap.Uint("instanceId", instance.ID),
 			zap.Error(err))
 	}
+
+	// 清理Agent监控（不删除Agent上的数据，仅移除DB映射）
+	agentCtx, agentCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	agentLifecycle.OnInstanceDeleted(agentCtx, global.APP_DB, instance.ID)
+	agentCancel()
 
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "正在清理数据库记录...")

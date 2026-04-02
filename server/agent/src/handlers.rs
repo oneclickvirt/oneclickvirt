@@ -5,8 +5,8 @@ use crate::{
     error::{ApiError, ErrorResponse},
     models::{
         AddRequest, AddResponse, CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse,
-        InfoRequest, InfoResponse, ResourceDataPoint, ResourceQueryRequest, ResourceQueryResponse,
-        UpdateRequest, UpdateResponse,
+        InfoRequest, InfoResponse, ListMonitorItem, ListMonitorsResponse, ResourceDataPoint,
+        ResourceQueryRequest, ResourceQueryResponse, UpdateRequest, UpdateResponse,
     },
     nft::{ensure_counter, garbage_collect_orphans, read_external_bytes, remove_counter},
 };
@@ -467,4 +467,52 @@ pub async fn query_resources(
         id: payload.id,
         data,
     }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/list",
+    responses(
+        (status = 200, description = "List all monitors", body = ListMonitorsResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "VM Traffic"
+)]
+pub async fn list_monitors(
+    State(state): State<AppState>,
+) -> Result<Json<ListMonitorsResponse>, ApiError> {
+    let conn = state.conn.lock().await;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, interfaces, provider_kind, instance_name, total_bytes, updated_at FROM monitors ORDER BY id",
+        )
+        .map_err(|e| ApiError::internal(format!("prepare list query error: {e}")))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let interfaces_json: String = row.get(1)?;
+            let interfaces: Vec<String> =
+                serde_json::from_str(&interfaces_json).unwrap_or_default();
+            Ok(ListMonitorItem {
+                id: row.get(0)?,
+                interface: interfaces,
+                provider_kind: row.get(2)?,
+                instance_name: row.get(3)?,
+                total_bytes: row.get(4)?,
+                updated_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| ApiError::internal(format!("list query error: {e}")))?;
+
+    let mut monitors = Vec::new();
+    for row in rows {
+        monitors.push(row.map_err(|e| ApiError::internal(format!("list row error: {e}")))?);
+    }
+
+    let total = monitors.len();
+    Ok(Json(ListMonitorsResponse { monitors, total }))
 }

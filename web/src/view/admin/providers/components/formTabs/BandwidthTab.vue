@@ -134,6 +134,25 @@
     </div>
 
     <el-form-item
+      :label="$t('admin.providers.enableResourceMonitoring')"
+      prop="enableResourceMonitoring"
+    >
+      <el-switch
+        v-model="modelValue.enableResourceMonitoring"
+        :active-text="$t('admin.providers.enabled')"
+        :inactive-text="$t('admin.providers.disabled')"
+      />
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.enableResourceMonitoringTip') }}
+      </el-text>
+    </div>
+
+    <el-form-item
       :label="$t('admin.providers.maxTraffic')"
       prop="maxTraffic"
       v-show="modelValue.enableTrafficControl"

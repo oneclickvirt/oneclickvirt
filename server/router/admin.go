@@ -183,6 +183,8 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.DELETE("/providers/:id/monitoring/agent", admin.UninstallAgent)
 		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
 		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
+		AdminGroup.POST("/providers/:id/monitoring/sync", admin.SyncProviderMonitors)
+		AdminGroup.GET("/providers/:id/monitoring/agent-monitors", admin.ListAgentMonitors)
 		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
 		AdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
 

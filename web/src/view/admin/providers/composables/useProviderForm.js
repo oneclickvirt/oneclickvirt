@@ -106,6 +106,7 @@ const buildDefaultForm = () => ({
   maxInboundBandwidth: 1000,
   maxOutboundBandwidth: 1000,
   enableTrafficControl: false,
+  enableResourceMonitoring: false,
   maxTraffic: 1048576,
   trafficCountMode: 'both',
   trafficMultiplier: 1.0,
@@ -240,6 +241,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.maxInboundBandwidth = provider.maxInboundBandwidth || 1000
     addProviderForm.maxOutboundBandwidth = provider.maxOutboundBandwidth || 1000
     addProviderForm.enableTrafficControl = provider.enableTrafficControl !== undefined ? provider.enableTrafficControl : false
+    addProviderForm.enableResourceMonitoring = provider.enableResourceMonitoring !== undefined ? provider.enableResourceMonitoring : false
     addProviderForm.maxTraffic = provider.maxTraffic || 1048576
     addProviderForm.trafficCountMode = provider.trafficCountMode || 'both'
     addProviderForm.trafficMultiplier = provider.trafficMultiplier || 1.0
@@ -340,6 +342,7 @@ export function useProviderForm(loadProviders) {
         maxInboundBandwidth: formData.maxInboundBandwidth || 1000,
         maxOutboundBandwidth: formData.maxOutboundBandwidth || 1000,
         enableTrafficControl: formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : false,
+        enableResourceMonitoring: formData.enableResourceMonitoring !== undefined ? formData.enableResourceMonitoring : false,
         maxTraffic: formData.maxTraffic || 1048576,
         trafficCountMode: formData.trafficCountMode || 'both',
         trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0,

@@ -125,6 +125,20 @@ type CleanupResponse struct {
 	MaxUpdateSeconds int64 `json:"max_update_seconds"`
 }
 
+type ListMonitorItem struct {
+	ID           int64    `json:"id"`
+	Interface    []string `json:"interface"`
+	ProviderKind *string  `json:"provider_kind"`
+	InstanceName *string  `json:"instance_name"`
+	TotalBytes   uint64   `json:"total_bytes"`
+	UpdatedAt    int64    `json:"updated_at"`
+}
+
+type ListMonitorsResponse struct {
+	Monitors []ListMonitorItem `json:"monitors"`
+	Total    int               `json:"total"`
+}
+
 type ErrorResponse struct {
 	Error string `json:"error"`
 }
@@ -259,7 +273,10 @@ func (c *Client) Cleanup(maxUpdateTime string) (*CleanupResponse, error) {
 
 // Ping checks if the agent is reachable.
 func (c *Client) Ping() error {
-	req, _ := http.NewRequest("GET", c.baseURL+"/swagger-ui/", nil)
+	req, err := http.NewRequest("GET", c.baseURL+"/swagger-ui/", nil)
+	if err != nil {
+		return fmt.Errorf("failed to create ping request: %w", err)
+	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return err
@@ -269,6 +286,15 @@ func (c *Client) Ping() error {
 		return fmt.Errorf("agent returned status %d", resp.StatusCode)
 	}
 	return nil
+}
+
+// ListMonitors returns all monitors on the agent.
+func (c *Client) ListMonitors() (*ListMonitorsResponse, error) {
+	var resp ListMonitorsResponse
+	if err := c.doRequest("GET", "/api/v1/list", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
 }
 
 // BatchGetInfo fetches traffic info for multiple monitors.

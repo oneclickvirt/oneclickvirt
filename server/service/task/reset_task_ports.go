@@ -10,6 +10,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	agentLifecycle "oneclickvirt/service/agent"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 
@@ -258,6 +259,11 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 		global.APP_LOG.Debug("流量监控重新初始化成功",
 			zap.Uint("instanceId", resetCtx.NewInstanceID))
 	}
+
+	// Agent监控：重建后重新注册
+	agentCtx, agentCancel := context.WithTimeout(ctx, 2*time.Minute)
+	agentLifecycle.OnInstanceRebuilt(agentCtx, global.APP_DB, resetCtx.NewInstanceID)
+	agentCancel()
 
 	return nil
 }

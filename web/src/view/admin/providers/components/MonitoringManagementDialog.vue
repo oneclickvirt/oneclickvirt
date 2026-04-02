@@ -6,17 +6,34 @@
     :close-on-click-modal="false"
     @close="handleClose"
   >
-    <div v-if="provider">
+    <div v-if="provider" v-loading="configLoading">
       <!-- 监控模式选择 -->
       <el-tabs v-model="activeTab" type="border-card">
-        <!-- Agent 监控 -->
-        <el-tab-pane :label="$t('admin.providers.agentMonitoring')" name="agent">
+        <!-- Agent 监控（推荐） -->
+        <el-tab-pane name="agent">
+          <template #label>
+            <span>{{ $t('admin.providers.agentMonitoring') }}</span>
+          </template>
+
+          <!-- Agent 说明 -->
+          <el-alert
+            :title="$t('admin.providers.agentMonitoringDescTitle')"
+            type="success"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px;"
+          >
+            <template #default>
+              <p style="margin: 4px 0 0;">{{ $t('admin.providers.agentMonitoringDesc') }}</p>
+            </template>
+          </el-alert>
+
           <!-- Agent 状态 -->
           <div class="agent-status-section">
             <el-descriptions :column="2" border size="small">
               <el-descriptions-item :label="$t('admin.providers.monitoringMode')">
-                <el-tag :type="config.monitoringMode === 'agent' ? 'success' : 'info'" size="small">
-                  {{ config.monitoringMode === 'agent' ? 'Agent' : 'PMAcct' }}
+                <el-tag :type="config.monitoring_mode === 'agent' ? 'success' : 'info'" size="small">
+                  {{ config.monitoring_mode === 'agent' ? 'Agent' : 'PMAcct' }}
                 </el-tag>
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.agentStatus')">
@@ -24,19 +41,54 @@
                   {{ agentStatusText }}
                 </el-tag>
               </el-descriptions-item>
-              <el-descriptions-item v-if="config.agentVersion" :label="$t('admin.providers.agentVersion')">
-                {{ config.agentVersion }}
+              <el-descriptions-item v-if="config.agent_version" :label="$t('admin.providers.agentVersion')">
+                {{ config.agent_version }}
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.agentPort')">
-                {{ config.agentPort || 23782 }}
+                {{ config.agent_port || 23782 }}
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.collectInterval')">
-                {{ config.collectInterval || 5 }}s
+                {{ config.collect_interval || 5 }}s
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.resourceCollectInterval')">
-                {{ config.resourceCollectInterval || 30 }}s
+                {{ config.resource_collect_interval || 30 }}s
               </el-descriptions-item>
             </el-descriptions>
+
+            <!-- Agent Token 展示与复制 -->
+            <div v-if="config.agent_token" class="token-section">
+              <el-descriptions :column="1" border size="small" style="margin-top: 12px;">
+                <el-descriptions-item :label="$t('admin.providers.agentToken')">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <el-input
+                      :model-value="showToken ? config.agent_token : '••••••••••••••••'"
+                      readonly
+                      size="small"
+                      style="flex: 1; max-width: 320px;"
+                    />
+                    <el-button size="small" @click="showToken = !showToken">
+                      {{ showToken ? $t('admin.providers.hideToken') : $t('admin.providers.showToken') }}
+                    </el-button>
+                    <el-button size="small" type="primary" @click="handleCopyToken">
+                      {{ $t('admin.providers.copyToken') }}
+                    </el-button>
+                  </div>
+                </el-descriptions-item>
+                <el-descriptions-item :label="$t('admin.providers.agentTestUrl')">
+                  <div style="display: flex; align-items: center; gap: 8px;">
+                    <el-input
+                      :model-value="agentSwaggerUrl"
+                      readonly
+                      size="small"
+                      style="flex: 1; max-width: 400px;"
+                    />
+                    <el-button size="small" @click="handleCopyUrl(agentSwaggerUrl)">
+                      {{ $t('admin.providers.copyUrl') }}
+                    </el-button>
+                  </div>
+                </el-descriptions-item>
+              </el-descriptions>
+            </div>
 
             <!-- 操作按钮 -->
             <div class="action-buttons">
@@ -45,11 +97,12 @@
                 :loading="deployLoading"
                 @click="handleDeployAgent"
               >
-                {{ config.agentInstalled ? $t('admin.providers.redeployAgent') : $t('admin.providers.deployAgent') }}
+                {{ config.agent_installed ? $t('admin.providers.redeployAgent') : $t('admin.providers.deployAgent') }}
               </el-button>
               <el-button
                 type="danger"
                 :loading="uninstallLoading"
+                :disabled="!config.agent_installed"
                 @click="handleUninstallAgent"
               >
                 {{ $t('admin.providers.uninstallAgent') }}
@@ -60,6 +113,14 @@
                 @click="handleCheckStatus"
               >
                 {{ $t('admin.providers.checkAgentStatus') }}
+              </el-button>
+              <el-button
+                type="warning"
+                :loading="syncLoading"
+                :disabled="!config.agent_installed"
+                @click="handleSyncMonitors"
+              >
+                {{ $t('admin.providers.syncMonitors') }}
               </el-button>
               <el-button
                 @click="showConfigEditor = !showConfigEditor"
@@ -75,30 +136,38 @@
               </template>
               <el-form :model="editConfig" label-width="180px" size="small">
                 <el-form-item :label="$t('admin.providers.monitoringMode')">
-                  <el-select v-model="editConfig.monitoringMode" style="width: 160px;">
+                  <el-select v-model="editConfig.monitoring_mode" style="width: 160px;">
                     <el-option label="Agent" value="agent" />
                     <el-option label="PMAcct" value="pmacct" />
                   </el-select>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.agentPort')">
-                  <el-input-number v-model="editConfig.agentPort" :min="1024" :max="65535" />
+                  <el-input-number v-model="editConfig.agent_port" :min="1024" :max="65535" />
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.collectInterval')">
-                  <el-input-number v-model="editConfig.collectInterval" :min="1" :max="300" />
+                  <el-input-number v-model="editConfig.collect_interval" :min="1" :max="300" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
                   <el-text type="info" size="small" style="margin-left: 8px;">{{ $t('admin.providers.collectIntervalHint') }}</el-text>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.resourceCollectInterval')">
-                  <el-input-number v-model="editConfig.resourceCollectInterval" :min="10" :max="3600" />
+                  <el-input-number v-model="editConfig.resource_collect_interval" :min="10" :max="3600" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
                   <el-text type="info" size="small" style="margin-left: 8px;">{{ $t('admin.providers.resourceCollectIntervalHint') }}</el-text>
                 </el-form-item>
-                <el-form-item :label="$t('admin.providers.extraExcludeCIDRs')">
+                <el-form-item :label="$t('admin.providers.extraExcludeCIDRsV4')">
                   <el-input
-                    v-model="editConfig.extraExcludeCidrs"
+                    v-model="editConfig.extra_exclude_cidrs_v4"
                     type="textarea"
-                    :rows="3"
+                    :rows="2"
                     :placeholder="$t('admin.providers.extraExcludeCIDRsPlaceholder')"
+                  />
+                </el-form-item>
+                <el-form-item :label="$t('admin.providers.extraExcludeCIDRsV6')">
+                  <el-input
+                    v-model="editConfig.extra_exclude_cidrs_v6"
+                    type="textarea"
+                    :rows="2"
+                    :placeholder="$t('admin.providers.extraExcludeCIDRsV6Placeholder')"
                   />
                 </el-form-item>
                 <el-form-item>
@@ -119,33 +188,96 @@
           </div>
 
           <!-- 监控列表 -->
-          <div v-if="monitors.length > 0" style="margin-top: 20px;">
-            <h4>{{ $t('admin.providers.instanceMonitors') }}</h4>
-            <el-table :data="monitors" size="small" max-height="300">
-              <el-table-column prop="instanceName" :label="$t('admin.providers.instanceName')" width="150" />
+          <div style="margin-top: 20px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+              <h4 style="margin: 0;">{{ $t('admin.providers.instanceMonitors') }} ({{ monitors.length }})</h4>
+              <el-button
+                v-if="config.agent_installed && agentIsOnline"
+                size="small"
+                @click="handleListAgentMonitors"
+                :loading="listAgentLoading"
+              >
+                {{ $t('admin.providers.viewAgentMonitors') }}
+              </el-button>
+            </div>
+            <el-table :data="monitors" size="small" max-height="300" v-loading="monitorsLoading">
+              <el-table-column prop="instance_name" :label="$t('admin.providers.instanceName')" width="150" />
               <el-table-column prop="interfaces" :label="$t('admin.providers.interfaces')" show-overflow-tooltip>
                 <template #default="{ row }">
                   {{ row.interfaces || '-' }}
                 </template>
               </el-table-column>
+              <el-table-column prop="agent_monitor_id" label="Agent ID" width="90" />
               <el-table-column :label="$t('admin.providers.status')" width="80">
                 <template #default="{ row }">
-                  <el-tag :type="row.isEnabled ? 'success' : 'info'" size="small">
-                    {{ row.isEnabled ? $t('common.enabled') : $t('common.disabled') }}
+                  <el-tag :type="row.is_enabled ? 'success' : 'info'" size="small">
+                    {{ row.is_enabled ? $t('common.enabled') : $t('common.disabled') }}
                   </el-tag>
                 </template>
               </el-table-column>
               <el-table-column :label="$t('admin.providers.lastSync')" width="160">
                 <template #default="{ row }">
-                  {{ row.lastSyncAt ? formatDateTime(row.lastSyncAt) : '-' }}
+                  {{ row.last_sync_at ? formatDateTime(row.last_sync_at) : '-' }}
                 </template>
               </el-table-column>
             </el-table>
           </div>
+
+          <!-- Agent端监控列表弹窗 -->
+          <el-dialog
+            v-model="showAgentMonitors"
+            :title="$t('admin.providers.agentMonitorsList')"
+            width="700px"
+            append-to-body
+          >
+            <el-table :data="agentMonitors" size="small" max-height="400">
+              <el-table-column prop="id" label="ID" width="70" />
+              <el-table-column :label="$t('admin.providers.interfaces')" show-overflow-tooltip>
+                <template #default="{ row }">
+                  {{ (row.interface || []).join(', ') || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="instance_name" :label="$t('admin.providers.instanceName')" width="150">
+                <template #default="{ row }">
+                  {{ row.instance_name || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column prop="provider_kind" label="Provider" width="100">
+                <template #default="{ row }">
+                  {{ row.provider_kind || '-' }}
+                </template>
+              </el-table-column>
+              <el-table-column label="Traffic" width="100">
+                <template #default="{ row }">
+                  {{ formatBytes(row.total_bytes || 0) }}
+                </template>
+              </el-table-column>
+            </el-table>
+            <template #footer>
+              <el-text type="info" size="small">{{ $t('admin.providers.agentMonitorsTotal') }}: {{ agentMonitors.length }}</el-text>
+            </template>
+          </el-dialog>
         </el-tab-pane>
 
-        <!-- PMAcct 流量监控（旧模式） -->
-        <el-tab-pane :label="$t('admin.providers.pmacctMonitoring')" name="pmacct">
+        <!-- PMAcct 流量监控（旧模式，不推荐） -->
+        <el-tab-pane name="pmacct">
+          <template #label>
+            <span>{{ $t('admin.providers.pmacctMonitoring') }}</span>
+          </template>
+
+          <!-- PMAcct 说明 -->
+          <el-alert
+            :title="$t('admin.providers.pmacctMonitoringDescTitle')"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin-bottom: 16px;"
+          >
+            <template #default>
+              <p style="margin: 4px 0 0;">{{ $t('admin.providers.pmacctMonitoringDesc') }}</p>
+            </template>
+          </el-alert>
+
           <!-- 历史记录视图 -->
           <div v-if="showHistory">
             <el-alert
@@ -212,10 +344,10 @@
                 <el-table-column :label="$t('admin.providers.result')" show-overflow-tooltip>
                   <template #default="{ row }">
                     <span v-if="row.status === 'completed'" style="color: #67C23A;">
-                      ✅ {{ $t('common.success') }}: {{ row.successCount }}/{{ row.totalCount }}
+                      {{ $t('common.success') }}: {{ row.successCount }}/{{ row.totalCount }}
                     </span>
                     <span v-else-if="row.status === 'failed'" style="color: #F56C6C;">
-                      ❌ {{ row.errorMsg || $t('common.failed') }}
+                      {{ row.errorMsg || $t('common.failed') }}
                     </span>
                     <span v-else>{{ row.message || '-' }}</span>
                   </template>
@@ -335,7 +467,9 @@ import {
   deployAgent,
   uninstallAgent,
   getAgentStatus,
-  getProviderMonitors
+  getProviderMonitors,
+  syncProviderMonitors,
+  listAgentMonitors
 } from '@/api/admin'
 
 const { t } = useI18n()
@@ -361,39 +495,59 @@ const emit = defineEmits([
 
 const activeTab = ref('agent')
 const showConfigEditor = ref(false)
+const configLoading = ref(false)
 const deployLoading = ref(false)
 const uninstallLoading = ref(false)
 const statusLoading = ref(false)
 const saveConfigLoading = ref(false)
+const syncLoading = ref(false)
+const monitorsLoading = ref(false)
+const listAgentLoading = ref(false)
 const deployOutput = ref('')
 const monitors = ref([])
 const agentOnlineChecked = ref(false)
 const agentIsOnline = ref(false)
+const showToken = ref(false)
+const showAgentMonitors = ref(false)
+const agentMonitors = ref([])
 
+// snake_case to match backend JSON
 const config = reactive({
-  monitoringMode: 'agent',
-  agentToken: '',
-  agentPort: 23782,
-  agentInstalled: false,
-  agentVersion: '',
-  collectInterval: 5,
-  resourceCollectInterval: 30,
-  extraExcludeCidrs: ''
+  monitoring_mode: 'agent',
+  agent_token: '',
+  agent_port: 23782,
+  agent_installed: false,
+  agent_version: '',
+  collect_interval: 5,
+  resource_collect_interval: 30,
+  extra_exclude_cidrs_v4: '',
+  extra_exclude_cidrs_v6: ''
 })
 
 const editConfig = reactive({
-  monitoringMode: 'agent',
-  agentPort: 23782,
-  collectInterval: 5,
-  resourceCollectInterval: 30,
-  extraExcludeCidrs: ''
+  monitoring_mode: 'agent',
+  agent_port: 23782,
+  collect_interval: 5,
+  resource_collect_interval: 30,
+  extra_exclude_cidrs_v4: '',
+  extra_exclude_cidrs_v6: ''
+})
+
+const agentSwaggerUrl = computed(() => {
+  if (!props.provider) return ''
+  const host = props.provider.portIp || props.provider.endpoint || ''
+  const cleanHost = host.includes(':') && !host.startsWith('[')
+    ? host.split(':')[0]
+    : host
+  const port = config.agent_port || 23782
+  return 'http://' + cleanHost + ':' + port + '/swagger-ui/'
 })
 
 const agentStatusType = computed(() => {
   if (agentOnlineChecked.value) {
     return agentIsOnline.value ? 'success' : 'danger'
   }
-  if (config.agentInstalled) return 'warning'
+  if (config.agent_installed) return 'warning'
   return 'info'
 })
 
@@ -401,7 +555,7 @@ const agentStatusText = computed(() => {
   if (agentOnlineChecked.value) {
     return agentIsOnline.value ? t('admin.providers.agentOnline') : t('admin.providers.agentOffline')
   }
-  if (config.agentInstalled) return t('admin.providers.agentInstalled')
+  if (config.agent_installed) return t('admin.providers.agentInstalled')
   return t('admin.providers.agentNotInstalled')
 })
 
@@ -409,11 +563,16 @@ watch(() => props.visible, async (val) => {
   if (val && props.provider) {
     agentOnlineChecked.value = false
     agentIsOnline.value = false
-    await loadConfig()
-    await loadMonitors()
-    // Auto-check agent status when dialog opens
-    if (config.agentInstalled) {
-      handleCheckStatus()
+    showToken.value = false
+    configLoading.value = true
+    try {
+      await loadConfig()
+      await loadMonitors()
+      if (config.agent_installed) {
+        handleCheckStatus()
+      }
+    } finally {
+      configLoading.value = false
     }
   }
 })
@@ -423,13 +582,25 @@ const loadConfig = async () => {
   try {
     const res = await getMonitoringConfig(props.provider.id)
     if (res.code === 0 || res.code === 200) {
-      Object.assign(config, res.data)
+      const data = res.data || {}
+      Object.assign(config, {
+        monitoring_mode: data.monitoring_mode || 'agent',
+        agent_token: data.agent_token || '',
+        agent_port: data.agent_port || 23782,
+        agent_installed: data.agent_installed || false,
+        agent_version: data.agent_version || '',
+        collect_interval: data.collect_interval || 5,
+        resource_collect_interval: data.resource_collect_interval || 30,
+        extra_exclude_cidrs_v4: data.extra_exclude_cidrs_v4 || '',
+        extra_exclude_cidrs_v6: data.extra_exclude_cidrs_v6 || ''
+      })
       Object.assign(editConfig, {
-        monitoringMode: config.monitoringMode,
-        agentPort: config.agentPort,
-        collectInterval: config.collectInterval,
-        resourceCollectInterval: config.resourceCollectInterval,
-        extraExcludeCidrs: config.extraExcludeCidrs || ''
+        monitoring_mode: config.monitoring_mode,
+        agent_port: config.agent_port,
+        collect_interval: config.collect_interval,
+        resource_collect_interval: config.resource_collect_interval,
+        extra_exclude_cidrs_v4: config.extra_exclude_cidrs_v4,
+        extra_exclude_cidrs_v6: config.extra_exclude_cidrs_v6
       })
     }
   } catch (e) {
@@ -439,6 +610,7 @@ const loadConfig = async () => {
 
 const loadMonitors = async () => {
   if (!props.provider) return
+  monitorsLoading.value = true
   try {
     const res = await getProviderMonitors(props.provider.id)
     if (res.code === 0 || res.code === 200) {
@@ -446,6 +618,26 @@ const loadMonitors = async () => {
     }
   } catch (e) {
     console.error('Failed to load monitors:', e)
+  } finally {
+    monitorsLoading.value = false
+  }
+}
+
+const handleCopyToken = async () => {
+  try {
+    await navigator.clipboard.writeText(config.agent_token)
+    ElMessage.success(t('admin.providers.tokenCopied'))
+  } catch {
+    ElMessage.error(t('common.copyFailed'))
+  }
+}
+
+const handleCopyUrl = async (url) => {
+  try {
+    await navigator.clipboard.writeText(url)
+    ElMessage.success(t('admin.providers.urlCopied'))
+  } catch {
+    ElMessage.error(t('common.copyFailed'))
   }
 }
 
@@ -465,7 +657,6 @@ const handleDeployAgent = async () => {
       deployOutput.value = res.data?.output || 'OK'
       await loadConfig()
       await loadMonitors()
-      // Auto-check status after deploy
       handleCheckStatus()
     } else {
       ElMessage.error(res.msg || t('admin.providers.deployAgentFailed'))
@@ -495,6 +686,8 @@ const handleUninstallAgent = async () => {
       ElMessage.success(t('admin.providers.uninstallAgentSuccess'))
       await loadConfig()
       monitors.value = []
+      agentOnlineChecked.value = false
+      agentIsOnline.value = false
     } else {
       ElMessage.error(res.msg || t('admin.providers.uninstallAgentFailed'))
     }
@@ -517,18 +710,74 @@ const handleCheckStatus = async () => {
       agentOnlineChecked.value = true
       agentIsOnline.value = !!data.is_running
       if (data.is_running) {
-        ElMessage.success(t('admin.providers.agentOnline') + (data.version ? ` (v${data.version})` : ''))
+        ElMessage.success(t('admin.providers.agentOnline') + (data.version ? ' (v' + data.version + ')' : ''))
       } else {
         ElMessage.warning(t('admin.providers.agentOffline'))
       }
       if (data.config) {
-        Object.assign(config, data.config)
+        const cfg = data.config
+        Object.assign(config, {
+          monitoring_mode: cfg.monitoring_mode || config.monitoring_mode,
+          agent_token: cfg.agent_token || config.agent_token,
+          agent_port: cfg.agent_port || config.agent_port,
+          agent_installed: cfg.agent_installed !== undefined ? cfg.agent_installed : config.agent_installed,
+          agent_version: cfg.agent_version || config.agent_version,
+          collect_interval: cfg.collect_interval || config.collect_interval,
+          resource_collect_interval: cfg.resource_collect_interval || config.resource_collect_interval,
+          extra_exclude_cidrs_v4: cfg.extra_exclude_cidrs_v4 || config.extra_exclude_cidrs_v4,
+          extra_exclude_cidrs_v6: cfg.extra_exclude_cidrs_v6 || config.extra_exclude_cidrs_v6
+        })
       }
     }
   } catch (e) {
+    agentOnlineChecked.value = true
+    agentIsOnline.value = false
     ElMessage.error(t('admin.providers.checkStatusFailed'))
   } finally {
     statusLoading.value = false
+  }
+}
+
+const handleSyncMonitors = async () => {
+  if (!props.provider) return
+  try {
+    await ElMessageBox.confirm(
+      t('admin.providers.syncMonitorsConfirm'),
+      t('common.confirm'),
+      { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' }
+    )
+    syncLoading.value = true
+    const res = await syncProviderMonitors(props.provider.id)
+    if (res.code === 0 || res.code === 200) {
+      ElMessage.success(t('admin.providers.syncMonitorsSuccess'))
+      await loadMonitors()
+    } else {
+      ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed'))
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed'))
+    }
+  } finally {
+    syncLoading.value = false
+  }
+}
+
+const handleListAgentMonitors = async () => {
+  if (!props.provider) return
+  listAgentLoading.value = true
+  try {
+    const res = await listAgentMonitors(props.provider.id)
+    if (res.code === 0 || res.code === 200) {
+      agentMonitors.value = res.data?.monitors || []
+      showAgentMonitors.value = true
+    } else {
+      ElMessage.error(res.msg || t('common.failed'))
+    }
+  } catch (e) {
+    ElMessage.error(e?.response?.data?.msg || t('common.failed'))
+  } finally {
+    listAgentLoading.value = false
   }
 }
 
@@ -559,6 +808,14 @@ const handleClose = () => {
 const formatDateTime = (dateTime) => {
   if (!dateTime) return '-'
   return new Date(dateTime).toLocaleString()
+}
+
+const formatBytes = (bytes) => {
+  if (bytes === 0) return '0 B'
+  const k = 1024
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB']
+  const i = Math.floor(Math.log(bytes) / Math.log(k))
+  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i]
 }
 
 const getTaskTypeLabel = (taskType) => {
@@ -594,6 +851,10 @@ const getTaskStatusTagType = (status) => {
 <style scoped>
 .agent-status-section {
   padding: 0 4px;
+}
+
+.token-section {
+  margin-top: 12px;
 }
 
 .action-buttons {

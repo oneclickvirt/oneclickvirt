@@ -34,7 +34,8 @@ impl Modify for SecurityAddon {
         crate::handlers::delete_monitor,
         crate::handlers::info_monitor,
         crate::handlers::cleanup_monitor,
-        crate::handlers::query_resources
+        crate::handlers::query_resources,
+        crate::handlers::list_monitors
     ),
     components(
         schemas(
@@ -52,6 +53,8 @@ impl Modify for SecurityAddon {
             crate::models::CleanupResponse,
             crate::models::ResourceDataPoint,
             crate::models::ResourceQueryResponse,
+            crate::models::ListMonitorItem,
+            crate::models::ListMonitorsResponse,
             crate::resource::ResourceSnapshot,
             crate::resource::ProviderKind,
             crate::error::ErrorResponse

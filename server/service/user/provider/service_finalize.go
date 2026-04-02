@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/provider"
 	"oneclickvirt/provider/incus"
 	"oneclickvirt/provider/lxd"
+	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
@@ -582,6 +583,11 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						zap.Uint("providerId", providerID))
 				}
 			}
+
+			// 4.5 Agent监控：无论是否启用流量监控，都注册Agent监控以记录网络接口
+			agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
+			agentCancel()
 
 			// 更新进度到98%
 			s.updateTaskProgress(taskID, 98, "正在启动流量同步...")

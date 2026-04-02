@@ -104,3 +104,19 @@ pub struct ResourceQueryResponse {
     pub id: i64,
     pub data: Vec<ResourceDataPoint>,
 }
+
+#[derive(Serialize, ToSchema)]
+pub struct ListMonitorItem {
+    pub id: i64,
+    pub interface: Vec<String>,
+    pub provider_kind: Option<String>,
+    pub instance_name: Option<String>,
+    pub total_bytes: u64,
+    pub updated_at: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ListMonitorsResponse {
+    pub monitors: Vec<ListMonitorItem>,
+    pub total: usize,
+}

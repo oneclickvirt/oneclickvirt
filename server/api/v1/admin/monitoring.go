@@ -4,12 +4,14 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	monitoringModel "oneclickvirt/model/monitoring"
+	providerModel "oneclickvirt/model/provider"
 	agentService "oneclickvirt/service/agent"
 	providerService "oneclickvirt/service/provider"
 
@@ -306,6 +308,111 @@ func GetProviderMonitors(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: monitors})
+}
+
+// SyncProviderMonitors ensures all active instances have monitors and cleans up stale ones.
+func SyncProviderMonitors(c *gin.Context) {
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		return
+	}
+
+	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		return
+	}
+
+	if config.MonitoringMode != "agent" || !config.AgentInstalled {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Agent未安装或未启用Agent监控模式"})
+		return
+	}
+
+	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Minute)
+	defer cancel()
+
+	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB)
+
+	// Ensure all running instances have monitors
+	if err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config); err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "同步监控失败: " + err.Error()})
+		return
+	}
+
+	// Cleanup stale monitors
+	if err := monitorSvc.CleanupStaleMonitors(uint(providerID), config); err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "清理过期监控失败: " + err.Error()})
+		return
+	}
+
+	// Return updated list
+	var monitors []monitoringModel.AgentMonitor
+	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "同步完成", Data: monitors})
+}
+
+// ListAgentMonitors returns the list of monitors directly from the remote agent.
+func ListAgentMonitors(c *gin.Context) {
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		return
+	}
+
+	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		return
+	}
+
+	if !config.AgentInstalled {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Agent未安装"})
+		return
+	}
+
+	// Get provider to construct client
+	var p providerModel.Provider
+	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider不存在"})
+		return
+	}
+
+	host := p.Endpoint
+	if host == "" {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider无Endpoint"})
+		return
+	}
+	// Strip SSH port suffix from endpoint (e.g. "192.168.1.1:22" -> "192.168.1.1")
+	if idx := strings.LastIndex(host, ":"); idx > 0 {
+		host = host[:idx]
+	}
+
+	port := config.AgentPort
+	if port == 0 {
+		port = 23782
+	}
+
+	client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
+	result, err := client.ListMonitors()
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询Agent监控列表失败: " + err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: result})
 }
 
 // GetInstanceResources returns resource monitoring data for an instance.
