@@ -132,9 +132,9 @@ func (cm *ConfigManager) saveConfigToDBWithTx(tx *gorm.DB, key string, value int
 		IsPublic: isPublic,
 	}
 
-	// 先尝试查找已存在的配置
+	// 先尝试查找已存在的配置（按 category + key 复合查找，与复合唯一索引保持一致）
 	var existingConfig SystemConfig
-	err := tx.Where("`key` = ?", key).First(&existingConfig).Error
+	err := tx.Where("category = ? AND `key` = ?", config.Category, key).First(&existingConfig).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// 记录不存在，创建新记录
@@ -171,7 +171,7 @@ func (cm *ConfigManager) batchSaveConfigsToDBOnly(flatConfigs map[string]interfa
 	if err := cm.db.Transaction(func(tx *gorm.DB) error {
 		if len(configsToSaveList) > 0 {
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "key"}},
+				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
 				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
 			}).CreateInBatches(configsToSaveList, 50).Error; err != nil {
 				return fmt.Errorf("批量保存配置失败: %v", err)

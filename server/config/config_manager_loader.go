@@ -1,7 +1,6 @@
 package config
 
 import (
-	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -76,69 +75,35 @@ func (cm *ConfigManager) loadConfigFromDB() {
 		zap.Bool("configModified", configModified),
 		zap.Int64("dbConfigCount", configCount))
 
-	// 场景1：数据库有配置 + 标志文件存在 = 升级场景或API修改后重启
-	// 策略：以数据库为准，恢复到YAML并同步到global
-	if configCount > 0 && configModified {
-		cm.logger.Info("场景：已修改配置的重启或升级（数据库优先）")
-		if err := cm.handleDatabaseFirst(); err != nil {
-			cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
-		}
-		return
-	}
-
-	// 场景2：数据库有配置 + 标志文件不存在 = 可能是升级/重启/手动修改YAML
-	// 策略：检查YAML修改时间，如果最近被修改，优先使用YAML；否则使用数据库保护用户配置
-	if configCount > 0 && !configModified {
-		cm.logger.Info("场景：数据库有配置但无标志文件（检查YAML是否最近修改）")
-
-		// 检查YAML文件修改时间
-		yamlInfo, err := os.Stat("config.yaml")
-		if err == nil {
-			yamlModTime := yamlInfo.ModTime()
-
-			// 获取数据库中最新配置的更新时间
-			var latestConfig SystemConfig
-			if err := cm.db.Order("updated_at DESC").First(&latestConfig).Error; err == nil {
-				dbModTime := latestConfig.UpdatedAt
-
-				cm.logger.Info("YAML和数据库修改时间对比",
-					zap.Time("yamlModTime", yamlModTime),
-					zap.Time("dbModTime", dbModTime))
-
-				// 如果YAML文件在数据库之后修改（说明用户手动修改了YAML）
-				if yamlModTime.After(dbModTime) {
-					cm.logger.Info("判断：YAML文件最近被修改，优先使用YAML配置")
-					if err := cm.handleYAMLFirst(); err != nil {
-						cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
-					}
-					// handleYAMLFirst 内部已调用 EnsureDefaultConfigs 并在补全后再次同步全局配置
-					return
-				}
+	// 核心策略：只要数据库中有配置数据，就以数据库为唯一权威来源。
+	// 这保证了通过 API 保存的配置（如 OAuth2 开关）在任何重启场景下都不会被
+	// config.yaml 覆盖，无论标志文件是否存在（Docker 卷未挂载、重新部署等场景均安全）。
+	if configCount > 0 {
+		if configModified {
+			cm.logger.Info("场景：已有数据库配置（标志文件存在），以数据库为准")
+		} else {
+			cm.logger.Info("场景：已有数据库配置（标志文件不存在），仍以数据库为准（保护已保存的配置）")
+			// 补全标志文件，确保下次重启也走数据库路径（可选，提高一致性）
+			if err := cm.markConfigAsModified(); err != nil {
+				cm.logger.Warn("补全标志文件失败（可忽略）", zap.Error(err))
 			}
 		}
-
-		// YAML没有更新，使用数据库配置（保护用户配置）
-		cm.logger.Info("判断：数据库配置更新，优先使用数据库保护用户配置")
-		// 重新创建标志文件
-		if err := cm.markConfigAsModified(); err != nil {
-			cm.logger.Warn("重新创建标志文件失败", zap.Error(err))
-		}
 		if err := cm.handleDatabaseFirst(); err != nil {
 			cm.logger.Error("处理数据库优先策略失败", zap.Error(err))
 		}
 		return
 	}
 
-	// 场景3：数据库无配置 + 标志文件存在 = 异常情况，清除标志文件
-	if configCount == 0 && configModified {
+	// 场景：数据库无配置（真正的首次启动）
+	// 若标志文件意外存在（异常情况），先清除它。
+	if configModified {
 		cm.logger.Warn("场景：异常 - 标志文件存在但数据库无配置，清除标志文件")
 		if err := cm.clearConfigModifiedFlag(); err != nil {
 			cm.logger.Warn("清除标志文件失败", zap.Error(err))
 		}
-		// 继续按首次启动处理
 	}
 
-	// 场景4：数据库无配置 + 标志文件不存在 = 全新安装首次启动
+	// 全新安装首次启动，以 YAML 为准初始化数据库
 	cm.logger.Info("场景：首次启动（YAML优先）")
 	if err := cm.handleYAMLFirst(); err != nil {
 		cm.logger.Error("处理YAML优先策略失败", zap.Error(err))
@@ -151,14 +116,14 @@ func (cm *ConfigManager) loadConfigFromDB() {
 func (cm *ConfigManager) handleDatabaseFirst() error {
 	cm.logger.Info("执行策略：数据库 → YAML → global（保留用户配置，不补全默认值）")
 
-	// 1. 从数据库恢复到YAML文件
+	// 1. 尝试从数据库恢复到YAML文件（容忍失败，如 config.yaml 挂载为只读时）
 	if err := cm.RestoreConfigFromDatabase(); err != nil {
-		cm.logger.Error("从数据库恢复配置失败", zap.Error(err))
-		return err
+		cm.logger.Warn("从数据库恢复配置到YAML文件失败（将跳过YAML写入，继续同步内存配置）", zap.Error(err))
+	} else {
+		cm.logger.Info("配置已从数据库恢复到YAML文件")
 	}
-	cm.logger.Info("配置已从数据库恢复到YAML文件")
 
-	// 2. 同步到全局配置（触发回调）
+	// 2. 同步到全局配置（触发回调）——无论YAML写入是否成功，这步必须执行
 	if err := cm.syncDatabaseConfigToGlobal(); err != nil {
 		cm.logger.Error("同步数据库配置到全局配置失败", zap.Error(err))
 		return err

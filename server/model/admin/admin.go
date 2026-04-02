@@ -80,10 +80,10 @@ type AuditLog struct {
 // SystemConfig 系统配置模型
 type SystemConfig struct {
 	ID          uint           `json:"id" gorm:"primarykey"`
-	Key         string         `json:"key" gorm:"uniqueIndex;not null;size:64"`
+	Key         string         `json:"key" gorm:"not null;size:64;uniqueIndex:idx_system_configs_cat_key"`
 	Value       string         `json:"value" gorm:"type:text"`
 	Description string         `json:"description" gorm:"size:255"`
-	Category    string         `json:"category" gorm:"size:32"`
+	Category    string         `json:"category" gorm:"size:32;uniqueIndex:idx_system_configs_cat_key"`
 	Type        string         `json:"type" gorm:"size:20;not null;default:string"` // 配置类型
 	IsPublic    bool           `json:"isPublic" gorm:"not null;default:false"`      // 是否公开
 	CreatedAt   time.Time      `json:"createdAt"`

@@ -105,6 +105,12 @@ func RegisterTables(db *gorm.DB) {
 		global.APP_LOG.Warn("修复重复数据时出现警告（可忽略，如果是新数据库）", zap.Error(fixErr))
 	}
 
+	// 迁移 system_configs 唯一索引：从 idx_system_configs_key（仅key）迁移到
+	// idx_system_configs_cat_key（category+key 复合），允许不同 category 使用相同 key 名称
+	if migrateErr := dbService.MigrateSystemConfigIndex(db); migrateErr != nil {
+		global.APP_LOG.Warn("迁移 system_configs 索引时出现警告（可忽略，如果是新数据库）", zap.Error(migrateErr))
+	}
+
 	err := db.AutoMigrate(
 		// 用户相关表
 		&userModel.User{},     // 用户基础信息表

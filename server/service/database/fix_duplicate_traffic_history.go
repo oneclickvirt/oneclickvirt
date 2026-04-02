@@ -5,6 +5,7 @@ import (
 	"oneclickvirt/global"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // FixDuplicateTrafficHistory 修复 instance_traffic_histories 表中的重复数据
@@ -74,4 +75,41 @@ func (ds *DatabaseService) FixAllDuplicateData() error {
 	// 目前只有 instance_traffic_histories 表有此问题
 	// 如果将来有其他表也需要修复，可以在这里添加
 	return ds.FixDuplicateTrafficHistory()
+}
+
+// MigrateSystemConfigIndex 将 system_configs 表的唯一索引从单列 idx_system_configs_key
+// 迁移到复合列 idx_system_configs_cat_key（category + key），允许不同 category 共用相同 key 名。
+// 幂等操作：若旧索引不存在或新索引已存在，均安全跳过。
+func (ds *DatabaseService) MigrateSystemConfigIndex(db *gorm.DB) error {
+	if db == nil {
+		return fmt.Errorf("数据库连接不可用")
+	}
+
+	sqlDB, err := db.DB()
+	if err != nil {
+		return fmt.Errorf("获取底层数据库连接失败: %w", err)
+	}
+
+	// 检查旧的单列唯一索引是否存在
+	var oldIndexCount int
+	checkSQL := `
+		SELECT COUNT(*) FROM information_schema.STATISTICS
+		WHERE table_schema = DATABASE()
+		  AND table_name = 'system_configs'
+		  AND index_name = 'idx_system_configs_key'
+	`
+	row := sqlDB.QueryRow(checkSQL)
+	if err := row.Scan(&oldIndexCount); err != nil {
+		return fmt.Errorf("检查旧索引失败: %w", err)
+	}
+
+	if oldIndexCount > 0 {
+		global.APP_LOG.Info("发现旧的 system_configs 单列唯一索引，开始迁移到复合索引")
+		if _, err := sqlDB.Exec("ALTER TABLE system_configs DROP INDEX `idx_system_configs_key`"); err != nil {
+			return fmt.Errorf("删除旧索引 idx_system_configs_key 失败: %w", err)
+		}
+		global.APP_LOG.Info("旧索引 idx_system_configs_key 已删除")
+	}
+
+	return nil
 }

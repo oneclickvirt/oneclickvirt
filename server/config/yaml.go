@@ -628,12 +628,21 @@ func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
 	allConfigs := cm.flattenConfig(yamlConfig, "")
 
 	// 过滤掉系统级配置（必须100%来自YAML，不能被数据库覆盖）
+	// 同时过滤掉非点分格式的 key（如 active_version、signing_key_v*），
+	// 这些是外部系统（如JWT服务）写入的配置，不属于 ConfigManager 管理范围。
 	configsToSync := make(map[string]interface{})
 	skippedSystemConfigs := 0
 	for key, value := range allConfigs {
 		if isSystemLevelConfig(key) {
 			skippedSystemConfigs++
 			cm.logger.Debug("跳过系统级配置（必须来自YAML）",
+				zap.String("key", key))
+			continue
+		}
+		// 点分格式的 key 才属于 ConfigManager 管理的配置（如 system.addr）
+		if !strings.Contains(key, ".") {
+			skippedSystemConfigs++
+			cm.logger.Debug("跳过非点分格式配置（不属于 ConfigManager 管理范围）",
 				zap.String("key", key))
 			continue
 		}
@@ -659,7 +668,7 @@ func (cm *ConfigManager) syncYAMLConfigToDatabase() error {
 	if err := cm.db.Transaction(func(tx *gorm.DB) error {
 		if len(configsToSaveList) > 0 {
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "key"}},
+				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
 				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
 			}).CreateInBatches(configsToSaveList, 50).Error; err != nil {
 				return fmt.Errorf("批量保存配置失败: %v", err)

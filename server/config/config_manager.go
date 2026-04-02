@@ -391,7 +391,7 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 		// 批量保存配置（使用真正的批量 UPSERT）
 		if len(configsToSave) > 0 {
 			if err := tx.Clauses(clause.OnConflict{
-				Columns:   []clause.Column{{Name: "key"}},
+				Columns:   []clause.Column{{Name: "category"}, {Name: "key"}},
 				DoUpdates: clause.AssignmentColumns([]string{"value", "is_public", "updated_at"}),
 			}).CreateInBatches(configsToSave, 50).Error; err != nil {
 				return fmt.Errorf("批量保存配置失败: %v", err)

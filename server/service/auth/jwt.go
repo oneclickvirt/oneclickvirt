@@ -149,7 +149,7 @@ func (s *JWTKeyService) generateNewKey() (int, error) {
 		return 0, fmt.Errorf("序列化密钥信息失败: %w", err)
 	}
 
-	// 保存到数据库
+	// 保存到数据库（使用 Unscoped 检查，防止软删除记录占用唯一索引）
 	config := adminModel.SystemConfig{
 		Category:    JWT_KEY_CATEGORY,
 		Key:         fmt.Sprintf("%s%d", JWT_KEY_PREFIX, version),
@@ -159,7 +159,20 @@ func (s *JWTKeyService) generateNewKey() (int, error) {
 
 	dbService := database.GetDatabaseService()
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Create(&config).Error
+		var existing adminModel.SystemConfig
+		findErr := tx.Unscoped().
+			Where("category = ? AND `key` = ?", JWT_KEY_CATEGORY, config.Key).
+			First(&existing).Error
+		if findErr == gorm.ErrRecordNotFound {
+			return tx.Create(&config).Error
+		} else if findErr != nil {
+			return findErr
+		}
+		// 记录已存在（可能是软删除状态），用新密钥覆盖并恢复
+		return tx.Unscoped().Model(&existing).Updates(map[string]interface{}{
+			"value":      keyData,
+			"deleted_at": nil,
+		}).Error
 	}); err != nil {
 		global.APP_LOG.Error("保存JWT密钥失败",
 			zap.Int("version", version),
@@ -338,27 +351,48 @@ func (s *JWTKeyService) getActiveKeyVersion() (int, error) {
 
 // setActiveKeyVersion 设置活跃密钥版本
 func (s *JWTKeyService) setActiveKeyVersion(version int) error {
-	config := adminModel.SystemConfig{
-		Category:    JWT_KEY_CATEGORY,
-		Key:         JWT_ACTIVE_KEY,
-		Value:       fmt.Sprintf("%d", version),
-		Description: "当前活跃的JWT密钥版本",
-	}
+	valueStr := fmt.Sprintf("%d", version)
 
-	// 使用upsert逻辑
-	err := global.APP_DB.Where("category = ? AND `key` = ?", JWT_KEY_CATEGORY, JWT_ACTIVE_KEY).
-		Assign(config).
-		FirstOrCreate(&config).Error
+	// 使用 Unscoped 查询（包含软删除记录），防止因软删除记录占用唯一索引而导致 INSERT 失败
+	var existing adminModel.SystemConfig
+	err := global.APP_DB.Unscoped().
+		Where("category = ? AND `key` = ?", JWT_KEY_CATEGORY, JWT_ACTIVE_KEY).
+		First(&existing).Error
 
-	if err != nil {
+	if err == gorm.ErrRecordNotFound {
+		// 从未创建过，直接新建
+		config := adminModel.SystemConfig{
+			Category:    JWT_KEY_CATEGORY,
+			Key:         JWT_ACTIVE_KEY,
+			Value:       valueStr,
+			Description: "当前活跃的JWT密钥版本",
+		}
+		if createErr := global.APP_DB.Create(&config).Error; createErr != nil {
+			global.APP_LOG.Error("设置活跃密钥版本失败",
+				zap.Int("version", version),
+				zap.String("error", utils.TruncateString(createErr.Error(), 200)))
+			return createErr
+		}
+	} else if err != nil {
 		global.APP_LOG.Error("设置活跃密钥版本失败",
 			zap.Int("version", version),
 			zap.String("error", utils.TruncateString(err.Error(), 200)))
+		return err
 	} else {
-		global.APP_LOG.Debug("设置活跃密钥版本成功", zap.Int("version", version))
+		// 记录已存在（可能是软删除状态），更新值并恢复删除状态
+		if updateErr := global.APP_DB.Unscoped().Model(&existing).Updates(map[string]interface{}{
+			"value":      valueStr,
+			"deleted_at": nil,
+		}).Error; updateErr != nil {
+			global.APP_LOG.Error("设置活跃密钥版本失败",
+				zap.Int("version", version),
+				zap.String("error", utils.TruncateString(updateErr.Error(), 200)))
+			return updateErr
+		}
 	}
 
-	return err
+	global.APP_LOG.Debug("设置活跃密钥版本成功", zap.Int("version", version))
+	return nil
 }
 
 // getNextKeyVersion 获取下一个密钥版本号
