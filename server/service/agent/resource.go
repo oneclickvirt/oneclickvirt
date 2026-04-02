@@ -46,6 +46,8 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 	}
 	client := GetClient(providerID, endpoint, port, config.AgentToken)
 
+	// Collect all metrics from agent first (HTTP calls without DB)
+	var pendingMetrics []monitoringModel.ResourceMetric
 	for i := range monitors {
 		monitor := &monitors[i]
 
@@ -67,7 +69,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 
 		// Store the latest data point
 		dp := resp.Data[0]
-		metric := monitoringModel.ResourceMetric{
+		pendingMetrics = append(pendingMetrics, monitoringModel.ResourceMetric{
 			InstanceID:  monitor.InstanceID,
 			ProviderID:  monitor.ProviderID,
 			UserID:      monitor.UserID,
@@ -77,21 +79,53 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 			MemoryTotal: dp.MemoryTotal,
 			DiskUsed:    dp.DiskUsed,
 			DiskTotal:   dp.DiskTotal,
-		}
+		})
+	}
 
-		// Avoid duplicate timestamps
-		var count int64
-		s.db.Model(&monitoringModel.ResourceMetric{}).
-			Where("instance_id = ? AND timestamp = ?", monitor.InstanceID, metric.Timestamp).
-			Count(&count)
-		if count > 0 {
-			continue
-		}
+	if len(pendingMetrics) == 0 {
+		return nil
+	}
 
-		if err := s.db.Create(&metric).Error; err != nil {
+	// Batch-check for existing timestamps to avoid duplicates
+	type dupKey struct {
+		InstanceID uint
+		Timestamp  time.Time
+	}
+	existingSet := make(map[dupKey]bool)
+
+	// Build conditions for batch query
+	instanceIDs := make([]uint, 0, len(pendingMetrics))
+	timestamps := make([]time.Time, 0, len(pendingMetrics))
+	for _, m := range pendingMetrics {
+		instanceIDs = append(instanceIDs, m.InstanceID)
+		timestamps = append(timestamps, m.Timestamp)
+	}
+
+	var existingMetrics []struct {
+		InstanceID uint
+		Timestamp  time.Time
+	}
+	s.db.Model(&monitoringModel.ResourceMetric{}).
+		Select("instance_id, timestamp").
+		Where("instance_id IN ? AND timestamp IN ?", instanceIDs, timestamps).
+		Scan(&existingMetrics)
+	for _, em := range existingMetrics {
+		existingSet[dupKey{em.InstanceID, em.Timestamp}] = true
+	}
+
+	// Filter out duplicates and batch create
+	var newMetrics []monitoringModel.ResourceMetric
+	for _, m := range pendingMetrics {
+		if !existingSet[dupKey{m.InstanceID, m.Timestamp}] {
+			newMetrics = append(newMetrics, m)
+		}
+	}
+
+	if len(newMetrics) > 0 {
+		if err := s.db.CreateInBatches(newMetrics, 50).Error; err != nil {
 			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("save resource metric failed",
-					zap.Uint("instance_id", monitor.InstanceID),
+				global.APP_LOG.Warn("batch save resource metrics failed",
+					zap.Int("count", len(newMetrics)),
 					zap.Error(err))
 			}
 		}

@@ -317,27 +317,44 @@ fn find_rule_refs_by_counter(scope: Scope, counter: &str) -> Result<Vec<(String,
 fn remove_rules_by_counter(scope: Scope, counter: &str) -> Result<usize, ApiError> {
     let refs = find_rule_refs_by_counter(scope, counter)?;
     let mut removed = 0usize;
-    for (chain, handle, _) in refs {
+    let mut last_error: Option<String> = None;
+    for (chain, handle, _) in &refs {
         let out = run_nft(&[
             "delete",
             "rule",
             scope.family,
             scope.table,
-            &chain,
+            chain,
             "handle",
             &handle.to_string(),
         ])?;
         if !out.status.success() {
             let stderr = String::from_utf8_lossy(&out.stderr);
-            if !is_not_found(&stderr) {
-                return Err(ApiError::internal(format!(
+            if is_not_found(&stderr) {
+                removed += 1; // already gone
+            } else {
+                warn!(
+                    family = scope.family,
+                    table = scope.table,
+                    chain,
+                    handle,
+                    counter,
+                    stderr = stderr.trim().to_string(),
+                    "failed to delete nft rule, continuing with remaining rules"
+                );
+                last_error = Some(format!(
                     "failed deleting nft rule handle {handle} in chain {chain}: {}",
                     stderr.trim()
-                )));
+                ));
             }
         } else {
             removed += 1;
         }
+    }
+    if removed == 0 && !refs.is_empty() {
+        return Err(ApiError::internal(
+            last_error.unwrap_or_else(|| "all rule deletions failed".to_string()),
+        ));
     }
     Ok(removed)
 }

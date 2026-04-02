@@ -189,4 +189,33 @@ Provider 配置:
 - `getProviderMonthlyTrafficFromPmacct()` - Provider 月度流量统计
 - `GetUsersTrafficRanking()` - 用户流量排行
 - `CheckUserTrafficLimit()` - 用户流量限制检查
+
+## Agent 流量监控模式
+
+除 PMAcct 外，系统还支持基于 nftables 的 Agent 流量监控模式，这是推荐的监控方式。
+
+### 架构
+
+```
+nftables 计数器 (宿主机)
+  ↓ (每5秒采集, 可配置)
+Agent本地 SQLite (traffic.db)
+  ↓ (管理服务器定期同步)
+MySQL instance_traffic_histories (按小时/月聚合)
+  ↓ (聚合)
+provider_traffic_histories / user_traffic_histories
+```
+
+### Agent 流量采集配置
+
+Agent 的采集间隔可通过管理面板的节点监控配置进行实时修改：
+
+- **流量采集间隔**：默认 5 秒，可通过 `TRAFFIC_COLLECT_INTERVAL` 环境变量配置
+- **资源采集间隔**：默认 30 秒，可通过 `RESOURCE_COLLECT_INTERVAL` 环境变量配置
+
+修改后管理服务器会自动同步 `.env` 配置到远端 Agent 并重启服务。
+
+### 更新行为
+
+当实例网卡变更（重建/重启）时，通过 Agent 的 `update` 接口更新接口信息，**不会重置**之前的流量和资源记录。
 - `CheckProviderTrafficLimit()` - Provider 流量限制检查

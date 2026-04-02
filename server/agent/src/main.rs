@@ -34,6 +34,21 @@ async fn main() {
     info!("loading configuration from environment");
     let api_token = env::var("API_TOKEN").expect("missing API_TOKEN in .env or environment");
 
+    let traffic_collect_interval: u64 = env::var("TRAFFIC_COLLECT_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(5);
+    let resource_collect_interval: u64 = env::var("RESOURCE_COLLECT_INTERVAL")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(30);
+
+    info!(
+        traffic_collect_interval,
+        resource_collect_interval,
+        "collection intervals configured"
+    );
+
     info!("opening sqlite database");
     let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     init_db(&conn).expect("failed to init sqlite tables");
@@ -54,6 +69,8 @@ async fn main() {
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
         api_token,
+        traffic_collect_interval,
+        resource_collect_interval,
     };
 
     start_collector(state.clone());

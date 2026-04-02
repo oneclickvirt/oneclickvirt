@@ -1,109 +1,117 @@
 # oneclickvirt-agent
 
-A lightweight monitoring agent for virtual machine and container instances. It uses nftables named counters to track per-instance network traffic (excluding private/special-use IP ranges) and collects resource usage (CPU, memory, disk) from various providers.
+轻量级虚拟机/容器实例监控代理。使用 nftables 命名计数器追踪每个实例的网络流量（排除私有/特殊用途 IP 地址段），并采集各类虚拟化提供商的资源使用情况（CPU、内存、磁盘）。
 
-The agent runs on each provider host and exposes an HTTP API for the central management server to manage monitors, query traffic data, and retrieve resource metrics.
+代理运行在每个 Provider 宿主机上，通过 HTTP API 供中心管理服务器管理监控器、查询流量数据和获取资源指标。
 
-## Requirements
+## 系统要求
 
-- Linux with nftables (`nft` command available)
-- Kernel >= 3.14 for full nftables support
-- Root privileges (required for nftables manipulation)
-- Rust 1.75+ for compilation
+- Linux 系统，已安装 nftables（`nft` 命令可用）
+- 内核版本 >= 3.14（完整支持 nftables）
+- Root 权限（nftables 操作需要）
+- Rust 1.75+（编译需要）
 
-## Configuration
+## 配置说明
 
-Configuration is done via environment variables or a `.env` file in the working directory.
+通过环境变量或工作目录下的 `.env` 文件进行配置。
 
-| Variable | Required | Description |
+| 变量名 | 必填 | 说明 |
 |---|---|---|
-| `API_TOKEN` | Yes | Authentication token. All API requests must include this value in the `x-token` header. |
-| `EXTRA_EXCLUDE_CIDRS_V4` | No | Comma-separated additional IPv4 CIDRs to exclude from traffic counting. |
-| `EXTRA_EXCLUDE_CIDRS_V6` | No | Comma-separated additional IPv6 CIDRs to exclude from traffic counting. |
-| `RUST_LOG` | No | Log level filter (default: `info`). Examples: `debug`, `warn`, `oneclickvirt_agent=debug`. |
+| `API_TOKEN` | 是 | 认证令牌。所有 API 请求必须在 `x-token` 请求头中包含此值。 |
+| `TRAFFIC_COLLECT_INTERVAL` | 否 | 流量采集间隔，单位秒（默认：`5`）。 |
+| `RESOURCE_COLLECT_INTERVAL` | 否 | 资源采集间隔，单位秒（默认：`30`）。 |
+| `EXTRA_EXCLUDE_CIDRS_V4` | 否 | 逗号分隔的额外排除 IPv4 CIDR 列表（不计入流量统计）。 |
+| `EXTRA_EXCLUDE_CIDRS_V6` | 否 | 逗号分隔的额外排除 IPv6 CIDR 列表（不计入流量统计）。 |
+| `RUST_LOG` | 否 | 日志级别过滤器（默认：`info`）。示例：`debug`、`warn`、`oneclickvirt_agent=debug`。 |
 
-## Building
+## 编译构建
 
 ```bash
 cargo build --release
 ```
 
-The binary is output to `target/release/oneclickvirt-agent`.
+输出二进制文件位于 `target/release/oneclickvirt-agent`。
 
-Cross-compilation for Linux targets:
+交叉编译 Linux 目标：
 
 ```bash
 # amd64
-cross build --release --target x86_64-unknown-linux-musl
+cargo build --release --target x86_64-unknown-linux-musl
 
-# arm64
-cross build --release --target aarch64-unknown-linux-musl
+# arm64（需要 musl 交叉编译工具链）
+CC_aarch64_unknown_linux_musl=aarch64-linux-musl-gcc \
+CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=aarch64-linux-musl-gcc \
+cargo build --release --target aarch64-unknown-linux-musl
 ```
 
-## Running
+## 运行
 
 ```bash
 API_TOKEN=your-secret-token ./oneclickvirt-agent
 ```
 
-The agent starts an HTTP server on `0.0.0.0:23782`.
+代理将在 `0.0.0.0:23782` 启动 HTTP 服务。
 
-A Swagger UI is available at `http://<host>:23782/swagger-ui/` for interactive API exploration (no authentication required for the Swagger UI endpoint).
+Swagger UI 可通过 `http://<host>:23782/swagger-ui/` 访问，用于交互式 API 探索（Swagger UI 端点无需认证）。
 
-## Data Storage
+## 数据存储
 
-Traffic data and resource metrics are stored in a SQLite database file `traffic.db` in the working directory.
+流量数据和资源指标存储在工作目录下的 SQLite 数据库文件 `traffic.db` 中。
 
-- Traffic counters are accumulated indefinitely (until the monitor is deleted or cleaned up).
-- Resource metrics (CPU, memory, disk) are retained for 24 hours and automatically purged.
-- Stale monitors not updated within 30 days are automatically cleaned up.
+- 流量计数器无限累积（直到监控器被删除或清理）。
+- 资源指标（CPU、内存、磁盘）保留 24 小时，自动清理过期数据。
+- 超过 30 天未更新的过期监控器会被自动清理。
 
-## Traffic Monitoring Architecture
+## 流量监控架构
 
-The agent uses two nftables scopes to capture traffic:
+代理使用两个 nftables 作用域捕获流量：
 
-- **inet** family (table `vm_traffic_monitor`, chain `forward`) -- routed L3 traffic
-- **bridge** family (table `vm_traffic_monitor_br`, chain `forward`) -- bridged L2 traffic
+- **inet** 族（表 `vm_traffic_monitor`，链 `forward`）—— 路由层 L3 流量
+- **bridge** 族（表 `vm_traffic_monitor_br`，链 `forward`）—— 桥接层 L2 流量
 
-For each monitored interface, rules are created in both scopes to count inbound and outbound IPv4/IPv6 traffic, excluding private and special-use address ranges (RFC1918, RFC6598, loopback, link-local, multicast, etc.).
+对于每个被监控的网络接口，在两个作用域中创建规则来统计入站和出站的 IPv4/IPv6 流量，排除私有和特殊用途地址段（RFC1918、RFC6598、环回地址、链路本地、组播等）。
 
-Traffic counters are read every 2 seconds and accumulated in the SQLite database.
+流量计数器按照配置的间隔读取（默认每 5 秒）并累积到 SQLite 数据库中。
 
-### NIC Change Handling
+### 网卡变更处理
 
-When an instance is rebuilt or restarted with a new network interface:
+当实例重建或使用新网络接口重启时：
 
-1. The management server calls `POST /api/v1/update` with the new interface name(s).
-2. Old nftables rules and counters are removed; new ones are created.
-3. The accumulated `total_bytes` value is preserved (not reset).
-4. If a counter is detected as reset (current < previous), only the current value is added as an increment, preventing negative deltas.
+1. 管理服务器调用 `POST /api/v1/update` 传入新的接口名称。
+2. 旧的 nftables 规则和计数器被移除，创建新的。
+3. 累积的 `total_bytes` 值被保留（不会重置）。
+4. 如果检测到计数器被重置（当前值 < 上次值），仅将当前值作为增量添加，防止产生负数差值。
 
-### Interface Aliases
+### 接口别名
 
-If an interface has a master bridge (detected via `/sys/class/net/<interface>/master`), rules are created for both the interface name and its bridge master name.
+如果某个接口有主桥接（通过 `/sys/class/net/<interface>/master` 检测），会同时为接口名和其桥接主设备名创建规则。
 
-## Resource Monitoring
+## 资源监控
 
-When a monitor is created with `provider_kind` and `instance_name` fields, the agent collects CPU, memory, and disk usage every 5 minutes using provider-specific methods:
+当创建监控器时指定了 `provider_kind` 和 `instance_name` 字段，代理将按照配置的间隔（默认每 30 秒）采集 CPU、内存和磁盘使用情况。使用的采集方式取决于虚拟化提供商类型：
 
-| Provider | Method |
+| 提供商 | 采集方式 |
 |---|---|
 | Docker | `docker stats --no-stream` + `docker inspect` |
 | Podman | `podman stats --no-stream` + `podman inspect` |
-| Containerd | `nerdctl stats` with cgroup v2 fallback |
+| Containerd | `nerdctl stats` + cgroup v2 回退方案 |
 | LXD | `lxc info` + `lxc config show` + `lxc config device show` |
 | Incus | `incus info` + `incus config show` + `incus config device show` |
 | Proxmox VE | `pvesh get /nodes/<node>/lxc\|qemu/<vmid>/status/current` |
 
-## API Reference
+### 资源更新行为
 
-All endpoints except `/swagger-ui/` require the `x-token` header for authentication.
+和流量统计一样，当通过 `update` 接口更新监控器的网卡/实例信息时，**不会重置**之前已采集的资源历史记录。资源指标以 `monitor_id` 为关联键，monitor_id 在 update 操作中保持不变。
+
+## API 参考
+
+除 `/swagger-ui/` 外，所有端点都需要 `x-token` 请求头进行认证。
 
 ### POST /api/v1/add
 
-Create a new traffic monitor for one or more network interfaces.
+为一个或多个网络接口创建新的流量监控器。
 
-**Request:**
+**请求：**
 ```json
 {
   "interface": "veth1001i0",
@@ -112,7 +120,7 @@ Create a new traffic monitor for one or more network interfaces.
 }
 ```
 
-The `interface` field accepts a single string or an array of strings for multi-NIC monitoring:
+`interface` 字段接受单个字符串或字符串数组（用于多网卡监控）：
 ```json
 {
   "interface": ["veth1001i0", "veth1001i1"],
@@ -121,9 +129,9 @@ The `interface` field accepts a single string or an array of strings for multi-N
 }
 ```
 
-The `provider_kind` and `instance_name` fields are optional. When provided, the agent collects resource metrics for the instance.
+`provider_kind` 和 `instance_name` 字段为可选。提供后代理会为该实例采集资源指标。
 
-**Response:**
+**响应：**
 ```json
 {
   "id": 1,
@@ -133,9 +141,9 @@ The `provider_kind` and `instance_name` fields are optional. When provided, the 
 
 ### POST /api/v1/update
 
-Replace the monitored interfaces for an existing monitor. Accumulated traffic is preserved.
+替换已有监控器的监控接口。累积的流量和资源历史不会被重置。
 
-**Request:**
+**请求：**
 ```json
 {
   "id": 1,
@@ -145,7 +153,7 @@ Replace the monitored interfaces for an existing monitor. Accumulated traffic is
 }
 ```
 
-**Response:**
+**响应：**
 ```json
 {
   "id": 1,
@@ -155,16 +163,16 @@ Replace the monitored interfaces for an existing monitor. Accumulated traffic is
 
 ### POST /api/v1/delete
 
-Delete a monitor and its associated nftables rules.
+删除监控器及其关联的 nftables 规则。
 
-**Request:**
+**请求：**
 ```json
 {
   "id": 1
 }
 ```
 
-**Response:**
+**响应：**
 ```json
 {
   "id": 1,
@@ -174,16 +182,16 @@ Delete a monitor and its associated nftables rules.
 
 ### POST /api/v1/info
 
-Query traffic usage for a monitor. Add `?human=1` query parameter to include human-readable traffic values.
+查询监控器的流量使用情况。添加 `?human=1` 查询参数可同时返回人类可读的流量值。
 
-**Request:**
+**请求：**
 ```json
 {
   "id": 1
 }
 ```
 
-**Response:**
+**响应：**
 ```json
 {
   "id": 1,
@@ -196,9 +204,9 @@ Query traffic usage for a monitor. Add `?human=1` query parameter to include hum
 
 ### POST /api/v1/resources
 
-Query resource monitoring history for a monitor.
+查询监控器的资源监控历史数据。
 
-**Request:**
+**请求：**
 ```json
 {
   "id": 1,
@@ -206,7 +214,7 @@ Query resource monitoring history for a monitor.
 }
 ```
 
-**Response:**
+**响应：**
 ```json
 {
   "id": 1,
@@ -225,18 +233,18 @@ Query resource monitoring history for a monitor.
 
 ### POST /api/v1/cleanup
 
-Delete monitors that have not been updated within the specified duration.
+删除在指定时间段内未更新的监控器。
 
-**Request:**
+**请求：**
 ```json
 {
   "max_update_time": "7d"
 }
 ```
 
-Duration format supports combinations: `3d12h30m45s`.
+时长格式支持组合：`3d12h30m45s`。
 
-**Response:**
+**响应：**
 ```json
 {
   "deleted": 5,
@@ -244,21 +252,21 @@ Duration format supports combinations: `3d12h30m45s`.
 }
 ```
 
-## Excluded IP Ranges
+## 排除的 IP 地址段
 
-The following address ranges are excluded from traffic counting by default:
+以下地址段默认不计入流量统计：
 
-**IPv4:**
-- 0.0.0.0/8, 10.0.0.0/8, 100.64.0.0/10, 127.0.0.0/8
-- 169.254.0.0/16, 172.16.0.0/12, 192.0.0.0/24, 192.0.2.0/24
-- 192.88.99.0/24, 192.168.0.0/16, 198.18.0.0/15, 198.51.100.0/24
-- 203.0.113.0/24, 224.0.0.0/4, 240.0.0.0/4
+**IPv4：**
+- 0.0.0.0/8、10.0.0.0/8、100.64.0.0/10、127.0.0.0/8
+- 169.254.0.0/16、172.16.0.0/12、192.0.0.0/24、192.0.2.0/24
+- 192.88.99.0/24、192.168.0.0/16、198.18.0.0/15、198.51.100.0/24
+- 203.0.113.0/24、224.0.0.0/4、240.0.0.0/4
 
-**IPv6:**
-- ::/128, ::1/128, fc00::/7, fe80::/10, ff00::/8, 2001:db8::/32
+**IPv6：**
+- ::/128、::1/128、fc00::/7、fe80::/10、ff00::/8、2001:db8::/32
 
-Additional ranges can be added via the `EXTRA_EXCLUDE_CIDRS_V4` and `EXTRA_EXCLUDE_CIDRS_V6` environment variables.
+可通过 `EXTRA_EXCLUDE_CIDRS_V4` 和 `EXTRA_EXCLUDE_CIDRS_V6` 环境变量添加额外的排除地址段。
 
-## License
+## 许可证
 
-Same license as the parent project.
+与父项目使用相同的许可证。

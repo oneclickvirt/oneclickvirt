@@ -19,10 +19,53 @@ const (
 	AgentServiceName = "oneclickvirt-agent"
 )
 
+// AgentConfig holds the configuration parameters for the agent deployment.
+type AgentConfig struct {
+	Token                   string
+	TrafficCollectInterval  int // seconds, default 5
+	ResourceCollectInterval int // seconds, default 30
+	ExtraExcludeCIDRsV4     string
+	ExtraExcludeCIDRsV6     string
+}
+
+func (c *AgentConfig) trafficInterval() int {
+	if c.TrafficCollectInterval <= 0 {
+		return 5
+	}
+	return c.TrafficCollectInterval
+}
+
+func (c *AgentConfig) resourceInterval() int {
+	if c.ResourceCollectInterval <= 0 {
+		return 30
+	}
+	return c.ResourceCollectInterval
+}
+
+func buildEnvFile(cfg *AgentConfig) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("API_TOKEN=%s\n", cfg.Token))
+	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_INTERVAL=%d\n", cfg.trafficInterval()))
+	sb.WriteString(fmt.Sprintf("RESOURCE_COLLECT_INTERVAL=%d\n", cfg.resourceInterval()))
+	sb.WriteString("RUST_LOG=info\n")
+	if cfg.ExtraExcludeCIDRsV4 != "" {
+		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V4=%s\n", cfg.ExtraExcludeCIDRsV4))
+	}
+	if cfg.ExtraExcludeCIDRsV6 != "" {
+		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V6=%s\n", cfg.ExtraExcludeCIDRsV6))
+	}
+	return sb.String()
+}
+
 // DeployAgent deploys the agent binary to a provider host via SSH.
 // It downloads the binary from GitHub releases (with CDN fallback), installs it,
 // and creates a systemd service.
 func DeployAgent(ctx context.Context, providerInstance provider.Provider, token string, version string) error {
+	return DeployAgentWithConfig(ctx, providerInstance, &AgentConfig{Token: token}, version)
+}
+
+// DeployAgentWithConfig deploys the agent binary with full configuration.
+func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, version string) error {
 	arch, err := detectArchitecture(ctx, providerInstance)
 	if err != nil {
 		arch = "amd64"
@@ -32,6 +75,8 @@ func DeployAgent(ctx context.Context, providerInstance provider.Provider, token 
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
 	downloadURL := buildDownloadURL(version, archiveName)
 	cdnURL := buildCDNDownloadURL(version, archiveName)
+
+	envContent := buildEnvFile(cfg)
 
 	commands := []string{
 		fmt.Sprintf("mkdir -p %s", AgentInstallDir),
@@ -45,10 +90,7 @@ func DeployAgent(ctx context.Context, providerInstance provider.Provider, token 
 			AgentInstallDir, binaryName, AgentInstallDir, AgentBinaryName,
 			AgentInstallDir, AgentBinaryName),
 		// Create env file
-		fmt.Sprintf(`cat > %s/.env << 'ENVEOF'
-API_TOKEN=%s
-RUST_LOG=info
-ENVEOF`, AgentInstallDir, token),
+		fmt.Sprintf("cat > %s/.env << 'ENVEOF'\n%sENVEOF", AgentInstallDir, envContent),
 		// Create systemd service
 		fmt.Sprintf(`cat > /etc/systemd/system/%s.service << 'SVCEOF'
 [Unit]
@@ -224,4 +266,28 @@ func buildCDNDownloadURL(version, archiveName string) string {
 			cfg.CDN.BaseEndpoint, version, archiveName)
 	}
 	return buildDownloadURL(version, archiveName)
+}
+
+// SyncAgentConfig updates the agent .env file and restarts the service to apply new config.
+func SyncAgentConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig) error {
+	envContent := buildEnvFile(cfg)
+
+	commands := []string{
+		fmt.Sprintf("cat > %s/.env << 'ENVEOF'\n%sENVEOF", AgentInstallDir, envContent),
+		fmt.Sprintf("systemctl restart %s", AgentServiceName),
+	}
+
+	combined := strings.Join(commands, " && ")
+	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	_, err := providerInstance.ExecuteSSHCommand(syncCtx, combined)
+	if err != nil {
+		return fmt.Errorf("sync agent config failed: %w", err)
+	}
+
+	if global.APP_LOG != nil {
+		global.APP_LOG.Info("agent config synced and restarted",
+			zap.String("provider", providerInstance.GetName()))
+	}
+	return nil
 }

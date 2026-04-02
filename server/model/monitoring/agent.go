@@ -68,10 +68,10 @@ type MonitoringConfig struct {
 	AgentInstalled bool `gorm:"not null;default:false" json:"agent_installed"`
 	// AgentVersion tracks the installed agent version.
 	AgentVersion string `gorm:"size:32" json:"agent_version"`
-	// CollectInterval in seconds (default 60).
-	CollectInterval int `gorm:"not null;default:60" json:"collect_interval"`
-	// ResourceCollectInterval in seconds (default 300 = 5 min).
-	ResourceCollectInterval int `gorm:"not null;default:300" json:"resource_collect_interval"`
+	// CollectInterval in seconds (default 5, agent-side traffic collection).
+	CollectInterval int `gorm:"not null;default:5" json:"collect_interval"`
+	// ResourceCollectInterval in seconds (default 30, agent-side resource collection).
+	ResourceCollectInterval int `gorm:"not null;default:30" json:"resource_collect_interval"`
 	// ExtraExcludeCIDRsV4 comma-separated additional exclude CIDRs.
 	ExtraExcludeCIDRsV4 string `gorm:"type:text" json:"extra_exclude_cidrs_v4"`
 	// ExtraExcludeCIDRsV6 comma-separated additional exclude CIDRs.

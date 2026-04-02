@@ -171,6 +171,18 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 	pmacctService := pmacct.NewServiceWithContext(ctx)
 	pmacctService.SetProviderID(providerID)
 
+	// Pre-fetch all existing monitors for this provider's instances to avoid N+1 queries
+	instIDs := make([]uint, len(instances))
+	for i, inst := range instances {
+		instIDs[i] = inst.ID
+	}
+	var existingMonitors []monitoringModel.PmacctMonitor
+	global.APP_DB.Where("instance_id IN ?", instIDs).Find(&existingMonitors)
+	monitorMap := make(map[uint]*monitoringModel.PmacctMonitor, len(existingMonitors))
+	for i := range existingMonitors {
+		monitorMap[existingMonitors[i].InstanceID] = &existingMonitors[i]
+	}
+
 	// 批量处理实例
 	for i, inst := range instances {
 		progress := (i + 1) * 100 / totalCount
@@ -179,11 +191,10 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 
 		outputBuilder.WriteString(fmt.Sprintf("[%d/%d] 实例: %s (ID: %d)\n", i+1, totalCount, inst.Name, inst.ID))
 
-		// 检查是否已存在监控记录
-		var existingMonitor monitoringModel.PmacctMonitor
-		err := global.APP_DB.Where("instance_id = ?", inst.ID).First(&existingMonitor).Error
+		// 检查是否已存在监控记录（从预加载的map中查找）
+		existingMonitor := monitorMap[inst.ID]
 
-		if err == nil {
+		if existingMonitor != nil {
 			// 已存在监控记录
 			if existingMonitor.IsEnabled {
 				outputBuilder.WriteString("  ✓ 监控已存在且已启用，跳过\n\n")
@@ -195,7 +206,7 @@ func (m *LifecycleManager) BatchEnableMonitoring(ctx context.Context, providerID
 					zap.Uint("instanceID", inst.ID),
 					zap.Uint("oldMonitorID", existingMonitor.ID))
 
-				if err := global.APP_DB.Unscoped().Delete(&existingMonitor).Error; err != nil {
+				if err := global.APP_DB.Unscoped().Delete(existingMonitor).Error; err != nil {
 					outputBuilder.WriteString(fmt.Sprintf("  ✗ 删除旧监控记录失败: %v\n\n", err))
 					failedCount++
 					global.APP_LOG.Warn("删除旧监控记录失败",
@@ -309,19 +320,33 @@ func (m *LifecycleManager) BatchDisableMonitoring(ctx context.Context, providerI
 	pmacctService := pmacct.NewServiceWithContext(ctx)
 	pmacctService.SetProviderID(providerID)
 
+	// Pre-fetch all instance names to avoid N+1 queries inside loop
+	disableInstIDs := make([]uint, len(monitorRecords))
+	for i, record := range monitorRecords {
+		disableInstIDs[i] = record.InstanceID
+	}
+	var instNameRows []struct {
+		ID   uint
+		Name string
+	}
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Unscoped().
+		Select("id, name").
+		Where("id IN ?", disableInstIDs).
+		Scan(&instNameRows)
+	instNameMap := make(map[uint]string, len(instNameRows))
+	for _, row := range instNameRows {
+		instNameMap[row.ID] = row.Name
+	}
+
 	// 批量处理监控记录
 	for i, record := range monitorRecords {
 		progress := (i + 1) * 100 / totalCount
 		message := fmt.Sprintf("正在处理监控记录 %d/%d", i+1, totalCount)
 		m.updateTaskProgress(taskID, progress, message)
 
-		// 获取实例名称（可能已删除）
-		var instanceName string
-		global.APP_DB.Model(&providerModel.Instance{}).
-			Unscoped().
-			Select("name").
-			Where("id = ?", record.InstanceID).
-			Scan(&instanceName)
+		// 从预加载的map中获取实例名称
+		instanceName := instNameMap[record.InstanceID]
 		if instanceName == "" {
 			instanceName = fmt.Sprintf("未知实例 (ID: %d)", record.InstanceID)
 		}

@@ -44,6 +44,7 @@ type UpdateMonitoringConfigRequest struct {
 }
 
 // UpdateMonitoringConfig updates the monitoring configuration for a provider.
+// If the agent is installed, it also syncs the config to the remote agent and restarts it.
 func UpdateMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("providerId")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -85,7 +86,35 @@ func UpdateMonitoringConfig(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: config})
+	// If agent is installed, sync the config to the remote agent
+	syncMsg := ""
+	if config.AgentInstalled && config.MonitoringMode == "agent" {
+		providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
+		if err == nil {
+			agentCfg := &agentService.AgentConfig{
+				Token:                   config.AgentToken,
+				TrafficCollectInterval:  config.CollectInterval,
+				ResourceCollectInterval: config.ResourceCollectInterval,
+				ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
+				ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
+			}
+			ctx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+			defer cancel()
+			if syncErr := agentService.SyncAgentConfig(ctx, providerInstance, agentCfg); syncErr != nil {
+				syncMsg = "配置已保存，但同步到Agent失败: " + syncErr.Error()
+			} else {
+				syncMsg = "配置已保存并同步到Agent"
+			}
+		} else {
+			syncMsg = "配置已保存，但Provider未连接无法同步到Agent"
+		}
+	}
+
+	msg := "success"
+	if syncMsg != "" {
+		msg = syncMsg
+	}
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: msg, Data: config})
 }
 
 // DeployAgentRequest is the request body for deploying the agent.
@@ -144,11 +173,18 @@ func DeployAgent(c *gin.Context) {
 		return
 	}
 
-	// Deploy agent
+	// Deploy agent with full config
 	deployCtx, deployCancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
 	defer deployCancel()
 
-	if err := agentService.DeployAgent(deployCtx, providerInstance, config.AgentToken, req.Version); err != nil {
+	agentCfg := &agentService.AgentConfig{
+		Token:                   config.AgentToken,
+		TrafficCollectInterval:  config.CollectInterval,
+		ResourceCollectInterval: config.ResourceCollectInterval,
+		ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
+		ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
+	}
+	if err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "部署Agent失败: " + err.Error()})
 		return
 	}

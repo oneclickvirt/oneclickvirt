@@ -142,6 +142,19 @@ fn collect_resources(conn: &Connection) -> Result<(), ApiError> {
 }
 
 pub fn start_collector(state: AppState) {
+    let traffic_interval = state.traffic_collect_interval.max(1);
+    let resource_interval = state.resource_collect_interval.max(10);
+
+    // Calculate how many traffic ticks equal one resource collection cycle
+    let resource_ticks = (resource_interval / traffic_interval).max(1);
+
+    info!(
+        traffic_interval_secs = traffic_interval,
+        resource_interval_secs = resource_interval,
+        resource_ticks,
+        "collector started"
+    );
+
     tokio::spawn(async move {
         let mut ticks: u64 = 0;
         loop {
@@ -151,8 +164,8 @@ pub fn start_collector(state: AppState) {
                 if let Err(err) = collect_once(&conn) {
                     error!(error = %err.message, "collector iteration failed");
                 }
-                // Collect resource metrics every 150 ticks (5 minutes at 2s interval)
-                if ticks % 150 == 0 {
+                // Collect resource metrics at configured interval
+                if ticks % resource_ticks == 0 {
                     if let Err(err) = collect_resources(&conn) {
                         error!(error = %err.message, "resource collection failed");
                     }
@@ -187,7 +200,7 @@ pub fn start_collector(state: AppState) {
                     }
                 }
             }
-            tokio::time::sleep(Duration::from_secs(2)).await;
+            tokio::time::sleep(Duration::from_secs(traffic_interval)).await;
         }
     });
 }

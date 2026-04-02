@@ -6,4 +6,8 @@ use tokio::sync::Mutex;
 pub struct AppState {
     pub conn: Arc<Mutex<Connection>>,
     pub api_token: String,
+    /// Traffic collection interval in seconds (default: 5)
+    pub traffic_collect_interval: u64,
+    /// Resource collection interval in seconds (default: 30)
+    pub resource_collect_interval: u64,
 }

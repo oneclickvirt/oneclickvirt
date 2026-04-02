@@ -31,10 +31,10 @@
                 {{ config.agentPort || 23782 }}
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.collectInterval')">
-                {{ config.collectInterval || 60 }}s
+                {{ config.collectInterval || 5 }}s
               </el-descriptions-item>
               <el-descriptions-item :label="$t('admin.providers.resourceCollectInterval')">
-                {{ config.resourceCollectInterval || 300 }}s
+                {{ config.resourceCollectInterval || 30 }}s
               </el-descriptions-item>
             </el-descriptions>
 
@@ -85,12 +85,14 @@
                   <el-input-number v-model="editConfig.agentPort" :min="1024" :max="65535" />
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.collectInterval')">
-                  <el-input-number v-model="editConfig.collectInterval" :min="10" :max="300" />
+                  <el-input-number v-model="editConfig.collectInterval" :min="1" :max="300" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
+                  <el-text type="info" size="small" style="margin-left: 8px;">Agent端流量采集间隔，默认5秒</el-text>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.resourceCollectInterval')">
-                  <el-input-number v-model="editConfig.resourceCollectInterval" :min="60" :max="3600" />
+                  <el-input-number v-model="editConfig.resourceCollectInterval" :min="10" :max="3600" />
                   <span style="margin-left: 8px; color: #909399;">s</span>
+                  <el-text type="info" size="small" style="margin-left: 8px;">Agent端资源采集间隔，默认30秒</el-text>
                 </el-form-item>
                 <el-form-item :label="$t('admin.providers.extraExcludeCIDRs')">
                   <el-input
@@ -373,16 +375,16 @@ const config = reactive({
   agentPort: 23782,
   agentInstalled: false,
   agentVersion: '',
-  collectInterval: 60,
-  resourceCollectInterval: 300,
+  collectInterval: 5,
+  resourceCollectInterval: 30,
   extraExcludeCidrs: ''
 })
 
 const editConfig = reactive({
   monitoringMode: 'agent',
   agentPort: 23782,
-  collectInterval: 60,
-  resourceCollectInterval: 300,
+  collectInterval: 5,
+  resourceCollectInterval: 30,
   extraExcludeCidrs: ''
 })
 

@@ -777,8 +777,8 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 			for _, cfg := range configs {
 				// Check collection interval
 				interval := time.Duration(cfg.CollectInterval) * time.Second
-				if interval < 30*time.Second {
-					interval = 60 * time.Second
+				if interval < 5*time.Second {
+					interval = 5 * time.Second
 				}
 
 				last, ok := lastAgentCollect[cfg.ProviderID]
@@ -872,8 +872,8 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 			now := time.Now()
 			for _, cfg := range configs {
 				interval := time.Duration(cfg.ResourceCollectInterval) * time.Second
-				if interval < 60*time.Second {
-					interval = 300 * time.Second
+				if interval < 10*time.Second {
+					interval = 30 * time.Second
 				}
 
 				last, ok := lastResourceCollect[cfg.ProviderID]

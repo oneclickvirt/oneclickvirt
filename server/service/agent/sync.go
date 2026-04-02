@@ -88,76 +88,87 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		multiplier = 1.0
 	}
 
-	// Process each monitor
-	for agentID, info := range infoMap {
-		monitor := monitorByAgentID[agentID]
-		if monitor == nil {
-			continue
-		}
+	// Process each monitor within a single transaction to reduce commit overhead
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		txSync := &SyncService{db: tx, ctx: s.ctx}
+		for agentID, info := range infoMap {
+			monitor := monitorByAgentID[agentID]
+			if monitor == nil {
+				continue
+			}
 
-		currentTraffic := info.UsedTraffic
+			currentTraffic := info.UsedTraffic
 
-		// Compute delta since last sync
-		var deltaBytes uint64
-		if currentTraffic >= monitor.LastTrafficBytes {
-			deltaBytes = currentTraffic - monitor.LastTrafficBytes
-		} else {
-			// Agent may have been reset or data loss, use current as delta
-			deltaBytes = currentTraffic
-		}
+			// Compute delta since last sync
+			var deltaBytes uint64
+			if currentTraffic >= monitor.LastTrafficBytes {
+				deltaBytes = currentTraffic - monitor.LastTrafficBytes
+			} else {
+				// Agent may have been reset or data loss, use current as delta
+				deltaBytes = currentTraffic
+			}
 
-		if deltaBytes == 0 {
-			// Still update sync time
-			s.db.Model(monitor).Updates(map[string]interface{}{
-				"last_sync_at": now,
+			if deltaBytes == 0 {
+				// Still update sync time
+				tx.Model(monitor).Updates(map[string]interface{}{
+					"last_sync_at": now,
+				})
+				continue
+			}
+
+			// Convert bytes to MB
+			// Since agent reports total (rx+tx combined), we split evenly for now
+			// TODO: modify agent to report rx/tx separately for proper count mode support
+			totalMB := float64(deltaBytes) * multiplier / 1048576.0
+			var rxMB, txMB float64
+			switch countMode {
+			case "out":
+				txMB = totalMB
+			case "in":
+				rxMB = totalMB
+			default: // "both"
+				rxMB = totalMB / 2
+				txMB = totalMB / 2
+			}
+
+			// Update instance traffic history (hourly)
+			if err := txSync.upsertInstanceTrafficHistory(
+				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
+				rxMB, txMB, year, month, day, hour, now,
+			); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("upsert instance traffic history failed",
+						zap.Uint("instance_id", monitor.InstanceID),
+						zap.Error(err))
+				}
+			}
+
+			// Update instance monthly total (day=0, hour=0)
+			if err := txSync.upsertInstanceMonthlyTraffic(
+				monitor.InstanceID, monitor.ProviderID, monitor.UserID,
+				year, month, now,
+			); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("upsert instance monthly traffic failed",
+						zap.Uint("instance_id", monitor.InstanceID),
+						zap.Error(err))
+				}
+			}
+
+			// Update agent monitor tracking
+			tx.Model(monitor).Updates(map[string]interface{}{
+				"last_traffic_bytes": currentTraffic,
+				"last_sync_at":       now,
 			})
-			continue
 		}
-
-		// Convert bytes to MB
-		// Since agent reports total (rx+tx combined), we split evenly for now
-		// TODO: modify agent to report rx/tx separately for proper count mode support
-		totalMB := float64(deltaBytes) * multiplier / 1048576.0
-		var rxMB, txMB float64
-		switch countMode {
-		case "out":
-			txMB = totalMB
-		case "in":
-			rxMB = totalMB
-		default: // "both"
-			rxMB = totalMB / 2
-			txMB = totalMB / 2
+		return nil
+	})
+	if txErr != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Error("traffic sync transaction failed",
+				zap.Uint("provider_id", providerID),
+				zap.Error(txErr))
 		}
-
-		// Update instance traffic history (hourly)
-		if err := s.upsertInstanceTrafficHistory(
-			monitor.InstanceID, monitor.ProviderID, monitor.UserID,
-			rxMB, txMB, year, month, day, hour, now,
-		); err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("upsert instance traffic history failed",
-					zap.Uint("instance_id", monitor.InstanceID),
-					zap.Error(err))
-			}
-		}
-
-		// Update instance monthly total (day=0, hour=0)
-		if err := s.upsertInstanceMonthlyTraffic(
-			monitor.InstanceID, monitor.ProviderID, monitor.UserID,
-			year, month, now,
-		); err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("upsert instance monthly traffic failed",
-					zap.Uint("instance_id", monitor.InstanceID),
-					zap.Error(err))
-			}
-		}
-
-		// Update agent monitor tracking
-		s.db.Model(monitor).Updates(map[string]interface{}{
-			"last_traffic_bytes": currentTraffic,
-			"last_sync_at":       now,
-		})
 	}
 
 	// Aggregate provider and user traffic
@@ -453,8 +464,8 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 			ProviderID:              providerID,
 			MonitoringMode:          "agent",
 			AgentPort:               AgentPort,
-			CollectInterval:         60,
-			ResourceCollectInterval: 300,
+			CollectInterval:         5,
+			ResourceCollectInterval: 30,
 		}
 		if err := db.Create(&config).Error; err != nil {
 			return nil, err
