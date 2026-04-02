@@ -8,6 +8,8 @@ pub struct AddRequest {
     pub provider_kind: Option<String>,
     /// Instance name on the provider host (container/VM name or VMID for proxmox)
     pub instance_name: Option<String>,
+    /// Inner IP address of the instance (e.g. 172.17.0.3) for per-IP traffic filtering
+    pub inner_ip: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -16,6 +18,8 @@ pub struct UpdateRequest {
     pub new_interface: InterfaceInput,
     pub provider_kind: Option<String>,
     pub instance_name: Option<String>,
+    /// Inner IP address of the instance for per-IP traffic filtering
+    pub inner_ip: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]

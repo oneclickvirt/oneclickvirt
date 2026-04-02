@@ -15,6 +15,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider/incus"
 	lxd "oneclickvirt/provider/lxd"
+	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
 	providerService "oneclickvirt/service/provider"
@@ -414,7 +415,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 					zap.Any("panic", r))
 				stateManager := s.taskService.GetStateManager()
 				if stateManager != nil {
-					_ = stateManager.CompleteMainTask(taskID, true, "兑换码实例创建成功，但部分后处理任务失败", nil)
+					_ = stateManager.CompleteMainTask(taskID, false, "兑换码实例创建成功，但后处理任务发生严重错误", nil)
 				}
 			}
 		}()
@@ -475,6 +476,13 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 					zap.Uint("providerId", providerID))
 			}
 		}
+
+		s.updateTaskProgress(taskID, 90, "正在配置Agent监控...")
+
+		// Agent监控：注册Agent监控以记录网络接口（与 finalizeInstanceCreation 保持一致）
+		agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
+		agentCancel()
 
 		s.updateTaskProgress(taskID, 98, "正在启动流量同步...")
 

@@ -4,6 +4,7 @@ import { ElMessage } from 'element-plus'
 import {
   autoConfigureProvider,
   getConfigurationTaskDetail,
+  getConfigurationTasks,
   trafficMonitorOperation,
   getTrafficMonitorTasks,
   getTrafficMonitorTaskDetail
@@ -21,7 +22,8 @@ export function useProviderDialogs(loadProviders) {
     provider: null,
     showHistory: false,
     runningTask: null,
-    historyTasks: []
+    historyTasks: [],
+    pagination: { page: 1, pageSize: 10, total: 0 }
   })
 
   // 任务日志对话框状态
@@ -110,6 +112,8 @@ export function useProviderDialogs(loadProviders) {
       configDialog.provider = provider
       configDialog.runningTask = result.runningTask
       configDialog.historyTasks = result.historyTasks || []
+      configDialog.pagination.total = configDialog.historyTasks.length
+      configDialog.pagination.page = 1
       configDialog.showHistory = true
       configDialog.visible = true
       if (result.runningTask) {
@@ -165,6 +169,33 @@ export function useProviderDialogs(loadProviders) {
     if (configDialog.runningTask) {
       viewTaskLog(configDialog.runningTask.id)
     }
+  }
+
+  const loadConfigHistory = async (provider, page, pageSize) => {
+    try {
+      const res = await getConfigurationTasks({
+        providerId: provider.id,
+        page: page || configDialog.pagination.page,
+        pageSize: pageSize || configDialog.pagination.pageSize
+      })
+      if (res.code === 0 || res.code === 200) {
+        configDialog.historyTasks = res.data?.list || res.data || []
+        configDialog.pagination.total = res.data?.total || configDialog.historyTasks.length
+      }
+    } catch (e) {
+      console.error('加载配置历史失败:', e)
+    }
+  }
+
+  const handleConfigPageChange = (page) => {
+    configDialog.pagination.page = page
+    if (configDialog.provider) loadConfigHistory(configDialog.provider)
+  }
+
+  const handleConfigPageSizeChange = (size) => {
+    configDialog.pagination.pageSize = size
+    configDialog.pagination.page = 1
+    if (configDialog.provider) loadConfigHistory(configDialog.provider)
   }
 
   // ── 流量监控对话框 ────────────────────────────────────
@@ -334,6 +365,8 @@ export function useProviderDialogs(loadProviders) {
     startNewConfiguration,
     rerunConfiguration,
     viewRunningTask,
+    handleConfigPageChange,
+    handleConfigPageSizeChange,
     handleEnableTrafficMonitor,
     loadTrafficMonitorHistory,
     openTrafficMonitorDialog,

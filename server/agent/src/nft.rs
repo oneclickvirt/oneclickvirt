@@ -60,15 +60,10 @@ const SCOPE_INET: Scope = Scope {
     tag: "inet",
 };
 
-const SCOPE_BRIDGE: Scope = Scope {
-    family: "bridge",
-    table: "vm_traffic_monitor_br",
-    chain: "forward",
-    hook: "forward",
-    tag: "bridge",
-};
-
-const SCOPES: [Scope; 2] = [SCOPE_INET, SCOPE_BRIDGE];
+/// Only use inet scope. Bridge scope sees the same packets as inet forward,
+/// causing double-counting. A single inet forward chain is sufficient for all
+/// container/VM traffic monitoring.
+const SCOPES: [Scope; 1] = [SCOPE_INET];
 
 fn parse_env_cidrs(var_name: &str) -> Vec<String> {
     env::var(var_name)
@@ -211,10 +206,17 @@ fn interface_aliases(interface: &str) -> Vec<String> {
     aliases
 }
 
-fn expected_rule_count(scope: Scope, alias_count: usize) -> usize {
+fn expected_rule_count(scope: Scope, alias_count: usize, has_inner_ip: bool) -> usize {
     match scope.tag {
-        "inet" => alias_count * 4,
-        "bridge" => alias_count * 4,
+        "inet" => {
+            if has_inner_ip {
+                // Per-IP: 2 rules per alias (inbound + outbound for one address family)
+                alias_count * 2
+            } else {
+                // Fallback: 4 rules per alias (IPv4 in/out + IPv6 in/out)
+                alias_count * 4
+            }
+        }
         _ => 0,
     }
 }
@@ -380,7 +382,7 @@ fn remove_counter_by_name(scope: Scope, counter: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str) -> Result<(), ApiError> {
+fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str, inner_ip: Option<&str>) -> Result<(), ApiError> {
     let aliases = interface_aliases(interface);
     if aliases.is_empty() {
         return Err(ApiError::internal("interface aliases cannot be empty"));
@@ -390,87 +392,57 @@ fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str) -> Result
     let private_v4_set = nft_set_literal(exclude_v4());
     let private_v6_set = nft_set_literal(exclude_v6());
     let mut script = String::new();
+
+    // Determine if inner_ip is IPv4 or IPv6
+    let is_ipv6 = inner_ip.map(|ip| ip.contains(':')).unwrap_or(false);
+
     for name in aliases {
         let iface = escape_quoted(&name);
-        if scope.tag == "inet" {
-            script.push_str(&format!(
-                "add rule {} {} {} iifname \"{}\" ip daddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} oifname \"{}\" ip saddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} iifname \"{}\" ip6 daddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} oifname \"{}\" ip6 saddr != {} counter name {} comment \"{}\"\n",
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v4_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v4_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v6_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v6_set,
-                counter,
-                comment
-            ));
-        } else {
-            script.push_str(&format!(
-                "add rule {} {} {} iifname \"{}\" ether type ip ip daddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} oifname \"{}\" ether type ip ip saddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} iifname \"{}\" ether type ip6 ip6 daddr != {} counter name {} comment \"{}\"\n\
-                 add rule {} {} {} oifname \"{}\" ether type ip6 ip6 saddr != {} counter name {} comment \"{}\"\n",
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v4_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v4_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v6_set,
-                counter,
-                comment,
-                scope.family,
-                scope.table,
-                scope.chain,
-                iface,
-                private_v6_set,
-                counter,
-                comment
-            ));
+        match inner_ip {
+            Some(ip) if !is_ipv6 => {
+                // Per-IP filtering for IPv4 inner_ip:
+                // Count traffic where inner_ip is source going to non-private destinations (outbound)
+                // Count traffic where inner_ip is destination coming from non-private sources (inbound)
+                script.push_str(&format!(
+                    "add rule {} {} {} iifname \"{}\" ip saddr != {} ip daddr {} counter name {} comment \"{}\"\n\
+                     add rule {} {} {} oifname \"{}\" ip saddr {} ip daddr != {} counter name {} comment \"{}\"\n",
+                    // Inbound: traffic arriving at the interface destined for inner_ip, from non-private sources
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, ip, counter, comment,
+                    // Outbound: traffic leaving the interface from inner_ip, to non-private destinations
+                    scope.family, scope.table, scope.chain, iface, ip, private_v4_set, counter, comment,
+                ));
+            }
+            Some(ip) => {
+                // Per-IP filtering for IPv6 inner_ip
+                script.push_str(&format!(
+                    "add rule {} {} {} iifname \"{}\" ip6 saddr != {} ip6 daddr {} counter name {} comment \"{}\"\n\
+                     add rule {} {} {} oifname \"{}\" ip6 saddr {} ip6 daddr != {} counter name {} comment \"{}\"\n",
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, ip, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, ip, private_v6_set, counter, comment,
+                ));
+            }
+            None => {
+                // No inner_ip: fallback to interface-based counting (exclude private ranges)
+                script.push_str(&format!(
+                    "add rule {} {} {} iifname \"{}\" ip daddr != {} counter name {} comment \"{}\"\n\
+                     add rule {} {} {} oifname \"{}\" ip saddr != {} counter name {} comment \"{}\"\n\
+                     add rule {} {} {} iifname \"{}\" ip6 daddr != {} counter name {} comment \"{}\"\n\
+                     add rule {} {} {} oifname \"{}\" ip6 saddr != {} counter name {} comment \"{}\"\n",
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter, comment,
+                ));
+            }
         }
     }
     run_nft_script(&script)
 }
 
-fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str) -> Result<(), ApiError> {
+fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str, inner_ip: Option<&str>) -> Result<(), ApiError> {
     ensure_base_objects(scope)?;
     let alias_count = interface_aliases(interface).len();
-    let expected_rules = expected_rule_count(scope, alias_count);
+    let expected_rules = expected_rule_count(scope, alias_count, inner_ip.is_some());
     let counter = counter_name(scope, monitor_id, interface);
     let counter_exists = query_counter_bytes(scope, &counter)?.is_some();
     let refs = find_rule_refs_by_counter(scope, &counter)?;
@@ -502,16 +474,16 @@ fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str) -> Re
     }
 
     let _ = remove_rules_by_counter(scope, &counter)?;
-    add_rules_for_counter(scope, &counter, interface)?;
+    add_rules_for_counter(scope, &counter, interface, inner_ip)?;
     Ok(())
 }
 
-pub fn ensure_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> {
+pub fn ensure_counter(monitor_id: i64, interface: &str, inner_ip: Option<&str>) -> Result<(), ApiError> {
     let mut success = 0usize;
     let mut last_error: Option<String> = None;
 
     for scope in SCOPES {
-        match ensure_counter_in_scope(scope, monitor_id, interface) {
+        match ensure_counter_in_scope(scope, monitor_id, interface, inner_ip) {
             Ok(()) => {
                 success += 1;
             }
@@ -673,7 +645,10 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<u64> {
     }
 
     if missing_counter_scopes > 0 {
-        if let Err(err) = ensure_counter(monitor_id, interface) {
+        // Note: read_external_bytes cannot reconcile with inner_ip since it doesn't know it.
+        // The bootstrap_from_db function handles initial reconciliation with inner_ip.
+        // If counters are missing at runtime, attempt without inner_ip (will be fixed on next bootstrap).
+        if let Err(err) = ensure_counter(monitor_id, interface, None) {
             warn!(
                 monitor_id,
                 interface,
@@ -738,17 +713,17 @@ pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     }
 
     let mut stmt = conn
-        .prepare("SELECT monitor_id, interface FROM interface_states")
+        .prepare("SELECT s.monitor_id, s.interface, m.inner_ip FROM interface_states s LEFT JOIN monitors m ON s.monitor_id = m.id")
         .map_err(|e| ApiError::internal(format!("prepare bootstrap query error: {e}")))?;
     let rows = stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?)))
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, Option<String>>(2)?)))
         .map_err(|e| ApiError::internal(format!("bootstrap query error: {e}")))?;
 
     let mut count = 0usize;
     for row in rows {
-        let (monitor_id, interface) =
+        let (monitor_id, interface, inner_ip) =
             row.map_err(|e| ApiError::internal(format!("bootstrap row error: {e}")))?;
-        if let Err(err) = ensure_counter(monitor_id, &interface) {
+        if let Err(err) = ensure_counter(monitor_id, &interface, inner_ip.as_deref()) {
             warn!(
                 monitor_id,
                 interface,

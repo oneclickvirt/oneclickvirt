@@ -143,16 +143,31 @@ pub async fn add_monitor(
         .map_err(|e| ApiError::internal(format!("serialize interfaces error: {e}")))?;
     let now = now_ts();
 
+    // Validate inner_ip if provided
+    let inner_ip = payload.inner_ip.as_deref().and_then(|ip| {
+        let trimmed = ip.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            // Basic IP validation
+            if trimmed.parse::<std::net::IpAddr>().is_ok() {
+                Some(trimmed.to_owned())
+            } else {
+                None
+            }
+        }
+    });
+
     let conn = state.conn.lock().await;
     conn.execute(
-        "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, updated_at) VALUES (?1, 0, ?2, ?3, ?4)",
-        params![interfaces_json, payload.provider_kind, payload.instance_name, now],
+        "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, inner_ip, updated_at) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
+        params![interfaces_json, payload.provider_kind, payload.instance_name, inner_ip, now],
     )
     .map_err(|e| ApiError::internal(format!("insert monitor error: {e}")))?;
     let id = conn.last_insert_rowid();
 
     for interface in &interfaces {
-        ensure_counter(id, interface)?;
+        ensure_counter(id, interface, inner_ip.as_deref())?;
         let base_counter = read_external_bytes(id, interface).unwrap_or(0);
         conn.execute(
             "INSERT INTO interface_states (monitor_id, interface, last_counter) VALUES (?1, ?2, ?3)",
@@ -161,7 +176,7 @@ pub async fn add_monitor(
         .map_err(|e| ApiError::internal(format!("insert interface state error: {e}")))?;
     }
 
-    info!(id, interfaces = ?interfaces, "monitor added");
+    info!(id, interfaces = ?interfaces, inner_ip = ?inner_ip, "monitor added");
     Ok(Json(AddResponse {
         id,
         interface: interfaces,
@@ -194,6 +209,20 @@ pub async fn update_monitor(
     let now = now_ts();
     let id = payload.id;
 
+    // Validate inner_ip if provided
+    let inner_ip = payload.inner_ip.as_deref().and_then(|ip| {
+        let trimmed = ip.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            if trimmed.parse::<std::net::IpAddr>().is_ok() {
+                Some(trimmed.to_owned())
+            } else {
+                None
+            }
+        }
+    });
+
     let conn = state.conn.lock().await;
     let exists: Option<i64> = conn
         .query_row("SELECT id FROM monitors WHERE id = ?1", params![id], |row| {
@@ -218,9 +247,18 @@ pub async fn update_monitor(
             .push(row.map_err(|e| ApiError::internal(format!("old interface row error: {e}")))?);
     }
 
+    // Read old inner_ip to detect changes
+    let old_inner_ip: Option<String> = conn
+        .query_row("SELECT inner_ip FROM monitors WHERE id = ?1", params![id], |row| {
+            row.get(0)
+        })
+        .optional()
+        .map_err(|e| ApiError::internal(format!("query old inner_ip error: {e}")))?
+        .flatten();
+
     conn.execute(
-        "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name) WHERE id = ?3",
-        params![interfaces_json, now, id, payload.provider_kind, payload.instance_name],
+        "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name), inner_ip = COALESCE(?6, inner_ip) WHERE id = ?3",
+        params![interfaces_json, now, id, payload.provider_kind, payload.instance_name, inner_ip],
     )
     .map_err(|e| ApiError::internal(format!("update monitor error: {e}")))?;
     conn.execute(
@@ -229,8 +267,11 @@ pub async fn update_monitor(
     )
     .map_err(|e| ApiError::internal(format!("delete old interface states error: {e}")))?;
 
+    // Determine effective inner_ip for counter rules
+    let effective_inner_ip = inner_ip.as_deref().or(old_inner_ip.as_deref());
+
     for interface in &interfaces {
-        ensure_counter(id, interface)?;
+        ensure_counter(id, interface, effective_inner_ip)?;
         let base_counter = read_external_bytes(id, interface).unwrap_or(0);
         conn.execute(
             "INSERT INTO interface_states (monitor_id, interface, last_counter) VALUES (?1, ?2, ?3)",

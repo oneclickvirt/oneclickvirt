@@ -80,10 +80,13 @@
       :show-history="configDialog.showHistory"
       :running-task="configDialog.runningTask"
       :history-tasks="configDialog.historyTasks"
+      :pagination="configDialog.pagination"
       @close="configDialog.visible = false"
       @view-task-log="viewTaskLog"
       @view-running-task="viewRunningTask"
       @rerun-configuration="rerunConfiguration"
+      @page-change="handleConfigPageChange"
+      @page-size-change="handleConfigPageSizeChange"
     />
 
     <!-- 任务日志查看对话框 -->
@@ -153,6 +156,7 @@ const {
   configDialog, taskLogDialog, trafficMonitorDialog,
   viewTaskLog, copyTaskLog, autoConfigureAPI,
   startNewConfiguration, rerunConfiguration, viewRunningTask,
+  handleConfigPageChange, handleConfigPageSizeChange,
   handleEnableTrafficMonitor, loadTrafficMonitorHistory,
   openTrafficMonitorDialog, handleTrafficMonitorPageChange,
   handleTrafficMonitorPageSizeChange, executeTrafficMonitorOperation,

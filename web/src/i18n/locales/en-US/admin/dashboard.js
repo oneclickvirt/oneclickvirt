@@ -10,5 +10,13 @@ export default {
   systemHealth: "System Health",
   recentActivities: "Recent Activities",
   quickStats: "Quick Stats",
-  loadDataFailed: "Failed to load dashboard data"
+  loadDataFailed: "Failed to load dashboard data",
+  resourceOverview: "Resource Overview",
+  cpuCores: "CPU Cores",
+  memory: "Memory",
+  disk: "Disk",
+  used: "Used",
+  total: "Total",
+  runningInstances: "Running Instances",
+  activeProviders: "Active Providers"
 }

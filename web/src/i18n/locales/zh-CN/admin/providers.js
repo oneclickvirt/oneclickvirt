@@ -347,6 +347,7 @@ export default {
   applicationControl: "申请领取控制",
   redeemCodeOnly: "仅兑换码领取",
   redeemCodeOnlyTip: "开启后，用户无法自行选择配置创建实例，只能通过兑换码领取已分配的实例",
+  hardwareMonitoring: "硬件监控",
   autoConfigAPI: "API 自动配置",
   configHistory: "{type} 配置历史",
   configHistoryMessage: "检测到该Provider的配置历史记录，请选择操作：",

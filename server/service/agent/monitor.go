@@ -75,8 +75,14 @@ func (s *MonitorService) RegisterMonitor(
 	providerKind := providerInstance.GetType()
 	instanceName := instance.Name
 
+	// Determine inner IP for per-IP traffic filtering
+	innerIP := instance.PrivateIP
+	if innerIP == "" {
+		innerIP = instance.PublicIP // fallback for dedicated IP setups
+	}
+
 	// Call agent to add monitor
-	resp, err := client.AddMonitor(interfaces, providerKind, instanceName)
+	resp, err := client.AddMonitor(interfaces, providerKind, instanceName, innerIP)
 	if err != nil {
 		return nil, fmt.Errorf("agent add monitor for %s: %w", instance.Name, err)
 	}
@@ -178,7 +184,14 @@ func (s *MonitorService) UpdateMonitorInterfaces(
 	if err != nil {
 		return err
 	}
-	resp, err := client.UpdateMonitor(monitor.AgentMonitorID, interfaces, providerInstance.GetType(), instance.Name)
+
+	// Determine inner IP for per-IP traffic filtering
+	innerIP := instance.PrivateIP
+	if innerIP == "" {
+		innerIP = instance.PublicIP
+	}
+
+	resp, err := client.UpdateMonitor(monitor.AgentMonitorID, interfaces, providerInstance.GetType(), instance.Name, innerIP)
 	if err != nil {
 		return fmt.Errorf("agent update monitor: %w", err)
 	}

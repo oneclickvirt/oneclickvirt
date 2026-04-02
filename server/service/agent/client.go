@@ -57,6 +57,7 @@ type AddRequest struct {
 	Interface    interface{} `json:"interface"` // string or []string
 	ProviderKind string      `json:"provider_kind,omitempty"`
 	InstanceName string      `json:"instance_name,omitempty"`
+	InnerIP      string      `json:"inner_ip,omitempty"`
 }
 
 type AddResponse struct {
@@ -69,6 +70,7 @@ type UpdateRequest struct {
 	NewInterface interface{} `json:"new_interface"` // string or []string
 	ProviderKind string      `json:"provider_kind,omitempty"`
 	InstanceName string      `json:"instance_name,omitempty"`
+	InnerIP      string      `json:"inner_ip,omitempty"`
 }
 
 type UpdateResponse struct {
@@ -191,7 +193,7 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 }
 
 // AddMonitor creates a new monitor on the agent for the given interfaces.
-func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName string) (*AddResponse, error) {
+func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName, innerIP string) (*AddResponse, error) {
 	var iface interface{}
 	if len(interfaces) == 1 {
 		iface = interfaces[0]
@@ -202,6 +204,7 @@ func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName stri
 		Interface:    iface,
 		ProviderKind: providerKind,
 		InstanceName: instanceName,
+		InnerIP:      innerIP,
 	}
 	var resp AddResponse
 	if err := c.doRequest("POST", "/api/v1/add", req, &resp); err != nil {
@@ -211,7 +214,7 @@ func (c *Client) AddMonitor(interfaces []string, providerKind, instanceName stri
 }
 
 // UpdateMonitor updates the interfaces for an existing monitor.
-func (c *Client) UpdateMonitor(id int64, interfaces []string, providerKind, instanceName string) (*UpdateResponse, error) {
+func (c *Client) UpdateMonitor(id int64, interfaces []string, providerKind, instanceName, innerIP string) (*UpdateResponse, error) {
 	var iface interface{}
 	if len(interfaces) == 1 {
 		iface = interfaces[0]
@@ -223,6 +226,7 @@ func (c *Client) UpdateMonitor(id int64, interfaces []string, providerKind, inst
 		NewInterface: iface,
 		ProviderKind: providerKind,
 		InstanceName: instanceName,
+		InnerIP:      innerIP,
 	}
 	var resp UpdateResponse
 	if err := c.doRequest("POST", "/api/v1/update", req, &resp); err != nil {

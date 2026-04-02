@@ -106,6 +106,10 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			} else {
 				// Agent may have been reset or data loss, use current as delta
 				deltaBytes = currentTraffic
+				global.APP_LOG.Warn("Agent流量计数器重置检测: 当前值小于上次同步值，可能由于Agent重启导致重置前的流量数据丢失",
+					zap.Uint("instanceID", monitor.InstanceID),
+					zap.Uint64("lastTrafficBytes", monitor.LastTrafficBytes),
+					zap.Uint64("currentTraffic", currentTraffic))
 			}
 
 			if deltaBytes == 0 {

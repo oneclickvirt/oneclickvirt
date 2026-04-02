@@ -56,6 +56,25 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 	dashboard.SystemStatus.DiskUsage = systemStats.Disk.Usage
 	dashboard.SystemStatus.Uptime = systemStats.Runtime.Uptime
 
+	// 资源使用统计
+	var resourceStats struct {
+		TotalCPUCores int64
+		UsedCPUCores  int64
+		TotalMemory   int64
+		UsedMemory    int64
+		TotalDisk     int64
+		UsedDisk      int64
+	}
+	global.APP_DB.Model(&providerModel.Provider{}).
+		Select("COALESCE(SUM(node_cpu_cores), 0) as total_cpu_cores, COALESCE(SUM(used_cpu_cores), 0) as used_cpu_cores, COALESCE(SUM(node_memory_total), 0) as total_memory, COALESCE(SUM(used_memory), 0) as used_memory, COALESCE(SUM(node_disk_total), 0) as total_disk, COALESCE(SUM(used_disk), 0) as used_disk").
+		Scan(&resourceStats)
+	dashboard.ResourceUsage.TotalCPUCores = resourceStats.TotalCPUCores
+	dashboard.ResourceUsage.UsedCPUCores = resourceStats.UsedCPUCores
+	dashboard.ResourceUsage.TotalMemoryMB = resourceStats.TotalMemory
+	dashboard.ResourceUsage.UsedMemoryMB = resourceStats.UsedMemory
+	dashboard.ResourceUsage.TotalDiskMB = resourceStats.TotalDisk
+	dashboard.ResourceUsage.UsedDiskMB = resourceStats.UsedDisk
+
 	return dashboard, nil
 }
 

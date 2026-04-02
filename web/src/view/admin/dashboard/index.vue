@@ -108,6 +108,67 @@
           </el-card>
         </el-col>
       </el-row>
+
+      <!-- 资源概览 -->
+      <el-divider content-position="left">
+        <span style="font-size: 16px; font-weight: 600; color: var(--text-color-primary);">{{ $t('admin.dashboard.resourceOverview') }}</span>
+      </el-divider>
+      <el-row :gutter="20" class="stats-row">
+        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+          <el-card class="resource-card">
+            <div class="resource-header">
+              <div class="resource-icon cpu-icon"><i class="fas fa-microchip" /></div>
+              <span class="resource-title">{{ $t('admin.dashboard.cpuCores') }}</span>
+            </div>
+            <el-progress
+              :percentage="resourcePercent(resourceUsage.usedCpuCores, resourceUsage.totalCpuCores)"
+              :stroke-width="12"
+              :color="progressColor"
+              class="resource-progress"
+            />
+            <div class="resource-detail">
+              <span>{{ $t('admin.dashboard.used') }}: {{ resourceUsage.usedCpuCores }}</span>
+              <span>{{ $t('admin.dashboard.total') }}: {{ resourceUsage.totalCpuCores }}</span>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+          <el-card class="resource-card">
+            <div class="resource-header">
+              <div class="resource-icon memory-icon"><i class="fas fa-memory" /></div>
+              <span class="resource-title">{{ $t('admin.dashboard.memory') }}</span>
+            </div>
+            <el-progress
+              :percentage="resourcePercent(resourceUsage.usedMemoryMB, resourceUsage.totalMemoryMB)"
+              :stroke-width="12"
+              :color="progressColor"
+              class="resource-progress"
+            />
+            <div class="resource-detail">
+              <span>{{ $t('admin.dashboard.used') }}: {{ formatMB(resourceUsage.usedMemoryMB) }}</span>
+              <span>{{ $t('admin.dashboard.total') }}: {{ formatMB(resourceUsage.totalMemoryMB) }}</span>
+            </div>
+          </el-card>
+        </el-col>
+        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+          <el-card class="resource-card">
+            <div class="resource-header">
+              <div class="resource-icon disk-icon"><i class="fas fa-hdd" /></div>
+              <span class="resource-title">{{ $t('admin.dashboard.disk') }}</span>
+            </div>
+            <el-progress
+              :percentage="resourcePercent(resourceUsage.usedDiskMB, resourceUsage.totalDiskMB)"
+              :stroke-width="12"
+              :color="progressColor"
+              class="resource-progress"
+            />
+            <div class="resource-detail">
+              <span>{{ $t('admin.dashboard.used') }}: {{ formatMB(resourceUsage.usedDiskMB) }}</span>
+              <span>{{ $t('admin.dashboard.total') }}: {{ formatMB(resourceUsage.totalDiskMB) }}</span>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
     </el-card>
   </div>
 </template>
@@ -127,16 +188,46 @@ const dashboardData = reactive({
   totalContainers: 0
 })
 
+const resourceUsage = reactive({
+  totalCpuCores: 0,
+  usedCpuCores: 0,
+  totalMemoryMB: 0,
+  usedMemoryMB: 0,
+  totalDiskMB: 0,
+  usedDiskMB: 0
+})
+
+const resourcePercent = (used, total) => {
+  if (!total || total <= 0) return 0
+  return Math.min(100, Math.round((used / total) * 100))
+}
+
+const formatMB = (mb) => {
+  if (!mb || mb <= 0) return '0 MB'
+  const GB = 1024
+  const TB = 1024 * 1024
+  if (mb >= TB) return (mb / TB).toFixed(2) + ' TB'
+  if (mb >= GB) return (mb / GB).toFixed(2) + ' GB'
+  return mb + ' MB'
+}
+
+const progressColor = (percentage) => {
+  if (percentage < 50) return '#67c23a'
+  if (percentage < 80) return '#e6a23c'
+  return '#f56c6c'
+}
+
 const fetchDashboardData = async () => {
   try {
     const response = await getAdminDashboard()
     if (response.code === 0 || response.code === 200) {
-      // 数据在 response.data.statistics 中
       if (response.data && response.data.statistics) {
         Object.assign(dashboardData, response.data.statistics)
       } else {
-        // 兼容旧格式，数据直接在 response.data 中
         Object.assign(dashboardData, response.data)
+      }
+      if (response.data && response.data.resourceUsage) {
+        Object.assign(resourceUsage, response.data.resourceUsage)
       }
     }
   } catch (error) {
@@ -217,6 +308,64 @@ onMounted(async () => {
 .container-icon {
   background: linear-gradient(135deg, #65a30d 0%, #84cc16 100%);
   box-shadow: 0 4px 12px rgba(101, 163, 13, 0.4);
+}
+
+.resource-card {
+  border-radius: 12px;
+  transition: all 0.3s ease;
+  margin-bottom: 16px;
+}
+
+.resource-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.1);
+}
+
+.resource-header {
+  display: flex;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.resource-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 16px;
+  margin-right: 10px;
+}
+
+.cpu-icon {
+  background: linear-gradient(135deg, #3b82f6 0%, #60a5fa 100%);
+}
+
+.memory-icon {
+  background: linear-gradient(135deg, #8b5cf6 0%, #a78bfa 100%);
+}
+
+.disk-icon {
+  background: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+}
+
+.resource-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-color-primary);
+}
+
+.resource-progress {
+  margin-bottom: 8px;
+}
+
+.resource-detail {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  color: #909399;
 }
 
 .stat-info {

@@ -117,10 +117,24 @@
               </template>
             </el-table-column>
           </el-table>
+
+              <el-pagination
+                v-if="pagination.total > 0"
+                v-model:current-page="pagination.page"
+                v-model:page-size="pagination.pageSize"
+                :page-sizes="[5, 10, 20, 50]"
+                :small="false"
+                :background="true"
+                layout="total, sizes, prev, pager, next, jumper"
+                :total="pagination.total"
+                @size-change="$emit('pageSizeChange', $event)"
+                @current-change="$emit('pageChange', $event)"
+                style="justify-content: center; margin-top: 12px;"
+              />
         </div>
 
         <!-- 操作按钮 -->
-        <div style="text-align: center; margin-top: 20px;">
+        <div class="action-buttons">
           <el-button 
             v-if="runningTask"
             type="primary"
@@ -169,10 +183,14 @@ const props = defineProps({
   historyTasks: {
     type: Array,
     default: () => []
+  },
+  pagination: {
+    type: Object,
+    default: () => ({ page: 1, pageSize: 10, total: 0 })
   }
 })
 
-const emit = defineEmits(['update:visible', 'close', 'viewTaskLog', 'viewRunningTask', 'rerunConfiguration'])
+const emit = defineEmits(['update:visible', 'close', 'viewTaskLog', 'viewRunningTask', 'rerunConfiguration', 'pageChange', 'pageSizeChange'])
 
 const dialogVisible = computed({
   get: () => props.visible,
@@ -224,5 +242,13 @@ h4 {
   color: var(--text-color-primary);
   font-size: 16px;
   font-weight: 600;
+}
+
+.action-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin-top: 20px;
 }
 </style>

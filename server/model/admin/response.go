@@ -19,6 +19,14 @@ type AdminDashboardResponse struct {
 		RunningInstances int `json:"runningInstances"`
 		ActiveProviders  int `json:"activeProviders"`
 	} `json:"statistics"`
+	ResourceUsage struct {
+		TotalCPUCores int64 `json:"totalCpuCores"`
+		UsedCPUCores  int64 `json:"usedCpuCores"`
+		TotalMemoryMB int64 `json:"totalMemoryMB"`
+		UsedMemoryMB  int64 `json:"usedMemoryMB"`
+		TotalDiskMB   int64 `json:"totalDiskMB"`
+		UsedDiskMB    int64 `json:"usedDiskMB"`
+	} `json:"resourceUsage"`
 	RecentUsers     []user.User         `json:"recentUsers"`
 	RecentInstances []provider.Instance `json:"recentInstances"`
 	SystemStatus    struct {

@@ -230,6 +230,32 @@ func (s *Service) batchCleanupProviderTrafficData(providerID uint, instanceIDs [
 			zap.Uint("providerID", providerID),
 			zap.Int64("count", monitorResult.RowsAffected))
 	}
+
+	// 4. 删除Provider的Agent监控记录
+	agentResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
+		Delete(&monitoring.AgentMonitor{})
+	if agentResult.Error != nil {
+		global.APP_LOG.Error("删除Provider Agent监控记录失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(agentResult.Error))
+	} else if agentResult.RowsAffected > 0 {
+		global.APP_LOG.Info("成功删除Provider Agent监控记录",
+			zap.Uint("providerID", providerID),
+			zap.Int64("count", agentResult.RowsAffected))
+	}
+
+	// 5. 删除Provider的资源指标记录
+	metricResult := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).
+		Delete(&monitoring.ResourceMetric{})
+	if metricResult.Error != nil {
+		global.APP_LOG.Error("删除Provider资源指标记录失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(metricResult.Error))
+	} else if metricResult.RowsAffected > 0 {
+		global.APP_LOG.Info("成功删除Provider资源指标记录",
+			zap.Uint("providerID", providerID),
+			zap.Int64("count", metricResult.RowsAffected))
+	}
 }
 
 // cleanupPmacctDataOptimized 使用预加载的数据清理pmacct

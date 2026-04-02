@@ -16,6 +16,7 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             total_bytes INTEGER NOT NULL DEFAULT 0,
             provider_kind TEXT,
             instance_name TEXT,
+            inner_ip TEXT,
             updated_at INTEGER NOT NULL
         );
 

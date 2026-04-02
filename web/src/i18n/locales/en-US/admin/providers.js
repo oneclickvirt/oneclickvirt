@@ -335,6 +335,7 @@ export default {
   applicationControl: "Application Control",
   redeemCodeOnly: "Redeem Code Only",
   redeemCodeOnlyTip: "When enabled, users cannot create instances by selecting configurations. Instances can only be claimed via redeem codes.",
+  hardwareMonitoring: "Hardware Monitoring",
   autoConfigAPI: "API Auto Configuration",
   configHistory: "{type} Configuration History",
   configHistoryMessage: "Configuration history detected for this Provider, please select an action:",
