@@ -2,6 +2,7 @@ use crate::error::ApiError;
 use rusqlite::{Connection, params};
 
 pub const AUTO_CLEANUP_SECONDS: i64 = 30 * 24 * 60 * 60;
+pub const RESOURCE_RETENTION_SECONDS: i64 = 24 * 60 * 60; // 24 hours
 
 pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
     conn.execute("PRAGMA foreign_keys = ON", [])
@@ -13,6 +14,8 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             interfaces TEXT NOT NULL,
             total_bytes INTEGER NOT NULL DEFAULT 0,
+            provider_kind TEXT,
+            instance_name TEXT,
             updated_at INTEGER NOT NULL
         );
 
@@ -23,6 +26,21 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             PRIMARY KEY (monitor_id, interface),
             FOREIGN KEY(monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
         );
+
+        CREATE TABLE IF NOT EXISTS resource_metrics (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            monitor_id INTEGER NOT NULL,
+            timestamp INTEGER NOT NULL,
+            cpu_percent REAL NOT NULL DEFAULT 0.0,
+            memory_used INTEGER NOT NULL DEFAULT 0,
+            memory_total INTEGER NOT NULL DEFAULT 0,
+            disk_used INTEGER NOT NULL DEFAULT 0,
+            disk_total INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY(monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_metrics_monitor_ts
+            ON resource_metrics(monitor_id, timestamp);
         "#,
     )
     .map_err(|e| ApiError::internal(format!("sqlite table init error: {e}")))?;
@@ -49,4 +67,13 @@ pub fn cleanup_stale_monitors(conn: &Connection, max_age_seconds: i64) -> Result
         params![threshold],
     )
     .map_err(|e| ApiError::internal(format!("cleanup stale monitors error: {e}")))
+}
+
+pub fn cleanup_old_resource_metrics(conn: &Connection) -> Result<usize, ApiError> {
+    let threshold = now_ts().saturating_sub(RESOURCE_RETENTION_SECONDS);
+    conn.execute(
+        "DELETE FROM resource_metrics WHERE timestamp < ?1",
+        params![threshold],
+    )
+    .map_err(|e| ApiError::internal(format!("cleanup old resource metrics error: {e}")))
 }

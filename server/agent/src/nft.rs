@@ -2,10 +2,9 @@ use crate::error::ApiError;
 use rusqlite::Connection;
 use serde_json::Value;
 use std::{
-    collections::{HashSet, hash_map::DefaultHasher},
+    collections::HashSet,
     env,
     fs,
-    hash::{Hash, Hasher},
     io::Write,
     path::Path,
     process::{Command, Stdio},
@@ -106,10 +105,8 @@ fn nft_set_literal(cidrs: &[String]) -> String {
 
 fn current_config_tag() -> &'static String {
     CONFIG_TAG.get_or_init(|| {
-        let mut hasher = DefaultHasher::new();
-        exclude_v4().join(",").hash(&mut hasher);
-        exclude_v6().join(",").hash(&mut hasher);
-        format!("{:x}", hasher.finish())
+        let combined = format!("{},{}", exclude_v4().join(","), exclude_v6().join(","));
+        format!("{:x}", fnv1a_64(combined.as_bytes()))
     })
 }
 
@@ -181,10 +178,20 @@ fn escape_quoted(raw: &str) -> String {
     raw.replace('\\', "\\\\").replace('\"', "\\\"")
 }
 
+/// Stable FNV-1a 64-bit hash (deterministic across Rust versions unlike DefaultHasher).
+fn fnv1a_64(data: &[u8]) -> u64 {
+    const FNV_OFFSET: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut h = FNV_OFFSET;
+    for &b in data {
+        h ^= b as u64;
+        h = h.wrapping_mul(FNV_PRIME);
+    }
+    h
+}
+
 fn counter_name(scope: Scope, monitor_id: i64, interface: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    interface.hash(&mut hasher);
-    let h = hasher.finish();
+    let h = fnv1a_64(interface.as_bytes());
     let prefix = if scope.tag == "inet" { "i" } else { "b" };
     format!("{prefix}m{monitor_id}_{h:x}")
 }

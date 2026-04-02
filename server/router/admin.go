@@ -176,6 +176,16 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/traffic-monitor/tasks/:id", admin.GetTrafficMonitorTaskDetail)
 		AdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
 
+		// Agent监控管理
+		AdminGroup.GET("/providers/:providerId/monitoring/config", admin.GetMonitoringConfig)
+		AdminGroup.PUT("/providers/:providerId/monitoring/config", admin.UpdateMonitoringConfig)
+		AdminGroup.POST("/monitoring/deploy-agent", admin.DeployAgent)
+		AdminGroup.DELETE("/providers/:providerId/monitoring/agent", admin.UninstallAgent)
+		AdminGroup.GET("/providers/:providerId/monitoring/status", admin.GetAgentStatus)
+		AdminGroup.GET("/providers/:providerId/monitoring/monitors", admin.GetProviderMonitors)
+		AdminGroup.GET("/providers/:providerId/monitoring/resources", admin.GetProviderResourceSummary)
+		AdminGroup.GET("/instances/:instanceId/monitoring/resources", admin.GetInstanceResources)
+
 		// 冻结管理
 		AdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
 		AdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)

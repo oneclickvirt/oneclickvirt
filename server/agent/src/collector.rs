@@ -1,8 +1,9 @@
 use crate::{
     app_state::AppState,
-    db::{AUTO_CLEANUP_SECONDS, cleanup_stale_monitors, now_ts},
+    db::{AUTO_CLEANUP_SECONDS, cleanup_old_resource_metrics, cleanup_stale_monitors, now_ts},
     error::ApiError,
     nft::{garbage_collect_orphans, read_external_bytes},
+    resource,
 };
 use rusqlite::{Connection, params};
 use std::time::Duration;
@@ -17,10 +18,24 @@ pub fn normalize_interface_name(raw: &str) -> Option<String> {
     // ip link often shows veth as "name@ifX", while /sys/class/net uses only "name".
     let base = trimmed.split('@').next().unwrap_or("").trim();
     if base.is_empty() {
-        None
-    } else {
-        Some(base.to_owned())
+        return None;
     }
+
+    // Validate: only allow alphanumeric, dash, underscore, dot (standard Linux interface names).
+    // This prevents command injection via crafted interface names fed into nft scripts.
+    if !base
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_' || c == '.')
+    {
+        return None;
+    }
+
+    // Linux interface names are max 15 chars
+    if base.len() > 15 {
+        return None;
+    }
+
+    Some(base.to_owned())
 }
 
 fn collect_once(conn: &Connection) -> Result<(), ApiError> {
@@ -88,6 +103,44 @@ fn collect_once(conn: &Connection) -> Result<(), ApiError> {
     Ok(())
 }
 
+fn collect_resources(conn: &Connection) -> Result<(), ApiError> {
+    let now = now_ts();
+
+    let mut stmt = conn
+        .prepare("SELECT id, provider_kind, instance_name FROM monitors WHERE provider_kind IS NOT NULL AND instance_name IS NOT NULL")
+        .map_err(|e| ApiError::internal(format!("prepare resource monitor query error: {e}")))?;
+    let rows = stmt
+        .query_map([], |row| {
+            Ok((
+                row.get::<_, i64>(0)?,
+                row.get::<_, Option<String>>(1)?,
+                row.get::<_, Option<String>>(2)?,
+            ))
+        })
+        .map_err(|e| ApiError::internal(format!("resource monitor query error: {e}")))?;
+
+    let mut monitors = Vec::new();
+    for row in rows {
+        monitors.push(row.map_err(|e| ApiError::internal(format!("resource monitor row error: {e}")))?);
+    }
+
+    let snapshots = resource::collect_all_resources(&monitors);
+
+    for (monitor_id, snap) in &snapshots {
+        conn.execute(
+            "INSERT INTO resource_metrics (monitor_id, timestamp, cpu_percent, memory_used, memory_total, disk_used, disk_total) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![monitor_id, now, snap.cpu_percent, snap.memory_used, snap.memory_total, snap.disk_used, snap.disk_total],
+        )
+        .map_err(|e| ApiError::internal(format!("insert resource metric error: {e}")))?;
+    }
+
+    if !snapshots.is_empty() {
+        debug!(count = snapshots.len(), "collected resource metrics");
+    }
+
+    Ok(())
+}
+
 pub fn start_collector(state: AppState) {
     tokio::spawn(async move {
         let mut ticks: u64 = 0;
@@ -97,6 +150,16 @@ pub fn start_collector(state: AppState) {
                 let conn = state.conn.lock().await;
                 if let Err(err) = collect_once(&conn) {
                     error!(error = %err.message, "collector iteration failed");
+                }
+                // Collect resource metrics every 150 ticks (5 minutes at 2s interval)
+                if ticks % 150 == 0 {
+                    if let Err(err) = collect_resources(&conn) {
+                        error!(error = %err.message, "resource collection failed");
+                    }
+                    // Clean up resource metrics older than 24 hours
+                    if let Err(err) = cleanup_old_resource_metrics(&conn) {
+                        error!(error = %err.message, "resource metrics cleanup failed");
+                    }
                 }
                 match cleanup_stale_monitors(&conn, AUTO_CLEANUP_SECONDS) {
                     Ok(deleted) => {

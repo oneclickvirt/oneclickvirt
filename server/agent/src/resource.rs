@@ -1,0 +1,493 @@
+use crate::error::ApiError;
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+use std::fs;
+use std::process::Command;
+use tracing::debug;
+use utoipa::ToSchema;
+
+#[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
+pub struct ResourceSnapshot {
+    pub cpu_percent: f64,
+    pub memory_used: u64,
+    pub memory_total: u64,
+    pub disk_used: u64,
+    pub disk_total: u64,
+}
+
+/// Provider type hint stored alongside each monitor so the agent knows how to collect resources.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum ProviderKind {
+    Docker,
+    Podman,
+    Containerd,
+    Lxd,
+    Incus,
+    Proxmox,
+}
+
+impl ProviderKind {
+    pub fn from_str_opt(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "docker" => Some(Self::Docker),
+            "podman" => Some(Self::Podman),
+            "containerd" => Some(Self::Containerd),
+            "lxd" => Some(Self::Lxd),
+            "incus" => Some(Self::Incus),
+            "proxmox" | "pve" => Some(Self::Proxmox),
+            _ => None,
+        }
+    }
+}
+
+/// Collect resource usage for a given instance.
+/// `instance_name` is the container/VM name on the provider host.
+pub fn collect_resource(kind: ProviderKind, instance_name: &str) -> Result<ResourceSnapshot, ApiError> {
+    match kind {
+        ProviderKind::Docker => collect_docker(instance_name),
+        ProviderKind::Podman => collect_podman(instance_name),
+        ProviderKind::Containerd => collect_containerd(instance_name),
+        ProviderKind::Lxd => collect_lxc("lxc", instance_name),
+        ProviderKind::Incus => collect_lxc("incus", instance_name),
+        ProviderKind::Proxmox => collect_proxmox(instance_name),
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Docker / Podman (CRI with similar stats JSON)
+// ---------------------------------------------------------------------------
+
+fn collect_docker(name: &str) -> Result<ResourceSnapshot, ApiError> {
+    collect_oci_runtime("docker", name)
+}
+
+fn collect_podman(name: &str) -> Result<ResourceSnapshot, ApiError> {
+    collect_oci_runtime("podman", name)
+}
+
+fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
+    // Use stats --no-stream --format json for a single snapshot
+    let out = Command::new(runtime)
+        .args(["stats", "--no-stream", "--format", "{{json .}}", name])
+        .output()
+        .map_err(|e| ApiError::internal(format!("{runtime} stats failed: {e}")))?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(ApiError::internal(format!("{runtime} stats error: {}", stderr.trim())));
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let line = stdout.trim();
+    if line.is_empty() {
+        return Err(ApiError::internal(format!("{runtime} stats returned empty output")));
+    }
+
+    let v: serde_json::Value = serde_json::from_str(line)
+        .map_err(|e| ApiError::internal(format!("{runtime} stats json parse error: {e}")))?;
+
+    let cpu_percent = parse_percent_string(v.get("CPUPerc").and_then(|v| v.as_str()).unwrap_or("0%"));
+
+    let (mem_used, mem_total) = parse_mem_usage(
+        v.get("MemUsage").and_then(|v| v.as_str()).unwrap_or("0B / 0B"),
+    );
+
+    // Disk: Docker stats doesn't directly provide disk; use inspect for rootfs size
+    let (disk_used, disk_total) = get_oci_disk(runtime, name);
+
+    Ok(ResourceSnapshot {
+        cpu_percent,
+        memory_used: mem_used,
+        memory_total: mem_total,
+        disk_used,
+        disk_total,
+    })
+}
+
+fn get_oci_disk(runtime: &str, name: &str) -> (u64, u64) {
+    let out = Command::new(runtime)
+        .args(["inspect", "--format", "{{json .}}", name])
+        .output();
+
+    if let Ok(out) = out {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                // SizeRw = writable layer size, SizeRootFs = total size
+                let used = v.get("SizeRw").and_then(|v| v.as_u64()).unwrap_or(0);
+                let total = v.get("SizeRootFs").and_then(|v| v.as_u64()).unwrap_or(0);
+                if total > 0 {
+                    return (used, total);
+                }
+            }
+        }
+    }
+    (0, 0)
+}
+
+// ---------------------------------------------------------------------------
+// Containerd (via ctr / nerdctl)
+// ---------------------------------------------------------------------------
+
+fn collect_containerd(name: &str) -> Result<ResourceSnapshot, ApiError> {
+    // Try nerdctl first, then ctr for cgroup-based stats
+    if let Ok(snap) = collect_oci_runtime("nerdctl", name) {
+        return Ok(snap);
+    }
+
+    // Fallback: read cgroup stats directly
+    collect_cgroup_stats(name)
+}
+
+fn collect_cgroup_stats(name: &str) -> Result<ResourceSnapshot, ApiError> {
+    // Try cgroup v2 first
+    let cg_base = format!("/sys/fs/cgroup/system.slice/containerd-{name}.scope");
+    let cg_base_alt = format!("/sys/fs/cgroup/{name}");
+
+    let cg_paths = [&cg_base, &cg_base_alt];
+
+    for path in &cg_paths {
+        if let Ok(snap) = read_cgroup_v2(path) {
+            return Ok(snap);
+        }
+    }
+
+    Err(ApiError::internal(format!(
+        "could not find cgroup stats for containerd instance {name}"
+    )))
+}
+
+fn read_cgroup_v2(base: &str) -> Result<ResourceSnapshot, ApiError> {
+    let cpu_stat = fs::read_to_string(format!("{base}/cpu.stat"))
+        .map_err(|e| ApiError::internal(format!("read cpu.stat: {e}")))?;
+
+    let mem_current = fs::read_to_string(format!("{base}/memory.current"))
+        .map_err(|e| ApiError::internal(format!("read memory.current: {e}")))?
+        .trim()
+        .parse::<u64>()
+        .unwrap_or(0);
+
+    let mem_max = fs::read_to_string(format!("{base}/memory.max"))
+        .ok()
+        .and_then(|s| s.trim().parse::<u64>().ok())
+        .unwrap_or(0);
+
+    // CPU usage from cpu.stat (usage_usec)
+    let cpu_usec = cpu_stat
+        .lines()
+        .find(|l| l.starts_with("usage_usec"))
+        .and_then(|l| l.split_whitespace().nth(1))
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(0);
+
+    // CPU percent is hard to compute from a single sample; return 0 and rely on delta in collector
+    let _ = cpu_usec;
+
+    Ok(ResourceSnapshot {
+        cpu_percent: 0.0,
+        memory_used: mem_current,
+        memory_total: mem_max,
+        disk_used: 0,
+        disk_total: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// LXD / Incus (via lxc/incus info)
+// ---------------------------------------------------------------------------
+
+fn collect_lxc(cli: &str, name: &str) -> Result<ResourceSnapshot, ApiError> {
+    // lxc/incus info <name> --resources outputs resource usage
+    let out = Command::new(cli)
+        .args(["info", name])
+        .output()
+        .map_err(|e| ApiError::internal(format!("{cli} info failed: {e}")))?;
+
+    if !out.status.success() {
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        return Err(ApiError::internal(format!("{cli} info error: {}", stderr.trim())));
+    }
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // Parse CPU, memory, disk from lxc/incus info output
+    // Memory usage lines: "  Memory (current): 123.45MiB"
+    // Disk usage lines:   "  root: ..." (under Disk usage:)
+    let mut mem_used: u64 = 0;
+    let mut mem_total: u64 = 0;
+    let mut cpu_seconds: f64 = 0.0;
+    let mut disk_used: u64 = 0;
+
+    let mut in_memory = false;
+    let mut in_disk = false;
+    let mut in_cpu = false;
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+
+        if trimmed.starts_with("Memory usage:") || trimmed == "Memory usage:" {
+            in_memory = true;
+            in_disk = false;
+            in_cpu = false;
+            continue;
+        }
+        if trimmed.starts_with("Disk usage:") || trimmed == "Disk usage:" {
+            in_disk = true;
+            in_memory = false;
+            in_cpu = false;
+            continue;
+        }
+        if trimmed.starts_with("CPU usage:") || trimmed == "CPU usage:" {
+            in_cpu = true;
+            in_memory = false;
+            in_disk = false;
+            continue;
+        }
+        if trimmed.starts_with("Network usage:") {
+            in_cpu = false;
+            in_memory = false;
+            in_disk = false;
+            continue;
+        }
+
+        if in_memory {
+            if let Some(val) = extract_value_after(trimmed, "Memory (current):") {
+                mem_used = parse_size_string(&val);
+            }
+            if let Some(val) = extract_value_after(trimmed, "Memory (peak):") {
+                // peak as total approximation; real limit comes from config
+                if mem_total == 0 {
+                    mem_total = parse_size_string(&val);
+                }
+            }
+        }
+        if in_cpu {
+            if let Some(val) = extract_value_after(trimmed, "CPU usage (in seconds):") {
+                cpu_seconds = val.trim().parse::<f64>().unwrap_or(0.0);
+            }
+        }
+        if in_disk {
+            if let Some(val) = extract_value_after(trimmed, "root:") {
+                disk_used = parse_size_string(&val);
+            }
+        }
+    }
+
+    // Get memory limit from config
+    let config_out = Command::new(cli)
+        .args(["config", "show", name])
+        .output();
+    if let Ok(config_out) = config_out {
+        if config_out.status.success() {
+            let config_str = String::from_utf8_lossy(&config_out.stdout);
+            for line in config_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("limits.memory:") {
+                    if let Some(val) = trimmed.strip_prefix("limits.memory:") {
+                        mem_total = parse_size_string(val.trim());
+                    }
+                }
+            }
+        }
+    }
+
+    // Get disk limit
+    let storage_out = Command::new(cli)
+        .args(["config", "device", "show", name])
+        .output();
+    if let Ok(storage_out) = storage_out {
+        if storage_out.status.success() {
+            let storage_str = String::from_utf8_lossy(&storage_out.stdout);
+            for line in storage_str.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("size:") {
+                    if let Some(val) = trimmed.strip_prefix("size:") {
+                        let disk_total_val = parse_size_string(val.trim());
+                        if disk_total_val > 0 {
+                            return Ok(ResourceSnapshot {
+                                cpu_percent: 0.0, // CPU % needs delta computation
+                                memory_used: mem_used,
+                                memory_total: mem_total,
+                                disk_used,
+                                disk_total: disk_total_val,
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    let _ = cpu_seconds;
+
+    Ok(ResourceSnapshot {
+        cpu_percent: 0.0,
+        memory_used: mem_used,
+        memory_total: mem_total,
+        disk_used,
+        disk_total: 0,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Proxmox VE (via pvesh)
+// ---------------------------------------------------------------------------
+
+fn collect_proxmox(vmid: &str) -> Result<ResourceSnapshot, ApiError> {
+    // Try API via pvesh: pvesh get /nodes/localhost/qemu/<vmid>/status/current --output-format json
+    // or /nodes/localhost/lxc/<vmid>/status/current
+    let node = get_proxmox_node();
+
+    // Try LXC first, then QEMU
+    for kind in &["lxc", "qemu"] {
+        let out = Command::new("pvesh")
+            .args([
+                "get",
+                &format!("/nodes/{node}/{kind}/{vmid}/status/current"),
+                "--output-format",
+                "json",
+            ])
+            .output();
+
+        if let Ok(out) = out {
+            if out.status.success() {
+                let stdout = String::from_utf8_lossy(&out.stdout);
+                if let Ok(v) = serde_json::from_str::<serde_json::Value>(stdout.trim()) {
+                    let data = if v.get("data").is_some() {
+                        v.get("data").unwrap()
+                    } else {
+                        &v
+                    };
+
+                    let cpu = data.get("cpu").and_then(|v| v.as_f64()).unwrap_or(0.0) * 100.0;
+                    let mem_used = data.get("mem").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let mem_total = data.get("maxmem").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let disk_used = data.get("disk").and_then(|v| v.as_u64()).unwrap_or(0);
+                    let disk_total = data.get("maxdisk").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                    return Ok(ResourceSnapshot {
+                        cpu_percent: cpu,
+                        memory_used: mem_used,
+                        memory_total: mem_total,
+                        disk_used,
+                        disk_total,
+                    });
+                }
+            }
+        }
+    }
+
+    Err(ApiError::internal(format!(
+        "could not collect proxmox resource stats for VMID {vmid}"
+    )))
+}
+
+fn get_proxmox_node() -> String {
+    // Read local hostname as node name
+    fs::read_to_string("/etc/hostname")
+        .map(|s| s.trim().to_owned())
+        .unwrap_or_else(|_| "localhost".to_owned())
+}
+
+// ---------------------------------------------------------------------------
+// Batch collection for all monitors
+// ---------------------------------------------------------------------------
+
+/// Collect resource snapshots for all monitors that have provider_kind and instance_name set.
+/// Returns a map of monitor_id -> ResourceSnapshot.
+pub fn collect_all_resources(
+    monitors: &[(i64, Option<String>, Option<String>)], // (monitor_id, provider_kind, instance_name)
+) -> HashMap<i64, ResourceSnapshot> {
+    let mut results = HashMap::new();
+
+    for (monitor_id, kind_str, instance_name) in monitors {
+        let kind = match kind_str.as_deref().and_then(ProviderKind::from_str_opt) {
+            Some(k) => k,
+            None => continue,
+        };
+        let name = match instance_name.as_deref() {
+            Some(n) if !n.is_empty() => n,
+            _ => continue,
+        };
+
+        match collect_resource(kind, name) {
+            Ok(snap) => {
+                results.insert(*monitor_id, snap);
+            }
+            Err(e) => {
+                debug!(monitor_id, instance_name = name, error = %e.message, "resource collection failed");
+            }
+        }
+    }
+
+    results
+}
+
+// ---------------------------------------------------------------------------
+// Parsing helpers
+// ---------------------------------------------------------------------------
+
+fn parse_percent_string(s: &str) -> f64 {
+    s.trim_end_matches('%').trim().parse::<f64>().unwrap_or(0.0)
+}
+
+fn parse_mem_usage(s: &str) -> (u64, u64) {
+    // Format: "123.4MiB / 1.5GiB"  or  "123456 / 456789"
+    let parts: Vec<&str> = s.split('/').collect();
+    if parts.len() != 2 {
+        return (0, 0);
+    }
+    (parse_size_string(parts[0].trim()), parse_size_string(parts[1].trim()))
+}
+
+fn parse_size_string(s: &str) -> u64 {
+    let s = s.trim();
+    if s.is_empty() || s == "max" {
+        return 0;
+    }
+
+    // Try parsing as pure number first
+    if let Ok(v) = s.parse::<u64>() {
+        return v;
+    }
+
+    // Extract numeric prefix and unit suffix
+    let mut num_end = 0;
+    for (i, c) in s.char_indices() {
+        if c.is_ascii_digit() || c == '.' {
+            num_end = i + c.len_utf8();
+        } else {
+            break;
+        }
+    }
+
+    if num_end == 0 {
+        return 0;
+    }
+
+    let num: f64 = match s[..num_end].parse() {
+        Ok(v) => v,
+        Err(_) => return 0,
+    };
+
+    let unit = s[num_end..].trim().to_ascii_lowercase();
+    let multiplier: f64 = match unit.as_str() {
+        "b" | "" => 1.0,
+        "k" | "kb" | "kib" => 1024.0,
+        "m" | "mb" | "mib" => 1024.0 * 1024.0,
+        "g" | "gb" | "gib" => 1024.0 * 1024.0 * 1024.0,
+        "t" | "tb" | "tib" => 1024.0 * 1024.0 * 1024.0 * 1024.0,
+        _ => 1.0,
+    };
+
+    (num * multiplier) as u64
+}
+
+fn extract_value_after(line: &str, prefix: &str) -> Option<String> {
+    if let Some(pos) = line.find(prefix) {
+        Some(line[pos + prefix.len()..].trim().to_owned())
+    } else {
+        None
+    }
+}

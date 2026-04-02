@@ -159,6 +159,10 @@ func RegisterTables(db *gorm.DB) {
 		&monitoringModel.ProviderTrafficHistory{}, // Provider流量历史表
 		&monitoringModel.UserTrafficHistory{},     // 用户流量历史表
 		&monitoringModel.PerformanceMetric{},      // 性能指标历史表
+		// Agent监控表
+		&monitoringModel.AgentMonitor{},     // Agent监控映射表
+		&monitoringModel.ResourceMetric{},   // 资源监控数据表（24小时保留）
+		&monitoringModel.MonitoringConfig{}, // Provider监控配置表
 	)
 	if err != nil {
 		global.APP_LOG.Error("register table failed", zap.Error(err))

@@ -6,6 +6,8 @@ export default {
   cancel: '取消',
   confirm: '确定',
   save: '保存',
+  saveSuccess: '保存成功',
+  saveFailed: '保存失败',
   update: '更新',
   delete: '删除',
   edit: '编辑',

@@ -514,15 +514,14 @@
         </el-button>
         
         <el-button
-          v-if="currentRow.enableTrafficControl"
           class="action-button"
           type="success"
           @click="handleAction('traffic-monitor')"
         >
-          {{ $t('admin.providers.trafficMonitorManagement') }}
+          {{ $t('admin.providers.monitoringManagement') }}
         </el-button>
 
-        <el-divider v-if="(currentRow.type === 'lxd' || currentRow.type === 'incus' || currentRow.type === 'proxmox') || currentRow.enableTrafficControl" />
+        <el-divider v-if="(currentRow.type === 'lxd' || currentRow.type === 'incus' || currentRow.type === 'proxmox')" />
         <el-button
           class="action-button"
           type="primary"

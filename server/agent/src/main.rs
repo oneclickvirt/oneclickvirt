@@ -7,6 +7,7 @@ mod error;
 mod handlers;
 mod models;
 mod nft;
+mod resource;
 
 use app_state::AppState;
 use axum::{Router, middleware, routing::post};
@@ -63,6 +64,7 @@ async fn main() {
         .route("/api/v1/delete", post(handlers::delete_monitor))
         .route("/api/v1/info", post(handlers::info_monitor))
         .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
+        .route("/api/v1/resources", post(handlers::query_resources))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,

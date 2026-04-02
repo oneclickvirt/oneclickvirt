@@ -4,6 +4,7 @@ use axum::{
     middleware::Next,
     response::Response,
 };
+use subtle::ConstantTimeEq;
 use tracing::warn;
 
 pub async fn require_token(
@@ -23,7 +24,7 @@ pub async fn require_token(
             ApiError::unauthorized("missing x-token header")
         })?;
 
-    if token != state.api_token {
+    if token.as_bytes().ct_eq(state.api_token.as_bytes()).unwrap_u8() != 1 {
         warn!(%path, "unauthorized request: invalid token");
         return Err(ApiError::unauthorized("invalid token"));
     }

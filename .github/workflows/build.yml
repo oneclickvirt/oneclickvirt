@@ -25,6 +25,27 @@ jobs:
         cache: 'npm'
         cache-dependency-path: web/package-lock.json
 
+    - name: Set up Rust
+      uses: dtolnay/rust-toolchain@stable
+      with:
+        targets: x86_64-unknown-linux-musl,aarch64-unknown-linux-musl
+
+    - name: Install cross-compilation tools
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y musl-tools gcc-aarch64-linux-gnu
+
+    - name: Cache Rust dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/registry
+          ~/.cargo/git
+          server/agent/target
+        key: ${{ runner.os }}-cargo-${{ hashFiles('server/agent/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-cargo-
+
     - name: Get current date
       id: date
       run: echo "date=$(date +'%Y%m%d-%H%M%S')" >> $GITHUB_OUTPUT
@@ -50,6 +71,19 @@ jobs:
         npm run build
         cd dist
         zip -r ../../build/web-dist.zip .
+
+    - name: Build monitoring agent (Rust)
+      working-directory: ./server/agent
+      env:
+        CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: aarch64-linux-gnu-gcc
+      run: |
+        # Linux AMD64 (static musl)
+        cargo build --release --target x86_64-unknown-linux-musl
+        cp target/x86_64-unknown-linux-musl/release/oneclickvirt-agent ../../build/oneclickvirt-agent-linux-amd64
+        
+        # Linux ARM64 (static musl)
+        cargo build --release --target aarch64-unknown-linux-musl
+        cp target/aarch64-unknown-linux-musl/release/oneclickvirt-agent ../../build/oneclickvirt-agent-linux-arm64
 
     - name: Build Go server binaries (Standalone - without embedded frontend)
       working-directory: ./server
@@ -114,9 +148,14 @@ jobs:
         zip server-allinone-windows-amd64.zip server-allinone-windows-amd64.exe
         zip server-allinone-windows-arm64.zip server-allinone-windows-arm64.exe
         
+        # Compress agent binaries
+        tar -czf oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-amd64
+        tar -czf oneclickvirt-agent-linux-arm64.tar.gz oneclickvirt-agent-linux-arm64
+        
         # Remove uncompressed binaries
         rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe
         rm server-allinone-linux-amd64 server-allinone-linux-arm64 server-allinone-windows-amd64.exe server-allinone-windows-arm64.exe
+        rm oneclickvirt-agent-linux-amd64 oneclickvirt-agent-linux-arm64
         
         ls -lh
 
@@ -149,7 +188,11 @@ jobs:
         - \`server-allinone-linux-amd64.tar.gz\` - 一体化 Linux AMD64 版本
         - \`server-allinone-linux-arm64.tar.gz\` - 一体化 Linux ARM64 版本
         - \`server-allinone-windows-amd64.zip\` - 一体化 Windows AMD64 版本
-        - \`server-allinone-windows-arm64.zip\` - 一体化 Windows ARM64 版本"
+        - \`server-allinone-windows-arm64.zip\` - 一体化 Windows ARM64 版本
+        
+        ### 监控代理（部署到 Provider 节点）
+        - \`oneclickvirt-agent-linux-amd64.tar.gz\` - 监控代理 Linux AMD64 版本
+        - \`oneclickvirt-agent-linux-arm64.tar.gz\` - 监控代理 Linux ARM64 版本"
         
         # Create release with auto-generated notes
         if [ -n "$PREVIOUS_TAG" ]; then
@@ -167,6 +210,8 @@ jobs:
             ./build/server-allinone-linux-arm64.tar.gz \
             ./build/server-allinone-windows-amd64.zip \
             ./build/server-allinone-windows-arm64.zip \
+            ./build/oneclickvirt-agent-linux-amd64.tar.gz \
+            ./build/oneclickvirt-agent-linux-arm64.tar.gz \
             ./build/web-dist.zip
         else
           # First release, no previous tag
@@ -182,5 +227,7 @@ jobs:
             ./build/server-allinone-linux-arm64.tar.gz \
             ./build/server-allinone-windows-amd64.zip \
             ./build/server-allinone-windows-arm64.zip \
+            ./build/oneclickvirt-agent-linux-amd64.tar.gz \
+            ./build/oneclickvirt-agent-linux-arm64.tar.gz \
             ./build/web-dist.zip
         fi

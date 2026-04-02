@@ -643,6 +643,18 @@
             </TrafficHistoryChart>
           </div>
         </el-tab-pane>
+
+        <!-- 资源监控标签页 -->
+        <el-tab-pane
+          :label="t('user.instanceDetail.resourceMonitoring')"
+          name="resources"
+        >
+          <ResourceMonitorChart
+            ref="resourceChartRef"
+            :instance-id="route.params.id"
+            :auto-refresh="300000"
+          />
+        </el-tab-pane>
       </el-tabs>
     </el-card>
 
@@ -662,6 +674,7 @@ import { useI18n } from 'vue-i18n'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
 import TrafficHistoryChart from '@/components/TrafficHistoryChart.vue'
+import ResourceMonitorChart from '@/components/ResourceMonitorChart.vue'
 import {
   ArrowLeft,
   VideoPlay,
@@ -678,6 +691,7 @@ const route = useRoute()
 const router = useRouter()
 const { t } = useI18n()
 const activeTab = ref('overview')
+const resourceChartRef = ref(null)
 
 const {
   loading,
@@ -753,7 +767,7 @@ watch(() => route.params.id, async (newId, oldId) => {
 
 watch(() => route.query.tab, (newTab, oldTab) => {
   if (newTab === oldTab) return
-  if (newTab && ['overview', 'ports', 'stats'].includes(newTab)) {
+  if (newTab && ['overview', 'ports', 'stats', 'resources'].includes(newTab)) {
     if (activeTab.value === newTab) return
     isUpdatingFromRoute = true
     activeTab.value = newTab

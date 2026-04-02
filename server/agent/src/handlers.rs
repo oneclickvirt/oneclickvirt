@@ -5,7 +5,8 @@ use crate::{
     error::{ApiError, ErrorResponse},
     models::{
         AddRequest, AddResponse, CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse,
-        InfoRequest, InfoResponse, UpdateRequest, UpdateResponse,
+        InfoRequest, InfoResponse, ResourceDataPoint, ResourceQueryRequest, ResourceQueryResponse,
+        UpdateRequest, UpdateResponse,
     },
     nft::{ensure_counter, garbage_collect_orphans, read_external_bytes, remove_counter},
 };
@@ -144,8 +145,8 @@ pub async fn add_monitor(
 
     let conn = state.conn.lock().await;
     conn.execute(
-        "INSERT INTO monitors (interfaces, total_bytes, updated_at) VALUES (?1, 0, ?2)",
-        params![interfaces_json, now],
+        "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, updated_at) VALUES (?1, 0, ?2, ?3, ?4)",
+        params![interfaces_json, payload.provider_kind, payload.instance_name, now],
     )
     .map_err(|e| ApiError::internal(format!("insert monitor error: {e}")))?;
     let id = conn.last_insert_rowid();
@@ -218,8 +219,8 @@ pub async fn update_monitor(
     }
 
     conn.execute(
-        "UPDATE monitors SET interfaces = ?1, updated_at = ?2 WHERE id = ?3",
-        params![interfaces_json, now, id],
+        "UPDATE monitors SET interfaces = ?1, updated_at = ?2, provider_kind = COALESCE(?4, provider_kind), instance_name = COALESCE(?5, instance_name) WHERE id = ?3",
+        params![interfaces_json, now, id, payload.provider_kind, payload.instance_name],
     )
     .map_err(|e| ApiError::internal(format!("update monitor error: {e}")))?;
     conn.execute(
@@ -394,5 +395,76 @@ pub async fn cleanup_monitor(
     Ok(Json(CleanupResponse {
         deleted,
         max_update_seconds: max_age_seconds,
+    }))
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/resources",
+    request_body = ResourceQueryRequest,
+    responses(
+        (status = 200, description = "Get resource monitoring history", body = ResourceQueryResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 404, description = "Monitor not found", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Resource Monitoring"
+)]
+pub async fn query_resources(
+    State(state): State<AppState>,
+    Json(payload): Json<ResourceQueryRequest>,
+) -> Result<Json<ResourceQueryResponse>, ApiError> {
+    let limit = payload.limit.unwrap_or(288).min(2880);
+    let conn = state.conn.lock().await;
+
+    let exists: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM monitors WHERE id = ?1",
+            params![payload.id],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|e| ApiError::internal(format!("query monitor error: {e}")))?;
+    if exists.is_none() {
+        return Err(ApiError::not_found(format!(
+            "monitor id {} not found",
+            payload.id
+        )));
+    }
+
+    let mut stmt = conn
+        .prepare(
+            "SELECT timestamp, cpu_percent, memory_used, memory_total, disk_used, disk_total \
+             FROM resource_metrics WHERE monitor_id = ?1 ORDER BY timestamp DESC LIMIT ?2",
+        )
+        .map_err(|e| ApiError::internal(format!("prepare resource query error: {e}")))?;
+
+    let rows = stmt
+        .query_map(params![payload.id, limit], |row| {
+            Ok(ResourceDataPoint {
+                timestamp: row.get(0)?,
+                cpu_percent: row.get(1)?,
+                memory_used: row.get(2)?,
+                memory_total: row.get(3)?,
+                disk_used: row.get(4)?,
+                disk_total: row.get(5)?,
+            })
+        })
+        .map_err(|e| ApiError::internal(format!("resource query error: {e}")))?;
+
+    let mut data = Vec::new();
+    for row in rows {
+        data.push(row.map_err(|e| ApiError::internal(format!("resource row error: {e}")))?);
+    }
+
+    // Return in chronological order
+    data.reverse();
+
+    Ok(Json(ResourceQueryResponse {
+        id: payload.id,
+        data,
     }))
 }

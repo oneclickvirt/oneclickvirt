@@ -95,8 +95,8 @@
       @close="taskLogDialog.visible = false"
     />
 
-    <!-- 流量监控任务对话框 -->
-    <TrafficMonitorTaskDialog
+    <!-- 监控管理对话框 -->
+    <MonitoringManagementDialog
       v-model:visible="trafficMonitorDialog.visible"
       :provider="trafficMonitorDialog.provider"
       :show-history="trafficMonitorDialog.showHistory"
@@ -124,6 +124,7 @@ import SearchFilter from './components/SearchFilter.vue'
 import ConfigDialog from './components/ConfigDialog.vue'
 import TaskLogDialog from './components/TaskLogDialog.vue'
 import TrafficMonitorTaskDialog from './components/TrafficMonitorTaskDialog.vue'
+import MonitoringManagementDialog from './components/MonitoringManagementDialog.vue'
 import ProviderTable from './components/ProviderTable.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
 import { useProviderCRUD } from './composables/useProviderCRUD'

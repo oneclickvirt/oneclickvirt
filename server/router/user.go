@@ -28,6 +28,8 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.POST("/user/instances", user.CreateUserInstance)
 		UserGroup.GET("/user/instances/:id", user.GetUserInstanceDetail)
 		UserGroup.GET("/user/instances/:id/monitoring", user.GetInstanceMonitoring)
+		UserGroup.GET("/user/instances/:id/monitoring/resources", user.GetInstanceResourceMonitoring)
+		UserGroup.GET("/user/instances/:id/monitoring/status", user.GetInstanceMonitoringStatus)
 		UserGroup.GET("/user/instances/:id/pmacct/summary", user.GetInstancePmacctSummary)
 		UserGroup.GET("/user/instances/:id/pmacct/query", user.QueryInstancePmacctData)
 		UserGroup.PUT("/user/instances/:id/reset-password", user.ResetInstancePassword)

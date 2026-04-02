@@ -214,6 +214,23 @@ export function getInstanceMonitoring(id) {
   })
 }
 
+// 实例资源监控（CPU/内存/磁盘）
+export function getInstanceResourceMonitoring(id, params) {
+  return request({
+    url: `/v1/user/instances/${id}/monitoring/resources`,
+    method: 'get',
+    params
+  })
+}
+
+// 实例监控状态
+export function getInstanceMonitoringStatus(id) {
+  return request({
+    url: `/v1/user/instances/${id}/monitoring/status`,
+    method: 'get'
+  })
+}
+
 // 创建实例
 export function createInstance(data) {
   return request({

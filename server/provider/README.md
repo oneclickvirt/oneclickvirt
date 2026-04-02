@@ -117,7 +117,6 @@ Provider支持三种执行规则，控制操作的执行方式：
   - 镜像下载目录：`/usr/local/bin/podman_images`
   - 健康检查服务名：`podman`
   - 支持的操作系统/架构: ubuntu/rockylinux/openeuler/debian/alpine/almalinux × amd64/arm64
-  - 需前置安装 Podman：参考 <https://github.com/oneclickvirt/podman>
 
 ### Containerd
 
@@ -135,7 +134,6 @@ Provider支持三种执行规则，控制操作的执行方式：
   - 镜像下载目录：`/usr/local/bin/containerd_images`
   - 健康检查服务名：`nerdctl`
   - 支持的操作系统/架构: ubuntu/rockylinux/openeuler/debian/alpine/almalinux × amd64/arm64
-  - 需前置安装 Containerd + nerdctl：参考 <https://github.com/oneclickvirt/containerd>
 
 ### Incus
 

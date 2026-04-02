@@ -4,12 +4,18 @@ use utoipa::ToSchema;
 #[derive(Deserialize, ToSchema)]
 pub struct AddRequest {
     pub interface: InterfaceInput,
+    /// Provider type hint for resource monitoring: docker/podman/containerd/lxd/incus/proxmox
+    pub provider_kind: Option<String>,
+    /// Instance name on the provider host (container/VM name or VMID for proxmox)
+    pub instance_name: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
 pub struct UpdateRequest {
     pub id: i64,
     pub new_interface: InterfaceInput,
+    pub provider_kind: Option<String>,
+    pub instance_name: Option<String>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -25,6 +31,13 @@ pub struct InfoRequest {
 #[derive(Deserialize, ToSchema)]
 pub struct CleanupRequest {
     pub max_update_time: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct ResourceQueryRequest {
+    pub id: i64,
+    /// Max number of data points to return (default 288 = 24h at 5min interval)
+    pub limit: Option<i64>,
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -74,4 +87,20 @@ pub struct InfoResponse {
 pub struct CleanupResponse {
     pub deleted: usize,
     pub max_update_seconds: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ResourceDataPoint {
+    pub timestamp: i64,
+    pub cpu_percent: f64,
+    pub memory_used: u64,
+    pub memory_total: u64,
+    pub disk_used: u64,
+    pub disk_total: u64,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ResourceQueryResponse {
+    pub id: i64,
+    pub data: Vec<ResourceDataPoint>,
 }

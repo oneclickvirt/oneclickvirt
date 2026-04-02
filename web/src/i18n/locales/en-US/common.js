@@ -6,6 +6,8 @@ export default {
   cancel: 'Cancel',
   confirm: 'Confirm',
   save: 'Save',
+  saveSuccess: 'Saved successfully',
+  saveFailed: 'Save failed',
   update: 'Update',
   delete: 'Delete',
   edit: 'Edit',
