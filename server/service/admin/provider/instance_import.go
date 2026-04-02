@@ -141,7 +141,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 			ID uint
 		}
 		if err := global.APP_DB.Table("users").
-			Where("is_admin = ?", true).
+			Where("user_type IN ?", []string{"admin", "super_admin"}).
 			Select("id").
 			First(&adminUser).Error; err != nil {
 			global.APP_LOG.Warn("未找到管理员用户，将使用用户ID 1", zap.Error(err))

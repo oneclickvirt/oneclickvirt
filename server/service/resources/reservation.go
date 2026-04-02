@@ -24,6 +24,7 @@ import (
 type ResourceReservationService struct {
 	dbService   *database.DatabaseService
 	stopCleanup chan bool
+	stopOnce    sync.Once
 }
 
 var (
@@ -90,7 +91,9 @@ func (s *ResourceReservationService) startPeriodicCleanup() {
 
 // StopCleanup 停止清理任务
 func (s *ResourceReservationService) StopCleanup() {
-	close(s.stopCleanup)
+	s.stopOnce.Do(func() {
+		close(s.stopCleanup)
+	})
 }
 
 // cleanupExpiredReservations 清理过期的预留记录

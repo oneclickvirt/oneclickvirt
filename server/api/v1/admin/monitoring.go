@@ -290,7 +290,7 @@ func GetProviderMonitors(c *gin.Context) {
 
 // GetInstanceResources returns resource monitoring data for an instance.
 func GetInstanceResources(c *gin.Context) {
-	instanceIDStr := c.Param("instanceId")
+	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的实例ID"})

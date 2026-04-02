@@ -184,7 +184,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
 		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
 		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
-		AdminGroup.GET("/instances/:instanceId/monitoring/resources", admin.GetInstanceResources)
+		AdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
 
 		// 冻结管理
 		AdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
