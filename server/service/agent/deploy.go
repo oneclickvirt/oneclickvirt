@@ -2,12 +2,14 @@ package agent
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -57,63 +59,14 @@ func buildEnvFile(cfg *AgentConfig) string {
 	return sb.String()
 }
 
-// DeployAgent deploys the agent binary to a provider host via SSH.
-// It downloads the binary from GitHub releases (with CDN fallback), installs it,
-// and creates a systemd service.
-// Returns a deployment log string and any error.
-func DeployAgent(ctx context.Context, providerInstance provider.Provider, token string, version string) (string, error) {
-	return DeployAgentWithConfig(ctx, providerInstance, &AgentConfig{Token: token}, version)
-}
-
-// DeployAgentWithConfig deploys the agent binary with full configuration.
-// It executes each deployment step individually to provide granular logging.
-// Returns a multi-line deployment log string and any error.
-func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, version string) (string, error) {
-	arch, err := detectArchitecture(ctx, providerInstance)
-	if err != nil {
-		arch = "amd64"
-	}
-
+// buildDeployScript generates a self-contained bash deploy script for the agent.
+// The script handles download verification, extraction, .env writing and systemd setup.
+func buildDeployScript(cfg *AgentConfig, version, arch string, downloadURLs []string) string {
 	binaryName := fmt.Sprintf("%s-linux-%s", AgentBinaryName, arch)
 	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
-	downloadURL := buildDownloadURL(version, archiveName)
-	cdnURL := buildCDNDownloadURL(version, archiveName)
 	envContent := buildEnvFile(cfg)
 
-	providerName := providerInstance.GetName()
-
-	type step struct {
-		label string
-		cmd   string
-	}
-
-	steps := []step{
-		{
-			label: "create install directory",
-			cmd:   fmt.Sprintf("mkdir -p %s", AgentInstallDir),
-		},
-		{
-			label: "download agent binary",
-			cmd: fmt.Sprintf(
-				`cd %s && (curl -sL --connect-timeout 10 -o %s '%s' || curl -sL --connect-timeout 30 -o %s '%s')`,
-				AgentInstallDir, archiveName, cdnURL, archiveName, downloadURL,
-			),
-		},
-		{
-			label: "extract and install binary",
-			cmd: fmt.Sprintf(
-				`cd %s && tar -xzf %s && rm -f %s && mv %s/%s %s/%s 2>/dev/null; chmod +x %s/%s`,
-				AgentInstallDir, archiveName, archiveName,
-				AgentInstallDir, binaryName, AgentInstallDir, AgentBinaryName,
-				AgentInstallDir, AgentBinaryName,
-			),
-		},
-		{
-			label: "write configuration files",
-			cmd: fmt.Sprintf(
-				"cat > %s/.env << 'ENVEOF'\n%sENVEOF\n"+
-					`cat > /etc/systemd/system/%s.service << 'SVCEOF'
-[Unit]
+	serviceUnit := fmt.Sprintf(`[Unit]
 Description=OneclickVirt Monitoring Agent
 After=network.target
 
@@ -127,61 +80,150 @@ LimitNOFILE=65536
 
 [Install]
 WantedBy=multi-user.target
-SVCEOF`,
-				AgentInstallDir, envContent,
-				AgentServiceName, AgentInstallDir, AgentInstallDir, AgentBinaryName,
-			),
-		},
-		{
-			label: "enable and start service",
-			cmd: fmt.Sprintf(
-				"systemctl daemon-reload && systemctl enable %s && systemctl restart %s",
-				AgentServiceName, AgentServiceName,
-			),
-		},
+`, AgentInstallDir, AgentInstallDir, AgentBinaryName)
+
+	// We use printf to write files to avoid heredoc nesting issues within the script itself.
+	// envContent and serviceUnit are base64-encoded inside the script so any special chars are safe.
+	envB64 := base64.StdEncoding.EncodeToString([]byte(envContent))
+	svcB64 := base64.StdEncoding.EncodeToString([]byte(serviceUnit))
+
+	// Space-separated URL list for the shell script to iterate over (CDN mirrors first, GitHub last).
+	urlList := strings.Join(downloadURLs, " ")
+
+	script := fmt.Sprintf(`#!/bin/sh
+set -e
+INSTALL_DIR="%s"
+BINARY_NAME="%s"
+SRC_BINARY_NAME="%s"
+ARCHIVE_NAME="%s"
+DOWNLOAD_URLS="%s"
+SERVICE_NAME="%s"
+VERSION="%s"
+
+echo "[1/5] create install directory..."
+mkdir -p "$INSTALL_DIR"
+echo "[OK] 1/5 install directory created"
+
+echo "[2/5] download agent binary (version $VERSION)..."
+cd "$INSTALL_DIR"
+DOWNLOADED=0
+for url in $DOWNLOAD_URLS; do
+    if curl -fsSL --connect-timeout 20 --retry 1 -o "$ARCHIVE_NAME" "$url" 2>/dev/null && [ -s "$ARCHIVE_NAME" ]; then
+        DOWNLOADED=1
+        echo "  source: $url"
+        break
+    fi
+    rm -f "$ARCHIVE_NAME"
+done
+if [ "$DOWNLOADED" -eq 0 ]; then
+    echo "[FAIL] download failed - all mirrors unreachable or returned empty file"
+    exit 1
+fi
+echo "[OK] 2/5 binary downloaded"
+
+echo "[3/5] verify and extract binary..."
+if ! tar -tzf "$ARCHIVE_NAME" > /dev/null 2>&1; then
+    echo "[FAIL] downloaded file is not a valid tar.gz archive (possible 404 or network error)"
+    rm -f "$ARCHIVE_NAME"
+    exit 1
+fi
+tar -xzf "$ARCHIVE_NAME"
+rm -f "$ARCHIVE_NAME"
+if [ -f "$SRC_BINARY_NAME" ]; then
+    mv "$SRC_BINARY_NAME" "$BINARY_NAME"
+fi
+chmod +x "$BINARY_NAME"
+if [ ! -x "$BINARY_NAME" ]; then
+    echo "[FAIL] binary not found after extraction"
+    exit 1
+fi
+echo "[OK] 3/5 binary ready at $INSTALL_DIR/$BINARY_NAME"
+
+echo "[4/5] write .env and systemd service..."
+printf '%%s' "%s" | base64 -d > "$INSTALL_DIR/.env"
+printf '%%s' "%s" | base64 -d > /etc/systemd/system/"$SERVICE_NAME".service
+echo "[OK] 4/5 configuration written"
+
+echo "[5/5] enable and start service..."
+systemctl daemon-reload
+systemctl enable "$SERVICE_NAME"
+systemctl restart "$SERVICE_NAME"
+echo "[OK] 5/5 service started"
+echo "DEPLOY_SUCCESS"
+`,
+		AgentInstallDir,
+		AgentBinaryName,
+		binaryName,
+		archiveName,
+		urlList,
+		AgentServiceName,
+		version,
+		envB64,
+		svcB64,
+	)
+	return script
+}
+
+// DeployAgent deploys the agent binary to a provider host via SSH.
+// Returns a deployment log string and any error.
+func DeployAgent(ctx context.Context, providerInstance provider.Provider, token string, version string) (string, error) {
+	return DeployAgentWithConfig(ctx, providerInstance, &AgentConfig{Token: token}, version)
+}
+
+// DeployAgentWithConfig deploys the agent binary with full configuration.
+// It generates a complete shell script, uploads it via SSH (base64-encoded), executes it,
+// and captures the per-step log output.
+func DeployAgentWithConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig, version string) (string, error) {
+	arch, err := detectArchitecture(ctx, providerInstance)
+	if err != nil {
+		arch = "amd64"
 	}
 
-	var logBuf strings.Builder
-	total := len(steps)
+	binaryName := fmt.Sprintf("%s-linux-%s", AgentBinaryName, arch)
+	archiveName := fmt.Sprintf("%s.tar.gz", binaryName)
+	downloadURLs := buildDownloadURLList(version, archiveName)
 
-	deployCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	providerName := providerInstance.GetName()
+
+	script := buildDeployScript(cfg, version, arch, downloadURLs)
+	scriptB64 := base64.StdEncoding.EncodeToString([]byte(script))
+
+	// Upload via printf + base64 decode, then execute, then clean up regardless of outcome.
+	// Using a unique tmp file to avoid collisions on concurrent deploys.
+	tmpScript := fmt.Sprintf("/tmp/ocv_agent_deploy_%s.sh", version)
+	uploadAndRun := fmt.Sprintf(
+		`printf '%%s' '%s' | base64 -d > %s && chmod +x %s && %s; RC=$?; rm -f %s; exit $RC`,
+		scriptB64, tmpScript, tmpScript, tmpScript, tmpScript,
+	)
+
+	deployCtx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 	defer cancel()
 
-	for i, s := range steps {
-		logBuf.WriteString(fmt.Sprintf("[%d/%d] %s...\n", i+1, total, s.label))
-		out, stepErr := providerInstance.ExecuteSSHCommand(deployCtx, s.cmd)
-		if out = strings.TrimSpace(out); out != "" {
-			logBuf.WriteString(out)
-			logBuf.WriteString("\n")
-		}
-		if stepErr != nil {
-			msg := fmt.Sprintf("[FAIL] step %d/%d (%s): %v", i+1, total, s.label, stepErr)
-			logBuf.WriteString(msg + "\n")
-			if global.APP_LOG != nil {
-				global.APP_LOG.Error("deploy agent step failed",
-					zap.String("provider", providerName),
-					zap.String("version", version),
-					zap.String("step", s.label),
-					zap.Error(stepErr))
-			}
-			return logBuf.String(), fmt.Errorf("deploy step '%s' failed: %w", s.label, stepErr)
-		}
-		logBuf.WriteString(fmt.Sprintf("[OK] %d/%d %s\n", i+1, total, s.label))
-		if global.APP_LOG != nil {
-			global.APP_LOG.Info("deploy agent step completed",
+	out, execErr := providerInstance.ExecuteSSHCommand(deployCtx, uploadAndRun)
+	out = strings.TrimSpace(out)
+
+	if global.APP_LOG != nil {
+		if execErr != nil {
+			global.APP_LOG.Error("agent deploy failed",
 				zap.String("provider", providerName),
 				zap.String("version", version),
-				zap.String("step", s.label))
+				zap.String("output", out),
+				zap.Error(execErr))
+		} else {
+			global.APP_LOG.Info("agent deployed successfully",
+				zap.String("provider", providerName),
+				zap.String("version", version),
+				zap.String("arch", arch))
 		}
 	}
 
-	if global.APP_LOG != nil {
-		global.APP_LOG.Info("agent deployed successfully",
-			zap.String("provider", providerName),
-			zap.String("version", version),
-			zap.String("arch", arch))
+	if execErr != nil {
+		return out, fmt.Errorf("deploy failed: %w\noutput:\n%s", execErr, out)
 	}
-	return logBuf.String(), nil
+	if !strings.Contains(out, "DEPLOY_SUCCESS") {
+		return out, fmt.Errorf("deploy script exited without success marker; output:\n%s", out)
+	}
+	return out, nil
 }
 
 // UninstallAgent removes the agent from a provider host.
@@ -310,32 +352,33 @@ func buildDownloadURL(version, archiveName string) string {
 	return fmt.Sprintf("https://github.com/oneclickvirt/oneclickvirt/releases/download/%s/%s", version, archiveName)
 }
 
-func buildCDNDownloadURL(version, archiveName string) string {
-	cfg := global.GetAppConfig()
-	if len(cfg.CDN.Endpoints) > 0 {
-		return fmt.Sprintf("%s/oneclickvirt/oneclickvirt/releases/download/%s/%s",
-			cfg.CDN.Endpoints[0], version, archiveName)
+// buildDownloadURLList returns CDN-accelerated URLs (from config) followed by the direct GitHub URL.
+// Each CDN endpoint is prepended to the full GitHub URL, matching the project's standard CDN pattern.
+func buildDownloadURLList(version, archiveName string) []string {
+	githubURL := buildDownloadURL(version, archiveName)
+	endpoints := utils.GetCDNEndpoints()
+	urls := make([]string, 0, len(endpoints)+1)
+	for _, ep := range endpoints {
+		urls = append(urls, ep+githubURL)
 	}
-	if cfg.CDN.BaseEndpoint != "" {
-		return fmt.Sprintf("%s/oneclickvirt/oneclickvirt/releases/download/%s/%s",
-			cfg.CDN.BaseEndpoint, version, archiveName)
-	}
-	return buildDownloadURL(version, archiveName)
+	urls = append(urls, githubURL)
+	return urls
 }
 
 // SyncAgentConfig updates the agent .env file and restarts the service to apply new config.
 func SyncAgentConfig(ctx context.Context, providerInstance provider.Provider, cfg *AgentConfig) error {
 	envContent := buildEnvFile(cfg)
+	envB64 := base64.StdEncoding.EncodeToString([]byte(envContent))
 
-	commands := []string{
-		fmt.Sprintf("cat > %s/.env << 'ENVEOF'\n%sENVEOF", AgentInstallDir, envContent),
-		fmt.Sprintf("systemctl restart %s", AgentServiceName),
-	}
+	// Write .env via base64 to avoid heredoc quoting issues, then restart.
+	cmd := fmt.Sprintf(
+		`printf '%%s' '%s' | base64 -d > %s/.env && systemctl restart %s`,
+		envB64, AgentInstallDir, AgentServiceName,
+	)
 
-	combined := strings.Join(commands, " && ")
 	syncCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	_, err := providerInstance.ExecuteSSHCommand(syncCtx, combined)
+	_, err := providerInstance.ExecuteSSHCommand(syncCtx, cmd)
 	if err != nil {
 		return fmt.Errorf("sync agent config failed: %w", err)
 	}

@@ -122,6 +122,14 @@ jobs:
         cp build/agents/agent-arm64/oneclickvirt-agent-linux-arm64 build/oneclickvirt-agent-linux-arm64
         chmod +x build/oneclickvirt-agent-linux-amd64 build/oneclickvirt-agent-linux-arm64
 
+    - name: Update version constants for this release
+      run: |
+        TAG_NAME="v${{ steps.date.outputs.date }}"
+        sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${TAG_NAME}\"/" server/constant/version.go
+        sed -i "s/const CompatibleAgentVersion = \".*\"/const CompatibleAgentVersion = \"${TAG_NAME}\"/" server/constant/version.go
+        echo "Updated version constants to: ${TAG_NAME}"
+        cat server/constant/version.go
+
     - name: Cache npm dependencies
       uses: actions/cache@v3
       with:

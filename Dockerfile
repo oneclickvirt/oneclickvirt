@@ -16,10 +16,13 @@ RUN npm run build
 
 FROM golang:1.24-alpine AS backend-builder
 ARG TARGETARCH
+ARG SERVER_VERSION=dev
 WORKDIR /app/server
 RUN apk add --no-cache git ca-certificates
 COPY server/ ./
 RUN go mod download
+RUN sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${SERVER_VERSION}\"/" constant/version.go && \
+    sed -i "s/const CompatibleAgentVersion = \".*\"/const CompatibleAgentVersion = \"${SERVER_VERSION}\"/" constant/version.go
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=${TARGETARCH} go build -a -installsuffix cgo -ldflags "-w -s" -o main .
 
 FROM debian:12-slim
