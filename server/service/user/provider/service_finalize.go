@@ -584,10 +584,21 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				}
 			}
 
-			// 4.5 Agent监控：无论是否启用流量监控，都注册Agent监控以记录网络接口
-			agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-			agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
-			agentCancel()
+			// 4.5 Agent监控：仅在 agent 监控模式下注册
+			var monConfig monitoringModel.MonitoringConfig
+			useAgent := true // 默认使用 agent 模式
+			if err := global.APP_DB.Where("provider_id = ?", providerID).First(&monConfig).Error; err == nil {
+				useAgent = monConfig.MonitoringMode != "pmacct"
+			}
+			if useAgent {
+				agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
+				agentCancel()
+			} else {
+				global.APP_LOG.Debug("Provider使用pmacct监控模式，跳过Agent注册",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("providerId", providerID))
+			}
 
 			// 更新进度到98%
 			s.updateTaskProgress(taskID, 98, "正在启动流量同步...")

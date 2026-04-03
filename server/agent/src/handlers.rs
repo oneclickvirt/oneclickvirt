@@ -168,10 +168,10 @@ pub async fn add_monitor(
 
     for interface in &interfaces {
         ensure_counter(id, interface, inner_ip.as_deref())?;
-        let base_counter = read_external_bytes(id, interface).unwrap_or(0);
+        let (base_in, base_out) = read_external_bytes(id, interface).unwrap_or((0, 0));
         conn.execute(
-            "INSERT INTO interface_states (monitor_id, interface, last_counter) VALUES (?1, ?2, ?3)",
-            params![id, interface, base_counter],
+            "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
+            params![id, interface, base_in, base_out],
         )
         .map_err(|e| ApiError::internal(format!("insert interface state error: {e}")))?;
     }
@@ -272,10 +272,10 @@ pub async fn update_monitor(
 
     for interface in &interfaces {
         ensure_counter(id, interface, effective_inner_ip)?;
-        let base_counter = read_external_bytes(id, interface).unwrap_or(0);
+        let (base_in, base_out) = read_external_bytes(id, interface).unwrap_or((0, 0));
         conn.execute(
-            "INSERT INTO interface_states (monitor_id, interface, last_counter) VALUES (?1, ?2, ?3)",
-            params![id, interface, base_counter],
+            "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
+            params![id, interface, base_in, base_out],
         )
         .map_err(|e| ApiError::internal(format!("insert new interface state error: {e}")))?;
     }
@@ -375,13 +375,15 @@ pub async fn info_monitor(
     let conn = state.conn.lock().await;
     let row = conn
         .query_row(
-            "SELECT id, interfaces, total_bytes, updated_at FROM monitors WHERE id = ?1",
+            "SELECT id, interfaces, total_bytes, total_bytes_in, total_bytes_out, updated_at FROM monitors WHERE id = ?1",
             params![payload.id],
             |row| {
                 let interfaces_json: String = row.get(1)?;
                 let interfaces: Vec<String> =
                     serde_json::from_str(&interfaces_json).unwrap_or_default();
                 let used_traffic: u64 = row.get(2)?;
+                let used_traffic_in: u64 = row.get(3)?;
+                let used_traffic_out: u64 = row.get(4)?;
                 let used_traffic_human = if query.human == Some(1) {
                     Some(human_bytes(used_traffic))
                 } else {
@@ -391,8 +393,10 @@ pub async fn info_monitor(
                     id: row.get(0)?,
                     interface: interfaces,
                     used_traffic,
+                    used_traffic_in,
+                    used_traffic_out,
                     used_traffic_human,
-                    last_update_time: row.get(3)?,
+                    last_update_time: row.get(5)?,
                 })
             },
         )

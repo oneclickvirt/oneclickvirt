@@ -79,10 +79,6 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	day := now.Day()
 	hour := now.Hour()
 
-	countMode := p.TrafficCountMode
-	if countMode == "" {
-		countMode = "both"
-	}
 	multiplier := p.TrafficMultiplier
 	if multiplier <= 0 {
 		multiplier = 1.0
@@ -98,20 +94,31 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			}
 
 			currentTraffic := info.UsedTraffic
+			currentTrafficIn := info.UsedTrafficIn
+			currentTrafficOut := info.UsedTrafficOut
 
-			// Compute delta since last sync
-			var deltaBytes uint64
-			if currentTraffic >= monitor.LastTrafficBytes {
-				deltaBytes = currentTraffic - monitor.LastTrafficBytes
+			// Compute delta since last sync for in/out separately
+			var deltaBytesIn, deltaBytesOut uint64
+			if currentTrafficIn >= monitor.LastTrafficBytesIn {
+				deltaBytesIn = currentTrafficIn - monitor.LastTrafficBytesIn
 			} else {
-				// Agent may have been reset or data loss, use current as delta
-				deltaBytes = currentTraffic
-				global.APP_LOG.Warn("Agent流量计数器重置检测: 当前值小于上次同步值，可能由于Agent重启导致重置前的流量数据丢失",
+				deltaBytesIn = currentTrafficIn
+				global.APP_LOG.Warn("Agent入站流量计数器重置检测",
 					zap.Uint("instanceID", monitor.InstanceID),
-					zap.Uint64("lastTrafficBytes", monitor.LastTrafficBytes),
-					zap.Uint64("currentTraffic", currentTraffic))
+					zap.Uint64("lastIn", monitor.LastTrafficBytesIn),
+					zap.Uint64("currentIn", currentTrafficIn))
+			}
+			if currentTrafficOut >= monitor.LastTrafficBytesOut {
+				deltaBytesOut = currentTrafficOut - monitor.LastTrafficBytesOut
+			} else {
+				deltaBytesOut = currentTrafficOut
+				global.APP_LOG.Warn("Agent出站流量计数器重置检测",
+					zap.Uint("instanceID", monitor.InstanceID),
+					zap.Uint64("lastOut", monitor.LastTrafficBytesOut),
+					zap.Uint64("currentOut", currentTrafficOut))
 			}
 
+			deltaBytes := deltaBytesIn + deltaBytesOut
 			if deltaBytes == 0 {
 				// Still update sync time
 				tx.Model(monitor).Updates(map[string]interface{}{
@@ -120,20 +127,9 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 				continue
 			}
 
-			// Convert bytes to MB
-			// Since agent reports total (rx+tx combined), we split evenly for now
-			// TODO: modify agent to report rx/tx separately for proper count mode support
-			totalMB := float64(deltaBytes) * multiplier / 1048576.0
-			var rxMB, txMB float64
-			switch countMode {
-			case "out":
-				txMB = totalMB
-			case "in":
-				rxMB = totalMB
-			default: // "both"
-				rxMB = totalMB / 2
-				txMB = totalMB / 2
-			}
+			// Convert bytes to MB using real rx/tx from agent
+			rxMB := float64(deltaBytesIn) * multiplier / 1048576.0
+			txMB := float64(deltaBytesOut) * multiplier / 1048576.0
 
 			// Update instance traffic history (hourly)
 			if err := txSync.upsertInstanceTrafficHistory(
@@ -161,8 +157,10 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 
 			// Update agent monitor tracking
 			tx.Model(monitor).Updates(map[string]interface{}{
-				"last_traffic_bytes": currentTraffic,
-				"last_sync_at":       now,
+				"last_traffic_bytes":     currentTraffic,
+				"last_traffic_bytes_in":  currentTrafficIn,
+				"last_traffic_bytes_out": currentTrafficOut,
+				"last_sync_at":           now,
 			})
 		}
 		return nil

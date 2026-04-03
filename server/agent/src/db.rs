@@ -14,6 +14,8 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             interfaces TEXT NOT NULL,
             total_bytes INTEGER NOT NULL DEFAULT 0,
+            total_bytes_in INTEGER NOT NULL DEFAULT 0,
+            total_bytes_out INTEGER NOT NULL DEFAULT 0,
             provider_kind TEXT,
             instance_name TEXT,
             inner_ip TEXT,
@@ -24,6 +26,8 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             monitor_id INTEGER NOT NULL,
             interface TEXT NOT NULL,
             last_counter INTEGER NOT NULL DEFAULT 0,
+            last_counter_in INTEGER NOT NULL DEFAULT 0,
+            last_counter_out INTEGER NOT NULL DEFAULT 0,
             PRIMARY KEY (monitor_id, interface),
             FOREIGN KEY(monitor_id) REFERENCES monitors(id) ON DELETE CASCADE
         );

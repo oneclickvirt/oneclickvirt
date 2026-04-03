@@ -95,6 +95,8 @@ type InfoResponse struct {
 	ID               int64    `json:"id"`
 	Interface        []string `json:"interface"`
 	UsedTraffic      uint64   `json:"used_traffic"`
+	UsedTrafficIn    uint64   `json:"used_traffic_in"`
+	UsedTrafficOut   uint64   `json:"used_traffic_out"`
 	UsedTrafficHuman *string  `json:"used_traffic_human"`
 	LastUpdateTime   int64    `json:"last_update_time"`
 }

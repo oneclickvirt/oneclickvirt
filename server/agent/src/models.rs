@@ -83,6 +83,8 @@ pub struct InfoResponse {
     pub id: i64,
     pub interface: Vec<String>,
     pub used_traffic: u64,
+    pub used_traffic_in: u64,
+    pub used_traffic_out: u64,
     pub used_traffic_human: Option<String>,
     pub last_update_time: i64,
 }

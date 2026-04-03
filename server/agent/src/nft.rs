@@ -191,6 +191,14 @@ fn counter_name(scope: Scope, monitor_id: i64, interface: &str) -> String {
     format!("{prefix}m{monitor_id}_{h:x}")
 }
 
+fn counter_name_in(scope: Scope, monitor_id: i64, interface: &str) -> String {
+    format!("{}_in", counter_name(scope, monitor_id, interface))
+}
+
+fn counter_name_out(scope: Scope, monitor_id: i64, interface: &str) -> String {
+    format!("{}_out", counter_name(scope, monitor_id, interface))
+}
+
 fn interface_aliases(interface: &str) -> Vec<String> {
     let mut aliases = Vec::new();
     aliases.push(interface.to_string());
@@ -210,7 +218,7 @@ fn expected_rule_count(scope: Scope, alias_count: usize, has_inner_ip: bool) -> 
     match scope.tag {
         "inet" => {
             if has_inner_ip {
-                // Per-IP: 2 rules per alias (inbound + outbound for one address family)
+                // Per-IP: 2 rules per alias (inbound to _in counter + outbound to _out counter)
                 alias_count * 2
             } else {
                 // Fallback: 4 rules per alias (IPv4 in/out + IPv6 in/out)
@@ -382,13 +390,14 @@ fn remove_counter_by_name(scope: Scope, counter: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str, inner_ip: Option<&str>) -> Result<(), ApiError> {
+fn add_rules_for_counter(scope: Scope, counter_in: &str, counter_out: &str, interface: &str, inner_ip: Option<&str>) -> Result<(), ApiError> {
     let aliases = interface_aliases(interface);
     if aliases.is_empty() {
         return Err(ApiError::internal("interface aliases cannot be empty"));
     }
 
-    let comment = format!("vmtm:{counter}:{}", current_config_tag());
+    let comment_in = format!("vmtm:{counter_in}:{}", current_config_tag());
+    let comment_out = format!("vmtm:{counter_out}:{}", current_config_tag());
     let private_v4_set = nft_set_literal(exclude_v4());
     let private_v6_set = nft_set_literal(exclude_v6());
     let mut script = String::new();
@@ -401,15 +410,13 @@ fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str, inner_ip:
         match inner_ip {
             Some(ip) if !is_ipv6 => {
                 // Per-IP filtering for IPv4 inner_ip:
-                // Count traffic where inner_ip is source going to non-private destinations (outbound)
-                // Count traffic where inner_ip is destination coming from non-private sources (inbound)
+                // Inbound: traffic arriving at interface destined for inner_ip → _in counter
+                // Outbound: traffic leaving interface from inner_ip → _out counter
                 script.push_str(&format!(
                     "add rule {} {} {} iifname \"{}\" ip saddr != {} ip daddr {} counter name {} comment \"{}\"\n\
                      add rule {} {} {} oifname \"{}\" ip saddr {} ip daddr != {} counter name {} comment \"{}\"\n",
-                    // Inbound: traffic arriving at the interface destined for inner_ip, from non-private sources
-                    scope.family, scope.table, scope.chain, iface, private_v4_set, ip, counter, comment,
-                    // Outbound: traffic leaving the interface from inner_ip, to non-private destinations
-                    scope.family, scope.table, scope.chain, iface, ip, private_v4_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, ip, counter_in, comment_in,
+                    scope.family, scope.table, scope.chain, iface, ip, private_v4_set, counter_out, comment_out,
                 ));
             }
             Some(ip) => {
@@ -417,21 +424,22 @@ fn add_rules_for_counter(scope: Scope, counter: &str, interface: &str, inner_ip:
                 script.push_str(&format!(
                     "add rule {} {} {} iifname \"{}\" ip6 saddr != {} ip6 daddr {} counter name {} comment \"{}\"\n\
                      add rule {} {} {} oifname \"{}\" ip6 saddr {} ip6 daddr != {} counter name {} comment \"{}\"\n",
-                    scope.family, scope.table, scope.chain, iface, private_v6_set, ip, counter, comment,
-                    scope.family, scope.table, scope.chain, iface, ip, private_v6_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, ip, counter_in, comment_in,
+                    scope.family, scope.table, scope.chain, iface, ip, private_v6_set, counter_out, comment_out,
                 ));
             }
             None => {
                 // No inner_ip: fallback to interface-based counting (exclude private ranges)
+                // iifname = inbound → _in counter, oifname = outbound → _out counter
                 script.push_str(&format!(
                     "add rule {} {} {} iifname \"{}\" ip daddr != {} counter name {} comment \"{}\"\n\
                      add rule {} {} {} oifname \"{}\" ip saddr != {} counter name {} comment \"{}\"\n\
                      add rule {} {} {} iifname \"{}\" ip6 daddr != {} counter name {} comment \"{}\"\n\
                      add rule {} {} {} oifname \"{}\" ip6 saddr != {} counter name {} comment \"{}\"\n",
-                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter, comment,
-                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter, comment,
-                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter, comment,
-                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter, comment,
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter_in, comment_in,
+                    scope.family, scope.table, scope.chain, iface, private_v4_set, counter_out, comment_out,
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter_in, comment_in,
+                    scope.family, scope.table, scope.chain, iface, private_v6_set, counter_out, comment_out,
                 ));
             }
         }
@@ -443,14 +451,20 @@ fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str, inner
     ensure_base_objects(scope)?;
     let alias_count = interface_aliases(interface).len();
     let expected_rules = expected_rule_count(scope, alias_count, inner_ip.is_some());
-    let counter = counter_name(scope, monitor_id, interface);
-    let counter_exists = query_counter_bytes(scope, &counter)?.is_some();
-    let refs = find_rule_refs_by_counter(scope, &counter)?;
-    let rule_count = refs.len();
-    let expected_comment = format!("vmtm:{counter}:{}", current_config_tag());
-    let comment_ok = refs.iter().all(|(_, _, line)| line.contains(&expected_comment));
+    let counter_in = counter_name_in(scope, monitor_id, interface);
+    let counter_out = counter_name_out(scope, monitor_id, interface);
+    let counter_in_exists = query_counter_bytes(scope, &counter_in)?.is_some();
+    let counter_out_exists = query_counter_bytes(scope, &counter_out)?.is_some();
+    // Rules referencing either _in or _out counter
+    let refs_in = find_rule_refs_by_counter(scope, &counter_in)?;
+    let refs_out = find_rule_refs_by_counter(scope, &counter_out)?;
+    let rule_count = refs_in.len() + refs_out.len();
+    let expected_comment_in = format!("vmtm:{counter_in}:{}", current_config_tag());
+    let expected_comment_out = format!("vmtm:{counter_out}:{}", current_config_tag());
+    let comment_ok = refs_in.iter().all(|(_, _, line)| line.contains(&expected_comment_in))
+        && refs_out.iter().all(|(_, _, line)| line.contains(&expected_comment_out));
 
-    if counter_exists && rule_count == expected_rules && comment_ok {
+    if counter_in_exists && counter_out_exists && rule_count == expected_rules && comment_ok {
         return Ok(());
     }
 
@@ -459,8 +473,8 @@ fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str, inner
         table = scope.table,
         monitor_id,
         interface,
-        counter,
-        counter_exists,
+        counter_in_exists,
+        counter_out_exists,
         rule_count,
         expected_rules,
         comment_ok,
@@ -468,13 +482,18 @@ fn ensure_counter_in_scope(scope: Scope, monitor_id: i64, interface: &str, inner
         "nft counter/rules state not healthy, reconciling"
     );
 
-    if !counter_exists {
-        let script = format!("add counter {} {} {}\n", scope.family, scope.table, counter);
+    if !counter_in_exists {
+        let script = format!("add counter {} {} {}\n", scope.family, scope.table, counter_in);
+        run_nft_script(&script)?;
+    }
+    if !counter_out_exists {
+        let script = format!("add counter {} {} {}\n", scope.family, scope.table, counter_out);
         run_nft_script(&script)?;
     }
 
-    let _ = remove_rules_by_counter(scope, &counter)?;
-    add_rules_for_counter(scope, &counter, interface, inner_ip)?;
+    let _ = remove_rules_by_counter(scope, &counter_in)?;
+    let _ = remove_rules_by_counter(scope, &counter_out)?;
+    add_rules_for_counter(scope, &counter_in, &counter_out, interface, inner_ip)?;
     Ok(())
 }
 
@@ -513,8 +532,10 @@ pub fn ensure_counter(monitor_id: i64, interface: &str, inner_ip: Option<&str>) 
 
 pub fn remove_counter(monitor_id: i64, interface: &str) -> Result<(), ApiError> {
     for scope in SCOPES {
-        let counter = counter_name(scope, monitor_id, interface);
-        remove_counter_by_name(scope, &counter)?;
+        let ci = counter_name_in(scope, monitor_id, interface);
+        let co = counter_name_out(scope, monitor_id, interface);
+        remove_counter_by_name(scope, &ci)?;
+        remove_counter_by_name(scope, &co)?;
     }
     Ok(())
 }
@@ -561,7 +582,8 @@ fn expected_counters_from_db_for_scope(conn: &Connection, scope: Scope) -> Resul
     for row in rows {
         let (monitor_id, interface) =
             row.map_err(|e| ApiError::internal(format!("expected counters row error: {e}")))?;
-        expected.insert(counter_name(scope, monitor_id, &interface));
+        expected.insert(counter_name_in(scope, monitor_id, &interface));
+        expected.insert(counter_name_out(scope, monitor_id, &interface));
     }
     Ok(expected)
 }
@@ -612,21 +634,22 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
     }
 }
 
-pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<u64> {
-    let mut total = 0u64;
+pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<(u64, u64)> {
+    let mut total_in = 0u64;
+    let mut total_out = 0u64;
     let mut has_any_counter = false;
     let mut missing_counter_scopes = 0usize;
 
     for scope in SCOPES {
-        let counter = counter_name(scope, monitor_id, interface);
-        match query_counter_bytes(scope, &counter) {
+        let ci = counter_name_in(scope, monitor_id, interface);
+        let co = counter_name_out(scope, monitor_id, interface);
+        let mut scope_ok = false;
+        match query_counter_bytes(scope, &ci) {
             Ok(Some(bytes)) => {
-                total = total.saturating_add(bytes);
-                has_any_counter = true;
+                total_in = total_in.saturating_add(bytes);
+                scope_ok = true;
             }
-            Ok(None) => {
-                missing_counter_scopes += 1;
-            }
+            Ok(None) => {}
             Err(err) => {
                 warn!(
                     family = scope.family,
@@ -634,20 +657,39 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<u64> {
                     monitor_id,
                     interface,
                     error = %err.message,
-                    "failed to read nft counter bytes"
+                    "failed to read nft counter bytes (in)"
                 );
             }
+        }
+        match query_counter_bytes(scope, &co) {
+            Ok(Some(bytes)) => {
+                total_out = total_out.saturating_add(bytes);
+                scope_ok = true;
+            }
+            Ok(None) => {}
+            Err(err) => {
+                warn!(
+                    family = scope.family,
+                    table = scope.table,
+                    monitor_id,
+                    interface,
+                    error = %err.message,
+                    "failed to read nft counter bytes (out)"
+                );
+            }
+        }
+        if scope_ok {
+            has_any_counter = true;
+        } else {
+            missing_counter_scopes += 1;
         }
     }
 
     if has_any_counter {
-        return Some(total);
+        return Some((total_in, total_out));
     }
 
     if missing_counter_scopes > 0 {
-        // Note: read_external_bytes cannot reconcile with inner_ip since it doesn't know it.
-        // The bootstrap_from_db function handles initial reconciliation with inner_ip.
-        // If counters are missing at runtime, attempt without inner_ip (will be fixed on next bootstrap).
         if let Err(err) = ensure_counter(monitor_id, interface, None) {
             warn!(
                 monitor_id,
@@ -658,13 +700,15 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<u64> {
             return None;
         }
 
-        let mut retry_total = 0u64;
+        let mut retry_in = 0u64;
+        let mut retry_out = 0u64;
         let mut retry_has_any = false;
         for scope in SCOPES {
-            let counter = counter_name(scope, monitor_id, interface);
-            match query_counter_bytes(scope, &counter) {
+            let ci = counter_name_in(scope, monitor_id, interface);
+            let co = counter_name_out(scope, monitor_id, interface);
+            match query_counter_bytes(scope, &ci) {
                 Ok(Some(bytes)) => {
-                    retry_total = retry_total.saturating_add(bytes);
+                    retry_in = retry_in.saturating_add(bytes);
                     retry_has_any = true;
                 }
                 Ok(None) => {}
@@ -675,13 +719,30 @@ pub fn read_external_bytes(monitor_id: i64, interface: &str) -> Option<u64> {
                         monitor_id,
                         interface,
                         error = %err.message,
-                        "failed to read nft counter bytes after reconciliation"
+                        "failed to read nft counter bytes (in) after reconciliation"
+                    );
+                }
+            }
+            match query_counter_bytes(scope, &co) {
+                Ok(Some(bytes)) => {
+                    retry_out = retry_out.saturating_add(bytes);
+                    retry_has_any = true;
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    warn!(
+                        family = scope.family,
+                        table = scope.table,
+                        monitor_id,
+                        interface,
+                        error = %err.message,
+                        "failed to read nft counter bytes (out) after reconciliation"
                     );
                 }
             }
         }
         if retry_has_any {
-            return Some(retry_total);
+            return Some((retry_in, retry_out));
         }
     }
 

@@ -23,6 +23,10 @@ type AgentMonitor struct {
 	InstanceName   string `gorm:"size:255" json:"instance_name"`
 	// LastTrafficBytes is the last known total_bytes from the agent.
 	LastTrafficBytes uint64 `gorm:"not null;default:0" json:"last_traffic_bytes"`
+	// LastTrafficBytesIn is the last known total_bytes_in (inbound) from the agent.
+	LastTrafficBytesIn uint64 `gorm:"not null;default:0" json:"last_traffic_bytes_in"`
+	// LastTrafficBytesOut is the last known total_bytes_out (outbound) from the agent.
+	LastTrafficBytesOut uint64 `gorm:"not null;default:0" json:"last_traffic_bytes_out"`
 	// LastSyncAt tracks when traffic was last synced from the agent.
 	LastSyncAt time.Time `gorm:"index" json:"last_sync_at"`
 	IsEnabled  bool      `gorm:"not null;default:true" json:"is_enabled"`

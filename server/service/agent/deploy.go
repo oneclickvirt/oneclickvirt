@@ -249,7 +249,7 @@ func CheckAgentStatus(ctx context.Context, providerInstance provider.Provider) (
 	defer cancel()
 
 	output, err := providerInstance.ExecuteSSHCommand(checkCtx, fmt.Sprintf(
-		"systemctl is-active %s 2>/dev/null && %s/%s --version 2>/dev/null || echo unknown",
+		"systemctl is-active %s 2>/dev/null && %s/%s --version 2>&1 | head -1 || echo unknown",
 		AgentServiceName, AgentInstallDir, AgentBinaryName))
 	if err != nil {
 		return false, ""
@@ -259,11 +259,35 @@ func CheckAgentStatus(ctx context.Context, providerInstance provider.Provider) (
 	if len(lines) > 0 && strings.TrimSpace(lines[0]) == "active" {
 		version := ""
 		if len(lines) > 1 {
-			version = strings.TrimSpace(lines[1])
+			version = stripANSI(strings.TrimSpace(lines[1]))
 		}
 		return true, version
 	}
 	return false, ""
+}
+
+// stripANSI removes ANSI escape sequences from a string.
+func stripANSI(s string) string {
+	const ansiEscape = "\x1b"
+	result := strings.Builder{}
+	i := 0
+	for i < len(s) {
+		if s[i] == ansiEscape[0] && i+1 < len(s) && s[i+1] == '[' {
+			// Skip until we find the terminal letter (@ through ~)
+			j := i + 2
+			for j < len(s) && (s[j] < '@' || s[j] > '~') {
+				j++
+			}
+			if j < len(s) {
+				j++ // skip the terminal character
+			}
+			i = j
+		} else {
+			result.WriteByte(s[i])
+			i++
+		}
+	}
+	return result.String()
 }
 
 // DetectKernelSupportsNFT checks if the provider host kernel supports nftables.

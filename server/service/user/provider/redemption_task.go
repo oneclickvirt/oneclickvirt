@@ -479,10 +479,21 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 
 		s.updateTaskProgress(taskID, 90, "正在配置Agent监控...")
 
-		// Agent监控：注册Agent监控以记录网络接口（与 finalizeInstanceCreation 保持一致）
-		agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
-		agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
-		agentCancel()
+		// Agent监控：仅在 agent 监控模式下注册（与 finalizeInstanceCreation 保持一致）
+		var monConfig monitoringModel.MonitoringConfig
+		useAgent := true // 默认使用 agent 模式
+		if err := global.APP_DB.Where("provider_id = ?", providerID).First(&monConfig).Error; err == nil {
+			useAgent = monConfig.MonitoringMode != "pmacct"
+		}
+		if useAgent {
+			agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
+			agentCancel()
+		} else {
+			global.APP_LOG.Debug("Provider使用pmacct监控模式，跳过Agent注册",
+				zap.Uint("instanceId", instanceID),
+				zap.Uint("providerId", providerID))
+		}
 
 		s.updateTaskProgress(taskID, 98, "正在启动流量同步...")
 

@@ -42,61 +42,70 @@ fn collect_once(conn: &Connection) -> Result<(), ApiError> {
     let now = now_ts();
 
     let mut monitor_stmt = conn
-        .prepare("SELECT id, total_bytes FROM monitors")
+        .prepare("SELECT id, total_bytes, total_bytes_in, total_bytes_out FROM monitors")
         .map_err(|e| ApiError::internal(format!("prepare monitor query error: {e}")))?;
     let monitor_rows = monitor_stmt
-        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, u64>(1)?)))
+        .query_map([], |row| Ok((row.get::<_, i64>(0)?, row.get::<_, u64>(1)?, row.get::<_, u64>(2)?, row.get::<_, u64>(3)?)))
         .map_err(|e| ApiError::internal(format!("monitor query error: {e}")))?;
 
-    let mut monitors: Vec<(i64, u64)> = Vec::new();
+    let mut monitors: Vec<(i64, u64, u64, u64)> = Vec::new();
     for row in monitor_rows {
         monitors.push(row.map_err(|e| ApiError::internal(format!("monitor row error: {e}")))?);
     }
 
-    for (monitor_id, total_bytes) in monitors {
+    for (monitor_id, total_bytes, total_bytes_in, total_bytes_out) in monitors {
         let mut state_stmt = conn
-            .prepare("SELECT interface, last_counter FROM interface_states WHERE monitor_id = ?1")
+            .prepare("SELECT interface, last_counter_in, last_counter_out FROM interface_states WHERE monitor_id = ?1")
             .map_err(|e| ApiError::internal(format!("prepare state query error: {e}")))?;
         let state_rows = state_stmt
             .query_map(params![monitor_id], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?, row.get::<_, u64>(2)?))
             })
             .map_err(|e| ApiError::internal(format!("state query error: {e}")))?;
 
-        let mut increment: u64 = 0;
-        let mut updated_states: Vec<(String, u64)> = Vec::new();
+        let mut increment_in: u64 = 0;
+        let mut increment_out: u64 = 0;
+        let mut updated_states: Vec<(String, u64, u64)> = Vec::new();
         let mut has_readable_interface = false;
 
         for row in state_rows {
-            let (interface, last_counter) =
+            let (interface, last_counter_in, last_counter_out) =
                 row.map_err(|e| ApiError::internal(format!("state row error: {e}")))?;
-            if let Some(current_counter) = read_external_bytes(monitor_id, &interface) {
+            if let Some((current_in, current_out)) = read_external_bytes(monitor_id, &interface) {
                 has_readable_interface = true;
-                if current_counter >= last_counter {
-                    increment = increment.saturating_add(current_counter - last_counter);
+                if current_in >= last_counter_in {
+                    increment_in = increment_in.saturating_add(current_in - last_counter_in);
                 } else {
-                    increment = increment.saturating_add(current_counter);
+                    increment_in = increment_in.saturating_add(current_in);
                 }
-                updated_states.push((interface, current_counter));
+                if current_out >= last_counter_out {
+                    increment_out = increment_out.saturating_add(current_out - last_counter_out);
+                } else {
+                    increment_out = increment_out.saturating_add(current_out);
+                }
+                updated_states.push((interface, current_in, current_out));
             }
         }
 
-        for (interface, new_counter) in updated_states {
+        for (interface, new_counter_in, new_counter_out) in updated_states {
             conn.execute(
-                "UPDATE interface_states SET last_counter = ?1 WHERE monitor_id = ?2 AND interface = ?3",
-                params![new_counter, monitor_id, interface],
+                "UPDATE interface_states SET last_counter_in = ?1, last_counter_out = ?2 WHERE monitor_id = ?3 AND interface = ?4",
+                params![new_counter_in, new_counter_out, monitor_id, interface],
             )
             .map_err(|e| ApiError::internal(format!("update state error: {e}")))?;
         }
 
         if has_readable_interface {
+            let increment = increment_in.saturating_add(increment_out);
             let new_total = total_bytes.saturating_add(increment);
+            let new_total_in = total_bytes_in.saturating_add(increment_in);
+            let new_total_out = total_bytes_out.saturating_add(increment_out);
             conn.execute(
-                "UPDATE monitors SET total_bytes = ?1, updated_at = ?2 WHERE id = ?3",
-                params![new_total, now, monitor_id],
+                "UPDATE monitors SET total_bytes = ?1, total_bytes_in = ?2, total_bytes_out = ?3, updated_at = ?4 WHERE id = ?5",
+                params![new_total, new_total_in, new_total_out, now, monitor_id],
             )
             .map_err(|e| ApiError::internal(format!("update monitor total error: {e}")))?;
-            debug!(monitor_id, increment, new_total, "collector updated traffic stats");
+            debug!(monitor_id, increment_in, increment_out, new_total, "collector updated traffic stats");
         }
     }
 

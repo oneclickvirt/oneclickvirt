@@ -74,22 +74,22 @@ func (h *HistoryService) GetInstanceTrafficHistory(instanceID uint, period strin
 			t1.user_id,
 			t1.timestamp as record_time,
 			t1.year, t1.month, t1.day, t1.hour,
-			-- 计算增量：当前值 - 前一个值（处理重启情况）
-			CASE 
+			-- 计算增量：当前值 - 前一个值（处理重启情况），并将字节转换为MB
+			(CASE 
 				WHEN t2.rx_bytes IS NULL THEN t1.rx_bytes
 				WHEN t1.rx_bytes < t2.rx_bytes THEN t1.rx_bytes
 				ELSE t1.rx_bytes - t2.rx_bytes
-			END as traffic_in,
-			CASE 
+			END) / 1048576.0 as traffic_in,
+			(CASE 
 				WHEN t2.tx_bytes IS NULL THEN t1.tx_bytes
 				WHEN t1.tx_bytes < t2.tx_bytes THEN t1.tx_bytes
 				ELSE t1.tx_bytes - t2.tx_bytes
-			END as traffic_out,
-			CASE 
+			END) / 1048576.0 as traffic_out,
+			(CASE 
 				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
 				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
 				ELSE t1.total_bytes - t2.total_bytes
-			END as total_used
+			END) / 1048576.0 as total_used
 		FROM pmacct_traffic_records t1
 		LEFT JOIN pmacct_traffic_records t2 ON t1.instance_id = t2.instance_id
 			AND t2.timestamp = (
@@ -178,21 +178,21 @@ func (h *HistoryService) GetProviderTrafficHistory(providerID uint, period strin
 			t1.timestamp as record_time,
 			t1.year, t1.month, t1.day, t1.hour,
 			t1.instance_cnt,
-			CASE 
+			(CASE 
 				WHEN t2.total_rx IS NULL THEN t1.total_rx
 				WHEN t1.total_rx < t2.total_rx THEN t1.total_rx
 				ELSE t1.total_rx - t2.total_rx
-			END as traffic_in,
-			CASE 
+			END) / 1048576.0 as traffic_in,
+			(CASE 
 				WHEN t2.total_tx IS NULL THEN t1.total_tx
 				WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
 				ELSE t1.total_tx - t2.total_tx
-			END as traffic_out,
-			CASE 
+			END) / 1048576.0 as traffic_out,
+			(CASE 
 				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
 				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
 				ELSE t1.total_bytes - t2.total_bytes
-			END as total_used
+			END) / 1048576.0 as total_used
 		FROM (
 			-- 按时间戳聚合所有实例（每个实例已处理重启）
 			SELECT 
@@ -403,21 +403,21 @@ func (h *HistoryService) GetUserTrafficHistory(userID uint, period string, inter
 			t1.timestamp as record_time,
 			t1.year, t1.month, t1.day, t1.hour,
 			t1.instance_cnt,
-			CASE 
+			(CASE 
 				WHEN t2.total_rx IS NULL THEN t1.total_rx
 				WHEN t1.total_rx < t2.total_rx THEN t1.total_rx
 				ELSE t1.total_rx - t2.total_rx
-			END as traffic_in,
-			CASE 
+			END) / 1048576.0 as traffic_in,
+			(CASE 
 				WHEN t2.total_tx IS NULL THEN t1.total_tx
 				WHEN t1.total_tx < t2.total_tx THEN t1.total_tx
 				ELSE t1.total_tx - t2.total_tx
-			END as traffic_out,
-			CASE 
+			END) / 1048576.0 as traffic_out,
+			(CASE 
 				WHEN t2.total_bytes IS NULL THEN t1.total_bytes
 				WHEN t1.total_bytes < t2.total_bytes THEN t1.total_bytes
 				ELSE t1.total_bytes - t2.total_bytes
-			END as total_used
+			END) / 1048576.0 as total_used
 		FROM (
 			-- 按时间戳聚合所有实例（每个实例已处理重启）
 			SELECT 
