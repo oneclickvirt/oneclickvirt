@@ -138,9 +138,12 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		MaxInboundBandwidth:      req.MaxInboundBandwidth,
 		MaxOutboundBandwidth:     req.MaxOutboundBandwidth,
 		// 流量管理
-		MaxTraffic:        req.MaxTraffic,
-		TrafficCountMode:  req.TrafficCountMode,
-		TrafficMultiplier: req.TrafficMultiplier,
+		MaxTraffic:               req.MaxTraffic,
+		TrafficCountMode:         req.TrafficCountMode,
+		TrafficMultiplier:        req.TrafficMultiplier,
+		TrafficSyncMethod:        req.TrafficSyncMethod,
+		EnableTrafficControl:     req.EnableTrafficControl,
+		EnableResourceMonitoring: req.EnableResourceMonitoring,
 		// 端口映射方式
 		IPv4PortMappingMethod: req.IPv4PortMappingMethod,
 		IPv6PortMappingMethod: req.IPv6PortMappingMethod,

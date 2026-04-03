@@ -74,18 +74,9 @@ func (s *Service) InitializePmacctForInstance(instanceID uint) error {
 		return nil
 	}
 
-	// 检查监控模式：如果是 agent 模式（默认），则跳过 pmacct 初始化
-	var monConfig monitoringModel.MonitoringConfig
-	if err := global.APP_DB.Where("provider_id = ?", providerRecord.ID).First(&monConfig).Error; err == nil {
-		if monConfig.MonitoringMode == "agent" {
-			global.APP_LOG.Debug("Provider使用agent监控模式，跳过pmacct初始化",
-				zap.Uint("instanceID", instanceID),
-				zap.Uint("providerID", providerRecord.ID))
-			return nil
-		}
-	} else {
-		// 没有 monitoring_config 记录时，默认 agent 模式，也跳过 pmacct
-		global.APP_LOG.Debug("Provider无monitoring_config记录，默认agent模式，跳过pmacct初始化",
+	// 检查流量采集方式：如果是 agent 模式，则跳过 pmacct 初始化
+	if providerRecord.TrafficSyncMethod == "agent" {
+		global.APP_LOG.Debug("Provider使用agent流量采集方式，跳过pmacct初始化",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", providerRecord.ID))
 		return nil

@@ -614,9 +614,9 @@ LIMIT 10000;
 			InstanceID uint
 			ProviderID uint
 			UserID     uint
-			TrafficIn  int64
-			TrafficOut int64
-			TotalUsed  int64
+			TrafficIn  float64
+			TrafficOut float64
+			TotalUsed  float64
 		}
 
 		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
@@ -678,9 +678,9 @@ LIMIT 10000;
 			InstanceID uint
 			ProviderID uint
 			UserID     uint
-			TrafficIn  int64
-			TrafficOut int64
-			TotalUsed  int64
+			TrafficIn  float64
+			TrafficOut float64
+			TotalUsed  float64
 		}
 
 		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories

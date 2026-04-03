@@ -49,12 +49,12 @@ func (s *QueryService) GetInstanceMonthlyTraffic(instanceID uint, year, month in
 
 	rxBytes, txBytes := computeSegmentTraffic(records)
 
-	// 获取Provider配置用于计算实际使用量
+	// 获取Provider配置用于计算实际使用量（包含软删除的实例）
 	var providerConfig struct {
 		TrafficCountMode  string
 		TrafficMultiplier float64
 	}
-	err = global.APP_DB.Table("instances i").
+	err = global.APP_DB.Unscoped().Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
 		Select("COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
 		Where("i.id = ?", instanceID).
@@ -175,9 +175,9 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 	// 使用聚合表查询，性能大幅提升
 	// day=0,hour=0 表示月度汇总数据
 	var result struct {
-		TrafficIn  int64
-		TrafficOut int64
-		TotalUsed  int64
+		TrafficIn  float64
+		TrafficOut float64
+		TotalUsed  float64
 	}
 
 	err = global.APP_DB.Table("provider_traffic_histories").
@@ -194,16 +194,16 @@ func (s *QueryService) GetProviderMonthlyTraffic(providerID uint, year, month in
 	var actualUsageMB float64
 	switch p.TrafficCountMode {
 	case "out":
-		actualUsageMB = float64(result.TrafficOut) * p.TrafficMultiplier
+		actualUsageMB = result.TrafficOut * p.TrafficMultiplier
 	case "in":
-		actualUsageMB = float64(result.TrafficIn) * p.TrafficMultiplier
+		actualUsageMB = result.TrafficIn * p.TrafficMultiplier
 	default: // "both"
-		actualUsageMB = float64(result.TotalUsed) * p.TrafficMultiplier
+		actualUsageMB = result.TotalUsed * p.TrafficMultiplier
 	}
 
 	// 聚合表存储的是MB，转换为字节用于统一返回格式
-	rxBytes := result.TrafficIn * 1048576 // MB转字节：* 1024 * 1024
-	txBytes := result.TrafficOut * 1048576
+	rxBytes := int64(result.TrafficIn * 1048576) // MB转字节：* 1024 * 1024
+	txBytes := int64(result.TrafficOut * 1048576)
 
 	return &TrafficStats{
 		RxBytes:       rxBytes,
@@ -259,16 +259,16 @@ func (s *QueryService) BatchGetInstancesMonthlyTraffic(instanceIDs []uint, year,
 func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) map[uint]*TrafficStats {
 	type CacheResult struct {
 		InstanceID uint
-		TrafficIn  int64
-		TrafficOut int64
-		TotalUsed  int64
+		TrafficIn  float64
+		TrafficOut float64
+		TotalUsed  float64
 	}
 
 	var results []CacheResult
 	// 查询月度汇总记录 (day=0, hour=0)
 	err := global.APP_DB.Table("instance_traffic_histories").
 		Select("instance_id, traffic_in, traffic_out, total_used").
-		Where("instance_id IN ? AND year = ? AND month = ? AND day = 0 AND hour = 0", instanceIDs, year, month).
+		Where("instance_id IN ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL", instanceIDs, year, month).
 		Find(&results).Error
 
 	if err != nil {
@@ -281,10 +281,10 @@ func (s *QueryService) getBatchFromCache(instanceIDs []uint, year, month int) ma
 		// RxBytes/TxBytes/TotalBytes: 字节单位
 		// ActualUsageMB: MB单位（已应用流量计算模式）
 		statsMap[r.InstanceID] = &TrafficStats{
-			RxBytes:       r.TrafficIn * 1048576,  // MB -> Bytes
-			TxBytes:       r.TrafficOut * 1048576, // MB -> Bytes
-			TotalBytes:    (r.TrafficIn + r.TrafficOut) * 1048576,
-			ActualUsageMB: float64(r.TotalUsed),
+			RxBytes:       int64(r.TrafficIn * 1048576),  // MB -> Bytes
+			TxBytes:       int64(r.TrafficOut * 1048576), // MB -> Bytes
+			TotalBytes:    int64((r.TrafficIn + r.TrafficOut) * 1048576),
+			ActualUsageMB: r.TotalUsed,
 		}
 	}
 
@@ -328,13 +328,13 @@ func (s *QueryService) computeBatchMonthlyTraffic(instanceIDs []uint, year, mont
 		g.records = append(g.records, rawTrafficRecord{RxBytes: rec.RxBytes, TxBytes: rec.TxBytes})
 	}
 
-	// 批量获取 Provider 配置（一次查询）
+	// 批量获取 Provider 配置（一次查询，包含软删除的实例）
 	var providerConfigs []struct {
 		InstanceID        uint
 		TrafficCountMode  string
 		TrafficMultiplier float64
 	}
-	err = global.APP_DB.Table("instances i").
+	err = global.APP_DB.Unscoped().Table("instances i").
 		Joins("INNER JOIN providers p ON i.provider_id = p.id").
 		Select("i.id as instance_id, COALESCE(p.traffic_count_mode, 'both') as traffic_count_mode, COALESCE(p.traffic_multiplier, 1.0) as traffic_multiplier").
 		Where("i.id IN ?", instanceIDs).

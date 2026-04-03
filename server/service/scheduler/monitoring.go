@@ -196,7 +196,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 			s.cleanupDeletedInstanceResetTime()
 
 		case <-checkTicker.C:
-			// 获取所有启用流量控制的Provider（只查询必要字段）
+			// 获取所有启用流量控制且使用pmacct同步方式的Provider（只查询必要字段）
 			var providers []struct {
 				ID                      uint
 				Name                    string
@@ -205,7 +205,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 			}
 
 			err := global.APP_DB.Model(&providerModel.Provider{}).
-				Where("enable_traffic_control = ?", true).
+				Where("enable_traffic_control = ? AND (traffic_sync_method = ? OR traffic_sync_method = '' OR traffic_sync_method IS NULL)", true, "pmacct").
 				Select("id, name, traffic_collect_interval, traffic_collect_batch_size").
 				Find(&providers).Error
 
@@ -786,13 +786,13 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 					continue
 				}
 
-				// Check if provider has traffic control enabled
+				// Check if provider has traffic control enabled and uses agent sync method
 				var p providerModel.Provider
-				if err := global.APP_DB.Select("id, enable_traffic_control").
+				if err := global.APP_DB.Select("id, enable_traffic_control, traffic_sync_method").
 					First(&p, cfg.ProviderID).Error; err != nil {
 					continue
 				}
-				if !p.EnableTrafficControl {
+				if !p.EnableTrafficControl || p.TrafficSyncMethod != "agent" {
 					continue
 				}
 

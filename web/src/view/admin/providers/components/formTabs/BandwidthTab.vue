@@ -216,6 +216,35 @@
       </el-text>
     </div>
 
+    <el-form-item
+      :label="$t('admin.providers.trafficSyncMethod') || '流量同步方式'"
+      prop="trafficSyncMethod"
+      v-show="modelValue.enableTrafficControl"
+    >
+      <el-select
+        v-model="modelValue.trafficSyncMethod"
+        :placeholder="$t('admin.providers.selectTrafficSyncMethod') || '选择流量同步方式'"
+        style="width: 100%"
+      >
+        <el-option
+          :label="$t('admin.providers.trafficSyncMethodPmacct') || 'PMAcct (传统SSH采集)'"
+          value="pmacct"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficSyncMethodAgent') || 'Agent (Rust Agent采集)'"
+          value="agent"
+        />
+      </el-select>
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.trafficSyncMethodTip') || '选择流量统计数据的同步方式：PMAcct通过SSH采集pmacct SQLite数据，Agent通过已部署的Rust Agent实时采集' }}
+      </el-text>
+    </div>
+
     <el-divider content-position="left" v-show="modelValue.enableTrafficControl">
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficStatsConfig') || '流量统计配置' }}</span>
     </el-divider>

@@ -110,6 +110,7 @@ const buildDefaultForm = () => ({
   maxTraffic: 1048576,
   trafficCountMode: 'both',
   trafficMultiplier: 1.0,
+  trafficSyncMethod: 'pmacct',
   trafficStatsMode: 'light',
   trafficCollectInterval: 60,
   trafficCollectBatchSize: 10,
@@ -245,6 +246,7 @@ export function useProviderForm(loadProviders) {
     addProviderForm.maxTraffic = provider.maxTraffic || 1048576
     addProviderForm.trafficCountMode = provider.trafficCountMode || 'both'
     addProviderForm.trafficMultiplier = provider.trafficMultiplier || 1.0
+    addProviderForm.trafficSyncMethod = provider.trafficSyncMethod || 'pmacct'
     addProviderForm.trafficStatsMode = provider.trafficStatsMode || 'light'
     addProviderForm.trafficCollectInterval = provider.trafficCollectInterval || 60
     addProviderForm.trafficCollectBatchSize = provider.trafficCollectBatchSize || 10
@@ -346,6 +348,7 @@ export function useProviderForm(loadProviders) {
         maxTraffic: formData.maxTraffic || 1048576,
         trafficCountMode: formData.trafficCountMode || 'both',
         trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0,
+        trafficSyncMethod: formData.trafficSyncMethod || 'pmacct',
         trafficStatsMode: formData.trafficStatsMode || 'light',
         trafficCollectInterval: formData.trafficCollectInterval || 60,
         trafficCollectBatchSize: formData.trafficCollectBatchSize || 10,

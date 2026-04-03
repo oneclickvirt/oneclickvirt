@@ -162,6 +162,27 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 				"last_traffic_bytes_out": currentTrafficOut,
 				"last_sync_at":           now,
 			})
+
+			// Also write cumulative values to pmacct_traffic_records for unified chart query support.
+			// Agent cumulative counters are monotonically increasing (no reset on rebuild),
+			// so they are naturally compatible with the segment detection logic used by chart queries.
+			minute := (now.Minute() / 5) * 5
+			alignedTime := time.Date(year, time.Month(month), day, hour, minute, 0, 0, now.Location())
+			tx.Exec(`
+				INSERT INTO pmacct_traffic_records
+					(instance_id, user_id, provider_id, provider_type, mapped_ip,
+					 rx_bytes, tx_bytes, total_bytes, timestamp, year, month, day, hour, minute,
+					 record_time, created_at, updated_at)
+				VALUES (?, ?, ?, 'agent', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+				ON DUPLICATE KEY UPDATE
+					rx_bytes = ?, tx_bytes = ?, total_bytes = ?,
+					record_time = ?, updated_at = ?`,
+				monitor.InstanceID, monitor.UserID, monitor.ProviderID,
+				monitor.Interfaces,
+				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
+				alignedTime, year, month, day, hour, minute, now, now, now,
+				int64(currentTrafficIn), int64(currentTrafficOut), int64(currentTraffic),
+				now, now)
 		}
 		return nil
 	})

@@ -14,9 +14,9 @@ type InstanceTrafficHistory struct {
 	UserID     uint `json:"user_id" gorm:"index:idx_user_id;not null"`                                                                // 用户ID
 
 	// 流量数据 (单位: MB)
-	TrafficIn  int64 `json:"traffic_in"`  // 入站流量
-	TrafficOut int64 `json:"traffic_out"` // 出站流量
-	TotalUsed  int64 `json:"total_used"`  // 总流量
+	TrafficIn  float64 `json:"traffic_in"`  // 入站流量
+	TrafficOut float64 `json:"traffic_out"` // 出站流量
+	TotalUsed  float64 `json:"total_used"`  // 总流量
 
 	// 时间维度
 	// 添加唯一约束，防止重复聚合
@@ -43,9 +43,9 @@ type ProviderTrafficHistory struct {
 	ProviderID uint `json:"provider_id" gorm:"index:idx_provider_time,priority:1;not null"` // Provider ID
 
 	// 流量数据 (单位: MB)
-	TrafficIn  int64 `json:"traffic_in"`  // 入站流量
-	TrafficOut int64 `json:"traffic_out"` // 出站流量
-	TotalUsed  int64 `json:"total_used"`  // 总流量
+	TrafficIn  float64 `json:"traffic_in"`  // 入站流量
+	TrafficOut float64 `json:"traffic_out"` // 出站流量
+	TotalUsed  float64 `json:"total_used"`  // 总流量
 
 	// 实例统计
 	InstanceCount int `json:"instance_count"` // 实例数量
@@ -73,9 +73,9 @@ type UserTrafficHistory struct {
 	UserID uint `json:"user_id" gorm:"index:idx_user_time,priority:1;not null"` // 用户ID
 
 	// 流量数据 (单位: MB)
-	TrafficIn  int64 `json:"traffic_in"`  // 入站流量
-	TrafficOut int64 `json:"traffic_out"` // 出站流量
-	TotalUsed  int64 `json:"total_used"`  // 总流量
+	TrafficIn  float64 `json:"traffic_in"`  // 入站流量
+	TrafficOut float64 `json:"traffic_out"` // 出站流量
+	TotalUsed  float64 `json:"total_used"`  // 总流量
 
 	// 实例统计
 	InstanceCount int `json:"instance_count"` // 实例数量

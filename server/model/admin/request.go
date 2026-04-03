@@ -91,6 +91,7 @@ type CreateProviderRequest struct {
 	MaxTraffic           int64   `json:"maxTraffic"`           // 最大流量限制（MB），默认1TB=1048576MB
 	TrafficCountMode     string  `json:"trafficCountMode"`     // 流量统计模式：both(双向), out(仅出向), in(仅入向)
 	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
+	TrafficSyncMethod    string  `json:"trafficSyncMethod"`    // 流量同步方式：pmacct(传统), agent(Rust Agent)
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
 	TrafficCollectInterval     int    `json:"trafficStatsInterval"`       // 流量统计间隔（秒）
@@ -99,6 +100,8 @@ type CreateProviderRequest struct {
 	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
 	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）
 	TrafficAutoResetBatchSize  int    `json:"trafficAutoResetBatchSize"`  // 流量自动重置批量大小
+	// 硬件资源监控
+	EnableResourceMonitoring bool `json:"enableResourceMonitoring"` // 是否启用硬件资源监控
 
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native
@@ -191,6 +194,9 @@ type UpdateProviderRequest struct {
 	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
 	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）
 	TrafficAutoResetBatchSize  int    `json:"trafficAutoResetBatchSize"`  // 流量自动重置批量大小
+	// 硬件资源监控
+	EnableResourceMonitoring bool   `json:"enableResourceMonitoring"` // 是否启用硬件资源监控
+	TrafficSyncMethod        string `json:"trafficSyncMethod"`        // 流量同步方式：pmacct(传统), agent(Rust Agent)
 
 	// 端口映射方式配置
 	IPv4PortMappingMethod string `json:"ipv4PortMappingMethod"` // IPv4端口映射方式：device_proxy, iptables, native

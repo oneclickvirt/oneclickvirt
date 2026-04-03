@@ -209,9 +209,9 @@ func (s *AggregationService) saveToCacheWithInfo(instanceID, providerID, userID 
 		InstanceID: instanceID,
 		ProviderID: providerID,
 		UserID:     userID,
-		TrafficIn:  stats.RxBytes / 1048576,    // 转换为MB
-		TrafficOut: stats.TxBytes / 1048576,    // 转换为MB
-		TotalUsed:  int64(stats.ActualUsageMB), // 已经是MB
+		TrafficIn:  float64(stats.RxBytes) / 1048576, // 转换为MB
+		TrafficOut: float64(stats.TxBytes) / 1048576, // 转换为MB
+		TotalUsed:  stats.ActualUsageMB,              // 已经是MB
 		Year:       year,
 		Month:      month,
 		Day:        0, // 0表示月度汇总

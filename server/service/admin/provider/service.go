@@ -390,6 +390,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	// 流量控制开关更新
 	oldEnableTrafficControl := provider.EnableTrafficControl
 	provider.EnableTrafficControl = req.EnableTrafficControl
+	// 硬件资源监控开关更新
+	provider.EnableResourceMonitoring = req.EnableResourceMonitoring
+	// 流量同步方式更新
+	if req.TrafficSyncMethod != "" {
+		provider.TrafficSyncMethod = req.TrafficSyncMethod
+	}
 
 	// 检测流量统计开关是否发生变化
 	trafficControlChanged := oldEnableTrafficControl != req.EnableTrafficControl
