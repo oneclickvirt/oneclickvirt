@@ -319,7 +319,28 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 			}
 
 		default:
-			// used 及未知状态：仅删除兑换码记录（实例已属于用户，不影响）
+			// used 及未知状态：如果关联了实例，创建删除任务
+			if code.InstanceID != nil {
+				var instance providerModel.Instance
+				if err := global.APP_DB.First(&instance, *code.InstanceID).Error; err == nil {
+					taskData := map[string]interface{}{
+						"instanceId":     instance.ID,
+						"providerId":     instance.ProviderID,
+						"adminOperation": true,
+					}
+					taskDataJSON, marshalErr := json.Marshal(taskData)
+					if marshalErr == nil {
+						if _, tErr := s.taskService.CreateTask(adminID, &instance.ProviderID, &instance.ID, "delete", string(taskDataJSON), 0); tErr != nil {
+							global.APP_LOG.Warn("创建已兑换实例删除任务失败",
+								zap.Uint("codeId", codeID),
+								zap.Uint("instanceId", instance.ID),
+								zap.Error(tErr))
+						} else {
+							global.APP_DB.Model(&instance).Update("status", "deleting")
+						}
+					}
+				}
+			}
 			if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 				return tx.Unscoped().Delete(&systemModel.RedemptionCode{}, codeID).Error
 			}); err != nil {

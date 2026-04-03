@@ -184,6 +184,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
 		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
 		AdminGroup.POST("/providers/:id/monitoring/sync", admin.SyncProviderMonitors)
+		AdminGroup.DELETE("/providers/:id/monitoring/clear", admin.ClearProviderMonitors)
 		AdminGroup.GET("/providers/:id/monitoring/agent-monitors", admin.ListAgentMonitors)
 		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
 		AdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
@@ -196,5 +197,17 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.POST("/instances/set-expiry", admin.SetInstanceExpiry)
 		AdminGroup.POST("/instances/freeze", admin.FreezeInstance)
 		AdminGroup.POST("/instances/unfreeze", admin.UnfreezeInstance)
+
+		// 防火墙/滥用屏蔽管理
+		AdminGroup.GET("/block-rules", admin.GetBlockRules)
+		AdminGroup.GET("/block-rules/:id", admin.GetBlockRule)
+		AdminGroup.POST("/block-rules", admin.CreateBlockRule)
+		AdminGroup.PUT("/block-rules/:id", admin.UpdateBlockRule)
+		AdminGroup.DELETE("/block-rules/:id", admin.DeleteBlockRule)
+		AdminGroup.POST("/block-rules/apply", admin.ApplyBlockRules)
+		AdminGroup.POST("/block-rules/remove", admin.RemoveBlockRuleApplications)
+		AdminGroup.GET("/block-rules/applications", admin.GetBlockRuleApplications)
+		AdminGroup.GET("/providers/:id/block-status", admin.GetProviderBlockStatus)
+		AdminGroup.GET("/block-rules/agent-providers", admin.GetAgentEnabledProviders)
 	}
 }

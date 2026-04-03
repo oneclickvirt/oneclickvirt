@@ -242,6 +242,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/block-rules',
+        name: 'AdminBlockRules',
+        meta: {
+          title: t('sidebar.blockRulesManagement'),
+          icon: 'Lock'
+        }
+      },
+      {
         path: '/admin/announcements',
         name: 'AdminAnnouncements',
         meta: {

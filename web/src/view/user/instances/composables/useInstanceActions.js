@@ -3,7 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { performInstanceAction, resetInstancePassword } from '@/api/user'
+import { performInstanceAction, resetInstancePassword, getFilteredImages } from '@/api/user'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
 export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
@@ -15,8 +15,61 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
   const showPassword = ref(false)
   const showTrafficDetail = ref(false)
 
+  // Reset image selection state
+  const showResetImageDialog = ref(false)
+  const resetImages = ref([])
+  const selectedResetImage = ref('')
+  const loadingResetImages = ref(false)
+
   const viewTaskDetail = (taskId) => {
     router.push({ path: '/user/tasks', query: { taskId } })
+  }
+
+  const loadResetImages = async () => {
+    if (!instance.value?.provider_id) return
+    loadingResetImages.value = true
+    try {
+      const res = await getFilteredImages({
+        provider_id: instance.value.provider_id,
+        instance_type: instance.value.instance_type || instance.value.instanceType
+      })
+      resetImages.value = res.data?.data || res.data || []
+      selectedResetImage.value = instance.value.image || ''
+    } catch (err) {
+      console.error('Failed to load images for reset:', err)
+      resetImages.value = []
+    } finally {
+      loadingResetImages.value = false
+    }
+  }
+
+  const confirmResetWithImage = async () => {
+    showResetImageDialog.value = false
+    await executeReset(selectedResetImage.value)
+  }
+
+  const executeReset = async (image) => {
+    actionLoading.value = true
+    try {
+      const response = await performInstanceAction({
+        instanceId: instance.value.id,
+        action: 'reset',
+        image: image || undefined
+      })
+      if (response.code === 0 || response.code === 200) {
+        const actionText = t('user.instanceDetail.actionReset')
+        ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
+        ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
+        router.push('/user/instances')
+      }
+    } catch (error) {
+      if (error !== 'cancel') {
+        console.error('重置实例失败:', error)
+        ElMessage.error(`${t('user.instanceDetail.actionReset')}${t('user.instances.title')}${t('common.failed')}`)
+      }
+    } finally {
+      actionLoading.value = false
+    }
   }
 
   const performAction = async (action) => {
@@ -39,6 +92,28 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
 
     if (action === 'start' && monitoring.trafficData?.isLimited) {
       ElMessage.error(t('user.instanceDetail.trafficLimitStartBlocked'))
+      return
+    }
+
+    // For reset action, show image selection dialog
+    if (action === 'reset') {
+      try {
+        await ElMessageBox.confirm(
+          confirmText,
+          t('user.instanceDetail.confirmOperation'),
+          {
+            confirmButtonText: t('user.instanceDetail.confirm'),
+            cancelButtonText: t('user.instanceDetail.cancel'),
+            type: 'warning'
+          }
+        )
+        await loadResetImages()
+        showResetImageDialog.value = true
+      } catch (error) {
+        if (error !== 'cancel') {
+          console.error('重置操作出错:', error)
+        }
+      }
       return
     }
 
@@ -205,6 +280,11 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     actionLoading,
     showPassword,
     showTrafficDetail,
+    showResetImageDialog,
+    resetImages,
+    selectedResetImage,
+    loadingResetImages,
+    confirmResetWithImage,
     viewTaskDetail,
     performAction,
     openSSHTerminal,

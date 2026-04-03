@@ -25,9 +25,19 @@ func NewResourceSyncService(ctx context.Context, db *gorm.DB) *ResourceSyncServi
 
 // SyncProviderResources collects resource metrics from the agent for all monitors under a provider.
 func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *monitoringModel.MonitoringConfig) error {
-	// Get the provider endpoint
-	var endpoint string
-	if err := s.db.Raw("SELECT endpoint FROM providers WHERE id = ? AND deleted_at IS NULL", providerID).Scan(&endpoint).Error; err != nil || endpoint == "" {
+	// Load the provider record for endpoint info (consistent with traffic sync)
+	var p struct {
+		Endpoint string
+		PortIP   string
+	}
+	if err := s.db.Raw("SELECT endpoint, port_ip FROM providers WHERE id = ? AND deleted_at IS NULL", providerID).Scan(&p).Error; err != nil {
+		return fmt.Errorf("load provider %d: %w", providerID, err)
+	}
+	endpoint := p.Endpoint
+	if endpoint == "" {
+		endpoint = p.PortIP
+	}
+	if endpoint == "" {
 		return fmt.Errorf("no endpoint for provider %d", providerID)
 	}
 

@@ -59,6 +59,9 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	// Get agent client
 	host := p.Endpoint
 	if host == "" {
+		host = p.PortIP
+	}
+	if host == "" {
 		return fmt.Errorf("provider %d has no endpoint", providerID)
 	}
 	port := config.AgentPort

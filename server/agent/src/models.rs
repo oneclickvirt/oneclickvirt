@@ -126,3 +126,26 @@ pub struct ListMonitorsResponse {
     pub monitors: Vec<ListMonitorItem>,
     pub total: usize,
 }
+
+// ---- Block Rules ----
+
+#[derive(Deserialize, ToSchema)]
+pub struct ApplyBlockRulesRequest {
+    pub strings: Vec<String>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ApplyBlockRulesResponse {
+    pub applied: usize,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RemoveBlockRulesResponse {
+    pub removed: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct GetBlockRulesResponse {
+    pub strings: Vec<String>,
+    pub count: usize,
+}

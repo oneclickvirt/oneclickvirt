@@ -145,6 +145,13 @@ func UpdateProvider(c *gin.Context) {
 		return
 	}
 
+	// 刷新缓存中的Provider实例（SSH连接等），使新配置立即生效
+	if err := provider.GetProviderService().ReloadProvider(req.ID); err != nil {
+		global.APP_LOG.Warn("Provider缓存刷新失败，新配置将在下次重启后生效",
+			zap.Uint("providerID", req.ID),
+			zap.Error(err))
+	}
+
 	c.JSON(http.StatusOK, common.Response{
 		Code: 200,
 		Msg:  "更新提供商成功",

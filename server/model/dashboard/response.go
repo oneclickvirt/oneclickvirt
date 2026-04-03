@@ -58,10 +58,11 @@ type LimitedInstanceSummary struct {
 }
 
 // TrafficStats 流量统计
+// 使用 float64 以兼容 MySQL/MariaDB 不同版本的 SUM() 返回类型
 type TrafficStats struct {
-	TotalRx    int64 `json:"total_rx"`
-	TotalTx    int64 `json:"total_tx"`
-	TotalBytes int64 `json:"total_bytes"`
+	TotalRx    float64 `json:"total_rx"`
+	TotalTx    float64 `json:"total_tx"`
+	TotalBytes float64 `json:"total_bytes"`
 }
 
 // UserCountStats 用户数量统计

@@ -16,5 +16,6 @@ export default {
   announcementManagement: 'Announcement Management',
   systemConfiguration: 'System Configuration',
   performanceMonitoring: 'Performance Monitoring',
-  logViewer: 'Log Viewer'
+  logViewer: 'Log Viewer',
+  blockRulesManagement: 'Block Rules'
 }

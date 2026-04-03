@@ -948,7 +948,7 @@ const batchStartInstances = async () => {
     }
     
     if (fail === 0) ElMessage.success(t('admin.instances.batchStartSuccess', { count: success }))
-    else ElMessage.warning(t('admin.instances.batchStartPartial', { success, fail }))
+    else ElMessage.warning(t('admin.instances.batchStartPartialSuccess', { success, fail }))
     
     // 延迟刷新以获取最新状态
     setTimeout(() => loadInstances(), 500)
@@ -993,7 +993,7 @@ const batchStopInstances = async () => {
     }
     
     if (fail === 0) ElMessage.success(t('admin.instances.batchStopSuccess', { count: success }))
-    else ElMessage.warning(t('admin.instances.batchStopPartial', { success, fail }))
+    else ElMessage.warning(t('admin.instances.batchStopPartialSuccess', { success, fail }))
     
     // 延迟刷新以获取最新状态
     setTimeout(() => loadInstances(), 500)

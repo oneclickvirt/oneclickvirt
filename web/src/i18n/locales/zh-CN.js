@@ -47,6 +47,7 @@ import adminPortMapping from './zh-CN/admin/portMapping.js'
 import adminOauth2 from './zh-CN/admin/oauth2.js'
 import adminPerformance from './zh-CN/admin/performance.js'
 import adminLogs from './zh-CN/admin/logs.js'
+import adminBlockRules from './zh-CN/admin/blockRules.js'
 
 export default {
   common,
@@ -86,7 +87,8 @@ export default {
     portMapping: adminPortMapping,
     oauth2: adminOauth2,
     performance: adminPerformance,
-    logs: adminLogs
+    logs: adminLogs,
+    blockRules: adminBlockRules
   },
   validation,
   message,

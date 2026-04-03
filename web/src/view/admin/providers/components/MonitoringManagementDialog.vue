@@ -123,6 +123,14 @@
                 {{ $t('admin.providers.syncMonitors') }}
               </el-button>
               <el-button
+                type="danger"
+                :loading="clearMonitorsLoading"
+                :disabled="!config.agent_installed"
+                @click="handleClearMonitors"
+              >
+                {{ $t('admin.providers.clearMonitors') }}
+              </el-button>
+              <el-button
                 @click="showConfigEditor = !showConfigEditor"
               >
                 {{ $t('admin.providers.editConfig') }}
@@ -469,6 +477,7 @@ import {
   getAgentStatus,
   getProviderMonitors,
   syncProviderMonitors,
+  clearProviderMonitors,
   listAgentMonitors
 } from '@/api/admin'
 
@@ -501,6 +510,7 @@ const uninstallLoading = ref(false)
 const statusLoading = ref(false)
 const saveConfigLoading = ref(false)
 const syncLoading = ref(false)
+const clearMonitorsLoading = ref(false)
 const monitorsLoading = ref(false)
 const listAgentLoading = ref(false)
 const deployOutput = ref('')
@@ -760,6 +770,31 @@ const handleSyncMonitors = async () => {
     }
   } finally {
     syncLoading.value = false
+  }
+}
+
+const handleClearMonitors = async () => {
+  if (!props.provider) return
+  try {
+    await ElMessageBox.confirm(
+      t('admin.providers.clearMonitorsConfirm'),
+      t('common.confirm'),
+      { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
+    )
+    clearMonitorsLoading.value = true
+    const res = await clearProviderMonitors(props.provider.id)
+    if (res.code === 0 || res.code === 200) {
+      ElMessage.success(t('admin.providers.clearMonitorsSuccess'))
+      await loadMonitors()
+    } else {
+      ElMessage.error(res.msg || t('admin.providers.clearMonitorsFailed'))
+    }
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.response?.data?.msg || t('admin.providers.clearMonitorsFailed'))
+    }
+  } finally {
+    clearMonitorsLoading.value = false
   }
 }
 

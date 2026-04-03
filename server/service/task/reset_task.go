@@ -160,6 +160,12 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 		}
 	}
 
+	// 确定重置使用的镜像名称（用户可能选择了不同的镜像）
+	resetImageName := ""
+	if ri, ok := taskData["resetImage"].(string); ok && ri != "" {
+		resetImageName = ri
+	}
+
 	// 使用单个短事务查询所有需要的数据
 	err := s.dbService.ExecuteQuery(ctx, func() error {
 		// 1. 查询实例
@@ -180,9 +186,14 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 			return fmt.Errorf("获取Provider配置失败: %v", err)
 		}
 
-		// 3. 查询系统镜像
+		// 重新确定resetImageName（需要在查询实例后获取默认值）
+		if resetImageName == "" {
+			resetImageName = resetCtx.Instance.Image
+		}
+
+		// 3. 查询系统镜像（使用用户选择的镜像或当前实例的镜像）
 		if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
-			resetCtx.Instance.Image, resetCtx.Provider.Type, resetCtx.Instance.InstanceType, resetCtx.Provider.Architecture).
+			resetImageName, resetCtx.Provider.Type, resetCtx.Instance.InstanceType, resetCtx.Provider.Architecture).
 			First(&resetCtx.SystemImage).Error; err != nil {
 			return fmt.Errorf("获取系统镜像信息失败: %v", err)
 		}

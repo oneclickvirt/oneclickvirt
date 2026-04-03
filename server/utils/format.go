@@ -108,23 +108,28 @@ func FormatError(err error) string {
 
 // FormatBytes 格式化字节数显示
 func FormatBytes(bytes int64) string {
+	return FormatBytesFloat(float64(bytes))
+}
+
+// FormatBytesFloat 格式化字节数显示（float64版本，兼容MySQL/MariaDB SUM返回类型）
+func FormatBytesFloat(bytes float64) string {
 	const (
-		KB = 1024
-		MB = KB * 1024
-		GB = MB * 1024
-		TB = GB * 1024
+		KB float64 = 1024
+		MB         = KB * 1024
+		GB         = MB * 1024
+		TB         = GB * 1024
 	)
 
 	if bytes >= TB {
-		return fmt.Sprintf("%.2f TB", float64(bytes)/TB)
+		return fmt.Sprintf("%.2f TB", bytes/TB)
 	} else if bytes >= GB {
-		return fmt.Sprintf("%.2f GB", float64(bytes)/GB)
+		return fmt.Sprintf("%.2f GB", bytes/GB)
 	} else if bytes >= MB {
-		return fmt.Sprintf("%.2f MB", float64(bytes)/MB)
+		return fmt.Sprintf("%.2f MB", bytes/MB)
 	} else if bytes >= KB {
-		return fmt.Sprintf("%.2f KB", float64(bytes)/KB)
+		return fmt.Sprintf("%.2f KB", bytes/KB)
 	}
-	return fmt.Sprintf("%d B", bytes)
+	return fmt.Sprintf("%.0f B", bytes)
 }
 
 // FormatMB 格式化MB数显示

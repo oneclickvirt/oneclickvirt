@@ -118,13 +118,13 @@ const buildLineOption = (times, series, yFormatter, yMax) => {
 
 const renderCharts = (data) => {
   const times = data.map(d => formatTime(d.timestamp))
-  const cpuData = data.map(d => d.cpuPercent || 0)
-  const memUsed = data.map(d => d.memoryUsed || 0)
-  const memTotal = data.map(d => d.memoryTotal || 0)
-  const memPercent = data.map(d => d.memoryTotal ? ((d.memoryUsed / d.memoryTotal) * 100).toFixed(1) : 0)
-  const diskUsed = data.map(d => d.diskUsed || 0)
-  const diskTotal = data.map(d => d.diskTotal || 0)
-  const diskPercent = data.map(d => d.diskTotal ? ((d.diskUsed / d.diskTotal) * 100).toFixed(1) : 0)
+  const cpuData = data.map(d => d.cpu_percent || 0)
+  const memUsed = data.map(d => d.memory_used || 0)
+  const memTotal = data.map(d => d.memory_total || 0)
+  const memPercent = data.map(d => d.memory_total ? ((d.memory_used / d.memory_total) * 100).toFixed(1) : 0)
+  const diskUsed = data.map(d => d.disk_used || 0)
+  const diskTotal = data.map(d => d.disk_total || 0)
+  const diskPercent = data.map(d => d.disk_total ? ((d.disk_used / d.disk_total) * 100).toFixed(1) : 0)
 
   // CPU chart
   if (cpuChartRef.value) {
@@ -174,7 +174,7 @@ const loadData = async () => {
   try {
     const res = await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
     if (res.code === 0 || res.code === 200) {
-      const data = res.data?.metrics || res.data || []
+      const data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
       hasData.value = data.length > 0
       if (hasData.value) {
         await nextTick()

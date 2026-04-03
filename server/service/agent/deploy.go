@@ -100,11 +100,44 @@ DOWNLOAD_URLS="%s"
 SERVICE_NAME="%s"
 VERSION="%s"
 
-echo "[1/5] create install directory..."
-mkdir -p "$INSTALL_DIR"
-echo "[OK] 1/5 install directory created"
+echo "[1/6] check and install nftables dependency..."
+if ! command -v nft >/dev/null 2>&1; then
+    echo "  nft command not found, installing nftables..."
+    if command -v apt-get >/dev/null 2>&1; then
+        apt-get update -qq && apt-get install -y -qq nftables >/dev/null 2>&1
+    elif command -v dnf >/dev/null 2>&1; then
+        dnf install -y -q nftables >/dev/null 2>&1
+    elif command -v yum >/dev/null 2>&1; then
+        yum install -y -q nftables >/dev/null 2>&1
+    elif command -v apk >/dev/null 2>&1; then
+        apk add --quiet nftables >/dev/null 2>&1
+    elif command -v pacman >/dev/null 2>&1; then
+        pacman -Sy --noconfirm nftables >/dev/null 2>&1
+    elif command -v zypper >/dev/null 2>&1; then
+        zypper install -y -q nftables >/dev/null 2>&1
+    else
+        echo "  [WARN] unknown package manager, please install nftables manually"
+    fi
+    if command -v nft >/dev/null 2>&1; then
+        echo "  nftables installed successfully"
+    else
+        echo "  [WARN] nftables installation may have failed, traffic monitoring may not work"
+    fi
+else
+    echo "  nftables already installed ($(nft -v 2>/dev/null || echo 'version unknown'))"
+fi
+# Ensure nftables service is enabled and started
+if command -v systemctl >/dev/null 2>&1; then
+    systemctl enable nftables 2>/dev/null || true
+    systemctl start nftables 2>/dev/null || true
+fi
+echo "[OK] 1/6 nftables dependency checked"
 
-echo "[2/5] download agent binary (version $VERSION)..."
+echo "[2/6] create install directory..."
+mkdir -p "$INSTALL_DIR"
+echo "[OK] 2/6 install directory created"
+
+echo "[3/6] download agent binary (version $VERSION)..."
 cd "$INSTALL_DIR"
 DOWNLOADED=0
 for url in $DOWNLOAD_URLS; do
@@ -119,9 +152,9 @@ if [ "$DOWNLOADED" -eq 0 ]; then
     echo "[FAIL] download failed - all mirrors unreachable or returned empty file"
     exit 1
 fi
-echo "[OK] 2/5 binary downloaded"
+echo "[OK] 3/6 binary downloaded"
 
-echo "[3/5] verify and extract binary..."
+echo "[4/6] verify and extract binary..."
 if ! tar -tzf "$ARCHIVE_NAME" > /dev/null 2>&1; then
     echo "[FAIL] downloaded file is not a valid tar.gz archive (possible 404 or network error)"
     rm -f "$ARCHIVE_NAME"
@@ -137,18 +170,18 @@ if [ ! -x "$BINARY_NAME" ]; then
     echo "[FAIL] binary not found after extraction"
     exit 1
 fi
-echo "[OK] 3/5 binary ready at $INSTALL_DIR/$BINARY_NAME"
+echo "[OK] 4/6 binary ready at $INSTALL_DIR/$BINARY_NAME"
 
-echo "[4/5] write .env and systemd service..."
+echo "[5/6] write .env and systemd service..."
 printf '%%s' "%s" | base64 -d > "$INSTALL_DIR/.env"
 printf '%%s' "%s" | base64 -d > /etc/systemd/system/"$SERVICE_NAME".service
-echo "[OK] 4/5 configuration written"
+echo "[OK] 5/6 configuration written"
 
-echo "[5/5] enable and start service..."
+echo "[6/6] enable and start service..."
 systemctl daemon-reload
 systemctl enable "$SERVICE_NAME"
 systemctl restart "$SERVICE_NAME"
-echo "[OK] 5/5 service started"
+echo "[OK] 6/6 service started"
 echo "DEPLOY_SUCCESS"
 `,
 		AgentInstallDir,

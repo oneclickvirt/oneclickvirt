@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -168,14 +169,42 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		return nil, fmt.Errorf("实例不存在: %w", err)
 	}
 
-	// 获取实例的pmacct监控信息
-	var monitor monitoringModel.PmacctMonitor
-	err := global.APP_DB.Where("instance_id = ?", instanceID).First(&monitor).Error
-	if err != nil {
-		global.APP_LOG.Warn("获取实例pmacct监控信息失败",
-			zap.Uint("instanceID", instanceID),
-			zap.Error(err))
-		// 继续执行，返回基本信息
+	// 获取监控信息 - 优先查 AgentMonitor，回退到 PmacctMonitor
+	var isEnabled bool
+	var lastSync time.Time
+	var mappedIP, mappedIPv6 string
+	var interfaces []map[string]interface{}
+	var hasAnyMonitor bool
+
+	var agentMonitor monitoringModel.AgentMonitor
+	if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&agentMonitor).Error; err == nil {
+		// Agent 监控模式
+		hasAnyMonitor = true
+		isEnabled = agentMonitor.IsEnabled
+		lastSync = agentMonitor.LastSyncAt
+		mappedIP = instance.PublicIP
+		// 解析 interfaces 字段
+		if agentMonitor.Interfaces != "" {
+			for _, iface := range splitNonEmpty(agentMonitor.Interfaces, ",") {
+				interfaces = append(interfaces, map[string]interface{}{
+					"name":   iface,
+					"active": true,
+				})
+			}
+		}
+	} else {
+		// 回退到 PmacctMonitor
+		var pmacctMonitor monitoringModel.PmacctMonitor
+		if err := global.APP_DB.Where("instance_id = ?", instanceID).First(&pmacctMonitor).Error; err == nil {
+			hasAnyMonitor = true
+			isEnabled = pmacctMonitor.IsEnabled
+			lastSync = pmacctMonitor.LastSync
+			mappedIP = pmacctMonitor.MappedIP
+			mappedIPv6 = pmacctMonitor.MappedIPv6
+		} else {
+			// 两种监控都没有记录，默认标记为已启用（流量数据可能来自同步）
+			mappedIP = instance.PublicIP
+		}
 	}
 
 	// 获取Provider配置
@@ -190,7 +219,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		return map[string]interface{}{
 			"instance_id":             instanceID,
 			"instance_name":           instance.Name,
-			"mapped_ip":               monitor.MappedIP,
+			"mapped_ip":               mappedIP,
 			"traffic_control_enabled": false,
 			"current_month_usage_mb":  float64(0),
 			"formatted": map[string]string{
@@ -206,6 +235,11 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		return nil, fmt.Errorf("查询实例流量失败: %w", err)
 	}
 
+	// 如果没有监控记录但有流量数据，标记为已启用
+	if !hasAnyMonitor && stats != nil && (stats.RxBytes > 0 || stats.TxBytes > 0) {
+		isEnabled = true
+	}
+
 	// 获取流量历史（最近30天）
 	history, err := s.queryService.GetInstanceTrafficHistory(instanceID, 30)
 	if err != nil {
@@ -218,10 +252,10 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 	return map[string]interface{}{
 		"instance_id":             instanceID,
 		"instance_name":           instance.Name,
-		"mapped_ip":               monitor.MappedIP,
-		"mapped_ipv6":             monitor.MappedIPv6,
-		"is_enabled":              monitor.IsEnabled,
-		"last_sync":               monitor.LastSync,
+		"mapped_ip":               mappedIP,
+		"mapped_ipv6":             mappedIPv6,
+		"is_enabled":              isEnabled,
+		"last_sync":               lastSync,
 		"traffic_control_enabled": true,
 		"traffic_limited":         instance.TrafficLimited,
 		"current_month_usage_mb":  stats.ActualUsageMB,
@@ -230,6 +264,7 @@ func (s *UserTrafficService) fetchInstanceTrafficDetail(userID, instanceID uint)
 		"total_bytes":             stats.TotalBytes,
 		"traffic_count_mode":      prov.TrafficCountMode,
 		"traffic_multiplier":      prov.TrafficMultiplier,
+		"interfaces":              interfaces,
 		"year":                    now.Year(),
 		"month":                   int(now.Month()),
 		"history":                 history,
@@ -410,4 +445,17 @@ func (s *UserTrafficService) GetTrafficLimitStatus(userID uint) (map[string]inte
 	}
 
 	return result, nil
+}
+
+// splitNonEmpty splits a string by separator and returns non-empty parts.
+func splitNonEmpty(s, sep string) []string {
+	parts := strings.Split(s, sep)
+	result := make([]string, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		if p != "" {
+			result = append(result, p)
+		}
+	}
+	return result
 }

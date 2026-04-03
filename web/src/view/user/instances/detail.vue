@@ -370,7 +370,7 @@
               <div class="info-grid">
                 <div class="info-item">
                   <span class="label">{{ t('user.instanceDetail.os') }}</span>
-                  <span class="value">{{ instance.osType }}</span>
+                  <span class="value"><OsIcon :name="instance.osType || instance.image" :size="20" style="margin-right: 6px;" />{{ instance.osType }}</span>
                 </div>
                 <div class="info-item">
                   <span class="label">{{ t('user.instanceDetail.createdAt') }}</span>
@@ -664,6 +664,44 @@
       :instance-id="route.params.id"
       :instance-name="instance.name"
     />
+
+    <!-- 重置系统镜像选择对话框 -->
+    <el-dialog
+      v-model="showResetImageDialog"
+      :title="t('user.instanceDetail.selectResetImage')"
+      width="500px"
+      destroy-on-close
+    >
+      <div v-loading="loadingResetImages">
+        <p style="margin-bottom: 12px; color: var(--el-text-color-secondary);">
+          {{ t('user.instanceDetail.selectResetImageTip') }}
+        </p>
+        <el-radio-group v-model="selectedResetImage" style="display: flex; flex-direction: column; gap: 8px;">
+          <el-radio
+            v-for="img in resetImages"
+            :key="img.name || img.id"
+            :value="img.name"
+            border
+            style="margin: 0; width: 100%;"
+          >
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <OsIcon :name="img.name" :size="20" />
+              {{ img.display_name || img.name }}
+            </span>
+          </el-radio>
+        </el-radio-group>
+      </div>
+      <template #footer>
+        <el-button @click="showResetImageDialog = false">{{ t('common.cancel') }}</el-button>
+        <el-button
+          type="primary"
+          :disabled="!selectedResetImage"
+          @click="confirmResetWithImage"
+        >
+          {{ t('user.instanceDetail.confirmReset') }}
+        </el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -686,6 +724,7 @@ import {
 import { useInstanceDetail } from './composables/useInstanceDetail'
 import { useInstanceActions } from './composables/useInstanceActions'
 import { useInstanceFormatters } from './composables/useInstanceFormatters'
+import OsIcon from '@/components/OsIcon.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -711,6 +750,11 @@ const {
   actionLoading,
   showPassword,
   showTrafficDetail,
+  showResetImageDialog,
+  resetImages,
+  selectedResetImage,
+  loadingResetImages,
+  confirmResetWithImage,
   viewTaskDetail,
   performAction,
   openSSHTerminal,

@@ -304,7 +304,11 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 		// 创建重置任务，记录原始状态
 		originalStatus := instance.Status
 		taskService := getTaskService()
-		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d,"originalStatus":"%s"}`, instance.ID, instance.ProviderID, originalStatus)
+		resetImage := instance.Image
+		if req.Image != "" {
+			resetImage = req.Image
+		}
+		taskData := fmt.Sprintf(`{"instanceId":%d,"providerId":%d,"originalStatus":"%s","resetImage":"%s"}`, instance.ID, instance.ProviderID, originalStatus, resetImage)
 		_, err := taskService.CreateTask(userID, &instance.ProviderID, &instance.ID, "reset", taskData, 1800)
 		if err != nil {
 			return fmt.Errorf("创建重置任务失败: %v", err)

@@ -4,9 +4,11 @@ use crate::{
     db::{cleanup_stale_monitors, now_ts},
     error::{ApiError, ErrorResponse},
     models::{
-        AddRequest, AddResponse, CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse,
-        InfoRequest, InfoResponse, ListMonitorItem, ListMonitorsResponse, ResourceDataPoint,
-        ResourceQueryRequest, ResourceQueryResponse, UpdateRequest, UpdateResponse,
+        AddRequest, AddResponse, ApplyBlockRulesRequest, ApplyBlockRulesResponse,
+        CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse, GetBlockRulesResponse,
+        InfoRequest, InfoResponse, ListMonitorItem, ListMonitorsResponse,
+        RemoveBlockRulesResponse, ResourceDataPoint, ResourceQueryRequest,
+        ResourceQueryResponse, UpdateRequest, UpdateResponse,
     },
     nft::{ensure_counter, garbage_collect_orphans, read_external_bytes, remove_counter},
 };
@@ -560,4 +562,24 @@ pub async fn list_monitors(
 
     let total = monitors.len();
     Ok(Json(ListMonitorsResponse { monitors, total }))
+}
+
+// ---- Block Rules Handlers ----
+
+pub async fn apply_block_rules(
+    Json(req): Json<ApplyBlockRulesRequest>,
+) -> Result<Json<ApplyBlockRulesResponse>, ApiError> {
+    let count = crate::nft::apply_block_rules(&req.strings)?;
+    Ok(Json(ApplyBlockRulesResponse { applied: count }))
+}
+
+pub async fn remove_block_rules() -> Result<Json<RemoveBlockRulesResponse>, ApiError> {
+    crate::nft::remove_block_rules()?;
+    Ok(Json(RemoveBlockRulesResponse { removed: true }))
+}
+
+pub async fn get_block_rules() -> Result<Json<GetBlockRulesResponse>, ApiError> {
+    let strings = crate::nft::get_block_rules();
+    let count = strings.len();
+    Ok(Json(GetBlockRulesResponse { strings, count }))
 }

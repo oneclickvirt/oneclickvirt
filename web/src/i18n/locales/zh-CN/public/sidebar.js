@@ -16,5 +16,6 @@ export default {
   announcementManagement: '公告管理',
   systemConfiguration: '系统配置',
   performanceMonitoring: '性能监控',
-  logViewer: '日志查看'
+  logViewer: '日志查看',
+  blockRulesManagement: '封禁规则'
 }

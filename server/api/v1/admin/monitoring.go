@@ -16,6 +16,7 @@ import (
 	providerService "oneclickvirt/service/provider"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // GetMonitoringConfig returns the monitoring configuration for a provider.
@@ -341,15 +342,9 @@ func SyncProviderMonitors(c *gin.Context) {
 
 	monitorSvc := agentService.NewMonitorService(ctx, global.APP_DB)
 
-	// Ensure all running instances have monitors
+	// Ensure all running instances have monitors and update existing ones' interfaces
 	if err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "同步监控失败: " + err.Error()})
-		return
-	}
-
-	// Cleanup stale monitors
-	if err := monitorSvc.CleanupStaleMonitors(uint(providerID), config); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "清理过期监控失败: " + err.Error()})
 		return
 	}
 
@@ -459,4 +454,68 @@ func GetProviderResourceSummary(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: metrics})
+}
+
+// ClearProviderMonitors clears all agent monitors for a provider.
+// This removes all records from both the agent-side and the local DB.
+func ClearProviderMonitors(c *gin.Context) {
+	providerIDStr := c.Param("id")
+	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		return
+	}
+
+	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		return
+	}
+
+	// Get all monitors for this provider
+	var monitors []monitoringModel.AgentMonitor
+	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
+		return
+	}
+
+	// Try to clean up agent-side monitors
+	if config.AgentInstalled {
+		var p providerModel.Provider
+		if err := global.APP_DB.First(&p, providerID).Error; err == nil && p.Endpoint != "" {
+			host := p.Endpoint
+			if idx := strings.LastIndex(host, ":"); idx > 0 {
+				host = host[:idx]
+			}
+			port := config.AgentPort
+			if port == 0 {
+				port = 23782
+			}
+			client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
+			// Call cleanup with empty max_update_time to remove all monitors
+			if _, cleanupErr := client.Cleanup(""); cleanupErr != nil {
+				global.APP_LOG.Warn("agent cleanup failed, proceeding with local cleanup",
+					zap.Uint64("provider_id", providerID),
+					zap.Error(cleanupErr))
+			}
+		}
+	}
+
+	// Hard-delete all agent monitors from local DB
+	deletedCount := len(monitors)
+	if err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "清空监控记录失败: " + err.Error()})
+		return
+	}
+
+	// Also clear resource metrics for this provider
+	global.APP_DB.Where("provider_id = ?", providerID).Delete(&monitoringModel.ResourceMetric{})
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Msg:  "清空完成",
+		Data: map[string]interface{}{
+			"deleted_count": deletedCount,
+		},
+	})
 }

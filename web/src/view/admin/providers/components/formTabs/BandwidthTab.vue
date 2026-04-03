@@ -277,7 +277,7 @@
     <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
       <el-col :span="12">
         <el-form-item
-          :label="$t('admin.providers.trafficCollectInterval') || '采集间隔(秒)'"
+          :label="$t('admin.providers.trafficCollectInterval') || '主控同步间隔(秒)'"
           prop="trafficCollectInterval"
         >
           <el-input-number
@@ -293,7 +293,7 @@
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
           <el-text size="small" type="info">
-            {{ $t('admin.providers.trafficCollectIntervalTip') || '从Provider采集流量数据并同步统计的间隔，最长不超过5分钟（300秒）' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+            {{ $t('admin.providers.trafficCollectIntervalTip') || '主控从被控节点同步流量统计数据的间隔，最长不超过5分钟（300秒）' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
           </el-text>
         </div>
       </el-col>

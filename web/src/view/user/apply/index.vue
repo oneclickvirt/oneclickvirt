@@ -172,7 +172,10 @@
                   :label="image.name" 
                   :value="image.id"
                 >
-                  <span>{{ image.name }}</span>
+                  <span style="display: inline-flex; align-items: center; gap: 6px;">
+                    <OsIcon :name="image.name" :size="18" />
+                    {{ image.name }}
+                  </span>
                   <span style="float: right; color: #8492a6; font-size: 12px; margin-left: 10px">
                     {{ formatImageRequirements(image) }}
                   </span>
@@ -370,6 +373,7 @@ import { getFlagEmoji } from '@/utils/countries'
 import { useI18n } from 'vue-i18n'
 import { useApplyProviders } from './composables/useApplyProviders'
 import { useApplyForm } from './composables/useApplyForm'
+import OsIcon from '@/components/OsIcon.vue'
 
 const route = useRoute()
 const { t, locale } = useI18n()

@@ -145,7 +145,7 @@
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.system') }}:</span>
-              <span class="value">{{ instance.osType }}</span>
+              <span class="value"><OsIcon :name="instance.osType || instance.image" :size="18" style="margin-right: 4px;" />{{ instance.osType }}</span>
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.createdAt') }}:</span>
@@ -275,6 +275,7 @@ import { TrendCharts, View } from '@element-plus/icons-vue'
 import { getUserInstances } from '@/api/user'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import InstanceTrafficDetail from '@/components/InstanceTrafficDetail.vue'
+import OsIcon from '@/components/OsIcon.vue'
 
 const { t, locale } = useI18n()
 const router = useRouter()

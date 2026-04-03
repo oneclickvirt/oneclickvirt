@@ -320,3 +320,44 @@ func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 	}
 	return results, nil
 }
+
+// ---- Block Rules API ----
+
+type ApplyBlockRulesRequest struct {
+	Strings []string `json:"strings"`
+}
+
+type ApplyBlockRulesResponse struct {
+	Applied int `json:"applied"`
+}
+
+type RemoveBlockRulesResponse struct {
+	Removed bool `json:"removed"`
+}
+
+type GetBlockRulesResponse struct {
+	Strings []string `json:"strings"`
+	Count   int      `json:"count"`
+}
+
+// ApplyBlockRules sends string-match block rules to the agent.
+func (c *Client) ApplyBlockRules(strings []string) error {
+	req := ApplyBlockRulesRequest{Strings: strings}
+	var resp ApplyBlockRulesResponse
+	return c.doRequest("POST", "/api/v1/block-rules", req, &resp)
+}
+
+// RemoveBlockRules removes all block rules from the agent.
+func (c *Client) RemoveBlockRules() error {
+	var resp RemoveBlockRulesResponse
+	return c.doRequest("DELETE", "/api/v1/block-rules", nil, &resp)
+}
+
+// GetBlockRules returns current block rules from the agent.
+func (c *Client) GetBlockRules() (*GetBlockRulesResponse, error) {
+	var resp GetBlockRulesResponse
+	if err := c.doRequest("GET", "/api/v1/block-rules", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

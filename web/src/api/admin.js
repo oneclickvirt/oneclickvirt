@@ -132,6 +132,13 @@ export const syncProviderMonitors = (providerId) => {
   })
 }
 
+export const clearProviderMonitors = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/monitoring/clear`,
+    method: 'delete'
+  })
+}
+
 export const listAgentMonitors = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/monitoring/agent-monitors`,
@@ -389,7 +396,7 @@ export const deleteAnnouncement = (id) => {
 export const batchDeleteAnnouncements = (ids) => {
   return request({
     url: '/v1/admin/announcements/batch-delete',
-    method: 'delete',
+    method: 'post',
     data: { ids }
   })
 }
@@ -923,4 +930,18 @@ export const getLogContent = (params) => {
     method: 'get',
     params
   })
+}
+
+// 封禁规则
+export const blockRulesApi = {
+  getRules: () => request({ url: '/v1/admin/block-rules', method: 'get' }),
+  getRule: (id) => request({ url: `/v1/admin/block-rules/${id}`, method: 'get' }),
+  createRule: (data) => request({ url: '/v1/admin/block-rules', method: 'post', data }),
+  updateRule: (id, data) => request({ url: `/v1/admin/block-rules/${id}`, method: 'put', data }),
+  deleteRule: (id) => request({ url: `/v1/admin/block-rules/${id}`, method: 'delete' }),
+  applyRules: (data) => request({ url: '/v1/admin/block-rules/apply', method: 'post', data }),
+  removeApplications: (data) => request({ url: '/v1/admin/block-rules/remove', method: 'post', data }),
+  getApplications: (params) => request({ url: '/v1/admin/block-rules/applications', method: 'get', params }),
+  getProviderBlockStatus: (id) => request({ url: `/v1/admin/providers/${id}/block-status`, method: 'get' }),
+  getAgentProviders: () => request({ url: '/v1/admin/block-rules/agent-providers', method: 'get' })
 }

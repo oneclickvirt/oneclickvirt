@@ -246,7 +246,10 @@
           show-overflow-tooltip
         >
           <template #default="scope">
-            {{ getDisplayName(scope.row.osType) || scope.row.osType || '-' }}
+            <span style="display: inline-flex; align-items: center; gap: 6px;">
+              <OsIcon :name="scope.row.osType || scope.row.name" :size="20" />
+              {{ getDisplayName(scope.row.osType) || scope.row.osType || '-' }}
+            </span>
           </template>
         </el-table-column>
         <el-table-column
@@ -606,6 +609,7 @@ import {
   getOperatingSystemsByCategory, 
   getDisplayName 
 } from '@/utils/operating-systems'
+import OsIcon from '@/components/OsIcon.vue'
 
 const { t } = useI18n()
 

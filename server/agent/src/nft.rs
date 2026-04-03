@@ -865,6 +865,130 @@ pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     Ok(())
 }
 
+// ---- Block Rules (abuse blocking via iptables string match) ----
+
+const BLOCK_CHAIN: &str = "ABUSE_BLOCK";
+const BLOCK_RULES_FILE: &str = "/opt/oneclickvirt/agent/block_rules.json";
+
+fn run_cmd(program: &str, args: &[&str]) -> Result<std::process::Output, ApiError> {
+    Command::new(program)
+        .args(args)
+        .output()
+        .map_err(|e| ApiError::internal(format!("failed to run {program} {args:?}: {e}")))
+}
+
+/// Ensure the ABUSE_BLOCK chain exists and is jumped to from OUTPUT.
+fn ensure_block_chain(ipt: &str) -> Result<(), ApiError> {
+    // Create chain (ignore error if exists)
+    let _ = run_cmd(ipt, &["-N", BLOCK_CHAIN]);
+    // Check if jump already exists in OUTPUT
+    let out = run_cmd(ipt, &["-C", "OUTPUT", "-j", BLOCK_CHAIN])?;
+    if !out.status.success() {
+        run_cmd(ipt, &["-I", "OUTPUT", "1", "-j", BLOCK_CHAIN])?;
+    }
+    Ok(())
+}
+
+/// Flush and remove the ABUSE_BLOCK chain.
+fn remove_block_chain(ipt: &str) {
+    // Remove jump from OUTPUT
+    let _ = run_cmd(ipt, &["-D", "OUTPUT", "-j", BLOCK_CHAIN]);
+    // Flush the chain
+    let _ = run_cmd(ipt, &["-F", BLOCK_CHAIN]);
+    // Delete the chain
+    let _ = run_cmd(ipt, &["-X", BLOCK_CHAIN]);
+}
+
+/// Apply string-match block rules using iptables/ip6tables.
+/// Each string is matched using the `string` module with bm algorithm.
+pub fn apply_block_rules(strings: &[String]) -> Result<usize, ApiError> {
+    if strings.is_empty() {
+        return Ok(0);
+    }
+
+    // Apply for both IPv4 and IPv6
+    for ipt in &["iptables", "ip6tables"] {
+        ensure_block_chain(ipt)?;
+        // Flush existing rules in our chain
+        run_cmd(ipt, &["-F", BLOCK_CHAIN])?;
+        // Add rules for each string
+        let mut failed = 0usize;
+        for s in strings {
+            if s.is_empty() {
+                continue;
+            }
+            // Match in TCP packets
+            if let Err(e) = run_cmd(
+                ipt,
+                &[
+                    "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm",
+                    "-j", "DROP",
+                ],
+            ) {
+                warn!(string = %s, error = ?e, "failed to add TCP block rule");
+                failed += 1;
+            }
+            // Match in UDP packets
+            if let Err(e) = run_cmd(
+                ipt,
+                &[
+                    "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm",
+                    "-j", "DROP",
+                ],
+            ) {
+                warn!(string = %s, error = ?e, "failed to add UDP block rule");
+                failed += 1;
+            }
+        }
+        if failed > 0 {
+            warn!(ipt, failed, "some iptables block rules failed to apply");
+        }
+    }
+
+    // Persist for restart recovery
+    let block_file = Path::new(BLOCK_RULES_FILE);
+    if let Ok(json) = serde_json::to_string(strings) {
+        let _ = fs::write(block_file, json);
+    }
+
+    let count = strings.iter().filter(|s| !s.is_empty()).count();
+    info!(count, "applied abuse block rules via iptables");
+    Ok(count)
+}
+
+/// Remove all block rules.
+pub fn remove_block_rules() -> Result<(), ApiError> {
+    for ipt in &["iptables", "ip6tables"] {
+        remove_block_chain(ipt);
+    }
+    let _ = fs::remove_file(Path::new(BLOCK_RULES_FILE));
+    info!("removed abuse block rules");
+    Ok(())
+}
+
+/// Get current block rules from the persisted file.
+pub fn get_block_rules() -> Vec<String> {
+    let block_file = Path::new(BLOCK_RULES_FILE);
+    if let Ok(content) = fs::read_to_string(block_file) {
+        if let Ok(strings) = serde_json::from_str::<Vec<String>>(&content) {
+            return strings;
+        }
+    }
+    Vec::new()
+}
+
+/// Restore block rules from persisted file on startup.
+pub fn restore_block_rules() {
+    let strings = get_block_rules();
+    if strings.is_empty() {
+        return;
+    }
+    match apply_block_rules(&strings) {
+        Ok(count) => info!(count, "restored persisted block rules on startup"),
+        Err(e) => warn!(error = %e.message, "failed to restore block rules on startup"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -15,6 +15,7 @@ type ClaimResourceRequest struct {
 type InstanceActionRequest struct {
 	InstanceID uint   `json:"instanceId" binding:"required"`
 	Action     string `json:"action" binding:"required"`
+	Image      string `json:"image"`
 }
 
 type UserInstanceListRequest struct {

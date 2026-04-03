@@ -211,7 +211,8 @@ func (s *MonitorService) UpdateMonitorInterfaces(
 	return nil
 }
 
-// EnsureMonitorsForProvider ensures all active instances under a provider have monitors.
+// EnsureMonitorsForProvider ensures all active instances under a provider have monitors,
+// and re-detects interfaces for existing monitors to keep them up-to-date.
 func (s *MonitorService) EnsureMonitorsForProvider(
 	providerInstance provider.Provider,
 	providerID uint,
@@ -230,21 +231,34 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 		return fmt.Errorf("list monitors: %w", err)
 	}
 
-	monitored := make(map[uint]bool)
-	for _, m := range monitors {
-		monitored[m.InstanceID] = true
+	monitorByInstanceID := make(map[uint]*monitoringModel.AgentMonitor)
+	for i := range monitors {
+		monitorByInstanceID[monitors[i].InstanceID] = &monitors[i]
 	}
 
 	for i := range instances {
-		if monitored[instances[i].ID] {
-			continue
-		}
-		if _, err := s.RegisterMonitor(providerInstance, &instances[i], config); err != nil {
-			if global.APP_LOG != nil {
-				global.APP_LOG.Warn("failed to register monitor for instance",
-					zap.Uint("instance_id", instances[i].ID),
-					zap.String("name", instances[i].Name),
-					zap.Error(err))
+		inst := &instances[i]
+		existing := monitorByInstanceID[inst.ID]
+
+		if existing != nil {
+			// Already registered - re-detect interfaces and update on agent
+			if err := s.UpdateMonitorInterfaces(providerInstance, inst, config); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("failed to update monitor interfaces for instance",
+						zap.Uint("instance_id", inst.ID),
+						zap.String("name", inst.Name),
+						zap.Error(err))
+				}
+			}
+		} else {
+			// Not registered - create new monitor
+			if _, err := s.RegisterMonitor(providerInstance, inst, config); err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("failed to register monitor for instance",
+						zap.Uint("instance_id", inst.ID),
+						zap.String("name", inst.Name),
+						zap.Error(err))
+				}
 			}
 		}
 	}

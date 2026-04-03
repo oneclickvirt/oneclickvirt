@@ -5,6 +5,7 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
 	"oneclickvirt/model/config"
+	firewallModel "oneclickvirt/model/firewall"
 	monitoringModel "oneclickvirt/model/monitoring"
 	oauth2Model "oneclickvirt/model/oauth2"
 	permissionModel "oneclickvirt/model/permission"
@@ -13,6 +14,7 @@ import (
 	systemModel "oneclickvirt/model/system"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
+	firewallService "oneclickvirt/service/firewall"
 	"oneclickvirt/utils/dbcompat"
 
 	"go.uber.org/zap"
@@ -169,10 +171,19 @@ func RegisterTables(db *gorm.DB) {
 		&monitoringModel.AgentMonitor{},     // Agent监控映射表
 		&monitoringModel.ResourceMetric{},   // 资源监控数据表（24小时保留）
 		&monitoringModel.MonitoringConfig{}, // Provider监控配置表
+		// 防火墙/滥用屏蔽表
+		&firewallModel.BlockRule{},            // 屏蔽规则表
+		&firewallModel.BlockRuleApplication{}, // 屏蔽规则应用记录表
 	)
 	if err != nil {
 		global.APP_LOG.Error("register table failed", zap.Error(err))
 		return
 	}
 	global.APP_LOG.Info("数据库表注册成功")
+
+	// Initialize default block rules
+	firewallSvc := &firewallService.Service{}
+	if err := firewallSvc.EnsureDefaultRules(); err != nil {
+		global.APP_LOG.Warn("初始化默认屏蔽规则失败（可忽略）", zap.Error(err))
+	}
 }

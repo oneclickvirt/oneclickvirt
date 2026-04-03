@@ -268,6 +268,16 @@ const routes = [
         }
       },
       {
+        path: 'block-rules',
+        name: 'AdminBlockRules',
+        component: () => import('@/view/admin/block-rules/index.vue'),
+        meta: {
+          title: '封禁规则管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'config',
         name: 'AdminConfig',
         component: () => import('@/view/admin/config/index.vue'),

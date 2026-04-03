@@ -403,20 +403,30 @@ func (s *LimitService) GetSystemTrafficStats() (map[string]interface{}, error) {
 			"total_tx":    totalTraffic.TotalTx,
 			"total_bytes": totalTraffic.TotalBytes,
 			"formatted": map[string]string{
-				"total_rx":    utils.FormatBytes(totalTraffic.TotalRx),
-				"total_tx":    utils.FormatBytes(totalTraffic.TotalTx),
-				"total_bytes": utils.FormatBytes(totalTraffic.TotalBytes),
+				"total_rx":    utils.FormatBytesFloat(totalTraffic.TotalRx),
+				"total_tx":    utils.FormatBytesFloat(totalTraffic.TotalTx),
+				"total_bytes": utils.FormatBytesFloat(totalTraffic.TotalBytes),
 			},
 		},
 		"users": map[string]interface{}{
-			"total":           userCounts.TotalUsers,
-			"limited":         userCounts.LimitedUsers,
-			"limited_percent": float64(userCounts.LimitedUsers) / float64(userCounts.TotalUsers) * 100,
+			"total":   userCounts.TotalUsers,
+			"limited": userCounts.LimitedUsers,
+			"limited_percent": func() float64 {
+				if userCounts.TotalUsers == 0 {
+					return 0
+				}
+				return float64(userCounts.LimitedUsers) / float64(userCounts.TotalUsers) * 100
+			}(),
 		},
 		"providers": map[string]interface{}{
-			"total":           providerCounts.TotalProviders,
-			"limited":         providerCounts.LimitedProviders,
-			"limited_percent": float64(providerCounts.LimitedProviders) / float64(providerCounts.TotalProviders) * 100,
+			"total":   providerCounts.TotalProviders,
+			"limited": providerCounts.LimitedProviders,
+			"limited_percent": func() float64 {
+				if providerCounts.TotalProviders == 0 {
+					return 0
+				}
+				return float64(providerCounts.LimitedProviders) / float64(providerCounts.TotalProviders) * 100
+			}(),
 		},
 		"instances": instanceCount,
 	}

@@ -66,6 +66,8 @@ async fn main() {
         );
     }
 
+    nft::restore_block_rules();
+
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
         api_token,
@@ -83,6 +85,12 @@ async fn main() {
         .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
         .route("/api/v1/resources", post(handlers::query_resources))
         .route("/api/v1/list", get(handlers::list_monitors))
+        .route(
+            "/api/v1/block-rules",
+            post(handlers::apply_block_rules)
+                .delete(handlers::remove_block_rules)
+                .get(handlers::get_block_rules),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth::require_token,
