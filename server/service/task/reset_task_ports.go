@@ -9,9 +9,11 @@ import (
 	adminModel "oneclickvirt/model/admin"
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	systemModel "oneclickvirt/model/system"
 	"oneclickvirt/provider/portmapping"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
+	"oneclickvirt/service/firewall"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 
@@ -281,6 +283,16 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 			global.APP_DB.Model(&monitoringModel.InstanceTrafficHistory{}).
 				Where("instance_id = ?", resetCtx.OldInstanceID).
 				Update("instance_id", resetCtx.NewInstanceID)
+
+			// 迁移资源监控记录到新实例ID（保留硬件监控历史连续性）
+			global.APP_DB.Model(&monitoringModel.ResourceMetric{}).
+				Where("instance_id = ?", resetCtx.OldInstanceID).
+				Update("instance_id", resetCtx.NewInstanceID)
+
+			// 迁移pmacct流量记录到新实例ID（保留流量监控历史连续性）
+			global.APP_DB.Model(&monitoringModel.PmacctTrafficRecord{}).
+				Where("instance_id = ?", resetCtx.OldInstanceID).
+				Update("instance_id", resetCtx.NewInstanceID)
 		}
 	}
 
@@ -288,6 +300,28 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 	agentCtx, agentCancel := context.WithTimeout(ctx, 2*time.Minute)
 	agentLifecycle.OnInstanceRebuilt(agentCtx, global.APP_DB, resetCtx.NewInstanceID)
 	agentCancel()
+
+	// 迁移封禁规则应用从旧实例到新实例（保留封禁规则连续性）
+	if resetCtx.OldInstanceID != 0 && resetCtx.OldInstanceID != resetCtx.NewInstanceID {
+		firewall.MigrateInstanceApplications(resetCtx.OldInstanceID, resetCtx.NewInstanceID)
+	}
+	// 重新同步所有Provider的封禁规则（确保重建后规则实际应用）
+	go firewall.ResyncAllProviders()
+
+	// 更新兑换码关联的实例ID到新实例（保持兑换码链接有效）
+	if resetCtx.OldInstanceID != 0 && resetCtx.OldInstanceID != resetCtx.NewInstanceID {
+		result := global.APP_DB.Model(&systemModel.RedemptionCode{}).
+			Where("instance_id = ?", resetCtx.OldInstanceID).
+			Update("instance_id", resetCtx.NewInstanceID)
+		if result.Error != nil {
+			global.APP_LOG.Warn("更新兑换码关联实例失败", zap.Error(result.Error))
+		} else if result.RowsAffected > 0 {
+			global.APP_LOG.Info("已更新兑换码关联实例",
+				zap.Uint("old_instance_id", resetCtx.OldInstanceID),
+				zap.Uint("new_instance_id", resetCtx.NewInstanceID),
+				zap.Int64("count", result.RowsAffected))
+		}
+	}
 
 	return nil
 }

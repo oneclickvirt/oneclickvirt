@@ -44,15 +44,8 @@
       />
       
       <div
-        v-show="error && !loading"
-        class="chart-error"
-      >
-        <el-empty :description="error" />
-      </div>
-
-      <div
         ref="chartRef"
-        v-show="!loading && !error"
+        v-show="!loading"
         class="chart-container"
         style="width: 100%; height: 400px;"
       />
@@ -166,7 +159,9 @@ const loadData = async () => {
   // 检查用户是否已登录
   if (!userStore.isLoggedIn) {
     console.warn('Traffic history: User not logged in, skipping data load')
-    error.value = t('user.trafficOverview.noData') || '暂无数据'
+    loading.value = false
+    await nextTick()
+    renderChart([])
     return
   }
   
@@ -229,15 +224,34 @@ const loadData = async () => {
   } catch (err) {
     console.error('Load traffic history failed:', err)
     loading.value = false
-    // 如果是401错误，说明认证失败，显示友好提示
-    if (err.response?.status === 401 || err.message?.includes('401') || err.message?.includes('未登录') || err.message?.includes('未授权')) {
-      error.value = t('user.trafficOverview.noData') || '暂无数据'
-      console.warn('Traffic history: Authentication failed, user may need to re-login')
-    } else {
-      error.value = err.message || t('user.traffic.historyChart.loadFailed')
-      ElMessage.error(error.value)
-    }
+    // 加载失败时显示全零曲线图，避免显示错误信息
+    chartData.value = []
+    await nextTick()
+    renderChart([])
   }
+}
+
+// 生成零填充数据点（当无数据时显示全零曲线图）
+const generateZeroFilledData = () => {
+  const now = new Date()
+  const periodMinutes = {
+    '15m': 15, '30m': 30, '1h': 60, '6h': 360, '12h': 720, '24h': 1440
+  }
+  const minutes = periodMinutes[selectedPeriod.value] || 60
+  const interval = selectedInterval.value || 5
+  const points = []
+  
+  for (let i = minutes; i >= 0; i -= interval) {
+    const time = new Date(now.getTime() - i * 60 * 1000)
+    points.push({
+      record_time: time.toISOString(),
+      traffic_in: 0,
+      traffic_out: 0,
+      total_used: 0
+    })
+  }
+  
+  return points
 }
 
 // 渲染图表
@@ -249,15 +263,9 @@ const renderChart = (data) => {
     return
   }
   
+  // 如果无数据，生成零填充数据点（显示全零曲线图）
   if (!data || data.length === 0) {
-    console.warn('TrafficHistoryChart - No data to render')
-    error.value = t('user.traffic.historyChart.noData') || '暂无流量数据'
-    // 销毁图表实例
-    if (chartInstance.value) {
-      chartInstance.value.dispose()
-      chartInstance.value = null
-    }
-    return
+    data = generateZeroFilledData()
   }
   
   console.log('TrafficHistoryChart - Data length:', data.length)

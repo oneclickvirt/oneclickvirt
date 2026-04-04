@@ -224,7 +224,7 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 // BatchDelete 批量删除兑换码（硬删除），同时清理对应实例
 // - pending_use: 创建实例删除任务 + 硬删除兑换码
 // - pending_create / creating: 取消任务 + 硬删除兑换码
-// - used: 仅硬删除兑换码（实例已属于用户）
+// - used: 创建实例删除任务 + 硬删除兑换码（无论已兑换与否，实例一并删除）
 // - deleting: 跳过（已在处理中）
 func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 	if len(ids) == 0 {

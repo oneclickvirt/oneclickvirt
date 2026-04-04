@@ -15,10 +15,6 @@
 
       <div v-if="loading" v-loading="loading" style="height: 300px;" />
 
-      <div v-else-if="!hasData" class="no-data">
-        <el-empty :description="$t('user.instanceDetail.noResourceData')" :image-size="80" />
-      </div>
-
       <div v-else class="charts-container">
         <!-- CPU 使用率 -->
         <div class="chart-item">
@@ -168,26 +164,51 @@ const renderCharts = (data) => {
   }
 }
 
+// 生成零填充资源监控数据（当无数据时显示全零曲线图）
+const generateZeroFilledResourceData = () => {
+  const now = new Date()
+  const points = []
+  // 生成24小时数据，每30分钟一个点 = 48个点
+  for (let i = 48; i >= 0; i--) {
+    const time = new Date(now.getTime() - i * 30 * 60 * 1000)
+    points.push({
+      timestamp: time.toISOString(),
+      cpu_percent: 0,
+      memory_used: 0,
+      memory_total: 0,
+      disk_used: 0,
+      disk_total: 0
+    })
+  }
+  return points
+}
+
 const loadData = async () => {
   if (!props.instanceId) return
   loading.value = true
   try {
     const res = await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
     if (res.code === 0 || res.code === 200) {
-      const data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
-      hasData.value = data.length > 0
-      loading.value = false
-      if (hasData.value) {
-        await nextTick()
-        renderCharts(data)
+      let data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
+      if (data.length === 0) {
+        data = generateZeroFilledResourceData()
       }
-    } else {
+      hasData.value = true
       loading.value = false
+      await nextTick()
+      renderCharts(data)
+    } else {
+      hasData.value = true
+      loading.value = false
+      await nextTick()
+      renderCharts(generateZeroFilledResourceData())
     }
   } catch (e) {
     console.error('Failed to load resource monitoring data:', e)
-    hasData.value = false
+    hasData.value = true
     loading.value = false
+    await nextTick()
+    renderCharts(generateZeroFilledResourceData())
   }
 }
 

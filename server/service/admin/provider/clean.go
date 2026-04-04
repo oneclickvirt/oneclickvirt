@@ -9,6 +9,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/pmacct"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
@@ -153,10 +154,13 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		return err
 	}
 
-	// 6. 事务外批量删除流量相关数据（避免长时间锁表）
+	// 6. 事务外清理Provider关联的封禁规则应用并重新同步Agent规则
+	firewall.CleanupProviderApplications(providerID, instanceIDs)
+
+	// 7. 事务外批量删除流量相关数据（避免长时间锁表）
 	s.batchCleanupProviderTrafficData(providerID, instanceIDs)
 
-	// 7. 立即清理所有相关资源（防止内存泄漏）
+	// 8. 立即清理所有相关资源（防止内存泄漏）
 	s.cleanupAllProviderResources(providerID)
 
 	global.APP_LOG.Info("Provider及所有关联数据删除成功",

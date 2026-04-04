@@ -13,6 +13,7 @@ import (
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	agentLifecycle "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
+	"oneclickvirt/service/firewall"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
@@ -168,6 +169,9 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	agentCtx, agentCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	agentLifecycle.OnInstanceDeleted(agentCtx, global.APP_DB, instance.ID)
 	agentCancel()
+
+	// 清理实例关联的封禁规则应用并重新同步Agent规则
+	firewall.CleanupInstanceApplications(instance.ID)
 
 	// 更新进度 (90%)
 	s.updateTaskProgress(task.ID, 90, "正在清理数据库记录...")

@@ -502,3 +502,89 @@ func (s *Service) resyncAllProviders(ctx context.Context) {
 		s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil)
 	}
 }
+
+// --- Exported helper functions for cross-service use ---
+
+// CleanupInstanceApplications removes all block rule applications targeting a specific instance
+// and resyncs all provider agents to update actual firewall rules.
+func CleanupInstanceApplications(instanceID uint) {
+	result := global.APP_DB.Where("scope = ? AND target_id = ?", "instance", instanceID).
+		Delete(&firewallModel.BlockRuleApplication{})
+	if result.Error != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("清理实例封禁规则应用失败",
+				zap.Uint("instance_id", instanceID),
+				zap.Error(result.Error))
+		}
+		return
+	}
+	if result.RowsAffected > 0 {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Info("已清理实例封禁规则应用",
+				zap.Uint("instance_id", instanceID),
+				zap.Int64("count", result.RowsAffected))
+		}
+		svc := &Service{}
+		go svc.resyncAllProviders(context.Background())
+	}
+}
+
+// CleanupProviderApplications removes all block rule applications for a provider and its instances,
+// then resyncs remaining provider agents.
+func CleanupProviderApplications(providerID uint, instanceIDs []uint) {
+	var totalAffected int64
+
+	result := global.APP_DB.Where("scope = ? AND target_id = ?", "provider", providerID).
+		Delete(&firewallModel.BlockRuleApplication{})
+	if result.Error == nil {
+		totalAffected += result.RowsAffected
+	}
+
+	if len(instanceIDs) > 0 {
+		result = global.APP_DB.Where("scope = ? AND target_id IN ?", "instance", instanceIDs).
+			Delete(&firewallModel.BlockRuleApplication{})
+		if result.Error == nil {
+			totalAffected += result.RowsAffected
+		}
+	}
+
+	if totalAffected > 0 {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Info("已清理Provider封禁规则应用",
+				zap.Uint("provider_id", providerID),
+				zap.Int64("count", totalAffected))
+		}
+		svc := &Service{}
+		go svc.resyncAllProviders(context.Background())
+	}
+}
+
+// MigrateInstanceApplications updates block rule applications from old instance ID to new instance ID
+// (used during instance rebuild/reset to maintain rule continuity).
+func MigrateInstanceApplications(oldInstanceID, newInstanceID uint) {
+	result := global.APP_DB.Model(&firewallModel.BlockRuleApplication{}).
+		Where("scope = ? AND target_id = ?", "instance", oldInstanceID).
+		Update("target_id", newInstanceID)
+	if result.Error != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("迁移实例封禁规则应用失败",
+				zap.Uint("old_instance_id", oldInstanceID),
+				zap.Uint("new_instance_id", newInstanceID),
+				zap.Error(result.Error))
+		}
+		return
+	}
+	if result.RowsAffected > 0 && global.APP_LOG != nil {
+		global.APP_LOG.Info("已迁移实例封禁规则应用",
+			zap.Uint("old_instance_id", oldInstanceID),
+			zap.Uint("new_instance_id", newInstanceID),
+			zap.Int64("count", result.RowsAffected))
+	}
+}
+
+// ResyncAllProviders resyncs all provider agents' firewall rules (exported version).
+// Call after instance rebuild/reset to ensure rules are correctly applied.
+func ResyncAllProviders() {
+	svc := &Service{}
+	svc.resyncAllProviders(context.Background())
+}
