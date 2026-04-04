@@ -1,11 +1,14 @@
 package resources
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
+	"syscall"
 	"time"
 
 	"oneclickvirt/global"
@@ -17,6 +20,67 @@ import (
 type MonitoringService struct{}
 
 var startTime = time.Now()
+
+// CPU usage sampling via /proc/stat
+var (
+	cpuUsageMu     sync.RWMutex
+	cpuUsageValue  float64
+	cpuSamplerOnce sync.Once
+)
+
+type cpuTimeSample struct {
+	Total uint64
+	Idle  uint64
+}
+
+func startCPUSampler() {
+	cpuSamplerOnce.Do(func() {
+		go func() {
+			prev := readCPUTimes()
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				curr := readCPUTimes()
+				if prev.Total > 0 && curr.Total > prev.Total {
+					totalDelta := curr.Total - prev.Total
+					idleDelta := curr.Idle - prev.Idle
+					usage := float64(totalDelta-idleDelta) / float64(totalDelta) * 100
+					if usage < 0 {
+						usage = 0
+					}
+					if usage > 100 {
+						usage = 100
+					}
+					cpuUsageMu.Lock()
+					cpuUsageValue = usage
+					cpuUsageMu.Unlock()
+				}
+				prev = curr
+			}
+		}()
+	})
+}
+
+func readCPUTimes() cpuTimeSample {
+	data, err := os.ReadFile("/proc/stat")
+	if err != nil {
+		return cpuTimeSample{}
+	}
+	line := strings.SplitN(string(data), "\n", 2)[0]
+	fields := strings.Fields(line)
+	if len(fields) < 5 || fields[0] != "cpu" {
+		return cpuTimeSample{}
+	}
+	var total, idle uint64
+	for i := 1; i < len(fields); i++ {
+		v, _ := strconv.ParseUint(fields[i], 10, 64)
+		total += v
+		if i == 4 {
+			idle = v
+		}
+	}
+	return cpuTimeSample{Total: total, Idle: idle}
+}
 
 // GetSystemStats 获取系统统计信息
 func (s *MonitoringService) GetSystemStats() system.SystemStats {
@@ -33,11 +97,22 @@ func (s *MonitoringService) GetSystemStats() system.SystemStats {
 
 // CheckHealth 检查系统健康状态
 func (s *MonitoringService) CheckHealth() map[string]string {
+	dbHealth := s.checkDatabaseHealth()
+	diskHealth := s.checkDiskHealth()
+	memHealth := s.checkMemoryHealth()
+
+	overall := "healthy"
+	if dbHealth == "unhealthy" || diskHealth == "unhealthy" || memHealth == "unhealthy" {
+		overall = "unhealthy"
+	} else if dbHealth == "warning" || diskHealth == "warning" || memHealth == "warning" {
+		overall = "warning"
+	}
+
 	return map[string]string{
-		"database": s.checkDatabaseHealth(),
-		"disk":     s.checkDiskHealth(),
-		"memory":   s.checkMemoryHealth(),
-		"status":   "healthy",
+		"database": dbHealth,
+		"disk":     diskHealth,
+		"memory":   memHealth,
+		"status":   overall,
 	}
 }
 
@@ -121,51 +196,77 @@ func (s *MonitoringService) getMemoryStats() system.MemoryStats {
 
 // getDiskStats 获取磁盘统计信息
 func (s *MonitoringService) getDiskStats() system.DiskStats {
-	// 获取当前目录的磁盘使用情况
-	stat, err := s.getDiskUsage(".")
+	stat, err := s.getDiskUsage("/")
 	if err != nil {
-		// 如果获取失败，使用简化估算
-		global.APP_LOG.Warn("获取磁盘使用情况失败，使用估算值", zap.Error(err))
-		return s.getEstimatedDiskStats()
+		global.APP_LOG.Warn("获取磁盘使用情况失败", zap.Error(err))
+		return system.DiskStats{}
 	}
-
 	return *stat
 }
 
-// getDiskUsage 获取指定路径的磁盘使用情况
+// getDiskUsage 通过 syscall.Statfs 获取真实磁盘使用情况
 func (s *MonitoringService) getDiskUsage(path string) (*system.DiskStats, error) {
-	// 在生产环境中，这里应该使用系统调用获取真实的磁盘信息
-	// 这里提供一个简化的跨平台实现
-	stats := s.getEstimatedDiskStats()
-	return &stats, nil
-}
-
-// getEstimatedDiskStats 获取估算的磁盘统计信息
-func (s *MonitoringService) getEstimatedDiskStats() system.DiskStats {
-	// 简化的磁盘使用估算
-	// 假设系统有100GB的磁盘空间，已使用30%
-	total := uint64(100 * 1024 * 1024 * 1024) // 100GB
-	used := uint64(30 * 1024 * 1024 * 1024)   // 30GB
-	free := total - used
-	usage := float64(used) / float64(total) * 100
-
-	return system.DiskStats{
+	var stat syscall.Statfs_t
+	if err := syscall.Statfs(path, &stat); err != nil {
+		return nil, err
+	}
+	bsize := uint64(stat.Bsize)
+	total := stat.Blocks * bsize
+	free := stat.Bavail * bsize
+	used := total - free
+	var usage float64
+	if total > 0 {
+		usage = float64(used) / float64(total) * 100
+	}
+	return &system.DiskStats{
 		Total: total,
 		Used:  used,
 		Free:  free,
 		Usage: usage,
-	}
+	}, nil
 }
 
-// getNetworkStats 获取网络统计信息
+// getNetworkStats 通过 /proc/net/dev 获取主机网络统计信息
 func (s *MonitoringService) getNetworkStats() system.NetworkStats {
-	// 返回空的网络统计信息，实际流量数据由 pmacct 提供
-	// 避免使用模拟数据干扰真实的流量统计
+	f, err := os.Open("/proc/net/dev")
+	if err != nil {
+		return system.NetworkStats{}
+	}
+	defer f.Close()
+
+	var totalRx, totalTx, totalPktsRx, totalPktsTx uint64
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		if !strings.Contains(line, ":") {
+			continue
+		}
+		parts := strings.SplitN(line, ":", 2)
+		if len(parts) != 2 {
+			continue
+		}
+		iface := strings.TrimSpace(parts[0])
+		if iface == "lo" {
+			continue
+		}
+		fields := strings.Fields(parts[1])
+		if len(fields) < 10 {
+			continue
+		}
+		rx, _ := strconv.ParseUint(fields[0], 10, 64)
+		rxPkts, _ := strconv.ParseUint(fields[1], 10, 64)
+		tx, _ := strconv.ParseUint(fields[8], 10, 64)
+		txPkts, _ := strconv.ParseUint(fields[9], 10, 64)
+		totalRx += rx
+		totalTx += tx
+		totalPktsRx += rxPkts
+		totalPktsTx += txPkts
+	}
 	return system.NetworkStats{
-		BytesReceived: 0, // 不使用模拟数据
-		BytesSent:     0, // 不使用模拟数据
-		PacketsRecv:   0,
-		PacketsSent:   0,
+		BytesReceived: totalRx,
+		BytesSent:     totalTx,
+		PacketsRecv:   totalPktsRx,
+		PacketsSent:   totalPktsTx,
 	}
 }
 
@@ -309,21 +410,12 @@ func (s *MonitoringService) GetOperationLogs(userID, action, startTime, endTime,
 	}
 }
 
-// calculateCPUUsage 计算CPU使用率
+// calculateCPUUsage 通过 /proc/stat 采样计算真实CPU使用率
 func (s *MonitoringService) calculateCPUUsage() float64 {
-	// 简化的CPU使用率计算
-	// 在生产环境中，应该使用更准确的方法，如读取 /proc/stat 或使用 gopsutil
-	// 这里基于goroutine数量和CPU核心数做一个简单的估算
-	goroutines := runtime.NumGoroutine()
-	cores := runtime.NumCPU()
-
-	// 简单估算：每个CPU核心理想情况下可以处理100个goroutine
-	usage := float64(goroutines) / float64(cores*100) * 100
-	if usage > 100 {
-		usage = 100
-	}
-
-	return usage
+	startCPUSampler()
+	cpuUsageMu.RLock()
+	defer cpuUsageMu.RUnlock()
+	return cpuUsageValue
 }
 
 // getLoadAverage 获取系统负载平均值
@@ -391,39 +483,67 @@ func (s *MonitoringService) getLoadAverage(minutes int) float64 {
 	return load
 }
 
-// getSystemMemoryInfo 获取系统内存信息
+// getSystemMemoryInfo 通过 /proc/meminfo 获取真实系统内存信息
 func (s *MonitoringService) getSystemMemoryInfo() system.MemoryStats {
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+	f, err := os.Open("/proc/meminfo")
+	if err != nil {
+		return s.estimateMemoryFromRuntime()
+	}
+	defer f.Close()
 
-	// 简化的系统内存估算
-	// 在实际生产环境中，应该读取 /proc/meminfo (Linux) 或使用 gopsutil
-	// 这里基于Go runtime的内存使用情况做估算
-
-	// 假设系统有基本的内存量，通过多种方式估算
-	estimatedTotal := uint64(8 * 1024 * 1024 * 1024) // 默认8GB
-
-	// 如果heap使用量很大，说明系统内存可能更多
-	if m.HeapSys > uint64(2*1024*1024*1024) { // 超过2GB
-		estimatedTotal = uint64(16 * 1024 * 1024 * 1024) // 估算为16GB
+	info := make(map[string]uint64)
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Fields(line)
+		if len(parts) < 2 {
+			continue
+		}
+		key := strings.TrimSuffix(parts[0], ":")
+		val, _ := strconv.ParseUint(parts[1], 10, 64)
+		info[key] = val * 1024 // kB → bytes
 	}
 
-	// 使用当前分配的内存作为已使用内存的基础
-	used := m.HeapAlloc + m.StackSys + m.MSpanSys + m.MCacheSys + m.OtherSys
+	total := info["MemTotal"]
+	if total == 0 {
+		return s.estimateMemoryFromRuntime()
+	}
 
-	// 一些系统开销估算
-	systemOverhead := estimatedTotal / 10 // 10%的系统开销
-	used += systemOverhead
+	available := info["MemAvailable"]
+	var used uint64
+	if available > 0 {
+		used = total - available
+	} else {
+		used = total - info["MemFree"] - info["Buffers"] - info["Cached"]
+	}
 
-	free := estimatedTotal - used
-	usage := float64(used) / float64(estimatedTotal) * 100
+	swapTotal := info["SwapTotal"]
+	swapUsed := swapTotal - info["SwapFree"]
 
 	return system.MemoryStats{
-		Total:     estimatedTotal,
+		Total:     total,
 		Used:      used,
-		Free:      free,
-		Usage:     usage,
-		SwapTotal: estimatedTotal / 4, // 估算swap为总内存的1/4
-		SwapUsed:  0,                  // 假设没有使用swap
+		Free:      total - used,
+		Usage:     float64(used) / float64(total) * 100,
+		SwapTotal: swapTotal,
+		SwapUsed:  swapUsed,
+	}
+}
+
+// estimateMemoryFromRuntime 当 /proc/meminfo 不可用时的降级方案
+func (s *MonitoringService) estimateMemoryFromRuntime() system.MemoryStats {
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	estimatedTotal := uint64(8 * 1024 * 1024 * 1024)
+	used := m.HeapAlloc + m.StackSys + m.MSpanSys + m.MCacheSys + m.OtherSys
+	if used > estimatedTotal {
+		used = estimatedTotal
+	}
+	free := estimatedTotal - used
+	return system.MemoryStats{
+		Total: estimatedTotal,
+		Used:  used,
+		Free:  free,
+		Usage: float64(used) / float64(estimatedTotal) * 100,
 	}
 }

@@ -30,7 +30,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 		Endpoint string
 		PortIP   string
 	}
-	if err := s.db.Raw("SELECT endpoint, port_ip FROM providers WHERE id = ? AND deleted_at IS NULL", providerID).Scan(&p).Error; err != nil {
+	if err := s.db.Raw("SELECT endpoint, port_ip FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
 	endpoint := p.Endpoint

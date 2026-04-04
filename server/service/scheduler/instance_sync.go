@@ -5,11 +5,30 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	adminProviderService "oneclickvirt/service/admin/provider"
 
 	"go.uber.org/zap"
+)
+
+// statusMismatchRecord tracks consecutive status mismatch detections for multi-confirm.
+type statusMismatchRecord struct {
+	InstanceID    uint
+	ProviderID    uint
+	RemoteStatus  string
+	DBStatus      string
+	ConfirmCount  int
+	FirstDetected time.Time
+	LastDetected  time.Time
+}
+
+const (
+	// requiredConfirmations is how many consecutive checks must agree before applying a status change.
+	requiredConfirmations = 3
+	// mismatchExpiry is how long a mismatch record stays valid before being discarded.
+	mismatchExpiry = 2 * time.Hour
 )
 
 // InstanceSyncSchedulerService Provider实例同步调度服务
@@ -18,25 +37,29 @@ type InstanceSyncSchedulerService struct {
 	stopChan        chan struct{}
 	mu              sync.RWMutex
 	isRunning       bool
-	maxConcurrency  int           // 最大并发数
-	semaphore       chan struct{} // 信号量，用于限制并发
+	maxConcurrency  int
+	semaphore       chan struct{}
+
+	// mismatchTracker stores pending status mismatch records keyed by instanceID.
+	mismatchMu      sync.Mutex
+	mismatchTracker map[uint]*statusMismatchRecord
 }
 
 // NewInstanceSyncSchedulerService 创建实例同步调度服务
 func NewInstanceSyncSchedulerService() *InstanceSyncSchedulerService {
-	maxConcurrency := 2 // 最多同时同步2个provider
+	maxConcurrency := 2
 	return &InstanceSyncSchedulerService{
 		providerService: adminProviderService.NewService(),
 		stopChan:        make(chan struct{}),
 		isRunning:       false,
 		maxConcurrency:  maxConcurrency,
 		semaphore:       make(chan struct{}, maxConcurrency),
+		mismatchTracker: make(map[uint]*statusMismatchRecord),
 	}
 }
 
 // Start 启动实例同步调度器
 func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
-	// 检查是否启用实例同步
 	if !global.GetAppConfig().System.EnableInstanceSync {
 		global.APP_LOG.Debug("实例同步功能未启用，跳过调度器启动")
 		return
@@ -48,14 +71,14 @@ func (s *InstanceSyncSchedulerService) Start(ctx context.Context) {
 		global.APP_LOG.Warn("Provider实例同步调度器已在运行中")
 		return
 	}
-	s.stopChan = make(chan struct{}) // 每次启动时重建，防止复用已关闭的channel
+	s.stopChan = make(chan struct{})
 	s.isRunning = true
 	s.mu.Unlock()
 
 	global.APP_LOG.Info("启动Provider实例同步调度器",
-		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval))
+		zap.Int("syncInterval", global.GetAppConfig().System.InstanceSyncInterval),
+		zap.Int("requiredConfirmations", requiredConfirmations))
 
-	// 启动定期同步任务
 	go s.startSyncTask(ctx)
 }
 
@@ -82,7 +105,6 @@ func (s *InstanceSyncSchedulerService) IsRunning() bool {
 
 // startSyncTask 启动实例同步任务
 func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
-	// defer recover 必须在函数最开始注册，才能保护整个函数体（包括首次执行）
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("Provider实例同步goroutine panic",
@@ -98,7 +120,6 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 	// 首次执行
 	s.syncAllProvidersInstances()
 
-	// 获取同步间隔（分钟），默认30分钟
 	syncInterval := global.GetAppConfig().System.InstanceSyncInterval
 	if syncInterval <= 0 {
 		syncInterval = 30
@@ -117,8 +138,6 @@ func (s *InstanceSyncSchedulerService) startSyncTask(ctx context.Context) {
 			if global.APP_DB == nil {
 				continue
 			}
-
-			// 执行同步检查
 			s.syncAllProvidersInstances()
 		}
 	}
@@ -129,7 +148,6 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	startTime := time.Now()
 	global.APP_LOG.Debug("开始Provider实例同步检查")
 
-	// 获取所有活跃的Provider
 	var providers []providerModel.Provider
 	if err := global.APP_DB.Where("status = ? AND is_frozen = ? AND (expires_at IS NULL OR expires_at > ?)",
 		"active", false, time.Now()).
@@ -144,35 +162,31 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 		return
 	}
 
-	global.APP_LOG.Debug("准备同步Provider实例",
-		zap.Int("providerCount", len(providers)))
+	global.APP_LOG.Debug("准备同步Provider实例", zap.Int("providerCount", len(providers)))
 
-	// 使用WaitGroup等待所有同步任务完成
 	var wg sync.WaitGroup
 	successCount := 0
 	failedCount := 0
 	changedCount := 0
+	appliedCount := 0
 	var mu sync.Mutex
 
 	for _, prov := range providers {
 		wg.Add(1)
-
-		// 获取信号量（限制并发）
 		s.semaphore <- struct{}{}
 
 		go func(provider providerModel.Provider) {
 			defer func() {
-				<-s.semaphore // 释放信号量
-				wg.Done()
 				if r := recover(); r != nil {
 					global.APP_LOG.Error("Provider实例同步panic",
 						zap.Uint("providerId", provider.ID),
 						zap.String("providerName", provider.Name),
 						zap.Any("panic", r))
 				}
+				<-s.semaphore
+				wg.Done()
 			}()
 
-			// 执行实例比对
 			report, err := s.providerService.CompareInstancesWithRemote(context.Background(), provider.ID)
 			if err != nil {
 				global.APP_LOG.Warn("Provider实例同步失败",
@@ -191,7 +205,6 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 			changedCount += totalChanges
 			mu.Unlock()
 
-			// 如果检测到变化，记录日志和可能的告警
 			if totalChanges > 0 {
 				global.APP_LOG.Warn("检测到Provider实例变化",
 					zap.Uint("providerId", provider.ID),
@@ -199,40 +212,22 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 					zap.Int("newInstances", len(report.NewInstances)),
 					zap.Int("deletedInstances", len(report.DeletedInstances)),
 					zap.Int("changedInstances", len(report.ChangedInstances)))
-
-				// 记录详细变化
-				if len(report.NewInstances) > 0 {
-					global.APP_LOG.Debug("发现新增实例",
-						zap.Uint("providerId", provider.ID),
-						zap.String("providerName", provider.Name),
-						zap.Int("count", len(report.NewInstances)))
-				}
-
-				if len(report.DeletedInstances) > 0 {
-					global.APP_LOG.Warn("发现已删除实例",
-						zap.Uint("providerId", provider.ID),
-						zap.String("providerName", provider.Name),
-						zap.Int("count", len(report.DeletedInstances)))
-				}
-
-				if len(report.ChangedInstances) > 0 {
-					for _, change := range report.ChangedInstances {
-						global.APP_LOG.Debug("实例状态变化",
-							zap.Uint("providerId", provider.ID),
-							zap.String("instanceName", change.Name),
-							zap.String("oldStatus", change.OldStatus),
-							zap.String("newStatus", change.NewStatus))
-					}
-				}
-
-				// TODO: 可以在这里添加告警通知（邮件、Webhook等）
-				// 例如：s.sendAlert(provider.ID, report)
 			}
+
+			// Process status changes through multi-confirm mechanism.
+			// Only apply status changes for STABLE instances (running/stopped).
+			// Never auto-update transitional or terminal states.
+			applied := s.processStatusChanges(report)
+			mu.Lock()
+			appliedCount += applied
+			mu.Unlock()
 		}(prov)
 	}
 
-	// 等待所有同步任务完成
 	wg.Wait()
+
+	// Cleanup expired mismatch records
+	s.cleanupExpiredMismatchRecords()
 
 	duration := time.Since(startTime)
 	global.APP_LOG.Debug("Provider实例同步检查完成",
@@ -240,21 +235,164 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 		zap.Int("successCount", successCount),
 		zap.Int("failedCount", failedCount),
 		zap.Int("totalChanges", changedCount),
+		zap.Int("appliedChanges", appliedCount),
 		zap.Duration("duration", duration))
 }
 
-// sendAlert 发送告警通知（预留接口）
-func (s *InstanceSyncSchedulerService) sendAlert(providerID uint, report *adminProviderService.InstanceSyncReport) {
-	// TODO: 实现告警逻辑
-	// 可以通过邮件、Webhook、Slack等方式发送告警
-	// 示例：
-	// - 发送邮件给管理员
-	// - 调用Webhook通知监控系统
-	// - 记录到告警数据库表
-	global.APP_LOG.Info("告警通知",
-		zap.Uint("providerId", providerID),
-		zap.String("providerName", report.ProviderName),
-		zap.Int("newInstances", len(report.NewInstances)),
-		zap.Int("deletedInstances", len(report.DeletedInstances)),
-		zap.Int("changedInstances", len(report.ChangedInstances)))
+// processStatusChanges handles status change detection with multi-confirmation.
+// Returns the number of actually applied changes.
+func (s *InstanceSyncSchedulerService) processStatusChanges(report *adminProviderService.InstanceSyncReport) int {
+	if report == nil || len(report.ChangedInstances) == 0 {
+		return 0
+	}
+
+	now := time.Now()
+	applied := 0
+
+	s.mismatchMu.Lock()
+	defer s.mismatchMu.Unlock()
+
+	for _, change := range report.ChangedInstances {
+		// Only reconcile stable status transitions.
+		// Skip transitional states (creating, resetting) — those are managed by task system.
+		if constant.IsTransitionalStatus(change.OldStatus) || constant.IsTerminalStatus(change.OldStatus) {
+			global.APP_LOG.Debug("跳过非稳定状态实例的同步",
+				zap.Uint("instanceId", change.InstanceID),
+				zap.String("oldStatus", change.OldStatus),
+				zap.String("newStatus", change.NewStatus))
+			continue
+		}
+
+		// Only allow sync to other stable states (e.g. running↔stopped).
+		if !constant.IsStableStatus(change.NewStatus) && change.NewStatus != "error" {
+			global.APP_LOG.Debug("跳过远端非稳定目标状态",
+				zap.Uint("instanceId", change.InstanceID),
+				zap.String("remoteStatus", change.NewStatus))
+			continue
+		}
+
+		rec, exists := s.mismatchTracker[change.InstanceID]
+
+		if !exists {
+			// First detection of this mismatch — start tracking.
+			s.mismatchTracker[change.InstanceID] = &statusMismatchRecord{
+				InstanceID:    change.InstanceID,
+				ProviderID:    report.ProviderID,
+				RemoteStatus:  change.NewStatus,
+				DBStatus:      change.OldStatus,
+				ConfirmCount:  1,
+				FirstDetected: now,
+				LastDetected:  now,
+			}
+			global.APP_LOG.Debug("首次检测到实例状态不一致",
+				zap.Uint("instanceId", change.InstanceID),
+				zap.String("dbStatus", change.OldStatus),
+				zap.String("remoteStatus", change.NewStatus),
+				zap.Int("confirmCount", 1))
+			continue
+		}
+
+		// If remote status changed again (e.g. was stopped, now running again), reset tracker.
+		if rec.RemoteStatus != change.NewStatus {
+			rec.RemoteStatus = change.NewStatus
+			rec.ConfirmCount = 1
+			rec.FirstDetected = now
+			rec.LastDetected = now
+			global.APP_LOG.Debug("实例远端状态发生变化，重置确认计数",
+				zap.Uint("instanceId", change.InstanceID),
+				zap.String("newRemoteStatus", change.NewStatus))
+			continue
+		}
+
+		// Same mismatch detected again — increment confirmation count.
+		rec.ConfirmCount++
+		rec.LastDetected = now
+
+		global.APP_LOG.Debug("实例状态不一致再次确认",
+			zap.Uint("instanceId", change.InstanceID),
+			zap.String("dbStatus", change.OldStatus),
+			zap.String("remoteStatus", change.NewStatus),
+			zap.Int("confirmCount", rec.ConfirmCount),
+			zap.Int("required", requiredConfirmations))
+
+		if rec.ConfirmCount >= requiredConfirmations {
+			// Multi-confirmed: apply the status change.
+			if err := s.applyStatusChange(change.InstanceID, change.OldStatus, change.NewStatus); err != nil {
+				global.APP_LOG.Error("应用实例状态变更失败",
+					zap.Uint("instanceId", change.InstanceID),
+					zap.String("from", change.OldStatus),
+					zap.String("to", change.NewStatus),
+					zap.Error(err))
+				// Don't remove the tracker — will retry next cycle.
+				continue
+			}
+
+			global.APP_LOG.Info("实例状态已通过多次确认后同步",
+				zap.Uint("instanceId", change.InstanceID),
+				zap.String("from", change.OldStatus),
+				zap.String("to", change.NewStatus),
+				zap.Int("confirmations", rec.ConfirmCount),
+				zap.Duration("detectionSpan", now.Sub(rec.FirstDetected)))
+
+			delete(s.mismatchTracker, change.InstanceID)
+			applied++
+		}
+	}
+
+	// Clear tracker entries for instances of THIS provider whose status now matches (resolved).
+	// Only touch entries belonging to the current report's provider.
+	stillMismatchedIDs := make(map[uint]bool)
+	for _, change := range report.ChangedInstances {
+		stillMismatchedIDs[change.InstanceID] = true
+	}
+	for id, rec := range s.mismatchTracker {
+		if rec.ProviderID != report.ProviderID {
+			continue // Don't touch entries from other providers.
+		}
+		if !stillMismatchedIDs[id] {
+			// The instance was in tracker but is no longer showing as mismatched.
+			global.APP_LOG.Debug("实例状态已恢复一致，清除追踪记录",
+				zap.Uint("instanceId", id))
+			delete(s.mismatchTracker, id)
+		}
+	}
+
+	return applied
+}
+
+// applyStatusChange updates the instance status in the database.
+// Only updates if the current DB status still matches expectedOldStatus (optimistic locking).
+func (s *InstanceSyncSchedulerService) applyStatusChange(instanceID uint, expectedOldStatus, newStatus string) error {
+	result := global.APP_DB.Model(&providerModel.Instance{}).
+		Where("id = ? AND status = ?", instanceID, expectedOldStatus).
+		Update("status", newStatus)
+
+	if result.Error != nil {
+		return result.Error
+	}
+
+	if result.RowsAffected == 0 {
+		global.APP_LOG.Warn("状态变更未应用：数据库状态已发生变化",
+			zap.Uint("instanceId", instanceID),
+			zap.String("expectedOld", expectedOldStatus),
+			zap.String("targetNew", newStatus))
+	}
+
+	return nil
+}
+
+// cleanupExpiredMismatchRecords removes stale mismatch tracking records.
+func (s *InstanceSyncSchedulerService) cleanupExpiredMismatchRecords() {
+	s.mismatchMu.Lock()
+	defer s.mismatchMu.Unlock()
+
+	now := time.Now()
+	for id, rec := range s.mismatchTracker {
+		if now.Sub(rec.LastDetected) > mismatchExpiry {
+			global.APP_LOG.Debug("清除过期的状态不一致追踪记录",
+				zap.Uint("instanceId", id),
+				zap.Duration("age", now.Sub(rec.FirstDetected)))
+			delete(s.mismatchTracker, id)
+		}
+	}
 }

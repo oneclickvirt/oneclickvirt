@@ -511,6 +511,9 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("command", utils.TruncateString(cmd, 200)),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
+		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
+			return fmt.Errorf("Docker iptables chains missing on provider host (run: systemctl restart docker): %w", err)
+		}
 		return fmt.Errorf("failed to create container: %w", err)
 	}
 

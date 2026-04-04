@@ -9,6 +9,7 @@ import (
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
+	"oneclickvirt/utils/messaging"
 
 	"oneclickvirt/config"
 	"oneclickvirt/global"
@@ -382,6 +383,15 @@ func (s *Service) BatchDeleteUsers(userIDs []uint) error {
 		return errors.New("不能删除管理员用户")
 	}
 
+	// 检查是否有用户拥有活跃实例
+	var instanceCount int64
+	global.APP_DB.Model(&providerModel.Instance{}).
+		Where("user_id IN ? AND status NOT IN ?", userIDs, []string{"deleted", "deleting"}).
+		Count(&instanceCount)
+	if instanceCount > 0 {
+		return fmt.Errorf("部分用户仍拥有 %d 个活跃实例，请先删除实例", instanceCount)
+	}
+
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 使用Unscoped().Delete进行硬删除，彻底从数据库中移除记录
@@ -735,35 +745,48 @@ func (s *Service) ResetUserPasswordAndNotify(userID uint) error {
 
 // sendPasswordToUser 发送新密码到用户绑定的通信渠道
 func (s *Service) sendPasswordToUser(user *userModel.User, newPassword string) error {
-	// 优先级：邮箱 > Telegram > QQ > 手机号
+	// Try all available channels in order of priority: Email > Telegram > QQ > SMS
+	// If a channel is not configured or sending fails, try the next one.
 
 	if user.Email != "" {
-		return s.sendPasswordByEmail(user.Email, user.Username, newPassword)
+		if err := s.sendPasswordByEmail(user.Email, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("邮箱发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Telegram != "" {
-		return s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword)
+		if err := s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("Telegram发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.QQ != "" {
-		return s.sendPasswordByQQ(user.QQ, user.Username, newPassword)
+		if err := s.sendPasswordByQQ(user.QQ, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("QQ发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Phone != "" {
-		return s.sendPasswordBySMS(user.Phone, user.Username, newPassword)
+		if err := s.sendPasswordBySMS(user.Phone, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("短信发送失败", zap.Error(err))
+		}
 	}
 
-	return errors.New("用户未绑定任何通信渠道")
+	return errors.New("所有通信渠道均不可用或发送失败")
 }
 
 // sendPasswordByEmail 通过邮箱发送新密码
 func (s *Service) sendPasswordByEmail(email, username, newPassword string) error {
-	// 检查邮箱配置是否可用
 	if !s.isEmailConfigured() {
-		global.APP_LOG.Warn("邮箱服务未配置，跳过发送",
-			zap.String("email", email),
-			zap.String("username", username))
-		return nil
+		return fmt.Errorf("邮箱服务未配置")
 	}
 
 	// 构建邮件内容
@@ -796,28 +819,42 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string) error {
-	// TODO: 实现Telegram发送功能
-	global.APP_LOG.Debug("管理员操作：模拟发送新密码到Telegram",
-		zap.String("telegram", telegram),
-		zap.String("username", username))
-	return nil
+	config := global.GetAppConfig().Auth
+	if !config.EnableTelegram || config.TelegramBotToken == "" {
+		global.APP_LOG.Debug("Telegram未配置，跳过发送",
+			zap.String("telegram", telegram))
+		return nil
+	}
+	if global.GetAppConfig().System.Env == "development" {
+		global.APP_LOG.Debug("开发环境模拟发送Telegram密码通知")
+		return nil
+	}
+	message := fmt.Sprintf("管理员已重置您的密码。\n用户名：<b>%s</b>\n新密码：<code>%s</code>\n请及时登录并修改密码。", username, newPassword)
+	return messaging.SendTelegramMessage(config.TelegramBotToken, telegram, message)
 }
 
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
-	// TODO: 实现QQ发送功能
-	global.APP_LOG.Debug("管理员操作：模拟发送新密码到QQ",
-		zap.String("qq", qq),
-		zap.String("username", username))
+	config := global.GetAppConfig().Auth
+	if !config.EnableQQ || config.QQAppID == "" {
+		global.APP_LOG.Debug("QQ未配置，跳过发送", zap.String("qq", qq))
+		return nil
+	}
+	if global.GetAppConfig().System.Env == "development" {
+		global.APP_LOG.Debug("开发环境模拟发送QQ密码通知")
+		return nil
+	}
+	global.APP_LOG.Warn("QQ消息通道暂不可用，建议使用邮箱或Telegram", zap.String("qq", qq))
 	return nil
 }
 
 // sendPasswordBySMS 通过短信发送新密码
 func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
-	// TODO: 实现短信发送功能
-	global.APP_LOG.Debug("管理员操作：模拟发送新密码到手机",
-		zap.String("phone", phone),
-		zap.String("username", username))
+	if global.GetAppConfig().System.Env == "development" {
+		global.APP_LOG.Debug("开发环境模拟发送短信密码通知")
+		return nil
+	}
+	global.APP_LOG.Warn("短信服务未配置，跳过发送", zap.String("phone", phone))
 	return nil
 }
 
@@ -913,15 +950,17 @@ func (s *Service) isEmailConfigured() bool {
 
 // sendEmail 发送邮件的基础函数
 func (s *Service) sendEmail(to, subject, body string) error {
-	// 这里应该集成真正的邮件服务，如SMTP
-	// 目前只做记录，实际项目需要根据配置的邮件服务商实现
-	global.APP_LOG.Debug("邮件发送请求",
-		zap.String("to", to),
-		zap.String("subject", subject))
-
-	// 模拟邮件发送成功
-	// 在实际实现中，这里会调用邮件服务API
-	return nil
+	authConfig := global.GetAppConfig().Auth
+	if authConfig.EmailSMTPHost == "" {
+		return fmt.Errorf("SMTP未配置，无法发送邮件")
+	}
+	return messaging.SendEmail(
+		authConfig.EmailSMTPHost,
+		authConfig.EmailSMTPPort,
+		authConfig.EmailUsername,
+		authConfig.EmailPassword,
+		to, subject, body,
+	)
 }
 
 // getCurrentAdminID 获取当前管理员ID

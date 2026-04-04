@@ -35,7 +35,10 @@ impl Modify for SecurityAddon {
         crate::handlers::info_monitor,
         crate::handlers::cleanup_monitor,
         crate::handlers::query_resources,
-        crate::handlers::list_monitors
+        crate::handlers::list_monitors,
+        crate::handlers::apply_block_rules,
+        crate::handlers::remove_block_rules,
+        crate::handlers::get_block_rules
     ),
     components(
         schemas(
@@ -55,6 +58,10 @@ impl Modify for SecurityAddon {
             crate::models::ResourceQueryResponse,
             crate::models::ListMonitorItem,
             crate::models::ListMonitorsResponse,
+            crate::models::ApplyBlockRulesRequest,
+            crate::models::ApplyBlockRulesResponse,
+            crate::models::RemoveBlockRulesResponse,
+            crate::models::GetBlockRulesResponse,
             crate::resource::ResourceSnapshot,
             crate::resource::ProviderKind,
             crate::error::ErrorResponse
@@ -63,7 +70,8 @@ impl Modify for SecurityAddon {
     modifiers(&SecurityAddon),
     tags(
         (name = "VM Traffic", description = "VM traffic monitor APIs"),
-        (name = "Resource Monitoring", description = "Instance resource monitoring APIs")
+        (name = "Resource Monitoring", description = "Instance resource monitoring APIs"),
+        (name = "Block Rules", description = "Network block rule management APIs")
     )
 )]
 pub struct ApiDoc;

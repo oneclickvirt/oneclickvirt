@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/utils"
+	"oneclickvirt/utils/messaging"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -91,37 +92,50 @@ func (s *Service) ResetPasswordAndNotify(userID uint) (string, error) {
 
 // sendPasswordToUser 发送新密码到用户绑定的通信渠道
 func (s *Service) sendPasswordToUser(user *userModel.User, newPassword string) error {
-	// 优先级：邮箱 > Telegram > QQ > 手机号
+	// Try all available channels in order: Email > Telegram > QQ > SMS
 
 	if user.Email != "" {
-		return s.sendPasswordByEmail(user.Email, user.Username, newPassword)
+		if err := s.sendPasswordByEmail(user.Email, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("邮箱发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Telegram != "" {
-		return s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword)
+		if err := s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("Telegram发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.QQ != "" {
-		return s.sendPasswordByQQ(user.QQ, user.Username, newPassword)
+		if err := s.sendPasswordByQQ(user.QQ, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("QQ发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Phone != "" {
-		return s.sendPasswordBySMS(user.Phone, user.Username, newPassword)
+		if err := s.sendPasswordBySMS(user.Phone, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("短信发送失败", zap.Error(err))
+		}
 	}
 
-	return errors.New("用户未绑定任何通信渠道")
+	return errors.New("所有通信渠道均不可用或发送失败")
 }
 
 // sendPasswordByEmail 通过邮箱发送新密码
 func (s *Service) sendPasswordByEmail(email, username, newPassword string) error {
 	config := global.GetAppConfig().Auth
 
-	// 检查邮箱是否启用
 	if !config.EnableEmail {
 		return errors.New("邮箱服务未启用")
 	}
-
-	// 检查邮箱配置是否完整
 	if config.EmailSMTPHost == "" {
 		return errors.New("邮箱SMTP配置不完整")
 	}
@@ -131,45 +145,31 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造邮件内容
 	subject := "密码重置通知"
-	body := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
+	body := fmt.Sprintf(`<p>尊敬的用户 <b>%s</b>：</p>
+<p>您的密码已被重置，新密码为：<b>%s</b></p>
+<p>请使用新密码登录系统，并建议您尽快修改密码。</p>
+<p>系统自动发送，请勿回复。</p>`, username, newPassword)
 
-	// 这里应该直接调用邮件发送功能
-	// 可以使用 gomail 或其他邮件库
-	// 示例实现：
-	// m := gomail.NewMessage()
-	// m.SetHeader("From", config.EmailUsername)
-	// m.SetHeader("To", email)
-	// m.SetHeader("Subject", subject)
-	// m.SetBody("text/plain", body)
-	//
-	// d := gomail.NewDialer(config.EmailSMTPHost, config.EmailSMTPPort, config.EmailUsername, config.EmailPassword)
-	// return d.DialAndSend(m)
-
-	global.APP_LOG.Warn("邮件发送功能待实现",
-		zap.String("subject", subject),
-		zap.String("body", body),
-		zap.String("email", email))
-	return errors.New("邮件发送功能待实现，请安装并配置邮件发送库（如 gomail）")
+	return messaging.SendEmail(
+		config.EmailSMTPHost, config.EmailSMTPPort,
+		config.EmailUsername, config.EmailPassword,
+		email, subject, body,
+	)
 }
 
 // sendPasswordByTelegram 通过Telegram发送新密码
 func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string) error {
 	config := global.GetAppConfig().Auth
 
-	// 检查Telegram是否启用
 	if !config.EnableTelegram {
 		return errors.New("Telegram通知服务未启用")
 	}
-
-	// 检查Bot Token是否配置
 	if config.TelegramBotToken == "" {
 		return errors.New("Telegram Bot Token未配置")
 	}
@@ -179,32 +179,22 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造消息内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用Telegram Bot API发送消息
-	global.APP_LOG.Warn("Telegram Bot API集成待实现",
-		zap.String("message", message),
-		zap.String("chatId", telegram))
-	return errors.New("Telegram Bot API集成待实现")
+	message := fmt.Sprintf("用户 <b>%s</b> 的新密码：<code>%s</code>\n请及时登录并修改密码。", username, newPassword)
+	return messaging.SendTelegramMessage(config.TelegramBotToken, telegram, message)
 }
 
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 	config := global.GetAppConfig().Auth
 
-	// 检查QQ是否启用
 	if !config.EnableQQ {
 		return errors.New("QQ通知服务未启用")
 	}
-
-	// 检查QQ配置是否完整
 	if config.QQAppID == "" || config.QQAppKey == "" {
 		return errors.New("QQ应用配置不完整")
 	}
@@ -214,20 +204,14 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造消息内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用QQ机器人API发送消息
-	global.APP_LOG.Warn("QQ机器人API集成待实现",
-		zap.String("message", message),
-		zap.String("qqNumber", qq))
-	return errors.New("QQ机器人API集成待实现")
+	global.APP_LOG.Warn("QQ消息发送：QQ官方Bot API需要企业资质认证，建议通过邮箱或Telegram发送",
+		zap.String("qq", qq))
+	return fmt.Errorf("QQ消息通道未配置有效的发送方式，建议使用邮箱或Telegram")
 }
 
 // sendPasswordBySMS 通过短信发送新密码
@@ -237,18 +221,12 @@ func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造短信内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用短信服务商API
-	global.APP_LOG.Warn("短信服务API集成待实现",
-		zap.String("message", message),
+	global.APP_LOG.Warn("短信服务需要配置短信服务商SDK（如阿里云、腾讯云）",
 		zap.String("phone", phone))
-	return errors.New("短信服务API集成待实现")
+	return fmt.Errorf("短信服务未配置，建议使用邮箱或Telegram接收密码重置通知")
 }

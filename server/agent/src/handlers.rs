@@ -566,6 +566,20 @@ pub async fn list_monitors(
 
 // ---- Block Rules Handlers ----
 
+#[utoipa::path(
+    post,
+    path = "/api/v1/block-rules",
+    request_body = ApplyBlockRulesRequest,
+    responses(
+        (status = 200, description = "Block rules applied", body = ApplyBlockRulesResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Block Rules"
+)]
 pub async fn apply_block_rules(
     Json(req): Json<ApplyBlockRulesRequest>,
 ) -> Result<Json<ApplyBlockRulesResponse>, ApiError> {
@@ -573,11 +587,37 @@ pub async fn apply_block_rules(
     Ok(Json(ApplyBlockRulesResponse { applied: count }))
 }
 
+#[utoipa::path(
+    delete,
+    path = "/api/v1/block-rules",
+    responses(
+        (status = 200, description = "All block rules removed", body = RemoveBlockRulesResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Block Rules"
+)]
 pub async fn remove_block_rules() -> Result<Json<RemoveBlockRulesResponse>, ApiError> {
     crate::nft::remove_block_rules()?;
     Ok(Json(RemoveBlockRulesResponse { removed: true }))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/v1/block-rules",
+    responses(
+        (status = 200, description = "Current block rules", body = GetBlockRulesResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Block Rules"
+)]
 pub async fn get_block_rules() -> Result<Json<GetBlockRulesResponse>, ApiError> {
     let strings = crate::nft::get_block_rules();
     let count = strings.len();

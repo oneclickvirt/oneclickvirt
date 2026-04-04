@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"oneclickvirt/service/database"
+	"oneclickvirt/utils/messaging"
 	"time"
 
 	"oneclickvirt/global"
@@ -170,36 +171,47 @@ func (s *AuthService) ResetPasswordWithToken(token string) error {
 
 // sendPasswordToUser 发送新密码到用户绑定的通信渠道
 func (s *AuthService) sendPasswordToUser(user *userModel.User, newPassword string) error {
-	// 优先级：邮箱 > Telegram > QQ > 手机号
+	// Try all available channels in order: Email > Telegram > QQ > SMS
 
 	if user.Email != "" {
-		return s.sendPasswordByEmail(user.Email, user.Username, newPassword)
+		if err := s.sendPasswordByEmail(user.Email, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("邮箱发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Telegram != "" {
-		return s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword)
+		if err := s.sendPasswordByTelegram(user.Telegram, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("Telegram发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.QQ != "" {
-		return s.sendPasswordByQQ(user.QQ, user.Username, newPassword)
+		if err := s.sendPasswordByQQ(user.QQ, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("QQ发送失败，尝试下一渠道", zap.Error(err))
+		}
 	}
 
 	if user.Phone != "" {
-		return s.sendPasswordBySMS(user.Phone, user.Username, newPassword)
+		if err := s.sendPasswordBySMS(user.Phone, user.Username, newPassword); err == nil {
+			return nil
+		} else {
+			global.APP_LOG.Warn("短信发送失败", zap.Error(err))
+		}
 	}
 
-	return errors.New("用户未绑定任何通信渠道")
+	return errors.New("所有通信渠道均不可用或发送失败")
 }
 
 // sendPasswordByEmail 通过邮箱发送新密码
 func (s *AuthService) sendPasswordByEmail(email, username, newPassword string) error {
-	// 检查邮箱配置是否可用
 	if !s.isEmailConfigured() {
-		global.APP_LOG.Warn("邮箱服务未配置，跳过发送",
-			zap.String("email", email),
-			zap.String("username", username),
-			zap.String("operation", "password_reset_by_token"))
-		return nil
+		return fmt.Errorf("邮箱服务未配置")
 	}
 
 	global.APP_LOG.Debug("发送新密码到邮箱",
@@ -217,124 +229,44 @@ func (s *AuthService) sendPasswordByEmail(email, username, newPassword string) e
 func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword string) error {
 	config := global.GetAppConfig().Auth
 
-	// 检查Telegram是否启用
-	if !config.EnableTelegram {
-		return errors.New("Telegram通知服务未启用")
+	if !config.EnableTelegram || config.TelegramBotToken == "" {
+		return fmt.Errorf("Telegram未配置")
 	}
 
-	// 检查Bot Token是否配置
-	if config.TelegramBotToken == "" {
-		return errors.New("Telegram Bot Token未配置")
-	}
-
-	global.APP_LOG.Debug("发送新密码到Telegram",
-		zap.String("telegram", telegram),
-		zap.String("username", username),
-		zap.String("operation", "password_reset_by_token"))
-
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造消息内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用Telegram Bot API发送消息
-	// 可以使用 go-telegram-bot-api 包
-	// 示例实现：
-	// bot, err := tgbotapi.NewBotAPI(config.TelegramBotToken)
-	// if err != nil {
-	//     return fmt.Errorf("创建Telegram Bot失败: %v", err)
-	// }
-	//
-	// chatID, err := strconv.ParseInt(telegram, 10, 64)
-	// if err != nil {
-	//     return fmt.Errorf("无效的Telegram Chat ID: %v", err)
-	// }
-	//
-	// msg := tgbotapi.NewMessage(chatID, message)
-	// _, err = bot.Send(msg)
-	// return err
-
-	// 暂时返回未实现错误，但保留完整的配置检查逻辑
-	global.APP_LOG.Warn("Telegram Bot API集成待实现",
-		zap.String("message", message),
-		zap.String("chatId", telegram))
-	return errors.New("Telegram Bot API集成待实现，请安装并配置 go-telegram-bot-api 包")
+	message := fmt.Sprintf("您的密码已重置。\n用户名：<b>%s</b>\n新密码：<code>%s</code>\n请及时登录并修改密码。", username, newPassword)
+	return messaging.SendTelegramMessage(config.TelegramBotToken, telegram, message)
 }
 
 // sendPasswordByQQ 通过QQ发送新密码
 func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 	config := global.GetAppConfig().Auth
 
-	// 检查QQ是否启用
-	if !config.EnableQQ {
-		return errors.New("QQ通知服务未启用")
+	if !config.EnableQQ || config.QQAppID == "" {
+		return fmt.Errorf("QQ未配置")
 	}
 
-	// 检查QQ配置是否完整
-	if config.QQAppID == "" || config.QQAppKey == "" {
-		return errors.New("QQ应用配置不完整")
-	}
-
-	global.APP_LOG.Debug("发送新密码到QQ",
-		zap.String("qq", qq),
-		zap.String("username", username),
-		zap.String("operation", "password_reset_by_token"))
-
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造消息内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s\n请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用QQ机器人API发送消息
-	// 可以使用QQ官方的OpenAPI或第三方SDK
-	// 示例实现：
-	// qqBot := qqapi.NewBot(config.QQAppID, config.QQAppKey)
-	// err := qqBot.SendPrivateMessage(qq, message)
-	// return err
-
-	// 暂时返回未实现错误，但保留完整的配置检查逻辑
-	global.APP_LOG.Warn("QQ机器人API集成待实现",
-		zap.String("message", message),
-		zap.String("qqNumber", qq))
-	return errors.New("QQ机器人API集成待实现，请安装并配置相应的QQ SDK")
+	global.APP_LOG.Warn("QQ消息通道暂不可用，建议使用邮箱或Telegram", zap.String("qq", qq))
+	return fmt.Errorf("QQ消息通道暂不可用")
 }
 
 // sendPasswordBySMS 通过短信发送新密码
 func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) error {
-	global.APP_LOG.Debug("发送新密码到手机",
-		zap.String("phone", phone),
-		zap.String("username", username),
-		zap.String("operation", "password_reset_by_token"))
-
-	// 在开发环境下直接返回成功
 	if global.GetAppConfig().System.Env == "development" {
 		global.APP_LOG.Debug("开发环境模拟发送成功")
 		return nil
 	}
 
-	// 构造短信内容
-	message := fmt.Sprintf("用户 %s 的新密码：%s，请及时登录并修改密码。", username, newPassword)
-
-	// 这里应该调用短信服务商API
-	// 可以集成阿里云、腾讯云、华为云等短信服务
-	// 示例实现：
-	// smsClient := sms.NewClient(config.SMSAccessKey, config.SMSSecretKey)
-	// err := smsClient.SendSMS(phone, message, config.SMSTemplateID)
-	// return err
-
-	// 暂时返回未实现错误，但保留完整的日志记录
-	global.APP_LOG.Warn("短信服务API集成待实现",
-		zap.String("message", message),
-		zap.String("phone", phone))
-	return errors.New("短信服务API集成待实现，请配置短信服务商（如阿里云、腾讯云等）")
+	return fmt.Errorf("短信服务未配置")
 }
 
 // ChangePassword 修改密码

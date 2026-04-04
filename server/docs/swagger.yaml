@@ -183,6 +183,41 @@ definitions:
     required:
     - ids
     type: object
+  admin.BatchCreateRedemptionCodesRequest:
+    properties:
+      bandwidthId:
+        type: string
+      count:
+        maximum: 100
+        minimum: 1
+        type: integer
+      cpuId:
+        type: string
+      diskId:
+        type: string
+      imageId:
+        type: integer
+      instanceType:
+        enum:
+        - container
+        - vm
+        type: string
+      memoryId:
+        type: string
+      providerId:
+        type: integer
+      remark:
+        type: string
+    required:
+    - bandwidthId
+    - count
+    - cpuId
+    - diskId
+    - imageId
+    - instanceType
+    - memoryId
+    - providerId
+    type: object
   admin.BatchDeleteInviteCodesRequest:
     properties:
       ids:
@@ -198,6 +233,16 @@ definitions:
       ids:
         items:
           type: integer
+        type: array
+    required:
+    - ids
+    type: object
+  admin.BatchDeleteRedemptionCodesRequest:
+    properties:
+      ids:
+        items:
+          type: integer
+        minItems: 1
         type: array
     required:
     - ids
@@ -506,6 +551,12 @@ definitions:
         type: boolean
       architecture:
         type: string
+      autoAdjustQuota:
+        description: 是否自动调整quota以适应导入的实例
+        type: boolean
+      autoImport:
+        description: 是否自动导入发现的实例
+        type: boolean
       city:
         type: string
       config:
@@ -555,6 +606,12 @@ definitions:
       defaultPortCount:
         description: 端口映射配置
         type: integer
+      discoverMode:
+        description: 实例发现与导入配置
+        type: boolean
+      enableResourceMonitoring:
+        description: 硬件资源监控
+        type: boolean
       enableTaskPolling:
         description: 是否启用任务轮询，默认true
         type: boolean
@@ -572,6 +629,9 @@ definitions:
         type: string
       expiresAt:
         description: '过期时间，格式: "2006-01-02 15:04:05"'
+        type: string
+      importedInstanceOwner:
+        description: 导入实例的所有者（用户名，默认"admin"）
         type: string
       ipv4PortMappingMethod:
         description: 端口映射方式配置
@@ -628,6 +688,9 @@ definitions:
       portRangeStart:
         description: 端口映射范围起始，默认10000
         type: integer
+      redeemCodeOnly:
+        description: 是否仅支持兑换码兑换
+        type: boolean
       region:
         type: string
       sshConnectTimeout:
@@ -680,6 +743,9 @@ definitions:
       trafficStatsMode:
         description: 流量统计性能配置
         type: string
+      trafficSyncMethod:
+        description: 流量同步方式：pmacct(传统), agent(Rust Agent)
+        type: string
       type:
         type: string
       username:
@@ -729,6 +795,14 @@ definitions:
     - password
     - userType
     - username
+    type: object
+  admin.ExportRedemptionCodesRequest:
+    properties:
+      ids:
+        description: 为空则导出所有
+        items:
+          type: integer
+        type: array
     type: object
   admin.ForceStopTaskRequest:
     properties:
@@ -834,6 +908,14 @@ definitions:
       newPassword:
         description: 生成的新密码
         type: string
+    type: object
+  admin.SyncPortMappingsTaskRequest:
+    properties:
+      providerIds:
+        description: 指定要同步的Provider IDs（为空则同步所有）
+        items:
+          type: integer
+        type: array
     type: object
   admin.TaskStatsResponse:
     properties:
@@ -1189,13 +1271,13 @@ definitions:
         type: string
       total_used:
         description: 总流量
-        type: integer
+        type: number
       traffic_in:
         description: '流量数据 (单位: MB)'
-        type: integer
+        type: number
       traffic_out:
         description: 出站流量
-        type: integer
+        type: number
       updated_at:
         type: string
       user_id:
@@ -1317,13 +1399,13 @@ definitions:
         type: string
       total_used:
         description: 总流量
-        type: integer
+        type: number
       traffic_in:
         description: '流量数据 (单位: MB)'
-        type: integer
+        type: number
       traffic_out:
         description: 出站流量
-        type: integer
+        type: number
       updated_at:
         type: string
       year:
@@ -1353,13 +1435,13 @@ definitions:
         type: string
       total_used:
         description: 总流量
-        type: integer
+        type: number
       traffic_in:
         description: '流量数据 (单位: MB)'
-        type: integer
+        type: number
       traffic_out:
         description: 出站流量
-        type: integer
+        type: number
       updated_at:
         type: string
       user_id:
@@ -1590,6 +1672,139 @@ definitions:
       usernameField:
         type: string
     type: object
+  oneclickvirt_model_provider.Instance:
+    properties:
+      bandwidth:
+        description: 网络带宽（Mbps）
+        type: integer
+      cpu:
+        description: 资源配置
+        type: integer
+      createdAt:
+        description: 实例创建时间
+        type: string
+      discoveredData:
+        description: 发现时的原始数据（JSON格式，用于调试和审计）
+        type: string
+      disk:
+        description: 磁盘大小（MB）
+        type: integer
+      expiresAt:
+        description: 生命周期和冻结管理
+        type: string
+      frozenAt:
+        description: 冻结时间
+        type: string
+      frozenReason:
+        description: 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
+        type: string
+      hasPortConflict:
+        description: 是否存在端口冲突
+        type: boolean
+      id:
+        description: 基础字段
+        type: integer
+      image:
+        description: 使用的镜像名称
+        type: string
+      importedAt:
+        description: 导入时间
+        type: string
+      instance_type:
+        description: 实例类型：container, vm
+        type: string
+      ipv6Address:
+        description: 内网IPv6地址
+        type: string
+      isFrozen:
+        description: 是否被冻结（冻结后无法操作，除了删除）
+        type: boolean
+      isImported:
+        description: 实例导入相关字段
+        type: boolean
+      isManualExpiry:
+        description: 是否手动设置了过期时间（手动设置的优先级高于节点）
+        type: boolean
+      maxTraffic:
+        description: 流量统计（实例层面）
+        type: integer
+      memory:
+        description: 内存大小（MB）
+        type: integer
+      name:
+        description: |-
+          基本信息
+          添加覆盖索引，包含常用查询字段
+        type: string
+      network:
+        description: 网络配置
+        type: string
+      osType:
+        description: 系统信息
+        type: string
+      password:
+        description: 登录密码
+        type: string
+      pmacctInterfaceV4:
+        description: pmacct 监控的IPv4网络接口名称
+        type: string
+      pmacctInterfaceV6:
+        description: pmacct 监控的IPv6网络接口名称
+        type: string
+      portConflictDetail:
+        description: 端口冲突详情（JSON格式记录冲突端口信息）
+        type: string
+      portRangeEnd:
+        description: 端口映射范围结束
+        type: integer
+      portRangeStart:
+        description: 端口映射范围起始
+        type: integer
+      privateIP:
+        description: 内网/私有IPv4地址
+        type: string
+      provider:
+        description: Provider名称
+        type: string
+      providerId:
+        description: 关联的Provider ID（与name组合唯一）
+        type: integer
+      publicIP:
+        description: 公网IPv4地址
+        type: string
+      publicIPv6:
+        description: 公网IPv6地址
+        type: string
+      region:
+        description: 所在地区
+        type: string
+      sshPort:
+        description: SSH访问端口
+        type: integer
+      status:
+        description: 实例状态：creating, running, stopped, failed等
+        type: string
+      trafficLimitReason:
+        description: 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
+        type: string
+      trafficLimited:
+        description: 是否因流量超限被停机
+        type: boolean
+      updatedAt:
+        description: 实例信息更新时间
+        type: string
+      userId:
+        description: |-
+          关联关系
+          添加UserID索引以支持按用户查询
+        type: integer
+      username:
+        description: 访问凭据
+        type: string
+      uuid:
+        description: 实例唯一标识符
+        type: string
+    type: object
   oneclickvirt_service_provider.ConnectProviderRequest:
     properties:
       cert_path:
@@ -1720,6 +1935,199 @@ definitions:
       use_cdn:
         description: 是否使用CDN加速下载镜像
         type: boolean
+    type: object
+  provider.DiscoveredInstance:
+    properties:
+      cpu:
+        description: 资源配置
+        type: integer
+      disk:
+        description: 磁盘大小（MB）
+        type: integer
+      extraPorts:
+        description: 其他开放端口
+        items:
+          type: integer
+        type: array
+      image:
+        description: 系统信息
+        type: string
+      instanceType:
+        description: 实例类型（container或vm）
+        type: string
+      ipv6Address:
+        description: IPv6地址
+        type: string
+      macAddress:
+        description: MAC地址
+        type: string
+      memory:
+        description: 内存大小（MB）
+        type: integer
+      name:
+        description: 实例名称
+        type: string
+      osType:
+        description: 操作系统类型
+        type: string
+      privateIP:
+        description: 网络配置
+        type: string
+      publicIP:
+        description: 公网IPv4地址
+        type: string
+      rawData:
+        description: 原始数据（用于调试）
+      sshPort:
+        description: SSH端口
+        type: integer
+      status:
+        description: 实例状态（running, stopped等）
+        type: string
+      uuid:
+        description: 基本标识
+        type: string
+    type: object
+  provider.DiscoveryResult:
+    properties:
+      alreadyManaged:
+        description: 已纳管的实例数
+        type: integer
+      discoveredAt:
+        type: string
+      discoveredInstances:
+        items:
+          $ref: '#/definitions/provider.DiscoveredInstance'
+        type: array
+      error:
+        type: string
+      newInstances:
+        description: 新发现的实例数
+        type: integer
+      providerId:
+        type: integer
+      providerName:
+        type: string
+      totalCount:
+        type: integer
+    type: object
+  provider.ImportOptions:
+    properties:
+      adminUserId:
+        description: 管理员用户ID，导入的实例将分配给该用户
+        type: integer
+      autoAdjustQuota:
+        description: 是否自动调整quota
+        type: boolean
+      instanceUuids:
+        description: 要导入的实例UUID列表，为空表示全部导入
+        items:
+          type: string
+        type: array
+      markConflicts:
+        description: 是否标记端口冲突
+        type: boolean
+      providerId:
+        description: Provider ID
+        type: integer
+    type: object
+  provider.ImportResult:
+    properties:
+      errors:
+        description: 错误列表
+        items:
+          type: string
+        type: array
+      failedCount:
+        description: 失败数
+        type: integer
+      importedAt:
+        type: string
+      importedDetails:
+        description: 导入详情
+        items:
+          $ref: '#/definitions/provider.ImportedInstanceInfo'
+        type: array
+      portConflicts:
+        description: 端口冲突数
+        type: integer
+      providerId:
+        type: integer
+      providerName:
+        type: string
+      quotaAdjusted:
+        description: 是否调整了quota
+        type: boolean
+      skippedCount:
+        description: 跳过数（已存在）
+        type: integer
+      successCount:
+        description: 成功导入数
+        type: integer
+      totalAttempted:
+        description: 尝试导入的实例数
+        type: integer
+    type: object
+  provider.ImportedInstanceInfo:
+    properties:
+      conflictDetail:
+        type: string
+      error:
+        type: string
+      hasPortConflict:
+        type: boolean
+      instanceId:
+        type: integer
+      name:
+        type: string
+      status:
+        description: success, skipped, failed
+        type: string
+      uuid:
+        type: string
+    type: object
+  provider.InstanceChange:
+    properties:
+      instanceId:
+        type: integer
+      name:
+        type: string
+      newStatus:
+        type: string
+      oldStatus:
+        type: string
+      uuid:
+        type: string
+    type: object
+  provider.InstanceSyncReport:
+    properties:
+      changedInstances:
+        description: 状态变化实例
+        items:
+          $ref: '#/definitions/provider.InstanceChange'
+        type: array
+      checkedAt:
+        type: string
+      deletedInstances:
+        description: 已删除实例
+        items:
+          $ref: '#/definitions/oneclickvirt_model_provider.Instance'
+        type: array
+      newInstances:
+        description: 新增实例
+        items:
+          $ref: '#/definitions/provider.DiscoveredInstance'
+        type: array
+      providerId:
+        type: integer
+      providerName:
+        type: string
+      totalDB:
+        description: 数据库总实例数
+        type: integer
+      totalRemote:
+        description: 远程总实例数
+        type: integer
     type: object
   resource.ResourceReservation:
     properties:
@@ -2025,6 +2433,9 @@ definitions:
         type: number
       name:
         type: string
+      redeemCodeOnly:
+        description: 是否仅支持兑换码兑换
+        type: boolean
       region:
         type: string
       status:
@@ -2134,6 +2545,8 @@ definitions:
   user.InstanceActionRequest:
     properties:
       action:
+        type: string
+      image:
         type: string
       instanceId:
         type: integer
@@ -3656,6 +4069,41 @@ paths:
       summary: 批量删除端口映射
       tags:
       - 端口映射管理
+  /admin/port-mappings/sync:
+    post:
+      consumes:
+      - application/json
+      description: 创建一个后台任务，检测并清理孤立的端口映射（实例已删除但数据库记录仍存在）。为每个Provider创建独立的同步任务
+      parameters:
+      - description: 同步参数（可选指定Provider IDs）
+        in: body
+        name: data
+        schema:
+          $ref: '#/definitions/admin.SyncPortMappingsTaskRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 同步任务已创建
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 同步端口映射
+      tags:
+      - Admin-Port-Mapping
   /admin/ports/check:
     post:
       consumes:
@@ -4210,6 +4658,252 @@ paths:
       summary: 获取流量监控任务详情
       tags:
       - 流量监控管理
+  /admin/providers/{id}/discover:
+    post:
+      consumes:
+      - application/json
+      description: 扫描Provider上所有已存在的实例，返回实例列表
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 发现成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/provider.DiscoveryResult'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 发现Provider实例
+      tags:
+      - Provider管理
+  /admin/providers/{id}/import:
+    post:
+      consumes:
+      - application/json
+      description: 将发现的实例导入到系统中进行管理
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 导入选项
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/provider.ImportOptions'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导入成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/provider.ImportResult'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导入Provider实例
+      tags:
+      - Provider管理
+  /admin/providers/{id}/ipv4-pool:
+    delete:
+      description: 清空指定服务商地址池中所有未分配的IP地址
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 清空成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 清空未分配IPv4地址
+      tags:
+      - 服务商管理
+    get:
+      description: 管理员获取指定服务商的IPv4地址池（分页）
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 100
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取IPv4地址池
+      tags:
+      - 服务商管理
+    post:
+      description: 向指定服务商的IPv4地址池中追加IP（每行一个IP或CIDR）
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 地址列表（每行一个IP/CIDR，可含注释行）
+        in: body
+        name: body
+        required: true
+        schema:
+          type: object
+      responses:
+        "200":
+          description: 设置成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 设置IPv4地址池
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/ipv4-pool/{entry_id}:
+    delete:
+      parameters:
+      - description: 服务商ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 地址条目ID
+        in: path
+        name: entry_id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除单个IPv4地址
+      tags:
+      - 服务商管理
+  /admin/providers/{id}/orphaned:
+    get:
+      consumes:
+      - application/json
+      description: 获取Provider上已存在但未被系统纳管的实例列表
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    $ref: '#/definitions/provider.DiscoveredInstance'
+                  type: array
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取未纳管实例
+      tags:
+      - Provider管理
+  /admin/providers/{id}/sync-check:
+    post:
+      consumes:
+      - application/json
+      description: 比较数据库实例与Provider远程实例，检测新增、删除和变化的实例
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 检查成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/provider.InstanceSyncReport'
+              type: object
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器内部错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 检查实例同步
+      tags:
+      - Provider管理
   /admin/providers/check-endpoint:
     get:
       consumes:
@@ -4328,6 +5022,118 @@ paths:
       summary: 测试SSH连接延迟
       tags:
       - 提供商管理
+  /admin/redemption-codes:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取兑换码列表，支持分页和筛选
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 兑换码关键字
+        in: query
+        name: code
+        type: string
+      - description: 状态筛选
+        in: query
+        name: status
+        type: string
+      - description: 节点ID筛选
+        in: query
+        name: providerId
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取兑换码列表
+      tags:
+      - 兑换码管理
+  /admin/redemption-codes/batch-create:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量创建兑换码，触发后台实例创建任务
+      parameters:
+      - description: 批量创建请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.BatchCreateRedemptionCodesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量创建兑换码
+      tags:
+      - 兑换码管理
+  /admin/redemption-codes/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量删除兑换码（硬删除）及关联实例
+      parameters:
+      - description: 批量删除请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.BatchDeleteRedemptionCodesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 批量删除兑换码
+      tags:
+      - 兑换码管理
+  /admin/redemption-codes/export:
+    post:
+      consumes:
+      - application/json
+      description: 管理员导出指定兑换码的字符串列表
+      parameters:
+      - description: 导出请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/admin.ExportRedemptionCodesRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 导出成功
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 导出兑换码
+      tags:
+      - 兑换码管理
   /admin/system-images:
     get:
       consumes:
@@ -7597,6 +8403,38 @@ paths:
       summary: 获取可用节点列表
       tags:
       - 用户管理
+  /user/redemption-codes/redeem:
+    post:
+      consumes:
+      - application/json
+      description: 通过兑换码获取对应的云实例
+      parameters:
+      - description: 兑换码请求 {\
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 兑换成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 兑换码兑换
+      tags:
+      - 用户实例管理
   /user/reset-password:
     put:
       consumes:
