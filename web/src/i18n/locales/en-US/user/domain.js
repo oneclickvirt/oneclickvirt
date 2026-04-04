@@ -1,0 +1,23 @@
+export default {
+  title: 'Domain Binding',
+  addDomain: 'Add Domain',
+  domainName: 'Domain',
+  instanceId: 'Instance ID',
+  providerId: 'Provider ID',
+  protocol: 'Protocol',
+  internalIp: 'Internal IP',
+  internalPort: 'Internal Port',
+  enableSsl: 'Enable SSL',
+  status: 'Status',
+  actions: 'Actions',
+  edit: 'Edit',
+  delete: 'Delete',
+  statusActive: 'Active',
+  statusPending: 'Pending',
+  statusError: 'Error',
+  confirmDelete: 'Are you sure you want to delete this domain binding?',
+  createSuccess: 'Domain binding created',
+  deleteSuccess: 'Domain binding deleted',
+  updateSuccess: 'Domain binding updated',
+  noDomains: 'No domain bindings'
+}

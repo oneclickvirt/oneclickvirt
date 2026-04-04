@@ -126,5 +126,9 @@ export default {
   unfreezeFailed: "解冻失败",
   manualExpiry: "手动设置",
   frozen: "已冻结",
-  normal: "正常"
+  normal: "正常",
+  transfer: "转移",
+  transferInstance: "转移实例",
+  targetUserId: "目标用户ID",
+  transferSuccess: "实例转移成功"
 }

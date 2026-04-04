@@ -273,7 +273,7 @@ func getUserAuthInfo(userID uint, issuedAt time.Time) (*auth.AuthContext, error)
 	}
 
 	// 确保有效权限类型是合法的
-	validTypes := map[string]bool{"user": true, "admin": true}
+	validTypes := map[string]bool{"user": true, "admin": true, "normal_admin": true}
 	if !validTypes[effectivePermission.EffectiveType] {
 		global.APP_LOG.Error("权限服务返回无效的权限类型，拒绝访问",
 			zap.Uint("userID", userID),
@@ -283,7 +283,7 @@ func getUserAuthInfo(userID uint, issuedAt time.Time) (*auth.AuthContext, error)
 	}
 
 	// 双重验证管理员权限
-	if effectivePermission.EffectiveType == "admin" {
+	if effectivePermission.EffectiveType == "admin" || effectivePermission.EffectiveType == "normal_admin" {
 		if !permissionService.VerifyAdminPrivilege(userID) {
 			global.APP_LOG.Warn("管理员权限验证失败，降级为普通用户权限",
 				zap.Uint("userID", userID),
@@ -349,6 +349,8 @@ func getUserLevel(userType string) auth.AuthLevel {
 	switch userType {
 	case "admin":
 		return auth.AuthLevelAdmin
+	case "normal_admin":
+		return auth.AuthLevelNormalAdmin
 	case "user":
 		return auth.AuthLevelUser
 	default:
@@ -374,4 +376,91 @@ func respondAuthError(c *gin.Context, err error) {
 		})
 	}
 	c.Abort()
+}
+
+// RequireKYC 实名认证检查中间件（仅在系统启用且要求时检查）
+func RequireKYC() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		kycConfig := global.GetAppConfig().KYC
+		if !kycConfig.EnableRealName || !kycConfig.RequireRealName {
+			c.Next()
+			return
+		}
+		authCtx, exists := GetAuthContext(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "用户未认证"})
+			c.Abort()
+			return
+		}
+		// 管理员免检
+		if authCtx.UserType == "admin" || authCtx.UserType == "normal_admin" {
+			c.Next()
+			return
+		}
+		var u user.User
+		if err := global.APP_DB.Select("real_name_verified").First(&u, authCtx.UserID).Error; err != nil {
+			c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "用户信息查询失败"})
+			c.Abort()
+			return
+		}
+		if !u.RealNameVerified {
+			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// RequireNormalAdmin 普通管理员权限中间件（>=normal_admin级别）
+func RequireNormalAdmin() gin.HandlerFunc {
+	return RequireAuth(auth.AuthLevelNormalAdmin)
+}
+
+// RequireSuperAdmin 超级管理员权限中间件（仅admin级别,排除normal_admin）
+func RequireSuperAdmin() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authCtx, exists := GetAuthContext(c)
+		if !exists {
+			c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "用户未认证"})
+			c.Abort()
+			return
+		}
+		if authCtx.UserType != "admin" {
+			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "需要超级管理员权限"})
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}
+
+// IsSuperAdmin 检查是否为超级管理员
+func IsSuperAdmin(c *gin.Context) bool {
+	authCtx, exists := GetAuthContext(c)
+	if !exists {
+		return false
+	}
+	return authCtx.UserType == "admin"
+}
+
+// IsNormalAdmin 检查是否为普通管理员
+func IsNormalAdmin(c *gin.Context) bool {
+	authCtx, exists := GetAuthContext(c)
+	if !exists {
+		return false
+	}
+	return authCtx.UserType == "normal_admin"
+}
+
+// GetOwnerAdminID 获取普通管理员的用户ID(用于节点隔离查询)
+func GetOwnerAdminID(c *gin.Context) uint {
+	authCtx, exists := GetAuthContext(c)
+	if !exists {
+		return 0
+	}
+	if authCtx.UserType == "normal_admin" {
+		return authCtx.UserID
+	}
+	return 0 // 超级管理员返回0,不过滤
 }

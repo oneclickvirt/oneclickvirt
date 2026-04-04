@@ -421,12 +421,12 @@ type BatchUpdateUserStatusRequest struct {
 // BatchUpdateUserLevelRequest 批量更新用户等级请求
 type BatchUpdateUserLevelRequest struct {
 	UserIDs []uint `json:"userIds" binding:"required"`
-	Level   int    `json:"level" binding:"min=1,max=5"`
+	Level   int    `json:"level" binding:"min=1,max=99"`
 }
 
 // UpdateUserLevelRequest 更新单个用户等级请求
 type UpdateUserLevelRequest struct {
-	Level int `json:"level" binding:"min=1,max=5"`
+	Level int `json:"level" binding:"min=1,max=99"`
 }
 
 // ResetUserPasswordRequest 管理员强制重置用户密码请求
@@ -436,12 +436,12 @@ type ResetUserPasswordRequest struct {
 
 // UpdateInstanceTypePermissionsRequest 更新实例类型权限配置请求
 type UpdateInstanceTypePermissionsRequest struct {
-	MinLevelForContainer       int `json:"minLevelForContainer" binding:"min=1,max=5"`
-	MinLevelForVM              int `json:"minLevelForVM" binding:"min=1,max=5"`
-	MinLevelForDeleteContainer int `json:"minLevelForDeleteContainer" binding:"min=1,max=5"`
-	MinLevelForDeleteVM        int `json:"minLevelForDeleteVM" binding:"min=1,max=5"`
-	MinLevelForResetContainer  int `json:"minLevelForResetContainer" binding:"min=1,max=5"`
-	MinLevelForResetVM         int `json:"minLevelForResetVM" binding:"min=1,max=5"`
+	MinLevelForContainer       int `json:"minLevelForContainer" binding:"min=1,max=99"`
+	MinLevelForVM              int `json:"minLevelForVM" binding:"min=1,max=99"`
+	MinLevelForDeleteContainer int `json:"minLevelForDeleteContainer" binding:"min=1,max=99"`
+	MinLevelForDeleteVM        int `json:"minLevelForDeleteVM" binding:"min=1,max=99"`
+	MinLevelForResetContainer  int `json:"minLevelForResetContainer" binding:"min=1,max=99"`
+	MinLevelForResetVM         int `json:"minLevelForResetVM" binding:"min=1,max=99"`
 }
 
 // 端口映射管理相关请求

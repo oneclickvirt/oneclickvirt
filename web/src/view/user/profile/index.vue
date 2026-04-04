@@ -247,14 +247,14 @@ const profileForm = reactive({
 
 const profileRules = reactive({
   nickname: [
-    { required: true, message: '请输入昵称', trigger: 'blur' },
-    { min: 2, max: 20, message: '昵称长度在 2 到 20 个字符', trigger: 'blur' }
+    { required: true, message: () => t('user.profile.pleaseEnterNickname'), trigger: 'blur' },
+    { min: 2, max: 20, message: () => t('user.profile.nicknameLengthRange'), trigger: 'blur' }
   ],
   email: [
-    { type: 'email', message: '请输入正确的邮箱格式', trigger: 'blur' }
+    { type: 'email', message: () => t('user.profile.invalidEmailFormat'), trigger: 'blur' }
   ],
   phone: [
-    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的手机号格式', trigger: 'blur' }
+    { pattern: /^1[3-9]\d{9}$/, message: () => t('user.profile.invalidPhoneFormat'), trigger: 'blur' }
   ]
 })
 

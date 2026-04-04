@@ -105,5 +105,9 @@ export default {
   sshConnectionError: "SSH连接出错",
   sshConnectionClosed: "SSH连接已断开",
   sshCreateFailed: "无法创建SSH连接",
-  operationInProgress: "操作正在进行中，请勿重复点击..."
+  operationInProgress: "操作正在进行中，请勿重复点击...",
+  viewTaskDetail: "查看任务详情",
+  ipv4MappingTypeCompat: "IPv4映射类型（兼容）",
+  dedicatedIPv4: "独立IPv4地址",
+  natSharedIP: "NAT共享IP"
 }

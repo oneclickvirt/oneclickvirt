@@ -272,7 +272,7 @@ definitions:
   admin.BatchUpdateUserLevelRequest:
     properties:
       level:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       userIds:
@@ -1070,34 +1070,34 @@ definitions:
   admin.UpdateInstanceTypePermissionsRequest:
     properties:
       minLevelForContainer:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       minLevelForDeleteContainer:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       minLevelForDeleteVM:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       minLevelForResetContainer:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       minLevelForResetVM:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
       minLevelForVM:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
     type: object
   admin.UpdateUserLevelRequest:
     properties:
       level:
-        maximum: 5
+        maximum: 99
         minimum: 1
         type: integer
     type: object
@@ -1945,7 +1945,7 @@ definitions:
         description: 磁盘大小（MB）
         type: integer
       extraPorts:
-        description: 其他开放端口
+        description: 其他开放端口（向后兼容）
         items:
           type: integer
         type: array
@@ -1970,6 +1970,11 @@ definitions:
       osType:
         description: 操作系统类型
         type: string
+      portMappings:
+        description: 完整的端口映射信息
+        items:
+          $ref: '#/definitions/provider.DiscoveredPortMapping'
+        type: array
       privateIP:
         description: 网络配置
         type: string
@@ -1986,6 +1991,21 @@ definitions:
         type: string
       uuid:
         description: 基本标识
+        type: string
+    type: object
+  provider.DiscoveredPortMapping:
+    properties:
+      guestPort:
+        description: 容器/虚拟机内部端口
+        type: integer
+      hostPort:
+        description: 宿主机端口
+        type: integer
+      isSsh:
+        description: 是否为SSH端口
+        type: boolean
+      protocol:
+        description: tcp, udp, both
         type: string
     type: object
   provider.DiscoveryResult:
@@ -2714,6 +2734,12 @@ definitions:
         type: string
       id:
         type: integer
+      image:
+        description: 当前使用的镜像名称
+        type: string
+      instance_type:
+        description: 实例类型：container, vm
+        type: string
       ipv4MappingType:
         description: IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
         type: string
@@ -2741,6 +2767,9 @@ definitions:
       privateIP:
         description: 内网IPv4地址
         type: string
+      provider_id:
+        description: Provider ID
+        type: integer
       providerName:
         type: string
       providerStatus:
@@ -4694,6 +4723,41 @@ paths:
       summary: 发现Provider实例
       tags:
       - Provider管理
+  /admin/providers/{id}/hardware-test:
+    get:
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider硬件测试报告
+      tags:
+      - Admin-Provider
+    post:
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 运行Provider硬件测试
+      tags:
+      - Admin-Provider
   /admin/providers/{id}/import:
     post:
       consumes:
@@ -7394,6 +7458,22 @@ paths:
       summary: 获取启用的OAuth2提供商
       tags:
       - OAuth2
+  /public/providers/{id}/hardware-report:
+    get:
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取Provider硬件测试报告（用户端）
+      tags:
+      - Public
   /public/recommended-db-type:
     get:
       consumes:

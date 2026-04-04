@@ -554,6 +554,41 @@
         >
           {{ $t('admin.providers.freeze') }}
         </el-button>
+
+        <el-divider />
+        <el-button
+          class="action-button"
+          type="warning"
+          :loading="hardwareTestLoading"
+          @click="handleRunHardwareTest"
+        >
+          {{ $t('admin.providers.hardwareTest') }}
+        </el-button>
+        <el-button
+          class="action-button"
+          type="info"
+          @click="handleViewHardwareReport"
+        >
+          {{ $t('admin.providers.viewHardwareReport') }}
+        </el-button>
+      </div>
+    </el-dialog>
+
+    <!-- 硬件测试报告对话框 -->
+    <el-dialog
+      v-model="hardwareReportDialogVisible"
+      :title="$t('admin.providers.hardwareTestReport')"
+      width="700px"
+    >
+      <div v-loading="hardwareReportLoading">
+        <pre
+          v-if="hardwareReportText"
+          class="hardware-report-content"
+        >{{ hardwareReportText }}</pre>
+        <el-empty
+          v-else
+          :description="$t('admin.providers.noHardwareReport')"
+        />
       </div>
     </el-dialog>
   </div>
@@ -561,6 +596,9 @@
 
 <script setup>
 import { ref } from 'vue'
+import { ElMessage } from 'element-plus'
+import { useI18n } from 'vue-i18n'
+import { runHardwareTest, getHardwareTestReport } from '@/api/admin'
 import { 
   formatMemorySize, 
   formatDiskSize, 
@@ -578,6 +616,8 @@ import {
   getStatusText,
   getFlagEmoji
 } from '../composables/useProviderUtils'
+
+const { t } = useI18n()
 
 defineProps({
   loading: {
@@ -655,6 +695,44 @@ const handleAction = (action) => {
   }
   
   currentRow.value = null
+}
+
+const hardwareTestLoading = ref(false)
+const hardwareReportDialogVisible = ref(false)
+const hardwareReportLoading = ref(false)
+const hardwareReportText = ref('')
+
+const handleRunHardwareTest = async () => {
+  if (!currentRow.value) return
+  hardwareTestLoading.value = true
+  try {
+    await runHardwareTest(currentRow.value.id)
+    ElMessage.success(t('admin.providers.hardwareTestStarted'))
+    actionsDialogVisible.value = false
+    currentRow.value = null
+  } catch (error) {
+    console.error('Hardware test failed:', error)
+  } finally {
+    hardwareTestLoading.value = false
+  }
+}
+
+const handleViewHardwareReport = async () => {
+  if (!currentRow.value) return
+  const providerId = currentRow.value.id
+  actionsDialogVisible.value = false
+  hardwareReportDialogVisible.value = true
+  hardwareReportLoading.value = true
+  hardwareReportText.value = ''
+  try {
+    const res = await getHardwareTestReport(providerId)
+    hardwareReportText.value = res.data?.report || res.data?.data?.report || ''
+  } catch (error) {
+    console.error('Failed to load hardware report:', error)
+  } finally {
+    hardwareReportLoading.value = false
+    currentRow.value = null
+  }
 }
 </script>
 
@@ -822,5 +900,20 @@ const handleAction = (action) => {
 
 .actions-dialog-content .el-divider {
   margin: 10px 0;
+}
+
+.hardware-report-content {
+  background: var(--neutral-bg, #f5f7fa);
+  border: 1px solid var(--border-color, #e4e7ed);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 500px;
+  overflow-y: auto;
+  margin: 0;
 }
 </style>

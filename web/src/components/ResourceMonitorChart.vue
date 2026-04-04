@@ -13,9 +13,9 @@
         </div>
       </template>
 
-      <div v-if="loading" v-loading="loading" style="height: 300px;" />
+      <div v-show="loading" v-loading="true" style="height: 300px;" />
 
-      <div v-else class="charts-container">
+      <div v-show="!loading" class="charts-container">
         <!-- CPU 使用率 -->
         <div class="chart-item">
           <h4>{{ $t('user.instanceDetail.cpuUsage') }}</h4>
@@ -124,7 +124,7 @@ const renderCharts = (data) => {
 
   // CPU chart
   if (cpuChartRef.value) {
-    if (!cpuChart) cpuChart = echarts.init(cpuChartRef.value)
+    if (!cpuChart || cpuChart.isDisposed()) cpuChart = echarts.init(cpuChartRef.value)
     cpuChart.setOption(buildLineOption(times,
       [{ name: 'CPU %', data: cpuData }],
       (v) => v.toFixed(1) + '%',
@@ -134,7 +134,7 @@ const renderCharts = (data) => {
 
   // Memory chart
   if (memChartRef.value) {
-    if (!memChart) memChart = echarts.init(memChartRef.value)
+    if (!memChart || memChart.isDisposed()) memChart = echarts.init(memChartRef.value)
     const maxMem = memTotal.length > 0 ? Math.max(...memTotal) : 0
     memChart.setOption(buildLineOption(times,
       [
@@ -150,7 +150,7 @@ const renderCharts = (data) => {
 
   // Disk chart
   if (diskChartRef.value) {
-    if (!diskChart) diskChart = echarts.init(diskChartRef.value)
+    if (!diskChart || diskChart.isDisposed()) diskChart = echarts.init(diskChartRef.value)
     diskChart.setOption(buildLineOption(times,
       [
         { name: t('user.instanceDetail.diskUsed'), data: diskUsed },

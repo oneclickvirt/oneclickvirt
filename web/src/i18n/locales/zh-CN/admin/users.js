@@ -61,5 +61,18 @@ export default {
   setExpiryFailed: "设置过期时间失败",
   dateFormatError: "请输入正确的日期格式或留空",
   expiresAt: "过期时间",
-  selectExpiryTime: "请选择过期时间"
+  selectExpiryTime: "请选择过期时间",
+  freeze: "冻结用户",
+  freezeFailed: "冻结失败",
+  freezeManage: "冻结管理",
+  freezeReason: "冻结原因",
+  freezeStatus: "冻结状态",
+  freezeSuccess: "冻结成功",
+  unfreeze: "解冻用户",
+  unfreezeFailed: "解冻失败",
+  unfreezeSuccess: "解冻成功",
+  normalAdmin: "普通管理员",
+  loginAs: "代登录",
+  loginAsConfirm: "确定要以用户 {username} 的身份登录吗？将在新标签页中打开。",
+  loginAsSuccess: "代登录成功，请在新标签页中操作"
 }

@@ -16,12 +16,14 @@ export const useUserStore = defineStore('user', {
   getters: {
     isLoggedIn: (state) => !!state.token,
     isAdmin: (state) => state.userType === 'admin',
+    isNormalAdmin: (state) => state.userType === 'normal_admin',
+    isAnyAdmin: (state) => state.userType === 'admin' || state.userType === 'normal_admin',
     isUser: (state) => state.userType === 'user',
     userInfo: (state) => state.user || {},
     // 当前视图模式（管理员可以切换为用户视图）
     currentViewMode: (state) => state.viewMode,
-    // 是否可以切换视图模式（仅管理员可以）
-    canSwitchViewMode: (state) => state.userType === 'admin'
+    // 是否可以切换视图模式（管理员和普通管理员可以）
+    canSwitchViewMode: (state) => state.userType === 'admin' || state.userType === 'normal_admin'
   },
 
   actions: {
@@ -43,12 +45,12 @@ export const useUserStore = defineStore('user', {
         if (user.userType === 'user') {
           this.viewMode = 'user'
           sessionStorage.setItem('viewMode', 'user')
-        } else if (user.userType === 'admin') {
-          // 管理员可以切换视图
+        } else if (user.userType === 'admin' || user.userType === 'normal_admin') {
+          // 管理员和普通管理员可以切换视图
           if (!savedViewMode) {
-            // 首次登录：管理员默认为 admin 视图
-            this.viewMode = 'admin'
-            sessionStorage.setItem('viewMode', 'admin')
+            // 首次登录：默认为对应的管理视图
+            this.viewMode = user.userType
+            sessionStorage.setItem('viewMode', user.userType)
           } else if (!this.viewMode) {
             // 如果 state 中的 viewMode 为空但 sessionStorage 中有值，恢复它
             this.viewMode = savedViewMode
@@ -201,14 +203,14 @@ export const useUserStore = defineStore('user', {
       localStorage.removeItem('username')
     },
 
-    // 切换视图模式（仅管理员可用）
+    // 切换视图模式（管理员和普通管理员可用）
     switchViewMode(mode) {
-      if (this.userType !== 'admin') {
+      if (this.userType !== 'admin' && this.userType !== 'normal_admin') {
         console.warn('只有管理员可以切换视图模式')
         return false
       }
       
-      if (mode !== 'admin' && mode !== 'user') {
+      if (mode !== 'admin' && mode !== 'normal_admin' && mode !== 'user') {
         console.warn('无效的视图模式:', mode)
         return false
       }
@@ -221,7 +223,7 @@ export const useUserStore = defineStore('user', {
 
     // 切换到管理员视图
     switchToAdminView() {
-      return this.switchViewMode('admin')
+      return this.switchViewMode(this.userType === 'normal_admin' ? 'normal_admin' : 'admin')
     },
 
     // 切换到用户视图
@@ -231,7 +233,7 @@ export const useUserStore = defineStore('user', {
 
     // 检查权限
     hasPermission(permission) {
-      if (this.isAdmin) return true
+      if (this.isAdmin || this.isNormalAdmin) return true
       return this.permissions.includes(permission)
     },
 

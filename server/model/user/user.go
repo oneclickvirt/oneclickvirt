@@ -28,7 +28,10 @@ type User struct {
 	// 状态和权限
 	Status   int    `json:"status" gorm:"default:1;index:idx_status"` // 用户状态：0=禁用（不可登录），1=正常
 	Level    int    `json:"level" gorm:"default:1;index:idx_level"`   // 用户等级，用于权限控制
-	UserType string `json:"userType" gorm:"default:user;size:16"`     // 用户类型：user, admin, super_admin等
+	UserType string `json:"userType" gorm:"default:user;size:16"`     // 用户类型：user, normal_admin, admin, super_admin等
+
+	// 实名认证
+	RealNameVerified bool `json:"realNameVerified" gorm:"default:false"` // 是否已实名认证
 
 	// 配额管理（两阶段配额系统）
 	UsedQuota    int `json:"usedQuota" gorm:"default:0"`    // 已确认使用的配额（稳定状态实例）

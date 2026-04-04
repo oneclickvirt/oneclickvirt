@@ -105,5 +105,9 @@ export default {
   sshConnectionError: "SSH connection error",
   sshConnectionClosed: "SSH connection disconnected",
   sshCreateFailed: "Unable to create SSH connection",
-  operationInProgress: "Operation in progress, please do not click repeatedly..."
+  operationInProgress: "Operation in progress, please do not click repeatedly...",
+  viewTaskDetail: "View Task Details",
+  ipv4MappingTypeCompat: "IPv4 Mapping Type (Compat)",
+  dedicatedIPv4: "Dedicated IPv4",
+  natSharedIP: "NAT Shared IP"
 }

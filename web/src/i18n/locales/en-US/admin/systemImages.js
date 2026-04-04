@@ -71,5 +71,8 @@ export default {
   batchDeleteFailed: "Batch delete failed",
   batchStatusConfirm: "Are you sure you want to {action} the selected {count} images?",
   batchStatusSuccess: "Batch {action} successful",
-  batchStatusFailed: "Batch {action} failed"
+  batchStatusFailed: "Batch {action} failed",
+  urlHintProxmoxVM: "ProxmoxVE VM images must be .qcow2 files",
+  urlHintLxdIncus: "LXD/Incus images must be .zip files",
+  urlHintContainerTarGz: "{provider} container images must be .tar.gz files"
 }

@@ -70,5 +70,20 @@ func InitUserRouter(Router *gin.RouterGroup) {
 
 		// 兑换码兑换
 		UserGroup.POST("/user/redemption-codes/redeem", user.RedeemCode)
+
+		// 域名绑定
+		UserGroup.GET("/user/domains", user.GetUserDomains)
+		UserGroup.POST("/user/domains", user.CreateUserDomain)
+		UserGroup.PUT("/user/domains/:id", user.UpdateUserDomain)
+		UserGroup.DELETE("/user/domains/:id", user.DeleteUserDomain)
+
+		// KYC实名认证
+		UserGroup.GET("/user/kyc", user.GetUserKYC)
+		UserGroup.POST("/user/kyc", user.SubmitUserKYC)
+
+		// 签到续期
+		UserGroup.POST("/user/checkin/code/:instance_id", user.GenerateCheckinCode)
+		UserGroup.POST("/user/checkin", user.DoCheckin)
+		UserGroup.GET("/user/checkin/records", user.GetCheckinRecords)
 	}
 }

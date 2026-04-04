@@ -154,7 +154,10 @@ jobs:
         go mod download
         go mod verify
         export CGO_ENABLED=0
-        export LDFLAGS="-s -w -extldflags '-static'"
+        BUILD_COMMIT=$(git rev-parse HEAD)
+        BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        BUILD_SIGNATURE="official-github-actions"
+        export LDFLAGS="-s -w -extldflags '-static' -X oneclickvirt/constant.BuildCommit=${BUILD_COMMIT} -X oneclickvirt/constant.BuildTime=${BUILD_TIME} -X oneclickvirt/constant.BuildSignature=${BUILD_SIGNATURE}"
         
         # Linux AMD64
         GOOS=linux GOARCH=amd64 go build -ldflags="$LDFLAGS" -o ../build/server-linux-amd64 .
@@ -179,7 +182,10 @@ jobs:
       run: |
         export GO111MODULE=on
         export CGO_ENABLED=0
-        export LDFLAGS="-s -w -extldflags '-static'"
+        BUILD_COMMIT=$(git rev-parse HEAD)
+        BUILD_TIME=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+        BUILD_SIGNATURE="official-github-actions"
+        export LDFLAGS="-s -w -extldflags '-static' -X oneclickvirt/constant.BuildCommit=${BUILD_COMMIT} -X oneclickvirt/constant.BuildTime=${BUILD_TIME} -X oneclickvirt/constant.BuildSignature=${BUILD_SIGNATURE}"
         
         # Linux AMD64 (with embedded frontend)
         GOOS=linux GOARCH=amd64 go build -tags embed -ldflags="$LDFLAGS" -o ../build/server-allinone-linux-amd64 .

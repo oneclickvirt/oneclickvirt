@@ -113,18 +113,25 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 		}
 
 		sshPortFound := false
+		var portMappings []provider.DiscoveredPortMapping
 		for containerPort, bindings := range container.NetworkSettings.Ports {
 			if len(bindings) > 0 {
 				portNum := parsePortNumber(containerPort)
+				protocol := parsePortProtocol(containerPort)
 				if portNum > 0 {
-					if !sshPortFound && strings.HasPrefix(containerPort, "22/") {
-						if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
+					if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
+						isSSH := strings.HasPrefix(containerPort, "22/")
+						if isSSH && !sshPortFound {
 							discovered.SSHPort = hostPort
 							sshPortFound = true
 						}
-					}
-					if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
 						extraPorts = append(extraPorts, hostPort)
+						portMappings = append(portMappings, provider.DiscoveredPortMapping{
+							HostPort:  hostPort,
+							GuestPort: portNum,
+							Protocol:  protocol,
+							IsSSH:     isSSH,
+						})
 					}
 				}
 			}
@@ -134,6 +141,7 @@ func (p *PodmanProvider) sshDiscoverInstances(ctx context.Context) ([]provider.D
 			discovered.SSHPort = 22
 		}
 		discovered.ExtraPorts = extraPorts
+		discovered.PortMappings = portMappings
 		discovered.OSType = extractOSType(container.Config.Env, container.Config.Labels)
 
 		discoveredInstances = append(discoveredInstances, discovered)
@@ -171,6 +179,14 @@ func parsePortNumber(portStr string) int {
 		}
 	}
 	return 0
+}
+
+func parsePortProtocol(portStr string) string {
+	parts := strings.Split(portStr, "/")
+	if len(parts) > 1 {
+		return strings.ToLower(parts[1])
+	}
+	return "tcp"
 }
 
 func extractOSType(envVars []string, labels map[string]string) string {

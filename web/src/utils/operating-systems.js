@@ -24,7 +24,7 @@ export const operatingSystems = [
   { name: 'openbsd', displayName: 'OpenBSD', category: 'BSD', color: '#F2CA30', abbr: 'OB', icon: 'fl-openbsd' },
   { name: 'netbsd', displayName: 'NetBSD', category: 'BSD', color: '#FF6600', abbr: 'NB', icon: 'fl-tux' },
   // 其他系统
-  { name: 'other', displayName: '其他', category: 'Other', color: '#909399', abbr: '?', icon: 'fl-tux' }
+  { name: 'other', displayName: 'Other', category: 'Other', color: '#909399', abbr: '?', icon: 'fl-tux' }
 ]
 
 // 根据分类获取操作系统
@@ -62,6 +62,8 @@ export const matchOperatingSystem = (imageStr) => {
   // First try exact match
   const exact = getOperatingSystemByName(lower)
   if (exact) return exact
-  // Then try substring match
-  return operatingSystems.find(os => lower.includes(os.name)) || null
+  // Then try substring match (skip 'other' to avoid false match)
+  const matched = operatingSystems.find(os => os.name !== 'other' && lower.includes(os.name))
+  // Fallback to 'other' (Linux/Tux icon) for unrecognized OS
+  return matched || operatingSystems.find(os => os.name === 'other')
 }

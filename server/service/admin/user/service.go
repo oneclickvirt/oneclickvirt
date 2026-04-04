@@ -534,8 +534,8 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 	}
 
 	// 验证等级范围
-	if level < 1 || level > 5 {
-		return errors.New("用户等级必须在1-5之间")
+	if level < 1 || level > 99 {
+		return errors.New("用户等级必须在1-99之间")
 	}
 
 	// 检查是否有管理员用户，管理员用户应该始终是最高等级
@@ -606,8 +606,8 @@ func (s *Service) BatchUpdateUserLevel(userIDs []uint, level int) error {
 // UpdateUserLevel 更新单个用户等级
 func (s *Service) UpdateUserLevel(userID uint, level int) error {
 	// 验证等级范围
-	if level < 1 || level > 5 {
-		return common.NewError(common.CodeValidationError, "用户等级必须在1-5之间")
+	if level < 1 || level > 99 {
+		return common.NewError(common.CodeValidationError, "用户等级必须在1-99之间")
 	}
 
 	// 获取用户信息

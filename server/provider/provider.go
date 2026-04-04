@@ -64,6 +64,14 @@ type Provider interface {
 	DiscoverInstances(ctx context.Context) ([]DiscoveredInstance, error)
 }
 
+// DiscoveredPortMapping 发现的端口映射信息
+type DiscoveredPortMapping struct {
+	HostPort  int    `json:"hostPort"`  // 宿主机端口
+	GuestPort int    `json:"guestPort"` // 容器/虚拟机内部端口
+	Protocol  string `json:"protocol"`  // tcp, udp, both
+	IsSSH     bool   `json:"isSsh"`     // 是否为SSH端口
+}
+
 // DiscoveredInstance 发现的实例信息结构体
 type DiscoveredInstance struct {
 	// 基本标识
@@ -78,12 +86,13 @@ type DiscoveredInstance struct {
 	Disk   int64 `json:"disk"`   // 磁盘大小（MB）
 
 	// 网络配置
-	PrivateIP   string `json:"privateIP"`   // 内网IPv4地址
-	PublicIP    string `json:"publicIP"`    // 公网IPv4地址
-	IPv6Address string `json:"ipv6Address"` // IPv6地址
-	SSHPort     int    `json:"sshPort"`     // SSH端口
-	ExtraPorts  []int  `json:"extraPorts"`  // 其他开放端口
-	MACAddress  string `json:"macAddress"`  // MAC地址
+	PrivateIP    string                  `json:"privateIP"`    // 内网IPv4地址
+	PublicIP     string                  `json:"publicIP"`     // 公网IPv4地址
+	IPv6Address  string                  `json:"ipv6Address"`  // IPv6地址
+	SSHPort      int                     `json:"sshPort"`      // SSH端口
+	ExtraPorts   []int                   `json:"extraPorts"`   // 其他开放端口（向后兼容）
+	PortMappings []DiscoveredPortMapping `json:"portMappings"` // 完整的端口映射信息
+	MACAddress   string                  `json:"macAddress"`   // MAC地址
 
 	// 系统信息
 	Image  string `json:"image"`  // 使用的镜像

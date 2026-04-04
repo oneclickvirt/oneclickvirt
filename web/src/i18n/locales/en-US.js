@@ -30,6 +30,9 @@ import userTrafficOverview from './en-US/user/trafficOverview.js'
 import userTraffic from './en-US/user/traffic.js'
 import userResources from './en-US/user/resources.js'
 import userApply from './en-US/user/apply.js'
+import userDomain from './en-US/user/domain.js'
+import userKyc from './en-US/user/kyc.js'
+import userCheckin from './en-US/user/checkin.js'
 
 // 管理员模块
 import adminDashboard from './en-US/admin/dashboard.js'
@@ -48,6 +51,8 @@ import adminOauth2 from './en-US/admin/oauth2.js'
 import adminPerformance from './en-US/admin/performance.js'
 import adminLogs from './en-US/admin/logs.js'
 import adminBlockRules from './en-US/admin/blockRules.js'
+import adminDomain from './en-US/admin/domain.js'
+import adminKyc from './en-US/admin/kyc.js'
 
 export default {
   common,
@@ -70,7 +75,10 @@ export default {
     trafficOverview: userTrafficOverview,
     traffic: userTraffic,
     resources: userResources,
-    apply: userApply
+    apply: userApply,
+    domain: userDomain,
+    kyc: userKyc,
+    checkin: userCheckin
   },
   admin: {
     dashboard: adminDashboard,
@@ -88,7 +96,9 @@ export default {
     oauth2: adminOauth2,
     performance: adminPerformance,
     logs: adminLogs,
-    blockRules: adminBlockRules
+    blockRules: adminBlockRules,
+    domain: adminDomain,
+    kyc: adminKyc
   },
   validation,
   message,

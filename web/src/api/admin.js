@@ -934,6 +934,21 @@ export const getLogContent = (params) => {
   })
 }
 
+// 硬件测试
+export const runHardwareTest = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/hardware-test`,
+    method: 'post'
+  })
+}
+
+export const getHardwareTestReport = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/hardware-test`,
+    method: 'get'
+  })
+}
+
 // 封禁规则
 export const blockRulesApi = {
   getRules: () => request({ url: '/v1/admin/block-rules', method: 'get' }),

@@ -6,9 +6,10 @@ import "time"
 type AuthLevel int
 
 const (
-	AuthLevelPublic AuthLevel = 0 // 公开访问
-	AuthLevelUser   AuthLevel = 1 // 普通用户
-	AuthLevelAdmin  AuthLevel = 3 // 管理员
+	AuthLevelPublic      AuthLevel = 0 // 公开访问
+	AuthLevelUser        AuthLevel = 1 // 普通用户
+	AuthLevelNormalAdmin AuthLevel = 2 // 普通管理员
+	AuthLevelAdmin       AuthLevel = 3 // 超级管理员
 )
 
 // AuthContext 认证上下文

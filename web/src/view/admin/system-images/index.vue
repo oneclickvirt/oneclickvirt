@@ -969,11 +969,11 @@ const getUrlHint = () => {
   if (!form.providerType || !form.instanceType) return ''
   
   if (form.providerType === 'proxmox' && form.instanceType === 'vm') {
-    return 'ProxmoxVE虚拟机镜像必须是 .qcow2 文件'
+    return t('admin.systemImages.urlHintProxmoxVM')
   } else if ((form.providerType === 'lxd' || form.providerType === 'incus')) {
-    return 'LXD/Incus镜像必须是 .zip 文件'
+    return t('admin.systemImages.urlHintLxdIncus')
   } else if (['docker', 'podman', 'containerd'].includes(form.providerType) && form.instanceType === 'container') {
-    return form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) + '容器镜像必须是 .tar.gz 文件'
+    return t('admin.systemImages.urlHintContainerTarGz', { provider: form.providerType.charAt(0).toUpperCase() + form.providerType.slice(1) })
   }
   return ''
 }

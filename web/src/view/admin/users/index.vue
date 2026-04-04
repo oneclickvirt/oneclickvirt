@@ -63,6 +63,10 @@
               value="user"
             />
             <el-option
+              :label="$t('admin.users.normalAdmin')"
+              value="normal_admin"
+            />
+            <el-option
               :label="$t('admin.users.adminUser')"
               value="admin"
             />
@@ -300,6 +304,14 @@
               >
                 {{ $t('admin.users.resetPassword') }}
               </el-button>
+              <el-button
+                v-if="scope.row.userType !== 'admin'"
+                size="small"
+                type="info"
+                @click="handleLoginAsUser(scope.row)"
+              >
+                {{ $t('admin.users.loginAs') }}
+              </el-button>
             </div>
           </template>
         </el-table-column>
@@ -422,6 +434,10 @@
                 <el-option
                   :label="$t('admin.users.normalUser')"
                   value="user"
+                />
+                <el-option
+                  :label="$t('admin.users.normalAdmin')"
+                  value="normal_admin"
                 />
                 <el-option
                   :label="$t('admin.users.adminUser')"
@@ -666,6 +682,7 @@ import {
   resetUserPassword,
   setUserExpiry
 } from '@/api/admin'
+import { adminLoginAsUser } from '@/api/features'
 
 const { t } = useI18n()
 
@@ -966,6 +983,7 @@ const getLevelTagType = (level) => {
 const getUserTypeLabel = (userType) => {
   const labelMap = {
     'user': t('admin.users.normalUser'),
+    'normal_admin': t('admin.users.normalAdmin'),
     'admin': t('admin.users.adminUser')
   }
   return labelMap[userType] || t('common.unknown')
@@ -975,6 +993,7 @@ const getUserTypeLabel = (userType) => {
 const getUserTypeTagType = (userType) => {
   const typeMap = {
     'user': '',
+    'normal_admin': 'warning',
     'admin': 'danger'
   }
   return typeMap[userType] || ''
@@ -1120,6 +1139,37 @@ const cancelResetPassword = () => {
   resetPasswordForm.userId = null
   resetPasswordForm.username = ''
   generatedPassword.value = ''
+}
+
+// 以用户身份登录
+const handleLoginAsUser = async (user) => {
+  try {
+    await ElMessageBox.confirm(
+      t('admin.users.loginAsConfirm', { username: user.username }),
+      t('common.confirm'),
+      { type: 'warning' }
+    )
+    const response = await adminLoginAsUser(user.id)
+    if (response.code === 0 || response.code === 200) {
+      // 在新标签页中以该用户身份打开
+      const token = response.data.token
+      const url = window.location.origin + window.location.pathname + '#/user/dashboard'
+      const newTab = window.open(url, '_blank')
+      if (newTab) {
+        // 通过 storage event 传递 token
+        newTab.addEventListener('load', () => {
+          newTab.sessionStorage.setItem('token', token)
+          newTab.sessionStorage.setItem('userType', 'user')
+          newTab.sessionStorage.setItem('viewMode', 'user')
+          newTab.location.reload()
+        })
+      }
+      ElMessage.success(t('admin.users.loginAsSuccess'))
+    }
+  } catch (error) {
+    if (error === 'cancel') return
+    ElMessage.error(error.response?.data?.message || error.message || t('common.operationFailed'))
+  }
 }
 
 // 复制密码到剪贴板

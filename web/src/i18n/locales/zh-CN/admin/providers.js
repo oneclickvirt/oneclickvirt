@@ -562,9 +562,19 @@ export default {
   networkRequestFailed: "网络请求失败",
   atLeastOneVirtType: "至少需要选择一种虚拟化类型（容器或虚拟机）",
   apiAutoConfigSuccess: "API 自动配置成功",
-  loadProvidersFailed: "获取提供商列表失败，请检查网络连接",
   singleDeleteConfirm: "此操作将永久删除该服务器，是否继续？",
   singleFreezeConfirm: "此操作将冻结该服务器，冻结后普通用户无法使用该服务器创建实例，是否继续？",
   restoreDefaultLimitsConfirm: "确定要恢复所有等级的默认限制值吗？",
-  confirmOperation: "确认操作"
+  confirmOperation: "确认操作",
+  hardwareTest: "硬件测试",
+  hardwareTestStarted: "硬件测试已启动",
+  hardwareTestRunning: "正在运行硬件测试",
+  hardwareTestReport: "硬件测试报告",
+  noHardwareReport: "暂无测试报告",
+  viewHardwareReport: "查看检测报告",
+  taskStatusPending: "等待中",
+  taskStatusRunning: "运行中",
+  taskStatusCompleted: "已完成",
+  taskStatusFailed: "失败",
+  taskStatusCancelled: "已取消"
 }

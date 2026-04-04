@@ -1,0 +1,21 @@
+export default {
+  title: '域名管理',
+  allDomains: '所有域名绑定',
+  domainConfig: '域名配置',
+  deleteDomain: '删除域名',
+  confirmDelete: '确定删除该域名绑定？',
+  deleteSuccess: '删除成功',
+  configUpdated: '域名配置更新成功',
+  enabled: '启用域名绑定',
+  maxDomainsPerUser: '每用户最大域名数',
+  dnsType: 'DNS类型',
+  dnsConfigPath: 'DNS配置路径',
+  nginxConfigPath: 'Nginx配置路径',
+  nginxReloadCmd: 'Nginx重载命令',
+  allowedSuffixes: '允许的域名后缀',
+  userId: '用户ID',
+  instanceId: '实例ID',
+  domainName: '域名',
+  status: '状态',
+  actions: '操作'
+}

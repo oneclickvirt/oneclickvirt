@@ -176,7 +176,7 @@ func syncQuotaConfig(cfg *config.Server, quotaConfig map[string]interface{}) {
 			if limitMap, ok := limitData.(map[string]interface{}); ok {
 				var level int
 				fmt.Sscanf(levelStr, "%d", &level)
-				if level < 1 || level > 5 {
+				if level < 1 || level > 99 {
 					continue
 				}
 				levelLimit := config.LevelLimitInfo{}

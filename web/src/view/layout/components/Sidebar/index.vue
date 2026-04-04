@@ -107,9 +107,11 @@ const navigateTo = (path) => {
 // 根据用户类型获取对应的路由
 const userRoutes = computed(() => {
   // 使用 viewMode 来决定显示哪个视图的菜单
-  // 管理员可以切换视图，普通用户只能看到用户视图
+  // 管理员(含normal_admin)可以切换视图，普通用户只能看到用户视图
   const viewMode = userStore.currentViewMode || userStore.userType
-  console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '用户类型:', userStore.userType)
+  // normal_admin映射为admin视图
+  const effectiveMode = viewMode === 'normal_admin' ? 'admin' : viewMode
+  console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '有效模式:', effectiveMode, '用户类型:', userStore.userType)
   
   // 强制依赖 locale，确保语言切换时重新计算
   const currentLocale = locale.value
@@ -156,6 +158,30 @@ const userRoutes = computed(() => {
         meta: {
           title: t('sidebar.personalCenter'),
           icon: 'User'
+        }
+      },
+      {
+        path: '/user/domain',
+        name: 'UserDomain',
+        meta: {
+          title: t('sidebar.domainBinding'),
+          icon: 'Link'
+        }
+      },
+      {
+        path: '/user/kyc',
+        name: 'UserKYC',
+        meta: {
+          title: t('sidebar.kycVerification'),
+          icon: 'Postcard'
+        }
+      },
+      {
+        path: '/user/checkin',
+        name: 'UserCheckin',
+        meta: {
+          title: t('sidebar.checkinRenewal'),
+          icon: 'Calendar'
         }
       }
     ],
@@ -250,6 +276,22 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/domain',
+        name: 'AdminDomain',
+        meta: {
+          title: t('sidebar.domainManagement'),
+          icon: 'Link'
+        }
+      },
+      {
+        path: '/admin/kyc',
+        name: 'AdminKYC',
+        meta: {
+          title: t('sidebar.kycManagement'),
+          icon: 'Postcard'
+        }
+      },
+      {
         path: '/admin/announcements',
         name: 'AdminAnnouncements',
         meta: {
@@ -293,7 +335,7 @@ const userRoutes = computed(() => {
   }
   
   // 根据视图模式返回对应路由
-  const routes = userTypeRoutes[viewMode] || []
+  const routes = userTypeRoutes[effectiveMode] || []
   console.log('当前语言:', currentLocale, '生成的用户路由数量:', routes.length)
   return routes
 })

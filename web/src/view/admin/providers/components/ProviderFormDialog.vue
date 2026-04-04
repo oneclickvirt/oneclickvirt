@@ -355,7 +355,7 @@ const rules = {
     { 
       validator: (rule, value, callback) => {
         if (value && (value < 10 || value > 300)) {
-          callback(new Error(t('admin.providers.validation.trafficCollectIntervalRange') || '流量采集间隔必须在10-300秒之间（最长5分钟）'))
+          callback(new Error(t('admin.providers.validation.trafficCollectIntervalRange')))
         } else {
           callback()
         }
@@ -489,11 +489,11 @@ const handleAuthMethodChange = (newMethod) => {
 // 重置等级限制为默认值
 const handleResetLevelLimits = () => {
   ElMessageBox.confirm(
-    '确定要恢复所有等级的默认限制值吗？',
-    '确认操作',
+    t('admin.providers.restoreDefaultLimitsConfirm'),
+    t('admin.providers.confirmOperation'),
     {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
+      confirmButtonText: t('common.confirm'),
+      cancelButtonText: t('common.cancel'),
       type: 'warning'
     }
   ).then(() => {

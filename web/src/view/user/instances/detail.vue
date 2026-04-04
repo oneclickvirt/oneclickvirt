@@ -39,7 +39,7 @@
               size="small"
               @click="viewTaskDetail(instance.relatedTask.id)"
             >
-              查看任务详情
+              {{ t('user.instanceDetail.viewTaskDetail') }}
             </el-button>
           </div>
         </template>
@@ -398,12 +398,12 @@
                   class="info-item"
                   style="display: none"
                 >
-                  <span class="label">IPv4映射类型（兼容）</span>
+                  <span class="label">{{ t('user.instanceDetail.ipv4MappingTypeCompat') }}</span>
                   <el-tag
                     size="small"
                     :type="instance.ipv4MappingType === 'dedicated' ? 'success' : 'primary'"
                   >
-                    {{ instance.ipv4MappingType === 'dedicated' ? '独立IPv4地址' : 'NAT共享IP' }}
+                    {{ instance.ipv4MappingType === 'dedicated' ? t('user.instanceDetail.dedicatedIPv4') : t('user.instanceDetail.natSharedIP') }}
                   </el-tag>
                 </div>
               </div>
@@ -425,7 +425,7 @@
                 </div>
                 <div class="summary-item">
                   <span class="label">{{ t('user.instances.portMapping') }}:</span>
-                  <span class="value">{{ portMappings.length }}个</span>
+                  <span class="value">{{ portMappings.length }}{{ t('common.items') }}</span>
                 </div>
               </div>
               <el-button

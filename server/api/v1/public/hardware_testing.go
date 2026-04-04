@@ -1,0 +1,48 @@
+package public
+
+import (
+	"net/http"
+	"strconv"
+
+	"oneclickvirt/model/common"
+	adminProviderService "oneclickvirt/service/admin/provider"
+
+	"github.com/gin-gonic/gin"
+)
+
+// GetProviderHardwareReport 用户查看宿主机硬件测试报告
+// @Summary 获取Provider硬件测试报告（用户端）
+// @Tags Public
+// @Param id path int true "Provider ID"
+// @Success 200 {object} common.Response
+// @Router /public/providers/{id}/hardware-report [get]
+func GetProviderHardwareReport(c *gin.Context) {
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "参数错误"})
+		return
+	}
+
+	svc := adminProviderService.NewService()
+	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
+	if err != nil {
+		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "暂无测试报告"})
+		return
+	}
+
+	// Only return completed reports to users
+	if report.Status != "completed" {
+		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "测试报告尚未完成"})
+		return
+	}
+
+	c.JSON(http.StatusOK, common.Response{
+		Code: 0,
+		Data: gin.H{
+			"providerId": report.ProviderID,
+			"reportText": report.ReportText,
+			"testedAt":   report.TestedAt,
+			"status":     report.Status,
+		},
+	})
+}

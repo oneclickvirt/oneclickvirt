@@ -40,7 +40,7 @@ func (s *PermissionService) GetUserEffectivePermission(userID uint) (*UserEffect
 	}
 
 	// 验证用户基础权限类型的合法性
-	validTypes := map[string]bool{"user": true, "admin": true}
+	validTypes := map[string]bool{"user": true, "admin": true, "normal_admin": true}
 	if !validTypes[user.UserType] {
 		global.APP_LOG.Error("用户基础权限类型无效",
 			zap.Uint("userID", userID),
@@ -74,9 +74,7 @@ func (s *PermissionService) GetUserEffectivePermission(userID uint) (*UserEffect
 	if effective.EffectiveLevel < 0 {
 		effective.EffectiveLevel = 1
 	}
-	if effective.EffectiveLevel > 10 { // 设置权限级别上限
-		effective.EffectiveLevel = 10
-	}
+	// 不设置硬编码上限，允许超级管理员动态添加更高等级
 
 	return effective, nil
 }
@@ -101,6 +99,11 @@ func (s *PermissionService) calculateEffectivePermission(user *user.User, permis
 			// 如果找到admin权限，立即设置为最高权限
 			if userType == "admin" {
 				effective.EffectiveType = "admin"
+				if perm.Level > effective.EffectiveLevel {
+					effective.EffectiveLevel = perm.Level
+				}
+			} else if userType == "normal_admin" && effective.EffectiveType != "admin" {
+				effective.EffectiveType = "normal_admin"
 				if perm.Level > effective.EffectiveLevel {
 					effective.EffectiveLevel = perm.Level
 				}
@@ -237,7 +240,7 @@ func (s *PermissionService) CheckInstanceResetPermission(userID uint, instanceTy
 func (s *PermissionService) CheckAPIAccess(userID uint, path string, method string) bool {
 	// 检查是否为管理员API
 	if strings.HasPrefix(path, "/api/v1/admin") {
-		return s.RequireAdminPermission(userID)
+		return s.RequireAdminPermission(userID) || s.requireNormalAdminPermission(userID)
 	}
 
 	// 检查实例创建权限
@@ -247,6 +250,15 @@ func (s *PermissionService) CheckAPIAccess(userID uint, path string, method stri
 
 	// 检查是否为用户API
 	return strings.HasPrefix(path, "/api/v1/user") || strings.HasPrefix(path, "/api/v1/dashboard")
+}
+
+// requireNormalAdminPermission 检查是否有普通管理员权限
+func (s *PermissionService) requireNormalAdminPermission(userID uint) bool {
+	effective, err := s.GetUserEffectivePermission(userID)
+	if err != nil {
+		return false
+	}
+	return effective.EffectiveType == "normal_admin" || effective.EffectiveType == "admin"
 }
 
 // AddUserPermission 添加用户权限
@@ -277,7 +289,7 @@ func (s *PermissionService) GetUserPermissions(userID uint) ([]permission.UserPe
 	return permissions, nil
 }
 
-// VerifyAdminPrivilege 双重验证管理员权限
+// VerifyAdminPrivilege 双重验证管理员权限(包括normal_admin)
 func (s *PermissionService) VerifyAdminPrivilege(userID uint) bool {
 	// 从数据库直接查询用户的基础权限类型
 	var user user.User
@@ -293,8 +305,8 @@ func (s *PermissionService) VerifyAdminPrivilege(userID uint) bool {
 		return false
 	}
 
-	// 检查基础用户类型是否为管理员
-	if user.UserType == "admin" {
+	// 检查基础用户类型是否为管理员（超级管理员或普通管理员）
+	if user.UserType == "admin" || user.UserType == "normal_admin" {
 		return true
 	}
 
@@ -312,7 +324,7 @@ func (s *PermissionService) VerifyAdminPrivilege(userID uint) bool {
 	for _, perm := range permissions {
 		userTypes := perm.GetUserTypes()
 		for _, userType := range userTypes {
-			if userType == "admin" {
+			if userType == "admin" || userType == "normal_admin" {
 				return true
 			}
 		}

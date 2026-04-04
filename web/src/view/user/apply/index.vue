@@ -111,6 +111,15 @@
             >
               <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}</span>
             </div>
+            <div class="info-item">
+              <el-link
+                type="primary"
+                :underline="false"
+                @click.stop="viewHardwareReport(provider.id)"
+              >
+                {{ t('user.apply.viewHardwareReport') }}
+              </el-link>
+            </div>
           </div>
         </div>
       </div>
@@ -360,11 +369,29 @@
         animated
       />
     </div>
+
+    <!-- 硬件测试报告对话框 -->
+    <el-dialog
+      v-model="hardwareReportDialogVisible"
+      :title="t('user.apply.hardwareTestReport')"
+      width="700px"
+    >
+      <div v-loading="hardwareReportLoading">
+        <pre
+          v-if="hardwareReportText"
+          class="hardware-report-content"
+        >{{ hardwareReportText }}</pre>
+        <el-empty
+          v-else
+          :description="t('user.apply.noHardwareReport')"
+        />
+      </div>
+    </el-dialog>
   </div>
 </template>
 
 <script setup>
-import { onMounted, watch, onActivated, onUnmounted } from 'vue'
+import { ref, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -373,6 +400,7 @@ import { getFlagEmoji } from '@/utils/countries'
 import { useI18n } from 'vue-i18n'
 import { useApplyProviders } from './composables/useApplyProviders'
 import { useApplyForm } from './composables/useApplyForm'
+import { getProviderHardwareReport } from '@/api/public'
 import OsIcon from '@/components/OsIcon.vue'
 
 const route = useRoute()
@@ -396,6 +424,25 @@ const {
   autoSelectFirstAvailableSpecs, onInstanceTypeChange,
   submitApplication, submitRedemption, resetForm
 } = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
+
+// Hardware report state
+const hardwareReportDialogVisible = ref(false)
+const hardwareReportLoading = ref(false)
+const hardwareReportText = ref('')
+
+const viewHardwareReport = async (providerId) => {
+  hardwareReportDialogVisible.value = true
+  hardwareReportLoading.value = true
+  hardwareReportText.value = ''
+  try {
+    const res = await getProviderHardwareReport(providerId)
+    hardwareReportText.value = res.data?.report || res.data?.data?.report || ''
+  } catch (error) {
+    console.error('Failed to load hardware report:', error)
+  } finally {
+    hardwareReportLoading.value = false
+  }
+}
 
 // Bridge: refresh providers + userLimits together
 const refreshData = async () => {
@@ -742,5 +789,20 @@ onUnmounted(() => {
 
 .loading-container {
   padding: 24px;
+}
+
+.hardware-report-content {
+  background: var(--neutral-bg, #f5f7fa);
+  border: 1px solid var(--border-color, #e4e7ed);
+  border-radius: 6px;
+  padding: 16px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+  max-height: 500px;
+  overflow-y: auto;
+  margin: 0;
 }
 </style>

@@ -38,11 +38,14 @@ export default {
   description: 'Description',
   createdAt: 'Created At',
   createTime: 'Create Time',
+  days: 'days',
   updatedAt: 'Updated At',
   all: 'All',
   selectAll: 'Select All',
   clear: 'Clear',
   filter: 'Filter',
+  hours: 'hours',
+  minutes: 'minutes',
   more: 'More',
   total: 'Total',
   enable: 'Enable',
@@ -90,5 +93,10 @@ export default {
   copyFailed: 'Copy failed, please copy manually',
   cannotSerialize: 'Unable to serialize object',
   unknownError: 'Unknown error',
-  popupBlocked: 'Unable to open new window, please check browser popup settings'
+  popupBlocked: 'Unable to open new window, please check browser popup settings',
+  seconds: 'seconds',
+  announcement: 'Announcement',
+  noLogContent: 'No log content available',
+  cancelled: 'Cancelled',
+  items: ''
 }

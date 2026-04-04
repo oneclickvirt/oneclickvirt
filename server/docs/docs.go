@@ -3177,6 +3177,64 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/providers/{id}/hardware-test": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Admin-Provider"
+                ],
+                "summary": "获取Provider硬件测试报告",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Admin-Provider"
+                ],
+                "summary": "运行Provider硬件测试",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/providers/{id}/import": {
             "post": {
                 "security": [
@@ -7377,6 +7435,31 @@ const docTemplate = `{
                 }
             }
         },
+        "/public/providers/{id}/hardware-report": {
+            "get": {
+                "tags": [
+                    "Public"
+                ],
+                "summary": "获取Provider硬件测试报告（用户端）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/public/recommended-db-type": {
             "get": {
                 "description": "根据系统架构获取推荐的数据库类型",
@@ -10196,7 +10279,7 @@ const docTemplate = `{
             "properties": {
                 "level": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "userIds": {
@@ -11316,32 +11399,32 @@ const docTemplate = `{
             "properties": {
                 "minLevelForContainer": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "minLevelForDeleteContainer": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "minLevelForDeleteVM": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "minLevelForResetContainer": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "minLevelForResetVM": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 },
                 "minLevelForVM": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 }
             }
@@ -11351,7 +11434,7 @@ const docTemplate = `{
             "properties": {
                 "level": {
                     "type": "integer",
-                    "maximum": 5,
+                    "maximum": 99,
                     "minimum": 1
                 }
             }
@@ -12525,7 +12608,7 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "extraPorts": {
-                    "description": "其他开放端口",
+                    "description": "其他开放端口（向后兼容）",
                     "type": "array",
                     "items": {
                         "type": "integer"
@@ -12559,6 +12642,13 @@ const docTemplate = `{
                     "description": "操作系统类型",
                     "type": "string"
                 },
+                "portMappings": {
+                    "description": "完整的端口映射信息",
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/provider.DiscoveredPortMapping"
+                    }
+                },
                 "privateIP": {
                     "description": "网络配置",
                     "type": "string"
@@ -12580,6 +12670,27 @@ const docTemplate = `{
                 },
                 "uuid": {
                     "description": "基本标识",
+                    "type": "string"
+                }
+            }
+        },
+        "provider.DiscoveredPortMapping": {
+            "type": "object",
+            "properties": {
+                "guestPort": {
+                    "description": "容器/虚拟机内部端口",
+                    "type": "integer"
+                },
+                "hostPort": {
+                    "description": "宿主机端口",
+                    "type": "integer"
+                },
+                "isSsh": {
+                    "description": "是否为SSH端口",
+                    "type": "boolean"
+                },
+                "protocol": {
+                    "description": "tcp, udp, both",
                     "type": "string"
                 }
             }
@@ -13624,6 +13735,14 @@ const docTemplate = `{
                 "id": {
                     "type": "integer"
                 },
+                "image": {
+                    "description": "当前使用的镜像名称",
+                    "type": "string"
+                },
+                "instance_type": {
+                    "description": "实例类型：container, vm",
+                    "type": "string"
+                },
                 "ipv4MappingType": {
                     "description": "IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)",
                     "type": "string"
@@ -13670,6 +13789,10 @@ const docTemplate = `{
                 "providerType": {
                     "description": "Provider虚拟化类型：docker, lxd, incus, proxmox",
                     "type": "string"
+                },
+                "provider_id": {
+                    "description": "Provider ID",
+                    "type": "integer"
                 },
                 "publicIP": {
                     "description": "公网IPv4地址",

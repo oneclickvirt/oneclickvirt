@@ -1,50 +1,70 @@
-# 流量数据单位与作用说明
+# 流量管理服务 (Traffic Service)
+
+## 概述
+
+负责流量数据的采集同步、历史记录管理、多级限额检查、统计查询和数据聚合。支持基于 Agent（nftables/iptables）的流量监控模式。
+
+## 文件结构
+
+| 文件 | 职责 |
+|---|---|
+| `service.go` | 服务入口和初始化 |
+| `sync_trigger.go` | Agent 流量数据同步触发 |
+| `history.go` | 流量历史记录管理 |
+| `history_fill.go` | 历史数据填充（补零） |
+| `history_query.go` | 历史数据查询 |
+| `aggregation.go` | 流量数据聚合（小时/天/月） |
+| `limit.go` | 流量限额检查 |
+| `three_tier_limit.go` | 三级限额检查（实例/用户/Provider） |
+| `query.go` | 流量统计查询 |
+| `user.go` | 用户流量相关操作 |
+| `clear.go` | 流量数据清理（月度重置等） |
 
 ## 数据表字段单位
 
-| 表名 | 字段 | 单位 | 说明 | 备注 |
-|------|------|------|------|------|
-| `users` | `total_traffic` | MB | 用户流量限额 | 配额设置 |
-| `users` | `used_traffic` | MB | 用户当月已使用流量 | 累计值（考虑流量模式） |
-| `providers` | `max_traffic` | MB | Provider流量限额 | 配额设置 |
-| `providers` | `used_traffic` | MB | Provider当月已使用流量 | 累计值（考虑流量模式） |
-| `providers` | `traffic_count_mode` | 字符串 | 流量统计模式 | both/out/in |
-| `providers` | `traffic_multiplier` | 数字 | 流量计费倍率 | 默认 1.0 |
-| `instances` | `max_traffic` | MB | 实例流量限额 | 配额设置 |
-| `instances` | `used_traffic` | MB | 实例当月已使用流量 | 双向流量总和 |
-| `instances` | `used_traffic_in` | MB | 实例入站流量 | 原始数据 |
-| `instances` | `used_traffic_out` | MB | 实例出站流量 | 原始数据 |
-| `traffic_records` | `traffic_in` | MB | 流量记录入站 | 原始数据 |
-| `traffic_records` | `traffic_out` | MB | 流量记录出站 | 原始数据 |
-| `traffic_records` | `total_used` | MB | 流量记录总计 | 双向流量总和 |
-| `pmacct_traffic_records` | `rx_bytes` | **字节** | PMAcct原始数据（接收） | 原始数据，不可修改 |
-| `pmacct_traffic_records` | `tx_bytes` | **字节** | PMAcct原始数据（发送） | 原始数据，不可修改 |
-| `pmacct_traffic_records` | `total_bytes` | **字节** | PMAcct原始数据（总计） | 原始数据，不可修改 |
+| 表名 | 字段 | 单位 | 说明 |
+|---|---|---|---|
+| `users` | `total_traffic` | MB | 用户流量限额 |
+| `users` | `used_traffic` | MB | 用户当月已使用流量 |
+| `providers` | `max_traffic` | MB | Provider 流量限额 |
+| `providers` | `used_traffic` | MB | Provider 当月已使用流量 |
+| `providers` | `traffic_count_mode` | 字符串 | 流量统计模式：both/out/in |
+| `providers` | `traffic_multiplier` | 数字 | 流量计费倍率（默认 1.0） |
+| `instances` | `max_traffic` | MB | 实例流量限额 |
+| `instances` | `used_traffic` | MB | 实例当月已使用流量（双向总和） |
+| `instances` | `used_traffic_in` | MB | 实例入站流量（原始数据） |
+| `instances` | `used_traffic_out` | MB | 实例出站流量（原始数据） |
+| `traffic_records` | `traffic_in` / `traffic_out` / `total_used` | MB | 流量记录 |
+| `pmacct_traffic_records` | `rx_bytes` / `tx_bytes` / `total_bytes` | **字节** | 原始监控数据 |
 
-## 流量统计模式说明
+## 流量统计模式
 
 ### 数据存储原则
 
-1. **pmacct_traffic_records**: 存储 PMAcct 原始数据（字节），**永远不修改**
-2. **instances**: 存储原始流量数据（MB），`used_traffic_in` 和 `used_traffic_out` 是原始双向数据
-3. **traffic_records**: 存储原始流量记录（MB），`traffic_in` 和 `traffic_out` 是原始双向数据
-4. **流量模式和倍率**: 仅在**查询统计时**应用，不影响原始数据存储
+1. **pmacct_traffic_records**：存储原始数据（字节），**永远不修改**
+2. **instances**：存储原始流量（MB），`used_traffic_in/out` 是原始双向数据
+3. **traffic_records**：存储原始流量记录（MB）
+4. **流量模式和倍率**：仅在**查询统计时**应用，不影响原始数据存储
 
 ### 流量模式应用场景
 
-| 场景 | 应用位置 | 说明 |
-|------|---------|------|
-| PMAcct 数据采集 | ❌ 不应用 | 保持原始数据 |
-| 实例流量同步 | ❌ 不应用 | `used_traffic_in/out` 存储原始值 |
-| 流量记录写入 | ❌ 不应用 | `traffic_in/out` 存储原始值 |
-| 用户流量统计 | ✅ **应用** | `getUserMonthlyTrafficFromPmacct()` |
-| Provider流量统计 | ✅ **应用** | `getProviderMonthlyTrafficFromPmacct()` |
-| 流量排行查询 | ✅ **应用** | `GetUsersTrafficRanking()` |
-| 流量限制检查 | ✅ **应用** | `CheckUserTrafficLimit()` |
+| 场景 | 是否应用 | 说明 |
+|---|---|---|
+| 数据采集 / 实例同步 / 记录写入 | ❌ | 保持原始数据 |
+| 用户流量统计 | ✅ | `getUserMonthlyTrafficFromPmacct()` |
+| Provider 流量统计 | ✅ | `getProviderMonthlyTrafficFromPmacct()` |
+| 流量排行查询 | ✅ | `GetUsersTrafficRanking()` |
+| 流量限制检查 | ✅ | `CheckUserTrafficLimit()` / `CheckProviderTrafficLimit()` |
 
-### SQL 查询示例
+### 统计模式详解
 
-#### 用户流量统计（应用流量模式）
+| 模式 | 计算公式 | 适用场景 |
+|---|---|---|
+| `both`（默认） | `(rx + tx) × multiplier` | 大多数场景 |
+| `out`（仅出站） | `tx × multiplier` | 仅出站计费的 IDC |
+| `in`（仅入站） | `rx × multiplier` | 特殊计费场景 |
+
+### 统计查询 SQL
 
 ```sql
 SELECT COALESCE(SUM(
@@ -61,161 +81,103 @@ LEFT JOIN pmacct_traffic_records vr ON i.id = vr.instance_id
 WHERE i.user_id = ?
 ```
 
-**关键点**：
-- 从 `pmacct_traffic_records` 读取原始字节数据
-- 根据 `providers.traffic_count_mode` 选择统计方向
-- 应用 `providers.traffic_multiplier` 倍率
-- 转换为 MB（除以 1048576）
+**关键点**：从 `pmacct_traffic_records` 读取原始字节 → 按 `traffic_count_mode` 选方向 → 应用 `traffic_multiplier` 倍率 → 转换为 MB。查询时必须加 `day = 0 AND hour = 0` 过滤月度汇总记录。
 
 ## 数据流转流程
 
-### 1. 数据采集阶段（不应用流量模式）
+### 采集阶段（不应用流量模式）
 
 ```
-PMAcct 守护进程
-  ↓ (采集原始数据)
-pmacct_traffic_records (存储字节)
-  ↓ (SyncInstanceTraffic)
-instances.used_traffic_in/out (存储 MB，原始双向)
-  ↓ (updateTrafficRecord)
-traffic_records.traffic_in/out (存储 MB，原始双向)
-```
-
-**单位转换**：
-- pmacct_traffic_records: 字节 (bytes)
-- instances: MB (bytes / 1048576)
-- traffic_records: MB
-
-### 2. 统计查询阶段（应用流量模式）
-
-```
-pmacct_traffic_records (原始字节数据)
-  ↓ (JOIN providers)
-  ↓ (应用 traffic_count_mode 选择 rx/tx/both)
-  ↓ (应用 traffic_multiplier 倍率)
-  ↓ (转换为 MB)
-统计结果
-```
-
-## 流量模式详解
-
-### both (双向流量，默认)
-
-```sql
-(vr.rx_bytes + vr.tx_bytes) * p.traffic_multiplier
-```
-
-- 统计入站 + 出站流量
-- 适用于大多数场景
-
-### out (仅出站流量)
-
-```sql
-vr.tx_bytes * p.traffic_multiplier
-```
-
-- 仅统计出站流量
-- 适用于只对出站流量计费的 IDC
-
-### in (仅入站流量)
-
-```sql
-vr.rx_bytes * p.traffic_multiplier
-```
-
-- 仅统计入站流量
-- 适用于特殊计费场景
-
-## 倍率应用示例
-
-### 示例 1: 双倍计费
-
-```
-Provider 配置:
-  traffic_count_mode: both
-  traffic_multiplier: 2.0
-
-原始流量:
-  rx_bytes: 10 GB
-  tx_bytes: 5 GB
-  
-计算结果:
-  统计流量 = (10 + 5) * 2.0 = 30 GB
-```
-
-### 示例 2: 仅出站半价
-
-```
-Provider 配置:
-  traffic_count_mode: out
-  traffic_multiplier: 0.5
-
-原始流量:
-  rx_bytes: 10 GB
-  tx_bytes: 5 GB
-  
-计算结果:
-  统计流量 = 5 * 0.5 = 2.5 GB
-```
-
-## 单位换算
-
-| 单位 | 换算 |
-|------|------|
-| 1 MB | 1024 KB |
-| 1 GB | 1024 MB |
-| 1 TB | 1024 GB |
-| 1 MB | 1,048,576 字节 |
-
-## 注意事项
-
-1. ⚠️ **原始数据不可修改**：pmacct_traffic_records 的数据是原始监控数据，任何修改都会导致统计错误
-2. ⚠️ **流量模式仅用于统计**：不要在数据写入时应用流量模式，只在查询统计时应用
-3. ⚠️ **倍率影响计费**：修改 traffic_multiplier 会影响所有统计查询，需谨慎操作
-4. ✅ **向后兼容**：默认值（both + 1.0）保持原有行为
-5. ✅ **月度过滤必须**：查询时必须加 `day = 0 AND hour = 0` 过滤月度汇总记录
-
-## 相关函数
-
-### 数据采集函数（不应用流量模式）
-
-- `SyncInstanceTraffic()` - 同步实例流量
-- `updateTrafficRecord()` - 更新流量记录
-- `getPmacctData()` - 获取 PMAcct 原始数据
-
-### 统计查询函数（应用流量模式）
-
-- `getUserMonthlyTrafficFromPmacct()` - 用户月度流量统计
-- `getProviderMonthlyTrafficFromPmacct()` - Provider 月度流量统计
-- `GetUsersTrafficRanking()` - 用户流量排行
-- `CheckUserTrafficLimit()` - 用户流量限制检查
-
-## Agent 流量监控模式
-
-除 PMAcct 外，系统还支持基于 nftables 的 Agent 流量监控模式，这是推荐的监控方式。
-
-### 架构
-
-```
-nftables 计数器 (宿主机)
+Agent (nftables/iptables 计数器)
   ↓ (每5秒采集, 可配置)
-Agent本地 SQLite (traffic.db)
+Agent 本地 SQLite (traffic.db)
   ↓ (管理服务器定期同步)
-MySQL instance_traffic_histories (按小时/月聚合)
+MySQL pmacct_traffic_records / instance_traffic_histories (按小时/月聚合)
   ↓ (聚合)
 provider_traffic_histories / user_traffic_histories
 ```
 
-### Agent 流量采集配置
+单位转换：Agent 存储字节 → pmacct_traffic_records 存储字节 → instances 存储 MB → traffic_records 存储 MB
 
-Agent 的采集间隔可通过管理面板的节点监控配置进行实时修改：
+### 统计阶段（应用流量模式）
 
-- **流量采集间隔**：默认 5 秒，可通过 `TRAFFIC_COLLECT_INTERVAL` 环境变量配置
-- **资源采集间隔**：默认 30 秒，可通过 `RESOURCE_COLLECT_INTERVAL` 环境变量配置
+```
+pmacct_traffic_records (原始字节)
+  ↓ JOIN providers
+  ↓ 应用 traffic_count_mode (选 rx/tx/both)
+  ↓ 应用 traffic_multiplier (倍率)
+  ↓ 转换为 MB
+统计结果
+```
 
-修改后管理服务器会自动同步 `.env` 配置到远端 Agent 并重启服务。
+## Agent 流量监控
 
-### 更新行为
+Agent 支持两种流量采集方式，通过 `TRAFFIC_COLLECT_METHOD` 环境变量控制：
 
-当实例网卡变更（重建/重启）时，通过 Agent 的 `update` 接口更新接口信息，**不会重置**之前的流量和资源记录。
-- `CheckProviderTrafficLimit()` - Provider 流量限制检查
+| 模式 | 工具 | 说明 |
+|---|---|---|
+| `nft`（默认） | nftables | 推荐，支持 IPv4/IPv6、内网 IP 精确过滤 |
+| `ipt` | iptables | 兼容旧系统 |
+
+### Agent 采集配置
+
+- **流量采集间隔**：默认 5 秒，通过 `TRAFFIC_COLLECT_INTERVAL` 配置
+- **资源采集间隔**：默认 30 秒，通过 `RESOURCE_COLLECT_INTERVAL` 配置
+
+管理面板可实时修改节点监控配置，修改后服务器自动同步 `.env` 到远端 Agent 并重启服务。
+
+### 网卡变更
+
+实例重建/重启导致网卡变更时，通过 Agent 的 `update` 接口更新接口信息，**不会重置**之前的流量和资源记录。
+
+## 倍率应用示例
+
+### 双倍计费
+
+```
+配置: traffic_count_mode=both, traffic_multiplier=2.0
+原始: rx=10GB, tx=5GB
+结果: (10+5) × 2.0 = 30GB
+```
+
+### 仅出站半价
+
+```
+配置: traffic_count_mode=out, traffic_multiplier=0.5
+原始: rx=10GB, tx=5GB
+结果: 5 × 0.5 = 2.5GB
+```
+
+## 三级限额检查
+
+流量限额从三个层级进行检查：
+
+1. **实例级别**：`instances.max_traffic`
+2. **用户级别**：`users.total_traffic`
+3. **Provider 级别**：`providers.max_traffic`
+
+任一层级超限即触发流量限制。
+
+## 相关函数
+
+### 数据采集（不应用流量模式）
+
+- `SyncInstanceTraffic()` — 同步实例流量
+- `updateTrafficRecord()` — 更新流量记录
+- `getPmacctData()` — 获取原始数据
+
+### 统计查询（应用流量模式）
+
+- `getUserMonthlyTrafficFromPmacct()` — 用户月度流量统计
+- `getProviderMonthlyTrafficFromPmacct()` — Provider 月度流量统计
+- `GetUsersTrafficRanking()` — 用户流量排行
+- `CheckUserTrafficLimit()` — 用户流量限制检查
+- `CheckProviderTrafficLimit()` — Provider 流量限制检查
+
+## 注意事项
+
+1. ⚠️ **原始数据不可修改**：pmacct_traffic_records 中的数据是原始监控数据，任何修改都会导致统计错误
+2. ⚠️ **流量模式仅用于统计**：不要在数据写入时应用流量模式，只在查询统计时应用
+3. ⚠️ **倍率影响计费**：修改 traffic_multiplier 会影响所有统计查询
+4. ✅ **向后兼容**：默认值（both + 1.0）保持原有行为
+5. ✅ **月度过滤**：查询时必须加 `day = 0 AND hour = 0` 过滤月度汇总记录

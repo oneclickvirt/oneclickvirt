@@ -144,6 +144,36 @@ const routes = [
           requiresAuth: true,
           roles: ['user', 'admin']
         }
+      },
+      {
+        path: 'domain',
+        name: 'UserDomain',
+        component: () => import('@/view/user/domain/index.vue'),
+        meta: {
+          title: '域名绑定',
+          requiresAuth: true,
+          roles: ['user', 'admin']
+        }
+      },
+      {
+        path: 'kyc',
+        name: 'UserKYC',
+        component: () => import('@/view/user/kyc/index.vue'),
+        meta: {
+          title: '实名认证',
+          requiresAuth: true,
+          roles: ['user', 'admin']
+        }
+      },
+      {
+        path: 'checkin',
+        name: 'UserCheckin',
+        component: () => import('@/view/user/checkin/index.vue'),
+        meta: {
+          title: '签到续期',
+          requiresAuth: true,
+          roles: ['user', 'admin']
+        }
       }
     ]
   },
@@ -313,6 +343,26 @@ const routes = [
         component: () => import('@/view/admin/oauth2/index.vue'),
         meta: {
           title: 'OAuth2管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'domain',
+        name: 'AdminDomain',
+        component: () => import('@/view/admin/domain/index.vue'),
+        meta: {
+          title: '域名管理',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
+        path: 'kyc',
+        name: 'AdminKYC',
+        component: () => import('@/view/admin/kyc/index.vue'),
+        meta: {
+          title: 'KYC管理',
           requiresAuth: true,
           roles: ['admin']
         }

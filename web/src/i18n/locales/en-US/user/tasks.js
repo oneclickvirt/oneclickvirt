@@ -45,6 +45,7 @@ export default {
   noTasksDescription: "No tasks yet",
   createInstance: "Create Instance",
   newInstance: "New Instance",
+  nextToExecute: "Next to execute",
   noTasksForProvider: "No tasks for this provider",
   confirmCancel: "Confirm Cancel",
   taskCancelled: "Task cancelled",

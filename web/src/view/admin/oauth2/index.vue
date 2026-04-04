@@ -292,7 +292,7 @@
             name="endpoints"
           >
             <el-form-item
-              label="回调地址"
+              :label="$t('admin.oauth2.callbackUrl')"
               prop="redirectUrl"
             >
               <el-input
@@ -302,7 +302,7 @@
             </el-form-item>
 
             <el-form-item
-              label="授权地址"
+              :label="$t('admin.oauth2.authUrl')"
               prop="authUrl"
             >
               <el-input
@@ -312,7 +312,7 @@
             </el-form-item>
 
             <el-form-item
-              label="令牌地址"
+              :label="$t('admin.oauth2.tokenUrl')"
               prop="tokenUrl"
             >
               <el-input
@@ -322,7 +322,7 @@
             </el-form-item>
 
             <el-form-item
-              label="用户信息地址"
+              :label="$t('admin.oauth2.userInfoUrl')"
               prop="userInfoUrl"
             >
               <el-input
@@ -333,7 +333,7 @@
           </el-tab-pane>
 
           <el-tab-pane
-            label="字段映射"
+            :label="$t('admin.oauth2.fieldMapping')"
             name="fields"
           >
             <el-alert

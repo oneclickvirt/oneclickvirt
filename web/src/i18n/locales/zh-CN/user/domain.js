@@ -1,0 +1,23 @@
+export default {
+  title: '域名绑定',
+  addDomain: '添加域名',
+  domainName: '域名',
+  instanceId: '实例ID',
+  providerId: '节点ID',
+  protocol: '协议',
+  internalIp: '内部IP',
+  internalPort: '内部端口',
+  enableSsl: '启用SSL',
+  status: '状态',
+  actions: '操作',
+  edit: '编辑',
+  delete: '删除',
+  statusActive: '活跃',
+  statusPending: '待配置',
+  statusError: '配置错误',
+  confirmDelete: '确定删除该域名绑定？',
+  createSuccess: '域名绑定创建成功',
+  deleteSuccess: '域名绑定删除成功',
+  updateSuccess: '域名绑定更新成功',
+  noDomains: '暂无域名绑定'
+}

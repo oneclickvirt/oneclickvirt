@@ -183,6 +183,47 @@ func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Disc
 		// SSH端口默认为22
 		discovered.SSHPort = 22
 
+		// 解析 proxy 设备中的端口映射
+		var portMappings []provider.DiscoveredPortMapping
+		var proxyExtraPorts []int
+		for devName, devData := range inst.Devices {
+			if devName == "root" {
+				continue
+			}
+			devMap, ok := devData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			devType, _ := devMap["type"].(string)
+			if devType != "proxy" {
+				continue
+			}
+			listen, _ := devMap["listen"].(string)
+			connect, _ := devMap["connect"].(string)
+			if listen == "" || connect == "" {
+				continue
+			}
+			hostPort, hostProto := l.parseProxyAddress(listen)
+			guestPort, _ := l.parseProxyAddress(connect)
+			if hostPort > 0 && guestPort > 0 {
+				isSSH := guestPort == 22
+				if isSSH {
+					discovered.SSHPort = hostPort
+				}
+				proxyExtraPorts = append(proxyExtraPorts, hostPort)
+				portMappings = append(portMappings, provider.DiscoveredPortMapping{
+					HostPort:  hostPort,
+					GuestPort: guestPort,
+					Protocol:  hostProto,
+					IsSSH:     isSSH,
+				})
+			}
+		}
+		if len(proxyExtraPorts) > 0 {
+			discovered.ExtraPorts = proxyExtraPorts
+		}
+		discovered.PortMappings = portMappings
+
 		// 生成UUID（如果LXD没有提供，使用实例名称的哈希）
 		if uuid, ok := inst.Config["volatile.uuid"]; ok {
 			discovered.UUID = uuid
@@ -294,6 +335,45 @@ func (l *LXDProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Disc
 
 		discovered.SSHPort = 22
 
+		// 解析 proxy 设备中的端口映射（SSH方式）
+		var sshPortMappings []provider.DiscoveredPortMapping
+		var sshProxyExtraPorts []int
+		for devName, devData := range inst.Devices {
+			if devName == "root" {
+				continue
+			}
+			devMap, ok := devData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			devType, _ := devMap["type"].(string)
+			if devType != "proxy" {
+				continue
+			}
+			listen, _ := devMap["listen"].(string)
+			connect, _ := devMap["connect"].(string)
+			if listen == "" || connect == "" {
+				continue
+			}
+			hostPort, hostProto := l.parseProxyAddress(listen)
+			guestPort, _ := l.parseProxyAddress(connect)
+			if hostPort > 0 && guestPort > 0 {
+				isSSH := guestPort == 22
+				if isSSH {
+					discovered.SSHPort = hostPort
+				}
+				sshProxyExtraPorts = append(sshProxyExtraPorts, hostPort)
+				sshPortMappings = append(sshPortMappings, provider.DiscoveredPortMapping{
+					HostPort:  hostPort,
+					GuestPort: guestPort,
+					Protocol:  hostProto,
+					IsSSH:     isSSH,
+				})
+			}
+		}
+		discovered.ExtraPorts = sshProxyExtraPorts
+		discovered.PortMappings = sshPortMappings
+
 		if uuid, ok := inst.Config["volatile.uuid"]; ok {
 			discovered.UUID = uuid
 		} else {
@@ -382,4 +462,19 @@ func (l *LXDProvider) parseDiskSize(sizeStr string) int64 {
 	}
 
 	return 0
+}
+
+// parseProxyAddress 解析 LXD proxy 设备地址，格式如 "tcp:0.0.0.0:8080"
+func (l *LXDProvider) parseProxyAddress(addr string) (int, string) {
+	parts := strings.SplitN(addr, ":", 3)
+	if len(parts) < 3 {
+		return 0, "tcp"
+	}
+	protocol := strings.ToLower(parts[0])
+	portStr := parts[len(parts)-1]
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, protocol
+	}
+	return port, protocol
 }

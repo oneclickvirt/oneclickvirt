@@ -104,6 +104,38 @@ func GetPresetConfigs() map[string]PresetConfig {
 			DefaultLevel:  1,
 			LevelMapping:  map[string]int{},
 		},
+		"qq": {
+			Name:          "qq",
+			DisplayName:   "QQ",
+			ProviderType:  "preset",
+			AuthURL:       "https://graph.qq.com/oauth2.0/authorize",
+			TokenURL:      "https://graph.qq.com/oauth2.0/token",
+			UserInfoURL:   "https://graph.qq.com/user/get_user_info",
+			UserIDField:   "openid",
+			UsernameField: "nickname",
+			EmailField:    "",
+			AvatarField:   "figureurl_qq_2",
+			NicknameField: "nickname",
+			Scopes:        []string{"get_user_info"},
+			DefaultLevel:  1,
+			LevelMapping:  map[string]int{},
+		},
+		"telegram": {
+			Name:          "telegram",
+			DisplayName:   "Telegram",
+			ProviderType:  "preset",
+			AuthURL:       "", // Telegram使用Login Widget，无标准OAuth2 AuthURL
+			TokenURL:      "", // Telegram使用bot token验证，无标准TokenURL
+			UserInfoURL:   "",
+			UserIDField:   "id",
+			UsernameField: "username",
+			EmailField:    "",
+			AvatarField:   "photo_url",
+			NicknameField: "first_name",
+			Scopes:        []string{},
+			DefaultLevel:  1,
+			LevelMapping:  map[string]int{},
+		},
 	}
 }
 
@@ -116,7 +148,7 @@ func GetPresetConfig(name string) (PresetConfig, bool) {
 
 // GetPresetNames 获取所有预设名称列表
 func GetPresetNames() []string {
-	return []string{"linuxdo", "idcflare", "github", "generic"}
+	return []string{"linuxdo", "idcflare", "github", "qq", "telegram", "generic"}
 }
 
 // IsPresetProvider 判断是否为预设类型

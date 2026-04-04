@@ -71,5 +71,8 @@ export default {
   batchDeleteFailed: "批量删除失败",
   batchStatusConfirm: "确认{action}选中的 {count} 个镜像吗？",
   batchStatusSuccess: "批量{action}成功",
-  batchStatusFailed: "批量{action}失败"
+  batchStatusFailed: "批量{action}失败",
+  urlHintProxmoxVM: "ProxmoxVE虚拟机镜像必须是 .qcow2 文件",
+  urlHintLxdIncus: "LXD/Incus镜像必须是 .zip 文件",
+  urlHintContainerTarGz: "{provider}容器镜像必须是 .tar.gz 文件"
 }

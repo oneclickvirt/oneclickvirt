@@ -102,5 +102,8 @@ export default {
   imageChangeDiskReset: "Image type changed, current disk spec does not meet minimum requirement, suitable spec auto-selected",
   providerChangeDiskReset: "Provider changed, current disk spec does not meet image minimum requirement, auto-reset",
   pageLoadFailed: "Page loading failed, please retry later",
-  loadProvidersFailed: "Failed to load providers, please check network connection"
+  loadProvidersFailed: "Failed to load providers, please check network connection",
+  viewHardwareReport: "View Test Report",
+  hardwareTestReport: "Hardware Test Report",
+  noHardwareReport: "No test report available"
 }

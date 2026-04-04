@@ -189,6 +189,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
 		AdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
 
+		// 硬件测试
+		AdminGroup.POST("/providers/:id/hardware-test", admin.RunHardwareTest)
+		AdminGroup.GET("/providers/:id/hardware-test", admin.GetHardwareTestReport)
+
 		// 冻结管理
 		AdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
 		AdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)
@@ -209,5 +213,23 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		AdminGroup.GET("/block-rules/applications", admin.GetBlockRuleApplications)
 		AdminGroup.GET("/providers/:id/block-status", admin.GetProviderBlockStatus)
 		AdminGroup.GET("/block-rules/agent-providers", admin.GetAgentEnabledProviders)
+
+		// 域名管理
+		AdminGroup.GET("/domains", admin.AdminGetDomains)
+		AdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
+		AdminGroup.GET("/providers/:provider_id/domain-config", admin.GetDomainConfig)
+		AdminGroup.PUT("/providers/:provider_id/domain-config", admin.UpdateDomainConfig)
+
+		// KYC管理
+		AdminGroup.GET("/kyc", admin.AdminGetKYCList)
+		AdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
+
+		// 签到配置管理
+		AdminGroup.GET("/providers/:provider_id/checkin-config", admin.AdminGetCheckinConfig)
+		AdminGroup.PUT("/providers/:provider_id/checkin-config", admin.AdminUpdateCheckinConfig)
+
+		// 管理员特殊操作
+		AdminGroup.POST("/users/:id/login-as", admin.AdminLoginAsUser)
+		AdminGroup.POST("/instances/transfer", admin.AdminTransferInstance)
 	}
 }

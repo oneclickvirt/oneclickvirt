@@ -4,6 +4,9 @@ export default {
   apply: '申请领取',
   taskList: '任务列表',
   personalCenter: '个人中心',
+  domainBinding: '域名绑定',
+  kycVerification: '实名认证',
+  checkinRenewal: '签到续期',
   userManagement: '用户管理',
   inviteCodeManagement: '邀请码管理',
   redemptionCodeManagement: '兑换码管理',
@@ -17,5 +20,7 @@ export default {
   systemConfiguration: '系统配置',
   performanceMonitoring: '性能监控',
   logViewer: '日志查看',
-  blockRulesManagement: '封禁规则'
+  blockRulesManagement: '封禁规则',
+  domainManagement: '域名管理',
+  kycManagement: 'KYC管理'
 }

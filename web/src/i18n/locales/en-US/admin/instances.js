@@ -126,5 +126,9 @@ export default {
   manualExpiry: "Manual",
   frozen: "Frozen",
   normal: "Normal",
-  enterFreezeReason: "Please enter freeze reason (optional)"
+  enterFreezeReason: "Please enter freeze reason (optional)",
+  transfer: "Transfer",
+  transferInstance: "Transfer Instance",
+  targetUserId: "Target User ID",
+  transferSuccess: "Instance transferred successfully"
 }

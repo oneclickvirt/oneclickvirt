@@ -4,6 +4,9 @@ export default {
   apply: 'Apply',
   taskList: 'Task List',
   personalCenter: 'Personal Center',
+  domainBinding: 'Domain Binding',
+  kycVerification: 'KYC Verification',
+  checkinRenewal: 'Check-in Renewal',
   userManagement: 'User Management',
   inviteCodeManagement: 'Invite Code Management',
   redemptionCodeManagement: 'Redemption Code Management',
@@ -17,5 +20,7 @@ export default {
   systemConfiguration: 'System Configuration',
   performanceMonitoring: 'Performance Monitoring',
   logViewer: 'Log Viewer',
-  blockRulesManagement: 'Block Rules'
+  blockRulesManagement: 'Block Rules',
+  domainManagement: 'Domain Management',
+  kycManagement: 'KYC Management'
 }

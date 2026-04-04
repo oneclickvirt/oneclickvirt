@@ -16,7 +16,7 @@
           :class="{ 'active': currentIndex === index }"
         >
           <div class="announcement-content">
-            <span class="announcement-badge">公告</span>
+            <span class="announcement-badge">{{ $t('common.announcement') }}</span>
             <span class="announcement-title">{{ announcement.title }}</span>
             <div 
               class="announcement-text" 

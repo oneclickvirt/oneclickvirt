@@ -55,7 +55,7 @@ export function setupRouterGuards(router) {
         console.log('OAuth2登录完成，用户类型:', userType, '视图模式:', viewMode)
         
         // 只有管理员可以访问管理员界面，且只有管理员可以切换视图
-        if (userType === 'admin' && viewMode === 'admin') {
+        if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
           next('/admin/dashboard')
           return
         } else {
@@ -112,7 +112,7 @@ export function setupRouterGuards(router) {
           console.log('从首页跳转，用户类型:', userType, '视图模式:', viewMode)
           
           // 只有管理员可以访问管理员界面
-          if (userType === 'admin' && viewMode === 'admin') {
+          if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
             next('/admin/dashboard')
             return
           } else {
@@ -231,8 +231,8 @@ export function setupRouterGuards(router) {
         }
       }
       
-      // 严格检查：普通用户不能访问管理员路由
-      if (to.path.startsWith('/admin/') && userStore.userType !== 'admin') {
+      // 严格检查：普通用户不能访问管理员路由（normal_admin可以）
+      if (to.path.startsWith('/admin/') && userStore.userType !== 'admin' && userStore.userType !== 'normal_admin') {
         console.log('普通用户尝试访问管理员页面，拒绝访问')
         ElMessage.warning(i18n.global.t('navbar.noPermission'))
         next('/user/dashboard')
@@ -241,9 +241,9 @@ export function setupRouterGuards(router) {
       
       if (to.meta.roles && to.meta.roles.length > 0) {
         const userRole = userStore.userType
-        // 管理员可以访问所有页面（包括用户页面）
+        // 管理员和普通管理员可以访问所有页面（包括用户页面）
         // 用户只能访问标记为 'user' 角色的页面
-        const hasAccess = userRole === 'admin' || to.meta.roles.includes(userRole)
+        const hasAccess = userRole === 'admin' || userRole === 'normal_admin' || to.meta.roles.includes(userRole)
         
         if (!hasAccess) {
           console.log('用户角色不匹配，当前角色:', userRole, '需要角色:', to.meta.roles)
@@ -266,7 +266,7 @@ export function setupRouterGuards(router) {
       const viewMode = userStore.viewMode || userType
       
       // 只有管理员可以访问管理员界面
-      if (userType === 'admin' && viewMode === 'admin') {
+      if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
         next('/admin/dashboard')
         return
       } else {

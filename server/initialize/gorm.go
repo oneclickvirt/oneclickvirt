@@ -4,8 +4,11 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	authModel "oneclickvirt/model/auth"
+	checkinModel "oneclickvirt/model/checkin"
 	"oneclickvirt/model/config"
+	domainModel "oneclickvirt/model/domain"
 	firewallModel "oneclickvirt/model/firewall"
+	kycModel "oneclickvirt/model/kyc"
 	monitoringModel "oneclickvirt/model/monitoring"
 	oauth2Model "oneclickvirt/model/oauth2"
 	permissionModel "oneclickvirt/model/permission"
@@ -153,8 +156,9 @@ func RegisterTables(db *gorm.DB) {
 		&permissionModel.UserPermission{}, // 用户权限组合表
 
 		// 审计日志表
-		&adminModel.AuditLog{},           // 操作审计日志表
-		&providerModel.PendingDeletion{}, // 待删除资源表
+		&adminModel.AuditLog{},              // 操作审计日志表
+		&providerModel.PendingDeletion{},    // 待删除资源表
+		&providerModel.HardwareTestReport{}, // 硬件测试报告表
 
 		// 管理员配置任务表
 		&adminModel.ConfigurationTask{},  // 管理员配置任务表
@@ -174,6 +178,18 @@ func RegisterTables(db *gorm.DB) {
 		// 防火墙/滥用屏蔽表
 		&firewallModel.BlockRule{},            // 屏蔽规则表
 		&firewallModel.BlockRuleApplication{}, // 屏蔽规则应用记录表
+
+		// 域名绑定表
+		&domainModel.Domain{},       // 域名绑定记录表
+		&domainModel.DomainConfig{}, // 域名绑定配置表
+
+		// 实名认证表
+		&kycModel.KYCRecord{}, // KYC认证记录表
+
+		// 签到续期表
+		&checkinModel.CheckinConfig{},       // 签到配置表
+		&checkinModel.CheckinRecord{},       // 签到记录表
+		&checkinModel.CheckinVerification{}, // 签到验证码表
 	)
 	if err != nil {
 		global.APP_LOG.Error("register table failed", zap.Error(err))

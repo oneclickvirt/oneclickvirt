@@ -243,6 +243,13 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				result.SuccessCount++
 				importDetail.InstanceID = instance.ID
 
+				// 创建端口映射记录
+				if err := s.createImportedPortMappings(tx, &discovered, instance.ID, options.ProviderID); err != nil {
+					global.APP_LOG.Warn("为导入实例创建端口映射失败",
+						zap.Uint("instanceId", instance.ID),
+						zap.Error(err))
+				}
+
 				// 为导入的实例自动生成 ORI 前缀兑换码（一对一绑定，状态直接为 pending_use）
 				const oriCharset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"
 				var oriCode string
@@ -402,5 +409,90 @@ func (s *Service) RemoveImportedInstancesMark(ctx context.Context, instanceIDs [
 	}
 
 	global.APP_LOG.Info("已移除实例导入标记", zap.Int("count", len(instanceIDs)))
+	return nil
+}
+
+// createImportedPortMappings 为导入的实例创建端口映射记录
+func (s *Service) createImportedPortMappings(tx *gorm.DB, discovered *provider.DiscoveredInstance, instanceID, providerID uint) error {
+	if len(discovered.PortMappings) == 0 && discovered.SSHPort <= 0 {
+		return nil
+	}
+
+	var ports []providerModel.Port
+	var portRangeStart, portRangeEnd int
+
+	if len(discovered.PortMappings) > 0 {
+		for _, pm := range discovered.PortMappings {
+			protocol := pm.Protocol
+			if protocol == "" {
+				protocol = "both"
+			}
+			port := providerModel.Port{
+				InstanceID:  instanceID,
+				ProviderID:  providerID,
+				HostPort:    pm.HostPort,
+				GuestPort:   pm.GuestPort,
+				Protocol:    protocol,
+				Status:      "active",
+				IsSSH:       pm.IsSSH,
+				IsAutomatic: true,
+				PortType:    "range_mapped",
+			}
+			if pm.IsSSH {
+				port.Description = "SSH"
+			} else {
+				port.Description = fmt.Sprintf("端口%d", pm.HostPort)
+			}
+			ports = append(ports, port)
+
+			// 计算端口范围
+			if portRangeStart == 0 || pm.HostPort < portRangeStart {
+				portRangeStart = pm.HostPort
+			}
+			if pm.HostPort > portRangeEnd {
+				portRangeEnd = pm.HostPort
+			}
+		}
+	} else if discovered.SSHPort > 0 && discovered.SSHPort != 22 {
+		// 只有SSH端口信息，没有完整的端口映射
+		ports = append(ports, providerModel.Port{
+			InstanceID:  instanceID,
+			ProviderID:  providerID,
+			HostPort:    discovered.SSHPort,
+			GuestPort:   22,
+			Protocol:    "both",
+			Status:      "active",
+			IsSSH:       true,
+			IsAutomatic: true,
+			PortType:    "range_mapped",
+			Description: "SSH",
+		})
+		portRangeStart = discovered.SSHPort
+		portRangeEnd = discovered.SSHPort
+	}
+
+	if len(ports) > 0 {
+		if err := tx.CreateInBatches(ports, 100).Error; err != nil {
+			return fmt.Errorf("批量创建端口映射失败: %w", err)
+		}
+	}
+
+	// 更新实例的端口范围和SSH端口
+	updates := map[string]interface{}{}
+	if portRangeStart > 0 {
+		updates["port_range_start"] = portRangeStart
+	}
+	if portRangeEnd > 0 {
+		updates["port_range_end"] = portRangeEnd
+	}
+	if discovered.SSHPort > 0 {
+		updates["ssh_port"] = discovered.SSHPort
+	}
+	if len(updates) > 0 {
+		if err := tx.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("更新实例端口范围失败: %w", err)
+		}
+	}
+
 	return nil
 }

@@ -70,5 +70,9 @@ export default {
   freezeSuccess: "Frozen successfully",
   freezeFailed: "Freeze failed",
   unfreezeSuccess: "Unfrozen successfully",
-  unfreezeFailed: "Unfreeze failed"
+  unfreezeFailed: "Unfreeze failed",
+  normalAdmin: "Normal Admin",
+  loginAs: "Login As",
+  loginAsConfirm: "Are you sure you want to login as user {username}? A new tab will be opened.",
+  loginAsSuccess: "Login as user successful, please operate in the new tab"
 }

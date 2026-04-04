@@ -94,5 +94,9 @@ export default {
   copyFailed: '复制失败，请手动复制',
   cannotSerialize: '无法序列化对象',
   unknownError: '未知错误',
-  popupBlocked: '无法打开新窗口，请检查浏览器弹窗设置'
+  popupBlocked: '无法打开新窗口，请检查浏览器弹窗设置',
+  announcement: '公告',
+  noLogContent: '暂无日志内容',
+  cancelled: '已取消',
+  items: '个'
 }

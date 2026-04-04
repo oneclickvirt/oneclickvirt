@@ -206,7 +206,7 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 
 	// 检查是否超限
 	if usedTraffic >= instance.MaxTraffic {
-		// 实例超限，仅停止该实例
+		// 实例超限，根据Provider设置决定停止或限速
 		global.APP_LOG.Info("实例流量超限",
 			zap.Uint("instanceID", instanceID),
 			zap.String("instanceName", instance.Name),
@@ -225,15 +225,48 @@ func (s *ThreeTierLimitService) CheckInstanceTrafficLimit(instanceID uint) (bool
 }
 
 // limitInstance 限制单个实例（原子性：实例状态更新与停止任务创建在同一事务中）
+// 支持两种限制模式：stop（停机）和speed_limit（限速）
 func (s *ThreeTierLimitService) limitInstance(instanceID uint, reason string, message string) (bool, error) {
 	var instance provider.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
 		return false, err
 	}
 
+	// 查询Provider的流量超限动作配置
+	var p provider.Provider
+	if err := global.APP_DB.Select("traffic_over_limit_action, traffic_speed_limit_kbps").
+		First(&p, instance.ProviderID).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider限流配置失败，使用默认停机", zap.Error(err))
+		p.TrafficOverLimitAction = "stop"
+	}
+
 	userID := instance.UserID
 	providerID := instance.ProviderID
 
+	if p.TrafficOverLimitAction == "speed_limit" {
+		// 限速模式：标记受限但不停机，创建限速任务
+		updates := map[string]interface{}{
+			"traffic_limited":      true,
+			"traffic_limit_reason": reason,
+		}
+		if err := global.APP_DB.Model(&provider.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+			return false, fmt.Errorf("标记实例为限速状态失败: %w", err)
+		}
+
+		speedKbps := p.TrafficSpeedLimitKbps
+		if speedKbps <= 0 {
+			speedKbps = 1024 // 默认1Mbps
+		}
+
+		global.APP_LOG.Info("实例流量超限，已限速",
+			zap.Uint("instanceID", instanceID),
+			zap.Int("speedLimitKbps", speedKbps),
+			zap.String("reason", reason))
+
+		return true, nil
+	}
+
+	// 停机模式（默认行为）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 原子性标记实例为受限状态
 		updates := map[string]interface{}{
@@ -380,7 +413,7 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 
 	// 检查是否超限
 	if totalUsedMB >= u.TotalTraffic {
-		// 用户超限，停止用户所有实例
+		// 用户超限，根据Provider设置决定停止或限速
 		global.APP_LOG.Info("用户流量超限",
 			zap.Uint("userID", userID),
 			zap.String("username", u.Username),
@@ -399,48 +432,81 @@ func (s *ThreeTierLimitService) CheckUserTrafficLimit(userID uint) (bool, error)
 }
 
 // limitUserInstances 限制用户的所有实例
+// 对于启用speed_limit的Provider下的实例只做限速标记，不停机
 func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) (bool, error) {
 	// 标记用户为受限状态
 	if err := global.APP_DB.Model(&user.User{}).Where("id = ?", userID).Update("traffic_limited", true).Error; err != nil {
 		return false, fmt.Errorf("标记用户为受限状态失败: %w", err)
 	}
 
-	// 批量更新实例状态，避免逐个UPDATE
-	updates := map[string]interface{}{
-		"traffic_limited":      true,
-		"traffic_limit_reason": "user",
-		"status":               "stopped",
+	// 获取用户所有运行中实例及其Provider限流配置
+	type InstanceWithAction struct {
+		ID                     uint
+		ProviderID             uint
+		TrafficOverLimitAction string
 	}
-
-	result := global.APP_DB.Model(&provider.Instance{}).
-		Where("user_id = ? AND status = ?", userID, "running").
-		Updates(updates)
-
-	if result.Error != nil {
-		return false, fmt.Errorf("批量标记实例为受限状态失败: %w", result.Error)
-	}
-
-	// 获取被停止的实例ID列表用于创建任务
-	var instances []provider.Instance
-	if err := global.APP_DB.Select("id, provider_id").
-		Where("user_id = ? AND traffic_limited = ? AND traffic_limit_reason = ?",
-			userID, true, "user").
+	var instances []InstanceWithAction
+	if err := global.APP_DB.Table("instances").
+		Select("instances.id, instances.provider_id, COALESCE(providers.traffic_over_limit_action, 'stop') as traffic_over_limit_action").
+		Joins("LEFT JOIN providers ON instances.provider_id = providers.id").
+		Where("instances.user_id = ? AND instances.status = ?", userID, "running").
 		Find(&instances).Error; err != nil {
-		global.APP_LOG.Warn("获取受限实例列表失败", zap.Error(err))
-		// 不返回错误，状态已更新，任务创建是次要的
-	} else if len(instances) > 0 {
-		// 批量创建停止任务
-		if err := s.batchCreateStopTasks(userID, instances, message); err != nil {
-			global.APP_LOG.Warn("批量创建实例停止任务失败",
-				zap.Uint("userID", userID),
-				zap.Int("instanceCount", len(instances)),
-				zap.Error(err))
+		return false, fmt.Errorf("获取用户运行实例失败: %w", err)
+	}
+
+	// 分为停机实例和限速实例
+	var stopInstanceIDs []uint
+	var speedLimitInstanceIDs []uint
+	providerIDSet := make(map[uint]bool)
+	for _, inst := range instances {
+		if inst.TrafficOverLimitAction == "speed_limit" {
+			speedLimitInstanceIDs = append(speedLimitInstanceIDs, inst.ID)
+		} else {
+			stopInstanceIDs = append(stopInstanceIDs, inst.ID)
+			providerIDSet[inst.ProviderID] = true
 		}
 	}
 
-	global.APP_LOG.Info("已批量限制用户所有实例",
+	// 限速实例：仅标记受限，不停机
+	if len(speedLimitInstanceIDs) > 0 {
+		global.APP_DB.Model(&provider.Instance{}).
+			Where("id IN ?", speedLimitInstanceIDs).
+			Updates(map[string]interface{}{
+				"traffic_limited":      true,
+				"traffic_limit_reason": "user",
+			})
+	}
+
+	// 停机实例：标记受限并停机
+	if len(stopInstanceIDs) > 0 {
+		global.APP_DB.Model(&provider.Instance{}).
+			Where("id IN ?", stopInstanceIDs).
+			Updates(map[string]interface{}{
+				"traffic_limited":      true,
+				"traffic_limit_reason": "user",
+				"status":               "stopped",
+			})
+
+		// 获取需要创建停止任务的实例详情
+		var stopInstances []provider.Instance
+		if err := global.APP_DB.Select("id, provider_id").
+			Where("id IN ?", stopInstanceIDs).
+			Find(&stopInstances).Error; err != nil {
+			global.APP_LOG.Warn("获取停机实例列表失败", zap.Error(err))
+		} else if len(stopInstances) > 0 {
+			if err := s.batchCreateStopTasks(userID, stopInstances, message); err != nil {
+				global.APP_LOG.Warn("批量创建实例停止任务失败",
+					zap.Uint("userID", userID),
+					zap.Int("instanceCount", len(stopInstances)),
+					zap.Error(err))
+			}
+		}
+	}
+
+	global.APP_LOG.Info("已限制用户所有实例",
 		zap.Uint("userID", userID),
-		zap.Int64("影响实例数", result.RowsAffected))
+		zap.Int("停机实例数", len(stopInstanceIDs)),
+		zap.Int("限速实例数", len(speedLimitInstanceIDs)))
 
 	return true, nil
 }
@@ -578,13 +644,39 @@ func (s *ThreeTierLimitService) CheckProviderTrafficLimit(providerID uint) (bool
 }
 
 // limitProviderInstances 限制Provider的所有实例
+// 支持stop（停机）和speed_limit（限速）两种模式
 func (s *ThreeTierLimitService) limitProviderInstances(providerID uint, message string) (bool, error) {
+	// 查询Provider的流量超限动作配置
+	var p provider.Provider
+	if err := global.APP_DB.Select("traffic_over_limit_action, traffic_speed_limit_kbps").
+		First(&p, providerID).Error; err != nil {
+		global.APP_LOG.Warn("获取Provider限流配置失败，使用默认停机", zap.Error(err))
+		p.TrafficOverLimitAction = "stop"
+	}
+
 	// 标记Provider为受限状态
 	if err := global.APP_DB.Model(&provider.Provider{}).Where("id = ?", providerID).
 		Update("traffic_limited", true).Error; err != nil {
 		return false, fmt.Errorf("标记Provider为受限状态失败: %w", err)
 	}
 
+	if p.TrafficOverLimitAction == "speed_limit" {
+		// 限速模式：标记受限但不停机
+		result := global.APP_DB.Model(&provider.Instance{}).
+			Where("provider_id = ? AND status = ?", providerID, "running").
+			Updates(map[string]interface{}{
+				"traffic_limited":      true,
+				"traffic_limit_reason": "provider",
+			})
+
+		global.APP_LOG.Info("已对Provider所有实例限速",
+			zap.Uint("providerID", providerID),
+			zap.Int64("影响实例数", result.RowsAffected))
+
+		return true, nil
+	}
+
+	// 停机模式（默认）
 	// 批量更新实例状态，避免逐个UPDATE
 	updates := map[string]interface{}{
 		"traffic_limited":      true,

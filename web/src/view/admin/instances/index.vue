@@ -249,7 +249,7 @@
         </el-table-column>
         <el-table-column
           :label="$t('common.actions')"
-          width="280"
+          width="360"
           fixed="right"
         >
           <template #default="scope">
@@ -275,6 +275,13 @@
                 @click="openSSHTerminal(scope.row)"
               >
                 {{ $t('admin.instances.connect') }}
+              </el-button>
+              <el-button
+                size="small"
+                type="warning"
+                @click="showTransferDialog(scope.row)"
+              >
+                {{ $t('admin.instances.transfer') }}
               </el-button>
             </div>
           </template>
@@ -537,6 +544,30 @@
         </el-button>
       </div>
     </el-dialog>
+
+    <!-- 转移实例对话框 -->
+    <el-dialog
+      v-model="transferDialogVisible"
+      :title="$t('admin.instances.transferInstance')"
+      width="400px"
+    >
+      <el-form label-width="100px">
+        <el-form-item :label="$t('admin.instances.instanceName')">
+          <el-input :model-value="transferForm.instanceName" disabled />
+        </el-form-item>
+        <el-form-item :label="$t('admin.instances.targetUserId')">
+          <el-input-number
+            v-model="transferForm.targetUserId"
+            :min="1"
+            style="width: 100%"
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="transferDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="transferLoading" @click="confirmTransfer">{{ $t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -552,6 +583,7 @@ import {
   Delete 
 } from '@element-plus/icons-vue'
 import { getAllInstances, deleteInstance as deleteInstanceApi, adminInstanceAction, resetInstancePassword, setInstanceExpiry, freezeInstance, unfreezeInstance } from '@/api/admin'
+import { adminTransferInstance } from '@/api/features'
 import { useI18n } from 'vue-i18n'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -567,6 +599,11 @@ const actionInstance = ref(null)
 const actionLoading = ref(false)
 const showPassword = ref(false)
 const selectedInstances = ref([])
+
+// 转移实例
+const transferDialogVisible = ref(false)
+const transferLoading = ref(false)
+const transferForm = ref({ instanceId: null, instanceName: '', targetUserId: 1 })
 const tableRef = ref(null)
 
 // 筛选条件
@@ -1087,6 +1124,36 @@ const handleWindowResize = () => {
       tableRef.value.doLayout()
     }
   })
+}
+
+// 显示转移对话框
+const showTransferDialog = (instance) => {
+  transferForm.value = {
+    instanceId: instance.id,
+    instanceName: instance.name || instance.uuid,
+    targetUserId: 1
+  }
+  transferDialogVisible.value = true
+}
+
+// 确认转移
+const confirmTransfer = async () => {
+  try {
+    transferLoading.value = true
+    const response = await adminTransferInstance({
+      instanceId: transferForm.value.instanceId,
+      targetUserId: transferForm.value.targetUserId
+    })
+    if (response.code === 0 || response.code === 200) {
+      ElMessage.success(t('admin.instances.transferSuccess'))
+      transferDialogVisible.value = false
+      await loadInstances()
+    }
+  } catch (error) {
+    ElMessage.error(error.response?.data?.message || error.message || t('common.operationFailed'))
+  } finally {
+    transferLoading.value = false
+  }
 }
 
 onMounted(() => {

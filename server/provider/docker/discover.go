@@ -129,20 +129,25 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 
 		// 解析端口映射
 		sshPortFound := false
+		var portMappings []provider.DiscoveredPortMapping
 		for containerPort, bindings := range container.NetworkSettings.Ports {
 			if len(bindings) > 0 {
 				portNum := d.parsePortNumber(containerPort)
+				protocol := d.parsePortProtocol(containerPort)
 				if portNum > 0 {
-					// 检查是否为SSH端口（22）
-					if !sshPortFound && strings.HasPrefix(containerPort, "22/") {
-						if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
+					if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
+						isSSH := strings.HasPrefix(containerPort, "22/")
+						if isSSH && !sshPortFound {
 							discovered.SSHPort = hostPort
 							sshPortFound = true
 						}
-					}
-					// 收集其他端口
-					if hostPort, err := strconv.Atoi(bindings[0].HostPort); err == nil {
 						extraPorts = append(extraPorts, hostPort)
+						portMappings = append(portMappings, provider.DiscoveredPortMapping{
+							HostPort:  hostPort,
+							GuestPort: portNum,
+							Protocol:  protocol,
+							IsSSH:     isSSH,
+						})
 					}
 				}
 			}
@@ -152,6 +157,7 @@ func (d *DockerProvider) DiscoverInstances(ctx context.Context) ([]provider.Disc
 			discovered.SSHPort = 22
 		}
 		discovered.ExtraPorts = extraPorts
+		discovered.PortMappings = portMappings
 
 		// 尝试从环境变量或标签中提取OS类型
 		discovered.OSType = d.extractOSType(container.Config.Env, container.Config.Labels)
@@ -195,6 +201,14 @@ func (d *DockerProvider) parsePortNumber(portStr string) int {
 		}
 	}
 	return 0
+}
+
+func (d *DockerProvider) parsePortProtocol(portStr string) string {
+	parts := strings.Split(portStr, "/")
+	if len(parts) > 1 {
+		return strings.ToLower(parts[1])
+	}
+	return "tcp"
 }
 
 func (d *DockerProvider) extractOSType(envVars []string, labels map[string]string) string {

@@ -58,3 +58,11 @@ export const getServerVersion = () => {
     method: 'get'
   })
 }
+
+// 获取服务器硬件测试报告
+export const getProviderHardwareReport = (providerId) => {
+  return request({
+    url: `/v1/public/providers/${providerId}/hardware-report`,
+    method: 'get'
+  })
+}

@@ -162,6 +162,45 @@ func (i *IncusProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Di
 
 		discovered.SSHPort = 22
 
+		// 解析 proxy 设备中的端口映射
+		var portMappings []provider.DiscoveredPortMapping
+		var extraPorts []int
+		for devName, devData := range inst.Devices {
+			if devName == "root" {
+				continue
+			}
+			devMap, ok := devData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			devType, _ := devMap["type"].(string)
+			if devType != "proxy" {
+				continue
+			}
+			listen, _ := devMap["listen"].(string)
+			connect, _ := devMap["connect"].(string)
+			if listen == "" || connect == "" {
+				continue
+			}
+			hostPort, hostProto := i.parseProxyAddress(listen)
+			guestPort, _ := i.parseProxyAddress(connect)
+			if hostPort > 0 && guestPort > 0 {
+				isSSH := guestPort == 22
+				if isSSH {
+					discovered.SSHPort = hostPort
+				}
+				extraPorts = append(extraPorts, hostPort)
+				portMappings = append(portMappings, provider.DiscoveredPortMapping{
+					HostPort:  hostPort,
+					GuestPort: guestPort,
+					Protocol:  hostProto,
+					IsSSH:     isSSH,
+				})
+			}
+		}
+		discovered.ExtraPorts = extraPorts
+		discovered.PortMappings = portMappings
+
 		if uuid, ok := inst.Config["volatile.uuid"]; ok {
 			discovered.UUID = uuid
 		} else {
@@ -268,6 +307,45 @@ func (i *IncusProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Di
 
 		discovered.SSHPort = 22
 
+		// 解析 proxy 设备中的端口映射
+		var portMappings []provider.DiscoveredPortMapping
+		var extraPorts []int
+		for devName, devData := range inst.Devices {
+			if devName == "root" {
+				continue
+			}
+			devMap, ok := devData.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			devType, _ := devMap["type"].(string)
+			if devType != "proxy" {
+				continue
+			}
+			listen, _ := devMap["listen"].(string)
+			connect, _ := devMap["connect"].(string)
+			if listen == "" || connect == "" {
+				continue
+			}
+			hostPort, hostProto := i.parseProxyAddress(listen)
+			guestPort, _ := i.parseProxyAddress(connect)
+			if hostPort > 0 && guestPort > 0 {
+				isSSH := guestPort == 22
+				if isSSH {
+					discovered.SSHPort = hostPort
+				}
+				extraPorts = append(extraPorts, hostPort)
+				portMappings = append(portMappings, provider.DiscoveredPortMapping{
+					HostPort:  hostPort,
+					GuestPort: guestPort,
+					Protocol:  hostProto,
+					IsSSH:     isSSH,
+				})
+			}
+		}
+		discovered.ExtraPorts = extraPorts
+		discovered.PortMappings = portMappings
+
 		if uuid, ok := inst.Config["volatile.uuid"]; ok {
 			discovered.UUID = uuid
 		} else {
@@ -345,4 +423,20 @@ func (i *IncusProvider) parseDiskSize(sizeStr string) int64 {
 	}
 
 	return 0
+}
+
+// parseProxyAddress 解析 Incus proxy 设备地址，格式如 "tcp:0.0.0.0:8080" 或 "udp:127.0.0.1:22"
+// 返回 (port, protocol)
+func (i *IncusProvider) parseProxyAddress(addr string) (int, string) {
+	parts := strings.SplitN(addr, ":", 3)
+	if len(parts) < 3 {
+		return 0, "tcp"
+	}
+	protocol := strings.ToLower(parts[0])
+	portStr := parts[len(parts)-1]
+	port, err := strconv.Atoi(portStr)
+	if err != nil {
+		return 0, protocol
+	}
+	return port, protocol
 }

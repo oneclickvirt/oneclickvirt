@@ -45,5 +45,8 @@ export default {
   copyFailed: "复制失败，请手动复制",
   confirmResetPasswordTitle: "确认重置密码",
   confirmResetPasswordMessage: "确定要重置密码吗？新密码将自动生成并发送到您绑定的通信渠道。",
-  deleteConfirmNote: "此操作不可撤销，请谨慎操作！"
+  deleteConfirmNote: "此操作不可撤销，请谨慎操作！",
+  nicknameLengthRange: "昵称长度在 2 到 20 个字符",
+  invalidEmailFormat: "请输入正确的邮箱格式",
+  invalidPhoneFormat: "请输入正确的手机号格式"
 }

@@ -15,6 +15,7 @@ type Server struct {
 	Task       Task       `mapstructure:"task" json:"task" yaml:"task"`
 	Upload     Upload     `mapstructure:"upload" json:"upload" yaml:"upload"`
 	Other      Other      `mapstructure:"other" json:"other" yaml:"other"`
+	KYC        KYC        `mapstructure:"kyc" json:"kyc" yaml:"kyc"`
 }
 
 type Other struct {
@@ -145,4 +146,13 @@ type Task struct {
 // Upload 上传配置
 type Upload struct {
 	// 头像上传功能已移除
+}
+
+// KYC 实名认证配置
+type KYC struct {
+	EnableRealName   bool   `mapstructure:"enable-real-name" json:"enable-real-name" yaml:"enable-real-name"`       // 是否启用实名认证功能
+	RequireRealName  bool   `mapstructure:"require-real-name" json:"require-real-name" yaml:"require-real-name"`    // 是否强制实名后才可操作(默认false)
+	AlipayAppID      string `mapstructure:"alipay-app-id" json:"alipay-app-id" yaml:"alipay-app-id"`                // 支付宝应用ID
+	AlipayPrivateKey string `mapstructure:"alipay-private-key" json:"alipay-private-key" yaml:"alipay-private-key"` // 支付宝应用私钥
+	AlipayPublicKey  string `mapstructure:"alipay-public-key" json:"alipay-public-key" yaml:"alipay-public-key"`    // 支付宝公钥
 }

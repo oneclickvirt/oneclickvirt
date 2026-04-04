@@ -1,6 +1,5 @@
 /**
  * 文件上传验证工具
- * 头像上传功能已移除
  */
 import i18n from '@/i18n'
 
@@ -8,6 +7,11 @@ const t = (...args) => i18n.global.t(...args)
 
 // 通用文件上传限制
 const MAX_REQUEST_SIZE = 1024 * 1024 // 1MB (通用文件)
+
+// 头像上传限制
+const MAX_AVATAR_SIZE = 2 * 1024 * 1024 // 2MB
+const ALLOWED_AVATAR_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp']
+const ALLOWED_AVATAR_EXTS = ['.jpg', '.jpeg', '.png', '.gif', '.webp']
 
 // 危险文件扩展名黑名单
 const DANGEROUS_EXTS = [

@@ -1,0 +1,21 @@
+export default {
+  title: 'Domain Management',
+  allDomains: 'All Domain Bindings',
+  domainConfig: 'Domain Config',
+  deleteDomain: 'Delete Domain',
+  confirmDelete: 'Are you sure you want to delete this domain binding?',
+  deleteSuccess: 'Deleted successfully',
+  configUpdated: 'Domain config updated',
+  enabled: 'Enable Domain Binding',
+  maxDomainsPerUser: 'Max Domains Per User',
+  dnsType: 'DNS Type',
+  dnsConfigPath: 'DNS Config Path',
+  nginxConfigPath: 'Nginx Config Path',
+  nginxReloadCmd: 'Nginx Reload Command',
+  allowedSuffixes: 'Allowed Suffixes',
+  userId: 'User ID',
+  instanceId: 'Instance ID',
+  domainName: 'Domain Name',
+  status: 'Status',
+  actions: 'Actions'
+}

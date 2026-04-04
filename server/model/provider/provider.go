@@ -241,6 +241,20 @@ type Provider struct {
 	// 节点标识信息（用于区分多个hostname相同的节点）
 	HostName string `json:"hostName" gorm:"size:128"` // 节点主机名（hostname），由健康检查自动更新
 
+	// 普通管理员归属
+	OwnerAdminID uint   `json:"ownerAdminId" gorm:"default:0;index:idx_owner_admin"` // 归属普通管理员ID(0=超级管理员)
+	GroupName    string `json:"groupName" gorm:"size:64"`                            // 分组名称(普通管理员可自定义)
+
+	// 域名绑定开关（高级配置）
+	EnableDomainBinding bool `json:"enableDomainBinding" gorm:"default:false"` // 是否启用域名绑定功能
+
+	// 签到续期开关（高级配置）
+	EnableCheckin bool `json:"enableCheckin" gorm:"default:false"` // 是否启用签到续期
+
+	// 流量超限动作
+	TrafficOverLimitAction string `json:"trafficOverLimitAction" gorm:"size:16;default:stop"` // 流量超限操作: stop(停机), speed_limit(限速)
+	TrafficSpeedLimitKbps  int    `json:"trafficSpeedLimitKbps" gorm:"default:1024"`          // 限速值(Kbps), 仅speed_limit模式生效
+
 	// 容器特殊配置选项（仅适用于 LXD 和 Incus 的容器实例）
 	ContainerPrivileged   bool   `json:"containerPrivileged" gorm:"default:false"`          // 容器特权模式：允许容器访问宿主机资源
 	ContainerAllowNesting bool   `json:"containerAllowNesting" gorm:"default:false"`        // 容器嵌套：允许在容器内运行容器
@@ -419,6 +433,20 @@ type PendingDeletion struct {
 	ResourceUUID string    `json:"resourceUuid" gorm:"not null;size:36"`
 	ScheduledAt  time.Time `json:"scheduledAt"`
 	Status       string    `json:"status" gorm:"default:pending;size:16"`
+}
+
+// HardwareTestReport 硬件测试报告模型
+type HardwareTestReport struct {
+	ID         uint           `json:"id" gorm:"primarykey"`
+	CreatedAt  time.Time      `json:"createdAt"`
+	UpdatedAt  time.Time      `json:"updatedAt"`
+	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`
+	ProviderID uint           `json:"providerId" gorm:"uniqueIndex"`
+	Status     string         `json:"status" gorm:"default:pending;size:16"` // pending, running, completed, failed
+	ReportText string         `json:"reportText" gorm:"type:longtext"`
+	TestedAt   *time.Time     `json:"testedAt"`
+	TestedBy   uint           `json:"testedBy"`
+	ErrorMsg   string         `json:"errorMsg,omitempty" gorm:"size:512"`
 }
 
 // 以下是业务层结构体（不是数据库模型）

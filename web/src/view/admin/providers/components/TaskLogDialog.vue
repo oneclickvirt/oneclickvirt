@@ -118,7 +118,7 @@
             v-else
             style="color: #999; text-align: center; padding: 40px;"
           >
-            暂无日志内容
+            {{ t('common.noLogContent') }}
           </div>
         </div>
       </el-card>
@@ -127,7 +127,7 @@
     <template #footer>
       <div style="text-align: center;">
         <el-button @click="handleClose">
-          关闭
+          {{ t('common.close') }}
         </el-button>
       </div>
     </template>
@@ -193,11 +193,11 @@ const getTaskStatusType = (status) => {
 
 const getTaskStatusText = (status) => {
   const statusTextMap = {
-    'pending': '等待中',
-    'running': '运行中',
-    'completed': '已完成',
-    'failed': '失败',
-    'cancelled': '已取消'
+    'pending': t('admin.providers.taskStatusPending'),
+    'running': t('admin.providers.taskStatusRunning'),
+    'completed': t('admin.providers.taskStatusCompleted'),
+    'failed': t('admin.providers.taskStatusFailed'),
+    'cancelled': t('admin.providers.taskStatusCancelled')
   }
   return statusTextMap[status] || status
 }
