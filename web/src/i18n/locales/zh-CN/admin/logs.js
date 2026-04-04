@@ -13,6 +13,7 @@ export default {
   fileNotFound: '日志文件不存在',
   lines: '行',
   copy: '复制',
+  search: '搜索日志...',
   copySuccess: '已复制到剪贴板',
   copyFailed: '复制失败',
   loading: '加载中...',

@@ -13,6 +13,7 @@ export default {
   fileNotFound: 'Log file not found',
   lines: 'lines',
   copy: 'Copy',
+  search: 'Search logs...',
   copySuccess: 'Copied to clipboard',
   copyFailed: 'Copy failed',
   loading: 'Loading...',

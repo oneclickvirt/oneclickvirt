@@ -83,6 +83,8 @@ func isSystemLevelConfig(key string) bool {
 var publicConfigKeys = map[string]bool{
 	"auth.enable-public-registration": true,
 	"other.default-language":          true,
+	"other.logo-url":                  true,
+	"other.site-name":                 true,
 }
 
 // SystemConfig 系统配置模型（避免循环导入）

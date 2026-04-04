@@ -72,8 +72,18 @@
           />
         </el-col>
 
+        <!-- 搜索 -->
+        <el-col :xs="24" :sm="6" :md="4">
+          <el-input
+            v-model="searchKeyword"
+            :placeholder="$t('admin.logs.search')"
+            clearable
+            :prefix-icon="Search"
+          />
+        </el-col>
+
         <!-- 操作按钮 -->
-        <el-col :xs="12" :sm="5" :md="10">
+        <el-col :xs="12" :sm="5" :md="6">
           <div class="btn-group">
             <el-button
               type="primary"
@@ -100,7 +110,12 @@
             {{ currentFileLabel }}
           </span>
           <span v-if="lineCount > 0" class="line-count">
-            {{ lineCount }} {{ $t('admin.logs.lines') }}
+            <template v-if="searchKeyword && filteredLineCount !== lineCount">
+              {{ filteredLineCount }} / {{ lineCount }} {{ $t('admin.logs.lines') }}
+            </template>
+            <template v-else>
+              {{ lineCount }} {{ $t('admin.logs.lines') }}
+            </template>
           </span>
         </div>
       </template>
@@ -118,7 +133,7 @@
           <el-icon><DocumentDelete /></el-icon>
           <span>{{ $t('admin.logs.noContent') }}</span>
         </div>
-        <pre v-else class="log-pre" ref="logPreRef">{{ logContent }}</pre>
+        <pre v-else class="log-pre" ref="logPreRef" v-html="displayContent"></pre>
       </div>
     </el-card>
   </div>
@@ -130,7 +145,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import {
   Document, Refresh, CopyDocument, Folder, Loading, InfoFilled,
-  DocumentDelete
+  DocumentDelete, Search
 } from '@element-plus/icons-vue'
 import { getLogDates, getLogContent } from '@/api/admin'
 
@@ -147,6 +162,33 @@ const lineCount = ref(0)
 const loading = ref(false)
 const logContainerRef = ref(null)
 const logPreRef = ref(null)
+const searchKeyword = ref('')
+
+// 搜索过滤后的显示内容
+const filteredLines = computed(() => {
+  if (!logContent.value) return []
+  const lines = logContent.value.split('\n')
+  if (!searchKeyword.value) return lines
+  const kw = searchKeyword.value.toLowerCase()
+  return lines.filter(line => line.toLowerCase().includes(kw))
+})
+
+const filteredLineCount = computed(() => filteredLines.value.length)
+
+const displayContent = computed(() => {
+  const lines = filteredLines.value
+  if (!lines.length) return ''
+  const text = lines.join('\n')
+  if (!searchKeyword.value) {
+    // escape HTML
+    return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  }
+  // escape HTML first, then highlight
+  const escaped = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const kwEscaped = searchKeyword.value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  const regex = new RegExp(kwEscaped.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
+  return escaped.replace(regex, match => `<mark class="log-highlight">${match}</mark>`)
+})
 
 // 是否选择的是日期目录（非根目录文件）
 const isDateSelected = computed(() => {
@@ -382,6 +424,13 @@ onMounted(async () => {
         white-space: pre-wrap;
         word-break: break-all;
         flex: 1;
+
+        :deep(.log-highlight) {
+          background: #e2b714;
+          color: #0d1117;
+          border-radius: 2px;
+          padding: 0 1px;
+        }
       }
     }
   }

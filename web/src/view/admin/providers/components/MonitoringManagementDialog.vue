@@ -205,7 +205,7 @@
           <!-- 监控列表 -->
           <div style="margin-top: 20px;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
-              <h4 style="margin: 0;">{{ $t('admin.providers.instanceMonitors') }} ({{ monitors.length }})</h4>
+              <h4 style="margin: 0;">{{ $t('admin.providers.instanceMonitors') }} ({{ monitorsPagination.total }})</h4>
               <el-button
                 v-if="config.agent_installed && agentIsOnline"
                 size="small"
@@ -216,13 +216,28 @@
               </el-button>
             </div>
             <el-table :data="monitors" size="small" max-height="300" v-loading="monitorsLoading">
-              <el-table-column prop="instance_name" :label="$t('admin.providers.instanceName')" width="150" />
+              <el-table-column prop="instance_name" :label="$t('admin.providers.instanceName')" width="150">
+                <template #default="{ row }">
+                  <span>{{ row.instance_name || '-' }}</span>
+                  <el-tag v-if="row.instance_deleted" type="danger" size="small" style="margin-left: 4px;">{{ $t('admin.providers.deleted') }}</el-tag>
+                </template>
+              </el-table-column>
               <el-table-column prop="interfaces" :label="$t('admin.providers.interfaces')" show-overflow-tooltip>
                 <template #default="{ row }">
                   {{ row.interfaces || '-' }}
                 </template>
               </el-table-column>
               <el-table-column prop="agent_monitor_id" label="Agent ID" width="90" />
+              <el-table-column :label="$t('admin.providers.trafficIn')" width="100">
+                <template #default="{ row }">
+                  {{ formatBytes(row.last_traffic_bytes_in || 0) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('admin.providers.trafficOut')" width="100">
+                <template #default="{ row }">
+                  {{ formatBytes(row.last_traffic_bytes_out || 0) }}
+                </template>
+              </el-table-column>
               <el-table-column :label="$t('admin.providers.status')" width="80">
                 <template #default="{ row }">
                   <el-tag :type="row.is_enabled ? 'success' : 'info'" size="small">
@@ -236,13 +251,25 @@
                 </template>
               </el-table-column>
             </el-table>
+            <el-pagination
+              v-if="monitorsPagination.total > monitorsPagination.pageSize"
+              v-model:current-page="monitorsPagination.page"
+              v-model:page-size="monitorsPagination.pageSize"
+              :page-sizes="[10, 20, 50]"
+              :total="monitorsPagination.total"
+              layout="total, sizes, prev, pager, next"
+              size="small"
+              style="margin-top: 8px; justify-content: center;"
+              @current-change="loadMonitors"
+              @size-change="() => { monitorsPagination.page = 1; loadMonitors() }"
+            />
           </div>
 
           <!-- Agent端监控列表弹窗 -->
           <el-dialog
             v-model="showAgentMonitors"
             :title="$t('admin.providers.agentMonitorsList')"
-            width="700px"
+            width="800px"
             append-to-body
           >
             <el-table :data="agentMonitors" size="small" max-height="400">
@@ -254,7 +281,8 @@
               </el-table-column>
               <el-table-column prop="instance_name" :label="$t('admin.providers.instanceName')" width="150">
                 <template #default="{ row }">
-                  {{ row.instance_name || '-' }}
+                  <span>{{ row.instance_name || '-' }}</span>
+                  <el-tag v-if="row.instance_deleted" type="danger" size="small" style="margin-left: 4px;">{{ $t('admin.providers.deleted') }}</el-tag>
                 </template>
               </el-table-column>
               <el-table-column prop="provider_kind" label="Provider" width="100">
@@ -262,14 +290,37 @@
                   {{ row.provider_kind || '-' }}
                 </template>
               </el-table-column>
-              <el-table-column label="Traffic" width="100">
+              <el-table-column :label="$t('admin.providers.trafficIn')" width="100">
+                <template #default="{ row }">
+                  {{ formatBytes(row.total_bytes_in || 0) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('admin.providers.trafficOut')" width="100">
+                <template #default="{ row }">
+                  {{ formatBytes(row.total_bytes_out || 0) }}
+                </template>
+              </el-table-column>
+              <el-table-column :label="$t('admin.providers.totalTraffic')" width="100">
                 <template #default="{ row }">
                   {{ formatBytes(row.total_bytes || 0) }}
                 </template>
               </el-table-column>
             </el-table>
             <template #footer>
-              <el-text type="info" size="small">{{ $t('admin.providers.agentMonitorsTotal') }}: {{ agentMonitors.length }}</el-text>
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <el-text type="info" size="small">{{ $t('admin.providers.agentMonitorsTotal') }}: {{ agentMonitorsPagination.total }}</el-text>
+                <el-pagination
+                  v-if="agentMonitorsPagination.total > agentMonitorsPagination.pageSize"
+                  v-model:current-page="agentMonitorsPagination.page"
+                  v-model:page-size="agentMonitorsPagination.pageSize"
+                  :page-sizes="[10, 20, 50]"
+                  :total="agentMonitorsPagination.total"
+                  layout="total, sizes, prev, pager, next"
+                  size="small"
+                  @current-change="handleListAgentMonitors"
+                  @size-change="() => { agentMonitorsPagination.page = 1; handleListAgentMonitors() }"
+                />
+              </div>
             </template>
           </el-dialog>
         </el-tab-pane>
@@ -527,6 +578,8 @@ const agentIsOnline = ref(false)
 const showToken = ref(false)
 const showAgentMonitors = ref(false)
 const agentMonitors = ref([])
+const monitorsPagination = reactive({ page: 1, pageSize: 10, total: 0 })
+const agentMonitorsPagination = reactive({ page: 1, pageSize: 10, total: 0 })
 
 // snake_case to match backend JSON
 const config = reactive({
@@ -633,9 +686,11 @@ const loadMonitors = async () => {
   if (!props.provider) return
   monitorsLoading.value = true
   try {
-    const res = await getProviderMonitors(props.provider.id)
+    const res = await getProviderMonitors(props.provider.id, { page: monitorsPagination.page, pageSize: monitorsPagination.pageSize })
     if (res.code === 0 || res.code === 200) {
-      monitors.value = res.data?.list || res.data || []
+      const data = res.data || {}
+      monitors.value = data.list || []
+      monitorsPagination.total = data.total || 0
     }
   } catch (e) {
     console.error('Failed to load monitors:', e)
@@ -813,9 +868,11 @@ const handleListAgentMonitors = async () => {
   if (!props.provider) return
   listAgentLoading.value = true
   try {
-    const res = await listAgentMonitors(props.provider.id)
+    const res = await listAgentMonitors(props.provider.id, { page: agentMonitorsPagination.page, pageSize: agentMonitorsPagination.pageSize })
     if (res.code === 0 || res.code === 200) {
-      agentMonitors.value = res.data?.monitors || []
+      const data = res.data || {}
+      agentMonitors.value = data.monitors || []
+      agentMonitorsPagination.total = data.total || 0
       showAgentMonitors.value = true
     } else {
       ElMessage.error(res.msg || t('common.failed'))

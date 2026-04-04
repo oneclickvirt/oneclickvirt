@@ -62,5 +62,6 @@ export default {
   stringsRequired: 'Please enter match strings',
   scopeRequired: 'Please select scope',
   rulesRequired: 'Please select rules',
-  stringCount: '{count} strings'
+  stringCount: '{count} strings',
+  filterByProvider: 'Filter by Provider'
 }

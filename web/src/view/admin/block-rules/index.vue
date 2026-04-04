@@ -160,7 +160,7 @@
     <el-dialog
       v-model="showApplyDialog"
       :title="t('admin.blockRules.applyRules')"
-      width="500px"
+      width="600px"
       destroy-on-close
     >
       <el-form ref="applyFormRef" :model="applyForm" :rules="applyFormRules" label-width="120px">
@@ -177,7 +177,7 @@
           </div>
         </el-form-item>
         <el-form-item :label="t('admin.blockRules.scope')" prop="scope">
-          <el-select v-model="applyForm.scope" @change="applyForm.target_ids = []" style="width: 100%;">
+          <el-select v-model="applyForm.scope" @change="handleScopeChange" style="width: 100%;">
             <el-option
               v-for="s in scopeOptions"
               :key="s"
@@ -191,14 +191,50 @@
           :label="t('admin.blockRules.selectTargets')"
           prop="target_ids"
         >
-          <el-select v-model="applyForm.target_ids" multiple style="width: 100%;">
+          <el-select v-model="applyForm.target_ids" multiple filterable style="width: 100%;">
             <el-option
-              v-for="p in agentProviders"
-              :key="p"
-              :label="`Provider #${p}`"
-              :value="p"
+              v-for="p in providerOptions"
+              :key="p.id"
+              :label="p.name || `Provider #${p.id}`"
+              :value="p.id"
             />
           </el-select>
+        </el-form-item>
+        <el-form-item
+          v-if="applyForm.scope === 'instance'"
+          :label="t('admin.blockRules.selectTargets')"
+          prop="target_ids"
+        >
+          <div style="width: 100%;">
+            <el-select
+              v-model="instanceProviderFilter"
+              :placeholder="t('admin.blockRules.filterByProvider')"
+              clearable
+              style="width: 100%; margin-bottom: 8px;"
+              @change="fetchInstancesForProvider"
+            >
+              <el-option
+                v-for="p in providerOptions"
+                :key="p.id"
+                :label="p.name || `Provider #${p.id}`"
+                :value="p.id"
+              />
+            </el-select>
+            <el-select
+              v-model="applyForm.target_ids"
+              multiple
+              filterable
+              :loading="loadingInstances"
+              style="width: 100%;"
+            >
+              <el-option
+                v-for="inst in instanceOptions"
+                :key="inst.id"
+                :label="`${inst.name} (${inst.status})`"
+                :value="inst.id"
+              />
+            </el-select>
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -216,17 +252,19 @@ import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
-import { blockRulesApi } from '@/api/admin'
+import { blockRulesApi, getAllInstances } from '@/api/admin'
 
 const { t } = useI18n()
 
 const rules = ref([])
 const applications = ref([])
-const agentProviders = ref([])
+const providerOptions = ref([])
+const instanceOptions = ref([])
 const selectedRules = ref([])
 const selectedApps = ref([])
 const loadingRules = ref(false)
 const loadingApps = ref(false)
+const loadingInstances = ref(false)
 const submitting = ref(false)
 const showRuleDialog = ref(false)
 const showApplyDialog = ref(false)
@@ -234,11 +272,12 @@ const isEdit = ref(false)
 const editId = ref(null)
 const ruleFormRef = ref(null)
 const applyFormRef = ref(null)
+const instanceProviderFilter = ref(null)
 
 const categories = ['mining', 'bt', 'speedtest', 'custom']
-const scopeOptions = ['global', 'provider']
+const scopeOptions = ['global', 'provider', 'instance']
 
-// Preset strings for each category (from iptables blocking documentation)
+// Preset strings for each category
 const categoryPresets = {
   mining: [
     'ethermine.com', 'ethermine.org', 'antpool.one', 'antpool.com', 'pool.bar',
@@ -313,7 +352,7 @@ async function fetchRules() {
   loadingRules.value = true
   try {
     const res = await blockRulesApi.getRules()
-    rules.value = res.data?.data || []
+    rules.value = res?.data || []
   } finally {
     loadingRules.value = false
   }
@@ -323,7 +362,7 @@ async function fetchApplications() {
   loadingApps.value = true
   try {
     const res = await blockRulesApi.getApplications()
-    applications.value = res.data?.data || []
+    applications.value = res?.data || []
   } finally {
     loadingApps.value = false
   }
@@ -332,8 +371,33 @@ async function fetchApplications() {
 async function fetchAgentProviders() {
   try {
     const res = await blockRulesApi.getAgentProviders()
-    agentProviders.value = res.data?.data || []
+    const providerIds = res?.data || []
+    // Build provider options with names by fetching instance data
+    providerOptions.value = providerIds.map(id => ({ id, name: `Provider #${id}` }))
   } catch { /* ignore */ }
+}
+
+async function fetchInstancesForProvider(providerId) {
+  applyForm.target_ids = []
+  if (!providerId) {
+    instanceOptions.value = []
+    return
+  }
+  loadingInstances.value = true
+  try {
+    const res = await getAllInstances({ provider_id: providerId, page: 1, pageSize: 500 })
+    instanceOptions.value = res?.data?.list || res?.data || []
+  } catch {
+    instanceOptions.value = []
+  } finally {
+    loadingInstances.value = false
+  }
+}
+
+function handleScopeChange() {
+  applyForm.target_ids = []
+  instanceProviderFilter.value = null
+  instanceOptions.value = []
 }
 
 function handleRuleSelectionChange(selection) {
@@ -403,7 +467,7 @@ async function handleSubmitRule() {
     showRuleDialog.value = false
     fetchRules()
   } catch (err) {
-    ElMessage.error(err.response?.data?.msg || err.message)
+    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
   } finally {
     submitting.value = false
   }
@@ -426,7 +490,7 @@ async function handleToggleEnabled(row, val) {
     await blockRulesApi.updateRule(row.id, { enabled: val })
     row.enabled = val
   } catch (err) {
-    ElMessage.error(err.response?.data?.msg || err.message)
+    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
   }
 }
 
@@ -446,7 +510,7 @@ async function handleApplyRules() {
     showApplyDialog.value = false
     fetchApplications()
   } catch (err) {
-    ElMessage.error(err.response?.data?.msg || err.message)
+    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
   } finally {
     submitting.value = false
   }

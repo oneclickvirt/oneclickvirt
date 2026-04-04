@@ -403,9 +403,9 @@ func GetPublicSystemConfig(c *gin.Context) {
 				switch config.Key {
 				case "other.default-language":
 					result["default_language"] = config.Value
-				case "logo_url":
+				case "other.logo-url":
 					result["logo_url"] = config.Value
-				case "site_name":
+				case "other.site-name":
 					result["site_name"] = config.Value
 				default:
 					result[config.Key] = config.Value

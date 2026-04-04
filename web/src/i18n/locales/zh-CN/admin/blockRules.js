@@ -62,5 +62,6 @@ export default {
   stringsRequired: '请输入匹配字符串',
   scopeRequired: '请选择作用范围',
   rulesRequired: '请选择规则',
-  stringCount: '{count} 个字符串'
+  stringCount: '{count} 个字符串',
+  filterByProvider: '按节点筛选'
 }

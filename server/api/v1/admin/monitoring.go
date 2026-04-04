@@ -294,7 +294,7 @@ func GetAgentStatus(c *gin.Context) {
 	})
 }
 
-// GetProviderMonitors returns all agent monitors for a provider.
+// GetProviderMonitors returns all agent monitors for a provider with pagination.
 func GetProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -303,13 +303,65 @@ func GetProviderMonitors(c *gin.Context) {
 		return
 	}
 
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	var total int64
+	global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&total)
+
 	var monitors []monitoringModel.AgentMonitor
-	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
+	if err := global.APP_DB.Where("provider_id = ?", providerID).
+		Order("id DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&monitors).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: monitors})
+	// Batch check which instances are deleted
+	instanceIDs := make([]uint, 0, len(monitors))
+	for _, m := range monitors {
+		instanceIDs = append(instanceIDs, m.InstanceID)
+	}
+
+	activeInstanceIDs := make(map[uint]bool)
+	if len(instanceIDs) > 0 {
+		var activeInstances []struct{ ID uint }
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Select("id").
+			Where("id IN ?", instanceIDs).
+			Scan(&activeInstances)
+		for _, inst := range activeInstances {
+			activeInstanceIDs[inst.ID] = true
+		}
+	}
+
+	// Build enriched response
+	type MonitorWithStatus struct {
+		monitoringModel.AgentMonitor
+		InstanceDeleted bool `json:"instance_deleted"`
+	}
+
+	result := make([]MonitorWithStatus, 0, len(monitors))
+	for _, m := range monitors {
+		result = append(result, MonitorWithStatus{
+			AgentMonitor:    m,
+			InstanceDeleted: !activeInstanceIDs[m.InstanceID],
+		})
+	}
+
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: map[string]interface{}{
+		"list":     result,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	}})
 }
 
 // SyncProviderMonitors ensures all active instances have monitors and cleans up stale ones.
@@ -408,7 +460,98 @@ func ListAgentMonitors(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: result})
+	// Pagination
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	monitors := result.Monitors
+	total := len(monitors)
+
+	// Enrich with in/out traffic by fetching per-monitor info
+	ids := make([]int64, 0, len(monitors))
+	for _, m := range monitors {
+		ids = append(ids, m.ID)
+	}
+
+	infoMap := make(map[int64]*agentService.InfoResponse)
+	if len(ids) > 0 {
+		infoMap, _ = client.BatchGetInfo(ids)
+	}
+
+	// Map instance names to check if they still exist in DB
+	instanceNames := make([]string, 0, len(monitors))
+	for _, m := range monitors {
+		if m.InstanceName != nil {
+			instanceNames = append(instanceNames, *m.InstanceName)
+		}
+	}
+	activeInstanceNames := make(map[string]bool)
+	if len(instanceNames) > 0 {
+		var activeInstances []struct{ Name string }
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Select("name").
+			Where("name IN ? AND provider_id = ?", instanceNames, providerID).
+			Scan(&activeInstances)
+		for _, inst := range activeInstances {
+			activeInstanceNames[inst.Name] = true
+		}
+	}
+
+	type EnrichedMonitorItem struct {
+		ID              int64    `json:"id"`
+		Interface       []string `json:"interface"`
+		ProviderKind    *string  `json:"provider_kind"`
+		InstanceName    *string  `json:"instance_name"`
+		TotalBytes      uint64   `json:"total_bytes"`
+		TotalBytesIn    uint64   `json:"total_bytes_in"`
+		TotalBytesOut   uint64   `json:"total_bytes_out"`
+		UpdatedAt       int64    `json:"updated_at"`
+		InstanceDeleted bool     `json:"instance_deleted"`
+	}
+
+	enriched := make([]EnrichedMonitorItem, 0, len(monitors))
+	for _, m := range monitors {
+		item := EnrichedMonitorItem{
+			ID:           m.ID,
+			Interface:    m.Interface,
+			ProviderKind: m.ProviderKind,
+			InstanceName: m.InstanceName,
+			TotalBytes:   m.TotalBytes,
+			UpdatedAt:    m.UpdatedAt,
+		}
+		if info, ok := infoMap[m.ID]; ok {
+			item.TotalBytesIn = info.UsedTrafficIn
+			item.TotalBytesOut = info.UsedTrafficOut
+		}
+		if m.InstanceName != nil {
+			item.InstanceDeleted = !activeInstanceNames[*m.InstanceName]
+		}
+		enriched = append(enriched, item)
+	}
+
+	// Apply pagination
+	start := (page - 1) * pageSize
+	end := start + pageSize
+	if start > len(enriched) {
+		start = len(enriched)
+	}
+	if end > len(enriched) {
+		end = len(enriched)
+	}
+	pagedList := enriched[start:end]
+
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: map[string]interface{}{
+		"monitors": pagedList,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	}})
 }
 
 // GetInstanceResources returns resource monitoring data for an instance.

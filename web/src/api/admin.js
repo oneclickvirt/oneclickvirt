@@ -118,10 +118,11 @@ export const getAgentStatus = (providerId) => {
   })
 }
 
-export const getProviderMonitors = (providerId) => {
+export const getProviderMonitors = (providerId, params = {}) => {
   return request({
     url: `/v1/admin/providers/${providerId}/monitoring/monitors`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 
@@ -139,10 +140,11 @@ export const clearProviderMonitors = (providerId) => {
   })
 }
 
-export const listAgentMonitors = (providerId) => {
+export const listAgentMonitors = (providerId, params = {}) => {
   return request({
     url: `/v1/admin/providers/${providerId}/monitoring/agent-monitors`,
-    method: 'get'
+    method: 'get',
+    params
   })
 }
 

@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
+	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider/portmapping"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
@@ -260,7 +261,30 @@ func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task
 			zap.Uint("instanceId", resetCtx.NewInstanceID))
 	}
 
-	// Agent监控：重建后重新注册
+	// Agent监控：迁移旧监控记录到新实例（保留流量历史连续性）
+	if resetCtx.OldInstanceID != 0 && resetCtx.OldInstanceID != resetCtx.NewInstanceID {
+		var oldMonitor monitoringModel.AgentMonitor
+		if err := global.APP_DB.Where("instance_id = ?", resetCtx.OldInstanceID).First(&oldMonitor).Error; err == nil {
+			// 迁移 agent_monitor 到新实例ID
+			if err := global.APP_DB.Model(&oldMonitor).Updates(map[string]interface{}{
+				"instance_id":   resetCtx.NewInstanceID,
+				"instance_name": resetCtx.OldInstanceName,
+			}).Error; err != nil {
+				global.APP_LOG.Warn("迁移agent监控记录失败", zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已迁移agent监控记录到新实例",
+					zap.Uint("old_instance_id", resetCtx.OldInstanceID),
+					zap.Uint("new_instance_id", resetCtx.NewInstanceID))
+			}
+
+			// 迁移流量历史记录到新实例ID
+			global.APP_DB.Model(&monitoringModel.InstanceTrafficHistory{}).
+				Where("instance_id = ?", resetCtx.OldInstanceID).
+				Update("instance_id", resetCtx.NewInstanceID)
+		}
+	}
+
+	// Agent监控：重建后更新接口
 	agentCtx, agentCancel := context.WithTimeout(ctx, 2*time.Minute)
 	agentLifecycle.OnInstanceRebuilt(agentCtx, global.APP_DB, resetCtx.NewInstanceID)
 	agentCancel()
