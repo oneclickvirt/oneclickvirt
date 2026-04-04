@@ -199,7 +199,7 @@ export async function checkFileContentSecurity(file) {
       for (const pattern of maliciousPatterns) {
         if (pattern.test(content)) {
           result.valid = false
-          result.errors.push('检测到潜在的恶意代码')
+          result.errors.push(t('validation.maliciousCodeDetected'))
           break
         }
       }
@@ -210,7 +210,7 @@ export async function checkFileContentSecurity(file) {
     reader.onerror = function() {
       resolve({
         valid: false,
-        errors: ['文件读取失败']
+        errors: [t('validation.fileReadFailed')]
       })
     }
 

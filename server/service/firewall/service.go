@@ -196,6 +196,10 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 
 	dbService := database.GetDatabaseService()
 	var applications []firewallModel.BlockRuleApplication
+	ipVersion := req.IPVersion
+	if ipVersion == "" {
+		ipVersion = "both"
+	}
 	err = dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		for _, rule := range rules {
 			for _, targetID := range targetIDs {
@@ -204,6 +208,7 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 					First(&existing).Error
 				if err == nil {
 					existing.Status = "pending"
+					existing.IPVersion = ipVersion
 					if err := tx.Save(&existing).Error; err != nil {
 						return err
 					}
@@ -216,6 +221,7 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 					TargetID:   targetID,
 					TargetName: targetNameMap[targetID],
 					Status:     "pending",
+					IPVersion:  ipVersion,
 				}
 				if err := tx.Create(&app).Error; err != nil {
 					return err
@@ -234,7 +240,7 @@ func (s *Service) ApplyRules(ctx context.Context, req *firewallModel.ApplyBlockR
 		for _, a := range applications {
 			appIDs = append(appIDs, a.ID)
 		}
-		s.executeRulesOnProviders(context.Background(), rules, providerIDs, appIDs)
+		s.executeRulesOnProviders(context.Background(), rules, providerIDs, appIDs, ipVersion)
 	}()
 	return applications, nil
 }
@@ -390,7 +396,7 @@ func (s *Service) resolveTargetName(scope string, targetID uint) string {
 }
 
 // executeRulesOnProviders sends block rules to all affected provider agents.
-func (s *Service) executeRulesOnProviders(ctx context.Context, rules []firewallModel.BlockRule, providerIDs []uint, appIDs []uint) {
+func (s *Service) executeRulesOnProviders(ctx context.Context, rules []firewallModel.BlockRule, providerIDs []uint, appIDs []uint, ipVersion string) {
 	allStrings := make([]string, 0)
 	for _, rule := range rules {
 		var strs []string
@@ -400,12 +406,12 @@ func (s *Service) executeRulesOnProviders(ctx context.Context, rules []firewallM
 		allStrings = append(allStrings, strs...)
 	}
 	for _, providerID := range providerIDs {
-		s.applyBlockRulesToProvider(ctx, providerID, allStrings, appIDs)
+		s.applyBlockRulesToProvider(ctx, providerID, allStrings, appIDs, ipVersion)
 	}
 }
 
 // applyBlockRulesToProvider sends the accumulated block strings to a single provider's agent.
-func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint, blockStrings []string, appIDs []uint) {
+func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint, blockStrings []string, appIDs []uint, ipVersion string) {
 	var config monitoringModel.MonitoringConfig
 	if err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error; err != nil {
 		if global.APP_LOG != nil {
@@ -438,7 +444,7 @@ func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint
 		port = agent.AgentPort
 	}
 	client := agent.GetClient(providerID, host, port, config.AgentToken)
-	if err := client.ApplyBlockRules(blockStrings); err != nil {
+	if err := client.ApplyBlockRules(blockStrings, ipVersion); err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Error("failed to apply block rules to agent",
 				zap.Uint("provider_id", providerID),
@@ -470,12 +476,33 @@ func (s *Service) resyncAllProviders(ctx context.Context) {
 		return
 	}
 	ruleIDs := make(map[uint]bool)
+	// Determine most permissive ip_version across all applications
+	ipVersionSet := make(map[string]bool)
 	for _, app := range apps {
 		ruleIDs[app.RuleID] = true
+		v := app.IPVersion
+		if v == "" {
+			v = "both"
+		}
+		ipVersionSet[v] = true
 	}
 	if len(ruleIDs) == 0 {
 		return
 	}
+	// If any app uses "both", use "both"; otherwise merge ipv4+ipv6=both
+	ipVersion := "both"
+	if !ipVersionSet["both"] {
+		hasV4 := ipVersionSet["ipv4"]
+		hasV6 := ipVersionSet["ipv6"]
+		if hasV4 && hasV6 {
+			ipVersion = "both"
+		} else if hasV4 {
+			ipVersion = "ipv4"
+		} else if hasV6 {
+			ipVersion = "ipv6"
+		}
+	}
+
 	ids := make([]uint, 0, len(ruleIDs))
 	for id := range ruleIDs {
 		ids = append(ids, id)
@@ -499,7 +526,7 @@ func (s *Service) resyncAllProviders(ctx context.Context) {
 		return
 	}
 	for _, config := range configs {
-		s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil)
+		s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil, ipVersion)
 	}
 }
 

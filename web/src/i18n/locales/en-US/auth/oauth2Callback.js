@@ -1,4 +1,5 @@
 export default {
+  title: 'OAuth2 Login',
   processing: 'Processing login information...',
   backToLogin: 'Back to Login',
   loginSuccess: 'Login successful! Redirecting...',

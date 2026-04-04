@@ -87,10 +87,23 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest) ([]adminMode
 
 	result := make([]adminModel.RedemptionCodeResponse, 0, len(codes))
 	for _, c := range codes {
-		result = append(result, adminModel.RedemptionCodeResponse{
+		resp := adminModel.RedemptionCodeResponse{
 			RedemptionCode: c,
 			CreatedByUser:  userMap[c.CreatedBy],
-		})
+		}
+		if spec, err := constant.GetCPUSpecByID(c.CPUId); err == nil {
+			resp.CPUName = spec.Name
+		}
+		if spec, err := constant.GetMemorySpecByID(c.MemoryId); err == nil {
+			resp.MemoryName = spec.Name
+		}
+		if spec, err := constant.GetDiskSpecByID(c.DiskId); err == nil {
+			resp.DiskName = spec.Name
+		}
+		if spec, err := constant.GetBandwidthSpecByID(c.BandwidthId); err == nil {
+			resp.BandwidthName = spec.Name
+		}
+		result = append(result, resp)
 	}
 
 	return result, total, nil

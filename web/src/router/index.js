@@ -8,7 +8,7 @@ const routes = [
     name: 'Home',
     component: () => import('@/view/home/index.vue'),
     meta: {
-      title: '首页',
+      title: 'sidebar.dashboard',
       requiresAuth: false
     }
   },
@@ -17,7 +17,7 @@ const routes = [
     name: 'HomePage',
     component: () => import('@/view/home/index.vue'),
     meta: {
-      title: '首页',
+      title: 'sidebar.dashboard',
       requiresAuth: false
     }
   },
@@ -26,7 +26,7 @@ const routes = [
     name: 'Login',
     component: () => import('@/view/login/index.vue'),
     meta: {
-      title: '用户登录',
+      title: 'login.title',
       requiresAuth: false
     }
   },
@@ -35,7 +35,7 @@ const routes = [
     name: 'OAuth2Callback',
     component: () => import('@/view/oauth2-callback/index.vue'),
     meta: {
-      title: 'OAuth2登录处理',
+      title: 'oauth2Callback.title',
       requiresAuth: false
     }
   },
@@ -44,7 +44,7 @@ const routes = [
     name: 'Register',
     component: () => import('@/view/register/index.vue'),
     meta: {
-      title: '用户注册',
+      title: 'register.title',
       requiresAuth: false
     }
   },
@@ -53,7 +53,7 @@ const routes = [
     name: 'ForgotPassword',
     component: () => import('@/view/forgot-password/index.vue'),
     meta: {
-      title: '找回密码',
+      title: 'forgotPassword.title',
       requiresAuth: false
     }
   },
@@ -62,7 +62,7 @@ const routes = [
     name: 'AdminLogin',
     component: () => import('@/view/admin/login/index.vue'),
     meta: {
-      title: '管理员登录',
+      title: 'adminLogin.title',
       requiresAuth: false
     }
   },
@@ -71,7 +71,7 @@ const routes = [
     name: 'SystemInit',
     component: () => import('@/view/init/index.vue'),
     meta: {
-      title: '系统初始化',
+      title: 'init.title',
       requiresAuth: false
     }
   },
@@ -90,7 +90,7 @@ const routes = [
         name: 'UserDashboard',
         component: () => import('@/view/user/dashboard/index.vue'),
         meta: {
-          title: '用户仪表盘',
+          title: 'sidebar.dashboard',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -100,7 +100,7 @@ const routes = [
         name: 'UserInstances',
         component: () => import('@/view/user/instances/index.vue'),
         meta: {
-          title: '我的实例',
+          title: 'sidebar.myInstances',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -110,7 +110,7 @@ const routes = [
         name: 'UserInstanceDetail',
         component: () => import('@/view/user/instances/detail.vue'),
         meta: {
-          title: '实例详情',
+          title: 'common.instanceDetail',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -120,7 +120,7 @@ const routes = [
         name: 'UserApply',
         component: () => import('@/view/user/apply/index.vue'),
         meta: {
-          title: '申请领取',
+          title: 'sidebar.apply',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -130,7 +130,7 @@ const routes = [
         name: 'UserTasks',
         component: () => import('@/view/user/tasks/index.vue'),
         meta: {
-          title: '任务列表',
+          title: 'sidebar.taskList',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -140,7 +140,7 @@ const routes = [
         name: 'UserProfile',
         component: () => import('@/view/user/profile/index.vue'),
         meta: {
-          title: '个人中心',
+          title: 'sidebar.personalCenter',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -150,7 +150,7 @@ const routes = [
         name: 'UserDomain',
         component: () => import('@/view/user/domain/index.vue'),
         meta: {
-          title: '域名绑定',
+          title: 'sidebar.domainBinding',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -160,7 +160,7 @@ const routes = [
         name: 'UserKYC',
         component: () => import('@/view/user/kyc/index.vue'),
         meta: {
-          title: '实名认证',
+          title: 'sidebar.kycVerification',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -170,7 +170,7 @@ const routes = [
         name: 'UserCheckin',
         component: () => import('@/view/user/checkin/index.vue'),
         meta: {
-          title: '签到续期',
+          title: 'sidebar.checkinRenewal',
           requiresAuth: true,
           roles: ['user', 'admin']
         }
@@ -192,7 +192,7 @@ const routes = [
         name: 'AdminDashboard',
         component: () => import('@/view/admin/dashboard/index.vue'),
         meta: {
-          title: '管理员仪表盘',
+          title: 'sidebar.dashboard',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -202,7 +202,7 @@ const routes = [
         name: 'AdminUsers',
         component: () => import('@/view/admin/users/index.vue'),
         meta: {
-          title: '用户管理',
+          title: 'sidebar.userManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -212,7 +212,7 @@ const routes = [
         name: 'AdminInviteCodes',
         component: () => import('@/view/admin/invite-codes/index.vue'),
         meta: {
-          title: '邀请码管理',
+          title: 'sidebar.inviteCodeManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -222,7 +222,7 @@ const routes = [
         name: 'AdminRedemptionCodes',
         component: () => import('@/view/admin/redemption-codes/index.vue'),
         meta: {
-          title: '兑换码管理',
+          title: 'sidebar.redemptionCodeManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -232,7 +232,7 @@ const routes = [
         name: 'AdminProviders',
         component: () => import('@/view/admin/providers/index.vue'),
         meta: {
-          title: '节点管理',
+          title: 'sidebar.providerManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -242,7 +242,7 @@ const routes = [
         name: 'AdminTasks',
         component: () => import('@/view/admin/tasks/index.vue'),
         meta: {
-          title: '任务管理',
+          title: 'sidebar.taskManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -252,7 +252,7 @@ const routes = [
         name: 'AdminInstances',
         component: () => import('@/view/admin/instances/index.vue'),
         meta: {
-          title: '实例管理',
+          title: 'sidebar.instanceManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -262,7 +262,7 @@ const routes = [
         name: 'AdminPortMappings',
         component: () => import('@/view/admin/portmapping/index.vue'),
         meta: {
-          title: '端口映射管理',
+          title: 'sidebar.portManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -272,7 +272,7 @@ const routes = [
         name: 'AdminTraffic',
         component: () => import('@/view/admin/traffic/index.vue'),
         meta: {
-          title: '流量管理',
+          title: 'sidebar.trafficManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -282,7 +282,7 @@ const routes = [
         name: 'AdminSystemImages',
         component: () => import('@/view/admin/system-images/index.vue'),
         meta: {
-          title: '系统镜像',
+          title: 'sidebar.systemImages',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -292,7 +292,7 @@ const routes = [
         name: 'AdminAnnouncements',
         component: () => import('@/view/admin/announcements/index.vue'),
         meta: {
-          title: '公告管理',
+          title: 'sidebar.announcementManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -302,7 +302,7 @@ const routes = [
         name: 'AdminBlockRules',
         component: () => import('@/view/admin/block-rules/index.vue'),
         meta: {
-          title: '封禁规则管理',
+          title: 'sidebar.blockRulesManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -312,7 +312,7 @@ const routes = [
         name: 'AdminConfig',
         component: () => import('@/view/admin/config/index.vue'),
         meta: {
-          title: '系统配置',
+          title: 'sidebar.systemConfiguration',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -322,7 +322,7 @@ const routes = [
         name: 'AdminPerformance',
         component: () => import('@/view/admin/performance/index.vue'),
         meta: {
-          title: '性能监控',
+          title: 'sidebar.performanceMonitoring',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -332,7 +332,7 @@ const routes = [
         name: 'AdminLogs',
         component: () => import('@/view/admin/logs/index.vue'),
         meta: {
-          title: '日志查看',
+          title: 'sidebar.logViewer',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -342,7 +342,7 @@ const routes = [
         name: 'AdminOAuth2Providers',
         component: () => import('@/view/admin/oauth2/index.vue'),
         meta: {
-          title: 'OAuth2管理',
+          title: 'sidebar.oauth2Management',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -352,7 +352,7 @@ const routes = [
         name: 'AdminDomain',
         component: () => import('@/view/admin/domain/index.vue'),
         meta: {
-          title: '域名管理',
+          title: 'sidebar.domainManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -362,7 +362,7 @@ const routes = [
         name: 'AdminKYC',
         component: () => import('@/view/admin/kyc/index.vue'),
         meta: {
-          title: 'KYC管理',
+          title: 'sidebar.kycManagement',
           requiresAuth: true,
           roles: ['admin']
         }
@@ -374,7 +374,7 @@ const routes = [
     name: 'NotFound',
     component: () => import('@/view/404/index.vue'),
     meta: {
-      title: '页面不存在',
+      title: 'notFound.title',
       requiresAuth: false
     }
   }

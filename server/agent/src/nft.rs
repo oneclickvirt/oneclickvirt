@@ -877,6 +877,10 @@ fn run_cmd(program: &str, args: &[&str]) -> Result<std::process::Output, ApiErro
         .map_err(|e| ApiError::internal(format!("failed to run {program} {args:?}: {e}")))
 }
 
+fn has_command(cmd: &str) -> bool {
+    Command::new(cmd).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+}
+
 /// Ensure the ABUSE_BLOCK chain exists and is jumped to from OUTPUT.
 fn ensure_block_chain(ipt: &str) -> Result<(), ApiError> {
     // Create chain (ignore error if exists)
@@ -886,80 +890,93 @@ fn ensure_block_chain(ipt: &str) -> Result<(), ApiError> {
     if !out.status.success() {
         run_cmd(ipt, &["-I", "OUTPUT", "1", "-j", BLOCK_CHAIN])?;
     }
+    // Also hook into FORWARD for container/VM traffic
+    let out = run_cmd(ipt, &["-C", "FORWARD", "-j", BLOCK_CHAIN])?;
+    if !out.status.success() {
+        run_cmd(ipt, &["-I", "FORWARD", "1", "-j", BLOCK_CHAIN])?;
+    }
     Ok(())
 }
 
 /// Flush and remove the ABUSE_BLOCK chain.
 fn remove_block_chain(ipt: &str) {
-    // Remove jump from OUTPUT
     let _ = run_cmd(ipt, &["-D", "OUTPUT", "-j", BLOCK_CHAIN]);
-    // Flush the chain
+    let _ = run_cmd(ipt, &["-D", "FORWARD", "-j", BLOCK_CHAIN]);
     let _ = run_cmd(ipt, &["-F", BLOCK_CHAIN]);
-    // Delete the chain
     let _ = run_cmd(ipt, &["-X", BLOCK_CHAIN]);
 }
 
+/// Persisted block rules state including ip_version
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedBlockRules {
+    strings: Vec<String>,
+    ip_version: String,
+}
+
 /// Apply string-match block rules using iptables/ip6tables.
-/// Each string is matched using the `string` module with bm algorithm.
-pub fn apply_block_rules(strings: &[String]) -> Result<usize, ApiError> {
+/// ip_version: "both" (default), "ipv4", "ipv6"
+pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, ApiError> {
     if strings.is_empty() {
         return Ok(0);
     }
 
-    // Apply for both IPv4 and IPv6
-    for ipt in &["iptables", "ip6tables"] {
-        ensure_block_chain(ipt)?;
-        // Flush existing rules in our chain
-        run_cmd(ipt, &["-F", BLOCK_CHAIN])?;
-        // Add rules for each string
-        let mut failed = 0usize;
+    let apply_v4 = ip_version != "ipv6" && has_command("iptables");
+    let apply_v6 = ip_version != "ipv4" && has_command("ip6tables");
+
+    if apply_v4 {
+        ensure_block_chain("iptables")?;
+        run_cmd("iptables", &["-F", BLOCK_CHAIN])?;
         for s in strings {
-            if s.is_empty() {
-                continue;
-            }
-            // Match in TCP packets
-            if let Err(e) = run_cmd(
-                ipt,
-                &[
-                    "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm",
-                    "-j", "DROP",
-                ],
-            ) {
-                warn!(string = %s, error = ?e, "failed to add TCP block rule");
-                failed += 1;
-            }
-            // Match in UDP packets
-            if let Err(e) = run_cmd(
-                ipt,
-                &[
-                    "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm",
-                    "-j", "DROP",
-                ],
-            ) {
-                warn!(string = %s, error = ?e, "failed to add UDP block rule");
-                failed += 1;
-            }
+            if s.is_empty() { continue; }
+            let _ = run_cmd("iptables", &[
+                "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
+            ]);
+            let _ = run_cmd("iptables", &[
+                "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
+            ]);
         }
-        if failed > 0 {
-            warn!(ipt, failed, "some iptables block rules failed to apply");
+    } else if has_command("iptables") {
+        // If not applying to v4, remove existing v4 blocks
+        remove_block_chain("iptables");
+    }
+
+    if apply_v6 {
+        ensure_block_chain("ip6tables")?;
+        run_cmd("ip6tables", &["-F", BLOCK_CHAIN])?;
+        for s in strings {
+            if s.is_empty() { continue; }
+            let _ = run_cmd("ip6tables", &[
+                "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
+            ]);
+            let _ = run_cmd("ip6tables", &[
+                "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
+            ]);
         }
+    } else if has_command("ip6tables") {
+        remove_block_chain("ip6tables");
     }
 
     // Persist for restart recovery
-    let block_file = Path::new(BLOCK_RULES_FILE);
-    if let Ok(json) = serde_json::to_string(strings) {
-        let _ = fs::write(block_file, json);
+    let persisted = PersistedBlockRules {
+        strings: strings.to_vec(),
+        ip_version: ip_version.to_string(),
+    };
+    if let Ok(json) = serde_json::to_string(&persisted) {
+        let _ = fs::write(Path::new(BLOCK_RULES_FILE), json);
     }
 
     let count = strings.iter().filter(|s| !s.is_empty()).count();
-    info!(count, "applied abuse block rules via iptables");
+    info!(count, ip_version, "applied abuse block rules via iptables");
     Ok(count)
 }
 
 /// Remove all block rules.
 pub fn remove_block_rules() -> Result<(), ApiError> {
-    for ipt in &["iptables", "ip6tables"] {
-        remove_block_chain(ipt);
+    if has_command("iptables") {
+        remove_block_chain("iptables");
+    }
+    if has_command("ip6tables") {
+        remove_block_chain("ip6tables");
     }
     let _ = fs::remove_file(Path::new(BLOCK_RULES_FILE));
     info!("removed abuse block rules");
@@ -967,24 +984,29 @@ pub fn remove_block_rules() -> Result<(), ApiError> {
 }
 
 /// Get current block rules from the persisted file.
-pub fn get_block_rules() -> Vec<String> {
+pub fn get_block_rules() -> (Vec<String>, String) {
     let block_file = Path::new(BLOCK_RULES_FILE);
     if let Ok(content) = fs::read_to_string(block_file) {
+        // Try new format first
+        if let Ok(persisted) = serde_json::from_str::<PersistedBlockRules>(&content) {
+            return (persisted.strings, persisted.ip_version);
+        }
+        // Fallback: old format (plain array)
         if let Ok(strings) = serde_json::from_str::<Vec<String>>(&content) {
-            return strings;
+            return (strings, "both".to_string());
         }
     }
-    Vec::new()
+    (Vec::new(), "both".to_string())
 }
 
 /// Restore block rules from persisted file on startup.
 pub fn restore_block_rules() {
-    let strings = get_block_rules();
+    let (strings, ip_version) = get_block_rules();
     if strings.is_empty() {
         return;
     }
-    match apply_block_rules(&strings) {
-        Ok(count) => info!(count, "restored persisted block rules on startup"),
+    match apply_block_rules(&strings, &ip_version) {
+        Ok(count) => info!(count, ip_version, "restored persisted block rules on startup"),
         Err(e) => warn!(error = %e.message, "failed to restore block rules on startup"),
     }
 }

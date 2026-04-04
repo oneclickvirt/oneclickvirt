@@ -143,6 +143,25 @@ html, body {
   width: calc(100% - var(--sidebar-width-collapsed));
 }
 
+/* Global button consistency */
+.el-button {
+  white-space: nowrap;
+  min-width: 68px;
+}
+
+.el-button--small {
+  min-width: 56px;
+}
+
+.el-button--large {
+  min-width: 88px;
+}
+
+.el-button.is-circle,
+.el-button.is-icon {
+  min-width: auto;
+}
+
 /* 响应式设计 */
 /* 平板端适配 */
 @media (max-width: 1024px) and (min-width: 768px) {

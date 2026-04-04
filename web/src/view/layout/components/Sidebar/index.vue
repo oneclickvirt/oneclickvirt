@@ -67,12 +67,14 @@ import { useUserStore } from '@/pinia/modules/user'
 import { HomeFilled, Expand, Fold } from '@element-plus/icons-vue'
 import SidebarItem from './SidebarItem.vue'
 import { useSiteStore } from '@/pinia/modules/site'
+import { useFeatureStore } from '@/pinia/modules/feature'
 
 const route = useRoute()
 const router = useRouter()
 const { t, locale } = useI18n()
 const userStore = useUserStore()
 const siteStore = useSiteStore()
+const featureStore = useFeatureStore()
 const isCollapse = ref(false)
 
 // 从父组件注入的状态和方法
@@ -109,8 +111,8 @@ const userRoutes = computed(() => {
   // 使用 viewMode 来决定显示哪个视图的菜单
   // 管理员(含normal_admin)可以切换视图，普通用户只能看到用户视图
   const viewMode = userStore.currentViewMode || userStore.userType
-  // normal_admin映射为admin视图
-  const effectiveMode = viewMode === 'normal_admin' ? 'admin' : viewMode
+  // normal_admin 也使用 admin 路由集，但会过滤掉超管专属项
+  const effectiveMode = (viewMode === 'normal_admin' || viewMode === 'admin') ? 'admin' : viewMode
   console.log('侧边栏计算用户路由，当前视图模式:', viewMode, '有效模式:', effectiveMode, '用户类型:', userStore.userType)
   
   // 强制依赖 locale，确保语言切换时重新计算
@@ -336,8 +338,25 @@ const userRoutes = computed(() => {
   
   // 根据视图模式返回对应路由
   const routes = userTypeRoutes[effectiveMode] || []
-  console.log('当前语言:', currentLocale, '生成的用户路由数量:', routes.length)
-  return routes
+  
+  // 超级管理员专属路由名称集（normal_admin 不可见）
+  const superAdminOnlyRoutes = new Set([
+    'AdminUsers', 'AdminConfig', 'AdminPerformance', 'AdminLogs', 'AdminOAuth2Providers'
+  ])
+  
+  // 判断是否为普通管理员
+  const isNormalAdmin = userStore.userType === 'normal_admin'
+  
+  // 根据功能开关和角色过滤路由
+  const filteredRoutes = routes.filter(route => {
+    if (['UserKYC', 'AdminKYC'].includes(route.name) && !featureStore.kycEnabled) return false
+    if (['UserDomain', 'AdminDomain'].includes(route.name) && !featureStore.domainEnabled) return false
+    if (isNormalAdmin && superAdminOnlyRoutes.has(route.name)) return false
+    return true
+  })
+  
+  console.log('当前语言:', currentLocale, '生成的用户路由数量:', filteredRoutes.length)
+  return filteredRoutes
 })
 
 // 生命周期钩子，检查DOM渲染

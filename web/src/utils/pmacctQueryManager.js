@@ -1,4 +1,5 @@
 import { queryInstancePmacctData } from '@/api/user'
+import i18n from '@/i18n'
 
 /**
  * Pmacct 查询管理器（简化版，pmacct查询是同步的）
@@ -19,7 +20,7 @@ class PmacctQueryManager {
       const response = await queryInstancePmacctData(instanceId)
       
       if (!response || !response.data) {
-        throw new Error('查询pmacct数据失败')
+        throw new Error(i18n.global.t('common.requestFailed'))
       }
 
       return response.data

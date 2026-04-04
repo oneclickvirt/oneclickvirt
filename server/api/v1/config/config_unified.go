@@ -259,6 +259,8 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 		"enableQQ":                 global.GetAppConfig().Auth.EnableQQ,
 		"enableOAuth2":             global.GetAppConfig().Auth.EnableOAuth2,
 		"enablePublicRegistration": global.GetAppConfig().Auth.EnablePublicRegistration,
+		"enableKYC":                global.GetAppConfig().Auth.EnableKYC,
+		"enableDomain":             global.GetAppConfig().Auth.EnableDomain,
 		"emailSMTPHost":            global.GetAppConfig().Auth.EmailSMTPHost,
 		"emailSMTPPort":            global.GetAppConfig().Auth.EmailSMTPPort,
 		"emailUsername":            global.GetAppConfig().Auth.EmailUsername,

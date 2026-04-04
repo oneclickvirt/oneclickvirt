@@ -110,7 +110,7 @@ const buildDefaultForm = () => ({
   maxTraffic: 1048576,
   trafficCountMode: 'both',
   trafficMultiplier: 1.0,
-  trafficSyncMethod: 'pmacct',
+  trafficSyncMethod: 'agent',
   trafficStatsMode: 'light',
   trafficCollectInterval: 60,
   trafficCollectBatchSize: 10,

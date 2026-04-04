@@ -684,7 +684,7 @@ import {
 } from '@/api/admin'
 import { adminLoginAsUser } from '@/api/features'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const users = ref([])
 const loading = ref(false)
@@ -1244,7 +1244,7 @@ const confirmSetExpiry = async () => {
 const formatDateTime = (dateTimeStr) => {
   if (!dateTimeStr) return '-'
   const date = new Date(dateTimeStr)
-  return date.toLocaleString('zh-CN', {
+  return date.toLocaleString(locale.value, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

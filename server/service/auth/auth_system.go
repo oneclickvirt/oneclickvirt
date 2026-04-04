@@ -75,7 +75,7 @@ func (s *AuthService) InitSystem(adminUsername, adminPassword, adminEmail string
 }
 
 // InitSystemWithUsers 使用自定义用户信息初始化系统
-func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
+func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo) error {
 	// 检查是否已经初始化
 	var count int64
 	global.APP_DB.Model(&userModel.User{}).Count(&count)
@@ -97,31 +97,28 @@ func (s *AuthService) InitSystemWithUsers(adminInfo, userInfo UserInfo) error {
 		Status:   1,
 	}
 
-	// 创建普通用户（根据enabled字段设置状态）
-	userPassword, err := bcrypt.GenerateFromPassword([]byte(userInfo.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-	userStatus := 0 // 默认禁用状态
-	if userInfo.Enabled {
-		userStatus = 1
-	}
-	user := userModel.User{
-		Username: userInfo.Username,
-		Password: string(userPassword),
-		Email:    userInfo.Email,
-		UserType: "user",
-		Status:   userStatus,
-	}
-
 	// 使用数据库服务处理事务
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		if err := tx.Create(&admin).Error; err != nil {
 			return err
 		}
-		if err := tx.Create(&user).Error; err != nil {
-			return err
+		// 只在 userInfo 不为 nil 时创建测试用户
+		if userInfo != nil {
+			userPassword, err := bcrypt.GenerateFromPassword([]byte(userInfo.Password), bcrypt.DefaultCost)
+			if err != nil {
+				return err
+			}
+			user := userModel.User{
+				Username: userInfo.Username,
+				Password: string(userPassword),
+				Email:    userInfo.Email,
+				UserType: "user",
+				Status:   1,
+			}
+			if err := tx.Create(&user).Error; err != nil {
+				return err
+			}
 		}
 		return nil
 	})

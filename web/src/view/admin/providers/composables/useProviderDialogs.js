@@ -58,11 +58,11 @@ export function useProviderDialogs(loadProviders) {
       if (response.code === 0 || response.code === 200) {
         taskLogDialog.task = response.data
       } else {
-        taskLogDialog.error = response.msg || '获取任务详情失败'
+        taskLogDialog.error = response.msg || t('admin.providers.getTaskDetailsFailed')
       }
     } catch (error) {
-      console.error('获取任务日志失败:', error)
-      taskLogDialog.error = '获取任务日志失败: ' + (error.message || '未知错误')
+      console.error('Failed to get task logs:', error)
+      taskLogDialog.error = t('admin.providers.getTaskLogsFailed') + ': ' + (error.message || t('common.unknownError'))
     } finally {
       taskLogDialog.loading = false
     }

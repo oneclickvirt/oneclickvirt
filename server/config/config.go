@@ -35,6 +35,8 @@ type Auth struct {
 	EnableQQ                 bool   `mapstructure:"enable-qq" json:"enable-qq" yaml:"enable-qq"`
 	EnableOAuth2             bool   `mapstructure:"enable-oauth2" json:"enable-oauth2" yaml:"enable-oauth2"`                                        // 是否启用OAuth2登录（全局开关）
 	EnablePublicRegistration bool   `mapstructure:"enable-public-registration" json:"enable-public-registration" yaml:"enable-public-registration"` // 是否启用公开注册（无需邀请码）
+	EnableKYC                bool   `mapstructure:"enable-kyc" json:"enable-kyc" yaml:"enable-kyc"`                                                 // 是否启用KYC实名认证功能（全局开关）
+	EnableDomain             bool   `mapstructure:"enable-domain" json:"enable-domain" yaml:"enable-domain"`                                        // 是否启用域名绑定功能（全局开关）
 	EmailSMTPHost            string `mapstructure:"email-smtp-host" json:"email-smtp-host" yaml:"email-smtp-host"`
 	EmailSMTPPort            int    `mapstructure:"email-smtp-port" json:"email-smtp-port" yaml:"email-smtp-port"`
 	EmailUsername            string `mapstructure:"email-username" json:"email-username" yaml:"email-username"`

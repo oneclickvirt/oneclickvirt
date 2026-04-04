@@ -587,7 +587,7 @@ import { adminTransferInstance } from '@/api/features'
 import { useI18n } from 'vue-i18n'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 const sshStore = useSSHStore()
 
 const instances = ref([])
@@ -818,7 +818,7 @@ const getStatusText = (status) => {
 const formatDate = (dateString) => {
   if (!dateString) return t('admin.instances.notSet')
   const date = new Date(dateString)
-  return date.toLocaleString('zh-CN', {
+  return date.toLocaleString(locale.value, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',

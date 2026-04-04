@@ -214,11 +214,11 @@ func InitSystem(c *gin.Context) {
 			Email    string `json:"email" binding:"required"`
 		} `json:"admin" binding:"required"`
 		User struct {
-			Username string `json:"username" binding:"required"`
-			Password string `json:"password" binding:"required"`
-			Email    string `json:"email" binding:"required"`
+			Username string `json:"username"`
+			Password string `json:"password"`
+			Email    string `json:"email"`
 			Enabled  bool   `json:"enabled"`
-		} `json:"user" binding:"required"`
+		} `json:"user"`
 		Database struct {
 			Type     string `json:"type" binding:"required"`
 			Host     string `json:"host"`
@@ -289,13 +289,16 @@ func InitSystem(c *gin.Context) {
 		Password: req.Admin.Password,
 		Email:    req.Admin.Email,
 	}
-	userInfo := auth.UserInfo{
-		Username: req.User.Username,
-		Password: req.User.Password,
-		Email:    req.User.Email,
-		Enabled:  req.User.Enabled,
+	var userInfoPtr *auth.UserInfo
+	if req.User.Enabled && req.User.Username != "" && req.User.Password != "" && req.User.Email != "" {
+		userInfoPtr = &auth.UserInfo{
+			Username: req.User.Username,
+			Password: req.User.Password,
+			Email:    req.User.Email,
+			Enabled:  true,
+		}
 	}
-	if err := authService.InitSystemWithUsers(adminInfo, userInfo); err != nil {
+	if err := authService.InitSystemWithUsers(adminInfo, userInfoPtr); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Error(err.Error()))
 		return
 	}
@@ -359,6 +362,8 @@ func GetRegisterConfig(c *gin.Context) {
 			"enabled": global.GetAppConfig().InviteCode.Enabled,
 		},
 		"oauth2Enabled": global.GetAppConfig().Auth.EnableOAuth2,
+		"kycEnabled":    global.GetAppConfig().Auth.EnableKYC,
+		"domainEnabled": global.GetAppConfig().Auth.EnableDomain,
 	}
 	c.JSON(http.StatusOK, common.Success(config))
 }

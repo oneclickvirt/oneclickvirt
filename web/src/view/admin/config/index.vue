@@ -79,6 +79,25 @@
                 </el-form-item>
               </el-col>
             </el-row>
+            
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.kycFeature')">
+                  <el-switch v-model="config.auth.enableKYC" />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.kycFeatureHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.domainFeature')">
+                  <el-switch v-model="config.auth.enableDomain" />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.domainFeatureHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </el-form>
         </el-tab-pane>
 
@@ -693,10 +712,12 @@ import { getAdminConfig, updateAdminConfig } from '@/api/config'
 import { getInstanceTypePermissions, updateInstanceTypePermissions } from '@/api/admin'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useSiteStore } from '@/pinia/modules/site'
+import { useFeatureStore } from '@/pinia/modules/feature'
 
 const { t, locale } = useI18n()
 const languageStore = useLanguageStore()
 const siteStore = useSiteStore()
+const featureStore = useFeatureStore()
 
 // 当前激活的标签页
 const activeTab = ref('auth')
@@ -708,6 +729,8 @@ const config = ref({
     enableQQ: false,
     enableOAuth2: false,
     enablePublicRegistration: false, // 是否启用公开注册
+    enableKYC: false, // 是否启用KYC实名认证
+    enableDomain: false, // 是否启用域名绑定
     emailSMTPHost: '',
     emailSMTPPort: 587,
     emailUsername: '',
@@ -945,6 +968,8 @@ const saveConfig = async () => {
     ElMessage.success(t('admin.config.saveSuccess'))
     // 刷新展示的 logo（新的 logoURL 已写入后端，前端需重新拉取）
     await siteStore.refresh()
+    // 刷新功能开关状态
+    await featureStore.refresh()
     
     // 如果修改了默认语言，强制应用并刷新页面
     if (languageChanged) {

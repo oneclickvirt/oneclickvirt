@@ -50,7 +50,7 @@ func AdminDeleteDomain(c *gin.Context) {
 
 // GetDomainConfig 获取域名配置
 func GetDomainConfig(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("provider_id"), 10, 64)
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
@@ -67,7 +67,7 @@ func GetDomainConfig(c *gin.Context) {
 
 // UpdateDomainConfig 更新域名配置
 func UpdateDomainConfig(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("provider_id"), 10, 64)
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
@@ -137,7 +137,7 @@ func AdminReviewKYC(c *gin.Context) {
 
 // AdminGetCheckinConfig 获取签到配置
 func AdminGetCheckinConfig(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("provider_id"), 10, 64)
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
@@ -154,7 +154,7 @@ func AdminGetCheckinConfig(c *gin.Context) {
 
 // AdminUpdateCheckinConfig 更新签到配置
 func AdminUpdateCheckinConfig(c *gin.Context) {
-	providerID, err := strconv.ParseUint(c.Param("provider_id"), 10, 64)
+	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return

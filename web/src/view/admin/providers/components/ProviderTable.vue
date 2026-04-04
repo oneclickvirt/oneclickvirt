@@ -579,14 +579,31 @@
       v-model="hardwareReportDialogVisible"
       :title="$t('admin.providers.hardwareTestReport')"
       width="700px"
+      @closed="stopHardwarePolling"
     >
       <div v-loading="hardwareReportLoading">
+        <el-alert
+          v-if="hardwareReportStatus === 'running'"
+          :title="$t('admin.providers.hardwareTestRunning')"
+          type="info"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px;"
+        />
+        <el-alert
+          v-else-if="hardwareReportStatus === 'failed'"
+          :title="hardwareReportError || $t('admin.providers.hardwareTestFailed')"
+          type="error"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 12px;"
+        />
         <pre
           v-if="hardwareReportText"
           class="hardware-report-content"
         >{{ hardwareReportText }}</pre>
         <el-empty
-          v-else
+          v-else-if="hardwareReportStatus !== 'running'"
           :description="$t('admin.providers.noHardwareReport')"
         />
       </div>
@@ -595,7 +612,7 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, onUnmounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { runHardwareTest, getHardwareTestReport } from '@/api/admin'
@@ -701,19 +718,56 @@ const hardwareTestLoading = ref(false)
 const hardwareReportDialogVisible = ref(false)
 const hardwareReportLoading = ref(false)
 const hardwareReportText = ref('')
+const hardwareReportStatus = ref('')
+const hardwareReportError = ref('')
+let hardwarePollingTimer = null
+
+const stopHardwarePolling = () => {
+  if (hardwarePollingTimer) {
+    clearInterval(hardwarePollingTimer)
+    hardwarePollingTimer = null
+  }
+}
+
+const pollHardwareReport = (providerId) => {
+  stopHardwarePolling()
+  hardwarePollingTimer = setInterval(async () => {
+    try {
+      const res = await getHardwareTestReport(providerId)
+      const data = res.data || {}
+      hardwareReportStatus.value = data.status || ''
+      hardwareReportText.value = data.reportText || ''
+      hardwareReportError.value = data.errorMsg || ''
+      if (data.status === 'completed' || data.status === 'failed') {
+        stopHardwarePolling()
+        hardwareReportLoading.value = false
+      }
+    } catch (error) {
+      console.error('Poll hardware report failed:', error)
+    }
+  }, 5000)
+}
 
 const handleRunHardwareTest = async () => {
   if (!currentRow.value) return
+  const providerId = currentRow.value.id
   hardwareTestLoading.value = true
   try {
-    await runHardwareTest(currentRow.value.id)
+    await runHardwareTest(providerId)
     ElMessage.success(t('admin.providers.hardwareTestStarted'))
     actionsDialogVisible.value = false
-    currentRow.value = null
+    // Open report dialog and start polling
+    hardwareReportDialogVisible.value = true
+    hardwareReportLoading.value = true
+    hardwareReportText.value = ''
+    hardwareReportStatus.value = 'running'
+    hardwareReportError.value = ''
+    pollHardwareReport(providerId)
   } catch (error) {
     console.error('Hardware test failed:', error)
   } finally {
     hardwareTestLoading.value = false
+    currentRow.value = null
   }
 }
 
@@ -724,16 +778,31 @@ const handleViewHardwareReport = async () => {
   hardwareReportDialogVisible.value = true
   hardwareReportLoading.value = true
   hardwareReportText.value = ''
+  hardwareReportStatus.value = ''
+  hardwareReportError.value = ''
   try {
     const res = await getHardwareTestReport(providerId)
-    hardwareReportText.value = res.data?.report || res.data?.data?.report || ''
+    const data = res.data || {}
+    hardwareReportStatus.value = data.status || ''
+    hardwareReportText.value = data.reportText || ''
+    hardwareReportError.value = data.errorMsg || ''
+    // If running, start polling
+    if (data.status === 'running') {
+      pollHardwareReport(providerId)
+    }
   } catch (error) {
     console.error('Failed to load hardware report:', error)
   } finally {
-    hardwareReportLoading.value = false
+    if (hardwareReportStatus.value !== 'running') {
+      hardwareReportLoading.value = false
+    }
     currentRow.value = null
   }
 }
+
+onUnmounted(() => {
+  stopHardwarePolling()
+})
 </script>
 
 <style scoped>

@@ -325,7 +325,8 @@ func (c *Client) BatchGetInfo(ids []int64) (map[int64]*InfoResponse, error) {
 // ---- Block Rules API ----
 
 type ApplyBlockRulesRequest struct {
-	Strings []string `json:"strings"`
+	Strings   []string `json:"strings"`
+	IPVersion string   `json:"ip_version,omitempty"`
 }
 
 type ApplyBlockRulesResponse struct {
@@ -337,13 +338,17 @@ type RemoveBlockRulesResponse struct {
 }
 
 type GetBlockRulesResponse struct {
-	Strings []string `json:"strings"`
-	Count   int      `json:"count"`
+	Strings   []string `json:"strings"`
+	Count     int      `json:"count"`
+	IPVersion string   `json:"ip_version"`
 }
 
 // ApplyBlockRules sends string-match block rules to the agent.
-func (c *Client) ApplyBlockRules(strings []string) error {
-	req := ApplyBlockRulesRequest{Strings: strings}
+func (c *Client) ApplyBlockRules(strings []string, ipVersion string) error {
+	if ipVersion == "" {
+		ipVersion = "both"
+	}
+	req := ApplyBlockRulesRequest{Strings: strings, IPVersion: ipVersion}
 	var resp ApplyBlockRulesResponse
 	return c.doRequest("POST", "/api/v1/block-rules", req, &resp)
 }

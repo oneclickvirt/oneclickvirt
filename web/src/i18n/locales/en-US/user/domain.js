@@ -19,5 +19,8 @@ export default {
   createSuccess: 'Domain binding created',
   deleteSuccess: 'Domain binding deleted',
   updateSuccess: 'Domain binding updated',
-  noDomains: 'No domain bindings'
+  noDomains: 'No domain bindings',
+  domainRequired: 'Please enter a domain name',
+  instanceIdRequired: 'Please enter an instance ID',
+  portRequired: 'Please enter a port'
 }

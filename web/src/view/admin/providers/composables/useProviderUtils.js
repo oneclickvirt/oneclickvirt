@@ -1,6 +1,8 @@
 // Provider页面的工具函数
 import { formatMemorySize, formatDiskSize } from '@/utils/unit-formatter'
 import { getFlagEmoji } from '@/utils/countries'
+import i18n from '@/i18n'
+const t = (...args) => i18n.global.t(...args)
 
 // 格式化流量大小
 export const formatTraffic = (sizeInMB) => {
@@ -50,7 +52,7 @@ export const getResourceProgressStatus = (allocated, total) => {
 export const formatDateTime = (dateTimeStr) => {
   if (!dateTimeStr) return '-'
   const date = new Date(dateTimeStr)
-  return date.toLocaleString('zh-CN', {
+  return date.toLocaleString(i18n.global.locale.value || 'en-US', {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -91,12 +93,12 @@ export const getStatusType = (status) => {
 export const getStatusText = (status) => {
   switch (status) {
     case 'online':
-      return '在线'
+      return t('common.online')
     case 'offline':
-      return '离线'
+      return t('common.offline')
     case 'unknown':
     default:
-      return '未知'
+      return t('common.unknown')
   }
 }
 
@@ -141,12 +143,12 @@ export const formatRelativeTime = (dateTime) => {
   const now = new Date()
   const date = new Date(dateTime)
   const diffInMinutes = Math.floor((now - date) / (1000 * 60))
-  if (diffInMinutes < 1) return '刚刚'
-  if (diffInMinutes < 60) return `${diffInMinutes}分钟前`
+  if (diffInMinutes < 1) return t('common.justNow')
+  if (diffInMinutes < 60) return t('common.minutesAgo', { n: diffInMinutes })
   const diffInHours = Math.floor(diffInMinutes / 60)
-  if (diffInHours < 24) return `${diffInHours}小时前`
+  if (diffInHours < 24) return t('common.hoursAgo', { n: diffInHours })
   const diffInDays = Math.floor(diffInHours / 24)
-  if (diffInDays < 7) return `${diffInDays}天前`
+  if (diffInDays < 7) return t('common.daysAgo', { n: diffInDays })
   return date.toLocaleDateString()
 }
 
@@ -164,12 +166,12 @@ export const getTaskStatusType = (status) => {
 // 获取任务状态文本
 export const getTaskStatusText = (status) => {
   switch (status) {
-    case 'completed': return '已完成'
-    case 'failed': return '失败'
-    case 'running': return '运行中'
-    case 'cancelled': return '已取消'
-    case 'pending': return '等待中'
-    default: return '未知'
+    case 'completed': return t('common.completed')
+    case 'failed': return t('common.failed')
+    case 'running': return t('common.running')
+    case 'cancelled': return t('common.cancelled')
+    case 'pending': return t('common.pending')
+    default: return t('common.unknown')
   }
 }
 

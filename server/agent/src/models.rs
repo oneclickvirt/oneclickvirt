@@ -132,6 +132,8 @@ pub struct ListMonitorsResponse {
 #[derive(Deserialize, ToSchema)]
 pub struct ApplyBlockRulesRequest {
     pub strings: Vec<String>,
+    /// IP version filter: "both" (default), "ipv4", "ipv6"
+    pub ip_version: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -148,4 +150,5 @@ pub struct RemoveBlockRulesResponse {
 pub struct GetBlockRulesResponse {
     pub strings: Vec<String>,
     pub count: usize,
+    pub ip_version: String,
 }

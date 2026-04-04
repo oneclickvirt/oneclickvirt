@@ -1,4 +1,5 @@
 export default {
+  title: 'OAuth2登录',
   processing: '正在处理登录信息...',
   backToLogin: '返回登录',
   loginSuccess: '登录成功！正在跳转...',

@@ -512,7 +512,7 @@ import {
 } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // 响应式数据
 const overviewLoading = ref(false)
@@ -973,8 +973,8 @@ const formatTrafficMB = (mb) => {
 }
 
 const formatDate = (dateString) => {
-  if (!dateString) return '未设置'
-  return new Date(dateString).toLocaleString('zh-CN')
+  if (!dateString) return t('common.notSet')
+  return new Date(dateString).toLocaleString(locale.value)
 }
 
 const getRankTagType = (rank) => {

@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { login, adminLogin, getUserInfo, logout } from '@/api/auth'
 import { ElMessage } from 'element-plus'
+import i18n from '@/i18n'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
@@ -140,7 +141,7 @@ export const useUserStore = defineStore('user', {
         }
       } catch (error) {
         console.error('获取用户信息失败:', error)
-        return { success: false, message: '获取用户信息失败' }
+        return { success: false, message: i18n.global.t('common.getUserInfoFailed') }
       }
     },
 
@@ -250,18 +251,19 @@ export const useUserStore = defineStore('user', {
 
     // 获取用户显示名称
     getUserDisplayName() {
-      return this.user?.nickname || this.user?.username || '用户'
+      return this.user?.nickname || this.user?.username || i18n.global.t('common.user')
     },
 
     // 获取用户类型显示文本
     getUserTypeText() {
+      const t = i18n.global.t
       switch (this.userType) {
         case 'admin':
-          return '管理员'
+          return t('common.admin')
         case 'user':
-          return '用户'
+          return t('common.user')
         default:
-          return '未知'
+          return t('common.unknown')
       }
     }
   }

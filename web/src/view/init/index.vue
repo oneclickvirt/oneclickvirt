@@ -124,21 +124,6 @@
           label-position="top"
           size="large"
         >
-          <el-form-item :label="t('init.user.username')" prop="username">
-            <el-input v-model="initForm.user.username" :placeholder="t('init.user.usernamePlaceholder')" clearable prefix-icon="User" />
-          </el-form-item>
-          <el-form-item :label="t('init.user.password')" prop="password">
-            <el-input v-model="initForm.user.password" type="password" :placeholder="t('init.user.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
-            <div class="field-hint">
-              <el-text size="small" type="info">{{ t('init.user.passwordHint') }}</el-text>
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('init.user.confirmPassword')" prop="confirmPassword">
-            <el-input v-model="initForm.user.confirmPassword" type="password" :placeholder="t('init.user.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
-          </el-form-item>
-          <el-form-item :label="t('init.user.email')" prop="email">
-            <el-input v-model="initForm.user.email" :placeholder="t('init.user.emailPlaceholder')" clearable prefix-icon="Message" />
-          </el-form-item>
           <el-form-item :label="t('init.user.enableStatus')">
             <div class="enable-toggle">
               <el-switch
@@ -149,6 +134,23 @@
               <el-text size="small" type="warning" class="enable-hint">{{ t('init.user.enableHint') }}</el-text>
             </div>
           </el-form-item>
+          <template v-if="initForm.user.enabled">
+            <el-form-item :label="t('init.user.username')" prop="username">
+              <el-input v-model="initForm.user.username" :placeholder="t('init.user.usernamePlaceholder')" clearable prefix-icon="User" />
+            </el-form-item>
+            <el-form-item :label="t('init.user.password')" prop="password">
+              <el-input v-model="initForm.user.password" type="password" :placeholder="t('init.user.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+              <div class="field-hint">
+                <el-text size="small" type="info">{{ t('init.user.passwordHint') }}</el-text>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('init.user.confirmPassword')" prop="confirmPassword">
+              <el-input v-model="initForm.user.confirmPassword" type="password" :placeholder="t('init.user.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
+            </el-form-item>
+            <el-form-item :label="t('init.user.email')" prop="email">
+              <el-input v-model="initForm.user.email" :placeholder="t('init.user.emailPlaceholder')" clearable prefix-icon="Message" />
+            </el-form-item>
+          </template>
         </el-form>
       </div>
 
@@ -359,12 +361,13 @@ const isFormValid = computed(() => {
                      initForm.admin.email &&
                      initForm.admin.password === initForm.admin.confirmPassword
   
-  // 检查普通用户表单
-  const userValid = initForm.user.username && 
+  // 检查普通用户表单（禁用时跳过验证）
+  const userValid = !initForm.user.enabled || (
+                    initForm.user.username && 
                     initForm.user.password && 
                     initForm.user.confirmPassword && 
                     initForm.user.email &&
-                    initForm.user.password === initForm.user.confirmPassword
+                    initForm.user.password === initForm.user.confirmPassword)
   
   // 检查数据库配置
   const dbValid = databaseForm.type && 
@@ -536,9 +539,13 @@ const handleInit = async () => {
   try {
     // 验证所有表单
     const validations = [
-      adminFormRef.value.validate(),
-      userFormRef.value.validate()
+      adminFormRef.value.validate()
     ]
+    
+    // 只在启用测试用户时验证用户表单
+    if (initForm.user.enabled) {
+      validations.push(userFormRef.value.validate())
+    }
     
     // 如果是MySQL或MariaDB，需要验证数据库配置
     if (databaseForm.type === 'mysql' || databaseForm.type === 'mariadb') {

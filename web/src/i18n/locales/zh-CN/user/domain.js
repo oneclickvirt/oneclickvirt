@@ -19,5 +19,8 @@ export default {
   createSuccess: '域名绑定创建成功',
   deleteSuccess: '域名绑定删除成功',
   updateSuccess: '域名绑定更新成功',
-  noDomains: '暂无域名绑定'
+  noDomains: '暂无域名绑定',
+  domainRequired: '请输入域名',
+  instanceIdRequired: '请输入实例ID',
+  portRequired: '请输入端口'
 }

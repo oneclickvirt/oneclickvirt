@@ -242,14 +242,14 @@ export function useProviderOperations() {
   const unfreezeProviderHandler = async (server) => {
     try {
       const { value: expiresAt } = await ElMessageBox.prompt(
-        '请输入新的过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则默认设置为31天后过期',
-        '解冻服务器',
+        t('admin.providers.unfreezeExpiryPrompt'),
+        t('admin.providers.unfreezeServer'),
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
           inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
           inputErrorMessage: t('admin.providers.validation.dateFormatError'),
-          inputPlaceholder: '如：2024-12-31 23:59:59 或留空'
+          inputPlaceholder: t('admin.providers.unfreezeExpiryPlaceholder')
         }
       )
 

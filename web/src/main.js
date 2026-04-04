@@ -17,6 +17,7 @@ import i18n from './i18n'
 import { getPublicSystemConfig } from '@/api/public'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
+import { useFeatureStore } from '@/pinia/modules/feature'
 
 const app = createApp(App)
 app.config.productionTip = false
@@ -58,6 +59,10 @@ initLanguage().then(() => {
   // 初始化主题设置
   const themeStore = useThemeStore()
   themeStore.initTheme()
+
+  // 初始化功能开关
+  const featureStore = useFeatureStore()
+  featureStore.fetchFeatureFlags()
 
   // 初始化用户状态监控器
   initUserStatusMonitor()

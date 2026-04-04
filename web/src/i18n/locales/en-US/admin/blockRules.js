@@ -63,5 +63,12 @@ export default {
   scopeRequired: 'Please select scope',
   rulesRequired: 'Please select rules',
   stringCount: '{count} strings',
-  filterByProvider: 'Filter by Provider'
+  filterByProvider: 'Filter by Provider',
+  ipVersion: 'IP Version',
+  ipVersions: {
+    both: 'IPv4 + IPv6',
+    ipv4: 'IPv4 Only',
+    ipv6: 'IPv6 Only'
+  },
+  ipVersionRequired: 'Please select IP version'
 }

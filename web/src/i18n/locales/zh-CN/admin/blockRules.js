@@ -63,5 +63,12 @@ export default {
   scopeRequired: '请选择作用范围',
   rulesRequired: '请选择规则',
   stringCount: '{count} 个字符串',
-  filterByProvider: '按节点筛选'
+  filterByProvider: '按节点筛选',
+  ipVersion: 'IP版本',
+  ipVersions: {
+    both: 'IPv4 + IPv6',
+    ipv4: '仅IPv4',
+    ipv6: '仅IPv6'
+  },
+  ipVersionRequired: '请选择IP版本'
 }

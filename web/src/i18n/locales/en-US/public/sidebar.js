@@ -22,5 +22,6 @@ export default {
   logViewer: 'Log Viewer',
   blockRulesManagement: 'Block Rules',
   domainManagement: 'Domain Management',
-  kycManagement: 'KYC Management'
+  kycManagement: 'KYC Management',
+  oauth2Management: 'OAuth2 Management'
 }

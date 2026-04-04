@@ -13,223 +13,232 @@ import (
 
 // InitAdminRouter 管理员路由
 func InitAdminRouter(Router *gin.RouterGroup) {
-	AdminGroup := Router.Group("/v1/admin")
-	AdminGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
+	// 普通管理员和超管都可以访问的路由（level >= 2）
+	NormalAdminGroup := Router.Group("/v1/admin")
+	NormalAdminGroup.Use(middleware.RequireNormalAdmin())
 	{
 		// 仪表盘
-		AdminGroup.GET("/dashboard", admin.GetAdminDashboard)
-
-		// 系统配置（管理员专用）
-		AdminGroup.GET("/config", config.GetUnifiedConfig)
-		AdminGroup.PUT("/config", config.UpdateUnifiedConfig)
-
-		// 用户管理
-		AdminGroup.GET("/users", admin.GetUserList)
-		AdminGroup.POST("/users", admin.CreateUser)
-		AdminGroup.PUT("/users/:id", admin.UpdateUser)
-		AdminGroup.DELETE("/users/:id", admin.DeleteUser)
-		AdminGroup.PUT("/users/:id/status", admin.UpdateUserStatus)
-		AdminGroup.PUT("/users/:id/level", admin.UpdateUserLevel)
-		AdminGroup.PUT("/users/:id/reset-password", admin.ResetUserPassword)
-		AdminGroup.PUT("/users/batch-level", admin.AdminBatchUpdateUserLevel)
-		AdminGroup.PUT("/users/batch-status", admin.AdminBatchUpdateUserStatus)
-		AdminGroup.POST("/users/batch-delete", admin.AdminBatchDeleteUsers)
+		NormalAdminGroup.GET("/dashboard", admin.GetAdminDashboard)
 
 		// 实例管理
-		AdminGroup.GET("/instances", admin.GetInstanceList)
-		AdminGroup.POST("/instances", admin.CreateInstance)
-		AdminGroup.PUT("/instances/:id", admin.UpdateInstance)
-		AdminGroup.DELETE("/instances/:id", admin.DeleteInstance)
-		AdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)
-		AdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)
-		AdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
-		AdminGroup.GET("/instance-type-permissions", admin.GetAdminInstanceTypePermissions)
-		AdminGroup.PUT("/instance-type-permissions", admin.UpdateAdminInstanceTypePermissions)
-		AdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket) // 管理员WebSocket SSH连接
+		NormalAdminGroup.GET("/instances", admin.GetInstanceList)
+		NormalAdminGroup.POST("/instances", admin.CreateInstance)
+		NormalAdminGroup.PUT("/instances/:id", admin.UpdateInstance)
+		NormalAdminGroup.DELETE("/instances/:id", admin.DeleteInstance)
+		NormalAdminGroup.POST("/instances/:id/action", admin.AdminInstanceAction)
+		NormalAdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)
+		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
+		NormalAdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket)
 
 		// 公告管理
-		AdminGroup.GET("/announcements", admin.GetAnnouncements)
-		AdminGroup.POST("/announcements", admin.CreateAnnouncement)
-		AdminGroup.PUT("/announcements/:id", admin.UpdateAnnouncementItem)
-		AdminGroup.DELETE("/announcements/:id", admin.DeleteAnnouncement)
-		AdminGroup.PUT("/announcements/batch-status", admin.BatchUpdateAnnouncementStatus)
-		AdminGroup.POST("/announcements/batch-delete", admin.BatchDeleteAnnouncements)
+		NormalAdminGroup.GET("/announcements", admin.GetAnnouncements)
+		NormalAdminGroup.POST("/announcements", admin.CreateAnnouncement)
+		NormalAdminGroup.PUT("/announcements/:id", admin.UpdateAnnouncementItem)
+		NormalAdminGroup.DELETE("/announcements/:id", admin.DeleteAnnouncement)
+		NormalAdminGroup.PUT("/announcements/batch-status", admin.BatchUpdateAnnouncementStatus)
+		NormalAdminGroup.POST("/announcements/batch-delete", admin.BatchDeleteAnnouncements)
 
 		// 邀请码管理
-		AdminGroup.GET("/invite-codes", admin.GetInviteCodeList)
-		AdminGroup.POST("/invite-codes", admin.CreateInviteCode)
-		AdminGroup.POST("/invite-codes/generate", admin.GenerateInviteCode)
-		AdminGroup.GET("/invite-codes/export", admin.ExportInviteCodes)
-		AdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
-		AdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
+		NormalAdminGroup.GET("/invite-codes", admin.GetInviteCodeList)
+		NormalAdminGroup.POST("/invite-codes", admin.CreateInviteCode)
+		NormalAdminGroup.POST("/invite-codes/generate", admin.GenerateInviteCode)
+		NormalAdminGroup.GET("/invite-codes/export", admin.ExportInviteCodes)
+		NormalAdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
+		NormalAdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
 
 		// 兑换码管理
-		AdminGroup.GET("/redemption-codes", admin.GetRedemptionCodeList)
-		AdminGroup.POST("/redemption-codes/batch-create", admin.BatchCreateRedemptionCodes)
-		AdminGroup.POST("/redemption-codes/export", admin.ExportRedemptionCodes)
-		AdminGroup.POST("/redemption-codes/batch-delete", admin.BatchDeleteRedemptionCodes)
-
-		// 系统监控
-		AdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)
-		AdminGroup.GET("/monitoring/audit-logs", system.GetOperationLogs)
-
-		// 性能监控
-		AdminGroup.GET("/performance/metrics", system.GetPerformanceMetrics)
-		AdminGroup.GET("/performance/history", system.GetPerformanceHistory)
-
-		// 日志查看
-		AdminGroup.GET("/logs/dates", system.GetLogDates)
-		AdminGroup.GET("/logs/content", system.GetLogContent)
-
-		// 流量同步管理
-		AdminGroup.POST("/traffic/sync/instance/:instance_id", admin.SyncInstanceTraffic)
-		AdminGroup.POST("/traffic/sync/user/:user_id", admin.SyncUserTraffic)
-		AdminGroup.POST("/traffic/sync/provider/:provider_id", admin.SyncProviderTraffic)
-		AdminGroup.POST("/traffic/sync/all", admin.SyncAllTraffic)
-
-		// 配额管理
-		AdminGroup.GET("/quota/users/:userId", system.GetUserQuotaInfo)
+		NormalAdminGroup.GET("/redemption-codes", admin.GetRedemptionCodeList)
+		NormalAdminGroup.POST("/redemption-codes/batch-create", admin.BatchCreateRedemptionCodes)
+		NormalAdminGroup.POST("/redemption-codes/export", admin.ExportRedemptionCodes)
+		NormalAdminGroup.POST("/redemption-codes/batch-delete", admin.BatchDeleteRedemptionCodes)
 
 		// Provider管理
-		AdminGroup.GET("/providers", admin.GetProviderList)
-		AdminGroup.POST("/providers", admin.CreateProvider)
-		AdminGroup.PUT("/providers/:id", admin.UpdateProvider)
-		AdminGroup.DELETE("/providers/:id", admin.DeleteProvider)
-		AdminGroup.POST("/providers/freeze", admin.FreezeProvider)
-		AdminGroup.POST("/providers/unfreeze", admin.UnfreezeProvider)
-		AdminGroup.POST("/providers/test-ssh-connection", admin.TestSSHConnection)
-		// Provider验证接口（用于前端实时验证）
-		AdminGroup.GET("/providers/check-name", admin.CheckProviderName)
-		AdminGroup.GET("/providers/check-endpoint", admin.CheckProviderEndpoint)
+		NormalAdminGroup.GET("/providers", admin.GetProviderList)
+		NormalAdminGroup.POST("/providers", admin.CreateProvider)
+		NormalAdminGroup.PUT("/providers/:id", admin.UpdateProvider)
+		NormalAdminGroup.DELETE("/providers/:id", admin.DeleteProvider)
+		NormalAdminGroup.POST("/providers/freeze", admin.FreezeProvider)
+		NormalAdminGroup.POST("/providers/unfreeze", admin.UnfreezeProvider)
+		NormalAdminGroup.POST("/providers/test-ssh-connection", admin.TestSSHConnection)
+		NormalAdminGroup.GET("/providers/check-name", admin.CheckProviderName)
+		NormalAdminGroup.GET("/providers/check-endpoint", admin.CheckProviderEndpoint)
 
 		// Provider实例发现与导入
-		AdminGroup.POST("/providers/:id/discover", admin.DiscoverProviderInstances)
-		AdminGroup.POST("/providers/:id/import", admin.ImportProviderInstances)
-		AdminGroup.GET("/providers/:id/orphaned", admin.GetOrphanedInstances)
-		AdminGroup.POST("/providers/:id/sync-check", admin.CheckInstanceSync)
+		NormalAdminGroup.POST("/providers/:id/discover", admin.DiscoverProviderInstances)
+		NormalAdminGroup.POST("/providers/:id/import", admin.ImportProviderInstances)
+		NormalAdminGroup.GET("/providers/:id/orphaned", admin.GetOrphanedInstances)
+		NormalAdminGroup.POST("/providers/:id/sync-check", admin.CheckInstanceSync)
 
 		// 证书管理
-		AdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)
-		AdminGroup.POST("/providers/:id/auto-configure-stream", admin.AutoConfigureProviderStream)
-		AdminGroup.POST("/providers/:id/health-check", admin.CheckProviderHealth)
-		AdminGroup.GET("/providers/:id/status", admin.GetProviderStatus)
+		NormalAdminGroup.POST("/providers/:id/generate-cert", admin.GenerateProviderCert)
+		NormalAdminGroup.POST("/providers/:id/auto-configure-stream", admin.AutoConfigureProviderStream)
+		NormalAdminGroup.POST("/providers/:id/health-check", admin.CheckProviderHealth)
+		NormalAdminGroup.GET("/providers/:id/status", admin.GetProviderStatus)
 
 		// 配置导出
-		AdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)
+		NormalAdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)
 
 		// 配置任务管理
-		AdminGroup.POST("/providers/auto-configure", config.AutoConfigureProvider)
-		AdminGroup.GET("/configuration-tasks", config.GetConfigurationTasks)
-		AdminGroup.GET("/configuration-tasks/:id", config.GetConfigurationTaskDetail)
-		AdminGroup.POST("/configuration-tasks/:id/cancel", config.CancelConfigurationTask)
+		NormalAdminGroup.POST("/providers/auto-configure", config.AutoConfigureProvider)
+		NormalAdminGroup.GET("/configuration-tasks", config.GetConfigurationTasks)
+		NormalAdminGroup.GET("/configuration-tasks/:id", config.GetConfigurationTaskDetail)
+		NormalAdminGroup.POST("/configuration-tasks/:id/cancel", config.CancelConfigurationTask)
 
 		// 用户任务管理
-		AdminGroup.GET("/tasks", admin.GetAdminTasks)
-		AdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
-		AdminGroup.POST("/tasks/force-stop", admin.ForceStopTask)
-		AdminGroup.GET("/tasks/stats", admin.GetTaskStats)
-		AdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
-		AdminGroup.POST("/tasks/:taskId/cancel", admin.CancelUserTaskByAdmin)
+		NormalAdminGroup.GET("/tasks", admin.GetAdminTasks)
+		NormalAdminGroup.GET("/tasks/:taskId", admin.GetTaskDetail)
+		NormalAdminGroup.POST("/tasks/force-stop", admin.ForceStopTask)
+		NormalAdminGroup.GET("/tasks/stats", admin.GetTaskStats)
+		NormalAdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
+		NormalAdminGroup.POST("/tasks/:taskId/cancel", admin.CancelUserTaskByAdmin)
 
 		// 系统镜像管理
-		AdminGroup.GET("/system-images", system.GetSystemImageList)
-		AdminGroup.POST("/system-images", system.CreateSystemImage)
-		AdminGroup.PUT("/system-images/:id", system.UpdateSystemImage)
-		AdminGroup.DELETE("/system-images/:id", system.DeleteSystemImage)
-		AdminGroup.POST("/system-images/batch-delete", system.BatchDeleteSystemImages)
-		AdminGroup.PUT("/system-images/batch-status", system.BatchUpdateSystemImageStatus)
+		NormalAdminGroup.GET("/system-images", system.GetSystemImageList)
+		NormalAdminGroup.POST("/system-images", system.CreateSystemImage)
+		NormalAdminGroup.PUT("/system-images/:id", system.UpdateSystemImage)
+		NormalAdminGroup.DELETE("/system-images/:id", system.DeleteSystemImage)
+		NormalAdminGroup.POST("/system-images/batch-delete", system.BatchDeleteSystemImages)
+		NormalAdminGroup.PUT("/system-images/batch-status", system.BatchUpdateSystemImageStatus)
 
 		// 端口映射管理
-		AdminGroup.GET("/port-mappings", admin.GetPortMappingList)
-		AdminGroup.POST("/port-mappings", admin.CreatePortMapping)                   // 支持单个端口和端口段批量添加（LXD/Incus/PVE）
-		AdminGroup.DELETE("/port-mappings/:id", admin.DeletePortMapping)             // 仅支持删除手动添加的端口
-		AdminGroup.POST("/port-mappings/batch-delete", admin.BatchDeletePortMapping) // 仅支持删除手动添加的端口
-		AdminGroup.POST("/port-mappings/sync", admin.SyncPortMappings)               // 同步端口映射，清理孤立记录
-		AdminGroup.POST("/ports/check", admin.CheckPortAvailability)                 // 检查端口可用性
-		AdminGroup.PUT("/providers/:id/port-config", admin.UpdateProviderPortConfig)
-		AdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)
-		AdminGroup.GET("/instances/:id/port-mappings", admin.GetInstancePortMappings)
+		NormalAdminGroup.GET("/port-mappings", admin.GetPortMappingList)
+		NormalAdminGroup.POST("/port-mappings", admin.CreatePortMapping)
+		NormalAdminGroup.DELETE("/port-mappings/:id", admin.DeletePortMapping)
+		NormalAdminGroup.POST("/port-mappings/batch-delete", admin.BatchDeletePortMapping)
+		NormalAdminGroup.POST("/port-mappings/sync", admin.SyncPortMappings)
+		NormalAdminGroup.POST("/ports/check", admin.CheckPortAvailability)
+		NormalAdminGroup.PUT("/providers/:id/port-config", admin.UpdateProviderPortConfig)
+		NormalAdminGroup.GET("/providers/:id/port-usage", admin.GetProviderPortUsage)
+		NormalAdminGroup.GET("/instances/:id/port-mappings", admin.GetInstancePortMappings)
 
-		// IPv4地址池管理（dedicated_ipv4 / dedicated_ipv4_ipv6 类型服务商）
-		AdminGroup.GET("/providers/:id/ipv4-pool", admin.GetProviderIPv4Pool)
-		AdminGroup.POST("/providers/:id/ipv4-pool", admin.SetProviderIPv4Pool)
-		AdminGroup.DELETE("/providers/:id/ipv4-pool", admin.ClearProviderIPv4Pool)
-		AdminGroup.DELETE("/providers/:id/ipv4-pool/:entry_id", admin.DeleteProviderIPv4PoolEntry)
+		// IPv4地址池管理
+		NormalAdminGroup.GET("/providers/:id/ipv4-pool", admin.GetProviderIPv4Pool)
+		NormalAdminGroup.POST("/providers/:id/ipv4-pool", admin.SetProviderIPv4Pool)
+		NormalAdminGroup.DELETE("/providers/:id/ipv4-pool", admin.ClearProviderIPv4Pool)
+		NormalAdminGroup.DELETE("/providers/:id/ipv4-pool/:entry_id", admin.DeleteProviderIPv4PoolEntry)
 
 		// 流量管理API
 		adminTrafficAPI := &traffic.AdminTrafficAPI{}
-		AdminGroup.GET("/traffic/overview", adminTrafficAPI.GetSystemTrafficOverview)
-		AdminGroup.GET("/traffic/provider/:providerId", adminTrafficAPI.GetProviderTrafficStats)
-		AdminGroup.GET("/traffic/user/:userId", adminTrafficAPI.GetUserTrafficStats)
-		AdminGroup.GET("/traffic/users/rank", adminTrafficAPI.GetAllUsersTrafficRank)
-		AdminGroup.POST("/traffic/manage", adminTrafficAPI.ManageTrafficLimits)
-		AdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
-		AdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
-		AdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
+		NormalAdminGroup.GET("/traffic/overview", adminTrafficAPI.GetSystemTrafficOverview)
+		NormalAdminGroup.GET("/traffic/provider/:providerId", adminTrafficAPI.GetProviderTrafficStats)
+		NormalAdminGroup.GET("/traffic/user/:userId", adminTrafficAPI.GetUserTrafficStats)
+		NormalAdminGroup.GET("/traffic/users/rank", adminTrafficAPI.GetAllUsersTrafficRank)
+		NormalAdminGroup.POST("/traffic/manage", adminTrafficAPI.ManageTrafficLimits)
+		NormalAdminGroup.POST("/traffic/batch-manage", adminTrafficAPI.BatchManageTrafficLimits)
+		NormalAdminGroup.POST("/traffic/batch-sync", adminTrafficAPI.BatchSyncUserTraffic)
+		NormalAdminGroup.DELETE("/traffic/user/:userId/clear", adminTrafficAPI.ClearUserTrafficRecords)
 
 		// 流量历史API
-		AdminGroup.GET("/providers/:id/traffic/history", traffic.GetProviderTrafficHistory)
+		NormalAdminGroup.GET("/providers/:id/traffic/history", traffic.GetProviderTrafficHistory)
 
 		// 流量监控管理
-		AdminGroup.POST("/providers/traffic-monitor", admin.TrafficMonitorOperation)
-		AdminGroup.GET("/providers/traffic-monitor/tasks", admin.GetTrafficMonitorTaskList)
-		AdminGroup.GET("/providers/traffic-monitor/tasks/:id", admin.GetTrafficMonitorTaskDetail)
-		AdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
+		NormalAdminGroup.POST("/providers/traffic-monitor", admin.TrafficMonitorOperation)
+		NormalAdminGroup.GET("/providers/traffic-monitor/tasks", admin.GetTrafficMonitorTaskList)
+		NormalAdminGroup.GET("/providers/traffic-monitor/tasks/:id", admin.GetTrafficMonitorTaskDetail)
+		NormalAdminGroup.GET("/providers/traffic-monitor/latest", admin.GetLatestTrafficMonitorTask)
 
 		// Agent监控管理
-		AdminGroup.GET("/providers/:id/monitoring/config", admin.GetMonitoringConfig)
-		AdminGroup.PUT("/providers/:id/monitoring/config", admin.UpdateMonitoringConfig)
-		AdminGroup.POST("/providers/:id/monitoring/agent", admin.DeployAgent)
-		AdminGroup.DELETE("/providers/:id/monitoring/agent", admin.UninstallAgent)
-		AdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
-		AdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
-		AdminGroup.POST("/providers/:id/monitoring/sync", admin.SyncProviderMonitors)
-		AdminGroup.DELETE("/providers/:id/monitoring/clear", admin.ClearProviderMonitors)
-		AdminGroup.GET("/providers/:id/monitoring/agent-monitors", admin.ListAgentMonitors)
-		AdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
-		AdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
+		NormalAdminGroup.GET("/providers/:id/monitoring/config", admin.GetMonitoringConfig)
+		NormalAdminGroup.PUT("/providers/:id/monitoring/config", admin.UpdateMonitoringConfig)
+		NormalAdminGroup.POST("/providers/:id/monitoring/agent", admin.DeployAgent)
+		NormalAdminGroup.DELETE("/providers/:id/monitoring/agent", admin.UninstallAgent)
+		NormalAdminGroup.GET("/providers/:id/monitoring/status", admin.GetAgentStatus)
+		NormalAdminGroup.GET("/providers/:id/monitoring/monitors", admin.GetProviderMonitors)
+		NormalAdminGroup.POST("/providers/:id/monitoring/sync", admin.SyncProviderMonitors)
+		NormalAdminGroup.DELETE("/providers/:id/monitoring/clear", admin.ClearProviderMonitors)
+		NormalAdminGroup.GET("/providers/:id/monitoring/agent-monitors", admin.ListAgentMonitors)
+		NormalAdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
+		NormalAdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
 
 		// 硬件测试
-		AdminGroup.POST("/providers/:id/hardware-test", admin.RunHardwareTest)
-		AdminGroup.GET("/providers/:id/hardware-test", admin.GetHardwareTestReport)
+		NormalAdminGroup.POST("/providers/:id/hardware-test", admin.RunHardwareTest)
+		NormalAdminGroup.GET("/providers/:id/hardware-test", admin.GetHardwareTestReport)
 
 		// 冻结管理
-		AdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
-		AdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)
-		AdminGroup.POST("/providers/freeze-manual", admin.FreezeProviderManual)
-		AdminGroup.POST("/providers/unfreeze-manual", admin.UnfreezeProviderManual)
-		AdminGroup.POST("/instances/set-expiry", admin.SetInstanceExpiry)
-		AdminGroup.POST("/instances/freeze", admin.FreezeInstance)
-		AdminGroup.POST("/instances/unfreeze", admin.UnfreezeInstance)
+		NormalAdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)
+		NormalAdminGroup.POST("/providers/freeze-manual", admin.FreezeProviderManual)
+		NormalAdminGroup.POST("/providers/unfreeze-manual", admin.UnfreezeProviderManual)
+		NormalAdminGroup.POST("/instances/set-expiry", admin.SetInstanceExpiry)
+		NormalAdminGroup.POST("/instances/freeze", admin.FreezeInstance)
+		NormalAdminGroup.POST("/instances/unfreeze", admin.UnfreezeInstance)
 
 		// 防火墙/滥用屏蔽管理
-		AdminGroup.GET("/block-rules", admin.GetBlockRules)
-		AdminGroup.GET("/block-rules/:id", admin.GetBlockRule)
-		AdminGroup.POST("/block-rules", admin.CreateBlockRule)
-		AdminGroup.PUT("/block-rules/:id", admin.UpdateBlockRule)
-		AdminGroup.DELETE("/block-rules/:id", admin.DeleteBlockRule)
-		AdminGroup.POST("/block-rules/apply", admin.ApplyBlockRules)
-		AdminGroup.POST("/block-rules/remove", admin.RemoveBlockRuleApplications)
-		AdminGroup.GET("/block-rules/applications", admin.GetBlockRuleApplications)
-		AdminGroup.GET("/providers/:id/block-status", admin.GetProviderBlockStatus)
-		AdminGroup.GET("/block-rules/agent-providers", admin.GetAgentEnabledProviders)
+		NormalAdminGroup.GET("/block-rules", admin.GetBlockRules)
+		NormalAdminGroup.GET("/block-rules/:id", admin.GetBlockRule)
+		NormalAdminGroup.POST("/block-rules", admin.CreateBlockRule)
+		NormalAdminGroup.PUT("/block-rules/:id", admin.UpdateBlockRule)
+		NormalAdminGroup.DELETE("/block-rules/:id", admin.DeleteBlockRule)
+		NormalAdminGroup.POST("/block-rules/apply", admin.ApplyBlockRules)
+		NormalAdminGroup.POST("/block-rules/remove", admin.RemoveBlockRuleApplications)
+		NormalAdminGroup.GET("/block-rules/applications", admin.GetBlockRuleApplications)
+		NormalAdminGroup.GET("/providers/:id/block-status", admin.GetProviderBlockStatus)
+		NormalAdminGroup.GET("/block-rules/agent-providers", admin.GetAgentEnabledProviders)
 
 		// 域名管理
-		AdminGroup.GET("/domains", admin.AdminGetDomains)
-		AdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
-		AdminGroup.GET("/providers/:id/domain-config", admin.GetDomainConfig)
-		AdminGroup.PUT("/providers/:id/domain-config", admin.UpdateDomainConfig)
+		NormalAdminGroup.GET("/domains", admin.AdminGetDomains)
+		NormalAdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
+		NormalAdminGroup.GET("/providers/:id/domain-config", admin.GetDomainConfig)
+		NormalAdminGroup.PUT("/providers/:id/domain-config", admin.UpdateDomainConfig)
 
 		// KYC管理
-		AdminGroup.GET("/kyc", admin.AdminGetKYCList)
-		AdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
+		NormalAdminGroup.GET("/kyc", admin.AdminGetKYCList)
+		NormalAdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
 
 		// 签到配置管理
-		AdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
-		AdminGroup.PUT("/providers/:id/checkin-config", admin.AdminUpdateCheckinConfig)
+		NormalAdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
+		NormalAdminGroup.PUT("/providers/:id/checkin-config", admin.AdminUpdateCheckinConfig)
+	}
+
+	// 超级管理员专用路由（level >= 3）
+	SuperAdminGroup := Router.Group("/v1/admin")
+	SuperAdminGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
+	{
+		// 系统配置（超管专用）
+		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)
+		SuperAdminGroup.PUT("/config", config.UpdateUnifiedConfig)
+
+		// 用户管理（超管专用）
+		SuperAdminGroup.GET("/users", admin.GetUserList)
+		SuperAdminGroup.POST("/users", admin.CreateUser)
+		SuperAdminGroup.PUT("/users/:id", admin.UpdateUser)
+		SuperAdminGroup.DELETE("/users/:id", admin.DeleteUser)
+		SuperAdminGroup.PUT("/users/:id/status", admin.UpdateUserStatus)
+		SuperAdminGroup.PUT("/users/:id/level", admin.UpdateUserLevel)
+		SuperAdminGroup.PUT("/users/:id/reset-password", admin.ResetUserPassword)
+		SuperAdminGroup.PUT("/users/batch-level", admin.AdminBatchUpdateUserLevel)
+		SuperAdminGroup.PUT("/users/batch-status", admin.AdminBatchUpdateUserStatus)
+		SuperAdminGroup.POST("/users/batch-delete", admin.AdminBatchDeleteUsers)
+
+		// 实例类型权限配置
+		SuperAdminGroup.GET("/instance-type-permissions", admin.GetAdminInstanceTypePermissions)
+		SuperAdminGroup.PUT("/instance-type-permissions", admin.UpdateAdminInstanceTypePermissions)
+
+		// 系统监控
+		SuperAdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)
+		SuperAdminGroup.GET("/monitoring/audit-logs", system.GetOperationLogs)
+
+		// 性能监控
+		SuperAdminGroup.GET("/performance/metrics", system.GetPerformanceMetrics)
+		SuperAdminGroup.GET("/performance/history", system.GetPerformanceHistory)
+
+		// 日志查看
+		SuperAdminGroup.GET("/logs/dates", system.GetLogDates)
+		SuperAdminGroup.GET("/logs/content", system.GetLogContent)
+
+		// 配额管理
+		SuperAdminGroup.GET("/quota/users/:userId", system.GetUserQuotaInfo)
+
+		// 流量同步管理
+		SuperAdminGroup.POST("/traffic/sync/instance/:instance_id", admin.SyncInstanceTraffic)
+		SuperAdminGroup.POST("/traffic/sync/user/:user_id", admin.SyncUserTraffic)
+		SuperAdminGroup.POST("/traffic/sync/provider/:provider_id", admin.SyncProviderTraffic)
+		SuperAdminGroup.POST("/traffic/sync/all", admin.SyncAllTraffic)
+
+		// 用户冻结
+		SuperAdminGroup.POST("/users/set-expiry", admin.SetUserExpiry)
 
 		// 管理员特殊操作
-		AdminGroup.POST("/users/:id/login-as", admin.AdminLoginAsUser)
-		AdminGroup.POST("/instances/transfer", admin.AdminTransferInstance)
+		SuperAdminGroup.POST("/users/:id/login-as", admin.AdminLoginAsUser)
+		SuperAdminGroup.POST("/instances/transfer", admin.AdminTransferInstance)
 	}
 }

@@ -1,3 +1,6 @@
+import i18n from '@/i18n'
+const t = (...args) => i18n.global.t(...args)
+
 // 日期格式化工具函数
 export function formatDate(date, format = 'YYYY-MM-DD HH:mm:ss') {
   if (!date) return ''
@@ -36,13 +39,13 @@ export function formatRelativeTime(date) {
   const days = Math.floor(hours / 24)
   
   if (seconds < 60) {
-    return '刚刚'
+    return t('common.justNow')
   } else if (minutes < 60) {
-    return `${minutes}分钟前`
+    return t('common.minutesAgo', { n: minutes })
   } else if (hours < 24) {
-    return `${hours}小时前`
+    return t('common.hoursAgo', { n: hours })
   } else if (days < 7) {
-    return `${days}天前`
+    return t('common.daysAgo', { n: days })
   } else {
     return formatDate(date, 'YYYY-MM-DD')
   }
@@ -50,7 +53,7 @@ export function formatRelativeTime(date) {
 
 // 格式化时间段
 export function formatDuration(ms) {
-  if (!ms) return '0秒'
+  if (!ms) return t('common.zeroDuration')
   
   const seconds = Math.floor(ms / 1000)
   const minutes = Math.floor(seconds / 60)
@@ -58,13 +61,13 @@ export function formatDuration(ms) {
   const days = Math.floor(hours / 24)
   
   if (days > 0) {
-    return `${days}天${hours % 24}小时`
+    return t('common.durationDaysHours', { days, hours: hours % 24 })
   } else if (hours > 0) {
-    return `${hours}小时${minutes % 60}分钟`
+    return t('common.durationHoursMinutes', { hours, minutes: minutes % 60 })
   } else if (minutes > 0) {
-    return `${minutes}分钟${seconds % 60}秒`
+    return t('common.durationMinutesSeconds', { minutes, seconds: seconds % 60 })
   } else {
-    return `${seconds}秒`
+    return t('common.durationSeconds', { n: seconds })
   }
 }
 

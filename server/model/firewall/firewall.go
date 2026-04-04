@@ -42,6 +42,7 @@ type BlockRuleApplication struct {
 	TargetID   uint           `gorm:"not null;default:0;index:idx_bra_target" json:"target_id"`
 	TargetName string         `gorm:"size:255" json:"target_name"`
 	Status     string         `gorm:"size:16;not null;default:pending" json:"status"`
+	IPVersion  string         `gorm:"size:8;not null;default:both" json:"ip_version"`
 }
 
 func (BlockRuleApplication) TableName() string {
@@ -67,6 +68,7 @@ type ApplyBlockRuleRequest struct {
 	RuleIDs   []uint `json:"rule_ids" binding:"required"`
 	Scope     string `json:"scope" binding:"required"`
 	TargetIDs []uint `json:"target_ids"`
+	IPVersion string `json:"ip_version"` // "both" (default), "ipv4", "ipv6"
 }
 
 type RemoveBlockRuleApplicationRequest struct {

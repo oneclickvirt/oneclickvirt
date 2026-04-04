@@ -583,7 +583,8 @@ pub async fn list_monitors(
 pub async fn apply_block_rules(
     Json(req): Json<ApplyBlockRulesRequest>,
 ) -> Result<Json<ApplyBlockRulesResponse>, ApiError> {
-    let count = crate::nft::apply_block_rules(&req.strings)?;
+    let ip_version = req.ip_version.as_deref().unwrap_or("both");
+    let count = crate::nft::apply_block_rules(&req.strings, ip_version)?;
     Ok(Json(ApplyBlockRulesResponse { applied: count }))
 }
 
@@ -619,7 +620,7 @@ pub async fn remove_block_rules() -> Result<Json<RemoveBlockRulesResponse>, ApiE
     tag = "Block Rules"
 )]
 pub async fn get_block_rules() -> Result<Json<GetBlockRulesResponse>, ApiError> {
-    let strings = crate::nft::get_block_rules();
+    let (strings, ip_version) = crate::nft::get_block_rules();
     let count = strings.len();
-    Ok(Json(GetBlockRulesResponse { strings, count }))
+    Ok(Json(GetBlockRulesResponse { strings, count, ip_version }))
 }

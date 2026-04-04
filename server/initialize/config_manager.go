@@ -112,6 +112,12 @@ func syncAuthConfig(cfg *config.Server, authConfig map[string]interface{}) {
 	if v, ok := authConfig["enable-oauth2"].(bool); ok {
 		cfg.Auth.EnableOAuth2 = v
 	}
+	if v, ok := authConfig["enable-kyc"].(bool); ok {
+		cfg.Auth.EnableKYC = v
+	}
+	if v, ok := authConfig["enable-domain"].(bool); ok {
+		cfg.Auth.EnableDomain = v
+	}
 	if v, ok := authConfig["email-smtp-host"].(string); ok {
 		cfg.Auth.EmailSMTPHost = v
 	}

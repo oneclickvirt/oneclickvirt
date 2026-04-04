@@ -102,9 +102,9 @@ const form = reactive({
 })
 
 const formRules = {
-  domainName: [{ required: true, message: '请输入域名', trigger: 'blur' }],
-  instanceId: [{ required: true, message: '请输入实例ID', trigger: 'blur' }],
-  internalPort: [{ required: true, message: '请输入端口', trigger: 'blur' }]
+  domainName: [{ required: true, message: () => t('user.domain.domainRequired'), trigger: 'blur' }],
+  instanceId: [{ required: true, message: () => t('user.domain.instanceIdRequired'), trigger: 'blur' }],
+  internalPort: [{ required: true, message: () => t('user.domain.portRequired'), trigger: 'blur' }]
 }
 
 async function fetchData() {

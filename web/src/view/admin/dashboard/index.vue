@@ -120,15 +120,16 @@
               <div class="resource-icon cpu-icon"><i class="fas fa-microchip" /></div>
               <span class="resource-title">{{ $t('admin.dashboard.cpuCores') }}</span>
             </div>
-            <el-progress
-              :percentage="resourcePercent(resourceUsage.usedCpuCores, resourceUsage.totalCpuCores)"
-              :stroke-width="12"
-              :color="progressColor"
-              class="resource-progress"
-            />
-            <div class="resource-detail">
-              <span>{{ $t('admin.dashboard.used') }}: {{ resourceUsage.usedCpuCores }}</span>
-              <span>{{ $t('admin.dashboard.total') }}: {{ resourceUsage.totalCpuCores }}</span>
+            <div class="resource-numbers">
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ resourceUsage.usedCpuCores }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.used') }}</span>
+              </div>
+              <span class="resource-number-separator">/</span>
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ resourceUsage.totalCpuCores }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.total') }}</span>
+              </div>
             </div>
           </el-card>
         </el-col>
@@ -138,15 +139,16 @@
               <div class="resource-icon memory-icon"><i class="fas fa-memory" /></div>
               <span class="resource-title">{{ $t('admin.dashboard.memory') }}</span>
             </div>
-            <el-progress
-              :percentage="resourcePercent(resourceUsage.usedMemoryMB, resourceUsage.totalMemoryMB)"
-              :stroke-width="12"
-              :color="progressColor"
-              class="resource-progress"
-            />
-            <div class="resource-detail">
-              <span>{{ $t('admin.dashboard.used') }}: {{ formatMB(resourceUsage.usedMemoryMB) }}</span>
-              <span>{{ $t('admin.dashboard.total') }}: {{ formatMB(resourceUsage.totalMemoryMB) }}</span>
+            <div class="resource-numbers">
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ formatMB(resourceUsage.usedMemoryMB) }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.used') }}</span>
+              </div>
+              <span class="resource-number-separator">/</span>
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ formatMB(resourceUsage.totalMemoryMB) }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.total') }}</span>
+              </div>
             </div>
           </el-card>
         </el-col>
@@ -156,15 +158,16 @@
               <div class="resource-icon disk-icon"><i class="fas fa-hdd" /></div>
               <span class="resource-title">{{ $t('admin.dashboard.disk') }}</span>
             </div>
-            <el-progress
-              :percentage="resourcePercent(resourceUsage.usedDiskMB, resourceUsage.totalDiskMB)"
-              :stroke-width="12"
-              :color="progressColor"
-              class="resource-progress"
-            />
-            <div class="resource-detail">
-              <span>{{ $t('admin.dashboard.used') }}: {{ formatMB(resourceUsage.usedDiskMB) }}</span>
-              <span>{{ $t('admin.dashboard.total') }}: {{ formatMB(resourceUsage.totalDiskMB) }}</span>
+            <div class="resource-numbers">
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ formatMB(resourceUsage.usedDiskMB) }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.used') }}</span>
+              </div>
+              <span class="resource-number-separator">/</span>
+              <div class="resource-number-item">
+                <span class="resource-number-value">{{ formatMB(resourceUsage.totalDiskMB) }}</span>
+                <span class="resource-number-label">{{ $t('admin.dashboard.total') }}</span>
+              </div>
             </div>
           </el-card>
         </el-col>
@@ -197,11 +200,6 @@ const resourceUsage = reactive({
   usedDiskMB: 0
 })
 
-const resourcePercent = (used, total) => {
-  if (!total || total <= 0) return 0
-  return Math.min(100, Math.round((used / total) * 100))
-}
-
 const formatMB = (mb) => {
   if (!mb || mb <= 0) return '0 MB'
   const GB = 1024
@@ -209,12 +207,6 @@ const formatMB = (mb) => {
   if (mb >= TB) return (mb / TB).toFixed(2) + ' TB'
   if (mb >= GB) return (mb / GB).toFixed(2) + ' GB'
   return mb + ' MB'
-}
-
-const progressColor = (percentage) => {
-  if (percentage < 50) return '#67c23a'
-  if (percentage < 80) return '#e6a23c'
-  return '#f56c6c'
 }
 
 const fetchDashboardData = async () => {
@@ -357,15 +349,36 @@ onMounted(async () => {
   color: var(--text-color-primary);
 }
 
-.resource-progress {
-  margin-bottom: 8px;
+.resource-numbers {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 12px 0;
 }
 
-.resource-detail {
+.resource-number-item {
   display: flex;
-  justify-content: space-between;
-  font-size: 13px;
+  flex-direction: column;
+  align-items: center;
+}
+
+.resource-number-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: var(--text-color-primary);
+}
+
+.resource-number-label {
+  font-size: 12px;
   color: #909399;
+  margin-top: 2px;
+}
+
+.resource-number-separator {
+  font-size: 20px;
+  color: #c0c4cc;
+  font-weight: 300;
 }
 
 .stat-info {

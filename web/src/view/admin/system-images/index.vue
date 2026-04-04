@@ -611,7 +611,7 @@ import {
 } from '@/utils/operating-systems'
 import OsIcon from '@/components/OsIcon.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 // 响应式数据
 const loading = ref(false)
@@ -1021,7 +1021,7 @@ const formatFileSize = (bytes) => {
 // 格式化时间
 const formatDateTime = (dateTime) => {
   if (!dateTime) return '-'
-  return new Date(dateTime).toLocaleString('zh-CN')
+  return new Date(dateTime).toLocaleString(locale.value)
 }
 
 // 页面挂载

@@ -113,6 +113,17 @@
           v-model="formData"
         />
       </el-tab-pane>
+
+      <!-- 签到续期配置 -->
+      <el-tab-pane
+        v-if="isEditing && formData.id"
+        :label="$t('admin.providers.checkinConfig')"
+        name="checkin"
+      >
+        <CheckinConfigTab
+          :provider-id="formData.id"
+        />
+      </el-tab-pane>
     </el-tabs>
     
     <template #footer>
@@ -129,7 +140,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName } from '@/utils/countries'
@@ -144,6 +155,7 @@ import BandwidthTab from './formTabs/BandwidthTab.vue'
 import LevelLimitsTab from './formTabs/LevelLimitsTab.vue'
 import AdvancedTab from './formTabs/AdvancedTab.vue'
 import HardwareConfigTab from './formTabs/HardwareConfigTab.vue'
+import CheckinConfigTab from './formTabs/CheckinConfigTab.vue'
 
 const { t } = useI18n()
 
@@ -368,9 +380,15 @@ const rules = {
 // 监听 providerData 变化，更新表单数据
 // 只在对话框首次打开时同步数据，避免用户编辑过程中被覆盖
 watch(() => props.visible, (isVisible) => {
-  if (isVisible && props.providerData && Object.keys(props.providerData).length > 0) {
-    // 对话框打开时，同步父组件的数据到表单（使用深拷贝避免引用问题）
-    Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
+  if (isVisible) {
+    if (props.providerData && Object.keys(props.providerData).length > 0) {
+      // 对话框打开时，同步父组件的数据到表单（使用深拷贝避免引用问题）
+      Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
+    }
+    // 清除上次遗留的验证状态
+    nextTick(() => {
+      basicInfoTabRef.value?.formRef?.clearValidate()
+    })
   }
 }, { immediate: true })
 

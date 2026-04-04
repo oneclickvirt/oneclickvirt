@@ -77,6 +77,10 @@ type InviteCodeResponse struct {
 type RedemptionCodeResponse struct {
 	system.RedemptionCode
 	CreatedByUser string `json:"createdByUser"` // 创建者用户名（冗余，便于展示）
+	CPUName       string `json:"cpuName"`
+	MemoryName    string `json:"memoryName"`
+	DiskName      string `json:"diskName"`
+	BandwidthName string `json:"bandwidthName"`
 }
 
 type InstanceManageResponse struct {

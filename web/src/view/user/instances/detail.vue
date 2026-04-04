@@ -19,7 +19,7 @@
         v-if="instance.relatedTask"
         :title="getTaskTitle(instance.relatedTask)"
         :type="getTaskAlertType(instance.relatedTask.status)"
-        :description="instance.relatedTask.statusMessage || `进度: ${instance.relatedTask.progress}%`"
+        :description="instance.relatedTask.statusMessage || $t('user.instanceDetail.taskProgress', { progress: instance.relatedTask.progress })"
         :closable="false"
         show-icon
         style="margin-bottom: 20px;"
@@ -27,7 +27,7 @@
         <template #default>
           <div style="display: flex; justify-content: space-between; align-items: center;">
             <div>
-              <p>{{ instance.relatedTask.statusMessage || `正在${getTaskTypeText(instance.relatedTask.taskType)}...` }}</p>
+              <p>{{ instance.relatedTask.statusMessage || $t('user.instanceDetail.taskInProgress', { action: getTaskTypeText(instance.relatedTask.taskType) }) }}</p>
               <el-progress 
                 :percentage="instance.relatedTask.progress" 
                 :status="instance.relatedTask.progress === 100 ? 'success' : undefined"

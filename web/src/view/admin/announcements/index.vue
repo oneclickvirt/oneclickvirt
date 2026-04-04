@@ -369,7 +369,7 @@ import { getAnnouncements, createAnnouncement, updateAnnouncement, deleteAnnounc
 import { QuillEditor } from '@vueup/vue-quill'
 import '@vueup/vue-quill/dist/vue-quill.snow.css'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const announcements = ref([])
 const showAddDialog = ref(false)
@@ -440,7 +440,7 @@ const editorOptions = {
 
 // 格式化日期
 const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleString('zh-CN')
+  return new Date(dateString).toLocaleString(locale.value)
 }
 
 // 处理富文本内容变化

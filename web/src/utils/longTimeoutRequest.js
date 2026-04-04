@@ -1,5 +1,6 @@
 import axios from 'axios'
 import { useUserStore } from '@/pinia/modules/user'
+import i18n from '@/i18n'
 
 /**
  * 创建长时间请求的axios实例
@@ -57,7 +58,7 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
         if (res.code === 0 || res.code === 200) {
           return res
         } else {
-          return Promise.reject(new Error(res.msg || '请求失败'))
+          return Promise.reject(new Error(res.msg || i18n.global.t('common.requestFailed')))
         }
       }
       

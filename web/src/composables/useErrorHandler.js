@@ -1,5 +1,6 @@
 import { ref, readonly } from 'vue'
 import { errorHandler } from '@/utils/errorHandler'
+import i18n from '@/i18n'
 
 /**
  * 全局错误处理composable
@@ -59,7 +60,7 @@ export function useErrorHandler() {
    */
   const handleSubmit = async (submitFn, options = {}) => {
     const {
-      successMessage = '操作成功',
+      successMessage = i18n.global.t('common.operationSuccess'),
       confirmMessage = null,
       ...otherOptions
     } = options
@@ -86,8 +87,8 @@ export function useErrorHandler() {
    */
   const handleDelete = async (deleteFn, options = {}) => {
     const {
-      confirmMessage = '确定要删除吗？此操作不可撤销。',
-      successMessage = '删除成功',
+      confirmMessage = i18n.global.t('common.confirmDeleteMessage'),
+      successMessage = i18n.global.t('common.deleteSuccess'),
       ...otherOptions
     } = options
 
@@ -107,8 +108,8 @@ export function useErrorHandler() {
    */
   const handleBatchOperation = async (items, itemProcessor, options = {}) => {
     const {
-      confirmMessage = `确定要处理 ${items.length} 个项目吗？`,
-      successMessage = '批量操作完成',
+      confirmMessage = i18n.global.t('common.batchConfirmMessage', { n: items.length }),
+      successMessage = i18n.global.t('common.batchCompleted'),
       continueOnError = false,
       ...otherOptions
     } = options

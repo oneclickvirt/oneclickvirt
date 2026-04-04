@@ -17,5 +17,7 @@ export default {
   fileSizeExceeded: '文件大小不能超过 {size}MB',
   fileEmpty: '文件大小为0',
   fileTypeNotSupported: '文件类型不支持，仅支持: {types}',
-  fileExtNotSupported: '文件扩展名不支持，仅支持: {exts}'
+  fileExtNotSupported: '文件扩展名不支持，仅支持: {exts}',
+  maliciousCodeDetected: '检测到潜在的恶意代码',
+  fileReadFailed: '文件读取失败'
 }

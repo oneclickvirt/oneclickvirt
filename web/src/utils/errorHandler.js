@@ -77,7 +77,7 @@ export const errorHandler = {
     } = options
 
     let code = -1
-    let message = '未知错误'
+    let message = t('common.unknownError')
     let details = ''
 
     // 处理后端返回的业务错误

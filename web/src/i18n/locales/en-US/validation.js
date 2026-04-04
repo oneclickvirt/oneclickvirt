@@ -17,5 +17,7 @@ export default {
   fileSizeExceeded: 'File size cannot exceed {size}MB',
   fileEmpty: 'File is empty',
   fileTypeNotSupported: 'File type not supported, only: {types}',
-  fileExtNotSupported: 'File extension not supported, only: {exts}'
+  fileExtNotSupported: 'File extension not supported, only: {exts}',
+  maliciousCodeDetected: 'Potential malicious code detected',
+  fileReadFailed: 'File read failed'
 }

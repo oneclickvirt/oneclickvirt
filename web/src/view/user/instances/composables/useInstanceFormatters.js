@@ -2,7 +2,7 @@
 import { useI18n } from 'vue-i18n'
 
 export function useInstanceFormatters() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   const getNetworkTypeFromLegacy = (ipv4MappingType, hasIPv6) => {
     if (ipv4MappingType === 'nat') {
@@ -49,29 +49,29 @@ export function useInstanceFormatters() {
 
   const getTaskTitle = (task) => {
     const taskTypes = {
-      create: '创建实例',
-      delete: '删除实例',
-      start: '启动实例',
-      stop: '停止实例',
-      restart: '重启实例',
-      reset: '重置实例',
-      reset_password: '重置密码'
+      create: t('user.instanceDetail.taskTitleCreate'),
+      delete: t('user.instanceDetail.taskTitleDelete'),
+      start: t('user.instanceDetail.taskTitleStart'),
+      stop: t('user.instanceDetail.taskTitleStop'),
+      restart: t('user.instanceDetail.taskTitleRestart'),
+      reset: t('user.instanceDetail.taskTitleReset'),
+      reset_password: t('user.instanceDetail.taskTitleResetPassword')
     }
-    return taskTypes[task.taskType] || '实例操作'
+    return taskTypes[task.taskType] || t('user.instanceDetail.taskTitleDefault')
   }
 
   const getTaskTypeText = (taskType) => {
     const taskTypes = {
-      create: '创建',
-      delete: '删除',
-      start: '启动',
-      stop: '停止',
-      restart: '重启',
-      reset: '重置',
-      reset_password: '重置密码',
-      create_redemption_instance: '兑换开设'
+      create: t('user.instanceDetail.taskCreate'),
+      delete: t('user.instanceDetail.taskDelete'),
+      start: t('user.instanceDetail.taskStart'),
+      stop: t('user.instanceDetail.taskStop'),
+      restart: t('user.instanceDetail.taskRestart'),
+      reset: t('user.instanceDetail.taskReset'),
+      reset_password: t('user.instanceDetail.taskResetPassword'),
+      create_redemption_instance: t('user.instanceDetail.taskRedemption')
     }
-    return taskTypes[taskType] || '处理'
+    return taskTypes[taskType] || t('user.instanceDetail.taskDefault')
   }
 
   const getTaskAlertType = (status) => {
@@ -134,8 +134,8 @@ export function useInstanceFormatters() {
   }
 
   const formatDate = (dateString) => {
-    if (!dateString) return '暂无'
-    return new Date(dateString).toLocaleString('zh-CN')
+    if (!dateString) return t('user.instanceDetail.none')
+    return new Date(dateString).toLocaleString(locale.value)
   }
 
   // monitoring 作为参数传入以避免跨 composable 依赖

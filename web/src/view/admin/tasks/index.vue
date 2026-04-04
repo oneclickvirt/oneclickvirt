@@ -604,7 +604,7 @@ import { getAdminTasks, forceStopTask, getTaskStats, getTaskOverallStats, cancel
 import { getProviderList } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const loading = ref(false)
 const tasks = ref([])
@@ -835,7 +835,7 @@ const getTaskStatusText = (status) => {
 // 格式化日期时间
 const formatDateTime = (dateTime) => {
   if (!dateTime) return '-'
-  return new Date(dateTime).toLocaleString('zh-CN')
+  return new Date(dateTime).toLocaleString(locale.value)
 }
 
 // 格式化时长

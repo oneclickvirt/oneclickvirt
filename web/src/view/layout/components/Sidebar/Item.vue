@@ -9,7 +9,7 @@
     <span
       v-if="!isCollapse"
       class="menu-title"
-    >{{ title }}</span>
+    >{{ $t(title) }}</span>
   </div>
 </template>
 

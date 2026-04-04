@@ -104,6 +104,13 @@
             </el-tag>
           </template>
         </el-table-column>
+        <el-table-column prop="ip_version" :label="t('admin.blockRules.ipVersion')" width="120">
+          <template #default="{ row }">
+            <el-tag size="small" type="info">
+              {{ t(`admin.blockRules.ipVersions.${row.ip_version || 'both'}`) }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="created_at" :label="t('admin.blockRules.createdAt')" width="180">
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
@@ -236,6 +243,16 @@
             </el-select>
           </div>
         </el-form-item>
+        <el-form-item :label="t('admin.blockRules.ipVersion')" prop="ip_version">
+          <el-select v-model="applyForm.ip_version" style="width: 100%;">
+            <el-option
+              v-for="v in ipVersionOptions"
+              :key="v"
+              :label="t(`admin.blockRules.ipVersions.${v}`)"
+              :value="v"
+            />
+          </el-select>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button @click="showApplyDialog = false">{{ t('common.cancel') }}</el-button>
@@ -276,6 +293,7 @@ const instanceProviderFilter = ref(null)
 
 const categories = ['mining', 'bt', 'speedtest', 'custom']
 const scopeOptions = ['global', 'provider', 'instance']
+const ipVersionOptions = ['both', 'ipv4', 'ipv6']
 
 // Preset strings for each category
 const categoryPresets = {
@@ -316,7 +334,8 @@ const ruleForm = reactive({
 
 const applyForm = reactive({
   scope: 'global',
-  target_ids: []
+  target_ids: [],
+  ip_version: 'both'
 })
 
 const ruleFormRules = {
@@ -504,7 +523,8 @@ async function handleApplyRules() {
     await blockRulesApi.applyRules({
       rule_ids: selectedRules.value.map(r => r.id),
       scope: applyForm.scope,
-      target_ids: applyForm.scope === 'global' ? [] : applyForm.target_ids
+      target_ids: applyForm.scope === 'global' ? [] : applyForm.target_ids,
+      ip_version: applyForm.ip_version
     })
     ElMessage.success(t('admin.blockRules.applySuccess'))
     showApplyDialog.value = false

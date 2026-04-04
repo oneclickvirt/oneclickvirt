@@ -156,15 +156,8 @@ export function setupRouterGuards(router) {
         }
       } catch (error) {
         console.error('检查系统初始化状态失败:', error)
-        // 如果是网络错误或服务器错误，可能是数据库未初始化导致的
-        if (error.message.includes('Network Error') || 
-            error.response?.status >= 500 || 
-            error.code === 'ECONNREFUSED') {
-          console.warn('服务器连接失败，可能需要初始化，跳转到初始化页面')
-          next({ path: '/init' })
-          return
-        }
-        // 其他错误，允许继续访问，但在控制台记录错误
+        // On transient errors (network, 500, etc.), do NOT redirect to init page.
+        // Only redirect when the server explicitly returns needInit === true.
         console.warn('初始化检查失败，允许继续访问页面')
         // 不要阻塞，继续正常的路由逻辑
       }
@@ -239,6 +232,15 @@ export function setupRouterGuards(router) {
         return
       }
       
+      // 超级管理员专属页面：normal_admin 不能访问
+      const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers']
+      if (userStore.userType === 'normal_admin' && superAdminOnlyPaths.some(p => to.path.startsWith(p))) {
+        console.log('普通管理员尝试访问超管专属页面，拒绝访问')
+        ElMessage.warning(i18n.global.t('navbar.noPermission'))
+        next('/admin/dashboard')
+        return
+      }
+      
       if (to.meta.roles && to.meta.roles.length > 0) {
         const userRole = userStore.userType
         // 管理员和普通管理员可以访问所有页面（包括用户页面）
@@ -284,7 +286,9 @@ export function setupRouterGuards(router) {
   
   router.afterEach((to, from) => {
     NProgress.done()
-    document.title = to.meta.title ? `${to.meta.title} - OneClickVirt` : 'OneClickVirt'
+    const t = i18n.global.t
+    const title = to.meta.title ? t(to.meta.title) : ''
+    document.title = title ? `${title} - OneClickVirt` : 'OneClickVirt'
     
     // 对于用户页面，确保每次导航都触发组件刷新
     if (to.path.startsWith('/user/') && from.path !== to.path) {

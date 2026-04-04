@@ -85,11 +85,12 @@
             {{ scope.row.instanceType === 'container' ? t('admin.redemptionCodes.container') : t('admin.redemptionCodes.vm') }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.redemptionCodes.colSpecs')" min-width="160">
+        <el-table-column :label="t('admin.redemptionCodes.colSpecs')" min-width="200">
           <template #default="scope">
-            <span v-if="scope.row.cpuId || scope.row.memoryId">
-              CPU: {{ scope.row.cpuId }} / {{ scope.row.memoryId }}
-              <span v-if="scope.row.diskId"> / {{ scope.row.diskId }}</span>
+            <span v-if="scope.row.cpuName || scope.row.memoryName">
+              CPU: {{ scope.row.cpuName || scope.row.cpuId }} / {{ t('admin.redemptionCodes.memory') }}: {{ scope.row.memoryName || scope.row.memoryId }}
+              <span v-if="scope.row.diskName || scope.row.diskId"> / {{ t('admin.redemptionCodes.disk') }}: {{ scope.row.diskName || scope.row.diskId }}</span>
+              <span v-if="scope.row.bandwidthName || scope.row.bandwidthId"> / {{ t('admin.redemptionCodes.bandwidth') }}: {{ scope.row.bandwidthName || scope.row.bandwidthId }}</span>
             </span>
           </template>
         </el-table-column>

@@ -392,9 +392,9 @@ export function useProviderCRUD() {
   const freezeServer = async (id) => {
     try {
       await ElMessageBox.confirm(
-        '此操作将冻结该服务器，冻结后普通用户无法使用该服务器创建实例，是否继续？',
-        '确认冻结',
-        { confirmButtonText: '确定', cancelButtonText: '取消', type: 'warning' }
+        t('admin.providers.singleFreezeConfirm'),
+        t('admin.providers.confirmFreeze'),
+        { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
       )
       await freezeProvider(id)
       ElMessage.success(t('admin.providers.serverFrozen'))
@@ -407,14 +407,14 @@ export function useProviderCRUD() {
   const unfreezeServer = async (server) => {
     try {
       const { value: expiresAt } = await ElMessageBox.prompt(
-        '请输入新的过期时间（格式：YYYY-MM-DD HH:MM:SS 或 YYYY-MM-DD），留空则默认设置为31天后过期',
-        '解冻服务器',
+        t('admin.providers.unfreezeExpiryPrompt'),
+        t('admin.providers.unfreezeServer'),
         {
-          confirmButtonText: '确定',
-          cancelButtonText: '取消',
+          confirmButtonText: t('common.confirm'),
+          cancelButtonText: t('common.cancel'),
           inputPattern: /^(\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2})?)?$/,
           inputErrorMessage: t('admin.providers.validation.dateFormatError'),
-          inputPlaceholder: '如：2024-12-31 23:59:59 或留空'
+          inputPlaceholder: t('admin.providers.unfreezeExpiryPlaceholder')
         }
       )
       await unfreezeProvider(server.id, expiresAt || '')
@@ -443,11 +443,11 @@ export function useProviderCRUD() {
       }
     } catch (error) {
       loadingMessage.close()
-      let errorMsg = '健康检查失败'
+      let errorMsg = t('admin.providers.healthCheckFailed')
       if (error.message?.includes('timeout')) {
-        errorMsg = '健康检查超时，请检查网络连接或服务器状态'
+        errorMsg = t('admin.providers.healthCheckTimeout')
       } else if (error.message) {
-        errorMsg = '健康检查失败: ' + error.message
+        errorMsg = t('admin.providers.healthCheckFailed') + ': ' + error.message
       }
       ElMessage.error(errorMsg)
     }
