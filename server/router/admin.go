@@ -217,16 +217,16 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 域名管理
 		AdminGroup.GET("/domains", admin.AdminGetDomains)
 		AdminGroup.DELETE("/domains/:id", admin.AdminDeleteDomain)
-		AdminGroup.GET("/providers/:provider_id/domain-config", admin.GetDomainConfig)
-		AdminGroup.PUT("/providers/:provider_id/domain-config", admin.UpdateDomainConfig)
+		AdminGroup.GET("/providers/:id/domain-config", admin.GetDomainConfig)
+		AdminGroup.PUT("/providers/:id/domain-config", admin.UpdateDomainConfig)
 
 		// KYC管理
 		AdminGroup.GET("/kyc", admin.AdminGetKYCList)
 		AdminGroup.PUT("/kyc/:id/review", admin.AdminReviewKYC)
 
 		// 签到配置管理
-		AdminGroup.GET("/providers/:provider_id/checkin-config", admin.AdminGetCheckinConfig)
-		AdminGroup.PUT("/providers/:provider_id/checkin-config", admin.AdminUpdateCheckinConfig)
+		AdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
+		AdminGroup.PUT("/providers/:id/checkin-config", admin.AdminUpdateCheckinConfig)
 
 		// 管理员特殊操作
 		AdminGroup.POST("/users/:id/login-as", admin.AdminLoginAsUser)
