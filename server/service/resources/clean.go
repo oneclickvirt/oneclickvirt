@@ -83,7 +83,7 @@ func (s *PortMappingService) BatchDeletePortMappingWithTask(req admin.BatchDelet
 
 	// 将所有端口状态更新为 deleting
 	if err := global.APP_DB.Model(&provider.Port{}).Where("id IN ?", req.IDs).Update("status", "deleting").Error; err != nil {
-		global.APP_LOG.Warn("更新端口状态为deleting失败", zap.Error(err))
+		return nil, fmt.Errorf("更新端口状态为deleting失败: %v", err)
 	}
 
 	// 为每个端口创建任务数据
@@ -130,7 +130,7 @@ func (s *PortMappingService) DeletePortMappingWithTask(id uint) (*admin.DeletePo
 
 	// 将端口状态更新为 deleting
 	if err := global.APP_DB.Model(&port).Update("status", "deleting").Error; err != nil {
-		global.APP_LOG.Warn("更新端口状态为deleting失败", zap.Error(err))
+		return nil, fmt.Errorf("更新端口状态为deleting失败: %v", err)
 	}
 
 	// 创建任务数据

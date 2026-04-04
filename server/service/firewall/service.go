@@ -31,7 +31,7 @@ func DefaultBlockRules() []firewallModel.BlockRule {
 		"stratum", "raw.githubusercontent.com/xmrig", "github.com/xmrig",
 	})
 	btStrings, _ := json.Marshal([]string{
-		"BitTorrent", "BitTorrent protocol", "magnet:", ".torrent",
+		"BitTorrent", "BitTorrent protocol", "BitTorrent protocol\\x13", "magnet:", ".torrent",
 		"d1:ad2:id20", "d1:rd2:id20", "ut_metadata", "ut_pex",
 		"lt_metadata", "lt_donthave", "qBittorrent", "Transmission",
 		"Deluge", "aria2", "libtorrent", "uTorrent", "BiglyBT",

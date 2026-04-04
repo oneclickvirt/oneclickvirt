@@ -569,12 +569,6 @@
                       {{ formatTraffic(monitoring.trafficData?.totalLimit || 102400) }}
                     </span>
                   </div>
-                  <el-progress 
-                    :percentage="monitoring.trafficData?.usagePercent || 0"
-                    :color="getTrafficProgressColor(monitoring.trafficData?.usagePercent || 0)"
-                    :show-text="false"
-                    :stroke-width="10"
-                  />
                   <div class="usage-details">
                     <span :class="{ 'limited-text': monitoring.trafficData?.isLimited }">
                       {{ monitoring.trafficData?.isLimited ? t('user.instanceDetail.trafficOverlimit') : t('user.instanceDetail.normalUsage') }}

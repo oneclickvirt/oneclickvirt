@@ -93,7 +93,7 @@ const buildLineOption = (times, series, yFormatter, yMax) => {
       }
     },
     legend: { data: series.map(s => s.name), bottom: 0 },
-    grid: { top: 10, right: 20, bottom: 30, left: 50 },
+    grid: { top: 10, right: 20, bottom: 50, left: 60 },
     xAxis: {
       type: 'category',
       data: times,
@@ -256,7 +256,7 @@ defineExpose({ refresh: loadData })
 
 .chart-canvas {
   width: 100%;
-  height: 200px;
+  height: 240px;
 }
 
 .no-data {

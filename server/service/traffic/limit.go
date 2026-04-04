@@ -304,6 +304,8 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 		month := int(targetTime.Month())
 
 		// 使用聚合表查询用户月度流量，考虑不同provider的流量模式
+		// 直接通过 ith.provider_id 关联 providers 表，不依赖 instances 表
+		// 这样已删除实例的流量也能被正确统计
 		var monthlyTraffic float64
 		err := global.APP_DB.Raw(`
 			SELECT COALESCE(SUM(
@@ -314,7 +316,6 @@ func (s *LimitService) getUserTrafficHistoryFromPmacct(userID uint, months int) 
 				END
 			), 0)
 			FROM instance_traffic_histories ith
-			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
 			INNER JOIN providers p ON ith.provider_id = p.id
 			WHERE ith.user_id = ?
 			  AND ith.year = ?
@@ -556,6 +557,8 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 	// 查询用户月度流量汇总，关联providers表获取流量模式和倍率
 	// 直接使用instance_traffic_histories表按user_id聚合
 	// 注意：instance_traffic_histories 表中 traffic_in/traffic_out/total_used 已经是 MB 单位
+	// 使用 ith.provider_id 直接关联 providers 表，不再依赖 instances 表
+	// 这样已删除实例的流量也能被正确统计（与用户仪表盘一致）
 	query := `
 		SELECT 
 			u.id as user_id,
@@ -577,7 +580,6 @@ func (s *LimitService) GetUsersTrafficRanking(page, pageSize int, username, nick
 					END
 				) as month_usage
 			FROM instance_traffic_histories ith
-			INNER JOIN instances i ON ith.instance_id = i.id AND i.deleted_at IS NULL
 			INNER JOIN providers p ON ith.provider_id = p.id
 			WHERE ith.year = ?
 			  AND ith.month = ?

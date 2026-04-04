@@ -198,6 +198,10 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 			return fmt.Errorf("获取系统镜像信息失败: %v", err)
 		}
 
+		// 更新实例镜像名称为用户选择的镜像（可能与原镜像不同）
+		resetCtx.Instance.Image = resetImageName
+		resetCtx.Instance.OSType = resetCtx.SystemImage.OSType
+
 		// 4. 查询端口映射（包含status='active'的）
 		if err := global.APP_DB.Where("instance_id = ? AND status = ?", resetCtx.Instance.ID, "active").
 			Find(&resetCtx.OldPortMappings).Error; err != nil {

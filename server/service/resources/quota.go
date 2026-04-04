@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
+	"time"
 
 	"oneclickvirt/constant"
 	"oneclickvirt/service/database"
@@ -75,24 +77,41 @@ func (s *QuotaService) ValidateInstanceCreation(req ResourceRequest) (*QuotaChec
 	var result *QuotaCheckResult
 	var err error
 
-	// 开启串行化事务隔离级别（最高级别，完全避免并发问题）
-	err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
-		// 设置事务隔离级别为 SERIALIZABLE
-		if err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").Error; err != nil {
-			return fmt.Errorf("设置事务隔离级别失败: %v", err)
-		}
+	const maxRetries = 3
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		// 开启串行化事务隔离级别（最高级别，完全避免并发问题）
+		err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			// 设置事务隔离级别为 SERIALIZABLE
+			if err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").Error; err != nil {
+				return fmt.Errorf("设置事务隔离级别失败: %v", err)
+			}
 
-		result, err = s.validateInTransaction(tx, req)
-		if err != nil {
-			return err
-		}
+			result, err = s.validateInTransaction(tx, req)
+			if err != nil {
+				return err
+			}
 
-		if !result.Allowed {
-			return errors.New(result.Reason)
-		}
+			if !result.Allowed {
+				return errors.New(result.Reason)
+			}
 
-		return nil
-	})
+			return nil
+		})
+
+		if err == nil {
+			break
+		}
+		// SERIALIZABLE 事务在高并发下可能产生死锁或锁超时，自动重试
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "1213") || strings.Contains(errMsg, "Deadlock") ||
+			strings.Contains(errMsg, "1205") || strings.Contains(errMsg, "Lock wait timeout") {
+			if attempt < maxRetries-1 {
+				time.Sleep(time.Duration(math.Pow(2, float64(attempt))*100) * time.Millisecond)
+				continue
+			}
+		}
+		break
+	}
 
 	return result, err
 }

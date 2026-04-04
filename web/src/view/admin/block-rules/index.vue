@@ -212,7 +212,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -237,6 +237,35 @@ const applyFormRef = ref(null)
 
 const categories = ['mining', 'bt', 'speedtest', 'custom']
 const scopeOptions = ['global', 'provider']
+
+// Preset strings for each category (from iptables blocking documentation)
+const categoryPresets = {
+  mining: [
+    'ethermine.com', 'ethermine.org', 'antpool.one', 'antpool.com', 'pool.bar',
+    'c3pool', 'xmrig.com', 'blackcat.host', 'minexmr.com', 'supportxmr.com',
+    'monerohash.com', 'hashvault.pro', 'xmrpool.eu', 'minergate.com',
+    'webminepool.com', 'nanopool.org', '2miners.com', 'f2pool.com',
+    'sparkpool.com', 'nicehash.com', 'prohashing.com', 'coinhive.com',
+    'coinimp.com', 'cryptoloot.pro', 'xmrig', 'xmr-stak', 'cpuminer',
+    'cgminer', 'ethminer', 'stratum+tcp', 'stratum+ssl', 'stratum+http',
+    'stratum', 'raw.githubusercontent.com/xmrig', 'github.com/xmrig'
+  ],
+  bt: [
+    'BitTorrent', 'BitTorrent protocol', 'BitTorrent protocol\\x13',
+    'magnet:', '.torrent', 'd1:ad2:id20', 'd1:rd2:id20',
+    'ut_metadata', 'ut_pex', 'lt_metadata', 'lt_donthave',
+    'qBittorrent', 'Transmission', 'Deluge', 'aria2', 'libtorrent',
+    'uTorrent', 'BiglyBT', 'Vuze', 'xunlei', 'Thunder', 'XLLiveUD'
+  ],
+  speedtest: [
+    'speedtest', 'fast.com', 'speedtest.net', 'speedtest.com', 'speedtest.cn',
+    'ookla.com', 'speedtestcustom.com', 'ovo.speedtestcustom.com',
+    'speed.cloudflare.com', 'test.ustc.edu.cn', '10000.gd.cn',
+    'db.laomoe.com', 'jiyou.cloud', 'mirrors.ustc.edu.cn',
+    'mirrors.tuna.tsinghua.edu.cn', 'mirrors.aliyun.com',
+    '.speed', '.speed.', '/speedtest', '/speed-test'
+  ]
+}
 
 const ruleForm = reactive({
   name: '',
@@ -322,6 +351,13 @@ function resetRuleForm() {
   ruleForm.stringsText = ''
   ruleForm.enabled = true
 }
+
+// Auto-fill preset strings when category changes during creation
+watch(() => ruleForm.category, (newCategory) => {
+  if (!isEdit.value && categoryPresets[newCategory]) {
+    ruleForm.stringsText = categoryPresets[newCategory].join('\n')
+  }
+})
 
 function handleCreateRule() {
   isEdit.value = false

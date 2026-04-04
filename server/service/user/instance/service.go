@@ -32,6 +32,10 @@ func getInstanceActionLock(instanceID uint) *sync.Mutex {
 	return mu.(*sync.Mutex)
 }
 
+func releaseInstanceActionLock(instanceID uint) {
+	instanceActionMu.Delete(instanceID)
+}
+
 // Service 处理用户实例相关功能
 type Service struct{}
 
@@ -201,7 +205,10 @@ func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionReques
 	// 对同一实例加锁，防止并发请求同时通过"已有任务"检查后各自创建任务（TOCTOU）
 	mu := getInstanceActionLock(req.InstanceID)
 	mu.Lock()
-	defer mu.Unlock()
+	defer func() {
+		mu.Unlock()
+		releaseInstanceActionLock(req.InstanceID)
+	}()
 
 	var instance providerModel.Instance
 	if err := global.APP_DB.Where("id = ? AND user_id = ?", req.InstanceID, userID).First(&instance).Error; err != nil {
@@ -374,24 +381,27 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	}
 
 	detail := &userModel.UserInstanceDetailResponse{
-		ID:          instance.ID,
-		Name:        instance.Name,
-		Type:        instance.InstanceType,
-		Status:      instance.Status,
-		CPU:         instance.CPU,
-		Memory:      int(instance.Memory),
-		Disk:        int(instance.Disk),
-		Bandwidth:   instance.Bandwidth,
-		OsType:      instance.OSType,
-		PrivateIP:   instance.PrivateIP,   // 使用实例的内网IP
-		PublicIP:    instance.PublicIP,    // 使用实例的公网IP
-		IPv6Address: instance.IPv6Address, // 内网IPv6地址
-		PublicIPv6:  instance.PublicIPv6,  // 公网IPv6地址
-		SSHPort:     sshPort,              // 使用映射的公网端口
-		Username:    instance.Username,
-		Password:    instance.Password,
-		CreatedAt:   instance.CreatedAt,
-		ExpiresAt:   instance.ExpiresAt,
+		ID:           instance.ID,
+		Name:         instance.Name,
+		Type:         instance.InstanceType,
+		InstanceType: instance.InstanceType,
+		Status:       instance.Status,
+		CPU:          instance.CPU,
+		Memory:       int(instance.Memory),
+		Disk:         int(instance.Disk),
+		Bandwidth:    instance.Bandwidth,
+		OsType:       instance.OSType,
+		Image:        instance.Image,
+		ProviderID:   instance.ProviderID,
+		PrivateIP:    instance.PrivateIP,   // 使用实例的内网IP
+		PublicIP:     instance.PublicIP,    // 使用实例的公网IP
+		IPv6Address:  instance.IPv6Address, // 内网IPv6地址
+		PublicIPv6:   instance.PublicIPv6,  // 公网IPv6地址
+		SSHPort:      sshPort,              // 使用映射的公网端口
+		Username:     instance.Username,
+		Password:     instance.Password,
+		CreatedAt:    instance.CreatedAt,
+		ExpiresAt:    instance.ExpiresAt,
 	}
 
 	// 查询关联的 Provider 信息

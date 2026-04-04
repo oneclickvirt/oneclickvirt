@@ -118,12 +118,15 @@ type UserInstanceDetailResponse struct {
 	ID              uint       `json:"id"`
 	Name            string     `json:"name"`
 	Type            string     `json:"type"`
+	InstanceType    string     `json:"instance_type"` // 实例类型：container, vm
 	Status          string     `json:"status"`
 	CPU             int        `json:"cpu"`
 	Memory          int        `json:"memory"`
 	Disk            int        `json:"disk"`
 	Bandwidth       int        `json:"bandwidth"`
 	OsType          string     `json:"osType"`
+	Image           string     `json:"image"`       // 当前使用的镜像名称
+	ProviderID      uint       `json:"provider_id"` // Provider ID
 	PrivateIP       string     `json:"privateIP"`   // 内网IPv4地址
 	PublicIP        string     `json:"publicIP"`    // 公网IPv4地址
 	IPv6Address     string     `json:"ipv6Address"` // 内网IPv6地址
