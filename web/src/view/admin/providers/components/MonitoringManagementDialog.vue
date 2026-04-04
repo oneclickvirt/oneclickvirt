@@ -149,6 +149,13 @@
                     <el-option label="PMAcct" value="pmacct" />
                   </el-select>
                 </el-form-item>
+                <el-form-item :label="$t('admin.providers.trafficCollectMethod')">
+                  <el-select v-model="editConfig.traffic_collect_method" style="width: 160px;">
+                    <el-option label="nftables (NFT)" value="nft" />
+                    <el-option label="iptables (IPT)" value="ipt" />
+                  </el-select>
+                  <el-text type="info" size="small" style="margin-left: 8px;">{{ $t('admin.providers.trafficCollectMethodHint') }}</el-text>
+                </el-form-item>
                 <el-form-item :label="$t('admin.providers.agentPort')">
                   <el-input-number v-model="editConfig.agent_port" :min="1024" :max="65535" />
                 </el-form-item>
@@ -524,6 +531,7 @@ const agentMonitors = ref([])
 // snake_case to match backend JSON
 const config = reactive({
   monitoring_mode: 'agent',
+  traffic_collect_method: 'nft',
   agent_token: '',
   agent_port: 23782,
   agent_installed: false,
@@ -536,6 +544,7 @@ const config = reactive({
 
 const editConfig = reactive({
   monitoring_mode: 'agent',
+  traffic_collect_method: 'nft',
   agent_port: 23782,
   collect_interval: 5,
   resource_collect_interval: 30,
@@ -595,6 +604,7 @@ const loadConfig = async () => {
       const data = res.data || {}
       Object.assign(config, {
         monitoring_mode: data.monitoring_mode || 'agent',
+        traffic_collect_method: data.traffic_collect_method || 'nft',
         agent_token: data.agent_token || '',
         agent_port: data.agent_port || 23782,
         agent_installed: data.agent_installed || false,
@@ -606,6 +616,7 @@ const loadConfig = async () => {
       })
       Object.assign(editConfig, {
         monitoring_mode: config.monitoring_mode,
+        traffic_collect_method: config.traffic_collect_method,
         agent_port: config.agent_port,
         collect_interval: config.collect_interval,
         resource_collect_interval: config.resource_collect_interval,

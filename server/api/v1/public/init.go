@@ -182,7 +182,7 @@ func TestDatabaseConnection(c *gin.Context) {
 			zap.String("database", req.Database),
 			zap.String("username", req.Username),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败: "+err.Error()))
+		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败，请检查连接参数"))
 		return
 	}
 
@@ -256,7 +256,7 @@ func InitSystem(c *gin.Context) {
 
 	// 测试数据库连接
 	if err := initService.TestDatabaseConnection(dbConfig); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败: "+err.Error()))
+		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败，请检查连接参数"))
 		return
 	}
 

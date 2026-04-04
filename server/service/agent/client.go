@@ -287,6 +287,7 @@ func (c *Client) Ping() error {
 	if err != nil {
 		return err
 	}
+	io.Copy(io.Discard, resp.Body)
 	resp.Body.Close()
 	if resp.StatusCode >= 500 {
 		return fmt.Errorf("agent returned status %d", resp.StatusCode)

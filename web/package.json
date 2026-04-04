@@ -20,6 +20,7 @@
     "dotenv": "^17.2.1",
     "echarts": "^5.5.1",
     "element-plus": "^2.10.2",
+    "font-logos": "^1.3.0",
     "mitt": "^3.0.1",
     "nprogress": "^0.2.0",
     "path-browserify": "^1.0.1",

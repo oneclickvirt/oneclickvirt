@@ -1,6 +1,14 @@
 <template>
-  <span
+  <i
+    v-if="osInfo?.icon"
     class="os-icon"
+    :class="[osInfo.icon, 'fl-fw']"
+    :style="{ fontSize: size + 'px', color: osInfo.color }"
+    :title="osInfo.displayName || name"
+  />
+  <span
+    v-else
+    class="os-icon-fallback"
     :style="{
       backgroundColor: osInfo?.color || '#909399',
       width: size + 'px',
@@ -28,6 +36,14 @@ const osInfo = computed(() => matchOperatingSystem(props.name))
 
 <style scoped>
 .os-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.os-icon-fallback {
   display: inline-flex;
   align-items: center;
   justify-content: center;

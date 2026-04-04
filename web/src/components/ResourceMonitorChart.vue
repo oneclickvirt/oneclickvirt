@@ -176,15 +176,17 @@ const loadData = async () => {
     if (res.code === 0 || res.code === 200) {
       const data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
       hasData.value = data.length > 0
+      loading.value = false
       if (hasData.value) {
         await nextTick()
         renderCharts(data)
       }
+    } else {
+      loading.value = false
     }
   } catch (e) {
     console.error('Failed to load resource monitoring data:', e)
     hasData.value = false
-  } finally {
     loading.value = false
   }
 }
@@ -194,6 +196,8 @@ const handleResize = () => {
   memChart?.resize()
   diskChart?.resize()
 }
+
+let resizeObserver = null
 
 onMounted(() => {
   loadData()
@@ -205,6 +209,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', handleResize)
+  if (resizeObserver) resizeObserver.disconnect()
   cpuChart?.dispose()
   memChart?.dispose()
   diskChart?.dispose()
@@ -213,6 +218,17 @@ onUnmounted(() => {
 
 watch(() => props.instanceId, () => {
   loadData()
+})
+
+// Watch for cpuChartRef to appear in DOM and attach ResizeObserver
+// so charts resize correctly when a hidden tab becomes visible
+watch(cpuChartRef, (el) => {
+  if (el && !resizeObserver) {
+    resizeObserver = new ResizeObserver(() => {
+      handleResize()
+    })
+    resizeObserver.observe(el)
+  }
 })
 
 defineExpose({ refresh: loadData })

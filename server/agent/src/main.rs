@@ -5,6 +5,7 @@ mod db;
 mod docs;
 mod error;
 mod handlers;
+mod ipt;
 mod models;
 mod nft;
 mod resource;
@@ -43,9 +44,13 @@ async fn main() {
         .and_then(|v| v.parse().ok())
         .unwrap_or(30);
 
+    let traffic_collect_method = env::var("TRAFFIC_COLLECT_METHOD")
+        .unwrap_or_else(|_| "nft".to_string());
+
     info!(
         traffic_collect_interval,
         resource_collect_interval,
+        %traffic_collect_method,
         "collection intervals configured"
     );
 
@@ -53,17 +58,35 @@ async fn main() {
     let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     init_db(&conn).expect("failed to init sqlite tables");
     info!("database initialized");
-    if let Err(err) = nft::bootstrap_from_db(&conn) {
-        warn!(
-            error = %err.message,
-            "failed to bootstrap nft counters, external traffic stats may be unavailable until fixed"
-        );
-    }
-    if let Err(err) = nft::garbage_collect_orphans(&conn) {
-        warn!(
-            error = %err.message,
-            "startup orphan nft GC failed, old runtime rules may remain"
-        );
+
+    if traffic_collect_method == "ipt" {
+        info!("using iptables for traffic collection");
+        if let Err(err) = ipt::bootstrap_from_db(&conn) {
+            warn!(
+                error = %err.message,
+                "failed to bootstrap iptables counters"
+            );
+        }
+        if let Err(err) = ipt::garbage_collect_orphans(&conn) {
+            warn!(
+                error = %err.message,
+                "startup orphan iptables GC failed"
+            );
+        }
+    } else {
+        info!("using nftables for traffic collection");
+        if let Err(err) = nft::bootstrap_from_db(&conn) {
+            warn!(
+                error = %err.message,
+                "failed to bootstrap nft counters, external traffic stats may be unavailable until fixed"
+            );
+        }
+        if let Err(err) = nft::garbage_collect_orphans(&conn) {
+            warn!(
+                error = %err.message,
+                "startup orphan nft GC failed, old runtime rules may remain"
+            );
+        }
     }
 
     nft::restore_block_rules();
@@ -73,6 +96,7 @@ async fn main() {
         api_token,
         traffic_collect_interval,
         resource_collect_interval,
+        traffic_collect_method,
     };
 
     start_collector(state.clone());

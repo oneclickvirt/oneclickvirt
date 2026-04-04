@@ -27,7 +27,7 @@ func InitResourceRouter(Router *gin.RouterGroup) {
 // InitProviderRouter Provider API路由
 func InitProviderRouter(Router *gin.RouterGroup) {
 	ProviderGroup := Router.Group("/v1/providers")
-	ProviderGroup.Use(middleware.RequireAuth(authModel.AuthLevelUser))
+	ProviderGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
 	{
 		providerApi := &provider.ProviderApi{}
 		ProviderGroup.GET("/", providerApi.GetProviders)

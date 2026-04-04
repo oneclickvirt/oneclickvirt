@@ -411,6 +411,8 @@ export default {
   agentMonitoring: "Agent Monitoring (Recommended)",
   pmacctMonitoring: "PMAcct Monitoring (Legacy)",
   monitoringMode: "Monitoring Mode",
+  trafficCollectMethod: "Traffic Collection Method",
+  trafficCollectMethodHint: "Agent uses nftables or iptables for traffic collection, default nftables",
   agentStatus: "Agent Status",
   agentVersion: "Agent Version",
   agentPort: "Agent Port",

@@ -197,6 +197,7 @@ func DeployAgent(c *gin.Context) {
 		ResourceCollectInterval: config.ResourceCollectInterval,
 		ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
 		ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
+		TrafficCollectMethod:    config.TrafficCollectMethod,
 	}
 	logs, err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version)
 	if err != nil {

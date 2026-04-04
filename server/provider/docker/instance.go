@@ -512,9 +512,27 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
 		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
-			return fmt.Errorf("Docker iptables chains missing on provider host (run: systemctl restart docker): %w", err)
+			// Auto-repair: restart the container runtime to recreate iptables chains
+			if repairErr := d.repairIptablesChains(config.Name); repairErr != nil {
+				global.APP_LOG.Error("iptables自动修复失败",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.Error(repairErr))
+				return fmt.Errorf("Docker iptables chains missing and auto-repair failed: %w", err)
+			}
+			// Retry container creation after repair
+			global.APP_LOG.Info("iptables修复完成，重试创建容器",
+				zap.String("name", utils.TruncateString(config.Name, 32)))
+			output, err = d.sshClient.Execute(cmd)
+			if err != nil {
+				global.APP_LOG.Error("iptables修复后创建容器仍然失败",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.String("output", utils.TruncateString(output, 500)),
+					zap.Error(err))
+				return fmt.Errorf("failed to create container after iptables repair: %w", err)
+			}
+		} else {
+			return fmt.Errorf("failed to create container: %w", err)
 		}
-		return fmt.Errorf("failed to create container: %w", err)
 	}
 
 	// 等待容器完全启动并验证状态
@@ -599,6 +617,53 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	updateProgress(100, "Docker实例创建完成")
 	global.APP_LOG.Info("容器实例创建成功", zap.String("name", utils.TruncateString(config.Name, 32)))
+	return nil
+}
+
+// repairIptablesChains restarts the container runtime service to recreate iptables/nftables chains.
+// It first removes any failed container, then restarts only the specific daemon service.
+func (d *DockerProvider) repairIptablesChains(containerName string) error {
+	// Remove the partially-created container first (if any)
+	if containerName != "" {
+		rmCmd := fmt.Sprintf("%s rm -f %s 2>/dev/null || true", d.runtime.CLI, containerName)
+		_, _ = d.sshClient.Execute(rmCmd)
+	}
+
+	// Map provider type to systemd service name
+	serviceName := ""
+	switch d.runtime.ProviderType {
+	case "docker":
+		serviceName = "docker"
+	case "podman":
+		serviceName = "podman"
+	case "containerd":
+		serviceName = "containerd"
+	default:
+		serviceName = d.runtime.ProviderType
+	}
+
+	global.APP_LOG.Info("正在重启容器运行时以修复iptables chains",
+		zap.String("service", serviceName),
+		zap.String("provider_type", d.runtime.ProviderType))
+
+	restartCmd := fmt.Sprintf("systemctl restart %s", serviceName)
+	output, err := d.sshClient.Execute(restartCmd)
+	if err != nil {
+		return fmt.Errorf("restart %s failed: %s: %w", serviceName, output, err)
+	}
+
+	// Wait for the service to be ready
+	time.Sleep(5 * time.Second)
+
+	// Verify the service is running
+	checkCmd := fmt.Sprintf("systemctl is-active %s", serviceName)
+	status, err := d.sshClient.Execute(checkCmd)
+	if err != nil || !strings.Contains(strings.TrimSpace(status), "active") {
+		return fmt.Errorf("%s service not active after restart: %s", serviceName, strings.TrimSpace(status))
+	}
+
+	global.APP_LOG.Info("容器运行时重启完成",
+		zap.String("service", serviceName))
 	return nil
 }
 

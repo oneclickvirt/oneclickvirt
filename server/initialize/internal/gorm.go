@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"regexp"
 	"time"
 
 	"oneclickvirt/global"
@@ -122,6 +123,10 @@ func createDatabaseIfNotExists(m config.MysqlConfig) error {
 
 	// 如果数据库不存在则创建
 	if count == 0 {
+		validDBName := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+		if !validDBName.MatchString(m.Dbname) {
+			return fmt.Errorf("非法数据库名称: %s", m.Dbname)
+		}
 		createSQL := fmt.Sprintf("CREATE DATABASE `%s` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci", m.Dbname)
 		err = db.Exec(createSQL).Error
 		if err != nil {

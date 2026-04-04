@@ -64,6 +64,9 @@ type MonitoringConfig struct {
 	ProviderID uint           `gorm:"uniqueIndex:uk_provider;not null" json:"provider_id"`
 	// MonitoringMode: "agent" (default, nft-based) or "pmacct" (legacy fallback)
 	MonitoringMode string `gorm:"size:16;not null;default:agent" json:"monitoring_mode"`
+	// TrafficCollectMethod: "nft" (default, nftables-based) or "ipt" (iptables-based).
+	// Controls which backend the agent uses for traffic counting.
+	TrafficCollectMethod string `gorm:"size:8;not null;default:nft" json:"traffic_collect_method"`
 	// AgentToken is the API_TOKEN for the agent on this provider host.
 	AgentToken string `gorm:"size:255" json:"agent_token"`
 	// AgentPort defaults to 23782.

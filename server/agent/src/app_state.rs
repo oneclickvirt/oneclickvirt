@@ -10,4 +10,6 @@ pub struct AppState {
     pub traffic_collect_interval: u64,
     /// Resource collection interval in seconds (default: 30)
     pub resource_collect_interval: u64,
+    /// Traffic collection method: "nft" (default) or "ipt"
+    pub traffic_collect_method: String,
 }

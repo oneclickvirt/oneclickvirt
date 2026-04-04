@@ -28,6 +28,7 @@ type AgentConfig struct {
 	ResourceCollectInterval int // seconds, default 30
 	ExtraExcludeCIDRsV4     string
 	ExtraExcludeCIDRsV6     string
+	TrafficCollectMethod    string // "nft" (default) or "ipt"
 }
 
 func (c *AgentConfig) trafficInterval() int {
@@ -50,6 +51,11 @@ func buildEnvFile(cfg *AgentConfig) string {
 	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_INTERVAL=%d\n", cfg.trafficInterval()))
 	sb.WriteString(fmt.Sprintf("RESOURCE_COLLECT_INTERVAL=%d\n", cfg.resourceInterval()))
 	sb.WriteString("RUST_LOG=info\n")
+	method := cfg.TrafficCollectMethod
+	if method == "" {
+		method = "nft"
+	}
+	sb.WriteString(fmt.Sprintf("TRAFFIC_COLLECT_METHOD=%s\n", method))
 	if cfg.ExtraExcludeCIDRsV4 != "" {
 		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V4=%s\n", cfg.ExtraExcludeCIDRsV4))
 	}
@@ -100,38 +106,69 @@ DOWNLOAD_URLS="%s"
 SERVICE_NAME="%s"
 VERSION="%s"
 
-echo "[1/6] check and install nftables dependency..."
-if ! command -v nft >/dev/null 2>&1; then
-    echo "  nft command not found, installing nftables..."
-    if command -v apt-get >/dev/null 2>&1; then
-        apt-get update -qq && apt-get install -y -qq nftables >/dev/null 2>&1
-    elif command -v dnf >/dev/null 2>&1; then
-        dnf install -y -q nftables >/dev/null 2>&1
-    elif command -v yum >/dev/null 2>&1; then
-        yum install -y -q nftables >/dev/null 2>&1
-    elif command -v apk >/dev/null 2>&1; then
-        apk add --quiet nftables >/dev/null 2>&1
-    elif command -v pacman >/dev/null 2>&1; then
-        pacman -Sy --noconfirm nftables >/dev/null 2>&1
-    elif command -v zypper >/dev/null 2>&1; then
-        zypper install -y -q nftables >/dev/null 2>&1
-    else
-        echo "  [WARN] unknown package manager, please install nftables manually"
+echo "[1/6] check and install traffic monitoring dependency..."
+# Read collect method from .env if already present, otherwise default to nft
+COLLECT_METHOD=""
+if [ -f "$INSTALL_DIR/.env" ]; then
+    COLLECT_METHOD=$(grep -oP 'TRAFFIC_COLLECT_METHOD=\K.*' "$INSTALL_DIR/.env" 2>/dev/null || true)
+fi
+# The new .env will be written below; parse the base64-encoded one for the intended method
+INTENDED_METHOD=$(printf '%%s' "%s" | base64 -d 2>/dev/null | grep -oP 'TRAFFIC_COLLECT_METHOD=\K.*' || echo "nft")
+COLLECT_METHOD="${INTENDED_METHOD:-nft}"
+
+if [ "$COLLECT_METHOD" = "ipt" ]; then
+    echo "  Traffic collect method: iptables"
+    if ! command -v iptables >/dev/null 2>&1; then
+        echo "  iptables command not found, installing..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq iptables >/dev/null 2>&1
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y -q iptables >/dev/null 2>&1
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y -q iptables >/dev/null 2>&1
+        elif command -v apk >/dev/null 2>&1; then
+            apk add --quiet iptables >/dev/null 2>&1
+        elif command -v pacman >/dev/null 2>&1; then
+            pacman -Sy --noconfirm iptables >/dev/null 2>&1
+        elif command -v zypper >/dev/null 2>&1; then
+            zypper install -y -q iptables >/dev/null 2>&1
+        fi
     fi
-    if command -v nft >/dev/null 2>&1; then
-        echo "  nftables installed successfully"
-    else
-        echo "  [WARN] nftables installation may have failed, traffic monitoring may not work"
-    fi
+    echo "  iptables: $(iptables --version 2>/dev/null || echo 'not found')"
 else
-    echo "  nftables already installed ($(nft -v 2>/dev/null || echo 'version unknown'))"
+    echo "  Traffic collect method: nftables"
+    if ! command -v nft >/dev/null 2>&1; then
+        echo "  nft command not found, installing nftables..."
+        if command -v apt-get >/dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq nftables >/dev/null 2>&1
+        elif command -v dnf >/dev/null 2>&1; then
+            dnf install -y -q nftables >/dev/null 2>&1
+        elif command -v yum >/dev/null 2>&1; then
+            yum install -y -q nftables >/dev/null 2>&1
+        elif command -v apk >/dev/null 2>&1; then
+            apk add --quiet nftables >/dev/null 2>&1
+        elif command -v pacman >/dev/null 2>&1; then
+            pacman -Sy --noconfirm nftables >/dev/null 2>&1
+        elif command -v zypper >/dev/null 2>&1; then
+            zypper install -y -q nftables >/dev/null 2>&1
+        else
+            echo "  [WARN] unknown package manager, please install nftables manually"
+        fi
+        if command -v nft >/dev/null 2>&1; then
+            echo "  nftables installed successfully"
+        else
+            echo "  [WARN] nftables installation may have failed, traffic monitoring may not work"
+        fi
+    else
+        echo "  nftables already installed ($(nft -v 2>/dev/null || echo 'version unknown'))"
+    fi
+    # Ensure nftables service is enabled and started
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable nftables 2>/dev/null || true
+        systemctl start nftables 2>/dev/null || true
+    fi
 fi
-# Ensure nftables service is enabled and started
-if command -v systemctl >/dev/null 2>&1; then
-    systemctl enable nftables 2>/dev/null || true
-    systemctl start nftables 2>/dev/null || true
-fi
-echo "[OK] 1/6 nftables dependency checked"
+echo "[OK] 1/6 dependency checked"
 
 echo "[2/6] create install directory..."
 mkdir -p "$INSTALL_DIR"
@@ -191,6 +228,7 @@ echo "DEPLOY_SUCCESS"
 		urlList,
 		AgentServiceName,
 		version,
+		envB64, // for dependency detection
 		envB64,
 		svcB64,
 	)

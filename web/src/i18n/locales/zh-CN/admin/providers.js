@@ -386,6 +386,8 @@ export default {
   agentMonitoring: "Agent 监控（推荐）",
   pmacctMonitoring: "PMAcct 监控（旧）",
   monitoringMode: "监控模式",
+  trafficCollectMethod: "流量采集方式",
+  trafficCollectMethodHint: "Agent端使用nftables或iptables采集流量，默认nftables",
   agentStatus: "Agent 状态",
   agentVersion: "Agent 版本",
   agentPort: "Agent 端口",

@@ -89,11 +89,44 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 
 	// Process each monitor within a single transaction to reduce commit overhead
 	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		// Batch-load current UserID for all monitored instances so we use the
+		// authoritative value rather than the potentially stale monitor.UserID.
+		instanceIDs := make([]uint, 0, len(monitors))
+		for i := range monitors {
+			instanceIDs = append(instanceIDs, monitors[i].InstanceID)
+		}
+		type idPair struct {
+			ID     uint
+			UserID uint
+		}
+		var pairs []idPair
+		if err := tx.Model(&providerModel.Instance{}).Select("id, user_id").Where("id IN ?", instanceIDs).Find(&pairs).Error; err != nil {
+			return fmt.Errorf("batch load instance user_ids: %w", err)
+		}
+		instanceUserMap := make(map[uint]uint, len(pairs))
+		for _, p := range pairs {
+			instanceUserMap[p.ID] = p.UserID
+		}
+
 		txSync := &SyncService{db: tx, ctx: s.ctx}
 		for agentID, info := range infoMap {
 			monitor := monitorByAgentID[agentID]
 			if monitor == nil {
 				continue
+			}
+
+			// Refresh monitor.UserID from the instance table if it changed
+			if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
+				oldUID := monitor.UserID
+				monitor.UserID = currentUID
+				tx.Model(monitor).Update("user_id", currentUID)
+				// Backfill stale user_id in existing pmacct_traffic_records for this instance
+				if oldUID != currentUID {
+					tx.Exec("UPDATE pmacct_traffic_records SET user_id = ? WHERE instance_id = ? AND user_id = ?",
+						currentUID, monitor.InstanceID, oldUID)
+					tx.Exec("UPDATE instance_traffic_histories SET user_id = ? WHERE instance_id = ? AND user_id = ?",
+						currentUID, monitor.InstanceID, oldUID)
+				}
 			}
 
 			currentTraffic := info.UsedTraffic

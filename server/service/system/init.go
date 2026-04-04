@@ -3,6 +3,7 @@ package system
 import (
 	"fmt"
 	"os"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -77,6 +78,12 @@ func (s *InitService) TestDatabaseConnection(config config.DatabaseConfig) error
 	}
 
 	// 检查数据库是否存在，如果不存在则创建
+	// Validate database name to prevent SQL injection (DDL cannot use parameterized queries)
+	validDBName := regexp.MustCompile(`^[a-zA-Z0-9_]+$`)
+	if !validDBName.MatchString(config.Database) {
+		return fmt.Errorf("非法数据库名称: %s", config.Database)
+	}
+
 	var count int64
 	err = db.Raw("SELECT COUNT(*) FROM information_schema.SCHEMATA WHERE SCHEMA_NAME = ?", config.Database).Scan(&count).Error
 	if err != nil {

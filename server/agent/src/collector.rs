@@ -2,7 +2,8 @@ use crate::{
     app_state::AppState,
     db::{AUTO_CLEANUP_SECONDS, cleanup_old_resource_metrics, cleanup_stale_monitors, now_ts},
     error::ApiError,
-    nft::{garbage_collect_orphans, read_external_bytes},
+    ipt,
+    nft,
     resource,
 };
 use rusqlite::{Connection, params};
@@ -38,7 +39,7 @@ pub fn normalize_interface_name(raw: &str) -> Option<String> {
     Some(base.to_owned())
 }
 
-fn collect_once(conn: &Connection) -> Result<(), ApiError> {
+fn collect_once(conn: &Connection, use_ipt: bool) -> Result<(), ApiError> {
     let now = now_ts();
 
     let mut monitor_stmt = conn
@@ -71,7 +72,11 @@ fn collect_once(conn: &Connection) -> Result<(), ApiError> {
         for row in state_rows {
             let (interface, last_counter_in, last_counter_out) =
                 row.map_err(|e| ApiError::internal(format!("state row error: {e}")))?;
-            if let Some((current_in, current_out)) = read_external_bytes(monitor_id, &interface) {
+            if let Some((current_in, current_out)) = if use_ipt {
+                ipt::read_external_bytes(monitor_id, &interface)
+            } else {
+                nft::read_external_bytes(monitor_id, &interface)
+            } {
                 has_readable_interface = true;
                 if current_in >= last_counter_in {
                     increment_in = increment_in.saturating_add(current_in - last_counter_in);
@@ -153,6 +158,7 @@ fn collect_resources(conn: &Connection) -> Result<(), ApiError> {
 pub fn start_collector(state: AppState) {
     let traffic_interval = state.traffic_collect_interval.max(1);
     let resource_interval = state.resource_collect_interval.max(10);
+    let use_ipt = state.traffic_collect_method == "ipt";
 
     // Calculate how many traffic ticks equal one resource collection cycle
     let resource_ticks = (resource_interval / traffic_interval).max(1);
@@ -161,6 +167,7 @@ pub fn start_collector(state: AppState) {
         traffic_interval_secs = traffic_interval,
         resource_interval_secs = resource_interval,
         resource_ticks,
+        use_ipt,
         "collector started"
     );
 
@@ -170,7 +177,7 @@ pub fn start_collector(state: AppState) {
             ticks = ticks.saturating_add(1);
             {
                 let conn = state.conn.lock().await;
-                if let Err(err) = collect_once(&conn) {
+                if let Err(err) = collect_once(&conn, use_ipt) {
                     error!(error = %err.message, "collector iteration failed");
                 }
                 // Collect resource metrics at configured interval
@@ -187,8 +194,13 @@ pub fn start_collector(state: AppState) {
                     Ok(deleted) => {
                         if deleted > 0 {
                             info!(deleted, max_age_seconds = AUTO_CLEANUP_SECONDS, "auto cleanup removed stale monitors");
-                            if let Err(err) = garbage_collect_orphans(&conn) {
-                                error!(error = %err.message, "orphan nft GC after auto cleanup failed");
+                            let gc_result = if use_ipt {
+                                ipt::garbage_collect_orphans(&conn)
+                            } else {
+                                nft::garbage_collect_orphans(&conn)
+                            };
+                            if let Err(err) = gc_result {
+                                error!(error = %err.message, "orphan GC after auto cleanup failed");
                             }
                         }
                     }
@@ -197,14 +209,19 @@ pub fn start_collector(state: AppState) {
                     }
                 }
                 if ticks % 60 == 0 {
-                    match garbage_collect_orphans(&conn) {
+                    let gc_result = if use_ipt {
+                        ipt::garbage_collect_orphans(&conn)
+                    } else {
+                        nft::garbage_collect_orphans(&conn)
+                    };
+                    match gc_result {
                         Ok(removed) => {
                             if removed > 0 {
-                                info!(removed, "periodic orphan nft GC removed stale rules");
+                                info!(removed, "periodic orphan GC removed stale rules");
                             }
                         }
                         Err(err) => {
-                            error!(error = %err.message, "periodic orphan nft GC failed");
+                            error!(error = %err.message, "periodic orphan GC failed");
                         }
                     }
                 }
