@@ -119,15 +119,18 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	}
 
 	domain := &domainModel.Domain{
-		UserID:       userID,
-		InstanceID:   req.InstanceID,
-		ProviderID:   provider.ID,
-		DomainName:   req.DomainName,
-		Protocol:     req.Protocol,
-		InternalIP:   req.InternalIP,
-		InternalPort: req.InternalPort,
-		EnableSSL:    req.EnableSSL,
-		Status:       "active",
+		UserID:         userID,
+		InstanceID:     req.InstanceID,
+		ProviderID:     provider.ID,
+		DomainName:     req.DomainName,
+		Protocol:       req.Protocol,
+		InternalIP:     req.InternalIP,
+		InternalPort:   req.InternalPort,
+		EnableSSL:      req.EnableSSL,
+		SSLCertContent: req.SSLCertContent,
+		SSLKeyContent:  req.SSLKeyContent,
+		HasCert:        req.SSLCertContent != "" && req.SSLKeyContent != "",
+		Status:         "active",
 	}
 	if err := global.APP_DB.Create(domain).Error; err != nil {
 		return nil, fmt.Errorf("创建域名绑定失败: %v", err)
@@ -139,7 +142,7 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 		if protocol == "" {
 			protocol = "http"
 		}
-		_, err := client.AddDomainProxy(req.DomainName, req.InternalIP, req.InternalPort, protocol, req.EnableSSL)
+		_, err := client.AddDomainProxy(req.DomainName, req.InternalIP, req.InternalPort, protocol, req.EnableSSL, req.SSLCertContent, req.SSLKeyContent)
 		if err != nil {
 			global.APP_LOG.Error("域名代理应用到Agent失败",
 				zap.String("domain", req.DomainName),
@@ -201,6 +204,13 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 	}
 	updates["enable_ssl"] = req.EnableSSL
 
+	// Handle cert content
+	if req.SSLCertContent != "" && req.SSLKeyContent != "" {
+		updates["ssl_cert_content"] = req.SSLCertContent
+		updates["ssl_key_content"] = req.SSLKeyContent
+		updates["has_cert"] = true
+	}
+
 	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
 		return err
 	}
@@ -220,7 +230,16 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 			protocol = v
 		}
 		enableSSL := req.EnableSSL
-		if _, err := client.AddDomainProxy(domain.DomainName, ip, port, protocol, enableSSL); err != nil {
+		// Use new cert if provided, otherwise use existing
+		certContent := req.SSLCertContent
+		keyContent := req.SSLKeyContent
+		if certContent == "" {
+			certContent = domain.SSLCertContent
+		}
+		if keyContent == "" {
+			keyContent = domain.SSLKeyContent
+		}
+		if _, err := client.AddDomainProxy(domain.DomainName, ip, port, protocol, enableSSL, certContent, keyContent); err != nil {
 			global.APP_LOG.Warn("域名代理更新Agent失败",
 				zap.String("domain", domain.DomainName),
 				zap.Error(err))
@@ -326,19 +345,23 @@ func (s *Service) UpdateDomainConfig(providerID uint, req *UpdateDomainConfigReq
 // Request/Response types
 
 type CreateDomainRequest struct {
-	InstanceID   uint   `json:"instanceId" binding:"required"`
-	DomainName   string `json:"domainName" binding:"required"`
-	Protocol     string `json:"protocol"`
-	InternalIP   string `json:"internalIP" binding:"required"`
-	InternalPort int    `json:"internalPort" binding:"required"`
-	EnableSSL    bool   `json:"enableSSL"`
+	InstanceID     uint   `json:"instanceId" binding:"required"`
+	DomainName     string `json:"domainName" binding:"required"`
+	Protocol       string `json:"protocol"`
+	InternalIP     string `json:"internalIP" binding:"required"`
+	InternalPort   int    `json:"internalPort" binding:"required"`
+	EnableSSL      bool   `json:"enableSSL"`
+	SSLCertContent string `json:"sslCertContent"`
+	SSLKeyContent  string `json:"sslKeyContent"`
 }
 
 type UpdateDomainRequest struct {
-	InternalIP   string `json:"internalIP"`
-	InternalPort int    `json:"internalPort"`
-	Protocol     string `json:"protocol"`
-	EnableSSL    bool   `json:"enableSSL"`
+	InternalIP     string `json:"internalIP"`
+	InternalPort   int    `json:"internalPort"`
+	Protocol       string `json:"protocol"`
+	EnableSSL      bool   `json:"enableSSL"`
+	SSLCertContent string `json:"sslCertContent"`
+	SSLKeyContent  string `json:"sslKeyContent"`
 }
 
 type UpdateDomainConfigRequest struct {

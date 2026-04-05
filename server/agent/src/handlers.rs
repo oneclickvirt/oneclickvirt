@@ -715,11 +715,35 @@ pub async fn add_domain_proxy(
 
     let enable_ssl = req.enable_ssl.unwrap_or(false);
 
-    // Save to DB first
+    // Validate and parse SSL cert if provided
+    let ssl_cert = req.ssl_cert.unwrap_or_default();
+    let ssl_key = req.ssl_key.unwrap_or_default();
+    if enable_ssl && !ssl_cert.is_empty() && !ssl_key.is_empty() {
+        // Validate cert/key pair by parsing
+        match crate::proxy::parse_certified_key(&ssl_cert, &ssl_key) {
+            Ok(ck) => {
+                // Add to in-memory cert store
+                if let Ok(mut store) = state.cert_store.write() {
+                    store.insert(req.domain.clone(), std::sync::Arc::new(ck));
+                }
+                info!(domain = %req.domain, "domain SSL certificate loaded");
+            }
+            Err(e) => {
+                return Err(ApiError::bad_request(format!("invalid SSL certificate: {e}")));
+            }
+        }
+    } else if !enable_ssl {
+        // Remove cert from store if SSL is disabled
+        if let Ok(mut store) = state.cert_store.write() {
+            store.remove(&req.domain);
+        }
+    }
+
+    // Save to DB
     let conn = state.conn.lock().await;
     conn.execute(
-        "INSERT OR REPLACE INTO domain_proxies (domain, internal_ip, internal_port, protocol, enable_ssl, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol, enable_ssl as i32, now_ts()],
+        "INSERT OR REPLACE INTO domain_proxies (domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, ssl_key, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol, enable_ssl as i32, ssl_cert, ssl_key, now_ts()],
     ).map_err(|e| ApiError::internal(format!("save domain proxy error: {e}")))?;
     drop(conn);
 
@@ -767,6 +791,11 @@ pub async fn remove_domain_proxy(
     // Remove from in-memory proxy routes
     let removed = crate::proxy::remove_route(&state.proxy_routes, &req.domain).await;
 
+    // Remove from cert store
+    if let Ok(mut store) = state.cert_store.write() {
+        store.remove(&req.domain);
+    }
+
     info!(domain = %req.domain, "domain proxy removed");
     Ok(Json(RemoveDomainProxyResponse {
         domain: req.domain,
@@ -792,17 +821,19 @@ pub async fn list_domain_proxies(
 ) -> Result<Json<ListDomainProxiesResponse>, ApiError> {
     let conn = state.conn.lock().await;
     let mut stmt = conn
-        .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, created_at FROM domain_proxies ORDER BY created_at")
+        .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, ssl_cert, created_at FROM domain_proxies ORDER BY created_at")
         .map_err(|e| ApiError::internal(format!("prepare domain proxy query: {e}")))?;
 
     let rows = stmt.query_map([], |row| {
+        let ssl_cert: String = row.get(5)?;
         Ok(DomainProxyItem {
             domain: row.get(0)?,
             internal_ip: row.get(1)?,
             internal_port: row.get(2)?,
             protocol: row.get(3)?,
             enable_ssl: row.get::<_, i32>(4)? != 0,
-            created_at: row.get(5)?,
+            has_cert: !ssl_cert.is_empty(),
+            created_at: row.get(6)?,
         })
     }).map_err(|e| ApiError::internal(format!("domain proxy query: {e}")))?;
 

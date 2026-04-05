@@ -1,8 +1,16 @@
 package checkin
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
-	"math/rand"
+	"io"
+	"math/big"
+	"net/http"
+	"net/url"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -36,6 +44,9 @@ func (s *Service) UpdateCheckinConfig(providerID uint, req *UpdateCheckinConfigR
 		"max_expire_days":     req.MaxExpireDays,
 		"overdue_action":      req.OverdueAction,
 		"checkin_method":      req.CheckinMethod,
+		"captcha_site_key":    req.CaptchaSiteKey,
+		"captcha_secret_key":  req.CaptchaSecretKey,
+		"pow_difficulty":      req.PowDifficulty,
 	}
 
 	if result.RowsAffected == 0 {
@@ -47,15 +58,64 @@ func (s *Service) UpdateCheckinConfig(providerID uint, req *UpdateCheckinConfigR
 			MaxExpireDays:     req.MaxExpireDays,
 			OverdueAction:     req.OverdueAction,
 			CheckinMethod:     req.CheckinMethod,
+			CaptchaSiteKey:    req.CaptchaSiteKey,
+			CaptchaSecretKey:  req.CaptchaSecretKey,
+			PowDifficulty:     req.PowDifficulty,
 		}
 		return global.APP_DB.Create(&config).Error
 	}
 	return global.APP_DB.Model(&config).Updates(updates).Error
 }
 
-// GenerateVerification 生成验证码（签到时调用）
-func (s *Service) GenerateVerification(userID, instanceID uint) (*checkinModel.CheckinVerification, error) {
-	code := fmt.Sprintf("%06d", rand.Intn(1000000))
+// GetCheckinChallenge 获取签到挑战信息（前端呈现验证组件所需数据）
+func (s *Service) GetCheckinChallenge(userID, instanceID uint) (map[string]interface{}, error) {
+	type InstanceInfo struct {
+		ProviderID uint
+	}
+	var instance InstanceInfo
+	dbResult := global.APP_DB.Table("instances").
+		Select("provider_id").
+		Where("id = ? AND user_id = ?", instanceID, userID).
+		Take(&instance)
+	if dbResult.Error != nil {
+		return nil, fmt.Errorf("实例不存在或不属于您")
+	}
+
+	config, err := s.GetCheckinConfig(instance.ProviderID)
+	if err != nil || !config.Enabled {
+		return nil, fmt.Errorf("该服务商未启用签到续期")
+	}
+
+	result := map[string]interface{}{
+		"method": config.CheckinMethod,
+	}
+
+	switch config.CheckinMethod {
+	case "turnstile", "recaptcha", "hcaptcha":
+		result["siteKey"] = config.CaptchaSiteKey
+	case "pow":
+		challenge, err := s.generatePowChallenge(userID, instanceID, config.PowDifficulty)
+		if err != nil {
+			return nil, err
+		}
+		result["challenge"] = challenge
+		result["difficulty"] = config.PowDifficulty
+	case "captcha":
+		verification, err := s.generateCaptchaCode(userID, instanceID)
+		if err != nil {
+			return nil, err
+		}
+		result["code"] = verification.Code
+		result["expiredAt"] = verification.ExpiredAt
+	}
+
+	return result, nil
+}
+
+// generateCaptchaCode 生成内置数字验证码
+func (s *Service) generateCaptchaCode(userID, instanceID uint) (*checkinModel.CheckinVerification, error) {
+	n, _ := rand.Int(rand.Reader, big.NewInt(1000000))
+	code := fmt.Sprintf("%06d", n.Int64())
 	verification := &checkinModel.CheckinVerification{
 		UserID:     userID,
 		InstanceID: instanceID,
@@ -69,33 +129,46 @@ func (s *Service) GenerateVerification(userID, instanceID uint) (*checkinModel.C
 	return verification, nil
 }
 
-// DoCheckin 用户签到续期
-func (s *Service) DoCheckin(userID, instanceID uint, code string) error {
-	// 验证验证码
-	var verification checkinModel.CheckinVerification
-	err := global.APP_DB.Where(
-		"user_id = ? AND instance_id = ? AND code = ? AND used = ? AND expired_at > ?",
-		userID, instanceID, code, false, time.Now(),
-	).First(&verification).Error
-	if err != nil {
-		return fmt.Errorf("验证码无效或已过期")
+// generatePowChallenge 生成PoW挑战
+func (s *Service) generatePowChallenge(userID, instanceID uint, difficulty int) (string, error) {
+	if difficulty < 1 {
+		difficulty = 4
 	}
+	if difficulty > 8 {
+		difficulty = 8
+	}
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	challenge := hex.EncodeToString(b)
 
-	// 标记验证码已使用
-	global.APP_DB.Model(&verification).Update("used", true)
+	verification := &checkinModel.CheckinVerification{
+		UserID:     userID,
+		InstanceID: instanceID,
+		Method:     "pow",
+		Code:       challenge,
+		ExpiredAt:  time.Now().Add(10 * time.Minute),
+	}
+	if err := global.APP_DB.Create(verification).Error; err != nil {
+		return "", err
+	}
+	return challenge, nil
+}
 
-	// 获取实例及其签到配置
+// DoCheckin 用户签到续期 - 支持多种验证方式
+func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) error {
 	type InstanceInfo struct {
 		ID         uint
 		ProviderID uint
 		ExpireAt   *time.Time
 	}
 	var instance InstanceInfo
-	err = global.APP_DB.Table("instances").
+	result := global.APP_DB.Table("instances").
 		Select("id, provider_id, expire_at").
 		Where("id = ? AND user_id = ?", instanceID, userID).
-		Scan(&instance).Error
-	if err != nil {
+		Take(&instance)
+	if result.Error != nil {
 		return fmt.Errorf("实例不存在或不属于您")
 	}
 
@@ -104,14 +177,36 @@ func (s *Service) DoCheckin(userID, instanceID uint, code string) error {
 		return fmt.Errorf("该服务商未启用签到续期")
 	}
 
-	// 计算新过期时间
+	switch config.CheckinMethod {
+	case "captcha":
+		if err := s.verifyCaptchaCode(userID, instanceID, req.Code); err != nil {
+			return err
+		}
+	case "turnstile":
+		if err := s.verifyTurnstile(config.CaptchaSecretKey, req.Token); err != nil {
+			return err
+		}
+	case "recaptcha":
+		if err := s.verifyRecaptcha(config.CaptchaSecretKey, req.Token); err != nil {
+			return err
+		}
+	case "hcaptcha":
+		if err := s.verifyHcaptcha(config.CaptchaSecretKey, req.Token); err != nil {
+			return err
+		}
+	case "pow":
+		if err := s.verifyPow(userID, instanceID, req.Challenge, req.Nonce, config.PowDifficulty); err != nil {
+			return err
+		}
+	default:
+		return fmt.Errorf("不支持的签到方式: %s", config.CheckinMethod)
+	}
+
 	now := time.Now()
 	oldExpireAt := now
 	if instance.ExpireAt != nil {
 		oldExpireAt = *instance.ExpireAt
 	}
-
-	// 如果已过期，从当前时间开始计算
 	baseTime := oldExpireAt
 	if baseTime.Before(now) {
 		baseTime = now
@@ -126,25 +221,19 @@ func (s *Service) DoCheckin(userID, instanceID uint, code string) error {
 	}
 
 	tx := global.APP_DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 
-	// 更新实例过期时间
 	if err := tx.Table("instances").Where("id = ?", instanceID).
 		Update("expire_at", newExpireAt).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
 
-	// 记录签到
 	record := &checkinModel.CheckinRecord{
 		UserID:      userID,
 		InstanceID:  instanceID,
 		ProviderID:  instance.ProviderID,
-		Method:      "captcha",
+		Method:      config.CheckinMethod,
 		RenewalDays: config.RenewalDays,
 		NewExpireAt: newExpireAt,
 		OldExpireAt: &oldExpireAt,
@@ -161,9 +250,104 @@ func (s *Service) DoCheckin(userID, instanceID uint, code string) error {
 	global.APP_LOG.Info("用户签到续期成功",
 		zap.Uint("userID", userID),
 		zap.Uint("instanceID", instanceID),
+		zap.String("method", config.CheckinMethod),
 		zap.Int("renewalDays", config.RenewalDays))
 
 	return nil
+}
+
+func (s *Service) verifyCaptchaCode(userID, instanceID uint, code string) error {
+	if code == "" {
+		return fmt.Errorf("验证码不能为空")
+	}
+	var verification checkinModel.CheckinVerification
+	err := global.APP_DB.Where(
+		"user_id = ? AND instance_id = ? AND code = ? AND used = ? AND expired_at > ?",
+		userID, instanceID, code, false, time.Now(),
+	).First(&verification).Error
+	if err != nil {
+		return fmt.Errorf("验证码无效或已过期")
+	}
+	global.APP_DB.Model(&verification).Update("used", true)
+	return nil
+}
+
+func (s *Service) verifyTurnstile(secretKey, token string) error {
+	if token == "" {
+		return fmt.Errorf("Turnstile token不能为空")
+	}
+	return s.verifyThirdPartyCaptcha("https://challenges.cloudflare.com/turnstile/v0/siteverify", secretKey, token, "Turnstile")
+}
+
+func (s *Service) verifyRecaptcha(secretKey, token string) error {
+	if token == "" {
+		return fmt.Errorf("reCAPTCHA token不能为空")
+	}
+	return s.verifyThirdPartyCaptcha("https://www.google.com/recaptcha/api/siteverify", secretKey, token, "reCAPTCHA")
+}
+
+func (s *Service) verifyHcaptcha(secretKey, token string) error {
+	if token == "" {
+		return fmt.Errorf("hCaptcha token不能为空")
+	}
+	return s.verifyThirdPartyCaptcha("https://hcaptcha.com/siteverify", secretKey, token, "hCaptcha")
+}
+
+func (s *Service) verifyThirdPartyCaptcha(verifyURL, secretKey, token, name string) error {
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.PostForm(verifyURL, url.Values{
+		"secret":   {secretKey},
+		"response": {token},
+	})
+	if err != nil {
+		return fmt.Errorf("%s验证请求失败: %w", name, err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+
+	var result struct {
+		Success bool `json:"success"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		return fmt.Errorf("%s验证响应解析失败", name)
+	}
+	if !result.Success {
+		return fmt.Errorf("%s验证失败", name)
+	}
+	return nil
+}
+
+func (s *Service) verifyPow(userID, instanceID uint, challenge, nonce string, difficulty int) error {
+	if challenge == "" || nonce == "" {
+		return fmt.Errorf("PoW challenge和nonce不能为空")
+	}
+	if difficulty < 1 {
+		difficulty = 4
+	}
+
+	var verification checkinModel.CheckinVerification
+	err := global.APP_DB.Where(
+		"user_id = ? AND instance_id = ? AND method = ? AND code = ? AND used = ? AND expired_at > ?",
+		userID, instanceID, "pow", challenge, false, time.Now(),
+	).First(&verification).Error
+	if err != nil {
+		return fmt.Errorf("PoW challenge无效或已过期")
+	}
+
+	hash := sha256.Sum256([]byte(challenge + nonce))
+	hashHex := hex.EncodeToString(hash[:])
+	prefix := strings.Repeat("0", difficulty)
+	if !strings.HasPrefix(hashHex, prefix) {
+		return fmt.Errorf("PoW验证失败：哈希值不满足难度要求")
+	}
+
+	global.APP_DB.Model(&verification).Update("used", true)
+	return nil
+}
+
+// GenerateVerification 向后兼容 - 生成内置验证码
+func (s *Service) GenerateVerification(userID, instanceID uint) (*checkinModel.CheckinVerification, error) {
+	return s.generateCaptchaCode(userID, instanceID)
 }
 
 // GetCheckinRecords 获取用户签到记录
@@ -184,5 +368,16 @@ type UpdateCheckinConfigRequest struct {
 	RenewalDays       int    `json:"renewalDays"`
 	MaxExpireDays     int    `json:"maxExpireDays"`
 	OverdueAction     string `json:"overdueAction" binding:"omitempty,oneof=stop delete"`
-	CheckinMethod     string `json:"checkinMethod" binding:"omitempty,oneof=captcha"`
+	CheckinMethod     string `json:"checkinMethod" binding:"omitempty,oneof=captcha turnstile recaptcha hcaptcha pow"`
+	CaptchaSiteKey    string `json:"captchaSiteKey"`
+	CaptchaSecretKey  string `json:"captchaSecretKey"`
+	PowDifficulty     int    `json:"powDifficulty"`
+}
+
+type DoCheckinRequest struct {
+	InstanceID uint   `json:"instanceId" binding:"required"`
+	Code       string `json:"code"`      // 内置验证码
+	Token      string `json:"token"`     // 第三方captcha token (turnstile/recaptcha/hcaptcha)
+	Challenge  string `json:"challenge"` // PoW challenge
+	Nonce      string `json:"nonce"`     // PoW nonce
 }

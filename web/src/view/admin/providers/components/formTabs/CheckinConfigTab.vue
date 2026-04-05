@@ -69,8 +69,8 @@
             v-model="checkinForm.overdueAction"
             style="width: 200px"
           >
-            <el-option label="Stop" value="stop" />
-            <el-option label="Delete" value="delete" />
+            <el-option :label="$t('admin.providers.checkinActionStop')" value="stop" />
+            <el-option :label="$t('admin.providers.checkinActionDelete')" value="delete" />
           </el-select>
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
@@ -85,8 +85,50 @@
             style="width: 200px"
           >
             <el-option label="Captcha" value="captcha" />
+            <el-option label="Cloudflare Turnstile" value="turnstile" />
+            <el-option label="Google reCAPTCHA" value="recaptcha" />
+            <el-option label="hCaptcha" value="hcaptcha" />
+            <el-option label="PoW" value="pow" />
           </el-select>
         </el-form-item>
+
+        <!-- 第三方验证配置 -->
+        <template v-if="['turnstile', 'recaptcha', 'hcaptcha'].includes(checkinForm.checkinMethod)">
+          <el-form-item :label="$t('admin.providers.checkinSiteKey')">
+            <el-input
+              v-model="checkinForm.captchaSiteKey"
+              :placeholder="$t('admin.providers.checkinSiteKeyTip')"
+              style="width: 400px"
+            />
+          </el-form-item>
+          <el-form-item :label="$t('admin.providers.checkinSecretKey')">
+            <el-input
+              v-model="checkinForm.captchaSecretKey"
+              type="password"
+              show-password
+              :placeholder="$t('admin.providers.checkinSecretKeyTip')"
+              style="width: 400px"
+            />
+          </el-form-item>
+        </template>
+
+        <!-- PoW 配置 -->
+        <template v-if="checkinForm.checkinMethod === 'pow'">
+          <el-form-item :label="$t('admin.providers.checkinPowDifficulty')">
+            <el-input-number
+              v-model="checkinForm.powDifficulty"
+              :min="1"
+              :max="8"
+              :step="1"
+              style="width: 200px"
+            />
+          </el-form-item>
+          <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
+            <el-text size="small" type="info">
+              {{ $t('admin.providers.checkinPowDifficultyTip') }}
+            </el-text>
+          </div>
+        </template>
       </template>
 
       <el-form-item>
@@ -125,7 +167,10 @@ const checkinForm = ref({
   renewalDays: 7,
   maxExpireDays: 30,
   overdueAction: 'stop',
-  checkinMethod: 'captcha'
+  checkinMethod: 'captcha',
+  captchaSiteKey: '',
+  captchaSecretKey: '',
+  powDifficulty: 4
 })
 
 const loadConfig = async () => {
@@ -140,7 +185,10 @@ const loadConfig = async () => {
         renewalDays: res.data.renewalDays ?? 7,
         maxExpireDays: res.data.maxExpireDays ?? 30,
         overdueAction: res.data.overdueAction || 'stop',
-        checkinMethod: res.data.checkinMethod || 'captcha'
+        checkinMethod: res.data.checkinMethod || 'captcha',
+        captchaSiteKey: res.data.captchaSiteKey || '',
+        captchaSecretKey: res.data.captchaSecretKey || '',
+        powDifficulty: res.data.powDifficulty || 4
       }
     }
   } catch {

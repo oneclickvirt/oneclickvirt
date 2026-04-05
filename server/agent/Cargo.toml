@@ -26,6 +26,7 @@ http-body-util = "0.1"
 tower = "0.5"
 axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio-rustls = "0.26"
+rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
 
 [profile.release]

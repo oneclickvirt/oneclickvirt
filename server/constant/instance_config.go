@@ -27,6 +27,8 @@ const (
 	ProviderTypeLXD        ProviderType = "lxd"
 	ProviderTypeIncus      ProviderType = "incus"
 	ProviderTypeProxmox    ProviderType = "proxmox"
+	ProviderTypeQEMU       ProviderType = "qemu"
+	ProviderTypeKubeVirt   ProviderType = "kubevirt"
 )
 
 // Architecture 架构类型

@@ -35,7 +35,8 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.PUT("/user/instances/:id/reset-password", user.ResetInstancePassword)
 		UserGroup.GET("/user/instances/:id/password/:taskId", user.GetInstanceNewPassword)
 		UserGroup.GET("/user/instances/:id/ports", user.GetInstancePorts)
-		UserGroup.GET("/user/instances/:id/ssh", user.SSHWebSocket) // WebSocket SSH连接
+		UserGroup.GET("/user/instances/:id/ssh", user.SSHWebSocket)   // WebSocket SSH连接
+		UserGroup.GET("/user/instances/:id/exec", user.ExecWebSocket) // WebSocket Container Exec
 		UserGroup.POST("/user/instances/action", user.InstanceAction)
 
 		// 端口映射

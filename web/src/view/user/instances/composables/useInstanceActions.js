@@ -181,6 +181,23 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     }
   }
 
+  const openExecTerminal = () => {
+    if (!instance.value.id) {
+      ElMessage.error(t('user.instanceDetail.instanceNotFound'))
+      return
+    }
+    if (instance.value.status !== 'running') {
+      ElMessage.warning(t('user.instanceDetail.instanceNotRunning'))
+      return
+    }
+    const execKey = `exec-${instance.value.id}`
+    if (!sshStore.hasConnection(execKey)) {
+      sshStore.createConnection(instance.value.id, instance.value.name, false, 'exec')
+    } else {
+      sshStore.showConnection(execKey)
+    }
+  }
+
   const showResetPasswordDialog = async () => {
     if (actionLoading.value) {
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
@@ -288,6 +305,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     viewTaskDetail,
     performAction,
     openSSHTerminal,
+    openExecTerminal,
     showResetPasswordDialog,
     togglePassword,
     truncateIP,

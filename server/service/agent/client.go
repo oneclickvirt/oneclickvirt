@@ -376,6 +376,8 @@ type AddDomainProxyRequest struct {
 	InternalPort int    `json:"internal_port"`
 	Protocol     string `json:"protocol,omitempty"`
 	EnableSSL    bool   `json:"enable_ssl,omitempty"`
+	SSLCert      string `json:"ssl_cert,omitempty"`
+	SSLKey       string `json:"ssl_key,omitempty"`
 }
 
 type AddDomainProxyResponse struct {
@@ -398,6 +400,7 @@ type DomainProxyItem struct {
 	InternalPort int    `json:"internal_port"`
 	Protocol     string `json:"protocol"`
 	EnableSSL    bool   `json:"enable_ssl"`
+	HasCert      bool   `json:"has_cert"`
 	CreatedAt    int64  `json:"created_at"`
 }
 
@@ -407,13 +410,15 @@ type ListDomainProxiesResponse struct {
 }
 
 // AddDomainProxy adds a domain reverse proxy on the agent host.
-func (c *Client) AddDomainProxy(domain, internalIP string, internalPort int, protocol string, enableSSL bool) (*AddDomainProxyResponse, error) {
+func (c *Client) AddDomainProxy(domain, internalIP string, internalPort int, protocol string, enableSSL bool, sslCert, sslKey string) (*AddDomainProxyResponse, error) {
 	req := AddDomainProxyRequest{
 		Domain:       domain,
 		InternalIP:   internalIP,
 		InternalPort: internalPort,
 		Protocol:     protocol,
 		EnableSSL:    enableSSL,
+		SSLCert:      sslCert,
+		SSLKey:       sslKey,
 	}
 	var resp AddDomainProxyResponse
 	if err := c.doRequest("POST", "/api/v1/domain-proxy", req, &resp); err != nil {

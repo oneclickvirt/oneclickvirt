@@ -74,5 +74,6 @@ export default {
   batchStatusFailed: "Batch {action} failed",
   urlHintProxmoxVM: "ProxmoxVE VM images must be .qcow2 files",
   urlHintLxdIncus: "LXD/Incus images must be .zip files",
-  urlHintContainerTarGz: "{provider} container images must be .tar.gz files"
+  urlHintContainerTarGz: "{provider} container images must be .tar.gz files",
+  urlHintQemuKubevirt: "QEMU/KubeVirt VM images must be .qcow2 files"
 }

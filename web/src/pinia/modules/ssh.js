@@ -2,8 +2,8 @@ import { defineStore } from 'pinia'
 
 export const useSSHStore = defineStore('ssh', {
   state: () => ({
-    // SSH连接状态
-    connections: {} // { instanceId: { visible, minimized, instanceName, isAdmin } }
+    // SSH/Exec连接状态
+    connections: {} // { instanceId: { visible, minimized, instanceName, isAdmin, mode } }
   }),
   
   getters: {
@@ -29,13 +29,17 @@ export const useSSHStore = defineStore('ssh', {
   },
   
   actions: {
-    // 创建SSH连接
-    createConnection(instanceId, instanceName, isAdmin = false) {
-      this.connections[instanceId] = {
+    // 创建SSH/Exec连接
+    createConnection(instanceId, instanceName, isAdmin = false, mode = 'ssh') {
+      // Use different key for exec vs ssh to allow both
+      const key = mode === 'exec' ? `exec-${instanceId}` : instanceId
+      this.connections[key] = {
         visible: true,
         minimized: false,
         instanceName,
         isAdmin,
+        mode,
+        instanceId,
         createdAt: Date.now()
       }
     },

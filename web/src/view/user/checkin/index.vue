@@ -6,26 +6,70 @@
       </template>
 
       <!-- 签到操作 -->
-      <el-form label-width="120px" style="max-width: 500px; margin-bottom: 30px;">
+      <el-form label-width="120px" style="max-width: 600px; margin-bottom: 30px;">
         <el-form-item :label="t('user.checkin.selectInstance')">
-          <el-select v-model="selectedInstanceId" :placeholder="t('user.checkin.selectInstance')">
+          <el-select v-model="selectedInstanceId" :placeholder="t('user.checkin.selectInstance')" @change="resetChallenge">
             <el-option v-for="inst in instances" :key="inst.id" :label="inst.name" :value="inst.id" />
           </el-select>
         </el-form-item>
+
+        <!-- 获取挑战 -->
         <el-form-item>
-          <el-button type="primary" @click="getCode" :disabled="!selectedInstanceId" :loading="gettingCode">
+          <el-button type="primary" @click="getChallenge" :disabled="!selectedInstanceId" :loading="gettingChallenge">
             {{ t('user.checkin.getCode') }}
           </el-button>
         </el-form-item>
-        <el-form-item v-if="verificationCode" :label="t('user.checkin.inputCode')">
-          <el-input v-model="inputCode" style="width: 200px; margin-right: 10px;" />
-          <el-button type="success" @click="doCheckin" :loading="checkingIn">
-            {{ t('user.checkin.checkin') }}
-          </el-button>
-        </el-form-item>
-        <el-form-item v-if="verificationCode">
-          <el-tag type="info">{{ verificationCode }}</el-tag>
-        </el-form-item>
+
+        <!-- 内置验证码方式 -->
+        <template v-if="challengeData && challengeData.method === 'captcha'">
+          <el-form-item :label="t('user.checkin.inputCode')">
+            <el-input v-model="inputCode" style="width: 200px; margin-right: 10px;" />
+            <el-button type="success" @click="doCheckin" :loading="checkingIn">
+              {{ t('user.checkin.checkin') }}
+            </el-button>
+          </el-form-item>
+          <el-form-item>
+            <el-tag type="info">{{ challengeData.code }}</el-tag>
+          </el-form-item>
+        </template>
+
+        <!-- Turnstile / reCAPTCHA / hCaptcha -->
+        <template v-if="challengeData && ['turnstile', 'recaptcha', 'hcaptcha'].includes(challengeData.method)">
+          <el-form-item :label="t('user.checkin.verification')">
+            <div ref="captchaContainer" class="captcha-widget"></div>
+            <div v-if="!captchaLoaded" class="captcha-loading">
+              <el-text type="info">{{ t('user.checkin.loadingCaptcha') }}</el-text>
+            </div>
+          </el-form-item>
+          <el-form-item>
+            <el-button type="success" @click="doCheckin" :loading="checkingIn" :disabled="!captchaToken">
+              {{ t('user.checkin.checkin') }}
+            </el-button>
+          </el-form-item>
+        </template>
+
+        <!-- PoW -->
+        <template v-if="challengeData && challengeData.method === 'pow'">
+          <el-form-item :label="t('user.checkin.powStatus')">
+            <div v-if="powComputing" class="pow-computing">
+              <el-icon class="is-loading"><Loading /></el-icon>
+              <el-text style="margin-left: 8px;">{{ t('user.checkin.powComputing') }}</el-text>
+            </div>
+            <div v-else-if="powNonce">
+              <el-tag type="success">{{ t('user.checkin.powSolved') }}</el-tag>
+            </div>
+            <div v-else>
+              <el-button type="warning" @click="solvePow">
+                {{ t('user.checkin.powStart') }}
+              </el-button>
+            </div>
+          </el-form-item>
+          <el-form-item v-if="powNonce">
+            <el-button type="success" @click="doCheckin" :loading="checkingIn">
+              {{ t('user.checkin.checkin') }}
+            </el-button>
+          </el-form-item>
+        </template>
       </el-form>
 
       <!-- 签到记录 -->
@@ -33,6 +77,11 @@
       <h3>{{ t('user.checkin.records') }}</h3>
       <el-table :data="records" v-loading="loadingRecords" stripe>
         <el-table-column prop="instanceId" :label="t('user.checkin.instanceName')" width="120" />
+        <el-table-column prop="method" :label="t('user.checkin.method')" width="120">
+          <template #default="{ row }">
+            <el-tag size="small">{{ row.method }}</el-tag>
+          </template>
+        </el-table-column>
         <el-table-column prop="renewalDays" :label="t('user.checkin.renewalDays')" width="100" />
         <el-table-column :label="t('user.checkin.oldExpireAt')" width="180">
           <template #default="{ row }">{{ formatDate(row.oldExpireAt) }}</template>
@@ -58,8 +107,9 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
+import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { generateCheckinCode, doCheckin as doCheckinApi, getCheckinRecords } from '@/api/features'
 import { getUserInstances } from '@/api/user'
@@ -68,19 +118,33 @@ const { t } = useI18n()
 
 const instances = ref([])
 const selectedInstanceId = ref(null)
-const verificationCode = ref('')
+const challengeData = ref(null)
 const inputCode = ref('')
-const gettingCode = ref(false)
+const captchaToken = ref('')
+const captchaLoaded = ref(false)
+const powNonce = ref('')
+const powComputing = ref(false)
+const gettingChallenge = ref(false)
 const checkingIn = ref(false)
 const records = ref([])
 const loadingRecords = ref(false)
 const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
+const captchaContainer = ref(null)
 
 function formatDate(dateStr) {
   if (!dateStr) return '-'
   return new Date(dateStr).toLocaleString()
+}
+
+function resetChallenge() {
+  challengeData.value = null
+  inputCode.value = ''
+  captchaToken.value = ''
+  powNonce.value = ''
+  powComputing.value = false
+  captchaLoaded.value = false
 }
 
 async function fetchInstances() {
@@ -92,27 +156,137 @@ async function fetchInstances() {
   } catch { /* ignore */ }
 }
 
-async function getCode() {
-  gettingCode.value = true
+async function getChallenge() {
+  resetChallenge()
+  gettingChallenge.value = true
   try {
     const res = await generateCheckinCode(selectedInstanceId.value)
     if (res.code === 0 || res.code === 200) {
-      verificationCode.value = res.data.code
+      challengeData.value = res.data
       ElMessage.success(t('user.checkin.codeSent'))
+      // 加载第三方验证组件
+      if (['turnstile', 'recaptcha', 'hcaptcha'].includes(res.data.method)) {
+        await nextTick()
+        loadCaptchaWidget(res.data.method, res.data.siteKey)
+      }
     }
   } finally {
-    gettingCode.value = false
+    gettingChallenge.value = false
   }
+}
+
+function loadCaptchaWidget(method, siteKey) {
+  if (!captchaContainer.value) return
+
+  const containerId = 'checkin-captcha-' + Date.now()
+  captchaContainer.value.id = containerId
+  captchaContainer.value.innerHTML = ''
+
+  if (method === 'turnstile') {
+    loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoaded&render=explicit', () => {
+      if (window.turnstile) {
+        window.turnstile.render('#' + containerId, {
+          sitekey: siteKey,
+          callback: (token) => { captchaToken.value = token; captchaLoaded.value = true }
+        })
+        captchaLoaded.value = true
+      }
+    })
+  } else if (method === 'recaptcha') {
+    const renderRecaptcha = () => {
+      if (window.grecaptcha) {
+        window.grecaptcha.render(containerId, {
+          sitekey: siteKey,
+          callback: (token) => { captchaToken.value = token; captchaLoaded.value = true }
+        })
+        captchaLoaded.value = true
+      }
+    }
+    window.onRecaptchaLoaded = renderRecaptcha
+    loadScript('https://www.google.com/recaptcha/api.js?onload=onRecaptchaLoaded&render=explicit', renderRecaptcha)
+  } else if (method === 'hcaptcha') {
+    loadScript('https://js.hcaptcha.com/1/api.js?onload=onHcaptchaLoaded&render=explicit', () => {
+      if (window.hcaptcha) {
+        window.hcaptcha.render(containerId, {
+          sitekey: siteKey,
+          callback: (token) => { captchaToken.value = token; captchaLoaded.value = true }
+        })
+        captchaLoaded.value = true
+      }
+    })
+  }
+}
+
+function loadScript(src, onload) {
+  // 避免重复加载
+  if (document.querySelector(`script[src="${src}"]`)) {
+    if (onload) onload()
+    return
+  }
+  const script = document.createElement('script')
+  script.src = src
+  script.async = true
+  if (onload) script.onload = onload
+  document.head.appendChild(script)
+}
+
+async function solvePow() {
+  if (!challengeData.value) return
+  powComputing.value = true
+  const { challenge, difficulty } = challengeData.value
+  const prefix = '0'.repeat(difficulty)
+
+  // 在Web Worker中计算，避免阻塞UI
+  const workerCode = `
+    self.onmessage = async function(e) {
+      const { challenge, prefix } = e.data;
+      let nonce = 0;
+      while (true) {
+        const data = new TextEncoder().encode(challenge + nonce.toString());
+        const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+        const hashArray = Array.from(new Uint8Array(hashBuffer));
+        const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+        if (hashHex.startsWith(prefix)) {
+          self.postMessage({ nonce: nonce.toString(), hash: hashHex });
+          return;
+        }
+        nonce++;
+        if (nonce % 10000 === 0) {
+          // 让出控制权
+          await new Promise(r => setTimeout(r, 0));
+        }
+      }
+    };
+  `
+  const blob = new Blob([workerCode], { type: 'application/javascript' })
+  const worker = new Worker(URL.createObjectURL(blob))
+
+  worker.onmessage = (e) => {
+    powNonce.value = e.data.nonce
+    powComputing.value = false
+    worker.terminate()
+  }
+  worker.postMessage({ challenge, prefix })
 }
 
 async function doCheckin() {
   checkingIn.value = true
   try {
-    const res = await doCheckinApi({ instanceId: selectedInstanceId.value, code: inputCode.value })
+    const data = { instanceId: selectedInstanceId.value }
+
+    if (challengeData.value.method === 'captcha') {
+      data.code = inputCode.value
+    } else if (['turnstile', 'recaptcha', 'hcaptcha'].includes(challengeData.value.method)) {
+      data.token = captchaToken.value
+    } else if (challengeData.value.method === 'pow') {
+      data.challenge = challengeData.value.challenge
+      data.nonce = powNonce.value
+    }
+
+    const res = await doCheckinApi(data)
     if (res.code === 0 || res.code === 200) {
       ElMessage.success(t('user.checkin.checkinSuccess'))
-      verificationCode.value = ''
-      inputCode.value = ''
+      resetChallenge()
       fetchRecords()
     }
   } finally {
@@ -146,4 +320,7 @@ onMounted(() => {
 
 <style scoped>
 .checkin-container { padding: 20px; }
+.captcha-widget { min-height: 65px; }
+.captcha-loading { color: #909399; font-size: 14px; }
+.pow-computing { display: flex; align-items: center; }
 </style>

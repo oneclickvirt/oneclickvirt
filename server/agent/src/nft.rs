@@ -897,11 +897,6 @@ fn remove_block_table() {
     let _ = run_nft(&["delete", "table", BLOCK_FAMILY, BLOCK_TABLE]);
 }
 
-/// Convert a string to its hex representation for nft raw payload matching.
-fn string_to_hex(s: &str) -> String {
-    s.as_bytes().iter().map(|b| format!("{b:02x}").to_string()).collect::<String>()
-}
-
 /// Persisted block rules state including ip_version
 #[derive(serde::Serialize, serde::Deserialize)]
 struct PersistedBlockRules {
@@ -909,10 +904,39 @@ struct PersistedBlockRules {
     ip_version: String,
 }
 
+/// nft raw payload `@th` match supports a maximum of 128 bits (16 bytes) per
+/// expression on most kernels. For strings longer than 16 bytes we split them
+/// into consecutive 16-byte chunks, each at the correct bit offset, and combine
+/// them into a single rule so that nft can evaluate the expression chain.
+const NFT_MAX_MATCH_BYTES: usize = 16;
+
+/// Build a single nft match expression for `pattern_bytes` starting at
+/// `base_offset_bits` inside the transport header. Long patterns are split
+/// into consecutive chunks of at most `NFT_MAX_MATCH_BYTES`.
+fn build_nft_payload_match(base_offset_bits: usize, pattern_bytes: &[u8]) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    let mut pos = 0usize;
+    while pos < pattern_bytes.len() {
+        let remaining = pattern_bytes.len() - pos;
+        let chunk_len = remaining.min(NFT_MAX_MATCH_BYTES);
+        let bit_offset = base_offset_bits + pos * 8;
+        let bit_len = chunk_len * 8;
+        let hex_str: String = pattern_bytes[pos..pos + chunk_len]
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        parts.push(format!("@th,{bit_offset},{bit_len} 0x{hex_str}"));
+        pos += chunk_len;
+    }
+    parts.join(" ")
+}
+
 /// Apply string-match block rules using nft.
 /// Uses nft raw payload matching at the start of transport payload.
 /// For TCP: matches at offset 160 bits (20-byte header, no options).
 /// For UDP: matches at offset 64 bits (8-byte header).
+/// Long strings are automatically split into chained 16-byte chunks to stay
+/// within the kernel's per-expression limit.
 /// ip_version: "both" (default), "ipv4", "ipv6"
 pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, ApiError> {
     if strings.is_empty() {
@@ -925,11 +949,10 @@ pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, 
     let mut script = String::new();
     for s in strings {
         if s.is_empty() { continue; }
-        // Limit to reasonable pattern length (max 128 bytes)
+        // Hard cap at 128 bytes (reasonable upper bound for content patterns)
         if s.len() > 128 { continue; }
 
-        let hex_str = string_to_hex(s);
-        let bit_len = s.len() * 8;
+        let pattern = s.as_bytes();
 
         // Build match expressions for the relevant IP versions
         let family_filter = match ip_version {
@@ -938,15 +961,17 @@ pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, 
             _ => "", // "both" - no filter
         };
 
-        // For each chain, add rules for both TCP (payload at th+160) and UDP (payload at th+64)
+        // TCP payload offset: 160 bits (20-byte header)
+        let tcp_match = build_nft_payload_match(160, pattern);
+        // UDP payload offset: 64 bits (8-byte header)
+        let udp_match = build_nft_payload_match(64, pattern);
+
         for chain in [BLOCK_CHAIN_OUTPUT, BLOCK_CHAIN_FORWARD] {
-            // TCP: standard 20-byte header, payload starts at bit 160
             script.push_str(&format!(
-                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto tcp @th,160,{bit_len} 0x{hex_str} counter drop\n"
+                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto tcp {tcp_match} counter drop\n"
             ));
-            // UDP: 8-byte header, payload starts at bit 64
             script.push_str(&format!(
-                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto udp @th,64,{bit_len} 0x{hex_str} counter drop\n"
+                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto udp {udp_match} counter drop\n"
             ));
         }
     }

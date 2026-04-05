@@ -190,7 +190,7 @@ func QueryAlipayKYCResult(c *gin.Context) {
 
 // ============ 签到续期 ============
 
-// GenerateCheckinCode 获取签到验证码
+// GenerateCheckinCode 获取签到验证挑战
 func GenerateCheckinCode(c *gin.Context) {
 	userID, err := getUserID(c)
 	if err != nil {
@@ -205,15 +205,12 @@ func GenerateCheckinCode(c *gin.Context) {
 	}
 
 	svc := &checkinService.Service{}
-	verification, err := svc.GenerateVerification(userID, uint(instanceID))
+	result, err := svc.GetCheckinChallenge(userID, uint(instanceID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成验证码失败"))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
-	common.ResponseSuccess(c, gin.H{
-		"code":      verification.Code,
-		"expiredAt": verification.ExpiredAt,
-	})
+	common.ResponseSuccess(c, result)
 }
 
 // DoCheckin 用户签到
@@ -224,17 +221,14 @@ func DoCheckin(c *gin.Context) {
 		return
 	}
 
-	var req struct {
-		InstanceID uint   `json:"instanceId" binding:"required"`
-		Code       string `json:"code" binding:"required"`
-	}
+	var req checkinService.DoCheckinRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	svc := &checkinService.Service{}
-	if err := svc.DoCheckin(userID, req.InstanceID, req.Code); err != nil {
+	if err := svc.DoCheckin(userID, req.InstanceID, &req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}

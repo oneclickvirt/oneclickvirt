@@ -8,11 +8,20 @@ use hyper_util::{
     client::legacy::{connect::HttpConnector, Client},
     rt::TokioExecutor,
 };
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashMap, io::BufReader, sync::Arc};
+use std::sync::RwLock as StdRwLock;
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, warn};
 
 use crate::app_state::AppState;
+
+use tokio_rustls::rustls::{
+    self,
+    pki_types::CertificateDer,
+    server::{ClientHello, ResolvesServerCert},
+    sign::CertifiedKey,
+};
+use rustls_pemfile::{certs, private_key};
 
 #[derive(Clone, Debug)]
 pub struct ProxyTarget {
@@ -22,6 +31,101 @@ pub struct ProxyTarget {
 }
 
 pub type ProxyRoutes = Arc<RwLock<HashMap<String, ProxyTarget>>>;
+
+/// Thread-safe cert store for per-domain TLS certificates (uses std RwLock for sync ResolvesServerCert)
+pub type CertStore = Arc<StdRwLock<HashMap<String, Arc<CertifiedKey>>>>;
+
+/// SNI-based cert resolver that picks per-domain certs with fallback to default
+#[derive(Debug)]
+pub struct DomainCertResolver {
+    pub default_cert: Option<Arc<CertifiedKey>>,
+    pub domain_certs: CertStore,
+}
+
+impl ResolvesServerCert for DomainCertResolver {
+    fn resolve(&self, client_hello: ClientHello<'_>) -> Option<Arc<CertifiedKey>> {
+        if let Some(domain) = client_hello.server_name() {
+            if let Ok(certs) = self.domain_certs.read() {
+                if let Some(cert) = certs.get(domain) {
+                    return Some(cert.clone());
+                }
+            }
+        }
+        self.default_cert.clone()
+    }
+}
+
+/// Parse PEM-encoded cert chain and private key into a CertifiedKey
+pub fn parse_certified_key(cert_pem: &str, key_pem: &str) -> Result<CertifiedKey, String> {
+    use std::io::Cursor;
+
+    let mut cert_reader = BufReader::new(Cursor::new(cert_pem.as_bytes()));
+    let cert_chain: Vec<CertificateDer> = certs(&mut cert_reader)
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("parse cert: {e}"))?;
+
+    if cert_chain.is_empty() {
+        return Err("no certificates found in PEM".into());
+    }
+
+    let mut key_reader = BufReader::new(Cursor::new(key_pem.as_bytes()));
+    let key_der = private_key(&mut key_reader)
+        .map_err(|e| format!("parse key: {e}"))?
+        .ok_or_else(|| "no private key found in PEM".to_string())?;
+
+    let provider = rustls::crypto::ring::default_provider();
+    let signing_key = provider
+        .key_provider
+        .load_private_key(key_der)
+        .map_err(|e| format!("load signing key: {e}"))?;
+
+    Ok(CertifiedKey::new(cert_chain, signing_key))
+}
+
+/// Load domain certificates from DB into a cert store
+pub fn load_domain_certs_from_db(conn: &rusqlite::Connection) -> HashMap<String, Arc<CertifiedKey>> {
+    let mut certs = HashMap::new();
+    let mut stmt = match conn.prepare(
+        "SELECT domain, ssl_cert, ssl_key FROM domain_proxies WHERE ssl_cert != '' AND ssl_key != ''"
+    ) {
+        Ok(s) => s,
+        Err(e) => {
+            warn!(error = %e, "failed to prepare domain certs query");
+            return certs;
+        }
+    };
+
+    let rows = match stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+        ))
+    }) {
+        Ok(r) => r,
+        Err(e) => {
+            warn!(error = %e, "failed to query domain certs");
+            return certs;
+        }
+    };
+
+    for row in rows {
+        if let Ok((domain, cert_pem, key_pem)) = row {
+            match parse_certified_key(&cert_pem, &key_pem) {
+                Ok(ck) => {
+                    info!(domain = %domain, "loaded domain certificate");
+                    certs.insert(domain, Arc::new(ck));
+                }
+                Err(e) => {
+                    warn!(domain = %domain, error = %e, "failed to parse domain certificate");
+                }
+            }
+        }
+    }
+
+    info!(count = certs.len(), "loaded domain certificates from database");
+    certs
+}
 
 /// Load all domain proxies from database into memory
 pub async fn load_routes_from_db(state: &AppState) -> Result<HashMap<String, ProxyTarget>, String> {

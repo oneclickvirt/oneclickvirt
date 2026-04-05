@@ -66,14 +66,113 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 }
 
 // buildECSScript 生成完整的ECS测试脚本内容
+// 包含依赖检查、多镜像下载、错误处理等
 func buildECSScript(arch string) string {
 	return fmt.Sprintf(`#!/bin/sh
-mkdir -p /tmp/ecs_test
-cd /tmp/ecs_test
-curl -sL "https://github.com/oneclickvirt/ecs/releases/latest/download/goecs_linux_%s.zip" -o goecs.zip
-unzip -o goecs.zip
+set -e
+WORKDIR="/tmp/ecs_test"
+mkdir -p "$WORKDIR"
+cd "$WORKDIR"
+
+# 依赖检查
+check_cmd() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+if ! check_cmd curl && ! check_cmd wget; then
+    echo "ERROR: curl or wget is required" >> "$WORKDIR/result.txt"
+    exit 1
+fi
+
+# 下载函数，支持curl和wget
+download() {
+    local url="$1" output="$2"
+    if check_cmd curl; then
+        curl -sSL --connect-timeout 30 --max-time 120 -o "$output" "$url"
+    else
+        wget -q --timeout=30 -O "$output" "$url"
+    fi
+}
+
+# 多镜像下载尝试
+FILENAME="goecs_linux_%s"
+URLS="
+https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
+https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
+https://ghproxy.com/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
+"
+
+DOWNLOADED=0
+for url in $URLS; do
+    if download "$url" goecs.zip 2>/dev/null; then
+        if [ -f goecs.zip ] && [ "$(wc -c < goecs.zip)" -gt 1000 ]; then
+            DOWNLOADED=1
+            break
+        fi
+    fi
+    rm -f goecs.zip
+done
+
+if [ "$DOWNLOADED" -eq 0 ]; then
+    # 尝试直接下载二进制（无zip）
+    URLS_BIN="
+https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}
+https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}
+"
+    for url in $URLS_BIN; do
+        if download "$url" goecs 2>/dev/null; then
+            if [ -f goecs ] && [ "$(wc -c < goecs)" -gt 1000 ]; then
+                DOWNLOADED=2
+                break
+            fi
+        fi
+        rm -f goecs
+    done
+fi
+
+if [ "$DOWNLOADED" -eq 0 ]; then
+    echo "ERROR: Failed to download goecs binary from all mirrors" >> "$WORKDIR/result.txt"
+    exit 1
+fi
+
+# 如果是zip格式则解压
+if [ "$DOWNLOADED" -eq 1 ]; then
+    if check_cmd unzip; then
+        unzip -o goecs.zip 2>/dev/null || true
+    elif check_cmd busybox; then
+        busybox unzip -o goecs.zip 2>/dev/null || true
+    else
+        # 尝试用python解压
+        python3 -c "import zipfile; zipfile.ZipFile('goecs.zip').extractall('.')" 2>/dev/null || \
+        python -c "import zipfile; zipfile.ZipFile('goecs.zip').extractall('.')" 2>/dev/null || {
+            echo "ERROR: No unzip tool available (tried unzip, busybox, python)" >> "$WORKDIR/result.txt"
+            exit 1
+        }
+    fi
+fi
+
+# 检查二进制是否存在
+if [ ! -f goecs ]; then
+    # 可能解压后名称不同，查找可执行文件
+    FOUND=$(find . -maxdepth 1 -name "goecs*" -type f ! -name "*.zip" | head -1)
+    if [ -n "$FOUND" ]; then
+        mv "$FOUND" goecs
+    else
+        echo "ERROR: goecs binary not found after extraction" >> "$WORKDIR/result.txt"
+        ls -la "$WORKDIR/" >> "$WORKDIR/result.txt"
+        exit 1
+    fi
+fi
+
 chmod +x goecs
-timeout 900 ./goecs -m 1
+
+# 检查是否有timeout命令
+if check_cmd timeout; then
+    timeout 900 ./goecs -m 1
+else
+    # 没有timeout就直接运行，依赖外部20分钟超时
+    ./goecs -m 1
+fi
 `, arch)
 }
 
@@ -160,10 +259,29 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 	}
 
 	// Step 5: 读取结果文件并清理
-	output, _ := p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
-	_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
+	output, readErr := p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
+	if readErr != nil {
+		// SSH命令本身失败 - 尝试重试一次
+		time.Sleep(5 * time.Second)
+		output, readErr = p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
+	}
 
-	if strings.TrimSpace(output) != "" {
+	// 如果结果为空，尝试获取脚本退出码和目录内容作为诊断信息
+	if strings.TrimSpace(output) == "" {
+		diagCmd := "echo '=== Directory ===' && ls -la /tmp/ecs_test/ 2>/dev/null && echo '=== Disk ===' && df /tmp 2>/dev/null | tail -1"
+		diagOutput, _ := p.ExecuteSSHCommand(ctx, diagCmd)
+		_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
+
+		errMsg := "ECS测试未产生输出或已超时（20分钟）"
+		if readErr != nil {
+			errMsg = fmt.Sprintf("读取结果文件失败: %v", readErr)
+		}
+		if diagOutput != "" {
+			errMsg = fmt.Sprintf("%s\n诊断信息:\n%s", errMsg, strings.TrimSpace(diagOutput))
+		}
+		s.failReport(report, errMsg)
+	} else {
+		_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
 		now := time.Now()
 		global.APP_DB.Model(report).Updates(map[string]interface{}{
 			"status":      "completed",
@@ -172,8 +290,6 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 			"error_msg":   "",
 			"remote_pid":  0,
 		})
-	} else {
-		s.failReport(report, "ECS测试未产生输出或已超时（20分钟）")
 	}
 
 	global.APP_LOG.Info("硬件测试完成",

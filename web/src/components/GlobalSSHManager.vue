@@ -8,7 +8,7 @@
       <!-- SSH对话框 -->
       <el-dialog
         v-model="conn.visible"
-        :title="`SSH Terminal - ${conn.instanceName}`"
+        :title="t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName })"
         width="80%"
         :before-close="() => closeConnection(conn.instanceId)"
         :destroy-on-close="false"
@@ -18,31 +18,31 @@
       >
         <template #header>
           <div class="ssh-dialog-header">
-            <span class="ssh-dialog-title">SSH Terminal - {{ conn.instanceName }}</span>
+            <span class="ssh-dialog-title">{{ t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }) }}</span>
             <div class="ssh-dialog-actions">
               <el-button 
                 :icon="Minus"
                 size="small" 
                 @click="minimizeConnection(conn.instanceId)"
-                title="Minimize"
+                :title="t('user.instanceDetail.sshMinimize')"
               >
-                Minimize
+                {{ t('user.instanceDetail.sshMinimize') }}
               </el-button>
               <el-button 
                 :icon="Refresh"
                 size="small" 
                 @click="reconnectSSH(conn.instanceId)"
-                title="Reconnect"
+                :title="t('user.instanceDetail.sshReconnect')"
               >
-                Reconnect
+                {{ t('user.instanceDetail.sshReconnect') }}
               </el-button>
               <el-button 
                 :icon="FullScreen"
                 size="small" 
                 @click="openSSHInNewWindow(conn)"
-                title="Open in New Window"
+                :title="t('user.instanceDetail.sshOpenInNewWindow')"
               >
-                New Window
+                {{ t('user.instanceDetail.sshNewWindow') }}
               </el-button>
             </div>
           </div>
@@ -53,6 +53,7 @@
             :instance-id="conn.instanceId"
             :instance-name="conn.instanceName"
             :is-admin="conn.isAdmin || false"
+            :mode="conn.mode || 'ssh'"
             @close="() => closeConnection(conn.instanceId)"
             @error="(error) => handleSSHError(conn.instanceId, error)"
           />
@@ -68,7 +69,7 @@
       :style="{ bottom: `${20 + index * 60}px` }"
     >
       <div class="ssh-minimized-header" @click="restoreConnection(conn.instanceId)">
-        <span>SSH Terminal - {{ conn.instanceName }}</span>
+        <span>{{ t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }) }}</span>
         <el-button 
           :icon="Close"
           text
@@ -136,7 +137,7 @@ const reconnectSSH = (instanceId) => {
   if (terminal && terminal.reconnect) {
     terminal.reconnect()
   } else {
-    ElMessage.warning(t('user.instanceDetail.sshTerminal') + ' not ready')
+    ElMessage.warning(t('user.instanceDetail.sshTerminalNotReady'))
   }
 }
 
@@ -165,11 +166,16 @@ const openSSHInNewWindow = (conn) => {
   
   const wsUrl = `${protocol}//${wsHost}/api/v1/user/instances/${conn.instanceId}/ssh?token=${encodeURIComponent(token)}`
   
+  const escapeHtml = (str) => str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
+  const sshTitle = escapeHtml(t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }))
+  const sshReconnectLabel = escapeHtml(t('user.instanceDetail.sshReconnect'))
+  const sshCloseLabel = escapeHtml(t('user.instanceDetail.sshClose'))
+  
   // 创建新窗口HTML内容
   const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
-  <title>SSH Terminal - ${conn.instanceName}</title>
+  <title>${sshTitle}</title>
   <meta charset="UTF-8">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -237,10 +243,10 @@ const openSSHInNewWindow = (conn) => {
 </head>
 <body>
   <div class="header">
-    <div class="header-title">SSH Terminal - ${conn.instanceName}</div>
+    <div class="header-title">${sshTitle}</div>
     <div class="header-buttons">
-      <button class="btn btn-reconnect" onclick="reconnectSSH()">🔄 Reconnect</button>
-      <button class="btn btn-close" onclick="window.close()">✕ Close</button>
+      <button class="btn btn-reconnect" onclick="reconnectSSH()">${sshReconnectLabel}</button>
+      <button class="btn btn-close" onclick="window.close()">${sshCloseLabel}</button>
     </div>
   </div>
   <div class="terminal-container">

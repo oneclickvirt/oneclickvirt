@@ -27,7 +27,7 @@
         </el-divider>
 
         <el-form-item
-          label="Client ID"
+          :label="t('admin.config.oauth2ClientIdLabel')"
           prop="clientId"
         >
           <el-input
@@ -37,7 +37,7 @@
         </el-form-item>
 
         <el-form-item
-          label="Client Secret"
+          :label="t('admin.config.oauth2ClientSecretLabel')"
           prop="clientSecret"
         >
           <el-input
@@ -49,7 +49,7 @@
         </el-form-item>
 
         <el-form-item
-          label="Redirect URL"
+          :label="t('admin.config.oauth2RedirectUrlLabel')"
           prop="redirectUrl"
         >
           <el-input

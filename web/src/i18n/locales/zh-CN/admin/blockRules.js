@@ -6,6 +6,7 @@ export default {
   editRule: '编辑规则',
   applyRules: '应用规则',
   removeApplications: '移除应用',
+  ruleId: '规则ID',
   ruleName: '规则名称',
   category: '分类',
   description: '描述',

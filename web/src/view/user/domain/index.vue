@@ -17,10 +17,10 @@
         <el-table-column prop="protocol" :label="t('user.domain.protocol')" width="100" />
         <el-table-column prop="internalIP" :label="t('user.domain.internalIp')" />
         <el-table-column prop="internalPort" :label="t('user.domain.internalPort')" width="100" />
-        <el-table-column prop="enableSSL" :label="t('user.domain.enableSsl')" width="80">
+        <el-table-column prop="enableSSL" :label="t('user.domain.enableSsl')" width="100">
           <template #default="{ row }">
-            <el-tag :type="row.enableSSL ? 'success' : 'info'" size="small">
-              {{ row.enableSSL ? 'SSL' : 'HTTP' }}
+            <el-tag :type="row.enableSSL ? (row.hasCert ? 'success' : 'warning') : 'info'" size="small">
+              {{ row.enableSSL ? (row.hasCert ? 'SSL' : t('user.domain.noCert')) : 'HTTP' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -95,6 +95,25 @@
           <el-switch v-model="form.enableSSL" />
           <span class="form-tip" style="margin-left: 8px;">{{ t('user.domain.enableSslTip') }}</span>
         </el-form-item>
+        <template v-if="form.enableSSL">
+          <el-form-item :label="t('user.domain.sslCert')">
+            <el-input
+              v-model="form.sslCertContent"
+              type="textarea"
+              :rows="4"
+              :placeholder="t('user.domain.sslCertPlaceholder')"
+            />
+            <div class="form-tip">{{ t('user.domain.sslCertTip') }}</div>
+          </el-form-item>
+          <el-form-item :label="t('user.domain.sslKey')">
+            <el-input
+              v-model="form.sslKeyContent"
+              type="textarea"
+              :rows="4"
+              :placeholder="t('user.domain.sslKeyPlaceholder')"
+            />
+          </el-form-item>
+        </template>
       </el-form>
       <template #footer>
         <el-button @click="showDialog = false">{{ t('common.cancel') }}</el-button>
@@ -129,7 +148,9 @@ const form = reactive({
   protocol: 'http',
   internalIP: '',
   internalPort: 80,
-  enableSSL: false
+  enableSSL: false,
+  sslCertContent: '',
+  sslKeyContent: ''
 })
 
 const formRules = {
@@ -178,7 +199,7 @@ async function fetchData() {
 function handleCreate() {
   isEdit.value = false
   editId.value = null
-  Object.assign(form, { domainName: '', instanceId: null, protocol: 'http', internalIP: '', internalPort: 80, enableSSL: false })
+  Object.assign(form, { domainName: '', instanceId: null, protocol: 'http', internalIP: '', internalPort: 80, enableSSL: false, sslCertContent: '', sslKeyContent: '' })
   showDialog.value = true
 }
 
@@ -191,7 +212,9 @@ function handleEdit(row) {
     protocol: row.protocol || 'http',
     internalIP: row.internalIP || '',
     internalPort: row.internalPort,
-    enableSSL: row.enableSSL || false
+    enableSSL: row.enableSSL || false,
+    sslCertContent: '',
+    sslKeyContent: ''
   })
   showDialog.value = true
 }
@@ -205,7 +228,9 @@ async function handleSubmit() {
         internalIP: form.internalIP,
         internalPort: form.internalPort,
         protocol: form.protocol,
-        enableSSL: form.enableSSL
+        enableSSL: form.enableSSL,
+        sslCertContent: form.sslCertContent,
+        sslKeyContent: form.sslKeyContent
       })
       ElMessage.success(t('user.domain.updateSuccess'))
     } else {
@@ -215,7 +240,9 @@ async function handleSubmit() {
         protocol: form.protocol,
         internalIP: form.internalIP,
         internalPort: form.internalPort,
-        enableSSL: form.enableSSL
+        enableSSL: form.enableSSL,
+        sslCertContent: form.sslCertContent,
+        sslKeyContent: form.sslKeyContent
       })
       ElMessage.success(t('user.domain.createSuccess'))
     }

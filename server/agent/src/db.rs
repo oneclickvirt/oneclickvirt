@@ -53,6 +53,8 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
             internal_port INTEGER NOT NULL,
             protocol TEXT NOT NULL DEFAULT 'http',
             enable_ssl INTEGER NOT NULL DEFAULT 0,
+            ssl_cert TEXT NOT NULL DEFAULT '',
+            ssl_key TEXT NOT NULL DEFAULT '',
             created_at INTEGER NOT NULL
         );
         "#,

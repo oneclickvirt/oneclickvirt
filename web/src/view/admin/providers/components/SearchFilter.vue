@@ -45,6 +45,14 @@
             :label="$t('admin.providers.containerd')"
             value="containerd"
           />
+          <el-option
+            :label="$t('admin.providers.qemu')"
+            value="qemu"
+          />
+          <el-option
+            :label="$t('admin.providers.kubevirt')"
+            value="kubevirt"
+          />
         </el-select>
       </el-col>
       <el-col :span="4">

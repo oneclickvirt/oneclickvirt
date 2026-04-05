@@ -48,7 +48,7 @@
           <el-descriptions-item :label="$t('admin.providers.taskID')">
             {{ task.id }}
           </el-descriptions-item>
-          <el-descriptions-item label="Provider">
+          <el-descriptions-item :label="$t('admin.providers.provider')">
             {{ task.providerName }}
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.providers.taskType')">

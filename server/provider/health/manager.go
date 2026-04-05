@@ -18,6 +18,8 @@ const (
 	ProviderTypeProxmox    ProviderType = "proxmox"
 	ProviderTypePodman     ProviderType = "podman"
 	ProviderTypeContainerd ProviderType = "containerd"
+	ProviderTypeQEMU       ProviderType = "qemu"
+	ProviderTypeKubeVirt   ProviderType = "kubevirt"
 )
 
 // HealthManager 健康检查管理器
@@ -96,6 +98,12 @@ func (hm *HealthManager) CreateChecker(providerType ProviderType, config HealthC
 		}
 		checker = NewProxmoxHealthChecker(configCopy, hm.logger)
 		checkerTypeName = "ProxmoxHealthChecker"
+
+	case ProviderTypeQEMU, ProviderTypeKubeVirt:
+		// QEMU/KubeVirt 使用 SSH-only 健康检查（与Docker相同的基础SSH检查器）
+		configCopy.APIEnabled = false
+		checker = NewDockerHealthChecker(configCopy, hm.logger)
+		checkerTypeName = "SSHHealthChecker"
 
 	default:
 		if hm.logger != nil {

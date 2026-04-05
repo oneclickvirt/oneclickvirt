@@ -98,7 +98,7 @@
         </el-table-column>
         <el-table-column
           prop="clientId"
-          label="Client ID"
+          :label="$t('admin.oauth2.clientIdLabel')"
           min-width="220"
           show-overflow-tooltip
         />
@@ -264,23 +264,23 @@
               </el-divider>
 
               <el-form-item
-                label="Client ID"
+                :label="$t('admin.oauth2.clientIdLabel')"
                 prop="clientId"
               >
                 <el-input
                   v-model="formData.clientId"
-                  placeholder="OAuth2 Client ID"
+                  :placeholder="$t('admin.oauth2.clientIdPlaceholder')"
                 />
               </el-form-item>
 
               <el-form-item
-                label="Client Secret"
+                :label="$t('admin.oauth2.clientSecretLabel')"
                 prop="clientSecret"
               >
                 <el-input
                   v-model="formData.clientSecret"
                   type="password"
-                  :placeholder="isEdit ? $t('admin.oauth2.secretPlaceholderEdit') : 'OAuth2 Client Secret'"
+                  :placeholder="isEdit ? $t('admin.oauth2.secretPlaceholderEdit') : $t('admin.oauth2.clientSecretPlaceholder')"
                   show-password
                 />
               </el-form-item>

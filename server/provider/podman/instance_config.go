@@ -24,7 +24,8 @@ func (p *PodmanProvider) checkStorageDriver() (bool, string, error) {
 	driver := strings.TrimSpace(cacheOutput)
 
 	if driver == "" {
-		infoCmd := fmt.Sprintf("%s info --format '{{.Driver}}' 2>/dev/null || %s info | grep 'Storage Driver:' | awk '{print $3}'", cliName, cliName)
+		// Podman 使用 .Store.GraphDriverName 而非 Docker 的 .Driver
+		infoCmd := fmt.Sprintf("%s info --format '{{.Store.GraphDriverName}}' 2>/dev/null || %s info | grep -i 'graphDriverName' | awk -F: '{gsub(/^ +| +$/, \"\", $2); print $2}'", cliName, cliName)
 		output, err := p.sshClient.Execute(infoCmd)
 		if err != nil {
 			return false, "", fmt.Errorf("failed to get storage driver: %w", err)
@@ -36,6 +37,7 @@ func (p *PodmanProvider) checkStorageDriver() (bool, string, error) {
 		driver = "overlay"
 	}
 
+	// Podman 仅在 btrfs 下支持 --storage-opt size
 	supportsDiskLimit := driver == "btrfs"
 	return supportsDiskLimit, driver, nil
 }

@@ -743,6 +743,37 @@ func CreateSSHConnection(host string, port int, username, password string) (*ssh
 	return client, session, nil
 }
 
+// CreateSSHConnectionWithKey 创建SSH连接（使用SSH私钥认证）
+func CreateSSHConnectionWithKey(host string, port int, username, privateKey string) (*ssh.Client, *ssh.Session, error) {
+	signer, err := ssh.ParsePrivateKey([]byte(privateKey))
+	if err != nil {
+		return nil, nil, fmt.Errorf("解析SSH私钥失败: %w", err)
+	}
+
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(signer),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+	client, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH连接失败: %w", err)
+	}
+
+	session, err := client.NewSession()
+	if err != nil {
+		client.Close()
+		return nil, nil, fmt.Errorf("创建SSH会话失败: %w", err)
+	}
+
+	return client, session, nil
+}
+
 // CreateSSHConnectionFromAddress 创建SSH连接（全局统一函数，直接使用地址字符串）
 // address 格式: "host:port"
 func CreateSSHConnectionFromAddress(address, username, password string) (*ssh.Client, *ssh.Session, error) {

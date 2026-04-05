@@ -1,7 +1,7 @@
 export default {
   title: 'Check-in Renewal',
   checkin: 'Check In',
-  getCode: 'Get Code',
+  getCode: 'Get Verification',
   inputCode: 'Enter Code',
   selectInstance: 'Select Instance',
   records: 'Check-in Records',
@@ -10,8 +10,15 @@ export default {
   newExpireAt: 'New Expiry',
   checkinTime: 'Check-in Time',
   checkinSuccess: 'Check-in successful',
-  codeSent: 'Verification code generated',
+  codeSent: 'Verification info retrieved',
   noInstances: 'No instances available for check-in',
   instanceName: 'Instance Name',
-  expireAt: 'Expires At'
+  expireAt: 'Expires At',
+  method: 'Method',
+  verification: 'Verification',
+  loadingCaptcha: 'Loading verification widget...',
+  powStatus: 'PoW Verification',
+  powComputing: 'Computing, please wait...',
+  powSolved: 'Computation complete',
+  powStart: 'Start Computation'
 }

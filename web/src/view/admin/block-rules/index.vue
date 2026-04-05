@@ -90,7 +90,7 @@
         stripe
       >
         <el-table-column type="selection" width="55" />
-        <el-table-column prop="rule_id" label="Rule ID" width="90" />
+        <el-table-column prop="rule_id" :label="t('admin.blockRules.ruleId')" width="90" />
         <el-table-column prop="scope" :label="t('admin.blockRules.scope')" width="100">
           <template #default="{ row }">
             <el-tag size="small">{{ t(`admin.blockRules.scopes.${row.scope}`) }}</el-tag>

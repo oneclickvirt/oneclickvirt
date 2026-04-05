@@ -263,6 +263,26 @@
       </el-text>
     </div>
 
+    <!-- QEMU/KubeVirt 端口映射方式（固定为 iptables） -->
+    <el-form-item
+      v-if="['qemu', 'kubevirt'].includes(modelValue.type)"
+      :label="$t('admin.providers.portMappingMethod')"
+    >
+      <el-input
+        value="Iptables"
+        disabled
+        style="width: 100%"
+      />
+    </el-form-item>
+    <div v-if="['qemu', 'kubevirt'].includes(modelValue.type)" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.qemuIptablesMappingTip') }}
+      </el-text>
+    </div>
+
     <el-alert
       :title="$t('admin.providers.mappingTypeDescription')"
       type="warning"
@@ -277,6 +297,7 @@
         <li><strong>Docker:</strong> {{ $t('admin.providers.dockerMappingDesc') }}</li>
         <li><strong>LXD/Incus:</strong> {{ $t('admin.providers.lxdIncusMappingDesc') }}</li>
         <li><strong>Proxmox VE:</strong> {{ $t('admin.providers.proxmoxMappingDesc') }}</li>
+        <li><strong>QEMU/KubeVirt:</strong> {{ $t('admin.providers.qemuMappingDesc') }}</li>
       </ul>
     </el-alert>
 

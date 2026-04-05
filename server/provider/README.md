@@ -14,6 +14,8 @@ provider/
 ├── incus/                   # Incus 容器/虚拟机提供商实现
 ├── lxd/                     # LXD 容器/虚拟机提供商实现
 ├── proxmox/                 # Proxmox VE 虚拟化提供商实现
+├── qemu/                    # QEMU/KVM 虚拟机提供商实现
+├── kubevirt/                # KubeVirt 虚拟机提供商实现
 ├── health/                  # 统一健康检查模块
 └── portmapping/             # 端口映射模块
     ├── interface.go         # 端口映射接口定义
@@ -215,6 +217,35 @@ Provider 支持三种执行规则，控制操作的执行方式：
 - **执行方式**：根据执行规则选择 API 或 SSH
 - **特性**：虚拟机生命周期管理、Token 认证 API、SSH 命令行备用、虚拟机配置管理、网络和存储配置、Transport 资源自动清理、实例发现
 
+### QEMU
+
+基于 QEMU/KVM 虚拟化技术的 Provider 实现，使用 virsh CLI 管理虚拟机。
+
+- **类型标识**：`qemu`
+- **支持实例类型**：`vm`
+- **连接方式**：SSH
+- **执行方式**：SSH 命令行（`virsh` CLI）
+- **网络**：libvirt NAT（virbr0, 192.168.122.0/24）
+- **端口映射**：iptables DNAT
+- **镜像格式**：qcow2 + cloud-init
+- **创建脚本**：`oneqemu.sh`
+- **特性**：虚拟机生命周期管理、qcow2 镜像管理、多方式密码设置（guest-agent/SSH/virt-customize）、iptables DNAT 端口发现、实例发现
+
+### KubeVirt
+
+基于 KubeVirt 虚拟化技术的 Provider 实现，使用 kubectl + virtctl CLI 管理虚拟机。
+
+- **类型标识**：`kubevirt`
+- **支持实例类型**：`vm`
+- **连接方式**：SSH
+- **执行方式**：SSH 命令行（`kubectl` + `virtctl` CLI）
+- **K8s 栏架**：K3s
+- **命名空间**：`kubevirt-vms`
+- **端口映射**：NodePort Service
+- **镜像格式**：qcow2/img/raw + CDI PVC
+- **创建脚本**：`onevm.sh`
+- **特性**：虚拟机生命周期管理、磁盘镜像管理、NodePort SSH 密码设置、PVC 磁盘发现、实例发现
+
 ## 子模块
 
 ### health/
@@ -226,7 +257,7 @@ Provider 支持三种执行规则，控制操作的执行方式：
 端口映射模块，为不同 Provider 提供统一的端口映射管理接口。
 
 - **支持的映射方法**：native（Provider 原生）、iptables
-- **支持的 Provider**：Docker、Podman、Containerd、Incus、LXD、iptables（通用）
+- **支持的 Provider**：Docker、Podman、Containerd、Incus、LXD、iptables（通用，用于 QEMU/KubeVirt 等）
 - **功能**：端口分配、映射创建/删除、冲突检测
 - **架构**：接口定义 + Manager 统一管理 + 各 Provider 独立实现
 

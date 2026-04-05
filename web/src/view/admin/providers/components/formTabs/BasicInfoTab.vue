@@ -49,6 +49,14 @@
           label="Proxmox"
           value="proxmox"
         />
+        <el-option
+          label="QEMU/KVM"
+          value="qemu"
+        />
+        <el-option
+          label="KubeVirt"
+          value="kubevirt"
+        />
       </el-select>
     </el-form-item>
     <el-form-item

@@ -25,7 +25,7 @@ type SystemImageResponse struct {
 // CreateSystemImageRequest 创建系统镜像请求
 type CreateSystemImageRequest struct {
 	Name         string `json:"name" binding:"required"`
-	ProviderType string `json:"providerType" binding:"required,oneof=proxmox lxd incus docker"`
+	ProviderType string `json:"providerType" binding:"required,oneof=proxmox lxd incus docker qemu kubevirt"`
 	InstanceType string `json:"instanceType" binding:"required,oneof=vm container"`
 	Architecture string `json:"architecture" binding:"required,oneof=amd64 arm64 s390x"`
 	URL          string `json:"url" binding:"required,url"`
@@ -43,7 +43,7 @@ type CreateSystemImageRequest struct {
 // UpdateSystemImageRequest 更新系统镜像请求
 type UpdateSystemImageRequest struct {
 	Name         string `json:"name"`
-	ProviderType string `json:"providerType" binding:"omitempty,oneof=proxmox lxd incus docker"`
+	ProviderType string `json:"providerType" binding:"omitempty,oneof=proxmox lxd incus docker qemu kubevirt"`
 	InstanceType string `json:"instanceType" binding:"omitempty,oneof=vm container"`
 	Architecture string `json:"architecture" binding:"omitempty,oneof=amd64 arm64 s390x"`
 	URL          string `json:"url" binding:"omitempty,url"`

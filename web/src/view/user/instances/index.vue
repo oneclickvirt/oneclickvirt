@@ -398,7 +398,9 @@ const getProviderTypeName = (type) => {
     incus: 'Incus',
     proxmox: 'Proxmox',
     podman: 'Podman',
-    containerd: 'Containerd'
+    containerd: 'Containerd',
+    qemu: 'QEMU/KVM',
+    kubevirt: 'KubeVirt'
   }
   return names[type] || type
 }
@@ -411,7 +413,9 @@ const getProviderTypeColor = (type) => {
     incus: 'warning',
     proxmox: '',
     podman: 'info',
-    containerd: 'info'
+    containerd: 'info',
+    qemu: 'danger',
+    kubevirt: 'danger'
   }
   return colors[type] || ''
 }

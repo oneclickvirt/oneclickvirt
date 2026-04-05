@@ -3,8 +3,12 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::process::Command;
+use std::sync::Mutex;
 use tracing::debug;
 use utoipa::ToSchema;
+
+/// Cache for previous cgroup CPU usage_usec readings, keyed by cgroup base path.
+static PREV_CPU_USEC: Mutex<Option<HashMap<String, (u64, std::time::Instant)>>> = Mutex::new(None);
 
 #[derive(Debug, Clone, Serialize, Deserialize, ToSchema)]
 pub struct ResourceSnapshot {
@@ -107,7 +111,7 @@ fn collect_oci_runtime(runtime: &str, name: &str) -> Result<ResourceSnapshot, Ap
 
 fn get_oci_disk(runtime: &str, name: &str) -> (u64, u64) {
     let out = Command::new(runtime)
-        .args(["inspect", "--format", "{{json .}}", name])
+        .args(["inspect", "--size", "--format", "{{json .}}", name])
         .output();
 
     if let Ok(out) = out {
@@ -141,14 +145,22 @@ fn collect_containerd(name: &str) -> Result<ResourceSnapshot, ApiError> {
 }
 
 fn collect_cgroup_stats(name: &str) -> Result<ResourceSnapshot, ApiError> {
-    // Try cgroup v2 first
-    let cg_base = format!("/sys/fs/cgroup/system.slice/containerd-{name}.scope");
-    let cg_base_alt = format!("/sys/fs/cgroup/{name}");
+    // Try various cgroup v2 path patterns
+    let patterns = [
+        format!("/sys/fs/cgroup/system.slice/containerd-{name}.scope"),
+        format!("/sys/fs/cgroup/{name}"),
+        format!("/sys/fs/cgroup/default/{name}"),
+        format!("/sys/fs/cgroup/system.slice/nerdctl-{name}.scope"),
+    ];
 
-    let cg_paths = [&cg_base, &cg_base_alt];
-
-    for path in &cg_paths {
-        if let Ok(snap) = read_cgroup_v2(path) {
+    for path in &patterns {
+        if let Ok(mut snap) = read_cgroup_v2(path) {
+            // Try to get disk from ctr snapshots
+            if snap.disk_used == 0 {
+                let (du, dt) = get_containerd_disk(name);
+                snap.disk_used = du;
+                snap.disk_total = dt;
+            }
             return Ok(snap);
         }
     }
@@ -156,6 +168,29 @@ fn collect_cgroup_stats(name: &str) -> Result<ResourceSnapshot, ApiError> {
     Err(ApiError::internal(format!(
         "could not find cgroup stats for containerd instance {name}"
     )))
+}
+
+/// Get disk usage for containerd via `ctr snapshots usage`.
+fn get_containerd_disk(name: &str) -> (u64, u64) {
+    let out = Command::new("ctr")
+        .args(["-n", "default", "snapshots", "usage", name])
+        .output();
+    if let Ok(out) = out {
+        if out.status.success() {
+            let stdout = String::from_utf8_lossy(&out.stdout);
+            // Output format: "KEY    SIZE    INODES\n<key>  <size>  <inodes>"
+            for line in stdout.lines().skip(1) {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    let used = parse_size_string(parts[1]);
+                    if used > 0 {
+                        return (used, 0);
+                    }
+                }
+            }
+        }
+    }
+    (0, 0)
 }
 
 fn read_cgroup_v2(base: &str) -> Result<ResourceSnapshot, ApiError> {
@@ -181,11 +216,29 @@ fn read_cgroup_v2(base: &str) -> Result<ResourceSnapshot, ApiError> {
         .and_then(|v| v.parse::<u64>().ok())
         .unwrap_or(0);
 
-    // CPU percent is hard to compute from a single sample; return 0 and rely on delta in collector
-    let _ = cpu_usec;
+    // Compute CPU% from delta between consecutive samples
+    let cpu_percent = {
+        let mut guard = PREV_CPU_USEC.lock().unwrap_or_else(|e| e.into_inner());
+        let map = guard.get_or_insert_with(HashMap::new);
+        let now = std::time::Instant::now();
+        let pct = if let Some((prev_usec, prev_time)) = map.get(base) {
+            let elapsed = now.duration_since(*prev_time);
+            let wall_usec = elapsed.as_micros() as u64;
+            if wall_usec > 0 && cpu_usec >= *prev_usec {
+                let delta_usec = cpu_usec - *prev_usec;
+                (delta_usec as f64 / wall_usec as f64) * 100.0
+            } else {
+                0.0
+            }
+        } else {
+            0.0
+        };
+        map.insert(base.to_owned(), (cpu_usec, now));
+        pct
+    };
 
     Ok(ResourceSnapshot {
-        cpu_percent: 0.0,
+        cpu_percent,
         memory_used: mem_current,
         memory_total: mem_max,
         disk_used: 0,

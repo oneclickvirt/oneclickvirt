@@ -1,7 +1,7 @@
 export default {
   title: '签到续期',
   checkin: '签到',
-  getCode: '获取验证码',
+  getCode: '获取验证',
   inputCode: '输入验证码',
   selectInstance: '选择实例',
   records: '签到记录',
@@ -10,8 +10,15 @@ export default {
   newExpireAt: '新过期时间',
   checkinTime: '签到时间',
   checkinSuccess: '签到成功',
-  codeSent: '验证码已生成',
+  codeSent: '验证信息已获取',
   noInstances: '暂无可签到的实例',
   instanceName: '实例名称',
-  expireAt: '过期时间'
+  expireAt: '过期时间',
+  method: '验证方式',
+  verification: '人机验证',
+  loadingCaptcha: '正在加载验证组件...',
+  powStatus: '计算验证',
+  powComputing: '正在计算中，请稍候...',
+  powSolved: '计算完成',
+  powStart: '开始计算验证'
 }

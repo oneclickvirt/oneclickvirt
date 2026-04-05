@@ -199,7 +199,7 @@
                   <el-switch v-model="config.auth.enableTelegram" />
                 </div>
               </template>
-              <el-form-item label="Bot Token">
+              <el-form-item :label="$t('admin.config.telegramBotToken')">
                 <el-input
                   v-model="config.auth.telegramBotToken"
                   :placeholder="$t('admin.config.telegramBotTokenPlaceholder')"
@@ -221,7 +221,7 @@
               </template>
               <el-row :gutter="20">
                 <el-col :span="12">
-                  <el-form-item label="App ID">
+                  <el-form-item :label="$t('admin.config.qqAppId')">
                     <el-input
                       v-model="config.auth.qqAppID"
                       :placeholder="$t('admin.config.qqAppIdPlaceholder')"
@@ -230,7 +230,7 @@
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
-                  <el-form-item label="App Key">
+                  <el-form-item :label="$t('admin.config.qqAppKey')">
                     <el-input
                       v-model="config.auth.qqAppKey"
                       :placeholder="$t('admin.config.qqAppKeyPlaceholder')"
@@ -641,19 +641,19 @@
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayAppId')">
-                    <el-input v-model="config.kyc.alipayAppId" placeholder="App ID" />
+                    <el-input v-model="config.kyc.alipayAppId" :placeholder="$t('admin.config.kycAlipayAppId')" />
                   </el-form-item>
                 </el-col>
               </el-row>
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayPrivateKey')">
-                    <el-input v-model="config.kyc.alipayPrivateKey" type="password" show-password placeholder="Private Key" />
+                    <el-input v-model="config.kyc.alipayPrivateKey" type="password" show-password :placeholder="$t('admin.config.kycAlipayPrivateKey')" />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayPublicKey')">
-                    <el-input v-model="config.kyc.alipayPublicKey" type="password" show-password placeholder="Public Key" />
+                    <el-input v-model="config.kyc.alipayPublicKey" type="password" show-password :placeholder="$t('admin.config.kycAlipayPublicKey')" />
                   </el-form-item>
                 </el-col>
               </el-row>
@@ -732,9 +732,9 @@
               style="margin-bottom: 20px;"
             >
               <template #title>
-                <strong>{{ $t('admin.config.languageForceNote') || '强制语言设置说明' }}</strong>
+                <strong>{{ $t('admin.config.languageForceNote') }}</strong>
               </template>
-              {{ $t('admin.config.languageForceDesc') || '当设置了系统默认语言（选择中文或English）后，所有用户将被强制使用该语言，用户的手动语言切换将被覆盖。留空时将根据用户浏览器语言自动选择。' }}
+              {{ $t('admin.config.languageForceDesc') }}
             </el-alert>
 
             <el-row :gutter="20">

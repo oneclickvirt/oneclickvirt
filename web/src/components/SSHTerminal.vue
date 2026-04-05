@@ -29,6 +29,11 @@ const props = defineProps({
   isAdmin: {
     type: Boolean,
     default: false
+  },
+  mode: {
+    type: String,
+    default: 'ssh', // 'ssh' or 'exec'
+    validator: (v) => ['ssh', 'exec'].includes(v)
   }
 })
 
@@ -152,10 +157,11 @@ const connect = () => {
     host = `${window.location.hostname}:${serverPort}`
   }
   
-  // 根据是否为管理员模式选择不同的API端点
+  // 根据是否为管理员模式和终端类型选择不同的API端点
+  const endpoint = props.mode === 'exec' ? 'exec' : 'ssh'
   const apiPath = props.isAdmin 
-    ? `/api/v1/admin/instances/${props.instanceId}/ssh`
-    : `/api/v1/user/instances/${props.instanceId}/ssh`
+    ? `/api/v1/admin/instances/${props.instanceId}/${endpoint}`
+    : `/api/v1/user/instances/${props.instanceId}/${endpoint}`
   
   const wsUrl = `${protocol}//${host}${apiPath}?token=${token}`
 

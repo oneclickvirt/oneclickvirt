@@ -2,7 +2,7 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
-use crate::proxy::ProxyRoutes;
+use crate::proxy::{CertStore, ProxyRoutes};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -16,4 +16,6 @@ pub struct AppState {
     pub traffic_collect_method: String,
     /// Proxy routes for domain reverse proxy
     pub proxy_routes: ProxyRoutes,
+    /// Per-domain TLS certificate store
+    pub cert_store: CertStore,
 }

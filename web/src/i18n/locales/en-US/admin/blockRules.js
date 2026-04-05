@@ -6,6 +6,7 @@ export default {
   editRule: 'Edit Rule',
   applyRules: 'Apply Rules',
   removeApplications: 'Remove Applications',
+  ruleId: 'Rule ID',
   ruleName: 'Rule Name',
   category: 'Category',
   description: 'Description',

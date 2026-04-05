@@ -18,13 +18,14 @@ import (
 )
 
 // checkStorageDriver 检查Containerd存储驱动并判断是否支持硬盘大小限制
+// 注意：nerdctl 不支持 --storage-opt 参数，始终返回 false
 func (c *ContainerdProvider) checkStorageDriver() (bool, string, error) {
 	cacheCmd := fmt.Sprintf("cat %s 2>/dev/null || echo ''", storageDriverFile)
 	cacheOutput, _ := c.sshClient.Execute(cacheCmd)
 	driver := strings.TrimSpace(cacheOutput)
 
 	if driver == "" {
-		infoCmd := fmt.Sprintf("%s info --format '{{.Driver}}' 2>/dev/null || %s info | grep 'Storage Driver:' | awk '{print $3}'", cliName, cliName)
+		infoCmd := fmt.Sprintf("%s info 2>/dev/null | grep -i 'Storage Driver\\|Snapshotter' | head -1 | awk -F: '{gsub(/^ +| +$/, \"\", $2); print $2}'", cliName)
 		output, err := c.sshClient.Execute(infoCmd)
 		if err != nil {
 			return false, "", fmt.Errorf("failed to get storage driver: %w", err)
@@ -33,11 +34,11 @@ func (c *ContainerdProvider) checkStorageDriver() (bool, string, error) {
 	}
 
 	if driver == "" {
-		driver = "overlay"
+		driver = "overlayfs"
 	}
 
-	supportsDiskLimit := driver == "btrfs"
-	return supportsDiskLimit, driver, nil
+	// nerdctl 不支持 --storage-opt size 参数，无论存储驱动类型一律不启用
+	return false, driver, nil
 }
 
 // checkLXCFS 检查LXCFS服务是否可用并返回可用的挂载路径

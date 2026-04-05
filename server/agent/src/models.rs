@@ -165,8 +165,12 @@ pub struct AddDomainProxyRequest {
     pub internal_port: u16,
     /// Protocol: http or https (default http)
     pub protocol: Option<String>,
-    /// Enable SSL with auto-generated self-signed cert
+    /// Enable SSL termination for this domain
     pub enable_ssl: Option<bool>,
+    /// PEM-encoded SSL certificate (full chain)
+    pub ssl_cert: Option<String>,
+    /// PEM-encoded SSL private key
+    pub ssl_key: Option<String>,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -194,6 +198,7 @@ pub struct DomainProxyItem {
     pub internal_port: u16,
     pub protocol: String,
     pub enable_ssl: bool,
+    pub has_cert: bool,
     pub created_at: i64,
 }
 

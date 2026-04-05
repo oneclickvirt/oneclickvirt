@@ -113,6 +113,7 @@ async fn main() {
             resource_collect_interval,
             traffic_collect_method: traffic_collect_method.clone(),
             proxy_routes: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+            cert_store: Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
         };
         let routes = proxy::load_routes_from_db(&temp_state)
             .await
@@ -124,6 +125,14 @@ async fn main() {
         Arc::new(tokio::sync::RwLock::new(routes))
     };
 
+    // Load domain certificates from database
+    info!("loading domain certificates");
+    let cert_store = {
+        let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
+        let certs = proxy::load_domain_certs_from_db(&conn);
+        Arc::new(std::sync::RwLock::new(certs))
+    };
+
     let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
@@ -132,6 +141,7 @@ async fn main() {
         resource_collect_interval,
         traffic_collect_method,
         proxy_routes: proxy_routes.clone(),
+        cert_store: cert_store.clone(),
     };
 
     start_collector(state.clone());
@@ -224,7 +234,7 @@ async fn main() {
             // Only HTTPS
             (None, Some(https_addr), Some(cert), Some(key)) => {
                 info!(%https_addr, "starting HTTPS reverse proxy server");
-                match load_tls_config(&cert, &key) {
+                match load_tls_config(&cert, &key, cert_store.clone()) {
                     Ok(tls_config) => {
                         tokio::select! {
                             _ = api_server => {
@@ -257,7 +267,7 @@ async fn main() {
                     axum::serve(http_listener, http_router).await.expect("HTTP proxy error");
                 });
 
-                match load_tls_config(&cert, &key) {
+                match load_tls_config(&cert, &key, cert_store.clone()) {
                     Ok(tls_config) => {
                         tokio::select! {
                             _ = api_server => {
@@ -288,20 +298,57 @@ async fn main() {
                 }
             }
             _ => {
-                warn!("no valid proxy configuration found, falling back to HTTP on port 80");
-                let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
-                info!(%http_addr, "starting HTTP reverse proxy server (fallback)");
-                let listener = tokio::net::TcpListener::bind(http_addr)
-                    .await
-                    .expect("failed to bind HTTP proxy server");
-                
-                tokio::select! {
-                    _ = api_server => {
-                        warn!("API server stopped unexpectedly");
+                // Check if we have an HTTPS address configured but no default cert
+                // In that case, use SNI-only mode with per-domain certs
+                let has_domain_certs = cert_store.read().map(|c| !c.is_empty()).unwrap_or(false);
+                let https_addr_for_sni: Option<SocketAddr> = env::var("PROXY_HTTPS_ADDR")
+                    .ok()
+                    .and_then(|s| s.parse().ok());
+
+                if has_domain_certs && https_addr_for_sni.is_some() {
+                    let https_addr = https_addr_for_sni.unwrap();
+                    info!(%https_addr, "starting HTTPS reverse proxy with SNI-only certs (no default cert)");
+                    let tls_config = load_tls_config_sni_only(cert_store.clone());
+
+                    let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+                    let http_listener = tokio::net::TcpListener::bind(http_addr)
+                        .await
+                        .expect("failed to bind HTTP proxy server");
+                    let http_router = proxy_router.clone();
+                    let http_server = tokio::spawn(async move {
+                        axum::serve(http_listener, http_router).await.expect("HTTP proxy error");
+                    });
+
+                    tokio::select! {
+                        _ = api_server => {
+                            warn!("API server stopped unexpectedly");
+                        }
+                        _ = http_server => {
+                            warn!("HTTP proxy server stopped unexpectedly");
+                        }
+                        result = axum_server::bind_rustls(https_addr, tls_config)
+                            .serve(proxy_router.into_make_service()) => {
+                            if let Err(e) = result {
+                                error!(error = %e, "HTTPS proxy server error");
+                            }
+                        }
                     }
-                    result = axum::serve(listener, proxy_router) => {
-                        if let Err(e) = result {
-                            error!(error = %e, "HTTP proxy server error");
+                } else {
+                    warn!("no valid proxy TLS configuration found, falling back to HTTP on port 80");
+                    let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+                    info!(%http_addr, "starting HTTP reverse proxy server (fallback)");
+                    let listener = tokio::net::TcpListener::bind(http_addr)
+                        .await
+                        .expect("failed to bind HTTP proxy server");
+                    
+                    tokio::select! {
+                        _ = api_server => {
+                            warn!("API server stopped unexpectedly");
+                        }
+                        result = axum::serve(listener, proxy_router) => {
+                            if let Err(e) = result {
+                                error!(error = %e, "HTTP proxy server error");
+                            }
                         }
                     }
                 }
@@ -310,14 +357,15 @@ async fn main() {
     }
 }
 
-/// Load TLS configuration from certificate and key files
+/// Load TLS configuration from certificate and key files with SNI-based cert resolution
 fn load_tls_config(
     cert_path: &str,
     key_path: &str,
+    cert_store: proxy::CertStore,
 ) -> Result<axum_server::tls_rustls::RustlsConfig, Box<dyn std::error::Error>> {
-    use rustls_pemfile::{certs, pkcs8_private_keys};
+    use rustls_pemfile::{certs, private_key};
     use std::io::Cursor;
-    use tokio_rustls::rustls::{self, pki_types::{CertificateDer, PrivateKeyDer}};
+    use tokio_rustls::rustls::{self, pki_types::CertificateDer};
 
     // Check if files exist
     if !Path::new(cert_path).exists() {
@@ -343,23 +391,49 @@ fn load_tls_config(
     let key_file = fs::read(key_path)
         .map_err(|e| format!("failed to read key file: {}", e))?;
     let mut key_reader = BufReader::new(Cursor::new(key_file));
-    let mut keys = pkcs8_private_keys(&mut key_reader)
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|e| format!("failed to parse private key: {}", e))?;
+    let key_der = private_key(&mut key_reader)
+        .map_err(|e| format!("failed to parse private key: {}", e))?
+        .ok_or("no private keys found in key file")?;
 
-    if keys.is_empty() {
-        return Err("no private keys found in key file".into());
-    }
+    // Build default CertifiedKey
+    let provider = rustls::crypto::ring::default_provider();
+    let signing_key = provider
+        .key_provider
+        .load_private_key(key_der)
+        .map_err(|e| format!("failed to load signing key: {}", e))?;
+    let default_cert = Arc::new(rustls::sign::CertifiedKey::new(cert_chain, signing_key));
 
-    let key = PrivateKeyDer::Pkcs8(keys.remove(0));
+    // Build TLS config with SNI-based cert resolver
+    let resolver = proxy::DomainCertResolver {
+        default_cert: Some(default_cert),
+        domain_certs: cert_store,
+    };
 
-    // Build TLS config
     let mut config = rustls::ServerConfig::builder()
         .with_no_client_auth()
-        .with_single_cert(cert_chain, key)
-        .map_err(|e| format!("failed to build TLS config: {}", e))?;
+        .with_cert_resolver(Arc::new(resolver));
 
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     Ok(axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config)))
+}
+
+/// Load TLS configuration with only per-domain certificates (no default cert)
+fn load_tls_config_sni_only(
+    cert_store: proxy::CertStore,
+) -> axum_server::tls_rustls::RustlsConfig {
+    use tokio_rustls::rustls;
+
+    let resolver = proxy::DomainCertResolver {
+        default_cert: None,
+        domain_certs: cert_store,
+    };
+
+    let mut config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_cert_resolver(Arc::new(resolver));
+
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config))
 }

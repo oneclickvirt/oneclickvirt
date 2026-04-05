@@ -177,6 +177,12 @@ watch(() => addProviderForm.type, (newType) => {
     addProviderForm.vmEnabled = false
     addProviderForm.ipv4PortMappingMethod = 'native'
     addProviderForm.ipv6PortMappingMethod = 'native'
+  } else if (['qemu', 'kubevirt'].includes(newType)) {
+    // QEMU/KubeVirt只支持虚拟机，使用iptables端口映射
+    addProviderForm.containerEnabled = false
+    addProviderForm.vmEnabled = true
+    addProviderForm.ipv4PortMappingMethod = 'iptables'
+    addProviderForm.ipv6PortMappingMethod = 'iptables'
   } else if (newType === 'proxmox') {
     // Proxmox支持容器和虚拟机
     addProviderForm.containerEnabled = true

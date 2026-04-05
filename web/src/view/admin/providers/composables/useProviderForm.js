@@ -275,6 +275,9 @@ export function useProviderForm(loadProviders) {
     if (provider.type === 'docker') {
       addProviderForm.ipv4PortMappingMethod = 'native'
       addProviderForm.ipv6PortMappingMethod = 'native'
+    } else if (['qemu', 'kubevirt'].includes(provider.type)) {
+      addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
+      addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'iptables'
     } else if (provider.type === 'proxmox') {
       addProviderForm.ipv4PortMappingMethod = provider.ipv4PortMappingMethod || 'iptables'
       addProviderForm.ipv6PortMappingMethod = provider.ipv6PortMappingMethod || 'native'
@@ -384,6 +387,9 @@ export function useProviderForm(loadProviders) {
       if (formData.type === 'docker') {
         serverData.ipv4PortMappingMethod = 'native'
         serverData.ipv6PortMappingMethod = 'native'
+      } else if (['qemu', 'kubevirt'].includes(formData.type)) {
+        serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'iptables'
+        serverData.ipv6PortMappingMethod = formData.ipv6PortMappingMethod || 'iptables'
       } else if (formData.type === 'proxmox') {
         if (formData.networkType === 'nat_ipv4' || formData.networkType === 'nat_ipv4_ipv6') {
           serverData.ipv4PortMappingMethod = formData.ipv4PortMappingMethod || 'iptables'

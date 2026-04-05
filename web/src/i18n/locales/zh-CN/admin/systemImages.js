@@ -74,5 +74,6 @@ export default {
   batchStatusFailed: "批量{action}失败",
   urlHintProxmoxVM: "ProxmoxVE虚拟机镜像必须是 .qcow2 文件",
   urlHintLxdIncus: "LXD/Incus镜像必须是 .zip 文件",
-  urlHintContainerTarGz: "{provider}容器镜像必须是 .tar.gz 文件"
+  urlHintContainerTarGz: "{provider}容器镜像必须是 .tar.gz 文件",
+  urlHintQemuKubevirt: "QEMU/KubeVirt虚拟机镜像必须是 .qcow2 文件"
 }

@@ -13,9 +13,11 @@ import (
 	_ "oneclickvirt/provider/containerd"
 	_ "oneclickvirt/provider/docker"
 	_ "oneclickvirt/provider/incus"
+	_ "oneclickvirt/provider/kubevirt"
 	_ "oneclickvirt/provider/lxd"
 	_ "oneclickvirt/provider/podman"
 	_ "oneclickvirt/provider/proxmox"
+	_ "oneclickvirt/provider/qemu"
 
 	"go.uber.org/zap"
 )

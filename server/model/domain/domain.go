@@ -19,6 +19,10 @@ type Domain struct {
 	InternalIP   string `json:"internalIP" gorm:"size:64;not null"`
 	InternalPort int    `json:"internalPort" gorm:"not null"`
 	EnableSSL    bool   `json:"enableSSL" gorm:"default:false"`
+	// SSL证书
+	SSLCertContent string `json:"-" gorm:"type:text"`           // PEM格式证书(不返回给前端)
+	SSLKeyContent  string `json:"-" gorm:"type:text"`           // PEM格式私钥(不返回给前端)
+	HasCert        bool   `json:"hasCert" gorm:"default:false"` // 是否已上传证书
 	// 状态
 	Status    string     `json:"status" gorm:"size:16;default:pending"`
 	ErrorMsg  string     `json:"errorMsg" gorm:"size:512"`

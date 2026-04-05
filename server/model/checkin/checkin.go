@@ -20,7 +20,12 @@ type CheckinConfig struct {
 	RenewalDays       int    `json:"renewalDays" gorm:"default:7"`                 // 每次签到续期天数
 	MaxExpireDays     int    `json:"maxExpireDays" gorm:"default:30"`              // 最大累计到期天数(0=不限)
 	OverdueAction     string `json:"overdueAction" gorm:"size:16;default:stop"`    // 超期操作: stop(关停), delete(删除)
-	CheckinMethod     string `json:"checkinMethod" gorm:"size:32;default:captcha"` // 签到方式: captcha(验证码)
+	CheckinMethod     string `json:"checkinMethod" gorm:"size:32;default:captcha"` // 签到方式: captcha|turnstile|recaptcha|hcaptcha|pow
+	// 第三方验证配置
+	CaptchaSiteKey   string `json:"captchaSiteKey" gorm:"size:256"`   // 第三方验证的站点密钥(公开)
+	CaptchaSecretKey string `json:"captchaSecretKey" gorm:"size:256"` // 第三方验证的服务端密钥(保密)
+	// PoW 配置
+	PowDifficulty int `json:"powDifficulty" gorm:"default:4"` // PoW难度(前导零位数, 1-8)
 }
 
 // CheckinRecord 签到记录
@@ -32,7 +37,7 @@ type CheckinRecord struct {
 	InstanceID uint `json:"instanceId" gorm:"not null;index:idx_instance_id"`
 	ProviderID uint `json:"providerId" gorm:"not null;index:idx_provider_id"`
 	// 签到方式
-	Method string `json:"method" gorm:"size:32;not null"` // captcha, ...
+	Method string `json:"method" gorm:"size:32;not null"` // captcha|turnstile|recaptcha|hcaptcha|pow
 	// 续期结果
 	RenewalDays int        `json:"renewalDays" gorm:"not null"` // 本次续期天数
 	NewExpireAt time.Time  `json:"newExpireAt" gorm:"not null"` // 续期后的到期时间
@@ -47,8 +52,8 @@ type CheckinVerification struct {
 	// 关联
 	UserID     uint      `json:"userId" gorm:"not null;index"`
 	InstanceID uint      `json:"instanceId" gorm:"not null"`
-	Method     string    `json:"method" gorm:"size:32;not null"` // captcha, ...
-	Code       string    `json:"code" gorm:"size:32;not null"`   // 验证码
+	Method     string    `json:"method" gorm:"size:32;not null"` // captcha|turnstile|recaptcha|hcaptcha|pow
+	Code       string    `json:"code" gorm:"size:256;not null"`  // 验证码或PoW challenge
 	Used       bool      `json:"used" gorm:"default:false"`
 	ExpiredAt  time.Time `json:"expiredAt" gorm:"not null"`
 }
