@@ -29,6 +29,16 @@ RUN BUILD_COMMIT=$(git rev-parse HEAD 2>/dev/null || echo "docker") && \
     -ldflags "-w -s -X oneclickvirt/constant.BuildCommit=${BUILD_COMMIT} -X oneclickvirt/constant.BuildTime=${BUILD_TIME} -X oneclickvirt/constant.BuildSignature=official-docker" \
     -o main .
 
+# Build goecs from the public branch of oneclickvirt/ecs
+FROM golang:1.25-alpine AS goecs-builder
+ARG TARGETARCH
+RUN apk add --no-cache git ca-certificates
+WORKDIR /build
+RUN git clone --depth 1 --branch public https://github.com/oneclickvirt/ecs.git .
+RUN go mod download
+RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags "-w -s" -o goecs_amd64 . && \
+    CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -ldflags "-w -s" -o goecs_arm64 .
+
 FROM debian:12-slim
 ARG TARGETARCH
 
@@ -57,6 +67,8 @@ RUN mkdir -p /var/lib/mysql /var/log/mysql /var/run/mysqld /var/log/supervisor \
 
 COPY --from=backend-builder /app/server/main ./main
 COPY --from=backend-builder /app/server/config.yaml ./config.yaml.default
+COPY --from=goecs-builder /build/goecs_amd64 /app/goecs_amd64
+COPY --from=goecs-builder /build/goecs_arm64 /app/goecs_arm64
 RUN if [ ! -f /app/config.yaml ]; then mv /app/config.yaml.default /app/config.yaml; else rm /app/config.yaml.default; fi
 COPY --from=frontend-builder /app/web/dist /var/www/html
 

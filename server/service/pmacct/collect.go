@@ -7,14 +7,25 @@ import (
 	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
 	providerService "oneclickvirt/service/provider"
-	"oneclickvirt/utils/dbcompat"
 	"strconv"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
-	"gorm.io/gorm"
 )
+
+// trafficData 表示从SQLite解析的单条流量数据
+type trafficData struct {
+	year       int
+	month      int
+	day        int
+	hour       int
+	minute     int
+	timestamp  time.Time
+	txBytes    int64
+	rxBytes    int64
+	totalBytes int64
+}
 
 // CollectTrafficFromSQLite 从远程 pmacct SQLite 数据库采集流量数据并导入系统数据库
 // 架构：Memory(1min) -> SQLite(local) -> MySQL(remote, dynamic interval)
@@ -219,17 +230,6 @@ LIMIT 10000;
 	}
 
 	// 第一步：解析所有数据行（事务外）
-	type trafficData struct {
-		year       int
-		month      int
-		day        int
-		hour       int
-		minute     int
-		timestamp  time.Time
-		txBytes    int64
-		rxBytes    int64
-		totalBytes int64
-	}
 	var dataList []trafficData
 
 	for _, line := range lines {
@@ -307,19 +307,12 @@ LIMIT 10000;
 		})
 	}
 
-	// 第二步：查询该instance最近一次有效数据的最大流量值（在事务外预查询）
+	// 查询该instance最近一次有效数据的最大流量值（在事务外预查询）
 	// 用于检测连接异常恢复后的场景
-	type lastMaxTraffic struct {
-		MaxRxBytes    int64
-		MaxTxBytes    int64
-		MaxTotalBytes int64
-		LastTimestamp *time.Time // 使用指针避免 COALESCE 导致的 []uint8 扫描错误
-	}
 	var lastMax lastMaxTraffic
 
 	// 查询最近一次有数据的记录（rx_bytes > 0 OR tx_bytes > 0）
 	// 使用子查询确保兼容 MySQL 5.x/9.x 和 MariaDB 5.x/9.x
-	// 注意：不使用 COALESCE(MAX(timestamp), ?) 避免 MySQL 驱动将 COALESCE 结果返回为 []uint8
 	err = global.APP_DB.Raw(`
 		SELECT 
 			COALESCE(MAX(rx_bytes), 0) as max_rx_bytes,
@@ -338,259 +331,24 @@ LIMIT 10000;
 		global.APP_LOG.Warn("查询历史最大流量失败，继续执行",
 			zap.Uint("instanceID", instanceID),
 			zap.Error(err))
-		// 如果查询失败，设置为0，不影响后续逻辑
 		lastMax = lastMaxTraffic{}
 	}
 
-	// 第三步：检测是否所有新数据都大于上一次的最大值（连续性检测）
-	// 如果是连续的，说明是连接异常恢复，需要填补空白期
-	//
-	// 判断逻辑：
-	// 1. 上一次有有效数据（MaxTotalBytes > 0）
-	// 2. 所有新数据的rx和tx都 >= 上一次的最大值（严格要求两个维度都满足）
-	// 3. 这样可以区分：
-	//    - 监控重建：新数据从0或很小值开始 → 不满足条件 → 不填补
-	//    - 连接异常恢复：新数据继续累积增长 → 满足条件 → 填补空白期
-	isContinuous := false
-	if lastMax.MaxTotalBytes > 0 {
-		// 检查所有新数据是否都大于等于上一次的最大值（rx和tx都要满足）
-		allGreaterOrEqual := true
-		for _, data := range dataList {
-			// 只要有一个维度小于上次最大值，就不是连续场景
-			if data.rxBytes < lastMax.MaxRxBytes || data.txBytes < lastMax.MaxTxBytes {
-				allGreaterOrEqual = false
-				global.APP_LOG.Debug("新数据不满足连续性条件，可能是监控重建",
-					zap.Uint("instanceID", instanceID),
-					zap.Int64("newRx", data.rxBytes),
-					zap.Int64("lastMaxRx", lastMax.MaxRxBytes),
-					zap.Int64("newTx", data.txBytes),
-					zap.Int64("lastMaxTx", lastMax.MaxTxBytes))
-				break
-			}
-		}
-		isContinuous = allGreaterOrEqual
+	// 检测是否所有新数据都大于上一次的最大值（连续性检测）
+	isContinuous := s.checkContinuity(instanceID, dataList, lastMax)
 
-		if isContinuous {
-			var lastTimestampLog time.Time
-			if lastMax.LastTimestamp != nil {
-				lastTimestampLog = *lastMax.LastTimestamp
-			}
-			global.APP_LOG.Info("检测到连接异常恢复场景（所有新数据>=上次最大值），将填补空白期数据",
-				zap.Uint("instanceID", instanceID),
-				zap.Int64("lastMaxRx", lastMax.MaxRxBytes),
-				zap.Int64("lastMaxTx", lastMax.MaxTxBytes),
-				zap.Time("lastTimestamp", lastTimestampLog),
-				zap.Time("firstNewTimestamp", dataList[0].timestamp),
-				zap.Int("newDataCount", len(dataList)))
-		}
+	// 填补空白期数据（如果需要）
+	if isContinuous {
+		s.fillGapRecords(instanceID, instance, monitor, lastMax, dataList[0].timestamp, providerCurrentTimeStr)
 	}
 
-	// 拆分事务：分批处理避免长时间锁表
-	var imported int
-
-	// 第一步：填补空白期数据（如果需要）
-	if isContinuous && lastMax.LastTimestamp != nil && !lastMax.LastTimestamp.IsZero() {
-		fillStart := lastMax.LastTimestamp.Add(time.Minute)
-		fillEnd := dataList[0].timestamp.Add(-time.Minute)
-
-		if fillStart.Before(fillEnd) || fillStart.Equal(fillEnd) {
-			// 生成填补数据
-			var fillRecords []monitoringModel.PmacctTrafficRecord
-			for current := fillStart; current.Before(dataList[0].timestamp); current = current.Add(time.Minute) {
-				fillRecords = append(fillRecords, monitoringModel.PmacctTrafficRecord{
-					InstanceID:   instanceID,
-					UserID:       instance.UserID,
-					ProviderID:   instance.ProviderID,
-					ProviderType: instance.Provider,
-					MappedIP:     monitor.MappedIP,
-					RxBytes:      lastMax.MaxRxBytes,
-					TxBytes:      lastMax.MaxTxBytes,
-					TotalBytes:   lastMax.MaxTotalBytes,
-					Timestamp:    current,
-					Year:         current.Year(),
-					Month:        int(current.Month()),
-					Day:          current.Day(),
-					Hour:         current.Hour(),
-					Minute:       current.Minute(),
-				})
-			}
-
-			// 批量插入填补数据（每扵50条，独立事务）
-			if len(fillRecords) > 0 {
-				fillBatchSize := 50
-				for i := 0; i < len(fillRecords); i += fillBatchSize {
-					end := i + fillBatchSize
-					if end > len(fillRecords) {
-						end = len(fillRecords)
-					}
-					batch := fillRecords[i:end]
-
-					// 每批使用独立的短事务
-					err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-						values := make([]string, 0, len(batch))
-						args := make([]interface{}, 0, len(batch)*15)
-
-						for _, record := range batch {
-							values = append(values, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-							args = append(args,
-								record.InstanceID,
-								record.UserID,
-								record.ProviderID,
-								record.ProviderType,
-								record.MappedIP,
-								record.RxBytes,
-								record.TxBytes,
-								record.TotalBytes,
-								record.Timestamp,
-								record.Year,
-								record.Month,
-								record.Day,
-								record.Hour,
-								record.Minute,
-								providerCurrentTimeStr,
-							)
-						}
-
-						insertSQL := fmt.Sprintf(`
-							INSERT IGNORE INTO pmacct_traffic_records 
-							(instance_id, user_id, provider_id, provider_type, mapped_ip, 
-							 rx_bytes, tx_bytes, total_bytes, timestamp, 
-							 year, month, day, hour, minute, record_time)
-							VALUES %s
-						`, strings.Join(values, ","))
-
-						return tx.Exec(insertSQL, args...).Error
-					})
-
-					if err != nil {
-						global.APP_LOG.Warn("填补空白期数据失败（继续执行）",
-							zap.Uint("instanceID", instanceID),
-							zap.Int("count", len(batch)),
-							zap.Error(err))
-					}
-				}
-
-				global.APP_LOG.Debug("已填补空白期数据",
-					zap.Uint("instanceID", instanceID),
-					zap.Int("fillCount", len(fillRecords)),
-					zap.Time("fillStart", fillStart),
-					zap.Time("fillEnd", fillEnd.Add(time.Minute)))
-			}
-		}
+	// 批量插入新采集的数据
+	imported, err := s.batchUpsertRecords(instanceID, recordsToCreate, providerCurrentTimeStr)
+	if err != nil {
+		return err
 	}
 
-	// 第二步：批量插入新采集的数据（每批独立事务，避免长时间锁表）
-	batchSize := 50
-	for i := 0; i < len(recordsToCreate); i += batchSize {
-		end := i + batchSize
-		if end > len(recordsToCreate) {
-			end = len(recordsToCreate)
-		}
-		batch := recordsToCreate[i:end]
-
-		// 每批使用独立的短事务
-		err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
-			values := make([]string, 0, len(batch))
-			args := make([]interface{}, 0, len(batch)*15)
-
-			for _, record := range batch {
-				values = append(values, "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-				args = append(args,
-					record.InstanceID,
-					record.UserID,
-					record.ProviderID,
-					record.ProviderType,
-					record.MappedIP,
-					record.RxBytes,
-					record.TxBytes,
-					record.TotalBytes,
-					record.Timestamp,
-					record.Year,
-					record.Month,
-					record.Day,
-					record.Hour,
-					record.Minute,
-					providerCurrentTimeStr,
-				)
-			}
-
-			var insertSQL string
-			if dbcompat.UseRowAlias() {
-				// MySQL 9.0+: row-alias syntax (VALUES() removed)
-				insertSQL = fmt.Sprintf(`
-				INSERT INTO pmacct_traffic_records 
-				(instance_id, user_id, provider_id, provider_type, mapped_ip, 
-				 rx_bytes, tx_bytes, total_bytes, timestamp, 
-				 year, month, day, hour, minute, record_time)
-				VALUES %s AS _new_row
-				ON DUPLICATE KEY UPDATE
-					rx_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.rx_bytes > pmacct_traffic_records.rx_bytes,
-						_new_row.rx_bytes,
-						pmacct_traffic_records.rx_bytes
-					),
-					tx_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.tx_bytes > pmacct_traffic_records.tx_bytes,
-						_new_row.tx_bytes,
-						pmacct_traffic_records.tx_bytes
-					),
-					total_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.total_bytes > pmacct_traffic_records.total_bytes,
-						_new_row.total_bytes,
-						pmacct_traffic_records.total_bytes
-					),
-					record_time = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR _new_row.total_bytes > pmacct_traffic_records.total_bytes,
-						_new_row.record_time,
-						pmacct_traffic_records.record_time
-					)
-			`, strings.Join(values, ","))
-			} else {
-				// MariaDB / MySQL < 9: legacy VALUES() syntax
-				insertSQL = fmt.Sprintf(`
-				INSERT INTO pmacct_traffic_records 
-				(instance_id, user_id, provider_id, provider_type, mapped_ip, 
-				 rx_bytes, tx_bytes, total_bytes, timestamp, 
-				 year, month, day, hour, minute, record_time)
-				VALUES %s
-				ON DUPLICATE KEY UPDATE
-					rx_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR VALUES(rx_bytes) > pmacct_traffic_records.rx_bytes,
-						VALUES(rx_bytes),
-						pmacct_traffic_records.rx_bytes
-					),
-					tx_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR VALUES(tx_bytes) > pmacct_traffic_records.tx_bytes,
-						VALUES(tx_bytes),
-						pmacct_traffic_records.tx_bytes
-					),
-					total_bytes = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR VALUES(total_bytes) > pmacct_traffic_records.total_bytes,
-						VALUES(total_bytes),
-						pmacct_traffic_records.total_bytes
-					),
-					record_time = IF(
-						TIMESTAMPDIFF(MINUTE, pmacct_traffic_records.timestamp, NOW()) <= 5 OR VALUES(total_bytes) > pmacct_traffic_records.total_bytes,
-						VALUES(record_time),
-						pmacct_traffic_records.record_time
-					)
-			`, strings.Join(values, ","))
-			}
-
-			return tx.Exec(insertSQL, args...).Error
-		})
-
-		if err != nil {
-			global.APP_LOG.Error("批量创建流量记录失败",
-				zap.Uint("instanceID", instanceID),
-				zap.Int("count", len(batch)),
-				zap.Error(err))
-			return fmt.Errorf("failed to batch create records: %w", err)
-		}
-		imported += len(batch)
-	}
-
-	// 第三步：更新最后同步时间（独立小事务）
+	// 更新最后同步时间
 	if err := global.APP_DB.Exec(
 		"UPDATE pmacct_monitors SET last_sync = ? WHERE instance_id = ?",
 		providerCurrentTimeStr, instanceID).Error; err != nil {
@@ -600,389 +358,9 @@ LIMIT 10000;
 		return fmt.Errorf("failed to update last_sync: %w", err)
 	}
 
-	// 同步更新历史表（在主事务成功后执行，失败不影响采集）
-	// pmacct_traffic_records存储的是累积值快照，历史表应存储时间段内的最大累积值
-	// 前端/API查询时通过相邻时间点的差值计算实际使用量
+	// 同步更新历史表
 	if imported > 0 {
-		now := time.Now()
-		year, month := now.Year(), int(now.Month())
-		day, hour := now.Day(), now.Hour()
-
-		// 更新实例流量历史表（小时级，存储该小时最新的累积值）
-		// 先查询聚合结果
-		var hourlyData struct {
-			InstanceID uint
-			ProviderID uint
-			UserID     uint
-			TrafficIn  float64
-			TrafficOut float64
-			TotalUsed  float64
-		}
-
-		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
-		// 使用 DIV 整数除法，避免浮点除法导致 MySQL 驱动返回 []uint8 无法扫描到 int64
-		err := global.APP_DB.Table("pmacct_traffic_records").
-			Select("instance_id, provider_id, user_id, MAX(rx_bytes) DIV 1048576 as traffic_in, MAX(tx_bytes) DIV 1048576 as traffic_out, MAX(total_bytes) DIV 1048576 as total_used").
-			Where("instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL", instanceID, year, month, day, hour).
-			Group("instance_id, provider_id, user_id, year, month, day, hour").
-			Scan(&hourlyData).Error
-
-		if err == nil && hourlyData.InstanceID > 0 {
-			// 使用GORM保存或更新
-			var existing monitoringModel.InstanceTrafficHistory
-			err = global.APP_DB.Where(
-				"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
-				instanceID, year, month, day, hour,
-			).First(&existing).Error
-
-			if err == nil {
-				// 更新现有记录
-				existing.ProviderID = hourlyData.ProviderID
-				existing.UserID = hourlyData.UserID
-				existing.TrafficIn = hourlyData.TrafficIn
-				existing.TrafficOut = hourlyData.TrafficOut
-				existing.TotalUsed = hourlyData.TotalUsed
-				existing.RecordTime = now
-				if err := global.APP_DB.Save(&existing).Error; err != nil {
-					global.APP_LOG.Warn("更新实例流量历史失败",
-						zap.Uint("instanceID", instanceID),
-						zap.Error(err))
-				}
-			} else {
-				// 插入新记录
-				newRecord := monitoringModel.InstanceTrafficHistory{
-					InstanceID: hourlyData.InstanceID,
-					ProviderID: hourlyData.ProviderID,
-					UserID:     hourlyData.UserID,
-					TrafficIn:  hourlyData.TrafficIn,
-					TrafficOut: hourlyData.TrafficOut,
-					TotalUsed:  hourlyData.TotalUsed,
-					Year:       year,
-					Month:      month,
-					Day:        day,
-					Hour:       hour,
-					RecordTime: now,
-				}
-				if err := global.APP_DB.Create(&newRecord).Error; err != nil {
-					global.APP_LOG.Warn("插入实例流量历史失败",
-						zap.Uint("instanceID", instanceID),
-						zap.Error(err))
-				}
-			}
-		}
-
-		// 更新实例月度汇总（day=0, hour=0）
-		// 支持pmacct每天4点自动重置，使用分段检测避免数据丢失
-		// 先执行聚合查询
-		var monthlyData struct {
-			InstanceID uint
-			ProviderID uint
-			UserID     uint
-			TrafficIn  float64
-			TrafficOut float64
-			TotalUsed  float64
-		}
-
-		// 注意：pmacct_traffic_records 表中是字节，需要转换为 MB 插入 instance_traffic_histories
-		err = global.APP_DB.Raw(`
-			SELECT 
-				instance_id,
-				provider_id,
-				user_id,
-				COALESCE(SUM(segment_max_rx), 0) DIV 1048576 as traffic_in,
-				COALESCE(SUM(segment_max_tx), 0) DIV 1048576 as traffic_out,
-				COALESCE(SUM(segment_max_total), 0) DIV 1048576 as total_used
-			FROM (
-				SELECT 
-					instance_id, provider_id, user_id,
-					segment_id,
-					MAX(rx_bytes) as segment_max_rx,
-					MAX(tx_bytes) as segment_max_tx,
-					MAX(total_bytes) as segment_max_total
-				FROM (
-					SELECT 
-						t1.instance_id,
-						t1.provider_id,
-						t1.user_id,
-						t1.rx_bytes,
-						t1.tx_bytes,
-						t1.total_bytes,
-						(
-							SELECT COUNT(DISTINCT t2.id)
-							FROM pmacct_traffic_records t2
-							LEFT JOIN pmacct_traffic_records t3 ON t2.instance_id = t3.instance_id 
-								AND t3.timestamp = (
-									SELECT MAX(timestamp) 
-									FROM pmacct_traffic_records 
-									WHERE instance_id = t2.instance_id 
-										AND timestamp < t2.timestamp
-										AND year = t1.year AND month = t1.month
-								)
-							WHERE t2.instance_id = t1.instance_id
-								AND t2.year = t1.year AND t2.month = t1.month
-								AND t2.timestamp <= t1.timestamp
-								AND t3.id IS NOT NULL
-								AND (t2.rx_bytes < t3.rx_bytes OR t2.tx_bytes < t3.tx_bytes)
-						) as segment_id
-					FROM pmacct_traffic_records t1
-					WHERE t1.instance_id = ? AND t1.year = ? AND t1.month = ? AND t1.deleted_at IS NULL
-				) AS segments
-				GROUP BY instance_id, provider_id, user_id, segment_id
-			) AS segment_totals
-			GROUP BY instance_id, provider_id, user_id
-		`, instanceID, year, month).Scan(&monthlyData).Error
-
-		if err == nil && monthlyData.InstanceID > 0 {
-			// 使用GORM保存或更新月度汇总
-			var existing monitoringModel.InstanceTrafficHistory
-			err = global.APP_DB.Where(
-				"instance_id = ? AND year = ? AND month = ? AND day = ? AND hour = ?",
-				instanceID, year, month, 0, 0,
-			).First(&existing).Error
-
-			if err == nil {
-				// 更新现有记录
-				existing.ProviderID = monthlyData.ProviderID
-				existing.UserID = monthlyData.UserID
-				existing.TrafficIn = monthlyData.TrafficIn
-				existing.TrafficOut = monthlyData.TrafficOut
-				existing.TotalUsed = monthlyData.TotalUsed
-				existing.RecordTime = now
-				if err := global.APP_DB.Save(&existing).Error; err != nil {
-					global.APP_LOG.Warn("更新实例月度汇总失败",
-						zap.Uint("instanceID", instanceID),
-						zap.Error(err))
-				}
-			} else {
-				// 插入新记录
-				newRecord := monitoringModel.InstanceTrafficHistory{
-					InstanceID: monthlyData.InstanceID,
-					ProviderID: monthlyData.ProviderID,
-					UserID:     monthlyData.UserID,
-					TrafficIn:  monthlyData.TrafficIn,
-					TrafficOut: monthlyData.TrafficOut,
-					TotalUsed:  monthlyData.TotalUsed,
-					Year:       year,
-					Month:      month,
-					Day:        0,
-					Hour:       0,
-					RecordTime: now,
-				}
-				if err := global.APP_DB.Create(&newRecord).Error; err != nil {
-					global.APP_LOG.Warn("插入实例月度汇总失败",
-						zap.Uint("instanceID", instanceID),
-						zap.Error(err))
-				}
-			}
-		} else if err != nil {
-			global.APP_LOG.Warn("查询月度汇总数据失败",
-				zap.Uint("instanceID", instanceID),
-				zap.Error(err))
-		}
-
-		// 更新Provider流量历史表（小时级，聚合所有实例）
-		if err := dbcompat.Exec(global.APP_DB,
-			`INSERT INTO provider_traffic_histories 
-				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT 
-				provider_id,
-				SUM(traffic_in) as traffic_in,
-				SUM(traffic_out) as traffic_out,
-				SUM(total_used) as total_used,
-				COUNT(DISTINCT instance_id) as instance_count,
-				year, month, day, hour,
-				? as record_time, ? as created_at, ? as updated_at
-			FROM instance_traffic_histories
-			WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
-			GROUP BY provider_id, year, month, day, hour
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				instance_count = VALUES(instance_count),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)`,
-			`INSERT INTO provider_traffic_histories 
-				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
-			FROM (
-				SELECT 
-					provider_id,
-					SUM(traffic_in) as traffic_in,
-					SUM(traffic_out) as traffic_out,
-					SUM(total_used) as total_used,
-					COUNT(DISTINCT instance_id) as instance_count,
-					year, month, day, hour,
-					? as record_time, ? as created_at, ? as updated_at
-				FROM instance_traffic_histories
-				WHERE provider_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
-				GROUP BY provider_id, year, month, day, hour
-			) AS _src
-			ON DUPLICATE KEY UPDATE
-				traffic_in = _src.traffic_in,
-				traffic_out = _src.traffic_out,
-				total_used = _src.total_used,
-				instance_count = _src.instance_count,
-				record_time = _src.record_time,
-				updated_at = _src.updated_at`,
-			now, now, now, instance.ProviderID, year, month, day, hour).Error; err != nil {
-			global.APP_LOG.Warn("更新Provider流量历史失败",
-				zap.Uint("providerID", instance.ProviderID),
-				zap.Error(err))
-		}
-
-		// 更新Provider月度汇总（day=0, hour=0）
-		if err := dbcompat.Exec(global.APP_DB,
-			`INSERT INTO provider_traffic_histories 
-				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT 
-				provider_id,
-				SUM(traffic_in) as traffic_in,
-				SUM(traffic_out) as traffic_out,
-				SUM(total_used) as total_used,
-				COUNT(DISTINCT instance_id) as instance_count,
-				year, month, 0 as day, 0 as hour,
-				? as record_time, ? as created_at, ? as updated_at
-			FROM instance_traffic_histories
-			WHERE provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
-			GROUP BY provider_id, year, month
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				instance_count = VALUES(instance_count),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)`,
-			`INSERT INTO provider_traffic_histories 
-				(provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT provider_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
-			FROM (
-				SELECT 
-					provider_id,
-					SUM(traffic_in) as traffic_in,
-					SUM(traffic_out) as traffic_out,
-					SUM(total_used) as total_used,
-					COUNT(DISTINCT instance_id) as instance_count,
-					year, month, 0 as day, 0 as hour,
-					? as record_time, ? as created_at, ? as updated_at
-				FROM instance_traffic_histories
-				WHERE provider_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
-				GROUP BY provider_id, year, month
-			) AS _src
-			ON DUPLICATE KEY UPDATE
-				traffic_in = _src.traffic_in,
-				traffic_out = _src.traffic_out,
-				total_used = _src.total_used,
-				instance_count = _src.instance_count,
-				record_time = _src.record_time,
-				updated_at = _src.updated_at`,
-			now, now, now, instance.ProviderID, year, month).Error; err != nil {
-			global.APP_LOG.Warn("更新Provider月度汇总失败",
-				zap.Uint("providerID", instance.ProviderID),
-				zap.Error(err))
-		}
-
-		// 更新用户流量历史表（小时级，聚合所有实例）
-		if err := dbcompat.Exec(global.APP_DB,
-			`INSERT INTO user_traffic_histories 
-				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT 
-				user_id,
-				SUM(traffic_in) as traffic_in,
-				SUM(traffic_out) as traffic_out,
-				SUM(total_used) as total_used,
-				COUNT(DISTINCT instance_id) as instance_count,
-				year, month, day, hour,
-				? as record_time, ? as created_at, ? as updated_at
-			FROM instance_traffic_histories
-			WHERE user_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
-			GROUP BY user_id, year, month, day, hour
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				instance_count = VALUES(instance_count),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)`,
-			`INSERT INTO user_traffic_histories 
-				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
-			FROM (
-				SELECT 
-					user_id,
-					SUM(traffic_in) as traffic_in,
-					SUM(traffic_out) as traffic_out,
-					SUM(total_used) as total_used,
-					COUNT(DISTINCT instance_id) as instance_count,
-					year, month, day, hour,
-					? as record_time, ? as created_at, ? as updated_at
-				FROM instance_traffic_histories
-				WHERE user_id = ? AND year = ? AND month = ? AND day = ? AND hour = ? AND deleted_at IS NULL
-				GROUP BY user_id, year, month, day, hour
-			) AS _src
-			ON DUPLICATE KEY UPDATE
-				traffic_in = _src.traffic_in,
-				traffic_out = _src.traffic_out,
-				total_used = _src.total_used,
-				instance_count = _src.instance_count,
-				record_time = _src.record_time,
-				updated_at = _src.updated_at`,
-			now, now, now, instance.UserID, year, month, day, hour).Error; err != nil {
-			global.APP_LOG.Warn("更新用户流量历史失败",
-				zap.Uint("userID", instance.UserID),
-				zap.Error(err))
-		}
-
-		// 更新用户月度汇总（day=0, hour=0）
-		if err := dbcompat.Exec(global.APP_DB,
-			`INSERT INTO user_traffic_histories 
-				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT 
-				user_id,
-				SUM(traffic_in) as traffic_in,
-				SUM(traffic_out) as traffic_out,
-				SUM(total_used) as total_used,
-				COUNT(DISTINCT instance_id) as instance_count,
-				year, month, 0 as day, 0 as hour,
-				? as record_time, ? as created_at, ? as updated_at
-			FROM instance_traffic_histories
-			WHERE user_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
-			GROUP BY user_id, year, month
-			ON DUPLICATE KEY UPDATE
-				traffic_in = VALUES(traffic_in),
-				traffic_out = VALUES(traffic_out),
-				total_used = VALUES(total_used),
-				instance_count = VALUES(instance_count),
-				record_time = VALUES(record_time),
-				updated_at = VALUES(updated_at)`,
-			`INSERT INTO user_traffic_histories 
-				(user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at)
-			SELECT user_id, traffic_in, traffic_out, total_used, instance_count, year, month, day, hour, record_time, created_at, updated_at
-			FROM (
-				SELECT 
-					user_id,
-					SUM(traffic_in) as traffic_in,
-					SUM(traffic_out) as traffic_out,
-					SUM(total_used) as total_used,
-					COUNT(DISTINCT instance_id) as instance_count,
-					year, month, 0 as day, 0 as hour,
-					? as record_time, ? as created_at, ? as updated_at
-				FROM instance_traffic_histories
-				WHERE user_id = ? AND year = ? AND month = ? AND day = 0 AND hour = 0 AND deleted_at IS NULL
-				GROUP BY user_id, year, month
-			) AS _src
-			ON DUPLICATE KEY UPDATE
-				traffic_in = _src.traffic_in,
-				traffic_out = _src.traffic_out,
-				total_used = _src.total_used,
-				instance_count = _src.instance_count,
-				record_time = _src.record_time,
-				updated_at = _src.updated_at`,
-			now, now, now, instance.UserID, year, month).Error; err != nil {
-			global.APP_LOG.Warn("更新用户月度汇总失败",
-				zap.Uint("userID", instance.UserID),
-				zap.Error(err))
-		}
+		s.syncTrafficHistories(instanceID, instance)
 	}
 
 	// 不进行增量清理SQLite数据，因为：
@@ -998,4 +376,37 @@ LIMIT 10000;
 		zap.String("currentSync", providerCurrentTimeStr))
 
 	return nil
+}
+
+// checkContinuity 检测数据连续性，判断是否为连接异常恢复场景
+func (s *Service) checkContinuity(instanceID uint, dataList []trafficData, lastMax lastMaxTraffic) bool {
+	if lastMax.MaxTotalBytes <= 0 {
+		return false
+	}
+
+	for _, data := range dataList {
+		if data.rxBytes < lastMax.MaxRxBytes || data.txBytes < lastMax.MaxTxBytes {
+			global.APP_LOG.Debug("新数据不满足连续性条件，可能是监控重建",
+				zap.Uint("instanceID", instanceID),
+				zap.Int64("newRx", data.rxBytes),
+				zap.Int64("lastMaxRx", lastMax.MaxRxBytes),
+				zap.Int64("newTx", data.txBytes),
+				zap.Int64("lastMaxTx", lastMax.MaxTxBytes))
+			return false
+		}
+	}
+
+	var lastTimestampLog time.Time
+	if lastMax.LastTimestamp != nil {
+		lastTimestampLog = *lastMax.LastTimestamp
+	}
+	global.APP_LOG.Info("检测到连接异常恢复场景（所有新数据>=上次最大值），将填补空白期数据",
+		zap.Uint("instanceID", instanceID),
+		zap.Int64("lastMaxRx", lastMax.MaxRxBytes),
+		zap.Int64("lastMaxTx", lastMax.MaxTxBytes),
+		zap.Time("lastTimestamp", lastTimestampLog),
+		zap.Time("firstNewTimestamp", dataList[0].timestamp),
+		zap.Int("newDataCount", len(dataList)))
+
+	return true
 }

@@ -217,21 +217,21 @@
     </div>
 
     <el-form-item
-      :label="$t('admin.providers.trafficSyncMethod') || '流量同步方式'"
+      :label="$t('admin.providers.trafficSyncMethod')"
       prop="trafficSyncMethod"
       v-show="modelValue.enableTrafficControl"
     >
       <el-select
         v-model="modelValue.trafficSyncMethod"
-        :placeholder="$t('admin.providers.selectTrafficSyncMethod') || '选择流量同步方式'"
+        :placeholder="$t('admin.providers.selectTrafficSyncMethod')"
         style="width: 100%"
       >
         <el-option
-          :label="$t('admin.providers.trafficSyncMethodPmacct') || 'PMAcct (传统SSH采集)'"
+          :label="$t('admin.providers.trafficSyncMethodPmacct')"
           value="pmacct"
         />
         <el-option
-          :label="$t('admin.providers.trafficSyncMethodAgent') || 'Agent (Rust Agent采集)'"
+          :label="$t('admin.providers.trafficSyncMethodAgent')"
           value="agent"
         />
       </el-select>
@@ -241,16 +241,16 @@
         size="small"
         type="info"
       >
-        {{ $t('admin.providers.trafficSyncMethodTip') || '选择流量统计数据的同步方式：PMAcct通过SSH采集pmacct SQLite数据，Agent通过已部署的Rust Agent实时采集' }}
+        {{ $t('admin.providers.trafficSyncMethodTip') }}
       </el-text>
     </div>
 
     <el-divider content-position="left" v-show="modelValue.enableTrafficControl">
-      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficStatsConfig') || '流量统计配置' }}</span>
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficStatsConfig') }}</span>
     </el-divider>
 
     <el-form-item
-      :label="$t('admin.providers.trafficStatsMode') || '统计模式'"
+      :label="$t('admin.providers.trafficStatsMode')"
       prop="trafficStatsMode"
       v-show="modelValue.enableTrafficControl"
     >
@@ -269,7 +269,7 @@
     </el-form-item>
     <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
       <el-text size="small" type="info">
-        {{ $t('admin.providers.trafficStatsModeTip') || '选择预设的流量统计模式，或选择自定义进行详细配置' }}
+        {{ $t('admin.providers.trafficStatsModeTip') }}
       </el-text>
     </div>
 
@@ -277,7 +277,7 @@
     <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
       <el-col :span="12">
         <el-form-item
-          :label="$t('admin.providers.trafficCollectInterval') || '主控同步间隔(秒)'"
+          :label="$t('admin.providers.trafficCollectInterval')"
           prop="trafficCollectInterval"
         >
           <el-input-number
@@ -293,13 +293,13 @@
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
           <el-text size="small" type="info">
-            {{ $t('admin.providers.trafficCollectIntervalTip') || '主控从被控节点同步流量统计数据的间隔，最长不超过5分钟（300秒）' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+            {{ $t('admin.providers.trafficCollectIntervalTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
-          :label="$t('admin.providers.trafficCollectBatchSize') || '批量大小'"
+          :label="$t('admin.providers.trafficCollectBatchSize')"
           prop="trafficCollectBatchSize"
         >
           <el-input-number
@@ -315,7 +315,7 @@
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
           <el-text size="small" type="info">
-            {{ $t('admin.providers.trafficCollectBatchSizeTip') || '每次采集处理的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+            {{ $t('admin.providers.trafficCollectBatchSizeTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
       </el-col>
@@ -324,7 +324,7 @@
     <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
       <el-col :span="12">
         <el-form-item
-          :label="$t('admin.providers.trafficLimitCheckInterval') || '限制检测间隔(秒)'"
+          :label="$t('admin.providers.trafficLimitCheckInterval')"
           prop="trafficLimitCheckInterval"
         >
           <el-input-number
@@ -340,13 +340,13 @@
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
           <el-text size="small" type="info">
-            {{ $t('admin.providers.trafficLimitCheckIntervalTip') || '检查实例是否超出流量限制的间隔' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+            {{ $t('admin.providers.trafficLimitCheckIntervalTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
       </el-col>
       <el-col :span="12">
         <el-form-item
-          :label="$t('admin.providers.trafficLimitCheckBatchSize') || '检测批量大小'"
+          :label="$t('admin.providers.trafficLimitCheckBatchSize')"
           prop="trafficLimitCheckBatchSize"
         >
           <el-input-number
@@ -362,7 +362,7 @@
         </el-form-item>
         <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
           <el-text size="small" type="info">
-            {{ $t('admin.providers.trafficLimitCheckBatchSizeTip') || '每次检测的实例数量' }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + ($t('common.presetValue') || '预设值，不可修改') + '）' : '' }}
+            {{ $t('admin.providers.trafficLimitCheckBatchSizeTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
       </el-col>

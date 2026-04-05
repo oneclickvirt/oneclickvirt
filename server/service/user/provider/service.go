@@ -2,6 +2,7 @@ package provider
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"oneclickvirt/global"
@@ -85,6 +86,10 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 	// 阶段3: 结果处理（快速事务）
 	global.APP_LOG.Debug("开始处理实例创建结果", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
 	if finalizeErr := s.finalizeInstanceCreation(context.Background(), task, instance, apiError); finalizeErr != nil {
+		if errors.Is(finalizeErr, interfaces.ErrAsyncCompletion) {
+			global.APP_LOG.Info("实例创建已移交后台处理", zap.Uint("taskId", task.ID))
+			return finalizeErr
+		}
 		global.APP_LOG.Error("实例创建最终化失败", zap.Uint("taskId", task.ID), zap.Error(finalizeErr))
 		return finalizeErr
 	}

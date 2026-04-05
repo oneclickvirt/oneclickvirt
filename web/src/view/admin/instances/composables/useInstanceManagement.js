@@ -1,7 +1,7 @@
 import { ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getAllInstances, adminInstanceAction, resetInstancePassword, setInstanceExpiry, freezeInstance, unfreezeInstance } from '@/api/admin'
+import { getAllInstances, adminInstanceAction, resetInstancePassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -20,7 +20,9 @@ export function useInstanceManagement() {
   const selectedInstances = ref([])
   const transferDialogVisible = ref(false)
   const transferLoading = ref(false)
-  const transferForm = ref({ instanceId: null, instanceName: '', targetUserId: 1 })
+  const transferForm = ref({ instanceId: null, instanceName: '', targetUserId: null })
+  const searchingUsers = ref(false)
+  const userOptions = ref([])
   const tableRef = ref(null)
 
   const filters = ref({
@@ -251,8 +253,26 @@ export function useInstanceManagement() {
   const handleWindowResize = () => { nextTick(() => { if (tableRef.value) tableRef.value.doLayout() }) }
 
   const showTransferDialog = (instance) => {
-    transferForm.value = { instanceId: instance.id, instanceName: instance.name || instance.uuid, targetUserId: 1 }
+    transferForm.value = { instanceId: instance.id, instanceName: instance.name || instance.uuid, targetUserId: null }
+    userOptions.value = []
     transferDialogVisible.value = true
+  }
+
+  const searchUsers = async (query) => {
+    if (!query) {
+      userOptions.value = []
+      return
+    }
+    searchingUsers.value = true
+    try {
+      const res = await getUserList({ nickname: query, page: 1, pageSize: 20 })
+      const list = res?.data?.list || res?.data || []
+      userOptions.value = list.map(u => ({ id: u.id, username: u.username, nickname: u.nickname }))
+    } catch {
+      userOptions.value = []
+    } finally {
+      searchingUsers.value = false
+    }
   }
 
   const confirmTransfer = async () => {
@@ -280,6 +300,7 @@ export function useInstanceManagement() {
     isExpired, isExpiringSoon, openSSHTerminal,
     handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
     showTransferDialog, confirmTransfer, handleWindowResize,
+    searchUsers, searchingUsers, userOptions,
     t
   }
 }

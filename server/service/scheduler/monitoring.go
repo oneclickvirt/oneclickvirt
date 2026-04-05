@@ -773,6 +773,32 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 				continue
 			}
 
+			// Pre-filter: only keep configs whose provider still exists
+			if len(configs) > 0 {
+				candidateIDs := make([]uint, 0, len(configs))
+				for _, cfg := range configs {
+					candidateIDs = append(candidateIDs, cfg.ProviderID)
+				}
+				var existingIDs []uint
+				if err := global.APP_DB.Model(&providerModel.Provider{}).
+					Where("id IN ?", candidateIDs).
+					Pluck("id", &existingIDs).Error; err != nil {
+					global.APP_LOG.Error("query existing providers failed", zap.Error(err))
+					continue
+				}
+				existingSet := make(map[uint]bool, len(existingIDs))
+				for _, id := range existingIDs {
+					existingSet[id] = true
+				}
+				filtered := configs[:0]
+				for _, cfg := range configs {
+					if existingSet[cfg.ProviderID] {
+						filtered = append(filtered, cfg)
+					}
+				}
+				configs = filtered
+			}
+
 			now := time.Now()
 			for _, cfg := range configs {
 				// Check collection interval
@@ -867,6 +893,31 @@ func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Co
 			if err := global.APP_DB.Where("monitoring_mode = ? AND agent_installed = ?", "agent", true).
 				Find(&configs).Error; err != nil {
 				continue
+			}
+
+			// Pre-filter: only keep configs whose provider still exists
+			if len(configs) > 0 {
+				candidateIDs := make([]uint, 0, len(configs))
+				for _, cfg := range configs {
+					candidateIDs = append(candidateIDs, cfg.ProviderID)
+				}
+				var existingIDs []uint
+				if err := global.APP_DB.Model(&providerModel.Provider{}).
+					Where("id IN ?", candidateIDs).
+					Pluck("id", &existingIDs).Error; err != nil {
+					continue
+				}
+				existingSet := make(map[uint]bool, len(existingIDs))
+				for _, id := range existingIDs {
+					existingSet[id] = true
+				}
+				filtered := configs[:0]
+				for _, cfg := range configs {
+					if existingSet[cfg.ProviderID] {
+						filtered = append(filtered, cfg)
+					}
+				}
+				configs = filtered
 			}
 
 			now := time.Now()

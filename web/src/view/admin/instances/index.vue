@@ -556,11 +556,22 @@
           <el-input :model-value="transferForm.instanceName" disabled />
         </el-form-item>
         <el-form-item :label="$t('admin.instances.targetUserId')">
-          <el-input-number
+          <el-select
             v-model="transferForm.targetUserId"
-            :min="1"
+            filterable
+            remote
+            :remote-method="searchUsers"
+            :loading="searchingUsers"
+            :placeholder="$t('admin.instances.searchUserPlaceholder')"
             style="width: 100%"
-          />
+          >
+            <el-option
+              v-for="user in userOptions"
+              :key="user.id"
+              :label="`${user.nickname || user.username} (ID: ${user.id})`"
+              :value="user.id"
+            />
+          </el-select>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -594,6 +605,7 @@ const {
   isExpired, isExpiringSoon, openSSHTerminal,
   handleSelectionChange, batchDeleteInstances, batchStartInstances, batchStopInstances,
   showTransferDialog, confirmTransfer, handleWindowResize,
+  searchUsers, searchingUsers, userOptions,
   t
 } = useInstanceManagement()
 

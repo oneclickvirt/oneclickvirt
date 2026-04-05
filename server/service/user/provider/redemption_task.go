@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -61,6 +62,11 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 		zap.Bool("hasApiError", apiError != nil))
 
 	if finalizeErr := s.finalizeRedemptionInstanceCreation(context.Background(), task, instance, apiError); finalizeErr != nil {
+		// ErrAsyncCompletion 是正常的异步接管信号，不是错误
+		if errors.Is(finalizeErr, interfaces.ErrAsyncCompletion) {
+			global.APP_LOG.Info("兑换码实例创建已移交后台处理", zap.Uint("taskId", task.ID))
+			return finalizeErr
+		}
 		global.APP_LOG.Error("兑换码实例创建最终化失败", zap.Uint("taskId", task.ID), zap.Error(finalizeErr))
 		return finalizeErr
 	}

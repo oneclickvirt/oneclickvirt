@@ -14,7 +14,7 @@
 
     <!-- 通用配置（容器和虚拟机都支持） -->
     <el-divider content-position="left">
-      <el-text type="primary" size="large">{{ $t('admin.providers.commonConfig') || '通用配置（容器和虚拟机）' }}</el-text>
+      <el-text type="primary" size="large">{{ $t('admin.providers.commonConfig') }}</el-text>
     </el-divider>
 
     <!-- 内存交换（容器和虚拟机都支持） -->
@@ -40,7 +40,7 @@
     <!-- 容器专用配置 -->
     <template v-if="modelValue.containerEnabled">
       <el-divider content-position="left">
-        <el-text type="warning" size="large">{{ $t('admin.providers.containerOnlyConfig') || '容器专用配置' }}</el-text>
+        <el-text type="warning" size="large">{{ $t('admin.providers.containerOnlyConfig') }}</el-text>
       </el-divider>
 
       <!-- 特权模式 -->
@@ -99,7 +99,7 @@
         size="small"
         type="warning"
       >
-        {{ $t('admin.providers.containerCpuAllowanceTip') || 'CPU使用率限制，设置为100%等同于不限制。与limits.cpu互斥，优先使用此配置。' }}
+        {{ $t('admin.providers.containerCpuAllowanceTip') }}
       </el-text>
     </div>
 
@@ -151,10 +151,10 @@
     <!-- 虚拟机配置提示 -->
     <template v-if="modelValue.vmEnabled && !modelValue.containerEnabled">
       <el-divider content-position="left">
-        <el-text type="info" size="large">{{ $t('admin.providers.vmConfigNote') || '虚拟机配置说明' }}</el-text>
+        <el-text type="info" size="large">{{ $t('admin.providers.vmConfigNote') }}</el-text>
       </el-divider>
       <el-alert
-        :title="$t('admin.providers.vmHardwareConfigTip') || '虚拟机支持内存Swap配置，但不支持容器专用的特权模式、嵌套、CPU百分比限制等配置。'"
+        :title="$t('admin.providers.vmHardwareConfigTip')"
         type="info"
         :closable="false"
         show-icon

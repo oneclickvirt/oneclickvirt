@@ -140,7 +140,46 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 				zap.Int64("count", instanceResult.RowsAffected))
 		}
 
-		// 5. 硬删除Provider本身
+		// 5. 硬删除监控配置（monitoring_configs）
+		monConfigResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoring.MonitoringConfig{})
+		if monConfigResult.Error != nil {
+			global.APP_LOG.Error("删除Provider监控配置失败", zap.Error(monConfigResult.Error))
+			return monConfigResult.Error
+		}
+		if monConfigResult.RowsAffected > 0 {
+			global.APP_LOG.Debug("成功删除Provider监控配置",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", monConfigResult.RowsAffected))
+		}
+
+		// 6. 硬删除Agent监控记录（agent_monitors）
+		agentMonResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoring.AgentMonitor{})
+		if agentMonResult.Error != nil {
+			global.APP_LOG.Error("删除Provider Agent监控记录失败", zap.Error(agentMonResult.Error))
+			return agentMonResult.Error
+		}
+		if agentMonResult.RowsAffected > 0 {
+			global.APP_LOG.Debug("成功删除Provider Agent监控记录",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", agentMonResult.RowsAffected))
+		}
+
+		// 7. 硬删除资源指标（resource_metrics）
+		resMetricResult := tx.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoring.ResourceMetric{})
+		if resMetricResult.Error != nil {
+			global.APP_LOG.Error("删除Provider资源指标失败", zap.Error(resMetricResult.Error))
+			return resMetricResult.Error
+		}
+		if resMetricResult.RowsAffected > 0 {
+			global.APP_LOG.Debug("成功删除Provider资源指标",
+				zap.Uint("providerID", providerID),
+				zap.Int64("count", resMetricResult.RowsAffected))
+		}
+
+		// 8. 硬删除硬件测试报告
+		tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.HardwareTestReport{})
+
+		// 9. 硬删除Provider本身
 		if err := tx.Unscoped().Delete(&providerModel.Provider{}, providerID).Error; err != nil {
 			global.APP_LOG.Error("删除Provider记录失败", zap.Error(err))
 			return err

@@ -40,6 +40,7 @@ func requireAdminOnly(c *gin.Context) bool {
 // @Param page query int false "页码" default(1)
 // @Param pageSize query int false "每页数量" default(10)
 // @Param username query string false "用户名搜索"
+// @Param nickname query string false "昵称搜索"
 // @Param email query string false "邮箱搜索"
 // @Param status query string false "用户状态"
 // @Success 200 {object} common.Response{data=object} "获取成功"

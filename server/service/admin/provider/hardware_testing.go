@@ -4,32 +4,38 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	providerPkg "oneclickvirt/provider"
 	providerService "oneclickvirt/service/provider"
 
 	"go.uber.org/zap"
 )
 
+// goecsBinaryPaths maps arch to the locally-built goecs binary path
+// (built from ECS public branch source during Docker image build)
+var goecsBinaryPaths = map[string]string{
+	"amd64": "/app/goecs_amd64",
+	"arm64": "/app/goecs_arm64",
+}
+
 // RunHardwareTest 在Provider节点上运行ECS硬件测试
 func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) error {
-	// 检查是否已有运行中的测试
 	var existing providerModel.HardwareTestReport
 	if err := global.APP_DB.Where("provider_id = ? AND status = ?", providerID, "running").First(&existing).Error; err == nil {
 		return fmt.Errorf("该节点已有运行中的硬件测试 (PID %d)", existing.RemotePID)
 	}
 
-	// 获取Provider信息
 	var providerInfo providerModel.Provider
 	if err := global.APP_DB.First(&providerInfo, providerID).Error; err != nil {
 		return fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 创建或更新测试记录
 	var report providerModel.HardwareTestReport
 	result := global.APP_DB.Where("provider_id = ?", providerID).First(&report)
 	if result.Error != nil {
@@ -48,7 +54,6 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 		})
 	}
 
-	// 异步执行测试
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -65,125 +70,9 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 	return nil
 }
 
-// buildECSScript 生成完整的ECS测试脚本内容
-// 包含依赖检查、多镜像下载、错误处理等
-func buildECSScript(arch string) string {
-	return fmt.Sprintf(`#!/bin/sh
-set -e
-WORKDIR="/tmp/ecs_test"
-mkdir -p "$WORKDIR"
-cd "$WORKDIR"
-
-# 依赖检查
-check_cmd() {
-    command -v "$1" >/dev/null 2>&1
-}
-
-if ! check_cmd curl && ! check_cmd wget; then
-    echo "ERROR: curl or wget is required" >> "$WORKDIR/result.txt"
-    exit 1
-fi
-
-# 下载函数，支持curl和wget
-download() {
-    local url="$1" output="$2"
-    if check_cmd curl; then
-        curl -sSL --connect-timeout 30 --max-time 120 -o "$output" "$url"
-    else
-        wget -q --timeout=30 -O "$output" "$url"
-    fi
-}
-
-# 多镜像下载尝试
-FILENAME="goecs_linux_%s"
-URLS="
-https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
-https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
-https://ghproxy.com/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}.zip
-"
-
-DOWNLOADED=0
-for url in $URLS; do
-    if download "$url" goecs.zip 2>/dev/null; then
-        if [ -f goecs.zip ] && [ "$(wc -c < goecs.zip)" -gt 1000 ]; then
-            DOWNLOADED=1
-            break
-        fi
-    fi
-    rm -f goecs.zip
-done
-
-if [ "$DOWNLOADED" -eq 0 ]; then
-    # 尝试直接下载二进制（无zip）
-    URLS_BIN="
-https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}
-https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${FILENAME}
-"
-    for url in $URLS_BIN; do
-        if download "$url" goecs 2>/dev/null; then
-            if [ -f goecs ] && [ "$(wc -c < goecs)" -gt 1000 ]; then
-                DOWNLOADED=2
-                break
-            fi
-        fi
-        rm -f goecs
-    done
-fi
-
-if [ "$DOWNLOADED" -eq 0 ]; then
-    echo "ERROR: Failed to download goecs binary from all mirrors" >> "$WORKDIR/result.txt"
-    exit 1
-fi
-
-# 如果是zip格式则解压
-if [ "$DOWNLOADED" -eq 1 ]; then
-    if check_cmd unzip; then
-        unzip -o goecs.zip 2>/dev/null || true
-    elif check_cmd busybox; then
-        busybox unzip -o goecs.zip 2>/dev/null || true
-    else
-        # 尝试用python解压
-        python3 -c "import zipfile; zipfile.ZipFile('goecs.zip').extractall('.')" 2>/dev/null || \
-        python -c "import zipfile; zipfile.ZipFile('goecs.zip').extractall('.')" 2>/dev/null || {
-            echo "ERROR: No unzip tool available (tried unzip, busybox, python)" >> "$WORKDIR/result.txt"
-            exit 1
-        }
-    fi
-fi
-
-# 检查二进制是否存在
-if [ ! -f goecs ]; then
-    # 可能解压后名称不同，查找可执行文件
-    FOUND=$(find . -maxdepth 1 -name "goecs*" -type f ! -name "*.zip" | head -1)
-    if [ -n "$FOUND" ]; then
-        mv "$FOUND" goecs
-    else
-        echo "ERROR: goecs binary not found after extraction" >> "$WORKDIR/result.txt"
-        ls -la "$WORKDIR/" >> "$WORKDIR/result.txt"
-        exit 1
-    fi
-fi
-
-chmod +x goecs
-
-# 检查是否有timeout命令
-if check_cmd timeout; then
-    timeout 900 ./goecs -m 1
-else
-    # 没有timeout就直接运行，依赖外部20分钟超时
-    ./goecs -m 1
-fi
-`, arch)
-}
-
 // executeHardwareTest 执行硬件测试
-//
-// 流程：
-//  1. 单条短SSH命令获取架构
-//  2. 将完整测试脚本通过 base64 编码写入远端，不依赖SFTP
-//  3. nohup 后台启动脚本并立即获取PID，SSH连接随即断开
-//  4. 定期以 kill -0 $PID 轮询进程是否存活（每次连接极短）
-//  5. 进程退出后读取结果文件并清理
+// 优先使用Docker构建阶段从ECS public分支编译的goecs二进制。
+// 若本地二进制不存在则回退到CDN下载。
 func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, report *providerModel.HardwareTestReport) {
 	p, err := providerService.GetProviderInstanceByID(providerID)
 	if err != nil {
@@ -191,7 +80,7 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 		return
 	}
 
-	// Step 1: 获取CPU架构（短命令，不会超时）
+	// Step 1: 获取CPU架构
 	archOutput, err := p.ExecuteSSHCommand(ctx, "uname -m")
 	if err != nil {
 		s.failReport(report, fmt.Sprintf("获取架构信息失败: %v", err))
@@ -209,79 +98,81 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 		return
 	}
 
-	// Step 2: 将测试脚本通过 base64 编码写入远端（仍是短命令，脚本很小）
-	script := buildECSScript(ecsArch)
-	encoded := base64.StdEncoding.EncodeToString([]byte(script))
-	uploadCmd := fmt.Sprintf(
-		"mkdir -p /tmp/ecs_test && printf '%%s' '%s' | base64 -d > /tmp/ecs_test/run.sh && chmod +x /tmp/ecs_test/run.sh",
-		encoded,
-	)
-	if _, err = p.ExecuteSSHCommand(ctx, uploadCmd); err != nil {
-		s.failReport(report, fmt.Sprintf("上传测试脚本失败: %v", err))
-		return
-	}
-
-	// Step 3: nohup 后台运行，立即获取PID，SSH连接不阻塞
-	launchCmd := "nohup /tmp/ecs_test/run.sh > /tmp/ecs_test/result.txt 2>&1 & echo $!"
-	pidOutput, err := p.ExecuteSSHCommand(ctx, launchCmd)
-	if err != nil {
-		s.failReport(report, fmt.Sprintf("启动测试进程失败: %v", err))
-		return
-	}
-	pid, _ := strconv.Atoi(strings.TrimSpace(pidOutput))
-	if pid == 0 {
-		s.failReport(report, "未能获取测试进程PID")
-		return
-	}
-
-	// 将PID保存到DB，供前端展示
-	global.APP_DB.Model(report).Update("remote_pid", pid)
-	global.APP_LOG.Info("ECS测试进程已在后台启动",
-		zap.Uint("providerId", providerID),
-		zap.Int("pid", pid))
-
-	// Step 4: 轮询 kill -0 $PID 检查进程是否仍在运行
-	// 每次只建立一条极短的SSH连接，不保持长连接
-	pollCmd := fmt.Sprintf("kill -0 %d 2>/dev/null && echo running || echo done", pid)
-	deadline := time.Now().Add(20 * time.Minute)
-	pollInterval := 30 * time.Second
-
-	for time.Now().Before(deadline) {
-		time.Sleep(pollInterval)
-		status, pollErr := p.ExecuteSSHCommand(ctx, pollCmd)
-		if pollErr != nil {
-			global.APP_LOG.Debug("轮询进程状态失败，将重试", zap.Error(pollErr))
-			continue
-		}
-		if strings.TrimSpace(status) == "done" {
-			break
+	// Step 2: 尝试上传本地构建的goecs二进制
+	deployed := false
+	localPath := goecsBinaryPaths[ecsArch]
+	if localPath != "" {
+		if _, statErr := os.Stat(localPath); statErr == nil {
+			if uploadErr := s.uploadBinaryViaSSH(ctx, p, localPath, "/tmp/ecs_test/goecs"); uploadErr == nil {
+				deployed = true
+				global.APP_LOG.Info("使用本地构建的goecs二进制",
+					zap.Uint("providerId", providerID),
+					zap.String("arch", ecsArch))
+			} else {
+				global.APP_LOG.Warn("上传本地goecs二进制失败，回退到CDN下载",
+					zap.Uint("providerId", providerID),
+					zap.Error(uploadErr))
+			}
 		}
 	}
 
-	// Step 5: 读取结果文件并清理
-	output, readErr := p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
-	if readErr != nil {
-		// SSH命令本身失败 - 尝试重试一次
-		time.Sleep(5 * time.Second)
-		output, readErr = p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
+	// Step 3: 回退到CDN下载
+	if !deployed {
+		script := buildFallbackDownloadScript(ecsArch)
+		encoded := base64.StdEncoding.EncodeToString([]byte(script))
+		uploadCmd := fmt.Sprintf(
+			"mkdir -p /tmp/ecs_test && printf '%%s' '%s' | base64 -d > /tmp/ecs_test/download.sh && chmod +x /tmp/ecs_test/download.sh",
+			encoded,
+		)
+		if _, err = p.ExecuteSSHCommand(ctx, uploadCmd); err != nil {
+			s.failReport(report, fmt.Sprintf("上传下载脚本失败: %v", err))
+			return
+		}
+		dlOutput, dlErr := p.ExecuteSSHCommand(ctx, "cd /tmp/ecs_test && bash download.sh 2>&1")
+		if dlErr != nil || strings.Contains(dlOutput, "DOWNLOAD_FAILED") {
+			s.failReport(report, fmt.Sprintf("CDN下载goecs失败: %v\n%s", dlErr, dlOutput))
+			return
+		}
+		checkOutput, _ := p.ExecuteSSHCommand(ctx, "test -x /tmp/ecs_test/goecs && echo ok || echo missing")
+		if strings.TrimSpace(checkOutput) != "ok" {
+			s.failReport(report, fmt.Sprintf("goecs二进制下载后不存在或不可执行\n%s", dlOutput))
+			return
+		}
 	}
 
-	// 如果结果为空，尝试获取脚本退出码和目录内容作为诊断信息
+	// Step 4: 直接前台执行goecs（避免nohup+PID轮询的不可靠性）
+	global.APP_DB.Model(report).Update("remote_pid", -1)
+	global.APP_LOG.Info("开始执行goecs测试", zap.Uint("providerId", providerID))
+
+	// 用timeout限制25分钟，-m 1 为全测模式，-l en 英文输出
+	execCmd := "cd /tmp/ecs_test && " +
+		"(command -v timeout >/dev/null 2>&1 && timeout 1500 ./goecs -m 1 -l en 2>&1 || ./goecs -m 1 -l en 2>&1)"
+	output, execErr := p.ExecuteSSHCommand(ctx, execCmd)
+
+	// 如果stdout为空，尝试读取goecs.txt
 	if strings.TrimSpace(output) == "" {
-		diagCmd := "echo '=== Directory ===' && ls -la /tmp/ecs_test/ 2>/dev/null && echo '=== Disk ===' && df /tmp 2>/dev/null | tail -1"
-		diagOutput, _ := p.ExecuteSSHCommand(ctx, diagCmd)
-		_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
-
-		errMsg := "ECS测试未产生输出或已超时（20分钟）"
-		if readErr != nil {
-			errMsg = fmt.Sprintf("读取结果文件失败: %v", readErr)
+		txtOutput, _ := p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/goecs.txt 2>/dev/null")
+		if strings.TrimSpace(txtOutput) != "" {
+			output = txtOutput
 		}
+	}
+
+	// 清理
+	_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
+
+	if strings.TrimSpace(output) == "" {
+		errMsg := "ECS测试未产生输出"
+		if execErr != nil {
+			errMsg = fmt.Sprintf("ECS测试执行失败: %v", execErr)
+		}
+		diagCmd := "echo '=== Memory ===' && free -m 2>/dev/null | head -3 && " +
+			"echo '=== Disk ===' && df -h /tmp 2>/dev/null | tail -1"
+		diagOutput, _ := p.ExecuteSSHCommand(ctx, diagCmd)
 		if diagOutput != "" {
 			errMsg = fmt.Sprintf("%s\n诊断信息:\n%s", errMsg, strings.TrimSpace(diagOutput))
 		}
 		s.failReport(report, errMsg)
 	} else {
-		_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
 		now := time.Now()
 		global.APP_DB.Model(report).Updates(map[string]interface{}{
 			"status":      "completed",
@@ -290,11 +181,84 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 			"error_msg":   "",
 			"remote_pid":  0,
 		})
+		global.APP_LOG.Info("硬件测试完成",
+			zap.Uint("providerId", report.ProviderID),
+			zap.Int("reportLength", len(output)))
+	}
+}
+
+// uploadBinaryViaSSH 通过base64分块传输上传二进制文件
+func (s *Service) uploadBinaryViaSSH(ctx context.Context, p providerPkg.Provider, localPath, remotePath string) error {
+	data, err := os.ReadFile(localPath)
+	if err != nil {
+		return fmt.Errorf("read local file: %w", err)
 	}
 
-	global.APP_LOG.Info("硬件测试完成",
-		zap.Uint("providerId", report.ProviderID),
-		zap.Int("reportLength", len(output)))
+	dir := remotePath[:strings.LastIndex(remotePath, "/")]
+	if _, err := p.ExecuteSSHCommand(ctx, fmt.Sprintf("mkdir -p %s", dir)); err != nil {
+		return fmt.Errorf("create remote dir: %w", err)
+	}
+	if _, err := p.ExecuteSSHCommand(ctx, fmt.Sprintf("true > %s", remotePath)); err != nil {
+		return fmt.Errorf("clear target file: %w", err)
+	}
+
+	// 分块传输（每块512KB）
+	chunkSize := 512 * 1024
+	for offset := 0; offset < len(data); {
+		end := offset + chunkSize
+		if end > len(data) {
+			end = len(data)
+		}
+		encoded := base64.StdEncoding.EncodeToString(data[offset:end])
+		cmd := fmt.Sprintf("printf '%%s' '%s' | base64 -d >> %s", encoded, remotePath)
+		if _, err := p.ExecuteSSHCommand(ctx, cmd); err != nil {
+			return fmt.Errorf("transfer chunk(%d-%d): %w", offset, end, err)
+		}
+		offset = end
+	}
+
+	if _, err := p.ExecuteSSHCommand(ctx, fmt.Sprintf("chmod +x %s", remotePath)); err != nil {
+		return fmt.Errorf("chmod: %w", err)
+	}
+
+	sizeOutput, err := p.ExecuteSSHCommand(ctx, fmt.Sprintf("wc -c < %s", remotePath))
+	if err != nil {
+		return fmt.Errorf("verify size: %w", err)
+	}
+	remoteSize, _ := strconv.Atoi(strings.TrimSpace(sizeOutput))
+	if remoteSize != len(data) {
+		return fmt.Errorf("size mismatch: local=%d remote=%d", len(data), remoteSize)
+	}
+	return nil
+}
+
+// buildFallbackDownloadScript CDN回退下载脚本
+func buildFallbackDownloadScript(arch string) string {
+	return fmt.Sprintf(`#!/bin/sh
+set -e
+WORKDIR="/tmp/ecs_test"
+mkdir -p "$WORKDIR" && cd "$WORKDIR"
+check_cmd() { command -v "$1" >/dev/null 2>&1; }
+download() {
+    if check_cmd curl; then curl -sSL --connect-timeout 30 --max-time 180 -o "$2" "$1"
+    else wget -q --timeout=30 -O "$2" "$1"; fi
+}
+FN="goecs_linux_%s"
+for url in \
+  "https://github.com/oneclickvirt/ecs/releases/latest/download/${FN}.zip" \
+  "https://cdn.spiritlhl.net/https://github.com/oneclickvirt/ecs/releases/latest/download/${FN}.zip" \
+  "https://ghproxy.com/https://github.com/oneclickvirt/ecs/releases/latest/download/${FN}.zip"; do
+    if download "$url" goecs.zip 2>/dev/null && [ -f goecs.zip ] && [ "$(wc -c < goecs.zip)" -gt 1000 ]; then
+        if check_cmd unzip; then unzip -o goecs.zip 2>/dev/null
+        elif check_cmd busybox; then busybox unzip -o goecs.zip 2>/dev/null
+        else python3 -c "import zipfile;zipfile.ZipFile('goecs.zip').extractall('.')" 2>/dev/null; fi
+        F=$(find . -maxdepth 1 -name "goecs*" -type f ! -name "*.zip" ! -name "*.sh" | head -1)
+        if [ -n "$F" ]; then mv "$F" goecs; chmod +x goecs; exit 0; fi
+    fi
+    rm -f goecs.zip
+done
+echo "DOWNLOAD_FAILED"; exit 1
+`, arch)
 }
 
 func (s *Service) failReport(report *providerModel.HardwareTestReport, msg string) {

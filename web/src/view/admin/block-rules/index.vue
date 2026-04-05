@@ -390,9 +390,11 @@ async function fetchApplications() {
 async function fetchAgentProviders() {
   try {
     const res = await blockRulesApi.getAgentProviders()
-    const providerIds = res?.data || []
-    // Build provider options with names by fetching instance data
-    providerOptions.value = providerIds.map(id => ({ id, name: `Provider #${id}` }))
+    const providers = res?.data || []
+    providerOptions.value = providers.map(p => ({
+      id: typeof p === 'object' ? p.id : p,
+      name: typeof p === 'object' ? p.name : `Provider #${p}`
+    }))
   } catch { /* ignore */ }
 }
 

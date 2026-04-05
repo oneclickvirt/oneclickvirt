@@ -39,6 +39,7 @@ type UpdateUserRequest struct {
 type UserListRequest struct {
 	common.PageInfo
 	Username string `json:"username" form:"username"`
+	Nickname string `json:"nickname" form:"nickname"`
 	UserType string `json:"userType" form:"userType"`
 	Status   *int   `json:"status" form:"status"`
 }

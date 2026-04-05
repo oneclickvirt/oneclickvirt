@@ -43,6 +43,9 @@ func (s *Service) GetUserList(req admin.UserListRequest) ([]admin.UserManageResp
 	if req.Username != "" {
 		query = query.Where("username LIKE ?", "%"+req.Username+"%")
 	}
+	if req.Nickname != "" {
+		query = query.Where("nickname LIKE ?", "%"+req.Nickname+"%")
+	}
 	if req.UserType != "" {
 		query = query.Where("user_type = ?", req.UserType)
 	}

@@ -316,18 +316,34 @@ func (s *Service) GetProviderBlockStatus(providerID uint) ([]map[string]interfac
 	return result, nil
 }
 
-// GetAgentEnabledProviders returns providers with agent monitoring enabled.
-func (s *Service) GetAgentEnabledProviders() ([]uint, error) {
+// GetAgentEnabledProviders returns providers with agent monitoring enabled (excluding deleted providers).
+func (s *Service) GetAgentEnabledProviders() ([]map[string]interface{}, error) {
 	var configs []monitoringModel.MonitoringConfig
 	if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").
 		Select("provider_id").Find(&configs).Error; err != nil {
 		return nil, err
 	}
-	ids := make([]uint, 0, len(configs))
-	for _, c := range configs {
-		ids = append(ids, c.ProviderID)
+	if len(configs) == 0 {
+		return []map[string]interface{}{}, nil
 	}
-	return ids, nil
+	// Filter out providers that no longer exist and get their names
+	candidateIDs := make([]uint, 0, len(configs))
+	for _, c := range configs {
+		candidateIDs = append(candidateIDs, c.ProviderID)
+	}
+	var providers []providerModel.Provider
+	if err := global.APP_DB.Where("id IN ?", candidateIDs).
+		Select("id, name").Find(&providers).Error; err != nil {
+		return nil, err
+	}
+	result := make([]map[string]interface{}, 0, len(providers))
+	for _, p := range providers {
+		result = append(result, map[string]interface{}{
+			"id":   p.ID,
+			"name": p.Name,
+		})
+	}
+	return result, nil
 }
 
 // resolveTargetProviders determines which provider IDs are affected by the scope.
@@ -338,11 +354,20 @@ func (s *Service) resolveTargetProviders(req *firewallModel.ApplyBlockRuleReques
 		if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").Find(&configs).Error; err != nil {
 			return nil, err
 		}
-		ids := make([]uint, 0, len(configs))
-		for _, c := range configs {
-			ids = append(ids, c.ProviderID)
+		if len(configs) == 0 {
+			return []uint{}, nil
 		}
-		return ids, nil
+		candidateIDs := make([]uint, 0, len(configs))
+		for _, c := range configs {
+			candidateIDs = append(candidateIDs, c.ProviderID)
+		}
+		var existingIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id IN ?", candidateIDs).
+			Pluck("id", &existingIDs).Error; err != nil {
+			return nil, err
+		}
+		return existingIDs, nil
 	case "provider":
 		return req.TargetIDs, nil
 	case "instance":
@@ -525,8 +550,28 @@ func (s *Service) resyncAllProviders(ctx context.Context) {
 	if err := global.APP_DB.Where("agent_installed = ? AND monitoring_mode = ?", true, "agent").Find(&configs).Error; err != nil {
 		return
 	}
+	// Filter out providers that no longer exist
+	candidateIDs := make([]uint, 0, len(configs))
 	for _, config := range configs {
-		s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil, ipVersion)
+		candidateIDs = append(candidateIDs, config.ProviderID)
+	}
+	if len(candidateIDs) == 0 {
+		return
+	}
+	var existingIDs []uint
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id IN ?", candidateIDs).
+		Pluck("id", &existingIDs).Error; err != nil {
+		return
+	}
+	existingSet := make(map[uint]bool, len(existingIDs))
+	for _, id := range existingIDs {
+		existingSet[id] = true
+	}
+	for _, config := range configs {
+		if existingSet[config.ProviderID] {
+			s.applyBlockRulesToProvider(ctx, config.ProviderID, allStrings, nil, ipVersion)
+		}
 	}
 }
 
