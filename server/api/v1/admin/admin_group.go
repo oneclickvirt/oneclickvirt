@@ -38,20 +38,38 @@ func GetAdminGroupInfo(c *gin.Context) {
 	}
 
 	if err := query.First(&provider).Error; err != nil {
-		// 没有Provider时返回空信息
+		// 没有Provider时返回默认分组信息
+		defaultName := "测试"
+		lang := c.GetHeader("Accept-Language")
+		if lang != "" && (lang == "en" || lang == "en-US" || lang == "en_US" ||
+			len(lang) >= 2 && lang[:2] == "en") {
+			defaultName = "Test"
+		}
 		c.JSON(http.StatusOK, common.Response{
 			Code: 200,
 			Msg:  "获取成功",
-			Data: AdminGroupInfoResponse{},
+			Data: AdminGroupInfoResponse{
+				GroupName: defaultName,
+			},
 		})
 		return
+	}
+
+	groupName := provider.GroupName
+	if groupName == "" {
+		groupName = "测试"
+		lang := c.GetHeader("Accept-Language")
+		if lang != "" && (lang == "en" || lang == "en-US" || lang == "en_US" ||
+			len(lang) >= 2 && lang[:2] == "en") {
+			groupName = "Test"
+		}
 	}
 
 	c.JSON(http.StatusOK, common.Response{
 		Code: 200,
 		Msg:  "获取成功",
 		Data: AdminGroupInfoResponse{
-			GroupName:        provider.GroupName,
+			GroupName:        groupName,
 			GroupDescription: provider.GroupDescription,
 		},
 	})

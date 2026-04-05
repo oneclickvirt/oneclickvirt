@@ -23,13 +23,35 @@ func (s *Service) GetUserKYC(userID uint) (*kycModel.KYCRecord, error) {
 	return &record, nil
 }
 
-// SubmitKYC 提交实名认证
+// SubmitKYC 提交实名认证（手动审核方式）
 func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRecord, error) {
 	// 检查是否已有认证记录
-	var existing int64
-	global.APP_DB.Model(&kycModel.KYCRecord{}).Where("user_id = ?", userID).Count(&existing)
-	if existing > 0 {
-		return nil, fmt.Errorf("已提交过实名认证，请勿重复提交")
+	var existing kycModel.KYCRecord
+	err := global.APP_DB.Where("user_id = ?", userID).First(&existing).Error
+	if err == nil {
+		if existing.Status == "approved" {
+			return nil, fmt.Errorf("已通过实名认证")
+		}
+		if existing.Status == "pending" {
+			return nil, fmt.Errorf("已提交实名认证，请等待审核")
+		}
+		// rejected: allow resubmit by updating existing record
+		idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
+		var hashCount int64
+		global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount)
+		if hashCount > 0 {
+			return nil, fmt.Errorf("该身份证号已被其他账户认证")
+		}
+		existing.RealName = req.RealName
+		existing.IDNumber = req.IDNumber
+		existing.IDNumberHash = idHash
+		existing.Method = "manual"
+		existing.Status = "pending"
+		existing.RejectReason = ""
+		if err := global.APP_DB.Save(&existing).Error; err != nil {
+			return nil, fmt.Errorf("重新提交认证失败: %v", err)
+		}
+		return &existing, nil
 	}
 
 	// 身份证号哈希(查重)
@@ -45,9 +67,9 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 	record := &kycModel.KYCRecord{
 		UserID:       userID,
 		RealName:     req.RealName,
-		IDNumber:     req.IDNumber, // 实际生产中应加密存储
+		IDNumber:     req.IDNumber,
 		IDNumberHash: idHash,
-		Method:       "alipay",
+		Method:       "manual",
 		Status:       "pending",
 	}
 	if err := global.APP_DB.Create(record).Error; err != nil {
@@ -56,9 +78,105 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 
 	global.APP_LOG.Info("用户提交实名认证",
 		zap.Uint("userID", userID),
-		zap.String("method", "alipay"))
+		zap.String("method", "manual"))
 
 	return record, nil
+}
+
+// SubmitAlipayKYC 通过支付宝人脸认证提交实名
+func (s *Service) SubmitAlipayKYC(userID uint, req *SubmitKYCRequest) (certifyURL string, err error) {
+	// 检查是否已有通过的认证
+	var existing kycModel.KYCRecord
+	findErr := global.APP_DB.Where("user_id = ?", userID).First(&existing).Error
+	if findErr == nil && existing.Status == "approved" {
+		return "", fmt.Errorf("已通过实名认证")
+	}
+
+	idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
+	var hashCount int64
+	global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount)
+	if hashCount > 0 {
+		return "", fmt.Errorf("该身份证号已被其他账户认证")
+	}
+
+	outerOrderNo := fmt.Sprintf("kyc_%d_%d", userID, global.APP_DB.NowFunc().Unix())
+
+	certifyID, err := s.AlipayFaceCertifyInit(req.RealName, req.IDNumber, outerOrderNo)
+	if err != nil {
+		return "", err
+	}
+
+	certifyURL, err = s.AlipayFaceCertifyURL(certifyID)
+	if err != nil {
+		return "", err
+	}
+
+	if findErr == nil {
+		// Update existing record
+		existing.RealName = req.RealName
+		existing.IDNumber = req.IDNumber
+		existing.IDNumberHash = idHash
+		existing.Method = "alipay"
+		existing.Status = "pending"
+		existing.AlipayCertifyID = certifyID
+		existing.RejectReason = ""
+		global.APP_DB.Save(&existing)
+	} else {
+		// Create new record
+		record := &kycModel.KYCRecord{
+			UserID:          userID,
+			RealName:        req.RealName,
+			IDNumber:        req.IDNumber,
+			IDNumberHash:    idHash,
+			Method:          "alipay",
+			Status:          "pending",
+			AlipayCertifyID: certifyID,
+		}
+		global.APP_DB.Create(record)
+	}
+
+	global.APP_LOG.Info("用户发起支付宝人脸认证",
+		zap.Uint("userID", userID),
+		zap.String("certifyID", certifyID))
+
+	return certifyURL, nil
+}
+
+// QueryAlipayKYCResult 查询支付宝认证结果
+func (s *Service) QueryAlipayKYCResult(userID uint) (bool, error) {
+	var record kycModel.KYCRecord
+	if err := global.APP_DB.Where("user_id = ? AND method = ?", userID, "alipay").First(&record).Error; err != nil {
+		return false, fmt.Errorf("未找到支付宝认证记录")
+	}
+	if record.Status == "approved" {
+		return true, nil
+	}
+	if record.AlipayCertifyID == "" {
+		return false, fmt.Errorf("缺少认证ID")
+	}
+
+	passed, err := s.AlipayFaceCertifyQuery(record.AlipayCertifyID)
+	if err != nil {
+		return false, err
+	}
+
+	if passed {
+		tx := global.APP_DB.Begin()
+		now := global.APP_DB.NowFunc()
+		tx.Model(&record).Updates(map[string]interface{}{
+			"status":      "approved",
+			"reviewed_by": 0,
+			"reviewed_at": now,
+		})
+		tx.Table("users").Where("id = ?", record.UserID).Update("real_name_verified", true)
+		if err := tx.Commit().Error; err != nil {
+			return false, err
+		}
+		global.APP_LOG.Info("支付宝人脸认证通过",
+			zap.Uint("userID", userID))
+	}
+
+	return passed, nil
 }
 
 // AdminGetKYCList 管理员获取认证列表

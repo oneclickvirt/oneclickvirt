@@ -293,18 +293,41 @@
     <el-dialog
       v-model="showExportDialog"
       :title="t('admin.redemptionCodes.exportDialogTitle')"
-      width="500px"
+      width="600px"
     >
-      <p style="margin-bottom: 8px">{{ t('admin.redemptionCodes.exportedCodes') }}</p>
-      <el-input
-        v-model="exportedCodesText"
-        type="textarea"
-        :rows="10"
-        readonly
-      />
+      <!-- 步骤1：选择导出字段 -->
+      <div v-if="!exportResult">
+        <p style="margin-bottom: 12px; font-weight: 600;">{{ t('admin.redemptionCodes.selectExportFields') }}</p>
+        <el-checkbox-group v-model="exportFields" style="margin-bottom: 16px;">
+          <el-checkbox v-for="field in allExportFields" :key="field.value" :value="field.value" style="margin-bottom: 6px; width: 180px;">
+            {{ field.label }}
+          </el-checkbox>
+        </el-checkbox-group>
+        <div style="margin-bottom: 12px;">
+          <el-button size="small" @click="exportFields = allExportFields.map(f => f.value)">{{ t('admin.redemptionCodes.selectAll') }}</el-button>
+          <el-button size="small" @click="exportFields = []">{{ t('admin.redemptionCodes.deselectAll') }}</el-button>
+        </div>
+      </div>
+      <!-- 步骤2：显示导出结果 -->
+      <div v-else>
+        <p style="margin-bottom: 8px">{{ t('admin.redemptionCodes.exportedCodes') }}</p>
+        <el-input
+          v-model="exportedCodesText"
+          type="textarea"
+          :rows="10"
+          readonly
+        />
+      </div>
       <template #footer>
-        <span class="dialog-footer">
-          <el-button @click="showExportDialog = false">{{ t('common.close') }}</el-button>
+        <span class="dialog-footer" v-if="!exportResult">
+          <el-button @click="showExportDialog = false">{{ t('common.cancel') }}</el-button>
+          <el-button type="primary" :loading="exportLoading" :disabled="exportFields.length === 0" @click="doExport">
+            {{ t('admin.redemptionCodes.export') }}
+          </el-button>
+        </span>
+        <span class="dialog-footer" v-else>
+          <el-button @click="resetExportDialog">{{ t('common.back') }}</el-button>
+          <el-button @click="showExportDialog = false; exportResult = null">{{ t('common.close') }}</el-button>
           <el-button type="primary" @click="copyExportedCodes">
             {{ t('admin.redemptionCodes.copyAll') }}
           </el-button>
@@ -391,6 +414,25 @@ const bandwidthSpecs = ref([])
 // ── 导出对话框 ─────────────────────────────────────────────
 const showExportDialog = ref(false)
 const exportedCodesText = ref('')
+const exportResult = ref(null)
+const exportLoading = ref(false)
+const exportFields = ref(['code', 'status', 'provider', 'instanceType', 'cpu', 'memory', 'disk', 'bandwidth'])
+
+const allExportFields = computed(() => [
+  { value: 'code', label: t('admin.redemptionCodes.colCode') },
+  { value: 'status', label: t('admin.redemptionCodes.colStatus') },
+  { value: 'provider', label: t('admin.redemptionCodes.colProvider') },
+  { value: 'instanceType', label: t('admin.redemptionCodes.colInstanceType') },
+  { value: 'cpu', label: 'CPU' },
+  { value: 'memory', label: t('admin.redemptionCodes.memory') },
+  { value: 'disk', label: t('admin.redemptionCodes.disk') },
+  { value: 'bandwidth', label: t('admin.redemptionCodes.bandwidth') },
+  { value: 'instanceName', label: t('admin.redemptionCodes.colInstanceName') },
+  { value: 'createdBy', label: t('admin.redemptionCodes.colCreatedBy') },
+  { value: 'createdAt', label: t('admin.redemptionCodes.colCreatedAt') },
+  { value: 'redeemedAt', label: t('admin.redemptionCodes.colRedeemedAt') },
+  { value: 'remark', label: t('admin.redemptionCodes.colRemark') }
+])
 
 // ── 状态颜色 ──────────────────────────────────────────────
 const statusTagType = (status) => {
@@ -572,30 +614,39 @@ const submitCreate = async () => {
 }
 
 // ── 导出 ────────────────────────────────────────────────────
-const formatExportLine = (item) => {
-  const parts = [item.code]
-  const specs = [item.cpuName, item.memoryName, item.diskName, item.bandwidthName].filter(Boolean)
-  if (specs.length > 0) parts.push(specs.join(' / '))
-  if (item.instanceName) parts.push(item.instanceName)
-  if (item.providerName) parts.push(item.providerName)
-  return parts.join(' | ')
-}
-
 const handleExport = async () => {
   if (selectedRows.value.length === 0) {
     ElMessage.warning(t('admin.redemptionCodes.exportEmpty'))
     return
   }
+  exportResult.value = null
+  exportedCodesText.value = ''
+  showExportDialog.value = true
+}
+
+const resetExportDialog = () => {
+  exportResult.value = null
+  exportedCodesText.value = ''
+}
+
+const { locale } = useI18n()
+
+const doExport = async () => {
+  exportLoading.value = true
   try {
     const ids = selectedRows.value.map(r => r.id)
-    const res = await exportRedemptionCodes({ ids })
-    const codes = res.data?.codes || res.data || []
-    exportedCodesText.value = codes.map(item =>
-      typeof item === 'string' ? item : formatExportLine(item)
-    ).join('\n')
-    showExportDialog.value = true
+    const lang = locale.value || 'zh-CN'
+    const res = await exportRedemptionCodes({ ids, fields: exportFields.value, lang })
+    const items = res.data?.items || []
+    // Format items as lines: key1: value1 | key2: value2
+    exportedCodesText.value = items.map(item => {
+      return Object.entries(item).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' | ')
+    }).join('\n')
+    exportResult.value = items
   } catch (e) {
     ElMessage.error(e?.response?.data?.msg || e.message)
+  } finally {
+    exportLoading.value = false
   }
 }
 

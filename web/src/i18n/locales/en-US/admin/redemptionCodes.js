@@ -59,5 +59,8 @@ export default {
   bandwidthRequired: 'Please select bandwidth',
   countRequired: 'Please enter count',
   countRange: 'Count must be between 1 and 100',
-  redeemCodeOnly: 'Redeem-code only'
+  redeemCodeOnly: 'Redeem-code only',
+  selectExportFields: 'Select fields to export',
+  selectAll: 'Select All',
+  deselectAll: 'Deselect All'
 }

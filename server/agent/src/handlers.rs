@@ -3,14 +3,16 @@ use crate::{
     collector::normalize_interface_name,
     db::{cleanup_stale_monitors, now_ts},
     error::{ApiError, ErrorResponse},
+    ipt, nft,
     models::{
-        AddRequest, AddResponse, ApplyBlockRulesRequest, ApplyBlockRulesResponse,
-        CleanupRequest, CleanupResponse, DeleteRequest, DeleteResponse, GetBlockRulesResponse,
-        InfoRequest, InfoResponse, ListMonitorItem, ListMonitorsResponse,
-        RemoveBlockRulesResponse, ResourceDataPoint, ResourceQueryRequest,
-        ResourceQueryResponse, UpdateRequest, UpdateResponse,
+        AddDomainProxyRequest, AddDomainProxyResponse, AddRequest, AddResponse,
+        ApplyBlockRulesRequest, ApplyBlockRulesResponse, CleanupRequest, CleanupResponse,
+        DeleteRequest, DeleteResponse, DomainProxyItem, GetBlockRulesResponse, InfoRequest,
+        InfoResponse, ListDomainProxiesResponse, ListMonitorItem, ListMonitorsResponse,
+        RemoveBlockRulesResponse, RemoveDomainProxyRequest, RemoveDomainProxyResponse,
+        ResourceDataPoint, ResourceQueryRequest, ResourceQueryResponse, UpdateRequest,
+        UpdateResponse,
     },
-    nft::{ensure_counter, garbage_collect_orphans, read_external_bytes, remove_counter},
 };
 use axum::{
     Json,
@@ -160,6 +162,7 @@ pub async fn add_monitor(
         }
     });
 
+    let use_ipt = state.traffic_collect_method == "ipt";
     let conn = state.conn.lock().await;
     conn.execute(
         "INSERT INTO monitors (interfaces, total_bytes, provider_kind, instance_name, inner_ip, updated_at) VALUES (?1, 0, ?2, ?3, ?4, ?5)",
@@ -169,8 +172,16 @@ pub async fn add_monitor(
     let id = conn.last_insert_rowid();
 
     for interface in &interfaces {
-        ensure_counter(id, interface, inner_ip.as_deref())?;
-        let (base_in, base_out) = read_external_bytes(id, interface).unwrap_or((0, 0));
+        if use_ipt {
+            ipt::ensure_counter(id, interface, inner_ip.as_deref())?;
+        } else {
+            nft::ensure_counter(id, interface, inner_ip.as_deref())?;
+        }
+        let (base_in, base_out) = if use_ipt {
+            ipt::read_external_bytes(id, interface).unwrap_or((0, 0))
+        } else {
+            nft::read_external_bytes(id, interface).unwrap_or((0, 0))
+        };
         conn.execute(
             "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
             params![id, interface, base_in, base_out],
@@ -225,6 +236,7 @@ pub async fn update_monitor(
         }
     });
 
+let use_ipt = state.traffic_collect_method == "ipt";
     let conn = state.conn.lock().await;
     let exists: Option<i64> = conn
         .query_row("SELECT id FROM monitors WHERE id = ?1", params![id], |row| {
@@ -255,7 +267,7 @@ pub async fn update_monitor(
             row.get(0)
         })
         .optional()
-        .map_err(|e| ApiError::internal(format!("query old inner_ip error: {e}")))?
+        .map_err(|e| ApiError::internal(format!("query old inner_ip error: {e}")))?  
         .flatten();
 
     conn.execute(
@@ -273,8 +285,16 @@ pub async fn update_monitor(
     let effective_inner_ip = inner_ip.as_deref().or(old_inner_ip.as_deref());
 
     for interface in &interfaces {
-        ensure_counter(id, interface, effective_inner_ip)?;
-        let (base_in, base_out) = read_external_bytes(id, interface).unwrap_or((0, 0));
+        if use_ipt {
+            ipt::ensure_counter(id, interface, effective_inner_ip)?;
+        } else {
+            nft::ensure_counter(id, interface, effective_inner_ip)?;
+        }
+        let (base_in, base_out) = if use_ipt {
+            ipt::read_external_bytes(id, interface).unwrap_or((0, 0))
+        } else {
+            nft::read_external_bytes(id, interface).unwrap_or((0, 0))
+        };
         conn.execute(
             "INSERT INTO interface_states (monitor_id, interface, last_counter_in, last_counter_out) VALUES (?1, ?2, ?3, ?4)",
             params![id, interface, base_in, base_out],
@@ -285,8 +305,8 @@ pub async fn update_monitor(
     let new_set: HashSet<String> = interfaces.iter().cloned().collect();
     for old in old_interfaces {
         if !new_set.contains(&old) {
-            if let Err(err) = remove_counter(id, &old) {
-                warn!(id, interface = old, error = %err.message, "failed to remove old nft rules after update");
+            if let Err(err) = if use_ipt { ipt::remove_counter(id, &old) } else { nft::remove_counter(id, &old) } {
+                warn!(id, interface = old, error = %err.message, "failed to remove old counter rules after update");
             }
         }
     }
@@ -335,10 +355,11 @@ pub async fn delete_monitor(
         .execute("DELETE FROM monitors WHERE id = ?1", params![id])
         .map_err(|e| ApiError::internal(format!("delete monitor error: {e}")))?;
 
+    let use_ipt = state.traffic_collect_method == "ipt";
     if affected > 0 {
         for interface in old_interfaces {
-            if let Err(err) = remove_counter(id, &interface) {
-                warn!(id, interface, error = %err.message, "failed to remove nft rules after delete");
+            if let Err(err) = if use_ipt { ipt::remove_counter(id, &interface) } else { nft::remove_counter(id, &interface) } {
+                warn!(id, interface, error = %err.message, "failed to remove counter rules after delete");
             }
         }
         info!(id, "monitor deleted");
@@ -432,10 +453,16 @@ pub async fn cleanup_monitor(
     Json(payload): Json<CleanupRequest>,
 ) -> Result<Json<CleanupResponse>, ApiError> {
     let max_age_seconds = parse_max_update_time_to_seconds(&payload.max_update_time)?;
+    let use_ipt = state.traffic_collect_method == "ipt";
     let conn = state.conn.lock().await;
     let deleted = cleanup_stale_monitors(&conn, max_age_seconds)?;
-    if let Err(err) = garbage_collect_orphans(&conn) {
-        warn!(error = %err.message, "cleanup finished but nft orphan GC failed");
+    let gc_result = if use_ipt {
+        ipt::garbage_collect_orphans(&conn)
+    } else {
+        nft::garbage_collect_orphans(&conn)
+    };
+    if let Err(err) = gc_result {
+        warn!(error = %err.message, "cleanup finished but orphan GC failed");
     }
     info!(deleted, max_age_seconds, "manual cleanup finished");
 
@@ -581,10 +608,15 @@ pub async fn list_monitors(
     tag = "Block Rules"
 )]
 pub async fn apply_block_rules(
+    State(state): State<AppState>,
     Json(req): Json<ApplyBlockRulesRequest>,
 ) -> Result<Json<ApplyBlockRulesResponse>, ApiError> {
     let ip_version = req.ip_version.as_deref().unwrap_or("both");
-    let count = crate::nft::apply_block_rules(&req.strings, ip_version)?;
+    let count = if state.traffic_collect_method == "ipt" {
+        ipt::apply_block_rules(&req.strings, ip_version)?
+    } else {
+        nft::apply_block_rules(&req.strings, ip_version)?
+    };
     Ok(Json(ApplyBlockRulesResponse { applied: count }))
 }
 
@@ -601,8 +633,14 @@ pub async fn apply_block_rules(
     ),
     tag = "Block Rules"
 )]
-pub async fn remove_block_rules() -> Result<Json<RemoveBlockRulesResponse>, ApiError> {
-    crate::nft::remove_block_rules()?;
+pub async fn remove_block_rules(
+    State(state): State<AppState>,
+) -> Result<Json<RemoveBlockRulesResponse>, ApiError> {
+    if state.traffic_collect_method == "ipt" {
+        ipt::remove_block_rules()?;
+    } else {
+        nft::remove_block_rules()?;
+    }
     Ok(Json(RemoveBlockRulesResponse { removed: true }))
 }
 
@@ -619,8 +657,273 @@ pub async fn remove_block_rules() -> Result<Json<RemoveBlockRulesResponse>, ApiE
     ),
     tag = "Block Rules"
 )]
-pub async fn get_block_rules() -> Result<Json<GetBlockRulesResponse>, ApiError> {
-    let (strings, ip_version) = crate::nft::get_block_rules();
+pub async fn get_block_rules(
+    State(state): State<AppState>,
+) -> Result<Json<GetBlockRulesResponse>, ApiError> {
+    let (strings, ip_version) = if state.traffic_collect_method == "ipt" {
+        ipt::get_block_rules()
+    } else {
+        nft::get_block_rules()
+    };
     let count = strings.len();
     Ok(Json(GetBlockRulesResponse { strings, count, ip_version }))
+}
+
+// ---- Domain Proxy Handlers ----
+
+/// Validate domain name format (simple check)
+fn validate_domain(domain: &str) -> Result<(), ApiError> {
+    if domain.is_empty() || domain.len() > 253 {
+        return Err(ApiError::bad_request("invalid domain length"));
+    }
+    let re = regex::Regex::new(r"^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$")
+        .unwrap();
+    if !re.is_match(domain) {
+        return Err(ApiError::bad_request("invalid domain format"));
+    }
+    Ok(())
+}
+
+/// Generate nginx server block config for a domain proxy
+fn generate_nginx_config(domain: &str, internal_ip: &str, internal_port: u16, protocol: &str, enable_ssl: bool) -> String {
+    let upstream = format!("{}://{}:{}", protocol, internal_ip, internal_port);
+
+    if enable_ssl {
+        format!(
+            r#"# Auto-generated by oneclickvirt-agent — do not edit
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain};
+    return 301 https://$host$request_uri;
+}}
+
+server {{
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name {domain};
+
+    ssl_certificate /etc/nginx/ssl/{domain}.crt;
+    ssl_certificate_key /etc/nginx/ssl/{domain}.key;
+
+    location / {{
+        proxy_pass {upstream};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }}
+}}
+"#,
+            domain = domain,
+            upstream = upstream,
+        )
+    } else {
+        format!(
+            r#"# Auto-generated by oneclickvirt-agent — do not edit
+server {{
+    listen 80;
+    listen [::]:80;
+    server_name {domain};
+
+    location / {{
+        proxy_pass {upstream};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection "upgrade";
+    }}
+}}
+"#,
+            domain = domain,
+            upstream = upstream,
+        )
+    }
+}
+
+/// Write nginx config file and reload nginx
+fn apply_nginx_config(domain: &str, config_content: &str) -> Result<(), ApiError> {
+    let config_dir = std::path::Path::new("/etc/nginx/conf.d");
+    if !config_dir.exists() {
+        return Err(ApiError::internal("nginx conf.d directory not found".to_string()));
+    }
+
+    let config_path = config_dir.join(format!("ocv-{}.conf", domain));
+    std::fs::write(&config_path, config_content)
+        .map_err(|e| ApiError::internal(format!("failed to write nginx config: {e}")))?;
+
+    // Test nginx config
+    let test_output = std::process::Command::new("nginx")
+        .args(["-t"])
+        .output()
+        .map_err(|e| ApiError::internal(format!("failed to test nginx config: {e}")))?;
+
+    if !test_output.status.success() {
+        // Remove the bad config
+        let _ = std::fs::remove_file(&config_path);
+        let stderr = String::from_utf8_lossy(&test_output.stderr);
+        return Err(ApiError::internal(format!("nginx config test failed: {stderr}")));
+    }
+
+    // Reload nginx
+    let reload_output = std::process::Command::new("nginx")
+        .args(["-s", "reload"])
+        .output()
+        .map_err(|e| ApiError::internal(format!("failed to reload nginx: {e}")))?;
+
+    if !reload_output.status.success() {
+        let stderr = String::from_utf8_lossy(&reload_output.stderr);
+        warn!("nginx reload warning: {}", stderr);
+    }
+
+    info!(domain, "nginx config applied and reloaded");
+    Ok(())
+}
+
+/// Remove nginx config file and reload
+fn remove_nginx_config(domain: &str) -> Result<(), ApiError> {
+    let config_path = std::path::Path::new("/etc/nginx/conf.d").join(format!("ocv-{}.conf", domain));
+    if config_path.exists() {
+        std::fs::remove_file(&config_path)
+            .map_err(|e| ApiError::internal(format!("failed to remove nginx config: {e}")))?;
+
+        // Reload nginx
+        let _ = std::process::Command::new("nginx")
+            .args(["-s", "reload"])
+            .output();
+
+        info!(domain, "nginx config removed and reloaded");
+    }
+    Ok(())
+}
+
+#[utoipa::path(
+    post,
+    path = "/api/v1/domain-proxy",
+    request_body = AddDomainProxyRequest,
+    responses(
+        (status = 200, description = "Domain proxy added", body = AddDomainProxyResponse),
+        (status = 400, description = "Bad request", body = ErrorResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Domain Proxy"
+)]
+pub async fn add_domain_proxy(
+    State(state): State<AppState>,
+    Json(req): Json<AddDomainProxyRequest>,
+) -> Result<Json<AddDomainProxyResponse>, ApiError> {
+    validate_domain(&req.domain)?;
+
+    let protocol = req.protocol.as_deref().unwrap_or("http");
+    if protocol != "http" && protocol != "https" {
+        return Err(ApiError::bad_request("protocol must be http or https"));
+    }
+    if req.internal_port == 0 {
+        return Err(ApiError::bad_request("invalid port"));
+    }
+
+    let enable_ssl = req.enable_ssl.unwrap_or(false);
+
+    // Generate and apply nginx config
+    let config = generate_nginx_config(&req.domain, &req.internal_ip, req.internal_port, protocol, enable_ssl);
+    apply_nginx_config(&req.domain, &config)?;
+
+    // Save to DB
+    let conn = state.conn.lock().await;
+    conn.execute(
+        "INSERT OR REPLACE INTO domain_proxies (domain, internal_ip, internal_port, protocol, enable_ssl, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![req.domain, req.internal_ip, req.internal_port, protocol, enable_ssl as i32, now_ts()],
+    ).map_err(|e| ApiError::internal(format!("save domain proxy error: {e}")))?;
+
+    info!(domain = %req.domain, ip = %req.internal_ip, port = req.internal_port, "domain proxy added");
+    Ok(Json(AddDomainProxyResponse {
+        domain: req.domain,
+        status: "active".into(),
+    }))
+}
+
+#[utoipa::path(
+    delete,
+    path = "/api/v1/domain-proxy",
+    request_body = RemoveDomainProxyRequest,
+    responses(
+        (status = 200, description = "Domain proxy removed", body = RemoveDomainProxyResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Domain Proxy"
+)]
+pub async fn remove_domain_proxy(
+    State(state): State<AppState>,
+    Json(req): Json<RemoveDomainProxyRequest>,
+) -> Result<Json<RemoveDomainProxyResponse>, ApiError> {
+    // Remove nginx config
+    remove_nginx_config(&req.domain)?;
+
+    // Remove from DB
+    let conn = state.conn.lock().await;
+    let deleted = conn.execute(
+        "DELETE FROM domain_proxies WHERE domain = ?1",
+        rusqlite::params![req.domain],
+    ).map_err(|e| ApiError::internal(format!("delete domain proxy error: {e}")))?;
+
+    info!(domain = %req.domain, "domain proxy removed");
+    Ok(Json(RemoveDomainProxyResponse {
+        domain: req.domain,
+        removed: deleted > 0,
+    }))
+}
+
+#[utoipa::path(
+    get,
+    path = "/api/v1/domain-proxy",
+    responses(
+        (status = 200, description = "List domain proxies", body = ListDomainProxiesResponse),
+        (status = 401, description = "Unauthorized", body = ErrorResponse),
+        (status = 500, description = "Internal server error", body = ErrorResponse)
+    ),
+    security(
+        ("token_auth" = [])
+    ),
+    tag = "Domain Proxy"
+)]
+pub async fn list_domain_proxies(
+    State(state): State<AppState>,
+) -> Result<Json<ListDomainProxiesResponse>, ApiError> {
+    let conn = state.conn.lock().await;
+    let mut stmt = conn
+        .prepare("SELECT domain, internal_ip, internal_port, protocol, enable_ssl, created_at FROM domain_proxies ORDER BY created_at")
+        .map_err(|e| ApiError::internal(format!("prepare domain proxy query: {e}")))?;
+
+    let rows = stmt.query_map([], |row| {
+        Ok(DomainProxyItem {
+            domain: row.get(0)?,
+            internal_ip: row.get(1)?,
+            internal_port: row.get(2)?,
+            protocol: row.get(3)?,
+            enable_ssl: row.get::<_, i32>(4)? != 0,
+            created_at: row.get(5)?,
+        })
+    }).map_err(|e| ApiError::internal(format!("domain proxy query: {e}")))?;
+
+    let mut proxies = Vec::new();
+    for row in rows {
+        proxies.push(row.map_err(|e| ApiError::internal(format!("domain proxy row: {e}")))?);
+    }
+
+    let total = proxies.len();
+    Ok(Json(ListDomainProxiesResponse { proxies, total }))
 }

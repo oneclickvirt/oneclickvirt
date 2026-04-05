@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"oneclickvirt/config"
 	"oneclickvirt/global"
+	kyc "oneclickvirt/service/kyc"
 	"sync"
 
 	"go.uber.org/zap"
@@ -88,6 +89,10 @@ func syncConfigToGlobal(key string, oldValue, newValue interface{}) error {
 	case "other":
 		if otherConfig, ok := newValue.(map[string]interface{}); ok {
 			syncOtherConfig(&cfg, otherConfig)
+		}
+	case "kyc":
+		if kycConfig, ok := newValue.(map[string]interface{}); ok {
+			syncKYCConfig(&cfg, kycConfig)
 		}
 	}
 
@@ -349,5 +354,39 @@ func syncOtherConfig(cfg *config.Server, otherConfig map[string]interface{}) {
 	}
 	if v, ok := otherConfig["site-name"].(string); ok {
 		cfg.Other.SiteName = v
+	}
+}
+
+// syncKYCConfig 同步KYC实名认证配置到配置副本
+func syncKYCConfig(cfg *config.Server, kycConfig map[string]interface{}) {
+	if v, ok := kycConfig["method"].(string); ok {
+		cfg.KYC.Method = v
+	}
+	if v, ok := kycConfig["require-real-name"].(bool); ok {
+		cfg.KYC.RequireRealName = v
+	}
+	if v, ok := kycConfig["restrict-create-instance"].(bool); ok {
+		cfg.KYC.RestrictCreateInstance = v
+	}
+	if v, ok := kycConfig["restrict-redeem-code"].(bool); ok {
+		cfg.KYC.RestrictRedeemCode = v
+	}
+	if v, ok := kycConfig["restrict-domain-bind"].(bool); ok {
+		cfg.KYC.RestrictDomainBind = v
+	}
+	if v, ok := kycConfig["alipay-app-id"].(string); ok {
+		cfg.KYC.AlipayAppID = v
+	}
+	if v, ok := kycConfig["alipay-private-key"].(string); ok {
+		cfg.KYC.AlipayPrivateKey = v
+	}
+	if v, ok := kycConfig["alipay-public-key"].(string); ok {
+		cfg.KYC.AlipayPublicKey = v
+	}
+	// 重新初始化支付宝客户端
+	if cfg.KYC.AlipayAppID != "" && cfg.KYC.AlipayPrivateKey != "" {
+		if err := kyc.InitAlipayClient(); err != nil {
+			global.APP_LOG.Error("重新初始化支付宝客户端失败", zap.Error(err))
+		}
 	}
 }

@@ -48,5 +48,6 @@ export default {
   deleteConfirmNote: "此操作不可撤销，请谨慎操作！",
   nicknameLengthRange: "昵称长度在 2 到 20 个字符",
   invalidEmailFormat: "请输入正确的邮箱格式",
-  invalidPhoneFormat: "请输入正确的手机号格式"
+  invalidPhoneFormat: "请输入正确的手机号格式",
+  passwordResetConfirm: "确定要重置密码吗？"
 }

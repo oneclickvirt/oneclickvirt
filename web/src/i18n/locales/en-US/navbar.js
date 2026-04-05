@@ -11,5 +11,6 @@ export default {
   languageSwitched: 'Language switched',
   switchTheme: 'Switch Theme',
   darkMode: 'Dark Mode',
-  lightMode: 'Light Mode'
+  lightMode: 'Light Mode',
+  home: 'Home'
 }

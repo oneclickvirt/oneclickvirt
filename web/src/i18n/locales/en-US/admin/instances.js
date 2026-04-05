@@ -123,6 +123,7 @@ export default {
   freezeFailed: "Failed to freeze",
   unfreezeSuccess: "Unfrozen successfully",
   unfreezeFailed: "Failed to unfreeze",
+  unfreezeConfirm: "Are you sure you want to unfreeze this instance?",
   manualExpiry: "Manual",
   frozen: "Frozen",
   normal: "Normal",

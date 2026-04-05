@@ -48,5 +48,6 @@ export default {
   deleteConfirmNote: "This operation cannot be undone, please proceed with caution!",
   nicknameLengthRange: "Nickname must be 2-20 characters",
   invalidEmailFormat: "Please enter a valid email address",
-  invalidPhoneFormat: "Please enter a valid phone number"
+  invalidPhoneFormat: "Please enter a valid phone number",
+  passwordResetConfirm: "Are you sure you want to reset your password?"
 }

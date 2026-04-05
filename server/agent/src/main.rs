@@ -89,7 +89,11 @@ async fn main() {
         }
     }
 
-    nft::restore_block_rules();
+    if traffic_collect_method == "ipt" {
+        ipt::restore_block_rules();
+    } else {
+        nft::restore_block_rules();
+    }
 
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
@@ -114,6 +118,12 @@ async fn main() {
             post(handlers::apply_block_rules)
                 .delete(handlers::remove_block_rules)
                 .get(handlers::get_block_rules),
+        )
+        .route(
+            "/api/v1/domain-proxy",
+            post(handlers::add_domain_proxy)
+                .delete(handlers::remove_domain_proxy)
+                .get(handlers::list_domain_proxies),
         )
         .layer(middleware::from_fn_with_state(
             state.clone(),

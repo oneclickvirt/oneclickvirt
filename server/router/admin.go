@@ -76,14 +76,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/tasks/overall-stats", admin.GetTaskOverallStats)
 		NormalAdminGroup.POST("/tasks/:taskId/cancel", admin.CancelUserTaskByAdmin)
 
-		// 系统镜像管理
-		NormalAdminGroup.GET("/system-images", system.GetSystemImageList)
-		NormalAdminGroup.POST("/system-images", system.CreateSystemImage)
-		NormalAdminGroup.PUT("/system-images/:id", system.UpdateSystemImage)
-		NormalAdminGroup.DELETE("/system-images/:id", system.DeleteSystemImage)
-		NormalAdminGroup.POST("/system-images/batch-delete", system.BatchDeleteSystemImages)
-		NormalAdminGroup.PUT("/system-images/batch-status", system.BatchUpdateSystemImageStatus)
-
 		// 端口映射管理
 		NormalAdminGroup.GET("/port-mappings", admin.GetPortMappingList)
 		NormalAdminGroup.POST("/port-mappings", admin.CreatePortMapping)
@@ -184,6 +176,14 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 系统配置（超管专用）
 		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)
 		SuperAdminGroup.PUT("/config", config.UpdateUnifiedConfig)
+
+		// 系统镜像管理（超管专用）
+		SuperAdminGroup.GET("/system-images", system.GetSystemImageList)
+		SuperAdminGroup.POST("/system-images", system.CreateSystemImage)
+		SuperAdminGroup.PUT("/system-images/:id", system.UpdateSystemImage)
+		SuperAdminGroup.DELETE("/system-images/:id", system.DeleteSystemImage)
+		SuperAdminGroup.POST("/system-images/batch-delete", system.BatchDeleteSystemImages)
+		SuperAdminGroup.PUT("/system-images/batch-status", system.BatchUpdateSystemImageStatus)
 
 		// 用户管理（超管专用）
 		SuperAdminGroup.GET("/users", admin.GetUserList)

@@ -38,7 +38,10 @@ impl Modify for SecurityAddon {
         crate::handlers::list_monitors,
         crate::handlers::apply_block_rules,
         crate::handlers::remove_block_rules,
-        crate::handlers::get_block_rules
+        crate::handlers::get_block_rules,
+        crate::handlers::add_domain_proxy,
+        crate::handlers::remove_domain_proxy,
+        crate::handlers::list_domain_proxies
     ),
     components(
         schemas(
@@ -62,6 +65,12 @@ impl Modify for SecurityAddon {
             crate::models::ApplyBlockRulesResponse,
             crate::models::RemoveBlockRulesResponse,
             crate::models::GetBlockRulesResponse,
+            crate::models::AddDomainProxyRequest,
+            crate::models::AddDomainProxyResponse,
+            crate::models::RemoveDomainProxyRequest,
+            crate::models::RemoveDomainProxyResponse,
+            crate::models::DomainProxyItem,
+            crate::models::ListDomainProxiesResponse,
             crate::resource::ResourceSnapshot,
             crate::resource::ProviderKind,
             crate::error::ErrorResponse
@@ -71,7 +80,8 @@ impl Modify for SecurityAddon {
     tags(
         (name = "VM Traffic", description = "VM traffic monitor APIs"),
         (name = "Resource Monitoring", description = "Instance resource monitoring APIs"),
-        (name = "Block Rules", description = "Network block rule management APIs")
+        (name = "Block Rules", description = "Network block rule management APIs"),
+        (name = "Domain Proxy", description = "Domain reverse proxy management APIs")
     )
 )]
 pub struct ApiDoc;

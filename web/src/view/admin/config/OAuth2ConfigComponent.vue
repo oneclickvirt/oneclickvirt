@@ -269,6 +269,8 @@ import { useI18n } from 'vue-i18n'
 
 const { t } = useI18n()
 
+const providerId = ref(null)
+
 const formRef = ref()
 const loading = ref(false)
 const saving = ref(false)
@@ -325,7 +327,15 @@ const loadConfig = async () => {
   try {
     const response = await getOAuth2Config()
     if (response.code === 0 && response.data) {
-      Object.assign(formData, response.data)
+      // Response is a providers array; use the first provider as the config
+      const providers = Array.isArray(response.data) ? response.data : []
+      if (providers.length > 0) {
+        const p = providers[0]
+        providerId.value = p.id
+        Object.assign(formData, p)
+      } else {
+        providerId.value = null
+      }
       
       // 确保levelMapping是对象
       if (!formData.levelMapping || typeof formData.levelMapping !== 'object') {
@@ -365,7 +375,7 @@ const handleSave = async () => {
         levelMapping: levelMappingInt
       }
 
-      const response = await updateOAuth2Config(data)
+      const response = await updateOAuth2Config(providerId.value, data)
       if (response.code === 0) {
         ElMessage.success(t('admin.config.oauth2SaveSuccess'))
         await loadConfig()
@@ -393,7 +403,7 @@ const resetRegistrationCount = async () => {
       }
     )
 
-    const response = await resetOAuth2RegistrationCount()
+    const response = await resetOAuth2RegistrationCount(providerId.value)
     if (response.code === 0) {
       ElMessage.success(t('admin.config.oauth2ResetCountSuccess'))
       await loadConfig()

@@ -19,7 +19,9 @@ type KYCRecord struct {
 	IDNumber     string `json:"-" gorm:"size:255;not null"`            // 身份证号(加密,不返回给前端)
 	IDNumberHash string `json:"-" gorm:"size:64;uniqueIndex;not null"` // 身份证号SHA256哈希(查重用)
 	// 认证方式
-	Method string `json:"method" gorm:"size:32;default:alipay"` // 认证方式: alipay
+	Method string `json:"method" gorm:"size:32;default:manual"` // 认证方式: manual(手动审核), alipay(支付宝人脸)
+	// 支付宝认证字段
+	AlipayCertifyID string `json:"-" gorm:"size:128"` // 支付宝认证ID
 	// 状态: pending(待审核), approved(已通过), rejected(已拒绝)
 	Status       string     `json:"status" gorm:"size:16;default:pending;index"`
 	ReviewedBy   uint       `json:"reviewedBy" gorm:"default:0"`  // 审核管理员ID(0=自动审核)

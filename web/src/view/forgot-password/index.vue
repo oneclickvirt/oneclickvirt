@@ -199,7 +199,7 @@ const refreshCaptcha = async () => {
       forgotForm.captcha = ''
     }
   } catch (error) {
-    console.error(t('login.captchaFailed'), error)
+    console.error(t('forgotPassword.captchaFailed'), error)
   }
 }
 

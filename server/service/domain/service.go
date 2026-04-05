@@ -8,7 +8,9 @@ import (
 
 	"oneclickvirt/global"
 	domainModel "oneclickvirt/model/domain"
+	monitoringModel "oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/service/agent"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -18,6 +20,33 @@ import (
 type Service struct{}
 
 var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
+
+// getAgentClient returns an agent client for the given provider, or nil if agent is not configured.
+func getAgentClient(providerID uint) *agent.Client {
+	var p providerModel.Provider
+	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
+		return nil
+	}
+	var config monitoringModel.MonitoringConfig
+	if err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error; err != nil {
+		return nil
+	}
+	if config.AgentToken == "" {
+		return nil
+	}
+	host := p.Endpoint
+	if host == "" {
+		host = p.PortIP
+	}
+	if host == "" {
+		return nil
+	}
+	port := config.AgentPort
+	if port == 0 {
+		port = agent.AgentPort
+	}
+	return agent.GetClient(providerID, host, port, config.AgentToken)
+}
 
 // GetUserDomains 获取用户域名列表
 func (s *Service) GetUserDomains(userID uint) ([]domainModel.Domain, error) {
@@ -104,6 +133,24 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 		return nil, fmt.Errorf("创建域名绑定失败: %v", err)
 	}
 
+	// Apply reverse proxy via agent
+	if client := getAgentClient(provider.ID); client != nil {
+		protocol := req.Protocol
+		if protocol == "" {
+			protocol = "http"
+		}
+		_, err := client.AddDomainProxy(req.DomainName, req.InternalIP, req.InternalPort, protocol, req.EnableSSL)
+		if err != nil {
+			global.APP_LOG.Error("域名代理应用到Agent失败",
+				zap.String("domain", req.DomainName),
+				zap.Error(err))
+			global.APP_DB.Model(domain).Updates(map[string]interface{}{
+				"status":    "error",
+				"error_msg": fmt.Sprintf("agent proxy error: %v", err),
+			})
+		}
+	}
+
 	global.APP_LOG.Info("用户域名绑定成功",
 		zap.Uint("userID", userID),
 		zap.String("domain", req.DomainName))
@@ -113,11 +160,22 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 
 // DeleteDomain 用户删除域名绑定
 func (s *Service) DeleteDomain(userID, domainID uint) error {
-	result := global.APP_DB.Where("id = ? AND user_id = ?", domainID, userID).Delete(&domainModel.Domain{})
-	if result.RowsAffected == 0 {
+	// Fetch domain first for agent cleanup
+	var domain domainModel.Domain
+	if err := global.APP_DB.Where("id = ? AND user_id = ?", domainID, userID).First(&domain).Error; err != nil {
 		return fmt.Errorf("域名绑定不存在或无权限")
 	}
-	return result.Error
+
+	// Remove proxy from agent
+	if client := getAgentClient(domain.ProviderID); client != nil {
+		if err := client.RemoveDomainProxy(domain.DomainName); err != nil {
+			global.APP_LOG.Warn("从Agent移除域名代理失败",
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+		}
+	}
+
+	return global.APP_DB.Delete(&domain).Error
 }
 
 // UpdateDomain 用户更新域名绑定
@@ -142,7 +200,33 @@ func (s *Service) UpdateDomain(userID, domainID uint, req *UpdateDomainRequest) 
 	}
 	updates["enable_ssl"] = req.EnableSSL
 
-	return global.APP_DB.Model(&domain).Updates(updates).Error
+	if err := global.APP_DB.Model(&domain).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	// Re-apply proxy via agent with updated config
+	if client := getAgentClient(domain.ProviderID); client != nil {
+		ip := domain.InternalIP
+		if v, ok := updates["internal_ip"].(string); ok {
+			ip = v
+		}
+		port := domain.InternalPort
+		if v, ok := updates["internal_port"].(int); ok {
+			port = v
+		}
+		protocol := domain.Protocol
+		if v, ok := updates["protocol"].(string); ok {
+			protocol = v
+		}
+		enableSSL := req.EnableSSL
+		if _, err := client.AddDomainProxy(domain.DomainName, ip, port, protocol, enableSSL); err != nil {
+			global.APP_LOG.Warn("域名代理更新Agent失败",
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+		}
+	}
+
+	return nil
 }
 
 // AdminGetAllDomains 管理员获取所有域名(支持按节点过滤)
@@ -164,7 +248,19 @@ func (s *Service) AdminGetAllDomains(ownerAdminID uint) ([]domainModel.Domain, e
 
 // AdminDeleteDomain 管理员删除域名
 func (s *Service) AdminDeleteDomain(domainID uint) error {
-	return global.APP_DB.Delete(&domainModel.Domain{}, domainID).Error
+	var domain domainModel.Domain
+	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
+		return err
+	}
+	// Remove proxy from agent
+	if client := getAgentClient(domain.ProviderID); client != nil {
+		if err := client.RemoveDomainProxy(domain.DomainName); err != nil {
+			global.APP_LOG.Warn("管理员从Agent移除域名代理失败",
+				zap.String("domain", domain.DomainName),
+				zap.Error(err))
+		}
+	}
+	return global.APP_DB.Delete(&domain).Error
 }
 
 // GetDomainConfig 获取节点域名配置

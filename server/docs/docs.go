@@ -11009,12 +11009,23 @@ const docTemplate = `{
         "admin.ExportRedemptionCodesRequest": {
             "type": "object",
             "properties": {
+                "fields": {
+                    "description": "要导出的字段列表，为空则导出所有字段",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                },
                 "ids": {
                     "description": "为空则导出所有",
                     "type": "array",
                     "items": {
                         "type": "integer"
                     }
+                },
+                "lang": {
+                    "description": "语言: zh-CN, en-US",
+                    "type": "string"
                 }
             }
         },
@@ -13304,6 +13315,14 @@ const docTemplate = `{
                 "disk": {
                     "description": "总硬盘空间(MB)",
                     "type": "integer"
+                },
+                "groupDescription": {
+                    "description": "分组描述(HTML)",
+                    "type": "string"
+                },
+                "groupName": {
+                    "description": "分组名称",
+                    "type": "string"
                 },
                 "id": {
                     "type": "integer"

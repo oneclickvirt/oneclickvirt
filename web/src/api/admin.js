@@ -723,7 +723,7 @@ export const checkPortAvailable = (data) => {
 
 export const allocatePortsForInstance = (instanceId, data) => {
   return request({
-    url: `/admin/instances/${instanceId}/ports`,
+    url: `/v1/admin/instances/${instanceId}/port-mappings`,
     method: 'post',
     data
   })
@@ -731,7 +731,7 @@ export const allocatePortsForInstance = (instanceId, data) => {
 
 export const getInstancePorts = (instanceId) => {
   return request({
-    url: `/admin/instances/${instanceId}/ports`,
+    url: `/v1/admin/instances/${instanceId}/port-mappings`,
     method: 'get'
   })
 }

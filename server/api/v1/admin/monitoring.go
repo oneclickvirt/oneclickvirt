@@ -45,6 +45,7 @@ type UpdateMonitoringConfigRequest struct {
 	ResourceCollectInterval int    `json:"resource_collect_interval"`
 	ExtraExcludeCIDRsV4     string `json:"extra_exclude_cidrs_v4"`
 	ExtraExcludeCIDRsV6     string `json:"extra_exclude_cidrs_v6"`
+	TrafficCollectMethod    string `json:"traffic_collect_method"` // "nft" or "ipt"
 }
 
 // UpdateMonitoringConfig updates the monitoring configuration for a provider.
@@ -84,6 +85,9 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	}
 	config.ExtraExcludeCIDRsV4 = req.ExtraExcludeCIDRsV4
 	config.ExtraExcludeCIDRsV6 = req.ExtraExcludeCIDRsV6
+	if req.TrafficCollectMethod == "nft" || req.TrafficCollectMethod == "ipt" {
+		config.TrafficCollectMethod = req.TrafficCollectMethod
+	}
 
 	if err := global.APP_DB.Save(config).Error; err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "更新监控配置失败: " + err.Error()})
@@ -99,6 +103,7 @@ func UpdateMonitoringConfig(c *gin.Context) {
 				Token:                   config.AgentToken,
 				TrafficCollectInterval:  config.CollectInterval,
 				ResourceCollectInterval: config.ResourceCollectInterval,
+				TrafficCollectMethod:    config.TrafficCollectMethod,
 				ExtraExcludeCIDRsV4:     config.ExtraExcludeCIDRsV4,
 				ExtraExcludeCIDRsV6:     config.ExtraExcludeCIDRsV6,
 			}

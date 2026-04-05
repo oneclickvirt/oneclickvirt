@@ -9,6 +9,7 @@ export default {
   isSticky: "Sticky",
   type: "Type",
   typeTopbar: "Top Bar",
+  typeHomepage: "Homepage",
   displayLocation: "Display Location",
   homepage: "Homepage",
   dashboard: "Dashboard",

@@ -200,7 +200,7 @@ fn add_rule_if_missing(program: &str, chain: &str, args: &[&str]) {
 }
 
 fn setup_v4_chain(
-    monitor_id: i64,
+    _monitor_id: i64,
     interface: &str,
     cin: &str,
     cout: &str,
@@ -251,7 +251,7 @@ fn setup_v4_chain(
 }
 
 fn setup_v6_chain(
-    monitor_id: i64,
+    _monitor_id: i64,
     interface: &str,
     cin6: &str,
     cout6: &str,
@@ -534,4 +534,153 @@ pub fn garbage_collect_orphans(conn: &Connection) -> Result<usize, ApiError> {
         info!(removed, "garbage-collected orphan iptables/ip6tables chains");
     }
     Ok(removed)
+}
+
+// ---- Block Rules (abuse blocking via iptables string match) ----
+
+const BLOCK_CHAIN: &str = "ABUSE_BLOCK";
+const BLOCK_CHAIN_V6: &str = "ABUSE_BLOCK6";
+const BLOCK_RULES_FILE: &str = "/opt/oneclickvirt/agent/block_rules.json";
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistedBlockRules {
+    strings: Vec<String>,
+    ip_version: String,
+}
+
+/// Create ABUSE_BLOCK chain and add jumps from FORWARD and OUTPUT.
+fn ensure_block_chains_ipt(program: &str, chain: &str) -> Result<(), ApiError> {
+    ensure_chain_ipt(program, chain)?;
+
+    // Add jump from FORWARD
+    let fwd = run_ipt(program, &["-C", "FORWARD", "-j", chain]);
+    if !matches!(fwd, Ok(o) if o.status.success()) {
+        let out = run_ipt(program, &["-I", "FORWARD", "-j", chain])?;
+        if !out.status.success() {
+            return Err(ApiError::internal(format!(
+                "failed to add FORWARD jump to {chain}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+    }
+
+    // Add jump from OUTPUT
+    let outp = run_ipt(program, &["-C", "OUTPUT", "-j", chain]);
+    if !matches!(outp, Ok(o) if o.status.success()) {
+        let out = run_ipt(program, &["-I", "OUTPUT", "-j", chain])?;
+        if !out.status.success() {
+            return Err(ApiError::internal(format!(
+                "failed to add OUTPUT jump to {chain}: {}",
+                String::from_utf8_lossy(&out.stderr).trim()
+            )));
+        }
+    }
+
+    Ok(())
+}
+
+/// Flush all rules in the block chain (keep the chain itself, preserving FORWARD/OUTPUT jumps).
+fn flush_block_chain_ipt(program: &str, chain: &str) {
+    if chain_exists_ipt(program, chain) {
+        let _ = run_ipt(program, &["-F", chain]);
+    }
+}
+
+/// Remove ABUSE_BLOCK chain and its jumps entirely.
+fn remove_block_chains_ipt(program: &str, chain: &str) {
+    if chain_exists_ipt(program, chain) {
+        let _ = run_ipt(program, &["-D", "FORWARD", "-j", chain]);
+        let _ = run_ipt(program, &["-D", "OUTPUT", "-j", chain]);
+        let _ = run_ipt(program, &["-F", chain]);
+        let _ = run_ipt(program, &["-X", chain]);
+    }
+}
+
+/// Apply string-match block rules using iptables `-m string --algo bm`.
+/// ip_version: "both" (default), "ipv4", "ipv6"
+pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, ApiError> {
+    if strings.is_empty() {
+        return Ok(0);
+    }
+
+    let use_v4 = ip_version != "ipv6" && has_iptables();
+    let use_v6 = ip_version != "ipv4" && has_ip6tables();
+
+    if use_v4 {
+        ensure_block_chains_ipt("iptables", BLOCK_CHAIN)?;
+        flush_block_chain_ipt("iptables", BLOCK_CHAIN);
+    }
+    if use_v6 {
+        ensure_block_chains_ipt("ip6tables", BLOCK_CHAIN_V6)?;
+        flush_block_chain_ipt("ip6tables", BLOCK_CHAIN_V6);
+    }
+
+    let mut count = 0usize;
+    for s in strings {
+        if s.is_empty() { continue; }
+        if s.len() > 128 { continue; }
+        // Only allow printable ASCII to prevent iptables argument issues
+        if !s.chars().all(|c| c.is_ascii_graphic() || c == ' ') {
+            continue;
+        }
+
+        if use_v4 {
+            let _ = run_iptables(&["-A", BLOCK_CHAIN, "-m", "string", "--algo", "bm", "--string", s, "-j", "DROP"]);
+        }
+        if use_v6 {
+            let _ = run_ip6tables(&["-A", BLOCK_CHAIN_V6, "-m", "string", "--algo", "bm", "--string", s, "-j", "DROP"]);
+        }
+        count += 1;
+    }
+
+    // Persist for restart recovery
+    let persisted = PersistedBlockRules {
+        strings: strings.to_vec(),
+        ip_version: ip_version.to_string(),
+    };
+    if let Ok(json) = serde_json::to_string(&persisted) {
+        let _ = std::fs::write(std::path::Path::new(BLOCK_RULES_FILE), json);
+    }
+
+    info!(count, ip_version, "applied abuse block rules via iptables");
+    Ok(count)
+}
+
+/// Remove all iptables block rules and the ABUSE_BLOCK chain.
+pub fn remove_block_rules() -> Result<(), ApiError> {
+    if has_iptables() {
+        remove_block_chains_ipt("iptables", BLOCK_CHAIN);
+    }
+    if has_ip6tables() {
+        remove_block_chains_ipt("ip6tables", BLOCK_CHAIN_V6);
+    }
+    let _ = std::fs::remove_file(std::path::Path::new(BLOCK_RULES_FILE));
+    info!("removed abuse block rules (iptables)");
+    Ok(())
+}
+
+/// Get current block rules from the persisted file.
+pub fn get_block_rules() -> (Vec<String>, String) {
+    if let Ok(content) = std::fs::read_to_string(std::path::Path::new(BLOCK_RULES_FILE)) {
+        if let Ok(p) = serde_json::from_str::<PersistedBlockRules>(&content) {
+            return (p.strings, p.ip_version);
+        }
+        // Fallback: old plain-array format
+        if let Ok(strings) = serde_json::from_str::<Vec<String>>(&content) {
+            return (strings, "both".to_string());
+        }
+    }
+    (Vec::new(), "both".to_string())
+}
+
+/// Restore block rules from the persisted file on startup.
+pub fn restore_block_rules() {
+    let (strings, ip_version) = get_block_rules();
+    if strings.is_empty() {
+        return;
+    }
+    match apply_block_rules(&strings, &ip_version) {
+        Ok(count) => info!(count, ip_version, "restored persisted block rules on startup (iptables)"),
+        Err(e) => warn!(error = %e.message, "failed to restore block rules on startup (iptables)"),
+    }
 }

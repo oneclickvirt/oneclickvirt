@@ -798,11 +798,19 @@ definitions:
     type: object
   admin.ExportRedemptionCodesRequest:
     properties:
+      fields:
+        description: 要导出的字段列表，为空则导出所有字段
+        items:
+          type: string
+        type: array
       ids:
         description: 为空则导出所有
         items:
           type: integer
         type: array
+      lang:
+        description: '语言: zh-CN, en-US'
+        type: string
     type: object
   admin.ForceStopTaskRequest:
     properties:
@@ -2438,6 +2446,12 @@ definitions:
       disk:
         description: 总硬盘空间(MB)
         type: integer
+      groupDescription:
+        description: 分组描述(HTML)
+        type: string
+      groupName:
+        description: 分组名称
+        type: string
       id:
         type: integer
       maxContainerInstances:

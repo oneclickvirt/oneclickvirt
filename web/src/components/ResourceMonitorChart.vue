@@ -29,7 +29,7 @@
         </div>
 
         <!-- 磁盘使用率 -->
-        <div class="chart-item">
+        <div v-if="diskMonitoringEnabled" class="chart-item">
           <h4>{{ $t('user.instanceDetail.diskUsage') }}</h4>
           <div ref="diskChartRef" class="chart-canvas" />
         </div>
@@ -54,6 +54,7 @@ const props = defineProps({
 
 const loading = ref(false)
 const hasData = ref(false)
+const diskMonitoringEnabled = ref(true)
 const cpuChartRef = ref(null)
 const memChartRef = ref(null)
 const diskChartRef = ref(null)
@@ -149,7 +150,7 @@ const renderCharts = (data) => {
   }
 
   // Disk chart
-  if (diskChartRef.value) {
+  if (diskMonitoringEnabled.value && diskChartRef.value) {
     if (!diskChart || diskChart.isDisposed()) diskChart = echarts.init(diskChartRef.value)
     diskChart.setOption(buildLineOption(times,
       [
@@ -190,6 +191,9 @@ const loadData = async () => {
     const res = await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
     if (res.code === 0 || res.code === 200) {
       let data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
+      if (res.data && typeof res.data === 'object' && !Array.isArray(res.data)) {
+        diskMonitoringEnabled.value = res.data.disk_monitoring_enabled !== false
+      }
       if (data.length === 0) {
         data = generateZeroFilledResourceData()
       }

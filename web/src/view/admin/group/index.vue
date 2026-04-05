@@ -63,7 +63,7 @@ const form = ref({
 const fetchGroupInfo = async () => {
   loading.value = true
   try {
-    const res = await service({ url: '/admin/group-info', method: 'get' })
+    const res = await service({ url: '/v1/admin/group-info', method: 'get' })
     if (res.code === 200 && res.data) {
       form.value.groupName = res.data.groupName || ''
       form.value.groupDescription = res.data.groupDescription || ''
@@ -97,7 +97,7 @@ const handleSave = async () => {
   saving.value = true
   try {
     const res = await service({
-      url: '/admin/group-info',
+      url: '/v1/admin/group-info',
       method: 'put',
       data: {
         groupName: form.value.groupName,

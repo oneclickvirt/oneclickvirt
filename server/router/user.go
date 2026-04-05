@@ -25,7 +25,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 
 		// 实例管理
 		UserGroup.GET("/user/instances", user.GetUserInstances)
-		UserGroup.POST("/user/instances", user.CreateUserInstance)
+		UserGroup.POST("/user/instances", middleware.RequireKYCFor("create-instance"), user.CreateUserInstance)
 		UserGroup.GET("/user/instances/:id", user.GetUserInstanceDetail)
 		UserGroup.GET("/user/instances/:id/monitoring", user.GetInstanceMonitoring)
 		UserGroup.GET("/user/instances/:id/monitoring/resources", user.GetInstanceResourceMonitoring)
@@ -69,17 +69,19 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/dashboard/stats", public.GetDashboardStats)
 
 		// 兑换码兑换
-		UserGroup.POST("/user/redemption-codes/redeem", user.RedeemCode)
+		UserGroup.POST("/user/redemption-codes/redeem", middleware.RequireKYCFor("redeem-code"), user.RedeemCode)
 
 		// 域名绑定
 		UserGroup.GET("/user/domains", user.GetUserDomains)
-		UserGroup.POST("/user/domains", user.CreateUserDomain)
+		UserGroup.POST("/user/domains", middleware.RequireKYCFor("domain-bind"), user.CreateUserDomain)
 		UserGroup.PUT("/user/domains/:id", user.UpdateUserDomain)
 		UserGroup.DELETE("/user/domains/:id", user.DeleteUserDomain)
 
 		// KYC实名认证
 		UserGroup.GET("/user/kyc", user.GetUserKYC)
 		UserGroup.POST("/user/kyc", user.SubmitUserKYC)
+		UserGroup.POST("/user/kyc/alipay", user.SubmitAlipayKYC)
+		UserGroup.GET("/user/kyc/alipay/result", user.QueryAlipayKYCResult)
 
 		// 签到续期
 		UserGroup.POST("/user/checkin/code/:instance_id", user.GenerateCheckinCode)

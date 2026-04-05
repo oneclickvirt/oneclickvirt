@@ -117,5 +117,10 @@ export default {
   batchConfirmMessage: '确定要处理 {n} 个项目吗？',
   batchCompleted: '批量操作完成',
   getUserInfoFailed: '获取用户信息失败',
-  requestFailed: '请求失败'
+  requestFailed: '请求失败',
+  operationFailed: '操作失败',
+  deleteFailed: '删除失败',
+  updateSuccess: '更新成功',
+  createSuccess: '创建成功',
+  question: '提示'
 }

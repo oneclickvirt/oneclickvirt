@@ -465,6 +465,113 @@ func (s *Service) ExportByIDs(ids []uint) ([]adminModel.RedemptionCodeResponse, 
 	return result, nil
 }
 
+// FormatExportData 根据字段选择和语言格式化导出数据
+func (s *Service) FormatExportData(codes []adminModel.RedemptionCodeResponse, fields []string, isEN bool) []map[string]string {
+	// 所有可用字段定义
+	allFields := []string{"code", "status", "provider", "instanceType", "cpu", "memory", "disk", "bandwidth", "instanceName", "createdBy", "createdAt", "redeemedAt", "remark"}
+
+	// 如果没有指定字段，默认导出所有
+	if len(fields) == 0 {
+		fields = allFields
+	}
+
+	fieldSet := make(map[string]bool, len(fields))
+	for _, f := range fields {
+		fieldSet[f] = true
+	}
+
+	// 字段名称映射
+	headerMap := map[string]string{
+		"code": "兑换码", "status": "状态", "provider": "节点", "instanceType": "实例类型",
+		"cpu": "CPU", "memory": "内存", "disk": "磁盘", "bandwidth": "带宽",
+		"instanceName": "实例名称", "createdBy": "创建人", "createdAt": "创建时间",
+		"redeemedAt": "兑换时间", "remark": "备注",
+	}
+	if isEN {
+		headerMap = map[string]string{
+			"code": "Code", "status": "Status", "provider": "Provider", "instanceType": "Instance Type",
+			"cpu": "CPU", "memory": "Memory", "disk": "Disk", "bandwidth": "Bandwidth",
+			"instanceName": "Instance Name", "createdBy": "Created By", "createdAt": "Created At",
+			"redeemedAt": "Redeemed At", "remark": "Remark",
+		}
+	}
+
+	// 状态映射
+	statusMap := map[string]string{
+		"pending_create": "待创建", "creating": "创建中", "pending_use": "待使用",
+		"used": "已使用", "deleting": "删除中",
+	}
+	if isEN {
+		statusMap = map[string]string{
+			"pending_create": "Pending Create", "creating": "Creating", "pending_use": "Pending Use",
+			"used": "Used", "deleting": "Deleting",
+		}
+	}
+
+	instanceTypeMap := map[string]string{"container": "容器", "vm": "虚拟机"}
+	if isEN {
+		instanceTypeMap = map[string]string{"container": "Container", "vm": "VM"}
+	}
+
+	result := make([]map[string]string, 0, len(codes))
+	for _, c := range codes {
+		item := make(map[string]string)
+		if fieldSet["code"] {
+			item[headerMap["code"]] = c.RedemptionCode.Code
+		}
+		if fieldSet["status"] {
+			s := c.RedemptionCode.Status
+			if v, ok := statusMap[s]; ok {
+				s = v
+			}
+			item[headerMap["status"]] = s
+		}
+		if fieldSet["provider"] {
+			item[headerMap["provider"]] = c.RedemptionCode.ProviderName
+		}
+		if fieldSet["instanceType"] {
+			t := c.RedemptionCode.InstanceType
+			if v, ok := instanceTypeMap[t]; ok {
+				t = v
+			}
+			item[headerMap["instanceType"]] = t
+		}
+		if fieldSet["cpu"] {
+			item[headerMap["cpu"]] = c.CPUName
+		}
+		if fieldSet["memory"] {
+			item[headerMap["memory"]] = c.MemoryName
+		}
+		if fieldSet["disk"] {
+			item[headerMap["disk"]] = c.DiskName
+		}
+		if fieldSet["bandwidth"] {
+			item[headerMap["bandwidth"]] = c.BandwidthName
+		}
+		if fieldSet["instanceName"] {
+			item[headerMap["instanceName"]] = c.InstanceName
+		}
+		if fieldSet["createdBy"] {
+			item[headerMap["createdBy"]] = c.CreatedByUser
+		}
+		if fieldSet["createdAt"] {
+			if !c.RedemptionCode.CreatedAt.IsZero() {
+				item[headerMap["createdAt"]] = c.RedemptionCode.CreatedAt.Format("2006-01-02 15:04:05")
+			}
+		}
+		if fieldSet["redeemedAt"] {
+			if c.RedemptionCode.RedeemedAt != nil {
+				item[headerMap["redeemedAt"]] = c.RedemptionCode.RedeemedAt.Format("2006-01-02 15:04:05")
+			}
+		}
+		if fieldSet["remark"] {
+			item[headerMap["remark"]] = c.RedemptionCode.Remark
+		}
+		result = append(result, item)
+	}
+	return result
+}
+
 // generateUniqueCode 生成唯一的 16 位大写字母数字兑换码
 func (s *Service) generateUniqueCode() (string, error) {
 	const charset = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ"

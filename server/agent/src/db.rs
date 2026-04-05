@@ -46,6 +46,15 @@ pub fn init_db(conn: &Connection) -> Result<(), ApiError> {
 
         CREATE INDEX IF NOT EXISTS idx_resource_metrics_monitor_ts
             ON resource_metrics(monitor_id, timestamp);
+
+        CREATE TABLE IF NOT EXISTS domain_proxies (
+            domain TEXT PRIMARY KEY NOT NULL,
+            internal_ip TEXT NOT NULL,
+            internal_port INTEGER NOT NULL,
+            protocol TEXT NOT NULL DEFAULT 'http',
+            enable_ssl INTEGER NOT NULL DEFAULT 0,
+            created_at INTEGER NOT NULL
+        );
         "#,
     )
     .map_err(|e| ApiError::internal(format!("sqlite table init error: {e}")))?;

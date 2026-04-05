@@ -11,5 +11,6 @@ export default {
   languageSwitched: '语言已切换',
   switchTheme: '切换主题',
   darkMode: '暗色模式',
-  lightMode: '亮色模式'
+  lightMode: '亮色模式',
+  home: '首页'
 }

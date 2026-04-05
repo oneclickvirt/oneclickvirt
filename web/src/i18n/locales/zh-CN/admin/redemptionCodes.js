@@ -59,5 +59,8 @@ export default {
   bandwidthRequired: '请选择带宽',
   countRequired: '请输入数量',
   countRange: '数量必须在 1-100 之间',
-  redeemCodeOnly: '仅支持兑换码兑换'
+  redeemCodeOnly: '仅支持兑换码兑换',
+  selectExportFields: '请选择要导出的字段',
+  selectAll: '全选',
+  deselectAll: '全不选'
 }

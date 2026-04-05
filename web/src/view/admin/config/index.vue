@@ -586,6 +586,81 @@
           </el-form>
         </el-tab-pane>
 
+        <!-- 实名认证配置 -->
+        <el-tab-pane
+          :label="$t('admin.config.kycConfig')"
+          name="kyc"
+        >
+          <el-form
+            v-loading="loading"
+            :model="config"
+            label-width="160px"
+            class="config-form"
+          >
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.kycMethod')">
+                  <el-select v-model="config.kyc.method" style="width: 100%">
+                    <el-option value="manual" :label="$t('admin.config.kycMethodManual')" />
+                    <el-option value="alipay" :label="$t('admin.config.kycMethodAlipay')" />
+                    <el-option value="both" :label="$t('admin.config.kycMethodBoth')" />
+                  </el-select>
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.kycRequireRealName')">
+                  <el-switch v-model="config.kyc.requireRealName" />
+                  <div class="form-item-hint">{{ $t('admin.config.kycRequireRealNameHint') }}</div>
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-divider>{{ $t('admin.config.kycRestrictions') }}</el-divider>
+
+            <el-row :gutter="20">
+              <el-col :span="8">
+                <el-form-item :label="$t('admin.config.kycRestrictCreateInstance')">
+                  <el-switch v-model="config.kyc.restrictCreateInstance" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item :label="$t('admin.config.kycRestrictRedeemCode')">
+                  <el-switch v-model="config.kyc.restrictRedeemCode" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item :label="$t('admin.config.kycRestrictDomainBind')">
+                  <el-switch v-model="config.kyc.restrictDomainBind" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <template v-if="config.kyc.method === 'alipay' || config.kyc.method === 'both'">
+              <el-divider>{{ $t('admin.config.kycAlipayConfig') }}</el-divider>
+
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item :label="$t('admin.config.kycAlipayAppId')">
+                    <el-input v-model="config.kyc.alipayAppId" placeholder="App ID" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+              <el-row :gutter="20">
+                <el-col :span="12">
+                  <el-form-item :label="$t('admin.config.kycAlipayPrivateKey')">
+                    <el-input v-model="config.kyc.alipayPrivateKey" type="password" show-password placeholder="Private Key" />
+                  </el-form-item>
+                </el-col>
+                <el-col :span="12">
+                  <el-form-item :label="$t('admin.config.kycAlipayPublicKey')">
+                    <el-input v-model="config.kyc.alipayPublicKey" type="password" show-password placeholder="Public Key" />
+                  </el-form-item>
+                </el-col>
+              </el-row>
+            </template>
+          </el-form>
+        </el-tab-pane>
+
         <!-- 其他配置 -->
         <el-tab-pane
           :label="$t('admin.config.otherConfig')"
@@ -769,6 +844,16 @@ const config = ref({
     defaultLanguage: '', // 默认语言，空字符串表示使用浏览器语言
     logoURL: '', // 自定义 Logo URL
     siteName: '' // 自定义网站名称
+  },
+  kyc: {
+    method: 'manual',
+    requireRealName: false,
+    restrictCreateInstance: false,
+    restrictRedeemCode: false,
+    restrictDomainBind: false,
+    alipayAppId: '',
+    alipayPrivateKey: '',
+    alipayPublicKey: ''
   }
 })
 
@@ -819,6 +904,14 @@ const loadConfig = async () => {
         systemConfigLanguage.value = config.value.other.defaultLanguage || ''
         console.log('合并后的其他配置:', config.value.other)
         console.log('当前系统语言配置:', systemConfigLanguage.value)
+      }
+
+      // 加载KYC配置
+      if (response.data.kyc) {
+        config.value.kyc = {
+          ...config.value.kyc,
+          ...response.data.kyc
+        }
       }
       
       // 加载配额配置

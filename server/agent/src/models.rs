@@ -152,3 +152,53 @@ pub struct GetBlockRulesResponse {
     pub count: usize,
     pub ip_version: String,
 }
+
+// ---- Domain Proxy ----
+
+#[derive(Deserialize, ToSchema)]
+pub struct AddDomainProxyRequest {
+    /// Fully qualified domain name (e.g. app.example.com)
+    pub domain: String,
+    /// Internal target IP (e.g. 172.17.0.3)
+    pub internal_ip: String,
+    /// Internal target port (e.g. 8080)
+    pub internal_port: u16,
+    /// Protocol: http or https (default http)
+    pub protocol: Option<String>,
+    /// Enable SSL with auto-generated self-signed cert
+    pub enable_ssl: Option<bool>,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct AddDomainProxyResponse {
+    pub domain: String,
+    pub status: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+pub struct RemoveDomainProxyRequest {
+    /// Domain name to remove proxy for
+    pub domain: String,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct RemoveDomainProxyResponse {
+    pub domain: String,
+    pub removed: bool,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct DomainProxyItem {
+    pub domain: String,
+    pub internal_ip: String,
+    pub internal_port: u16,
+    pub protocol: String,
+    pub enable_ssl: bool,
+    pub created_at: i64,
+}
+
+#[derive(Serialize, ToSchema)]
+pub struct ListDomainProxiesResponse {
+    pub proxies: Vec<DomainProxyItem>,
+    pub total: usize,
+}

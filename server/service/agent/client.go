@@ -367,3 +367,73 @@ func (c *Client) GetBlockRules() (*GetBlockRulesResponse, error) {
 	}
 	return &resp, nil
 }
+
+// ---- Domain Proxy API ----
+
+type AddDomainProxyRequest struct {
+	Domain       string `json:"domain"`
+	InternalIP   string `json:"internal_ip"`
+	InternalPort int    `json:"internal_port"`
+	Protocol     string `json:"protocol,omitempty"`
+	EnableSSL    bool   `json:"enable_ssl,omitempty"`
+}
+
+type AddDomainProxyResponse struct {
+	Domain string `json:"domain"`
+	Status string `json:"status"`
+}
+
+type RemoveDomainProxyRequest struct {
+	Domain string `json:"domain"`
+}
+
+type RemoveDomainProxyResponse struct {
+	Domain  string `json:"domain"`
+	Removed bool   `json:"removed"`
+}
+
+type DomainProxyItem struct {
+	Domain       string `json:"domain"`
+	InternalIP   string `json:"internal_ip"`
+	InternalPort int    `json:"internal_port"`
+	Protocol     string `json:"protocol"`
+	EnableSSL    bool   `json:"enable_ssl"`
+	CreatedAt    int64  `json:"created_at"`
+}
+
+type ListDomainProxiesResponse struct {
+	Proxies []DomainProxyItem `json:"proxies"`
+	Total   int               `json:"total"`
+}
+
+// AddDomainProxy adds a domain reverse proxy on the agent host.
+func (c *Client) AddDomainProxy(domain, internalIP string, internalPort int, protocol string, enableSSL bool) (*AddDomainProxyResponse, error) {
+	req := AddDomainProxyRequest{
+		Domain:       domain,
+		InternalIP:   internalIP,
+		InternalPort: internalPort,
+		Protocol:     protocol,
+		EnableSSL:    enableSSL,
+	}
+	var resp AddDomainProxyResponse
+	if err := c.doRequest("POST", "/api/v1/domain-proxy", req, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}
+
+// RemoveDomainProxy removes a domain reverse proxy from the agent host.
+func (c *Client) RemoveDomainProxy(domain string) error {
+	req := RemoveDomainProxyRequest{Domain: domain}
+	var resp RemoveDomainProxyResponse
+	return c.doRequest("DELETE", "/api/v1/domain-proxy", req, &resp)
+}
+
+// ListDomainProxies returns all domain proxies from the agent.
+func (c *Client) ListDomainProxies() (*ListDomainProxiesResponse, error) {
+	var resp ListDomainProxiesResponse
+	if err := c.doRequest("GET", "/api/v1/domain-proxy", nil, &resp); err != nil {
+		return nil, err
+	}
+	return &resp, nil
+}

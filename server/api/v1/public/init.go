@@ -363,6 +363,7 @@ func GetRegisterConfig(c *gin.Context) {
 		},
 		"oauth2Enabled":  global.GetAppConfig().Auth.EnableOAuth2,
 		"kycEnabled":     global.GetAppConfig().Auth.EnableKYC,
+		"kycMethod":      global.GetAppConfig().KYC.Method,
 		"domainEnabled":  global.GetAppConfig().Auth.EnableDomain,
 		"checkinEnabled": global.GetAppConfig().Auth.EnableCheckin,
 	}

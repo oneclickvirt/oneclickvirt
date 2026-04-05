@@ -386,30 +386,59 @@ func RequireKYC() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		authCtx, exists := GetAuthContext(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "用户未认证"})
-			c.Abort()
-			return
-		}
-		// 管理员免检
-		if authCtx.UserType == "admin" || authCtx.UserType == "normal_admin" {
+		if checkKYCPass(c) {
 			c.Next()
 			return
 		}
-		var u user.User
-		if err := global.APP_DB.Select("real_name_verified").First(&u, authCtx.UserID).Error; err != nil {
-			c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "用户信息查询失败"})
-			c.Abort()
-			return
-		}
-		if !u.RealNameVerified {
-			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
-			c.Abort()
-			return
-		}
-		c.Next()
+		c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
+		c.Abort()
 	}
+}
+
+// RequireKYCFor 细粒度实名检查，仅在对应限制开启时要求实名
+func RequireKYCFor(restrictionField string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		kycConfig := global.GetAppConfig().KYC
+		if !kycConfig.EnableRealName {
+			c.Next()
+			return
+		}
+		restricted := false
+		switch restrictionField {
+		case "create-instance":
+			restricted = kycConfig.RestrictCreateInstance
+		case "redeem-code":
+			restricted = kycConfig.RestrictRedeemCode
+		case "domain-bind":
+			restricted = kycConfig.RestrictDomainBind
+		}
+		if !restricted {
+			c.Next()
+			return
+		}
+		if checkKYCPass(c) {
+			c.Next()
+			return
+		}
+		c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
+		c.Abort()
+	}
+}
+
+func checkKYCPass(c *gin.Context) bool {
+	authCtx, exists := GetAuthContext(c)
+	if !exists {
+		return false
+	}
+	// 管理员免检
+	if authCtx.UserType == "admin" || authCtx.UserType == "normal_admin" {
+		return true
+	}
+	var u user.User
+	if err := global.APP_DB.Select("real_name_verified").First(&u, authCtx.UserID).Error; err != nil {
+		return false
+	}
+	return u.RealNameVerified
 }
 
 // RequireNormalAdmin 普通管理员权限中间件（>=normal_admin级别）

@@ -6,5 +6,7 @@ export default {
   sendResetLink: '发送重置链接',
   backToLogin: '返回登录',
   emailSent: '重置链接已发送到您的邮箱',
-  checkEmail: '请检查您的邮箱'
+  checkEmail: '请检查您的邮箱',
+  resetFailed: '重置密码失败',
+  captchaFailed: '获取验证码失败'
 }

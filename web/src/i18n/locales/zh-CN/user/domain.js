@@ -21,6 +21,7 @@ export default {
   updateSuccess: '域名绑定更新成功',
   noDomains: '暂无域名绑定',
   domainRequired: '请输入域名',
-  instanceIdRequired: '请输入实例ID',
+  instanceIdRequired: '请选择实例',
+  selectInstance: '请选择实例',
   portRequired: '请输入端口'
 }

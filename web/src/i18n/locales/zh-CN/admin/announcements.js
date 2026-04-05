@@ -9,6 +9,7 @@ export default {
   isSticky: "置顶",
   type: "类型",
   typeTopbar: "顶部栏",
+  typeHomepage: "首页",
   displayLocation: "显示位置",
   homepage: "首页",
   dashboard: "仪表板",

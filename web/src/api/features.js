@@ -49,6 +49,21 @@ export function submitUserKYC(data) {
   })
 }
 
+export function submitAlipayKYC(data) {
+  return request({
+    url: '/v1/user/kyc/alipay',
+    method: 'post',
+    data
+  })
+}
+
+export function queryAlipayKYCResult() {
+  return request({
+    url: '/v1/user/kyc/alipay/result',
+    method: 'get'
+  })
+}
+
 // ============ 用户签到 ============
 
 export function generateCheckinCode(instanceId) {

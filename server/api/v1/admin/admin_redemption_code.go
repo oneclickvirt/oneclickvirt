@@ -146,12 +146,17 @@ func ExportRedemptionCodes(c *gin.Context) {
 		return
 	}
 
+	// 构建导出数据，根据选择的字段和语言进行过滤
+	isEN := req.Lang == "en-US" || req.Lang == "en"
+	fields := req.Fields
+	exportData := svc.FormatExportData(codes, fields, isEN)
+
 	c.JSON(http.StatusOK, common.Response{
 		Code: 200,
 		Msg:  "导出成功",
 		Data: map[string]interface{}{
-			"codes": codes,
-			"count": len(codes),
+			"items": exportData,
+			"count": len(exportData),
 		},
 	})
 }

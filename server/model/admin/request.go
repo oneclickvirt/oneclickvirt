@@ -530,7 +530,9 @@ type BatchDeleteRedemptionCodesRequest struct {
 
 // ExportRedemptionCodesRequest 导出兑换码请求
 type ExportRedemptionCodesRequest struct {
-	IDs []uint `json:"ids"` // 为空则导出所有
+	IDs    []uint   `json:"ids"`    // 为空则导出所有
+	Fields []string `json:"fields"` // 要导出的字段列表，为空则导出所有字段
+	Lang   string   `json:"lang"`   // 语言: zh-CN, en-US
 }
 
 // InstanceOperationTaskRequest 实例操作任务数据结构（启动、停止、重启、重置）

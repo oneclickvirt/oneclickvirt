@@ -52,7 +52,14 @@
           <el-input v-model="form.domainName" placeholder="example.com" />
         </el-form-item>
         <el-form-item :label="t('user.domain.instanceId')" prop="instanceId">
-          <el-input-number v-model="form.instanceId" :min="1" />
+          <el-select v-model="form.instanceId" :placeholder="t('user.domain.selectInstance')" filterable style="width: 100%">
+            <el-option
+              v-for="inst in userInstances"
+              :key="inst.id"
+              :value="inst.id"
+              :label="`#${inst.id} - ${inst.name || inst.instanceName || ''}`"
+            />
+          </el-select>
         </el-form-item>
         <el-form-item :label="t('user.domain.protocol')" prop="protocol">
           <el-select v-model="form.protocol">
@@ -82,6 +89,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getUserDomains, createUserDomain, updateUserDomain, deleteUserDomain } from '@/api/features'
+import { getUserInstances } from '@/api/user'
 
 const { t } = useI18n()
 
@@ -92,6 +100,7 @@ const showDialog = ref(false)
 const isEdit = ref(false)
 const editId = ref(null)
 const formRef = ref(null)
+const userInstances = ref([])
 
 const form = reactive({
   domainName: '',
@@ -105,6 +114,15 @@ const formRules = {
   domainName: [{ required: true, message: () => t('user.domain.domainRequired'), trigger: 'blur' }],
   instanceId: [{ required: true, message: () => t('user.domain.instanceIdRequired'), trigger: 'blur' }],
   internalPort: [{ required: true, message: () => t('user.domain.portRequired'), trigger: 'blur' }]
+}
+
+async function fetchInstances() {
+  try {
+    const res = await getUserInstances({ page: 1, pageSize: 999 })
+    userInstances.value = res.data?.list || res.data?.data || res.data || []
+  } catch (_) {
+    // ignore
+  }
 }
 
 async function fetchData() {
@@ -164,7 +182,10 @@ async function handleDelete(row) {
   fetchData()
 }
 
-onMounted(() => fetchData())
+onMounted(() => {
+  fetchData()
+  fetchInstances()
+})
 </script>
 
 <style scoped>

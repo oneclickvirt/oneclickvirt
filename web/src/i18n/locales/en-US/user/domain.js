@@ -21,6 +21,7 @@ export default {
   updateSuccess: 'Domain binding updated',
   noDomains: 'No domain bindings',
   domainRequired: 'Please enter a domain name',
-  instanceIdRequired: 'Please enter an instance ID',
+  instanceIdRequired: 'Please select an instance',
+  selectInstance: 'Select instance',
   portRequired: 'Please enter a port'
 }

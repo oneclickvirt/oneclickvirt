@@ -50,7 +50,22 @@ func GetInstanceResourceMonitoring(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: metrics})
+	// Determine disk monitoring availability from provider config
+	diskMonitoringEnabled := true
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("container_limit_disk, vm_limit_disk").
+		Where("id = ?", instance.ProviderID).First(&provider).Error; err == nil {
+		if instance.InstanceType == "vm" {
+			diskMonitoringEnabled = provider.VMLimitDisk
+		} else {
+			diskMonitoringEnabled = provider.ContainerLimitDisk
+		}
+	}
+
+	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: gin.H{
+		"metrics":                 metrics,
+		"disk_monitoring_enabled": diskMonitoringEnabled,
+	}})
 }
 
 // GetInstanceMonitoringStatus returns monitoring status for a user's instance.

@@ -74,5 +74,6 @@ export default {
   normalAdmin: "普通管理员",
   loginAs: "代登录",
   loginAsConfirm: "确定要以用户 {username} 的身份登录吗？将在新标签页中打开。",
-  loginAsSuccess: "代登录成功，请在新标签页中操作"
+  loginAsSuccess: "代登录成功，请在新标签页中操作",
+  manualExpiry: "手动设置"
 }

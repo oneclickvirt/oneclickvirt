@@ -67,25 +67,32 @@ export function updateAdminConfig(data) {
 export function getPublicConfig() {
   return getUnifiedConfig('public')
 }
-// OAuth2配置API
+// OAuth2配置API - 使用 oauth2 providers CRUD 接口
 export function getOAuth2Config() {
   return request({
-    url: '/v1/config/oauth2',
+    url: '/v1/oauth2/providers',
     method: 'get'
   })
 }
 
-export function updateOAuth2Config(data) {
+export function updateOAuth2Config(id, data) {
+  if (id) {
+    return request({
+      url: `/v1/oauth2/providers/${id}`,
+      method: 'put',
+      data
+    })
+  }
   return request({
-    url: '/v1/config/oauth2',
-    method: 'put',
+    url: '/v1/oauth2/providers',
+    method: 'post',
     data
   })
 }
 
-export function resetOAuth2RegistrationCount() {
+export function resetOAuth2RegistrationCount(id) {
   return request({
-    url: '/v1/config/oauth2/reset-count',
+    url: `/v1/oauth2/providers/${id}/reset-count`,
     method: 'post'
   })
 }

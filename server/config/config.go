@@ -158,4 +158,10 @@ type KYC struct {
 	AlipayAppID      string `mapstructure:"alipay-app-id" json:"alipay-app-id" yaml:"alipay-app-id"`                // 支付宝应用ID
 	AlipayPrivateKey string `mapstructure:"alipay-private-key" json:"alipay-private-key" yaml:"alipay-private-key"` // 支付宝应用私钥
 	AlipayPublicKey  string `mapstructure:"alipay-public-key" json:"alipay-public-key" yaml:"alipay-public-key"`    // 支付宝公钥
+	// 认证方式: manual(手动审核), alipay(支付宝人脸), both(两者都启用)
+	Method string `mapstructure:"method" json:"method" yaml:"method"`
+	// 细粒度限制: 未实名用户禁止的操作
+	RestrictCreateInstance bool `mapstructure:"restrict-create-instance" json:"restrict-create-instance" yaml:"restrict-create-instance"` // 禁止创建实例
+	RestrictRedeemCode     bool `mapstructure:"restrict-redeem-code" json:"restrict-redeem-code" yaml:"restrict-redeem-code"`             // 禁止兑换码
+	RestrictDomainBind     bool `mapstructure:"restrict-domain-bind" json:"restrict-domain-bind" yaml:"restrict-domain-bind"`             // 禁止域名绑定
 }

@@ -117,5 +117,10 @@ export default {
   batchConfirmMessage: 'Are you sure you want to process {n} items?',
   batchCompleted: 'Batch operation completed',
   getUserInfoFailed: 'Failed to get user information',
-  requestFailed: 'Request failed'
+  requestFailed: 'Request failed',
+  operationFailed: 'Operation failed',
+  deleteFailed: 'Delete failed',
+  updateSuccess: 'Updated successfully',
+  createSuccess: 'Created successfully',
+  question: 'Prompt'
 }

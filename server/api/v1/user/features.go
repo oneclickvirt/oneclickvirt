@@ -148,6 +148,46 @@ func SubmitUserKYC(c *gin.Context) {
 	common.ResponseSuccess(c, record)
 }
 
+// SubmitAlipayKYC 通过支付宝人脸发起认证
+func SubmitAlipayKYC(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	var req kycService.SubmitKYCRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	svc := &kycService.Service{}
+	certifyURL, err := svc.SubmitAlipayKYC(userID, &req)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+	common.ResponseSuccess(c, gin.H{"certifyUrl": certifyURL})
+}
+
+// QueryAlipayKYCResult 查询支付宝认证结果
+func QueryAlipayKYCResult(c *gin.Context) {
+	userID, err := getUserID(c)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, err.Error()))
+		return
+	}
+
+	svc := &kycService.Service{}
+	passed, err := svc.QueryAlipayKYCResult(userID)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+	common.ResponseSuccess(c, gin.H{"passed": passed})
+}
+
 // ============ 签到续期 ============
 
 // GenerateCheckinCode 获取签到验证码

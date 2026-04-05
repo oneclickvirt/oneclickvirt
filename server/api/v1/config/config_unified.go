@@ -308,6 +308,18 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 		"siteName":        global.GetAppConfig().Other.SiteName,
 	}
 
+	// KYC实名认证配置
+	result["kyc"] = map[string]interface{}{
+		"method":                 global.GetAppConfig().KYC.Method,
+		"requireRealName":        global.GetAppConfig().KYC.RequireRealName,
+		"restrictCreateInstance": global.GetAppConfig().KYC.RestrictCreateInstance,
+		"restrictRedeemCode":     global.GetAppConfig().KYC.RestrictRedeemCode,
+		"restrictDomainBind":     global.GetAppConfig().KYC.RestrictDomainBind,
+		"alipayAppId":            global.GetAppConfig().KYC.AlipayAppID,
+		"alipayPrivateKey":       global.GetAppConfig().KYC.AlipayPrivateKey,
+		"alipayPublicKey":        global.GetAppConfig().KYC.AlipayPublicKey,
+	}
+
 	return result
 } // unflattenConfig 将扁平化的配置（如 quota.defaultLevel）转换为嵌套结构（如 quota: { defaultLevel: 1 }）
 func unflattenConfig(flatConfig map[string]interface{}) map[string]interface{} {

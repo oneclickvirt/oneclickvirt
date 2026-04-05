@@ -214,6 +214,16 @@ func getDefaultConfigMap() map[string]interface{} {
 			"logo-url":         "",
 			"site-name":        "",
 		},
+		"kyc": map[string]interface{}{
+			"method":                   "manual",
+			"require-real-name":        false,
+			"restrict-create-instance": false,
+			"restrict-redeem-code":     false,
+			"restrict-domain-bind":     false,
+			"alipay-app-id":            "",
+			"alipay-private-key":       "",
+			"alipay-public-key":        "",
+		},
 	}
 }
 
