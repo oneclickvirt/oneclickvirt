@@ -131,5 +131,6 @@ export default {
   transfer: "转移",
   transferInstance: "转移实例",
   targetUserId: "目标用户ID",
-  transferSuccess: "实例转移成功"
+  transferSuccess: "实例转移成功",
+  searchUserPlaceholder: "搜索用户名或昵称"
 }

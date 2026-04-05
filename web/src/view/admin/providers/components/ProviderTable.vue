@@ -559,10 +559,9 @@
         <el-button
           class="action-button"
           type="warning"
-          :loading="hardwareTestLoading"
-          @click="handleRunHardwareTest"
+          @click="showPasteUrlDialog"
         >
-          {{ $t('admin.providers.hardwareTest') }}
+          {{ $t('admin.providers.setHardwareReport') }}
         </el-button>
         <el-button
           class="action-button"
@@ -574,38 +573,40 @@
       </div>
     </el-dialog>
 
-    <!-- 硬件测试报告对话框 -->
+    <!-- 粘贴URL对话框 -->
+    <el-dialog
+      v-model="pasteUrlDialogVisible"
+      :title="$t('admin.providers.setHardwareReport')"
+      width="500px"
+    >
+      <el-form @submit.prevent="submitPasteUrl">
+        <el-form-item :label="$t('admin.providers.pasteUrl')">
+          <el-input
+            v-model="pasteUrlInput"
+            :placeholder="$t('admin.providers.pasteUrlPlaceholder')"
+            clearable
+          />
+        </el-form-item>
+      </el-form>
+      <template #footer>
+        <el-button @click="pasteUrlDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+        <el-button type="primary" :loading="pasteUrlSaving" @click="submitPasteUrl">{{ $t('common.confirm') }}</el-button>
+      </template>
+    </el-dialog>
+
+    <!-- 硬件报告对话框 -->
     <el-dialog
       v-model="hardwareReportDialogVisible"
       :title="$t('admin.providers.hardwareTestReport')"
       width="700px"
-      @closed="stopHardwarePolling"
     >
-      <!-- 运行中：显示PID，不转圈圈 -->
-      <el-alert
-        v-if="hardwareReportStatus === 'running'"
-        :title="hardwareReportPid ? $t('admin.providers.hardwareTestRunningWithPid', { pid: hardwareReportPid }) : $t('admin.providers.hardwareTestRunning')"
-        type="info"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px;"
-      />
-      <el-alert
-        v-else-if="hardwareReportStatus === 'failed'"
-        :title="hardwareReportError || $t('admin.providers.hardwareTestFailed')"
-        type="error"
-        :closable="false"
-        show-icon
-        style="margin-bottom: 12px;"
-      />
-      <!-- 初始加载时的短暂转圈 -->
       <div v-if="hardwareReportLoading" v-loading="true" style="height: 60px;" />
       <pre
         v-else-if="hardwareReportText"
         class="hardware-report-content"
       >{{ hardwareReportText }}</pre>
       <el-empty
-        v-else-if="hardwareReportStatus !== 'running'"
+        v-else
         :description="$t('admin.providers.noHardwareReport')"
       />
     </el-dialog>
@@ -613,10 +614,10 @@
 </template>
 
 <script setup>
-import { ref, onUnmounted } from 'vue'
+import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { runHardwareTest, getHardwareTestReport } from '@/api/admin'
+import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
 import { 
   formatMemorySize, 
   formatDiskSize, 
@@ -715,63 +716,33 @@ const handleAction = (action) => {
   currentRow.value = null
 }
 
-const hardwareTestLoading = ref(false)
+const pasteUrlDialogVisible = ref(false)
+const pasteUrlInput = ref('')
+const pasteUrlSaving = ref(false)
 const hardwareReportDialogVisible = ref(false)
 const hardwareReportLoading = ref(false)
 const hardwareReportText = ref('')
-const hardwareReportStatus = ref('')
-const hardwareReportError = ref('')
-const hardwareReportPid = ref(0)
-let hardwarePollingTimer = null
+let pasteUrlProviderId = null
 
-const stopHardwarePolling = () => {
-  if (hardwarePollingTimer) {
-    clearInterval(hardwarePollingTimer)
-    hardwarePollingTimer = null
-  }
-}
-
-const pollHardwareReport = (providerId) => {
-  stopHardwarePolling()
-  hardwarePollingTimer = setInterval(async () => {
-    try {
-      const res = await getHardwareTestReport(providerId)
-      const data = res.data || {}
-      hardwareReportStatus.value = data.status || ''
-      hardwareReportText.value = data.reportText || ''
-      hardwareReportError.value = data.errorMsg || ''
-      hardwareReportPid.value = data.remotePid || 0
-      if (data.status === 'completed' || data.status === 'failed') {
-        stopHardwarePolling()
-        hardwareReportLoading.value = false
-      }
-    } catch (error) {
-      console.error('Poll hardware report failed:', error)
-    }
-  }, 5000)
-}
-
-const handleRunHardwareTest = async () => {
+const showPasteUrlDialog = () => {
   if (!currentRow.value) return
-  const providerId = currentRow.value.id
-  hardwareTestLoading.value = true
+  pasteUrlProviderId = currentRow.value.id
+  pasteUrlInput.value = ''
+  pasteUrlDialogVisible.value = true
+  actionsDialogVisible.value = false
+}
+
+const submitPasteUrl = async () => {
+  if (!pasteUrlInput.value || !pasteUrlProviderId) return
+  pasteUrlSaving.value = true
   try {
-    await runHardwareTest(providerId)
-    ElMessage.success(t('admin.providers.hardwareTestStarted'))
-    actionsDialogVisible.value = false
-    // 开报告对话框，不转圈圈，直接开始轮询
-    hardwareReportDialogVisible.value = true
-    hardwareReportLoading.value = false
-    hardwareReportText.value = ''
-    hardwareReportStatus.value = 'running'
-    hardwareReportError.value = ''
-    hardwareReportPid.value = 0
-    pollHardwareReport(providerId)
+    await saveHardwareReport(pasteUrlProviderId, pasteUrlInput.value)
+    ElMessage.success(t('admin.providers.reportSaved'))
+    pasteUrlDialogVisible.value = false
   } catch (error) {
-    console.error('Hardware test failed:', error)
+    console.error('Save hardware report failed:', error)
   } finally {
-    hardwareTestLoading.value = false
-    currentRow.value = null
+    pasteUrlSaving.value = false
   }
 }
 
@@ -780,22 +751,12 @@ const handleViewHardwareReport = async () => {
   const providerId = currentRow.value.id
   actionsDialogVisible.value = false
   hardwareReportDialogVisible.value = true
-  hardwareReportLoading.value = true  // 第一次加载数据时短暂转圈
+  hardwareReportLoading.value = true
   hardwareReportText.value = ''
-  hardwareReportStatus.value = ''
-  hardwareReportError.value = ''
-  hardwareReportPid.value = 0
   try {
     const res = await getHardwareTestReport(providerId)
     const data = res.data || {}
-    hardwareReportStatus.value = data.status || ''
     hardwareReportText.value = data.reportText || ''
-    hardwareReportError.value = data.errorMsg || ''
-    hardwareReportPid.value = data.remotePid || 0
-    // 如果还在运行中，开始轮询（无转圈）
-    if (data.status === 'running') {
-      pollHardwareReport(providerId)
-    }
   } catch (error) {
     console.error('Failed to load hardware report:', error)
   } finally {
@@ -803,10 +764,6 @@ const handleViewHardwareReport = async () => {
     currentRow.value = null
   }
 }
-
-onUnmounted(() => {
-  stopHardwarePolling()
-})
 </script>
 
 <style scoped>

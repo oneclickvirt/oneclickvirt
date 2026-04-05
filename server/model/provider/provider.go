@@ -448,19 +448,16 @@ type PendingDeletion struct {
 	Status       string    `json:"status" gorm:"default:pending;size:16"`
 }
 
-// HardwareTestReport 硬件测试报告模型
+// HardwareTestReport 硬件测试报告模型（通过粘贴URL获取报告内容）
 type HardwareTestReport struct {
 	ID         uint           `json:"id" gorm:"primarykey"`
 	CreatedAt  time.Time      `json:"createdAt"`
 	UpdatedAt  time.Time      `json:"updatedAt"`
 	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`
 	ProviderID uint           `json:"providerId" gorm:"uniqueIndex"`
-	Status     string         `json:"status" gorm:"default:pending;size:16"` // pending, running, completed, failed
-	ReportText string         `json:"reportText" gorm:"type:longtext"`
-	TestedAt   *time.Time     `json:"testedAt"`
-	TestedBy   uint           `json:"testedBy"`
-	ErrorMsg   string         `json:"errorMsg,omitempty" gorm:"size:512"`
-	RemotePID  int            `json:"remotePid" gorm:"default:0"` // 远程宿主机上的测试进程PID
+	PasteURL   string         `json:"pasteUrl" gorm:"size:512"`          // 粘贴板URL，如 https://paste.spiritlhl.net/#/show/xxx.txt
+	ReportText string         `json:"reportText" gorm:"type:longtext"`   // 从粘贴板URL下载的报告内容
+	UpdatedBy  uint           `json:"updatedBy"`                         // 最后更新者
 }
 
 // 以下是业务层结构体（不是数据库模型）

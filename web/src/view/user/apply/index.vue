@@ -545,7 +545,7 @@ const viewHardwareReport = async (providerId) => {
   hardwareReportText.value = ''
   try {
     const res = await getProviderHardwareReport(providerId)
-    hardwareReportText.value = res.data?.report || res.data?.data?.report || ''
+    hardwareReportText.value = res.data?.reportText || ''
   } catch (error) {
     console.error('Failed to load hardware report:', error)
   } finally {

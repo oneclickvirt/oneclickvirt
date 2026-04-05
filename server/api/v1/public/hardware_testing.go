@@ -10,8 +10,8 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetProviderHardwareReport 用户查看宿主机硬件测试报告
-// @Summary 获取Provider硬件测试报告（用户端）
+// GetProviderHardwareReport 用户查看宿主机硬件报告
+// @Summary 获取Provider硬件报告（用户端）
 // @Tags Public
 // @Param id path int true "Provider ID"
 // @Success 200 {object} common.Response
@@ -25,14 +25,8 @@ func GetProviderHardwareReport(c *gin.Context) {
 
 	svc := adminProviderService.NewService()
 	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
-	if err != nil {
+	if err != nil || report.ReportText == "" {
 		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "暂无测试报告"})
-		return
-	}
-
-	// Only return completed reports to users
-	if report.Status != "completed" {
-		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "测试报告尚未完成"})
 		return
 	}
 
@@ -41,8 +35,8 @@ func GetProviderHardwareReport(c *gin.Context) {
 		Data: gin.H{
 			"providerId": report.ProviderID,
 			"reportText": report.ReportText,
-			"testedAt":   report.TestedAt,
-			"status":     report.Status,
+			"pasteUrl":   report.PasteURL,
+			"updatedAt":  report.UpdatedAt,
 		},
 	})
 }

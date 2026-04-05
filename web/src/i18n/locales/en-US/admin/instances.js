@@ -131,5 +131,6 @@ export default {
   transfer: "Transfer",
   transferInstance: "Transfer Instance",
   targetUserId: "Target User ID",
-  transferSuccess: "Instance transferred successfully"
+  transferSuccess: "Instance transferred successfully",
+  searchUserPlaceholder: "Search by username or nickname"
 }

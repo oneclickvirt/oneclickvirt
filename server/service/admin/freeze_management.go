@@ -68,6 +68,9 @@ func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt t
 		return fmt.Errorf("Provider不存在")
 	}
 
+	tx := global.APP_DB.Begin()
+	defer tx.Rollback()
+
 	updates := map[string]interface{}{
 		"expires_at":       expiresAt,
 		"is_manual_expiry": true,
@@ -80,21 +83,29 @@ func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt t
 		updates["frozen_reason"] = ""
 
 		// 同时解冻因节点冻结而被冻结的实例
-		global.APP_DB.Model(&provider.Instance{}).
+		if err := tx.Model(&provider.Instance{}).
 			Where("provider_id = ? AND frozen_reason = ?", providerID, "node_frozen").
 			Updates(map[string]interface{}{
 				"is_frozen":     false,
 				"frozen_at":     nil,
 				"frozen_reason": "",
-			})
+			}).Error; err != nil {
+			return fmt.Errorf("解冻实例失败: %w", err)
+		}
 	}
 
 	// 更新Provider下所有非手动设置过期时间的实例，同步新的过期时间
-	global.APP_DB.Model(&provider.Instance{}).
+	if err := tx.Model(&provider.Instance{}).
 		Where("provider_id = ? AND is_manual_expiry = ?", providerID, false).
-		Update("expires_at", expiresAt)
+		Update("expires_at", expiresAt).Error; err != nil {
+		return fmt.Errorf("同步实例过期时间失败: %w", err)
+	}
 
-	if err := global.APP_DB.Model(&p).Updates(updates).Error; err != nil {
+	if err := tx.Model(&p).Updates(updates).Error; err != nil {
+		return err
+	}
+
+	if err := tx.Commit().Error; err != nil {
 		return err
 	}
 

@@ -126,9 +126,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/monitoring/resources", admin.GetProviderResourceSummary)
 		NormalAdminGroup.GET("/instances/:id/monitoring/resources", admin.GetInstanceResources)
 
-		// 硬件测试
-		NormalAdminGroup.POST("/providers/:id/hardware-test", admin.RunHardwareTest)
-		NormalAdminGroup.GET("/providers/:id/hardware-test", admin.GetHardwareTestReport)
+		// 硬件报告
+		NormalAdminGroup.POST("/providers/:id/hardware-report", admin.SaveHardwareReport)
+		NormalAdminGroup.GET("/providers/:id/hardware-report", admin.GetHardwareTestReport)
+		NormalAdminGroup.DELETE("/providers/:id/hardware-report", admin.DeleteHardwareReport)
 
 		// 冻结管理
 		NormalAdminGroup.POST("/providers/set-expiry", admin.SetProviderExpiry)

@@ -934,18 +934,26 @@ export const getLogContent = (params) => {
   })
 }
 
-// 硬件测试
-export const runHardwareTest = (providerId) => {
+// 硬件报告
+export const saveHardwareReport = (providerId, pasteUrl) => {
   return request({
-    url: `/v1/admin/providers/${providerId}/hardware-test`,
-    method: 'post'
+    url: `/v1/admin/providers/${providerId}/hardware-report`,
+    method: 'post',
+    data: { pasteUrl }
   })
 }
 
 export const getHardwareTestReport = (providerId) => {
   return request({
-    url: `/v1/admin/providers/${providerId}/hardware-test`,
+    url: `/v1/admin/providers/${providerId}/hardware-report`,
     method: 'get'
+  })
+}
+
+export const deleteHardwareReport = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/hardware-report`,
+    method: 'delete'
   })
 }
 

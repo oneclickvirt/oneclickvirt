@@ -162,13 +162,18 @@ func (s *Service) QueryAlipayKYCResult(userID uint) (bool, error) {
 
 	if passed {
 		tx := global.APP_DB.Begin()
+		defer tx.Rollback()
 		now := global.APP_DB.NowFunc()
-		tx.Model(&record).Updates(map[string]interface{}{
+		if err := tx.Model(&record).Updates(map[string]interface{}{
 			"status":      "approved",
 			"reviewed_by": 0,
 			"reviewed_at": now,
-		})
-		tx.Table("users").Where("id = ?", record.UserID).Update("real_name_verified", true)
+		}).Error; err != nil {
+			return false, fmt.Errorf("更新KYC状态失败: %w", err)
+		}
+		if err := tx.Table("users").Where("id = ?", record.UserID).Update("real_name_verified", true).Error; err != nil {
+			return false, fmt.Errorf("更新用户实名状态失败: %w", err)
+		}
 		if err := tx.Commit().Error; err != nil {
 			return false, err
 		}

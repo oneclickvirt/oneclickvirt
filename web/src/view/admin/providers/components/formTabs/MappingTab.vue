@@ -128,7 +128,7 @@
       :label="$t('admin.providers.portMappingMethod')"
     >
       <el-input
-        value="Native（原生）"
+        :value="$t('admin.providers.nativePortMapping')"
         disabled
         style="width: 100%"
       />

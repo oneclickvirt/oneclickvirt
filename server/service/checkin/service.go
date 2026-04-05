@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/big"
@@ -17,6 +18,7 @@ import (
 	checkinModel "oneclickvirt/model/checkin"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Service 签到续期服务
@@ -49,7 +51,10 @@ func (s *Service) UpdateCheckinConfig(providerID uint, req *UpdateCheckinConfigR
 		"pow_difficulty":      req.PowDifficulty,
 	}
 
-	if result.RowsAffected == 0 {
+	if result.Error != nil {
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return fmt.Errorf("查询签到配置失败: %w", result.Error)
+		}
 		config = checkinModel.CheckinConfig{
 			ProviderID:        providerID,
 			Enabled:           req.Enabled,
@@ -161,11 +166,11 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 	type InstanceInfo struct {
 		ID         uint
 		ProviderID uint
-		ExpireAt   *time.Time
+		ExpiresAt  *time.Time
 	}
 	var instance InstanceInfo
 	result := global.APP_DB.Table("instances").
-		Select("id, provider_id, expire_at").
+		Select("id, provider_id, expires_at").
 		Where("id = ? AND user_id = ?", instanceID, userID).
 		Take(&instance)
 	if result.Error != nil {
@@ -204,8 +209,8 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 
 	now := time.Now()
 	oldExpireAt := now
-	if instance.ExpireAt != nil {
-		oldExpireAt = *instance.ExpireAt
+	if instance.ExpiresAt != nil {
+		oldExpireAt = *instance.ExpiresAt
 	}
 	baseTime := oldExpireAt
 	if baseTime.Before(now) {
@@ -224,7 +229,7 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 	defer tx.Rollback()
 
 	if err := tx.Table("instances").Where("id = ?", instanceID).
-		Update("expire_at", newExpireAt).Error; err != nil {
+		Update("expires_at", newExpireAt).Error; err != nil {
 		tx.Rollback()
 		return err
 	}
@@ -260,15 +265,17 @@ func (s *Service) verifyCaptchaCode(userID, instanceID uint, code string) error 
 	if code == "" {
 		return fmt.Errorf("验证码不能为空")
 	}
-	var verification checkinModel.CheckinVerification
-	err := global.APP_DB.Where(
-		"user_id = ? AND instance_id = ? AND code = ? AND used = ? AND expired_at > ?",
-		userID, instanceID, code, false, time.Now(),
-	).First(&verification).Error
-	if err != nil {
+	// 原子操作：查找未使用的验证码并标记为已使用，防止TOCTOU竞争
+	result := global.APP_DB.Model(&checkinModel.CheckinVerification{}).
+		Where("user_id = ? AND instance_id = ? AND code = ? AND used = ? AND expired_at > ?",
+			userID, instanceID, code, false, time.Now()).
+		Update("used", true)
+	if result.Error != nil {
+		return fmt.Errorf("验证码验证失败")
+	}
+	if result.RowsAffected == 0 {
 		return fmt.Errorf("验证码无效或已过期")
 	}
-	global.APP_DB.Model(&verification).Update("used", true)
 	return nil
 }
 
@@ -325,15 +332,7 @@ func (s *Service) verifyPow(userID, instanceID uint, challenge, nonce string, di
 		difficulty = 4
 	}
 
-	var verification checkinModel.CheckinVerification
-	err := global.APP_DB.Where(
-		"user_id = ? AND instance_id = ? AND method = ? AND code = ? AND used = ? AND expired_at > ?",
-		userID, instanceID, "pow", challenge, false, time.Now(),
-	).First(&verification).Error
-	if err != nil {
-		return fmt.Errorf("PoW challenge无效或已过期")
-	}
-
+	// 先验证哈希值满足难度要求
 	hash := sha256.Sum256([]byte(challenge + nonce))
 	hashHex := hex.EncodeToString(hash[:])
 	prefix := strings.Repeat("0", difficulty)
@@ -341,7 +340,18 @@ func (s *Service) verifyPow(userID, instanceID uint, challenge, nonce string, di
 		return fmt.Errorf("PoW验证失败：哈希值不满足难度要求")
 	}
 
-	global.APP_DB.Model(&verification).Update("used", true)
+	// 原子操作：查找未使用的challenge并标记为已使用，防止TOCTOU竞争
+	result := global.APP_DB.Model(&checkinModel.CheckinVerification{}).
+		Where("user_id = ? AND instance_id = ? AND method = ? AND code = ? AND used = ? AND expired_at > ?",
+			userID, instanceID, "pow", challenge, false, time.Now()).
+		Update("used", true)
+	if result.Error != nil {
+		return fmt.Errorf("PoW验证失败")
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("PoW challenge无效或已过期")
+	}
+
 	return nil
 }
 
