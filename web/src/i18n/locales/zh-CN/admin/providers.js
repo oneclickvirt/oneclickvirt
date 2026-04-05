@@ -603,6 +603,7 @@ export default {
   timeoutApplied: "超时已应用",
   levelLimitsRestored: "等级限制已恢复",
   noLogToCopy: "没有可复制的日志",
+  copyFailed: "复制失败，请手动复制",
   showTaskLog: "查看任务日志",
   checkConfigFailed: "检查配置失败",
   startConfigFailed: "启动配置失败",

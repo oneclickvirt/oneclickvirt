@@ -603,6 +603,7 @@ export default {
   timeoutApplied: "Timeout applied",
   levelLimitsRestored: "Level limits restored",
   noLogToCopy: "No log to copy",
+  copyFailed: "Copy failed, please copy manually",
   showTaskLog: "View Task Log",
   checkConfigFailed: "Check configuration failed",
   startConfigFailed: "Start configuration failed",
