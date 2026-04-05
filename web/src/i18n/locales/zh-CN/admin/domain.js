@@ -1,7 +1,9 @@
 export default {
   title: '域名管理',
   allDomains: '所有域名绑定',
+  providerConfig: '节点域名配置',
   domainConfig: '域名配置',
+  editConfig: '编辑节点域名配置',
   deleteDomain: '删除域名',
   confirmDelete: '确定删除该域名绑定？',
   deleteSuccess: '删除成功',
@@ -10,12 +12,20 @@ export default {
   maxDomainsPerUser: '每用户最大域名数',
   dnsType: 'DNS类型',
   dnsConfigPath: 'DNS配置路径',
-  nginxConfigPath: 'Nginx配置路径',
+  nginxConfigPath: 'Nginx配置目录',
   nginxReloadCmd: 'Nginx重载命令',
   allowedSuffixes: '允许的域名后缀',
+  allowedSuffixesPlaceholder: '.example.com,.mysite.net',
+  allowedSuffixesTip: '逗号分隔，留空表示不限制后缀',
+  noSuffixLimit: '不限制',
   userId: '用户ID',
   instanceId: '实例ID',
+  internalIP: '内部IP',
+  internalPort: '内部端口',
   domainName: '域名',
   status: '状态',
-  actions: '操作'
+  actions: '操作',
+  providerName: '节点名称',
+  providerType: '类型',
+  domainBindingEnabled: '域名绑定'
 }

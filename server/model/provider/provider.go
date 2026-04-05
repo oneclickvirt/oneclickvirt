@@ -249,6 +249,18 @@ type Provider struct {
 	// 域名绑定开关（高级配置）
 	EnableDomainBinding bool `json:"enableDomainBinding" gorm:"default:false"` // 是否启用域名绑定功能
 
+	// 域名反向代理高级配置
+	ProxyHTTPPort    int        `json:"proxyHttpPort" gorm:"default:80"`       // HTTP反向代理监听端口(默认80)
+	ProxyHTTPSPort   int        `json:"proxyHttpsPort" gorm:"default:443"`     // HTTPS反向代理监听端口(默认443)
+	ProxyEnableHTTP  bool       `json:"proxyEnableHttp" gorm:"default:true"`   // 是否启用HTTP反向代理
+	ProxyEnableHTTPS bool       `json:"proxyEnableHttps" gorm:"default:false"` // 是否启用HTTPS反向代理
+	ProxyTLSCertPath string     `json:"proxyTlsCertPath" gorm:"size:512"`      // TLS证书文件路径(节点上的绝对路径)
+	ProxyTLSKeyPath  string     `json:"proxyTlsKeyPath" gorm:"size:512"`       // TLS私钥文件路径(节点上的绝对路径)
+	ProxyTLSCertData string     `json:"-" gorm:"type:text"`                    // TLS证书内容(Base64编码，不返回给前端)
+	ProxyTLSKeyData  string     `json:"-" gorm:"type:text"`                    // TLS私钥内容(Base64编码，不返回给前端)
+	ProxyAutoSync    bool       `json:"proxyAutoSync" gorm:"default:true"`     // 是否自动同步证书到节点
+	ProxySyncedAt    *time.Time `json:"proxySyncedAt"`                         // 证书最后同步时间
+
 	// 签到续期开关（高级配置）
 	EnableCheckin bool `json:"enableCheckin" gorm:"default:false"` // 是否启用签到续期
 
@@ -448,6 +460,7 @@ type HardwareTestReport struct {
 	TestedAt   *time.Time     `json:"testedAt"`
 	TestedBy   uint           `json:"testedBy"`
 	ErrorMsg   string         `json:"errorMsg,omitempty" gorm:"size:512"`
+	RemotePID  int            `json:"remotePid" gorm:"default:0"` // 远程宿主机上的测试进程PID
 }
 
 // 以下是业务层结构体（不是数据库模型）

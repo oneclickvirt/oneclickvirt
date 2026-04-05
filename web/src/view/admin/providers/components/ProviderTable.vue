@@ -581,32 +581,33 @@
       width="700px"
       @closed="stopHardwarePolling"
     >
-      <div v-loading="hardwareReportLoading">
-        <el-alert
-          v-if="hardwareReportStatus === 'running'"
-          :title="$t('admin.providers.hardwareTestRunning')"
-          type="info"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 12px;"
-        />
-        <el-alert
-          v-else-if="hardwareReportStatus === 'failed'"
-          :title="hardwareReportError || $t('admin.providers.hardwareTestFailed')"
-          type="error"
-          :closable="false"
-          show-icon
-          style="margin-bottom: 12px;"
-        />
-        <pre
-          v-if="hardwareReportText"
-          class="hardware-report-content"
-        >{{ hardwareReportText }}</pre>
-        <el-empty
-          v-else-if="hardwareReportStatus !== 'running'"
-          :description="$t('admin.providers.noHardwareReport')"
-        />
-      </div>
+      <!-- 运行中：显示PID，不转圈圈 -->
+      <el-alert
+        v-if="hardwareReportStatus === 'running'"
+        :title="hardwareReportPid ? $t('admin.providers.hardwareTestRunningWithPid', { pid: hardwareReportPid }) : $t('admin.providers.hardwareTestRunning')"
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px;"
+      />
+      <el-alert
+        v-else-if="hardwareReportStatus === 'failed'"
+        :title="hardwareReportError || $t('admin.providers.hardwareTestFailed')"
+        type="error"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px;"
+      />
+      <!-- 初始加载时的短暂转圈 -->
+      <div v-if="hardwareReportLoading" v-loading="true" style="height: 60px;" />
+      <pre
+        v-else-if="hardwareReportText"
+        class="hardware-report-content"
+      >{{ hardwareReportText }}</pre>
+      <el-empty
+        v-else-if="hardwareReportStatus !== 'running'"
+        :description="$t('admin.providers.noHardwareReport')"
+      />
     </el-dialog>
   </div>
 </template>
@@ -720,6 +721,7 @@ const hardwareReportLoading = ref(false)
 const hardwareReportText = ref('')
 const hardwareReportStatus = ref('')
 const hardwareReportError = ref('')
+const hardwareReportPid = ref(0)
 let hardwarePollingTimer = null
 
 const stopHardwarePolling = () => {
@@ -738,6 +740,7 @@ const pollHardwareReport = (providerId) => {
       hardwareReportStatus.value = data.status || ''
       hardwareReportText.value = data.reportText || ''
       hardwareReportError.value = data.errorMsg || ''
+      hardwareReportPid.value = data.remotePid || 0
       if (data.status === 'completed' || data.status === 'failed') {
         stopHardwarePolling()
         hardwareReportLoading.value = false
@@ -756,12 +759,13 @@ const handleRunHardwareTest = async () => {
     await runHardwareTest(providerId)
     ElMessage.success(t('admin.providers.hardwareTestStarted'))
     actionsDialogVisible.value = false
-    // Open report dialog and start polling
+    // 开报告对话框，不转圈圈，直接开始轮询
     hardwareReportDialogVisible.value = true
-    hardwareReportLoading.value = true
+    hardwareReportLoading.value = false
     hardwareReportText.value = ''
     hardwareReportStatus.value = 'running'
     hardwareReportError.value = ''
+    hardwareReportPid.value = 0
     pollHardwareReport(providerId)
   } catch (error) {
     console.error('Hardware test failed:', error)
@@ -776,26 +780,26 @@ const handleViewHardwareReport = async () => {
   const providerId = currentRow.value.id
   actionsDialogVisible.value = false
   hardwareReportDialogVisible.value = true
-  hardwareReportLoading.value = true
+  hardwareReportLoading.value = true  // 第一次加载数据时短暂转圈
   hardwareReportText.value = ''
   hardwareReportStatus.value = ''
   hardwareReportError.value = ''
+  hardwareReportPid.value = 0
   try {
     const res = await getHardwareTestReport(providerId)
     const data = res.data || {}
     hardwareReportStatus.value = data.status || ''
     hardwareReportText.value = data.reportText || ''
     hardwareReportError.value = data.errorMsg || ''
-    // If running, start polling
+    hardwareReportPid.value = data.remotePid || 0
+    // 如果还在运行中，开始轮询（无转圈）
     if (data.status === 'running') {
       pollHardwareReport(providerId)
     }
   } catch (error) {
     console.error('Failed to load hardware report:', error)
   } finally {
-    if (hardwareReportStatus.value !== 'running') {
-      hardwareReportLoading.value = false
-    }
+    hardwareReportLoading.value = false
     currentRow.value = null
   }
 }

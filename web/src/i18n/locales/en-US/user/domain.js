@@ -2,7 +2,7 @@ export default {
   title: 'Domain Binding',
   addDomain: 'Add Domain',
   domainName: 'Domain',
-  instanceId: 'Instance ID',
+  instanceId: 'Instance',
   providerId: 'Provider ID',
   protocol: 'Protocol',
   internalIp: 'Internal IP',
@@ -22,6 +22,15 @@ export default {
   noDomains: 'No domain bindings',
   domainRequired: 'Please enter a domain name',
   instanceIdRequired: 'Please select an instance',
+  internalIPRequired: 'Please enter the internal IP address',
   selectInstance: 'Select instance',
-  portRequired: 'Please enter a port'
+  portRequired: 'Please enter a port',
+  internalIpTip: 'Internal IP of the container/VM. Auto-filled when you select an instance.',
+  enableSslTip: 'Auto-generate a self-signed certificate and force HTTPS',
+  dnsGuideTitle: 'How to bind your domain',
+  dnsStep1: 'Step 1: Select an instance and fill in the form. Nginx reverse proxy will be configured on the provider node automatically.',
+  dnsStep2: 'Step 2: Add an A record for your domain pointing to the node public IP shown below.',
+  dnsStep3: 'Step 3: Once DNS propagates (usually a few minutes to hours), your instance is accessible via the domain.',
+  nodeIpLabel: 'Node Public IP',
+  nodeIpTip: 'Point your domain A record at this IP. Traffic is proxied via Nginx on the node to your instance.'
 }

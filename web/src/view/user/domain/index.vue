@@ -15,11 +15,12 @@
         <el-table-column prop="domainName" :label="t('user.domain.domainName')" />
         <el-table-column prop="instanceId" :label="t('user.domain.instanceId')" width="100" />
         <el-table-column prop="protocol" :label="t('user.domain.protocol')" width="100" />
+        <el-table-column prop="internalIP" :label="t('user.domain.internalIp')" />
         <el-table-column prop="internalPort" :label="t('user.domain.internalPort')" width="100" />
-        <el-table-column prop="enableSsl" :label="t('user.domain.enableSsl')" width="80">
+        <el-table-column prop="enableSSL" :label="t('user.domain.enableSsl')" width="80">
           <template #default="{ row }">
-            <el-tag :type="row.enableSsl ? 'success' : 'info'" size="small">
-              {{ row.enableSsl ? 'SSL' : 'HTTP' }}
+            <el-tag :type="row.enableSSL ? 'success' : 'info'" size="small">
+              {{ row.enableSSL ? 'SSL' : 'HTTP' }}
             </el-tag>
           </template>
         </el-table-column>
@@ -46,33 +47,53 @@
     </el-card>
 
     <!-- 创建/编辑对话框 -->
-    <el-dialog v-model="showDialog" :title="isEdit ? t('user.domain.edit') : t('user.domain.addDomain')" width="500px" destroy-on-close>
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="120px">
+    <el-dialog v-model="showDialog" :title="isEdit ? t('user.domain.edit') : t('user.domain.addDomain')" width="560px" destroy-on-close>
+      <!-- DNS 绑定说明 -->
+      <el-alert v-if="!isEdit" type="info" :closable="false" style="margin-bottom: 16px;">
+        <template #title>
+          <span>{{ t('user.domain.dnsGuideTitle') }}</span>
+        </template>
+        <div style="margin-top: 6px; line-height: 1.7;">
+          <div>{{ t('user.domain.dnsStep1') }}</div>
+          <div>{{ t('user.domain.dnsStep2') }}</div>
+          <div>{{ t('user.domain.dnsStep3') }}</div>
+        </div>
+      </el-alert>
+
+      <el-form ref="formRef" :model="form" :rules="formRules" label-width="130px">
         <el-form-item :label="t('user.domain.domainName')" prop="domainName">
-          <el-input v-model="form.domainName" placeholder="example.com" />
+          <el-input v-model="form.domainName" placeholder="app.example.com" :disabled="isEdit" />
         </el-form-item>
-        <el-form-item :label="t('user.domain.instanceId')" prop="instanceId">
-          <el-select v-model="form.instanceId" :placeholder="t('user.domain.selectInstance')" filterable style="width: 100%">
+        <el-form-item v-if="!isEdit" :label="t('user.domain.instanceId')" prop="instanceId">
+          <el-select v-model="form.instanceId" :placeholder="t('user.domain.selectInstance')" filterable style="width: 100%" @change="onInstanceChange">
             <el-option
               v-for="inst in userInstances"
               :key="inst.id"
               :value="inst.id"
-              :label="`#${inst.id} - ${inst.name || inst.instanceName || ''}`"
+              :label="`#${inst.id} - ${inst.name || ''}`"
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('user.domain.protocol')" prop="protocol">
-          <el-select v-model="form.protocol">
-            <el-option label="HTTP" value="http" />
-            <el-option label="HTTPS" value="https" />
-            <el-option label="TCP" value="tcp" />
-          </el-select>
+        <el-form-item v-if="!isEdit && selectedInstancePublicIP" :label="t('user.domain.nodeIpLabel')">
+          <el-input :model-value="selectedInstancePublicIP" readonly />
+          <div class="form-tip">{{ t('user.domain.nodeIpTip') }}</div>
+        </el-form-item>
+        <el-form-item :label="t('user.domain.internalIp')" prop="internalIP">
+          <el-input v-model="form.internalIP" placeholder="172.17.0.2" />
+          <div class="form-tip">{{ t('user.domain.internalIpTip') }}</div>
         </el-form-item>
         <el-form-item :label="t('user.domain.internalPort')" prop="internalPort">
-          <el-input-number v-model="form.internalPort" :min="1" :max="65535" />
+          <el-input-number v-model="form.internalPort" :min="1" :max="65535" style="width: 100%" />
         </el-form-item>
-        <el-form-item :label="t('user.domain.enableSsl')" prop="enableSsl">
-          <el-switch v-model="form.enableSsl" />
+        <el-form-item :label="t('user.domain.protocol')" prop="protocol">
+          <el-select v-model="form.protocol" style="width: 100%">
+            <el-option label="HTTP" value="http" />
+            <el-option label="HTTPS" value="https" />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('user.domain.enableSsl')">
+          <el-switch v-model="form.enableSSL" />
+          <span class="form-tip" style="margin-left: 8px;">{{ t('user.domain.enableSslTip') }}</span>
         </el-form-item>
       </el-form>
       <template #footer>
@@ -84,7 +105,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { Plus, Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -106,14 +127,31 @@ const form = reactive({
   domainName: '',
   instanceId: null,
   protocol: 'http',
+  internalIP: '',
   internalPort: 80,
-  enableSsl: false
+  enableSSL: false
 })
 
 const formRules = {
   domainName: [{ required: true, message: () => t('user.domain.domainRequired'), trigger: 'blur' }],
-  instanceId: [{ required: true, message: () => t('user.domain.instanceIdRequired'), trigger: 'blur' }],
+  instanceId: [{ required: true, message: () => t('user.domain.instanceIdRequired'), trigger: 'change' }],
+  internalIP: [{ required: true, message: () => t('user.domain.internalIPRequired'), trigger: 'blur' }],
   internalPort: [{ required: true, message: () => t('user.domain.portRequired'), trigger: 'blur' }]
+}
+
+const selectedInstancePublicIP = computed(() => {
+  if (!form.instanceId) return ''
+  const inst = userInstances.value.find(i => i.id === form.instanceId)
+  return inst?.publicIP || inst?.publicIp || ''
+})
+
+function onInstanceChange(instanceId) {
+  const inst = userInstances.value.find(i => i.id === instanceId)
+  if (inst) {
+    if (inst.privateIP || inst.privateIp) {
+      form.internalIP = inst.privateIP || inst.privateIp
+    }
+  }
 }
 
 async function fetchInstances() {
@@ -140,7 +178,7 @@ async function fetchData() {
 function handleCreate() {
   isEdit.value = false
   editId.value = null
-  Object.assign(form, { domainName: '', instanceId: null, protocol: 'http', internalPort: 80, enableSsl: false })
+  Object.assign(form, { domainName: '', instanceId: null, protocol: 'http', internalIP: '', internalPort: 80, enableSSL: false })
   showDialog.value = true
 }
 
@@ -150,9 +188,10 @@ function handleEdit(row) {
   Object.assign(form, {
     domainName: row.domainName,
     instanceId: row.instanceId,
-    protocol: row.protocol,
+    protocol: row.protocol || 'http',
+    internalIP: row.internalIP || '',
     internalPort: row.internalPort,
-    enableSsl: row.enableSsl
+    enableSSL: row.enableSSL || false
   })
   showDialog.value = true
 }
@@ -162,10 +201,22 @@ async function handleSubmit() {
   submitting.value = true
   try {
     if (isEdit.value) {
-      await updateUserDomain(editId.value, form)
+      await updateUserDomain(editId.value, {
+        internalIP: form.internalIP,
+        internalPort: form.internalPort,
+        protocol: form.protocol,
+        enableSSL: form.enableSSL
+      })
       ElMessage.success(t('user.domain.updateSuccess'))
     } else {
-      await createUserDomain(form)
+      await createUserDomain({
+        domainName: form.domainName,
+        instanceId: form.instanceId,
+        protocol: form.protocol,
+        internalIP: form.internalIP,
+        internalPort: form.internalPort,
+        enableSSL: form.enableSSL
+      })
       ElMessage.success(t('user.domain.createSuccess'))
     }
     showDialog.value = false
@@ -191,4 +242,5 @@ onMounted(() => {
 <style scoped>
 .domain-container { padding: 20px; }
 .card-header { display: flex; justify-content: space-between; align-items: center; }
+.form-tip { font-size: 12px; color: #909399; line-height: 1.4; margin-top: 2px; }
 </style>

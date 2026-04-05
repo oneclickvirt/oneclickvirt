@@ -2,16 +2,13 @@ package domain
 
 import (
 	"time"
-
-	"gorm.io/gorm"
 )
 
 // Domain 用户域名绑定记录
 type Domain struct {
-	ID        uint           `json:"id" gorm:"primarykey"`
-	CreatedAt time.Time      `json:"createdAt"`
-	UpdatedAt time.Time      `json:"updatedAt"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index"`
+	ID        uint      `json:"id" gorm:"primarykey"`
+	CreatedAt time.Time `json:"createdAt"`
+	UpdatedAt time.Time `json:"updatedAt"`
 	// 关联
 	UserID     uint `json:"userId" gorm:"not null;index:idx_user_id"`
 	InstanceID uint `json:"instanceId" gorm:"not null;index:idx_instance_id"`

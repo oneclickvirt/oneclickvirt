@@ -40,8 +40,9 @@ func AdminDeleteDomain(c *gin.Context) {
 		return
 	}
 
+	ownerAdminID := middleware.GetOwnerAdminID(c)
 	svc := &domainService.Service{}
-	if err := svc.AdminDeleteDomain(uint(domainID)); err != nil {
+	if err := svc.AdminDeleteDomain(uint(domainID), ownerAdminID); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
@@ -71,6 +72,17 @@ func UpdateDomainConfig(c *gin.Context) {
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
+	}
+
+	// 普通管理员只能更改自己节点的配置
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		var count int64
+		global.APP_DB.Table("providers").Where("id = ? AND owner_admin_id = ?", providerID, ownerAdminID).Count(&count)
+		if count == 0 {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权操作该节点的域名配置"))
+			return
+		}
 	}
 
 	var req domainService.UpdateDomainConfigRequest

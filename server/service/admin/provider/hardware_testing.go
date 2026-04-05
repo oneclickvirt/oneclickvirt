@@ -2,7 +2,9 @@ package provider
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +20,7 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 	// 检查是否已有运行中的测试
 	var existing providerModel.HardwareTestReport
 	if err := global.APP_DB.Where("provider_id = ? AND status = ?", providerID, "running").First(&existing).Error; err == nil {
-		return fmt.Errorf("该节点已有运行中的硬件测试")
+		return fmt.Errorf("该节点已有运行中的硬件测试 (PID %d)", existing.RemotePID)
 	}
 
 	// 获取Provider信息
@@ -39,9 +41,10 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 		global.APP_DB.Create(&report)
 	} else {
 		global.APP_DB.Model(&report).Updates(map[string]interface{}{
-			"status":    "running",
-			"tested_by": userID,
-			"error_msg": "",
+			"status":     "running",
+			"tested_by":  userID,
+			"error_msg":  "",
+			"remote_pid": 0,
 		})
 	}
 
@@ -56,29 +59,45 @@ func (s *Service) RunHardwareTest(ctx context.Context, providerID, userID uint) 
 				})
 			}
 		}()
-
 		s.executeHardwareTest(context.Background(), providerID, &report)
 	}()
 
 	return nil
 }
 
+// buildECSScript 生成完整的ECS测试脚本内容
+func buildECSScript(arch string) string {
+	return fmt.Sprintf(`#!/bin/sh
+mkdir -p /tmp/ecs_test
+cd /tmp/ecs_test
+curl -sL "https://github.com/oneclickvirt/ecs/releases/latest/download/goecs_linux_%s.zip" -o goecs.zip
+unzip -o goecs.zip
+chmod +x goecs
+timeout 900 ./goecs -m 1
+`, arch)
+}
+
 // executeHardwareTest 执行硬件测试
+//
+// 流程：
+//  1. 单条短SSH命令获取架构
+//  2. 将完整测试脚本通过 base64 编码写入远端，不依赖SFTP
+//  3. nohup 后台启动脚本并立即获取PID，SSH连接随即断开
+//  4. 定期以 kill -0 $PID 轮询进程是否存活（每次连接极短）
+//  5. 进程退出后读取结果文件并清理
 func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, report *providerModel.HardwareTestReport) {
-	// 获取已连接的Provider实例
 	p, err := providerService.GetProviderInstanceByID(providerID)
 	if err != nil {
 		s.failReport(report, fmt.Sprintf("获取Provider实例失败: %v", err))
 		return
 	}
 
-	// 先检查架构
+	// Step 1: 获取CPU架构（短命令，不会超时）
 	archOutput, err := p.ExecuteSSHCommand(ctx, "uname -m")
 	if err != nil {
 		s.failReport(report, fmt.Sprintf("获取架构信息失败: %v", err))
 		return
 	}
-
 	arch := strings.TrimSpace(archOutput)
 	var ecsArch string
 	switch {
@@ -91,72 +110,70 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 		return
 	}
 
-	// 下载并执行ECS (使用GitHub release)
-	// 使用 -m 1 非交互模式，timeout 900秒（15分钟）
-	// 先下载，再后台执行并写入临时文件，避免SSH会话超时限制
-	downloadCmd := fmt.Sprintf(
-		"mkdir -p /tmp/ecs_test && cd /tmp/ecs_test && "+
-			"curl -sL \"https://github.com/oneclickvirt/ecs/releases/latest/download/goecs_linux_%s.zip\" -o goecs.zip && "+
-			"unzip -o goecs.zip && chmod +x goecs",
-		ecsArch)
-
-	startTestCmd := "cd /tmp/ecs_test && nohup sh -c 'timeout 900 ./goecs -m 1 > /tmp/ecs_test/result.txt 2>&1; echo ECS_DONE >> /tmp/ecs_test/result.txt' &"
-
-	// Step 1: Download ECS binary
-	_, err = p.ExecuteSSHCommand(ctx, downloadCmd)
-	if err != nil {
-		s.failReport(report, fmt.Sprintf("下载ECS测试工具失败: %v", err))
+	// Step 2: 将测试脚本通过 base64 编码写入远端（仍是短命令，脚本很小）
+	script := buildECSScript(ecsArch)
+	encoded := base64.StdEncoding.EncodeToString([]byte(script))
+	uploadCmd := fmt.Sprintf(
+		"mkdir -p /tmp/ecs_test && printf '%%s' '%s' | base64 -d > /tmp/ecs_test/run.sh && chmod +x /tmp/ecs_test/run.sh",
+		encoded,
+	)
+	if _, err = p.ExecuteSSHCommand(ctx, uploadCmd); err != nil {
+		s.failReport(report, fmt.Sprintf("上传测试脚本失败: %v", err))
 		return
 	}
 
-	// Step 2: Start test in background
-	_, err = p.ExecuteSSHCommand(ctx, startTestCmd)
+	// Step 3: nohup 后台运行，立即获取PID，SSH连接不阻塞
+	launchCmd := "nohup /tmp/ecs_test/run.sh > /tmp/ecs_test/result.txt 2>&1 & echo $!"
+	pidOutput, err := p.ExecuteSSHCommand(ctx, launchCmd)
 	if err != nil {
-		global.APP_LOG.Warn("启动ECS后台测试返回错误，尝试继续轮询",
-			zap.Error(err))
+		s.failReport(report, fmt.Sprintf("启动测试进程失败: %v", err))
+		return
+	}
+	pid, _ := strconv.Atoi(strings.TrimSpace(pidOutput))
+	if pid == 0 {
+		s.failReport(report, "未能获取测试进程PID")
+		return
 	}
 
-	// Step 3: Poll for result file completion (check every 30s, max 16 minutes)
-	readResultCmd := "cat /tmp/ecs_test/result.txt 2>/dev/null"
-	checkDoneCmd := "grep -c 'ECS_DONE' /tmp/ecs_test/result.txt 2>/dev/null || echo 0"
-	var output string
-	maxWait := 16 * time.Minute
+	// 将PID保存到DB，供前端展示
+	global.APP_DB.Model(report).Update("remote_pid", pid)
+	global.APP_LOG.Info("ECS测试进程已在后台启动",
+		zap.Uint("providerId", providerID),
+		zap.Int("pid", pid))
+
+	// Step 4: 轮询 kill -0 $PID 检查进程是否仍在运行
+	// 每次只建立一条极短的SSH连接，不保持长连接
+	pollCmd := fmt.Sprintf("kill -0 %d 2>/dev/null && echo running || echo done", pid)
+	deadline := time.Now().Add(20 * time.Minute)
 	pollInterval := 30 * time.Second
-	deadline := time.Now().Add(maxWait)
 
 	for time.Now().Before(deadline) {
 		time.Sleep(pollInterval)
-		doneCheck, checkErr := p.ExecuteSSHCommand(ctx, checkDoneCmd)
-		if checkErr != nil {
-			global.APP_LOG.Debug("轮询ECS测试结果失败", zap.Error(checkErr))
+		status, pollErr := p.ExecuteSSHCommand(ctx, pollCmd)
+		if pollErr != nil {
+			global.APP_LOG.Debug("轮询进程状态失败，将重试", zap.Error(pollErr))
 			continue
 		}
-		if strings.TrimSpace(doneCheck) != "0" {
-			// Test completed, read result
-			output, err = p.ExecuteSSHCommand(ctx, readResultCmd)
+		if strings.TrimSpace(status) == "done" {
 			break
 		}
 	}
 
-	if output == "" {
-		// Try one last read before cleanup
-		output, _ = p.ExecuteSSHCommand(ctx, readResultCmd)
-	}
-
-	// Cleanup
+	// Step 5: 读取结果文件并清理
+	output, _ := p.ExecuteSSHCommand(ctx, "cat /tmp/ecs_test/result.txt 2>/dev/null")
 	_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
 
-	if output != "" {
+	if strings.TrimSpace(output) != "" {
 		now := time.Now()
 		global.APP_DB.Model(report).Updates(map[string]interface{}{
 			"status":      "completed",
 			"report_text": output,
 			"tested_at":   &now,
 			"error_msg":   "",
+			"remote_pid":  0,
 		})
 	} else {
-		s.failReport(report, "ECS测试未产生输出或超时")
-		return
+		s.failReport(report, "ECS测试未产生输出或已超时（20分钟）")
 	}
 
 	global.APP_LOG.Info("硬件测试完成",
@@ -169,8 +186,9 @@ func (s *Service) failReport(report *providerModel.HardwareTestReport, msg strin
 		zap.Uint("providerId", report.ProviderID),
 		zap.String("error", msg))
 	global.APP_DB.Model(report).Updates(map[string]interface{}{
-		"status":    "failed",
-		"error_msg": msg,
+		"status":     "failed",
+		"error_msg":  msg,
+		"remote_pid": 0,
 	})
 }
 

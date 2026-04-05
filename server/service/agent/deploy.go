@@ -29,6 +29,15 @@ type AgentConfig struct {
 	ExtraExcludeCIDRsV4     string
 	ExtraExcludeCIDRsV6     string
 	TrafficCollectMethod    string // "nft" (default) or "ipt"
+
+	// Reverse proxy configuration
+	EnableReverseProxy bool   // Enable reverse proxy feature
+	ProxyHTTPPort      int    // HTTP port (default 80)
+	ProxyHTTPSPort     int    // HTTPS port (default 443)
+	ProxyEnableHTTP    bool   // Enable HTTP proxy
+	ProxyEnableHTTPS   bool   // Enable HTTPS proxy
+	ProxyTLSCertPath   string // TLS cert file path on node
+	ProxyTLSKeyPath    string // TLS key file path on node
 }
 
 func (c *AgentConfig) trafficInterval() int {
@@ -62,6 +71,32 @@ func buildEnvFile(cfg *AgentConfig) string {
 	if cfg.ExtraExcludeCIDRsV6 != "" {
 		sb.WriteString(fmt.Sprintf("EXTRA_EXCLUDE_CIDRS_V6=%s\n", cfg.ExtraExcludeCIDRsV6))
 	}
+
+	// Reverse proxy configuration
+	sb.WriteString(fmt.Sprintf("ENABLE_REVERSE_PROXY=%t\n", cfg.EnableReverseProxy))
+	if cfg.EnableReverseProxy {
+		if cfg.ProxyEnableHTTP {
+			httpPort := cfg.ProxyHTTPPort
+			if httpPort == 0 {
+				httpPort = 80
+			}
+			sb.WriteString(fmt.Sprintf("PROXY_HTTP_ADDR=0.0.0.0:%d\n", httpPort))
+		}
+		if cfg.ProxyEnableHTTPS {
+			httpsPort := cfg.ProxyHTTPSPort
+			if httpsPort == 0 {
+				httpsPort = 443
+			}
+			sb.WriteString(fmt.Sprintf("PROXY_HTTPS_ADDR=0.0.0.0:%d\n", httpsPort))
+			if cfg.ProxyTLSCertPath != "" {
+				sb.WriteString(fmt.Sprintf("PROXY_TLS_CERT=%s\n", cfg.ProxyTLSCertPath))
+			}
+			if cfg.ProxyTLSKeyPath != "" {
+				sb.WriteString(fmt.Sprintf("PROXY_TLS_KEY=%s\n", cfg.ProxyTLSKeyPath))
+			}
+		}
+	}
+
 	return sb.String()
 }
 

@@ -2,7 +2,7 @@ export default {
   title: '域名绑定',
   addDomain: '添加域名',
   domainName: '域名',
-  instanceId: '实例ID',
+  instanceId: '实例',
   providerId: '节点ID',
   protocol: '协议',
   internalIp: '内部IP',
@@ -22,6 +22,15 @@ export default {
   noDomains: '暂无域名绑定',
   domainRequired: '请输入域名',
   instanceIdRequired: '请选择实例',
+  internalIPRequired: '请输入内部IP地址',
   selectInstance: '请选择实例',
-  portRequired: '请输入端口'
+  portRequired: '请输入端口',
+  internalIpTip: '容器/虚拟机内网IP，选择实例后自动填充',
+  enableSslTip: '自动生成自签名证书并强制 HTTPS',
+  dnsGuideTitle: '域名绑定流程说明',
+  dnsStep1: '第一步：选择实例并填写下方表单，提交后系统将在宿主机节点上通过 Nginx 自动配置反向代理。',
+  dnsStep2: '第二步：将域名 A 记录解析到下方显示的宿主机节点公网IP。',
+  dnsStep3: '第三步：DNS 解析生效后（通常数分钟至数小时），即可通过域名访问实例。',
+  nodeIpLabel: '节点公网IP',
+  nodeIpTip: '将域名 A 记录解析到此IP，流量将通过节点 Nginx 反代至实例内网'
 }

@@ -8,6 +8,7 @@ mod handlers;
 mod ipt;
 mod models;
 mod nft;
+mod proxy;
 mod resource;
 
 use app_state::AppState;
@@ -16,9 +17,9 @@ use collector::start_collector;
 use db::init_db;
 use docs::ApiDoc;
 use rusqlite::Connection;
-use std::{env, net::SocketAddr, sync::Arc};
+use std::{env, fs, io::BufReader, net::SocketAddr, path::Path, sync::Arc};
 use tokio::sync::Mutex;
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -47,11 +48,18 @@ async fn main() {
     let traffic_collect_method = env::var("TRAFFIC_COLLECT_METHOD")
         .unwrap_or_else(|_| "nft".to_string());
 
+    // Check if reverse proxy should be enabled
+    let enable_proxy = env::var("ENABLE_REVERSE_PROXY")
+        .unwrap_or_else(|_| "false".to_string())
+        .parse::<bool>()
+        .unwrap_or(false);
+
     info!(
         traffic_collect_interval,
         resource_collect_interval,
         %traffic_collect_method,
-        "collection intervals configured"
+        enable_proxy,
+        "collection intervals and proxy status configured"
     );
 
     info!("opening sqlite database");
@@ -95,12 +103,35 @@ async fn main() {
         nft::restore_block_rules();
     }
 
+    // Initialize proxy routes from database
+    info!("initializing reverse proxy routes");
+    let proxy_routes = {
+        let temp_state = AppState {
+            conn: Arc::new(Mutex::new(conn)),
+            api_token: api_token.clone(),
+            traffic_collect_interval,
+            resource_collect_interval,
+            traffic_collect_method: traffic_collect_method.clone(),
+            proxy_routes: Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
+        };
+        let routes = proxy::load_routes_from_db(&temp_state)
+            .await
+            .unwrap_or_else(|e| {
+                warn!(error = %e, "failed to load proxy routes, starting with empty routes");
+                std::collections::HashMap::new()
+            });
+
+        Arc::new(tokio::sync::RwLock::new(routes))
+    };
+
+    let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
         api_token,
         traffic_collect_interval,
         resource_collect_interval,
         traffic_collect_method,
+        proxy_routes: proxy_routes.clone(),
     };
 
     start_collector(state.clone());
@@ -135,10 +166,200 @@ async fn main() {
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
     );
 
-    let addr: SocketAddr = "0.0.0.0:23782".parse().expect("invalid bind address");
-    info!(%addr, "starting http server");
-    let listener = tokio::net::TcpListener::bind(addr)
+    // API server address
+    let api_addr: SocketAddr = "0.0.0.0:23782".parse().expect("invalid bind address");
+    info!(%api_addr, "starting API server");
+
+    // Start API server
+    let api_listener = tokio::net::TcpListener::bind(api_addr)
         .await
-        .expect("failed to bind server");
-    axum::serve(listener, app).await.expect("server error");
+        .expect("failed to bind API server");
+
+    if !enable_proxy {
+        // Only run API server if proxy is disabled
+        info!("reverse proxy disabled, running API server only");
+        axum::serve(api_listener, app).await.expect("API server error");
+    } else {
+        // Start API server in background
+        let api_server = tokio::spawn(async move {
+            axum::serve(api_listener, app).await.expect("API server error");
+        });
+
+        // Reverse proxy configuration
+        let proxy_http_addr: Option<SocketAddr> = env::var("PROXY_HTTP_ADDR")
+            .ok()
+            .and_then(|s| s.parse().ok());
+        
+        let proxy_https_addr: Option<SocketAddr> = env::var("PROXY_HTTPS_ADDR")
+            .ok()
+            .and_then(|s| s.parse().ok());
+
+        let cert_path = env::var("PROXY_TLS_CERT").ok();
+        let key_path = env::var("PROXY_TLS_KEY").ok();
+
+        let proxy_router = Router::new()
+            .fallback(proxy::proxy_handler)
+            .with_state(proxy_routes);
+
+        // Start proxy servers based on configuration
+        match (proxy_http_addr, proxy_https_addr, cert_path, key_path) {
+            // Only HTTP
+            (Some(http_addr), None, _, _) => {
+                info!(%http_addr, "starting HTTP reverse proxy server");
+                let listener = tokio::net::TcpListener::bind(http_addr)
+                    .await
+                    .expect("failed to bind HTTP proxy server");
+                
+                tokio::select! {
+                    _ = api_server => {
+                        warn!("API server stopped unexpectedly");
+                    }
+                    result = axum::serve(listener, proxy_router) => {
+                        if let Err(e) = result {
+                            error!(error = %e, "HTTP proxy server error");
+                        }
+                    }
+                }
+            }
+            // Only HTTPS
+            (None, Some(https_addr), Some(cert), Some(key)) => {
+                info!(%https_addr, "starting HTTPS reverse proxy server");
+                match load_tls_config(&cert, &key) {
+                    Ok(tls_config) => {
+                        tokio::select! {
+                            _ = api_server => {
+                                warn!("API server stopped unexpectedly");
+                            }
+                            result = axum_server::bind_rustls(https_addr, tls_config)
+                                .serve(proxy_router.into_make_service()) => {
+                                if let Err(e) = result {
+                                    error!(error = %e, "HTTPS proxy server error");
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "failed to load TLS config, proxy server not started");
+                        api_server.await.ok();
+                    }
+                }
+            }
+            // Both HTTP and HTTPS
+            (Some(http_addr), Some(https_addr), Some(cert), Some(key)) => {
+                info!(%http_addr, %https_addr, "starting HTTP and HTTPS reverse proxy servers");
+                
+                let http_listener = tokio::net::TcpListener::bind(http_addr)
+                    .await
+                    .expect("failed to bind HTTP proxy server");
+                
+                let http_router = proxy_router.clone();
+                let http_server = tokio::spawn(async move {
+                    axum::serve(http_listener, http_router).await.expect("HTTP proxy error");
+                });
+
+                match load_tls_config(&cert, &key) {
+                    Ok(tls_config) => {
+                        tokio::select! {
+                            _ = api_server => {
+                                warn!("API server stopped unexpectedly");
+                            }
+                            _ = http_server => {
+                                warn!("HTTP proxy server stopped unexpectedly");
+                            }
+                            result = axum_server::bind_rustls(https_addr, tls_config)
+                                .serve(proxy_router.into_make_service()) => {
+                                if let Err(e) = result {
+                                    error!(error = %e, "HTTPS proxy server error");
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        error!(error = %e, "failed to load TLS config, running HTTP only");
+                        tokio::select! {
+                            _ = api_server => {
+                                warn!("API server stopped unexpectedly");
+                            }
+                            _ = http_server => {
+                                warn!("HTTP proxy server stopped unexpectedly");
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                warn!("no valid proxy configuration found, falling back to HTTP on port 80");
+                let http_addr: SocketAddr = "0.0.0.0:80".parse().unwrap();
+                info!(%http_addr, "starting HTTP reverse proxy server (fallback)");
+                let listener = tokio::net::TcpListener::bind(http_addr)
+                    .await
+                    .expect("failed to bind HTTP proxy server");
+                
+                tokio::select! {
+                    _ = api_server => {
+                        warn!("API server stopped unexpectedly");
+                    }
+                    result = axum::serve(listener, proxy_router) => {
+                        if let Err(e) = result {
+                            error!(error = %e, "HTTP proxy server error");
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Load TLS configuration from certificate and key files
+fn load_tls_config(
+    cert_path: &str,
+    key_path: &str,
+) -> Result<axum_server::tls_rustls::RustlsConfig, Box<dyn std::error::Error>> {
+    use rustls_pemfile::{certs, pkcs8_private_keys};
+    use std::io::Cursor;
+    use tokio_rustls::rustls::{self, pki_types::{CertificateDer, PrivateKeyDer}};
+
+    // Check if files exist
+    if !Path::new(cert_path).exists() {
+        return Err(format!("certificate file not found: {}", cert_path).into());
+    }
+    if !Path::new(key_path).exists() {
+        return Err(format!("key file not found: {}", key_path).into());
+    }
+
+    // Read certificate file
+    let cert_file = fs::read(cert_path)
+        .map_err(|e| format!("failed to read cert file: {}", e))?;
+    let mut cert_reader = BufReader::new(Cursor::new(cert_file));
+    let cert_chain: Vec<CertificateDer> = certs(&mut cert_reader)
+        .collect::<Result<_, _>>()
+        .map_err(|e| format!("failed to parse certificates: {}", e))?;
+
+    if cert_chain.is_empty() {
+        return Err("no certificates found in cert file".into());
+    }
+
+    // Read private key file
+    let key_file = fs::read(key_path)
+        .map_err(|e| format!("failed to read key file: {}", e))?;
+    let mut key_reader = BufReader::new(Cursor::new(key_file));
+    let mut keys = pkcs8_private_keys(&mut key_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| format!("failed to parse private key: {}", e))?;
+
+    if keys.is_empty() {
+        return Err("no private keys found in key file".into());
+    }
+
+    let key = PrivateKeyDer::Pkcs8(keys.remove(0));
+
+    // Build TLS config
+    let mut config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(cert_chain, key)
+        .map_err(|e| format!("failed to build TLS config: {}", e))?;
+
+    config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
+
+    Ok(axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config)))
 }

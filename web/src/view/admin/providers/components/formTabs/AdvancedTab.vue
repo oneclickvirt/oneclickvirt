@@ -216,6 +216,159 @@
         {{ $t('admin.providers.enableResourceMonitoringTip') }}
       </el-text>
     </div>
+
+    <!-- 域名反向代理设置 -->
+    <el-divider content-position="left">
+      <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.domainProxy') }}</span>
+    </el-divider>
+
+    <el-form-item
+      :label="$t('admin.providers.enableDomainBinding')"
+      prop="enableDomainBinding"
+    >
+      <el-switch
+        v-model="modelValue.enableDomainBinding"
+        :active-text="$t('admin.providers.enabled')"
+        :inactive-text="$t('admin.providers.disabled')"
+      />
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.enableDomainBindingTip') }}
+      </el-text>
+    </div>
+
+    <template v-if="modelValue.enableDomainBinding">
+      <el-form-item
+        :label="$t('admin.providers.proxyEnableHTTP')"
+        prop="proxyEnableHttp"
+      >
+        <el-switch
+          v-model="modelValue.proxyEnableHttp"
+          :active-text="$t('common.yes')"
+          :inactive-text="$t('common.no')"
+        />
+      </el-form-item>
+      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.proxyEnableHTTPTip') }}
+        </el-text>
+      </div>
+
+      <el-form-item
+        v-if="modelValue.proxyEnableHttp"
+        :label="$t('admin.providers.proxyHTTPPort')"
+        prop="proxyHttpPort"
+      >
+        <el-input-number
+          v-model="modelValue.proxyHttpPort"
+          :min="1"
+          :max="65535"
+          :step="1"
+          :controls="false"
+          placeholder="80"
+          style="width: 200px"
+        />
+      </el-form-item>
+      <div v-if="modelValue.proxyEnableHttp" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.proxyHTTPPortTip') }}
+        </el-text>
+      </div>
+
+      <el-form-item
+        :label="$t('admin.providers.proxyEnableHTTPS')"
+        prop="proxyEnableHttps"
+      >
+        <el-switch
+          v-model="modelValue.proxyEnableHttps"
+          :active-text="$t('common.yes')"
+          :inactive-text="$t('common.no')"
+        />
+      </el-form-item>
+      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.proxyEnableHTTPSTip') }}
+        </el-text>
+      </div>
+
+      <template v-if="modelValue.proxyEnableHttps">
+        <el-form-item
+          :label="$t('admin.providers.proxyHTTPSPort')"
+          prop="proxyHttpsPort"
+        >
+          <el-input-number
+            v-model="modelValue.proxyHttpsPort"
+            :min="1"
+            :max="65535"
+            :step="1"
+            :controls="false"
+            placeholder="443"
+            style="width: 200px"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.proxyHTTPSPortTip') }}
+          </el-text>
+        </div>
+
+        <el-form-item
+          :label="$t('admin.providers.proxyTLSCertPath')"
+          prop="proxyTlsCertPath"
+        >
+          <el-input
+            v-model="modelValue.proxyTlsCertPath"
+            :placeholder="$t('admin.providers.proxyTLSCertPathPlaceholder')"
+            clearable
+            style="width: 400px"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.proxyTLSCertPathTip') }}
+          </el-text>
+        </div>
+
+        <el-form-item
+          :label="$t('admin.providers.proxyTLSKeyPath')"
+          prop="proxyTlsKeyPath"
+        >
+          <el-input
+            v-model="modelValue.proxyTlsKeyPath"
+            :placeholder="$t('admin.providers.proxyTLSKeyPathPlaceholder')"
+            clearable
+            style="width: 400px"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.proxyTLSKeyPathTip') }}
+          </el-text>
+        </div>
+      </template>
+    </template>
   </el-form>
 </template>
 

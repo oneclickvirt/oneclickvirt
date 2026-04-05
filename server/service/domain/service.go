@@ -175,6 +175,7 @@ func (s *Service) DeleteDomain(userID, domainID uint) error {
 		}
 	}
 
+	// 硬删除：確保域名可被重新注册
 	return global.APP_DB.Delete(&domain).Error
 }
 
@@ -247,10 +248,21 @@ func (s *Service) AdminGetAllDomains(ownerAdminID uint) ([]domainModel.Domain, e
 }
 
 // AdminDeleteDomain 管理员删除域名
-func (s *Service) AdminDeleteDomain(domainID uint) error {
+// ownerAdminID > 0 时校验域名所在节点是否属于该管理员（普通管理员隔离）
+func (s *Service) AdminDeleteDomain(domainID, ownerAdminID uint) error {
 	var domain domainModel.Domain
 	if err := global.APP_DB.First(&domain, domainID).Error; err != nil {
-		return err
+		return fmt.Errorf("域名不存在")
+	}
+	// 普通管理员只能删除自己节点的域名
+	if ownerAdminID > 0 {
+		var count int64
+		global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ? AND owner_admin_id = ?", domain.ProviderID, ownerAdminID).
+			Count(&count)
+		if count == 0 {
+			return fmt.Errorf("无权删除该域名")
+		}
 	}
 	// Remove proxy from agent
 	if client := getAgentClient(domain.ProviderID); client != nil {
@@ -260,6 +272,7 @@ func (s *Service) AdminDeleteDomain(domainID uint) error {
 				zap.Error(err))
 		}
 	}
+	// 硬删除：确保域名可被重新注册
 	return global.APP_DB.Delete(&domain).Error
 }
 

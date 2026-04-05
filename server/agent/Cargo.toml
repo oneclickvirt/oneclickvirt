@@ -20,6 +20,13 @@ dotenvy = "0.15"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 subtle = "2"
+hyper = { version = "1", features = ["client", "http1", "http2"] }
+hyper-util = { version = "0.1", features = ["client-legacy", "http1", "http2", "tokio"] }
+http-body-util = "0.1"
+tower = "0.5"
+axum-server = { version = "0.7", features = ["tls-rustls"] }
+tokio-rustls = "0.26"
+rustls-pemfile = "2"
 
 [profile.release]
 opt-level = "z"

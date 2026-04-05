@@ -1,7 +1,9 @@
 export default {
   title: 'Domain Management',
   allDomains: 'All Domain Bindings',
+  providerConfig: 'Provider Domain Config',
   domainConfig: 'Domain Config',
+  editConfig: 'Edit Provider Domain Config',
   deleteDomain: 'Delete Domain',
   confirmDelete: 'Are you sure you want to delete this domain binding?',
   deleteSuccess: 'Deleted successfully',
@@ -10,12 +12,20 @@ export default {
   maxDomainsPerUser: 'Max Domains Per User',
   dnsType: 'DNS Type',
   dnsConfigPath: 'DNS Config Path',
-  nginxConfigPath: 'Nginx Config Path',
+  nginxConfigPath: 'Nginx Config Dir',
   nginxReloadCmd: 'Nginx Reload Command',
   allowedSuffixes: 'Allowed Suffixes',
+  allowedSuffixesPlaceholder: '.example.com,.mysite.net',
+  allowedSuffixesTip: 'Comma-separated. Leave empty to allow any suffix.',
+  noSuffixLimit: 'No limit',
   userId: 'User ID',
   instanceId: 'Instance ID',
+  internalIP: 'Internal IP',
+  internalPort: 'Internal Port',
   domainName: 'Domain Name',
   status: 'Status',
-  actions: 'Actions'
+  actions: 'Actions',
+  providerName: 'Provider Name',
+  providerType: 'Type',
+  domainBindingEnabled: 'Domain Binding'
 }

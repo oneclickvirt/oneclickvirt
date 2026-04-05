@@ -2,6 +2,8 @@ use rusqlite::Connection;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 
+use crate::proxy::ProxyRoutes;
+
 #[derive(Clone)]
 pub struct AppState {
     pub conn: Arc<Mutex<Connection>>,
@@ -12,4 +14,6 @@ pub struct AppState {
     pub resource_collect_interval: u64,
     /// Traffic collection method: "nft" (default) or "ipt"
     pub traffic_collect_method: String,
+    /// Proxy routes for domain reverse proxy
+    pub proxy_routes: ProxyRoutes,
 }
