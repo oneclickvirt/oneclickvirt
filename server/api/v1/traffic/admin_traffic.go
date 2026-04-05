@@ -6,7 +6,9 @@ import (
 	"strconv"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/traffic"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,19 @@ import (
 
 // AdminTrafficAPI 管理员流量API
 type AdminTrafficAPI struct{}
+
+// checkProviderOwnership 检查普通管理员是否拥有指定Provider
+func (api *AdminTrafficAPI) checkProviderOwnership(c *gin.Context, providerID uint) bool {
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID == 0 {
+		return true // 超级管理员
+	}
+	var count int64
+	global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ? AND owner_admin_id = ?", providerID, ownerAdminID).
+		Count(&count)
+	return count > 0
+}
 
 // GetSystemTrafficOverview 获取系统流量概览
 // @Summary 获取系统流量概览
@@ -64,6 +79,12 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 			Code: 40000,
 			Msg:  "Provider ID格式错误",
 		})
+		return
+	}
+
+	// 普通管理员权限检查
+	if !api.checkProviderOwnership(c, uint(providerID)) {
+		c.JSON(http.StatusForbidden, common.Response{Code: 40300, Msg: "无权访问该Provider"})
 		return
 	}
 

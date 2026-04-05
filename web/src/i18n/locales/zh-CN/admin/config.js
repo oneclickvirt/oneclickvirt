@@ -28,6 +28,8 @@ export default {
   kycFeatureHint: "启用后，用户可以看到并使用实名认证功能",
   domainFeature: "域名绑定",
   domainFeatureHint: "启用后，用户可以看到并使用域名绑定功能",
+  checkinFeature: "签到续期",
+  checkinFeatureHint: "启用后，用户可以使用签到续期功能（默认关闭）",
   emailConfig: "邮箱配置",
   smtpConfigDesc: "SMTP邮件服务器配置",
   smtpConfigHint: "用于发送验证邮件、密码重置邮件等系统邮件",

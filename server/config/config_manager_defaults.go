@@ -108,6 +108,7 @@ func getDefaultConfigMap() map[string]interface{} {
 			"enable-public-registration": false,
 			"enable-kyc":                 false,
 			"enable-domain":              false,
+			"enable-checkin":             false,
 			"email-smtp-host":            "",
 			"email-smtp-port":            587,
 			"email-username":             "",

@@ -30,22 +30,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
 		NormalAdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket)
 
-		// 公告管理
-		NormalAdminGroup.GET("/announcements", admin.GetAnnouncements)
-		NormalAdminGroup.POST("/announcements", admin.CreateAnnouncement)
-		NormalAdminGroup.PUT("/announcements/:id", admin.UpdateAnnouncementItem)
-		NormalAdminGroup.DELETE("/announcements/:id", admin.DeleteAnnouncement)
-		NormalAdminGroup.PUT("/announcements/batch-status", admin.BatchUpdateAnnouncementStatus)
-		NormalAdminGroup.POST("/announcements/batch-delete", admin.BatchDeleteAnnouncements)
-
-		// 邀请码管理
-		NormalAdminGroup.GET("/invite-codes", admin.GetInviteCodeList)
-		NormalAdminGroup.POST("/invite-codes", admin.CreateInviteCode)
-		NormalAdminGroup.POST("/invite-codes/generate", admin.GenerateInviteCode)
-		NormalAdminGroup.GET("/invite-codes/export", admin.ExportInviteCodes)
-		NormalAdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
-		NormalAdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
-
 		// 兑换码管理
 		NormalAdminGroup.GET("/redemption-codes", admin.GetRedemptionCodeList)
 		NormalAdminGroup.POST("/redemption-codes/batch-create", admin.BatchCreateRedemptionCodes)
@@ -187,6 +171,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 签到配置管理
 		NormalAdminGroup.GET("/providers/:id/checkin-config", admin.AdminGetCheckinConfig)
 		NormalAdminGroup.PUT("/providers/:id/checkin-config", admin.AdminUpdateCheckinConfig)
+
+		// 管理员分组管理（普通管理员管理自己的分组信息）
+		NormalAdminGroup.GET("/group-info", admin.GetAdminGroupInfo)
+		NormalAdminGroup.PUT("/group-info", admin.UpdateAdminGroupInfo)
 	}
 
 	// 超级管理员专用路由（level >= 3）
@@ -212,6 +200,22 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 实例类型权限配置
 		SuperAdminGroup.GET("/instance-type-permissions", admin.GetAdminInstanceTypePermissions)
 		SuperAdminGroup.PUT("/instance-type-permissions", admin.UpdateAdminInstanceTypePermissions)
+
+		// 邀请码管理（超管专用）
+		SuperAdminGroup.GET("/invite-codes", admin.GetInviteCodeList)
+		SuperAdminGroup.POST("/invite-codes", admin.CreateInviteCode)
+		SuperAdminGroup.POST("/invite-codes/generate", admin.GenerateInviteCode)
+		SuperAdminGroup.GET("/invite-codes/export", admin.ExportInviteCodes)
+		SuperAdminGroup.POST("/invite-codes/batch-delete", admin.BatchDeleteInviteCodes)
+		SuperAdminGroup.DELETE("/invite-codes/:id", admin.DeleteInviteCode)
+
+		// 公告管理（超管专用）
+		SuperAdminGroup.GET("/announcements", admin.GetAnnouncements)
+		SuperAdminGroup.POST("/announcements", admin.CreateAnnouncement)
+		SuperAdminGroup.PUT("/announcements/:id", admin.UpdateAnnouncementItem)
+		SuperAdminGroup.DELETE("/announcements/:id", admin.DeleteAnnouncement)
+		SuperAdminGroup.PUT("/announcements/batch-status", admin.BatchUpdateAnnouncementStatus)
+		SuperAdminGroup.POST("/announcements/batch-delete", admin.BatchDeleteAnnouncements)
 
 		// 系统监控
 		SuperAdminGroup.GET("/monitoring/system", admin.GetAdminDashboard)

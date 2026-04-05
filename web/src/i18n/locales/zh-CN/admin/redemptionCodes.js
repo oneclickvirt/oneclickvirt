@@ -22,6 +22,7 @@ export default {
   disk: '磁盘',
   bandwidth: '带宽',
   colCreatedBy: '创建人',
+  colInstanceName: '实例名称',
   colCreatedAt: '创建时间',
   colRemark: '备注',
   colRedeemedAt: '兑换时间',

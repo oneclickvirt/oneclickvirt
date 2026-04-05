@@ -21,11 +21,25 @@ var (
 type PortMappingService struct{}
 
 // GetPortMappingList 获取端口映射列表
-func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest) ([]provider.Port, int64, error) {
+func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest, ownerAdminID uint) ([]provider.Port, int64, error) {
 	var ports []provider.Port
 	var total int64
 
 	query := global.APP_DB.Model(&provider.Port{})
+
+	// 普通管理员数据隔离：只能看到归属自己的Provider的端口映射
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&provider.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(providerIDs) == 0 {
+			return []provider.Port{}, 0, nil
+		}
+		query = query.Where("provider_id IN ?", providerIDs)
+	}
 
 	// 关键字搜索（实例名称）
 	if req.Keyword != "" {

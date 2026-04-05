@@ -6,6 +6,7 @@ export const useFeatureStore = defineStore('feature', () => {
   const kycEnabled = ref(false)
   const domainEnabled = ref(false)
   const oauth2Enabled = ref(false)
+  const checkinEnabled = ref(false)
   const loaded = ref(false)
 
   async function fetchFeatureFlags() {
@@ -15,6 +16,7 @@ export const useFeatureStore = defineStore('feature', () => {
         kycEnabled.value = !!res.data.kycEnabled
         domainEnabled.value = !!res.data.domainEnabled
         oauth2Enabled.value = !!res.data.oauth2Enabled
+        checkinEnabled.value = !!res.data.checkinEnabled
       }
     } catch (e) {
       console.warn('Failed to fetch feature flags:', e)
@@ -28,5 +30,5 @@ export const useFeatureStore = defineStore('feature', () => {
     await fetchFeatureFlags()
   }
 
-  return { kycEnabled, domainEnabled, oauth2Enabled, loaded, fetchFeatureFlags, refresh }
+  return { kycEnabled, domainEnabled, oauth2Enabled, checkinEnabled, loaded, fetchFeatureFlags, refresh }
 })

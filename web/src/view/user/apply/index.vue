@@ -48,7 +48,92 @@
           <span>{{ t('user.apply.selectProvider') }}</span>
         </div>
       </template>
-      <div class="providers-grid">
+      <el-tabs v-if="providerGroups.length > 1" v-model="activeGroupTab" type="border-card">
+        <el-tab-pane
+          v-for="group in providerGroups"
+          :key="group.name"
+          :label="group.name || t('user.apply.defaultGroup')"
+          :name="group.name"
+        >
+          <div v-if="group.description" class="group-description" v-html="group.description" />
+          <div class="providers-grid">
+            <div 
+              v-for="provider in group.providers" 
+              :key="provider.id"
+              class="provider-card"
+              :class="{ 
+                'selected': selectedProvider?.id === provider.id,
+                'active': provider.status === 'active',
+                'offline': provider.status === 'offline' || provider.status === 'inactive',
+                'partial': provider.status === 'partial'
+              }"
+              @click="selectProvider(provider)"
+            >
+              <div class="provider-header">
+                <h3>{{ provider.name }}</h3>
+                <el-tag 
+                  :type="getProviderStatusType(provider.status)"
+                  size="small"
+                >
+                  {{ getProviderStatusText(provider.status) }}
+                </el-tag>
+              </div>
+              <div class="provider-info">
+                <div class="info-item">
+                  <span class="location-info">
+                    <span
+                      v-if="provider.countryCode"
+                      class="flag-icon"
+                    >{{ getFlagEmoji(provider.countryCode) }}</span>
+                    {{ t('user.apply.location') }}: {{ formatProviderLocation(provider) }}
+                  </span>
+                </div>
+                <div class="info-item">
+                  <span>CPU: {{ provider.cpu }}{{ t('user.apply.cores') }}</span>
+                </div>
+                <div class="info-item">
+                  <span>{{ t('user.apply.memoryLimit') }}: {{ formatMemorySize(provider.memory || 0) }}</span>
+                </div>
+                <div class="info-item">
+                  <span>{{ t('user.apply.diskLimit') }}: {{ formatDiskSize(provider.disk || 0) }}</span>
+                </div>
+                <div 
+                  v-if="provider.containerEnabled && provider.vmEnabled"
+                  class="info-item"
+                >
+                  <span>
+                    {{ t('user.apply.availableInstances') }}: 
+                    {{ t('user.apply.container') }}{{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }} / 
+                    {{ t('user.apply.vm') }}{{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}
+                  </span>
+                </div>
+                <div 
+                  v-else-if="provider.containerEnabled"
+                  class="info-item"
+                >
+                  <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableContainerSlots === -1 ? t('user.apply.unlimited') : provider.availableContainerSlots }}</span>
+                </div>
+                <div 
+                  v-else-if="provider.vmEnabled"
+                  class="info-item"
+                >
+                  <span>{{ t('user.apply.availableInstances') }}: {{ provider.availableVMSlots === -1 ? t('user.apply.unlimited') : provider.availableVMSlots }}</span>
+                </div>
+                <div class="info-item">
+                  <el-link
+                    type="primary"
+                    :underline="false"
+                    @click.stop="viewHardwareReport(provider.id)"
+                  >
+                    {{ t('user.apply.viewHardwareReport') }}
+                  </el-link>
+                </div>
+              </div>
+            </div>
+          </div>
+        </el-tab-pane>
+      </el-tabs>
+      <div v-else class="providers-grid">
         <div 
           v-for="provider in providers" 
           :key="provider.id"
@@ -391,7 +476,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, watch, onActivated, onUnmounted } from 'vue'
+import { ref, computed, onMounted, watch, onActivated, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
@@ -429,6 +514,30 @@ const {
 const hardwareReportDialogVisible = ref(false)
 const hardwareReportLoading = ref(false)
 const hardwareReportText = ref('')
+
+// Provider group tabs
+const activeGroupTab = ref('')
+const providerGroups = computed(() => {
+  const groupMap = new Map()
+  for (const p of providers.value) {
+    const key = p.groupName || ''
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { name: key, description: p.groupDescription || '', providers: [] })
+    }
+    groupMap.get(key).providers.push(p)
+  }
+  const groups = Array.from(groupMap.values())
+  // Put the default group (empty name) first
+  groups.sort((a, b) => {
+    if (a.name === '') return -1
+    if (b.name === '') return 1
+    return a.name.localeCompare(b.name)
+  })
+  if (groups.length > 0 && !activeGroupTab.value) {
+    activeGroupTab.value = groups[0].name
+  }
+  return groups
+})
 
 const viewHardwareReport = async (providerId) => {
   hardwareReportDialogVisible.value = true
@@ -529,8 +638,8 @@ watch(() => configForm.imageId, (newImageId, oldImageId) => {
 })
 
 // 监听 Provider 选择变化，重新验证规格
-watch(() => selectedProvider.value?.type, (newProviderType, oldProviderType) => {
-  if (newProviderType !== oldProviderType && configForm.imageId) {
+watch(() => selectedProvider.value?.id, (newProviderId, oldProviderId) => {
+  if (newProviderId !== oldProviderId && oldProviderId && configForm.imageId) {
     const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
     if (selectedImage && selectedImage.minDiskMB) {
       const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
@@ -789,6 +898,16 @@ onUnmounted(() => {
 
 .loading-container {
   padding: 24px;
+}
+
+.group-description {
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  background: var(--neutral-bg, #f5f7fa);
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-color-secondary);
 }
 
 .hardware-report-content {

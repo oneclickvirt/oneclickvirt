@@ -92,38 +92,72 @@ func (s *Service) executeHardwareTest(ctx context.Context, providerID uint, repo
 	}
 
 	// 下载并执行ECS (使用GitHub release)
+	// 使用 -m 1 非交互模式，timeout 900秒（15分钟）
+	// 先下载，再后台执行并写入临时文件，避免SSH会话超时限制
 	downloadCmd := fmt.Sprintf(
 		"mkdir -p /tmp/ecs_test && cd /tmp/ecs_test && "+
 			"curl -sL \"https://github.com/oneclickvirt/ecs/releases/latest/download/goecs_linux_%s.zip\" -o goecs.zip && "+
-			"unzip -o goecs.zip && chmod +x goecs && "+
-			"echo \"1\" | timeout 1800 ./goecs 2>&1; "+
-			"rm -rf /tmp/ecs_test",
+			"unzip -o goecs.zip && chmod +x goecs",
 		ecsArch)
 
-	output, err := p.ExecuteSSHCommand(ctx, downloadCmd)
+	startTestCmd := "cd /tmp/ecs_test && nohup sh -c 'timeout 900 ./goecs -m 1 > /tmp/ecs_test/result.txt 2>&1; echo ECS_DONE >> /tmp/ecs_test/result.txt' &"
+
+	// Step 1: Download ECS binary
+	_, err = p.ExecuteSSHCommand(ctx, downloadCmd)
 	if err != nil {
-		// 即使命令返回非零退出码，输出可能仍然有价值
-		if output != "" {
-			now := time.Now()
-			global.APP_DB.Model(report).Updates(map[string]interface{}{
-				"status":      "completed",
-				"report_text": output,
-				"tested_at":   &now,
-				"error_msg":   fmt.Sprintf("测试完成但有警告: %v", err),
-			})
-			return
-		}
-		s.failReport(report, fmt.Sprintf("执行ECS测试失败: %v", err))
+		s.failReport(report, fmt.Sprintf("下载ECS测试工具失败: %v", err))
 		return
 	}
 
-	now := time.Now()
-	global.APP_DB.Model(report).Updates(map[string]interface{}{
-		"status":      "completed",
-		"report_text": output,
-		"tested_at":   &now,
-		"error_msg":   "",
-	})
+	// Step 2: Start test in background
+	_, err = p.ExecuteSSHCommand(ctx, startTestCmd)
+	if err != nil {
+		global.APP_LOG.Warn("启动ECS后台测试返回错误，尝试继续轮询",
+			zap.Error(err))
+	}
+
+	// Step 3: Poll for result file completion (check every 30s, max 16 minutes)
+	readResultCmd := "cat /tmp/ecs_test/result.txt 2>/dev/null"
+	checkDoneCmd := "grep -c 'ECS_DONE' /tmp/ecs_test/result.txt 2>/dev/null || echo 0"
+	var output string
+	maxWait := 16 * time.Minute
+	pollInterval := 30 * time.Second
+	deadline := time.Now().Add(maxWait)
+
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+		doneCheck, checkErr := p.ExecuteSSHCommand(ctx, checkDoneCmd)
+		if checkErr != nil {
+			global.APP_LOG.Debug("轮询ECS测试结果失败", zap.Error(checkErr))
+			continue
+		}
+		if strings.TrimSpace(doneCheck) != "0" {
+			// Test completed, read result
+			output, err = p.ExecuteSSHCommand(ctx, readResultCmd)
+			break
+		}
+	}
+
+	if output == "" {
+		// Try one last read before cleanup
+		output, _ = p.ExecuteSSHCommand(ctx, readResultCmd)
+	}
+
+	// Cleanup
+	_, _ = p.ExecuteSSHCommand(ctx, "rm -rf /tmp/ecs_test")
+
+	if output != "" {
+		now := time.Now()
+		global.APP_DB.Model(report).Updates(map[string]interface{}{
+			"status":      "completed",
+			"report_text": output,
+			"tested_at":   &now,
+			"error_msg":   "",
+		})
+	} else {
+		s.failReport(report, "ECS测试未产生输出或超时")
+		return
+	}
 
 	global.APP_LOG.Info("硬件测试完成",
 		zap.Uint("providerId", report.ProviderID),

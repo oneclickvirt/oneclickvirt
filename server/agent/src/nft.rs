@@ -865,45 +865,41 @@ pub fn bootstrap_from_db(conn: &Connection) -> Result<(), ApiError> {
     Ok(())
 }
 
-// ---- Block Rules (abuse blocking via iptables string match) ----
+// ---- Block Rules (abuse blocking via nft) ----
 
-const BLOCK_CHAIN: &str = "ABUSE_BLOCK";
+const BLOCK_TABLE: &str = "abuse_block";
+const BLOCK_FAMILY: &str = "inet";
+const BLOCK_CHAIN_OUTPUT: &str = "block_output";
+const BLOCK_CHAIN_FORWARD: &str = "block_forward";
 const BLOCK_RULES_FILE: &str = "/opt/oneclickvirt/agent/block_rules.json";
 
-fn run_cmd(program: &str, args: &[&str]) -> Result<std::process::Output, ApiError> {
-    Command::new(program)
-        .args(args)
-        .output()
-        .map_err(|e| ApiError::internal(format!("failed to run {program} {args:?}: {e}")))
+/// Ensure the abuse_block nft table and chains exist.
+fn ensure_block_table() -> Result<(), ApiError> {
+    let script = format!(
+        "add table {BLOCK_FAMILY} {BLOCK_TABLE}\n\
+         add chain {BLOCK_FAMILY} {BLOCK_TABLE} {BLOCK_CHAIN_OUTPUT} {{ type filter hook output priority 0; policy accept; }}\n\
+         add chain {BLOCK_FAMILY} {BLOCK_TABLE} {BLOCK_CHAIN_FORWARD} {{ type filter hook forward priority 0; policy accept; }}\n"
+    );
+    run_nft_script(&script)
 }
 
-fn has_command(cmd: &str) -> bool {
-    Command::new(cmd).arg("--version").output().map(|o| o.status.success()).unwrap_or(false)
+/// Flush all rules in the block chains.
+fn flush_block_chains() -> Result<(), ApiError> {
+    let script = format!(
+        "flush chain {BLOCK_FAMILY} {BLOCK_TABLE} {BLOCK_CHAIN_OUTPUT}\n\
+         flush chain {BLOCK_FAMILY} {BLOCK_TABLE} {BLOCK_CHAIN_FORWARD}\n"
+    );
+    run_nft_script(&script)
 }
 
-/// Ensure the ABUSE_BLOCK chain exists and is jumped to from OUTPUT.
-fn ensure_block_chain(ipt: &str) -> Result<(), ApiError> {
-    // Create chain (ignore error if exists)
-    let _ = run_cmd(ipt, &["-N", BLOCK_CHAIN]);
-    // Check if jump already exists in OUTPUT
-    let out = run_cmd(ipt, &["-C", "OUTPUT", "-j", BLOCK_CHAIN])?;
-    if !out.status.success() {
-        run_cmd(ipt, &["-I", "OUTPUT", "1", "-j", BLOCK_CHAIN])?;
-    }
-    // Also hook into FORWARD for container/VM traffic
-    let out = run_cmd(ipt, &["-C", "FORWARD", "-j", BLOCK_CHAIN])?;
-    if !out.status.success() {
-        run_cmd(ipt, &["-I", "FORWARD", "1", "-j", BLOCK_CHAIN])?;
-    }
-    Ok(())
+/// Remove the entire abuse_block table.
+fn remove_block_table() {
+    let _ = run_nft(&["delete", "table", BLOCK_FAMILY, BLOCK_TABLE]);
 }
 
-/// Flush and remove the ABUSE_BLOCK chain.
-fn remove_block_chain(ipt: &str) {
-    let _ = run_cmd(ipt, &["-D", "OUTPUT", "-j", BLOCK_CHAIN]);
-    let _ = run_cmd(ipt, &["-D", "FORWARD", "-j", BLOCK_CHAIN]);
-    let _ = run_cmd(ipt, &["-F", BLOCK_CHAIN]);
-    let _ = run_cmd(ipt, &["-X", BLOCK_CHAIN]);
+/// Convert a string to its hex representation for nft raw payload matching.
+fn string_to_hex(s: &str) -> String {
+    s.as_bytes().iter().map(|b| format!("{b:02x}").to_string()).collect::<String>()
 }
 
 /// Persisted block rules state including ip_version
@@ -913,47 +909,50 @@ struct PersistedBlockRules {
     ip_version: String,
 }
 
-/// Apply string-match block rules using iptables/ip6tables.
+/// Apply string-match block rules using nft.
+/// Uses nft raw payload matching at the start of transport payload.
+/// For TCP: matches at offset 160 bits (20-byte header, no options).
+/// For UDP: matches at offset 64 bits (8-byte header).
 /// ip_version: "both" (default), "ipv4", "ipv6"
 pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, ApiError> {
     if strings.is_empty() {
         return Ok(0);
     }
 
-    let apply_v4 = ip_version != "ipv6" && has_command("iptables");
-    let apply_v6 = ip_version != "ipv4" && has_command("ip6tables");
+    ensure_block_table()?;
+    flush_block_chains()?;
 
-    if apply_v4 {
-        ensure_block_chain("iptables")?;
-        run_cmd("iptables", &["-F", BLOCK_CHAIN])?;
-        for s in strings {
-            if s.is_empty() { continue; }
-            let _ = run_cmd("iptables", &[
-                "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
-            ]);
-            let _ = run_cmd("iptables", &[
-                "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
-            ]);
+    let mut script = String::new();
+    for s in strings {
+        if s.is_empty() { continue; }
+        // Limit to reasonable pattern length (max 128 bytes)
+        if s.len() > 128 { continue; }
+
+        let hex_str = string_to_hex(s);
+        let bit_len = s.len() * 8;
+
+        // Build match expressions for the relevant IP versions
+        let family_filter = match ip_version {
+            "ipv4" => "meta nfproto ipv4 ",
+            "ipv6" => "meta nfproto ipv6 ",
+            _ => "", // "both" - no filter
+        };
+
+        // For each chain, add rules for both TCP (payload at th+160) and UDP (payload at th+64)
+        for chain in [BLOCK_CHAIN_OUTPUT, BLOCK_CHAIN_FORWARD] {
+            // TCP: standard 20-byte header, payload starts at bit 160
+            script.push_str(&format!(
+                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto tcp @th,160,{bit_len} 0x{hex_str} counter drop\n"
+            ));
+            // UDP: 8-byte header, payload starts at bit 64
+            script.push_str(&format!(
+                "add rule {BLOCK_FAMILY} {BLOCK_TABLE} {chain} {family_filter}meta l4proto udp @th,64,{bit_len} 0x{hex_str} counter drop\n"
+            ));
         }
-    } else if has_command("iptables") {
-        // If not applying to v4, remove existing v4 blocks
-        remove_block_chain("iptables");
     }
 
-    if apply_v6 {
-        ensure_block_chain("ip6tables")?;
-        run_cmd("ip6tables", &["-F", BLOCK_CHAIN])?;
-        for s in strings {
-            if s.is_empty() { continue; }
-            let _ = run_cmd("ip6tables", &[
-                "-A", BLOCK_CHAIN, "-p", "tcp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
-            ]);
-            let _ = run_cmd("ip6tables", &[
-                "-A", BLOCK_CHAIN, "-p", "udp", "-m", "string", "--string", s, "--algo", "bm", "-j", "DROP",
-            ]);
-        }
-    } else if has_command("ip6tables") {
-        remove_block_chain("ip6tables");
+    if !script.is_empty() {
+        run_nft_script(&script)?;
     }
 
     // Persist for restart recovery
@@ -966,18 +965,13 @@ pub fn apply_block_rules(strings: &[String], ip_version: &str) -> Result<usize, 
     }
 
     let count = strings.iter().filter(|s| !s.is_empty()).count();
-    info!(count, ip_version, "applied abuse block rules via iptables");
+    info!(count, ip_version, "applied abuse block rules via nft");
     Ok(count)
 }
 
 /// Remove all block rules.
 pub fn remove_block_rules() -> Result<(), ApiError> {
-    if has_command("iptables") {
-        remove_block_chain("iptables");
-    }
-    if has_command("ip6tables") {
-        remove_block_chain("ip6tables");
-    }
+    remove_block_table();
     let _ = fs::remove_file(Path::new(BLOCK_RULES_FILE));
     info!("removed abuse block rules");
     Ok(())

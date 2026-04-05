@@ -242,8 +242,9 @@ type Provider struct {
 	HostName string `json:"hostName" gorm:"size:128"` // 节点主机名（hostname），由健康检查自动更新
 
 	// 普通管理员归属
-	OwnerAdminID uint   `json:"ownerAdminId" gorm:"default:0;index:idx_owner_admin"` // 归属普通管理员ID(0=超级管理员)
-	GroupName    string `json:"groupName" gorm:"size:64"`                            // 分组名称(普通管理员可自定义)
+	OwnerAdminID     uint   `json:"ownerAdminId" gorm:"default:0;index:idx_owner_admin"` // 归属普通管理员ID(0=超级管理员)
+	GroupName        string `json:"groupName" gorm:"size:64"`                            // 分组名称(普通管理员可自定义)
+	GroupDescription string `json:"groupDescription" gorm:"type:text"`                   // 分组描述(支持富文本HTML)
 
 	// 域名绑定开关（高级配置）
 	EnableDomainBinding bool `json:"enableDomainBinding" gorm:"default:false"` // 是否启用域名绑定功能

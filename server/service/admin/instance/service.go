@@ -46,13 +46,25 @@ func (s *Service) GetInstanceByID(instanceID uint) (*providerModel.Instance, err
 }
 
 // GetInstanceList 获取实例列表
-func (s *Service) GetInstanceList(req admin.InstanceListRequest) ([]admin.InstanceManageResponse, int64, error) {
+func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID uint) ([]admin.InstanceManageResponse, int64, error) {
 	var instances []providerModel.Instance
 	var total int64
 
 	// 管理员查看所有实例，不限制user_id
 	query := global.APP_DB.Model(&providerModel.Instance{})
-
+	// 普通管理员数据隔离：只能看到归属自己的Provider下的实例
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(providerIDs) == 0 {
+			return []admin.InstanceManageResponse{}, 0, nil
+		}
+		query = query.Where("provider_id IN ?", providerIDs)
+	}
 	// 使用索引友好的查询条件
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")

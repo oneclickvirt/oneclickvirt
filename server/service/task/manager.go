@@ -393,12 +393,26 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 }
 
 // GetAdminTasks 获取管理员任务列表
-func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest) ([]adminModel.AdminTaskResponse, int64, error) {
+func (s *TaskService) GetAdminTasks(req adminModel.AdminTaskListRequest, ownerAdminID uint) ([]adminModel.AdminTaskResponse, int64, error) {
 	var tasks []adminModel.Task
 	var total int64
 
 	// 构建查询 - 不使用事务包装
 	query := global.APP_DB.Model(&adminModel.Task{})
+
+	// 普通管理员数据隔离：只能看到归属自己的Provider的任务
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(providerIDs) == 0 {
+			return []adminModel.AdminTaskResponse{}, 0, nil
+		}
+		query = query.Where("tasks.provider_id IN ?", providerIDs)
+	}
 
 	// 应用筛选条件
 	if req.ProviderID != 0 {

@@ -98,6 +98,17 @@
                 </el-form-item>
               </el-col>
             </el-row>
+
+            <el-row :gutter="20">
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.checkinFeature')">
+                  <el-switch v-model="config.auth.enableCheckin" />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.checkinFeatureHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
+            </el-row>
           </el-form>
         </el-tab-pane>
 
@@ -731,6 +742,7 @@ const config = ref({
     enablePublicRegistration: false, // 是否启用公开注册
     enableKYC: false, // 是否启用KYC实名认证
     enableDomain: false, // 是否启用域名绑定
+    enableCheckin: false, // 是否启用签到续期
     emailSMTPHost: '',
     emailSMTPPort: 587,
     emailUsername: '',

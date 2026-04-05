@@ -12,27 +12,70 @@ import (
 type AdminDashboardService struct{}
 
 // GetAdminDashboard 获取管理员仪表板数据
-func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardResponse, error) {
+func (s *AdminDashboardService) GetAdminDashboard(ownerAdminID uint) (*admin.AdminDashboardResponse, error) {
 	dashboard := &admin.AdminDashboardResponse{}
 
 	var totalUsers, activeUsers, totalVMs, totalContainers, totalProviders, activeProviders int64
 
-	// 统计用户
-	global.APP_DB.Model(&userModel.User{}).Count(&totalUsers)
-	global.APP_DB.Model(&userModel.User{}).Where("status = ?", 1).Count(&activeUsers)
+	// 统计用户（仅超管看到用户统计）
+	if ownerAdminID == 0 {
+		global.APP_DB.Model(&userModel.User{}).Count(&totalUsers)
+		global.APP_DB.Model(&userModel.User{}).Where("status = ?", 1).Count(&activeUsers)
+	}
 
-	// 统计虚拟机和容器（排除deleted、deleting、failed状态）
-	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ? AND status NOT IN (?)", "vm", []string{"deleted", "deleting", "failed"}).Count(&totalVMs)
-	global.APP_DB.Model(&providerModel.Instance{}).Where("instance_type = ? AND status NOT IN (?)", "container", []string{"deleted", "deleting", "failed"}).Count(&totalContainers)
+	// 构建Provider过滤条件
+	providerQuery := global.APP_DB.Model(&providerModel.Provider{})
+	if ownerAdminID > 0 {
+		providerQuery = providerQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
 
-	// 统计服务器 (Provider表)
-	global.APP_DB.Model(&providerModel.Provider{}).Count(&totalProviders)
-	// 统计活跃Provider（包括 active 和 partial 状态，因为它们都可以被用户使用）
-	global.APP_DB.Model(&providerModel.Provider{}).Where("status = ? OR status = ?", "active", "partial").Count(&activeProviders)
+	// 统计Provider
+	providerQuery.Count(&totalProviders)
+	providerActiveQuery := global.APP_DB.Model(&providerModel.Provider{}).Where("status = ? OR status = ?", "active", "partial")
+	if ownerAdminID > 0 {
+		providerActiveQuery = providerActiveQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	providerActiveQuery.Count(&activeProviders)
+
+	// 统计实例
+	instanceQuery := global.APP_DB.Model(&providerModel.Instance{})
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		global.APP_DB.Model(&providerModel.Provider{}).Where("owner_admin_id = ?", ownerAdminID).Pluck("id", &providerIDs)
+		if len(providerIDs) > 0 {
+			instanceQuery = instanceQuery.Where("provider_id IN ?", providerIDs)
+		} else {
+			instanceQuery = instanceQuery.Where("1 = 0") // no results
+		}
+	}
+
+	instanceQuery.Where("instance_type = ? AND status NOT IN (?)", "vm", []string{"deleted", "deleting", "failed"}).Count(&totalVMs)
+	// Need a fresh query for containers
+	instanceQuery2 := global.APP_DB.Model(&providerModel.Instance{})
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		global.APP_DB.Model(&providerModel.Provider{}).Where("owner_admin_id = ?", ownerAdminID).Pluck("id", &providerIDs)
+		if len(providerIDs) > 0 {
+			instanceQuery2 = instanceQuery2.Where("provider_id IN ?", providerIDs)
+		} else {
+			instanceQuery2 = instanceQuery2.Where("1 = 0")
+		}
+	}
+	instanceQuery2.Where("instance_type = ? AND status NOT IN (?)", "container", []string{"deleted", "deleting", "failed"}).Count(&totalContainers)
 
 	// 统计运行中的实例
 	var runningInstances int64
-	global.APP_DB.Model(&providerModel.Instance{}).Where("status = ?", "running").Count(&runningInstances)
+	runningQuery := global.APP_DB.Model(&providerModel.Instance{}).Where("status = ?", "running")
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		global.APP_DB.Model(&providerModel.Provider{}).Where("owner_admin_id = ?", ownerAdminID).Pluck("id", &providerIDs)
+		if len(providerIDs) > 0 {
+			runningQuery = runningQuery.Where("provider_id IN ?", providerIDs)
+		} else {
+			runningQuery = runningQuery.Where("1 = 0")
+		}
+	}
+	runningQuery.Count(&runningInstances)
 
 	// 返回前端需要的字段名
 	dashboard.Statistics.TotalUsers = int(totalUsers)
@@ -65,7 +108,11 @@ func (s *AdminDashboardService) GetAdminDashboard() (*admin.AdminDashboardRespon
 		TotalDisk     int64
 		UsedDisk      int64
 	}
-	global.APP_DB.Model(&providerModel.Provider{}).
+	resourceQuery := global.APP_DB.Model(&providerModel.Provider{})
+	if ownerAdminID > 0 {
+		resourceQuery = resourceQuery.Where("owner_admin_id = ?", ownerAdminID)
+	}
+	resourceQuery.
 		Select("COALESCE(SUM(node_cpu_cores), 0) as total_cpu_cores, COALESCE(SUM(used_cpu_cores), 0) as used_cpu_cores, COALESCE(SUM(node_memory_total), 0) as total_memory, COALESCE(SUM(used_memory), 0) as used_memory, COALESCE(SUM(node_disk_total), 0) as total_disk, COALESCE(SUM(used_disk), 0) as used_disk").
 		Scan(&resourceStats)
 	dashboard.ResourceUsage.TotalCPUCores = resourceStats.TotalCPUCores

@@ -33,11 +33,25 @@ func NewService(taskService interfaces.TaskServiceInterface) *Service {
 }
 
 // GetList 获取兑换码列表（分页+筛选）
-func (s *Service) GetList(req adminModel.RedemptionCodeListRequest) ([]adminModel.RedemptionCodeResponse, int64, error) {
+func (s *Service) GetList(req adminModel.RedemptionCodeListRequest, ownerAdminID uint) ([]adminModel.RedemptionCodeResponse, int64, error) {
 	var codes []systemModel.RedemptionCode
 	var total int64
 
 	query := global.APP_DB.Model(&systemModel.RedemptionCode{})
+
+	// 普通管理员数据隔离：只能看到归属自己的Provider的兑换码
+	if ownerAdminID > 0 {
+		var providerIDs []uint
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("owner_admin_id = ?", ownerAdminID).
+			Pluck("id", &providerIDs).Error; err != nil {
+			return nil, 0, err
+		}
+		if len(providerIDs) == 0 {
+			return []adminModel.RedemptionCodeResponse{}, 0, nil
+		}
+		query = query.Where("provider_id IN ?", providerIDs)
+	}
 
 	if req.Code != "" {
 		query = query.Where("code LIKE ?", "%"+req.Code+"%")
@@ -85,22 +99,51 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest) ([]adminMode
 		}
 	}
 
+	// 批量查询关联实例名称，避免 N+1
+	instanceIDSet := make(map[uint]bool)
+	for _, c := range codes {
+		if c.InstanceID != nil && *c.InstanceID != 0 {
+			instanceIDSet[*c.InstanceID] = true
+		}
+	}
+	instanceIDs := make([]uint, 0, len(instanceIDSet))
+	for id := range instanceIDSet {
+		instanceIDs = append(instanceIDs, id)
+	}
+
+	instanceNameMap := make(map[uint]string)
+	if len(instanceIDs) > 0 {
+		var instances []providerModel.Instance
+		if err := global.APP_DB.Select("id, name").Where("id IN ?", instanceIDs).Limit(500).Find(&instances).Error; err != nil {
+			global.APP_LOG.Warn("查询兑换码关联实例名称失败",
+				zap.Error(err),
+				zap.Int("instanceCount", len(instanceIDs)))
+		} else {
+			for _, inst := range instances {
+				instanceNameMap[inst.ID] = inst.Name
+			}
+		}
+	}
+
 	result := make([]adminModel.RedemptionCodeResponse, 0, len(codes))
 	for _, c := range codes {
 		resp := adminModel.RedemptionCodeResponse{
 			RedemptionCode: c,
 			CreatedByUser:  userMap[c.CreatedBy],
 		}
-		if spec, err := constant.GetCPUSpecByID(c.CPUId); err == nil {
+		if c.InstanceID != nil && *c.InstanceID != 0 {
+			resp.InstanceName = instanceNameMap[*c.InstanceID]
+		}
+		if spec, err := constant.GetCPUSpecByID(c.CPUId); err == nil && spec != nil {
 			resp.CPUName = spec.Name
 		}
-		if spec, err := constant.GetMemorySpecByID(c.MemoryId); err == nil {
+		if spec, err := constant.GetMemorySpecByID(c.MemoryId); err == nil && spec != nil {
 			resp.MemoryName = spec.Name
 		}
-		if spec, err := constant.GetDiskSpecByID(c.DiskId); err == nil {
+		if spec, err := constant.GetDiskSpecByID(c.DiskId); err == nil && spec != nil {
 			resp.DiskName = spec.Name
 		}
-		if spec, err := constant.GetBandwidthSpecByID(c.BandwidthId); err == nil {
+		if spec, err := constant.GetBandwidthSpecByID(c.BandwidthId); err == nil && spec != nil {
 			resp.BandwidthName = spec.Name
 		}
 		result = append(result, resp)
@@ -365,8 +408,8 @@ func (s *Service) BatchDelete(ids []uint, adminID uint) error {
 	return nil
 }
 
-// ExportByIDs 导出指定 ID 的兑换码字符串
-func (s *Service) ExportByIDs(ids []uint) ([]string, error) {
+// ExportByIDs 导出指定 ID 的兑换码详细信息
+func (s *Service) ExportByIDs(ids []uint) ([]adminModel.RedemptionCodeResponse, error) {
 	var codes []systemModel.RedemptionCode
 	query := global.APP_DB.Model(&systemModel.RedemptionCode{})
 	if len(ids) > 0 {
@@ -376,9 +419,48 @@ func (s *Service) ExportByIDs(ids []uint) ([]string, error) {
 		return nil, err
 	}
 
-	result := make([]string, 0, len(codes))
+	// 批量查询实例名称
+	instanceIDSet := make(map[uint]bool)
 	for _, c := range codes {
-		result = append(result, c.Code)
+		if c.InstanceID != nil && *c.InstanceID != 0 {
+			instanceIDSet[*c.InstanceID] = true
+		}
+	}
+	instanceIDs := make([]uint, 0, len(instanceIDSet))
+	for id := range instanceIDSet {
+		instanceIDs = append(instanceIDs, id)
+	}
+	instanceNameMap := make(map[uint]string)
+	if len(instanceIDs) > 0 {
+		var instances []providerModel.Instance
+		if err := global.APP_DB.Select("id, name").Where("id IN ?", instanceIDs).Limit(500).Find(&instances).Error; err == nil {
+			for _, inst := range instances {
+				instanceNameMap[inst.ID] = inst.Name
+			}
+		}
+	}
+
+	result := make([]adminModel.RedemptionCodeResponse, 0, len(codes))
+	for _, c := range codes {
+		resp := adminModel.RedemptionCodeResponse{
+			RedemptionCode: c,
+		}
+		if c.InstanceID != nil && *c.InstanceID != 0 {
+			resp.InstanceName = instanceNameMap[*c.InstanceID]
+		}
+		if spec, err := constant.GetCPUSpecByID(c.CPUId); err == nil && spec != nil {
+			resp.CPUName = spec.Name
+		}
+		if spec, err := constant.GetMemorySpecByID(c.MemoryId); err == nil && spec != nil {
+			resp.MemoryName = spec.Name
+		}
+		if spec, err := constant.GetDiskSpecByID(c.DiskId); err == nil && spec != nil {
+			resp.DiskName = spec.Name
+		}
+		if spec, err := constant.GetBandwidthSpecByID(c.BandwidthId); err == nil && spec != nil {
+			resp.BandwidthName = spec.Name
+		}
+		result = append(result, resp)
 	}
 	return result, nil
 }

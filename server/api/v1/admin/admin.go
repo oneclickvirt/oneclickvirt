@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"oneclickvirt/middleware"
 	"oneclickvirt/service/provider"
 	"strconv"
 
@@ -30,7 +31,7 @@ import (
 func GetAdminDashboard(c *gin.Context) {
 	global.APP_LOG.Debug("管理员获取仪表板数据", zap.String("admin_ip", c.ClientIP()))
 	dashboardService := &resources.AdminDashboardService{}
-	dashboard, err := dashboardService.GetAdminDashboard()
+	dashboard, err := dashboardService.GetAdminDashboard(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取管理员仪表板失败", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取管理员首页数据失败"))
@@ -71,7 +72,7 @@ func GetInstanceList(c *gin.Context) {
 	}
 
 	instanceService := instance.NewService(task.GetTaskService())
-	instances, total, err := instanceService.GetInstanceList(req)
+	instances, total, err := instanceService.GetInstanceList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 500,

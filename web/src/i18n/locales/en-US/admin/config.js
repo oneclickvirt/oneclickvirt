@@ -28,6 +28,8 @@ export default {
   kycFeatureHint: "When enabled, KYC identity verification feature is visible to users",
   domainFeature: "Domain Binding",
   domainFeatureHint: "When enabled, domain binding feature is visible to users",
+  checkinFeature: "Check-in Renewal",
+  checkinFeatureHint: "When enabled, users can use the check-in renewal feature (disabled by default)",
   emailConfig: "Email Configuration",
   smtpConfigDesc: "SMTP Email Server Configuration",
   smtpConfigHint: "Used to send verification emails, password reset emails, and other system emails",

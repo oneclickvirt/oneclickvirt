@@ -373,10 +373,10 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     Object.assign(configForm, {
       type: 'container',
       imageId: '',
-      cpu: 1,
-      memory: 512,
-      disk: 20,
-      bandwidth: 100,
+      cpuId: '',
+      memoryId: '',
+      diskId: '',
+      bandwidthId: '',
       description: ''
     })
     if (selectedProvider.value) await loadFilteredImages()

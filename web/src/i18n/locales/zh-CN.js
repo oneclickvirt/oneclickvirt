@@ -53,6 +53,7 @@ import adminLogs from './zh-CN/admin/logs.js'
 import adminBlockRules from './zh-CN/admin/blockRules.js'
 import adminDomain from './zh-CN/admin/domain.js'
 import adminKyc from './zh-CN/admin/kyc.js'
+import adminGroup from './zh-CN/admin/group.js'
 
 export default {
   common,
@@ -98,7 +99,8 @@ export default {
     logs: adminLogs,
     blockRules: adminBlockRules,
     domain: adminDomain,
-    kyc: adminKyc
+    kyc: adminKyc,
+    group: adminGroup
   },
   validation,
   message,

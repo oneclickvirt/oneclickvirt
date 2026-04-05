@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"oneclickvirt/middleware"
 	"oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 	"strconv"
@@ -53,7 +54,7 @@ func GetProviderList(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	providers, total, err := providerService.GetProviderList(req)
+	providers, total, err := providerService.GetProviderList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 500,
@@ -96,7 +97,7 @@ func CreateProvider(c *gin.Context) {
 	}
 
 	providerService := adminProvider.NewService()
-	err := providerService.CreateProvider(req)
+	err := providerService.CreateProvider(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 500,
@@ -136,6 +137,15 @@ func UpdateProvider(c *gin.Context) {
 	// 设置ID从URL参数
 	req.ID = uint(id)
 
+	// 普通管理员权限检查
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(req.ID, ownerAdminID); err != nil {
+			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "无权操作该Provider"})
+			return
+		}
+	}
+
 	providerService := adminProvider.NewService()
 	if err := providerService.UpdateProvider(req); err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
@@ -171,6 +181,15 @@ func DeleteProvider(c *gin.Context) {
 
 	// 获取force参数，用于强制删除离线节点
 	forceDelete := c.Query("force") == "true"
+
+	// 普通管理员权限检查
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "无权操作该Provider"})
+			return
+		}
+	}
 
 	providerService := adminProvider.NewService()
 	err = providerService.DeleteProvider(uint(providerID), forceDelete)

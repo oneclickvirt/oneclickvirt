@@ -22,6 +22,7 @@ export default {
   disk: 'Disk',
   bandwidth: 'Bandwidth',
   colCreatedBy: 'Created By',
+  colInstanceName: 'Instance Name',
   colCreatedAt: 'Created At',
   colRemark: 'Remark',
   colRedeemedAt: 'Redeemed At',

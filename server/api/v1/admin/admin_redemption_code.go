@@ -40,7 +40,7 @@ func GetRedemptionCodeList(c *gin.Context) {
 	}
 
 	svc := redemptionService.NewService(task.GetTaskService())
-	codes, total, err := svc.GetList(req)
+	codes, total, err := svc.GetList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "获取兑换码列表失败"})
 		return

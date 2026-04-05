@@ -95,6 +95,11 @@
           </template>
         </el-table-column>
         <el-table-column prop="createdByUser" :label="t('admin.redemptionCodes.colCreatedBy')" width="110" />
+        <el-table-column prop="instanceName" :label="t('admin.redemptionCodes.colInstanceName')" min-width="120">
+          <template #default="scope">
+            {{ scope.row.instanceName || '-' }}
+          </template>
+        </el-table-column>
         <el-table-column :label="t('admin.redemptionCodes.colCreatedAt')" width="160">
           <template #default="scope">
             {{ scope.row.createdAt ? new Date(scope.row.createdAt).toLocaleString() : '' }}
@@ -567,6 +572,15 @@ const submitCreate = async () => {
 }
 
 // ── 导出 ────────────────────────────────────────────────────
+const formatExportLine = (item) => {
+  const parts = [item.code]
+  const specs = [item.cpuName, item.memoryName, item.diskName, item.bandwidthName].filter(Boolean)
+  if (specs.length > 0) parts.push(specs.join(' / '))
+  if (item.instanceName) parts.push(item.instanceName)
+  if (item.providerName) parts.push(item.providerName)
+  return parts.join(' | ')
+}
+
 const handleExport = async () => {
   if (selectedRows.value.length === 0) {
     ElMessage.warning(t('admin.redemptionCodes.exportEmpty'))
@@ -575,7 +589,10 @@ const handleExport = async () => {
   try {
     const ids = selectedRows.value.map(r => r.id)
     const res = await exportRedemptionCodes({ ids })
-    exportedCodesText.value = (res.data?.codes || res.data || []).join('\n')
+    const codes = res.data?.codes || res.data || []
+    exportedCodesText.value = codes.map(item =>
+      typeof item === 'string' ? item : formatExportLine(item)
+    ).join('\n')
     showExportDialog.value = true
   } catch (e) {
     ElMessage.error(e?.response?.data?.msg || e.message)

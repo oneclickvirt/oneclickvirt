@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"oneclickvirt/middleware"
 	"oneclickvirt/service/task"
 	"strconv"
 
@@ -44,7 +45,7 @@ func GetAdminTasks(c *gin.Context) {
 	}
 
 	taskService := task.GetTaskService()
-	tasks, total, err := taskService.GetAdminTasks(req)
+	tasks, total, err := taskService.GetAdminTasks(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务列表失败"))
 		return

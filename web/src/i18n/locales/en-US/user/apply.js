@@ -9,6 +9,7 @@ export default {
   trafficLimit: "Traffic Limit",
   cores: " cores",
   selectProvider: "Select Server",
+  defaultGroup: "Default Group",
   refresh: "Refresh",
   dataRefreshed: "Data refreshed",
   refreshFailed: "Refresh failed, please try again later",

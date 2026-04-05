@@ -8,7 +8,7 @@
 
 - **双模式流量监控**：支持 nftables（nft）和 iptables（ipt）两种流量采集方式，通过环境变量切换
 - **资源采集**：支持 Docker/Podman/Containerd/LXD/Incus/Proxmox 六种虚拟化平台的实例资源监控
-- **内容过滤（Block Rules）**：基于 iptables string match 的出站流量内容过滤，支持挖矿、BT、测速等行为的阻断
+- **内容过滤（Block Rules）**：基于 nftables 原生规则的出站流量内容过滤，支持挖矿、BT、测速等行为的阻断
 - **Swagger API 文档**：内置 Swagger UI，方便 API 探索和调试
 - **数据持久化**：SQLite 本地存储，支持重启恢复
 
@@ -19,7 +19,7 @@
 - 流量监控依赖：
   - **nft 模式**（默认）：需要安装 nftables（`nft` 命令可用），内核 >= 3.14
   - **ipt 模式**：需要安装 iptables（`iptables` 命令可用）
-- 内容过滤依赖：需要 iptables + `xt_string` 内核模块（`iptables -m string` 支持）
+- 内容过滤依赖：需要 nftables（`nft` 命令可用）
 - Rust 1.75+（编译需要）
 
 ## 配置说明
@@ -88,7 +88,7 @@ src/
 ├── db.rs            # SQLite 数据库初始化和辅助函数
 ├── models.rs        # 请求/响应数据结构定义
 ├── handlers.rs      # API 路由处理函数
-├── nft.rs           # nftables 流量监控实现 + Block Rules（iptables string match）
+├── nft.rs           # nftables 流量监控实现 + Block Rules（nft 原生规则）
 ├── ipt.rs           # iptables 流量监控实现
 ├── collector.rs     # 后台定时采集任务（流量 + 资源）
 ├── resource.rs      # 多平台资源采集（Docker/Podman/Containerd/LXD/Incus/Proxmox）
@@ -176,23 +176,21 @@ src/
 
 ## 内容过滤（Block Rules）
 
-基于 iptables 的 `string` 模块实现出站流量内容过滤，用于阻止挖矿、BT 下载、测速等滥用行为。
+基于 nftables 原生规则实现出站流量内容过滤，用于阻止挖矿、BT 下载、测速等滥用行为。
 
 ### 工作原理
 
-1. 创建名为 `ABUSE_BLOCK` 的 iptables 自定义链
-2. 将该链插入到 `OUTPUT` 链的最前面
-3. 对每个需要过滤的字符串，在 TCP 和 UDP 协议上分别添加 `string --algo bm`（Boyer-Moore）匹配规则
-4. 匹配到的出站数据包将被 DROP
-5. 同时应用于 `iptables`（IPv4）和 `ip6tables`（IPv6）
+1. 创建独立的 nft 表 `inet abuse_block`，包含 `block_output` 和 `block_forward` 两个链
+2. 对每个需要过滤的字符串，转换为十六进制后通过 `@th` 原始载荷匹配
+3. 分别在 TCP（载荷偏移 160 位）和 UDP（载荷偏移 64 位）上添加匹配规则
+4. 匹配到的数据包将被 DROP 并计数
+5. 支持按 IP 协议版本过滤（ipv4/ipv6/both）
 
 ### 规则持久化
 
 - 规则列表持久化到 `/opt/oneclickvirt/agent/block_rules.json`
 - 代理启动时自动从文件恢复规则
-- 删除规则时同时清理文件和 iptables 链
-
-> **注意**：Block Rules 始终使用 iptables（不受 `TRAFFIC_COLLECT_METHOD` 影响），因为 nftables 不支持 string match 模块。
+- 删除规则时同时清理文件和 nft 表
 
 ## API 参考
 

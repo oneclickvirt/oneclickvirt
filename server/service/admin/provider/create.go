@@ -16,7 +16,7 @@ import (
 )
 
 // CreateProvider 创建Provider
-func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
+func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID uint) error {
 	global.APP_LOG.Debug("开始创建Provider",
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
@@ -166,6 +166,8 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest) error {
 		ContainerMemorySwap:   req.ContainerMemorySwap,
 		ContainerMaxProcesses: req.ContainerMaxProcesses,
 		ContainerDiskIOLimit:  req.ContainerDiskIOLimit,
+		// 普通管理员归属
+		OwnerAdminID: ownerAdminID,
 	}
 
 	// 节点级别等级限制配置

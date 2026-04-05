@@ -238,6 +238,16 @@ const routes = [
         }
       },
       {
+        path: 'group',
+        name: 'AdminGroup',
+        component: () => import('@/view/admin/group/index.vue'),
+        meta: {
+          title: 'sidebar.groupManagement',
+          requiresAuth: true,
+          roles: ['admin']
+        }
+      },
+      {
         path: 'tasks',
         name: 'AdminTasks',
         component: () => import('@/view/admin/tasks/index.vue'),

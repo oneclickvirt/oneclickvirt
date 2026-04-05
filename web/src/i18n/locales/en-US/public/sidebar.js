@@ -11,6 +11,7 @@ export default {
   inviteCodeManagement: 'Invite Code Management',
   redemptionCodeManagement: 'Redemption Code Management',
   providerManagement: 'Provider Management',
+  groupManagement: 'Group Management',
   taskManagement: 'Task Management',
   instanceManagement: 'Instance Management',
   trafficManagement: 'Traffic Management',

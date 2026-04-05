@@ -9,6 +9,7 @@ export default {
   trafficLimit: "流量限制",
   cores: "核",
   selectProvider: "选择服务器",
+  defaultGroup: "默认分组",
   refresh: "刷新",
   dataRefreshed: "数据已刷新",
   refreshFailed: "刷新失败，请稍后重试",

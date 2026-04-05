@@ -68,7 +68,7 @@ func GetPortMappingList(c *gin.Context) {
 	}
 
 	portMappingService := resources.PortMappingService{}
-	ports, total, err := portMappingService.GetPortMappingList(req)
+	ports, total, err := portMappingService.GetPortMappingList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取端口映射列表失败", zap.Error(err))
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取端口映射列表失败"))

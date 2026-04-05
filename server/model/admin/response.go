@@ -81,6 +81,7 @@ type RedemptionCodeResponse struct {
 	MemoryName    string `json:"memoryName"`
 	DiskName      string `json:"diskName"`
 	BandwidthName string `json:"bandwidthName"`
+	InstanceName  string `json:"instanceName"` // 关联实例名称
 }
 
 type InstanceManageResponse struct {

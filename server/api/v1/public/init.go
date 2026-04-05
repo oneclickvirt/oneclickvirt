@@ -361,9 +361,10 @@ func GetRegisterConfig(c *gin.Context) {
 		"inviteCode": map[string]interface{}{
 			"enabled": global.GetAppConfig().InviteCode.Enabled,
 		},
-		"oauth2Enabled": global.GetAppConfig().Auth.EnableOAuth2,
-		"kycEnabled":    global.GetAppConfig().Auth.EnableKYC,
-		"domainEnabled": global.GetAppConfig().Auth.EnableDomain,
+		"oauth2Enabled":  global.GetAppConfig().Auth.EnableOAuth2,
+		"kycEnabled":     global.GetAppConfig().Auth.EnableKYC,
+		"domainEnabled":  global.GetAppConfig().Auth.EnableDomain,
+		"checkinEnabled": global.GetAppConfig().Auth.EnableCheckin,
 	}
 	c.JSON(http.StatusOK, common.Success(config))
 }

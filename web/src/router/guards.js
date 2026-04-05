@@ -233,7 +233,7 @@ export function setupRouterGuards(router) {
       }
       
       // 超级管理员专属页面：normal_admin 不能访问
-      const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers']
+      const superAdminOnlyPaths = ['/admin/users', '/admin/config', '/admin/performance', '/admin/logs', '/admin/oauth2-providers', '/admin/invite-codes', '/admin/announcements']
       if (userStore.userType === 'normal_admin' && superAdminOnlyPaths.some(p => to.path.startsWith(p))) {
         console.log('普通管理员尝试访问超管专属页面，拒绝访问')
         ElMessage.warning(i18n.global.t('navbar.noPermission'))

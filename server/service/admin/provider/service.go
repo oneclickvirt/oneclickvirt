@@ -23,13 +23,27 @@ import (
 // Service 管理员Provider管理服务
 type Service struct{}
 
+// CheckProviderOwnership 检查普通管理员是否拥有指定Provider
+func CheckProviderOwnership(providerID, ownerAdminID uint) error {
+	var count int64
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ? AND owner_admin_id = ?", providerID, ownerAdminID).
+		Count(&count).Error; err != nil {
+		return fmt.Errorf("检查Provider归属失败: %v", err)
+	}
+	if count == 0 {
+		return fmt.Errorf("无权操作该Provider")
+	}
+	return nil
+}
+
 // NewService 创建提供商管理服务
 func NewService() *Service {
 	return &Service{}
 }
 
 // GetProviderList 获取Provider列表
-func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.ProviderManageResponse, int64, error) {
+func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID uint) ([]admin.ProviderManageResponse, int64, error) {
 	global.APP_LOG.Debug("获取Provider列表",
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
@@ -41,6 +55,11 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest) ([]admin.Provid
 	var total int64
 
 	query := global.APP_DB.Model(&providerModel.Provider{})
+
+	// 普通管理员数据隔离：只能看到自己归属的Provider
+	if ownerAdminID > 0 {
+		query = query.Where("owner_admin_id = ?", ownerAdminID)
+	}
 
 	if req.Name != "" {
 		query = query.Where("name LIKE ?", "%"+req.Name+"%")

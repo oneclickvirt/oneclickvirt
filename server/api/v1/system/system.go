@@ -132,7 +132,7 @@ func GetAllInstances(c *gin.Context) {
 	}
 
 	instanceService := adminInstance.NewService(task.GetTaskService())
-	instances, total, err := instanceService.GetInstanceList(req)
+	instances, total, err := instanceService.GetInstanceList(req, 0)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, common.Response{
 			Code: 500,
