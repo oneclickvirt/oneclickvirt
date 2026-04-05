@@ -455,23 +455,7 @@
       />
     </div>
 
-    <!-- 硬件测试报告对话框 -->
-    <el-dialog
-      v-model="hardwareReportDialogVisible"
-      :title="t('user.apply.hardwareTestReport')"
-      width="700px"
-    >
-      <div v-loading="hardwareReportLoading">
-        <pre
-          v-if="hardwareReportText"
-          class="hardware-report-content"
-        >{{ hardwareReportText }}</pre>
-        <el-empty
-          v-else
-          :description="t('user.apply.noHardwareReport')"
-        />
-      </div>
-    </el-dialog>
+
   </div>
 </template>
 
@@ -510,10 +494,6 @@ const {
   submitApplication, submitRedemption, resetForm
 } = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
 
-// Hardware report state
-const hardwareReportDialogVisible = ref(false)
-const hardwareReportLoading = ref(false)
-const hardwareReportText = ref('')
 
 // Provider group tabs
 const activeGroupTab = ref('')
@@ -540,16 +520,17 @@ const providerGroups = computed(() => {
 })
 
 const viewHardwareReport = async (providerId) => {
-  hardwareReportDialogVisible.value = true
-  hardwareReportLoading.value = true
-  hardwareReportText.value = ''
   try {
     const res = await getProviderHardwareReport(providerId)
-    hardwareReportText.value = res.data?.reportText || ''
+    const pasteUrl = res.data?.pasteUrl
+    if (pasteUrl) {
+      window.open(pasteUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      ElMessage.warning(t('user.apply.noHardwareReport'))
+    }
   } catch (error) {
     console.error('Failed to load hardware report:', error)
-  } finally {
-    hardwareReportLoading.value = false
+    ElMessage.error(t('user.apply.noHardwareReport'))
   }
 }
 
@@ -910,18 +891,5 @@ onUnmounted(() => {
   color: var(--text-color-secondary);
 }
 
-.hardware-report-content {
-  background: var(--neutral-bg, #f5f7fa);
-  border: 1px solid var(--border-color, #e4e7ed);
-  border-radius: 6px;
-  padding: 16px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  max-height: 500px;
-  overflow-y: auto;
-  margin: 0;
-}
+
 </style>

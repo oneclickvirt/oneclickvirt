@@ -594,22 +594,7 @@
       </template>
     </el-dialog>
 
-    <!-- 硬件报告对话框 -->
-    <el-dialog
-      v-model="hardwareReportDialogVisible"
-      :title="$t('admin.providers.hardwareTestReport')"
-      width="700px"
-    >
-      <div v-if="hardwareReportLoading" v-loading="true" style="height: 60px;" />
-      <pre
-        v-else-if="hardwareReportText"
-        class="hardware-report-content"
-      >{{ hardwareReportText }}</pre>
-      <el-empty
-        v-else
-        :description="$t('admin.providers.noHardwareReport')"
-      />
-    </el-dialog>
+
   </div>
 </template>
 
@@ -719,9 +704,6 @@ const handleAction = (action) => {
 const pasteUrlDialogVisible = ref(false)
 const pasteUrlInput = ref('')
 const pasteUrlSaving = ref(false)
-const hardwareReportDialogVisible = ref(false)
-const hardwareReportLoading = ref(false)
-const hardwareReportText = ref('')
 let pasteUrlProviderId = null
 
 const showPasteUrlDialog = () => {
@@ -750,17 +732,18 @@ const handleViewHardwareReport = async () => {
   if (!currentRow.value) return
   const providerId = currentRow.value.id
   actionsDialogVisible.value = false
-  hardwareReportDialogVisible.value = true
-  hardwareReportLoading.value = true
-  hardwareReportText.value = ''
   try {
     const res = await getHardwareTestReport(providerId)
     const data = res.data || {}
-    hardwareReportText.value = data.reportText || ''
+    if (data.pasteUrl) {
+      window.open(data.pasteUrl, '_blank', 'noopener,noreferrer')
+    } else {
+      ElMessage.warning(t('admin.providers.noHardwareReport'))
+    }
   } catch (error) {
     console.error('Failed to load hardware report:', error)
+    ElMessage.error(t('admin.providers.noHardwareReport'))
   } finally {
-    hardwareReportLoading.value = false
     currentRow.value = null
   }
 }
@@ -932,18 +915,5 @@ const handleViewHardwareReport = async () => {
   margin: 10px 0;
 }
 
-.hardware-report-content {
-  background: var(--neutral-bg, #f5f7fa);
-  border: 1px solid var(--border-color, #e4e7ed);
-  border-radius: 6px;
-  padding: 16px;
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 13px;
-  line-height: 1.6;
-  white-space: pre-wrap;
-  word-wrap: break-word;
-  max-height: 500px;
-  overflow-y: auto;
-  margin: 0;
-}
+
 </style>
