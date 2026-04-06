@@ -63,14 +63,17 @@ jobs:
         run: |
           sudo systemctl start mysql
           sleep 5
-          # Grant root TCP access (127.0.0.1) with empty password for the Go server
-          sudo mysql -u root -e "
-            CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED WITH caching_sha2_password BY '';
-            GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
-            FLUSH PRIVILEGES;
-          "
-          # Verify TCP connectivity
-          mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" 2>/dev/null && echo "MySQL TCP OK" || echo "MySQL TCP check failed, continuing anyway"
+          # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
+          # Match Dockerfile: use mysql_native_password with empty password
+          if sudo mysql -e "SELECT 1" 2>/dev/null; then
+            echo "auth_socket OK – configuring root with mysql_native_password"
+            sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+          else
+            echo "auth_socket failed – trying with password 'root'"
+            mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
+          fi
+          # Verify TCP connectivity (what the Go server uses)
+          mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
 
       - name: Validate platform and instance types
         id: validate
