@@ -1,4 +1,4 @@
-name: 集体测试
+name: Gloabl Integration Tests
 
 on:
   workflow_dispatch:
@@ -7,6 +7,10 @@ on:
         description: '待测试的虚拟化环境（逗号分隔，如 docker,lxd,incus,podman,containerd,proxmoxve）'
         required: false
         default: 'docker,lxd,incus,podman,containerd,proxmoxve'
+      test_modules:
+        description: '测试模块（all=全部, 01-05=范围, 01,03,09=选择）'
+        required: false
+        default: 'all'
       node_hours:
         description: '节点租用时长（小时）'
         required: false
@@ -55,31 +59,25 @@ jobs:
 
       - name: 设置脚本权限
         run: |
-          chmod +x action_tests/common/*.sh
-          chmod +x action_tests/${{ matrix.env }}/run.sh
+          find action_tests/ -name "*.sh" -exec chmod +x {} +
 
       - name: 运行 ${{ matrix.env }} 集成测试
         env:
           ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
           ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
           NODE_HOURS: ${{ github.event.inputs.node_hours || '8' }}
+          ENV_TYPE: ${{ matrix.env }}
+          TEST_MODULES: ${{ github.event.inputs.test_modules || 'all' }}
         run: |
           echo "=============================="
-          echo "开始 ${{ matrix.env }} 虚拟化环境集成测试"
+          echo "环境: ${ENV_TYPE}"
+          echo "模块: ${TEST_MODULES}"
           echo "节点时长: ${NODE_HOURS} 小时"
           echo "=============================="
 
-          cd action_tests/${{ matrix.env }}
-          bash run.sh 2>&1 | tee test_output.log
-
-          # 保存退出码
+          cd action_tests
+          bash run_env_test.sh "${ENV_TYPE}" "${TEST_MODULES}" 2>&1 | tee test_output.log
           TEST_EXIT_CODE=${PIPESTATUS[0]}
-
-          echo ""
-          echo "=============================="
-          echo "${{ matrix.env }} 测试完成，退出码: ${TEST_EXIT_CODE}"
-          echo "=============================="
-
           exit ${TEST_EXIT_CODE}
 
       - name: 上传测试报告
@@ -88,8 +86,8 @@ jobs:
         with:
           name: test-report-${{ matrix.env }}
           path: |
-            action_tests/${{ matrix.env }}/README.md
-            action_tests/${{ matrix.env }}/test_output.log
+            action_tests/reports/
+            action_tests/test_output.log
           retention-days: 30
 
   # ============================================================
@@ -110,6 +108,7 @@ jobs:
           echo "# 集成测试汇总报告" > summary.md
           echo "" >> summary.md
           echo "测试时间: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> summary.md
+          echo "测试模块: ${{ github.event.inputs.test_modules || 'all' }}" >> summary.md
           echo "" >> summary.md
           echo "## 各环境测试结果" >> summary.md
           echo "" >> summary.md
@@ -119,12 +118,12 @@ jobs:
           for env_dir in reports/test-report-*/; do
             if [[ -d "$env_dir" ]]; then
               env_name=$(basename "$env_dir" | sed 's/test-report-//')
+              report_file=$(find "$env_dir" -name "*-report.md" -type f | head -1)
 
-              if [[ -f "${env_dir}/README.md" ]]; then
-                # 从报告中提取通过率
-                pass_rate=$(grep -oP '通过率 \| \K[^|]+' "${env_dir}/README.md" 2>/dev/null | tr -d ' ' || echo "未知")
-                total=$(grep -oP '总计 \| \K[^|]+' "${env_dir}/README.md" 2>/dev/null | tr -d ' ' || echo "0")
-                failed=$(grep -oP '失败 \| \K[^|]+' "${env_dir}/README.md" 2>/dev/null | tr -d ' ' || echo "0")
+              if [[ -n "$report_file" && -f "$report_file" ]]; then
+                pass_rate=$(grep -oP '通过率 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "未知")
+                total=$(grep -oP '总计 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "0")
+                failed=$(grep -oP '失败 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "0")
 
                 if [[ "$failed" == "0" && "$total" != "0" ]]; then
                   echo "| ${env_name} | PASS | 通过率 ${pass_rate}, 共 ${total} 项 |" >> summary.md
@@ -139,9 +138,7 @@ jobs:
 
           echo "" >> summary.md
           echo "---" >> summary.md
-          echo "" >> summary.md
           echo "详细报告见各环境的 artifact" >> summary.md
-
           echo ""
           echo "===== 汇总报告 ====="
           cat summary.md

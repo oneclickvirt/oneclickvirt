@@ -187,23 +187,36 @@ func (s *Service) detectVethInterface(providerInstance provider.Provider, instan
 		}
 	}
 
-	// 备用方法：通过进程和网络命名空间检测（适用于所有虚拟化类型）
+	// 备用方法：通过进程和网络命名空间检测（适用于所有容器虚拟化类型）
 	var detectCmd string
-	if providerType == "docker" {
-		// Docker容器veth接口检测
+	var runtimeCmd string
+	switch providerType {
+	case "docker":
+		runtimeCmd = "docker"
+	case "podman":
+		runtimeCmd = "podman"
+	case "containerd":
+		runtimeCmd = "nerdctl"
+	case "lxd", "incus":
+		// LXD/Incus 使用独立的检测逻辑
+	default:
+		return "", fmt.Errorf("unsupported provider type for veth detection: %s", providerType)
+	}
+
+	if providerType == "docker" || providerType == "podman" || providerType == "containerd" {
+		// Docker/Podman/Containerd 容器veth接口检测
 		detectCmd = fmt.Sprintf(`
-# 检测Docker容器对应的veth接口
+# 检测容器对应的veth接口
 CONTAINER_NAME='%s'
 
 # 1. 获取容器PID
-CONTAINER_PID=$(docker inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
+CONTAINER_PID=$(%s inspect -f '{{.State.Pid}}' "$CONTAINER_NAME" 2>/dev/null)
 if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     echo "ERROR: 容器未运行或PID为0" >&2
     exit 1
 fi
 
 # 2. 获取容器内eth0的peer ifindex（即宿主机上对应的veth接口的ifindex）
-# 容器内的 eth0@ifXXX 中的 ifXXX 就是宿主机上veth的ifindex
 HOST_VETH_IFINDEX=$(nsenter -t $CONTAINER_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
 if [ -z "$HOST_VETH_IFINDEX" ]; then
     echo "ERROR: 无法获取宿主机veth接口索引" >&2
@@ -214,17 +227,14 @@ fi
 VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
 
 if [ -n "$VETH_NAME" ]; then
-    # 验证这确实是一个veth接口
-    if echo "$VETH_NAME" | grep -q "^veth"; then
-        echo "$VETH_NAME"
-        exit 0
-    fi
+    echo "$VETH_NAME"
+    exit 0
 fi
 
 echo "ERROR: 无法找到有效的veth接口" >&2
 exit 1
-`, instanceName)
-	} else if providerType == "lxd" || providerType == "incus" {
+`, instanceName, runtimeCmd)
+	} else {
 		// LXD/Incus容器veth接口检测（备用方法）
 		cmd := "lxc"
 		if providerType == "incus" {
@@ -241,8 +251,7 @@ if [ -z "$CONTAINER_PID" ] || [ "$CONTAINER_PID" = "0" ]; then
     exit 1
 fi
 
-# 2. 获取容器内eth0的peer ifindex（即宿主机上对应的veth接口的ifindex）
-# 容器内的 eth0@ifXXX 中的 ifXXX 就是宿主机上veth的ifindex
+# 2. 获取容器内eth0的peer ifindex
 HOST_VETH_IFINDEX=$(nsenter -t $CONTAINER_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
 if [ -z "$HOST_VETH_IFINDEX" ]; then
     echo "ERROR: 无法获取宿主机veth接口索引" >&2
@@ -253,18 +262,13 @@ fi
 VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
 
 if [ -n "$VETH_NAME" ]; then
-    # 验证这确实是一个veth接口
-    if echo "$VETH_NAME" | grep -q "^veth"; then
-        echo "$VETH_NAME"
-        exit 0
-    fi
+    echo "$VETH_NAME"
+    exit 0
 fi
 
 echo "ERROR: 无法找到有效的veth接口" >&2
 exit 1
 `, instanceName, cmd)
-	} else {
-		return "", fmt.Errorf("unsupported provider type for veth detection: %s", providerType)
 	}
 
 	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
@@ -285,12 +289,12 @@ exit 1
 		return "", fmt.Errorf("无法检测容器 %s 的veth接口: %s", instanceName, vethName)
 	}
 
-	// 验证veth接口名称格式
-	if matched, _ := regexp.MatchString(`^veth[a-zA-Z0-9]+$`, vethName); !matched {
-		global.APP_LOG.Warn("检测到的veth接口名称格式不正确",
+	// 验证网络接口名称格式（允许 veth、eth、cali、br 等各种前缀）
+	if matched, _ := regexp.MatchString(`^[a-zA-Z][a-zA-Z0-9._-]*$`, vethName); !matched {
+		global.APP_LOG.Warn("检测到的网络接口名称格式不正确",
 			zap.String("instance", instanceName),
 			zap.String("detected", vethName))
-		return "", fmt.Errorf("invalid veth interface name: %s", vethName)
+		return "", fmt.Errorf("invalid network interface name: %s", vethName)
 	}
 
 	global.APP_LOG.Debug("成功检测到容器veth接口",
@@ -533,8 +537,8 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		zap.String("instance", instanceName),
 		zap.Bool("hasIPv6", hasIPv6))
 
-	// Docker/LXD/Incus 容器: 优先检测veth接口
-	if providerType == "docker" || providerType == "lxd" || providerType == "incus" {
+	// Docker/Podman/Containerd/LXD/Incus 容器: 优先检测veth接口
+	if providerType == "docker" || providerType == "podman" || providerType == "containerd" || providerType == "lxd" || providerType == "incus" {
 		// 尝试检测veth接口
 		vethInterface, err := s.detectVethInterface(providerInstance, instanceName)
 		if err != nil {

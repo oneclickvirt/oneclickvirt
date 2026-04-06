@@ -314,7 +314,7 @@
         <el-input
           v-model="exportedCodesText"
           type="textarea"
-          :rows="10"
+          :rows="16"
           readonly
         />
       </div>
@@ -638,10 +638,14 @@ const doExport = async () => {
     const lang = locale.value || 'zh-CN'
     const res = await exportRedemptionCodes({ ids, fields: exportFields.value, lang })
     const items = res.data?.items || []
-    // Format items as lines: key1: value1 | key2: value2
-    exportedCodesText.value = items.map(item => {
-      return Object.entries(item).filter(([, v]) => v).map(([k, v]) => `${k}: ${v}`).join(' | ')
-    }).join('\n')
+    // 每条记录单独一行，字段用 | 分隔，记录之间用空行分隔
+    exportedCodesText.value = items.map((item, idx) => {
+      const fields = Object.entries(item)
+        .filter(([, v]) => v !== undefined && v !== null && v !== '')
+        .map(([k, v]) => `${k}: ${v}`)
+        .join(' | ')
+      return `[${idx + 1}] ${fields}`
+    }).join('\n\n')
     exportResult.value = items
   } catch (e) {
     ElMessage.error(e?.response?.data?.msg || e.message)
