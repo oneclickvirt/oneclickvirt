@@ -81,7 +81,7 @@ func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		"curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
 		tmpPath, url,
 	)
 

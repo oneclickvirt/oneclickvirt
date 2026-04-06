@@ -93,7 +93,7 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 
 		// 下载镜像（使用临时文件+mv模式）
 		tmpPath := remotePath + ".tmp"
-		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 3600 -o '%s' '%s' 2>&1", tmpPath, imageURL)
+		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 360 -o '%s' '%s' 2>&1", tmpPath, imageURL)
 		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 		if err != nil {
 			// 回退到wget

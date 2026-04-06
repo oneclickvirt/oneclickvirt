@@ -186,7 +186,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 	// 下载文件，支持断点续传，优先使用wget，失败则使用curl
 	downloadCmds := []string{
 		fmt.Sprintf("wget --no-check-certificate -c --timeout=360 -O %s '%s'", tmpPath, url),
-		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
+		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 360 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
 	}
 
 	var lastErr error

@@ -86,7 +86,7 @@ func (p *KubeVirtProvider) sshPullImage(ctx context.Context, imageURL string) er
 		p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", ImageDir))
 
 		tmpPath := remotePath + ".tmp"
-		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 3600 -o '%s' '%s' 2>&1", tmpPath, imageURL)
+		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 360 -o '%s' '%s' 2>&1", tmpPath, imageURL)
 		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 		if err != nil {
 			downloadCmd = fmt.Sprintf("wget --no-check-certificate --timeout=360 -O '%s' '%s' 2>&1", tmpPath, imageURL)
