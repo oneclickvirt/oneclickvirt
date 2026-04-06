@@ -120,8 +120,8 @@ export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // 
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
-log_info "Waiting 90s for cloud-init to complete on worker node..."
-sleep 90
+log_info "Waiting 120s for cloud-init to complete on worker node..."
+sleep 120
 
 # =============================================================
 # Phase 3: Install virtualization environment on worker
