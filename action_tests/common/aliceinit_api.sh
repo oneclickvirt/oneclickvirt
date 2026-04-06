@@ -90,6 +90,27 @@ alice_ssh_exec() {
 # Backward-compat alias: alice_exec_and_wait <ip> <cmd> [timeout] [_unused_interval]
 alice_exec_and_wait() { alice_ssh_exec "$1" "$2" "${3:-300}"; }
 
+# Wait for SSH to become available on a newly created instance
+wait_for_ssh() {
+    local ip="$1" max="${2:-300}" interval="${3:-10}" elapsed=0
+    log_info "Waiting for SSH on ${ip} (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        if ssh -i "${_ALICE_SSH_KEY_FILE}" \
+               -o StrictHostKeyChecking=no \
+               -o UserKnownHostsFile=/dev/null \
+               -o ConnectTimeout=10 \
+               -o BatchMode=yes \
+               "root@${ip}" "echo ok" >/dev/null 2>&1; then
+            log_success "SSH ready on ${ip}"
+            return 0
+        fi
+        log_debug "SSH not ready on ${ip} (${elapsed}/${max}s)..."
+        sleep "${interval}"; elapsed=$((elapsed + interval))
+    done
+    log_error "SSH on ${ip} never became available after ${max}s"
+    return 1
+}
+
 # ---------- Instance lifecycle helpers ----------
 alice_wait_instance_ready() {
     local id="$1" max="${2:-600}" interval="${3:-15}"
@@ -99,7 +120,7 @@ alice_wait_instance_ready() {
         local sr; sr=$(alice_get_instance_state "${id}")
         local sb; sb=$(alice_parse_body "${sr}")
         local sc; sc=$(alice_parse_code "${sr}")
-        log_debug "Instance ${id} state HTTP ${sc}: $(echo "${sb}" | head -c 200)"
+        log_debug "Instance ${id} state HTTP ${sc}: ${sb}"
         if [[ "${sc}" == "200" ]]; then
             local status; status=$(echo "${sb}" | jq -r '.data.status // empty' 2>/dev/null)
             local state;  state=$(echo "${sb}"  | jq -r '.data.state.state // empty' 2>/dev/null)

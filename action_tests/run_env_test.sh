@@ -94,6 +94,8 @@ deploy_master_local "$MASTER_PORT" || {
 export MASTER_NODE_ID=""
 export MASTER_NODE_IP="127.0.0.1"
 log_success "Master deployed locally on runner (port ${MASTER_PORT})"
+log_info "Waiting 30s for all container components (MySQL, app, nginx) to initialize..."
+sleep 30
 
 # =============================================================
 # Phase 2: Create worker node with virtualization environment
@@ -155,9 +157,30 @@ fi
 # =============================================================
 # Phase 7: Initialize system and login
 # =============================================================
-log_section "Phase 7: System initialization"
-init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS" "sqlite"
-sleep 2
+log_section "Phase 7: System initialization and login"
+# Wait until /api/v1/public/init/check is reachable (MySQL + app both up)
+if ! wait_init_ready "$SERVER_URL" 180 5; then
+    log_error "Init endpoint never became ready"
+    fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
+    exit 1
+fi
+# Check whether initialization is still required
+INIT_CHECK=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/init/check" 2>/dev/null)
+NEED_INIT=$(echo "$INIT_CHECK" | jq -r '.data.needInit // true' 2>/dev/null)
+log_info "Init check: needInit=${NEED_INIT}"
+if [[ "$NEED_INIT" == "true" ]]; then
+    log_info "Initializing system..."
+    INIT_RESP=$(init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
+    INIT_CODE=$(echo "$INIT_RESP" | jq -r '.code // empty' 2>/dev/null)
+    if [[ "$INIT_CODE" != "200" ]]; then
+        log_error "System initialization failed: ${INIT_RESP}"
+        fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
+        exit 1
+    fi
+    log_success "System initialized, waiting for async setup to complete..."
+    wait_db_ready "$SERVER_URL" 60 3
+fi
+# Login with admin credentials
 ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
 if [[ -z "$ADMIN_TOKEN" ]]; then
     log_error "Admin login failed"

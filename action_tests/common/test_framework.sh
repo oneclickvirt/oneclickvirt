@@ -199,12 +199,18 @@ wait_server_ready() {
 
 wait_db_ready() {
     local url="$1" max="${2:-120}" interval="${3:-5}" elapsed=0
+    log_info "Waiting for system initialization to complete..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
-        local init; init=$(echo "$r" | jq -r '.data.initialized // false' 2>/dev/null)
-        [[ "$init" == "true" ]] && { log_success "Database ready"; return 0; }
+        local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
+        if [[ "$need_init" == "false" ]]; then
+            log_success "System initialization complete"
+            return 0
+        fi
+        log_debug "Init not complete yet (needInit=${need_init}), waiting..."
         sleep "$interval"; elapsed=$((elapsed + interval))
     done
+    log_error "System init wait timeout after ${max}s"
     return 1
 }
 
@@ -225,15 +231,35 @@ wait_task_complete() {
 }
 
 # -- Auth helpers --
+# wait_init_ready: waits until /api/v1/public/init/check responds (server+DB both up)
+wait_init_ready() {
+    local url="$1" max="${2:-180}" interval="${3:-5}" elapsed=0
+    log_info "Waiting for init endpoint to respond..."
+    while [[ $elapsed -lt $max ]]; do
+        local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
+        local code; code=$(echo "$r" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "$code" == "200" ]]; then
+            local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
+            log_success "Init endpoint ready (needInit=${need_init})"
+            return 0
+        fi
+        log_debug "Init endpoint not ready yet (code=${code}), waiting..."
+        sleep "$interval"; elapsed=$((elapsed + interval))
+    done
+    log_error "Init endpoint timeout after ${max}s"
+    return 1
+}
+
 init_system() {
-    local url="$1" user="$2" pass="$3" db="${4:-mysql}"
+    # All-in-one container: MySQL on 127.0.0.1:3306, root with empty password
+    local url="$1" user="$2" pass="$3"
     local data
-    if [[ "$db" == "sqlite" ]]; then
-        data="{\"admin_username\":\"${user}\",\"admin_password\":\"${pass}\",\"db_type\":\"sqlite\"}"
-    else
-        data="{\"admin_username\":\"${user}\",\"admin_password\":\"${pass}\",\"db_type\":\"mysql\",\"db_host\":\"127.0.0.1\",\"db_port\":3306,\"db_name\":\"oneclickvirt\",\"db_user\":\"root\",\"db_password\":\"\"}"
-    fi
-    curl -s --max-time 30 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null
+    printf -v data \
+        '{"admin":{"username":"%s","password":"%s","email":"%s@test.local"},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":""}}' \
+        "$user" "$pass" "$user"
+    local resp; resp=$(curl -s --max-time 60 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null)
+    log_info "Init response: ${resp}"
+    echo "$resp"
 }
 
 do_login() {
@@ -245,9 +271,13 @@ do_login() {
 
 admin_login() {
     local url="$1" user="${2:-admin}" pass="${3:-Admin123!@#}"
-    local token; token=$(do_login "$url" "$user" "$pass")
+    local raw; raw=$(curl -s --max-time 30 -H "Content-Type: application/json" -X POST \
+        -d "{\"username\":\"${user}\",\"password\":\"${pass}\"}" "${url}/api/v1/auth/login" 2>/dev/null)
+    log_debug "Login response for ${user}: ${raw}"
+    local token; token=$(echo "$raw" | jq -r '.data.token // empty' 2>/dev/null)
     [[ -n "$token" ]] && { log_success "Login success: ${user}"; echo "$token"; return 0; }
-    log_error "Login failed: ${user}"; return 1
+    log_error "Login failed: ${user} - $(echo "$raw" | jq -r '.msg // .message // .data // "no response"' 2>/dev/null)"
+    return 1
 }
 
 add_provider() {

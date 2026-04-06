@@ -37,7 +37,7 @@ get_os_id_for_plan() {
     local r; r=$(alice_get_plan_os "${plan_id}")
     local body; body=$(alice_parse_body "$r")
     local http_code; http_code=$(alice_parse_code "$r")
-    log_debug "GET /evo/plans/${plan_id}/os-images HTTP ${http_code}: $(echo "$body" | head -c 500)"
+    log_debug "GET /evo/plans/${plan_id}/os-images HTTP ${http_code}: ${body}"
     # Flatten all os_list arrays and find the first entry whose name matches
     local id; id=$(echo "$body" | jq -r "[.data[].os_list[] | select(.name | test(\"${name}\";\"i\"))][0].id // empty" 2>/dev/null)
     if [[ -z "$id" ]]; then
@@ -56,13 +56,13 @@ get_ssh_key_id() {
     local r; r=$(alice_get_ssh_keys)
     local body; body=$(alice_parse_body "$r")
     local http_code; http_code=$(alice_parse_code "$r")
-    log_debug "GET /account/ssh-keys HTTP ${http_code}: $(echo "$body" | head -c 500)"
-    # Match key by type and body (first two space-separated tokens of the public key)
+    log_debug "GET /account/ssh-keys HTTP ${http_code}: ${body}"
+    # Match key by type and base64 body; the stored publickey may have trailing \n
     local key_type key_body
     key_type=$(echo "${ALICE_PUBLIC_KEY}" | awk '{print $1}')
     key_body=$(echo "${ALICE_PUBLIC_KEY}" | awk '{print $2}')
     local id; id=$(echo "$body" | jq -r --arg kt "$key_type" --arg kb "$key_body" \
-        '.data[] | select((.publickey | split(" ")) as $p | ($p[0] == $kt and $p[1] == $kb)) | .id' \
+        '.data[] | select((.publickey | rtrimstr("\n") | split(" ")) as $p | ($p[0] == $kt and $p[1] == $kb)) | .id' \
         2>/dev/null | head -1)
     if [[ -z "$id" ]]; then
         # Fallback: use the first available key
@@ -117,6 +117,9 @@ create_test_node() {
     local id; id=$(echo "${inst}" | jq -r '.id // empty' 2>/dev/null)
     local ip; ip=$(echo "${inst}" | jq -r '.ipv4 // .ip // empty' 2>/dev/null)
     local password; password=$(echo "${inst}" | jq -r '.password // empty' 2>/dev/null)
+    [[ -z "${ip}" ]] && { log_error "Cannot get IP from create response: ${inst}"; return 1; }
+    # Wait for SSH to be available before handing off the node
+    wait_for_ssh "${ip}" 300 || { log_error "SSH never became available on ${ip}"; return 1; }
     log_success "Node created: ID=${id} IP=${ip}"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\"}"
 }
