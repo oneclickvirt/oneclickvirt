@@ -1,60 +1,80 @@
 #!/bin/bash
-# 模块 14: 防火墙/封禁规则 (Admin) - 三级应用
-# 依赖: 09_providers (PROVIDER_ID)
+# Module 14: Firewall & Block Rules
+# Dependencies: 09_providers (PROVIDER_ID)
 
 run_module_14() {
-    report_add_section "14 - 防火墙封禁规则"
-    local group="firewall"
+    report_add_section "14 - Block Rules"
+    local group="block_rules"
 
-    # ── 规则列表 ──
-    test_api "获取封禁规则列表" "GET" "/api/v1/admin/block-rules?page=1&pageSize=10" "200" "" "$group"
-
-    # ── 创建规则 ──
-    local rule1="{\"name\":\"ci-test-rule-1\",\"type\":\"ip\",\"value\":\"10.0.0.0/8\",\"action\":\"drop\",\"description\":\"CI测试规则1\"}"
-    local r1; r1=$(test_api "创建封禁规则1" "POST" "/api/v1/admin/block-rules" "200" "$rule1" "$group")
-    local rule1_id; rule1_id=$(echo "$r1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-    [[ -z "$rule1_id" ]] && chain_break "$group" "创建封禁规则失败"
-
-    local rule2="{\"name\":\"ci-test-rule-2\",\"type\":\"port\",\"value\":\"445\",\"action\":\"drop\",\"description\":\"CI测试规则2\"}"
-    local r2; r2=$(test_api "创建封禁规则2" "POST" "/api/v1/admin/block-rules" "200" "$rule2" "$group")
-    local rule2_id; rule2_id=$(echo "$r2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-
-    # ── 查看详情 ──
-    if [[ -n "$rule1_id" ]]; then
-        test_api "封禁规则详情" "GET" "/api/v1/admin/block-rules/${rule1_id}" "200" "" "$group"
+    if [[ -z "$PROVIDER_ID" ]]; then
+        chain_break "$group" "No provider"
+        return 1
     fi
 
-    # ── 编辑规则 ──
-    if [[ -n "$rule1_id" ]]; then
-        test_api "编辑封禁规则" "PUT" "/api/v1/admin/block-rules/${rule1_id}" "200" \
-            "{\"name\":\"ci-test-rule-1-edited\",\"type\":\"ip\",\"value\":\"172.16.0.0/12\",\"action\":\"drop\"}" "$group"
+    # -- List --
+    test_api "Block rule list" "GET" "/api/v1/admin/block-rules?page=1&pageSize=10" "200" "" "$group"
+
+    # -- Create IP-based rule --
+    local br1; br1=$(test_api "Create IP block rule" "POST" "/api/v1/admin/block-rules" "200" \
+        '{"name":"CI IP Block","type":"ip","source":"192.168.100.0/24","action":"drop","direction":"inbound"}' "$group")
+    local br1_id; br1_id=$(echo "$br1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+
+    # -- Create port-based rule --
+    local br2; br2=$(test_api "Create port block rule" "POST" "/api/v1/admin/block-rules" "200" \
+        '{"name":"CI Port Block","type":"port","port":"8080","protocol":"tcp","action":"drop","direction":"inbound"}' "$group")
+    local br2_id; br2_id=$(echo "$br2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+
+    # -- Create with missing fields --
+    test_api "Create rule (no name)" "POST" "/api/v1/admin/block-rules" "400" \
+        '{"type":"ip","source":"10.0.0.0/8"}' "$group"
+
+    # -- Get rule detail --
+    if [[ -n "$br1_id" ]]; then
+        test_api "Get rule detail" "GET" "/api/v1/admin/block-rules/${br1_id}" "200" "" "$group"
     fi
 
-    # ── 三级应用: 全局→Provider→实例 ──
-    if [[ -n "$rule1_id" && -n "$PROVIDER_ID" ]]; then
-        # 应用到Provider
-        test_api "应用规则到Provider" "POST" "/api/v1/admin/block-rules/apply" "200" \
-            "{\"rule_id\":${rule1_id},\"target_type\":\"provider\",\"target_ids\":[${PROVIDER_ID}]}" "$group"
-
-        # 查看应用状态
-        test_api "查看规则应用" "GET" "/api/v1/admin/block-rules/applications?rule_id=${rule1_id}" "200" "" "$group"
-
-        # Provider封禁状态
-        test_api "Provider封禁状态" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/block-status" "200" "" "$group"
-
-        # Agent启用Provider列表
-        test_api "Agent启用Provider列表" "GET" "/api/v1/admin/block-rules/agent-providers" "200" "" "$group"
-
-        # 移除应用
-        test_api "移除规则应用" "POST" "/api/v1/admin/block-rules/remove" "200" \
-            "{\"rule_id\":${rule1_id},\"target_type\":\"provider\",\"target_ids\":[${PROVIDER_ID}]}" "$group"
+    # -- Edit rule --
+    if [[ -n "$br1_id" ]]; then
+        test_api "Edit block rule" "PUT" "/api/v1/admin/block-rules/${br1_id}" "200" \
+            '{"name":"CI IP Block Updated"}' "$group"
     fi
 
-    # ── 删除规则 ──
-    if [[ -n "$rule1_id" ]]; then
-        test_api "删除封禁规则1" "DELETE" "/api/v1/admin/block-rules/${rule1_id}" "200" "" "$group"
+    # -- Three-tier application --
+    # Global apply
+    if [[ -n "$br1_id" ]]; then
+        test_api "Apply rule globally" "POST" "/api/v1/admin/block-rules/apply" "200" \
+            "{\"rule_id\":${br1_id},\"scope\":\"global\"}" "$group"
     fi
-    if [[ -n "$rule2_id" ]]; then
-        test_api "删除封禁规则2" "DELETE" "/api/v1/admin/block-rules/${rule2_id}" "200" "" "$group"
+
+    # Provider apply
+    if [[ -n "$br2_id" ]]; then
+        test_api "Apply rule to provider" "POST" "/api/v1/admin/block-rules/apply" "200" \
+            "{\"rule_id\":${br2_id},\"scope\":\"provider\",\"provider_id\":${PROVIDER_ID}}" "$group"
     fi
+
+    # -- Applications list --
+    test_api "List applications" "GET" "/api/v1/admin/block-rules/applications?page=1&pageSize=10" "200" "" "$group"
+
+    # -- Provider block status --
+    test_api "Provider block status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/block-status" "200" "" "$group"
+
+    # -- Agent-enabled providers --
+    test_api "Agent-enabled providers" "GET" "/api/v1/admin/block-rules/agent-providers" "200" "" "$group"
+
+    # -- Remove application --
+    if [[ -n "$br1_id" ]]; then
+        test_api "Remove rule application" "POST" "/api/v1/admin/block-rules/remove" "200" \
+            "{\"rule_id\":${br1_id},\"scope\":\"global\"}" "$group"
+    fi
+
+    # -- Delete rules --
+    if [[ -n "$br1_id" ]]; then
+        test_api "Delete IP rule" "DELETE" "/api/v1/admin/block-rules/${br1_id}" "200" "" "$group"
+    fi
+    if [[ -n "$br2_id" ]]; then
+        test_api "Delete port rule" "DELETE" "/api/v1/admin/block-rules/${br2_id}" "200" "" "$group"
+    fi
+
+    # -- Delete nonexistent rule --
+    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "404" "" "$group"
 }

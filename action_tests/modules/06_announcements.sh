@@ -1,51 +1,61 @@
 #!/bin/bash
-# 模块 06: 公告管理 (Super Admin)
-# 依赖: 01_init (ADMIN_TOKEN)
+# Module 06: Announcement Management
+# Dependencies: 01_init (ADMIN_TOKEN)
 
 run_module_06() {
-    report_add_section "06 - 公告管理"
+    report_add_section "06 - Announcements"
     local group="announcements"
 
-    # ── 列表 ──
-    test_api "获取公告列表" "GET" "/api/v1/admin/announcements?page=1&pageSize=10" "200" "" "$group"
+    # -- List --
+    test_api "Announcement list" "GET" "/api/v1/admin/announcements?page=1&pageSize=10" "200" "" "$group"
 
-    # ── 创建公告 ──
-    local a1="{\"title\":\"CI测试公告1\",\"content\":\"这是CI测试公告内容\",\"type\":\"info\",\"status\":\"active\"}"
-    local r1; r1=$(test_api "创建公告1" "POST" "/api/v1/admin/announcements" "200" "$a1" "$group")
-    local a1_id; a1_id=$(echo "$r1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-    [[ -z "$a1_id" ]] && chain_break "$group" "创建公告失败"
+    # -- Create --
+    local a1; a1=$(test_api "Create announcement (info)" "POST" "/api/v1/admin/announcements" "200" \
+        '{"title":"CI Test Info","content":"Integration test announcement","type":"info","status":"active"}' "$group")
+    local aid1; aid1=$(echo "$a1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    local a2="{\"title\":\"CI测试公告2\",\"content\":\"第二条测试公告\",\"type\":\"warning\",\"status\":\"active\"}"
-    local r2; r2=$(test_api "创建公告2" "POST" "/api/v1/admin/announcements" "200" "$a2" "$group")
-    local a2_id; a2_id=$(echo "$r2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    local a2; a2=$(test_api "Create announcement (warning)" "POST" "/api/v1/admin/announcements" "200" \
+        '{"title":"CI Test Warning","content":"Warning announcement","type":"warning","status":"active"}' "$group")
+    local aid2; aid2=$(echo "$a2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    local a3="{\"title\":\"CI测试公告3\",\"content\":\"第三条测试公告\",\"type\":\"error\",\"status\":\"inactive\"}"
-    local r3; r3=$(test_api "创建公告3" "POST" "/api/v1/admin/announcements" "200" "$a3" "$group")
-    local a3_id; a3_id=$(echo "$r3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    test_api "Create announcement (inactive)" "POST" "/api/v1/admin/announcements" "200" \
+        '{"title":"CI Inactive","content":"Inactive announcement","type":"info","status":"inactive"}' "$group"
 
-    # ── 编辑 ──
-    if [[ -n "$a1_id" ]]; then
-        test_api "编辑公告1" "PUT" "/api/v1/admin/announcements/${a1_id}" "200" \
-            "{\"title\":\"CI-已编辑公告\",\"content\":\"更新后内容\",\"type\":\"info\",\"status\":\"active\"}" "$group"
+    # -- Create with missing title --
+    test_api "Create announcement (no title)" "POST" "/api/v1/admin/announcements" "400" \
+        '{"content":"no title"}' "$group"
+
+    # -- Edit --
+    if [[ -n "$aid1" ]]; then
+        test_api "Edit announcement" "PUT" "/api/v1/admin/announcements/${aid1}" "200" \
+            '{"title":"CI Test Updated","content":"Updated content"}' "$group"
     fi
 
-    # ── 批量状态更新 ──
-    if [[ -n "$a2_id" && -n "$a3_id" ]]; then
-        test_api "批量禁用公告" "PUT" "/api/v1/admin/announcements/batch-status" "200" \
-            "{\"ids\":[${a2_id},${a3_id}],\"status\":\"inactive\"}" "$group"
+    # -- Batch status update --
+    if [[ -n "$aid1" && -n "$aid2" ]]; then
+        test_api "Batch deactivate" "PUT" "/api/v1/admin/announcements/batch-status" "200" \
+            "{\"ids\":[${aid1},${aid2}],\"status\":\"inactive\"}" "$group"
+        test_api "Batch activate" "PUT" "/api/v1/admin/announcements/batch-status" "200" \
+            "{\"ids\":[${aid1},${aid2}],\"status\":\"active\"}" "$group"
     fi
 
-    # ── 公开接口验证 ──
-    test_api_noauth "公开获取公告" "GET" "/api/v1/public/announcements" "200" "" "$group"
+    # -- Public access --
+    test_api_noauth "Public announcements" "GET" "/api/v1/public/announcements" "200" "" "$group"
 
-    # ── 单个删除 ──
-    if [[ -n "$a1_id" ]]; then
-        test_api "删除公告1" "DELETE" "/api/v1/admin/announcements/${a1_id}" "200" "" "$group"
+    # -- Delete single --
+    if [[ -n "$aid1" ]]; then
+        test_api "Delete announcement" "DELETE" "/api/v1/admin/announcements/${aid1}" "200" "" "$group"
     fi
 
-    # ── 批量删除 ──
-    if [[ -n "$a2_id" && -n "$a3_id" ]]; then
-        test_api "批量删除公告" "POST" "/api/v1/admin/announcements/batch-delete" "200" \
-            "{\"ids\":[${a2_id},${a3_id}]}" "$group"
+    # -- Delete nonexistent --
+    test_api "Delete nonexistent" "DELETE" "/api/v1/admin/announcements/99999" "404" "" "$group"
+
+    # -- Batch delete --
+    local all_aids; all_aids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/announcements?page=1&pageSize=50" 2>/dev/null | \
+        jq -c '[.data.list[]?.id // .data.list[]?.ID] | map(select(. != null))' 2>/dev/null)
+    if [[ -n "$all_aids" && "$all_aids" != "[]" && "$all_aids" != "null" ]]; then
+        test_api "Batch delete announcements" "POST" "/api/v1/admin/announcements/batch-delete" "200" \
+            "{\"ids\":${all_aids}}" "$group"
     fi
 }

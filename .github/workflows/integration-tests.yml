@@ -1,151 +1,214 @@
-name: Gloabl Integration Tests
+name: Integration Tests
 
 on:
   workflow_dispatch:
     inputs:
-      environments:
-        description: '待测试的虚拟化环境（逗号分隔，如 docker,lxd,incus,podman,containerd,proxmoxve）'
+      environment:
+        description: 'Virtualization environment to test'
+        required: true
+        type: choice
+        options:
+          - docker
+          - lxd
+          - incus
+          - podman
+          - containerd
+          - proxmoxve
+        default: 'docker'
+      instance_types:
+        description: 'Instance types to test'
+        required: true
+        type: choice
+        options:
+          - both
+          - container
+          - vm
+        default: 'both'
+      modules:
+        description: 'Test modules to run (e.g. all, 01-10, 01,03,05)'
         required: false
-        default: 'docker,lxd,incus,podman,containerd,proxmoxve'
-      test_modules:
-        description: '测试模块（all=全部, 01-05=范围, 01,03,09=选择）'
-        required: false
+        type: string
         default: 'all'
       node_hours:
-        description: '节点租用时长（小时）'
+        description: 'Node lifetime in hours'
         required: false
+        type: string
         default: '8'
+      report_repo:
+        description: 'Repository for publishing test reports (owner/repo)'
+        required: false
+        type: string
+        default: ''
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
-  # ============================================================
-  # 解析输入，生成矩阵
-  # ============================================================
-  prepare:
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - name: 生成测试矩阵
-        id: set-matrix
-        run: |
-          ENVS="${{ github.event.inputs.environments || 'docker,lxd,incus,podman,containerd,proxmoxve' }}"
-          MATRIX=$(echo "$ENVS" | tr ',' '\n' | jq -R -s 'split("\n") | map(select(length > 0))' | jq -c '{env: .}')
-          echo "matrix=${MATRIX}" >> "$GITHUB_OUTPUT"
-          echo "测试矩阵: ${MATRIX}"
-
-  # ============================================================
-  # 每种虚拟化环境的集成测试
-  # ============================================================
   integration-test:
-    needs: prepare
+    name: "Test: ${{ inputs.environment }} (${{ inputs.instance_types }})"
     runs-on: ubuntu-latest
-    timeout-minutes: 720
-    strategy:
-      fail-fast: false
-      matrix: ${{ fromJson(needs.prepare.outputs.matrix) }}
-    name: 测试 ${{ matrix.env }}
+    timeout-minutes: 180
 
     steps:
-      - name: 检出代码
+      - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: 安装依赖
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y jq curl netcat-openbsd
+          sudo apt-get install -y jq curl sshpass
 
-      - name: 设置脚本权限
-        run: |
-          find action_tests/ -name "*.sh" -exec chmod +x {} +
-
-      - name: 运行 ${{ matrix.env }} 集成测试
+      - name: Run integration tests
         env:
-          ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
-          ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
-          NODE_HOURS: ${{ github.event.inputs.node_hours || '8' }}
-          ENV_TYPE: ${{ matrix.env }}
-          TEST_MODULES: ${{ github.event.inputs.test_modules || 'all' }}
+          ALICEINIT_TOKEN: ${{ secrets.ALICEINIT_TOKEN }}
+          ENV_TYPE: ${{ inputs.environment }}
+          INSTANCE_TYPES: ${{ inputs.instance_types }}
+          NODE_HOURS: ${{ inputs.node_hours }}
+          ADMIN_USER: admin
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin123!@#' }}
         run: |
-          echo "=============================="
-          echo "环境: ${ENV_TYPE}"
-          echo "模块: ${TEST_MODULES}"
-          echo "节点时长: ${NODE_HOURS} 小时"
-          echo "=============================="
+          chmod +x action_tests/run_env_test.sh
+          chmod +x action_tests/run_module.sh
+          chmod -R +x action_tests/modules/
+          chmod -R +x action_tests/common/
+          bash action_tests/run_env_test.sh \
+            "${{ inputs.environment }}" \
+            "${{ inputs.modules }}" \
+            "${{ inputs.instance_types }}"
 
-          cd action_tests
-          bash run_env_test.sh "${ENV_TYPE}" "${TEST_MODULES}" 2>&1 | tee test_output.log
-          TEST_EXIT_CODE=${PIPESTATUS[0]}
-          exit ${TEST_EXIT_CODE}
-
-      - name: 上传测试报告
+      - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-report-${{ matrix.env }}
+          name: test-reports-${{ inputs.environment }}-${{ github.run_number }}
           path: |
-            action_tests/reports/
-            action_tests/test_output.log
+            action_tests/reports/*.html
+            action_tests/reports/*.md
+            action_tests/reports/*.log
           retention-days: 30
 
-  # ============================================================
-  # 汇总报告
-  # ============================================================
-  summary:
-    needs: integration-test
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: 下载所有测试报告
-        uses: actions/download-artifact@v4
-        with:
-          path: reports/
-
-      - name: 生成汇总报告
-        run: |
-          echo "# 集成测试汇总报告" > summary.md
-          echo "" >> summary.md
-          echo "测试时间: $(date '+%Y-%m-%d %H:%M:%S UTC')" >> summary.md
-          echo "测试模块: ${{ github.event.inputs.test_modules || 'all' }}" >> summary.md
-          echo "" >> summary.md
-          echo "## 各环境测试结果" >> summary.md
-          echo "" >> summary.md
-          echo "| 环境 | 状态 | 报告 |" >> summary.md
-          echo "|------|------|------|" >> summary.md
-
-          for env_dir in reports/test-report-*/; do
-            if [[ -d "$env_dir" ]]; then
-              env_name=$(basename "$env_dir" | sed 's/test-report-//')
-              report_file=$(find "$env_dir" -name "*-report.md" -type f | head -1)
-
-              if [[ -n "$report_file" && -f "$report_file" ]]; then
-                pass_rate=$(grep -oP '通过率 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "未知")
-                total=$(grep -oP '总计 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "0")
-                failed=$(grep -oP '失败 \| \K[^|]+' "$report_file" 2>/dev/null | tr -d ' ' || echo "0")
-
-                if [[ "$failed" == "0" && "$total" != "0" ]]; then
-                  echo "| ${env_name} | PASS | 通过率 ${pass_rate}, 共 ${total} 项 |" >> summary.md
-                else
-                  echo "| ${env_name} | FAIL | 通过率 ${pass_rate}, 共 ${total} 项, ${failed} 失败 |" >> summary.md
-                fi
-              else
-                echo "| ${env_name} | ERROR | 未生成测试报告 |" >> summary.md
-              fi
-            fi
-          done
-
-          echo "" >> summary.md
-          echo "---" >> summary.md
-          echo "详细报告见各环境的 artifact" >> summary.md
-          echo ""
-          echo "===== 汇总报告 ====="
-          cat summary.md
-
-      - name: 上传汇总报告
+      - name: Upload test output log
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: integration-test-summary
-          path: summary.md
+          name: test-output-${{ inputs.environment }}-${{ github.run_number }}
+          path: action_tests/reports/*-output.log
           retention-days: 30
+
+      - name: Generate Pages content
+        if: always()
+        run: |
+          mkdir -p pages-output
+          cp action_tests/reports/*.html pages-output/ 2>/dev/null || true
+          # Generate index page
+          cd action_tests && bash -c '
+            source common/test_framework.sh
+            generate_index_html "../pages-output/index.html" "../pages-output"
+          ' 2>/dev/null || true
+
+      - name: Publish to GitHub Pages (separate repo)
+        if: always() && inputs.report_repo != ''
+        env:
+          PAGES_TOKEN: ${{ secrets.PAGES_DEPLOY_TOKEN }}
+        run: |
+          if [[ -z "$PAGES_TOKEN" ]]; then
+            echo "Warning: PAGES_DEPLOY_TOKEN secret not set, skipping Pages deployment"
+            exit 0
+          fi
+          REPORT_REPO="${{ inputs.report_repo }}"
+          REPORT_BRANCH="gh-pages"
+          TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
+          ENV="${{ inputs.environment }}"
+
+          # Clone report repo
+          git clone --depth 1 --branch "$REPORT_BRANCH" \
+            "https://x-access-token:${PAGES_TOKEN}@github.com/${REPORT_REPO}.git" \
+            report-repo 2>/dev/null || {
+              mkdir -p report-repo
+              cd report-repo
+              git init
+              git checkout -b "$REPORT_BRANCH"
+              cd ..
+            }
+
+          # Copy reports
+          mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
+          cp pages-output/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+
+          # Generate top-level index
+          cd report-repo
+          cat > index.html << 'IDXEOF'
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>OneClickVirt Test Reports</title>
+          <style>
+          :root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}
+          *{margin:0;padding:0;box-sizing:border-box}
+          body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}
+          .container{max-width:1000px;margin:0 auto}
+          h1{font-size:2rem;margin-bottom:1rem}
+          h2{font-size:1.3rem;margin:1.5rem 0 0.8rem}
+          .meta{color:#94a3b8;margin-bottom:2rem}
+          .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-bottom:0.8rem}
+          .card:hover{border-color:#60a5fa}
+          a{color:#60a5fa;text-decoration:none}
+          a:hover{text-decoration:underline}
+          </style>
+          </head>
+          <body>
+          <div class="container">
+          <h1>OneClickVirt Integration Test Reports</h1>
+          <p class="meta">Reports are organized by environment and date.</p>
+          IDXEOF
+
+          # List all env dirs
+          if [[ -d reports ]]; then
+            for envdir in reports/*/; do
+              [[ ! -d "$envdir" ]] && continue
+              envname=$(basename "$envdir")
+              echo "<h2>${envname}</h2>" >> index.html
+              # List timestamps in reverse order
+              for tsdir in $(ls -dr "$envdir"*/); do
+                [[ ! -d "$tsdir" ]] && continue
+                tsname=$(basename "$tsdir")
+                # Find report files
+                for f in "$tsdir"*.html; do
+                  [[ ! -f "$f" ]] && continue
+                  fname=$(basename "$f")
+                  echo "<div class=\"card\"><a href=\"${f}\">${tsname} - ${fname}</a></div>" >> index.html
+                done
+              done
+            done
+          fi
+
+          echo "</div></body></html>" >> index.html
+
+          # Commit and push
+          git add -A
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git commit -m "Update test reports: ${ENV} ${TIMESTAMP}" || true
+          git push "https://x-access-token:${PAGES_TOKEN}@github.com/${REPORT_REPO}.git" "$REPORT_BRANCH" || {
+            echo "Failed to push to Pages repo"
+            exit 0
+          }
+
+      - name: Summary
+        if: always()
+        run: |
+          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance Types | ${{ inputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          if [[ -f "action_tests/reports/${{ inputs.environment }}-report.md" ]]; then
+            cat "action_tests/reports/${{ inputs.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No report file found." >> $GITHUB_STEP_SUMMARY
+          fi

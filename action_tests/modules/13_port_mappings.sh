@@ -1,45 +1,59 @@
 #!/bin/bash
-# 模块 13: 端口映射管理 (Admin + User)
-# 依赖: 09_providers (PROVIDER_ID)
+# Module 13: Port Mapping Management
+# Dependencies: 09_providers (PROVIDER_ID)
 
 run_module_13() {
-    report_add_section "13 - 端口映射管理"
-    local group="ports"
+    report_add_section "13 - Port Mappings"
+    local group="port_mappings"
 
-    # ── Admin 端口列表 ──
-    test_api "Admin端口映射列表" "GET" "/api/v1/admin/port-mappings?page=1&pageSize=10" "200" "" "$group"
-
-    # ── 端口可用性检查 ──
-    test_api "端口可用性检查" "POST" "/api/v1/admin/ports/check" "200" \
-        "{\"provider_id\":${PROVIDER_ID:-0},\"port\":10001,\"protocol\":\"tcp\"}" "$group"
-
-    # ── 创建端口映射 ──
-    if [[ -n "$PROVIDER_ID" ]]; then
-        local pm_data="{\"provider_id\":${PROVIDER_ID},\"external_port\":10001,\"internal_port\":22,\"protocol\":\"tcp\"}"
-        local pm_r; pm_r=$(test_api "创建端口映射" "POST" "/api/v1/admin/port-mappings" "200" "$pm_data" "$group")
-        local pm_id; pm_id=$(echo "$pm_r" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-
-        local pm2_data="{\"provider_id\":${PROVIDER_ID},\"external_port\":10002,\"internal_port\":80,\"protocol\":\"tcp\"}"
-        local pm2_r; pm2_r=$(test_api "创建端口映射2" "POST" "/api/v1/admin/port-mappings" "200" "$pm2_data" "$group")
-        local pm2_id; pm2_id=$(echo "$pm2_r" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-
-        # ── 同步端口映射 ──
-        test_api "同步端口映射" "POST" "/api/v1/admin/port-mappings/sync" "200" \
-            "{\"provider_id\":${PROVIDER_ID}}" "$group"
-
-        # ── 删除端口映射 ──
-        if [[ -n "$pm_id" ]]; then
-            test_api "删除端口映射" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$group"
-        fi
-
-        # ── 批量删除 ──
-        if [[ -n "$pm2_id" ]]; then
-            test_api "批量删除端口映射" "POST" "/api/v1/admin/port-mappings/batch-delete" "200" \
-                "{\"ids\":[${pm2_id}]}" "$group"
-        fi
+    if [[ -z "$PROVIDER_ID" ]]; then
+        chain_break "$group" "No provider"
+        return 1
     fi
 
-    # ── User 端口映射 ──
-    local u_token="${USER_TOKEN:-$ADMIN_TOKEN}"
-    test_api "用户端口映射列表" "GET" "/api/v1/user/port-mappings" "200" "" "$group" "$u_token"
+    # -- Admin port mapping list --
+    test_api "Port mapping list" "GET" "/api/v1/admin/port-mappings?page=1&pageSize=10" "200" "" "$group"
+
+    # -- Check port availability --
+    test_api "Check port (available)" "POST" "/api/v1/admin/ports/check" "200" \
+        "{\"provider_id\":${PROVIDER_ID},\"port\":25000}" "$group"
+
+    # -- Create port mapping --
+    local pm; pm=$(test_api "Create port mapping" "POST" "/api/v1/admin/port-mappings" "200" \
+        "{\"provider_id\":${PROVIDER_ID},\"external_port\":25001,\"internal_port\":22,\"protocol\":\"tcp\"}" "$group")
+    local pm_id; pm_id=$(echo "$pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+
+    # -- Create duplicate port --
+    test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"external_port\":25001,\"internal_port\":22,\"protocol\":\"tcp\"}" "$group"
+
+    # -- Create with invalid port --
+    test_api "Create invalid port (0)" "POST" "/api/v1/admin/port-mappings" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"external_port\":0,\"internal_port\":22,\"protocol\":\"tcp\"}" "$group"
+
+    # -- Sync port mappings --
+    test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200" \
+        "{\"provider_id\":${PROVIDER_ID}}" "$group"
+
+    # -- User port mappings --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User port mappings" "GET" "/api/v1/user/port-mappings" "200" "" "$group" "$USER_TOKEN"
+    fi
+
+    # -- Delete single --
+    if [[ -n "$pm_id" ]]; then
+        test_api "Delete port mapping" "DELETE" "/api/v1/admin/port-mappings/${pm_id}" "200" "" "$group"
+    fi
+
+    # -- Delete nonexistent --
+    test_api "Delete nonexistent mapping" "DELETE" "/api/v1/admin/port-mappings/99999" "404" "" "$group"
+
+    # -- Batch delete --
+    local batch_ids; batch_ids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/port-mappings?page=1&pageSize=50" 2>/dev/null | \
+        jq -c '[.data.list[]?.id // .data.list[]?.ID] | map(select(. != null))' 2>/dev/null)
+    if [[ -n "$batch_ids" && "$batch_ids" != "[]" && "$batch_ids" != "null" ]]; then
+        test_api "Batch delete mappings" "POST" "/api/v1/admin/port-mappings/batch-delete" "200" \
+            "{\"ids\":${batch_ids}}" "$group"
+    fi
 }

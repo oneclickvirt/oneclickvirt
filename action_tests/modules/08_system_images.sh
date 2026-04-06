@@ -1,57 +1,69 @@
 #!/bin/bash
-# 模块 08: 系统镜像管理 (Super Admin)
-# 依赖: 01_init (ADMIN_TOKEN)
+# Module 08: System Image Management
+# Dependencies: 01_init (ADMIN_TOKEN)
 
 run_module_08() {
-    report_add_section "08 - 系统镜像管理"
+    report_add_section "08 - System Images"
     local group="images"
 
-    # ── 列表 ──
-    test_api "获取系统镜像列表" "GET" "/api/v1/admin/system-images?page=1&pageSize=50" "200" "" "$group"
+    # -- List --
+    test_api "Image list" "GET" "/api/v1/admin/system-images?page=1&pageSize=10" "200" "" "$group"
 
-    # ── 创建镜像 ──
-    local img1="{\"name\":\"ci-test-debian\",\"display_name\":\"CI Test Debian\",\"os_type\":\"linux\",\"provider_type\":\"docker\",\"image_source\":\"debian:12\",\"status\":\"active\"}"
-    local r1; r1=$(test_api "创建测试镜像1" "POST" "/api/v1/admin/system-images" "200" "$img1" "$group")
-    local img1_id; img1_id=$(echo "$r1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-    [[ -z "$img1_id" ]] && chain_break "$group" "创建镜像失败"
+    # -- Create images --
+    local i1; i1=$(test_api "Create image (debian)" "POST" "/api/v1/admin/system-images" "200" \
+        '{"name":"Debian 12","image":"debian:12","type":"container","provider_types":["docker","lxd","incus","podman","containerd"],"status":"active"}' "$group")
+    local iid1; iid1=$(echo "$i1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    local img2="{\"name\":\"ci-test-ubuntu\",\"display_name\":\"CI Test Ubuntu\",\"os_type\":\"linux\",\"provider_type\":\"docker\",\"image_source\":\"ubuntu:22.04\",\"status\":\"active\"}"
-    local r2; r2=$(test_api "创建测试镜像2" "POST" "/api/v1/admin/system-images" "200" "$img2" "$group")
-    local img2_id; img2_id=$(echo "$r2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    local i2; i2=$(test_api "Create image (ubuntu)" "POST" "/api/v1/admin/system-images" "200" \
+        '{"name":"Ubuntu 22.04","image":"ubuntu:22.04","type":"container","provider_types":["docker","lxd","incus"],"status":"active"}' "$group")
+    local iid2; iid2=$(echo "$i2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    local img3="{\"name\":\"ci-test-alpine\",\"display_name\":\"CI Test Alpine\",\"os_type\":\"linux\",\"provider_type\":\"docker\",\"image_source\":\"alpine:3.19\",\"status\":\"inactive\"}"
-    local r3; r3=$(test_api "创建测试镜像3" "POST" "/api/v1/admin/system-images" "200" "$img3" "$group")
-    local img3_id; img3_id=$(echo "$r3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    local i3; i3=$(test_api "Create image (alpine)" "POST" "/api/v1/admin/system-images" "200" \
+        '{"name":"Alpine 3.19","image":"alpine:3.19","type":"container","provider_types":["docker","podman","containerd"],"status":"active"}' "$group")
+    local iid3; iid3=$(echo "$i3" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
-    # ── 编辑 ──
-    if [[ -n "$img1_id" ]]; then
-        test_api "编辑镜像1" "PUT" "/api/v1/admin/system-images/${img1_id}" "200" \
-            "{\"name\":\"ci-test-debian-edited\",\"display_name\":\"CI Debian Edited\",\"os_type\":\"linux\",\"provider_type\":\"docker\",\"image_source\":\"debian:12\",\"status\":\"active\"}" "$group"
+    # -- Create VM image --
+    test_api "Create VM image" "POST" "/api/v1/admin/system-images" "200" \
+        '{"name":"Debian 12 VM","image":"debian:12","type":"vm","provider_types":["lxd","incus","proxmoxve"],"status":"active"}' "$group"
+
+    # -- Create with missing name --
+    test_api "Create image (no name)" "POST" "/api/v1/admin/system-images" "400" \
+        '{"image":"test:latest"}' "$group"
+
+    # -- Edit --
+    if [[ -n "$iid1" ]]; then
+        test_api "Edit image" "PUT" "/api/v1/admin/system-images/${iid1}" "200" \
+            '{"name":"Debian 12 Updated"}' "$group"
     fi
 
-    # ── 批量状态更新 ──
-    if [[ -n "$img2_id" && -n "$img3_id" ]]; then
-        test_api "批量启用镜像" "PUT" "/api/v1/admin/system-images/batch-status" "200" \
-            "{\"ids\":[${img2_id},${img3_id}],\"status\":\"active\"}" "$group"
+    # -- Batch status update --
+    if [[ -n "$iid1" && -n "$iid2" ]]; then
+        test_api "Batch deactivate images" "PUT" "/api/v1/admin/system-images/batch-status" "200" \
+            "{\"ids\":[${iid1},${iid2}],\"status\":\"inactive\"}" "$group"
+        test_api "Batch activate images" "PUT" "/api/v1/admin/system-images/batch-status" "200" \
+            "{\"ids\":[${iid1},${iid2}],\"status\":\"active\"}" "$group"
     fi
 
-    # ── 公开可用镜像 ──
-    test_api_noauth "公开可用镜像" "GET" "/api/v1/public/system-images/available" "200" "" "$group"
+    # -- Public available images --
+    test_api_noauth "Public available images" "GET" "/api/v1/public/system-images/available" "200" "" "$group"
 
-    # ── 用户侧镜像 ──
+    # -- User images --
     if [[ -n "$USER_TOKEN" ]]; then
-        test_api "用户获取镜像" "GET" "/api/v1/user/images" "200" "" "$group" "$USER_TOKEN"
-        test_api "用户过滤镜像" "GET" "/api/v1/user/images/filtered?provider_type=docker" "200" "" "$group" "$USER_TOKEN"
+        test_api "User image list" "GET" "/api/v1/user/images" "200" "" "$group" "$USER_TOKEN"
+        test_api "User filtered images" "GET" "/api/v1/user/images/filtered?provider_type=${ENV_TYPE}" "200" "" "$group" "$USER_TOKEN"
     fi
 
-    # ── 单个删除 ──
-    if [[ -n "$img1_id" ]]; then
-        test_api "删除镜像1" "DELETE" "/api/v1/admin/system-images/${img1_id}" "200" "" "$group"
+    # -- Delete single --
+    if [[ -n "$iid3" ]]; then
+        test_api "Delete image" "DELETE" "/api/v1/admin/system-images/${iid3}" "200" "" "$group"
     fi
 
-    # ── 批量删除 ──
-    if [[ -n "$img2_id" && -n "$img3_id" ]]; then
-        test_api "批量删除镜像" "POST" "/api/v1/admin/system-images/batch-delete" "200" \
-            "{\"ids\":[${img2_id},${img3_id}]}" "$group"
+    # -- Delete nonexistent --
+    test_api "Delete nonexistent image" "DELETE" "/api/v1/admin/system-images/99999" "404" "" "$group"
+
+    # -- Batch delete --
+    if [[ -n "$iid1" && -n "$iid2" ]]; then
+        test_api "Batch delete images" "POST" "/api/v1/admin/system-images/batch-delete" "200" \
+            "{\"ids\":[${iid1},${iid2}]}" "$group"
     fi
 }

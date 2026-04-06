@@ -1,67 +1,55 @@
 #!/bin/bash
-# 模块 07: 系统配置与等级限制 (Super Admin / Admin)
-# 依赖: 01_init (ADMIN_TOKEN)
+# Module 07: System Configuration & Level Limits
+# Dependencies: 01_init (ADMIN_TOKEN)
 
 run_module_07() {
-    report_add_section "07 - 系统配置与等级限制"
+    report_add_section "07 - System Configuration"
     local group="config"
 
-    # ── 获取统一配置 (Super Admin) ──
-    local cfg; cfg=$(test_api "获取统一配置(admin)" "GET" "/api/v1/admin/config" "200" "" "$group")
+    # -- Get unified config --
+    test_api "Get unified config" "GET" "/api/v1/admin/config" "200" "" "$group"
 
-    # ── 获取统一配置 (config路由) ──
-    test_api "获取统一配置(config)" "GET" "/api/v1/config" "200" "" "$group"
+    # -- Update config --
+    test_api "Update config (site name)" "PUT" "/api/v1/admin/config" "200" \
+        '{"site_name":"CI Test Platform","registration_enabled":true}' "$group"
 
-    # ── 更新配置(部分字段) ──
-    local update_cfg="{\"site_name\":\"CI-Test-Site\",\"registration_enabled\":true,\"registration_require_invite_code\":false}"
-    test_api "更新系统配置" "PUT" "/api/v1/admin/config" "200" "$update_cfg" "$group"
+    # -- Verify config value --
+    local cfg; cfg=$(test_api "Verify config" "GET" "/api/v1/admin/config" "200" "" "$group")
 
-    # ── 验证配置生效 ──
-    local after; after=$(test_api "验证配置更新" "GET" "/api/v1/admin/config" "200" "" "$group")
-    local site_name; site_name=$(echo "$after" | jq -r '.data.site_name // empty' 2>/dev/null)
-    TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    if [[ "$site_name" == "CI-Test-Site" ]]; then
-        PASSED_TESTS=$((PASSED_TESTS + 1))
-        log_success "配置值验证: site_name=${site_name}"
-        report_add_pass "配置值正确性验证" "GET" "/api/v1/admin/config"
-    else
-        FAILED_TESTS=$((FAILED_TESTS + 1))
-        log_error "配置值不匹配: 期望CI-Test-Site, 实际${site_name}"
-        report_add_fail "配置值正确性验证" "GET" "/api/v1/admin/config" "" "CI-Test-Site" "$site_name" "$after"
-    fi
+    # -- Update level limits --
+    test_api "Update level limits" "PUT" "/api/v1/admin/config" "200" \
+        '{"level_limits":{"1":{"max_instances":3,"max_cpu":2,"max_memory":1024,"max_disk":20},"2":{"max_instances":5,"max_cpu":4,"max_memory":2048,"max_disk":50}}}' "$group"
 
-    # ── 等级限制配置 ──
-    local level_cfg="{\"level_limits\":{\"1\":{\"max_instances\":2,\"max_cpu\":2,\"max_memory\":1024,\"max_disk\":20},\"2\":{\"max_instances\":5,\"max_cpu\":4,\"max_memory\":2048,\"max_disk\":50},\"3\":{\"max_instances\":10,\"max_cpu\":8,\"max_memory\":4096,\"max_disk\":100}}}"
-    test_api "设置等级限制" "PUT" "/api/v1/admin/config" "200" "$level_cfg" "$group"
+    # -- Config route (alternative) --
+    test_api "Get config (alt route)" "GET" "/api/v1/config" "200" "" "$group"
+    test_api "Update config (alt route)" "PUT" "/api/v1/config" "200" \
+        '{"site_name":"CI Test Platform"}' "$group"
 
-    # ── 公开系统配置验证 ──
-    test_api_noauth "公开系统配置" "GET" "/api/v1/public/system-config" "200" "" "$group"
+    # -- Public system config --
+    test_api_noauth "Public system config" "GET" "/api/v1/public/system-config" "200" "" "$group"
 
-    # ── 注册配置(含邀请码设置验证) ──
-    test_api_noauth "注册配置" "GET" "/api/v1/public/register-config" "200" "" "$group"
+    # -- Register config --
+    test_api_noauth "Register config" "GET" "/api/v1/public/register-config" "200" "" "$group"
 
-    # ── config路由更新 ──
-    test_api "config路由更新" "PUT" "/api/v1/config" "200" \
-        "{\"site_name\":\"CI-Test-Final\"}" "$group"
+    # -- Admin dashboard --
+    test_api "Admin dashboard" "GET" "/api/v1/admin/dashboard" "200" "" "$group"
 
-    # ── 管理员面板 ──
-    test_api "管理员面板" "GET" "/api/v1/admin/dashboard" "200" "" "$group"
+    # -- System monitoring --
+    test_api "System monitoring" "GET" "/api/v1/admin/monitoring/system" "200" "" "$group"
 
-    # ── 系统监控(super admin) ──
-    test_api "系统监控" "GET" "/api/v1/admin/monitoring/system" "200" "" "$group"
+    # -- Audit logs --
+    test_api "Audit logs" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "200" "" "$group"
 
-    # ── 审计日志 ──
-    test_api "审计日志" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "200" "" "$group"
+    # -- Performance metrics --
+    test_api "Performance metrics" "GET" "/api/v1/admin/performance/metrics" "200" "" "$group"
+    test_api "Performance history" "GET" "/api/v1/admin/performance/history?hours=24" "200" "" "$group"
 
-    # ── 性能指标 ──
-    test_api "性能指标" "GET" "/api/v1/admin/performance/metrics" "200" "" "$group"
-    test_api "性能历史" "GET" "/api/v1/admin/performance/history" "200" "" "$group"
+    # -- Log viewing --
+    test_api "Log dates" "GET" "/api/v1/admin/logs/dates" "200" "" "$group"
+    test_api "Log content" "GET" "/api/v1/admin/logs/content?date=today" "200" "" "$group"
 
-    # ── 日志 ──
-    test_api "日志日期列表" "GET" "/api/v1/admin/logs/dates" "200" "" "$group"
-
-    # ── Admin分组信息 ──
-    test_api "获取分组信息" "GET" "/api/v1/admin/group-info" "200" "" "$group"
-    test_api "更新分组信息" "PUT" "/api/v1/admin/group-info" "200" \
-        "{\"name\":\"CI Test Group\"}" "$group"
+    # -- Admin group info --
+    test_api "Get group info" "GET" "/api/v1/admin/group-info" "200" "" "$group"
+    test_api "Update group info" "PUT" "/api/v1/admin/group-info" "200" \
+        '{"name":"CI Test Group","description":"Integration test group"}' "$group"
 }

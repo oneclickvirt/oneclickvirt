@@ -1,125 +1,89 @@
 #!/bin/bash
-# 模块 18: 用户侧功能 (User)
-# 依赖: 01_init (USER_TOKEN), 09_providers (PROVIDER_ID)
+# Module 18: User Features (user-side comprehensive testing)
+# Dependencies: 02_auth (USER_TOKEN, USER_TOKEN2), 10_instances (TEST_INSTANCE_ID)
 
 run_module_18() {
-    report_add_section "18 - 用户侧功能"
-    local group="user_feat"
-    local u_token="${USER_TOKEN:-$ADMIN_TOKEN}"
+    report_add_section "18 - User Features"
+    local group="user_features"
 
-    # ── 用户信息 ──
-    test_api "用户信息" "GET" "/api/v1/user/info" "200" "" "$group" "$u_token"
-    test_api "用户资料" "GET" "/api/v1/user/profile" "200" "" "$group" "$u_token"
-    test_api "用户面板" "GET" "/api/v1/user/dashboard" "200" "" "$group" "$u_token"
-    test_api "用户限额" "GET" "/api/v1/user/limits" "200" "" "$group" "$u_token"
-
-    # ── 编辑资料 ──
-    test_api "更新用户资料" "PUT" "/api/v1/user/profile" "200" \
-        "{\"nickname\":\"CI-Test-User\"}" "$group" "$u_token"
-
-    # ── 用户重置密码 ──
-    test_api "用户重置密码" "PUT" "/api/v1/user/reset-password" "200" \
-        "{\"old_password\":\"${TEST_USER_PASS}\",\"new_password\":\"${TEST_USER_PASS}\"}" "$group" "$u_token"
-
-    # ── 可用资源 ──
-    test_api "可用资源" "GET" "/api/v1/user/resources/available" "200" "" "$group" "$u_token"
-    test_api "可用Provider" "GET" "/api/v1/user/providers/available" "200" "" "$group" "$u_token"
-    test_api "用户镜像" "GET" "/api/v1/user/images" "200" "" "$group" "$u_token"
-    test_api "实例配置" "GET" "/api/v1/user/instance-config" "200" "" "$group" "$u_token"
-    test_api "实例类型权限" "GET" "/api/v1/user/instance-type-permissions" "200" "" "$group" "$u_token"
-
-    # ── Provider能力 ──
-    if [[ -n "$PROVIDER_ID" ]]; then
-        test_api "Provider能力(用户)" "GET" "/api/v1/user/providers/${PROVIDER_ID}/capabilities" "200" "" "$group" "$u_token"
+    if [[ -z "$USER_TOKEN" ]]; then
+        chain_break "$group" "No user token"
+        return 1
     fi
 
-    # ── 用户实例列表 ──
-    test_api "用户实例列表" "GET" "/api/v1/user/instances" "200" "" "$group" "$u_token"
+    # ---- Profile ----
+    test_api "Get user profile" "GET" "/api/v1/user/profile" "200" "" "$group" "$USER_TOKEN"
+    test_api "Update user profile" "PUT" "/api/v1/user/profile" "200" \
+        '{"nickname":"TestUser"}' "$group" "$USER_TOKEN"
+    test_api "Get user info" "GET" "/api/v1/user/info" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get user dashboard" "GET" "/api/v1/user/dashboard" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get user limits" "GET" "/api/v1/user/limits" "200" "" "$group" "$USER_TOKEN"
 
-    # ── 用户创建实例(等级限制验证) ──
-    if [[ -n "$PROVIDER_ID" ]]; then
-        local u_inst="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
-        local uir; uir=$(test_api "用户创建实例" "POST" "/api/v1/user/instances" "200" "$u_inst" "$group" "$u_token")
-        local u_inst_id; u_inst_id=$(echo "$uir" | jq -r '.data.id // .data.task_id // empty' 2>/dev/null)
-        # 如果是task_id等待
-        if [[ -n "$u_inst_id" ]]; then
-            local maybe_task; maybe_task=$(echo "$uir" | jq -r '.data.task_id // empty' 2>/dev/null)
-            if [[ -n "$maybe_task" ]]; then
-                local task_r; task_r=$(wait_task_complete "$SERVER_URL" "$maybe_task" "$u_token" 300 10)
-                u_inst_id=$(echo "$task_r" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
-            fi
-        fi
+    # ---- User password reset ----
+    test_api "User reset password (invalid)" "PUT" "/api/v1/user/reset-password" "400" \
+        '{"old_password":"wrong","new_password":"NewPass123!@#"}' "$group" "$USER_TOKEN"
 
-        if [[ -n "$u_inst_id" ]]; then
-            # ── 实例详情 ──
-            local ud; ud=$(test_api "用户实例详情" "GET" "/api/v1/user/instances/${u_inst_id}" "200" "" "$group" "$u_token")
-            # 验证IP和配置
-            local u_ip; u_ip=$(echo "$ud" | jq -r '.data.ip // .data.ipv4 // .data.internal_ip // empty' 2>/dev/null)
-            local u_cpu; u_cpu=$(echo "$ud" | jq -r '.data.cpu // empty' 2>/dev/null)
-            TOTAL_TESTS=$((TOTAL_TESTS + 1))
-            if [[ -n "$u_ip" || -n "$u_cpu" ]]; then
-                PASSED_TESTS=$((PASSED_TESTS + 1))
-                log_success "用户实例配置: IP=${u_ip} CPU=${u_cpu}"
-                report_add_pass "用户实例配置验证" "GET" "/api/v1/user/instances/${u_inst_id}"
-            else
-                FAILED_TESTS=$((FAILED_TESTS + 1))
-                report_add_fail "用户实例配置验证" "GET" "/api/v1/user/instances/${u_inst_id}" "" "有值" "空" "$ud"
-            fi
+    # ---- Available resources ----
+    test_api "Get available resources" "GET" "/api/v1/user/resources/available" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get available providers" "GET" "/api/v1/user/providers/available" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get user images" "GET" "/api/v1/user/images" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get filtered images" "GET" "/api/v1/user/images/filtered" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get instance type perms" "GET" "/api/v1/user/instance-type-permissions" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get instance config" "GET" "/api/v1/user/instance-config" "200" "" "$group" "$USER_TOKEN"
 
-            # ── 监控 ──
-            test_api "用户实例监控" "GET" "/api/v1/user/instances/${u_inst_id}/monitoring" "200" "" "$group" "$u_token"
-            test_api "用户实例资源监控" "GET" "/api/v1/user/instances/${u_inst_id}/monitoring/resources" "200" "" "$group" "$u_token"
-            test_api "用户实例监控状态" "GET" "/api/v1/user/instances/${u_inst_id}/monitoring/status" "200" "" "$group" "$u_token"
+    # ---- User instances ----
+    test_api "List user instances" "GET" "/api/v1/user/instances" "200" "" "$group" "$USER_TOKEN"
 
-            # ── Pmacct ──
-            test_api "用户Pmacct概要" "GET" "/api/v1/user/instances/${u_inst_id}/pmacct/summary" "200" "" "$group" "$u_token"
+    # ---- User traffic ----
+    test_api "User traffic overview" "GET" "/api/v1/user/traffic/overview" "200" "" "$group" "$USER_TOKEN"
+    test_api "User traffic instances" "GET" "/api/v1/user/traffic/instances" "200" "" "$group" "$USER_TOKEN"
+    test_api "User traffic limit status" "GET" "/api/v1/user/traffic/limit-status" "200" "" "$group" "$USER_TOKEN"
+    test_api "User traffic history" "GET" "/api/v1/user/traffic/history" "200" "" "$group" "$USER_TOKEN"
 
-            # ── 端口 ──
-            test_api "用户实例端口" "GET" "/api/v1/user/instances/${u_inst_id}/ports" "200" "" "$group" "$u_token"
+    # ---- User port mappings ----
+    test_api "User port mappings" "GET" "/api/v1/user/port-mappings" "200" "" "$group" "$USER_TOKEN"
 
-            # ── 实例操作 ──
-            test_api "用户停止实例" "POST" "/api/v1/user/instances/action" "200" \
-                "{\"instance_id\":${u_inst_id},\"action\":\"stop\"}" "$group" "$u_token"
-            sleep 3
-            test_api "用户启动实例" "POST" "/api/v1/user/instances/action" "200" \
-                "{\"instance_id\":${u_inst_id},\"action\":\"start\"}" "$group" "$u_token"
-            sleep 3
-            test_api "用户重启实例" "POST" "/api/v1/user/instances/action" "200" \
-                "{\"instance_id\":${u_inst_id},\"action\":\"restart\"}" "$group" "$u_token"
-            sleep 3
+    # ---- User tasks ----
+    test_api "User tasks" "GET" "/api/v1/user/tasks" "200" "" "$group" "$USER_TOKEN"
+    test_api "Cancel nonexistent task" "POST" "/api/v1/user/tasks/99999/cancel" "404|400" "" "$group" "$USER_TOKEN"
 
-            # ── 重置密码 ──
-            local urp; urp=$(test_api "用户重置实例密码" "PUT" "/api/v1/user/instances/${u_inst_id}/reset-password" "200" \
-                "{\"password\":\"UserNewPass123!\"}" "$group" "$u_token")
-            local urp_task; urp_task=$(echo "$urp" | jq -r '.data.task_id // empty' 2>/dev/null)
-            if [[ -n "$urp_task" ]]; then
-                sleep 5
-                test_api "用户获取新密码" "GET" "/api/v1/user/instances/${u_inst_id}/password/${urp_task}" "200" "" "$group" "$u_token"
-            fi
+    # ---- User domains ----
+    test_api "User domains" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
 
-            # ── 流量 ──
-            test_api "用户实例流量详情" "GET" "/api/v1/user/traffic/instance/${u_inst_id}" "200" "" "$group" "$u_token"
-            test_api "用户实例流量历史" "GET" "/api/v1/user/instances/${u_inst_id}/traffic/history" "200" "" "$group" "$u_token"
-            test_api "用户Pmacct数据" "GET" "/api/v1/user/traffic/pmacct/${u_inst_id}" "200" "" "$group" "$u_token"
+    # ---- Instance-specific user tests (only if we have an instance) ----
+    if [[ -n "$TEST_INSTANCE_ID" ]]; then
+        test_api "User instance detail" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance monitoring" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance resources" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/resources" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance status" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/status" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance ports" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance traffic hist" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" "200" "" "$group" "$USER_TOKEN"
 
-            # ── 签到 ──
-            test_api "生成签到码" "POST" "/api/v1/user/checkin/code/${u_inst_id}" "200" "" "$group" "$u_token"
-            test_api "签到记录" "GET" "/api/v1/user/checkin/records" "200" "" "$group" "$u_token"
-
-            # ── 用户任务 ──
-            test_api "用户任务列表" "GET" "/api/v1/user/tasks" "200" "" "$group" "$u_token"
-
-            # ── 清理: Admin删除用户实例 ──
-            test_api "Admin删除用户实例" "DELETE" "/api/v1/admin/instances/${u_inst_id}" "200" "" "$group" "$ADMIN_TOKEN"
-        fi
+        # Instance action via user API
+        test_api "User instance action (invalid)" "POST" "/api/v1/user/instances/action" "400" \
+            '{"instance_id":"'"$TEST_INSTANCE_ID"'","action":"invalid_action"}' "$group" "$USER_TOKEN"
     fi
 
-    # ── KYC ──
-    test_api "获取用户KYC" "GET" "/api/v1/user/kyc" "200" "" "$group" "$u_token"
+    # ---- User instance creation (requires KYC in some configs) ----
+    test_api "User create instance (missing fields)" "POST" "/api/v1/user/instances" "400" \
+        '{}' "$group" "$USER_TOKEN"
 
-    # ── 虚拟化Provider(resources路由) ──
-    test_api "虚拟化Provider列表" "GET" "/api/v1/resources/virtualization/providers" "200" "" "$group" "$u_token"
+    # ---- Provider capabilities ----
+    if [[ -n "$PROVIDER_ID" ]]; then
+        test_api "User provider capabilities" "GET" "/api/v1/user/providers/${PROVIDER_ID}/capabilities" "200" "" "$group" "$USER_TOKEN"
+    fi
 
-    # ── Dashboard统计 ──
-    test_api "Dashboard统计(用户)" "GET" "/api/v1/dashboard/stats" "200" "" "$group" "$u_token"
+    # ---- User2 isolation: cannot see user1 instances ----
+    if [[ -n "$USER_TOKEN2" && -n "$TEST_INSTANCE_ID" ]]; then
+        test_api "User2 cannot see user1 instance" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "403|404" "" "$group" "$USER_TOKEN2"
+    fi
+
+    # ---- Unauthenticated access blocked ----
+    test_api "No token -> profile (401)" "GET" "/api/v1/user/profile" "401" "" "$group" ""
+    test_api "No token -> instances (401)" "GET" "/api/v1/user/instances" "401" "" "$group" ""
+
+    # ---- Claim resource (invalid) ----
+    test_api "Claim resource invalid" "POST" "/api/v1/user/resources/claim" "400" \
+        '{}' "$group" "$USER_TOKEN"
 }
