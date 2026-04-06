@@ -280,7 +280,7 @@ const loadLog = async () => {
   } catch (e) {
     logContent.value = ''
     lineCount.value = 0
-    if (e?.message?.includes('不存在')) {
+    if (e?.response?.status === 404 || e?.message?.includes('not found') || e?.message?.includes('不存在')) {
       ElMessage.warning(t('admin.logs.fileNotFound'))
     } else {
       ElMessage.error(t('admin.logs.loadFailed'))

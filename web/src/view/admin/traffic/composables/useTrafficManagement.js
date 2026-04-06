@@ -111,7 +111,7 @@ export function useTrafficManagement() {
       const { value: reason } = await ElMessageBox.prompt(t('admin.traffic.enterLimitReason'), t('admin.traffic.batchLimit'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), inputPattern: /.{5,}/, inputErrorMessage: t('admin.traffic.limitReasonMinLength') })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchManageTrafficLimits({ action: 'limit', user_ids: userIds, reason })
-      if (response.code === 0) { ElMessage.success(response.msg); loadTrafficRanking() }
+      if (response.code === 0) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
       else { ElMessage.error(`${t('admin.traffic.batchLimitFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchLimitError')) }
   }
@@ -122,7 +122,7 @@ export function useTrafficManagement() {
       await ElMessageBox.confirm(t('admin.traffic.confirmBatchUnlimit', { count: selectedUsers.value.length }), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchManageTrafficLimits({ action: 'unlimit', user_ids: userIds })
-      if (response.code === 0) { ElMessage.success(response.msg); loadTrafficRanking() }
+      if (response.code === 0) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
       else { ElMessage.error(`${t('admin.traffic.batchUnlimitFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchUnlimitError')) }
   }

@@ -7,9 +7,10 @@ import {
   getProviderCapabilities,
   getUserInstanceTypePermissions
 } from '@/api/user'
+import { getCountryByName, getLocalizedName } from '@/utils/countries'
 
 export function useApplyProviders() {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   const loading = ref(false)
   const refreshing = ref(false)
@@ -49,9 +50,14 @@ export function useApplyProviders() {
 
   const formatProviderLocation = (provider) => {
     const parts = []
+    const loc = locale.value === 'en' ? 'en' : 'zh'
     if (provider.city) parts.push(provider.city)
-    if (provider.country) parts.push(provider.country)
-    else if (provider.region) parts.push(provider.region)
+    if (provider.country) {
+      const countryInfo = getCountryByName(provider.country)
+      parts.push(countryInfo ? getLocalizedName(countryInfo, loc) : provider.country)
+    } else if (provider.region) {
+      parts.push(provider.region)
+    }
     return parts.length > 0 ? parts.join(', ') : '-'
   }
 

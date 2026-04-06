@@ -184,26 +184,27 @@ func DeployAgent(c *gin.Context) {
 		return
 	}
 
-	// Check kernel/nft support first
-	nftCtx, nftCancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
-	defer nftCancel()
+	// Check kernel version for nft support (the deploy script will install nft if needed)
+	if config.TrafficCollectMethod == "" || config.TrafficCollectMethod == "nft" {
+		nftCtx, nftCancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+		defer nftCancel()
 
-	supportsNFT, err := agentService.DetectKernelSupportsNFT(nftCtx, providerInstance)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "检测内核NFT支持失败: " + err.Error()})
-		return
-	}
-
-	if !supportsNFT {
-		// Fallback to pmacct
-		config.MonitoringMode = "pmacct"
-		global.APP_DB.Save(config)
-		c.JSON(http.StatusOK, common.Response{
-			Code: 0,
-			Msg:  "内核不支持nft，已自动切换为pmacct模式",
-			Data: gin.H{"config": config, "output": "内核不支持nft，已自动切换为pmacct模式\n"},
-		})
-		return
+		kernelOK, err := agentService.DetectKernelVersionForNFT(nftCtx, providerInstance)
+		if err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("kernel version check failed, proceeding with deploy",
+					zap.Error(err))
+			}
+			// Don't block deploy on detection failure - the deploy script will handle it
+		} else if !kernelOK {
+			// Kernel too old for nftables, auto-switch to iptables mode
+			config.TrafficCollectMethod = "ipt"
+			global.APP_DB.Save(config)
+			if global.APP_LOG != nil {
+				global.APP_LOG.Info("kernel too old for nftables, switched to iptables mode",
+					zap.Uint("providerID", uint(providerID)))
+			}
+		}
 	}
 
 	// Get provider model from database for proxy config

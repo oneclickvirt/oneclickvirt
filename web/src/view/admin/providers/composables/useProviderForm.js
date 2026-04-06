@@ -1,5 +1,5 @@
 // Provider 添加/编辑表单状态与逻辑
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createProvider, updateProvider } from '@/api/admin'
 import { countries, getCountriesByRegion } from '@/utils/countries'
@@ -145,7 +145,7 @@ const buildDefaultForm = () => ({
 })
 
 export function useProviderForm(loadProviders) {
-  const { t } = useI18n()
+  const { t, locale } = useI18n()
 
   const showAddDialog = ref(false)
   const addProviderLoading = ref(false)
@@ -158,7 +158,7 @@ export function useProviderForm(loadProviders) {
     set: (value) => { addProviderForm.maxTraffic = Math.round(value * TB_TO_MB) }
   })
 
-  const groupedCountries = ref(getCountriesByRegion())
+  const groupedCountries = computed(() => getCountriesByRegion(locale.value === 'en' ? 'en' : 'zh'))
 
   const getLevelTagType = (level) => {
     const types = { 1: 'info', 2: 'success', 3: 'warning', 4: 'danger', 5: 'primary' }

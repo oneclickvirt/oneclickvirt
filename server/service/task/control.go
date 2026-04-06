@@ -214,14 +214,20 @@ func (s *TaskService) forceStopRunningTask(tx *gorm.DB, taskID uint, reason stri
 // forceKillTask 强制终止任务
 func (s *TaskService) forceKillTask(tx *gorm.DB, taskID uint, reason string) error {
 	now := time.Now()
-	err := tx.Model(&adminModel.Task{}).Where("id = ?", taskID).Updates(map[string]interface{}{
-		"status":        "cancelled",
-		"cancel_reason": reason,
-		"completed_at":  &now,
-	}).Error
+	result := tx.Model(&adminModel.Task{}).
+		Where("id = ? AND status NOT IN ?", taskID, []string{"completed", "failed", "cancelled", "timeout"}).
+		Updates(map[string]interface{}{
+			"status":        "cancelled",
+			"cancel_reason": reason,
+			"completed_at":  &now,
+		})
 
-	if err != nil {
-		return err
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		// Task already in terminal state, no need to force-kill
+		return nil
 	}
 
 	// 强制清理上下文和实例状态（异步处理）

@@ -134,10 +134,10 @@ func (s *SchedulerService) cleanupOldTasks() {
 		return
 	}
 
-	// 清理30天前的已完成任务
+	// 清理30天前的已完成任务（使用Unscoped进行硬删除，避免表无限增长）
 	oldThreshold := time.Now().Add(-30 * 24 * time.Hour)
 
-	result := global.APP_DB.Where("status IN ? AND updated_at < ?",
+	result := global.APP_DB.Unscoped().Where("status IN ? AND updated_at < ?",
 		[]string{"completed", "failed", "cancelled"}, oldThreshold).
 		Delete(&adminModel.Task{})
 

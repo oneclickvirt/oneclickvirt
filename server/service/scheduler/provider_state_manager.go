@@ -195,7 +195,14 @@ func (m *ProviderStateManager) ResetIfCollectingTooLong(timeout time.Duration) i
 
 // StartCollecting 开始采集（返回是否成功获取锁）
 func (s *ProviderState) StartCollecting() bool {
-	return s.isCollecting.CompareAndSwap(false, true)
+	if !s.isCollecting.CompareAndSwap(false, true) {
+		return false
+	}
+	// Set collectStartTime immediately to prevent stale time in ResetIfCollectingTooLong
+	s.mu.Lock()
+	s.collectStartTime = time.Now()
+	s.mu.Unlock()
+	return true
 }
 
 // FinishCollecting 完成采集

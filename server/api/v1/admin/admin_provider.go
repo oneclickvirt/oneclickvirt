@@ -194,8 +194,12 @@ func DeleteProvider(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	err = providerService.DeleteProvider(uint(providerID), forceDelete)
 	if err != nil {
+		code := 500
+		if strings.Contains(err.Error(), "运行中的实例") || strings.Contains(err.Error(), "running instance") {
+			code = 40901 // Conflict: has running instances
+		}
 		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
+			Code: code,
 			Msg:  err.Error(),
 		})
 		return

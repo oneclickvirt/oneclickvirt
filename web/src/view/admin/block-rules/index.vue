@@ -488,7 +488,7 @@ async function handleSubmitRule() {
     showRuleDialog.value = false
     fetchRules()
   } catch (err) {
-    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
+    ElMessage.error(err.message || err.response?.data?.msg || t('common.operationFailed'))
   } finally {
     submitting.value = false
   }
@@ -511,7 +511,7 @@ async function handleToggleEnabled(row, val) {
     await blockRulesApi.updateRule(row.id, { enabled: val })
     row.enabled = val
   } catch (err) {
-    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
+    ElMessage.error(err.message || err.response?.data?.msg || t('common.operationFailed'))
   }
 }
 
@@ -532,7 +532,7 @@ async function handleApplyRules() {
     showApplyDialog.value = false
     fetchApplications()
   } catch (err) {
-    ElMessage.error(err.message || err.response?.data?.msg || 'Error')
+    ElMessage.error(err.message || err.response?.data?.msg || t('common.operationFailed'))
   } finally {
     submitting.value = false
   }

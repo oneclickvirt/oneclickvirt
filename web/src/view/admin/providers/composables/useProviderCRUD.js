@@ -95,8 +95,8 @@ export function useProviderCRUD() {
           ElMessage.success(t('admin.providers.serverDeleteSuccess'))
           await loadProviders()
         } catch (normalError) {
-          const errorMsg = normalError?.response?.data?.msg || ''
-          if (errorMsg.includes('运行中的实例') || errorMsg.includes('实例')) {
+          const errorCode = normalError?.response?.data?.code
+          if (errorCode === 40901) {
             await ElMessageBox.confirm(
               t('admin.providers.forceDeleteConfirm', { name: provider.name }),
               t('admin.providers.forceDeleteTitle'),
@@ -176,14 +176,12 @@ export function useProviderCRUD() {
           await deleteProvider(provider.id, false)
           successCount++
         } catch (error) {
+          const errorCode = error?.response?.data?.code
           const errorMsg = error?.response?.data?.msg || ''
           const isOffline =
             provider.status === 'inactive' ||
             (provider.sshStatus === 'offline' && provider.apiStatus === 'offline')
-          if (
-            isOffline &&
-            (errorMsg.includes('运行中的实例') || errorMsg.includes('实例'))
-          ) {
+          if (isOffline && errorCode === 40901) {
             needsForceDelete.push(provider)
           } else {
             failCount++

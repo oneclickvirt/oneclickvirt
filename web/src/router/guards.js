@@ -7,6 +7,31 @@ import 'nprogress/nprogress.css'
 
 NProgress.configure({ showSpinner: false })
 
+// Cache init status to avoid checking on every navigation
+let initStatusChecked = false
+let needsInit = false
+const INIT_CHECK_INTERVAL = 5 * 60 * 1000 // Re-check every 5 minutes
+let lastInitCheck = 0
+
+async function checkInitStatus() {
+  const now = Date.now()
+  if (initStatusChecked && (now - lastInitCheck) < INIT_CHECK_INTERVAL) {
+    return needsInit
+  }
+  try {
+    const response = await checkSystemInit()
+    if (response && response.code === 0 && response.data) {
+      needsInit = response.data.needInit === true
+      initStatusChecked = true
+      lastInitCheck = now
+    }
+  } catch (error) {
+    console.warn('Init status check failed, using cached result')
+    // On error, keep using cached value (default false)
+  }
+  return needsInit
+}
+
 export function setupRouterGuards(router) {
   // 定义白名单（放在最前面，供所有逻辑使用）
   const whiteList = ['/home', '/login', '/register', '/forgot-password', '/init', '/admin/login']
@@ -144,37 +169,20 @@ export function setupRouterGuards(router) {
     const token = userStore.token || sessionStorage.getItem('token') || localStorage.getItem('token')
     console.log('最终token检查:', !!token)
     
-    // 检查系统初始化状态（除了初始化页面本身）
+    // 检查系统初始化状态（使用缓存，避免每次导航都请求API）
     if (to.name !== 'SystemInit') {
-      try {
-        const response = await checkSystemInit()
-        console.log('检查初始化状态响应:', response)
-        if (response && response.code === 0 && response.data && response.data.needInit === true) {
-          console.log('系统需要初始化，跳转到初始化页面')
-          next({ path: '/init' })
-          return
-        }
-      } catch (error) {
-        console.error('检查系统初始化状态失败:', error)
-        // On transient errors (network, 500, etc.), do NOT redirect to init page.
-        // Only redirect when the server explicitly returns needInit === true.
-        console.warn('初始化检查失败，允许继续访问页面')
-        // 不要阻塞，继续正常的路由逻辑
+      const systemNeedsInit = await checkInitStatus()
+      if (systemNeedsInit) {
+        next({ path: '/init' })
+        return
       }
     } else {
-      // 如果已经在初始化页面，检查是否还需要初始化
-      try {
-        const response = await checkSystemInit()
-        console.log('在初始化页面检查状态:', response)
-        if (response && response.code === 0 && response.data && response.data.needInit === false) {
-          console.log('系统已初始化，跳转到首页')
-          next({ path: '/home' })
-          return
-        }
-      } catch (error) {
-        console.error('在初始化页面检查系统初始化状态失败:', error)
-        // 如果检查失败，允许停留在初始化页面
-        console.warn('初始化页面状态检查失败，允许停留在初始化页面')
+      // 如果已经在初始化页面，强制重新检查
+      initStatusChecked = false
+      const systemNeedsInit = await checkInitStatus()
+      if (!systemNeedsInit) {
+        next({ path: '/home' })
+        return
       }
     }
     

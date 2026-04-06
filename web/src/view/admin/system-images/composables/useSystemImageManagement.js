@@ -94,7 +94,7 @@ export function useSystemImageManagement() {
       if (isEdit.value) { await systemImageApi.update(editId.value, data); ElMessage.success(t('admin.systemImages.updateSuccess')) }
       else { await systemImageApi.create(data); ElMessage.success(t('admin.systemImages.createSuccess')) }
       dialogVisible.value = false; fetchData()
-    } catch (error) { if (error.message) ElMessage.error(error.message) }
+    } catch (error) { if (error.message) ElMessage.error(error.message || t('common.operationFailed')) }
     finally { submitting.value = false }
   }
 

@@ -605,7 +605,7 @@ const submitCreate = async () => {
     await loadData()
   } catch (e) {
     if (e?.response?.data?.msg) {
-      ElMessage.error(e.response.data.msg)
+      ElMessage.error(e.response.data.msg || t('admin.redemptionCodes.createFailed'))
     }
     // validation errors silently ignored (form shows them)
   } finally {
@@ -696,7 +696,7 @@ const handleBatchDelete = async () => {
     await loadData()
   } catch (e) {
     if (e !== 'cancel' && e?.response?.data?.msg) {
-      ElMessage.error(e.response.data.msg)
+      ElMessage.error(e.response.data.msg || t('common.operationFailed'))
     }
   }
 }

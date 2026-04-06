@@ -67,6 +67,7 @@ func (s *MonitoringSchedulerService) Start(ctx context.Context) {
 	global.APP_LOG.Info("启动监控调度器")
 
 	// 启动pmacct流量数据收集任务
+	s.wg.Add(5)
 	go s.startPmacctCollection(ctx)
 
 	// 启动agent流量数据收集任务
@@ -133,6 +134,7 @@ func (s *MonitoringSchedulerService) DeleteProviderState(providerID uint) {
 // startPmacctCollection 启动pmacct流量数据收集任务
 // 为每个启用流量控制的Provider独立管理采集周期
 func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) {
+	defer s.wg.Done()
 	// 确保ticker在panic时也能停止，防止goroutine泄漏
 	var checkTicker *time.Ticker
 	var cleanupTicker *time.Ticker
@@ -329,6 +331,7 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 
 // startCleanupTask 启动清理任务，定期清理过期的pmacct数据
 func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
+	defer s.wg.Done()
 	// 确俟ticker在panic时也能停止，防止goroutine泄漏
 	var ticker *time.Ticker
 	defer func() {
@@ -392,6 +395,7 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 // 每天定期重置所有pmacct守护进程，清空SQLite数据库并重启
 // 避免SQLite文件过大和数据累积问题
 func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
+	defer s.wg.Done()
 	// 确俟ticker在panic时也能停止，防止goroutine泄漏
 	var ticker *time.Ticker
 	defer func() {
@@ -511,7 +515,11 @@ func (s *MonitoringSchedulerService) startPmacctResetTask(ctx context.Context) {
 					}
 
 					// 每个实例之间间隔2秒，避免对provider造成压力
-					time.Sleep(2 * time.Second)
+					select {
+					case <-s.stopChan:
+						return
+					case <-time.After(2 * time.Second):
+					}
 				}
 
 				// 更新最后重置时间
@@ -731,6 +739,7 @@ func (s *MonitoringSchedulerService) collectProviderTrafficInBatches(providerID 
 
 // startAgentCollection starts agent-based traffic collection for providers using agent mode.
 func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
+	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("agent traffic collection panic",
@@ -856,6 +865,7 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 
 // startAgentResourceCollection starts agent-based resource monitoring collection.
 func (s *MonitoringSchedulerService) startAgentResourceCollection(ctx context.Context) {
+	defer s.wg.Done()
 	defer func() {
 		if r := recover(); r != nil {
 			global.APP_LOG.Error("agent resource collection panic",

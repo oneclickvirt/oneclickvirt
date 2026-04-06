@@ -77,7 +77,8 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   const canSelectSpec = (_specType, _spec) => true
 
   const formatCpuSpecName = (spec) => {
-    if (spec.name && spec.name.includes('核')) {
+    // Check if spec has a cores field or if the name is purely numeric (e.g. "2" -> "2 cores")
+    if (spec.cores || (spec.name && /^\d+$/.test(spec.name.trim()))) {
       const coreCount = spec.cores || parseInt(spec.name)
       return `${coreCount}${t('user.apply.cores')}`
     }
@@ -323,7 +324,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         }
         setTimeout(() => { router.push('/user/tasks') }, 3000)
       } else {
-        if (response.message && response.message.includes('进行中')) {
+        if ((response.code === 40902) || (response.message && (response.message.includes('进行中') || response.message.includes('in progress')))) {
           ElMessage.warning(t('user.apply.duplicateTaskWarning'))
           setTimeout(() => { router.push('/user/tasks') }, 3000)
         } else {

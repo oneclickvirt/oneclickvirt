@@ -143,7 +143,7 @@
 import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getCountriesByRegion, getCountryByName } from '@/utils/countries'
+import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
 import { testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
 // 导入子标签页组件
 import BasicInfoTab from './formTabs/BasicInfoTab.vue'
@@ -157,7 +157,7 @@ import AdvancedTab from './formTabs/AdvancedTab.vue'
 import HardwareConfigTab from './formTabs/HardwareConfigTab.vue'
 import CheckinConfigTab from './formTabs/CheckinConfigTab.vue'
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const props = defineProps({
   visible: {
@@ -205,7 +205,7 @@ const groupedCountries = computed(() => {
   if (props.groupedCountries && Object.keys(props.groupedCountries).length > 0) {
     return props.groupedCountries
   }
-  return getCountriesByRegion()
+  return getCountriesByRegion(locale.value === 'en' ? 'en' : 'zh')
 })
 
 // 是否显示硬件配置标签页（LXD/Incus 的容器或虚拟机都可以配置硬件参数）
@@ -402,8 +402,9 @@ watch(() => formData.value.country, (newCountry, oldCountry) => {
       formData.value.countryCode = country.code
       
       // 自动填充地区（如果地区为空，或者地区与旧国家的地区相同）
-      if (!formData.value.region || (oldCountry && getCountryByName(oldCountry)?.region === formData.value.region)) {
-        formData.value.region = country.region
+      const oldCountryInfo = oldCountry ? getCountryByName(oldCountry) : null
+      if (!formData.value.region || (oldCountryInfo && (oldCountryInfo.region === formData.value.region || oldCountryInfo.en_region === formData.value.region))) {
+        formData.value.region = getLocalizedRegion(country, locale.value)
       }
     }
   }

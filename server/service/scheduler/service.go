@@ -56,6 +56,9 @@ func (s *SchedulerService) Start() error {
 		return fmt.Errorf("scheduler is already running")
 	}
 
+	// Recreate context so that a stopped scheduler can be restarted
+	s.ctx, s.cancel = context.WithCancel(context.Background())
+
 	s.running = true
 	s.wg.Add(1)
 	go s.runTaskScheduler()

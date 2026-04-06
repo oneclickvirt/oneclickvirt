@@ -577,11 +577,7 @@ const submitCreate = async () => {
     cancelCreate()
     await loadInviteCodes()
   } catch (error) {
-    if (error.response?.data?.msg) {
-      ElMessage.error(error.response.data.msg)
-    } else {
-      ElMessage.error(t('admin.inviteCodes.createFailed'))
-    }
+    ElMessage.error(error.response?.data?.msg || t('admin.inviteCodes.createFailed'))
   } finally {
     createLoading.value = false
   }

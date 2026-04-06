@@ -30,7 +30,7 @@
           <el-option 
             v-for="country in regionCountries" 
             :key="country.code" 
-            :label="`${country.flag} ${country.name}`" 
+            :label="`${country.flag} ${localizedName(country)}`" 
             :value="country.name"
           />
         </el-option-group>
@@ -66,6 +66,11 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
+import { getLocalizedName } from '@/utils/countries'
+
+const { locale } = useI18n()
+
 defineProps({
   modelValue: {
     type: Object,
@@ -76,6 +81,8 @@ defineProps({
     required: true
   }
 })
+
+const localizedName = (country) => getLocalizedName(country, locale.value)
 </script>
 
 <style scoped>

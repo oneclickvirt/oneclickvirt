@@ -145,10 +145,10 @@ echo "[1/6] check and install traffic monitoring dependency..."
 # Read collect method from .env if already present, otherwise default to nft
 COLLECT_METHOD=""
 if [ -f "$INSTALL_DIR/.env" ]; then
-    COLLECT_METHOD=$(grep -oP 'TRAFFIC_COLLECT_METHOD=\K.*' "$INSTALL_DIR/.env" 2>/dev/null || true)
+    COLLECT_METHOD=$(grep 'TRAFFIC_COLLECT_METHOD=' "$INSTALL_DIR/.env" 2>/dev/null | sed 's/TRAFFIC_COLLECT_METHOD=//' || true)
 fi
 # The new .env will be written below; parse the base64-encoded one for the intended method
-INTENDED_METHOD=$(printf '%%s' "%s" | base64 -d 2>/dev/null | grep -oP 'TRAFFIC_COLLECT_METHOD=\K.*' || echo "nft")
+INTENDED_METHOD=$(printf '%%s' "%s" | base64 -d 2>/dev/null | grep 'TRAFFIC_COLLECT_METHOD=' | sed 's/TRAFFIC_COLLECT_METHOD=//' || echo "nft")
 COLLECT_METHOD="${INTENDED_METHOD:-nft}"
 
 if [ "$COLLECT_METHOD" = "ipt" ]; then
@@ -394,6 +394,21 @@ func stripANSI(s string) string {
 		}
 	}
 	return result.String()
+}
+
+// DetectKernelVersionForNFT checks if the provider host kernel version >= 3.14 (minimum for nftables).
+// This only checks kernel version, not whether nft binary is installed (the deploy script handles installation).
+func DetectKernelVersionForNFT(ctx context.Context, providerInstance provider.Provider) (bool, error) {
+	detectCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(detectCtx, `uname -r`)
+	if err != nil {
+		return false, fmt.Errorf("check kernel version failed: %w", err)
+	}
+
+	kernelVersion := strings.TrimSpace(output)
+	return checkKernelVersionForNFT(kernelVersion), nil
 }
 
 // DetectKernelSupportsNFT checks if the provider host kernel supports nftables.
