@@ -1,21 +1,26 @@
 #!/bin/bash
-# Test Framework Core - logging, assertions, reporting, wait functions
+# Test Framework Core - logging, assertions, reporting, wait functions, state management
 set -uo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'
 BLUE='\033[0;34m'; CYAN='\033[0;36m'; NC='\033[0m'
 
+_ts() { date '+%Y-%m-%dT%H:%M:%S'; }
 log_info()    { echo -e "${BLUE}[INFO]${NC} $(date '+%H:%M:%S') $*"; }
 log_success() { echo -e "${GREEN}[PASS]${NC} $(date '+%H:%M:%S') $*"; }
 log_error()   { echo -e "${RED}[FAIL]${NC} $(date '+%H:%M:%S') $*"; }
 log_warning() { echo -e "${YELLOW}[WARN]${NC} $(date '+%H:%M:%S') $*"; }
 log_section() { echo -e "\n${CYAN}========== $* ==========${NC}\n"; }
 log_skip()    { echo -e "${YELLOW}[SKIP]${NC} $(date '+%H:%M:%S') $*"; }
+log_debug()   { [[ "${DEBUG:-0}" == "1" ]] && echo -e "[DEBUG] $(date '+%H:%M:%S') $*" || true; }
 
 # -- Counters --
 TOTAL_TESTS=0; PASSED_TESTS=0; FAILED_TESTS=0; SKIPPED_TESTS=0
 declare -A CHAIN_BROKEN
 REPORT_FILE=""
+RESULTS_FILE=""
+TEST_START_TS=""
+MASTER_NODE_ID=""
 
 # -- Global variables (shared across modules) --
 SERVER_URL=""
@@ -48,12 +53,13 @@ declare -a TEST_RESULTS_JSON=()
 test_api() {
     local name="$1" method="$2" url="$3" expected="$4"
     local data="${5:-}" group="${6:-default}" token="${7:-$ADMIN_TOKEN}"
+    local test_start; test_start=$(_ts)
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if [[ -n "${CHAIN_BROKEN[$group]:-}" ]]; then
         SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
         log_skip "${name} (chain broken: ${CHAIN_BROKEN[$group]})"
         report_add_skip "$name" "$method" "$url" "${CHAIN_BROKEN[$group]}"
-        _add_result_json "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
+        _record_result "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
         return 1
     fi
     local args=(-s -w "\n%{http_code}" --max-time 60
@@ -72,14 +78,19 @@ test_api() {
     if [[ "$match" == "false" ]]; then
         FAILED_TESTS=$((FAILED_TESTS + 1))
         log_error "${name} - expected HTTP ${expected}, got HTTP ${code}"
+        # Capture service logs on failure (timestamp-based)
+        local error_logs=""
+        if [[ -n "$MASTER_NODE_ID" ]] && declare -F alice_exec_and_wait > /dev/null 2>&1; then
+            error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        fi
         report_add_fail "$name" "$method" "$url" "$data" "$expected" "$code" "$body"
-        _add_result_json "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs"
         return 1
     fi
     PASSED_TESTS=$((PASSED_TESTS + 1))
     log_success "${name}"
     report_add_pass "$name" "$method" "$url"
-    _add_result_json "$name" "$method" "$url" "PASS" "$expected" "$code" "" "$group"
+    _record_result "$name" "$method" "$url" "PASS" "$expected" "$code" "" "$group"
     echo "$body"
     return 0
 }
@@ -117,8 +128,20 @@ should_test_type() {
     return 0
 }
 
-# -- Environment capabilities --
+# -- Platform capabilities map (hardcoded per spec) --
+# Type ID   Platform              Instance Types
+# docker    Docker                container
+# lxd       LXD                   container, vm
+# incus     Incus                 container, vm
+# podman    Podman                container
+# containerd Containerd (nerdctl)  container
+# proxmoxve Proxmox VE            container, vm
+declare -A PLATFORM_SUPPORTS_VM=(
+    [docker]=0 [lxd]=1 [incus]=1 [podman]=0 [containerd]=0 [proxmoxve]=1
+)
+
 env_supports_container() {
+    # All supported platforms support containers
     case "$ENV_TYPE" in
         docker|lxd|incus|podman|containerd|proxmoxve) return 0 ;;
         *) return 1 ;;
@@ -126,10 +149,41 @@ env_supports_container() {
 }
 
 env_supports_vm() {
-    case "$ENV_TYPE" in
-        lxd|incus|proxmoxve) return 0 ;;
-        *) return 1 ;;
+    [[ "${PLATFORM_SUPPORTS_VM[${ENV_TYPE}]:-0}" -eq 1 ]]
+}
+
+# Validate and auto-correct instance types based on platform capabilities
+validate_instance_types() {
+    local platform="$1"
+    local types="$2"
+    local supports_vm="${PLATFORM_SUPPORTS_VM[$platform]:-0}"
+    case "$types" in
+        both)
+            if [[ "$supports_vm" -eq 0 ]]; then
+                log_warning "Platform '${platform}' does not support VM; auto-correcting to 'container'"
+                echo "container"
+                return 0
+            fi
+            echo "both"
+            ;;
+        vm)
+            if [[ "$supports_vm" -eq 0 ]]; then
+                log_error "Platform '${platform}' does not support VM instance type"
+                log_warning "Auto-correcting to 'container'"
+                echo "container"
+                return 0
+            fi
+            echo "vm"
+            ;;
+        container)
+            echo "container"
+            ;;
+        *)
+            log_error "Unknown instance type: ${types}; defaulting to 'container'"
+            echo "container"
+            ;;
     esac
+    return 0
 }
 
 # -- Wait functions --
@@ -204,11 +258,28 @@ add_provider() {
         "${url}/api/v1/admin/providers" 2>/dev/null
 }
 
-# -- JSON result helper for HTML report --
+# -- Results file (JSON Lines) init --
+init_results_file() {
+    RESULTS_FILE="$1"
+    : > "$RESULTS_FILE"
+    TEST_START_TS=$(_ts)
+}
+
+# -- Record test result to JSON Lines file --
+_record_result() {
+    local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}"
+    local ts; ts=$(_ts)
+    local safe_detail; safe_detail=$(echo "$detail" | head -c 2000 | sed 's/"/\\"/g' | tr '\n' ' ')
+    local safe_logs; safe_logs=$(echo "$error_logs" | head -c 2000 | sed 's/"/\\"/g' | tr '\n' ' ')
+    local json="{\"name\":\"${name}\",\"method\":\"${method}\",\"url\":\"${url}\",\"status\":\"${status}\",\"expected\":\"${expected}\",\"actual\":\"${actual}\",\"detail\":\"${safe_detail}\",\"group\":\"${group}\",\"timestamp\":\"${ts}\",\"error_logs\":\"${safe_logs}\"}"
+    [[ -n "$RESULTS_FILE" ]] && echo "$json" >> "$RESULTS_FILE"
+    TEST_RESULTS_JSON+=("$json")
+}
+
+# -- JSON result helper (backward compat) --
 _add_result_json() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8"
-    local safe_detail; safe_detail=$(echo "$detail" | head -c 2000 | sed 's/"/\\"/g' | tr '\n' ' ')
-    TEST_RESULTS_JSON+=("{\"name\":\"${name}\",\"method\":\"${method}\",\"url\":\"${url}\",\"status\":\"${status}\",\"expected\":\"${expected}\",\"actual\":\"${actual}\",\"detail\":\"${safe_detail}\",\"group\":\"${group}\"}")
+    _record_result "$name" "$method" "$url" "$status" "$expected" "$actual" "$detail" "$group" ""
 }
 
 # -- Markdown report --
@@ -280,161 +351,86 @@ report_finalize() {
     log_section "Results: Total=${TOTAL_TESTS} Passed=${PASSED_TESTS} Failed=${FAILED_TESTS} Skipped=${SKIPPED_TESTS} Rate=${rate}%"
 }
 
-# -- HTML report generation --
+# -- HTML report generation (delegates to report/generate_report.sh) --
 generate_html_report() {
     local output_file="$1" env_name="$2"
-    local ts; ts=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-    local rate=0
-    [[ $TOTAL_TESTS -gt 0 ]] && rate=$(( PASSED_TESTS * 100 / TOTAL_TESTS ))
+    local script_dir; script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local report_script="${script_dir}/../report/generate_report.sh"
+    local service_log_file="${REPORT_DIR:-/tmp}/${env_name}-service-errors.log"
 
-    cat > "$output_file" << 'HTMLHEAD'
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Integration Test Report</title>
-<style>
-:root{--pass:#22c55e;--fail:#ef4444;--skip:#eab308;--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}
-.container{max-width:1200px;margin:0 auto}
-h1{font-size:1.8rem;margin-bottom:0.5rem}
-.meta{color:#94a3b8;margin-bottom:2rem}
-.summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:1rem;margin-bottom:2rem}
-.stat{background:var(--card);border-radius:8px;padding:1.2rem;text-align:center;border:1px solid var(--border)}
-.stat .value{font-size:2rem;font-weight:700}
-.stat .label{color:#94a3b8;font-size:0.85rem;margin-top:0.3rem}
-.stat.pass .value{color:var(--pass)} .stat.fail .value{color:var(--fail)}
-.stat.skip .value{color:var(--skip)} .stat.rate .value{color:#60a5fa}
-.section{background:var(--card);border-radius:8px;margin-bottom:1.5rem;border:1px solid var(--border);overflow:hidden}
-.section-header{padding:1rem 1.2rem;background:#283548;font-weight:600;cursor:pointer;display:flex;justify-content:space-between;align-items:center}
-.section-header:hover{background:#334155}
-table{width:100%;border-collapse:collapse}
-th{background:#283548;padding:0.6rem 1rem;text-align:left;font-size:0.8rem;text-transform:uppercase;color:#94a3b8}
-td{padding:0.5rem 1rem;border-top:1px solid var(--border);font-size:0.85rem}
-tr:hover{background:#283548}
-.badge{display:inline-block;padding:2px 8px;border-radius:4px;font-size:0.75rem;font-weight:600}
-.badge.pass{background:rgba(34,197,94,0.15);color:var(--pass)}
-.badge.fail{background:rgba(239,68,68,0.15);color:var(--fail)}
-.badge.skip{background:rgba(234,179,8,0.15);color:var(--skip)}
-.detail{padding:0.8rem 1rem;background:#0f172a;font-family:monospace;font-size:0.78rem;white-space:pre-wrap;word-break:break-all;max-height:200px;overflow:auto;display:none;border-top:1px solid var(--border)}
-.toggle-detail{cursor:pointer;color:#60a5fa;font-size:0.78rem}
-.toggle-detail:hover{text-decoration:underline}
-.filter-bar{margin-bottom:1.5rem;display:flex;gap:0.5rem;flex-wrap:wrap}
-.filter-btn{background:var(--card);border:1px solid var(--border);color:var(--text);padding:0.4rem 1rem;border-radius:6px;cursor:pointer;font-size:0.85rem}
-.filter-btn:hover,.filter-btn.active{background:#334155;border-color:#60a5fa}
-</style>
-</head>
-<body>
-<div class="container">
-HTMLHEAD
+    # Fetch service error logs for inclusion in report
+    if [[ -n "$MASTER_NODE_ID" ]] && declare -F alice_exec_and_wait > /dev/null 2>&1; then
+        fetch_full_service_logs "$service_log_file" || true
+    fi
 
-    {
-        echo "<h1>Integration Test Report - ${env_name}</h1>"
-        echo "<p class=\"meta\">Time: ${ts} | Instance Types: ${INSTANCE_TYPES}</p>"
-        echo "<div class=\"summary\">"
-        echo "<div class=\"stat\"><div class=\"value\">${TOTAL_TESTS}</div><div class=\"label\">Total</div></div>"
-        echo "<div class=\"stat pass\"><div class=\"value\">${PASSED_TESTS}</div><div class=\"label\">Passed</div></div>"
-        echo "<div class=\"stat fail\"><div class=\"value\">${FAILED_TESTS}</div><div class=\"label\">Failed</div></div>"
-        echo "<div class=\"stat skip\"><div class=\"value\">${SKIPPED_TESTS}</div><div class=\"label\">Skipped</div></div>"
-        echo "<div class=\"stat rate\"><div class=\"value\">${rate}%</div><div class=\"label\">Pass Rate</div></div>"
-        echo "</div>"
-        echo "<div class=\"filter-bar\">"
-        echo "<button class=\"filter-btn active\" onclick=\"filterTests('all')\">All</button>"
-        echo "<button class=\"filter-btn\" onclick=\"filterTests('PASS')\">Passed</button>"
-        echo "<button class=\"filter-btn\" onclick=\"filterTests('FAIL')\">Failed</button>"
-        echo "<button class=\"filter-btn\" onclick=\"filterTests('SKIP')\">Skipped</button>"
-        echo "</div>"
-
-        local current_group=""
-        local idx=0
-        for result in "${TEST_RESULTS_JSON[@]}"; do
-            local grp; grp=$(echo "$result" | jq -r '.group' 2>/dev/null)
-            if [[ "$grp" != "$current_group" ]]; then
-                [[ -n "$current_group" ]] && echo "</table></div></div>"
-                current_group="$grp"
-                echo "<div class=\"section\" data-group=\"${grp}\">"
-                echo "<div class=\"section-header\" onclick=\"this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'\">"
-                echo "<span>${grp}</span><span>&#9660;</span></div>"
-                echo "<div class=\"section-body\">"
-                echo "<table><tr><th>Status</th><th>Test</th><th>Method</th><th>Endpoint</th><th>Detail</th></tr>"
-            fi
-            local st; st=$(echo "$result" | jq -r '.status' 2>/dev/null)
-            local nm; nm=$(echo "$result" | jq -r '.name' 2>/dev/null)
-            local mt; mt=$(echo "$result" | jq -r '.method' 2>/dev/null)
-            local ur; ur=$(echo "$result" | jq -r '.url' 2>/dev/null)
-            local dt; dt=$(echo "$result" | jq -r '.detail' 2>/dev/null)
-            local st_class; st_class=$(echo "$st" | tr '[:upper:]' '[:lower:]')
-            echo "<tr class=\"test-row\" data-status=\"${st}\">"
-            echo "<td><span class=\"badge ${st_class}\">${st}</span></td>"
-            echo "<td>${nm}</td><td>${mt}</td><td>${ur}</td>"
-            if [[ -n "$dt" && "$dt" != "null" && "$dt" != "" ]]; then
-                echo "<td><span class=\"toggle-detail\" onclick=\"var d=document.getElementById('d${idx}');d.style.display=d.style.display==='none'?'block':'none'\">show</span><div class=\"detail\" id=\"d${idx}\">${dt}</div></td>"
-            else
-                echo "<td>-</td>"
-            fi
-            echo "</tr>"
-            idx=$((idx + 1))
-        done
-        [[ -n "$current_group" ]] && echo "</table></div></div>"
-
-        cat << 'HTMLFOOT'
-</div>
-<script>
-function filterTests(status){
-  document.querySelectorAll('.filter-btn').forEach(b=>b.classList.remove('active'));
-  event.target.classList.add('active');
-  document.querySelectorAll('.test-row').forEach(r=>{
-    r.style.display=(status==='all'||r.dataset.status===status)?'':'none';
-  });
-}
-</script>
-</body>
-</html>
-HTMLFOOT
-    } >> "$output_file"
-    log_info "HTML report generated: ${output_file}"
+    if [[ -f "$report_script" && -n "$RESULTS_FILE" ]]; then
+        bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" || {
+            log_warning "Report generator failed, creating fallback report"
+            echo "<html><body><h1>Report generation failed</h1><p>Results file: ${RESULTS_FILE}</p><pre>$(cat "$RESULTS_FILE" 2>/dev/null | head -100)</pre></body></html>" > "$output_file"
+        }
+    else
+        log_warning "Report script or results file not found (script=${report_script}, results=${RESULTS_FILE})"
+        echo "<html><body><h1>No results available</h1></body></html>" > "$output_file"
+    fi
 }
 
-# -- HTML index page generator (for Pages) --
-generate_index_html() {
-    local output_file="$1" report_dir="$2"
-    local ts; ts=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
-    cat > "$output_file" << INDEXHTML
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OneClickVirt Integration Test Reports</title>
-<style>
-:root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}
-*{margin:0;padding:0;box-sizing:border-box}
-body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}
-.container{max-width:900px;margin:0 auto}
-h1{font-size:2rem;margin-bottom:0.5rem}
-.meta{color:#94a3b8;margin-bottom:2rem}
-.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1.2rem;margin-bottom:1rem;display:flex;justify-content:space-between;align-items:center}
-.card:hover{border-color:#60a5fa}
-a{color:#60a5fa;text-decoration:none}
-a:hover{text-decoration:underline}
-.env-name{font-weight:600;font-size:1.1rem}
-</style>
-</head>
-<body>
-<div class="container">
-<h1>OneClickVirt Integration Test Reports</h1>
-<p class="meta">Generated: ${ts}</p>
-INDEXHTML
+# -- State management: save/restore between modules --
+SAVED_CONFIG=""
+SAVED_INSTANCE_IDS=""
 
-    for html_file in "${report_dir}"/*.html; do
-        [[ ! -f "$html_file" ]] && continue
-        local fname; fname=$(basename "$html_file")
-        [[ "$fname" == "index.html" ]] && continue
-        local env_name; env_name=$(echo "$fname" | sed 's/-report\.html//' | sed 's/_/ /g')
-        echo "<div class=\"card\"><span class=\"env-name\">${env_name}</span><a href=\"${fname}\">View Report</a></div>" >> "$output_file"
+save_base_state() {
+    log_info "Saving base state before module..."
+    SAVED_CONFIG=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/system-config" 2>/dev/null) || true
+    local inst_resp; inst_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
+    SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    log_debug "Saved instance IDs: ${SAVED_INSTANCE_IDS:-none}"
+}
+
+restore_base_state() {
+    log_info "Restoring base state after module..."
+    # Delete any instances created during the module
+    local curr_resp; curr_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
+    local curr_ids; curr_ids=$(echo "$curr_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null)
+    for id in $curr_ids; do
+        if [[ -n "$id" ]] && ! echo ",$SAVED_INSTANCE_IDS," | grep -q ",${id},"; then
+            log_info "Cleaning up instance created during module: ${id}"
+            curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/instances/${id}" 2>/dev/null || true
+            sleep 2
+        fi
     done
+    # Re-login to refresh tokens
+    ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS" 2>/dev/null) || true
+    USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS" 2>/dev/null) || true
+    USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS" 2>/dev/null) || true
+    NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS" 2>/dev/null) || true
+    log_info "Base state restored"
+}
 
-    echo "</div></body></html>" >> "$output_file"
+# -- Service log capture --
+capture_service_logs() {
+    local since="${1:-}" max_lines="${2:-50}"
+    [[ -z "$MASTER_NODE_ID" ]] && return 0
+    if declare -F alice_exec_and_wait > /dev/null 2>&1; then
+        local cmd="docker logs oneclickvirt --since='${since}' 2>&1 | grep -iE 'error|panic|fatal|warn' | tail -${max_lines}"
+        local result; result=$(alice_exec_and_wait "$MASTER_NODE_ID" "$cmd" 60 5 2>/dev/null) || true
+        echo "$result" | jq -r '.data.output // empty' 2>/dev/null
+    fi
+}
+
+fetch_full_service_logs() {
+    local output_file="$1"
+    if [[ -z "$MASTER_NODE_ID" ]]; then
+        echo "No master node ID available for log capture" > "$output_file"
+        return 0
+    fi
+    if declare -F alice_exec_and_wait > /dev/null 2>&1; then
+        local result; result=$(alice_exec_and_wait "$MASTER_NODE_ID" "docker logs oneclickvirt --tail=500 2>&1 | grep -iE 'error|panic|fatal|warn'" 120 10 2>/dev/null) || true
+        echo "$result" | jq -r '.data.output // "No service logs available"' 2>/dev/null > "$output_file"
+    else
+        echo "alice_exec_and_wait not available" > "$output_file"
+    fi
 }

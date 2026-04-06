@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Virtualization environment to test'
+        description: 'Virtualization environment to test (one at a time)'
         required: true
         type: choice
         options:
@@ -14,17 +14,16 @@ on:
           - podman
           - containerd
           - proxmoxve
-          - all
         default: 'docker'
       instance_types:
-        description: 'Instance types to test'
+        description: 'Instance types to test (auto-corrected per platform)'
         required: true
         type: choice
         options:
           - both
           - container
           - vm
-        default: 'both'
+        default: 'container'
       modules:
         description: 'Test modules to run (e.g. all, 01-10, 01,03,05)'
         required: false
@@ -36,31 +35,9 @@ on:
         type: string
         default: '8'
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
-  setup:
-    name: "Resolve test matrix"
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.set-matrix.outputs.matrix }}
-    steps:
-      - id: set-matrix
-        run: |
-          if [[ "${{ inputs.environment }}" == "all" ]]; then
-            echo 'matrix=["docker","lxd","incus","podman","containerd","proxmoxve"]' >> "$GITHUB_OUTPUT"
-          else
-            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
-          fi
-
   integration-test:
-    needs: setup
-    strategy:
-      matrix:
-        environment: ${{ fromJSON(needs.setup.outputs.matrix) }}
-      fail-fast: false
-    name: "Test: ${{ matrix.environment }} (${{ inputs.instance_types }})"
+    name: "Test: ${{ inputs.environment }}"
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
@@ -68,61 +45,87 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl sshpass
 
+      - name: Validate platform and instance types
+        id: validate
+        run: |
+          ENV="${{ inputs.environment }}"
+          TYPES="${{ inputs.instance_types }}"
+          # Platform capabilities (hardcoded)
+          case "$ENV" in
+            docker|podman|containerd)
+              if [[ "$TYPES" == "vm" || "$TYPES" == "both" ]]; then
+                echo "::warning::Platform '${ENV}' only supports containers. Auto-correcting instance_types to 'container'."
+                TYPES="container"
+              fi
+              ;;
+            lxd|incus|proxmoxve)
+              # Supports both container and vm
+              ;;
+            *)
+              echo "::error::Unknown platform: ${ENV}"
+              exit 1
+              ;;
+          esac
+          echo "instance_types=${TYPES}" >> "$GITHUB_OUTPUT"
+          echo "Validated: env=${ENV} instance_types=${TYPES}"
+
       - name: Run integration tests
         env:
           ALICEINIT_TOKEN: ${{ secrets.ALICEINIT_TOKEN }}
           ALICE_API_BASE: ${{ secrets.ALICE_API_BASE }}
-          ENV_TYPE: ${{ matrix.environment }}
-          INSTANCE_TYPES: ${{ inputs.instance_types }}
+          ENV_TYPE: ${{ inputs.environment }}
+          INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
           ADMIN_USER: admin
           ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin123!@#' }}
+          DEBUG: "1"
         run: |
           chmod +x action_tests/run_env_test.sh
           chmod +x action_tests/run_module.sh
-          chmod -R +x action_tests/modules/
-          chmod -R +x action_tests/common/
+          chmod -R +x action_tests/modules/ 2>/dev/null || true
+          chmod -R +x action_tests/common/ 2>/dev/null || true
+          chmod -R +x action_tests/report/ 2>/dev/null || true
+
+          # Run with error capture - never fail silently
+          set +e
           bash action_tests/run_env_test.sh \
-            "${{ matrix.environment }}" \
+            "${{ inputs.environment }}" \
             "${{ inputs.modules }}" \
-            "${{ inputs.instance_types }}"
+            "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee action_tests/reports/full-output.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          # Ensure we always have SOME output for debugging
+          if [[ ! -s action_tests/reports/full-output.log ]]; then
+            echo "WARNING: Test produced no output. Check ALICEINIT_TOKEN and ALICE_API_BASE." > action_tests/reports/full-output.log
+          fi
+
+          # Ensure report directory has at least a fallback file
+          if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
+            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log | tail -100)</pre></body></html>" > "action_tests/reports/${{ inputs.environment }}-report.html"
+          fi
+
+          exit $TEST_EXIT
 
       - name: Upload test reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
-          name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
+          name: test-reports-${{ inputs.environment }}-${{ github.run_number }}
           path: |
             action_tests/reports/*.html
             action_tests/reports/*.md
             action_tests/reports/*.log
+            action_tests/reports/*.txt
+            action_tests/reports/*.jsonl
           retention-days: 30
-
-      - name: Upload test output log
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-output-${{ matrix.environment }}-${{ github.run_number }}
-          path: action_tests/reports/*-output.log
-          retention-days: 30
-
-      - name: Generate Pages content
-        if: always()
-        run: |
-          mkdir -p pages-output
-          cp action_tests/reports/*.html pages-output/ 2>/dev/null || true
-          # Generate index page
-          cd action_tests && bash -c '
-            source common/test_framework.sh
-            generate_index_html "../pages-output/index.html" "../pages-output"
-          ' 2>/dev/null || true
 
       - name: Publish to GitHub Pages
         if: always()
@@ -131,9 +134,9 @@ jobs:
         run: |
           REPORT_BRANCH="gh-pages"
           TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
-          ENV="${{ matrix.environment }}"
+          ENV="${{ inputs.environment }}"
 
-          # Clone current repo's gh-pages branch
+          # Clone or init gh-pages branch
           git clone --depth 1 --branch "$REPORT_BRANCH" \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
             report-repo 2>/dev/null || {
@@ -146,48 +149,58 @@ jobs:
 
           # Copy reports
           mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
-          cp pages-output/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp action_tests/reports/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+
+          # Prune old reports: keep only the latest 7 runs per environment
+          KEEP=7
+          if [[ -d "report-repo/reports/${ENV}" ]]; then
+            SORTED=$(ls -d "report-repo/reports/${ENV}/"*/ 2>/dev/null | sort -r)
+            COUNT=0
+            while IFS= read -r dir; do
+              COUNT=$((COUNT + 1))
+              if [[ $COUNT -gt $KEEP ]]; then
+                rm -rf "$dir"
+                echo "Pruned old report: $dir"
+              fi
+            done <<< "$SORTED"
+          fi
 
           # Generate top-level index
           cd report-repo
-          cat > index.html << 'IDXEOF'
-          <!DOCTYPE html>
-          <html lang="en">
-          <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>OneClickVirt Test Reports</title>
-          <style>
-          :root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}
-          *{margin:0;padding:0;box-sizing:border-box}
-          body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}
-          .container{max-width:1000px;margin:0 auto}
-          h1{font-size:2rem;margin-bottom:1rem}
-          h2{font-size:1.3rem;margin:1.5rem 0 0.8rem}
-          .meta{color:#94a3b8;margin-bottom:2rem}
-          .card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-bottom:0.8rem}
-          .card:hover{border-color:#60a5fa}
-          a{color:#60a5fa;text-decoration:none}
-          a:hover{text-decoration:underline}
-          </style>
-          </head>
-          <body>
-          <div class="container">
-          <h1>OneClickVirt Integration Test Reports</h1>
-          <p class="meta">Reports are organized by environment and date.</p>
-          IDXEOF
+          {
+            echo '<!DOCTYPE html>'
+            echo '<html lang="en">'
+            echo '<head>'
+            echo '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
+            echo '<title>OneClickVirt Test Reports</title>'
+            echo '<style>'
+            echo ':root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}'
+            echo '*{margin:0;padding:0;box-sizing:border-box}'
+            echo "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}"
+            echo '.container{max-width:1000px;margin:0 auto}'
+            echo 'h1{font-size:2rem;margin-bottom:1rem}'
+            echo 'h2{font-size:1.3rem;margin:1.5rem 0 0.8rem}'
+            echo '.meta{color:#94a3b8;margin-bottom:2rem}'
+            echo '.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-bottom:0.8rem}'
+            echo '.card:hover{border-color:#60a5fa}'
+            echo 'a{color:#60a5fa;text-decoration:none}'
+            echo 'a:hover{text-decoration:underline}'
+            echo '</style>'
+            echo '</head>'
+            echo '<body>'
+            echo '<div class="container">'
+            echo '<h1>OneClickVirt Integration Test Reports</h1>'
+            echo '<p class="meta">Reports are organized by environment and date.</p>'
+          } > index.html
 
-          # List all env dirs
           if [[ -d reports ]]; then
             for envdir in reports/*/; do
               [[ ! -d "$envdir" ]] && continue
               envname=$(basename "$envdir")
               echo "<h2>${envname}</h2>" >> index.html
-              # List timestamps in reverse order
-              for tsdir in $(ls -dr "$envdir"*/); do
+              for tsdir in $(ls -dr "$envdir"*/ 2>/dev/null); do
                 [[ ! -d "$tsdir" ]] && continue
                 tsname=$(basename "$tsdir")
-                # Find report files
                 for f in "$tsdir"*.html; do
                   [[ ! -f "$f" ]] && continue
                   fname=$(basename "$f")
@@ -197,19 +210,16 @@ jobs:
             done
           fi
 
-          echo "</div></body></html>" >> index.html
+          echo '</div></body></html>' >> index.html
 
-          # Commit and push (retry on concurrent matrix conflicts)
+          # Commit and push
           git add -A
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git commit -m "Update test reports: ${ENV} ${TIMESTAMP}" || true
-          for i in 1 2 3; do
-            git pull --rebase "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" 2>/dev/null || true
-            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" && break
-            echo "Push attempt ${i} failed, retrying..."
-            sleep $((i * 5))
-          done || echo "Warning: failed to push Pages after retries"
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" 2>/dev/null || {
+            echo "::warning::Failed to push to gh-pages. This is non-critical."
+          }
 
       - name: Summary
         if: always()
@@ -218,12 +228,20 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ matrix.environment }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Instance Types | ${{ inputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ -f "action_tests/reports/${{ matrix.environment }}-report.md" ]]; then
-            cat "action_tests/reports/${{ matrix.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
+          if [[ -f "action_tests/reports/${{ inputs.environment }}-report.md" ]]; then
+            cat "action_tests/reports/${{ inputs.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
           else
-            echo "No report file found." >> $GITHUB_STEP_SUMMARY
+            echo "No markdown report file found." >> $GITHUB_STEP_SUMMARY
           fi
+          # Also show last 30 lines of output for quick debugging
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Last 30 lines of test output</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          tail -30 action_tests/reports/full-output.log >> $GITHUB_STEP_SUMMARY 2>/dev/null || echo "No output log found"
+          echo '```' >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY

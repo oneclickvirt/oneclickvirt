@@ -4,14 +4,14 @@
 
 ## 架构设计
 
-测试采用双节点架构：
+测试采用双节点架构，**单线程顺序执行**（不使用矩阵并发），每次仅测试一个平台：
 
 | 节点 | 用途 | 说明 |
 |------|------|------|
 | Master 节点 | 运行 OneClickVirt 主控服务 | 通过 Docker 容器部署完整的主控服务 |
 | Worker 节点 | 运行虚拟化环境 | 安装对应的虚拟化平台，作为被纳管节点 |
 
-两台节点均通过 AliceInit (Ephemera) API 自动创建和销毁，测试完成后自动清理资源。
+两台节点均通过 AliceInit (Ephemera) API 自动创建和销毁，测试完成后自动清理资源。最多同时运行 2 个实例。
 
 ## 目录结构
 
@@ -21,7 +21,7 @@ action_tests/
   run_module.sh            # 模块运行器：支持选择性运行
   README.md                # 本文件
   common/
-    test_framework.sh      # 测试框架核心（日志、断言、报告生成）
+    test_framework.sh      # 测试框架核心（日志、断言、报告、状态管理、日志捕获）
     aliceinit_api.sh       # AliceInit 云平台 API 封装
     node_manager.sh        # 节点生命周期管理（创建、部署、清理）
   modules/
@@ -52,21 +52,53 @@ action_tests/
     25_error_handling.sh   # 错误处理与边界测试（注入、越界、畸形请求）
     26_instance_types.sh   # 实例类型测试（容器与虚拟机分别测试）
     27_config_advanced.sh  # 高级配置与任务管理
-  reports/                 # 测试报告输出目录
+  report/
+    generate_report.sh     # HTML 可视化报告生成器（独立脚本）
+  reports/                 # 测试报告输出目录（运行时生成）
 ```
 
 ## 支持的虚拟化环境
 
-| 环境标识 | 平台 | 支持容器 | 支持虚拟机 |
-|---------|------|---------|-----------|
-| `docker` | Docker | 是 | 否 |
-| `lxd` | LXD | 是 | 是 |
-| `incus` | Incus | 是 | 是 |
-| `podman` | Podman | 是 | 否 |
-| `containerd` | Containerd | 是 | 否 |
-| `proxmoxve` | Proxmox VE | 是 | 是 |
+| 环境标识 | 平台 | 支持容器 | 支持虚拟机 | 自动纠正行为 |
+|---------|------|---------|-----------|------------|
+| `docker` | Docker | 是 | 否 | `both`/`vm` → `container` |
+| `lxd` | LXD | 是 | 是 | 无需纠正 |
+| `incus` | Incus | 是 | 是 | 无需纠正 |
+| `podman` | Podman | 是 | 否 | `both`/`vm` → `container` |
+| `containerd` | Containerd | 是 | 否 | `both`/`vm` → `container` |
+| `proxmoxve` | Proxmox VE | 是 | 是 | 无需纠正 |
+
+> **实例类型自动纠正**：测试框架会根据平台能力自动纠正 `instance_types` 参数。例如选择 `docker` 平台并指定 `both`，框架会自动纠正为 `container`，避免测试失败。纠正逻辑同时在 GitHub Actions 工作流和测试脚本中双重验证。
 
 QEMU 和 KubeVirt 暂不纳入自动化测试。
+
+## 核心特性
+
+### 顺序执行
+
+所有测试模块按编号顺序执行，不使用矩阵并发。每次运行仅测试一个虚拟化平台，避免资源竞争和状态干扰。
+
+### 模块间状态恢复
+
+每个测试模块执行前会保存系统基准状态（系统配置 + 实例列表），模块执行后自动恢复：
+- 删除测试过程中新增的实例
+- 重新登录所有测试用户，刷新 Token
+- 防止上一模块的副作用影响下一模块
+
+### 错误日志捕获
+
+当测试用例失败时，框架自动从 Master 节点的 OneClickVirt 服务容器中捕获时间相关的日志：
+- 使用 `--since` 参数按测试开始时间过滤日志
+- 日志记录在 JSON Lines 结果文件中，与失败用例关联
+- 支持在 HTML 报告中展开查看每个失败用例的服务端日志
+- 模块失败时自动保存完整模块日志到独立文件
+
+### EXIT Trap 兜底
+
+`run_env_test.sh` 注册了 EXIT trap，即使脚本异常退出也会：
+- 尝试生成 HTML 报告
+- 捕获 OneClickVirt 服务最后的日志
+- 保存崩溃诊断信息到 `reports/crash-*.log`
 
 ## 使用方式
 
@@ -76,11 +108,10 @@ QEMU 和 KubeVirt 暂不纳入自动化测试。
 
 | 参数 | 说明 | 默认值 |
 |------|------|--------|
-| `environment` | 虚拟化环境类型 | `docker` |
-| `instance_types` | 测试的实例类型（`container`/`vm`/`both`） | `both` |
+| `environment` | 虚拟化环境类型（单选，每次一个平台） | `docker` |
+| `instance_types` | 测试的实例类型（会根据平台自动纠正） | `container` |
 | `modules` | 运行的模块（`all`/`01-10`/`01,03,05`） | `all` |
 | `node_hours` | 节点存续时间（小时） | `8` |
-| `report_repo` | 报告发布仓库（`owner/repo` 格式） | 空 |
 
 ### 本地运行
 
@@ -89,7 +120,8 @@ QEMU 和 KubeVirt 暂不纳入自动化测试。
 ```bash
 # 完整环境测试
 export ALICEINIT_TOKEN="your_token"
-bash action_tests/run_env_test.sh docker all both
+export ALICE_API_BASE="https://api.aliceinit.com"
+bash action_tests/run_env_test.sh docker all container
 
 # 仅运行部分模块（需要已启动的服务）
 export SERVER_URL="http://127.0.0.1:8888"
@@ -102,6 +134,9 @@ bash action_tests/run_module.sh 23
 
 # 运行指定模块组合
 bash action_tests/run_module.sh 01,03,09,23
+
+# 启用调试日志
+DEBUG=1 bash action_tests/run_env_test.sh docker all container
 ```
 
 ## 测试报告
@@ -110,11 +145,22 @@ bash action_tests/run_module.sh 01,03,09,23
 
 | 格式 | 文件 | 说明 |
 |------|------|------|
+| HTML | `reports/<env>-report.html` | 可视化报告，支持搜索、按状态筛选、模块分组、错误日志展开 |
 | Markdown | `reports/<env>-report.md` | 文本格式报告，包含每个测试用例的状态 |
-| HTML | `reports/<env>-report.html` | 可视化报告，支持按状态筛选、展开失败详情 |
-| 日志 | `reports/<env>-output.log` | 完整控制台输出日志 |
+| JSON Lines | `reports/<env>-results.jsonl` | 机器可读的结构化测试结果 |
+| 日志 | `reports/full-output.log` | 完整控制台输出日志 |
+| 错误日志 | `reports/<env>-error-*.log` | 模块级的服务端错误日志 |
 
-如果配置了 `report_repo` 参数，HTML 报告会自动推送到指定仓库的 `gh-pages` 分支，可通过 GitHub Pages 在线查看。
+### HTML 报告功能
+
+- **搜索**：支持全文搜索测试名称、URL、详情（快捷键 `/`）
+- **状态筛选**：按通过/失败/跳过/错误筛选（快捷键 `1`-`4`）
+- **模块分组**：按模块分组显示，失败模块自动展开
+- **错误日志**：失败用例支持展开查看关联的服务端日志
+- **一键复制**：复制测试摘要到剪贴板
+- **暗色主题**：适合长时间查看的深色界面
+
+HTML 报告会通过 GitHub Actions 自动推送到 `gh-pages` 分支，可通过 GitHub Pages 在线查看。
 
 ## 测试覆盖范围
 
@@ -171,15 +217,13 @@ GitHub Actions 会自动安装所需依赖。
 | 密钥名称 | 说明 | 必需 |
 |---------|------|------|
 | `ALICEINIT_TOKEN` | AliceInit 云平台 API Token | 是 |
+| `ALICE_API_BASE` | AliceInit API 基础 URL | 是 |
 | `TEST_ADMIN_PASS` | 测试管理员密码（默认 `Admin123!@#`） | 否 |
-| `PAGES_DEPLOY_TOKEN` | 报告仓库的 Personal Access Token | 否 |
 
 ### 报告发布
 
-若需自动发布报告到 GitHub Pages：
+HTML 报告通过 GitHub Actions 自动推送到本仓库的 `gh-pages` 分支：
 
-1. 创建单独的报告仓库
-2. 在报告仓库中启用 GitHub Pages（源选择 `gh-pages` 分支）
-3. 创建具有该仓库写入权限的 Personal Access Token
-4. 将 Token 配置为本仓库的 `PAGES_DEPLOY_TOKEN` Secret
-5. 运行测试时在 `report_repo` 参数中填写 `owner/repo`
+1. 在仓库 Settings > Pages 中启用 GitHub Pages，源选择 `gh-pages` 分支
+2. 默认使用 `GITHUB_TOKEN` 推送，无需额外配置
+3. 报告按平台和时间戳组织：`reports/<env>/<timestamp>/`

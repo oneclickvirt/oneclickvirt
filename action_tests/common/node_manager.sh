@@ -28,8 +28,26 @@ get_os_id() {
 
 create_test_node() {
     local env_type="$1" hours="${2:-8}"
+    # Validate prerequisites
+    if [[ -z "${ALICEINIT_TOKEN:-}" ]]; then
+        log_error "ALICEINIT_TOKEN is not set - cannot create test nodes"
+        return 1
+    fi
+    if [[ -z "${ALICE_API_BASE:-}" ]]; then
+        log_error "ALICE_API_BASE is not set - cannot create test nodes"
+        return 1
+    fi
+    log_info "Creating test node: env=${env_type} hours=${hours}"
+    log_debug "API base: ${ALICE_API_BASE}"
     local pkg; pkg=$(get_min_package_id)
-    [[ -z "$pkg" ]] && { log_error "Cannot get package ID"; return 1; }
+    if [[ -z "$pkg" ]]; then
+        log_error "Cannot get package ID from AliceInit API"
+        log_error "Check ALICEINIT_TOKEN and ALICE_API_BASE settings"
+        local profile_resp; profile_resp=$(alice_get_profile 2>/dev/null) || true
+        log_debug "Profile check: $(alice_parse_body "$profile_resp" 2>/dev/null | head -c 200)"
+        return 1
+    fi
+    log_debug "Package ID: ${pkg}"
     local os_name="debian"
     [[ "$env_type" == "lxd" ]] && os_name="ubuntu"
     local os_id; os_id=$(get_os_id "$os_name")

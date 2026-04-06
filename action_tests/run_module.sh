@@ -80,9 +80,12 @@ NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_
 
 export ADMIN_TOKEN USER_TOKEN USER_TOKEN2 NORMAL_ADMIN_TOKEN
 
-# Load and run modules
+# Load and run modules (with state save/restore between each)
 EXIT_CODE=0
+MODULE_COUNT=${#MODULES[@]}
+MODULE_IDX=0
 for mod in "${MODULES[@]}"; do
+    MODULE_IDX=$((MODULE_IDX + 1))
     mod_file="${MODULES_DIR}/${mod}_*.sh"
     mod_files=(${mod_file})
     if [[ ! -f "${mod_files[0]}" ]]; then
@@ -92,8 +95,28 @@ for mod in "${MODULES[@]}"; do
     source "${mod_files[0]}"
     func_name="run_module_${mod}"
     if declare -f "$func_name" > /dev/null 2>&1; then
-        log_section "Running module ${mod}"
-        "$func_name" || EXIT_CODE=1
+        log_section "Running module ${mod} (${MODULE_IDX}/${MODULE_COUNT})"
+        # Save state before module
+        save_base_state 2>/dev/null || true
+        local_start_ts=$(_ts)
+        if ! "$func_name"; then
+            EXIT_CODE=1
+            log_error "Module ${mod} failed"
+            # Capture service logs at the time of failure
+            if [[ -n "${MASTER_NODE_ID:-}" ]] && declare -F capture_service_logs > /dev/null 2>&1; then
+                log_info "Capturing service logs for module ${mod} failure..."
+                local_logs=$(capture_service_logs "$local_start_ts" 100 2>/dev/null) || true
+                if [[ -n "$local_logs" ]]; then
+                    log_error "=== Service error logs (module ${mod}) ==="
+                    echo "$local_logs" | head -30
+                    log_error "=== End service logs ==="
+                    # Save to file for report
+                    echo "$local_logs" > "${REPORT_DIR}/module-${mod}-error-logs.txt" 2>/dev/null || true
+                fi
+            fi
+        fi
+        # Restore state after module to prevent cross-module contamination
+        restore_base_state 2>/dev/null || true
     else
         log_warning "Module ${mod} has no entry function ${func_name}"
     fi
@@ -101,7 +124,14 @@ done
 
 # Summary
 report_finalize
-generate_html_report "${REPORT_DIR}/module-${MODULE_INPUT}-report.html" "Module-${MODULE_INPUT}"
+
+# Generate HTML report if we have a results file
+if [[ -n "${RESULTS_FILE:-}" && -f "${RESULTS_FILE:-}" ]]; then
+    generate_html_report "${REPORT_DIR}/module-${MODULE_INPUT}-report.html" "Module-${MODULE_INPUT}"
+else
+    log_warning "No results file found, skipping HTML report generation"
+fi
+
 log_section "Test completed"
 log_info "Total: ${TOTAL_TESTS} | Passed: ${PASSED_TESTS} | Failed: ${FAILED_TESTS} | Skipped: ${SKIPPED_TESTS}"
 exit $EXIT_CODE

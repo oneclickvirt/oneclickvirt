@@ -3,15 +3,12 @@ name: Build and Release oneclickvirt
 on:
   workflow_dispatch:
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-
 jobs:
   build-agent-amd64:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
@@ -24,7 +21,7 @@ jobs:
         sudo apt-get install -y musl-tools
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -41,7 +38,7 @@ jobs:
         cp target/x86_64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-amd64
 
     - name: Upload AMD64 agent artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: agent-amd64
         path: server/agent/oneclickvirt-agent-linux-amd64
@@ -50,7 +47,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Rust
       uses: dtolnay/rust-toolchain@stable
@@ -63,7 +60,7 @@ jobs:
         sudo apt-get install -y musl-tools
 
     - name: Cache Rust dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: |
           ~/.cargo/registry
@@ -80,7 +77,7 @@ jobs:
         cp target/aarch64-unknown-linux-musl/release/oneclickvirt-agent oneclickvirt-agent-linux-arm64
 
     - name: Upload ARM64 agent artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v6
       with:
         name: agent-arm64
         path: server/agent/oneclickvirt-agent-linux-arm64
@@ -91,10 +88,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v6
       with:
         go-version: 1.24.5
         cache: true
@@ -115,7 +112,7 @@ jobs:
       run: mkdir -p build
 
     - name: Download agent artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         path: build/agents
 
@@ -134,7 +131,7 @@ jobs:
         cat server/constant/version.go
 
     - name: Cache npm dependencies
-      uses: actions/cache@v4
+      uses: actions/cache@v5
       with:
         path: web/node_modules
         key: ${{ runner.os }}-npm-${{ hashFiles('web/package-lock.json') }}
