@@ -137,8 +137,16 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 		"net0": netConfigStr,
 	}
 
-	netJsonData, _ := json.Marshal(netPayload)
-	netReq, _ := http.NewRequestWithContext(ctx, "PUT", netConfigURL, strings.NewReader(string(netJsonData)))
+	netJsonData, err := json.Marshal(netPayload)
+	if err != nil {
+		global.APP_LOG.Warn("序列化网络配置失败", zap.Error(err))
+		return nil
+	}
+	netReq, err := http.NewRequestWithContext(ctx, "PUT", netConfigURL, strings.NewReader(string(netJsonData)))
+	if err != nil {
+		global.APP_LOG.Warn("创建网络配置请求失败", zap.Error(err))
+		return nil
+	}
 	netReq.Header.Set("Content-Type", "application/json")
 	p.setAPIAuth(netReq)
 

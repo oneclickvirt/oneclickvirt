@@ -6,7 +6,6 @@ import (
 	"oneclickvirt/api/v1/system"
 	"oneclickvirt/api/v1/traffic"
 	"oneclickvirt/middleware"
-	authModel "oneclickvirt/model/auth"
 
 	"github.com/gin-gonic/gin"
 )
@@ -170,9 +169,9 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.PUT("/group-info", admin.UpdateAdminGroupInfo)
 	}
 
-	// 超级管理员专用路由（level >= 3）
+	// 超级管理员专用路由（仅admin用户类型，排除normal_admin）
 	SuperAdminGroup := Router.Group("/v1/admin")
-	SuperAdminGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
+	SuperAdminGroup.Use(middleware.RequireSuperAdmin())
 	{
 		// 系统配置（超管专用）
 		SuperAdminGroup.GET("/config", config.GetUnifiedConfig)

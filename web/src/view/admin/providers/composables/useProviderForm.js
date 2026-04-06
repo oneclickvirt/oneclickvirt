@@ -158,7 +158,7 @@ export function useProviderForm(loadProviders) {
     set: (value) => { addProviderForm.maxTraffic = Math.round(value * TB_TO_MB) }
   })
 
-  const groupedCountries = computed(() => getCountriesByRegion(locale.value === 'en' ? 'en' : 'zh'))
+  const groupedCountries = computed(() => getCountriesByRegion(locale.value?.startsWith('en') ? 'en' : 'zh'))
 
   const getLevelTagType = (level) => {
     const types = { 1: 'info', 2: 'success', 3: 'warning', 4: 'danger', 5: 'primary' }

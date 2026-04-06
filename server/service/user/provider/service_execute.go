@@ -272,6 +272,40 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 					zap.String("providerType", localProviderType),
 					zap.Int("portCount", len(ports)),
 					zap.Strings("ports", ports))
+			} else if localProviderType == "qemu" || localProviderType == "kubevirt" {
+				// QEMU/KubeVirt通过shell脚本的位置参数传递端口：[sshPort, startPort, endPort]
+				var sshPort, startPort, endPort int
+				for _, port := range portMappings {
+					if port.IsSSH {
+						sshPort = port.HostPort
+					} else {
+						if startPort == 0 || port.HostPort < startPort {
+							startPort = port.HostPort
+						}
+						if port.HostPort > endPort {
+							endPort = port.HostPort
+						}
+					}
+				}
+				if startPort == 0 {
+					startPort = sshPort
+				}
+				if endPort == 0 {
+					endPort = startPort
+				}
+				instanceConfig.Ports = []string{
+					fmt.Sprintf("%d", sshPort),
+					fmt.Sprintf("%d", startPort),
+					fmt.Sprintf("%d", endPort),
+				}
+
+				global.APP_LOG.Debug("QEMU/KubeVirt端口映射预分配成功",
+					zap.Uint("taskId", task.ID),
+					zap.Uint("instanceId", instance.ID),
+					zap.String("providerType", localProviderType),
+					zap.Int("sshPort", sshPort),
+					zap.Int("startPort", startPort),
+					zap.Int("endPort", endPort))
 			} else {
 				// 对于LXD等其他Provider，端口映射信息已保存在数据库中，将在实例创建时读取
 				global.APP_LOG.Debug("端口映射预分配成功",

@@ -40,17 +40,20 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 				for _, item := range data {
 					if vmData, ok := item.(map[string]interface{}); ok {
 						status := "stopped"
-						if vmData["status"].(string) == "running" {
+						if vmStatus, _ := vmData["status"].(string); vmStatus == "running" {
 							status = "running"
 						}
 
+						vmName, _ := vmData["name"].(string)
+						vmMem, _ := vmData["mem"].(float64)
+
 						instance := provider.Instance{
 							ID:     fmt.Sprintf("%v", vmData["vmid"]),
-							Name:   vmData["name"].(string),
+							Name:   vmName,
 							Status: status,
 							Type:   "vm",
 							CPU:    fmt.Sprintf("%v", vmData["cpus"]),
-							Memory: fmt.Sprintf("%.0f MB", vmData["mem"].(float64)/1024/1024),
+							Memory: fmt.Sprintf("%.0f MB", vmMem/1024/1024),
 						}
 
 						// 获取VM的IP地址
@@ -86,17 +89,20 @@ func (p *ProxmoxProvider) apiListInstances(ctx context.Context) ([]provider.Inst
 					for _, item := range data {
 						if ctData, ok := item.(map[string]interface{}); ok {
 							status := "stopped"
-							if ctData["status"].(string) == "running" {
+							if ctStatus, _ := ctData["status"].(string); ctStatus == "running" {
 								status = "running"
 							}
 
+							ctName, _ := ctData["name"].(string)
+							ctMem, _ := ctData["mem"].(float64)
+
 							instance := provider.Instance{
 								ID:     fmt.Sprintf("%v", ctData["vmid"]),
-								Name:   ctData["name"].(string),
+								Name:   ctName,
 								Status: status,
 								Type:   "container",
 								CPU:    fmt.Sprintf("%v", ctData["cpus"]),
-								Memory: fmt.Sprintf("%.0f MB", ctData["mem"].(float64)/1024/1024),
+								Memory: fmt.Sprintf("%.0f MB", ctMem/1024/1024),
 							}
 
 							// 获取容器的IP地址

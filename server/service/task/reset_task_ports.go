@@ -77,7 +77,10 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 	failCount := 0
 
 	// Docker类型：端口映射已在创建时设置，只需创建数据库记录
-	if resetCtx.Provider.Type == "docker" {
+	// 容器类Provider（docker/podman/containerd）和脚本类Provider（qemu/kubevirt）：
+	// 端口映射已在创建时设置（容器通过-p标志，脚本通过位置参数），只需创建数据库记录
+	if resetCtx.Provider.Type == "docker" || resetCtx.Provider.Type == "podman" || resetCtx.Provider.Type == "containerd" ||
+		resetCtx.Provider.Type == "qemu" || resetCtx.Provider.Type == "kubevirt" {
 		for _, oldPort := range resetCtx.OldPortMappings {
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 				newPort := providerModel.Port{
@@ -453,7 +456,12 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 		return nil
 
 	default:
-		return fmt.Errorf("不支持的Provider类型: %s", resetCtx.Provider.Type)
+		// docker/podman/containerd/qemu/kubevirt不需要配置Provider层端口映射
+		// 容器类Provider的端口已在创建时通过-p标志绑定
+		// QEMU/KubeVirt的端口已在创建时通过shell脚本设置iptables规则
+		global.APP_LOG.Debug("Provider类型不需要额外的端口映射配置",
+			zap.String("providerType", resetCtx.Provider.Type))
+		return nil
 	}
 }
 

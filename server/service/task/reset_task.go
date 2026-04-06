@@ -450,8 +450,9 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		SystemImageID: resetCtx.SystemImage.ID,
 	}
 
-	// Docker端口映射特殊处理
-	if resetCtx.Provider.Type == "docker" && len(resetCtx.OldPortMappings) > 0 {
+	// 容器类Provider（docker/podman/containerd）端口映射特殊处理
+	// 这些Provider通过 -p 标志在创建时绑定端口，需要将端口信息写入创建请求
+	if (resetCtx.Provider.Type == "docker" || resetCtx.Provider.Type == "podman" || resetCtx.Provider.Type == "containerd") && len(resetCtx.OldPortMappings) > 0 {
 		var ports []string
 		for _, oldPort := range resetCtx.OldPortMappings {
 			if oldPort.Protocol == "both" {
@@ -464,6 +465,36 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			}
 		}
 		createReq.InstanceConfig.Ports = ports
+	}
+
+	// QEMU/KubeVirt端口映射特殊处理
+	// 这些Provider通过shell脚本的位置参数传递端口：[sshPort, startPort, endPort]
+	if (resetCtx.Provider.Type == "qemu" || resetCtx.Provider.Type == "kubevirt") && len(resetCtx.OldPortMappings) > 0 {
+		var sshPort, startPort, endPort int
+		for _, oldPort := range resetCtx.OldPortMappings {
+			if oldPort.IsSSH {
+				sshPort = oldPort.HostPort
+			} else {
+				if startPort == 0 || oldPort.HostPort < startPort {
+					startPort = oldPort.HostPort
+				}
+				if oldPort.HostPort > endPort {
+					endPort = oldPort.HostPort
+				}
+			}
+		}
+		// 如果没有找到非SSH端口，使用SSH端口作为起始
+		if startPort == 0 {
+			startPort = sshPort
+		}
+		if endPort == 0 {
+			endPort = startPort
+		}
+		createReq.InstanceConfig.Ports = []string{
+			fmt.Sprintf("%d", sshPort),
+			fmt.Sprintf("%d", startPort),
+			fmt.Sprintf("%d", endPort),
+		}
 	}
 
 	// 调用Provider创建实例（根据Provider的ExecutionRule配置自动选择API或SSH）

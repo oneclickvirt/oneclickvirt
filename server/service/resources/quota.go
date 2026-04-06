@@ -79,16 +79,21 @@ func (s *QuotaService) ValidateInstanceCreation(req ResourceRequest) (*QuotaChec
 
 	const maxRetries = 3
 	for attempt := 0; attempt < maxRetries; attempt++ {
-		// 开启串行化事务隔离级别（最高级别，完全避免并发问题）
-		err = global.APP_DB.Transaction(func(tx *gorm.DB) error {
-			// 设置事务隔离级别为 SERIALIZABLE
-			if err := tx.Exec("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").Error; err != nil {
-				return fmt.Errorf("设置事务隔离级别失败: %v", err)
-			}
+		// 使用独立的session以避免影响全局连接池
+		// 先设置会话级隔离级别，然后在同一session中开启事务
+		sessionDB := global.APP_DB.Session(&gorm.Session{NewDB: true})
 
-			result, err = s.validateInTransaction(tx, req)
-			if err != nil {
-				return err
+		// 在事务开始前设置会话级隔离级别（SET SESSION而非SET TRANSACTION）
+		if setErr := sessionDB.Exec("SET SESSION TRANSACTION ISOLATION LEVEL SERIALIZABLE").Error; setErr != nil {
+			err = fmt.Errorf("设置事务隔离级别失败: %v", setErr)
+			break
+		}
+
+		err = sessionDB.Transaction(func(tx *gorm.DB) error {
+			var txErr error
+			result, txErr = s.validateInTransaction(tx, req)
+			if txErr != nil {
+				return txErr
 			}
 
 			if !result.Allowed {
@@ -97,6 +102,9 @@ func (s *QuotaService) ValidateInstanceCreation(req ResourceRequest) (*QuotaChec
 
 			return nil
 		})
+
+		// 恢复会话隔离级别为默认值
+		sessionDB.Exec("SET SESSION TRANSACTION ISOLATION LEVEL REPEATABLE READ")
 
 		if err == nil {
 			break

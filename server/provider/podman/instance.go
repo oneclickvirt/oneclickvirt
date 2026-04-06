@@ -253,6 +253,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(75, "配置存储限制...")
+	var storageOptStr string
 	if config.Disk != "" && config.Disk != "0" {
 		supportsDiskLimit, storageDriver, err := p.checkStorageDriver()
 		if err != nil {
@@ -289,7 +290,8 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 					finalDiskSize = "1G"
 				}
 			}
-			cmd += fmt.Sprintf(" --storage-opt size=%s", finalDiskSize)
+			storageOptStr = fmt.Sprintf(" --storage-opt size=%s", finalDiskSize)
+			cmd += storageOptStr
 			global.APP_LOG.Debug("已启用硬盘大小限制",
 				zap.String("name", utils.TruncateString(config.Name, 32)),
 				zap.String("storage_driver", storageDriver))
@@ -364,11 +366,32 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 
 	output, err := p.sshClient.Execute(cmd)
 	if err != nil {
-		global.APP_LOG.Error("Podman创建容器失败",
-			zap.String("name", utils.TruncateString(config.Name, 32)),
-			zap.String("output", utils.TruncateString(output, 500)),
-			zap.Error(err))
-		return fmt.Errorf("failed to create container: %w", err)
+		// If storage-opt was added and Podman rejects it, retry without it and invalidate cache
+		if storageOptStr != "" && (strings.Contains(output, "unknown option size") || strings.Contains(output, "configure storage")) {
+			global.APP_LOG.Warn("检测到--storage-opt不受支持，清除缓存并重试",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.String("output", utils.TruncateString(output, 200)))
+			// Clean up any partial container state
+			_, _ = p.sshClient.Execute(fmt.Sprintf("%s rm -f %s 2>/dev/null || true", cliName, config.Name))
+			// Invalidate stale storage driver cache
+			_, _ = p.sshClient.Execute(fmt.Sprintf("echo 'overlay' > %s", storageDriverFile))
+			// Retry without storage-opt
+			cmdRetry := strings.Replace(cmd, storageOptStr, "", 1)
+			output, err = p.sshClient.Execute(cmdRetry)
+			if err != nil {
+				global.APP_LOG.Error("Podman创建容器失败(重试后)",
+					zap.String("name", utils.TruncateString(config.Name, 32)),
+					zap.String("output", utils.TruncateString(output, 500)),
+					zap.Error(err))
+				return fmt.Errorf("failed to create container: %w", err)
+			}
+		} else {
+			global.APP_LOG.Error("Podman创建容器失败",
+				zap.String("name", utils.TruncateString(config.Name, 32)),
+				zap.String("output", utils.TruncateString(output, 500)),
+				zap.Error(err))
+			return fmt.Errorf("failed to create container: %w", err)
+		}
 	}
 
 	updateProgress(96, "等待容器完全启动...")

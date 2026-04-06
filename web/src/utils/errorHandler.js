@@ -140,7 +140,7 @@ export const errorHandler = {
       case 1003: // 未授权访问
       case 401:
         // 检查错误消息，如果是Token被撤销，给出更明确的提示
-        if (message && (message.includes('已失效') || message.includes('已撤销') || message.includes('revoked'))) {
+        if (message && (message.includes('已失效') || message.includes('已撤销') || message.includes('revoked') || message.includes('expired') || message.includes('invalidated'))) {
           userStore.clearUserData()
           router.push('/login')
           ElMessage.warning(t('common.loginInvalid'))

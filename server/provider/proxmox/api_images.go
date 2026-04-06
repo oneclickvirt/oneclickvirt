@@ -35,12 +35,15 @@ func (p *ProxmoxProvider) apiListImages(ctx context.Context) ([]provider.Image, 
 	if data, ok := response["data"].([]interface{}); ok {
 		for _, item := range data {
 			if imageData, ok := item.(map[string]interface{}); ok {
-				if imageData["content"].(string) == "iso" {
+				content, _ := imageData["content"].(string)
+				if content == "iso" {
+					volid, _ := imageData["volid"].(string)
+					imgSize, _ := imageData["size"].(float64)
 					image := provider.Image{
-						ID:   imageData["volid"].(string),
-						Name: imageData["volid"].(string),
+						ID:   volid,
+						Name: volid,
 						Tag:  "iso",
-						Size: fmt.Sprintf("%.2f MB", imageData["size"].(float64)/1024/1024),
+						Size: fmt.Sprintf("%.2f MB", imgSize/1024/1024),
 					}
 					images = append(images, image)
 				}
