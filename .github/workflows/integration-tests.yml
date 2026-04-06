@@ -80,7 +80,8 @@ jobs:
         env:
           ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
           ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
-          ALICE_API_BASE: ${{ secrets.ALICE_API_BASE }}
+          ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
+          ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
           ENV_TYPE: ${{ inputs.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
@@ -106,7 +107,7 @@ jobs:
 
           # Ensure we always have SOME output for debugging
           if [[ ! -s action_tests/reports/full-output.log ]]; then
-            echo "WARNING: Test produced no output. Check ALICEINIT_TOKEN and ALICE_API_BASE." > action_tests/reports/full-output.log
+            echo "WARNING: Test produced no output. Check ALICE_CLIENT_ID, ALICE_CLIENT_SECRET, ALICE_PUBLIC_KEY, and ALICE_PRIVATE_KEY secrets." > action_tests/reports/full-output.log
           fi
 
           # Ensure report directory has at least a fallback file

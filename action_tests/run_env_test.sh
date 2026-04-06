@@ -48,10 +48,17 @@ if [[ -z "${ALICE_CLIENT_SECRET:-}" ]]; then
     log_error "Set it via: export ALICE_CLIENT_SECRET=your_client_secret"
     exit 1
 fi
-if [[ -z "${ALICE_API_BASE:-}" ]]; then
-    log_error "ALICE_API_BASE is not set. Cannot contact AliceInit API."
+if [[ -z "${ALICE_PRIVATE_KEY:-}" ]]; then
+    log_error "ALICE_PRIVATE_KEY is not set. Cannot SSH into test nodes."
+    log_error "Set it via: export ALICE_PRIVATE_KEY='<private key content>'"
     exit 1
 fi
+if [[ -z "${ALICE_PUBLIC_KEY:-}" ]]; then
+    log_warning "ALICE_PUBLIC_KEY is not set. SSH key ID cannot be resolved; instances will use first available key."
+fi
+
+# Set up SSH private key for instance access
+alice_setup_ssh_key || exit 1
 
 # -- Report & results init --
 report_init "${REPORT_DIR}/${ENV_TYPE}-report.md" "${ENV_TYPE}"
@@ -92,10 +99,10 @@ if [[ -z "$MASTER_INFO" ]]; then
 fi
 MASTER_ID=$(echo "$MASTER_INFO" | jq -r '.instance_id')
 MASTER_IP=$(echo "$MASTER_INFO" | jq -r '.ipv4')
-MASTER_PW=$(echo "$MASTER_INFO" | jq -r '.password')
 CREATED_IDS="${MASTER_ID}"
 MASTER_NODE_ID="$MASTER_ID"
-export MASTER_NODE_ID
+MASTER_NODE_IP="$MASTER_IP"
+export MASTER_NODE_ID MASTER_NODE_IP
 log_success "Master node: ID=${MASTER_ID} IP=${MASTER_IP}"
 
 # =============================================================
@@ -112,17 +119,15 @@ if [[ -z "$WORKER_INFO" ]]; then
 fi
 WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
 export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
-export WORKER_PASSWORD; WORKER_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password')
 CREATED_IDS="${CREATED_IDS},${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
-export NODE_PASSWORD="$WORKER_PASSWORD"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
 
 # =============================================================
 # Phase 3: Install virtualization environment on worker
 # =============================================================
 log_section "Phase 3: Install ${ENV_TYPE} on worker node"
-install_env "$WORKER_ID_VAL" "$ENV_TYPE" || {
+install_env "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
     log_warning "Environment installation may have issues, continuing..."
 }
 
@@ -130,7 +135,7 @@ install_env "$WORKER_ID_VAL" "$ENV_TYPE" || {
 # Phase 4: Prepare dirty node for discovery tests
 # =============================================================
 log_section "Phase 4: Prepare worker with pre-existing instances"
-prepare_dirty_node "$WORKER_ID_VAL" "$ENV_TYPE" || {
+prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
     log_warning "Dirty node preparation had issues, continuing..."
 }
 
@@ -138,7 +143,7 @@ prepare_dirty_node "$WORKER_ID_VAL" "$ENV_TYPE" || {
 # Phase 5: Deploy master service
 # =============================================================
 log_section "Phase 5: Deploy OneClickVirt on master node"
-deploy_master "$MASTER_ID" "$MASTER_PORT"
+deploy_master "$MASTER_ID" "$MASTER_IP" "$MASTER_PORT"
 
 export SERVER_URL="http://${MASTER_IP}:${MASTER_PORT}"
 log_info "Master URL: ${SERVER_URL}"
