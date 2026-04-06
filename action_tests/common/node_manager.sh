@@ -159,6 +159,17 @@ install_env() {
     esac
     # Download script to file first to avoid stdin conflicts, then run with env vars
     alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+    # Reboot to apply network/kernel changes (e.g. Docker bridge, LXD kernel modules)
+    log_info "Waiting 15s then rebooting worker to apply network settings..."
+    sleep 15
+    alice_exec_and_wait "${ip}" "reboot" 10 || true
+    log_info "Waiting for SSH after reboot (max 180s)..."
+    wait_for_ssh "${ip}" 180
+    # Re-run docker install after reboot to complete post-reboot network setup
+    if [[ "$env" == "docker" ]]; then
+        log_info "Re-running docker install after reboot to complete network setup..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
+    fi
     if [[ "$env" == "proxmoxve" ]]; then
         alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_BACKEND} | bash" 600
         alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_NAT} | bash" 600
@@ -223,6 +234,22 @@ deploy_master_local() {
         return 1
     fi
     log_success "Go binary built: ${server_dir}/oneclickvirt"
+
+    # Patch config.yaml for CI: bypass captcha + notification checks, fix quoted bool/int types
+    log_info "Patching config.yaml for CI environment..."
+    local cfg="${server_dir}/config.yaml"
+    # Set env=development to bypass captcha, email/telegram/qq sends in development mode
+    sed -i 's/^\( \{4\}env:\) .*/\1 development/' "$cfg"
+    # Fix quoted booleans → unquoted
+    sed -i 's/^\( \{4\}auto-create:\) "true"/\1 true/' "$cfg"
+    sed -i 's/^\( \{4\}log-zap:\) "false"/\1 false/' "$cfg"
+    sed -i 's/^\( \{4\}singular:\) "false"/\1 false/' "$cfg"
+    # Fix quoted integers → unquoted
+    sed -i 's/^\( \{4\}max-idle-conns:\) "10"/\1 10/' "$cfg"
+    sed -i 's/^\( \{4\}max-lifetime:\) "3600"/\1 3600/' "$cfg"
+    sed -i 's/^\( \{4\}max-open-conns:\) "100"/\1 100/' "$cfg"
+    sed -i 's/^\( \{4\}email-smtp-port:\) "3306"/\1 587/' "$cfg"
+    log_success "config.yaml patched"
 
     # Start the server in background from server_dir (config.yaml is there)
     rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log

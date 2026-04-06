@@ -186,7 +186,7 @@ if [[ "$NEED_INIT" == "true" ]]; then
         exit 1
     fi
     log_success "System initialized, waiting for async setup to complete..."
-    wait_db_ready "$SERVER_URL" 60 3
+    wait_db_ready "$SERVER_URL" 120 3
 fi
 # Login with admin credentials
 ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")

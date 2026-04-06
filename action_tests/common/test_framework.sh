@@ -258,8 +258,8 @@ init_system() {
     local url="$1" user="$2" pass="$3"
     local data
     printf -v data \
-        '{"admin":{"username":"%s","password":"%s","email":"%s@test.local"},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":""}}' \
-        "$user" "$pass" "$user"
+        '{"admin":{"username":"%s","password":"%s","email":"%s@test.local"},"user":{"username":"%s","password":"%s","email":"%s@test.local","enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":""}}' \
+        "$user" "$pass" "$user" "$TEST_USER" "$TEST_USER_PASS" "$TEST_USER"
     local resp; resp=$(curl -s --max-time 60 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null)
     log_info "Init response: ${resp}"
     echo "$resp"
