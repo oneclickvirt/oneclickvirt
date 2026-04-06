@@ -119,8 +119,9 @@ QEMU 和 KubeVirt 暂不纳入自动化测试。
 
 ```bash
 # 完整环境测试
-export ALICEINIT_TOKEN="your_token"
-export ALICE_API_BASE="https://api.aliceinit.com"
+export ALICE_CLIENT_ID="your_client_id"
+export ALICE_CLIENT_SECRET="your_client_secret"
+export ALICE_API_BASE=""
 bash action_tests/run_env_test.sh docker all container
 
 # 仅运行部分模块（需要已启动的服务）
@@ -216,9 +217,12 @@ GitHub Actions 会自动安装所需依赖。
 
 | 密钥名称 | 说明 | 必需 |
 |---------|------|------|
-| `ALICEINIT_TOKEN` | AliceInit 云平台 API Token | 是 |
+| `ALICE_CLIENT_ID` | AliceInit API Client ID（Bearer 前半部分） | 是 |
+| `ALICE_CLIENT_SECRET` | AliceInit API Client Secret（Bearer 后半部分） | 是 |
 | `ALICE_API_BASE` | AliceInit API 基础 URL | 是 |
 | `TEST_ADMIN_PASS` | 测试管理员密码（默认 `Admin123!@#`） | 否 |
+
+> Bearer token 由脚本自动拼接为 `ALICE_CLIENT_ID:ALICE_CLIENT_SECRET`，与 API 文档一致。
 
 ### 报告发布
 

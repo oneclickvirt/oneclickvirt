@@ -78,7 +78,8 @@ jobs:
 
       - name: Run integration tests
         env:
-          ALICEINIT_TOKEN: ${{ secrets.ALICEINIT_TOKEN }}
+          ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
+          ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
           ALICE_API_BASE: ${{ secrets.ALICE_API_BASE }}
           ENV_TYPE: ${{ inputs.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
@@ -92,6 +93,7 @@ jobs:
           chmod -R +x action_tests/modules/ 2>/dev/null || true
           chmod -R +x action_tests/common/ 2>/dev/null || true
           chmod -R +x action_tests/report/ 2>/dev/null || true
+          mkdir -p action_tests/reports
 
           # Run with error capture - never fail silently
           set +e

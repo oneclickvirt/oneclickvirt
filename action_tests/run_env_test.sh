@@ -38,9 +38,14 @@ log_info "Instance types: ${INSTANCE_TYPES} (requested: ${RAW_INSTANCE_TYPES})"
 log_info "Node hours: ${NODE_HOURS}h"
 
 # Preflight: check required environment variables
-if [[ -z "${ALICEINIT_TOKEN:-}" ]]; then
-    log_error "ALICEINIT_TOKEN is not set. Cannot create test nodes."
-    log_error "Set it via: export ALICEINIT_TOKEN=your_token"
+if [[ -z "${ALICE_CLIENT_ID:-}" ]]; then
+    log_error "ALICE_CLIENT_ID is not set. Cannot create test nodes."
+    log_error "Set it via: export ALICE_CLIENT_ID=your_client_id"
+    exit 1
+fi
+if [[ -z "${ALICE_CLIENT_SECRET:-}" ]]; then
+    log_error "ALICE_CLIENT_SECRET is not set. Cannot create test nodes."
+    log_error "Set it via: export ALICE_CLIENT_SECRET=your_client_secret"
     exit 1
 fi
 if [[ -z "${ALICE_API_BASE:-}" ]]; then

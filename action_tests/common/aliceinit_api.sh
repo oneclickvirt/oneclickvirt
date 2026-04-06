@@ -2,7 +2,10 @@
 # AliceInit (Ephemera) API wrapper library
 
 ALICE_API_BASE="${ALICE_API_BASE:-}"
-ALICEINIT_TOKEN="${ALICEINIT_TOKEN:-}"
+ALICE_CLIENT_ID="${ALICE_CLIENT_ID:-}"
+ALICE_CLIENT_SECRET="${ALICE_CLIENT_SECRET:-}"
+# Bearer token is CLIENT_ID:CLIENT_SECRET
+ALICEINIT_TOKEN="${ALICE_CLIENT_ID}:${ALICE_CLIENT_SECRET}"
 
 alice_request() {
     local method="$1" endpoint="$2" data="${3:-}"

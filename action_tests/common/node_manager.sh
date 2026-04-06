@@ -29,8 +29,12 @@ get_os_id() {
 create_test_node() {
     local env_type="$1" hours="${2:-8}"
     # Validate prerequisites
-    if [[ -z "${ALICEINIT_TOKEN:-}" ]]; then
-        log_error "ALICEINIT_TOKEN is not set - cannot create test nodes"
+    if [[ -z "${ALICE_CLIENT_ID:-}" ]]; then
+        log_error "ALICE_CLIENT_ID is not set - cannot create test nodes"
+        return 1
+    fi
+    if [[ -z "${ALICE_CLIENT_SECRET:-}" ]]; then
+        log_error "ALICE_CLIENT_SECRET is not set - cannot create test nodes"
         return 1
     fi
     if [[ -z "${ALICE_API_BASE:-}" ]]; then
@@ -42,7 +46,7 @@ create_test_node() {
     local pkg; pkg=$(get_min_package_id)
     if [[ -z "$pkg" ]]; then
         log_error "Cannot get package ID from AliceInit API"
-        log_error "Check ALICEINIT_TOKEN and ALICE_API_BASE settings"
+        log_error "Check ALICE_CLIENT_ID, ALICE_CLIENT_SECRET and ALICE_API_BASE settings"
         local profile_resp; profile_resp=$(alice_get_profile 2>/dev/null) || true
         log_debug "Profile check: $(alice_parse_body "$profile_resp" 2>/dev/null | head -c 200)"
         return 1
