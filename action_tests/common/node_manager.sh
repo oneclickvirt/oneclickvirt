@@ -231,51 +231,57 @@ MASTER_SERVER_DIR=""
 deploy_master_local() {
     # Port argument kept for API compatibility but the Go server port is fixed at 8888 via config.yaml
     local _port="${1:-8888}"
-    # SCRIPT_DIR is defined at the top of this file (action_tests/common/).
+    # Use BASH_SOURCE[0] to get the directory of THIS file (node_manager.sh) regardless of
+    # how SCRIPT_DIR is set in the calling script.
+    local _this_dir; _this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
     # Server sources live two levels up: common/ -> action_tests/ -> repo_root/server/
-    local server_dir; server_dir="$(cd "${SCRIPT_DIR}/../../server" && pwd)"
+    local server_dir; server_dir="$(cd "${_this_dir}/../../server" && pwd)"
     MASTER_SERVER_DIR="$server_dir"
     export MASTER_SERVER_DIR
 
     log_section "Deploying master locally on runner from source (port ${_port})"
     log_info "Server directory: ${server_dir}"
 
-    # Build the Go binary
-    log_info "Building Go server binary (this may take a minute)..."
-    if ! (cd "$server_dir" && go build -o oneclickvirt . 2>&1 | tee /tmp/oneclickvirt-build.log); then
-        log_error "Go build failed:"
-        cat /tmp/oneclickvirt-build.log >&2
-        return 1
-    fi
-    log_success "Go binary built: ${server_dir}/oneclickvirt"
-
     # Patch config.yaml for CI: bypass captcha + notification checks, fix quoted bool/int types
     log_info "Patching config.yaml for CI environment..."
     local cfg="${server_dir}/config.yaml"
     # Set env=development to bypass captcha, email/telegram/qq sends in development mode
     sed -i 's/^\( \{4\}env:\) .*/\1 development/' "$cfg"
-    # Fix quoted booleans → unquoted
-    sed -i 's/^\( \{4\}auto-create:\) "true"/\1 true/' "$cfg"
-    sed -i 's/^\( \{4\}log-zap:\) "false"/\1 false/' "$cfg"
-    sed -i 's/^\( \{4\}singular:\) "false"/\1 false/' "$cfg"
-    # Fix quoted integers → unquoted
-    sed -i 's/^\( \{4\}max-idle-conns:\) "10"/\1 10/' "$cfg"
-    sed -i 's/^\( \{4\}max-lifetime:\) "3600"/\1 3600/' "$cfg"
-    sed -i 's/^\( \{4\}max-open-conns:\) "100"/\1 100/' "$cfg"
-    sed -i 's/^\( \{4\}email-smtp-port:\) "3306"/\1 587/' "$cfg"
+    # Fix quoted booleans → unquoted (match any quoted true/false value)
+    sed -i 's/^\( \{4\}auto-create:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    sed -i 's/^\( \{4\}log-zap:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    sed -i 's/^\( \{4\}singular:\) "\(true\|false\)"/\1 \2/' "$cfg"
+    # Fix quoted integers → unquoted (match any quoted numeric value)
+    sed -i 's/^\( \{4\}max-idle-conns:\) "[0-9]*"/\1 10/' "$cfg"
+    sed -i 's/^\( \{4\}max-lifetime:\) "[0-9]*"/\1 3600/' "$cfg"
+    sed -i 's/^\( \{4\}max-open-conns:\) "[0-9]*"/\1 100/' "$cfg"
+    sed -i 's/^\( \{4\}email-smtp-port:\) "[0-9]*"/\1 587/' "$cfg"
+    # Fix quoted integer map keys (e.g. level-limits: "1": → 1:)
+    sed -i 's/^\( *\)"\([0-9]\+\)":/\1\2:/' "$cfg"
+    # Disable captcha (real repo default may be true; env=development bypasses checks but
+    # setting it to false avoids any reload warnings in the log)
+    sed -i 's/^\( \{4\}enabled:\) true/\1 false/' "$cfg"
     log_success "config.yaml patched"
 
-    # Start the server in background from server_dir (config.yaml is there)
+    # Start the server in background via `go run .` from server_dir so that:
+    #   - config.yaml is found in the working directory (no binary path issues)
+    #   - storage/ and logs/ are created relative to server_dir
     rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log
-    (cd "$server_dir" && nohup ./oneclickvirt > /tmp/oneclickvirt-server.log 2>&1 & echo $! > /tmp/oneclickvirt-server.pid)
-    sleep 1
-    local pid; pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null)
+    (cd "$server_dir" && GIN_MODE=debug nohup go run . > /tmp/oneclickvirt-server.log 2>&1 &
+     echo $! > /tmp/oneclickvirt-server.pid)
+    # go run takes longer to start (compilation happens at runtime); wait up to 10s
+    local pid i
+    for i in $(seq 1 10); do
+        sleep 10
+        pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null)
+        [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && break
+    done
     if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
         log_error "Server process failed to start"
         tail -30 /tmp/oneclickvirt-server.log >&2 || true
         return 1
     fi
-    log_success "Server started (PID ${pid})"
+    log_success "Server started via go run (PID ${pid})"
 }
 
 cleanup_all_nodes() {
