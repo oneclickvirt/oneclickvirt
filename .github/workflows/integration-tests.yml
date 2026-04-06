@@ -35,11 +35,6 @@ on:
         required: false
         type: string
         default: '8'
-      report_repo:
-        description: 'Repository for publishing test reports (owner/repo)'
-        required: false
-        type: string
-        default: ''
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
@@ -68,6 +63,8 @@ jobs:
     name: "Test: ${{ matrix.environment }} (${{ inputs.instance_types }})"
     runs-on: ubuntu-latest
     timeout-minutes: 180
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout code
@@ -127,23 +124,18 @@ jobs:
             generate_index_html "../pages-output/index.html" "../pages-output"
           ' 2>/dev/null || true
 
-      - name: Publish to GitHub Pages (separate repo)
-        if: always() && inputs.report_repo != ''
+      - name: Publish to GitHub Pages
+        if: always()
         env:
-          PAGES_TOKEN: ${{ secrets.PAGES_DEPLOY_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          if [[ -z "$PAGES_TOKEN" ]]; then
-            echo "Warning: PAGES_DEPLOY_TOKEN secret not set, skipping Pages deployment"
-            exit 0
-          fi
-          REPORT_REPO="${{ inputs.report_repo }}"
           REPORT_BRANCH="gh-pages"
           TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
           ENV="${{ matrix.environment }}"
 
-          # Clone report repo
+          # Clone current repo's gh-pages branch
           git clone --depth 1 --branch "$REPORT_BRANCH" \
-            "https://x-access-token:${PAGES_TOKEN}@github.com/${REPORT_REPO}.git" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
             report-repo 2>/dev/null || {
               mkdir -p report-repo
               cd report-repo
@@ -207,15 +199,17 @@ jobs:
 
           echo "</div></body></html>" >> index.html
 
-          # Commit and push
+          # Commit and push (retry on concurrent matrix conflicts)
           git add -A
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
           git commit -m "Update test reports: ${ENV} ${TIMESTAMP}" || true
-          git push "https://x-access-token:${PAGES_TOKEN}@github.com/${REPORT_REPO}.git" "$REPORT_BRANCH" || {
-            echo "Failed to push to Pages repo"
-            exit 0
-          }
+          for i in 1 2 3; do
+            git pull --rebase "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" 2>/dev/null || true
+            git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" && break
+            echo "Push attempt ${i} failed, retrying..."
+            sleep $((i * 5))
+          done || echo "Warning: failed to push Pages after retries"
 
       - name: Summary
         if: always()
