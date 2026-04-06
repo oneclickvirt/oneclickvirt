@@ -17,13 +17,34 @@ PVE_BUILD_BACKEND="https://raw.githubusercontent.com/oneclickvirt/pve/main/scrip
 PVE_BUILD_NAT="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_nat_network.sh"
 
 get_min_package_id() {
-    local r; r=$(alice_get_packages)
-    alice_parse_body "$r" | jq -r '.data[0].id // .data.packages[0].id // empty' 2>/dev/null
+    local r; r=$(alice_get_permissions)
+    local body; body=$(alice_parse_body "$r")
+    local http_code; http_code=$(alice_parse_code "$r")
+    log_debug "GET /evo/permissions HTTP ${http_code}: ${body}"
+    # allow_packages is a pipe-separated string like "38|39|40|41|42"
+    local allow; allow=$(echo "$body" | jq -r '.data.allow_packages // empty' 2>/dev/null)
+    if [[ -z "$allow" ]]; then
+        log_error "GET /evo/permissions response has no allow_packages field"
+        log_error "Full response: ${body}"
+        return 1
+    fi
+    # Take the first package ID from the pipe-separated list
+    echo "${allow%%|*}"
 }
 
 get_os_id() {
-    local name="$1" r; r=$(alice_get_os_list)
-    alice_parse_body "$r" | jq -r "[.data[]? | select(.name | test(\"${name}\";\"i\"))][0].id // [.data.os[]? | select(.name | test(\"${name}\";\"i\"))][0].id // empty" 2>/dev/null
+    local name="$1"
+    local r; r=$(alice_get_os_list)
+    local body; body=$(alice_parse_body "$r")
+    local http_code; http_code=$(alice_parse_code "$r")
+    log_debug "GET /evo/os HTTP ${http_code}: $(echo "$body" | head -c 500)"
+    local id; id=$(echo "$body" | jq -r "[.data[]? | select(.name | test(\"${name}\";\"i\"))][0].id // empty" 2>/dev/null)
+    if [[ -z "$id" ]]; then
+        log_error "Cannot find OS matching '${name}' in /evo/os"
+        log_error "Available OS list: $(echo "$body" | jq -r '[.data[]?.name] | join(", ")' 2>/dev/null || echo "$body")"
+        return 1
+    fi
+    echo "$id"
 }
 
 create_test_node() {
@@ -48,7 +69,7 @@ create_test_node() {
         log_error "Cannot get package ID from AliceInit API"
         log_error "Check ALICE_CLIENT_ID, ALICE_CLIENT_SECRET and ALICE_API_BASE settings"
         local profile_resp; profile_resp=$(alice_get_profile 2>/dev/null) || true
-        log_debug "Profile check: $(alice_parse_body "$profile_resp" 2>/dev/null | head -c 200)"
+        log_error "Profile check response: $(alice_parse_body "$profile_resp" 2>/dev/null)"
         return 1
     fi
     log_debug "Package ID: ${pkg}"

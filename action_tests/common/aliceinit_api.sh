@@ -20,12 +20,12 @@ alice_request() {
 alice_parse_body() { echo "$1" | sed '$d'; }
 alice_parse_code() { echo "$1" | tail -1; }
 
-alice_get_profile()    { alice_request "GET" "/account/profile"; }
-alice_get_packages()   { alice_request "GET" "/evo/packages"; }
-alice_get_os_list()    { alice_request "GET" "/evo/os"; }
-alice_list_instances()  { alice_request "GET" "/evo/instances"; }
-alice_get_instance()    { alice_request "GET" "/evo/instances/$1"; }
-alice_delete_instance() { alice_request "DELETE" "/evo/instances/$1"; }
+alice_get_profile()      { alice_request "GET" "/account/profile"; }
+alice_get_permissions()  { alice_request "GET" "/evo/permissions"; }
+alice_get_os_list()      { alice_request "GET" "/evo/os"; }
+alice_list_instances()   { alice_request "GET" "/evo/instances"; }
+alice_get_instance()     { alice_request "GET" "/evo/instances/$1"; }
+alice_delete_instance()  { alice_request "DELETE" "/evo/instances/$1"; }
 
 alice_create_instance() {
     local pkg_id="$1" os_id="$2" hours="${3:-1}" boot_b64="${4:-}"
@@ -88,10 +88,16 @@ alice_create_and_wait() {
     local pkg="$1" os="$2" hours="${3:-1}" boot="${4:-}" max="${5:-600}"
     local resp; resp=$(alice_create_instance "$pkg" "$os" "$hours" "$boot")
     local body; body=$(alice_parse_body "$resp")
+    local http_code; http_code=$(alice_parse_code "$resp")
+    log_debug "POST /evo/instances HTTP ${http_code}: ${body}"
     local code; code=$(echo "$body" | jq -r '.code // empty' 2>/dev/null)
-    [[ "$code" != "200" ]] && { log_error "Create instance failed: $(echo "$body" | jq -r '.message // empty')"; echo "$body"; return 1; }
+    if [[ "$code" != "200" ]]; then
+        log_error "Create instance failed (HTTP ${http_code}): $(echo "$body" | jq -r '.message // .msg // empty' 2>/dev/null)"
+        log_error "Full response: ${body}"
+        return 1
+    fi
     local id; id=$(echo "$body" | jq -r '.data.id // .data.instance_id // empty' 2>/dev/null)
-    [[ -z "$id" ]] && { log_error "Cannot get instance ID"; return 1; }
+    [[ -z "$id" ]] && { log_error "Cannot get instance ID from response: ${body}"; return 1; }
     log_success "Instance creation requested, ID: ${id}"
     alice_wait_instance_ready "$id" "$max"
 }
