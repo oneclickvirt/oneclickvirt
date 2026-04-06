@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -92,12 +93,12 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 
 		// 下载镜像（使用临时文件+mv模式）
 		tmpPath := remotePath + ".tmp"
-		downloadCmd := fmt.Sprintf("curl -L -o '%s' '%s' 2>&1", tmpPath, imageURL)
-		output, err := p.sshClient.Execute(downloadCmd)
+		downloadCmd := fmt.Sprintf("curl -L --connect-timeout 30 --max-time 3600 -o '%s' '%s' 2>&1", tmpPath, imageURL)
+		output, err := p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 		if err != nil {
 			// 回退到wget
-			downloadCmd = fmt.Sprintf("wget --no-check-certificate -O '%s' '%s' 2>&1", tmpPath, imageURL)
-			output, err = p.sshClient.Execute(downloadCmd)
+			downloadCmd = fmt.Sprintf("wget --no-check-certificate --timeout=360 -O '%s' '%s' 2>&1", tmpPath, imageURL)
+			output, err = p.sshClient.ExecuteWithTimeout(downloadCmd, 1*time.Hour)
 			if err != nil {
 				global.APP_LOG.Error("镜像下载失败",
 					zap.String("url", utils.TruncateString(imageURL, 200)),

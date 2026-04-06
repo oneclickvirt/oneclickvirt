@@ -339,6 +339,76 @@ func (c *SSHClient) Execute(command string) (string, error) {
 	return output, err
 }
 
+// ExecuteWithTimeout 执行SSH命令，使用自定义超时时间（用于长时间运行的命令如镜像下载）
+func (c *SSHClient) ExecuteWithTimeout(command string, timeout time.Duration) (string, error) {
+	if !c.IsHealthy() {
+		global.APP_LOG.Warn("SSH连接不健康，尝试重连",
+			zap.String("host", c.config.Host))
+		if err := c.Reconnect(); err != nil {
+			return "", fmt.Errorf("failed to reconnect SSH before execution: %w", err)
+		}
+	}
+
+	output, err := c.executeCommandWithCustomTimeout(command, timeout)
+	if err != nil && strings.Contains(err.Error(), "failed to create SSH session") {
+		global.APP_LOG.Warn("SSH session创建失败，尝试重连后重试",
+			zap.String("host", c.config.Host),
+			zap.Error(err))
+		if reconnErr := c.Reconnect(); reconnErr != nil {
+			return "", fmt.Errorf("failed to reconnect SSH: %w (original error: %v)", reconnErr, err)
+		}
+		output, err = c.executeCommandWithCustomTimeout(command, timeout)
+		if err != nil {
+			return output, fmt.Errorf("command failed after reconnection: %w", err)
+		}
+	}
+
+	return output, err
+}
+
+// executeCommandWithCustomTimeout 使用自定义超时时间执行SSH命令
+func (c *SSHClient) executeCommandWithCustomTimeout(command string, timeout time.Duration) (string, error) {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	err = session.RequestPty("xterm", 80, 40, ssh.TerminalModes{
+		ssh.ECHO:          0,
+		ssh.TTY_OP_ISPEED: 14400,
+		ssh.TTY_OP_OSPEED: 14400,
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to request PTY: %w", err)
+	}
+
+	envCommand := fmt.Sprintf("source /etc/profile 2>/dev/null || true; source ~/.bashrc 2>/dev/null || true; source ~/.bash_profile 2>/dev/null || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+
+	done := make(chan struct{})
+	var output []byte
+	var execErr error
+
+	go func() {
+		output, execErr = session.CombinedOutput(envCommand)
+		close(done)
+	}()
+
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	select {
+	case <-done:
+		if execErr != nil {
+			return string(output), fmt.Errorf("command execution failed: %w", execErr)
+		}
+		return string(output), nil
+	case <-timeoutTimer.C:
+		session.Signal(ssh.SIGKILL)
+		return "", fmt.Errorf("command execution timeout after %v", timeout)
+	}
+}
+
 // executeCommand 执行SSH命令的内部方法
 func (c *SSHClient) executeCommand(command string) (string, error) {
 	session, err := c.client.NewSession()

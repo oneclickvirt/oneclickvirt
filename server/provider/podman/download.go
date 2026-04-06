@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -80,11 +81,11 @@ func (p *PodmanProvider) removeRemoteFile(remotePath string) error {
 func (p *PodmanProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		"curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
 		tmpPath, url,
 	)
 
-	output, err := p.sshClient.Execute(curlCmd)
+	output, err := p.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		p.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
 		global.APP_LOG.Error("远程下载失败",

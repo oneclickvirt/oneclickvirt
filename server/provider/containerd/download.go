@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -90,11 +91,11 @@ func (c *ContainerdProvider) removeRemoteFile(remotePath string) error {
 func (c *ContainerdProvider) downloadFileToRemote(url, remotePath string) error {
 	tmpPath := remotePath + ".tmp"
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		"curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
 		tmpPath, url,
 	)
 
-	output, err := c.sshClient.Execute(curlCmd)
+	output, err := c.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		c.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
 		global.APP_LOG.Error("远程下载失败",

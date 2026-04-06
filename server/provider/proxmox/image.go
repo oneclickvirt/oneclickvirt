@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	systemModel "oneclickvirt/model/system"
@@ -184,8 +185,8 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传，优先使用wget，失败则使用curl
 	downloadCmds := []string{
-		fmt.Sprintf("wget --no-check-certificate -c -O %s '%s'", tmpPath, url),
-		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
+		fmt.Sprintf("wget --no-check-certificate -c --timeout=360 -O %s '%s'", tmpPath, url),
+		fmt.Sprintf("curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'", tmpPath, url),
 	}
 
 	var lastErr error
@@ -193,7 +194,7 @@ func (p *ProxmoxProvider) downloadFileToRemote(url, remotePath string) error {
 		global.APP_LOG.Debug("执行下载命令",
 			zap.String("url", utils.TruncateString(url, 100)))
 
-		output, err := p.sshClient.Execute(cmd)
+		output, err := p.sshClient.ExecuteWithTimeout(cmd, 1*time.Hour)
 		if err == nil {
 			// 下载成功，移动文件到最终位置
 			mvCmd := fmt.Sprintf("mv %s %s", tmpPath, remotePath)

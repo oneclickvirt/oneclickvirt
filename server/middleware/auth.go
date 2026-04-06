@@ -447,19 +447,37 @@ func RequireNormalAdmin() gin.HandlerFunc {
 }
 
 // RequireSuperAdmin 超级管理员权限中间件（仅admin级别,排除normal_admin）
+// 内部先完成JWT验证并设置auth_context，再检查是否为超级管理员
 func RequireSuperAdmin() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		authCtx, exists := GetAuthContext(c)
-		if !exists {
-			c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "用户未认证"})
-			c.Abort()
+		// 先验证JWT Token并获取认证上下文
+		authCtx, claims, err := validateJWTTokenWithClaims(c)
+		if err != nil {
+			respondAuthError(c, err)
 			return
 		}
+
+		// 检查是否为超级管理员
 		if authCtx.UserType != "admin" {
 			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "需要超级管理员权限"})
 			c.Abort()
 			return
 		}
+
+		// 检查token是否需要刷新
+		if utils.ShouldRefreshToken(claims) {
+			if newToken, err := utils.GenerateToken(authCtx.UserID, authCtx.Username, authCtx.UserType); err == nil {
+				c.Header("X-New-Token", newToken)
+				c.Header("X-Token-Refreshed", "true")
+			}
+		}
+
+		// 设置认证上下文
+		c.Set("auth_context", authCtx)
+		c.Set("user_id", authCtx.UserID)
+		c.Set("username", authCtx.Username)
+		c.Set("user_type", authCtx.UserType)
+
 		c.Next()
 	}
 }

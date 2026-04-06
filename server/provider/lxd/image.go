@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	systemModel "oneclickvirt/model/system"
@@ -367,14 +368,14 @@ func (l *LXDProvider) downloadFileToRemote(url, remotePath string) error {
 
 	// 下载文件，支持断点续传
 	curlCmd := fmt.Sprintf(
-		"curl -4 -L -C - --connect-timeout 30 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
+		"curl -4 -L -C - --connect-timeout 30 --max-time 3600 --retry 5 --retry-delay 10 --retry-max-time 0 -o %s '%s'",
 		tmpPath, url,
 	)
 
 	global.APP_LOG.Debug("执行远程下载命令",
 		zap.String("url", utils.TruncateString(url, 100)))
 
-	output, err := l.sshClient.Execute(curlCmd)
+	output, err := l.sshClient.ExecuteWithTimeout(curlCmd, 1*time.Hour)
 	if err != nil {
 		// 清理临时文件
 		l.sshClient.Execute(fmt.Sprintf("rm -f %s", tmpPath))
