@@ -71,39 +71,29 @@ _cleanup_on_exit() {
     local exit_code=$?
     if [[ $exit_code -ne 0 ]]; then
         log_error "Script exiting with code ${exit_code}"
-        # Try to capture service logs for debugging
-        if [[ -n "$MASTER_NODE_ID" ]]; then
-            log_info "Capturing service logs for debugging..."
-            fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-crash-logs.txt" 2>/dev/null || true
-        fi
+        log_info "Capturing service logs for debugging..."
+        fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-crash-logs.txt" 2>/dev/null || true
     fi
     if [[ -n "$CREATED_IDS" ]]; then
         log_info "Cleaning up nodes: ${CREATED_IDS}"
         cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
     fi
+    docker rm -f oneclickvirt 2>/dev/null || true
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
 
 # =============================================================
-# Phase 1: Create master node
+# Phase 1: Deploy master service on runner (local Docker)
 # =============================================================
-log_section "Phase 1: Create master node"
-MASTER_INFO=$(create_test_node "docker" "$NODE_HOURS") || {
-    log_error "Failed to create master node (create_test_node returned error)"
+log_section "Phase 1: Deploy master on runner"
+deploy_master_local "$MASTER_PORT" || {
+    log_error "Failed to deploy master on runner"
     exit 1
 }
-if [[ -z "$MASTER_INFO" ]]; then
-    log_error "Failed to create master node (empty response)"
-    exit 1
-fi
-MASTER_ID=$(echo "$MASTER_INFO" | jq -r '.instance_id')
-MASTER_IP=$(echo "$MASTER_INFO" | jq -r '.ipv4')
-CREATED_IDS="${MASTER_ID}"
-MASTER_NODE_ID="$MASTER_ID"
-MASTER_NODE_IP="$MASTER_IP"
-export MASTER_NODE_ID MASTER_NODE_IP
-log_success "Master node: ID=${MASTER_ID} IP=${MASTER_IP}"
+export MASTER_NODE_ID=""
+export MASTER_NODE_IP="127.0.0.1"
+log_success "Master deployed locally on runner (port ${MASTER_PORT})"
 
 # =============================================================
 # Phase 2: Create worker node with virtualization environment
@@ -119,7 +109,8 @@ if [[ -z "$WORKER_INFO" ]]; then
 fi
 WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
 export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
-CREATED_IDS="${CREATED_IDS},${WORKER_ID_VAL}"
+export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
+CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
 
@@ -140,12 +131,9 @@ prepare_dirty_node "$WORKER_ID_VAL" "$WORKER_IP" "$ENV_TYPE" || {
 }
 
 # =============================================================
-# Phase 5: Deploy master service
+# Phase 5: Set server URL (master already deployed on runner in Phase 1)
 # =============================================================
-log_section "Phase 5: Deploy OneClickVirt on master node"
-deploy_master "$MASTER_ID" "$MASTER_IP" "$MASTER_PORT"
-
-export SERVER_URL="http://${MASTER_IP}:${MASTER_PORT}"
+export SERVER_URL="http://localhost:${MASTER_PORT}"
 log_info "Master URL: ${SERVER_URL}"
 
 # =============================================================
@@ -200,6 +188,7 @@ log_section "Phase 10: Cleanup"
 # Explicit cleanup (trap will also fire but that's OK)
 cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
 CREATED_IDS=""  # Prevent double cleanup in trap
+docker rm -f oneclickvirt 2>/dev/null || true
 
 # -- Finalize --
 report_finalize

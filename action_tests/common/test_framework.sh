@@ -81,9 +81,7 @@ test_api() {
         log_error "${name} - expected HTTP ${expected}, got HTTP ${code}"
         # Capture service logs on failure (timestamp-based)
         local error_logs=""
-        if [[ -n "$MASTER_NODE_IP" ]] && declare -F alice_ssh_exec > /dev/null 2>&1; then
-            error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
-        fi
+        error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
         report_add_fail "$name" "$method" "$url" "$data" "$expected" "$code" "$body"
         _record_result "$name" "$method" "$url" "FAIL" "$expected" "$code" "$body" "$group" "$error_logs"
         return 1
@@ -360,9 +358,7 @@ generate_html_report() {
     local service_log_file="${REPORT_DIR:-/tmp}/${env_name}-service-errors.log"
 
     # Fetch service error logs for inclusion in report
-    if [[ -n "$MASTER_NODE_IP" ]] && declare -F alice_ssh_exec > /dev/null 2>&1; then
-        fetch_full_service_logs "$service_log_file" || true
-    fi
+    fetch_full_service_logs "$service_log_file" || true
 
     if [[ -f "$report_script" && -n "$RESULTS_FILE" ]]; then
         bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" || {
@@ -411,27 +407,14 @@ restore_base_state() {
     log_info "Base state restored"
 }
 
-# -- Service log capture (uses SSH via MASTER_NODE_IP) --
+# -- Service log capture (master runs locally on runner) --
 capture_service_logs() {
     local since="${1:-}" max_lines="${2:-50}"
-    [[ -z "$MASTER_NODE_IP" ]] && return 0
-    if declare -F alice_ssh_exec > /dev/null 2>&1; then
-        local cmd="docker logs oneclickvirt --since='${since}' 2>&1 | grep -iE 'error|panic|fatal|warn' | tail -${max_lines}"
-        alice_ssh_exec "$MASTER_NODE_IP" "$cmd" 60 2>/dev/null || true
-    fi
+    docker logs oneclickvirt --since="${since}" 2>&1 | grep -iE 'error|panic|fatal|warn' | tail -"${max_lines}" 2>/dev/null || true
 }
 
 fetch_full_service_logs() {
     local output_file="$1"
-    if [[ -z "$MASTER_NODE_IP" ]]; then
-        echo "No master node IP available for log capture" > "$output_file"
-        return 0
-    fi
-    if declare -F alice_ssh_exec > /dev/null 2>&1; then
-        alice_ssh_exec "$MASTER_NODE_IP" \
-            "docker logs oneclickvirt --tail=500 2>&1 | grep -iE 'error|panic|fatal|warn'" \
-            120 2>/dev/null > "$output_file" || echo "Log capture failed" > "$output_file"
-    else
-        echo "alice_ssh_exec not available" > "$output_file"
-    fi
+    docker logs oneclickvirt --tail=500 2>&1 | grep -iE 'error|panic|fatal|warn' > "${output_file}" 2>/dev/null \
+        || echo "No service logs available" > "${output_file}"
 }

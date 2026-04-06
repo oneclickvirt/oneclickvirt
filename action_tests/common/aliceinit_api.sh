@@ -106,9 +106,6 @@ alice_wait_instance_ready() {
             log_debug "Instance ${id}: status=${status} state=${state}"
             if [[ "${status}" == "complete" && "${state}" == "running" ]]; then
                 log_success "Instance ${id} is ready"
-                local lr; lr=$(alice_list_instances)
-                local lb; lb=$(alice_parse_body "${lr}")
-                echo "${lb}" | jq -c ".data[] | select(.id == ${id})" 2>/dev/null
                 return 0
             fi
         fi
@@ -134,7 +131,9 @@ alice_create_and_wait() {
     local id; id=$(echo "${body}" | jq -r '.data.id // .data.instance_id // empty' 2>/dev/null)
     [[ -z "${id}" ]] && { log_error "Cannot get instance ID from create response: ${body}"; return 1; }
     log_success "Instance creation requested, ID: ${id}"
-    alice_wait_instance_ready "${id}" "${max}"
+    alice_wait_instance_ready "${id}" "${max}" || return 1
+    # Return deploy response .data: ipv4 is a plain string, password is included
+    echo "${body}" | jq -c '.data'
 }
 
 alice_delete_and_confirm() {

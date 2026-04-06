@@ -116,8 +116,9 @@ create_test_node() {
     [[ $? -ne 0 ]] && return 1
     local id; id=$(echo "${inst}" | jq -r '.id // empty' 2>/dev/null)
     local ip; ip=$(echo "${inst}" | jq -r '.ipv4 // .ip // empty' 2>/dev/null)
+    local password; password=$(echo "${inst}" | jq -r '.password // empty' 2>/dev/null)
     log_success "Node created: ID=${id} IP=${ip}"
-    echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\"}"
+    echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\"}"
 }
 
 install_env() {
@@ -165,6 +166,13 @@ deploy_master() {
     log_section "Deploying master on ${ip} (port ${port})"
     alice_exec_and_wait "${ip}" "curl -sSL https://raw.githubusercontent.com/oneclickvirt/docker/main/scripts/dockerinstall.sh | bash" 600
     alice_exec_and_wait "${ip}" "docker pull spiritlhl/oneclickvirt:latest && docker run -d --name oneclickvirt --restart=always -p ${port}:80 spiritlhl/oneclickvirt:latest" 300
+}
+
+deploy_master_local() {
+    local port="${1:-80}"
+    log_section "Deploying master locally on runner (port ${port})"
+    docker pull spiritlhl/oneclickvirt:latest
+    docker run -d --name oneclickvirt --restart=always -p "${port}:80" spiritlhl/oneclickvirt:latest
 }
 
 cleanup_all_nodes() {
