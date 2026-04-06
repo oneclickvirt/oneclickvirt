@@ -14,6 +14,7 @@ on:
           - podman
           - containerd
           - proxmoxve
+          - all
         default: 'docker'
       instance_types:
         description: 'Instance types to test'
@@ -44,8 +45,27 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
 jobs:
+  setup:
+    name: "Resolve test matrix"
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.set-matrix.outputs.matrix }}
+    steps:
+      - id: set-matrix
+        run: |
+          if [[ "${{ inputs.environment }}" == "all" ]]; then
+            echo 'matrix=["docker","lxd","incus","podman","containerd","proxmoxve"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=[\"${{ inputs.environment }}\"]" >> "$GITHUB_OUTPUT"
+          fi
+
   integration-test:
-    name: "Test: ${{ inputs.environment }} (${{ inputs.instance_types }})"
+    needs: setup
+    strategy:
+      matrix:
+        environment: ${{ fromJSON(needs.setup.outputs.matrix) }}
+      fail-fast: false
+    name: "Test: ${{ matrix.environment }} (${{ inputs.instance_types }})"
     runs-on: ubuntu-latest
     timeout-minutes: 180
 
@@ -61,7 +81,8 @@ jobs:
       - name: Run integration tests
         env:
           ALICEINIT_TOKEN: ${{ secrets.ALICEINIT_TOKEN }}
-          ENV_TYPE: ${{ inputs.environment }}
+          ALICE_API_BASE: ${{ secrets.ALICE_API_BASE }}
+          ENV_TYPE: ${{ matrix.environment }}
           INSTANCE_TYPES: ${{ inputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
           ADMIN_USER: admin
@@ -72,7 +93,7 @@ jobs:
           chmod -R +x action_tests/modules/
           chmod -R +x action_tests/common/
           bash action_tests/run_env_test.sh \
-            "${{ inputs.environment }}" \
+            "${{ matrix.environment }}" \
             "${{ inputs.modules }}" \
             "${{ inputs.instance_types }}"
 
@@ -80,7 +101,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-reports-${{ inputs.environment }}-${{ github.run_number }}
+          name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
           path: |
             action_tests/reports/*.html
             action_tests/reports/*.md
@@ -91,7 +112,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-output-${{ inputs.environment }}-${{ github.run_number }}
+          name: test-output-${{ matrix.environment }}-${{ github.run_number }}
           path: action_tests/reports/*-output.log
           retention-days: 30
 
@@ -118,7 +139,7 @@ jobs:
           REPORT_REPO="${{ inputs.report_repo }}"
           REPORT_BRANCH="gh-pages"
           TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
-          ENV="${{ inputs.environment }}"
+          ENV="${{ matrix.environment }}"
 
           # Clone report repo
           git clone --depth 1 --branch "$REPORT_BRANCH" \
@@ -203,12 +224,12 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ matrix.environment }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance Types | ${{ inputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ -f "action_tests/reports/${{ inputs.environment }}-report.md" ]]; then
-            cat "action_tests/reports/${{ inputs.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
+          if [[ -f "action_tests/reports/${{ matrix.environment }}-report.md" ]]; then
+            cat "action_tests/reports/${{ matrix.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
           else
             echo "No report file found." >> $GITHUB_STEP_SUMMARY
           fi

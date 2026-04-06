@@ -1,7 +1,7 @@
 #!/bin/bash
 # AliceInit (Ephemera) API wrapper library
 
-ALICE_API_BASE="${ALICE_API_BASE:-https://app.alice.ws/cli/v1}"
+ALICE_API_BASE="${ALICE_API_BASE:-}"
 ALICEINIT_TOKEN="${ALICEINIT_TOKEN:-}"
 
 alice_request() {
