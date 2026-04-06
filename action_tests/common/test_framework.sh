@@ -204,7 +204,7 @@ wait_db_ready() {
     log_info "Waiting for system initialization to complete..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
-        local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
+        local need_init; need_init=$(echo "$r" | jq -r '.data.needInit' 2>/dev/null)
         if [[ "$need_init" == "false" ]]; then
             log_success "System initialization complete"
             return 0

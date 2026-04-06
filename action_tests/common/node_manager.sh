@@ -157,22 +157,36 @@ install_env() {
             env_prefix="DEBIAN_FRONTEND=noninteractive"
             ;;
     esac
-    # Download script to file first to avoid stdin conflicts, then run with env vars
-    alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
-    # Reboot to apply network/kernel changes (e.g. Docker bridge, LXD kernel modules)
-    log_info "Waiting 15s then rebooting worker to apply network settings..."
-    sleep 15
-    alice_exec_and_wait "${ip}" "reboot" 10 || true
-    log_info "Waiting for SSH after reboot (max 180s)..."
-    wait_for_ssh "${ip}" 180
-    # Re-run docker install after reboot to complete post-reboot network setup
-    if [[ "$env" == "docker" ]]; then
-        log_info "Re-running docker install after reboot to complete network setup..."
-        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
-    fi
     if [[ "$env" == "proxmoxve" ]]; then
-        alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_BACKEND} | bash" 600
-        alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_NAT} | bash" 600
+        # PVE step 1: installs PVE kernel packages, writes /usr/local/bin/reboot_pve.txt, then exits
+        log_info "PVE install step 1/3: installing PVE kernel (reboot required)..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200 || true
+        # PVE script instructs: wait at least 20s after reboot before re-executing
+        log_info "Rebooting worker to load PVE kernel..."
+        alice_exec_and_wait "${ip}" "reboot" 10 || true
+        sleep 25
+        wait_for_ssh "${ip}" 300
+        # PVE step 2: re-run detects /usr/local/bin/reboot_pve.txt and completes PVE configuration
+        log_info "PVE install step 2/3: completing PVE configuration after reboot..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && bash /tmp/envinstall.sh" 1200
+        # PVE step 3: configure backend bridge, then build NAT IPv4 network
+        log_info "PVE install step 3a/3: configuring backend bridge..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_BACKEND}' | bash" 600
+        log_info "PVE install step 3b/3: building NAT IPv4 network..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_NAT}' | bash" 600
+    else
+        # Step 1: initial install (may request reboot for kernel modules / network changes)
+        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200 || true
+        # Step 2: reboot to apply kernel modules / network config changes
+        log_info "Rebooting worker to apply network/kernel settings..."
+        alice_exec_and_wait "${ip}" "reboot" 10 || true
+        log_info "Waiting for SSH after reboot (max 180s)..."
+        wait_for_ssh "${ip}" 180
+        # Step 3: re-run after reboot for all env types:
+        #   docker/podman/containerd: completes network bridge/config setup
+        #   lxd/incus: script detects /usr/local/bin/lxd_reboot (written on first run) and finishes
+        log_info "Re-running ${env} install to complete post-reboot setup..."
+        alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     fi
 }
 

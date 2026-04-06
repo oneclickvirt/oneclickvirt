@@ -19,6 +19,8 @@ mkdir -p "$REPORT_DIR"
 
 source "${COMMON_DIR}/test_framework.sh"
 source "${COMMON_DIR}/node_manager.sh"
+# Restore SCRIPT_DIR: sourced files above set SCRIPT_DIR to their own directory
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 export ENV_TYPE="${1:-docker}"
 MODULES="${2:-all}"
