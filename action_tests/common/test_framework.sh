@@ -45,6 +45,8 @@ NODE_PASSWORD=""
 WORKER_IP=""
 WORKER_PASSWORD=""
 WORKER_ID=""
+# Path to the server directory; set by deploy_master_local() in node_manager.sh
+MASTER_SERVER_DIR=""
 
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
@@ -438,28 +440,39 @@ restore_base_state() {
     log_info "Base state restored"
 }
 
-# -- Service log capture (master runs locally on runner) --
+# -- Service log capture (master runs locally on runner via source build) --
 capture_service_logs() {
-    local since="${1:-}" max_lines="${2:-50}"
-    docker logs oneclickvirt --since="${since}" 2>&1 | grep -iE 'error|panic|fatal|warn' | tail -"${max_lines}" 2>/dev/null || true
+    local _since="${1:-}" max_lines="${2:-50}"
+    # Read from server stdout/stderr log file; filter for relevant lines
+    tail -"${max_lines}" /tmp/oneclickvirt-server.log 2>/dev/null \
+        | grep -iE 'error|panic|fatal|warn' \
+        || true
 }
 
 fetch_full_service_logs() {
     local output_file="$1"
-    docker logs oneclickvirt --tail=500 2>&1 > "${output_file}" 2>/dev/null \
+    {
+        echo "=== Server stdout/stderr (/tmp/oneclickvirt-server.log) ==="
+        tail -500 /tmp/oneclickvirt-server.log 2>/dev/null || echo "(not found)"
+        local date_dir; date_dir=$(date +%Y-%m-%d)
+        local log_dir="${MASTER_SERVER_DIR}/storage/logs/${date_dir}"
+        echo "=== App error log ==="
+        cat "${log_dir}/error.log" 2>/dev/null || echo "(not found)"
+        echo "=== App warn log ==="
+        cat "${log_dir}/warn.log" 2>/dev/null || echo "(not found)"
+    } > "${output_file}" 2>/dev/null \
         || echo "No service logs available" > "${output_file}"
 }
 
 dump_master_logs() {
     local date_dir; date_dir=$(date +%Y-%m-%d)
-    log_info "=== App error log (/app/storage/logs/${date_dir}/error.log) ==="
-    docker exec oneclickvirt cat "/app/storage/logs/${date_dir}/error.log" 2>/dev/null || echo "(app error log not found)"
-    log_info "=== App warn log (/app/storage/logs/${date_dir}/warn.log) ==="
-    docker exec oneclickvirt cat "/app/storage/logs/${date_dir}/warn.log" 2>/dev/null || echo "(app warn log not found)"
+    local log_dir="${MASTER_SERVER_DIR}/storage/logs/${date_dir}"
+    log_info "=== Server stdout/stderr (last 100 lines) ==="
+    tail -100 /tmp/oneclickvirt-server.log 2>/dev/null || echo "(not found)"
+    log_info "=== App error log (${log_dir}/error.log) ==="
+    cat "${log_dir}/error.log" 2>/dev/null || echo "(not found)"
+    log_info "=== App warn log (${log_dir}/warn.log) ==="
+    cat "${log_dir}/warn.log" 2>/dev/null || echo "(not found)"
     log_info "=== MySQL error log (/var/log/mysql/error.log) ==="
-    docker exec oneclickvirt tail -100 /var/log/mysql/error.log 2>/dev/null || echo "(mysql error log not found)"
-    log_info "=== Supervisor MySQL error log (/var/log/supervisor/mysql_error.log) ==="
-    docker exec oneclickvirt tail -50 /var/log/supervisor/mysql_error.log 2>/dev/null || echo "(supervisor mysql error log not found)"
-    log_info "=== Nginx error log (/var/log/nginx/error.log) ==="
-    docker exec oneclickvirt tail -50 /var/log/nginx/error.log 2>/dev/null || echo "(nginx error log not found)"
+    tail -100 /var/log/mysql/error.log 2>/dev/null || echo "(not found)"
 }

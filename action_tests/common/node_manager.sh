@@ -199,11 +199,42 @@ deploy_master() {
     alice_exec_and_wait "${ip}" "docker pull spiritlhl/oneclickvirt:latest && docker run -d --name oneclickvirt --restart=always -p ${port}:80 spiritlhl/oneclickvirt:latest" 300
 }
 
+# MASTER_SERVER_DIR holds the path to the server directory where the binary runs.
+# Set by deploy_master_local() and referenced by log helper functions.
+MASTER_SERVER_DIR=""
+
 deploy_master_local() {
-    local port="${1:-80}"
-    log_section "Deploying master locally on runner (port ${port})"
-    docker pull spiritlhl/oneclickvirt:latest
-    docker run -d --name oneclickvirt --restart=always -p "${port}:80" spiritlhl/oneclickvirt:latest
+    # Port argument kept for API compatibility but the Go server port is fixed at 8888 via config.yaml
+    local _port="${1:-8888}"
+    # SCRIPT_DIR is defined at the top of this file (action_tests/common/).
+    # Server sources live two levels up: common/ -> action_tests/ -> repo_root/server/
+    local server_dir; server_dir="$(cd "${SCRIPT_DIR}/../../server" && pwd)"
+    MASTER_SERVER_DIR="$server_dir"
+    export MASTER_SERVER_DIR
+
+    log_section "Deploying master locally on runner from source (port ${_port})"
+    log_info "Server directory: ${server_dir}"
+
+    # Build the Go binary
+    log_info "Building Go server binary (this may take a minute)..."
+    if ! (cd "$server_dir" && go build -o oneclickvirt . 2>&1 | tee /tmp/oneclickvirt-build.log); then
+        log_error "Go build failed:"
+        cat /tmp/oneclickvirt-build.log >&2
+        return 1
+    fi
+    log_success "Go binary built: ${server_dir}/oneclickvirt"
+
+    # Start the server in background from server_dir (config.yaml is there)
+    rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log
+    (cd "$server_dir" && nohup ./oneclickvirt > /tmp/oneclickvirt-server.log 2>&1 & echo $! > /tmp/oneclickvirt-server.pid)
+    sleep 1
+    local pid; pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null)
+    if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
+        log_error "Server process failed to start"
+        tail -30 /tmp/oneclickvirt-server.log >&2 || true
+        return 1
+    fi
+    log_success "Server started (PID ${pid})"
 }
 
 cleanup_all_nodes() {

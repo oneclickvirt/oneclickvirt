@@ -47,10 +47,30 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v6
 
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 'stable'
+          cache: true
+          cache-dependency-path: server/go.sum
+
       - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y jq curl sshpass
+
+      - name: Setup MySQL
+        run: |
+          sudo systemctl start mysql
+          sleep 5
+          # Grant root TCP access (127.0.0.1) with empty password for the Go server
+          sudo mysql -u root -e "
+            CREATE USER IF NOT EXISTS 'root'@'127.0.0.1' IDENTIFIED WITH caching_sha2_password BY '';
+            GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
+            FLUSH PRIVILEGES;
+          "
+          # Verify TCP connectivity
+          mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" 2>/dev/null && echo "MySQL TCP OK" || echo "MySQL TCP check failed, continuing anyway"
 
       - name: Validate platform and instance types
         id: validate

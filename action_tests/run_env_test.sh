@@ -24,7 +24,7 @@ export ENV_TYPE="${1:-docker}"
 MODULES="${2:-all}"
 RAW_INSTANCE_TYPES="${3:-both}"
 NODE_HOURS="${NODE_HOURS:-8}"
-MASTER_PORT="${MASTER_PORT:-80}"
+MASTER_PORT="${MASTER_PORT:-8888}"
 EXIT_CODE=0
 
 # =============================================================
@@ -78,13 +78,18 @@ _cleanup_on_exit() {
         log_info "Cleaning up nodes: ${CREATED_IDS}"
         cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
     fi
-    docker rm -f oneclickvirt 2>/dev/null || true
+    # Kill the Go server process started by deploy_master_local
+    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
+        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
+        rm -f /tmp/oneclickvirt-server.pid
+    fi
+    pkill -f 'server/oneclickvirt$' 2>/dev/null || true
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
 
 # =============================================================
-# Phase 1: Deploy master service on runner (local Docker)
+# Phase 1: Deploy master service on runner (source build + local MySQL)
 # =============================================================
 log_section "Phase 1: Deploy master on runner"
 deploy_master_local "$MASTER_PORT" || {
@@ -94,8 +99,6 @@ deploy_master_local "$MASTER_PORT" || {
 export MASTER_NODE_ID=""
 export MASTER_NODE_IP="127.0.0.1"
 log_success "Master deployed locally on runner (port ${MASTER_PORT})"
-log_info "Waiting 30s for all container components (MySQL, app, nginx) to initialize..."
-sleep 30
 
 # =============================================================
 # Phase 2: Create worker node with virtualization environment
@@ -115,8 +118,8 @@ export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // 
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
-log_info "Waiting 60s for cloud-init to complete on worker node..."
-sleep 60
+log_info "Waiting 90s for cloud-init to complete on worker node..."
+sleep 90
 
 # =============================================================
 # Phase 3: Install virtualization environment on worker
@@ -217,7 +220,12 @@ log_section "Phase 10: Cleanup"
 # Explicit cleanup (trap will also fire but that's OK)
 cleanup_all_nodes "$CREATED_IDS" 2>/dev/null || true
 CREATED_IDS=""  # Prevent double cleanup in trap
-docker rm -f oneclickvirt 2>/dev/null || true
+# Kill the Go server process
+if [[ -f /tmp/oneclickvirt-server.pid ]]; then
+    kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
+    rm -f /tmp/oneclickvirt-server.pid
+fi
+pkill -f 'server/oneclickvirt$' 2>/dev/null || true
 
 # -- Finalize --
 report_finalize
