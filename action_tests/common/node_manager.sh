@@ -127,10 +127,38 @@ create_test_node() {
 install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on ${ip}"
-    alice_exec_and_wait "${ip}" "export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y curl wget sudo jq" 600
+    alice_exec_and_wait "${ip}" "export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y curl wget sudo jq ipcalc" 600
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
-    alice_exec_and_wait "${ip}" "curl -sSL ${url} | bash" 1200
+    # Build non-interactive env var prefix per script type
+    local env_prefix
+    case "$env" in
+        docker)
+            # NEED_DISK_LIMIT=n: skip btrfs prompt; CN=false: skip China mirror; IPV6_MAXIMUM_SUBSET=n: skip IPv6 max subnet prompt
+            env_prefix="NEED_DISK_LIMIT=n CN=false WITHOUTCDN=false IPV6_MAXIMUM_SUBSET=n"
+            ;;
+        lxd)
+            # NONINTERACTIVE=true: skip all prompts; CN=false: skip China mirror
+            env_prefix="NONINTERACTIVE=true CN=false WITHOUTCDN=false"
+            ;;
+        incus)
+            # INCUS_NONINTERACTIVE=true: skip all prompts
+            env_prefix="INCUS_NONINTERACTIVE=true WITHOUTCDN=false"
+            ;;
+        podman)
+            # NEED_DISK_LIMIT=n: skip btrfs prompt
+            env_prefix="NEED_DISK_LIMIT=n WITHOUTCDN=false"
+            ;;
+        containerd)
+            # NEED_DISK_LIMIT=n: skip btrfs prompt
+            env_prefix="NEED_DISK_LIMIT=n WITHOUTCDN=false"
+            ;;
+        *)
+            env_prefix="DEBIAN_FRONTEND=noninteractive"
+            ;;
+    esac
+    # Download script to file first to avoid stdin conflicts, then run with env vars
+    alice_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     if [[ "$env" == "proxmoxve" ]]; then
         alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_BACKEND} | bash" 600
         alice_exec_and_wait "${ip}" "curl -sSL ${PVE_BUILD_NAT} | bash" 600

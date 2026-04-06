@@ -231,19 +231,20 @@ wait_task_complete() {
 }
 
 # -- Auth helpers --
-# wait_init_ready: waits until /api/v1/public/init/check responds (server+DB both up)
+# wait_init_ready: waits until /api/v1/public/init/check responds with code=0 (server+DB both up)
+# NOTE: the server uses code=0 for success (not 200). code=0 means the API is reachable.
 wait_init_ready() {
     local url="$1" max="${2:-180}" interval="${3:-5}" elapsed=0
     log_info "Waiting for init endpoint to respond..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
         local code; code=$(echo "$r" | jq -r '.code // empty' 2>/dev/null)
-        if [[ "$code" == "200" ]]; then
+        if [[ "$code" == "0" ]]; then
             local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
             log_success "Init endpoint ready (needInit=${need_init})"
             return 0
         fi
-        log_debug "Init endpoint not ready yet (code=${code}), waiting..."
+        log_debug "Init endpoint not ready yet (code=${code:-<no response>}), waiting..."
         sleep "$interval"; elapsed=$((elapsed + interval))
     done
     log_error "Init endpoint timeout after ${max}s"
@@ -445,6 +446,20 @@ capture_service_logs() {
 
 fetch_full_service_logs() {
     local output_file="$1"
-    docker logs oneclickvirt --tail=500 2>&1 | grep -iE 'error|panic|fatal|warn' > "${output_file}" 2>/dev/null \
+    docker logs oneclickvirt --tail=500 2>&1 > "${output_file}" 2>/dev/null \
         || echo "No service logs available" > "${output_file}"
+}
+
+dump_master_logs() {
+    local date_dir; date_dir=$(date +%Y-%m-%d)
+    log_info "=== App error log (/app/storage/logs/${date_dir}/error.log) ==="
+    docker exec oneclickvirt cat "/app/storage/logs/${date_dir}/error.log" 2>/dev/null || echo "(app error log not found)"
+    log_info "=== App warn log (/app/storage/logs/${date_dir}/warn.log) ==="
+    docker exec oneclickvirt cat "/app/storage/logs/${date_dir}/warn.log" 2>/dev/null || echo "(app warn log not found)"
+    log_info "=== MySQL error log (/var/log/mysql/error.log) ==="
+    docker exec oneclickvirt tail -100 /var/log/mysql/error.log 2>/dev/null || echo "(mysql error log not found)"
+    log_info "=== Supervisor MySQL error log (/var/log/supervisor/mysql_error.log) ==="
+    docker exec oneclickvirt tail -50 /var/log/supervisor/mysql_error.log 2>/dev/null || echo "(supervisor mysql error log not found)"
+    log_info "=== Nginx error log (/var/log/nginx/error.log) ==="
+    docker exec oneclickvirt tail -50 /var/log/nginx/error.log 2>/dev/null || echo "(nginx error log not found)"
 }

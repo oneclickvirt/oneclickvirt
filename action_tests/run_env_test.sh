@@ -115,6 +115,8 @@ export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // 
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
+log_info "Waiting 60s for cloud-init to complete on worker node..."
+sleep 60
 
 # =============================================================
 # Phase 3: Install virtualization environment on worker
@@ -159,9 +161,11 @@ fi
 # =============================================================
 log_section "Phase 7: System initialization and login"
 # Wait until /api/v1/public/init/check is reachable (MySQL + app both up)
+# NOTE: server uses code=0 for success (common.Success returns code:0)
 if ! wait_init_ready "$SERVER_URL" 180 5; then
     log_error "Init endpoint never became ready"
     fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
+    dump_master_logs
     exit 1
 fi
 # Check whether initialization is still required
@@ -172,9 +176,10 @@ if [[ "$NEED_INIT" == "true" ]]; then
     log_info "Initializing system..."
     INIT_RESP=$(init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
     INIT_CODE=$(echo "$INIT_RESP" | jq -r '.code // empty' 2>/dev/null)
-    if [[ "$INIT_CODE" != "200" ]]; then
-        log_error "System initialization failed: ${INIT_RESP}"
+    if [[ "$INIT_CODE" != "0" ]]; then
+        log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
         fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
+        dump_master_logs
         exit 1
     fi
     log_success "System initialized, waiting for async setup to complete..."
@@ -185,6 +190,7 @@ ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
 if [[ -z "$ADMIN_TOKEN" ]]; then
     log_error "Admin login failed"
     fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-login-fail-logs.txt" 2>/dev/null || true
+    dump_master_logs
     exit 1
 fi
 export ADMIN_TOKEN
