@@ -29,6 +29,8 @@
 - `lxd` — LXD 容器/虚拟机
 - `incus` — Incus 容器/虚拟机
 - `proxmox` — Proxmox VE 虚拟化
+- `qemu` — QEMU/KVM 虚拟机（SSH 连接检查 + libvirtd 服务状态）
+- `kubevirt` — KubeVirt 虚拟机（SSH 连接检查 + kubelet 服务状态）
 
 ## 工作流程
 

@@ -1,6 +1,8 @@
 package podman
 
 import (
+	"fmt"
+
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
 
@@ -19,4 +21,35 @@ func (p *PodmanProvider) getDownloadURL(originalURL, providerCountry string, use
 		return cdnURL
 	}
 	return originalURL
+}
+
+// ensureRegistriesConf 确保 /etc/containers/registries.conf 配置有效
+// 修复 "invalid condition: location is unset and prefix is not in the format: *.example.com" 错误
+func (p *PodmanProvider) ensureRegistriesConf() {
+	if p.sshClient == nil {
+		return
+	}
+	// 检测 registries.conf 是否有效
+	testCmd := fmt.Sprintf("%s info >/dev/null 2>&1", cliName)
+	_, err := p.sshClient.Execute(testCmd)
+	if err == nil {
+		return
+	}
+	// 配置有问题，备份并写入最小有效配置
+	global.APP_LOG.Warn("检测到 registries.conf 配置异常，尝试修复")
+	backupCmd := "cp /etc/containers/registries.conf /etc/containers/registries.conf.bak 2>/dev/null; true"
+	p.sshClient.Execute(backupCmd)
+	minimalConf := `unqualified-search-registries = ["docker.io"]`
+	writeCmd := fmt.Sprintf("echo '%s' > /etc/containers/registries.conf", minimalConf)
+	if _, err := p.sshClient.Execute(writeCmd); err != nil {
+		global.APP_LOG.Error("修复 registries.conf 失败", zap.Error(err))
+		return
+	}
+	// 验证修复后的配置
+	_, err = p.sshClient.Execute(testCmd)
+	if err != nil {
+		global.APP_LOG.Error("修复后 registries.conf 仍然无效", zap.Error(err))
+	} else {
+		global.APP_LOG.Info("registries.conf 修复成功")
+	}
 }

@@ -156,7 +156,8 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	}
 
 	updateProgress(20, "处理Podman镜像...")
-	imageNameWithPrefix := "oneclickvirt_" + config.Image
+	// Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下
+	imageNameWithPrefix := normalizePodmanImageName("oneclickvirt_" + config.Image)
 
 	imageExistsResult := p.imageExists(imageNameWithPrefix)
 	if !imageExistsResult {
@@ -213,6 +214,9 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	updateProgress(70, "清理同名残留容器...")
 	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", cliName, config.Name, cliName)
 	p.sshClient.Execute(cleanupCmd)
+
+	// 修复 registries.conf 配置异常导致 podman 无法启动容器的问题
+	p.ensureRegistriesConf()
 
 	updateProgress(72, "构建podman run命令...")
 	cmd := fmt.Sprintf("%s run -d --name %s", cliName, config.Name)

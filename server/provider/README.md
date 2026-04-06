@@ -157,19 +157,19 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 ### Podman
 
-基于 Podman 容器技术的 Provider 实现，复用 Docker 提供商的参数化实现。
+基于 Podman 容器技术的独立 Provider 实现。
 
 - **类型标识**：`podman`
 - **支持实例类型**：`container`
 - **连接方式**：SSH
 - **执行方式**：SSH 命令行（`podman` CLI）
 - **端口映射方式**：固定使用 `native`
-- **IPv4 网络**：`podman-net`
+- **IPv4 网络**：`podman-net`（172.20.0.0/16）
 - **IPv6 网络**：`podman-ipv6`
 - **镜像存储目录**：`/usr/local/bin/podman_ct_images`
-- **镜像下载目录**：`/usr/local/bin/podman_images`
 - **健康检查服务名**：`podman`
-- **支持的操作系统/架构**：ubuntu/rockylinux/openeuler/debian/alpine/almalinux × amd64/arm64
+- **镜像命名空间**：`localhost/`（Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下）
+- **特性**：容器生命周期管理、镜像管理（singleflight 去重）、LXCFS 资源隔离、btrfs 磁盘限额、registries.conf 自动修复、IPv6 支持检测、自动重连、实例发现与导入
 
 ### Containerd
 
