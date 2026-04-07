@@ -64,11 +64,11 @@ run_module_03() {
         jq -r '[.data.list[]? | select(.username | test("batch_user")) | .id // .ID] | join(",")' 2>/dev/null)
     if [[ -n "$uid_list" ]]; then
         test_api "Batch update level" "PUT" "/api/v1/admin/users/batch-level" "200" \
-            "{\"user_ids\":[${uid_list}],\"level\":2}" "$group"
+            "{\"userIds\":[${uid_list}],\"level\":2}" "$group"
         test_api "Batch update status (disable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
-            "{\"user_ids\":[${uid_list}],\"status\":\"disabled\"}" "$group"
+            "{\"userIds\":[${uid_list}],\"status\":\"disabled\"}" "$group"
         test_api "Batch update status (enable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
-            "{\"user_ids\":[${uid_list}],\"status\":\"active\"}" "$group"
+            "{\"userIds\":[${uid_list}],\"status\":\"active\"}" "$group"
     fi
 
     # -- Create normal admin user (may already exist if pre-created by run_module.sh) --
@@ -112,6 +112,6 @@ run_module_03() {
     # -- Batch delete --
     if [[ -n "$uid_list" ]]; then
         test_api "Batch delete users" "POST" "/api/v1/admin/users/batch-delete" "200" \
-            "{\"user_ids\":[${uid_list}]}" "$group"
+            "{\"userIds\":[${uid_list}]}" "$group"
     fi
 }

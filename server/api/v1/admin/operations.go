@@ -2,6 +2,7 @@ package admin
 
 import (
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -139,7 +140,14 @@ func AdminReviewKYC(c *gin.Context) {
 	authCtx, _ := middleware.GetAuthContext(c)
 	svc := &kycService.Service{}
 	if err := svc.AdminReviewKYC(uint(kycID), authCtx.UserID, req.Approved, req.RejectReason); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "记录不存在") {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
+		} else if strings.Contains(errMsg, "已审核过") {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
+		} else {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
+		}
 		return
 	}
 	common.ResponseSuccess(c, nil)

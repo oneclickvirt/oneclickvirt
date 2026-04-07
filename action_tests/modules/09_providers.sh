@@ -20,28 +20,28 @@ run_module_09() {
 
     # -- SSH connection test --
     test_api "Test SSH connection" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
-        "{\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group"
+        "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
 
     # -- SSH test with invalid credentials --
     test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "400" \
-        '{"ssh_host":"192.0.2.1","ssh_port":22,"ssh_user":"root","ssh_password":"wrong"}' "$group"
+        '{"host":"192.0.2.1","port":22,"username":"root","password":"wrong"}' "$group"
 
     # -- Check provider name --
     test_api "Check provider name" "GET" "/api/v1/admin/providers/check-name?name=ci-test-provider" "200" "" "$group"
 
     # -- Check endpoint --
-    test_api "Check endpoint" "GET" "/api/v1/admin/providers/check-endpoint?host=${WORKER_IP}&port=22" "200" "" "$group"
+    test_api "Check endpoint" "GET" "/api/v1/admin/providers/check-endpoint?endpoint=${WORKER_IP}&sshPort=22" "200" "" "$group"
 
     # -- Create provider --
     local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group")
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group")
     PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     [[ -z "$PROVIDER_ID" ]] && { chain_break "$group" "Provider creation failed"; return 1; }
     log_info "Provider ID: ${PROVIDER_ID}"
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "400" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \

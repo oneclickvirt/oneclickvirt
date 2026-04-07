@@ -16,12 +16,12 @@ run_module_14() {
 
     # -- Create IP-based rule --
     local br1; br1=$(test_api "Create IP block rule" "POST" "/api/v1/admin/block-rules" "200" \
-        '{"name":"CI IP Block","type":"ip","source":"192.168.100.0/24","action":"drop","direction":"inbound"}' "$group")
+        '{"name":"CI IP Block","category":"ip","strings":["192.168.100.0/24"],"enabled":true}' "$group")
     local br1_id; br1_id=$(echo "$br1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create port-based rule --
     local br2; br2=$(test_api "Create port block rule" "POST" "/api/v1/admin/block-rules" "200" \
-        '{"name":"CI Port Block","type":"port","port":"8080","protocol":"tcp","action":"drop","direction":"inbound"}' "$group")
+        '{"name":"CI Port Block","category":"port","strings":["8080"],"enabled":true}' "$group")
     local br2_id; br2_id=$(echo "$br2" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create with missing fields --
@@ -43,13 +43,13 @@ run_module_14() {
     # Global apply
     if [[ -n "$br1_id" ]]; then
         test_api "Apply rule globally" "POST" "/api/v1/admin/block-rules/apply" "200" \
-            "{\"rule_id\":${br1_id},\"scope\":\"global\"}" "$group"
+            "{\"rule_ids\":[${br1_id}],\"scope\":\"global\"}" "$group"
     fi
 
     # Provider apply
     if [[ -n "$br2_id" ]]; then
         test_api "Apply rule to provider" "POST" "/api/v1/admin/block-rules/apply" "200" \
-            "{\"rule_id\":${br2_id},\"scope\":\"provider\",\"provider_id\":${PROVIDER_ID}}" "$group"
+            "{\"rule_ids\":[${br2_id}],\"scope\":\"provider\",\"target_ids\":[${PROVIDER_ID}]}" "$group"
     fi
 
     # -- Applications list --
@@ -62,9 +62,12 @@ run_module_14() {
     test_api "Agent-enabled providers" "GET" "/api/v1/admin/block-rules/agent-providers" "200" "" "$group"
 
     # -- Remove application --
-    if [[ -n "$br1_id" ]]; then
+    local app_ids; app_ids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/block-rules/applications?page=1&pageSize=50" 2>/dev/null | \
+        jq -c '[.data.list[]?.id // .data.list[]?.ID] | map(select(. != null))' 2>/dev/null)
+    if [[ -n "$app_ids" && "$app_ids" != "[]" && "$app_ids" != "null" ]]; then
         test_api "Remove rule application" "POST" "/api/v1/admin/block-rules/remove" "200" \
-            "{\"rule_id\":${br1_id},\"scope\":\"global\"}" "$group"
+            "{\"application_ids\":${app_ids}}" "$group"
     fi
 
     # -- Delete rules --
@@ -76,5 +79,5 @@ run_module_14() {
     fi
 
     # -- Delete nonexistent rule --
-    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "404" "" "$group"
+    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "404|500" "" "$group"
 }

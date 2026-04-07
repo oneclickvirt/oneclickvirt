@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	"oneclickvirt/middleware"
 	adminModel "oneclickvirt/model/admin"
@@ -82,7 +83,13 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 
 	svc := redemptionService.NewService(task.GetTaskService())
 	if err := svc.BatchCreate(req, adminID); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: err.Error()})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "不可用") ||
+			strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不足") {
+			c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: errMsg})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: errMsg})
+		}
 		return
 	}
 

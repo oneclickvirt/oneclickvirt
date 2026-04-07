@@ -2,6 +2,7 @@ package user
 
 import (
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -50,7 +51,14 @@ func CreateUserDomain(c *gin.Context) {
 	svc := &domainService.Service{}
 	domain, err := svc.CreateDomain(userID, &req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "无权限") ||
+			strings.Contains(errMsg, "已被绑定") || strings.Contains(errMsg, "不允许") || strings.Contains(errMsg, "未启用") ||
+			strings.Contains(errMsg, "上限") {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
+		} else {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
+		}
 		return
 	}
 	common.ResponseSuccess(c, domain)
@@ -142,7 +150,12 @@ func SubmitUserKYC(c *gin.Context) {
 	svc := &kycService.Service{}
 	record, err := svc.SubmitKYC(userID, &req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "已通过") || strings.Contains(errMsg, "已提交") || strings.Contains(errMsg, "已被其他") {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
+		} else {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
+		}
 		return
 	}
 	common.ResponseSuccess(c, record)

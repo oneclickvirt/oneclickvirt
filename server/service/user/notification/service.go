@@ -145,8 +145,8 @@ func (s *Service) sendPasswordByEmail(email, username, newPassword string) error
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 
@@ -179,8 +179,8 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 
@@ -204,8 +204,8 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 
@@ -221,8 +221,8 @@ func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
 		zap.String("username", username),
 		zap.String("operation", "password_reset"))
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 

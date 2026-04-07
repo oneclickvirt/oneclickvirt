@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
@@ -99,10 +100,18 @@ func FreezeProviderManual(c *gin.Context) {
 	}
 
 	if err := freezeService.FreezeProvider(req.ID, req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: common.CodeInternalError,
-			Msg:  "冻结Provider失败: " + err.Error(),
-		})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
+			c.JSON(http.StatusNotFound, common.Response{
+				Code: common.CodeNotFound,
+				Msg:  errMsg,
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{
+				Code: common.CodeInternalError,
+				Msg:  "冻结Provider失败: " + errMsg,
+			})
+		}
 		return
 	}
 
@@ -124,10 +133,18 @@ func FreezeInstance(c *gin.Context) {
 	}
 
 	if err := freezeService.FreezeInstance(req.InstanceID, req.Reason); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: common.CodeInternalError,
-			Msg:  "冻结实例失败: " + err.Error(),
-		})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
+			c.JSON(http.StatusNotFound, common.Response{
+				Code: common.CodeNotFound,
+				Msg:  errMsg,
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{
+				Code: common.CodeInternalError,
+				Msg:  "冻结实例失败: " + errMsg,
+			})
+		}
 		return
 	}
 

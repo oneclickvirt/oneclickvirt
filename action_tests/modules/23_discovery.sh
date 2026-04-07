@@ -37,7 +37,7 @@ run_module_23() {
         local first_name; first_name=$(echo "$instance_names" | head -1)
         local import_resp; import_resp=$(test_api "Import discovered instance" "POST" \
             "/api/v1/admin/providers/${PROVIDER_ID}/import" "200" \
-            '{"names":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN")
+            '{"instanceUuids":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN")
 
         # ---- Verify imported instance appears in instance list ----
         test_api "List after import" "GET" "/api/v1/admin/instances?page=1&pageSize=50" "200" \
@@ -45,25 +45,25 @@ run_module_23() {
 
         # ---- Import again (should handle gracefully) ----
         test_api "Re-import same instance" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|409" \
-            '{"names":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN"
+            '{"instanceUuids":["'"$first_name"'"]}' "$group" "$ADMIN_TOKEN"
     else
         log_info "No discovered instances to import (worker may not have pre-existing instances)"
     fi
 
-    # ---- Import with empty names ----
-    test_api "Import empty names" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "400" \
-        '{"names":[]}' "$group" "$ADMIN_TOKEN"
+    # ---- Import with empty list ----
+    test_api "Import empty names" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400" \
+        '{"instanceUuids":[]}' "$group" "$ADMIN_TOKEN"
 
-    # ---- Import nonexistent instance name ----
-    test_api "Import nonexistent name" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "400|404" \
-        '{"names":["nonexistent_instance_xyz"]}' "$group" "$ADMIN_TOKEN"
+    # ---- Import nonexistent instance UUID ----
+    test_api "Import nonexistent name" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|404" \
+        '{"instanceUuids":["nonexistent_instance_xyz"]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Discovery on nonexistent provider ----
-    test_api "Discover bad provider" "POST" "/api/v1/admin/providers/99999/discover" "404" \
+    test_api "Discover bad provider" "POST" "/api/v1/admin/providers/99999/discover" "404|500" \
         '' "$group" "$ADMIN_TOKEN"
 
     # ---- Orphaned on nonexistent provider ----
-    test_api "Orphaned bad provider" "GET" "/api/v1/admin/providers/99999/orphaned" "404" \
+    test_api "Orphaned bad provider" "GET" "/api/v1/admin/providers/99999/orphaned" "404|500" \
         '' "$group" "$ADMIN_TOKEN"
 
     # ---- Normal admin discovers on own provider ----

@@ -56,7 +56,7 @@ declare -a TEST_RESULTS_JSON=()
 # Args: test_name method url expected_code [data] [group] [token_override]
 test_api() {
     local name="$1" method="$2" url="$3" expected="$4"
-    local data="${5:-}" group="${6:-default}" token="${7:-$ADMIN_TOKEN}"
+    local data="${5:-}" group="${6:-default}" token="${7-$ADMIN_TOKEN}"
     local test_start; test_start=$(_ts)
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if [[ -n "${CHAIN_BROKEN[$group]:-}" ]]; then
@@ -100,7 +100,7 @@ test_api() {
 
 # Retry wrapper
 test_api_retry() {
-    local name="$1" method="$2" url="$3" expected="$4" data="${5:-}" retries="${6:-3}" interval="${7:-5}" group="${8:-default}" token="${9:-$ADMIN_TOKEN}"
+    local name="$1" method="$2" url="$3" expected="$4" data="${5:-}" retries="${6:-3}" interval="${7:-5}" group="${8:-default}" token="${9-$ADMIN_TOKEN}"
     local i=0
     while [[ $i -lt $retries ]]; do
         i=$((i + 1))

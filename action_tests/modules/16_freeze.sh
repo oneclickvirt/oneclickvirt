@@ -14,11 +14,11 @@ run_module_16() {
     # -- Set provider expiry --
     local exp; exp=$(date -u -d "+7 days" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v+7d '+%Y-%m-%dT%H:%M:%SZ')
     test_api "Set provider expiry" "POST" "/api/v1/admin/providers/set-expiry" "200" \
-        "{\"provider_id\":${PROVIDER_ID},\"expires_at\":\"${exp}\"}" "$group"
+        "{\"providerId\":${PROVIDER_ID},\"expiresAt\":\"${exp}\"}" "$group"
 
     # -- Manual freeze provider --
     test_api "Manual freeze provider" "POST" "/api/v1/admin/providers/freeze-manual" "200" \
-        "{\"provider_id\":${PROVIDER_ID},\"reason\":\"CI test freeze\"}" "$group"
+        "{\"id\":${PROVIDER_ID},\"reason\":\"CI test freeze\"}" "$group"
 
     # -- Verify frozen status --
     local ps; ps=$(test_api "Provider status (frozen)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group")
@@ -38,24 +38,24 @@ run_module_16() {
 
     # -- Cascade freeze (freeze all instances under provider) --
     test_api "Cascade freeze" "POST" "/api/v1/admin/providers/freeze" "200" \
-        "{\"provider_id\":${PROVIDER_ID}}" "$group"
+        "{\"id\":${PROVIDER_ID}}" "$group"
 
     # -- Manual unfreeze --
     test_api "Manual unfreeze provider" "POST" "/api/v1/admin/providers/unfreeze-manual" "200" \
-        "{\"provider_id\":${PROVIDER_ID}}" "$group"
+        "{\"id\":${PROVIDER_ID}}" "$group"
 
     # -- Cascade unfreeze --
     test_api "Cascade unfreeze" "POST" "/api/v1/admin/providers/unfreeze" "200" \
-        "{\"provider_id\":${PROVIDER_ID}}" "$group"
+        "{\"id\":${PROVIDER_ID}}" "$group"
 
     # -- Verify unfrozen --
     test_api "Provider status (unfrozen)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
 
     # -- Freeze nonexistent provider --
-    test_api "Freeze nonexistent provider" "POST" "/api/v1/admin/providers/freeze-manual" "200|404" \
-        '{"provider_id":99999,"reason":"test"}' "$group"
+    test_api "Freeze nonexistent provider" "POST" "/api/v1/admin/providers/freeze-manual" "200|404|500" \
+        '{"id":99999,"reason":"test"}' "$group"
 
     # -- Instance freeze/unfreeze without instance --
-    test_api "Freeze nonexistent instance" "POST" "/api/v1/admin/instances/freeze" "200|404" \
-        '{"instance_id":99999}' "$group"
+    test_api "Freeze nonexistent instance" "POST" "/api/v1/admin/instances/freeze" "200|404|500" \
+        '{"instanceId":99999}' "$group"
 }

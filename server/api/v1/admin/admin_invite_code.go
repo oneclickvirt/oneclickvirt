@@ -3,7 +3,9 @@ package admin
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/admin/invite"
@@ -79,15 +81,31 @@ func CreateInviteCode(c *gin.Context) {
 	}
 
 	// 获取当前管理员ID
-	createdBy := uint(1) // 这里应该从JWT中获取管理员ID
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		c.JSON(http.StatusUnauthorized, common.Response{
+			Code: 401,
+			Msg:  "未登录",
+		})
+		return
+	}
+	createdBy := authCtx.UserID
 
 	inviteService := invite.NewService()
 	err := inviteService.CreateInviteCode(req, createdBy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "已存在") || strings.Contains(errMsg, "只能包含") {
+			c.JSON(http.StatusBadRequest, common.Response{
+				Code: 400,
+				Msg:  errMsg,
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{
+				Code: 500,
+				Msg:  errMsg,
+			})
+		}
 		return
 	}
 

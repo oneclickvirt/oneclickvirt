@@ -59,9 +59,9 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 	}); err != nil {
 		return err
 	}
-	// 发送重置邮件（开发环境下只模拟发送）
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境：模拟发送密码重置邮件",
+	// 发送重置邮件（非生产环境下只模拟发送）
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境：模拟发送密码重置邮件",
 			zap.String("email", req.Email),
 			zap.String("token", resetToken))
 		return nil
@@ -233,8 +233,8 @@ func (s *AuthService) sendPasswordByTelegram(telegram, username, newPassword str
 		return fmt.Errorf("Telegram未配置")
 	}
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 
@@ -250,8 +250,8 @@ func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 		return fmt.Errorf("QQ未配置")
 	}
 
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 
@@ -261,8 +261,8 @@ func (s *AuthService) sendPasswordByQQ(qq, username, newPassword string) error {
 
 // sendPasswordBySMS 通过短信发送新密码
 func (s *AuthService) sendPasswordBySMS(phone, username, newPassword string) error {
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送成功")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送成功")
 		return nil
 	}
 

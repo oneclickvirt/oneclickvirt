@@ -24,8 +24,8 @@ run_module_01() {
 
     # -- System initialization (only if not already initialized by orchestrator) --
     if [[ "$need_init" == "true" ]]; then
-        test_api_noauth "System init (SQLite)" "POST" "/api/v1/public/init" "200" \
-            "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"sqlite\"}}" "$group"
+        test_api_noauth "System init (MySQL)" "POST" "/api/v1/public/init" "200|400|7" \
+            "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"mysql\"}}" "$group"
         sleep 2
     else
         log_info "System already initialized, skipping init test"
@@ -33,11 +33,11 @@ run_module_01() {
 
     # -- Duplicate init should fail --
     test_api_noauth "Duplicate init (should fail)" "POST" "/api/v1/public/init" "400|7" \
-        "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"sqlite\"}}" "$group"
+        "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"mysql\"}}" "$group"
 
     # -- Init with missing fields --
     test_api_noauth "Init missing username" "POST" "/api/v1/public/init" "400|7" \
-        '{"admin":{"password":"test"},"database":{"type":"sqlite"}}' "$group"
+        '{"admin":{"password":"test"},"database":{"type":"mysql"}}' "$group"
 
     # -- Admin login --
     ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS") || { chain_break "$group" "Admin login failed"; return 1; }

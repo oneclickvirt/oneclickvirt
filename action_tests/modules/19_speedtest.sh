@@ -21,7 +21,7 @@ run_module_19() {
 
     # -- Start traffic monitoring --
     test_api "Start traffic monitor" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
-        '{"provider_ids":["'"$PROVIDER_ID"'"],"action":"start"}' "$group" "$ADMIN_TOKEN"
+        '{"providerId":'"$PROVIDER_ID"',"operation":"enable"}' "$group" "$ADMIN_TOKEN"
 
     # -- Run speedtest via instance action (iperf/dd) --
     local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
@@ -48,7 +48,7 @@ run_module_19() {
 
     # -- Stop traffic monitoring --
     test_api "Stop traffic monitor" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
-        '{"provider_ids":["'"$PROVIDER_ID"'"],"action":"stop"}' "$group" "$ADMIN_TOKEN"
+        '{"providerId":'"$PROVIDER_ID"',"operation":"disable"}' "$group" "$ADMIN_TOKEN"
 
     # -- Pmacct data (if available) --
     test_api "Pmacct summary" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/summary" "200|404" "" "$group" "$USER_TOKEN"

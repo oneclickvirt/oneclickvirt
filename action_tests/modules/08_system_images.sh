@@ -24,7 +24,7 @@ run_module_08() {
 
     # -- Create VM image --
     test_api "Create VM image" "POST" "/api/v1/admin/system-images" "200" \
-        '{"name":"ci-debian-12-vm","providerType":"lxd","instanceType":"vm","architecture":"amd64","url":"https://example.com/debian12vm.tar.gz","description":"CI test VM image","osType":"debian","osVersion":"12","minMemoryMB":256,"minDiskMB":2048}' "$group"
+        '{"name":"ci-debian-12-vm","providerType":"lxd","instanceType":"vm","architecture":"amd64","url":"https://example.com/debian12vm.zip","description":"CI test VM image","osType":"debian","osVersion":"12","minMemoryMB":256,"minDiskMB":2048}' "$group"
 
     # -- Create with missing name --
     test_api "Create image (no name)" "POST" "/api/v1/admin/system-images" "400" \

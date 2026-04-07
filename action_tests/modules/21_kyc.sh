@@ -36,16 +36,16 @@ run_module_21() {
     # ---- Admin review KYC ----
     if [[ -n "$kyc_id" ]]; then
         test_api "Admin approve KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "200" \
-            '{"status":"approved","comment":"Test approved"}' "$group" "$ADMIN_TOKEN"
+            '{"approved":true,"rejectReason":""}' "$group" "$ADMIN_TOKEN"
 
         # ---- Review already-reviewed KYC ----
         test_api "Re-review KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "400|200" \
-            '{"status":"approved","comment":"Double review"}' "$group" "$ADMIN_TOKEN"
+            '{"approved":true,"rejectReason":""}' "$group" "$ADMIN_TOKEN"
     fi
 
-    # ---- Review nonexistent KYC (may return 500 for nonexistent) ----
-    test_api "Review nonexistent KYC" "PUT" "/api/v1/admin/kyc/99999/review" "404|500" \
-        '{"status":"approved"}' "$group" "$ADMIN_TOKEN"
+    # ---- Review nonexistent KYC (should return 404) ----
+    test_api "Review nonexistent KYC" "PUT" "/api/v1/admin/kyc/99999/review" "404|400" \
+        '{"approved":true}' "$group" "$ADMIN_TOKEN"
 
     # ---- Alipay KYC (likely to fail without real config, test endpoint existence) ----
     test_api "Submit Alipay KYC" "POST" "/api/v1/user/kyc/alipay" "400|200|500" \

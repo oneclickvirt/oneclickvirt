@@ -437,12 +437,12 @@ type ResetUserPasswordRequest struct {
 
 // UpdateInstanceTypePermissionsRequest 更新实例类型权限配置请求
 type UpdateInstanceTypePermissionsRequest struct {
-	MinLevelForContainer       int `json:"minLevelForContainer" binding:"min=1,max=99"`
-	MinLevelForVM              int `json:"minLevelForVM" binding:"min=1,max=99"`
-	MinLevelForDeleteContainer int `json:"minLevelForDeleteContainer" binding:"min=1,max=99"`
-	MinLevelForDeleteVM        int `json:"minLevelForDeleteVM" binding:"min=1,max=99"`
-	MinLevelForResetContainer  int `json:"minLevelForResetContainer" binding:"min=1,max=99"`
-	MinLevelForResetVM         int `json:"minLevelForResetVM" binding:"min=1,max=99"`
+	MinLevelForContainer       int `json:"minLevelForContainer" binding:"min=0,max=99"`
+	MinLevelForVM              int `json:"minLevelForVM" binding:"min=0,max=99"`
+	MinLevelForDeleteContainer int `json:"minLevelForDeleteContainer" binding:"min=0,max=99"`
+	MinLevelForDeleteVM        int `json:"minLevelForDeleteVM" binding:"min=0,max=99"`
+	MinLevelForResetContainer  int `json:"minLevelForResetContainer" binding:"min=0,max=99"`
+	MinLevelForResetVM         int `json:"minLevelForResetVM" binding:"min=0,max=99"`
 }
 
 // 端口映射管理相关请求

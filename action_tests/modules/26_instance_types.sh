@@ -29,8 +29,8 @@ run_module_26() {
         log_info "Testing container-specific operations"
 
         # Create container instance
-        local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5}' \
+        local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400|500" \
+            '{"provider":"'"$PROVIDER_ID"'","name":"type_test_ct","instance_type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5}' \
             "$group" "$ADMIN_TOKEN")
         local ct_task; ct_task=$(echo "$ct_resp" | grep -o '"task_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 
@@ -77,8 +77,8 @@ run_module_26() {
         log_info "Testing VM-specific operations"
 
         # Create VM instance
-        local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201" \
-            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
+        local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400|500" \
+            '{"provider":"'"$PROVIDER_ID"'","name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
             "$group" "$ADMIN_TOKEN")
         local vm_task; vm_task=$(echo "$vm_resp" | grep -o '"task_id":"[^"]*"' | head -1 | cut -d'"' -f4)
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -42,10 +43,18 @@ func DiscoverProviderInstances(c *gin.Context) {
 		global.APP_LOG.Error("发现Provider实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "发现实例失败: " + err.Error(),
-		})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
+			c.JSON(http.StatusNotFound, common.Response{
+				Code: 404,
+				Msg:  "发现实例失败: " + errMsg,
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{
+				Code: 500,
+				Msg:  "发现实例失败: " + errMsg,
+			})
+		}
 		return
 	}
 
@@ -146,10 +155,18 @@ func GetOrphanedInstances(c *gin.Context) {
 		global.APP_LOG.Error("获取未纳管实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取未纳管实例失败: " + err.Error(),
-		})
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
+			c.JSON(http.StatusNotFound, common.Response{
+				Code: 404,
+				Msg:  "获取未纳管实例失败: " + errMsg,
+			})
+		} else {
+			c.JSON(http.StatusInternalServerError, common.Response{
+				Code: 500,
+				Msg:  "获取未纳管实例失败: " + errMsg,
+			})
+		}
 		return
 	}
 

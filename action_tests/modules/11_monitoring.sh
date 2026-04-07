@@ -14,7 +14,7 @@ run_module_11() {
     # -- Monitoring config --
     test_api "Get monitoring config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "200" "" "$group"
     test_api "Update monitoring config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "200" \
-        '{"enabled":true,"interval":60}' "$group"
+        '{"monitoring_mode":"agent","collect_interval":60,"resource_collect_interval":30}' "$group"
 
     # -- Deploy agent --
     local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200" \

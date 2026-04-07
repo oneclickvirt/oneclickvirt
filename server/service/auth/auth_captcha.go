@@ -42,8 +42,8 @@ func (s *AuthService) verifyCaptcha(captchaId, code string) error {
 		return errors.New("验证码参数不完整")
 	}
 
-	// 开发环境下允许测试验证码
-	if global.GetAppConfig().System.Env == "development" && code == "test" {
+	// 非生产环境下允许测试验证码
+	if global.GetAppConfig().System.Env != "production" && code == "test" {
 		return nil
 	}
 

@@ -828,8 +828,8 @@ func (s *Service) sendPasswordByTelegram(telegram, username, newPassword string)
 			zap.String("telegram", telegram))
 		return nil
 	}
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送Telegram密码通知")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送Telegram密码通知")
 		return nil
 	}
 	message := fmt.Sprintf("管理员已重置您的密码。\n用户名：<b>%s</b>\n新密码：<code>%s</code>\n请及时登录并修改密码。", username, newPassword)
@@ -843,8 +843,8 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 		global.APP_LOG.Debug("QQ未配置，跳过发送", zap.String("qq", qq))
 		return nil
 	}
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送QQ密码通知")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送QQ密码通知")
 		return nil
 	}
 	global.APP_LOG.Warn("QQ消息通道暂不可用，建议使用邮箱或Telegram", zap.String("qq", qq))
@@ -853,8 +853,8 @@ func (s *Service) sendPasswordByQQ(qq, username, newPassword string) error {
 
 // sendPasswordBySMS 通过短信发送新密码
 func (s *Service) sendPasswordBySMS(phone, username, newPassword string) error {
-	if global.GetAppConfig().System.Env == "development" {
-		global.APP_LOG.Debug("开发环境模拟发送短信密码通知")
+	if global.GetAppConfig().System.Env != "production" {
+		global.APP_LOG.Debug("非生产环境模拟发送短信密码通知")
 		return nil
 	}
 	global.APP_LOG.Warn("短信服务未配置，跳过发送", zap.String("phone", phone))
