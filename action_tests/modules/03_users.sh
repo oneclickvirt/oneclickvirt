@@ -71,8 +71,8 @@ run_module_03() {
             "{\"user_ids\":[${uid_list}],\"status\":\"active\"}" "$group"
     fi
 
-    # -- Create normal admin user --
-    test_api "Create normal admin" "POST" "/api/v1/admin/users" "200" \
+    # -- Create normal admin user (may already exist if pre-created by run_module.sh) --
+    test_api "Create normal admin" "POST" "/api/v1/admin/users" "200|400|409" \
         "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"nadmin@ci.local\",\"user_type\":\"normal_admin\"}" "$group"
     NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS") || true
 

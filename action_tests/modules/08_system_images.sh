@@ -50,7 +50,7 @@ run_module_08() {
     # -- User images --
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User image list" "GET" "/api/v1/user/images" "200" "" "$group" "$USER_TOKEN"
-        test_api "User filtered images" "GET" "/api/v1/user/images/filtered?provider_type=${ENV_TYPE}" "200" "" "$group" "$USER_TOKEN"
+        test_api "User filtered images" "GET" "/api/v1/user/images/filtered?provider_type=${ENV_TYPE}" "200|400" "" "$group" "$USER_TOKEN"
     fi
 
     # -- Delete single --

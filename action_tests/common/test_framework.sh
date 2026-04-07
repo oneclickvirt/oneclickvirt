@@ -40,13 +40,14 @@ USER_TOKEN2=""
 PROVIDER_ID=""
 ENV_TYPE="${ENV_TYPE:-docker}"
 INSTANCE_TYPES="${INSTANCE_TYPES:-both}"
-NODE_IP=""
-NODE_PASSWORD=""
-WORKER_IP=""
-WORKER_PASSWORD=""
-WORKER_ID=""
+NODE_IP="${NODE_IP:-}"
+NODE_PASSWORD="${NODE_PASSWORD:-}"
+WORKER_IP="${WORKER_IP:-}"
+WORKER_PASSWORD="${WORKER_PASSWORD:-}"
+WORKER_ID="${WORKER_ID:-}"
+TEST_INSTANCE_ID="${TEST_INSTANCE_ID:-}"
 # Path to the server directory; set by deploy_master_local() in node_manager.sh
-MASTER_SERVER_DIR=""
+MASTER_SERVER_DIR="${MASTER_SERVER_DIR:-}"
 
 # -- JSON result collector for HTML report --
 declare -a TEST_RESULTS_JSON=()
@@ -72,6 +73,7 @@ test_api() {
     local resp; resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || true
     local code; code=$(echo "$resp" | tail -1)
     local body; body=$(echo "$resp" | sed '$d')
+    sleep 0.3
     # Support pipe-separated expected codes (e.g. "200|201|400")
     local match=false
     IFS='|' read -ra exp_codes <<< "$expected"
@@ -411,7 +413,7 @@ SAVED_INSTANCE_IDS=""
 save_base_state() {
     log_info "Saving base state before module..."
     SAVED_CONFIG=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        "${SERVER_URL}/api/v1/admin/system-config" 2>/dev/null) || true
+        "${SERVER_URL}/api/v1/admin/config" 2>/dev/null) || true
     local inst_resp; inst_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
     SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')

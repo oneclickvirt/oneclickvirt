@@ -76,7 +76,7 @@ run_module_27() {
         "" "$group" "$ADMIN_TOKEN"
 
     # ---- Dashboard stats ----
-    test_api "Dashboard stats" "GET" "/api/dashboard/stats" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Dashboard stats" "GET" "/api/v1/dashboard/stats" "200" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Register config (public) ----
     test_api "Register config" "GET" "/api/v1/public/register-config" "200" "" "$group" ""

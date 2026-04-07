@@ -74,6 +74,35 @@ report_init "${REPORT_DIR}/module-${MODULE_INPUT}.md" "Module ${MODULE_INPUT}"
 # Login first
 wait_server_ready "$SERVER_URL" 60 5 || { log_error "Server unreachable"; exit 1; }
 ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS") || { log_error "Admin login failed"; exit 1; }
+
+# Ensure TEST_USER2 and NORMAL_ADMIN_USER exist before running modules.
+# When public registration is disabled (the post-init default), these users must be
+# created via the admin API.  We always attempt creation and accept 200 (created) or
+# 400/409 (already exists) as success.
+log_info "Ensuring test user (${TEST_USER}) exists..."
+curl -s --max-time 30 \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "{\"username\":\"${TEST_USER}\",\"password\":\"${TEST_USER_PASS}\",\"email\":\"test@ci.local\",\"level\":1}" \
+    "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
+
+log_info "Ensuring test user 2 (${TEST_USER2}) exists..."
+curl -s --max-time 30 \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "{\"username\":\"${TEST_USER2}\",\"password\":\"${TEST_USER2_PASS}\",\"email\":\"test2@ci.local\",\"level\":1}" \
+    "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
+
+log_info "Ensuring normal-admin user (${NORMAL_ADMIN_USER}) exists..."
+curl -s --max-time 30 \
+    -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -X POST \
+    -d "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"test_admin@ci.local\",\"level\":5,\"user_type\":\"normal_admin\"}" \
+    "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
+
 USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || USER_TOKEN=""
 USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS") || USER_TOKEN2=""
 NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS") || NORMAL_ADMIN_TOKEN=""
