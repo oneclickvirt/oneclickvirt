@@ -32,12 +32,26 @@ run_module_09() {
     # -- Check endpoint --
     test_api "Check endpoint" "GET" "/api/v1/admin/providers/check-endpoint?endpoint=${WORKER_IP}&sshPort=22" "200" "" "$group"
 
-    # -- Create provider --
-    local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group")
-    PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-    [[ -z "$PROVIDER_ID" ]] && { chain_break "$group" "Provider creation failed"; return 1; }
-    log_info "Provider ID: ${PROVIDER_ID}"
+    # -- Create provider (or reuse existing one from state restoration) --
+    if [[ -n "$PROVIDER_ID" ]]; then
+        # Provider ID exists (restored from previous module), verify it's still valid
+        log_info "Using existing provider ID: ${PROVIDER_ID}"
+        local verify_resp; verify_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
+        local verify_code; verify_code=$(echo "$verify_resp" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "$verify_code" != "0" ]]; then
+            log_warning "Existing PROVIDER_ID ${PROVIDER_ID} is invalid, creating new one"
+            PROVIDER_ID=""
+        fi
+    fi
+    
+    if [[ -z "$PROVIDER_ID" ]]; then
+        local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group")
+        PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        [[ -z "$PROVIDER_ID" ]] && { chain_break "$group" "Provider creation failed"; return 1; }
+        log_info "Created new provider ID: ${PROVIDER_ID}"
+    fi
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "400" \

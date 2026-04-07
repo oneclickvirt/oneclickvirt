@@ -233,10 +233,50 @@ wait_task_complete() {
         case "$st" in
             completed) log_success "Task ${task_id} completed"; echo "$r"; return 0 ;;
             failed|cancelled|timeout) log_error "Task ${task_id}: ${st}"; echo "$r"; return 1 ;;
+            "") 
+                # Task API might not exist or task completed and cleaned up
+                if [[ $elapsed -gt 10 ]]; then
+                    log_debug "Task ${task_id} status unknown (might be completed and cleaned)"
+                    echo "$r"
+                    return 0
+                fi
+                ;;
         esac
         sleep "$interval"; elapsed=$((elapsed + interval))
     done
     log_error "Task timeout"; return 1
+}
+
+# Delete instance with proper async wait
+delete_instance_safe() {
+    local instance_id="$1"
+    local token="${2:-$ADMIN_TOKEN}"
+    local max_wait="${3:-30}"
+    
+    log_debug "Deleting instance ${instance_id}..."
+    local del_resp; del_resp=$(curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+    
+    # Check if deletion returns a task ID (async operation)
+    local del_task; del_task=$(echo "$del_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+    if [[ -n "$del_task" ]]; then
+        log_debug "Waiting for deletion task ${del_task}..."
+        wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 3 > /dev/null 2>&1 || true
+    else
+        # Synchronous deletion, give some time for cleanup
+        sleep 3
+    fi
+    
+    # Verify instance is gone
+    local verify; verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+    local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
+    if [[ "$verify_code" == "0" ]]; then
+        log_warning "Instance ${instance_id} still exists after deletion attempt"
+        return 1
+    fi
+    
+    return 0
 }
 
 # -- Auth helpers --
@@ -414,37 +454,124 @@ generate_html_report() {
 # -- State management: save/restore between modules --
 SAVED_CONFIG=""
 SAVED_INSTANCE_IDS=""
+SAVED_PROVIDER_ID=""
+SAVED_PROVIDER_IDS=""
+SAVED_USER_IDS=""
+SAVED_TEST_INSTANCE_ID=""
 
 save_base_state() {
     log_info "Saving base state before module..."
+    
+    # Save config
     SAVED_CONFIG=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/config" 2>/dev/null) || true
+    
+    # Save instances
     local inst_resp; inst_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
     SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved instance IDs: ${SAVED_INSTANCE_IDS:-none}"
+    
+    # Save critical cross-module variables
+    SAVED_PROVIDER_ID="$PROVIDER_ID"
+    SAVED_TEST_INSTANCE_ID="$TEST_INSTANCE_ID"
+    
+    # Save provider list (to avoid deleting base provider)
+    local prov_resp; prov_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=100" 2>/dev/null) || true
+    SAVED_PROVIDER_IDS=$(echo "$prov_resp" | jq -r '.data.items[]?.id // .data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    log_debug "Saved provider IDs: ${SAVED_PROVIDER_IDS:-none}"
+    
+    # Save user list (to avoid deleting base test users)
+    local user_resp; user_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/users?page=1&pageSize=100" 2>/dev/null) || true
+    SAVED_USER_IDS=$(echo "$user_resp" | jq -r '.data.items[]?.id // .data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    log_debug "Saved user IDs: ${SAVED_USER_IDS:-none}"
 }
 
 restore_base_state() {
     log_info "Restoring base state after module..."
-    # Delete any instances created during the module
+    
+    # Delete any instances created during the module (exclude dirty node instances)
     local curr_resp; curr_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
     local curr_ids; curr_ids=$(echo "$curr_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null)
+    
     for id in $curr_ids; do
         if [[ -n "$id" ]] && ! echo ",$SAVED_INSTANCE_IDS," | grep -q ",${id},"; then
+            # Get instance details to check if it's a pre-existing instance (dirty node)
+            local inst_detail; inst_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/instances/${id}" 2>/dev/null) || true
+            local inst_name; inst_name=$(echo "$inst_detail" | jq -r '.data.name // empty' 2>/dev/null)
+            
+            # Skip deletion if it's a pre-existing instance (for discovery tests)
+            if [[ "$inst_name" =~ pre.?existing|pre_existing|pre-existing ]]; then
+                log_debug "Skipping deletion of pre-existing instance: ${inst_name} (ID: ${id})"
+                continue
+            fi
+            
             log_info "Cleaning up instance created during module: ${id}"
-            curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-                "${SERVER_URL}/api/v1/admin/instances/${id}" 2>/dev/null || true
-            sleep 2
+            delete_instance_safe "$id" "$ADMIN_TOKEN" 30 || log_warning "Failed to delete instance ${id}"
         fi
     done
-    # Re-login to refresh tokens
-    ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS" 2>/dev/null) || true
-    USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS" 2>/dev/null) || true
-    USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS" 2>/dev/null) || true
-    NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS" 2>/dev/null) || true
+    
+    # Restore critical cross-module variables (especially PROVIDER_ID)
+    if [[ -n "$SAVED_PROVIDER_ID" ]]; then
+        PROVIDER_ID="$SAVED_PROVIDER_ID"
+        log_debug "Restored PROVIDER_ID: ${PROVIDER_ID}"
+    fi
+    
+    if [[ -n "$SAVED_TEST_INSTANCE_ID" ]]; then
+        TEST_INSTANCE_ID="$SAVED_TEST_INSTANCE_ID"
+        log_debug "Restored TEST_INSTANCE_ID: ${TEST_INSTANCE_ID}"
+    fi
+    
+    # Re-login to refresh tokens with graceful error handling
+    local new_admin_token; new_admin_token=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS" 2>/dev/null) || true
+    if [[ -n "$new_admin_token" ]]; then
+        ADMIN_TOKEN="$new_admin_token"
+    else
+        log_warning "Failed to refresh ADMIN_TOKEN, keeping existing token"
+    fi
+    
+    local new_user_token; new_user_token=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS" 2>/dev/null) || true
+    if [[ -n "$new_user_token" ]]; then
+        USER_TOKEN="$new_user_token"
+    else
+        log_debug "Failed to refresh USER_TOKEN"
+    fi
+    
+    local new_user_token2; new_user_token2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS" 2>/dev/null) || true
+    if [[ -n "$new_user_token2" ]]; then
+        USER_TOKEN2="$new_user_token2"
+    else
+        log_debug "Failed to refresh USER_TOKEN2"
+    fi
+    
+    local new_normal_admin; new_normal_admin=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS" 2>/dev/null) || true
+    if [[ -n "$new_normal_admin" ]]; then
+        NORMAL_ADMIN_TOKEN="$new_normal_admin"
+    else
+        log_debug "Failed to refresh NORMAL_ADMIN_TOKEN"
+    fi
+    
     log_info "Base state restored"
+}
+
+# Reset CHAIN_BROKEN for specific groups (call before each module to prevent cross-contamination)
+reset_chain_broken() {
+    local groups_to_reset=("$@")
+    if [[ ${#groups_to_reset[@]} -eq 0 ]]; then
+        # Reset all groups
+        CHAIN_BROKEN=()
+        log_debug "Reset all CHAIN_BROKEN groups"
+    else
+        # Reset specific groups
+        for grp in "${groups_to_reset[@]}"; do
+            unset 'CHAIN_BROKEN[$grp]'
+            log_debug "Reset CHAIN_BROKEN for group: ${grp}"
+        done
+    fi
 }
 
 # -- Service log capture (master runs locally on runner via source build) --
