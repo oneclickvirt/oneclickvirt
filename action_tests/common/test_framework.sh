@@ -454,10 +454,8 @@ generate_html_report() {
 # -- State management: save/restore between modules --
 SAVED_CONFIG=""
 SAVED_INSTANCE_IDS=""
-SAVED_PROVIDER_ID=""
 SAVED_PROVIDER_IDS=""
 SAVED_USER_IDS=""
-SAVED_TEST_INSTANCE_ID=""
 
 save_base_state() {
     log_info "Saving base state before module..."
@@ -472,9 +470,8 @@ save_base_state() {
     SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved instance IDs: ${SAVED_INSTANCE_IDS:-none}"
     
-    # Save critical cross-module variables
-    SAVED_PROVIDER_ID="$PROVIDER_ID"
-    SAVED_TEST_INSTANCE_ID="$TEST_INSTANCE_ID"
+    # DO NOT save PROVIDER_ID here - it should persist across modules
+    # We'll preserve whatever value exists when restoring
     
     # Save provider list (to avoid deleting base provider)
     local prov_resp; prov_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -515,16 +512,10 @@ restore_base_state() {
         fi
     done
     
-    # Restore critical cross-module variables (especially PROVIDER_ID)
-    if [[ -n "$SAVED_PROVIDER_ID" ]]; then
-        PROVIDER_ID="$SAVED_PROVIDER_ID"
-        log_debug "Restored PROVIDER_ID: ${PROVIDER_ID}"
-    fi
-    
-    if [[ -n "$SAVED_TEST_INSTANCE_ID" ]]; then
-        TEST_INSTANCE_ID="$SAVED_TEST_INSTANCE_ID"
-        log_debug "Restored TEST_INSTANCE_ID: ${TEST_INSTANCE_ID}"
-    fi
+    # PROVIDER_ID and TEST_INSTANCE_ID persist naturally across modules
+    # No need to restore as they should keep their values from successful module runs
+    log_debug "Current PROVIDER_ID: ${PROVIDER_ID:-<not set>}"
+    log_debug "Current TEST_INSTANCE_ID: ${TEST_INSTANCE_ID:-<not set>}"
     
     # Re-login to refresh tokens with graceful error handling
     local new_admin_token; new_admin_token=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS" 2>/dev/null) || true

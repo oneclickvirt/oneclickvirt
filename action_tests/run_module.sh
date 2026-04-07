@@ -134,10 +134,6 @@ for mod in "${MODULES[@]}"; do
     if declare -f "$func_name" > /dev/null 2>&1; then
         log_section "Running module ${mod} (${MODULE_IDX}/${MODULE_COUNT})"
         
-        # Reset module-specific chain breaks to prevent cross-module contamination
-        # Keep 'providers' and 'instances' groups intact as they're required dependencies
-        reset_chain_broken 2>/dev/null || true
-        
         # Save state before module
         save_base_state 2>/dev/null || true
         local_start_ts=$(_ts)
