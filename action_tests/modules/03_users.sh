@@ -66,9 +66,9 @@ run_module_03() {
         test_api "Batch update level" "PUT" "/api/v1/admin/users/batch-level" "200" \
             "{\"userIds\":[${uid_list}],\"level\":2}" "$group"
         test_api "Batch update status (disable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
-            "{\"userIds\":[${uid_list}],\"status\":\"disabled\"}" "$group"
+            "{\"userIds\":[${uid_list}],\"status\":0}" "$group"
         test_api "Batch update status (enable)" "PUT" "/api/v1/admin/users/batch-status" "200" \
-            "{\"userIds\":[${uid_list}],\"status\":\"active\"}" "$group"
+            "{\"userIds\":[${uid_list}],\"status\":1}" "$group"
     fi
 
     # -- Create normal admin user (may already exist if pre-created by run_module.sh) --

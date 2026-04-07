@@ -158,9 +158,13 @@ while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     grp=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
     status=$(echo "$line" | jq -r '.status // empty' 2>/dev/null)
-    group_pass[$grp]=$(( ${group_pass[$grp]:-0} + ( [[ "$status" == "PASS" ]] && echo 1 || echo 0 ) ))
-    group_fail[$grp]=$(( ${group_fail[$grp]:-0} + ( [[ "$status" == "FAIL" ]] && echo 1 || echo 0 ) ))
-    group_skip[$grp]=$(( ${group_skip[$grp]:-0} + ( [[ "$status" == "SKIP" ]] && echo 1 || echo 0 ) ))
+    if [[ "$status" == "PASS" ]]; then
+        group_pass[$grp]=$(( ${group_pass[$grp]:-0} + 1 ))
+    elif [[ "$status" == "FAIL" ]]; then
+        group_fail[$grp]=$(( ${group_fail[$grp]:-0} + 1 ))
+    elif [[ "$status" == "SKIP" ]]; then
+        group_skip[$grp]=$(( ${group_skip[$grp]:-0} + 1 ))
+    fi
 done < "$RESULTS_FILE"
 
 # Second pass: generate HTML
