@@ -195,7 +195,12 @@ wait_server_ready() {
     log_info "Waiting for server: ${url}"
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "${url}/health" 2>/dev/null) || true
-        [[ "$r" == "200" ]] && { log_success "Server is ready"; return 0; }
+        # Accept both 200 (healthy) and 503 (service up but DB not initialized yet)
+        if [[ "$r" == "200" || "$r" == "503" ]]; then
+            log_success "Server is ready (HTTP ${r})"
+            return 0
+        fi
+        [[ $((elapsed % 30)) -eq 0 ]] && log_debug "Server not ready yet (${elapsed}/${max}s, HTTP ${r:-no response})..."
         sleep "$interval"; elapsed=$((elapsed + interval))
     done
     log_error "Server readiness timeout (${max}s)"; return 1

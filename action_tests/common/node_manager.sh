@@ -270,21 +270,45 @@ deploy_master_local() {
     #   - config.yaml is found in the working directory (no binary path issues)
     #   - storage/ and logs/ are created relative to server_dir
     rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log
-    (cd "$server_dir" && GIN_MODE=debug nohup go run . > /tmp/oneclickvirt-server.log 2>&1 &
-     echo $! > /tmp/oneclickvirt-server.pid)
-    # go run takes longer to start (compilation happens at runtime); wait up to 10s
-    local pid i
-    for i in $(seq 1 10); do
-        sleep 10
-        pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null)
-        [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null && break
+    
+    # Start server and capture PID correctly (avoid subshell issues)
+    cd "$server_dir" || return 1
+    GIN_MODE=debug nohup go run . > /tmp/oneclickvirt-server.log 2>&1 &
+    local pid=$!
+    echo "$pid" > /tmp/oneclickvirt-server.pid
+    cd - >/dev/null || true
+    
+    log_info "Server process started (PID ${pid}), waiting for compilation and startup..."
+    
+    # go run takes longer to start (compilation happens at runtime); wait up to 120s for process + HTTP
+    local i elapsed=0 max_wait=120
+    for i in $(seq 1 24); do  # 24 * 5 = 120s
+        sleep 5
+        elapsed=$((i * 5))
+        
+        # Check if process is still alive
+        if ! kill -0 "$pid" 2>/dev/null; then
+            log_error "Server process died during startup (PID ${pid})"
+            log_error "=== Last 50 lines of server log ==="
+            tail -50 /tmp/oneclickvirt-server.log >&2 || true
+            return 1
+        fi
+        
+        # Check if HTTP endpoint is responding (accept 200 or 503 - 503 means server is up but DB not ready)
+        local status_code
+        status_code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://localhost:${_port}/health" 2>/dev/null) || true
+        if [[ "$status_code" == "200" || "$status_code" == "503" ]]; then
+            log_success "Server started and responding (PID ${pid}, elapsed ${elapsed}s, HTTP ${status_code})"
+            return 0
+        fi
+        
+        [[ $((elapsed % 15)) -eq 0 ]] && log_debug "Server still starting (${elapsed}/${max_wait}s, HTTP ${status_code:-no response})..."
     done
-    if [[ -z "$pid" ]] || ! kill -0 "$pid" 2>/dev/null; then
-        log_error "Server process failed to start"
-        tail -30 /tmp/oneclickvirt-server.log >&2 || true
-        return 1
-    fi
-    log_success "Server started via go run (PID ${pid})"
+    
+    log_error "Server startup timeout after ${max_wait}s (PID ${pid})"
+    log_error "=== Last 50 lines of server log ==="
+    tail -50 /tmp/oneclickvirt-server.log >&2 || true
+    return 1
 }
 
 cleanup_all_nodes() {
