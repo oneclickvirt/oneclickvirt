@@ -111,6 +111,34 @@ wait_for_ssh() {
     return 1
 }
 
+# Wait for apt/dpkg locks to be released (e.g., by cloud-init)
+wait_for_apt_lock() {
+    local ip="$1" max="${2:-300}" interval="${3:-5}" elapsed=0
+    log_info "Waiting for apt/dpkg locks to be released on ${ip} (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        # Check if dpkg/apt locks are held by any process
+        local lock_check
+        lock_check=$(alice_ssh_exec "${ip}" \
+            "fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock 2>/dev/null || echo 'free'" \
+            30 2>/dev/null) || lock_check=""
+        
+        if [[ "$lock_check" == *"free"* ]] || [[ -z "$lock_check" ]]; then
+            # Double-check by trying to acquire the lock briefly
+            if alice_ssh_exec "${ip}" \
+                "apt-get check 2>&1 | grep -qv 'Could not get lock' && exit 0 || exit 1" \
+                30 >/dev/null 2>&1; then
+                log_success "apt/dpkg locks released on ${ip}"
+                return 0
+            fi
+        fi
+        
+        log_debug "apt/dpkg still locked on ${ip} (${elapsed}/${max}s)..."
+        sleep "${interval}"; elapsed=$((elapsed + interval))
+    done
+    log_warning "apt/dpkg locks may still be held after ${max}s, proceeding anyway..."
+    return 1
+}
+
 # ---------- Instance lifecycle helpers ----------
 alice_wait_instance_ready() {
     local id="$1" max="${2:-600}" interval="${3:-15}"
