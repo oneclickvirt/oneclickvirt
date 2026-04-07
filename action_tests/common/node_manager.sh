@@ -128,8 +128,9 @@ install_env() {
     local id="$1" ip="$2" env="$3"
     log_section "Installing ${env} environment on ${ip}"
     # Wait for cloud-init and other processes to release apt/dpkg locks
-    wait_for_apt_lock "${ip}" 300 5
-    alice_exec_and_wait "${ip}" "export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y curl wget sudo jq ipcalc" 600
+    # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
+    wait_for_apt_lock "${ip}" 120 300 10
+    alice_exec_and_wait "${ip}" "export DEBIAN_FRONTEND=noninteractive && apt-get update -y && apt-get install -y curl wget sudo jq ipcalc lsof" 600
     local url="${ENV_INSTALL_SCRIPTS[$env]:-}"
     [[ -z "$url" ]] && { log_error "Unknown environment: ${env}"; return 1; }
     # Build non-interactive env var prefix per script type

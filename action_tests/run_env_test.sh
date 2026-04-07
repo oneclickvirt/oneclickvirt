@@ -121,8 +121,7 @@ export WORKER_PASSWORD="$NODE_PASSWORD"
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
-log_info "Waiting 60s for initial cloud-init setup on worker node..."
-sleep 60
+log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..."
 
 # =============================================================
 # Phase 3: Install virtualization environment on worker

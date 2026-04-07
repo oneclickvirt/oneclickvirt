@@ -112,31 +112,73 @@ wait_for_ssh() {
 }
 
 # Wait for apt/dpkg locks to be released (e.g., by cloud-init)
+# Based on https://github.com/spiritLHLS/one-click-installation-script/blob/main/repair_scripts/package.sh
 wait_for_apt_lock() {
-    local ip="$1" max="${2:-300}" interval="${3:-5}" elapsed=0
-    log_info "Waiting for apt/dpkg locks to be released on ${ip} (max ${max}s)..."
-    while [[ $elapsed -lt $max ]]; do
-        # Check if dpkg/apt locks are held by any process
-        local lock_check
-        lock_check=$(alice_ssh_exec "${ip}" \
-            "fuser /var/lib/dpkg/lock-frontend /var/lib/dpkg/lock /var/lib/apt/lists/lock 2>/dev/null || echo 'free'" \
-            30 2>/dev/null) || lock_check=""
-        
-        if [[ "$lock_check" == *"free"* ]] || [[ -z "$lock_check" ]]; then
-            # Double-check by trying to acquire the lock briefly
-            if alice_ssh_exec "${ip}" \
-                "apt-get check 2>&1 | grep -qv 'Could not get lock' && exit 0 || exit 1" \
-                30 >/dev/null 2>&1; then
-                log_success "apt/dpkg locks released on ${ip}"
-                return 0
-            fi
+    local ip="$1" min_wait="${2:-120}" max_wait="${3:-300}" interval="${4:-10}"
+    local elapsed=0
+    
+    log_info "Waiting for apt/dpkg locks to be released on ${ip} (min ${min_wait}s, max ${max_wait}s)..."
+    
+    # Always wait at least min_wait seconds for cloud-init to complete
+    while [[ $elapsed -lt $min_wait ]]; do
+        log_debug "Initial wait for cloud-init (${elapsed}/${min_wait}s)..."
+        sleep "${interval}"
+        elapsed=$((elapsed + interval))
+    done
+    
+    log_info "Minimum wait complete, checking lock status..."
+    
+    # After minimum wait, actively check locks until max_wait
+    while [[ $elapsed -lt $max_wait ]]; do
+        # Try apt-get check to see if locks are available
+        if alice_ssh_exec "${ip}" \
+            "DEBIAN_FRONTEND=noninteractive apt-get check >/dev/null 2>&1 && exit 0 || exit 1" \
+            30 >/dev/null 2>&1; then
+            log_success "apt/dpkg locks released on ${ip} after ${elapsed}s"
+            return 0
         fi
         
-        log_debug "apt/dpkg still locked on ${ip} (${elapsed}/${max}s)..."
-        sleep "${interval}"; elapsed=$((elapsed + interval))
+        log_debug "apt/dpkg still locked on ${ip} (${elapsed}/${max_wait}s)..."
+        sleep "${interval}"
+        elapsed=$((elapsed + interval))
     done
-    log_warning "apt/dpkg locks may still be held after ${max}s, proceeding anyway..."
-    return 1
+    
+    # If still locked after max_wait, force cleanup and proceed
+    log_warning "apt/dpkg locks still held after ${max_wait}s, attempting forced cleanup..."
+    
+    # Install lsof if not available, then force cleanup locks
+    alice_ssh_exec "${ip}" "
+        # Kill any running apt/dpkg processes
+        pkill -9 apt 2>/dev/null || true
+        pkill -9 apt-get 2>/dev/null || true
+        pkill -9 dpkg 2>/dev/null || true
+        
+        # Try to install lsof if available
+        if ! command -v lsof >/dev/null 2>&1; then
+            # Wait a moment and try install without hang
+            sleep 5
+            timeout 30 apt-get install -y lsof 2>/dev/null || true
+        fi
+        
+        # Remove lock files (with lsof check if available)
+        for lock_file in /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend \\
+                         /var/cache/apt/archives/lock /var/lib/apt/lists/lock; do
+            if [ -f \"\${lock_file}\" ]; then
+                # If lsof is available, kill processes holding the lock
+                if command -v lsof >/dev/null 2>&1; then
+                    lsof \"\${lock_file}\" 2>/dev/null | awk 'NR>1 {print \$2}' | xargs -r kill -9 2>/dev/null || true
+                fi
+                rm -f \"\${lock_file}\" 2>/dev/null || true
+            fi
+        done
+        
+        # Clean up and reconfigure
+        dpkg --configure -a 2>/dev/null || true
+        apt-get clean 2>/dev/null || true
+    " 90 || true
+    
+    log_warning "Forced cleanup complete, proceeding with installation..."
+    return 0
 }
 
 # ---------- Instance lifecycle helpers ----------
