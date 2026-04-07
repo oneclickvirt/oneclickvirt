@@ -13,18 +13,18 @@ run_module_15() {
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User domain list" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
 
-        # -- Create domain --
-        local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200" \
-            '{"domain":"ci-test.example.com","target_port":80}' "$group" "$USER_TOKEN")
+        # -- Create domain (requires instanceId; may fail if no instances exist) --
+        local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200|400" \
+            '{"instanceId":1,"domainName":"ci-test.example.com","protocol":"http","internalIP":"127.0.0.1","internalPort":80}' "$group" "$USER_TOKEN")
         local did1; did1=$(echo "$d1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
         # -- Create duplicate --
         test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400" \
-            '{"domain":"ci-test.example.com","target_port":80}' "$group" "$USER_TOKEN"
+            '{"instanceId":1,"domainName":"ci-test.example.com","protocol":"http","internalIP":"127.0.0.1","internalPort":80}' "$group" "$USER_TOKEN"
 
         # -- Create with invalid domain --
         test_api "Create invalid domain" "POST" "/api/v1/user/domains" "400" \
-            '{"domain":"","target_port":80}' "$group" "$USER_TOKEN"
+            '{"domainName":"","internalPort":80}' "$group" "$USER_TOKEN"
 
         # -- Edit domain --
         if [[ -n "$did1" ]]; then

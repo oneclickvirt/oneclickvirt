@@ -9,9 +9,9 @@ run_module_05() {
     # -- List --
     test_api "Redemption code list" "GET" "/api/v1/admin/redemption-codes?page=1&pageSize=10" "200" "" "$group"
 
-    # -- Batch create --
-    local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200" \
-        '{"count":3,"type":"instance","cpu":1,"memory":256,"disk":5,"duration_days":7,"instance_type":"container","max_uses":1}' "$group")
+    # -- Batch create (requires provider + images; accept 400 if preconditions not met) --
+    local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400" \
+        '{"count":3,"providerId":1,"instanceType":"container","imageId":1,"cpuId":"1","memoryId":"1","diskId":"1","bandwidthId":"1","remark":"CI test"}' "$group")
 
     # -- Create with invalid params --
     test_api "Create codes (zero count)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \

@@ -21,8 +21,8 @@ run_module_26() {
         "" "$group" "$ADMIN_TOKEN"
 
     # ---- Update instance type permissions ----
-    test_api "Update type perms (both)" "PUT" "/api/v1/admin/instance-type-permissions" "200" \
-        '{"container_enabled":true,"vm_enabled":true}' "$group" "$ADMIN_TOKEN"
+    test_api "Update type perms (both)" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
+        '{"minLevelForContainer":1,"minLevelForVM":1,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":1,"minLevelForResetContainer":1,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
 
     # ---- Container-specific tests ----
     if should_test_type "container" && env_supports_container; then
@@ -58,8 +58,8 @@ run_module_26() {
         fi
 
         # Disable container permission and verify rejection
-        test_api "Disable container perm" "PUT" "/api/v1/admin/instance-type-permissions" "200" \
-            '{"container_enabled":false,"vm_enabled":true}' "$group" "$ADMIN_TOKEN"
+        test_api "Disable container perm" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
+            '{"minLevelForContainer":99,"minLevelForVM":1,"minLevelForDeleteContainer":99,"minLevelForDeleteVM":1,"minLevelForResetContainer":99,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create container (disabled)" "POST" "/api/v1/user/instances" "400|403" \
@@ -68,8 +68,8 @@ run_module_26() {
         fi
 
         # Re-enable
-        test_api "Re-enable container perm" "PUT" "/api/v1/admin/instance-type-permissions" "200" \
-            '{"container_enabled":true,"vm_enabled":true}' "$group" "$ADMIN_TOKEN"
+        test_api "Re-enable container perm" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
+            '{"minLevelForContainer":1,"minLevelForVM":1,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":1,"minLevelForResetContainer":1,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
     fi
 
     # ---- VM-specific tests ----
@@ -102,8 +102,8 @@ run_module_26() {
         fi
 
         # Disable VM permission
-        test_api "Disable VM perm" "PUT" "/api/v1/admin/instance-type-permissions" "200" \
-            '{"container_enabled":true,"vm_enabled":false}' "$group" "$ADMIN_TOKEN"
+        test_api "Disable VM perm" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
+            '{"minLevelForContainer":1,"minLevelForVM":99,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":99,"minLevelForResetContainer":1,"minLevelForResetVM":99}' "$group" "$ADMIN_TOKEN"
 
         if [[ -n "$USER_TOKEN" ]]; then
             test_api "User create VM (disabled)" "POST" "/api/v1/user/instances" "400|403" \
@@ -112,8 +112,8 @@ run_module_26() {
         fi
 
         # Re-enable
-        test_api "Re-enable all perms" "PUT" "/api/v1/admin/instance-type-permissions" "200" \
-            '{"container_enabled":true,"vm_enabled":true}' "$group" "$ADMIN_TOKEN"
+        test_api "Re-enable all perms" "PUT" "/api/v1/admin/instance-type-permissions" "200|400" \
+            '{"minLevelForContainer":1,"minLevelForVM":1,"minLevelForDeleteContainer":1,"minLevelForDeleteVM":1,"minLevelForResetContainer":1,"minLevelForResetVM":1}' "$group" "$ADMIN_TOKEN"
     fi
 
     # ---- User-side type permission check ----

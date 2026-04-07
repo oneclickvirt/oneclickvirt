@@ -67,9 +67,17 @@ log_info "Environment: ${ENV_TYPE}"
 log_info "Instance types: ${INSTANCE_TYPES}"
 
 # Init report
-REPORT_DIR="${SCRIPT_DIR}/reports"
+REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
 mkdir -p "$REPORT_DIR"
 report_init "${REPORT_DIR}/module-${MODULE_INPUT}.md" "Module ${MODULE_INPUT}"
+
+# Init results file (inherit from parent or create new one)
+if [[ -z "${RESULTS_FILE:-}" ]]; then
+    RESULTS_FILE="${REPORT_DIR}/module-${MODULE_INPUT}-results.jsonl"
+    init_results_file "$RESULTS_FILE"
+elif [[ ! -f "$RESULTS_FILE" ]]; then
+    init_results_file "$RESULTS_FILE"
+fi
 
 # Login first
 wait_server_ready "$SERVER_URL" 60 5 || { log_error "Server unreachable"; exit 1; }
@@ -84,7 +92,7 @@ curl -s --max-time 30 \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     -X POST \
-    -d "{\"username\":\"${TEST_USER}\",\"password\":\"${TEST_USER_PASS}\",\"email\":\"test@ci.local\",\"level\":1}" \
+    -d "{\"username\":\"${TEST_USER}\",\"password\":\"${TEST_USER_PASS}\",\"email\":\"test@ci.local\",\"level\":1,\"userType\":\"user\"}" \
     "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
 
 log_info "Ensuring test user 2 (${TEST_USER2}) exists..."
@@ -92,7 +100,7 @@ curl -s --max-time 30 \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     -X POST \
-    -d "{\"username\":\"${TEST_USER2}\",\"password\":\"${TEST_USER2_PASS}\",\"email\":\"test2@ci.local\",\"level\":1}" \
+    -d "{\"username\":\"${TEST_USER2}\",\"password\":\"${TEST_USER2_PASS}\",\"email\":\"test2@ci.local\",\"level\":1,\"userType\":\"user\"}" \
     "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
 
 log_info "Ensuring normal-admin user (${NORMAL_ADMIN_USER}) exists..."
@@ -100,7 +108,7 @@ curl -s --max-time 30 \
     -H "Authorization: Bearer ${ADMIN_TOKEN}" \
     -H "Content-Type: application/json" \
     -X POST \
-    -d "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"test_admin@ci.local\",\"level\":5,\"user_type\":\"normal_admin\"}" \
+    -d "{\"username\":\"${NORMAL_ADMIN_USER}\",\"password\":\"${NORMAL_ADMIN_PASS}\",\"email\":\"test_admin@ci.local\",\"level\":5,\"userType\":\"normal_admin\"}" \
     "${SERVER_URL}/api/v1/admin/users" > /dev/null 2>&1 || true
 
 USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || USER_TOKEN=""

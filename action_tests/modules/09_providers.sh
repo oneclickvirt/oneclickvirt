@@ -6,7 +6,11 @@ run_module_09() {
     report_add_section "09 - Provider Management"
     local group="providers"
 
-    if [[ -z "$WORKER_IP" || -z "$WORKER_PASSWORD" ]]; then
+    if [[ -z "$WORKER_IP" && -n "$NODE_IP" ]]; then
+        WORKER_IP="$NODE_IP"
+    fi
+    local worker_pass="${WORKER_PASSWORD:-${NODE_PASSWORD:-}}"
+    if [[ -z "$WORKER_IP" || -z "$worker_pass" ]]; then
         chain_break "$group" "No worker node information"
         return 1
     fi
@@ -16,7 +20,7 @@ run_module_09() {
 
     # -- SSH connection test --
     test_api "Test SSH connection" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
-        "{\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${WORKER_PASSWORD}\"}" "$group"
+        "{\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group"
 
     # -- SSH test with invalid credentials --
     test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "400" \
@@ -30,14 +34,14 @@ run_module_09() {
 
     # -- Create provider --
     local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${WORKER_PASSWORD}\"}" "$group")
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group")
     PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
     [[ -z "$PROVIDER_ID" ]] && { chain_break "$group" "Provider creation failed"; return 1; }
     log_info "Provider ID: ${PROVIDER_ID}"
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "400" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${WORKER_PASSWORD}\"}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"ssh_host\":\"${WORKER_IP}\",\"ssh_port\":22,\"ssh_user\":\"root\",\"ssh_password\":\"${worker_pass}\"}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \

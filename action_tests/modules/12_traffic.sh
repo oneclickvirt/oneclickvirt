@@ -28,10 +28,10 @@ run_module_12() {
     # -- Traffic limits --
     if [[ -n "$test_uid" ]]; then
         test_api "Manage traffic limits" "POST" "/api/v1/admin/traffic/manage" "200" \
-            "{\"user_id\":${test_uid},\"monthly_limit_gb\":100}" "$group"
+            "{\"type\":\"user\",\"action\":\"limit\",\"target_id\":${test_uid},\"reason\":\"CI test\"}" "$group"
 
         test_api "Batch manage limits" "POST" "/api/v1/admin/traffic/batch-manage" "200" \
-            "{\"user_ids\":[${test_uid}],\"monthly_limit_gb\":200}" "$group"
+            "{\"action\":\"unlimit\",\"user_ids\":[${test_uid}]}" "$group"
     fi
 
     # -- Traffic monitor --
@@ -51,8 +51,11 @@ run_module_12() {
     fi
     test_api "Sync all traffic" "POST" "/api/v1/admin/traffic/sync/all" "200" '{}' "$group"
 
-    # -- Batch sync --
-    test_api "Batch sync traffic" "POST" "/api/v1/admin/traffic/batch-sync" "200" '{}' "$group"
+    # -- Batch sync (requires user_ids) --
+    if [[ -n "$test_uid" ]]; then
+        test_api "Batch sync traffic" "POST" "/api/v1/admin/traffic/batch-sync" "200" \
+            "{\"user_ids\":[${test_uid}]}" "$group"
+    fi
 
     # -- Clear user traffic --
     if [[ -n "$test_uid" ]]; then

@@ -16,9 +16,9 @@ run_module_20() {
     test_api "Get preset (github)" "GET" "/api/v1/oauth2/presets/github" "200|404" "" "$group" "$ADMIN_TOKEN"
     test_api "Get preset (nonexistent)" "GET" "/api/v1/oauth2/presets/nonexistent_provider" "404" "" "$group" "$ADMIN_TOKEN"
 
-    # ---- Create OAuth2 provider ----
+    # ---- Create OAuth2 provider (with all required fields) ----
     local create_resp; create_resp=$(test_api "Create OAuth2 provider" "POST" "/api/v1/oauth2/providers" "200|201" \
-        '{"name":"test_github","type":"github","client_id":"test_client_id","client_secret":"test_client_secret","enabled":true}' \
+        '{"name":"test_github","displayName":"Test GitHub","providerType":"preset","clientId":"test_client_id","clientSecret":"test_client_secret","redirectUrl":"http://localhost:8888/oauth2/callback","authUrl":"https://github.com/login/oauth/authorize","tokenUrl":"https://github.com/login/oauth/access_token","userInfoUrl":"https://api.github.com/user","enabled":true}' \
         "$group" "$ADMIN_TOKEN")
     local oauth2_id; oauth2_id=$(echo "$create_resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 

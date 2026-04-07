@@ -13,29 +13,31 @@ run_module_01() {
 
     # -- Init status --
     local init_r; init_r=$(test_api_noauth "Init status check" "GET" "/api/v1/public/init/check" "200" "" "$group")
-    local is_init; is_init=$(echo "$init_r" | jq -r '.data.initialized // false' 2>/dev/null)
+    local need_init; need_init=$(echo "$init_r" | jq -r '.data.needInit // "true"' 2>/dev/null)
 
     # -- Recommended DB type --
     test_api_noauth "Recommended DB type" "GET" "/api/v1/public/recommended-db-type" "200" "" "$group"
 
     # -- Test DB connection with invalid params --
-    test_api_noauth "Test DB connection (invalid)" "POST" "/api/v1/public/test-db-connection" "400" \
+    test_api_noauth "Test DB connection (invalid)" "POST" "/api/v1/public/test-db-connection" "400|7" \
         '{"db_type":"mysql","db_host":"invalid","db_port":9999,"db_name":"x","db_user":"x","db_password":"x"}' "$group"
 
-    # -- System initialization --
-    if [[ "$is_init" != "true" ]]; then
+    # -- System initialization (only if not already initialized by orchestrator) --
+    if [[ "$need_init" == "true" ]]; then
         test_api_noauth "System init (SQLite)" "POST" "/api/v1/public/init" "200" \
-            "{\"admin_username\":\"${ADMIN_USER}\",\"admin_password\":\"${ADMIN_PASS}\",\"db_type\":\"sqlite\"}" "$group"
+            "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"sqlite\"}}" "$group"
         sleep 2
+    else
+        log_info "System already initialized, skipping init test"
     fi
 
     # -- Duplicate init should fail --
-    test_api_noauth "Duplicate init (should fail)" "POST" "/api/v1/public/init" "400" \
-        "{\"admin_username\":\"${ADMIN_USER}\",\"admin_password\":\"${ADMIN_PASS}\",\"db_type\":\"sqlite\"}" "$group"
+    test_api_noauth "Duplicate init (should fail)" "POST" "/api/v1/public/init" "400|7" \
+        "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"sqlite\"}}" "$group"
 
     # -- Init with missing fields --
-    test_api_noauth "Init missing username" "POST" "/api/v1/public/init" "400" \
-        '{"admin_password":"test","db_type":"sqlite"}' "$group"
+    test_api_noauth "Init missing username" "POST" "/api/v1/public/init" "400|7" \
+        '{"admin":{"password":"test"},"database":{"type":"sqlite"}}' "$group"
 
     # -- Admin login --
     ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS") || { chain_break "$group" "Admin login failed"; return 1; }

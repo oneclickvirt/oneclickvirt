@@ -117,6 +117,7 @@ fi
 WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
 export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
 export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
+export WORKER_PASSWORD="$NODE_PASSWORD"
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
