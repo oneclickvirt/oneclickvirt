@@ -8,6 +8,7 @@ import (
 	kycModel "oneclickvirt/model/kyc"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // Service KYC实名认证服务
@@ -57,13 +58,7 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 	// 身份证号哈希(查重)
 	idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
 
-	// 检查身份证号是否已被使用
-	var hashCount int64
-	global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ?", idHash).Count(&hashCount)
-	if hashCount > 0 {
-		return nil, fmt.Errorf("该身份证号已被其他账户认证")
-	}
-
+	// 检查身份证号是否已被使用 + 创建记录在同一事务中，避免 TOCTOU 竞争
 	record := &kycModel.KYCRecord{
 		UserID:       userID,
 		RealName:     req.RealName,
@@ -72,8 +67,15 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 		Method:       "manual",
 		Status:       "pending",
 	}
-	if err := global.APP_DB.Create(record).Error; err != nil {
-		return nil, fmt.Errorf("提交认证失败: %v", err)
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		var hashCount int64
+		tx.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ?", idHash).Count(&hashCount)
+		if hashCount > 0 {
+			return fmt.Errorf("该身份证号已被其他账户认证")
+		}
+		return tx.Create(record).Error
+	}); err != nil {
+		return nil, err
 	}
 
 	global.APP_LOG.Info("用户提交实名认证",
@@ -120,7 +122,9 @@ func (s *Service) SubmitAlipayKYC(userID uint, req *SubmitKYCRequest) (certifyUR
 		existing.Status = "pending"
 		existing.AlipayCertifyID = certifyID
 		existing.RejectReason = ""
-		global.APP_DB.Save(&existing)
+		if err := global.APP_DB.Save(&existing).Error; err != nil {
+			return "", fmt.Errorf("更新KYC记录失败: %w", err)
+		}
 	} else {
 		// Create new record
 		record := &kycModel.KYCRecord{
@@ -132,7 +136,9 @@ func (s *Service) SubmitAlipayKYC(userID uint, req *SubmitKYCRequest) (certifyUR
 			Status:          "pending",
 			AlipayCertifyID: certifyID,
 		}
-		global.APP_DB.Create(record)
+		if err := global.APP_DB.Create(record).Error; err != nil {
+			return "", fmt.Errorf("创建KYC记录失败: %w", err)
+		}
 	}
 
 	global.APP_LOG.Info("用户发起支付宝人脸认证",

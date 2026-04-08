@@ -466,7 +466,7 @@ export function useUserManagement() {
   const confirmSetExpiry = async () => {
     try {
       freezeLoading.value = true
-      await setUserExpiry({ userID: freezeForm.userId, expiresAt: freezeForm.expiresAt })
+      await setUserExpiry({ userId: freezeForm.userId, expiresAt: freezeForm.expiresAt })
       ElMessage.success(t('admin.users.setExpirySuccess'))
       showSetExpiryDialog.value = false
       await loadUsers()

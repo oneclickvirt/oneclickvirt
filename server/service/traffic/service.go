@@ -118,31 +118,33 @@ func (s *Service) resumeProviderInstances(providerID uint) error {
 		zap.Uint("providerID", providerID),
 		zap.Int("实例数量", len(instances)))
 
-	successCount := 0
-	// 批量创建启动任务，避免循环中的单次更新
+	if len(instances) == 0 {
+		return nil
+	}
+
+	// 收集所有受限实例ID，批量更新
+	instanceIDs := make([]uint, 0, len(instances))
+	for _, inst := range instances {
+		instanceIDs = append(instanceIDs, inst.ID)
+	}
+
+	// 批量更新状态：先标记为 starting，等任务实际启动成功后再设为 running
+	result := global.APP_DB.Model(&provider.Instance{}).
+		Where("id IN ? AND traffic_limited = ?", instanceIDs, true).
+		Updates(map[string]interface{}{
+			"traffic_limited": false,
+			"status":          "starting",
+		})
+	if result.Error != nil {
+		global.APP_LOG.Error("批量恢复Provider实例状态失败", zap.Error(result.Error))
+		return result.Error
+	}
+
+	successCount := int(result.RowsAffected)
+
+	// 批量创建启动任务
 	var taskBatch []adminModel.Task
 	for _, instance := range instances {
-		result := global.APP_DB.Model(&provider.Instance{}).
-			Where("id = ? AND traffic_limited = ?", instance.ID, true).
-			Updates(map[string]interface{}{
-				"traffic_limited": false,
-				"status":          "running",
-			})
-
-		if result.Error != nil {
-			global.APP_LOG.Warn("恢复Provider实例状态失败",
-				zap.Uint("instanceID", instance.ID),
-				zap.Error(result.Error))
-			continue
-		}
-
-		if result.RowsAffected == 0 {
-			global.APP_LOG.Debug("实例已被其他任务恢复，跳过",
-				zap.Uint("instanceID", instance.ID))
-			continue
-		}
-
-		// 构建任务对象，稍后批量创建
 		taskBatch = append(taskBatch, adminModel.Task{
 			TaskType:        "start",
 			Status:          "pending",
@@ -151,7 +153,6 @@ func (s *Service) resumeProviderInstances(providerID uint) error {
 			InstanceID:      &instance.ID,
 			TimeoutDuration: 300,
 		})
-		successCount++
 	}
 
 	// 批量创建任务

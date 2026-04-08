@@ -170,6 +170,12 @@ const openSSHInNewWindow = (conn) => {
   const sshTitle = escapeHtml(t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }))
   const sshReconnectLabel = escapeHtml(t('user.instanceDetail.sshReconnect'))
   const sshCloseLabel = escapeHtml(t('user.instanceDetail.sshClose'))
+  const sshConnectingMsg = escapeHtml(t('user.instanceDetail.sshConnecting'))
+  const sshConnectedMsg = escapeHtml(t('user.instanceDetail.sshConnected'))
+  const sshWebSocketErrorMsg = escapeHtml(t('user.instanceDetail.sshWebSocketError'))
+  const sshDisconnectedMsg = escapeHtml(t('user.instanceDetail.sshDisconnected'))
+  const sshReconnectingMsg = escapeHtml(t('user.instanceDetail.sshReconnecting'))
+  const sshClosedNormallyMsg = escapeHtml(t('user.instanceDetail.sshClosedNormally'))
   
   // 创建新窗口HTML内容
   const htmlContent = `<!DOCTYPE html>
@@ -333,13 +339,13 @@ const openSSHInNewWindow = (conn) => {
       
       // 连接WebSocket
       function connectWebSocket() {
-        terminal.writeln('Connecting to SSH server...');
+        terminal.writeln('${sshConnectingMsg}');
         
         websocket = new WebSocket('${wsUrl}');
         websocket.binaryType = 'arraybuffer';
         
         websocket.onopen = function() {
-          terminal.writeln('\\x1b[32mConnected to SSH server\\x1b[0m');
+          terminal.writeln('\x1b[32m${sshConnectedMsg}\x1b[0m');
           terminal.focus();
           websocket.send(JSON.stringify({
             type: 'resize',
@@ -359,23 +365,23 @@ const openSSHInNewWindow = (conn) => {
         };
         
         websocket.onerror = function() {
-          terminal.writeln('\\x1b[31mWebSocket connection error\\x1b[0m');
+          terminal.writeln('\x1b[31m${sshWebSocketErrorMsg}\x1b[0m');
         };
         
         websocket.onclose = function(event) {
           stopHeartbeat();
           if (event.code !== 1000) {
-            terminal.writeln('\\x1b[33mSSH connection closed\\x1b[0m');
+            terminal.writeln('\x1b[33m${sshDisconnectedMsg}\x1b[0m');
             
             // 如果不是主动关闭，尝试自动重连
             if (!isIntentionallyClosed) {
-              terminal.writeln('\\x1b[33mAttempting to reconnect in 3 seconds...\\x1b[0m');
+              terminal.writeln('\x1b[33m${sshReconnectingMsg}\x1b[0m');
               reconnectTimeout = setTimeout(function() {
                 reconnectSSH();
               }, 3000);
             }
           } else {
-            terminal.writeln('\\x1b[32mSSH connection closed normally\\x1b[0m');
+            terminal.writeln('\x1b[32m${sshClosedNormallyMsg}\x1b[0m');
           }
         };
         

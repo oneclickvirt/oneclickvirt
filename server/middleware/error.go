@@ -30,7 +30,7 @@ func ErrorHandler() gin.HandlerFunc {
 					zap.String("ip", c.ClientIP()),
 				)
 
-				common.ResponseWithError(c, common.NewError(common.CodeInternalError, "系统遇到了意外错误，请稍后重试"))
+				common.ResponseWithError(c, common.NewError(common.CodeInternalError, "系统遇到了意外错误，请查看服务日志"))
 				c.Abort()
 			}
 		}()
@@ -58,8 +58,8 @@ func ErrorHandler() gin.HandlerFunc {
 				// 可对外暴露的业务错误
 				common.ResponseWithError(c, common.NewError(common.CodeError, err.Error()))
 			default:
-				// 内部错误，不暴露详情
-				common.ResponseWithError(c, common.NewError(common.CodeInternalError, "请稍后重试"))
+				// 内部错误，保留详情用于排查
+				common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 			}
 		}
 	}

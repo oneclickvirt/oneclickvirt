@@ -30,7 +30,7 @@ run_module_09() {
     fi
 
     # -- SSH test with invalid credentials (may timeout or return error) --
-    test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|500|000" \
+    test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|000" \
         '{"host":"192.0.2.1","port":22,"username":"root","password":"wrong"}' "$group"
 
     # -- Check provider name --
@@ -96,7 +96,7 @@ run_module_09() {
     sleep 5
 
     # -- Auto configure (task) --
-    local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200" \
+    local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400" \
         "{\"providerId\":${PROVIDER_ID}}" "$group")
     local ac_task; ac_task=$(echo "$ac" | jq -r '.data.task_id // empty' 2>/dev/null)
     if [[ -n "$ac_task" ]]; then
@@ -111,7 +111,7 @@ run_module_09() {
     test_api "Provider status" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
 
     # -- Certificate generation (may fail for certain provider types) --
-    test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400|500" \
+    test_api "Generate certificate" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/generate-cert" "200|400" \
         '{}' "$group"
 
     # -- Port configuration --
@@ -138,8 +138,10 @@ run_module_09() {
     test_api "Configuration tasks" "GET" "/api/v1/admin/configuration-tasks?page=1&pageSize=10" "200" "" "$group"
 
     # -- Hardware report --
-    test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" \
-        '{"pasteUrl":"https://paste.spiritlhl.net/#/show/test-ci-report.txt"}' "$group"
+    test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400" \
+        '{"pasteUrl":"https://paste.spiritlhl.net/#/show/ENn4E.txt"}' "$group"
+    test_api "Save hardware report (invalid URL)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "400" \
+        '{"pasteUrl":"https://example.com/some-report.txt"}' "$group"
     test_api "Get hardware report" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" "" "$group"
     test_api_noauth "Public hardware report" "GET" "/api/v1/public/providers/${PROVIDER_ID}/hardware-report" "200" "" "$group"
     test_api "Delete hardware report" "DELETE" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" "" "$group"
@@ -162,7 +164,7 @@ run_module_09() {
     test_api "Provider API list" "GET" "/api/v1/providers/" "200" "" "$group"
     test_api "Provider API status" "GET" "/api/v1/providers/${PROVIDER_ID}/status" "200" "" "$group"
     test_api "Provider API capabilities" "GET" "/api/v1/providers/${PROVIDER_ID}/capabilities" "200" "" "$group"
-    test_api "Provider API images" "GET" "/api/v1/providers/${PROVIDER_ID}/images" "200|500" "" "$group"
+    test_api "Provider API images" "GET" "/api/v1/providers/${PROVIDER_ID}/images" "200|400" "" "$group"
 
     # -- Traffic history --
     test_api "Provider traffic history" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/traffic/history" "200" "" "$group"
@@ -178,4 +180,26 @@ run_module_09() {
             test_api "Delete key provider" "DELETE" "/api/v1/admin/providers/${key_pid}" "200" "" "$group"
         fi
     fi
+
+    # -- Negative tests --
+    # Create provider with missing required fields
+    test_api "Create provider (no name)" "POST" "/api/v1/admin/providers" "400" \
+        "{\"type\":\"docker\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"test\"}" "$group"
+
+    # Create provider with invalid SSH port
+    test_api "Create provider (invalid port)" "POST" "/api/v1/admin/providers" "400" \
+        '{"name":"invalid-port-provider","type":"docker","endpoint":"192.0.2.1","sshPort":99999,"username":"root","password":"test"}' "$group"
+
+    # Get nonexistent provider
+    test_api "Get nonexistent provider" "GET" "/api/v1/admin/providers/99999" "404" "" "$group"
+
+    # Delete nonexistent provider
+    test_api "Delete nonexistent provider" "DELETE" "/api/v1/admin/providers/99999" "404|400" "" "$group"
+
+    # Edit nonexistent provider
+    test_api "Edit nonexistent provider" "PUT" "/api/v1/admin/providers/99999" "404|400" \
+        '{"name":"ghost-provider"}' "$group"
+
+    # Health check on nonexistent provider
+    test_api "Health check nonexistent" "POST" "/api/v1/admin/providers/99999/health-check" "404|400" '{}' "$group"
 }

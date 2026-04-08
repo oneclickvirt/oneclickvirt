@@ -77,4 +77,30 @@ run_module_12() {
         test_api "User traffic limit status" "GET" "/api/v1/user/traffic/limit-status" "200" "" "$group" "$USER_TOKEN"
         test_api "User traffic history" "GET" "/api/v1/user/traffic/history" "200" "" "$group" "$USER_TOKEN"
     fi
+
+    # -- Negative tests --
+    # Traffic stats for nonexistent provider
+    test_api "Traffic (nonexistent provider)" "GET" "/api/v1/admin/traffic/provider/99999" "200|404" "" "$group"
+    # Traffic stats for nonexistent user
+    test_api "Traffic (nonexistent user)" "GET" "/api/v1/admin/traffic/user/99999" "200|404" "" "$group"
+    # Sync traffic for nonexistent instance
+    test_api "Sync traffic (nonexistent instance)" "POST" "/api/v1/admin/traffic/sync/instance/99999" "200|400" '{}' "$group"
+    # Manage traffic with invalid action
+    test_api "Manage traffic (invalid action)" "POST" "/api/v1/admin/traffic/manage" "400" \
+        '{"type":"invalid","action":"invalid","target_id":99999}' "$group"
+
+    # -- Negative: User cannot access admin traffic endpoints --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> admin traffic (403)" "GET" "/api/v1/admin/traffic/provider/1" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> manage traffic (403)" "POST" "/api/v1/admin/traffic/manage" "401|403" \
+            '{"type":"provider","action":"sync","target_id":1}' "$group" "$USER_TOKEN"
+    fi
+
+    # -- Negative: Traffic sync with invalid target --
+    test_api "Manage traffic (zero target)" "POST" "/api/v1/admin/traffic/manage" "400" \
+        '{"type":"provider","action":"sync","target_id":0}' "$group"
+
+    # -- Negative: Traffic manage with missing type --
+    test_api "Manage traffic (missing type)" "POST" "/api/v1/admin/traffic/manage" "400" \
+        '{"action":"sync","target_id":1}' "$group"
 }

@@ -10,8 +10,9 @@ run_module_05() {
     test_api "Redemption code list" "GET" "/api/v1/admin/redemption-codes?page=1&pageSize=10" "200" "" "$group"
 
     # -- Batch create (requires provider + images; accept 400 if preconditions not met) --
+    local provider_for_redeem="${PROVIDER_ID:-1}"
     local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400" \
-        '{"count":3,"providerId":1,"instanceType":"container","imageId":1,"cpuId":"1","memoryId":"1","diskId":"1","bandwidthId":"1","remark":"CI test"}' "$group")
+        "{\"count\":3,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI test\"}" "$group")
 
     # -- Create with invalid params --
     test_api "Create codes (zero count)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \
@@ -51,5 +52,24 @@ run_module_05() {
     if [[ -n "$rc_ids" && "$rc_ids" != "[]" && "$rc_ids" != "null" ]]; then
         test_api "Batch delete codes" "POST" "/api/v1/admin/redemption-codes/batch-delete" "200" \
             "{\"ids\":${rc_ids}}" "$group"
+    fi
+
+    # -- Negative: Batch create with negative count --
+    test_api "Create codes (negative count)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \
+        '{"count":-1,"type":"instance"}' "$group"
+
+    # -- Negative: Redeem without auth --
+    test_api "Redeem without auth" "POST" "/api/v1/user/redemption-codes/redeem" "401" \
+        '{"code":"TESTCODE"}' "$group" ""
+
+    # -- Negative: Batch delete empty --
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/redemption-codes/batch-delete" "400|200" \
+        '{"ids":[]}' "$group"
+
+    # -- Negative: User cannot manage redemption codes --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> code list (403)" "GET" "/api/v1/admin/redemption-codes?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> create code (403)" "POST" "/api/v1/admin/redemption-codes/batch-create" "401|403" \
+            '{"count":1,"type":"instance"}' "$group" "$USER_TOKEN"
     fi
 }

@@ -17,7 +17,7 @@ func DatabaseHealthCheck() gin.HandlerFunc {
 			global.APP_LOG.Error("数据库实例未初始化",
 				zap.String("path", c.Request.URL.Path),
 			)
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库服务暂时不可用，请稍后重试"))
+			common.ResponseWithError(c, common.NewError(common.CodeDatabaseError, "数据库服务暂时不可用，请稍后重试"))
 			c.Abort()
 			return
 		}
@@ -27,7 +27,7 @@ func DatabaseHealthCheck() gin.HandlerFunc {
 			global.APP_LOG.Error("数据库连接已断开（来自心跳监控）",
 				zap.String("path", c.Request.URL.Path),
 			)
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库连接异常，请稍后重试"))
+			common.ResponseWithError(c, common.NewError(common.CodeDatabaseError, "数据库连接异常，请稍后重试"))
 			c.Abort()
 			return
 		}

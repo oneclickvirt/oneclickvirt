@@ -48,9 +48,9 @@ run_module_21() {
         '{"approved":true}' "$group" "$ADMIN_TOKEN"
 
     # ---- Alipay KYC (likely to fail without real config, test endpoint existence) ----
-    test_api "Submit Alipay KYC" "POST" "/api/v1/user/kyc/alipay" "400|200|500" \
+    test_api "Submit Alipay KYC" "POST" "/api/v1/user/kyc/alipay" "400|200" \
         '{}' "$group" "$USER_TOKEN"
-    test_api "Query Alipay result" "GET" "/api/v1/user/kyc/alipay/result" "200|400|404|500" \
+    test_api "Query Alipay result" "GET" "/api/v1/user/kyc/alipay/result" "200|400|404" \
         "" "$group" "$USER_TOKEN"
 
     # ---- Check KYC after approval ----
@@ -65,4 +65,38 @@ run_module_21() {
     if [[ -n "$NORMAL_ADMIN_TOKEN" ]]; then
         test_api "Normal admin KYC list" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "200" "" "$group" "$NORMAL_ADMIN_TOKEN"
     fi
+
+    # ---- Negative: Submit KYC with XSS in fields ----
+    if [[ -n "$USER_TOKEN2" ]]; then
+        test_api "KYC XSS realName" "POST" "/api/v1/user/kyc" "200|400" \
+            '{"realName":"<script>alert(1)</script>","idNumber":"110101199001012345"}' "$group" "$USER_TOKEN2"
+    fi
+
+    # ---- Negative: Submit KYC with overly long fields ----
+    local long_name; long_name=$(printf 'X%.0s' {1..300})
+    if [[ -n "$USER_TOKEN2" ]]; then
+        test_api "KYC long realName" "POST" "/api/v1/user/kyc" "400|200" \
+            "{\"realName\":\"${long_name}\",\"idNumber\":\"110101199001013456\"}" "$group" "$USER_TOKEN2"
+    fi
+
+    # ---- Negative: Admin reject KYC ----
+    if [[ -n "$kyc_id" ]]; then
+        # Reset KYC first by getting a new submission from user2
+        local kyc2_id; kyc2_id=$(echo "$kyc_list" | jq -r '[.data.list[]?][1].id // empty' 2>/dev/null)
+        if [[ -n "$kyc2_id" ]]; then
+            test_api "Admin reject KYC" "PUT" "/api/v1/admin/kyc/${kyc2_id}/review" "200|400" \
+                '{"approved":false,"rejectReason":"CI test rejection"}' "$group" "$ADMIN_TOKEN"
+        fi
+    fi
+
+    # ---- Negative: User cannot access admin KYC list ----
+    test_api "User -> KYC admin list (403)" "GET" "/api/v1/admin/kyc?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+
+    # ---- Negative: User cannot review KYC ----
+    test_api "User -> review KYC (403)" "PUT" "/api/v1/admin/kyc/1/review" "401|403" \
+        '{"approved":true}' "$group" "$USER_TOKEN"
+
+    # ---- Negative: Submit KYC without auth ----
+    test_api "KYC submit no auth" "POST" "/api/v1/user/kyc" "401" \
+        '{"realName":"Ghost","idNumber":"123"}' "$group" ""
 }

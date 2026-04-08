@@ -41,7 +41,7 @@ run_module_22() {
     fi
 
     # ---- Checkin for nonexistent instance ----
-    test_api "Generate code nonexistent" "POST" "/api/v1/user/checkin/code/99999" "400|404|500" \
+    test_api "Generate code nonexistent" "POST" "/api/v1/user/checkin/code/99999" "400|401" \
         '' "$group" "$USER_TOKEN"
 
     # ---- Checkin empty body ----
@@ -58,4 +58,33 @@ run_module_22() {
 
     # ---- Unauthenticated (may return 400 if validation runs before auth check) ----
     test_api "No auth checkin (401)" "POST" "/api/v1/user/checkin" "400|401" '{}' "$group" ""
+
+    # ---- Negative: Checkin with SQL injection code ----
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "Checkin SQL injection" "POST" "/api/v1/user/checkin" "400" \
+            '{"code":"\" OR 1=1;--","instanceId":1}' "$group" "$USER_TOKEN"
+    fi
+
+    # ---- Negative: Checkin with very long code ----
+    if [[ -n "$USER_TOKEN" ]]; then
+        local long_code; long_code=$(printf 'A%.0s' {1..500})
+        test_api "Checkin long code" "POST" "/api/v1/user/checkin" "400" \
+            "{\"code\":\"${long_code}\",\"instanceId\":1}" "$group" "$USER_TOKEN"
+    fi
+
+    # ---- Negative: Get checkin config for nonexistent provider ----
+    test_api "Checkin config nonexistent" "GET" "/api/v1/admin/providers/99999/checkin-config" "200|400|404" \
+        "" "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Update checkin config invalid values ----
+    if [[ -n "$PROVIDER_ID" ]]; then
+        test_api "Checkin config (negative days)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "200|400" \
+            '{"enabled":true,"defaultExpireDays":-1,"renewalDays":-1}' "$group" "$ADMIN_TOKEN"
+    fi
+
+    # ---- Negative: User cannot manage checkin config ----
+    if [[ -n "$USER_TOKEN" && -n "$PROVIDER_ID" ]]; then
+        test_api "User -> checkin config (403)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "401|403" \
+            '{"enabled":false}' "$group" "$USER_TOKEN"
+    fi
 }

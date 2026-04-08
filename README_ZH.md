@@ -4,6 +4,8 @@
 
 [![Build and Push Docker Images](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml)
 
+[![Integration Tests](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml)
+
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=license) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=security)
 
 一个可扩展的通用虚拟化管理平台，支持 LXD、Incus、Docker、Podman、Containerd、Proxmox VE、QEMU/KVM 和 KubeVirt。
@@ -15,6 +17,12 @@
 ## 详细说明
 
 [www.spiritlhl.net](https://www.spiritlhl.net/guide/oneclickvirt/oneclickvirt_precheck.html)
+
+## 集成测试报告
+
+自动化集成测试报告地址: [oneclickvirt.github.io/oneclickvirt](https://oneclickvirt.github.io/oneclickvirt/)
+
+报告支持中英双语显示和亮色/暗色主题切换，覆盖 200+ API 接口的功能测试、权限测试、边界测试和安全测试。详见 [`action_tests/`](action_tests/) 目录。
 
 ## 支持的虚拟化平台
 
@@ -42,9 +50,9 @@
 | 镜像标签 | 说明 | 适用场景 |
 |---------|------|---------|
 | `spiritlhl/oneclickvirt:latest` | 一体化版本（内置数据库）最新版 | 快速部署 |
-| `spiritlhl/oneclickvirt:20260408` | 一体化版本特定日期版本 | 需要固定版本 |
+| `spiritlhl/oneclickvirt:20260310` | 一体化版本特定日期版本 | 需要固定版本 |
 | `spiritlhl/oneclickvirt:no-db` | 独立数据库版本最新版 | 不内置数据库 |
-| `spiritlhl/oneclickvirt:no-db-20260408` | 独立数据库版本特定日期 | 不内置数据库 |
+| `spiritlhl/oneclickvirt:no-db-20260310` | 独立数据库版本特定日期 | 不内置数据库 |
 
 所有镜像均支持 `linux/amd64` 和 `linux/arm64` 架构。
 

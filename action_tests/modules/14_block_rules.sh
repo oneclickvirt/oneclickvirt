@@ -79,5 +79,35 @@ run_module_14() {
     fi
 
     # -- Delete nonexistent rule (GORM Delete returns success even for non-existing records) --
-    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "200|404|500" "" "$group"
+    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "200|400" "" "$group"
+
+    # -- Negative: Get nonexistent rule --
+    test_api "Get nonexistent rule" "GET" "/api/v1/admin/block-rules/99999" "400|404" "" "$group"
+
+    # -- Negative: Edit nonexistent rule --
+    test_api "Edit nonexistent rule" "PUT" "/api/v1/admin/block-rules/99999" "400|404" \
+        '{"name":"Ghost Rule"}' "$group"
+
+    # -- Negative: Apply with empty rule ids --
+    test_api "Apply empty rules" "POST" "/api/v1/admin/block-rules/apply" "400|200" \
+        '{"rule_ids":[],"scope":"global"}' "$group"
+
+    # -- Negative: Apply with invalid scope --
+    test_api "Apply invalid scope" "POST" "/api/v1/admin/block-rules/apply" "400" \
+        '{"rule_ids":[99999],"scope":"invalid_scope"}' "$group"
+
+    # -- Negative: Apply to nonexistent provider --
+    test_api "Apply to nonexistent provider" "POST" "/api/v1/admin/block-rules/apply" "200|400|404" \
+        '{"rule_ids":[99999],"scope":"provider","target_ids":[99999]}' "$group"
+
+    # -- Negative: Remove with empty application ids --
+    test_api "Remove empty apps" "POST" "/api/v1/admin/block-rules/remove" "400|200" \
+        '{"application_ids":[]}' "$group"
+
+    # -- Negative: User cannot manage block rules --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> block rules (403)" "GET" "/api/v1/admin/block-rules?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> create rule (403)" "POST" "/api/v1/admin/block-rules" "401|403" \
+            '{"name":"hack","category":"ip","strings":["0.0.0.0/0"]}' "$group" "$USER_TOKEN"
+    fi
 }

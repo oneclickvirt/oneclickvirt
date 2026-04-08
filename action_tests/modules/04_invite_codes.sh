@@ -60,4 +60,27 @@ run_module_04() {
         jq -r '[.data.list[]? | select(.username=="invite_test_user")][0].id // empty' 2>/dev/null)
     [[ -n "$inv_uid" ]] && curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         -X DELETE "${SERVER_URL}/api/v1/admin/users/${inv_uid}" 2>/dev/null || true
+
+    # -- Negative: Generate with negative count --
+    test_api "Generate codes (negative count)" "POST" "/api/v1/admin/invite-codes/generate" "400" \
+        '{"count":-1,"maxUses":3}' "$group"
+
+    # -- Negative: Generate with excessive count --
+    test_api "Generate codes (excessive)" "POST" "/api/v1/admin/invite-codes/generate" "400|200" \
+        '{"count":10000,"maxUses":3}' "$group"
+
+    # -- Negative: Create with empty code --
+    test_api "Create empty code" "POST" "/api/v1/admin/invite-codes" "400" \
+        '{"code":"","count":1,"maxUses":5}' "$group"
+
+    # -- Negative: Batch delete empty --
+    test_api "Batch delete empty" "POST" "/api/v1/admin/invite-codes/batch-delete" "400|200" \
+        '{"ids":[]}' "$group"
+
+    # -- Negative: User cannot manage invite codes --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> invite list (403)" "GET" "/api/v1/admin/invite-codes?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> create code (403)" "POST" "/api/v1/admin/invite-codes" "401|403" \
+            '{"code":"USERCODE","count":1}' "$group" "$USER_TOKEN"
+    fi
 }

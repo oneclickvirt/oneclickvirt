@@ -490,11 +490,16 @@ generate_html_report() {
     local report_script="${script_dir}/../report/generate_report.sh"
     local service_log_file="${REPORT_DIR:-/tmp}/${env_name}-service-errors.log"
 
+    # Fetch version info from the running server
+    local ver_resp; ver_resp=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/version" 2>/dev/null) || true
+    local server_ver; server_ver=$(echo "$ver_resp" | jq -r '.data.server_version // "unknown"' 2>/dev/null)
+    local agent_ver; agent_ver=$(echo "$ver_resp" | jq -r '.data.compatible_agent_version // "unknown"' 2>/dev/null)
+
     # Fetch service error logs for inclusion in report
     fetch_full_service_logs "$service_log_file" || true
 
     if [[ -f "$report_script" && -n "$RESULTS_FILE" ]]; then
-        bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" || {
+        bash "$report_script" "$RESULTS_FILE" "$output_file" "$env_name" "$service_log_file" "$server_ver" "$agent_ver" || {
             log_warning "Report generator failed, creating fallback report"
             echo "<html><body><h1>Report generation failed</h1><p>Results file: ${RESULTS_FILE}</p><pre>$(cat "$RESULTS_FILE" 2>/dev/null | head -100)</pre></body></html>" > "$output_file"
         }

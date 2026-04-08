@@ -469,23 +469,29 @@ func (s *ThreeTierLimitService) limitUserInstances(userID uint, message string) 
 
 	// 限速实例：仅标记受限，不停机
 	if len(speedLimitInstanceIDs) > 0 {
-		global.APP_DB.Model(&provider.Instance{}).
+		if err := global.APP_DB.Model(&provider.Instance{}).
 			Where("id IN ?", speedLimitInstanceIDs).
 			Updates(map[string]interface{}{
 				"traffic_limited":      true,
 				"traffic_limit_reason": "user",
-			})
+			}).Error; err != nil {
+			global.APP_LOG.Error("批量标记限速实例失败", zap.Error(err))
+			return false, fmt.Errorf("批量标记限速实例失败: %w", err)
+		}
 	}
 
 	// 停机实例：标记受限并停机
 	if len(stopInstanceIDs) > 0 {
-		global.APP_DB.Model(&provider.Instance{}).
+		if err := global.APP_DB.Model(&provider.Instance{}).
 			Where("id IN ?", stopInstanceIDs).
 			Updates(map[string]interface{}{
 				"traffic_limited":      true,
 				"traffic_limit_reason": "user",
 				"status":               "stopped",
-			})
+			}).Error; err != nil {
+			global.APP_LOG.Error("批量标记停机实例失败", zap.Error(err))
+			return false, fmt.Errorf("批量标记停机实例失败: %w", err)
+		}
 
 		// 获取需要创建停止任务的实例详情
 		var stopInstances []provider.Instance

@@ -44,6 +44,8 @@ run_module_10() {
 
         if [[ -n "$container_id" ]]; then
             log_info "Container instance ID: ${container_id}"
+            # Export for downstream modules (18, 19, 22, 24)
+            export TEST_INSTANCE_ID="$container_id"
 
             # -- Wait for instance SSH to be ready --
             log_info "Waiting 30s for SSH daemon startup..."
@@ -230,16 +232,19 @@ run_module_10() {
         test_api "Task detail" "GET" "/api/v1/admin/tasks/${first_task_id}" "200" "" "$group"
         test_api "Cancel completed task" "POST" "/api/v1/admin/tasks/${first_task_id}/cancel" "200|400" "" "$group"
     fi
-    test_api "Get nonexistent task" "GET" "/api/v1/admin/tasks/99999" "404|500" "" "$group"
+    test_api "Get nonexistent task" "GET" "/api/v1/admin/tasks/99999" "404|400" "" "$group"
 
     # -- Get nonexistent instance (route does not exist so Gin returns 404) --
     test_api "Get nonexistent instance" "GET" "/api/v1/admin/instances/99999" "404" "" "$group"
 
     # -- Delete container (cleanup) --
-    if [[ -n "$container_id" ]]; then
+    # NOTE: Only delete container if no downstream modules need TEST_INSTANCE_ID.
+    # When running all modules, keep the container for modules 18, 19, 22, 24.
+    # The restore_base_state handler will clean it up after all modules complete.
+    if [[ -n "$container_id" && -z "$TEST_INSTANCE_ID" ]]; then
         test_api "Delete container" "DELETE" "/api/v1/admin/instances/${container_id}" "200" "" "$group"
     fi
 
     # -- Delete nonexistent instance --
-    test_api "Delete nonexistent instance" "DELETE" "/api/v1/admin/instances/99999" "404|500" "" "$group"
+    test_api "Delete nonexistent instance" "DELETE" "/api/v1/admin/instances/99999" "404|400" "" "$group"
 }

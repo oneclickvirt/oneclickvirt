@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"oneclickvirt/utils"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,17 @@ var upgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 在生产环境中应该进行更严格的检查
+		// WebSocket SSH 使用 query param 传递 token，非 cookie 认证
+		// 但仍校验 Origin 以防止跨站 WebSocket 劫持
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true // 无 Origin 头（非浏览器客户端）允许
+		}
+		frontendURL := global.GetAppConfig().System.FrontendURL
+		if frontendURL == "" {
+			return true // 未配置前端 URL 时放行
+		}
+		return strings.HasPrefix(origin, frontendURL)
 	},
 }
 

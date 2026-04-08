@@ -52,9 +52,9 @@ run_module_25() {
     test_api "Negative instance ID" "GET" "/api/v1/admin/instances/-1" "400|404" "" "$group" "$ADMIN_TOKEN"
     test_api "Negative provider ID" "GET" "/api/v1/admin/providers/-1" "400|404" "" "$group" "$ADMIN_TOKEN"
 
-    # ---- Zero IDs (GORM may return 200 or 500 for id=0) ----
+    # ---- Zero IDs (GORM may return 200 or 400 for id=0) ----
     test_api "Zero user ID" "DELETE" "/api/v1/admin/users/0" "200|400|404" "" "$group" "$ADMIN_TOKEN"
-    test_api "Zero instance ID" "DELETE" "/api/v1/admin/instances/0" "200|400|404|500" "" "$group" "$ADMIN_TOKEN"
+    test_api "Zero instance ID" "DELETE" "/api/v1/admin/instances/0" "200|400|404" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Non-numeric IDs ----
     test_api "String user ID" "GET" "/api/v1/admin/users/abc" "400|404" "" "$group" "$ADMIN_TOKEN"

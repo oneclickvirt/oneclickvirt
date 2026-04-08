@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"oneclickvirt/utils"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,7 +27,15 @@ var adminUpgrader = websocket.Upgrader{
 	ReadBufferSize:  1024,
 	WriteBufferSize: 1024,
 	CheckOrigin: func(r *http.Request) bool {
-		return true // 在生产环境中应该进行更严格的检查
+		origin := r.Header.Get("Origin")
+		if origin == "" {
+			return true
+		}
+		frontendURL := global.GetAppConfig().System.FrontendURL
+		if frontendURL == "" {
+			return true
+		}
+		return strings.HasPrefix(origin, frontendURL)
 	},
 }
 

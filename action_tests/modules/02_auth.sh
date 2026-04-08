@@ -71,15 +71,47 @@ run_module_02() {
     test_api "User logout" "POST" "/api/v1/auth/logout" "200" "" "$group" "$USER_TOKEN"
     USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || true
 
-    # -- Forgot password (email based, may return 500 if SMTP not configured) --
-    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|500" \
+    # -- Forgot password (email based, may return 400 if SMTP not configured) --
+    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|400" \
         '{"email":"test@ci.local"}' "$group"
 
     # -- Forgot password invalid email --
-    test_api_noauth "Forgot password (invalid email)" "POST" "/api/v1/auth/forgot-password" "400|500" \
+    test_api_noauth "Forgot password (invalid email)" "POST" "/api/v1/auth/forgot-password" "400" \
         '{"email":"nonexistent@nowhere.com"}' "$group"
 
     # -- Reset password with invalid token --
-    test_api_noauth "Reset password (invalid token)" "POST" "/api/v1/auth/reset-password" "400|500" \
+    test_api_noauth "Reset password (invalid token)" "POST" "/api/v1/auth/reset-password" "400" \
         '{"token":"invalid_reset_token","new_password":"NewPass123!@#"}' "$group"
+
+    # -- Negative: Login with SQL injection --
+    test_api_noauth "Login SQL injection" "POST" "/api/v1/auth/login" "400|401" \
+        '{"username":"admin\" OR 1=1;--","password":"test"}' "$group"
+
+    # -- Negative: Register with XSS in username --
+    test_api_noauth "Register XSS username" "POST" "/api/v1/auth/register" "400|403" \
+        '{"username":"<script>alert(1)</script>","password":"Test123!@#","email":"xss@ci.local"}' "$group"
+
+    # -- Negative: Register with very long username --
+    local long_name; long_name=$(printf 'a%.0s' {1..300})
+    test_api_noauth "Register long username" "POST" "/api/v1/auth/register" "400|403" \
+        "{\"username\":\"${long_name}\",\"password\":\"Test123!@#\",\"email\":\"long@ci.local\"}" "$group"
+
+    # -- Negative: Register with invalid email --
+    test_api_noauth "Register invalid email" "POST" "/api/v1/auth/register" "400|403" \
+        '{"username":"bad_email_user","password":"Test123!@#","email":"not_an_email"}' "$group"
+
+    # -- Negative: Forgot password with empty email --
+    test_api_noauth "Forgot password (empty)" "POST" "/api/v1/auth/forgot-password" "400" \
+        '{"email":""}' "$group"
+
+    # -- Negative: Reset password with empty token --
+    test_api_noauth "Reset password (empty token)" "POST" "/api/v1/auth/reset-password" "400" \
+        '{"token":"","new_password":"NewPass123!@#"}' "$group"
+
+    # -- Negative: Reset password with weak new password --
+    test_api_noauth "Reset password (weak)" "POST" "/api/v1/auth/reset-password" "400" \
+        '{"token":"some_token","new_password":"123"}' "$group"
+
+    # -- Negative: Logout without token --
+    test_api "Logout no token" "POST" "/api/v1/auth/logout" "200|401" "" "$group" ""
 }

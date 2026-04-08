@@ -264,7 +264,11 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	// Provider 会创建一条新的数据库记录，需要删除它并更新原有的记录
 	if result.ID != 0 && result.ID != port.ID {
 		// 删除 provider 创建的重复记录
-		global.APP_DB.Delete(&providerModel.Port{}, result.ID)
+		if err := global.APP_DB.Delete(&providerModel.Port{}, result.ID).Error; err != nil {
+			global.APP_LOG.Warn("删除重复端口记录失败",
+				zap.Uint("duplicatePortId", result.ID),
+				zap.Error(err))
+		}
 		global.APP_LOG.Debug("删除 provider 创建的重复端口记录",
 			zap.Uint("duplicatePortId", result.ID),
 			zap.Uint("originalPortId", port.ID))

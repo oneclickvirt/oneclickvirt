@@ -39,7 +39,7 @@ func (s *ClearService) ClearUserTrafficRecords(userID uint) (int64, error) {
 		// 这样下次采集时会从当前时间开始，避免重复采集已删除的历史数据
 		// 需要使用 Unscoped 来包含软删除的实例
 		var instanceIDs []uint
-		if err := global.APP_DB.Unscoped().Table("instances").Where("user_id = ?", userID).Pluck("id", &instanceIDs).Error; err != nil {
+		if err := tx.Unscoped().Table("instances").Where("user_id = ?", userID).Pluck("id", &instanceIDs).Error; err != nil {
 			return fmt.Errorf("获取用户实例列表失败: %w", err)
 		}
 		if len(instanceIDs) > 0 {

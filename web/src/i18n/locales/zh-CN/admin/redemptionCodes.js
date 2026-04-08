@@ -62,5 +62,7 @@ export default {
   redeemCodeOnly: '仅支持兑换码兑换',
   selectExportFields: '请选择要导出的字段',
   selectAll: '全选',
-  deselectAll: '全不选'
+  deselectAll: '全不选',
+  createFailed: '兑换码创建失败',
+  image: '镜像'
 }

@@ -324,13 +324,8 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         }
         setTimeout(() => { router.push('/user/tasks') }, 3000)
       } else {
-        if ((response.code === 40902) || (response.message && (response.message.includes('进行中') || response.message.includes('in progress')))) {
-          ElMessage.warning(t('user.apply.duplicateTaskWarning'))
-          setTimeout(() => { router.push('/user/tasks') }, 3000)
-        } else {
-          ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
-          submitting.value = false
-        }
+        ElMessage.error(response.message || t('user.apply.createInstanceFailed'))
+        submitting.value = false
       }
     } catch (error) {
       if (error === 'cancel' || error === 'close') return

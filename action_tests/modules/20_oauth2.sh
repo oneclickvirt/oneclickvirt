@@ -64,5 +64,34 @@ run_module_20() {
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User -> OAuth2 create (401/403)" "POST" "/api/v1/oauth2/providers" "401|403" \
             '{"name":"user_test","providerType":"preset","clientId":"x","clientSecret":"x"}' "$group" "$USER_TOKEN"
+        test_api "User -> OAuth2 list (401/403)" "GET" "/api/v1/oauth2/providers" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> OAuth2 delete (401/403)" "DELETE" "/api/v1/oauth2/providers/1" "401|403" "" "$group" "$USER_TOKEN"
     fi
+
+    # ---- Negative: Update nonexistent provider ----
+    test_api "Update nonexistent OAuth2" "PUT" "/api/v1/oauth2/providers/99999" "400|404" \
+        '{"name":"ghost","displayName":"Ghost"}' "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Reset count nonexistent ----
+    test_api "Reset count nonexistent" "POST" "/api/v1/oauth2/providers/99999/reset-count" "400|404" \
+        '' "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Create with invalid redirect URL ----
+    test_api "Create OAuth2 (invalid URL)" "POST" "/api/v1/oauth2/providers" "400|200" \
+        '{"name":"bad_url","displayName":"Bad URL","providerType":"custom","clientId":"x","clientSecret":"x","redirectUrl":"not_a_url","authUrl":"not_a_url","tokenUrl":"not_a_url","userInfoUrl":"not_a_url","enabled":true}' \
+        "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Create with XSS in name ----
+    test_api "Create OAuth2 (XSS)" "POST" "/api/v1/oauth2/providers" "400|200" \
+        '{"name":"<script>","displayName":"<img onerror=alert(1)>","providerType":"custom","clientId":"x","clientSecret":"x","redirectUrl":"http://localhost/cb","authUrl":"http://a.com","tokenUrl":"http://t.com","userInfoUrl":"http://u.com","enabled":true}' \
+        "$group" "$ADMIN_TOKEN"
+
+    # -- Cleanup: delete test OAuth2 providers created by XSS/bad_url tests --
+    local cleanup_ids; cleanup_ids=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/oauth2/providers" 2>/dev/null | \
+        jq -r '.data[]? | select(.name | test("bad_url|<script>|test_github")) | .id' 2>/dev/null)
+    for cid in $cleanup_ids; do
+        curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -X DELETE "${SERVER_URL}/api/v1/oauth2/providers/${cid}" 2>/dev/null || true
+    done
 }

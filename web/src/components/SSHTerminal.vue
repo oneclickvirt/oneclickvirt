@@ -135,12 +135,12 @@ const connect = () => {
   }
 
   isConnecting = true
-  terminal.writeln('Connecting to SSH server...')
+  terminal.writeln(t('user.instanceDetail.sshConnecting'))
 
   // 获取token - 从 sessionStorage 获取（与 user store 保持一致）
   const token = sessionStorage.getItem('token')
   if (!token) {
-    terminal.writeln('\x1b[31mError: Authentication token not found\x1b[0m')
+    terminal.writeln(`\x1b[31m${t('user.instanceDetail.sshAuthTokenNotFound')}\x1b[0m`)
     emit('error', 'Authentication token not found')
     isConnecting = false
     return
@@ -172,7 +172,7 @@ const connect = () => {
 
     websocket.onopen = () => {
       isConnecting = false
-      terminal.writeln('\x1b[32mConnected to SSH server\x1b[0m')
+      terminal.writeln(`\x1b[32m${t('user.instanceDetail.sshConnected')}\x1b[0m`)
       terminal.focus()
       
       // 发送初始终端大小
@@ -200,7 +200,7 @@ const connect = () => {
 
     websocket.onerror = (error) => {
       console.error('WebSocket错误:', error)
-      terminal.writeln('\x1b[31mWebSocket connection error\x1b[0m')
+      terminal.writeln(`\x1b[31m${t('user.instanceDetail.sshWebSocketError')}\x1b[0m`)
       ElMessage.error(t('user.instanceDetail.sshConnectionError'))
       emit('error', error)
       isConnecting = false
@@ -211,23 +211,23 @@ const connect = () => {
       stopHeartbeat()
       
       if (event.code !== 1000) {
-        terminal.writeln('\x1b[33mSSH connection closed\x1b[0m')
+        terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshDisconnected')}\x1b[0m`)
         ElMessage.warning(t('user.instanceDetail.sshConnectionClosed'))
         
         // 如果不是主动关闭，尝试自动重连
         if (!isIntentionallyClosed) {
-          terminal.writeln('\x1b[33mAttempting to reconnect in 3 seconds...\x1b[0m')
+          terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshReconnecting')}\x1b[0m`)
           reconnectTimeout = setTimeout(() => {
             reconnect()
           }, 3000)
         }
       } else {
-        terminal.writeln('\x1b[32mSSH connection closed normally\x1b[0m')
+        terminal.writeln(`\x1b[32m${t('user.instanceDetail.sshClosedNormally')}\x1b[0m`)
       }
     }
   } catch (error) {
     console.error('创建WebSocket连接失败:', error)
-    terminal.writeln('\x1b[31mFailed to create WebSocket connection\x1b[0m')
+    terminal.writeln(`\x1b[31m${t('user.instanceDetail.sshWebSocketCreateFailed')}\x1b[0m`)
     ElMessage.error(t('user.instanceDetail.sshCreateFailed'))
     emit('error', error)
     isConnecting = false

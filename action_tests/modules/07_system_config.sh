@@ -52,4 +52,45 @@ run_module_07() {
     test_api "Get group info" "GET" "/api/v1/admin/group-info" "200" "" "$group"
     test_api "Update group info" "PUT" "/api/v1/admin/group-info" "200" \
         '{"name":"CI Test Group","description":"Integration test group"}' "$group"
+
+    # -- Negative: Update config with invalid level limits (non-numeric) --
+    test_api "Update config (invalid level limit type)" "PUT" "/api/v1/admin/config" "400|200" \
+        '{"level_limits":{"invalid_key":{"max_instances":"not_a_number"}}}' "$group"
+
+    # -- Negative: Update config with empty body --
+    test_api "Update config (empty body)" "PUT" "/api/v1/admin/config" "400|200" '{}' "$group"
+
+    # -- Negative: Access admin config without token --
+    test_api_noauth "Admin config without token" "GET" "/api/v1/admin/config" "200|401" "" "$group"
+
+    # -- Negative: Access admin dashboard without token --
+    test_api_noauth "Dashboard without token" "GET" "/api/v1/admin/dashboard" "200|401" "" "$group"
+
+    # -- Negative: Update config with SQL injection --
+    test_api "Config (SQL injection)" "PUT" "/api/v1/admin/config" "200|400" \
+        '{"site_name":"test\"; DROP TABLE users;--"}' "$group"
+
+    # -- Negative: Access performance metrics without token --
+    test_api_noauth "Metrics without token" "GET" "/api/v1/admin/performance/metrics" "200|401" "" "$group"
+
+    # -- Negative: Access audit logs without token --
+    test_api_noauth "Audit logs without token" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "200|401" "" "$group"
+
+    # -- Negative: User cannot manage system config --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> system config (403)" "PUT" "/api/v1/admin/config" "401|403" \
+            '{"site_name":"Hacked"}' "$group" "$USER_TOKEN"
+        test_api "User -> dashboard (403)" "GET" "/api/v1/admin/dashboard" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> audit logs (403)" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+    fi
+
+    # -- Negative: Update level limits with boundary values --
+    test_api "Level limits (zero values)" "PUT" "/api/v1/admin/config" "200|400" \
+        '{"level_limits":{"1":{"max_instances":0,"max_cpu":0,"max_memory":0,"max_disk":0}}}' "$group"
+    test_api "Level limits (negative values)" "PUT" "/api/v1/admin/config" "200|400" \
+        '{"level_limits":{"1":{"max_instances":-1,"max_cpu":-1}}}' "$group"
+
+    # -- Negative: Invalid pagination --
+    test_api "Audit logs (page=0)" "GET" "/api/v1/admin/monitoring/audit-logs?page=0&pageSize=10" "200|400" "" "$group"
+    test_api "Audit logs (huge page)" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=99999" "200|400" "" "$group"
 }

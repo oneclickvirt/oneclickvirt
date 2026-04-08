@@ -105,19 +105,7 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 			return nil, fmt.Errorf("不允许绑定此后缀的域名")
 		}
 	}
-	// 检查配额
-	var count int64
-	global.APP_DB.Model(&domainModel.Domain{}).Where("user_id = ? AND provider_id = ?", userID, provider.ID).Count(&count)
-	if int(count) >= domainConfig.MaxDomainsPerUser {
-		return nil, fmt.Errorf("已达到域名绑定上限(%d)", domainConfig.MaxDomainsPerUser)
-	}
-	// 检查域名唯一性
-	var existing int64
-	global.APP_DB.Model(&domainModel.Domain{}).Where("domain_name = ?", req.DomainName).Count(&existing)
-	if existing > 0 {
-		return nil, fmt.Errorf("该域名已被绑定")
-	}
-
+	// 检查配额 + 唯一性 + 创建在同一事务中，避免 TOCTOU 竞争
 	domain := &domainModel.Domain{
 		UserID:         userID,
 		InstanceID:     req.InstanceID,
@@ -132,8 +120,22 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 		HasCert:        req.SSLCertContent != "" && req.SSLKeyContent != "",
 		Status:         "active",
 	}
-	if err := global.APP_DB.Create(domain).Error; err != nil {
-		return nil, fmt.Errorf("创建域名绑定失败: %v", err)
+	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+		// 检查配额
+		var count int64
+		tx.Model(&domainModel.Domain{}).Where("user_id = ? AND provider_id = ?", userID, provider.ID).Count(&count)
+		if int(count) >= domainConfig.MaxDomainsPerUser {
+			return fmt.Errorf("已达到域名绑定上限(%d)", domainConfig.MaxDomainsPerUser)
+		}
+		// 检查域名唯一性
+		var existing int64
+		tx.Model(&domainModel.Domain{}).Where("domain_name = ?", req.DomainName).Count(&existing)
+		if existing > 0 {
+			return fmt.Errorf("该域名已被绑定")
+		}
+		return tx.Create(domain).Error
+	}); err != nil {
+		return nil, err
 	}
 
 	// Apply reverse proxy via agent

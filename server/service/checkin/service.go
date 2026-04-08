@@ -1,6 +1,7 @@
 package checkin
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -16,6 +17,7 @@ import (
 
 	"oneclickvirt/global"
 	checkinModel "oneclickvirt/model/checkin"
+	"oneclickvirt/service/database"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -231,30 +233,28 @@ func (s *Service) DoCheckin(userID, instanceID uint, req *DoCheckinRequest) erro
 		}
 	}
 
-	tx := global.APP_DB.Begin()
-	defer tx.Rollback()
+	dbService := database.GetDatabaseService()
+	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		if err := tx.Table("instances").Where("id = ?", instanceID).
+			Update("expires_at", newExpireAt).Error; err != nil {
+			return err
+		}
 
-	if err := tx.Table("instances").Where("id = ?", instanceID).
-		Update("expires_at", newExpireAt).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
+		record := &checkinModel.CheckinRecord{
+			UserID:      userID,
+			InstanceID:  instanceID,
+			ProviderID:  instance.ProviderID,
+			Method:      config.CheckinMethod,
+			RenewalDays: config.RenewalDays,
+			NewExpireAt: newExpireAt,
+			OldExpireAt: &oldExpireAt,
+		}
+		if err := tx.Create(record).Error; err != nil {
+			return err
+		}
 
-	record := &checkinModel.CheckinRecord{
-		UserID:      userID,
-		InstanceID:  instanceID,
-		ProviderID:  instance.ProviderID,
-		Method:      config.CheckinMethod,
-		RenewalDays: config.RenewalDays,
-		NewExpireAt: newExpireAt,
-		OldExpireAt: &oldExpireAt,
-	}
-	if err := tx.Create(record).Error; err != nil {
-		tx.Rollback()
-		return err
-	}
-
-	if err := tx.Commit().Error; err != nil {
+		return nil
+	}); err != nil {
 		return err
 	}
 

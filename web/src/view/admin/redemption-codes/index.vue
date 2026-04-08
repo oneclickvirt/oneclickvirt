@@ -174,7 +174,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.colSpecs') + ' - Image'" prop="imageId">
+        <el-form-item :label="t('admin.redemptionCodes.colSpecs') + ' - ' + t('admin.redemptionCodes.image')" prop="imageId">
           <el-select
             v-model="createForm.imageId"
             :placeholder="t('admin.redemptionCodes.imagePlaceholder')"
@@ -208,7 +208,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.memoryPlaceholder').replace('Select ', '')" prop="memoryId">
+            <el-form-item :label="t('admin.redemptionCodes.memory')" prop="memoryId">
               <el-select
                 v-model="createForm.memoryId"
                 :placeholder="t('admin.redemptionCodes.memoryPlaceholder')"
@@ -227,7 +227,7 @@
         </el-row>
         <el-row :gutter="12">
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.diskPlaceholder').replace('Select ', '')" prop="diskId">
+            <el-form-item :label="t('admin.redemptionCodes.disk')" prop="diskId">
               <el-select
                 v-model="createForm.diskId"
                 :placeholder="t('admin.redemptionCodes.diskPlaceholder')"
@@ -244,7 +244,7 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.bandwidthPlaceholder').replace('Select ', '')" prop="bandwidthId">
+            <el-form-item :label="t('admin.redemptionCodes.bandwidth')" prop="bandwidthId">
               <el-select
                 v-model="createForm.bandwidthId"
                 :placeholder="t('admin.redemptionCodes.bandwidthPlaceholder')"

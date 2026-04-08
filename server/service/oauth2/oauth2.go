@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"net/http"
 	"strings"
 	"sync"
@@ -497,7 +498,11 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 	}
 
 	// 更新基本信息
-	global.APP_DB.Model(usr).Updates(updates)
+	if err := global.APP_DB.Model(usr).Updates(updates).Error; err != nil {
+		global.APP_LOG.Error("同步OAuth2用户基本信息失败",
+			zap.String("username", usr.Username),
+			zap.Error(err))
+	}
 
 	// 如果等级发生变化，重新设置配额
 	if levelChanged {
@@ -512,7 +517,11 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 			"max_bandwidth": usr.MaxBandwidth,
 			"total_traffic": usr.TotalTraffic,
 		}
-		global.APP_DB.Model(usr).Updates(quotaUpdates)
+		if err := global.APP_DB.Model(usr).Updates(quotaUpdates).Error; err != nil {
+			global.APP_LOG.Error("同步OAuth2用户配额失败",
+				zap.String("username", usr.Username),
+				zap.Error(err))
+		}
 
 		global.APP_LOG.Info("OAuth2用户配额已更新",
 			zap.String("username", usr.Username),
@@ -583,11 +592,13 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 func generateRandomPassword(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
-	if _, err := rand.Read(b); err != nil {
-		panic("crypto/rand failed: " + err.Error())
-	}
+	charsetLen := big.NewInt(int64(len(charset)))
 	for i := range b {
-		b[i] = charset[int(b[i])%len(charset)]
+		idx, err := rand.Int(rand.Reader, charsetLen)
+		if err != nil {
+			panic("crypto/rand failed: " + err.Error())
+		}
+		b[i] = charset[idx.Int64()]
 	}
 	return string(b)
 }
@@ -596,8 +607,9 @@ func generateRandomPassword(length int) string {
 func (s *Service) GenerateUniqueUsername(baseUsername string) string {
 	username := baseUsername
 	suffix := 1
+	const maxAttempts = 100
 
-	for {
+	for i := 0; i < maxAttempts; i++ {
 		var count int64
 		global.APP_DB.Model(&user.User{}).Where("username = ?", username).Count(&count)
 		if count == 0 {
@@ -606,6 +618,8 @@ func (s *Service) GenerateUniqueUsername(baseUsername string) string {
 		username = fmt.Sprintf("%s_%d", baseUsername, suffix)
 		suffix++
 	}
+	// 超过最大尝试次数，使用时间戳确保唯一
+	return fmt.Sprintf("%s_%d", baseUsername, time.Now().UnixNano())
 }
 
 // SetUserQuotaByLevel 根据用户等级设置配额

@@ -1,10 +1,16 @@
 # 集成测试框架
 
-本目录包含 OneClickVirt 平台的自动化集成测试框架，基于双节点架构，覆盖全部 API 接口的功能测试、权限测试和边界测试。
+本目录包含 OneClickVirt 平台的自动化集成测试框架，基于双节点架构，覆盖全部 API 接口的功能测试、权限测试、边界测试和安全测试。
+
+## 在线查看
+
+测试报告地址: [oneclickvirt.github.io/oneclickvirt](https://oneclickvirt.github.io/oneclickvirt/)
+
+报告支持中英双语切换、亮色/暗色主题切换，标题下方显示当前测试对应的主控版本和 Agent 版本信息。
 
 ## 架构设计
 
-测试采用双节点架构，**单线程顺序执行**（不使用矩阵并发），每次仅测试一个平台：
+测试采用双节点架构，单线程顺序执行（不使用矩阵并发），每次仅测试一个平台：
 
 | 节点 | 用途 | 说明 |
 |------|------|------|
@@ -26,34 +32,34 @@ action_tests/
     node_manager.sh        # 节点生命周期管理（创建、部署、清理）
   modules/
     01_init.sh             # 系统初始化与健康检查
-    02_auth.sh             # 认证系统（登录、注册、密码管理）
-    03_users.sh            # 用户管理（CRUD、批量操作、权限）
-    04_invite_codes.sh     # 邀请码管理
-    05_redemption.sh       # 兑换码管理
-    06_announcements.sh    # 公告管理
-    07_system_config.sh    # 系统配置（统一配置、等级限制）
-    08_system_images.sh    # 系统镜像管理
-    09_providers.sh        # 节点管理（SSH、创建、配置、健康检查）
-    10_instances.sh        # 实例生命周期（创建、操作、删除、异步任务）
-    11_monitoring.sh       # 监控配置与代理部署
-    12_traffic.sh          # 流量管理（统计、限制、同步、清理）
-    13_port_mappings.sh    # 端口映射管理
-    14_block_rules.sh      # 防火墙阻断规则
-    15_domains.sh          # 域名绑定管理
-    16_freeze.sh           # 冻结管理（节点与实例的过期和冻结）
-    17_admin_isolation.sh  # 管理员隔离（普通管理员 vs 超级管理员）
-    18_user_features.sh    # 用户侧功能（资料、仪表盘、实例、流量）
+    02_auth.sh             # 认证系统（登录、注册、验证码、密码管理）
+    03_users.sh            # 用户管理（CRUD、批量操作、权限、登录身份切换）
+    04_invite_codes.sh     # 邀请码管理（生成、批量、导出、注册验证）
+    05_redemption.sh       # 兑换码管理（批量创建、兑换、状态验证）
+    06_announcements.sh    # 公告管理（CRUD、批量状态切换、类型筛选）
+    07_system_config.sh    # 系统配置（统一配置、等级限制、分组信息、反向测试）
+    08_system_images.sh    # 系统镜像管理（CRUD、批量删除、类型筛选）
+    09_providers.sh        # 节点管理（SSH 密码/密钥认证、创建、配置、健康检查、硬件报告、端口配置、IPv4 池、流量历史、反向测试）
+    10_instances.sh        # 实例生命周期（创建、操作、重建、密码重置、异步任务、转移、删除）
+    11_monitoring.sh       # 监控配置与代理部署（部署、卸载、同步、反向测试）
+    12_traffic.sh          # 流量管理（统计、限制、同步、清理、排行、反向测试）
+    13_port_mappings.sh    # 端口映射管理（CRUD、端口可用性检查、同步）
+    14_block_rules.sh      # 防火墙阻断规则（CRUD、应用、移除、IPv4/IPv6）
+    15_domains.sh          # 域名绑定管理（CRUD、多用户隔离）
+    16_freeze.sh           # 冻结管理（节点与实例的过期、手动冻结、级联冻结/解冻）
+    17_admin_isolation.sh  # 管理员隔离（普通管理员权限边界验证）
+    18_user_features.sh    # 用户侧功能（资料、仪表盘、实例列表、流量、密码重置）
     19_speedtest.sh        # 速度测试与流量监控验证
-    20_oauth2.sh           # OAuth2 第三方登录管理
-    21_kyc.sh              # 实名认证（提交、审核）
-    22_checkin.sh          # 签到系统（签到码、签到、记录）
-    23_discovery.sh        # 实例发现与纳管（非纯净节点测试）
+    20_oauth2.sh           # OAuth2 第三方登录管理（预设/自定义提供者、CRUD）
+    21_kyc.sh              # 实名认证（提交、审核、拒绝、支付宝接口、反向测试）
+    22_checkin.sh          # 签到系统（配置、签到码生成、签到、记录查询）
+    23_discovery.sh        # 实例发现与纳管（非纯净节点、孤儿实例检测、导入）
     24_data_isolation.sh   # 多用户数据隔离验证
-    25_error_handling.sh   # 错误处理与边界测试（注入、越界、畸形请求）
-    26_instance_types.sh   # 实例类型测试（容器与虚拟机分别测试）
-    27_config_advanced.sh  # 高级配置与任务管理
+    25_error_handling.sh   # 错误处理与边界测试（注入、越界、畸形请求、路径遍历）
+    26_instance_types.sh   # 实例类型测试（容器与虚拟机权限分离测试）
+    27_config_advanced.sh  # 高级配置与任务管理（导出、自动配置、硬件报告、版本信息）
   report/
-    generate_report.sh     # HTML 可视化报告生成器（独立脚本）
+    generate_report.sh     # HTML 可视化报告生成器（中英双语、亮暗主题、历史对比）
   reports/                 # 测试报告输出目录（运行时生成）
 ```
 
@@ -61,14 +67,14 @@ action_tests/
 
 | 环境标识 | 平台 | 支持容器 | 支持虚拟机 | 自动纠正行为 |
 |---------|------|---------|-----------|------------|
-| `docker` | Docker | 是 | 否 | `both`/`vm` → `container` |
+| `docker` | Docker | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `lxd` | LXD | 是 | 是 | 无需纠正 |
 | `incus` | Incus | 是 | 是 | 无需纠正 |
-| `podman` | Podman | 是 | 否 | `both`/`vm` → `container` |
-| `containerd` | Containerd | 是 | 否 | `both`/`vm` → `container` |
+| `podman` | Podman | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
+| `containerd` | Containerd | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `proxmoxve` | Proxmox VE | 是 | 是 | 无需纠正 |
 
-> **实例类型自动纠正**：测试框架会根据平台能力自动纠正 `instance_types` 参数。例如选择 `docker` 平台并指定 `both`，框架会自动纠正为 `container`，避免测试失败。纠正逻辑同时在 GitHub Actions 工作流和测试脚本中双重验证。
+实例类型自动纠正：测试框架会根据平台能力自动纠正 `instance_types` 参数。例如选择 `docker` 平台并指定 `both`，框架会自动纠正为 `container`。纠正逻辑同时在 GitHub Actions 工作流和测试脚本中双重验证。
 
 QEMU 和 KubeVirt 暂不纳入自动化测试。
 
@@ -78,11 +84,12 @@ QEMU 和 KubeVirt 暂不纳入自动化测试。
 
 所有测试模块按编号顺序执行，不使用矩阵并发。每次运行仅测试一个虚拟化平台，避免资源竞争和状态干扰。
 
-### 模块间状态恢复
+### 模块间状态管理
 
-每个测试模块执行前会保存系统基准状态（系统配置 + 实例列表），模块执行后自动恢复：
+每个测试模块执行前会保存系统基准状态（系统配置、实例列表、Provider ID、测试实例 ID），模块执行后自动恢复：
 - 删除测试过程中新增的实例
 - 重新登录所有测试用户，刷新 Token
+- 关键状态变量（`PROVIDER_ID`、`TEST_INSTANCE_ID`）在模块间正确传递
 - 防止上一模块的副作用影响下一模块
 
 ### 错误日志捕获
@@ -146,7 +153,7 @@ DEBUG=1 bash action_tests/run_env_test.sh docker all container
 
 | 格式 | 文件 | 说明 |
 |------|------|------|
-| HTML | `reports/<env>-report.html` | 可视化报告，支持搜索、按状态筛选、模块分组、错误日志展开 |
+| HTML | `reports/<env>-report.html` | 可视化报告，中英双语、亮暗主题、最近三次历史对比 |
 | Markdown | `reports/<env>-report.md` | 文本格式报告，包含每个测试用例的状态 |
 | JSON Lines | `reports/<env>-results.jsonl` | 机器可读的结构化测试结果 |
 | 日志 | `reports/full-output.log` | 完整控制台输出日志 |
@@ -154,22 +161,34 @@ DEBUG=1 bash action_tests/run_env_test.sh docker all container
 
 ### HTML 报告功能
 
-- **搜索**：支持全文搜索测试名称、URL、详情（快捷键 `/`）
-- **状态筛选**：按通过/失败/跳过/错误筛选（快捷键 `1`-`4`）
-- **模块分组**：按模块分组显示，失败模块自动展开
-- **错误日志**：失败用例支持展开查看关联的服务端日志
-- **一键复制**：复制测试摘要到剪贴板
-- **暗色主题**：适合长时间查看的深色界面
+- 中英双语：支持中文和英文界面切换（快捷键 `L`）
+- 版本信息：标题下方显示当前测试对应的主控版本和 Agent 版本
+- 搜索：支持全文搜索测试名称、URL、详情（快捷键 `/`）
+- 状态筛选：按通过/失败/跳过筛选（快捷键 `1`-`4`）
+- 模块分组：按模块分组显示，失败模块自动展开
+- 错误日志：失败用例支持展开查看关联的服务端日志
+- 一键复制：复制测试摘要到剪贴板
+- 亮暗主题：支持亮色和暗色主题切换（快捷键 `T`），根据系统偏好自动选择
+- 历史对比：保留最近三次测试结果，支持通过率对比
 
 HTML 报告会通过 GitHub Actions 自动推送到 `gh-pages` 分支，可通过 GitHub Pages 在线查看。
 
 ## 测试覆盖范围
 
-### 功能测试
+### 功能测试（正向）
 
-- 全部 200+ API 接口的正向和反向测试
-- 异步任务（实例创建、配置）的等待与状态验证
+- 全部 200+ API 接口的正向功能测试
+- 异步任务（实例创建、配置下发）的等待与状态验证
 - 容器和虚拟机实例的完整生命周期操作
+- SSH 密码认证和密钥认证两种方式的节点录入
+
+### 反向测试（负向）
+
+- 缺失必填字段的请求（返回 400）
+- 不存在的资源操作（返回 404）
+- 无权限访问（返回 401/403）
+- 无效参数（端口越界、非法 URL、空数组等）
+- 硬件报告 URL 域名白名单验证
 
 ### 权限测试
 

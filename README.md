@@ -4,6 +4,8 @@
 
 [![Build and Push Docker Images](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml)
 
+[![Integration Tests](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml)
+
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=license) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=security)
 
 An extensible universal virtualization management platform that supports LXD, Incus, Docker, Podman, Containerd, Proxmox VE, QEMU/KVM, and KubeVirt.
@@ -15,6 +17,12 @@ An extensible universal virtualization management platform that supports LXD, In
 ## Detailed Description
 
 [www.spiritlhl.net](https://www.spiritlhl.net/en/guide/oneclickvirt/oneclickvirt_precheck.html)
+
+## Integration Test Report
+
+The automated integration test report is available at: [oneclickvirt.github.io/oneclickvirt](https://oneclickvirt.github.io/oneclickvirt/)
+
+The report supports bilingual display (Chinese/English) and light/dark theme switching, covering 200+ API endpoint tests including functional, permission, boundary, and security tests. See [`action_tests/`](action_tests/) for details.
 
 ## Supported Virtualization Platforms
 
@@ -42,9 +50,9 @@ Use pre-built multi-architecture images that automatically downloads the appropr
 | Image Tag | Description | Use Case |
 |-----------|-------------|----------|
 | `spiritlhl/oneclickvirt:latest` | All-in-one version (built-in database) | Quick deployment |
-| `spiritlhl/oneclickvirt:20260408` | All-in-one version with specific date | Fixed version requirement |
+| `spiritlhl/oneclickvirt:20260310` | All-in-one version with specific date | Fixed version requirement |
 | `spiritlhl/oneclickvirt:no-db` | Standalone database version | Without database |
-| `spiritlhl/oneclickvirt:no-db-20260408` | Standalone database version with date | Without database |
+| `spiritlhl/oneclickvirt:no-db-20260310` | Standalone database version with date | Without database |
 
 All images support both `linux/amd64` and `linux/arm64` architectures.
 

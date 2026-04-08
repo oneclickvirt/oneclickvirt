@@ -19,12 +19,12 @@ run_module_01() {
     test_api_noauth "Recommended DB type" "GET" "/api/v1/public/recommended-db-type" "200" "" "$group"
 
     # -- Test DB connection with invalid params --
-    test_api_noauth "Test DB connection (invalid)" "POST" "/api/v1/public/test-db-connection" "400|500" \
+    test_api_noauth "Test DB connection (invalid)" "POST" "/api/v1/public/test-db-connection" "400" \
         '{"db_type":"mysql","db_host":"invalid","db_port":9999,"db_name":"x","db_user":"x","db_password":"x"}' "$group"
 
     # -- System initialization (only if not already initialized by orchestrator) --
     if [[ "$need_init" == "true" ]]; then
-        test_api_noauth "System init (MySQL)" "POST" "/api/v1/public/init" "200|400|500" \
+        test_api_noauth "System init (MySQL)" "POST" "/api/v1/public/init" "200|400" \
             "{\"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@test.local\"},\"database\":{\"type\":\"mysql\"}}" "$group"
         sleep 2
     else

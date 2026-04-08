@@ -62,5 +62,7 @@ export default {
   redeemCodeOnly: 'Redeem-code only',
   selectExportFields: 'Select fields to export',
   selectAll: 'Select All',
-  deselectAll: 'Deselect All'
+  deselectAll: 'Deselect All',
+  createFailed: 'Failed to create redemption code',
+  image: 'Image'
 }

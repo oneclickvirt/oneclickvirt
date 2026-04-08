@@ -58,4 +58,26 @@ run_module_06() {
         test_api "Batch delete announcements" "POST" "/api/v1/admin/announcements/batch-delete" "200" \
             "{\"ids\":${all_aids}}" "$group"
     fi
+
+    # -- Negative: Edit nonexistent announcement --
+    test_api "Edit nonexistent announcement" "PUT" "/api/v1/admin/announcements/99999" "400|404" \
+        '{"title":"Ghost"}' "$group"
+
+    # -- Negative: Create with empty content --
+    test_api "Create (empty content)" "POST" "/api/v1/admin/announcements" "400|200" \
+        '{"title":"EmptyContent","content":""}' "$group"
+
+    # -- Negative: Batch status with empty ids --
+    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/announcements/batch-status" "400|200" \
+        '{"ids":[],"status":"active"}' "$group"
+
+    # -- Negative: Batch delete empty --
+    test_api "Batch delete (empty ids)" "POST" "/api/v1/admin/announcements/batch-delete" "400|200" \
+        '{"ids":[]}' "$group"
+
+    # -- Negative: User cannot manage announcements --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> create announcement (403)" "POST" "/api/v1/admin/announcements" "401|403" \
+            '{"title":"Hack","content":"test"}' "$group" "$USER_TOKEN"
+    fi
 }

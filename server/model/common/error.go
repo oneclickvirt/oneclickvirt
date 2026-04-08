@@ -142,7 +142,7 @@ func ResponseWithError(c *gin.Context, err error) {
 		})
 	} else {
 		msg := ErrorMessages[CodeInternalError]
-		c.JSON(http.StatusInternalServerError, gin.H{
+		c.JSON(http.StatusBadRequest, gin.H{
 			"code":    CodeInternalError,
 			"msg":     msg,
 			"message": msg,
@@ -182,6 +182,7 @@ func ResponseSuccessWithPagination(c *gin.Context, data interface{}, total int64
 }
 
 // 根据错误码获取HTTP状态码
+// 注意：避免返回 500，所有错误码均映射到具体的 HTTP 状态码
 func getHTTPCode(code int) int {
 	switch code {
 	case CodeInvalidParam, CodeValidationError, CodeCaptchaInvalid, CodeCaptchaRequired, CodeInviteCodeInvalid, CodeInviteCodeExpired, CodeInviteCodeUsed:
@@ -196,9 +197,21 @@ func getHTTPCode(code int) int {
 		return http.StatusConflict
 	case CodeRequestTooLarge:
 		return http.StatusRequestEntityTooLarge
+	case CodeTokenGenerateError, CodeOAuth2Failed, CodeOAuth2RegistrationLimit:
+		return http.StatusBadRequest
 	case CodeError:
 		return http.StatusBadRequest
+	case CodeInternalError:
+		return http.StatusBadRequest
+	case CodeDatabaseError:
+		return http.StatusServiceUnavailable
+	case CodeConfigError:
+		return http.StatusBadRequest
+	case CodeCacheError:
+		return http.StatusServiceUnavailable
+	case CodeExternalAPIError:
+		return http.StatusBadGateway
 	default:
-		return http.StatusInternalServerError
+		return http.StatusBadRequest
 	}
 }

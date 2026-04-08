@@ -5,6 +5,7 @@ import (
 	"strconv"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminInstance "oneclickvirt/service/admin/instance"
@@ -12,6 +13,7 @@ import (
 	adminSystem "oneclickvirt/service/admin/system"
 	adminUser "oneclickvirt/service/admin/user"
 	"oneclickvirt/service/task"
+	userService "oneclickvirt/service/user"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -49,19 +51,19 @@ func GetUsers(c *gin.Context) {
 }
 
 func GetProviders(c *gin.Context) {
-	providerIDStr := c.Param("id")
-	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "用户未认证"))
 		return
 	}
-	providerService := adminProvider.NewService()
-	status, err := providerService.GetProviderStatus(uint(providerID))
+
+	userSvc := userService.NewService()
+	providers, err := userSvc.GetAvailableProviders(authCtx.UserID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取状态失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取可用节点失败"))
 		return
 	}
-	common.ResponseSuccess(c, status, "获取状态成功")
+	common.ResponseSuccess(c, providers)
 }
 
 func UpdateProviderStatus(c *gin.Context) {

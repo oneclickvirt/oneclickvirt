@@ -19,8 +19,8 @@ run_module_18() {
     test_api "Get user dashboard" "GET" "/api/v1/user/dashboard" "200" "" "$group" "$USER_TOKEN"
     test_api "Get user limits" "GET" "/api/v1/user/limits" "200" "" "$group" "$USER_TOKEN"
 
-    # ---- User password reset (server auto-generates new password, may 500 without email) ----
-    test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200|400|500" \
+    # ---- User password reset (server auto-generates new password) ----
+    test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200|400" \
         '{}' "$group" "$USER_TOKEN"
 
     # ---- Available resources ----
@@ -46,7 +46,7 @@ run_module_18() {
 
     # ---- User tasks ----
     test_api "User tasks" "GET" "/api/v1/user/tasks" "200" "" "$group" "$USER_TOKEN"
-    test_api "Cancel nonexistent task" "POST" "/api/v1/user/tasks/99999/cancel" "404|400|500" "" "$group" "$USER_TOKEN"
+    test_api "Cancel nonexistent task" "POST" "/api/v1/user/tasks/99999/cancel" "400|401" "" "$group" "$USER_TOKEN"
 
     # ---- User domains ----
     test_api "User domains" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
@@ -87,4 +87,31 @@ run_module_18() {
     # ---- Claim resource (invalid) ----
     test_api "Claim resource invalid" "POST" "/api/v1/user/resources/claim" "400" \
         '{}' "$group" "$USER_TOKEN"
+
+    # ---- Negative: User profile update with XSS ----
+    test_api "Profile XSS nickname" "PUT" "/api/v1/user/profile" "200|400" \
+        '{"nickname":"<script>alert(1)</script>"}' "$group" "$USER_TOKEN"
+
+    # ---- Negative: User profile update with long nickname ----
+    local long_nick; long_nick=$(printf 'N%.0s' {1..300})
+    test_api "Profile long nickname" "PUT" "/api/v1/user/profile" "400|200" \
+        "{\"nickname\":\"${long_nick}\"}" "$group" "$USER_TOKEN"
+
+    # ---- Negative: User get nonexistent instance ----
+    test_api "User instance 99999" "GET" "/api/v1/user/instances/99999" "400|403|404" "" "$group" "$USER_TOKEN"
+
+    # ---- Negative: User action on nonexistent instance ----
+    test_api "Action nonexistent instance" "POST" "/api/v1/user/instances/action" "400" \
+        '{"instanceId":99999,"action":"stop"}' "$group" "$USER_TOKEN"
+
+    # ---- Negative: User2 cannot perform actions on user1 instance ----
+    if [[ -n "$USER_TOKEN2" && -n "$TEST_INSTANCE_ID" ]]; then
+        test_api "User2 action user1 inst" "POST" "/api/v1/user/instances/action" "400|403|404" \
+            "{\"instanceId\":${TEST_INSTANCE_ID},\"action\":\"stop\"}" "$group" "$USER_TOKEN2"
+        test_api "User2 ports user1 inst" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "403|404" "" "$group" "$USER_TOKEN2"
+        test_api "User2 traffic user1 inst" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "403|404" "" "$group" "$USER_TOKEN2"
+    fi
+
+    # ---- Negative: Provider capabilities nonexistent ----
+    test_api "Capabilities nonexistent" "GET" "/api/v1/user/providers/99999/capabilities" "200|400|404" "" "$group" "$USER_TOKEN"
 }

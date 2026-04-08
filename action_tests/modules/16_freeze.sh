@@ -52,10 +52,36 @@ run_module_16() {
     test_api "Provider status (unfrozen)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group"
 
     # -- Freeze nonexistent provider --
-    test_api "Freeze nonexistent provider" "POST" "/api/v1/admin/providers/freeze-manual" "200|404|500" \
+    test_api "Freeze nonexistent provider" "POST" "/api/v1/admin/providers/freeze-manual" "400|404" \
         '{"id":99999,"reason":"test"}' "$group"
 
     # -- Instance freeze/unfreeze without instance --
-    test_api "Freeze nonexistent instance" "POST" "/api/v1/admin/instances/freeze" "200|404|500" \
+    test_api "Freeze nonexistent instance" "POST" "/api/v1/admin/instances/freeze" "400|404" \
         '{"instanceId":99999}' "$group"
+
+    # -- Negative: Unfreeze nonexistent provider --
+    test_api "Unfreeze nonexistent provider" "POST" "/api/v1/admin/providers/unfreeze-manual" "400|404" \
+        '{"id":99999}' "$group"
+
+    # -- Negative: Cascade freeze nonexistent --
+    test_api "Cascade freeze nonexistent" "POST" "/api/v1/admin/providers/freeze" "400|404" \
+        '{"id":99999}' "$group"
+
+    # -- Negative: Cascade unfreeze nonexistent --
+    test_api "Cascade unfreeze nonexistent" "POST" "/api/v1/admin/providers/unfreeze" "400|404" \
+        '{"id":99999}' "$group"
+
+    # -- Negative: Freeze with missing body --
+    test_api "Freeze missing body" "POST" "/api/v1/admin/providers/freeze-manual" "400" \
+        '{}' "$group"
+
+    # -- Negative: Instance freeze missing body --
+    test_api "Instance freeze missing body" "POST" "/api/v1/admin/instances/freeze" "400" \
+        '{}' "$group"
+
+    # -- Negative: User cannot freeze --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> freeze (403)" "POST" "/api/v1/admin/providers/freeze-manual" "401|403" \
+            '{"id":1}' "$group" "$USER_TOKEN"
+    fi
 }

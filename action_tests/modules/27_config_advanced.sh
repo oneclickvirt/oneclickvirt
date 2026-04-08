@@ -45,8 +45,10 @@ run_module_27() {
             '{"provider_ids":[]}' "$group" "$ADMIN_TOKEN"
 
         # ---- Hardware report ----
-        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" \
-            '{"pasteUrl":"https://paste.spiritlhl.net/#/show/test-ci-report.txt"}' "$group" "$ADMIN_TOKEN"
+        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400" \
+            '{"pasteUrl":"https://paste.spiritlhl.net/#/show/ENn4E.txt"}' "$group" "$ADMIN_TOKEN"
+        test_api "Save hardware report (invalid URL)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "400" \
+            '{"pasteUrl":"https://example.com/badreport.txt"}' "$group" "$ADMIN_TOKEN"
         test_api "Get hardware report (admin)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" \
             "" "$group" "$ADMIN_TOKEN"
         test_api "Get hardware report (public)" "GET" "/api/v1/public/providers/${PROVIDER_ID}/hardware-report" "200" \
@@ -71,8 +73,8 @@ run_module_27() {
     test_api "Update group info" "PUT" "/api/v1/admin/group-info" "200" \
         '{"name":"Test Group","description":"Updated via test"}' "$group" "$ADMIN_TOKEN"
 
-    # ---- User quota (nonexistent user may return 500) ----
-    test_api "User quota (nonexistent)" "GET" "/api/v1/admin/quota/users/99999" "200|404|500" \
+    # ---- User quota (nonexistent user) ----
+    test_api "User quota (nonexistent)" "GET" "/api/v1/admin/quota/users/99999" "200|400" \
         "" "$group" "$ADMIN_TOKEN"
 
     # ---- Dashboard stats ----
@@ -94,4 +96,33 @@ run_module_27() {
         test_api "Provider traffic history" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/traffic/history" "200" \
             "" "$group" "$ADMIN_TOKEN"
     fi
+
+    # ---- Negative: Export with nonexistent providers ----
+    test_api "Export nonexistent providers" "POST" "/api/v1/admin/providers/export-configs" "200|400" \
+        '{"provider_ids":[99999]}' "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Hardware report for nonexistent provider ----
+    test_api "Hardware report nonexistent" "POST" "/api/v1/admin/providers/99999/hardware-report" "400|404" \
+        '{"pasteUrl":"https://paste.spiritlhl.net/#/show/test.txt"}' "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Get tasks with invalid pagination ----
+    test_api "Tasks (page=0)" "GET" "/api/v1/admin/tasks?page=0&pageSize=10" "200|400" "" "$group" "$ADMIN_TOKEN"
+    test_api "Tasks (huge pageSize)" "GET" "/api/v1/admin/tasks?page=1&pageSize=99999" "200|400" "" "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: Group info update with empty body ----
+    test_api "Group info (empty body)" "PUT" "/api/v1/admin/group-info" "200|400" \
+        '{}' "$group" "$ADMIN_TOKEN"
+
+    # ---- Negative: User cannot access admin tasks ----
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> admin tasks (403)" "GET" "/api/v1/admin/tasks?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> force stop (403)" "POST" "/api/v1/admin/tasks/force-stop" "401|403" \
+            '{"task_id":"test"}' "$group" "$USER_TOKEN"
+        test_api "User -> export configs (403)" "POST" "/api/v1/admin/providers/export-configs" "401|403" \
+            '{"provider_ids":[1]}' "$group" "$USER_TOKEN"
+    fi
+
+    # ---- Negative: Performance history with nonexistent provider ----
+    test_api "Traffic history nonexistent" "GET" "/api/v1/admin/providers/99999/traffic/history" "200|400|404" \
+        "" "$group" "$ADMIN_TOKEN"
 }

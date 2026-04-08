@@ -114,4 +114,47 @@ run_module_03() {
         test_api "Batch delete users" "POST" "/api/v1/admin/users/batch-delete" "200" \
             "{\"userIds\":[${uid_list}]}" "$group"
     fi
+
+    # -- Negative: Edit nonexistent user --
+    test_api "Edit nonexistent user" "PUT" "/api/v1/admin/users/99999" "400|404" \
+        '{"email":"ghost@ci.local"}' "$group"
+
+    # -- Negative: Reset password nonexistent user --
+    test_api "Reset password nonexistent" "PUT" "/api/v1/admin/users/99999/reset-password" "400|404" \
+        '{"password":"NewPass123!@#"}' "$group"
+
+    # -- Negative: Change level nonexistent user --
+    test_api "Change level nonexistent" "PUT" "/api/v1/admin/users/99999/level" "400|404" \
+        '{"level":1}' "$group"
+
+    # -- Negative: Login-as nonexistent user --
+    test_api "Login-as nonexistent" "POST" "/api/v1/admin/users/99999/login-as" "400|404" "" "$group"
+
+    # -- Negative: Set expiry for nonexistent user --
+    local exp_neg; exp_neg=$(date -u -d "+30 days" '+%Y-%m-%dT%H:%M:%SZ' 2>/dev/null || date -u -v+30d '+%Y-%m-%dT%H:%M:%SZ')
+    test_api "Set expiry nonexistent" "POST" "/api/v1/admin/users/set-expiry" "400|404" \
+        "{\"user_id\":99999,\"expires_at\":\"${exp_neg}\"}" "$group"
+
+    # -- Negative: Create user with weak password --
+    test_api "Create user (weak password)" "POST" "/api/v1/admin/users" "400" \
+        '{"username":"weak_pw_user","password":"123","email":"weak@ci.local"}' "$group"
+
+    # -- Negative: Create user with XSS in username --
+    test_api "Create user (XSS username)" "POST" "/api/v1/admin/users" "400" \
+        '{"username":"<script>alert(1)</script>","password":"Test123!@#","email":"xss@ci.local"}' "$group"
+
+    # -- Negative: Batch operations with empty arrays --
+    test_api "Batch level (empty)" "PUT" "/api/v1/admin/users/batch-level" "400" \
+        '{"userIds":[],"level":1}' "$group"
+    test_api "Batch status (empty)" "PUT" "/api/v1/admin/users/batch-status" "400" \
+        '{"userIds":[],"status":1}' "$group"
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/users/batch-delete" "400|200" \
+        '{"userIds":[]}' "$group"
+
+    # -- Negative: User cannot access admin user management --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> user list (403)" "GET" "/api/v1/admin/users?page=1&pageSize=10" "401|403" "" "$group" "$USER_TOKEN"
+        test_api "User -> create user (403)" "POST" "/api/v1/admin/users" "401|403" \
+            '{"username":"hacker","password":"Test123!@#"}' "$group" "$USER_TOKEN"
+    fi
 }

@@ -66,4 +66,27 @@ run_module_08() {
         test_api "Batch delete images" "POST" "/api/v1/admin/system-images/batch-delete" "200" \
             "{\"ids\":[${iid1},${iid2}]}" "$group"
     fi
+
+    # -- Negative: Edit nonexistent image --
+    test_api "Edit nonexistent image" "PUT" "/api/v1/admin/system-images/99999" "400|404" \
+        '{"name":"Ghost Image"}' "$group"
+
+    # -- Negative: Create with negative resource values --
+    test_api "Create image (negative memory)" "POST" "/api/v1/admin/system-images" "400|200" \
+        '{"name":"neg-test","providerType":"docker","instanceType":"container","architecture":"amd64","url":"https://example.com/neg.tar.gz","minMemoryMB":-1,"minDiskMB":-1}' "$group"
+
+    # -- Negative: Batch status with empty ids --
+    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/system-images/batch-status" "400|200" \
+        '{"ids":[],"status":"active"}' "$group"
+
+    # -- Negative: Batch delete empty --
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/system-images/batch-delete" "400|200" \
+        '{"ids":[]}' "$group"
+
+    # -- Negative: User cannot manage images --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User -> create image (403)" "POST" "/api/v1/admin/system-images" "401|403" \
+            '{"name":"hack"}' "$group" "$USER_TOKEN"
+        test_api "User -> delete image (403)" "DELETE" "/api/v1/admin/system-images/1" "401|403" "" "$group" "$USER_TOKEN"
+    fi
 }

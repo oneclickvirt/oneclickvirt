@@ -248,8 +248,8 @@ func (s *PermissionService) CheckAPIAccess(userID uint, path string, method stri
 		return s.RequireUserPermission(userID)
 	}
 
-	// 检查是否为用户API
-	return strings.HasPrefix(path, "/api/v1/user") || strings.HasPrefix(path, "/api/v1/dashboard")
+	// 检查是否为用户API或资源API
+	return strings.HasPrefix(path, "/api/v1/user") || strings.HasPrefix(path, "/api/v1/dashboard") || strings.HasPrefix(path, "/api/v1/resources")
 }
 
 // requireNormalAdminPermission 检查是否有普通管理员权限
