@@ -69,8 +69,8 @@ run_module_04() {
     test_api "Generate codes (excessive)" "POST" "/api/v1/admin/invite-codes/generate" "400|200" \
         '{"count":10000,"maxUses":3}' "$group"
 
-    # -- Negative: Create with empty code --
-    test_api "Create empty code" "POST" "/api/v1/admin/invite-codes" "400" \
+    # -- Negative: Create with empty code (server auto-generates code when empty) --
+    test_api "Create empty code" "POST" "/api/v1/admin/invite-codes" "200|400" \
         '{"code":"","count":1,"maxUses":5}' "$group"
 
     # -- Negative: Batch delete empty --

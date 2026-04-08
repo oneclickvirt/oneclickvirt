@@ -1,6 +1,6 @@
 #!/bin/bash
 # Module 09: Provider Management
-# Dependencies: 01_init (ADMIN_TOKEN), worker node (WORKER_IP, WORKER_PASSWORD)
+# Dependencies: 01_init (ADMIN_TOKEN), worker node (WORKER_IP + WORKER_PASSWORD or ALICE_PRIVATE_KEY)
 
 run_module_09() {
     report_add_section "09 - Provider Management"
@@ -10,21 +10,22 @@ run_module_09() {
         WORKER_IP="$NODE_IP"
     fi
     local worker_pass="${WORKER_PASSWORD:-${NODE_PASSWORD:-}}"
-    if [[ -z "$WORKER_IP" || -z "$worker_pass" ]]; then
-        chain_break "$group" "No worker node information"
+    local worker_key="${ALICE_PRIVATE_KEY:-}"
+    if [[ -z "$WORKER_IP" || ( -z "$worker_pass" && -z "$worker_key" ) ]]; then
+        chain_break "$group" "No worker node information (need IP + password or SSH key)"
         return 1
     fi
 
     # -- Provider list --
     test_api "Provider list" "GET" "/api/v1/admin/providers?page=1&pageSize=10" "200" "" "$group"
 
-    # -- SSH connection test (password auth) --
-    test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
-        "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
-
-    # -- SSH connection test (key auth) --
-    if [[ -n "${ALICE_PRIVATE_KEY:-}" ]]; then
-        local escaped_key; escaped_key=$(echo "$ALICE_PRIVATE_KEY" | jq -Rsa .)
+    # -- SSH connection test (use available auth method) --
+    if [[ -n "$worker_pass" ]]; then
+        test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
+            "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
+    fi
+    if [[ -n "$worker_key" ]]; then
+        local escaped_key; escaped_key=$(echo "$worker_key" | jq -Rsa .)
         test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group"
     fi
@@ -53,8 +54,16 @@ run_module_09() {
     fi
     
     if [[ -z "$PROVIDER_ID" ]]; then
+        # Build auth payload: prefer password, fall back to SSH key
+        local auth_payload
+        if [[ -n "$worker_pass" ]]; then
+            auth_payload="\"password\":\"${worker_pass}\""
+        elif [[ -n "$worker_key" ]]; then
+            local escaped_key_create; escaped_key_create=$(echo "$worker_key" | jq -Rsa .)
+            auth_payload="\"sshKey\":${escaped_key_create}"
+        fi
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group")
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
         
         # Debug: log the response
         log_debug "Provider creation response: ${pr}"
@@ -82,7 +91,7 @@ run_module_09() {
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \

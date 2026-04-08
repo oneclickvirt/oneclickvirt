@@ -81,6 +81,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq curl sshpass
 
+      - name: Set server version from latest release
+        run: |
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" | jq -r '.tag_name // "v0.3.0"')
+          sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${LATEST_TAG}\"/" server/constant/version.go
+          echo "Server version set to: ${LATEST_TAG}"
+
       - name: Setup MySQL
         run: |
           sudo systemctl start mysql
@@ -268,6 +274,7 @@ jobs:
           # Copy reports
           mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
           cp action_tests/reports/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp action_tests/reports/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
 
           # Prune old reports: keep only the latest 7 runs per environment
           KEEP=7
@@ -284,53 +291,10 @@ jobs:
           fi
 
           # Generate top-level index
-          cd report-repo
-          {
-            echo '<!DOCTYPE html>'
-            echo '<html lang="en">'
-            echo '<head>'
-            echo '<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">'
-            echo '<title>OneClickVirt Test Reports</title>'
-            echo '<style>'
-            echo ':root{--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155}'
-            echo '*{margin:0;padding:0;box-sizing:border-box}'
-            echo "body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;background:var(--bg);color:var(--text);padding:2rem}"
-            echo '.container{max-width:1000px;margin:0 auto}'
-            echo 'h1{font-size:2rem;margin-bottom:1rem}'
-            echo 'h2{font-size:1.3rem;margin:1.5rem 0 0.8rem}'
-            echo '.meta{color:#94a3b8;margin-bottom:2rem}'
-            echo '.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:1rem 1.2rem;margin-bottom:0.8rem}'
-            echo '.card:hover{border-color:#60a5fa}'
-            echo 'a{color:#60a5fa;text-decoration:none}'
-            echo 'a:hover{text-decoration:underline}'
-            echo '</style>'
-            echo '</head>'
-            echo '<body>'
-            echo '<div class="container">'
-            echo '<h1>OneClickVirt Integration Test Reports</h1>'
-            echo '<p class="meta">Reports are organized by environment and date.</p>'
-          } > index.html
-
-          if [[ -d reports ]]; then
-            for envdir in reports/*/; do
-              [[ ! -d "$envdir" ]] && continue
-              envname=$(basename "$envdir")
-              echo "<h2>${envname}</h2>" >> index.html
-              for tsdir in $(ls -dr "$envdir"*/ 2>/dev/null); do
-                [[ ! -d "$tsdir" ]] && continue
-                tsname=$(basename "$tsdir")
-                for f in "$tsdir"*.html; do
-                  [[ ! -f "$f" ]] && continue
-                  fname=$(basename "$f")
-                  echo "<div class=\"card\"><a href=\"${f}\">${tsname} - ${fname}</a></div>" >> index.html
-                done
-              done
-            done
-          fi
-
-          echo '</div></body></html>' >> index.html
+          bash action_tests/report/generate_index.sh "report-repo/reports" "report-repo/index.html"
 
           # Commit and push
+          cd report-repo
           git add -A
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"

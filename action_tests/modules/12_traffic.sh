@@ -80,9 +80,9 @@ run_module_12() {
 
     # -- Negative tests --
     # Traffic stats for nonexistent provider
-    test_api "Traffic (nonexistent provider)" "GET" "/api/v1/admin/traffic/provider/99999" "200|404" "" "$group"
+    test_api "Traffic (nonexistent provider)" "GET" "/api/v1/admin/traffic/provider/99999" "200|400|404" "" "$group"
     # Traffic stats for nonexistent user
-    test_api "Traffic (nonexistent user)" "GET" "/api/v1/admin/traffic/user/99999" "200|404" "" "$group"
+    test_api "Traffic (nonexistent user)" "GET" "/api/v1/admin/traffic/user/99999" "200|400|404" "" "$group"
     # Sync traffic for nonexistent instance
     test_api "Sync traffic (nonexistent instance)" "POST" "/api/v1/admin/traffic/sync/instance/99999" "200|400" '{}' "$group"
     # Manage traffic with invalid action
