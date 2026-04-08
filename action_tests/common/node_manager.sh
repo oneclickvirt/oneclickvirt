@@ -32,6 +32,12 @@ create_test_node() {
     password=$(echo "${result}" | jq -r '.password // empty' 2>/dev/null)
     platform_name=$(echo "${result}" | jq -r '.platform // empty' 2>/dev/null)
     [[ -z "${ip}" ]] && { log_error "Cannot get IP from create response: ${result}"; return 1; }
+    # try_create_with_fallback runs inside $() so ACTIVE_PLATFORM and PLATFORM_SSH_KEY_FILE
+    # set within it are lost when that subshell exits. Re-initialize the platform here so
+    # that wait_for_ssh (and any other SSH operations in this function) work correctly.
+    if [[ -n "$platform_name" ]]; then
+        platform_init "$platform_name" || { log_error "Failed to re-init platform '${platform_name}'"; return 1; }
+    fi
     # Update global SSH password if provided
     [[ -n "$password" ]] && PLATFORM_SSH_PASSWORD="$password"
     # Wait for SSH to be available before handing off the node

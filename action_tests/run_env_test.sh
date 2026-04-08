@@ -109,6 +109,14 @@ export WORKER_PASSWORD="$NODE_PASSWORD"
 WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
+# create_test_node runs inside $() so ACTIVE_PLATFORM and PLATFORM_SSH_KEY_FILE are lost
+# when that subshell exits. Re-initialize the platform in the main shell so all subsequent
+# SSH operations (install_env, module tests, cleanup) use the correct platform context.
+if [[ -n "$WORKER_PLATFORM" ]]; then
+    platform_init "$WORKER_PLATFORM" || log_warning "Could not re-init platform '${WORKER_PLATFORM}' in main shell"
+    ACTIVE_INSTANCE_ID="${WORKER_ID_VAL}"
+    ACTIVE_INSTANCE_IP="${WORKER_IP}"
+fi
 log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP} Platform=${WORKER_PLATFORM}"
 log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..."
 

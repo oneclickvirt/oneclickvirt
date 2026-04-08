@@ -66,6 +66,8 @@ alice_renewal_instance_raw() {
 # ============================================================================
 
 # Get instance IP from the list endpoint (the state endpoint does not include IP).
+# Alice API may return either {"data":[...]} or a bare array [...]. The instance ID
+# field may be "id", "instance id" (space), or "instance_id" across API versions.
 _alice_get_instance_ip() {
     local id="$1"
     local resp; resp=$(alice_list_instances_raw)
@@ -75,7 +77,11 @@ _alice_get_instance_ip() {
         log_error "[alice] List instances failed when fetching IP (HTTP ${code})"
         return 1
     fi
-    echo "$body" | jq -r --arg id "$id" '.data[]? | select((.id|tostring) == $id) | .ipv4 // .ip // empty' 2>/dev/null
+    local items
+    items=$(echo "$body" | jq -c 'if type == "array" then . elif .data then .data else [] end' 2>/dev/null)
+    echo "$items" | jq -r --arg id "$id" \
+        '.[] | select((.["instance id"] // .id // .instance_id | tostring) == $id) | .ipv4 // .ip // empty' \
+        2>/dev/null | head -1
 }
 
 _alice_get_min_package_id() {
@@ -224,7 +230,9 @@ alice_platform_reinstall_instance() {
     # Get the plan_id from instance list so we can look up an os_id for that plan
     local list_resp; list_resp=$(alice_list_instances_raw)
     local list_body; list_body=$(alice_parse_body "$list_resp")
-    local plan_id; plan_id=$(echo "$list_body" | jq -r --arg id "$id" '.data[]? | select((.id|tostring) == $id) | .plan_id // empty' 2>/dev/null)
+    # Handle both {"data":[...]} and bare array response formats; handle "instance id" key
+    local list_items; list_items=$(echo "$list_body" | jq -c 'if type == "array" then . elif .data then .data else [] end' 2>/dev/null)
+    local plan_id; plan_id=$(echo "$list_items" | jq -r --arg id "$id" '.[] | select((.["instance id"] // .id // .instance_id | tostring) == $id) | .plan_id // empty' 2>/dev/null)
     if [[ -z "$plan_id" ]]; then
         log_warning "[alice] Could not determine plan_id from list, using permissions"
         plan_id=$(_alice_get_min_package_id) || return 1
@@ -259,7 +267,11 @@ alice_platform_list_instances() {
         log_error "[alice] List instances failed (HTTP ${code})"
         return 1
     fi
-    echo "${body}" | jq -c '[.data[]? | {instance_id: (.id // .instance_id | tostring), ipv4: (.ipv4 // .ip // ""), status: (.status // "")}]' 2>/dev/null
+    # Alice API may return either {"data":[...]} or a bare array [...]. The instance ID
+    # field may be "id", "instance id" (space), or "instance_id" across API versions.
+    local items
+    items=$(echo "${body}" | jq -c 'if type == "array" then . elif .data then .data else [] end' 2>/dev/null)
+    echo "${items}" | jq -c '[.[] | {instance_id: (.["instance id"] // .id // .instance_id | tostring), ipv4: (.ipv4 // .ip // ""), status: (.status // "")}]' 2>/dev/null
 }
 
 alice_platform_ssh_exec() {
