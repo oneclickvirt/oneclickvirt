@@ -8,7 +8,7 @@
 # ============================================================================
 PLATFORM_ALICE_ENABLED="${PLATFORM_ALICE_ENABLED:-true}"
 PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-false}"
-PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-true}"
+PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-false}"
 PLATFORM_SKRIME_ENABLED="${PLATFORM_SKRIME_ENABLED:-false}"
 PLATFORM_PREPAIDHOST_ENABLED="${PLATFORM_PREPAIDHOST_ENABLED:-false}"
 PLATFORM_CUBEPATH_ENABLED="${PLATFORM_CUBEPATH_ENABLED:-false}"
@@ -86,7 +86,7 @@ declare -A PLATFORM_SSH_USER=(
 # Platform Reinstall Support
 # ============================================================================
 declare -A PLATFORM_SUPPORTS_REINSTALL=(
-    [alice]="false"
+    [alice]="true"
     [lightnode]="true"
     [rackdog]="true"
     [skrime]="true"

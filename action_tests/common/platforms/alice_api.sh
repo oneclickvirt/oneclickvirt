@@ -47,9 +47,37 @@ alice_instance_power() {
     alice_request "POST" "/evo/instances/$1/power" "{\"action\":\"$2\"}"
 }
 
+alice_rebuild_instance_raw() {
+    local instance_id="$1" os_id="$2" ssh_key_id="${3:-}" boot_script="${4:-}"
+    local data="{\"os_id\":${os_id}"
+    [[ -n "$ssh_key_id" ]] && data="${data},\"ssh_key_id\":${ssh_key_id}"
+    [[ -n "$boot_script" ]] && data="${data},\"boot_script\":\"${boot_script}\""
+    data="${data}}"
+    alice_request "POST" "/evo/instances/${instance_id}/rebuild" "$data"
+}
+
+alice_renewal_instance_raw() {
+    local instance_id="$1" hours="${2:-1}"
+    alice_request "POST" "/evo/instances/${instance_id}/renewals" "{\"time\":${hours}}"
+}
+
 # ============================================================================
 # Internal helpers
 # ============================================================================
+
+# Get instance IP from the list endpoint (the state endpoint does not include IP).
+_alice_get_instance_ip() {
+    local id="$1"
+    local resp; resp=$(alice_list_instances_raw)
+    local body; body=$(alice_parse_body "$resp")
+    local code; code=$(alice_parse_code "$resp")
+    if [[ "$code" != "200" ]]; then
+        log_error "[alice] List instances failed when fetching IP (HTTP ${code})"
+        return 1
+    fi
+    echo "$body" | jq -r --arg id "$id" '.data[]? | select((.id|tostring) == $id) | .ipv4 // .ip // empty' 2>/dev/null
+}
+
 _alice_get_min_package_id() {
     local r; r=$(alice_get_permissions)
     local body; body=$(alice_parse_body "$r")
@@ -165,20 +193,19 @@ alice_platform_create_instance() {
     [[ -z "${id}" ]] && { log_error "[alice] Cannot get instance ID: ${body}"; return 1; }
     log_success "[alice] Instance creation requested, ID: ${id}"
     _alice_wait_instance_ready "${id}" 600 || return 1
-    # Re-fetch instance state after provisioning; IP is often absent from the create response
-    local state_r; state_r=$(alice_get_instance_state "${id}")
-    local state_b; state_b=$(alice_parse_body "${state_r}")
-    log_debug "[alice] Instance ${id} state after ready: ${state_b}"
-    local ip; ip=$(echo "${state_b}" | jq -r '.data.ipv4 // .data.ip // .data.ipv4_address // .data.network[0].ip // empty' 2>/dev/null)
+    # Get IP from the instance list endpoint (the /state endpoint does NOT include IP)
+    local ip; ip=$(_alice_get_instance_ip "${id}")
     if [[ -z "$ip" ]]; then
         # Fallback: try from original create response
         ip=$(echo "${body}" | jq -r '.data.ipv4 // .data.ip // empty' 2>/dev/null)
     fi
     if [[ -z "$ip" ]]; then
-        log_error "[alice] Cannot determine IP for instance ${id}. State response: ${state_b}"
+        log_error "[alice] Cannot determine IP for instance ${id}"
+        log_error "[alice] Create response body: ${body}"
         return 1
     fi
     local password; password=$(echo "${body}" | jq -r '.data.password // empty' 2>/dev/null)
+    log_success "[alice] Instance created: ID=${id} IP=${ip}"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"ssh_user\":\"root\",\"platform\":\"alice\"}"
 }
 
@@ -192,8 +219,36 @@ alice_platform_delete_instance() {
 }
 
 alice_platform_reinstall_instance() {
-    log_error "[alice] Reinstall not supported - AliceInit does not have a reinstall API"
-    return 1
+    local id="$1" os_name="${2:-debian}"
+    log_info "[alice] Rebuilding instance ${id} (os=${os_name})..."
+    # Get the plan_id from instance list so we can look up an os_id for that plan
+    local list_resp; list_resp=$(alice_list_instances_raw)
+    local list_body; list_body=$(alice_parse_body "$list_resp")
+    local plan_id; plan_id=$(echo "$list_body" | jq -r --arg id "$id" '.data[]? | select((.id|tostring) == $id) | .plan_id // empty' 2>/dev/null)
+    if [[ -z "$plan_id" ]]; then
+        log_warning "[alice] Could not determine plan_id from list, using permissions"
+        plan_id=$(_alice_get_min_package_id) || return 1
+    fi
+    local os_id; os_id=$(_alice_get_os_id_for_plan "${plan_id}" "${os_name}") || return 1
+    local ssh_key_id; ssh_key_id=$(_alice_get_ssh_key_id) || ssh_key_id=""
+    local resp; resp=$(alice_rebuild_instance_raw "${id}" "${os_id}" "${ssh_key_id}" "")
+    local body; body=$(alice_parse_body "${resp}")
+    local http_code; http_code=$(alice_parse_code "${resp}")
+    if [[ "${http_code}" != "200" ]]; then
+        log_error "[alice] Rebuild failed (HTTP ${http_code}): ${body}"
+        return 1
+    fi
+    log_info "[alice] Rebuild accepted, waiting for instance ${id} to be ready..."
+    _alice_wait_instance_ready "${id}" 600 || return 1
+    # Get IP from instance list (state endpoint has no IP)
+    local ip; ip=$(_alice_get_instance_ip "${id}")
+    if [[ -z "$ip" ]]; then
+        log_error "[alice] Cannot determine IP after rebuild for instance ${id}"
+        return 1
+    fi
+    local password; password=$(echo "${body}" | jq -r '.data.password // empty' 2>/dev/null)
+    log_success "[alice] Instance rebuilt: ID=${id} IP=${ip}"
+    echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"ssh_user\":\"root\",\"platform\":\"alice\"}"
 }
 
 alice_platform_list_instances() {
