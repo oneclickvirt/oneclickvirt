@@ -4,7 +4,7 @@
 
 [![Build and Push Docker Images](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/build_docker.yml)
 
-[![Integration Tests](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration_tests.yml)
+[![Integration Tests](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration-tests.yml/badge.svg)](https://github.com/oneclickvirt/oneclickvirt/actions/workflows/integration-tests.yml)
 
 [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=license)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=license) [![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt.svg?type=shield&issueType=security)](https://app.fossa.com/projects/git%2Bgithub.com%2Foneclickvirt%2Foneclickvirt?ref=badge_shield&issueType=security)
 
