@@ -39,28 +39,16 @@ log_info "Modules: ${MODULES}"
 log_info "Instance types: ${INSTANCE_TYPES} (requested: ${RAW_INSTANCE_TYPES})"
 log_info "Node hours: ${NODE_HOURS}h"
 
-# Preflight: check required environment variables
-if [[ -z "${ALICE_CLIENT_ID:-}" ]]; then
-    log_error "ALICE_CLIENT_ID is not set. Cannot create test nodes."
-    log_error "Set it via: export ALICE_CLIENT_ID=your_client_id"
+# Preflight: check that at least one platform is enabled and has credentials
+ENABLED_PLATFORMS=$(get_enabled_platforms)
+if [[ -z "${ENABLED_PLATFORMS}" ]]; then
+    log_error "No cloud platforms are enabled."
+    log_error "Set PLATFORM_<NAME>_ENABLED=true and provide the corresponding secrets."
+    log_error "Example: export PLATFORM_ALICE_ENABLED=true ALICE_CLIENT_ID=xxx ALICE_CLIENT_SECRET=xxx"
     exit 1
 fi
-if [[ -z "${ALICE_CLIENT_SECRET:-}" ]]; then
-    log_error "ALICE_CLIENT_SECRET is not set. Cannot create test nodes."
-    log_error "Set it via: export ALICE_CLIENT_SECRET=your_client_secret"
-    exit 1
-fi
-if [[ -z "${ALICE_PRIVATE_KEY:-}" ]]; then
-    log_error "ALICE_PRIVATE_KEY is not set. Cannot SSH into test nodes."
-    log_error "Set it via: export ALICE_PRIVATE_KEY='<private key content>'"
-    exit 1
-fi
-if [[ -z "${ALICE_PUBLIC_KEY:-}" ]]; then
-    log_warning "ALICE_PUBLIC_KEY is not set. SSH key ID cannot be resolved; instances will use first available key."
-fi
-
-# Set up SSH private key for instance access
-alice_setup_ssh_key || exit 1
+log_info "Enabled platforms: ${ENABLED_PLATFORMS}"
+log_info "Active platform will be selected automatically with fallback"
 
 # -- Report & results init --
 report_init "${REPORT_DIR}/${ENV_TYPE}-report.md" "${ENV_TYPE}"
@@ -118,9 +106,10 @@ WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
 export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
 export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
 export WORKER_PASSWORD="$NODE_PASSWORD"
+WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
-log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP}"
+log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP} Platform=${WORKER_PLATFORM}"
 log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..."
 
 # =============================================================

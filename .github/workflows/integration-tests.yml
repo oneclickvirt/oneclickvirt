@@ -15,6 +15,23 @@ on:
           - containerd
           - proxmoxve
         default: 'docker'
+      platform:
+        description: 'Cloud platform to use (auto = priority-order fallback)'
+        required: false
+        type: choice
+        options:
+          - auto
+          - alice
+          - lightnode
+          - vultr
+          - hetzner
+          - linode
+          - rackdog
+          - skrime
+          - prepaidhost
+          - cubepath
+          - cloudsigma
+        default: 'auto'
       instance_types:
         description: 'Instance types to test (auto-corrected per platform)'
         required: true
@@ -34,6 +51,11 @@ on:
         required: false
         type: string
         default: '8'
+      skip_instance_delete:
+        description: 'Skip instance deletion after tests (keep alive)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   integration-test:
@@ -80,6 +102,7 @@ jobs:
         run: |
           ENV="${{ inputs.environment }}"
           TYPES="${{ inputs.instance_types }}"
+          PLATFORM="${{ inputs.platform }}"
           # Platform capabilities (hardcoded)
           case "$ENV" in
             docker|podman|containerd)
@@ -97,14 +120,54 @@ jobs:
               ;;
           esac
           echo "instance_types=${TYPES}" >> "$GITHUB_OUTPUT"
-          echo "Validated: env=${ENV} instance_types=${TYPES}"
+          echo "platform=${PLATFORM}" >> "$GITHUB_OUTPUT"
+          echo "Validated: env=${ENV} instance_types=${TYPES} platform=${PLATFORM}"
 
       - name: Run integration tests
         env:
+          # Alice platform
           ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
           ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
           ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
           ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
+          # LightNode platform
+          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+          LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
+          LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+          # Vultr platform
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+          VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
+          VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
+          # Hetzner platform
+          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+          HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
+          HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
+          # Linode platform
+          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
+          LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
+          LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
+          # RackDog platform
+          RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
+          RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
+          RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+          # Skrime platform
+          SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
+          SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
+          # PrepaidHost platform
+          PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
+          PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
+          # Cubepath platform
+          CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
+          CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
+          CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
+          # CloudSigma platform
+          CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
+          CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
+          CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
+          # Platform selection (auto = try all enabled in priority order)
+          PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
+          SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
+          # Test settings
           ENV_TYPE: ${{ inputs.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
@@ -118,6 +181,35 @@ jobs:
           chmod -R +x action_tests/common/ 2>/dev/null || true
           chmod -R +x action_tests/report/ 2>/dev/null || true
           mkdir -p action_tests/reports
+
+          # Auto-enable platform based on selection
+          if [[ "$PLATFORM_SELECTION" != "auto" ]]; then
+            # Disable all, enable only the selected one
+            export PLATFORM_ALICE_ENABLED=false
+            export PLATFORM_LIGHTNODE_ENABLED=false
+            export PLATFORM_VULTR_ENABLED=false
+            export PLATFORM_HETZNER_ENABLED=false
+            export PLATFORM_LINODE_ENABLED=false
+            export PLATFORM_RACKDOG_ENABLED=false
+            export PLATFORM_SKRIME_ENABLED=false
+            export PLATFORM_PREPAIDHOST_ENABLED=false
+            export PLATFORM_CUBEPATH_ENABLED=false
+            export PLATFORM_CLOUDSIGMA_ENABLED=false
+            PLATFORM_VAR="PLATFORM_$(echo "$PLATFORM_SELECTION" | tr '[:lower:]' '[:upper:]')_ENABLED"
+            export "${PLATFORM_VAR}=true"
+          else
+            # Auto mode: enable alice (default) + lightnode (fallback) if secrets are set
+            export PLATFORM_ALICE_ENABLED=true
+            [[ -n "${LIGHTNODE_TOKEN:-}" ]] && export PLATFORM_LIGHTNODE_ENABLED=true
+            [[ -n "${VULTR_API_KEY:-}" ]] && export PLATFORM_VULTR_ENABLED=true
+            [[ -n "${HETZNER_API_TOKEN:-}" ]] && export PLATFORM_HETZNER_ENABLED=true
+            [[ -n "${LINODE_TOKEN:-}" ]] && export PLATFORM_LINODE_ENABLED=true
+            [[ -n "${RACKDOG_API_KEY:-}" ]] && export PLATFORM_RACKDOG_ENABLED=true
+            [[ -n "${SKRIME_API_KEY:-}" ]] && export PLATFORM_SKRIME_ENABLED=true
+            [[ -n "${PREPAIDHOST_API_KEY:-}" ]] && export PLATFORM_PREPAIDHOST_ENABLED=true
+            [[ -n "${CUBEPATH_API_KEY:-}" ]] && export PLATFORM_CUBEPATH_ENABLED=true
+            [[ -n "${CLOUDSIGMA_EMAIL:-}" ]] && export PLATFORM_CLOUDSIGMA_ENABLED=true
+          fi
 
           # Run with error capture - never fail silently
           set +e
@@ -255,6 +347,7 @@ jobs:
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Platform | ${{ inputs.platform }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
