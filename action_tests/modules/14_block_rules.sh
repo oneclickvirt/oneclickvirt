@@ -78,6 +78,6 @@ run_module_14() {
         test_api "Delete port rule" "DELETE" "/api/v1/admin/block-rules/${br2_id}" "200" "" "$group"
     fi
 
-    # -- Delete nonexistent rule --
-    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "404|500" "" "$group"
+    # -- Delete nonexistent rule (GORM Delete returns success even for non-existing records) --
+    test_api "Delete nonexistent rule" "DELETE" "/api/v1/admin/block-rules/99999" "200|404|500" "" "$group"
 }

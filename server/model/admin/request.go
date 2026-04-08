@@ -95,8 +95,8 @@ type CreateProviderRequest struct {
 	TrafficSyncMethod    string  `json:"trafficSyncMethod"`    // 流量同步方式：pmacct(传统), agent(Rust Agent)
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
-	TrafficCollectInterval     int    `json:"trafficStatsInterval"`       // 流量统计间隔（秒）
-	TrafficCollectBatchSize    int    `json:"trafficStatsBatchSize"`      // 流量统计批量大小
+	TrafficCollectInterval     int    `json:"trafficCollectInterval"`     // 流量统计间隔（秒）
+	TrafficCollectBatchSize    int    `json:"trafficCollectBatchSize"`    // 流量统计批量大小
 	TrafficLimitCheckInterval  int    `json:"trafficLimitCheckInterval"`  // 流量限制检测间隔（秒）
 	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
 	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）
@@ -189,8 +189,8 @@ type UpdateProviderRequest struct {
 	TrafficMultiplier    float64 `json:"trafficMultiplier"`    // 流量计费倍率，默认1.0
 	// 流量统计性能配置
 	TrafficStatsMode           string `json:"trafficStatsMode"`           // 流量统计性能模式：high, standard, light, minimal, custom
-	TrafficCollectInterval     int    `json:"trafficStatsInterval"`       // 流量统计间隔（秒）
-	TrafficCollectBatchSize    int    `json:"trafficStatsBatchSize"`      // 流量统计批量大小
+	TrafficCollectInterval     int    `json:"trafficCollectInterval"`     // 流量统计间隔（秒）
+	TrafficCollectBatchSize    int    `json:"trafficCollectBatchSize"`    // 流量统计批量大小
 	TrafficLimitCheckInterval  int    `json:"trafficLimitCheckInterval"`  // 流量限制检测间隔（秒）
 	TrafficLimitCheckBatchSize int    `json:"trafficLimitCheckBatchSize"` // 流量限制检测批量大小
 	TrafficAutoResetInterval   int    `json:"trafficAutoResetInterval"`   // 流量自动重置检查间隔（秒）

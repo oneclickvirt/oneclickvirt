@@ -950,6 +950,10 @@ func (s *Service) GetProviderStatus(providerID uint) (*admin.ProviderStatusRespo
 		NodeDiskTotal:    provider.NodeDiskTotal,
 		ResourceSynced:   provider.ResourceSynced,
 		ResourceSyncedAt: provider.ResourceSyncedAt,
+		// 冻结信息
+		IsFrozen:     provider.IsFrozen,
+		FrozenReason: provider.FrozenReason,
+		FrozenAt:     provider.FrozenAt,
 	}
 
 	return response, nil

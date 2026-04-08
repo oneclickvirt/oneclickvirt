@@ -26,6 +26,7 @@ run_module_18() {
     # ---- Available resources ----
     test_api "Get available resources" "GET" "/api/v1/user/resources/available" "200" "" "$group" "$USER_TOKEN"
     test_api "Get available providers" "GET" "/api/v1/user/providers/available" "200" "" "$group" "$USER_TOKEN"
+    test_api "Get virtualization providers" "GET" "/api/v1/resources/virtualization/providers" "200" "" "$group" "$USER_TOKEN"
     test_api "Get user images" "GET" "/api/v1/user/images" "200" "" "$group" "$USER_TOKEN"
     test_api "Get filtered images" "GET" "/api/v1/user/images/filtered" "200|400" "" "$group" "$USER_TOKEN"
     test_api "Get instance type perms" "GET" "/api/v1/user/instance-type-permissions" "200" "" "$group" "$USER_TOKEN"

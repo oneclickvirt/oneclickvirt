@@ -122,6 +122,10 @@ type ProviderStatusResponse struct {
 	NodeDiskTotal    int64      `json:"nodeDiskTotal"`
 	ResourceSynced   bool       `json:"resourceSynced"`
 	ResourceSyncedAt *time.Time `json:"resourceSyncedAt"`
+	// 冻结信息
+	IsFrozen     bool       `json:"isFrozen"`
+	FrozenReason string     `json:"frozenReason"`
+	FrozenAt     *time.Time `json:"frozenAt"`
 }
 
 // ConfigurationTaskResponse 配置任务响应

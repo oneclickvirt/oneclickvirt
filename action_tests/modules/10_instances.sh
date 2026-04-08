@@ -222,6 +222,16 @@ run_module_10() {
     test_api "Task stats" "GET" "/api/v1/admin/tasks/stats" "200" "" "$group"
     test_api "Overall task stats" "GET" "/api/v1/admin/tasks/overall-stats" "200" "" "$group"
 
+    # -- Task detail (get first task ID if available) --
+    local tasks_resp; tasks_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/tasks?page=1&pageSize=1" 2>/dev/null)
+    local first_task_id; first_task_id=$(echo "$tasks_resp" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
+    if [[ -n "$first_task_id" ]]; then
+        test_api "Task detail" "GET" "/api/v1/admin/tasks/${first_task_id}" "200" "" "$group"
+        test_api "Cancel completed task" "POST" "/api/v1/admin/tasks/${first_task_id}/cancel" "200|400" "" "$group"
+    fi
+    test_api "Get nonexistent task" "GET" "/api/v1/admin/tasks/99999" "404|500" "" "$group"
+
     # -- Get nonexistent instance (route does not exist so Gin returns 404) --
     test_api "Get nonexistent instance" "GET" "/api/v1/admin/instances/99999" "404" "" "$group"
 

@@ -39,7 +39,15 @@ run_module_12() {
         test_api "Traffic monitor operation" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
             "{\"providerId\":${PROVIDER_ID},\"operation\":\"enable\"}" "$group"
         test_api "Traffic monitor tasks" "GET" "/api/v1/admin/providers/traffic-monitor/tasks?page=1&pageSize=10" "200" "" "$group"
-        test_api "Latest traffic monitor" "GET" "/api/v1/admin/providers/traffic-monitor/latest" "200" "" "$group"
+        test_api "Latest traffic monitor" "GET" "/api/v1/admin/providers/traffic-monitor/latest?providerId=${PROVIDER_ID}" "200" "" "$group"
+
+        # -- Traffic monitor task detail (get first task if available) --
+        local tm_tasks; tm_tasks=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/traffic-monitor/tasks?page=1&pageSize=1" 2>/dev/null)
+        local tm_task_id; tm_task_id=$(echo "$tm_tasks" | jq -r '.data.list[0].id // .data[0].id // empty' 2>/dev/null)
+        if [[ -n "$tm_task_id" ]]; then
+            test_api "Traffic monitor task detail" "GET" "/api/v1/admin/providers/traffic-monitor/tasks/${tm_task_id}" "200" "" "$group"
+        fi
     fi
 
     # -- Traffic sync --

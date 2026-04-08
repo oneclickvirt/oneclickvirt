@@ -224,7 +224,7 @@ export function useInstanceManagement() {
         inputPlaceholder: instance.expiresAt ? formatDate(instance.expiresAt) : '2024-12-31 23:59:59',
         inputValue: instance.expiresAt ? formatDate(instance.expiresAt) : ''
       })
-      await setInstanceExpiry({ instanceID: instance.id, expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null })
+      await setInstanceExpiry({ instanceId: instance.id, expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null })
       ElMessage.success(t('admin.instances.setExpirySuccess'))
       await loadInstances()
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.instances.setExpiryFailed')) }
@@ -235,7 +235,7 @@ export function useInstanceManagement() {
       const { value: reason } = await ElMessageBox.prompt(t('admin.instances.freezePrompt'), t('admin.instances.freeze'), {
         confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), inputPlaceholder: t('admin.instances.enterFreezeReason')
       })
-      await freezeInstance({ instanceID: instance.id, reason: reason || '' })
+      await freezeInstance({ instanceId: instance.id, reason: reason || '' })
       ElMessage.success(t('admin.instances.freezeSuccess'))
       await loadInstances()
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.instances.freezeFailed')) }
@@ -244,7 +244,7 @@ export function useInstanceManagement() {
   const handleUnfreezeInstance = async (instance) => {
     try {
       await ElMessageBox.confirm(t('admin.instances.unfreezeConfirm'), t('admin.instances.unfreeze'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
-      await unfreezeInstance({ instanceID: instance.id })
+      await unfreezeInstance({ instanceId: instance.id })
       ElMessage.success(t('admin.instances.unfreezeSuccess'))
       await loadInstances()
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.instances.unfreezeFailed')) }

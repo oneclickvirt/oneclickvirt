@@ -29,6 +29,12 @@ func (s *Service) GetCheckinConfig(providerID uint) (*checkinModel.CheckinConfig
 	var config checkinModel.CheckinConfig
 	err := global.APP_DB.Where("provider_id = ?", providerID).First(&config).Error
 	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			// 返回默认配置
+			return &checkinModel.CheckinConfig{
+				ProviderID: providerID,
+			}, nil
+		}
 		return nil, err
 	}
 	return &config, nil

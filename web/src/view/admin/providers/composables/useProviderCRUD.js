@@ -375,7 +375,7 @@ export function useProviderCRUD() {
         }
       )
       await setProviderExpiry({
-        providerID: provider.id,
+        providerId: provider.id,
         expiresAt: expiresAt ? new Date(expiresAt).toISOString() : null
       })
       ElMessage.success(t('admin.providers.setExpirySuccess'))

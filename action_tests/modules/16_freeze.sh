@@ -23,7 +23,7 @@ run_module_16() {
     # -- Verify frozen status --
     local ps; ps=$(test_api "Provider status (frozen)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/status" "200" "" "$group")
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
-    local frozen; frozen=$(echo "$ps" | jq -r '.data.frozen // .data.is_frozen // empty' 2>/dev/null)
+    local frozen; frozen=$(echo "$ps" | jq -r '.data.isFrozen // empty' 2>/dev/null)
     if [[ "$frozen" == "true" ]]; then
         PASSED_TESTS=$((PASSED_TESTS + 1))
         log_success "Provider frozen status verified"

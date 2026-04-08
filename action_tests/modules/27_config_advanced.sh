@@ -28,7 +28,7 @@ run_module_27() {
     if [[ -n "$PROVIDER_ID" ]]; then
         local auto_resp; auto_resp=$(test_api "Auto-configure provider" "POST" \
             "/api/v1/admin/providers/auto-configure" "200|201|400" \
-            '{"provider_id":'"$PROVIDER_ID"'}' "$group" "$ADMIN_TOKEN")
+            '{"providerId":'"$PROVIDER_ID"'}' "$group" "$ADMIN_TOKEN")
         local cfg_task; cfg_task=$(echo "$auto_resp" | grep -o '"task_id":[0-9]*\|"task_id":"[^"]*"' | head -1 | grep -o '[0-9]*$\|[^"]*"$' | tr -d '"')
 
         if [[ -n "$cfg_task" ]]; then
@@ -46,7 +46,7 @@ run_module_27() {
 
         # ---- Hardware report ----
         test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" \
-            '{"cpu":"Intel Xeon","memory":"16GB","disk":"500GB SSD","network":"1Gbps"}' "$group" "$ADMIN_TOKEN"
+            '{"pasteUrl":"https://paste.spiritlhl.net/#/show/test-ci-report.txt"}' "$group" "$ADMIN_TOKEN"
         test_api "Get hardware report (admin)" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200" \
             "" "$group" "$ADMIN_TOKEN"
         test_api "Get hardware report (public)" "GET" "/api/v1/public/providers/${PROVIDER_ID}/hardware-report" "200" \

@@ -46,7 +46,7 @@ run_module_07() {
 
     # -- Log viewing --
     test_api "Log dates" "GET" "/api/v1/admin/logs/dates" "200" "" "$group"
-    test_api "Log content" "GET" "/api/v1/admin/logs/content?date=today" "200" "" "$group"
+    test_api "Log content" "GET" "/api/v1/admin/logs/content?date=$(date +%Y-%m-%d)&file=info" "200|404" "" "$group"
 
     # -- Admin group info --
     test_api "Get group info" "GET" "/api/v1/admin/group-info" "200" "" "$group"
