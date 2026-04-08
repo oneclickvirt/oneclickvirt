@@ -1,10 +1,12 @@
 package admin
 
 import (
-	"net/http"
+	"fmt"
 	"oneclickvirt/middleware"
+	adminProvider "oneclickvirt/service/admin/provider"
 	"oneclickvirt/service/provider"
 	"strconv"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -61,56 +63,49 @@ func GetAdminDashboard(c *gin.Context) {
 func GetInstanceList(c *gin.Context) {
 	var req admin.InstanceListRequest
 
-	// 使用请求处理服务处理参数
 	requestProcessService := provider.RequestProcessService{}
 	if err := requestProcessService.ProcessInstanceListRequest(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	instanceService := instance.NewService(task.GetTaskService())
 	instances, total, err := instanceService.GetInstanceList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取实例列表失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例列表失败"))
 		return
 	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  instances,
-			"total": total,
-		},
-	})
+	common.ResponseSuccessWithPagination(c, instances, total, req.Page, req.PageSize)
 }
 
 // CreateInstance 创建实例
-// @Summary 创建实例
-// @Description 管理员创建新的虚拟化实例
-// @Tags 管理员管理
-// @Accept json
-// @Produce json
-// @Security BearerAuth
-// @Param request body admin.CreateInstanceRequest true "创建实例请求参数"
-// @Success 200 {object} common.Response "创建成功"
-// @Failure 400 {object} common.Response "请求参数错误"
-// @Failure 500 {object} common.Response "服务器内部错误"
-// @Router /admin/instances [post]
 func CreateInstance(c *gin.Context) {
 	var req admin.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("管理员创建实例参数错误", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
+	}
+
+	// 如果通过provider_id传入，查找对应的provider名称
+	if req.Provider == "" && req.ProviderID > 0 {
+		providerService := adminProvider.NewService()
+		providerName, err := providerService.GetProviderNameByID(req.ProviderID)
+		if err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
+			return
+		}
+		req.Provider = providerName
+	}
+
+	if req.Provider == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "必须指定provider或provider_id"))
+		return
+	}
+
+	// 自动生成实例名称
+	if req.Name == "" {
+		req.Name = fmt.Sprintf("inst-%s-%d", req.InstanceType, time.Now().Unix())
 	}
 
 	global.APP_LOG.Debug("管理员开始创建实例",
@@ -126,10 +121,7 @@ func CreateInstance(c *gin.Context) {
 			zap.String("instance_name", utils.TruncateString(req.Name, 50)),
 			zap.String("provider", req.Provider),
 			zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
@@ -138,20 +130,14 @@ func CreateInstance(c *gin.Context) {
 		zap.String("provider", req.Provider),
 		zap.String("admin_ip", c.ClientIP()))
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "创建实例成功",
-	})
+	common.ResponseSuccess(c, nil, "创建实例成功")
 }
 
 func UpdateInstance(c *gin.Context) {
 	var req admin.UpdateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("管理员更新实例参数错误", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -166,10 +152,7 @@ func UpdateInstance(c *gin.Context) {
 			zap.Error(err),
 			zap.Uint("instance_id", req.ID),
 			zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
@@ -177,10 +160,7 @@ func UpdateInstance(c *gin.Context) {
 		zap.Uint("instance_id", req.ID),
 		zap.String("admin_ip", c.ClientIP()))
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "更新实例成功",
-	})
+	common.ResponseSuccess(c, nil, "更新实例成功")
 }
 
 func DeleteInstance(c *gin.Context) {
@@ -191,10 +171,7 @@ func DeleteInstance(c *gin.Context) {
 			zap.Error(err),
 			zap.String("instance_id_str", utils.TruncateString(instanceIDStr, 20)),
 			zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的实例ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
 		return
 	}
 
@@ -209,10 +186,7 @@ func DeleteInstance(c *gin.Context) {
 			zap.Error(err),
 			zap.Uint64("instance_id", instanceID),
 			zap.String("admin_ip", c.ClientIP()))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 400,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
@@ -220,10 +194,7 @@ func DeleteInstance(c *gin.Context) {
 		zap.Uint64("instance_id", instanceID),
 		zap.String("admin_ip", c.ClientIP()))
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "删除任务已创建，请查看任务列表了解进度",
-	})
+	common.ResponseSuccess(c, nil, "删除任务已创建，请查看任务列表了解进度")
 }
 
 // GetInstanceTypePermissions 获取实例类型权限配置

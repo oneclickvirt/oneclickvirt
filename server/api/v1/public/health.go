@@ -1,7 +1,6 @@
 package public
 
 import (
-	"net/http"
 	"time"
 
 	"oneclickvirt/global"
@@ -49,20 +48,9 @@ func HealthCheck(c *gin.Context) {
 	}
 
 	// 总体健康状态
-	overall := dbHealthy
-	statusCode := http.StatusOK
+	healthStatus["healthy"] = dbHealthy
 
-	if !overall {
-		statusCode = http.StatusServiceUnavailable
-	}
-
-	healthStatus["healthy"] = overall
-
-	c.JSON(statusCode, common.Response{
-		Code: common.CodeSuccess,
-		Data: healthStatus,
-		Msg:  "健康检查完成",
-	})
+	common.ResponseSuccess(c, healthStatus, "健康检查完成")
 }
 
 // DatabaseStatsAPI 数据库统计信息API
@@ -76,9 +64,5 @@ func HealthCheck(c *gin.Context) {
 func DatabaseStatsAPI(c *gin.Context) {
 	stats := utils.GetDBStats()
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Data: stats,
-		Msg:  "数据库统计信息获取成功",
-	})
+	common.ResponseSuccess(c, stats, "数据库统计信息获取成功")
 }

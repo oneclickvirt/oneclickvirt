@@ -54,6 +54,9 @@ const (
 	CodeCacheError       = 5003
 	CodeExternalAPIError = 5004
 	CodeRequestTooLarge  = 5005
+
+	// Provider相关错误（前端依赖此code）
+	CodeProviderHasInstances = 40901 // Provider存在运行中实例，无法删除
 )
 
 // 错误信息映射
@@ -91,8 +94,7 @@ var ErrorMessages = map[int]string{
 	CodeDatabaseError:           "数据库错误",
 	CodeCacheError:              "缓存错误",
 	CodeExternalAPIError:        "外部API调用失败",
-	CodeRequestTooLarge:         "请求数据过大",
-}
+	CodeRequestTooLarge:         "请求数据过大", CodeProviderHasInstances: "Provider存在运行中的实例"}
 
 // AppError 统一错误结构
 type AppError struct {
@@ -133,14 +135,17 @@ func ResponseWithError(c *gin.Context, err error) {
 		httpCode := getHTTPCode(appErr.Code)
 		c.JSON(httpCode, gin.H{
 			"code":    appErr.Code,
+			"msg":     appErr.Message,
 			"message": appErr.Message,
 			"details": appErr.Details,
 			"data":    nil,
 		})
 	} else {
+		msg := ErrorMessages[CodeInternalError]
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    CodeInternalError,
-			"message": ErrorMessages[CodeInternalError],
+			"msg":     msg,
+			"message": msg,
 			"details": err.Error(),
 			"data":    nil,
 		})
@@ -155,15 +160,18 @@ func ResponseSuccess(c *gin.Context, data interface{}, message ...string) {
 
 	c.JSON(http.StatusOK, gin.H{
 		"code":    CodeSuccess,
+		"msg":     msg,
 		"message": msg,
 		"data":    data,
 	})
 }
 
 func ResponseSuccessWithPagination(c *gin.Context, data interface{}, total int64, page, pageSize int) {
+	msg := ErrorMessages[CodeSuccess]
 	c.JSON(http.StatusOK, gin.H{
 		"code":    CodeSuccess,
-		"message": ErrorMessages[CodeSuccess],
+		"msg":     msg,
+		"message": msg,
 		"data": gin.H{
 			"list":     data,
 			"total":    total,
@@ -184,7 +192,7 @@ func getHTTPCode(code int) int {
 		return http.StatusForbidden
 	case CodeNotFound, CodeUserNotFound, CodeRoleNotFound, CodePermissionNotFound:
 		return http.StatusNotFound
-	case CodeConflict, CodeUserExists, CodeUsernameExists, CodeRoleExists:
+	case CodeConflict, CodeUserExists, CodeUsernameExists, CodeRoleExists, CodeProviderHasInstances:
 		return http.StatusConflict
 	case CodeRequestTooLarge:
 		return http.StatusRequestEntityTooLarge

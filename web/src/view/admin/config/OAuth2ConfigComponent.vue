@@ -326,7 +326,7 @@ const loadConfig = async () => {
   loading.value = true
   try {
     const response = await getOAuth2Config()
-    if (response.code === 0 && response.data) {
+    if ((response.code === 0 || response.code === 200) && response.data) {
       // Response is a providers array; use the first provider as the config
       const providers = Array.isArray(response.data) ? response.data : []
       if (providers.length > 0) {
@@ -376,7 +376,7 @@ const handleSave = async () => {
       }
 
       const response = await updateOAuth2Config(providerId.value, data)
-      if (response.code === 0) {
+      if ((response.code === 0 || response.code === 200)) {
         ElMessage.success(t('admin.config.oauth2SaveSuccess'))
         await loadConfig()
       } else {
@@ -404,7 +404,7 @@ const resetRegistrationCount = async () => {
     )
 
     const response = await resetOAuth2RegistrationCount(providerId.value)
-    if (response.code === 0) {
+    if ((response.code === 0 || response.code === 200)) {
       ElMessage.success(t('admin.config.oauth2ResetCountSuccess'))
       await loadConfig()
     } else {

@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"strings"
 
+	"oneclickvirt/model/common"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -37,8 +39,10 @@ func setupStaticRoutes(router *gin.Engine) error {
 		// 如果是 API 路径，返回 404 JSON 响应
 		if isAPIPath(path) {
 			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  "API endpoint not found",
+				"code":    common.CodeNotFound,
+				"msg":     "API endpoint not found",
+				"message": "API endpoint not found",
+				"data":    nil,
 			})
 			return
 		}

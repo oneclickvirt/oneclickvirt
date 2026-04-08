@@ -1,7 +1,6 @@
 package public
 
 import (
-	"net/http"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
@@ -41,10 +40,10 @@ func CheckInit(c *gin.Context) {
 		needInit = false
 		global.APP_LOG.Debug("检测到系统初始化标志文件，系统已初始化", zap.String("flagPath", initFlagPath))
 
-		c.JSON(http.StatusOK, common.Success(gin.H{
+		common.ResponseSuccess(c, gin.H{
 			"needInit": needInit,
 			"message":  message,
-		}))
+		})
 		return
 	}
 
@@ -117,10 +116,10 @@ func CheckInit(c *gin.Context) {
 		zap.Bool("needInit", needInit),
 		zap.String("message", message))
 
-	c.JSON(http.StatusOK, common.Success(gin.H{
+	common.ResponseSuccess(c, gin.H{
 		"needInit": needInit,
 		"message":  message,
-	}))
+	})
 }
 
 // TestDatabaseConnection 测试数据库连接
@@ -146,13 +145,13 @@ func TestDatabaseConnection(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("数据库连接测试参数错误", zap.Error(err))
-		c.JSON(http.StatusBadRequest, common.Error("参数错误"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	// 支持MySQL和MariaDB
 	if req.Type != "mysql" && req.Type != "mariadb" {
-		c.JSON(http.StatusBadRequest, common.Error("仅支持MySQL和MariaDB数据库"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "仅支持MySQL和MariaDB数据库"))
 		return
 	}
 
@@ -162,7 +161,7 @@ func TestDatabaseConnection(c *gin.Context) {
 	// 转换端口字符串为整数
 	port, err := strconv.Atoi(req.Port)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("端口格式错误"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "端口格式错误"))
 		return
 	}
 
@@ -182,7 +181,7 @@ func TestDatabaseConnection(c *gin.Context) {
 			zap.String("database", req.Database),
 			zap.String("username", req.Username),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败，请检查连接参数"))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库连接失败，请检查连接参数"))
 		return
 	}
 
@@ -192,7 +191,7 @@ func TestDatabaseConnection(c *gin.Context) {
 		zap.String("database", req.Database),
 		zap.String("username", req.Username))
 
-	c.JSON(http.StatusOK, common.Success("数据库连接测试成功"))
+	common.ResponseSuccess(c, nil, "数据库连接测试成功")
 }
 
 // InitSystem 初始化系统
@@ -229,7 +228,7 @@ func InitSystem(c *gin.Context) {
 		} `json:"database" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("参数错误"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -237,7 +236,7 @@ func InitSystem(c *gin.Context) {
 	// 转换端口字符串为整数
 	port, err := strconv.Atoi(req.Database.Port)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("数据库端口格式错误"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "数据库端口格式错误"))
 		return
 	}
 
@@ -256,7 +255,7 @@ func InitSystem(c *gin.Context) {
 
 	// 测试数据库连接
 	if err := initService.TestDatabaseConnection(dbConfig); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("数据库连接失败，请检查连接参数"))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库连接失败，请检查连接参数"))
 		return
 	}
 
@@ -267,7 +266,7 @@ func InitSystem(c *gin.Context) {
 		systemStatsService := resources.SystemStatsService{}
 		hasUsers, err := systemStatsService.CheckUserExists()
 		if err == nil && hasUsers {
-			c.JSON(http.StatusBadRequest, common.Error("系统已初始化"))
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "系统已初始化"))
 			return
 		}
 		// 如果检查失败（比如没有选择数据库），继续初始化流程
@@ -278,7 +277,7 @@ func InitSystem(c *gin.Context) {
 
 	// 确保数据库和表结构
 	if err := initService.EnsureDatabase(dbConfig); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("数据库初始化失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库初始化失败: "+err.Error()))
 		return
 	}
 
@@ -299,7 +298,7 @@ func InitSystem(c *gin.Context) {
 		}
 	}
 	if err := authService.InitSystemWithUsers(adminInfo, userInfoPtr); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error(err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
@@ -342,7 +341,7 @@ func InitSystem(c *gin.Context) {
 		global.APP_LOG.Info("完整系统重新初始化完成")
 	}()
 
-	c.JSON(http.StatusOK, common.Success("系统初始化成功"))
+	common.ResponseSuccess(c, nil, "系统初始化成功")
 }
 
 // GetRegisterConfig 获取注册配置信息
@@ -367,7 +366,7 @@ func GetRegisterConfig(c *gin.Context) {
 		"domainEnabled":  global.GetAppConfig().Auth.EnableDomain,
 		"checkinEnabled": global.GetAppConfig().Auth.EnableCheckin,
 	}
-	c.JSON(http.StatusOK, common.Success(config))
+	common.ResponseSuccess(c, config)
 }
 
 // GetPublicSystemConfig 获取公开的系统配置信息
@@ -446,7 +445,7 @@ func GetPublicSystemConfig(c *gin.Context) {
 			zap.String("default_language", result["default_language"].(string)))
 	}
 
-	c.JSON(http.StatusOK, common.Success(result))
+	common.ResponseSuccess(c, result)
 }
 
 // GetRecommendedDatabaseType 获取推荐的数据库类型
@@ -477,5 +476,5 @@ func GetRecommendedDatabaseType(c *gin.Context) {
 		"supportedTypes":  []string{"mysql", "mariadb"},
 	}
 
-	c.JSON(http.StatusOK, common.Success(response))
+	common.ResponseSuccess(c, response)
 }

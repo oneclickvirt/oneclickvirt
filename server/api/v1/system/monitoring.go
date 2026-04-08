@@ -26,11 +26,7 @@ func (m *MonitoringApi) GetSystemStats(c *gin.Context) {
 	monitoringService := resources.MonitoringService{}
 	stats := monitoringService.GetSystemStats()
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: stats,
-	})
+	common.ResponseSuccess(c, stats, "获取成功")
 }
 
 // GetHealthCheck 获取系统健康检查
@@ -48,11 +44,7 @@ func (m *MonitoringApi) GetHealthCheck(c *gin.Context) {
 	monitoringService := resources.MonitoringService{}
 	health := monitoringService.CheckHealth()
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "检查成功",
-		Data: health,
-	})
+	common.ResponseSuccess(c, health, "检查成功")
 }
 
 // GetMetrics 获取Prometheus格式的指标
@@ -95,11 +87,7 @@ func GetSystemLogs(c *gin.Context) {
 	monitoringService := resources.MonitoringService{}
 	logs := monitoringService.GetSystemLogs(level, limit, offset)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取系统日志成功",
-		Data: logs,
-	})
+	common.ResponseSuccess(c, logs, "获取系统日志成功")
 }
 
 // GetOperationLogs 获取操作审计日志
@@ -130,9 +118,5 @@ func GetOperationLogs(c *gin.Context) {
 	monitoringService := resources.MonitoringService{}
 	auditLogs := monitoringService.GetOperationLogs(userID, action, startTime, endTime, limit, offset)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取操作日志成功",
-		Data: auditLogs,
-	})
+	common.ResponseSuccess(c, auditLogs, "获取操作日志成功")
 }

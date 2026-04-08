@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"fmt"
-	"net/http"
 	auth2 "oneclickvirt/service/auth"
 	"oneclickvirt/service/cache"
 	"strings"
@@ -66,10 +65,7 @@ func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 				zap.String("path", c.Request.URL.Path),
 				zap.String("method", c.Request.Method))
 
-			c.JSON(http.StatusForbidden, common.Response{
-				Code: 403,
-				Msg:  "权限不足",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "权限不足"))
 			c.Abort()
 			return
 		}
@@ -108,10 +104,7 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 		// 先确保用户已通过基础认证
 		authCtx, exists := GetAuthContext(c)
 		if !exists {
-			c.JSON(http.StatusUnauthorized, common.Response{
-				Code: 401,
-				Msg:  "用户未认证",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "用户未认证"))
 			c.Abort()
 			return
 		}
@@ -125,20 +118,14 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 		hasPermission, err := permissionService.CanAccessResource(authCtx.UserID, path, method)
 		if err != nil {
 			global.APP_LOG.Error("权限检查失败", zap.String("error", utils.FormatError(err)), zap.Uint("userID", authCtx.UserID), zap.String("resource", resource), zap.String("path", path), zap.String("method", method))
-			c.JSON(http.StatusInternalServerError, common.Response{
-				Code: 500,
-				Msg:  "权限检查失败",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "权限检查失败"))
 			c.Abort()
 			return
 		}
 
 		if !hasPermission {
 			global.APP_LOG.Debug("用户权限不足", zap.Uint("userID", authCtx.UserID), zap.String("userType", authCtx.UserType), zap.String("resource", resource), zap.String("path", path), zap.String("method", method))
-			c.JSON(http.StatusForbidden, common.Response{
-				Code: 403,
-				Msg:  "权限不足",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "权限不足"))
 			c.Abort()
 			return
 		}
@@ -360,21 +347,7 @@ func getUserLevel(userType string) auth.AuthLevel {
 
 // respondAuthError 统一的认证错误响应
 func respondAuthError(c *gin.Context, err error) {
-	if appErr, ok := err.(*common.AppError); ok {
-		httpCode := http.StatusUnauthorized
-		if appErr.Code == common.CodeForbidden {
-			httpCode = http.StatusForbidden
-		}
-		c.JSON(httpCode, common.Response{
-			Code: appErr.Code,
-			Msg:  appErr.Message,
-		})
-	} else {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: common.CodeInternalError,
-			Msg:  "认证失败",
-		})
-	}
+	common.ResponseWithError(c, err)
 	c.Abort()
 }
 
@@ -390,7 +363,7 @@ func RequireKYC() gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "请先完成实名认证"))
 		c.Abort()
 	}
 }
@@ -420,7 +393,7 @@ func RequireKYCFor(restrictionField string) gin.HandlerFunc {
 			c.Next()
 			return
 		}
-		c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "请先完成实名认证"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "请先完成实名认证"))
 		c.Abort()
 	}
 }
@@ -459,7 +432,7 @@ func RequireSuperAdmin() gin.HandlerFunc {
 
 		// 检查是否为超级管理员
 		if authCtx.UserType != "admin" {
-			c.JSON(http.StatusForbidden, common.Response{Code: 403, Msg: "需要超级管理员权限"})
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "需要超级管理员权限"))
 			c.Abort()
 			return
 		}

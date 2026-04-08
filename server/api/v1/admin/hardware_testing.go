@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"strconv"
 
 	"oneclickvirt/middleware"
@@ -22,13 +21,13 @@ import (
 func SaveHardwareReport(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	authCtx, ok := middleware.GetAuthContext(c)
 	if !ok {
-		c.JSON(http.StatusUnauthorized, common.Response{Code: 40100, Msg: "未授权"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
 		return
 	}
 
@@ -36,18 +35,18 @@ func SaveHardwareReport(c *gin.Context) {
 		PasteURL string `json:"pasteUrl" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "请提供粘贴板URL"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请提供粘贴板URL"))
 		return
 	}
 
 	svc := adminProviderService.NewService()
 	report, err := svc.SaveHardwareReport(c.Request.Context(), uint(providerID), authCtx.UserID, req.PasteURL)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Data: report, Msg: "报告已保存"})
+	common.ResponseSuccess(c, report, "报告已保存")
 }
 
 // GetHardwareTestReport 获取硬件测试报告
@@ -60,18 +59,18 @@ func SaveHardwareReport(c *gin.Context) {
 func GetHardwareTestReport(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	svc := adminProviderService.NewService()
 	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "暂无测试报告"})
+		common.ResponseSuccess(c, nil, "暂无测试报告")
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Data: report})
+	common.ResponseSuccess(c, report)
 }
 
 // DeleteHardwareReport 删除硬件报告
@@ -84,15 +83,15 @@ func GetHardwareTestReport(c *gin.Context) {
 func DeleteHardwareReport(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	svc := adminProviderService.NewService()
 	if err := svc.DeleteHardwareReport(c.Request.Context(), uint(providerID)); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "报告已删除"})
+	common.ResponseSuccess(c, nil, "报告已删除")
 }

@@ -1,7 +1,6 @@
 package system
 
 import (
-	"net/http"
 	"oneclickvirt/service/provider"
 	"strconv"
 
@@ -24,17 +23,10 @@ func GetAnnouncement(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	announcements, err := systemService.GetActiveAnnouncements(announcementType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取公告列表失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取公告列表失败"))
 		return
 	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: announcements,
-	})
+	common.ResponseSuccess(c, announcements, "获取成功")
 }
 
 func GetUsers(c *gin.Context) {
@@ -60,26 +52,16 @@ func GetProviders(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的Provider ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 	providerService := adminProvider.NewService()
 	status, err := providerService.GetProviderStatus(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取状态失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取状态失败: "+err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取状态成功",
-		Data: status,
-	})
+	common.ResponseSuccess(c, status, "获取状态成功")
 }
 
 func UpdateProviderStatus(c *gin.Context) {
@@ -87,35 +69,23 @@ func UpdateProviderStatus(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的Provider ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 	var req admin.UpdateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("UpdateProvider参数绑定失败", zap.Error(err))
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 	// 设置ID从URL参数
 	req.ID = uint(id)
 	providerService := adminProvider.NewService()
 	if err := providerService.UpdateProvider(req); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "更新提供商成功",
-	})
+	common.ResponseSuccess(c, nil, "更新提供商成功")
 }
 
 func GetAllInstances(c *gin.Context) {
@@ -124,29 +94,19 @@ func GetAllInstances(c *gin.Context) {
 	// 使用请求处理服务处理参数
 	requestProcessService := provider.RequestProcessService{}
 	if err := requestProcessService.ProcessInstanceListRequest(c, &req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	instanceService := adminInstance.NewService(task.GetTaskService())
 	instances, total, err := instanceService.GetInstanceList(req, 0)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取实例列表失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例列表失败"))
 		return
 	}
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  instances,
-			"total": total,
-		},
+	common.ResponseSuccess(c, map[string]interface{}{
+		"list":  instances,
+		"total": total,
 	})
 }
 
@@ -154,10 +114,7 @@ func AdminInstanceAction(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的实例ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
 		return
 	}
 
@@ -165,10 +122,7 @@ func AdminInstanceAction(c *gin.Context) {
 		Action string `json:"action" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -179,17 +133,11 @@ func AdminInstanceAction(c *gin.Context) {
 
 	instanceService := adminInstance.NewService(task.GetTaskService())
 	if err := instanceService.InstanceAction(uint(instanceID), adminReq); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "操作任务已创建，请查看任务列表了解进度",
-	})
+	common.ResponseSuccess(c, nil, "操作任务已创建，请查看任务列表了解进度")
 }
 
 // GetProviderMonitoring 获取节点监控数据
@@ -202,11 +150,7 @@ func AdminInstanceAction(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /admin/monitoring/provider [get]
 func GetProviderMonitoring(c *gin.Context) {
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"provider": []interface{}{},
-		},
+	common.ResponseSuccess(c, map[string]interface{}{
+		"provider": []interface{}{},
 	})
 }

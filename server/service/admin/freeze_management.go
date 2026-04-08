@@ -63,13 +63,13 @@ func (s *FreezeManagementService) SetUserExpiry(userID uint, expiresAt time.Time
 func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt time.Time) error {
 	now := time.Now()
 
-	var p provider.Provider
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		return fmt.Errorf("Provider不存在")
-	}
-
 	tx := global.APP_DB.Begin()
 	defer tx.Rollback()
+
+	var p provider.Provider
+	if err := tx.First(&p, providerID).Error; err != nil {
+		return fmt.Errorf("Provider不存在")
+	}
 
 	updates := map[string]interface{}{
 		"expires_at":       expiresAt,

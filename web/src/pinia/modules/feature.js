@@ -13,7 +13,7 @@ export const useFeatureStore = defineStore('feature', () => {
   async function fetchFeatureFlags() {
     try {
       const res = await getRegisterConfig()
-      if (res.code === 0 && res.data) {
+      if ((res.code === 0 || res.code === 200) && res.data) {
         kycEnabled.value = !!res.data.kycEnabled
         kycMethod.value = res.data.kycMethod || 'manual'
         domainEnabled.value = !!res.data.domainEnabled

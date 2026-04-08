@@ -35,7 +35,9 @@ var (
 // GenerateSessionID 生成会话ID
 func GenerateSessionID() string {
 	bytes := make([]byte, 16)
-	rand.Read(bytes)
+	if _, err := rand.Read(bytes); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	return hex.EncodeToString(bytes)
 }
 

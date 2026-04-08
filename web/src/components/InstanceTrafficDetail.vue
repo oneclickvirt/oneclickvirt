@@ -239,7 +239,7 @@ const loadTrafficDetail = async () => {
   try {
     const response = await getInstanceTrafficDetail(props.instanceId)
     
-    if (response.code === 0) {
+    if ((response.code === 0 || response.code === 200)) {
       trafficData.value = response.data
       ElMessage.success(t('user.traffic.detail.loadSuccess'))
     } else {

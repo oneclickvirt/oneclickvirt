@@ -2,7 +2,6 @@ package system
 
 import (
 	"bufio"
-	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -32,7 +31,7 @@ type LogDatesResponse struct {
 func GetLogDates(c *gin.Context) {
 	entries, err := os.ReadDir(logBaseDir)
 	if err != nil {
-		c.JSON(http.StatusOK, common.Response{Code: 500, Msg: "读取日志目录失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取日志目录失败: "+err.Error()))
 		return
 	}
 
@@ -67,14 +66,10 @@ func GetLogDates(c *gin.Context) {
 	})
 	sort.Strings(rootFiles)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "成功",
-		Data: LogDatesResponse{
-			Dates:     dates,
-			RootFiles: rootFiles,
-		},
-	})
+	common.ResponseSuccess(c, LogDatesResponse{
+		Dates:     dates,
+		RootFiles: rootFiles,
+	}, "成功")
 }
 
 // GetLogContent 读取指定日志文件的最后 N 行
@@ -89,17 +84,17 @@ func GetLogContent(c *gin.Context) {
 	tailStr := c.DefaultQuery("tail", "200")
 
 	if file == "" {
-		c.JSON(http.StatusOK, common.Response{Code: 400, Msg: "缺少 file 参数"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "缺少 file 参数"))
 		return
 	}
 
 	// 防止路径穿越
 	if strings.Contains(file, "/") || strings.Contains(file, "\\") || strings.Contains(file, "..") {
-		c.JSON(http.StatusOK, common.Response{Code: 403, Msg: "非法文件名"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "非法文件名"))
 		return
 	}
 	if date != "" && (strings.Contains(date, "/") || strings.Contains(date, "\\") || strings.Contains(date, "..")) {
-		c.JSON(http.StatusOK, common.Response{Code: 403, Msg: "非法日期"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "非法日期"))
 		return
 	}
 
@@ -124,28 +119,24 @@ func GetLogContent(c *gin.Context) {
 	absBase, _ := filepath.Abs(logBaseDir)
 	absPath, _ := filepath.Abs(logPath)
 	if !strings.HasPrefix(absPath, absBase+string(os.PathSeparator)) && absPath != absBase {
-		c.JSON(http.StatusOK, common.Response{Code: 403, Msg: "非法路径"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "非法路径"))
 		return
 	}
 
 	lines, err := readTailLines(logPath, tail)
 	if err != nil {
 		if os.IsNotExist(err) {
-			c.JSON(http.StatusOK, common.Response{Code: 404, Msg: "日志文件不存在"})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "日志文件不存在"))
 		} else {
-			c.JSON(http.StatusOK, common.Response{Code: 500, Msg: "读取日志文件失败: " + err.Error()})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取日志文件失败: "+err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "成功",
-		Data: gin.H{
-			"content": strings.Join(lines, "\n"),
-			"lines":   len(lines),
-		},
-	})
+	common.ResponseSuccess(c, gin.H{
+		"content": strings.Join(lines, "\n"),
+		"lines":   len(lines),
+	}, "成功")
 }
 
 // readTailLines 读取文件最后 n 行，使用环形缓冲避免全量内存占用

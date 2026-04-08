@@ -2,7 +2,6 @@ package config
 
 import (
 	"fmt"
-	"net/http"
 	"oneclickvirt/service/auth"
 	"strings"
 
@@ -32,10 +31,7 @@ import (
 func GetUnifiedConfig(c *gin.Context) {
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 401,
-			Msg:  "用户未认证",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "用户未认证"))
 		return
 	}
 
@@ -55,10 +51,7 @@ func GetUnifiedConfig(c *gin.Context) {
 	// 根据用户权限和请求范围决定返回的配置
 	configManager := config.GetConfigManager()
 	if configManager == nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "配置管理器未初始化",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "配置管理器未初始化"))
 		return
 	}
 
@@ -76,18 +69,12 @@ func GetUnifiedConfig(c *gin.Context) {
 		permissionService := auth.PermissionService{}
 		hasAdminPermission := permissionService.HasPermission(authCtx.UserID, "admin")
 		if !hasAdminPermission {
-			c.JSON(http.StatusForbidden, common.Response{
-				Code: 403,
-				Msg:  "权限不足",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "权限不足"))
 			return
 		}
 		result = getAdminConfig(configManager)
 	default:
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的配置范围",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的配置范围"))
 		return
 	}
 
@@ -111,10 +98,7 @@ func GetUnifiedConfig(c *gin.Context) {
 func UpdateUnifiedConfig(c *gin.Context) {
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 401,
-			Msg:  "用户未认证",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "用户未认证"))
 		return
 	}
 
@@ -148,19 +132,13 @@ func UpdateUnifiedConfig(c *gin.Context) {
 
 	// 验证权限
 	if !hasConfigUpdatePermission(authCtx, req.Scope) {
-		c.JSON(http.StatusForbidden, common.Response{
-			Code: 403,
-			Msg:  "权限不足",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "权限不足"))
 		return
 	}
 
 	configManager := config.GetConfigManager()
 	if configManager == nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "配置管理器未初始化",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "配置管理器未初始化"))
 		return
 	}
 

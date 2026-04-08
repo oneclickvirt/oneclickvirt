@@ -466,29 +466,6 @@ definitions:
     - title
     - type
     type: object
-  admin.CreateInstanceRequest:
-    properties:
-      cpu:
-        type: integer
-      disk:
-        type: integer
-      image:
-        type: string
-      instance_type:
-        type: string
-      memory:
-        type: integer
-      name:
-        type: string
-      provider:
-        type: string
-      userId:
-        type: integer
-    required:
-    - image
-    - name
-    - provider
-    type: object
   admin.CreateInviteCodeRequest:
     properties:
       code:
@@ -541,229 +518,6 @@ definitions:
     - guestPort
     - instanceId
     - protocol
-    type: object
-  admin.CreateProviderRequest:
-    properties:
-      allowClaim:
-        type: boolean
-      allowConcurrentTasks:
-        description: 是否允许并发任务，默认false
-        type: boolean
-      architecture:
-        type: string
-      autoAdjustQuota:
-        description: 是否自动调整quota以适应导入的实例
-        type: boolean
-      autoImport:
-        description: 是否自动导入发现的实例
-        type: boolean
-      city:
-        type: string
-      config:
-        type: string
-      container_enabled:
-        type: boolean
-      containerAllowNesting:
-        description: 是否允许嵌套虚拟化
-        type: boolean
-      containerCpuAllowance:
-        description: CPU使用率上限（如"100%"）
-        type: string
-      containerDiskIoLimit:
-        description: 磁盘IO限制（如"10MB"或"100iops"）
-        type: string
-      containerEnableLxcfs:
-        description: 是否启用LXCFS
-        type: boolean
-      containerLimitCpu:
-        description: 容器资源限制配置
-        type: boolean
-      containerLimitDisk:
-        description: 容器硬盘是否计入总量预算
-        type: boolean
-      containerLimitMemory:
-        description: 容器内存是否计入总量预算
-        type: boolean
-      containerMaxProcesses:
-        description: 最大进程数限制（0表示不限制）
-        type: integer
-      containerMemorySwap:
-        description: 是否允许使用swap
-        type: boolean
-      containerPrivileged:
-        description: 容器特殊配置选项（仅 LXD/Incus 容器）
-        type: boolean
-      country:
-        type: string
-      countryCode:
-        type: string
-      defaultInboundBandwidth:
-        description: 带宽配置
-        type: integer
-      defaultOutboundBandwidth:
-        description: 默认出站带宽限制（Mbps）
-        type: integer
-      defaultPortCount:
-        description: 端口映射配置
-        type: integer
-      discoverMode:
-        description: 实例发现与导入配置
-        type: boolean
-      enableResourceMonitoring:
-        description: 硬件资源监控
-        type: boolean
-      enableTaskPolling:
-        description: 是否启用任务轮询，默认true
-        type: boolean
-      enableTrafficControl:
-        description: 流量管理
-        type: boolean
-      endpoint:
-        type: string
-      executionRule:
-        description: 操作执行配置
-        enum:
-        - auto
-        - api_only
-        - ssh_only
-        type: string
-      expiresAt:
-        description: '过期时间，格式: "2006-01-02 15:04:05"'
-        type: string
-      importedInstanceOwner:
-        description: 导入实例的所有者（用户名，默认"admin"）
-        type: string
-      ipv4PortMappingMethod:
-        description: 端口映射方式配置
-        type: string
-      ipv6PortMappingMethod:
-        description: IPv6端口映射方式：device_proxy, iptables, native
-        type: string
-      levelLimits:
-        additionalProperties:
-          additionalProperties: true
-          type: object
-        description: |-
-          节点级别的等级限制配置
-          用于限制该节点上不同等级用户能创建的最大资源
-        type: object
-      maxConcurrentTasks:
-        description: 最大并发任务数，默认1
-        type: integer
-      maxContainerInstances:
-        description: 最大容器数量限制
-        type: integer
-      maxInboundBandwidth:
-        description: 最大入站带宽限制（Mbps）
-        type: integer
-      maxOutboundBandwidth:
-        description: 最大出站带宽限制（Mbps）
-        type: integer
-      maxTraffic:
-        description: 最大流量限制（MB），默认1TB=1048576MB
-        type: integer
-      maxVMInstances:
-        description: 最大虚拟机数量限制
-        type: integer
-      name:
-        type: string
-      networkType:
-        description: 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6,
-          ipv6_only
-        enum:
-        - nat_ipv4
-        - nat_ipv4_ipv6
-        - dedicated_ipv4
-        - dedicated_ipv4_ipv6
-        - ipv6_only
-        type: string
-      password:
-        type: string
-      portIP:
-        description: 端口映射使用的公网IP
-        type: string
-      portRangeEnd:
-        description: 端口映射范围结束，默认65535
-        type: integer
-      portRangeStart:
-        description: 端口映射范围起始，默认10000
-        type: integer
-      redeemCodeOnly:
-        description: 是否仅支持兑换码兑换
-        type: boolean
-      region:
-        type: string
-      sshConnectTimeout:
-        description: SSH连接配置
-        type: integer
-      sshExecuteTimeout:
-        description: SSH命令执行超时时间（秒），默认300秒
-        type: integer
-      sshKey:
-        description: SSH私钥，优先于密码使用
-        type: string
-      sshPort:
-        type: integer
-      status:
-        type: string
-      storagePool:
-        description: 存储配置（所有Provider类型通用）
-        type: string
-      taskPollInterval:
-        description: 任务轮询间隔（秒），默认60秒
-        type: integer
-      token:
-        type: string
-      totalQuota:
-        type: integer
-      trafficAutoResetBatchSize:
-        description: 流量自动重置批量大小
-        type: integer
-      trafficAutoResetInterval:
-        description: 流量自动重置检查间隔（秒）
-        type: integer
-      trafficCountMode:
-        description: 流量统计模式：both(双向), out(仅出向), in(仅入向)
-        type: string
-      trafficLimitCheckBatchSize:
-        description: 流量限制检测批量大小
-        type: integer
-      trafficLimitCheckInterval:
-        description: 流量限制检测间隔（秒）
-        type: integer
-      trafficMultiplier:
-        description: 流量计费倍率，默认1.0
-        type: number
-      trafficStatsBatchSize:
-        description: 流量统计批量大小
-        type: integer
-      trafficStatsInterval:
-        description: 流量统计间隔（秒）
-        type: integer
-      trafficStatsMode:
-        description: 流量统计性能配置
-        type: string
-      trafficSyncMethod:
-        description: 流量同步方式：pmacct(传统), agent(Rust Agent)
-        type: string
-      type:
-        type: string
-      username:
-        type: string
-      vm_enabled:
-        type: boolean
-      vmLimitCpu:
-        description: 虚拟机资源限制配置
-        type: boolean
-      vmLimitDisk:
-        description: 虚拟机硬盘是否计入总量预算
-        type: boolean
-      vmLimitMemory:
-        description: 虚拟机内存是否计入总量预算
-        type: boolean
-    required:
-    - name
-    - type
     type: object
   admin.CreateUserRequest:
     properties:
@@ -863,44 +617,6 @@ definitions:
         minimum: 1024
         type: integer
     type: object
-  admin.ProviderStatusResponse:
-    properties:
-      apiStatus:
-        type: string
-      certFingerprint:
-        type: string
-      certPath:
-        type: string
-      id:
-        type: integer
-      keyPath:
-        type: string
-      lastApiCheck:
-        type: string
-      lastSshCheck:
-        type: string
-      name:
-        type: string
-      nodeCpuCores:
-        description: 节点资源信息
-        type: integer
-      nodeDiskTotal:
-        type: integer
-      nodeMemoryTotal:
-        type: integer
-      resourceSynced:
-        type: boolean
-      resourceSyncedAt:
-        type: string
-      sshStatus:
-        type: string
-      status:
-        type: string
-      type:
-        type: string
-      uuid:
-        type: string
-    type: object
   admin.ResetInstancePasswordRequest:
     type: object
   admin.ResetInstancePasswordResponse:
@@ -938,55 +654,6 @@ definitions:
       timeoutTasks:
         type: integer
       totalTasks:
-        type: integer
-    type: object
-  admin.TestSSHConnectionRequest:
-    properties:
-      host:
-        description: SSH服务器地址
-        type: string
-      password:
-        description: SSH密码（使用密码认证时必填）
-        type: string
-      port:
-        description: SSH端口
-        type: integer
-      sshKey:
-        description: SSH私钥（使用密钥认证时必填）
-        type: string
-      testCount:
-        description: 测试次数，默认3次
-        type: integer
-      username:
-        description: SSH用户名
-        type: string
-    required:
-    - host
-    - port
-    - username
-    type: object
-  admin.TestSSHConnectionResponse:
-    properties:
-      avgLatency:
-        description: 平均延迟（毫秒）
-        type: integer
-      errorMessage:
-        description: 错误信息（如果失败）
-        type: string
-      maxLatency:
-        description: 最大延迟（毫秒）
-        type: integer
-      minLatency:
-        description: 最小延迟（毫秒）
-        type: integer
-      recommendedTimeout:
-        description: 推荐的超时时间（秒），最大延迟*2
-        type: integer
-      success:
-        description: 测试是否成功
-        type: boolean
-      testCount:
-        description: 测试次数
         type: integer
     type: object
   admin.TrafficMonitorOperationRequest:
@@ -1079,27 +746,27 @@ definitions:
     properties:
       minLevelForContainer:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
       minLevelForDeleteContainer:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
       minLevelForDeleteVM:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
       minLevelForResetContainer:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
       minLevelForResetVM:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
       minLevelForVM:
         maximum: 99
-        minimum: 1
+        minimum: 0
         type: integer
     type: object
   admin.UpdateUserLevelRequest:
@@ -1224,6 +891,8 @@ definitions:
       code:
         type: integer
       data: {}
+      message:
+        type: string
       msg:
         type: string
     type: object
@@ -2248,6 +1917,8 @@ definitions:
         - lxd
         - incus
         - docker
+        - qemu
+        - kubevirt
         type: string
       size:
         type: integer
@@ -3436,37 +3107,6 @@ paths:
       summary: 获取实例列表
       tags:
       - 管理员管理
-    post:
-      consumes:
-      - application/json
-      description: 管理员创建新的虚拟化实例
-      parameters:
-      - description: 创建实例请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.CreateInstanceRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 创建成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器内部错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 创建实例
-      tags:
-      - 管理员管理
   /admin/instances/{id}/action:
     post:
       consumes:
@@ -4184,194 +3824,6 @@ paths:
       summary: 检查端口可用性
       tags:
       - 端口映射管理
-  /admin/provider:
-    get:
-      consumes:
-      - application/json
-      description: 管理员获取系统中的虚拟化提供商列表，支持分页和查询
-      parameters:
-      - default: 1
-        description: 页码
-        in: query
-        name: page
-        type: integer
-      - default: 10
-        description: 每页数量
-        in: query
-        name: pageSize
-        type: integer
-      - description: 搜索关键字
-        in: query
-        name: keyword
-        type: string
-      - description: 提供商类型筛选
-        in: query
-        name: type
-        type: string
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器内部错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取提供商列表
-      tags:
-      - 提供商管理
-    post:
-      consumes:
-      - application/json
-      description: 管理员创建新的虚拟化提供商配置
-      parameters:
-      - description: 创建提供商请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.CreateProviderRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 创建成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 服务器内部错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 创建提供商
-      tags:
-      - 提供商管理
-  /admin/provider/{id}/auto-configure-stream:
-    post:
-      consumes:
-      - application/json
-      description: 使用Server-Sent Events实时显示配置过程和输出
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - text/plain
-      responses:
-        "200":
-          description: 实时配置输出
-          schema:
-            type: string
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 配置失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 实时自动配置Provider
-      tags:
-      - 管理员管理
-  /admin/provider/{id}/generate-cert:
-    post:
-      consumes:
-      - application/json
-      description: 为LXD/Incus Provider生成客户端证书和设置脚本，为Proxmox VE生成API Token配置脚本
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 生成成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  type: object
-              type: object
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 生成失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 为Provider生成证书或配置
-      tags:
-      - 管理员管理
-  /admin/provider/{id}/health-check:
-    post:
-      consumes:
-      - application/json
-      description: 检查Provider的API和SSH连接状态
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      - default: true
-        description: 是否强制刷新资源信息
-        in: query
-        name: forceRefresh
-        type: boolean
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 检查成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/admin.ProviderStatusResponse'
-              type: object
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 检查失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 检查Provider健康状态
-      tags:
-      - 管理员管理
   /admin/provider/{id}/port-config:
     put:
       consumes:
@@ -4445,42 +3897,6 @@ paths:
       summary: 获取Provider端口使用情况
       tags:
       - 端口映射管理
-  /admin/provider/{id}/status:
-    get:
-      consumes:
-      - application/json
-      description: 获取Provider的详细状态信息，包括证书信息
-      parameters:
-      - description: Provider ID
-        in: path
-        name: id
-        required: true
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 获取成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/admin.ProviderStatusResponse'
-              type: object
-        "400":
-          description: 参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 获取失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 获取Provider状态详情
-      tags:
-      - 管理员管理
   /admin/provider/auto-configure:
     post:
       consumes:
@@ -4520,27 +3936,6 @@ paths:
       security:
       - BearerAuth: []
       summary: 自动配置Provider
-      tags:
-      - 管理员管理
-  /admin/provider/export-configs:
-    post:
-      consumes:
-      - application/json
-      description: 导出所有已配置的Provider认证信息到文件
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 导出成功
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 导出失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 导出所有Provider配置
       tags:
       - 管理员管理
   /admin/provider/traffic-monitor:
@@ -4737,7 +4132,24 @@ paths:
       summary: 发现Provider实例
       tags:
       - Provider管理
-  /admin/providers/{id}/hardware-test:
+  /admin/providers/{id}/hardware-report:
+    delete:
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除Provider硬件报告
+      tags:
+      - Admin-Provider
     get:
       parameters:
       - description: Provider ID
@@ -4762,6 +4174,12 @@ paths:
         name: id
         required: true
         type: integer
+      - description: 请求体
+        in: body
+        name: data
+        required: true
+        schema:
+          type: object
       responses:
         "200":
           description: OK
@@ -4769,7 +4187,7 @@ paths:
             $ref: '#/definitions/common.Response'
       security:
       - BearerAuth: []
-      summary: 运行Provider硬件测试
+      summary: 通过粘贴板URL保存Provider硬件报告
       tags:
       - Admin-Provider
   /admin/providers/{id}/import:
@@ -4982,124 +4400,6 @@ paths:
       summary: 检查实例同步
       tags:
       - Provider管理
-  /admin/providers/check-endpoint:
-    get:
-      consumes:
-      - application/json
-      description: 检查指定的SSH地址和端口组合是否已被使用（用于前端实时验证）
-      parameters:
-      - description: SSH地址
-        in: query
-        name: endpoint
-        required: true
-        type: string
-      - description: SSH端口
-        in: query
-        name: sshPort
-        required: true
-        type: integer
-      - description: 排除的Provider ID（编辑时使用）
-        in: query
-        name: excludeId
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 检查结果
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  additionalProperties:
-                    type: boolean
-                  type: object
-              type: object
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 检查Provider SSH地址和端口是否已存在
-      tags:
-      - 提供商管理
-  /admin/providers/check-name:
-    get:
-      consumes:
-      - application/json
-      description: 检查指定的Provider名称是否已被使用（用于前端实时验证）
-      parameters:
-      - description: 要检查的Provider名称
-        in: query
-        name: name
-        required: true
-        type: string
-      - description: 排除的Provider ID（编辑时使用）
-        in: query
-        name: excludeId
-        type: integer
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 检查结果
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  additionalProperties:
-                    type: boolean
-                  type: object
-              type: object
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 检查Provider名称是否已存在
-      tags:
-      - 提供商管理
-  /admin/providers/test-ssh-connection:
-    post:
-      consumes:
-      - application/json
-      description: 测试SSH连接延迟，执行多次测试并返回最小、最大、平均延迟及推荐超时时间
-      parameters:
-      - description: 测试SSH连接请求参数
-        in: body
-        name: request
-        required: true
-        schema:
-          $ref: '#/definitions/admin.TestSSHConnectionRequest'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: 测试成功
-          schema:
-            allOf:
-            - $ref: '#/definitions/common.Response'
-            - properties:
-                data:
-                  $ref: '#/definitions/admin.TestSSHConnectionResponse'
-              type: object
-        "400":
-          description: 请求参数错误
-          schema:
-            $ref: '#/definitions/common.Response'
-        "500":
-          description: 测试失败
-          schema:
-            $ref: '#/definitions/common.Response'
-      security:
-      - BearerAuth: []
-      summary: 测试SSH连接延迟
-      tags:
-      - 提供商管理
   /admin/redemption-codes:
     get:
       consumes:
@@ -5732,6 +5032,10 @@ paths:
       - description: 用户名搜索
         in: query
         name: username
+        type: string
+      - description: 昵称搜索
+        in: query
+        name: nickname
         type: string
       - description: 邮箱搜索
         in: query
@@ -7485,7 +6789,7 @@ paths:
           description: OK
           schema:
             $ref: '#/definitions/common.Response'
-      summary: 获取Provider硬件测试报告（用户端）
+      summary: 获取Provider硬件报告（用户端）
       tags:
       - Public
   /public/recommended-db-type:
@@ -8824,6 +8128,43 @@ paths:
       summary: 获取Provider流量历史
       tags:
       - 流量管理-管理员
+  /v1/user/instances/{id}/exec:
+    get:
+      consumes:
+      - application/json
+      description: 通过WebSocket建立到容器的交互式终端连接(exec)
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "101":
+          description: Switching Protocols
+          schema:
+            type: string
+        "400":
+          description: 请求参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 未授权
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 服务器错误
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: WebSocket Container Exec
+      tags:
+      - 用户/实例
   /v1/user/instances/{id}/ssh:
     get:
       consumes:

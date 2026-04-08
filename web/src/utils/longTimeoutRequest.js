@@ -65,7 +65,13 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
       return response
     },
     error => {
-      // 保持与主请求工具一致的错误处理
+      // 处理401认证过期 - 与主请求工具保持一致
+      if (error.response?.status === 401) {
+        const userStore = useUserStore()
+        userStore.ClearStorage()
+        window.location.href = '/login'
+        return Promise.reject(error)
+      }
       return Promise.reject(error)
     }
   )

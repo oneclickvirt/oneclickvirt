@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"time"
 
@@ -31,10 +30,7 @@ import (
 func TrafficMonitorOperation(c *gin.Context) {
 	var req adminModel.TrafficMonitorOperationRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
@@ -48,10 +44,7 @@ func TrafficMonitorOperation(c *gin.Context) {
 	case "detect":
 		taskType = "detect_all"
 	default:
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "不支持的操作类型",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的操作类型"))
 		return
 	}
 
@@ -69,10 +62,7 @@ func TrafficMonitorOperation(c *gin.Context) {
 			zap.Uint("providerID", req.ProviderID),
 			zap.String("operation", req.Operation),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "创建任务失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
 		return
 	}
 
@@ -120,13 +110,9 @@ func TrafficMonitorOperation(c *gin.Context) {
 		}
 	}(task.ID, req.ProviderID, req.Operation)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "任务已创建",
-		Data: map[string]interface{}{
-			"taskId": task.ID,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"taskId": task.ID,
+	}, "任务已创建")
 }
 
 // GetTrafficMonitorTaskList 获取流量监控任务列表
@@ -177,10 +163,7 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		global.APP_LOG.Error("查询任务总数失败", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "查询失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
 		return
 	}
 
@@ -192,21 +175,11 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 		Offset(offset).
 		Find(&tasks).Error; err != nil {
 		global.APP_LOG.Error("查询任务列表失败", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "查询失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "查询成功",
-		Data: map[string]interface{}{
-			"list":  tasks,
-			"total": total,
-		},
-	})
+	common.ResponseSuccessWithPagination(c, tasks, total, req.Page, req.PageSize)
 }
 
 // GetTrafficMonitorTaskDetail 获取流量监控任务详情
@@ -225,27 +198,17 @@ func GetTrafficMonitorTaskDetail(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的任务ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
 		return
 	}
 
 	var task adminModel.TrafficMonitorTask
 	if err := global.APP_DB.First(&task, uint(id)).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.Response{
-			Code: 404,
-			Msg:  "任务不存在",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "查询成功",
-		Data: task,
-	})
+	common.ResponseSuccess(c, task, "查询成功")
 }
 
 // GetLatestTrafficMonitorTask 获取Provider的最新流量监控任务
@@ -263,19 +226,13 @@ func GetTrafficMonitorTaskDetail(c *gin.Context) {
 func GetLatestTrafficMonitorTask(c *gin.Context) {
 	providerIDStr := c.Query("providerId")
 	if providerIDStr == "" {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "缺少providerId参数",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "缺少providerId参数"))
 		return
 	}
 
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的providerId",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的providerId"))
 		return
 	}
 
@@ -283,16 +240,9 @@ func GetLatestTrafficMonitorTask(c *gin.Context) {
 	if err := global.APP_DB.Where("provider_id = ?", uint(providerID)).
 		Order("created_at DESC").
 		First(&task).Error; err != nil {
-		c.JSON(http.StatusNotFound, common.Response{
-			Code: 404,
-			Msg:  "没有找到任务",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "没有找到任务"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "查询成功",
-		Data: task,
-	})
+	common.ResponseSuccess(c, task, "查询成功")
 }

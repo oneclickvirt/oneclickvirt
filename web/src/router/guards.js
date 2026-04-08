@@ -20,7 +20,7 @@ async function checkInitStatus() {
   }
   try {
     const response = await checkSystemInit()
-    if (response && response.code === 0 && response.data) {
+    if (response && (response.code === 0 || response.code === 200) && response.data) {
       needsInit = response.data.needInit === true
       initStatusChecked = true
       lastInitCheck = now

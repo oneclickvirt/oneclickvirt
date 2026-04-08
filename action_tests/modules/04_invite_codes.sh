@@ -15,27 +15,27 @@ run_module_04() {
     local ic_id; ic_id=$(echo "$ic" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create duplicate code --
-    test_api "Create duplicate code" "POST" "/api/v1/admin/invite-codes" "400" \
+    test_api "Create duplicate code" "POST" "/api/v1/admin/invite-codes" "400|409" \
         '{"code":"CITESTCODE","count":1,"maxUses":5}' "$group"
 
     # -- Batch generate --
     test_api "Batch generate codes" "POST" "/api/v1/admin/invite-codes/generate" "200" \
-        '{"count":5,"max_uses":3,"level":1}' "$group"
+        '{"count":5,"maxUses":3,"level":1}' "$group"
 
     # -- Generate with invalid count --
     test_api "Generate codes (invalid count)" "POST" "/api/v1/admin/invite-codes/generate" "400" \
-        '{"count":0,"max_uses":3}' "$group"
+        '{"count":0,"maxUses":3}' "$group"
 
     # -- Export --
     test_api "Export invite codes" "GET" "/api/v1/admin/invite-codes/export" "200" "" "$group"
 
     # -- Register with invite code (may return 403 if public registration is disabled in system defaults) --
     test_api_noauth "Register with invite code" "POST" "/api/v1/auth/register" "200|403" \
-        '{"username":"invite_test_user","password":"InviteTest123!@#","email":"inv@ci.local","invite_code":"CITESTCODE"}' "$group"
+        '{"username":"invite_test_user","password":"InviteTest123!@#","email":"inv@ci.local","inviteCode":"CITESTCODE"}' "$group"
 
     # -- Register with invalid invite code --
     test_api_noauth "Register with invalid code" "POST" "/api/v1/auth/register" "400|403" \
-        '{"username":"invite_fail_user","password":"InviteTest123!@#","email":"invf@ci.local","invite_code":"NONEXISTENT_CODE"}' "$group"
+        '{"username":"invite_fail_user","password":"InviteTest123!@#","email":"invf@ci.local","inviteCode":"NONEXISTENT_CODE"}' "$group"
 
     # -- Delete single --
     if [[ -n "$ic_id" ]]; then

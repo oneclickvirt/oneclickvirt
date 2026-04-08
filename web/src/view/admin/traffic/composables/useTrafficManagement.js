@@ -53,7 +53,7 @@ export function useTrafficManagement() {
     overviewLoading.value = true
     try {
       const response = await getSystemTrafficOverview()
-      if (response.code === 0) {
+      if ((response.code === 0 || response.code === 200)) {
         systemOverview.value = response.data
       } else {
         ElMessage.error(`${t('admin.traffic.loadOverviewFailed')}: ${response.msg}`)
@@ -75,7 +75,7 @@ export function useTrafficManagement() {
         nickname: searchParams.nickname || undefined
       }
       const response = await getAllUsersTrafficRank(params)
-      if (response.code === 0) {
+      if ((response.code === 0 || response.code === 200)) {
         trafficRanking.value = response.data.rankings || []
         total.value = response.data.total || 0
       } else {
@@ -100,7 +100,7 @@ export function useTrafficManagement() {
       await ElMessageBox.confirm(t('admin.traffic.confirmBatchSync', { count: selectedUsers.value.length }), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchSyncUserTraffic({ user_ids: userIds })
-      if (response.code === 0) { ElMessage.success(t('admin.traffic.batchSyncSuccess')); setTimeout(() => loadTrafficRanking(), 3000) }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(t('admin.traffic.batchSyncSuccess')); setTimeout(() => loadTrafficRanking(), 3000) }
       else { ElMessage.error(`${t('admin.traffic.batchSyncFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchSyncError')) }
   }
@@ -111,7 +111,7 @@ export function useTrafficManagement() {
       const { value: reason } = await ElMessageBox.prompt(t('admin.traffic.enterLimitReason'), t('admin.traffic.batchLimit'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), inputPattern: /.{5,}/, inputErrorMessage: t('admin.traffic.limitReasonMinLength') })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchManageTrafficLimits({ action: 'limit', user_ids: userIds, reason })
-      if (response.code === 0) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
       else { ElMessage.error(`${t('admin.traffic.batchLimitFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchLimitError')) }
   }
@@ -122,7 +122,7 @@ export function useTrafficManagement() {
       await ElMessageBox.confirm(t('admin.traffic.confirmBatchUnlimit', { count: selectedUsers.value.length }), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const userIds = selectedUsers.value.map(user => user.user_id)
       const response = await batchManageTrafficLimits({ action: 'unlimit', user_ids: userIds })
-      if (response.code === 0) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(response.msg || t('common.operationSuccess')); loadTrafficRanking() }
       else { ElMessage.error(`${t('admin.traffic.batchUnlimitFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.batchUnlimitError')) }
   }
@@ -132,7 +132,7 @@ export function useTrafficManagement() {
     userTrafficDialogVisible.value = true
     try {
       const response = await getUserTrafficStats(userId)
-      if (response.code === 0) { selectedUserTraffic.value = response.data }
+      if ((response.code === 0 || response.code === 200)) { selectedUserTraffic.value = response.data }
       else { ElMessage.error(`${t('admin.traffic.loadUserDetailsFailed')}: ${response.msg}`); userTrafficDialogVisible.value = false }
     } catch (error) {
       ElMessage.error(t('admin.traffic.loadUserDetailsError')); userTrafficDialogVisible.value = false
@@ -148,7 +148,7 @@ export function useTrafficManagement() {
     try {
       const data = { type: 'user', action: limitAction.value, target_id: selectedUser.value.user_id, reason: limitForm.reason }
       const response = await manageTrafficLimits(data)
-      if (response.code === 0) {
+      if ((response.code === 0 || response.code === 200)) {
         ElMessage.success(t('admin.traffic.limitActionSuccess', { action: limitAction.value === 'limit' ? t('admin.traffic.limit') : t('admin.traffic.remove') }))
         limitDialogVisible.value = false
         const userIndex = trafficRanking.value.findIndex(u => u.user_id === selectedUser.value.user_id)
@@ -163,7 +163,7 @@ export function useTrafficManagement() {
     syncingUsers.value.push(userId)
     try {
       const response = await syncUserTraffic(userId)
-      if (response.code === 0) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(() => loadTrafficRanking(), 3000) }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(() => loadTrafficRanking(), 3000) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { const index = syncingUsers.value.indexOf(userId); if (index > -1) syncingUsers.value.splice(index, 1) }
@@ -174,7 +174,7 @@ export function useTrafficManagement() {
     syncingUserDetail.value = true
     try {
       const response = await syncUserTraffic(selectedUserTraffic.value.user_id)
-      if (response.code === 0) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(async () => { await viewUserTraffic(selectedUserTraffic.value.user_id); loadTrafficRanking() }, 3000) }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(t('admin.traffic.syncTriggered')); setTimeout(async () => { await viewUserTraffic(selectedUserTraffic.value.user_id); loadTrafficRanking() }, 3000) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { syncingUserDetail.value = false }
@@ -184,7 +184,7 @@ export function useTrafficManagement() {
     syncingAllTraffic.value = true
     try {
       const response = await syncAllTraffic()
-      if (response.code === 0) { ElMessage.success(t('admin.traffic.syncAllTriggered')); setTimeout(() => { loadSystemOverview(); loadTrafficRanking() }, 5000) }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(t('admin.traffic.syncAllTriggered')); setTimeout(() => { loadSystemOverview(); loadTrafficRanking() }, 5000) }
       else { ElMessage.error(`${t('admin.traffic.syncFailed')}: ${response.msg}`) }
     } catch (error) { ElMessage.error(t('admin.traffic.syncError')) }
     finally { syncingAllTraffic.value = false }
@@ -194,7 +194,7 @@ export function useTrafficManagement() {
     try {
       await ElMessageBox.confirm(t('admin.traffic.clearTrafficConfirm', { username: user.username }), t('common.warning'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning', dangerouslyUseHTMLString: true })
       const response = await clearUserTrafficRecords(user.user_id)
-      if (response.code === 0) { ElMessage.success(t('admin.traffic.clearTrafficSuccess', { username: user.username, count: response.data.deleted_count })); loadTrafficRanking(); loadSystemOverview() }
+      if ((response.code === 0 || response.code === 200)) { ElMessage.success(t('admin.traffic.clearTrafficSuccess', { username: user.username, count: response.data.deleted_count })); loadTrafficRanking(); loadSystemOverview() }
       else { ElMessage.error(`${t('admin.traffic.clearTrafficFailed')}: ${response.msg}`) }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('admin.traffic.clearTrafficError')) }
   }

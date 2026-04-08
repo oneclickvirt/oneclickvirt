@@ -213,11 +213,7 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 	}
 
 	tx := global.APP_DB.Begin()
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-		}
-	}()
+	defer tx.Rollback()
 
 	now := global.APP_DB.NowFunc()
 	if err := tx.Model(&record).Updates(map[string]interface{}{
@@ -226,7 +222,6 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 		"reviewed_at":   now,
 		"reject_reason": rejectReason,
 	}).Error; err != nil {
-		tx.Rollback()
 		return err
 	}
 
@@ -234,7 +229,6 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 	if approved {
 		if err := tx.Table("users").Where("id = ?", record.UserID).
 			Update("real_name_verified", true).Error; err != nil {
-			tx.Rollback()
 			return err
 		}
 	}

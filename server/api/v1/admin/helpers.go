@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"net/http"
-
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 
@@ -16,8 +14,5 @@ func getUserIDFromContext(c *gin.Context) (uint, error) {
 
 // respondUnauthorized 返回未授权错误
 func respondUnauthorized(c *gin.Context, msg string) {
-	c.JSON(http.StatusUnauthorized, common.Response{
-		Code: 401,
-		Msg:  msg,
-	})
+	common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, msg))
 }

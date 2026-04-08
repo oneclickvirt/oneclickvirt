@@ -24,7 +24,7 @@ run_module_13() {
     local pm_id; pm_id=$(echo "$pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create duplicate port --
-    test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400" \
+    test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400|409" \
         "{\"instanceId\":1,\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group"
 
     # -- Create with invalid port --

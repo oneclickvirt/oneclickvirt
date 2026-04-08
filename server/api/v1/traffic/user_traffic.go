@@ -1,7 +1,6 @@
 package traffic
 
 import (
-	"net/http"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -30,10 +29,7 @@ type UserTrafficAPI struct{}
 func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 40001,
-			Msg:  "未授权访问",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权访问"))
 		return
 	}
 
@@ -43,18 +39,11 @@ func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 		global.APP_LOG.Error("获取用户流量概览失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取流量概览失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量概览失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取流量概览成功",
-		Data: overview,
-	})
+	common.ResponseSuccess(c, overview, "获取流量概览成功")
 }
 
 // GetInstanceTrafficDetail 获取实例流量详情
@@ -70,20 +59,14 @@ func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 40001,
-			Msg:  "未授权访问",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权访问"))
 		return
 	}
 
 	instanceIDStr := c.Param("instanceId")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "实例ID格式错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
 		return
 	}
 
@@ -94,18 +77,11 @@ func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", uint(instanceID)),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取实例流量详情失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例流量详情失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取实例流量详情成功",
-		Data: detail,
-	})
+	common.ResponseSuccess(c, detail, "获取实例流量详情成功")
 }
 
 // GetInstancesTrafficSummary 获取用户所有实例流量汇总
@@ -120,10 +96,7 @@ func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 40001,
-			Msg:  "未授权访问",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权访问"))
 		return
 	}
 
@@ -133,18 +106,11 @@ func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 		global.APP_LOG.Error("获取用户实例流量汇总失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取实例流量汇总失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例流量汇总失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取实例流量汇总成功",
-		Data: summary,
-	})
+	common.ResponseSuccess(c, summary, "获取实例流量汇总成功")
 }
 
 // GetTrafficLimitStatus 获取流量限制状态
@@ -159,10 +125,7 @@ func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 40001,
-			Msg:  "未授权访问",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权访问"))
 		return
 	}
 
@@ -172,18 +135,11 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 		global.APP_LOG.Error("获取流量限制状态失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取流量限制状态失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量限制状态失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取流量限制状态成功",
-		Data: status,
-	})
+	common.ResponseSuccess(c, status, "获取流量限制状态成功")
 }
 
 // GetPmacctData 获取原始pmacct数据
@@ -200,30 +156,21 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 	userID := getUserIDFromContext(c)
 	if userID == 0 {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 40001,
-			Msg:  "未授权访问",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权访问"))
 		return
 	}
 
 	instanceIDStr := c.Param("instanceId")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "实例ID格式错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID格式错误"))
 		return
 	}
 
 	// 验证用户权限
 	userServiceInstance := userService.NewService()
 	if !userServiceInstance.HasInstanceAccess(userID, uint(instanceID)) {
-		c.JSON(http.StatusForbidden, common.Response{
-			Code: 40003,
-			Msg:  "无权限访问该实例",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权限访问该实例"))
 		return
 	}
 
@@ -235,18 +182,11 @@ func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", uint(instanceID)),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取pmacct数据失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取pmacct数据失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取pmacct数据成功",
-		Data: pmacctSummary,
-	})
+	common.ResponseSuccess(c, pmacctSummary, "获取pmacct数据成功")
 }
 
 // getUserIDFromContext 从上下文中获取用户ID（使用全局函数）

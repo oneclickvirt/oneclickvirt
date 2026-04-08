@@ -147,7 +147,7 @@ const loadTrafficData = async () => {
   loading.value = true
   try {
     const response = await getUserTrafficOverview()
-    if (response.code === 0) {
+    if ((response.code === 0 || response.code === 200)) {
       trafficData.value = response.data
     } else {
       ElMessage.error(`${t('user.trafficOverview.loadFailed')}: ${response.msg}`)

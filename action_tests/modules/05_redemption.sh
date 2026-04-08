@@ -34,7 +34,7 @@ run_module_05() {
 
     # -- Redeem invalid code --
     if [[ -n "$USER_TOKEN" ]]; then
-        test_api "Redeem invalid code" "POST" "/api/v1/user/redemption-codes/redeem" "400" \
+        test_api "Redeem invalid code" "POST" "/api/v1/user/redemption-codes/redeem" "400|404" \
             '{"code":"NONEXISTENT_CODE"}' "$group" "$USER_TOKEN"
     fi
 

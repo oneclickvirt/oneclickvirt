@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"net/http"
-
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
@@ -45,13 +43,9 @@ func GetAdminGroupInfo(c *gin.Context) {
 			len(lang) >= 2 && lang[:2] == "en") {
 			defaultName = "Test"
 		}
-		c.JSON(http.StatusOK, common.Response{
-			Code: 200,
-			Msg:  "获取成功",
-			Data: AdminGroupInfoResponse{
-				GroupName: defaultName,
-			},
-		})
+		common.ResponseSuccess(c, AdminGroupInfoResponse{
+			GroupName: defaultName,
+		}, "获取成功")
 		return
 	}
 
@@ -65,21 +59,17 @@ func GetAdminGroupInfo(c *gin.Context) {
 		}
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: AdminGroupInfoResponse{
-			GroupName:        groupName,
-			GroupDescription: provider.GroupDescription,
-		},
-	})
+	common.ResponseSuccess(c, AdminGroupInfoResponse{
+		GroupName:        groupName,
+		GroupDescription: provider.GroupDescription,
+	}, "获取成功")
 }
 
 // UpdateAdminGroupInfo 更新管理员分组信息
 func UpdateAdminGroupInfo(c *gin.Context) {
 	var req AdminGroupInfoRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: "参数错误: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
@@ -98,9 +88,9 @@ func UpdateAdminGroupInfo(c *gin.Context) {
 		"group_description": req.GroupDescription,
 	}).Error; err != nil {
 		global.APP_LOG.Error("更新管理员分组信息失败", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "更新分组信息失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新分组信息失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 200, Msg: "更新成功"})
+	common.ResponseSuccess(c, nil, "更新成功")
 }

@@ -1,7 +1,6 @@
 package public
 
 import (
-	"net/http"
 	"strconv"
 
 	"oneclickvirt/model/common"
@@ -19,24 +18,21 @@ import (
 func GetProviderHardwareReport(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	svc := adminProviderService.NewService()
 	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
 	if err != nil || report.ReportText == "" {
-		c.JSON(http.StatusOK, common.Response{Code: 0, Data: nil, Msg: "暂无测试报告"})
+		common.ResponseSuccess(c, nil, "暂无测试报告")
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Data: gin.H{
-			"providerId": report.ProviderID,
-			"reportText": report.ReportText,
-			"pasteUrl":   report.PasteURL,
-			"updatedAt":  report.UpdatedAt,
-		},
+	common.ResponseSuccess(c, gin.H{
+		"providerId": report.ProviderID,
+		"reportText": report.ReportText,
+		"pasteUrl":   report.PasteURL,
+		"updatedAt":  report.UpdatedAt,
 	})
 }

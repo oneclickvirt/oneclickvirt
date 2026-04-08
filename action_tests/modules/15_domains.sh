@@ -19,7 +19,7 @@ run_module_15() {
         local did1; did1=$(echo "$d1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
         # -- Create duplicate --
-        test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400" \
+        test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400|409" \
             '{"instanceId":1,"domainName":"ci-test.example.com","protocol":"http","internalIP":"127.0.0.1","internalPort":80}' "$group" "$USER_TOKEN"
 
         # -- Create with invalid domain --

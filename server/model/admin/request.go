@@ -171,12 +171,12 @@ type UpdateProviderRequest struct {
 	// 存储配置（所有Provider类型通用）
 	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器（实际路径将自动检测）
 	// 操作执行配置
-	ExecutionRule string `json:"executionRule" binding:"oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
+	ExecutionRule string `json:"executionRule" binding:"omitempty,oneof=auto api_only ssh_only"` // 操作轮转规则
 	// 端口映射配置
-	DefaultPortCount int    `json:"defaultPortCount"`                                                                                // 每个实例默认映射端口数量，默认10
-	PortRangeStart   int    `json:"portRangeStart"`                                                                                  // 端口映射范围起始，默认10000
-	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
-	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	DefaultPortCount int    `json:"defaultPortCount"`                                                                                          // 每个实例默认映射端口数量，默认10
+	PortRangeStart   int    `json:"portRangeStart"`                                                                                            // 端口映射范围起始，默认10000
+	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                              // 端口映射范围结束，默认65535
+	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型
 	// 带宽配置
 	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
@@ -307,14 +307,16 @@ type BatchDeleteInviteCodesRequest struct {
 }
 
 type CreateInstanceRequest struct {
-	Name         string `json:"name" binding:"required"`
-	Provider     string `json:"provider" binding:"required"`
-	Image        string `json:"image" binding:"required"`
-	CPU          int    `json:"cpu"`
-	Memory       int64  `json:"memory"`
-	Disk         int64  `json:"disk"`
-	InstanceType string `json:"instance_type"`
-	UserID       uint   `json:"userId"`
+	Name         string `json:"name"`
+	Provider     string `json:"provider"`                 // Provider名称（与ProviderID二选一）
+	ProviderID   uint   `json:"provider_id"`              // Provider ID（与Provider二选一）
+	Image        string `json:"image" binding:"required"` // 镜像名称
+	CPU          int    `json:"cpu"`                      // CPU核心数
+	Memory       int64  `json:"memory"`                   // 内存大小(MB)
+	Disk         int64  `json:"disk"`                     // 磁盘大小(GB)
+	InstanceType string `json:"instance_type"`            // 实例类型: container, vm
+	NetworkType  string `json:"network_type"`             // 网络类型
+	UserID       uint   `json:"userId"`                   // 所有者用户ID
 }
 
 type UpdateInstanceRequest struct {

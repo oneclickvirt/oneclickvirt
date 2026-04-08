@@ -15,7 +15,7 @@ run_module_03() {
     local created_uid; created_uid=$(echo "$cu" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     # -- Create duplicate username --
-    test_api "Create duplicate user" "POST" "/api/v1/admin/users" "400" \
+    test_api "Create duplicate user" "POST" "/api/v1/admin/users" "400|409" \
         '{"username":"admin_created_user","password":"Test123!@#","email":"ac2@ci.local"}' "$group"
 
     # -- Create with missing fields --

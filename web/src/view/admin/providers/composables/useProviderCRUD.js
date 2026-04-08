@@ -433,11 +433,11 @@ export function useProviderCRUD() {
     try {
       const result = await checkProviderHealth(providerId)
       loadingMessage.close()
-      if (result.code === 200) {
+      if (result.code === 0 || result.code === 200) {
         ElMessage.success(t('admin.providers.healthCheckComplete'))
         await loadProviders()
       } else {
-        ElMessage.error(result.msg || t('admin.providers.healthCheckFailed'))
+        ElMessage.error(result.msg || result.message || t('admin.providers.healthCheckFailed'))
       }
     } catch (error) {
       loadingMessage.close()

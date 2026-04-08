@@ -1,8 +1,6 @@
 package user
 
 import (
-	"net/http"
-
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/common"
 	userService "oneclickvirt/service/user"
@@ -24,26 +22,16 @@ import (
 func GetUserInfo(c *gin.Context) {
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 401,
-			Msg:  "未授权",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
 		return
 	}
 
 	userServiceInstance := userService.NewService()
 	userDashboard, err := userServiceInstance.GetUserDashboard(authCtx.UserID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: userDashboard,
-	})
+	common.ResponseSuccess(c, userDashboard, "获取成功")
 }

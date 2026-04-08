@@ -74,7 +74,7 @@ run_module_09() {
     fi
 
     # -- Create duplicate name --
-    test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "400" \
+    test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
         "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
 
     # -- Edit provider --

@@ -3,7 +3,7 @@ package system
 import (
 	"context"
 	"fmt"
-	"net/http"
+	"oneclickvirt/model/common"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
 	"strconv"
@@ -123,11 +123,7 @@ func GetSystemImageList(c *gin.Context) {
 	var images []systemModel.SystemImage
 	offset := (page - 1) * pageSize
 	if err := db.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&images).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "获取系统镜像列表失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取系统镜像列表失败"))
 		return
 	}
 
@@ -138,15 +134,11 @@ func GetSystemImageList(c *gin.Context) {
 		responses = append(responses, response)
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": gin.H{
-			"list":     responses,
-			"total":    total,
-			"page":     page,
-			"pageSize": pageSize,
-		},
+	common.ResponseSuccess(c, gin.H{
+		"list":     responses,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
 	})
 }
 
@@ -167,32 +159,20 @@ func GetSystemImageList(c *gin.Context) {
 func CreateSystemImage(c *gin.Context) {
 	var req CreateSystemImageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	// 验证文件扩展名
 	if err := validateImageURL(req.ProviderType, req.InstanceType, req.URL); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 
 	// 获取当前用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(http.StatusUnauthorized, gin.H{
-			"code": 401,
-			"msg":  "未授权",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
 		return
 	}
 
@@ -200,11 +180,7 @@ func CreateSystemImage(c *gin.Context) {
 	var existingImage systemModel.SystemImage
 	if err := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
 		req.Name, req.ProviderType, req.InstanceType, req.Architecture).First(&existingImage).Error; err == nil {
-		c.JSON(http.StatusConflict, gin.H{
-			"code": 409,
-			"msg":  "该镜像名称已存在",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeConflict, "该镜像名称已存在"))
 		return
 	}
 
@@ -233,40 +209,24 @@ func CreateSystemImage(c *gin.Context) {
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Create(&image).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "创建系统镜像失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建系统镜像失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "创建成功",
-		"data": image,
-	})
+	common.ResponseSuccess(c, image, "创建成功")
 }
 
 // UpdateSystemImage 更新系统镜像
 func UpdateSystemImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	var req UpdateSystemImageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
@@ -274,17 +234,9 @@ func UpdateSystemImage(c *gin.Context) {
 	var image systemModel.SystemImage
 	if err := global.APP_DB.First(&image, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  "系统镜像不存在",
-				"data": nil,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "系统镜像不存在"))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  "查询失败",
-				"data": nil,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
 		}
 		return
 	}
@@ -300,11 +252,7 @@ func UpdateSystemImage(c *gin.Context) {
 			instanceType = image.InstanceType
 		}
 		if err := validateImageURL(providerType, instanceType, req.URL); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code": 400,
-				"msg":  err.Error(),
-				"data": nil,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 			return
 		}
 	}
@@ -359,30 +307,18 @@ func UpdateSystemImage(c *gin.Context) {
 	updates["updated_at"] = time.Now()
 
 	if err := global.APP_DB.Model(&image).Updates(updates).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "更新失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "更新成功",
-		"data": image,
-	})
+	common.ResponseSuccess(c, image, "更新成功")
 }
 
 // DeleteSystemImage 删除系统镜像
 func DeleteSystemImage(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -390,17 +326,9 @@ func DeleteSystemImage(c *gin.Context) {
 	var image systemModel.SystemImage
 	if err := global.APP_DB.First(&image, id).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  "系统镜像不存在",
-				"data": nil,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "系统镜像不存在"))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  "查询失败",
-				"data": nil,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
 		}
 		return
 	}
@@ -410,19 +338,11 @@ func DeleteSystemImage(c *gin.Context) {
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Delete(&image).Error
 	}); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "删除失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "删除失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "删除成功",
-		"data": nil,
-	})
+	common.ResponseSuccess(c, nil, "删除成功")
 }
 
 // BatchDeleteSystemImages 批量删除系统镜像
@@ -432,28 +352,16 @@ func BatchDeleteSystemImages(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	if err := global.APP_DB.Where("id IN ?", req.IDs).Delete(&systemModel.SystemImage{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "批量删除失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "批量删除失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "批量删除成功",
-		"data": nil,
-	})
+	common.ResponseSuccess(c, nil, "批量删除成功")
 }
 
 // BatchUpdateSystemImageStatus 批量更新系统镜像状态
@@ -464,11 +372,7 @@ func BatchUpdateSystemImageStatus(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
@@ -477,19 +381,11 @@ func BatchUpdateSystemImageStatus(c *gin.Context) {
 			"status":     req.Status,
 			"updated_at": time.Now(),
 		}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "批量更新状态失败",
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "批量更新状态失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "批量更新状态成功",
-		"data": nil,
-	})
+	common.ResponseSuccess(c, nil, "批量更新状态成功")
 }
 
 // GetAvailableSystemImages 获取可用的系统镜像（用于实例创建）
@@ -502,19 +398,11 @@ func GetAvailableSystemImages(c *gin.Context) {
 	imageService := images.ImageService{}
 	images, err := imageService.GetAvailableImagesWithOS(providerType, instanceType, architecture, osType)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"code": 500,
-			"msg":  "获取可用镜像失败: " + err.Error(),
-			"data": nil,
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取可用镜像失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": images,
-	})
+	common.ResponseSuccess(c, images)
 }
 
 // validateImageURL 验证镜像URL的文件扩展名

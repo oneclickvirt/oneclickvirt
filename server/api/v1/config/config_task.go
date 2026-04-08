@@ -3,7 +3,6 @@ package config
 import (
 	"context"
 	"fmt"
-	"net/http"
 	provider2 "oneclickvirt/service/provider"
 	"strconv"
 	"strings"
@@ -36,27 +35,27 @@ import (
 func AutoConfigureProvider(c *gin.Context) {
 	var req adminModel.AutoConfigureRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("请求参数错误: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
 	// 获取用户信息
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Error("认证失败"))
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "认证失败"))
 		return
 	}
 
 	// 检查Provider是否存在
 	var provider provider.Provider
 	if err := global.APP_DB.First(&provider, req.ProviderID).Error; err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("Provider不存在"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider不存在"))
 		return
 	}
 
 	// 检查Provider类型
 	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" {
-		c.JSON(http.StatusBadRequest, common.Error("不支持的Provider类型: "+provider.Type))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的Provider类型: "+provider.Type))
 		return
 	}
 
@@ -94,7 +93,7 @@ func AutoConfigureProvider(c *gin.Context) {
 		}
 		response.StreamURL = fmt.Sprintf("/api/v1/admin/provider/%d/auto-configure-stream/%d", req.ProviderID, runningTask.ID)
 
-		c.JSON(http.StatusOK, common.Success(response))
+		common.ResponseSuccess(c, response)
 		return
 	}
 
@@ -102,7 +101,7 @@ func AutoConfigureProvider(c *gin.Context) {
 	if req.ShowHistory {
 		response.Status = "history"
 		response.Message = "历史记录查询成功"
-		c.JSON(http.StatusOK, common.Success(response))
+		common.ResponseSuccess(c, response)
 		return
 	}
 
@@ -121,13 +120,13 @@ func AutoConfigureProvider(c *gin.Context) {
 		authCtx.Username,
 	)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("创建任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败: "+err.Error()))
 		return
 	}
 
 	// 启动任务
 	if err := configService.StartTask(task.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("启动任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败: "+err.Error()))
 		return
 	}
 
@@ -159,7 +158,7 @@ func AutoConfigureProvider(c *gin.Context) {
 	response.Status = "started"
 	response.Message = fmt.Sprintf("已开始为 %s 执行自动配置，请稍后查看任务详情", provider.Name)
 
-	c.JSON(http.StatusOK, common.Success(response))
+	common.ResponseSuccess(c, response)
 }
 
 // GetConfigurationTasks 获取配置任务列表
@@ -181,7 +180,7 @@ func AutoConfigureProvider(c *gin.Context) {
 func GetConfigurationTasks(c *gin.Context) {
 	var req adminModel.ConfigurationTaskListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("请求参数错误: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
@@ -196,7 +195,7 @@ func GetConfigurationTasks(c *gin.Context) {
 	configService := config.GetTaskService()
 	tasks, total, err := configService.GetTaskList(&req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("获取任务列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务列表失败: "+err.Error()))
 		return
 	}
 
@@ -205,7 +204,7 @@ func GetConfigurationTasks(c *gin.Context) {
 		Total: total,
 	}
 
-	c.JSON(http.StatusOK, common.Success(response))
+	common.ResponseSuccess(c, response)
 }
 
 // GetConfigurationTaskDetail 获取配置任务详情
@@ -225,18 +224,18 @@ func GetConfigurationTaskDetail(c *gin.Context) {
 	idStr := c.Param("id")
 	taskID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("无效的任务ID"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
 		return
 	}
 
 	configService := config.GetTaskService()
 	task, err := configService.GetTaskDetail(uint(taskID))
 	if err != nil {
-		c.JSON(http.StatusNotFound, common.Error("任务不存在"))
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Success(task))
+	common.ResponseSuccess(c, task)
 }
 
 // CancelConfigurationTask 取消配置任务
@@ -256,17 +255,17 @@ func CancelConfigurationTask(c *gin.Context) {
 	idStr := c.Param("id")
 	taskID, err := strconv.ParseUint(idStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Error("无效的任务ID"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的任务ID"))
 		return
 	}
 
 	configService := config.GetTaskService()
 	if err := configService.CancelTask(uint(taskID)); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Error("取消任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "取消任务失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Success("任务已取消"))
+	common.ResponseSuccess(c, nil, "任务已取消")
 }
 
 // executeAutoConfiguration 执行自动配置（支持context取消）

@@ -2,12 +2,12 @@ package system
 
 import (
 	"context"
-	"net/http"
 	"runtime"
 	"sync"
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/model/common"
 	monitoringModel "oneclickvirt/model/monitoring"
 	"oneclickvirt/service/task"
 	"oneclickvirt/utils"
@@ -106,11 +106,7 @@ type PerformanceHistory struct {
 func GetPerformanceMetrics(c *gin.Context) {
 	metrics := collectPerformanceMetrics()
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
-		"msg":  "获取性能指标成功",
-		"data": metrics,
-	})
+	common.ResponseSuccess(c, metrics, "获取性能指标成功")
 }
 
 // GetPerformanceHistory 获取性能历史数据
@@ -135,10 +131,7 @@ func GetPerformanceHistory(c *gin.Context) {
 	default:
 		duration, err = time.ParseDuration(durationStr)
 		if err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code": 400,
-				"msg":  "无效的时间范围参数",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的时间范围参数"))
 			return
 		}
 	}
@@ -146,11 +139,7 @@ func GetPerformanceHistory(c *gin.Context) {
 	// 生成历史数据点（实际项目中应该从时序数据库或缓存中读取）
 	history := generatePerformanceHistory(duration)
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 0,
-		"msg":  "获取性能历史数据成功",
-		"data": history,
-	})
+	common.ResponseSuccess(c, history, "获取性能历史数据成功")
 }
 
 // collectPerformanceMetrics 收集性能指标

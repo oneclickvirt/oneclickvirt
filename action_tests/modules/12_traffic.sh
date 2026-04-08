@@ -37,7 +37,7 @@ run_module_12() {
     # -- Traffic monitor --
     if [[ -n "$PROVIDER_ID" ]]; then
         test_api "Traffic monitor operation" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
-            "{\"provider_id\":${PROVIDER_ID},\"action\":\"start\"}" "$group"
+            "{\"providerId\":${PROVIDER_ID},\"operation\":\"enable\"}" "$group"
         test_api "Traffic monitor tasks" "GET" "/api/v1/admin/providers/traffic-monitor/tasks?page=1&pageSize=10" "200" "" "$group"
         test_api "Latest traffic monitor" "GET" "/api/v1/admin/providers/traffic-monitor/latest" "200" "" "$group"
     fi

@@ -2,7 +2,6 @@ package traffic
 
 import (
 	"fmt"
-	"net/http"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -47,18 +46,11 @@ func (api *AdminTrafficAPI) GetSystemTrafficOverview(c *gin.Context) {
 	systemStats, err := trafficLimitService.GetSystemTrafficStats()
 	if err != nil {
 		global.APP_LOG.Error("获取系统流量统计失败", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取系统流量统计失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取系统流量统计失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取系统流量概览成功",
-		Data: systemStats,
-	})
+	common.ResponseSuccess(c, systemStats, "获取系统流量概览成功")
 }
 
 // GetProviderTrafficStats 获取Provider流量统计
@@ -75,16 +67,13 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 	providerIDStr := c.Param("providerId")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "Provider ID格式错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID格式错误"))
 		return
 	}
 
 	// 普通管理员权限检查
 	if !api.checkProviderOwnership(c, uint(providerID)) {
-		c.JSON(http.StatusForbidden, common.Response{Code: 40300, Msg: "无权访问该Provider"})
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, "无权访问该Provider"))
 		return
 	}
 
@@ -96,18 +85,11 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 		global.APP_LOG.Error("获取Provider流量统计失败",
 			zap.Uint("providerID", uint(providerID)),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取Provider流量统计失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取Provider流量统计失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取Provider流量统计成功",
-		Data: providerUsage,
-	})
+	common.ResponseSuccess(c, providerUsage, "获取Provider流量统计成功")
 }
 
 // GetUserTrafficStats 获取用户流量统计
@@ -124,10 +106,7 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 	userIDStr := c.Param("userId")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "用户ID格式错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID格式错误"))
 		return
 	}
 
@@ -139,18 +118,11 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 		global.APP_LOG.Error("获取用户流量统计失败",
 			zap.Uint("userID", uint(userID)),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取用户流量统计失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户流量统计失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取用户流量统计成功",
-		Data: userUsage,
-	})
+	common.ResponseSuccess(c, userUsage, "获取用户流量统计成功")
 }
 
 // GetAllUsersTrafficRank 获取所有用户流量排行
@@ -189,23 +161,16 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 	userRankings, total, err := trafficLimitService.GetUsersTrafficRanking(page, pageSize, username, nickname)
 	if err != nil {
 		global.APP_LOG.Error("获取用户流量排行榜失败", zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取用户流量排行榜失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户流量排行榜失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "获取用户流量排行榜成功",
-		Data: map[string]interface{}{
-			"rankings": userRankings,
-			"total":    total,
-			"page":     page,
-			"pageSize": pageSize,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"rankings": userRankings,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	}, "获取用户流量排行榜成功")
 }
 
 // ManageTrafficLimits 管理流量限制
@@ -221,10 +186,7 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 	var req ManageTrafficLimitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "请求参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
@@ -242,10 +204,7 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 			err = trafficLimitService.RemoveUserTrafficLimit(req.TargetID)
 			result = "解除用户流量限制"
 		} else {
-			c.JSON(http.StatusBadRequest, common.Response{
-				Code: 40000,
-				Msg:  "不支持的操作类型",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的操作类型"))
 			return
 		}
 	case "provider":
@@ -256,17 +215,11 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 			err = trafficLimitService.RemoveProviderTrafficLimit(req.TargetID)
 			result = "解除Provider流量限制"
 		} else {
-			c.JSON(http.StatusBadRequest, common.Response{
-				Code: 40000,
-				Msg:  "不支持的操作类型",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的操作类型"))
 			return
 		}
 	default:
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "不支持的目标类型",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的目标类型"))
 		return
 	}
 
@@ -276,23 +229,16 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 			zap.String("action", req.Action),
 			zap.Uint("targetID", req.TargetID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  result + "失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, result+"失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  result + "成功",
-		Data: map[string]interface{}{
-			"type":      req.Type,
-			"action":    req.Action,
-			"target_id": req.TargetID,
-			"reason":    req.Reason,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"type":      req.Type,
+		"action":    req.Action,
+		"target_id": req.TargetID,
+		"reason":    req.Reason,
+	}, result+"成功")
 }
 
 // ManageTrafficLimitRequest 流量限制管理请求
@@ -316,18 +262,12 @@ type ManageTrafficLimitRequest struct {
 func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 	var req BatchManageTrafficLimitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "请求参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
 	if len(req.UserIDs) == 0 {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "用户ID列表不能为空",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID列表不能为空"))
 		return
 	}
 
@@ -359,15 +299,11 @@ func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 
 	result := "批量" + map[string]string{"limit": "限制", "unlimit": "解除限制"}[req.Action] + "流量"
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  fmt.Sprintf("%s完成，成功: %d, 失败: %d", result, successCount, failCount),
-		Data: map[string]interface{}{
-			"success_count": successCount,
-			"fail_count":    failCount,
-			"errors":        errors,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"success_count": successCount,
+		"fail_count":    failCount,
+		"errors":        errors,
+	}, fmt.Sprintf("%s完成，成功: %d, 失败: %d", result, successCount, failCount))
 }
 
 // BatchSyncUserTraffic 批量同步用户流量
@@ -383,18 +319,12 @@ func (api *AdminTrafficAPI) BatchManageTrafficLimits(c *gin.Context) {
 func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 	var req BatchSyncTrafficRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "请求参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
 	if len(req.UserIDs) == 0 {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "用户ID列表不能为空",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID列表不能为空"))
 		return
 	}
 
@@ -408,13 +338,9 @@ func (api *AdminTrafficAPI) BatchSyncUserTraffic(c *gin.Context) {
 		}
 	}()
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  fmt.Sprintf("已触发 %d 个用户的流量同步任务", len(req.UserIDs)),
-		Data: map[string]interface{}{
-			"user_ids": req.UserIDs,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"user_ids": req.UserIDs,
+	}, fmt.Sprintf("已触发 %d 个用户的流量同步任务", len(req.UserIDs)))
 }
 
 // BatchManageTrafficLimitRequest 批量流量限制管理请求
@@ -443,10 +369,7 @@ func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 	userIDStr := c.Param("userId")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 40000,
-			Msg:  "用户ID格式错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "用户ID格式错误"))
 		return
 	}
 
@@ -457,19 +380,12 @@ func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 		global.APP_LOG.Error("清空用户流量记录失败",
 			zap.Uint("userID", uint(userID)),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "清空用户流量记录失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空用户流量记录失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "清空用户流量记录成功",
-		Data: map[string]interface{}{
-			"user_id":       userID,
-			"deleted_count": deletedCount,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"user_id":       userID,
+		"deleted_count": deletedCount,
+	}, "清空用户流量记录成功")
 }

@@ -30,7 +30,7 @@ const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
     console.log('App启动时检查初始化状态:', response)
-    if (response && response.code === 0 && response.data && response.data.needInit === true) {
+    if (response && (response.code === 0 || response.code === 200) && response.data && response.data.needInit === true) {
       console.log('系统需要初始化，强制跳转到初始化页面')
       // 强制跳转到初始化页面
       router.replace('/init')

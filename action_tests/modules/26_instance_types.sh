@@ -30,21 +30,21 @@ run_module_26() {
 
         # Create container instance
         local ct_resp; ct_resp=$(test_api "Create container instance" "POST" "/api/v1/admin/instances" "200|201|400|500" \
-            '{"provider":"'"$PROVIDER_ID"'","name":"type_test_ct","instance_type":"container","image":"debian:11","cpu":1,"memory":512,"disk":5}' \
+            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_ct","instance_type":"container","image":"debian:12","cpu":1,"memory":512,"disk":5}' \
             "$group" "$ADMIN_TOKEN")
-        local ct_task; ct_task=$(echo "$ct_resp" | grep -o '"task_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local ct_task; ct_task=$(echo "$ct_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
 
         if [[ -n "$ct_task" ]]; then
             # Wait for container creation
             local waited=0
             while [[ $waited -lt 120 ]]; do
                 local status; status=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-                    "${SERVER_URL}/api/v1/admin/tasks/${ct_task}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+                    "${SERVER_URL}/api/v1/admin/tasks/${ct_task}" | jq -r '.data.status // empty' 2>/dev/null)
                 [[ "$status" == "completed" || "$status" == "failed" ]] && break
                 sleep 5; waited=$((waited + 5))
             done
 
-            local ct_id; ct_id=$(echo "$ct_resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+            local ct_id; ct_id=$(echo "$ct_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
             if [[ -n "$ct_id" ]]; then
                 # Container-specific operations
                 test_api "Container monitoring" "GET" "/api/v1/admin/instances/${ct_id}/monitoring/resources" "200" \
@@ -78,20 +78,20 @@ run_module_26() {
 
         # Create VM instance
         local vm_resp; vm_resp=$(test_api "Create VM instance" "POST" "/api/v1/admin/instances" "200|201|400|500" \
-            '{"provider":"'"$PROVIDER_ID"'","name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
+            '{"provider_id":'"$PROVIDER_ID"',"name":"type_test_vm","instance_type":"vm","image":"debian-11","cpu":1,"memory":1024,"disk":10}' \
             "$group" "$ADMIN_TOKEN")
-        local vm_task; vm_task=$(echo "$vm_resp" | grep -o '"task_id":"[^"]*"' | head -1 | cut -d'"' -f4)
+        local vm_task; vm_task=$(echo "$vm_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
 
         if [[ -n "$vm_task" ]]; then
             local waited=0
             while [[ $waited -lt 180 ]]; do
                 local status; status=$(curl -s -H "Authorization: Bearer $ADMIN_TOKEN" \
-                    "${SERVER_URL}/api/v1/admin/tasks/${vm_task}" | grep -o '"status":"[^"]*"' | cut -d'"' -f4)
+                    "${SERVER_URL}/api/v1/admin/tasks/${vm_task}" | jq -r '.data.status // empty' 2>/dev/null)
                 [[ "$status" == "completed" || "$status" == "failed" ]] && break
                 sleep 5; waited=$((waited + 5))
             done
 
-            local vm_id; vm_id=$(echo "$vm_resp" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
+            local vm_id; vm_id=$(echo "$vm_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
             if [[ -n "$vm_id" ]]; then
                 test_api "VM monitoring" "GET" "/api/v1/admin/instances/${vm_id}/monitoring/resources" "200" \
                     "" "$group" "$ADMIN_TOKEN"

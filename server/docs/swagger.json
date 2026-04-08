@@ -829,55 +829,6 @@
                         }
                     }
                 }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "管理员创建新的虚拟化实例",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "创建实例",
-                "parameters": [
-                    {
-                        "description": "创建实例请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.CreateInstanceRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "创建成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器内部错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
             }
         },
         "/admin/instances/{id}/action": {
@@ -2061,135 +2012,6 @@
                 }
             }
         },
-        "/admin/provider": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "管理员获取系统中的虚拟化提供商列表，支持分页和查询",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "提供商管理"
-                ],
-                "summary": "获取提供商列表",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "default": 1,
-                        "description": "页码",
-                        "name": "page",
-                        "in": "query"
-                    },
-                    {
-                        "type": "integer",
-                        "default": 10,
-                        "description": "每页数量",
-                        "name": "pageSize",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "搜索关键字",
-                        "name": "keyword",
-                        "in": "query"
-                    },
-                    {
-                        "type": "string",
-                        "description": "提供商类型筛选",
-                        "name": "type",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器内部错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            },
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "管理员创建新的虚拟化提供商配置",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "提供商管理"
-                ],
-                "summary": "创建提供商",
-                "parameters": [
-                    {
-                        "description": "创建提供商请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.CreateProviderRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "创建成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "服务器内部错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/provider/auto-configure": {
             "post": {
                 "security": [
@@ -2252,40 +2074,6 @@
                     },
                     "500": {
                         "description": "配置失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/provider/export-configs": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "导出所有已配置的Provider认证信息到文件",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "导出所有Provider配置",
-                "responses": {
-                    "200": {
-                        "description": "导出成功",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "导出失败",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -2558,184 +2346,6 @@
                 }
             }
         },
-        "/admin/provider/{id}/auto-configure-stream": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "使用Server-Sent Events实时显示配置过程和输出",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "text/plain"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "实时自动配置Provider",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "实时配置输出",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "配置失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/provider/{id}/generate-cert": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "为LXD/Incus Provider生成客户端证书和设置脚本，为Proxmox VE生成API Token配置脚本",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "为Provider生成证书或配置",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "生成成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "生成失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/provider/{id}/health-check": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "检查Provider的API和SSH连接状态",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "检查Provider健康状态",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    },
-                    {
-                        "type": "boolean",
-                        "default": true,
-                        "description": "是否强制刷新资源信息",
-                        "name": "forceRefresh",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "检查成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/admin.ProviderStatusResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "检查失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/provider/{id}/port-config": {
             "put": {
                 "security": [
@@ -2855,265 +2465,6 @@
                 }
             }
         },
-        "/admin/provider/{id}/status": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "获取Provider的详细状态信息，包括证书信息",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "管理员管理"
-                ],
-                "summary": "获取Provider状态详情",
-                "parameters": [
-                    {
-                        "type": "integer",
-                        "description": "Provider ID",
-                        "name": "id",
-                        "in": "path",
-                        "required": true
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "获取成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/admin.ProviderStatusResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "获取失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/providers/check-endpoint": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "检查指定的SSH地址和端口组合是否已被使用（用于前端实时验证）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "提供商管理"
-                ],
-                "summary": "检查Provider SSH地址和端口是否已存在",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "SSH地址",
-                        "name": "endpoint",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "SSH端口",
-                        "name": "sshPort",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "排除的Provider ID（编辑时使用）",
-                        "name": "excludeId",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "检查结果",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "boolean"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/providers/check-name": {
-            "get": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "检查指定的Provider名称是否已被使用（用于前端实时验证）",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "提供商管理"
-                ],
-                "summary": "检查Provider名称是否已存在",
-                "parameters": [
-                    {
-                        "type": "string",
-                        "description": "要检查的Provider名称",
-                        "name": "name",
-                        "in": "query",
-                        "required": true
-                    },
-                    {
-                        "type": "integer",
-                        "description": "排除的Provider ID（编辑时使用）",
-                        "name": "excludeId",
-                        "in": "query"
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "检查结果",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "type": "object",
-                                            "additionalProperties": {
-                                                "type": "boolean"
-                                            }
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
-        "/admin/providers/test-ssh-connection": {
-            "post": {
-                "security": [
-                    {
-                        "BearerAuth": []
-                    }
-                ],
-                "description": "测试SSH连接延迟，执行多次测试并返回最小、最大、平均延迟及推荐超时时间",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "tags": [
-                    "提供商管理"
-                ],
-                "summary": "测试SSH连接延迟",
-                "parameters": [
-                    {
-                        "description": "测试SSH连接请求参数",
-                        "name": "request",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/admin.TestSSHConnectionRequest"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "测试成功",
-                        "schema": {
-                            "allOf": [
-                                {
-                                    "$ref": "#/definitions/common.Response"
-                                },
-                                {
-                                    "type": "object",
-                                    "properties": {
-                                        "data": {
-                                            "$ref": "#/definitions/admin.TestSSHConnectionResponse"
-                                        }
-                                    }
-                                }
-                            ]
-                        }
-                    },
-                    "400": {
-                        "description": "请求参数错误",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    },
-                    "500": {
-                        "description": "测试失败",
-                        "schema": {
-                            "$ref": "#/definitions/common.Response"
-                        }
-                    }
-                }
-            }
-        },
         "/admin/providers/{id}/discover": {
             "post": {
                 "security": [
@@ -3175,7 +2526,7 @@
                 }
             }
         },
-        "/admin/providers/{id}/hardware-test": {
+        "/admin/providers/{id}/hardware-report": {
             "get": {
                 "security": [
                     {
@@ -3213,7 +2564,44 @@
                 "tags": [
                     "Admin-Provider"
                 ],
-                "summary": "运行Provider硬件测试",
+                "summary": "通过粘贴板URL保存Provider硬件报告",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "请求体",
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "tags": [
+                    "Admin-Provider"
+                ],
+                "summary": "删除Provider硬件报告",
                 "parameters": [
                     {
                         "type": "integer",
@@ -4593,6 +3981,12 @@
                         "type": "string",
                         "description": "用户名搜索",
                         "name": "username",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "昵称搜索",
+                        "name": "nickname",
                         "in": "query"
                     },
                     {
@@ -7438,7 +6832,7 @@
                 "tags": [
                     "Public"
                 ],
-                "summary": "获取Provider硬件测试报告（用户端）",
+                "summary": "获取Provider硬件报告（用户端）",
                 "parameters": [
                     {
                         "type": "integer",
@@ -9647,6 +9041,62 @@
                 }
             }
         },
+        "/v1/user/instances/{id}/exec": {
+            "get": {
+                "description": "通过WebSocket建立到容器的交互式终端连接(exec)",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "WebSocket Container Exec",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "101": {
+                        "description": "Switching Protocols",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "请求参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "未授权",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "服务器错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/v1/user/instances/{id}/ssh": {
             "get": {
                 "description": "通过WebSocket建立到实例的SSH连接",
@@ -10553,40 +10003,6 @@
                 }
             }
         },
-        "admin.CreateInstanceRequest": {
-            "type": "object",
-            "required": [
-                "image",
-                "name",
-                "provider"
-            ],
-            "properties": {
-                "cpu": {
-                    "type": "integer"
-                },
-                "disk": {
-                    "type": "integer"
-                },
-                "image": {
-                    "type": "string"
-                },
-                "instance_type": {
-                    "type": "string"
-                },
-                "memory": {
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "provider": {
-                    "type": "string"
-                },
-                "userId": {
-                    "type": "integer"
-                }
-            }
-        },
         "admin.CreateInviteCodeRequest": {
             "type": "object",
             "required": [
@@ -10656,305 +10072,6 @@
                         "udp",
                         "both"
                     ]
-                }
-            }
-        },
-        "admin.CreateProviderRequest": {
-            "type": "object",
-            "required": [
-                "name",
-                "type"
-            ],
-            "properties": {
-                "allowClaim": {
-                    "type": "boolean"
-                },
-                "allowConcurrentTasks": {
-                    "description": "是否允许并发任务，默认false",
-                    "type": "boolean"
-                },
-                "architecture": {
-                    "type": "string"
-                },
-                "autoAdjustQuota": {
-                    "description": "是否自动调整quota以适应导入的实例",
-                    "type": "boolean"
-                },
-                "autoImport": {
-                    "description": "是否自动导入发现的实例",
-                    "type": "boolean"
-                },
-                "city": {
-                    "type": "string"
-                },
-                "config": {
-                    "type": "string"
-                },
-                "containerAllowNesting": {
-                    "description": "是否允许嵌套虚拟化",
-                    "type": "boolean"
-                },
-                "containerCpuAllowance": {
-                    "description": "CPU使用率上限（如\"100%\"）",
-                    "type": "string"
-                },
-                "containerDiskIoLimit": {
-                    "description": "磁盘IO限制（如\"10MB\"或\"100iops\"）",
-                    "type": "string"
-                },
-                "containerEnableLxcfs": {
-                    "description": "是否启用LXCFS",
-                    "type": "boolean"
-                },
-                "containerLimitCpu": {
-                    "description": "容器资源限制配置",
-                    "type": "boolean"
-                },
-                "containerLimitDisk": {
-                    "description": "容器硬盘是否计入总量预算",
-                    "type": "boolean"
-                },
-                "containerLimitMemory": {
-                    "description": "容器内存是否计入总量预算",
-                    "type": "boolean"
-                },
-                "containerMaxProcesses": {
-                    "description": "最大进程数限制（0表示不限制）",
-                    "type": "integer"
-                },
-                "containerMemorySwap": {
-                    "description": "是否允许使用swap",
-                    "type": "boolean"
-                },
-                "containerPrivileged": {
-                    "description": "容器特殊配置选项（仅 LXD/Incus 容器）",
-                    "type": "boolean"
-                },
-                "container_enabled": {
-                    "type": "boolean"
-                },
-                "country": {
-                    "type": "string"
-                },
-                "countryCode": {
-                    "type": "string"
-                },
-                "defaultInboundBandwidth": {
-                    "description": "带宽配置",
-                    "type": "integer"
-                },
-                "defaultOutboundBandwidth": {
-                    "description": "默认出站带宽限制（Mbps）",
-                    "type": "integer"
-                },
-                "defaultPortCount": {
-                    "description": "端口映射配置",
-                    "type": "integer"
-                },
-                "discoverMode": {
-                    "description": "实例发现与导入配置",
-                    "type": "boolean"
-                },
-                "enableResourceMonitoring": {
-                    "description": "硬件资源监控",
-                    "type": "boolean"
-                },
-                "enableTaskPolling": {
-                    "description": "是否启用任务轮询，默认true",
-                    "type": "boolean"
-                },
-                "enableTrafficControl": {
-                    "description": "流量管理",
-                    "type": "boolean"
-                },
-                "endpoint": {
-                    "type": "string"
-                },
-                "executionRule": {
-                    "description": "操作执行配置",
-                    "type": "string",
-                    "enum": [
-                        "auto",
-                        "api_only",
-                        "ssh_only"
-                    ]
-                },
-                "expiresAt": {
-                    "description": "过期时间，格式: \"2006-01-02 15:04:05\"",
-                    "type": "string"
-                },
-                "importedInstanceOwner": {
-                    "description": "导入实例的所有者（用户名，默认\"admin\"）",
-                    "type": "string"
-                },
-                "ipv4PortMappingMethod": {
-                    "description": "端口映射方式配置",
-                    "type": "string"
-                },
-                "ipv6PortMappingMethod": {
-                    "description": "IPv6端口映射方式：device_proxy, iptables, native",
-                    "type": "string"
-                },
-                "levelLimits": {
-                    "description": "节点级别的等级限制配置\n用于限制该节点上不同等级用户能创建的最大资源",
-                    "type": "object",
-                    "additionalProperties": {
-                        "type": "object",
-                        "additionalProperties": true
-                    }
-                },
-                "maxConcurrentTasks": {
-                    "description": "最大并发任务数，默认1",
-                    "type": "integer"
-                },
-                "maxContainerInstances": {
-                    "description": "最大容器数量限制",
-                    "type": "integer"
-                },
-                "maxInboundBandwidth": {
-                    "description": "最大入站带宽限制（Mbps）",
-                    "type": "integer"
-                },
-                "maxOutboundBandwidth": {
-                    "description": "最大出站带宽限制（Mbps）",
-                    "type": "integer"
-                },
-                "maxTraffic": {
-                    "description": "最大流量限制（MB），默认1TB=1048576MB",
-                    "type": "integer"
-                },
-                "maxVMInstances": {
-                    "description": "最大虚拟机数量限制",
-                    "type": "integer"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "networkType": {
-                    "description": "网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only",
-                    "type": "string",
-                    "enum": [
-                        "nat_ipv4",
-                        "nat_ipv4_ipv6",
-                        "dedicated_ipv4",
-                        "dedicated_ipv4_ipv6",
-                        "ipv6_only"
-                    ]
-                },
-                "password": {
-                    "type": "string"
-                },
-                "portIP": {
-                    "description": "端口映射使用的公网IP",
-                    "type": "string"
-                },
-                "portRangeEnd": {
-                    "description": "端口映射范围结束，默认65535",
-                    "type": "integer"
-                },
-                "portRangeStart": {
-                    "description": "端口映射范围起始，默认10000",
-                    "type": "integer"
-                },
-                "redeemCodeOnly": {
-                    "description": "是否仅支持兑换码兑换",
-                    "type": "boolean"
-                },
-                "region": {
-                    "type": "string"
-                },
-                "sshConnectTimeout": {
-                    "description": "SSH连接配置",
-                    "type": "integer"
-                },
-                "sshExecuteTimeout": {
-                    "description": "SSH命令执行超时时间（秒），默认300秒",
-                    "type": "integer"
-                },
-                "sshKey": {
-                    "description": "SSH私钥，优先于密码使用",
-                    "type": "string"
-                },
-                "sshPort": {
-                    "type": "integer"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "storagePool": {
-                    "description": "存储配置（所有Provider类型通用）",
-                    "type": "string"
-                },
-                "taskPollInterval": {
-                    "description": "任务轮询间隔（秒），默认60秒",
-                    "type": "integer"
-                },
-                "token": {
-                    "type": "string"
-                },
-                "totalQuota": {
-                    "type": "integer"
-                },
-                "trafficAutoResetBatchSize": {
-                    "description": "流量自动重置批量大小",
-                    "type": "integer"
-                },
-                "trafficAutoResetInterval": {
-                    "description": "流量自动重置检查间隔（秒）",
-                    "type": "integer"
-                },
-                "trafficCountMode": {
-                    "description": "流量统计模式：both(双向), out(仅出向), in(仅入向)",
-                    "type": "string"
-                },
-                "trafficLimitCheckBatchSize": {
-                    "description": "流量限制检测批量大小",
-                    "type": "integer"
-                },
-                "trafficLimitCheckInterval": {
-                    "description": "流量限制检测间隔（秒）",
-                    "type": "integer"
-                },
-                "trafficMultiplier": {
-                    "description": "流量计费倍率，默认1.0",
-                    "type": "number"
-                },
-                "trafficStatsBatchSize": {
-                    "description": "流量统计批量大小",
-                    "type": "integer"
-                },
-                "trafficStatsInterval": {
-                    "description": "流量统计间隔（秒）",
-                    "type": "integer"
-                },
-                "trafficStatsMode": {
-                    "description": "流量统计性能配置",
-                    "type": "string"
-                },
-                "trafficSyncMethod": {
-                    "description": "流量同步方式：pmacct(传统), agent(Rust Agent)",
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "username": {
-                    "type": "string"
-                },
-                "vmLimitCpu": {
-                    "description": "虚拟机资源限制配置",
-                    "type": "boolean"
-                },
-                "vmLimitDisk": {
-                    "description": "虚拟机硬盘是否计入总量预算",
-                    "type": "boolean"
-                },
-                "vmLimitMemory": {
-                    "description": "虚拟机内存是否计入总量预算",
-                    "type": "boolean"
-                },
-                "vm_enabled": {
-                    "type": "boolean"
                 }
             }
         },
@@ -11098,63 +10215,6 @@
                 }
             }
         },
-        "admin.ProviderStatusResponse": {
-            "type": "object",
-            "properties": {
-                "apiStatus": {
-                    "type": "string"
-                },
-                "certFingerprint": {
-                    "type": "string"
-                },
-                "certPath": {
-                    "type": "string"
-                },
-                "id": {
-                    "type": "integer"
-                },
-                "keyPath": {
-                    "type": "string"
-                },
-                "lastApiCheck": {
-                    "type": "string"
-                },
-                "lastSshCheck": {
-                    "type": "string"
-                },
-                "name": {
-                    "type": "string"
-                },
-                "nodeCpuCores": {
-                    "description": "节点资源信息",
-                    "type": "integer"
-                },
-                "nodeDiskTotal": {
-                    "type": "integer"
-                },
-                "nodeMemoryTotal": {
-                    "type": "integer"
-                },
-                "resourceSynced": {
-                    "type": "boolean"
-                },
-                "resourceSyncedAt": {
-                    "type": "string"
-                },
-                "sshStatus": {
-                    "type": "string"
-                },
-                "status": {
-                    "type": "string"
-                },
-                "type": {
-                    "type": "string"
-                },
-                "uuid": {
-                    "type": "string"
-                }
-            }
-        },
         "admin.ResetInstancePasswordRequest": {
             "type": "object"
         },
@@ -11210,73 +10270,6 @@
                     "type": "integer"
                 },
                 "totalTasks": {
-                    "type": "integer"
-                }
-            }
-        },
-        "admin.TestSSHConnectionRequest": {
-            "type": "object",
-            "required": [
-                "host",
-                "port",
-                "username"
-            ],
-            "properties": {
-                "host": {
-                    "description": "SSH服务器地址",
-                    "type": "string"
-                },
-                "password": {
-                    "description": "SSH密码（使用密码认证时必填）",
-                    "type": "string"
-                },
-                "port": {
-                    "description": "SSH端口",
-                    "type": "integer"
-                },
-                "sshKey": {
-                    "description": "SSH私钥（使用密钥认证时必填）",
-                    "type": "string"
-                },
-                "testCount": {
-                    "description": "测试次数，默认3次",
-                    "type": "integer"
-                },
-                "username": {
-                    "description": "SSH用户名",
-                    "type": "string"
-                }
-            }
-        },
-        "admin.TestSSHConnectionResponse": {
-            "type": "object",
-            "properties": {
-                "avgLatency": {
-                    "description": "平均延迟（毫秒）",
-                    "type": "integer"
-                },
-                "errorMessage": {
-                    "description": "错误信息（如果失败）",
-                    "type": "string"
-                },
-                "maxLatency": {
-                    "description": "最大延迟（毫秒）",
-                    "type": "integer"
-                },
-                "minLatency": {
-                    "description": "最小延迟（毫秒）",
-                    "type": "integer"
-                },
-                "recommendedTimeout": {
-                    "description": "推荐的超时时间（秒），最大延迟*2",
-                    "type": "integer"
-                },
-                "success": {
-                    "description": "测试是否成功",
-                    "type": "boolean"
-                },
-                "testCount": {
-                    "description": "测试次数",
                     "type": "integer"
                 }
             }
@@ -11409,32 +10402,32 @@
                 "minLevelForContainer": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "minLevelForDeleteContainer": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "minLevelForDeleteVM": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "minLevelForResetContainer": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "minLevelForResetVM": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 },
                 "minLevelForVM": {
                     "type": "integer",
                     "maximum": 99,
-                    "minimum": 1
+                    "minimum": 0
                 }
             }
         },
@@ -11610,6 +10603,9 @@
                     "type": "integer"
                 },
                 "data": {},
+                "message": {
+                    "type": "string"
+                },
                 "msg": {
                     "type": "string"
                 }
@@ -13042,7 +12038,9 @@
                         "proxmox",
                         "lxd",
                         "incus",
-                        "docker"
+                        "docker",
+                        "qemu",
+                        "kubevirt"
                     ]
                 },
                 "size": {

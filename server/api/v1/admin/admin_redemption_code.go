@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"strings"
 
 	"oneclickvirt/middleware"
@@ -30,7 +29,7 @@ import (
 func GetRedemptionCodeList(c *gin.Context) {
 	var req adminModel.RedemptionCodeListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 	if req.Page <= 0 {
@@ -43,18 +42,11 @@ func GetRedemptionCodeList(c *gin.Context) {
 	svc := redemptionService.NewService(task.GetTaskService())
 	codes, total, err := svc.GetList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "获取兑换码列表失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取兑换码列表失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  codes,
-			"total": total,
-		},
-	})
+	common.ResponseSuccessWithPagination(c, codes, total, req.Page, req.PageSize)
 }
 
 // BatchCreateRedemptionCodes 批量创建兑换码
@@ -70,13 +62,13 @@ func GetRedemptionCodeList(c *gin.Context) {
 func BatchCreateRedemptionCodes(c *gin.Context) {
 	var req adminModel.BatchCreateRedemptionCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: "参数错误: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "未登录"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未登录"))
 		return
 	}
 	adminID := authCtx.UserID
@@ -86,14 +78,14 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "不可用") ||
 			strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不足") {
-			c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: errMsg})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
 		} else {
-			c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: errMsg})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 200, Msg: "批量创建成功，实例创建任务已提交"})
+	common.ResponseSuccess(c, nil, "批量创建成功，实例创建任务已提交")
 }
 
 // BatchDeleteRedemptionCodes 批量删除兑换码
@@ -109,24 +101,24 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 func BatchDeleteRedemptionCodes(c *gin.Context) {
 	var req adminModel.BatchDeleteRedemptionCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: "参数错误: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{Code: 401, Msg: "未登录"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未登录"))
 		return
 	}
 	adminID := authCtx.UserID
 
 	svc := redemptionService.NewService(task.GetTaskService())
 	if err := svc.BatchDelete(req.IDs, adminID); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 200, Msg: "批量删除成功"})
+	common.ResponseSuccess(c, nil, "批量删除成功")
 }
 
 // ExportRedemptionCodes 导出兑换码
@@ -142,14 +134,14 @@ func BatchDeleteRedemptionCodes(c *gin.Context) {
 func ExportRedemptionCodes(c *gin.Context) {
 	var req adminModel.ExportRedemptionCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 400, Msg: "参数错误"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	svc := redemptionService.NewService(task.GetTaskService())
 	codes, err := svc.ExportByIDs(req.IDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 500, Msg: "导出失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "导出失败"))
 		return
 	}
 
@@ -158,12 +150,8 @@ func ExportRedemptionCodes(c *gin.Context) {
 	fields := req.Fields
 	exportData := svc.FormatExportData(codes, fields, isEN)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "导出成功",
-		Data: map[string]interface{}{
-			"items": exportData,
-			"count": len(exportData),
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"items": exportData,
+		"count": len(exportData),
+	}, "导出成功")
 }

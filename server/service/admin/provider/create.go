@@ -16,7 +16,7 @@ import (
 )
 
 // CreateProvider 创建Provider
-func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID uint) error {
+func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID uint) (*providerModel.Provider, error) {
 	global.APP_LOG.Debug("开始创建Provider",
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
@@ -26,12 +26,12 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	var existingNameCount int64
 	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", req.Name).Count(&existingNameCount).Error; err != nil {
 		global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
-		return fmt.Errorf("检查Provider名称失败: %v", err)
+		return nil, fmt.Errorf("检查Provider名称失败: %v", err)
 	}
 	if existingNameCount > 0 {
 		global.APP_LOG.Warn("Provider创建失败：名称已存在",
 			zap.String("name", utils.TruncateString(req.Name, 32)))
-		return fmt.Errorf("Provider名称 '%s' 已存在，请使用其他名称", req.Name)
+		return nil, fmt.Errorf("Provider名称 '%s' 已存在，请使用其他名称", req.Name)
 	}
 
 	// 2. 检查SSH地址和端口组合是否已存在（防止配置相同节点）
@@ -45,13 +45,13 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			Where("endpoint = ? AND ssh_port = ?", req.Endpoint, sshPort).
 			Count(&existingEndpointCount).Error; err != nil {
 			global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
-			return fmt.Errorf("检查Provider SSH地址失败: %v", err)
+			return nil, fmt.Errorf("检查Provider SSH地址失败: %v", err)
 		}
 		if existingEndpointCount > 0 {
 			global.APP_LOG.Warn("Provider创建失败：SSH地址和端口组合已存在",
 				zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
 				zap.Int("sshPort", sshPort))
-			return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+			return nil, fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
 		}
 	}
 
@@ -74,7 +74,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 					global.APP_LOG.Warn("Provider创建失败：过期时间格式错误",
 						zap.String("name", utils.TruncateString(req.Name, 32)),
 						zap.String("expiresAt", utils.TruncateString(req.ExpiresAt, 32)))
-					return fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
+					return nil, fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
 				}
 			}
 		}
@@ -89,7 +89,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	if req.Password == "" && req.SSHKey == "" {
 		global.APP_LOG.Warn("Provider创建失败：未提供SSH认证方式",
 			zap.String("name", utils.TruncateString(req.Name, 32)))
-		return fmt.Errorf("必须提供SSH密码或SSH密钥其中一种认证方式")
+		return nil, fmt.Errorf("必须提供SSH密码或SSH密钥其中一种认证方式")
 	}
 
 	provider := providerModel.Provider{
@@ -198,7 +198,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			global.APP_LOG.Error("序列化节点等级限制配置失败",
 				zap.String("providerName", req.Name),
 				zap.Error(err))
-			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+			return nil, fmt.Errorf("节点等级限制配置格式错误: %v", err)
 		}
 		provider.LevelLimits = string(levelLimitsJSON)
 	} else {
@@ -220,7 +220,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			global.APP_LOG.Error("序列化默认节点等级限制配置失败",
 				zap.String("providerName", req.Name),
 				zap.Error(err))
-			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+			return nil, fmt.Errorf("节点等级限制配置格式错误: %v", err)
 		}
 		provider.LevelLimits = string(levelLimitsJSON)
 		global.APP_LOG.Debug("使用默认节点等级限制配置",
@@ -284,7 +284,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 	}
 	// 流量采集间隔验证：最大不超过5分钟（300秒），因为数据聚合精度为5分钟
 	if req.TrafficCollectInterval > 300 {
-		return fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
+		return nil, fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
 	}
 	// 端口映射方式默认值
 	// Docker/Podman/Containerd 类型固定使用 native
@@ -324,7 +324,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		global.APP_LOG.Error("Provider创建失败",
 			zap.String("name", utils.TruncateString(req.Name, 32)),
 			zap.Error(err))
-		return err
+		return nil, err
 	}
 
 	global.APP_LOG.Info("Provider创建成功",
@@ -361,7 +361,7 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, ownerUserID)
 	}
 
-	return nil
+	return &provider, nil
 }
 
 // discoverAndImportInstances 发现并导入实例（异步执行）

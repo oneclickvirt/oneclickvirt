@@ -2,9 +2,9 @@ package provider
 
 import (
 	"context"
-	"net/http"
 	"time"
 
+	"oneclickvirt/model/common"
 	"oneclickvirt/service/provider"
 
 	"oneclickvirt/global"
@@ -34,27 +34,18 @@ func (p *ProviderApi) ConnectProvider(c *gin.Context) {
 	var req provider.ConnectProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	if err := providerApiService.ConnectProvider(ctx, req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "Provider连接成功",
-	})
+	common.ResponseSuccess(c, nil, "Provider连接成功")
 }
 
 // GetProviders 获取所有Provider
@@ -68,11 +59,7 @@ func (p *ProviderApi) ConnectProvider(c *gin.Context) {
 // @Router /provider/ [get]
 func (p *ProviderApi) GetProviders(c *gin.Context) {
 	providers := providerApiService.GetAllProviders()
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": providers,
-	})
+	common.ResponseSuccess(c, providers, "获取成功")
 }
 
 // GetProviderStatus 获取Provider状态
@@ -91,18 +78,11 @@ func (p *ProviderApi) GetProviderStatus(c *gin.Context) {
 
 	data, err := providerApiService.GetProviderStatusByID(providerID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": data,
-	})
+	common.ResponseSuccess(c, data, "获取成功")
 }
 
 // GetProviderCapabilities 获取Provider能力
@@ -121,18 +101,11 @@ func (p *ProviderApi) GetProviderCapabilities(c *gin.Context) {
 
 	data, err := providerApiService.GetProviderCapabilitiesByID(providerID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{
-			"code": 404,
-			"msg":  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": data,
-	})
+	common.ResponseSuccess(c, data, "获取成功")
 }
 
 // ListInstances 获取实例列表
@@ -153,24 +126,14 @@ func (p *ProviderApi) ListInstances(c *gin.Context) {
 	instances, err := providerApiService.ListInstancesByProviderID(c.Request.Context(), providerID)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": instances,
-	})
+	common.ResponseSuccess(c, instances, "获取成功")
 }
 
 // CreateInstance 创建实例
@@ -193,32 +156,20 @@ func (p *ProviderApi) CreateInstance(c *gin.Context) {
 	var req provider.CreateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	if err := providerApiService.CreateInstanceByProviderIDFromString(c.Request.Context(), providerID, req); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "实例创建成功",
-	})
+	common.ResponseSuccess(c, nil, "实例创建成功")
 }
 
 // GetInstance 获取实例详情
@@ -229,29 +180,16 @@ func (p *ProviderApi) GetInstance(c *gin.Context) {
 	instance, err := providerApiService.GetInstanceByProviderID(c.Request.Context(), providerID, instanceName)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else if err.Error() == "实例不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": instance,
-	})
+	common.ResponseSuccess(c, instance, "获取成功")
 }
 
 // StartInstance 启动实例
@@ -261,23 +199,14 @@ func (p *ProviderApi) StartInstance(c *gin.Context) {
 
 	if err := providerApiService.StartInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "实例启动成功",
-	})
+	common.ResponseSuccess(c, nil, "实例启动成功")
 }
 
 // StopInstance 停止实例
@@ -287,23 +216,14 @@ func (p *ProviderApi) StopInstance(c *gin.Context) {
 
 	if err := providerApiService.StopInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "实例停止成功",
-	})
+	common.ResponseSuccess(c, nil, "实例停止成功")
 }
 
 // DeleteInstance 删除实例
@@ -313,23 +233,14 @@ func (p *ProviderApi) DeleteInstance(c *gin.Context) {
 
 	if err := providerApiService.DeleteInstanceByProviderIDFromString(c.Request.Context(), providerID, instanceName); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "实例删除成功",
-	})
+	common.ResponseSuccess(c, nil, "实例删除成功")
 }
 
 // ListImages 获取镜像列表
@@ -339,24 +250,14 @@ func (p *ProviderApi) ListImages(c *gin.Context) {
 	images, err := providerApiService.ListImagesByProviderID(c.Request.Context(), providerID)
 	if err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "获取成功",
-		"data": images,
-	})
+	common.ResponseSuccess(c, images, "获取成功")
 }
 
 // PullImage 拉取镜像
@@ -369,32 +270,20 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("参数绑定失败", zap.Error(err))
-		c.JSON(http.StatusBadRequest, gin.H{
-			"code": 400,
-			"msg":  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
 	if err := providerApiService.PullImageByProviderID(c.Request.Context(), providerID, req.Image); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "镜像拉取成功",
-	})
+	common.ResponseSuccess(c, nil, "镜像拉取成功")
 }
 
 // DeleteImage 删除镜像
@@ -404,21 +293,12 @@ func (p *ProviderApi) DeleteImage(c *gin.Context) {
 
 	if err := providerApiService.DeleteImageByProviderID(c.Request.Context(), providerID, imageName); err != nil {
 		if err.Error() == "Provider不存在" {
-			c.JSON(http.StatusNotFound, gin.H{
-				"code": 404,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"code": 500,
-				"msg":  err.Error(),
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"code": 200,
-		"msg":  "镜像删除成功",
-	})
+	common.ResponseSuccess(c, nil, "镜像删除成功")
 }

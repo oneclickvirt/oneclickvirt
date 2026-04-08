@@ -42,6 +42,18 @@ func NewService() *Service {
 	return &Service{}
 }
 
+// GetProviderNameByID 根据Provider ID获取名称
+func (s *Service) GetProviderNameByID(id uint) (string, error) {
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("name").First(&provider, id).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return "", fmt.Errorf("Provider不存在")
+		}
+		return "", fmt.Errorf("查询Provider失败: %v", err)
+	}
+	return provider.Name, nil
+}
+
 // GetProviderList 获取Provider列表
 func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID uint) ([]admin.ProviderManageResponse, int64, error) {
 	global.APP_LOG.Debug("获取Provider列表",
@@ -304,12 +316,25 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.ExpiresAt = &defaultExpiry
 	}
 
-	provider.Name = req.Name
-	provider.Type = req.Type
-	provider.Endpoint = req.Endpoint
-	provider.PortIP = req.PortIP
-	provider.SSHPort = req.SSHPort
-	provider.Username = req.Username
+	// 只更新请求中提供的非零值字段
+	if req.Name != "" {
+		provider.Name = req.Name
+	}
+	if req.Type != "" {
+		provider.Type = req.Type
+	}
+	if req.Endpoint != "" {
+		provider.Endpoint = req.Endpoint
+	}
+	if req.PortIP != "" {
+		provider.PortIP = req.PortIP
+	}
+	if req.SSHPort > 0 {
+		provider.SSHPort = req.SSHPort
+	}
+	if req.Username != "" {
+		provider.Username = req.Username
+	}
 
 	// 密码和SSH密钥的更新逻辑（使用指针以区分"未提供"和"空值"）：
 	// - nil: 不修改（前端未提供该字段，保持原值）
@@ -355,27 +380,57 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if sshKeyChanged {
 		provider.SSHKey = newSSHKey
 	}
-	provider.Token = req.Token
-	provider.Config = req.Config
-	provider.Region = req.Region
-	provider.Country = req.Country
-	provider.CountryCode = req.CountryCode
-	provider.City = req.City
-	provider.Architecture = req.Architecture
+	if req.Token != "" {
+		provider.Token = req.Token
+	}
+	if req.Config != "" {
+		provider.Config = req.Config
+	}
+	if req.Region != "" {
+		provider.Region = req.Region
+	}
+	if req.Country != "" {
+		provider.Country = req.Country
+	}
+	if req.CountryCode != "" {
+		provider.CountryCode = req.CountryCode
+	}
+	if req.City != "" {
+		provider.City = req.City
+	}
+	if req.Architecture != "" {
+		provider.Architecture = req.Architecture
+	}
+	// Boolean字段：需要区分"未提供"和"提供false"，这里简化处理为直接赋值
+	// 如果需要更精确的控制，应使用指针类型
 	provider.ContainerEnabled = req.ContainerEnabled
 	provider.VirtualMachineEnabled = req.VirtualMachineEnabled
-	provider.TotalQuota = req.TotalQuota
+	if req.TotalQuota > 0 {
+		provider.TotalQuota = req.TotalQuota
+	}
 	provider.AllowClaim = req.AllowClaim
 	provider.RedeemCodeOnly = req.RedeemCodeOnly
-	provider.Status = req.Status
-	provider.MaxContainerInstances = req.MaxContainerInstances
-	provider.MaxVMInstances = req.MaxVMInstances
+	if req.Status != "" {
+		provider.Status = req.Status
+	}
+	if req.MaxContainerInstances > 0 {
+		provider.MaxContainerInstances = req.MaxContainerInstances
+	}
+	if req.MaxVMInstances > 0 {
+		provider.MaxVMInstances = req.MaxVMInstances
+	}
 	provider.AllowConcurrentTasks = req.AllowConcurrentTasks
-	provider.MaxConcurrentTasks = req.MaxConcurrentTasks
-	provider.TaskPollInterval = req.TaskPollInterval
+	if req.MaxConcurrentTasks > 0 {
+		provider.MaxConcurrentTasks = req.MaxConcurrentTasks
+	}
+	if req.TaskPollInterval > 0 {
+		provider.TaskPollInterval = req.TaskPollInterval
+	}
 	provider.EnableTaskPolling = req.EnableTaskPolling
 	// 存储配置（所有Provider类型通用）
-	provider.StoragePool = req.StoragePool
+	if req.StoragePool != "" {
+		provider.StoragePool = req.StoragePool
+	}
 	// 操作执行配置更新
 	if req.ExecutionRule != "" {
 		provider.ExecutionRule = req.ExecutionRule

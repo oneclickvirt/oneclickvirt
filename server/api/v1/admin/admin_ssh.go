@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 
 	"github.com/gin-gonic/gin"
@@ -46,7 +47,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 	// 获取实例ID
 	instanceID := c.Param("id")
 	if instanceID == "" {
-		c.JSON(400, gin.H{"code": 400, "message": "实例ID不能为空"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID不能为空"))
 		return
 	}
 
@@ -57,17 +58,17 @@ func AdminSSHWebSocket(c *gin.Context) {
 		First(&instance).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"code": 404, "message": "实例不存在"})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
 			return
 		}
 		global.APP_LOG.Error("查询实例失败", zap.Error(err))
-		c.JSON(500, gin.H{"code": 500, "message": "查询实例失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询实例失败"))
 		return
 	}
 
 	// 检查实例状态
 	if instance.Status != "running" {
-		c.JSON(400, gin.H{"code": 400, "message": "实例未运行，无法连接SSH"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例未运行，无法连接SSH"))
 		return
 	}
 
@@ -86,7 +87,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 			sshHost = instance.PrivateIP
 		} else {
 			global.APP_LOG.Error("实例没有可用的IP地址")
-			c.JSON(500, gin.H{"code": 500, "message": "实例没有可用的IP地址"})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "实例没有可用的IP地址"))
 			return
 		}
 		sshPort = sshPortMapping.HostPort
@@ -102,7 +103,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 			sshHost = instance.PrivateIP
 		} else {
 			global.APP_LOG.Error("实例没有可用的IP地址")
-			c.JSON(500, gin.H{"code": 500, "message": "实例没有可用的IP地址"})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "实例没有可用的IP地址"))
 			return
 		}
 		sshPort = instance.SSHPort

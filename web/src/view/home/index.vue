@@ -647,7 +647,7 @@ const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
     console.log(t('home.debug.checkingInit'), response)
-    if (response && response.code === 0 && response.data && response.data.needInit === true) {
+    if (response && (response.code === 0 || response.code === 200) && response.data && response.data.needInit === true) {
       console.log(t('home.debug.needInitRedirect'))
       router.push('/init')
     }

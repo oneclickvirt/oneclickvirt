@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -24,17 +23,17 @@ func GetMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: config})
+	common.ResponseSuccess(c, config)
 }
 
 // UpdateMonitoringConfigRequest is the request body for updating monitoring config.
@@ -54,19 +53,19 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	var req UpdateMonitoringConfigRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "请求参数错误: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
@@ -90,7 +89,7 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	}
 
 	if err := global.APP_DB.Save(config).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "更新监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新监控配置失败: "+err.Error()))
 		return
 	}
 
@@ -137,7 +136,7 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	if syncMsg != "" {
 		msg = syncMsg
 	}
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: msg, Data: config})
+	common.ResponseSuccess(c, config, msg)
 }
 
 // DeployAgentRequest is the request body for deploying the agent.
@@ -152,7 +151,7 @@ func DeployAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
@@ -167,7 +166,7 @@ func DeployAgent(c *gin.Context) {
 	// Get or create monitoring config (token is auto-generated on creation)
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
@@ -180,7 +179,7 @@ func DeployAgent(c *gin.Context) {
 	// Get provider instance from the registry
 	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
 		return
 	}
 
@@ -210,10 +209,7 @@ func DeployAgent(c *gin.Context) {
 	// Get provider model from database for proxy config
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "获取Provider配置失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取Provider配置失败: "+err.Error()))
 		return
 	}
 
@@ -239,11 +235,7 @@ func DeployAgent(c *gin.Context) {
 	}
 	logs, err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 50000,
-			Msg:  "部署Agent失败: " + err.Error(),
-			Data: gin.H{"output": logs},
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "部署Agent失败: "+err.Error()))
 		return
 	}
 
@@ -253,11 +245,7 @@ func DeployAgent(c *gin.Context) {
 	config.MonitoringMode = "agent"
 	global.APP_DB.Save(config)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "Agent部署成功",
-		Data: gin.H{"config": config, "output": logs},
-	})
+	common.ResponseSuccess(c, gin.H{"config": config, "output": logs}, "Agent部署成功")
 }
 
 // UninstallAgent removes the agent from a provider host.
@@ -265,13 +253,13 @@ func UninstallAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
 		return
 	}
 
@@ -279,7 +267,7 @@ func UninstallAgent(c *gin.Context) {
 	defer cancel()
 
 	if err := agentService.UninstallAgent(ctx, providerInstance); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "卸载Agent失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "卸载Agent失败: "+err.Error()))
 		return
 	}
 
@@ -291,7 +279,7 @@ func UninstallAgent(c *gin.Context) {
 		global.APP_DB.Save(config)
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "Agent已卸载"})
+	common.ResponseSuccess(c, nil, "Agent已卸载")
 }
 
 // GetAgentStatus checks the agent status on a provider host.
@@ -299,13 +287,13 @@ func GetAgentStatus(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
 		return
 	}
 
@@ -320,15 +308,11 @@ func GetAgentStatus(c *gin.Context) {
 	var monitorCount int64
 	global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&monitorCount)
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "success",
-		Data: gin.H{
-			"is_running":    isRunning,
-			"version":       version,
-			"config":        config,
-			"monitor_count": monitorCount,
-		},
+	common.ResponseSuccess(c, gin.H{
+		"is_running":    isRunning,
+		"version":       version,
+		"config":        config,
+		"monitor_count": monitorCount,
 	})
 }
 
@@ -337,7 +321,7 @@ func GetProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
@@ -358,7 +342,7 @@ func GetProviderMonitors(c *gin.Context) {
 		Order("id DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Find(&monitors).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
 		return
 	}
 
@@ -394,12 +378,12 @@ func GetProviderMonitors(c *gin.Context) {
 		})
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: map[string]interface{}{
+	common.ResponseSuccess(c, map[string]interface{}{
 		"list":     result,
 		"total":    total,
 		"page":     page,
 		"pageSize": pageSize,
-	}})
+	})
 }
 
 // SyncProviderMonitors ensures all active instances have monitors and cleans up stale ones.
@@ -407,24 +391,24 @@ func SyncProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
 	if config.MonitoringMode != "agent" || !config.AgentInstalled {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Agent未安装或未启用Agent监控模式"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent未安装或未启用Agent监控模式"))
 		return
 	}
 
 	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider未连接: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))
 		return
 	}
 
@@ -435,18 +419,18 @@ func SyncProviderMonitors(c *gin.Context) {
 
 	// Ensure all running instances have monitors and update existing ones' interfaces
 	if err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config); err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "同步监控失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "同步监控失败: "+err.Error()))
 		return
 	}
 
 	// Return updated list
 	var monitors []monitoringModel.AgentMonitor
 	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "同步完成", Data: monitors})
+	common.ResponseSuccess(c, monitors, "同步完成")
 }
 
 // ListAgentMonitors returns the list of monitors directly from the remote agent.
@@ -454,31 +438,31 @@ func ListAgentMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
 	if !config.AgentInstalled {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Agent未安装"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent未安装"))
 		return
 	}
 
 	// Get provider to construct client
 	var p providerModel.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider不存在"})
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
 		return
 	}
 
 	host := p.Endpoint
 	if host == "" {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "Provider无Endpoint"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider无Endpoint"))
 		return
 	}
 	// Strip SSH port suffix from endpoint (e.g. "192.168.1.1:22" -> "192.168.1.1")
@@ -494,7 +478,7 @@ func ListAgentMonitors(c *gin.Context) {
 	client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
 	result, err := client.ListMonitors()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询Agent监控列表失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询Agent监控列表失败: "+err.Error()))
 		return
 	}
 
@@ -584,12 +568,12 @@ func ListAgentMonitors(c *gin.Context) {
 	}
 	pagedList := enriched[start:end]
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: map[string]interface{}{
+	common.ResponseSuccess(c, map[string]interface{}{
 		"monitors": pagedList,
 		"total":    total,
 		"page":     page,
 		"pageSize": pageSize,
-	}})
+	})
 }
 
 // GetInstanceResources returns resource monitoring data for an instance.
@@ -597,7 +581,7 @@ func GetInstanceResources(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的实例ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
 		return
 	}
 
@@ -611,11 +595,11 @@ func GetInstanceResources(c *gin.Context) {
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
 	metrics, err := resSvc.GetInstanceResources(uint(instanceID), hours)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取资源数据失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取资源数据失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: metrics})
+	common.ResponseSuccess(c, metrics)
 }
 
 // GetProviderResourceSummary returns latest resource usage for all instances of a provider.
@@ -623,7 +607,7 @@ func GetProviderResourceSummary(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
@@ -631,11 +615,11 @@ func GetProviderResourceSummary(c *gin.Context) {
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
 	metrics, err := resSvc.GetProviderResourceSummary(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取资源概览失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取资源概览失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: 0, Msg: "success", Data: metrics})
+	common.ResponseSuccess(c, metrics)
 }
 
 // ClearProviderMonitors clears all agent monitors for a provider.
@@ -644,20 +628,20 @@ func ClearProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: 40000, Msg: "无效的Provider ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "获取监控配置失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
 		return
 	}
 
 	// Get all monitors for this provider
 	var monitors []monitoringModel.AgentMonitor
 	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "查询监控列表失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
 		return
 	}
 
@@ -686,18 +670,14 @@ func ClearProviderMonitors(c *gin.Context) {
 	// Hard-delete all agent monitors from local DB
 	deletedCount := len(monitors)
 	if err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: 50000, Msg: "清空监控记录失败: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空监控记录失败: "+err.Error()))
 		return
 	}
 
 	// Also clear resource metrics for this provider
 	global.APP_DB.Where("provider_id = ?", providerID).Delete(&monitoringModel.ResourceMetric{})
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "清空完成",
-		Data: map[string]interface{}{
-			"deleted_count": deletedCount,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"deleted_count": deletedCount,
+	}, "清空完成")
 }

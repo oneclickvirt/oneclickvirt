@@ -1,7 +1,7 @@
 package middleware
 
 import (
-	"net/http"
+	"oneclickvirt/model/common"
 	"regexp"
 
 	"github.com/gin-gonic/gin"
@@ -41,19 +41,13 @@ func InputValidator() gin.HandlerFunc {
 		target := c.Request.URL.RawQuery + c.Request.URL.Path
 
 		if containsSQLInjection(target) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    400,
-				"message": "检测到潜在的SQL注入攻击",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "检测到潜在的SQL注入攻击"))
 			c.Abort()
 			return
 		}
 
 		if containsXSS(target) {
-			c.JSON(http.StatusBadRequest, gin.H{
-				"code":    400,
-				"message": "检测到潜在的XSS攻击",
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "检测到潜在的XSS攻击"))
 			c.Abort()
 			return
 		}

@@ -119,7 +119,7 @@ export function usePortMappingManagement() {
     portCheckResult.value = null
     try {
       const response = await checkPortAvailable({ providerId: selectedInstance.providerId, hostPort: addForm.hostPort, protocol: addForm.protocol, portCount })
-      if (response.code === 0 && response.data) {
+      if ((response.code === 0 || response.code === 200) && response.data) {
         const data = response.data
         portCheckResult.value = {
           available: data.available,

@@ -1,8 +1,6 @@
 package public
 
 import (
-	"net/http"
-
 	"oneclickvirt/constant"
 	"oneclickvirt/model/common"
 
@@ -17,12 +15,8 @@ type VersionInfo struct {
 
 // GetVersion returns the current server version and the compatible agent version.
 func GetVersion(c *gin.Context) {
-	c.JSON(http.StatusOK, common.Response{
-		Code: 0,
-		Msg:  "success",
-		Data: VersionInfo{
-			ServerVersion:          constant.ServerVersion,
-			CompatibleAgentVersion: constant.CompatibleAgentVersion,
-		},
-	})
+	common.ResponseSuccess(c, VersionInfo{
+		ServerVersion:          constant.ServerVersion,
+		CompatibleAgentVersion: constant.CompatibleAgentVersion,
+	}, "success")
 }

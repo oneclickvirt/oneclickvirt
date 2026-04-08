@@ -16,7 +16,7 @@ run_module_22() {
         test_api "Get checkin config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "200" \
             "" "$group" "$ADMIN_TOKEN"
         test_api "Update checkin config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "200" \
-            '{"enabled":true,"interval_hours":24,"extend_hours":48,"max_consecutive":30}' \
+            '{"enabled":true,"defaultExpireDays":30,"renewalDays":7,"maxExpireDays":90,"overdueAction":"stop","checkinMethod":"captcha"}' \
             "$group" "$ADMIN_TOKEN"
     fi
 
@@ -29,15 +29,15 @@ run_module_22() {
         # ---- Perform checkin ----
         if [[ -n "$checkin_code" ]]; then
             test_api "Perform checkin" "POST" "/api/v1/user/checkin" "200" \
-                '{"code":"'"$checkin_code"'","instance_id":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
+                '{"code":"'"$checkin_code"'","instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
         else
             test_api "Perform checkin (no code)" "POST" "/api/v1/user/checkin" "200|400" \
-                '{"instance_id":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
+                '{"instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
         fi
 
         # ---- Checkin with invalid code ----
         test_api "Checkin invalid code" "POST" "/api/v1/user/checkin" "400" \
-            '{"code":"INVALID_CODE_XYZ","instance_id":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
+            '{"code":"INVALID_CODE_XYZ","instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
     fi
 
     # ---- Checkin for nonexistent instance ----

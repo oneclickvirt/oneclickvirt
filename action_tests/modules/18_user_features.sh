@@ -62,7 +62,7 @@ run_module_18() {
 
         # Instance action via user API
         test_api "User instance action (invalid)" "POST" "/api/v1/user/instances/action" "400" \
-            '{"instance_id":"'"$TEST_INSTANCE_ID"'","action":"invalid_action"}' "$group" "$USER_TOKEN"
+            '{"instanceId":'"$TEST_INSTANCE_ID"',"action":"invalid_action"}' "$group" "$USER_TOKEN"
     fi
 
     # ---- User instance creation (requires KYC in some configs) ----

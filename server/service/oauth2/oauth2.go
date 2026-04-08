@@ -152,11 +152,10 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 		return 0, false
 	}
 
-	s.mu.RLock()
+	s.mu.Lock()
 	info, exists := s.states[state]
-	s.mu.RUnlock()
-
 	if !exists {
+		s.mu.Unlock()
 		global.APP_LOG.Warn("state令牌不存在（可能已过期或已使用）",
 			zap.String("state", state[:16]+"..."))
 		return 0, false
@@ -164,7 +163,6 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 
 	// 检查是否过期
 	if time.Now().After(info.Expiry) {
-		s.mu.Lock()
 		delete(s.states, state)
 		s.mu.Unlock()
 
@@ -176,7 +174,6 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 	}
 
 	// 验证成功后删除state（一次性使用）
-	s.mu.Lock()
 	delete(s.states, state)
 	s.mu.Unlock()
 
@@ -586,7 +583,9 @@ func (s *Service) CreateUser(provider *oauth2Model.OAuth2Provider, userInfo *Use
 func generateRandomPassword(length int) string {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, length)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("crypto/rand failed: " + err.Error())
+	}
 	for i := range b {
 		b[i] = charset[int(b[i])%len(charset)]
 	}

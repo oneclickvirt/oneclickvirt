@@ -9,6 +9,7 @@ import (
 	"oneclickvirt/service/interfaces"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/traffic"
+	"oneclickvirt/utils"
 	"time"
 
 	"oneclickvirt/global"
@@ -357,7 +358,7 @@ func (s *Service) UpdateInstance(req admin.UpdateInstanceRequest) error {
 		return err
 	}
 
-	instance.Name = req.Name
+	instance.Name = utils.SanitizeShellArg(req.Name)
 	instance.CPU = req.CPU
 	instance.Memory = req.Memory
 	instance.Disk = req.Disk

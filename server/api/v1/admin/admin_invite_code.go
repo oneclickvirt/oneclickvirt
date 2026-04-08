@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -31,31 +30,21 @@ import (
 func GetInviteCodeList(c *gin.Context) {
 	var req admin.InviteCodeListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	inviteService := invite.NewService()
 	codes, total, err := inviteService.GetInviteCodeList(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取邀请码列表失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取邀请码列表失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  codes,
-			"total": total,
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"list":  codes,
+		"total": total,
+	}, "获取成功")
 }
 
 // CreateInviteCode 创建邀请码
@@ -73,20 +62,14 @@ func GetInviteCodeList(c *gin.Context) {
 func CreateInviteCode(c *gin.Context) {
 	var req admin.CreateInviteCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	// 获取当前管理员ID
 	authCtx, exists := middleware.GetAuthContext(c)
 	if !exists {
-		c.JSON(http.StatusUnauthorized, common.Response{
-			Code: 401,
-			Msg:  "未登录",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未登录"))
 		return
 	}
 	createdBy := authCtx.UserID
@@ -96,23 +79,14 @@ func CreateInviteCode(c *gin.Context) {
 	if err != nil {
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "已存在") || strings.Contains(errMsg, "只能包含") {
-			c.JSON(http.StatusBadRequest, common.Response{
-				Code: 400,
-				Msg:  errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
 		} else {
-			c.JSON(http.StatusInternalServerError, common.Response{
-				Code: 500,
-				Msg:  errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "创建邀请码成功",
-	})
+	common.ResponseSuccess(c, nil, "创建邀请码成功")
 }
 
 // DeleteInviteCode 删除邀请码
@@ -131,27 +105,18 @@ func DeleteInviteCode(c *gin.Context) {
 	codeIDStr := c.Param("id")
 	codeID, err := strconv.ParseUint(codeIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的邀请码ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的邀请码ID"))
 		return
 	}
 
 	inviteService := invite.NewService()
 	err = inviteService.DeleteInviteCode(uint(codeID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "删除邀请码成功",
-	})
+	common.ResponseSuccess(c, nil, "删除邀请码成功")
 }
 
 // GenerateInviteCode 批量生成邀请码
@@ -169,10 +134,7 @@ func DeleteInviteCode(c *gin.Context) {
 func GenerateInviteCode(c *gin.Context) {
 	var req admin.CreateInviteCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -182,18 +144,11 @@ func GenerateInviteCode(c *gin.Context) {
 	inviteService := invite.NewService()
 	codes, err := inviteService.GenerateInviteCodes(req, createdBy)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "生成邀请码成功",
-		Data: codes,
-	})
+	common.ResponseSuccess(c, codes, "生成邀请码成功")
 }
 
 // BatchDeleteInviteCodes 批量删除邀请码
@@ -211,27 +166,18 @@ func GenerateInviteCode(c *gin.Context) {
 func BatchDeleteInviteCodes(c *gin.Context) {
 	var req admin.BatchDeleteInviteCodesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	inviteService := invite.NewService()
 	err := inviteService.BatchDeleteInviteCodes(req.IDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "批量删除邀请码成功",
-	})
+	common.ResponseSuccess(c, nil, "批量删除邀请码成功")
 }
 
 // ExportInviteCodes 导出邀请码
@@ -259,16 +205,9 @@ func ExportInviteCodes(c *gin.Context) {
 	inviteService := invite.NewService()
 	codes, err := inviteService.ExportInviteCodes(req.IDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "导出邀请码成功",
-		Data: codes,
-	})
+	common.ResponseSuccess(c, codes, "导出邀请码成功")
 }

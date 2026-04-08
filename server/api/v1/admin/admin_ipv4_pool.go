@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"strconv"
 
 	"oneclickvirt/model/common"
@@ -23,7 +22,7 @@ import (
 func GetProviderIPv4Pool(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "无效的服务商ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
 
@@ -39,27 +38,23 @@ func GetProviderIPv4Pool(c *gin.Context) {
 	svc := adminProvider.NewIPv4PoolService()
 	entries, total, err := svc.GetIPv4Pool(uint(providerID), page, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: common.CodeInternalError, Msg: "获取地址池失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取地址池失败"))
 		return
 	}
 
 	totalInt, allocated, available := svc.GetPoolStats(uint(providerID))
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Msg:  "获取成功",
-		Data: gin.H{
-			"list":     entries,
-			"total":    total,
-			"page":     page,
-			"pageSize": pageSize,
-			"stats": gin.H{
-				"total":     totalInt,
-				"allocated": allocated,
-				"available": available,
-			},
+	common.ResponseSuccess(c, gin.H{
+		"list":     entries,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+		"stats": gin.H{
+			"total":     totalInt,
+			"allocated": allocated,
+			"available": available,
 		},
-	})
+	}, "获取成功")
 }
 
 // SetProviderIPv4Pool 向服务商IPv4地址池中追加地址
@@ -74,7 +69,7 @@ func GetProviderIPv4Pool(c *gin.Context) {
 func SetProviderIPv4Pool(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "无效的服务商ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
 
@@ -82,26 +77,22 @@ func SetProviderIPv4Pool(c *gin.Context) {
 		Addresses string `json:"addresses" binding:"required"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "请求参数错误: " + err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请求参数错误: "+err.Error()))
 		return
 	}
 
 	svc := adminProvider.NewIPv4PoolService()
 	added, invalidLines, err := svc.SetIPv4Pool(uint(providerID), req.Addresses)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Msg:  "设置成功",
-		Data: gin.H{
-			"added":        added,
-			"addedCount":   len(added),
-			"invalidLines": invalidLines,
-		},
-	})
+	common.ResponseSuccess(c, gin.H{
+		"added":        added,
+		"addedCount":   len(added),
+		"invalidLines": invalidLines,
+	}, "设置成功")
 }
 
 // ClearProviderIPv4Pool 清空服务商IPv4地址池中未分配的地址
@@ -115,22 +106,18 @@ func SetProviderIPv4Pool(c *gin.Context) {
 func ClearProviderIPv4Pool(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "无效的服务商ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
 
 	svc := adminProvider.NewIPv4PoolService()
 	count, err := svc.ClearUnallocated(uint(providerID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{Code: common.CodeInternalError, Msg: "清空失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: common.CodeSuccess,
-		Msg:  "清空成功",
-		Data: gin.H{"deleted": count},
-	})
+	common.ResponseSuccess(c, gin.H{"deleted": count}, "清空成功")
 }
 
 // DeleteProviderIPv4PoolEntry 删除地址池中的单个未分配地址
@@ -144,20 +131,20 @@ func ClearProviderIPv4Pool(c *gin.Context) {
 func DeleteProviderIPv4PoolEntry(c *gin.Context) {
 	providerID, err := strconv.ParseUint(c.Param("id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "无效的服务商ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的服务商ID"))
 		return
 	}
 	entryID, err := strconv.ParseUint(c.Param("entry_id"), 10, 64)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: "无效的条目ID"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的条目ID"))
 		return
 	}
 
 	svc := adminProvider.NewIPv4PoolService()
 	if err := svc.DeleteAddress(uint(providerID), uint(entryID)); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{Code: common.CodeInvalidParam, Msg: err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{Code: common.CodeSuccess, Msg: "删除成功"})
+	common.ResponseSuccess(c, nil, "删除成功")
 }

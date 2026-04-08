@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"net/http"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminSystem "oneclickvirt/service/admin/system"
@@ -26,10 +25,7 @@ import (
 func GetAnnouncements(c *gin.Context) {
 	var req admin.AnnouncementListRequest
 	if err := c.ShouldBindQuery(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -51,21 +47,11 @@ func GetAnnouncements(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	announcements, total, err := systemService.GetAnnouncementList(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "获取公告列表失败",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取公告列表失败"))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"list":  announcements,
-			"total": total,
-		},
-	})
+	common.ResponseSuccessWithPagination(c, announcements, total, req.Page, req.PageSize)
 }
 
 // CreateAnnouncement 创建公告
@@ -83,10 +69,7 @@ func GetAnnouncements(c *gin.Context) {
 func CreateAnnouncement(c *gin.Context) {
 	var req admin.CreateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -100,17 +83,11 @@ func CreateAnnouncement(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err = systemService.CreateAnnouncement(req, uid)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "创建公告成功",
-	})
+	common.ResponseSuccess(c, nil, "创建公告成功")
 }
 
 // UpdateAnnouncementItem 更新公告
@@ -130,19 +107,13 @@ func UpdateAnnouncementItem(c *gin.Context) {
 	announcementIDStr := c.Param("id")
 	announcementID, err := strconv.ParseUint(announcementIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的公告ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的公告ID"))
 		return
 	}
 
 	var req admin.UpdateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
@@ -152,17 +123,11 @@ func UpdateAnnouncementItem(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err = systemService.UpdateAnnouncement(req)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "更新公告成功",
-	})
+	common.ResponseSuccess(c, nil, "更新公告成功")
 }
 
 // DeleteAnnouncement 删除公告
@@ -181,27 +146,18 @@ func DeleteAnnouncement(c *gin.Context) {
 	announcementIDStr := c.Param("id")
 	announcementID, err := strconv.ParseUint(announcementIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "无效的公告ID",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的公告ID"))
 		return
 	}
 
 	systemService := adminSystem.NewService()
 	err = systemService.DeleteAnnouncement(uint(announcementID))
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "删除公告成功",
-	})
+	common.ResponseSuccess(c, nil, "删除公告成功")
 }
 
 // BatchDeleteAnnouncements 批量删除公告
@@ -219,35 +175,23 @@ func DeleteAnnouncement(c *gin.Context) {
 func BatchDeleteAnnouncements(c *gin.Context) {
 	var req admin.BatchAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	if len(req.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "请选择要删除的公告",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请选择要删除的公告"))
 		return
 	}
 
 	systemService := adminSystem.NewService()
 	err := systemService.BatchDeleteAnnouncements(req.IDs)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "批量删除公告成功",
-	})
+	common.ResponseSuccess(c, nil, "批量删除公告成功")
 }
 
 // BatchUpdateAnnouncementStatus 批量更新公告状态
@@ -265,33 +209,21 @@ func BatchDeleteAnnouncements(c *gin.Context) {
 func BatchUpdateAnnouncementStatus(c *gin.Context) {
 	var req admin.BatchUpdateStatusRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
 
 	if len(req.IDs) == 0 {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "请选择要更新的公告",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请选择要更新的公告"))
 		return
 	}
 
 	systemService := adminSystem.NewService()
 	err := systemService.BatchUpdateAnnouncementStatus(req.IDs, req.Status)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "批量更新公告状态成功",
-	})
+	common.ResponseSuccess(c, nil, "批量更新公告状态成功")
 }

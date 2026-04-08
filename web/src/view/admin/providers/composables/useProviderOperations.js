@@ -276,7 +276,7 @@ export function useProviderOperations() {
       const response = await checkProviderHealth(providerId)
       loadingInstance.close()
 
-      if (response.code === 200) {
+      if (response.code === 0 || response.code === 200) {
         const result = response.data
         const statusMessages = []
 

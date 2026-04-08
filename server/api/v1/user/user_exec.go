@@ -11,6 +11,7 @@ import (
 
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
+	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/utils"
 
@@ -56,14 +57,14 @@ func getExecCommand(providerType constant.ProviderType, instanceName string) (st
 func ExecWebSocket(c *gin.Context) {
 	userIDInterface, exists := c.Get("user_id")
 	if !exists {
-		c.JSON(401, gin.H{"code": 401, "message": "未授权"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未授权"))
 		return
 	}
 	userID := userIDInterface.(uint)
 
 	instanceID := c.Param("id")
 	if instanceID == "" {
-		c.JSON(400, gin.H{"code": 400, "message": "实例ID不能为空"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例ID不能为空"))
 		return
 	}
 
@@ -74,22 +75,22 @@ func ExecWebSocket(c *gin.Context) {
 		First(&instance).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			c.JSON(404, gin.H{"code": 404, "message": "实例不存在"})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
 			return
 		}
 		global.APP_LOG.Error("查询实例失败", zap.Error(err))
-		c.JSON(500, gin.H{"code": 500, "message": "查询实例失败"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询实例失败"))
 		return
 	}
 
 	if instance.Status != "running" {
-		c.JSON(400, gin.H{"code": 400, "message": "实例未运行"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "实例未运行"))
 		return
 	}
 
 	// Only container-type instances support exec
 	if instance.InstanceType == string(constant.InstanceTypeVM) {
-		c.JSON(400, gin.H{"code": 400, "message": "虚拟机实例不支持exec，请使用SSH"})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "虚拟机实例不支持exec，请使用SSH"))
 		return
 	}
 
@@ -98,14 +99,14 @@ func ExecWebSocket(c *gin.Context) {
 	if err := global.APP_DB.Select("id", "type", "endpoint", "ssh_port", "username", "password", "ssh_key", "ssh_connect_timeout", "ssh_execute_timeout").
 		First(&provider, instance.ProviderID).Error; err != nil {
 		global.APP_LOG.Error("查询节点失败", zap.Error(err))
-		c.JSON(500, gin.H{"code": 500, "message": "节点信息不可用"})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "节点信息不可用"))
 		return
 	}
 
 	// Build exec command
 	execCmd, err := getExecCommand(constant.ProviderType(provider.Type), instance.Name)
 	if err != nil {
-		c.JSON(400, gin.H{"code": 400, "message": err.Error()})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
 

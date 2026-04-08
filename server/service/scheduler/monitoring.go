@@ -809,6 +809,22 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 			}
 
 			now := time.Now()
+
+			// Batch load provider traffic settings to avoid N+1 queries
+			providerIDs := make([]uint, 0, len(configs))
+			for _, cfg := range configs {
+				providerIDs = append(providerIDs, cfg.ProviderID)
+			}
+			var providers []providerModel.Provider
+			if err := global.APP_DB.Select("id, enable_traffic_control, traffic_sync_method").
+				Where("id IN ?", providerIDs).Find(&providers).Error; err != nil {
+				continue
+			}
+			providerMap := make(map[uint]providerModel.Provider, len(providers))
+			for _, p := range providers {
+				providerMap[p.ID] = p
+			}
+
 			for _, cfg := range configs {
 				// Check collection interval
 				interval := time.Duration(cfg.CollectInterval) * time.Second
@@ -822,9 +838,8 @@ func (s *MonitoringSchedulerService) startAgentCollection(ctx context.Context) {
 				}
 
 				// Check if provider has traffic control enabled and uses agent sync method
-				var p providerModel.Provider
-				if err := global.APP_DB.Select("id, enable_traffic_control, traffic_sync_method").
-					First(&p, cfg.ProviderID).Error; err != nil {
+				p, ok := providerMap[cfg.ProviderID]
+				if !ok {
 					continue
 				}
 				if !p.EnableTrafficControl || p.TrafficSyncMethod != "agent" {

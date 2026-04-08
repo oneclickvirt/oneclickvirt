@@ -80,7 +80,7 @@ export function useConfigManagement() {
     loading.value = true
     try {
       const response = await getAdminConfig()
-      if (response.code === 0 && response.data) {
+      if ((response.code === 0 || response.code === 200) && response.data) {
         if (response.data.auth) {
           config.value.auth = { ...config.value.auth, ...response.data.auth }
         }
@@ -142,7 +142,7 @@ export function useConfigManagement() {
   const loadInstanceTypePermissions = async () => {
     try {
       const response = await getInstanceTypePermissions()
-      if (response.code === 0 && response.data) {
+      if ((response.code === 0 || response.code === 200) && response.data) {
         instanceTypePermissions.value = {
           minLevelForContainer: response.data.minLevelForContainer || 1,
           minLevelForVM: response.data.minLevelForVM || 3,

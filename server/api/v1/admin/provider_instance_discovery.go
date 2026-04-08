@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -30,10 +29,7 @@ func DiscoverProviderInstances(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "Provider ID无效",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
 
@@ -45,24 +41,14 @@ func DiscoverProviderInstances(c *gin.Context) {
 			zap.Error(err))
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			c.JSON(http.StatusNotFound, common.Response{
-				Code: 404,
-				Msg:  "发现实例失败: " + errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "发现实例失败: "+errMsg))
 		} else {
-			c.JSON(http.StatusInternalServerError, common.Response{
-				Code: 500,
-				Msg:  "发现实例失败: " + errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "发现实例失败: "+errMsg))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "发现实例成功",
-		Data: result,
-	})
+	common.ResponseSuccess(c, result, "发现实例成功")
 }
 
 // ImportProviderInstances 导入发现的实例
@@ -82,19 +68,13 @@ func ImportProviderInstances(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "Provider ID无效",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
 
 	var importOptions adminProvider.ImportOptions
 	if err := c.ShouldBindJSON(&importOptions); err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "参数错误: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误: "+err.Error()))
 		return
 	}
 
@@ -112,18 +92,11 @@ func ImportProviderInstances(c *gin.Context) {
 		global.APP_LOG.Error("导入Provider实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "导入实例失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "导入实例失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "导入实例成功",
-		Data: result,
-	})
+	common.ResponseSuccess(c, result, "导入实例成功")
 }
 
 // GetOrphanedInstances 获取未纳管的实例列表
@@ -142,10 +115,7 @@ func GetOrphanedInstances(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "Provider ID无效",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
 
@@ -157,27 +127,17 @@ func GetOrphanedInstances(c *gin.Context) {
 			zap.Error(err))
 		errMsg := err.Error()
 		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			c.JSON(http.StatusNotFound, common.Response{
-				Code: 404,
-				Msg:  "获取未纳管实例失败: " + errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "获取未纳管实例失败: "+errMsg))
 		} else {
-			c.JSON(http.StatusInternalServerError, common.Response{
-				Code: 500,
-				Msg:  "获取未纳管实例失败: " + errMsg,
-			})
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取未纳管实例失败: "+errMsg))
 		}
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "获取成功",
-		Data: map[string]interface{}{
-			"orphanedInstances": orphanedInstances,
-			"total":             len(orphanedInstances),
-		},
-	})
+	common.ResponseSuccess(c, map[string]interface{}{
+		"orphanedInstances": orphanedInstances,
+		"total":             len(orphanedInstances),
+	}, "获取成功")
 }
 
 // CheckInstanceSync 检查实例同步状态
@@ -196,10 +156,7 @@ func CheckInstanceSync(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, common.Response{
-			Code: 400,
-			Msg:  "Provider ID无效",
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider ID无效"))
 		return
 	}
 
@@ -209,16 +166,9 @@ func CheckInstanceSync(c *gin.Context) {
 		global.APP_LOG.Error("检查实例同步失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		c.JSON(http.StatusInternalServerError, common.Response{
-			Code: 500,
-			Msg:  "检查实例同步失败: " + err.Error(),
-		})
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "检查实例同步失败: "+err.Error()))
 		return
 	}
 
-	c.JSON(http.StatusOK, common.Response{
-		Code: 200,
-		Msg:  "检查完成",
-		Data: report,
-	})
+	common.ResponseSuccess(c, report, "检查完成")
 }

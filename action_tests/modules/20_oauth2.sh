@@ -24,7 +24,7 @@ run_module_20() {
 
     # ---- Create duplicate ----
     test_api "Create duplicate OAuth2" "POST" "/api/v1/oauth2/providers" "400|409" \
-        '{"name":"test_github","type":"github","client_id":"dup","client_secret":"dup","enabled":true}' \
+        '{"name":"test_github","displayName":"Test GitHub Dup","providerType":"preset","clientId":"dup","clientSecret":"dup","redirectUrl":"http://localhost:8888/oauth2/callback","authUrl":"https://github.com/login/oauth/authorize","tokenUrl":"https://github.com/login/oauth/access_token","userInfoUrl":"https://api.github.com/user","enabled":true}' \
         "$group" "$ADMIN_TOKEN"
 
     # ---- Create with missing fields ----
@@ -43,7 +43,7 @@ run_module_20() {
 
         # ---- Update provider ----
         test_api "Update OAuth2 provider" "PUT" "/api/v1/oauth2/providers/${oauth2_id}" "200" \
-            '{"name":"test_github_updated","type":"github","client_id":"updated_id","client_secret":"updated_secret","enabled":false}' \
+            '{"name":"test_github_updated","displayName":"Updated GitHub","providerType":"preset","clientId":"updated_id","clientSecret":"updated_secret","enabled":false}' \
             "$group" "$ADMIN_TOKEN"
 
         # ---- Reset registration count ----
@@ -63,6 +63,6 @@ run_module_20() {
     # ---- User cannot manage OAuth2 ----
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User -> OAuth2 create (401/403)" "POST" "/api/v1/oauth2/providers" "401|403" \
-            '{"name":"user_test","type":"github","client_id":"x","client_secret":"x"}' "$group" "$USER_TOKEN"
+            '{"name":"user_test","providerType":"preset","clientId":"x","clientSecret":"x"}' "$group" "$USER_TOKEN"
     fi
 }
