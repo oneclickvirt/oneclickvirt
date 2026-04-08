@@ -8,7 +8,7 @@
 # ============================================================================
 PLATFORM_ALICE_ENABLED="${PLATFORM_ALICE_ENABLED:-true}"
 PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-false}"
-PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-false}"
+PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-true}"
 PLATFORM_SKRIME_ENABLED="${PLATFORM_SKRIME_ENABLED:-false}"
 PLATFORM_PREPAIDHOST_ENABLED="${PLATFORM_PREPAIDHOST_ENABLED:-false}"
 PLATFORM_CUBEPATH_ENABLED="${PLATFORM_CUBEPATH_ENABLED:-false}"
@@ -31,7 +31,7 @@ PLATFORM_PRIORITY_ORDER="${PLATFORM_PRIORITY_ORDER:-alice lightnode vultr hetzne
 # Instead, to achieve a clean state for the next run, the existing instance's OS
 # will be reinstalled (if the platform supports it).
 # Monthly/prepaid platforms (skrime, prepaidhost) also default to this behavior.
-SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-false}"
+SKIP_INSTANCE_DELETE="${SKIP_INSTANCE_DELETE:-true}"
 
 # ============================================================================
 # Platform Billing Types (hourly = safe to delete, monthly/prepaid = prefer reinstall)
@@ -138,17 +138,15 @@ should_skip_delete() {
     return 1
 }
 
-# Helper: should we reinstall instead of creating a new instance?
-# Returns 0 (true) when: deletion is skipped (SKIP_INSTANCE_DELETE=true or monthly/prepaid)
-# AND the platform supports OS reinstall. No separate PREFER_REINSTALL flag needed.
+# Helper: should we try to reuse (reinstall) an existing instance?
+# Returns 0 (true) whenever the platform supports OS reinstall, regardless of
+# SKIP_INSTANCE_DELETE. Existing instances are always preferred to avoid
+# unnecessary create/delete cycles. A new instance is only created when no
+# existing one is found.
 should_reinstall() {
     local platform="$1"
-    if should_skip_delete "$platform"; then
-        local supports="${PLATFORM_SUPPORTS_REINSTALL[$platform]:-false}"
-        [[ "$supports" == "true" ]]
-        return $?
-    fi
-    return 1
+    local supports="${PLATFORM_SUPPORTS_REINSTALL[$platform]:-false}"
+    [[ "$supports" == "true" ]]
 }
 
 # Helper: get SSH user for a platform

@@ -57,7 +57,9 @@ platform_init() {
 # ============================================================================
 # Create instance with auto-fallback across enabled platforms
 # Tries each enabled platform in priority order until one succeeds.
-# For monthly/prepaid platforms, tries reinstall before creating new.
+# For every platform that supports reinstall, checks for an existing instance
+# first and reinstalls its OS rather than creating a new one. A new instance
+# is only created when the account has no existing instances.
 # ============================================================================
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
