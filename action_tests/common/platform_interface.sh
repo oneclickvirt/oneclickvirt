@@ -57,9 +57,10 @@ platform_init() {
 # ============================================================================
 # Create instance with auto-fallback across enabled platforms
 # Tries each enabled platform in priority order until one succeeds.
-# For every platform that supports reinstall, checks for an existing instance
-# first and reinstalls its OS rather than creating a new one. A new instance
-# is only created when the account has no existing instances.
+# For every platform that supports reinstall, always checks for an existing
+# instance first and reinstalls its OS instead of creating a new one.
+# A new instance is only created if the account has no existing instances.
+# All platform errors are intentionally forwarded to stderr for visibility.
 # ============================================================================
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
@@ -71,41 +72,51 @@ try_create_with_fallback() {
     fi
     log_info "Enabled platforms (priority order): ${enabled_platforms}"
     for platform in ${enabled_platforms}; do
-        log_info "Trying platform: ${platform}"
-        # Initialize the platform
+        log_info "=== Trying platform: ${platform} ==="
         if ! platform_init "$platform"; then
             log_warning "Platform '${platform}' init failed, trying next..."
             continue
         fi
-        local result=""
-        # For monthly/prepaid platforms with reinstall support, try reinstall first
+        local result="" exit_code
+        # Always check for an existing instance to reinstall before creating new
         if should_reinstall "$platform"; then
-            log_info "Platform '${platform}' prefers reinstall - checking for existing instances..."
-            local existing
-            existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null) || existing="[]"
-            local first_id
+            log_info "[${platform}] Checking for existing instances to reinstall..."
+            local existing="[]"
+            existing=$(platform_dispatch "$platform" "list_instances") || existing="[]"
+            log_debug "[${platform}] list_instances raw: ${existing}"
+            local first_id first_ip
             first_id=$(echo "$existing" | jq -r '.[0].instance_id // empty' 2>/dev/null)
+            first_ip=$(echo "$existing" | jq -r '.[0].ipv4 // empty' 2>/dev/null)
             if [[ -n "$first_id" ]]; then
-                log_info "Found existing instance ${first_id} on '${platform}', reinstalling OS..."
-                result=$(platform_dispatch "$platform" "reinstall_instance" "$first_id" "debian" 2>/dev/null)
-                if [[ $? -eq 0 && -n "$result" ]]; then
+                log_info "[${platform}] Found existing instance ${first_id} (IP: ${first_ip:-unknown}), reinstalling OS..."
+                result=$(platform_dispatch "$platform" "reinstall_instance" "$first_id" "debian")
+                exit_code=$?
+                if [[ $exit_code -eq 0 && -n "$result" ]]; then
                     local rip
                     rip=$(echo "$result" | jq -r '.ipv4 // empty' 2>/dev/null)
                     if [[ -n "$rip" ]]; then
-                        log_success "Reinstalled existing instance on '${platform}': ${result}"
+                        log_success "Reinstalled existing instance on '${platform}': ID=${first_id} IP=${rip}"
                         ACTIVE_PLATFORM="$platform"
                         ACTIVE_INSTANCE_ID="$first_id"
                         ACTIVE_INSTANCE_IP="$rip"
                         echo "$result"
                         return 0
+                    else
+                        log_error "[${platform}] Reinstall returned no IP. Raw result: ${result}"
                     fi
+                else
+                    log_error "[${platform}] Reinstall failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
                 fi
-                log_warning "Reinstall failed on '${platform}', falling back to new instance..."
+                log_warning "[${platform}] Reinstall failed, will try creating new instance..."
+            else
+                log_info "[${platform}] No existing instances found, will create new."
             fi
         fi
         # Create a new instance
-        result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$hours" 2>/dev/null)
-        if [[ $? -eq 0 && -n "$result" ]]; then
+        log_info "[${platform}] Creating new instance (env=${env_type} hours=${hours})..."
+        result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$hours")
+        exit_code=$?
+        if [[ $exit_code -eq 0 && -n "$result" ]]; then
             local cip cid
             cip=$(echo "$result" | jq -r '.ipv4 // empty' 2>/dev/null)
             cid=$(echo "$result" | jq -r '.instance_id // empty' 2>/dev/null)
@@ -116,9 +127,13 @@ try_create_with_fallback() {
                 ACTIVE_INSTANCE_IP="$cip"
                 echo "$result"
                 return 0
+            else
+                log_error "[${platform}] create_instance returned no IP. Raw result: ${result}"
             fi
+        else
+            log_error "[${platform}] create_instance failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
         fi
-        log_warning "Platform '${platform}' failed to create instance, trying next..."
+        log_warning "Platform '${platform}' exhausted, trying next..."
     done
     log_error "All enabled platforms failed to create an instance"
     return 1

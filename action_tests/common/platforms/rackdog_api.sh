@@ -28,6 +28,31 @@ rackdog_request() {
 rackdog_parse_body() { echo "$1" | sed '$d'; }
 rackdog_parse_code() { echo "$1" | tail -1; }
 
+# Wait for a VM to reach a usable (non-transitional) status with a valid IP.
+# Prints the IP to stdout on success.
+_rackdog_wait_vm_ready() {
+    local uuid="$1" max="${2:-600}" interval="${3:-15}" elapsed=0
+    log_info "[rackdog] Waiting for VM ${uuid} to be ready (max ${max}s)..."
+    while [[ $elapsed -lt $max ]]; do
+        local resp; resp=$(rackdog_request "GET" "/user-resource/vm/list")
+        local body; body=$(rackdog_parse_body "$resp")
+        local vm; vm=$(echo "$body" | jq -c --arg u "$uuid" '.[]? | select(.uuid == $u)' 2>/dev/null)
+        local status; status=$(echo "$vm" | jq -r '.status // empty' 2>/dev/null)
+        local ip; ip=$(echo "$vm" | jq -r '.public_ipv4 // .private_ipv4 // empty' 2>/dev/null)
+        log_debug "[rackdog] VM ${uuid}: status=${status:-?} ip=${ip:-none} (${elapsed}/${max}s)"
+        # Accept any status that is not a transitional/pending state
+        if [[ -n "$status" && "$status" != "installing" && "$status" != "pending"
+              && "$status" != "reinstalling" && -n "$ip" && "$ip" != "null" ]]; then
+            log_success "[rackdog] VM ${uuid} ready: status=${status} IP=${ip}"
+            echo "$ip"
+            return 0
+        fi
+        sleep "$interval"; elapsed=$((elapsed + interval))
+    done
+    log_error "[rackdog] VM ${uuid} readiness timeout after ${max}s"
+    return 1
+}
+
 rackdog_platform_init() {
     if [[ -z "${RACKDOG_API_KEY:-}" ]]; then
         log_error "[rackdog] RACKDOG_API_KEY is required"
@@ -72,11 +97,13 @@ rackdog_platform_create_instance() {
         return 1
     fi
     local uuid; uuid=$(echo "$body" | jq -r '.uuid // empty' 2>/dev/null)
-    local ip; ip=$(echo "$body" | jq -r '.private_ipv4 // empty' 2>/dev/null)
-    local pub_ip; pub_ip=$(echo "$body" | jq -r '.public_ipv4 // empty' 2>/dev/null)
-    [[ -n "$pub_ip" ]] && ip="$pub_ip"
     local ssh_user; ssh_user=$(echo "$body" | jq -r '.username // "root"' 2>/dev/null)
-    [[ -z "$uuid" ]] && { log_error "[rackdog] No UUID in response"; return 1; }
+    if [[ -z "$uuid" ]]; then
+        log_error "[rackdog] No UUID in create response: ${body}"
+        return 1
+    fi
+    log_info "[rackdog] VM ${uuid} creation accepted, waiting for IP assignment..."
+    local ip; ip=$(_rackdog_wait_vm_ready "$uuid" 600 15) || return 1
     log_success "[rackdog] VM created: ${uuid} IP: ${ip}"
     echo "{\"instance_id\":\"${uuid}\",\"ipv4\":\"${ip}\",\"password\":\"${RACKDOG_PASSWORD}\",\"ssh_user\":\"${ssh_user}\",\"platform\":\"rackdog\"}"
 }
@@ -90,19 +117,34 @@ rackdog_platform_delete_instance() {
 
 rackdog_platform_reinstall_instance() {
     local id="$1" os_name="${2:-debian}"
-    log_info "[rackdog] Reinstalling VM ${id}..."
+    log_info "[rackdog] Reinstalling VM ${id} (os=${os_name})..."
     local os_version="12"
     [[ "$os_name" == "ubuntu" ]] && os_version="22.04"
+    # Capture current IP before reinstall; it will not change after OS reinstall
+    local list_r; list_r=$(rackdog_request "GET" "/user-resource/vm/list")
+    local list_b; list_b=$(rackdog_parse_body "$list_r")
+    local current_ip; current_ip=$(echo "$list_b" | jq -r --arg u "$id" '.[]? | select(.uuid == $u) | (.public_ipv4 // .private_ipv4 // "")' 2>/dev/null)
+    log_info "[rackdog] VM ${id} current IP before reinstall: ${current_ip:-unknown}"
     local resp; resp=$(rackdog_request "POST" "/user-resource/vm/reinstall" "uuid=${id}&os_name=${os_name}&os_version=${os_version}")
     local body; body=$(rackdog_parse_body "${resp}")
     local code; code=$(rackdog_parse_code "${resp}")
-    if [[ "$code" != "200" ]]; then
-        log_error "[rackdog] Reinstall failed (HTTP ${code}): ${body}"
+    if [[ "$code" != "200" && "$code" != "202" ]]; then
+        log_error "[rackdog] Reinstall API failed (HTTP ${code}): ${body}"
         return 1
     fi
-    local ip; ip=$(echo "$body" | jq -r '.private_ipv4 // empty' 2>/dev/null)
-    local pub_ip; pub_ip=$(echo "$body" | jq -r '.public_ipv4 // empty' 2>/dev/null)
-    [[ -n "$pub_ip" ]] && ip="$pub_ip"
+    log_info "[rackdog] Reinstall accepted (HTTP ${code}), waiting for VM to become ready..."
+    local ip; ip=$(_rackdog_wait_vm_ready "$id" 900 15)
+    if [[ $? -ne 0 || -z "$ip" ]]; then
+        # Reinstall takes long; fall back to the known pre-reinstall IP if poll timed out
+        if [[ -n "$current_ip" ]]; then
+            log_warning "[rackdog] Readiness poll timed out; using pre-reinstall IP ${current_ip}"
+            ip="$current_ip"
+        else
+            log_error "[rackdog] Cannot determine VM IP after reinstall"
+            return 1
+        fi
+    fi
+    PLATFORM_SSH_PASSWORD="${RACKDOG_PASSWORD}"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${RACKDOG_PASSWORD}\",\"ssh_user\":\"root\",\"platform\":\"rackdog\"}"
 }
 

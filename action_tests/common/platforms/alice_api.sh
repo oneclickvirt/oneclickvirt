@@ -165,7 +165,19 @@ alice_platform_create_instance() {
     [[ -z "${id}" ]] && { log_error "[alice] Cannot get instance ID: ${body}"; return 1; }
     log_success "[alice] Instance creation requested, ID: ${id}"
     _alice_wait_instance_ready "${id}" 600 || return 1
-    local ip; ip=$(echo "${body}" | jq -r '.data.ipv4 // .data.ip // empty' 2>/dev/null)
+    # Re-fetch instance state after provisioning; IP is often absent from the create response
+    local state_r; state_r=$(alice_get_instance_state "${id}")
+    local state_b; state_b=$(alice_parse_body "${state_r}")
+    log_debug "[alice] Instance ${id} state after ready: ${state_b}"
+    local ip; ip=$(echo "${state_b}" | jq -r '.data.ipv4 // .data.ip // .data.ipv4_address // .data.network[0].ip // empty' 2>/dev/null)
+    if [[ -z "$ip" ]]; then
+        # Fallback: try from original create response
+        ip=$(echo "${body}" | jq -r '.data.ipv4 // .data.ip // empty' 2>/dev/null)
+    fi
+    if [[ -z "$ip" ]]; then
+        log_error "[alice] Cannot determine IP for instance ${id}. State response: ${state_b}"
+        return 1
+    fi
     local password; password=$(echo "${body}" | jq -r '.data.password // empty' 2>/dev/null)
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"ssh_user\":\"root\",\"platform\":\"alice\"}"
 }
