@@ -204,27 +204,41 @@ platform_exec_and_wait() {
     platform_ssh_exec "$ip" "$cmd" "$timeout"
 }
 
-# Wait for apt/dpkg locks to be released on remote node
+# Wait for apt/dpkg locks to be released on remote node.
+# Uses the same approach as the original aliceinit_api.sh:
+# - Always wait min_wait seconds first (cloud-init needs time).
+# - Then actively test with `apt-get check` (more reliable than fuser).
+# - On timeout: force-kill and remove lock files, then proceed.
 wait_for_apt_lock() {
     local ip="$1" min_wait="${2:-120}" max_wait="${3:-300}" interval="${4:-10}"
     log_info "Waiting for apt/dpkg locks on ${ip} (min ${min_wait}s, max ${max_wait}s)..."
     local elapsed=0
-    # Always wait the minimum time first
     while [[ $elapsed -lt $min_wait ]]; do
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
-    # Then check if locks are free
     while [[ $elapsed -lt $max_wait ]]; do
-        local lock_held=false
-        platform_ssh_exec "$ip" "fuser /var/lib/dpkg/lock-frontend /var/lib/apt/lists/lock 2>/dev/null" 10 >/dev/null 2>&1 && lock_held=true
-        if ! $lock_held; then
+        if platform_ssh_exec "$ip" \
+            'DEBIAN_FRONTEND=noninteractive apt-get check >/dev/null 2>&1' \
+            30 >/dev/null 2>&1; then
             log_success "apt/dpkg locks free on ${ip} (after ${elapsed}s)"
             return 0
         fi
+        log_debug "apt/dpkg not ready on ${ip} (${elapsed}/${max_wait}s), retrying..."
         sleep "$interval"
         elapsed=$((elapsed + interval))
     done
-    log_warning "apt/dpkg lock wait timeout (${max_wait}s), proceeding anyway"
+    log_warning "apt/dpkg lock wait timeout (${max_wait}s), attempting forced cleanup..."
+    platform_ssh_exec "$ip" '
+        pkill -9 apt 2>/dev/null || true
+        pkill -9 apt-get 2>/dev/null || true
+        pkill -9 dpkg 2>/dev/null || true
+        for f in /var/lib/dpkg/lock /var/lib/dpkg/lock-frontend \
+                 /var/cache/apt/archives/lock /var/lib/apt/lists/lock; do
+            [ -f "$f" ] && rm -f "$f" 2>/dev/null || true
+        done
+        dpkg --configure -a 2>/dev/null || true
+    ' 60 >/dev/null 2>&1 || true
+    log_warning "Forced apt cleanup complete, proceeding"
     return 0
 }

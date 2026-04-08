@@ -41,7 +41,7 @@ create_test_node() {
     # Update global SSH password if provided
     [[ -n "$password" ]] && PLATFORM_SSH_PASSWORD="$password"
     # Wait for SSH to be available before handing off the node
-    wait_for_ssh "${ip}" 300 || { log_error "SSH never became available on ${ip}"; return 1; }
+    wait_for_ssh "${ip}" 600 || { log_error "SSH never became available on ${ip}"; return 1; }
     log_success "Node created on '${platform_name}': ID=${id} IP=${ip}"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
 }

@@ -158,6 +158,38 @@ _alice_wait_instance_ready() {
     return 1
 }
 
+# Two-phase wait after a rebuild/reinstall:
+# Phase 1 - wait for instance to leave 'ready' state (rebuild actually started, old OS wiped)
+# Phase 2 - wait for instance to return to 'ready' state (new OS fully booted)
+# This prevents falsely treating the old running OS as the rebuild being done.
+_alice_wait_after_rebuild() {
+    local id="$1" max_total="${2:-720}" interval="${3:-15}"
+    local phase1_max=120 phase1_elapsed=0
+    log_info "[alice] Phase 1: waiting for rebuild to start on instance ${id} (max ${phase1_max}s)..."
+    while [[ $phase1_elapsed -lt $phase1_max ]]; do
+        local sr; sr=$(alice_get_instance_state "${id}")
+        local sb; sb=$(alice_parse_body "${sr}")
+        local sc; sc=$(alice_parse_code "${sr}")
+        if [[ "${sc}" == "200" ]]; then
+            local status; status=$(echo "${sb}" | jq -r '.data.status // empty' 2>/dev/null)
+            local state;  state=$(echo "${sb}"  | jq -r '.data.state.state // empty' 2>/dev/null)
+            log_debug "[alice] Instance ${id} (phase 1): status=${status} state=${state}"
+            if [[ "${status}" != "complete" || "${state}" != "running" ]]; then
+                log_info "[alice] Rebuild started (status=${status} state=${state}), entering phase 2"
+                break
+            fi
+        fi
+        sleep "${interval}"; phase1_elapsed=$((phase1_elapsed + interval))
+    done
+    if [[ $phase1_elapsed -ge $phase1_max ]]; then
+        log_warning "[alice] Phase 1 timed out: instance may still be on old OS; proceeding to phase 2 anyway"
+    fi
+    local phase2_max=$(( max_total - phase1_elapsed ))
+    [[ $phase2_max -lt 300 ]] && phase2_max=300
+    log_info "[alice] Phase 2: waiting for instance ${id} to be ready after rebuild (max ${phase2_max}s)..."
+    _alice_wait_instance_ready "${id}" "${phase2_max}" "${interval}"
+}
+
 # ============================================================================
 # Standard Platform Interface Implementation
 # ============================================================================
@@ -239,6 +271,11 @@ alice_platform_reinstall_instance() {
     fi
     local os_id; os_id=$(_alice_get_os_id_for_plan "${plan_id}" "${os_name}") || return 1
     local ssh_key_id; ssh_key_id=$(_alice_get_ssh_key_id) || ssh_key_id=""
+    if [[ -n "$ssh_key_id" ]]; then
+        log_info "[alice] Using SSH key ID: ${ssh_key_id} for rebuild"
+    else
+        log_warning "[alice] No SSH key ID resolved; instance may need password auth after rebuild"
+    fi
     local resp; resp=$(alice_rebuild_instance_raw "${id}" "${os_id}" "${ssh_key_id}" "")
     local body; body=$(alice_parse_body "${resp}")
     local http_code; http_code=$(alice_parse_code "${resp}")
@@ -246,8 +283,8 @@ alice_platform_reinstall_instance() {
         log_error "[alice] Rebuild failed (HTTP ${http_code}): ${body}"
         return 1
     fi
-    log_info "[alice] Rebuild accepted, waiting for instance ${id} to be ready..."
-    _alice_wait_instance_ready "${id}" 600 || return 1
+    log_info "[alice] Rebuild accepted, entering two-phase wait for instance ${id}..."
+    _alice_wait_after_rebuild "${id}" 720 || return 1
     # Get IP from instance list (state endpoint has no IP)
     local ip; ip=$(_alice_get_instance_ip "${id}")
     if [[ -z "$ip" ]]; then
@@ -292,19 +329,22 @@ alice_platform_ssh_exec() {
 }
 
 alice_platform_wait_ssh() {
-    local ip="$1" max="${2:-300}" interval="${3:-10}" elapsed=0
+    local ip="$1" max="${2:-600}" interval="${3:-10}" elapsed=0
     local ssh_user; ssh_user=$(get_platform_ssh_user "alice")
     log_info "[alice] Waiting for SSH on ${ip} (max ${max}s)..."
     while [[ $elapsed -lt $max ]]; do
-        if ssh -i "${PLATFORM_SSH_KEY_FILE}" \
+        local ssh_err
+        ssh_err=$(ssh -i "${PLATFORM_SSH_KEY_FILE}" \
                -o StrictHostKeyChecking=no \
                -o UserKnownHostsFile=/dev/null \
                -o ConnectTimeout=10 \
                -o BatchMode=yes \
-               "${ssh_user}@${ip}" "echo ok" >/dev/null 2>&1; then
+               "${ssh_user}@${ip}" "echo ok" 2>&1)
+        if [[ $? -eq 0 ]]; then
             log_success "[alice] SSH ready on ${ip}"
             return 0
         fi
+        log_debug "[alice] SSH not ready on ${ip} (${elapsed}/${max}s): ${ssh_err}"
         sleep "${interval}"; elapsed=$((elapsed + interval))
     done
     log_error "[alice] SSH timeout on ${ip} after ${max}s"
