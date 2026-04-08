@@ -226,25 +226,61 @@ wait_db_ready() {
 wait_task_complete() {
     local url="$1" task_id="$2" token="$3" max="${4:-600}" interval="${5:-10}" elapsed=0
     log_info "Waiting for task ${task_id} (max ${max}s)..."
+    local empty_count=0
+    local last_known_status=""
+    
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
             "${url}/api/v1/admin/tasks/${task_id}" 2>/dev/null) || true
         local st; st=$(echo "$r" | jq -r '.data.status // empty' 2>/dev/null)
+        
         case "$st" in
-            completed) log_success "Task ${task_id} completed"; echo "$r"; return 0 ;;
-            failed|cancelled|timeout) log_error "Task ${task_id}: ${st}"; echo "$r"; return 1 ;;
+            completed) 
+                log_success "Task ${task_id} completed"
+                echo "$r"
+                return 0
+                ;;
+            failed|cancelled|timeout) 
+                log_error "Task ${task_id}: ${st}"
+                echo "$r"
+                return 1
+                ;;
+            pending|running|queued) 
+                # Task is still in progress
+                log_debug "Task ${task_id} status: ${st}"
+                last_known_status="$st"
+                empty_count=0
+                ;;
             "") 
-                # Task API might not exist or task completed and cleaned up
-                if [[ $elapsed -gt 10 ]]; then
-                    log_debug "Task ${task_id} status unknown (might be completed and cleaned)"
-                    echo "$r"
+                # Empty response - could be network error, API issue, or task cleaned up
+                empty_count=$((empty_count + 1))
+                
+                # If we previously saw the task running and now it's gone, likely completed
+                if [[ -n "$last_known_status" && $empty_count -ge 2 ]]; then
+                    log_debug "Task ${task_id} not found after running - assuming completed/cleaned"
                     return 0
                 fi
+                
+                # If we never saw the task and got multiple empty responses, it might not exist
+                if [[ -z "$last_known_status" && $empty_count -ge 3 ]]; then
+                    log_warning "Task ${task_id} never found after 3 attempts - assuming already completed"
+                    return 0
+                fi
+                
+                log_debug "Task ${task_id} status empty (attempt ${empty_count})"
+                ;;
+            *)
+                # Unknown status - log and continue
+                log_debug "Task ${task_id} unknown status: ${st}"
+                last_known_status="$st"
+                empty_count=0
                 ;;
         esac
-        sleep "$interval"; elapsed=$((elapsed + interval))
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
     done
-    log_error "Task timeout"; return 1
+    log_error "Task ${task_id} timeout after ${max}s"
+    return 1
 }
 
 # Delete instance with proper async wait
@@ -257,25 +293,42 @@ delete_instance_safe() {
     local del_resp; del_resp=$(curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${token}" \
         "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
     
+    local del_code; del_code=$(echo "$del_resp" | jq -r '.code // empty' 2>/dev/null)
+    
+    # Check if deletion request itself failed
+    if [[ -n "$del_code" && "$del_code" != "0" ]]; then
+        local del_msg; del_msg=$(echo "$del_resp" | jq -r '.msg // .message // "unknown error"' 2>/dev/null)
+        log_warning "Instance ${instance_id} deletion request failed: ${del_msg} (code: ${del_code})"
+        # Continue anyway - instance might already be deleted
+    fi
+    
     # Check if deletion returns a task ID (async operation)
     local del_task; del_task=$(echo "$del_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
     if [[ -n "$del_task" ]]; then
         log_debug "Waiting for deletion task ${del_task}..."
-        wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 3 > /dev/null 2>&1 || true
+        wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 3 > /dev/null 2>&1 || {
+            log_warning "Deletion task ${del_task} did not complete successfully"
+            # Continue to verification
+        }
     else
-        # Synchronous deletion, give some time for cleanup
+        # Synchronous deletion or no task returned, give some time for cleanup
         sleep 3
     fi
     
-    # Verify instance is gone
+    # Verify instance is gone (404 or other error means deleted)
     local verify; verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
         "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
     local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
+    
+    # code=0 means success, which here means instance still exists (bad)
+    # Any other code (404, 500, etc.) or empty response means instance not found (good)
     if [[ "$verify_code" == "0" ]]; then
-        log_warning "Instance ${instance_id} still exists after deletion attempt"
+        local inst_status; inst_status=$(echo "$verify" | jq -r '.data.status // empty' 2>/dev/null)
+        log_warning "Instance ${instance_id} still exists after deletion (status: ${inst_status})"
         return 1
     fi
     
+    log_debug "Instance ${instance_id} deleted successfully"
     return 0
 }
 

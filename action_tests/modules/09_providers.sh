@@ -34,7 +34,7 @@ run_module_09() {
 
     # -- Create provider (or reuse existing one from state restoration) --
     if [[ -n "$PROVIDER_ID" ]]; then
-        # Provider ID exists (restored from previous module), verify it's still valid
+        # Provider ID exists (restored from previous module),verify it's still valid
         log_info "Using existing provider ID: ${PROVIDER_ID}"
         local verify_resp; verify_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
@@ -48,8 +48,28 @@ run_module_09() {
     if [[ -z "$PROVIDER_ID" ]]; then
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
             "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group")
-        PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
-        [[ -z "$PROVIDER_ID" ]] && { chain_break "$group" "Provider creation failed"; return 1; }
+        
+        # Debug: log the response
+        log_debug "Provider creation response: ${pr}"
+        
+        # Try multiple possible field names for the provider ID
+        PROVIDER_ID=$(echo "$pr" | jq -r '.data.id // .data.ID // .data.provider_id // .data.providerId // .data.providerID // empty' 2>/dev/null)
+        
+        # If still empty, try to get from list (newly created should be the only one or last one)
+        if [[ -z "$PROVIDER_ID" ]]; then
+            log_warning "Provider ID not found in response, fetching from provider list..."
+            local list_resp; list_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=10" 2>/dev/null) || true
+            PROVIDER_ID=$(echo "$list_resp" | jq -r '.data.list[]? | select(.name=="ci-'"${ENV_TYPE}"'-provider") | .id // .ID' 2>/dev/null | head -1)
+        fi
+        
+        if [[ -z "$PROVIDER_ID" ]]; then
+            log_error "Failed to extract provider ID from response or list"
+            log_error "Response was: ${pr}"
+            chain_break "$group" "Provider creation failed - no ID in response"
+            return 1
+        fi
+        
         log_info "Created new provider ID: ${PROVIDER_ID}"
     fi
 
