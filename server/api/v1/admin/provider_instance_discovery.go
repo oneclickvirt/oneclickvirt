@@ -78,6 +78,12 @@ func ImportProviderInstances(c *gin.Context) {
 		return
 	}
 
+	// 验证至少指定了要导入的实例
+	if len(importOptions.InstanceUUIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "必须指定要导入的实例(instanceUuids)"))
+		return
+	}
+
 	// 确保ProviderID一致
 	importOptions.ProviderID = uint(providerID)
 

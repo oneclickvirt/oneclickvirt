@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"errors"
+	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/monitoring"
@@ -25,6 +26,12 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	global.APP_LOG.Info("开始删除Provider及其所有关联数据",
 		zap.Uint("providerID", providerID),
 		zap.Bool("forceDelete", forceDelete))
+
+	// 检查Provider是否存在
+	var existingProvider providerModel.Provider
+	if err := global.APP_DB.First(&existingProvider, providerID).Error; err != nil {
+		return fmt.Errorf("提供商不存在")
+	}
 
 	// 如果不是强制删除，检查是否还有运行中的实例
 	// 注意：deleting/resetting等中间状态不应阻止删除，因为这些可能是卡住的状态

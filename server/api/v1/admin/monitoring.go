@@ -632,6 +632,13 @@ func ClearProviderMonitors(c *gin.Context) {
 		return
 	}
 
+	// 检查Provider是否存在
+	var p providerModel.Provider
+	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
+		return
+	}
+
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))

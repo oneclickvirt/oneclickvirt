@@ -158,14 +158,18 @@ func (s *FreezeManagementService) FreezeProvider(providerID uint, reason string)
 		}
 
 		// 冻结Provider
-		if err := tx.Model(&provider.Provider{}).
+		result := tx.Model(&provider.Provider{}).
 			Where("id = ?", providerID).
 			Updates(map[string]interface{}{
 				"is_frozen":     true,
 				"frozen_at":     now,
 				"frozen_reason": reason,
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("Provider不存在")
 		}
 
 		// 冻结该Provider下所有未手动设置过期时间的实例
@@ -191,13 +195,20 @@ func (s *FreezeManagementService) FreezeInstance(instanceID uint, reason string)
 		reason = "manual"
 	}
 
-	return global.APP_DB.Model(&provider.Instance{}).
+	result := global.APP_DB.Model(&provider.Instance{}).
 		Where("id = ?", instanceID).
 		Updates(map[string]interface{}{
 			"is_frozen":     true,
 			"frozen_at":     now,
 			"frozen_reason": reason,
-		}).Error
+		})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("实例不存在")
+	}
+	return nil
 }
 
 // UnfreezeUser 解冻用户
@@ -213,14 +224,18 @@ func (s *FreezeManagementService) UnfreezeUser(userID uint) error {
 func (s *FreezeManagementService) UnfreezeProvider(providerID uint) error {
 	return global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 解冻Provider
-		if err := tx.Model(&provider.Provider{}).
+		result := tx.Model(&provider.Provider{}).
 			Where("id = ?", providerID).
 			Updates(map[string]interface{}{
 				"is_frozen":     false,
 				"frozen_at":     nil,
 				"frozen_reason": "",
-			}).Error; err != nil {
-			return err
+			})
+		if result.Error != nil {
+			return result.Error
+		}
+		if result.RowsAffected == 0 {
+			return fmt.Errorf("Provider不存在")
 		}
 
 		return nil

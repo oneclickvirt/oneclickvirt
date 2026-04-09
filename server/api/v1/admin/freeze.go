@@ -111,7 +111,12 @@ func UnfreezeProviderManual(c *gin.Context) {
 	}
 
 	if err := freezeService.UnfreezeProvider(req.ID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解冻Provider失败: "+err.Error()))
+		errMsg := err.Error()
+		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
+		} else {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解冻Provider失败: "+errMsg))
+		}
 		return
 	}
 

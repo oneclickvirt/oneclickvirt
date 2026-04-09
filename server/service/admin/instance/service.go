@@ -314,13 +314,16 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 
 	// 在单个事务中完成配额验证、实例创建和配额更新，确保原子性（解决 TOCTOU）
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
-		quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
-		if err != nil {
-			return fmt.Errorf("配额验证失败: %v", err)
-		}
-		if !quotaResult.Allowed {
-			return fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
+		// 仅当指定了用户ID时才进行配额验证（管理员创建不指定用户时跳过配额）
+		if req.UserID > 0 {
+			// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
+			quotaResult, err := quotaService.ValidateInTransaction(tx, quotaReq)
+			if err != nil {
+				return fmt.Errorf("配额验证失败: %v", err)
+			}
+			if !quotaResult.Allowed {
+				return fmt.Errorf("无法为用户创建实例: %s", quotaResult.Reason)
+			}
 		}
 
 		// 创建实例
@@ -328,15 +331,18 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 			return fmt.Errorf("创建实例失败: %v", err)
 		}
 
-		// 在同一事务中更新用户配额
-		resourceUsage := resources.ResourceUsage{
-			CPU:    req.CPU,
-			Memory: req.Memory,
-			Disk:   req.Disk,
-		}
+		// 仅当指定了用户ID时才更新用户配额
+		if req.UserID > 0 {
+			// 在同一事务中更新用户配额
+			resourceUsage := resources.ResourceUsage{
+				CPU:    req.CPU,
+				Memory: req.Memory,
+				Disk:   req.Disk,
+			}
 
-		if err := quotaService.UpdateUserQuotaAfterCreationWithTx(tx, req.UserID, resourceUsage); err != nil {
-			return fmt.Errorf("更新用户配额失败: %v", err)
+			if err := quotaService.UpdateUserQuotaAfterCreationWithTx(tx, req.UserID, resourceUsage); err != nil {
+				return fmt.Errorf("更新用户配额失败: %v", err)
+			}
 		}
 
 		// 创建默认端口映射

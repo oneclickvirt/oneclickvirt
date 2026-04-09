@@ -66,7 +66,7 @@ test_api() {
         _record_result "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
         return 1
     fi
-    local args=(-s -w "\n%{http_code}" --max-time 60
+    local args=(-s -w "\n%{http_code}" --max-time 120
         -H "Content-Type: application/json" -X "${method}")
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")

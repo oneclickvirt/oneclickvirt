@@ -204,7 +204,6 @@ function formatTs(ts) {
 
 function renderSummary(data) {
   const totalEnvs  = data.length;
-  const totalRuns  = data.reduce((s,e) => s + e.runs.length, 0);
   const totalPass  = data.reduce((s,e) => s + e.pass, 0);
   const totalFail  = data.reduce((s,e) => s + e.fail, 0);
   const totalSkip  = data.reduce((s,e) => s + e.skip, 0);
@@ -212,7 +211,7 @@ function renderSummary(data) {
   const overallRate = totalTests > 0 ? Math.round(totalPass * 100 / totalTests) : 0;
   document.getElementById('summary-grid').innerHTML = `
     <div class="stat-card"><div class="value">${totalEnvs}</div><div class="label"><span class="zh">环境数</span><span class="en">Envs</span></div></div>
-    <div class="stat-card"><div class="value">${totalRuns}</div><div class="label"><span class="zh">总运行次数</span><span class="en">Runs</span></div></div>
+    <div class="stat-card"><div class="value">${totalTests}</div><div class="label"><span class="zh">总测试数</span><span class="en">Tests</span></div></div>
     <div class="stat-card s-pass"><div class="value">${totalPass}</div><div class="label"><span class="zh">通过</span><span class="en">Passed</span></div></div>
     <div class="stat-card s-fail"><div class="value">${totalFail}</div><div class="label"><span class="zh">失败</span><span class="en">Failed</span></div></div>
     <div class="stat-card s-skip"><div class="value">${totalSkip}</div><div class="label"><span class="zh">跳过</span><span class="en">Skipped</span></div></div>
