@@ -4,11 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       environment:
-        description: 'Virtualization environment to test (one at a time)'
+        description: 'Virtualization environment (choose one, or "all" to test every env in parallel)'
         required: true
         type: choice
         options:
           - docker
+          - all
           - lxd
           - incus
           - podman
@@ -59,11 +60,16 @@ on:
 
 jobs:
   integration-test:
-    name: "Test: ${{ inputs.environment }}"
+    name: "Test: ${{ matrix.environment }}"
     runs-on: ubuntu-latest
     timeout-minutes: 180
     permissions:
       contents: write
+    strategy:
+      fail-fast: false
+      max-parallel: 1
+      matrix:
+        environment: ${{ inputs.environment == 'all' && fromJSON('["docker","lxd","incus","podman","containerd","proxmoxve"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
 
     steps:
       - name: Checkout code
@@ -106,7 +112,7 @@ jobs:
       - name: Validate platform and instance types
         id: validate
         run: |
-          ENV="${{ inputs.environment }}"
+          ENV="${{ matrix.environment }}"
           TYPES="${{ inputs.instance_types }}"
           PLATFORM="${{ inputs.platform }}"
           # Platform capabilities (hardcoded)
@@ -174,7 +180,7 @@ jobs:
           PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
           SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
           # Test settings
-          ENV_TYPE: ${{ inputs.environment }}
+          ENV_TYPE: ${{ matrix.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
           ADMIN_USER: admin
@@ -220,7 +226,7 @@ jobs:
           # Run with error capture - never fail silently
           set +e
           bash action_tests/run_env_test.sh \
-            "${{ inputs.environment }}" \
+            "${{ matrix.environment }}" \
             "${{ inputs.modules }}" \
             "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee action_tests/reports/full-output.log
           TEST_EXIT=${PIPESTATUS[0]}
@@ -233,7 +239,7 @@ jobs:
 
           # Ensure report directory has at least a fallback file
           if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
-            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log | tail -100)</pre></body></html>" > "action_tests/reports/${{ inputs.environment }}-report.html"
+            echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log | tail -100)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
           fi
 
           exit $TEST_EXIT
@@ -242,7 +248,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: test-reports-${{ inputs.environment }}-${{ github.run_number }}
+          name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
           path: |
             action_tests/reports/*.html
             action_tests/reports/*.md
@@ -258,7 +264,7 @@ jobs:
         run: |
           REPORT_BRANCH="gh-pages"
           TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
-          ENV="${{ inputs.environment }}"
+          ENV="${{ matrix.environment }}"
 
           # Clone or init gh-pages branch
           git clone --depth 1 --branch "$REPORT_BRANCH" \
@@ -310,13 +316,13 @@ jobs:
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Environment | ${{ inputs.environment }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Environment | ${{ matrix.environment }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | ${{ inputs.platform }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          if [[ -f "action_tests/reports/${{ inputs.environment }}-report.md" ]]; then
-            cat "action_tests/reports/${{ inputs.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
+          if [[ -f "action_tests/reports/${{ matrix.environment }}-report.md" ]]; then
+            cat "action_tests/reports/${{ matrix.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
           else
             echo "No markdown report file found." >> $GITHUB_STEP_SUMMARY
           fi

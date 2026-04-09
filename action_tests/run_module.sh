@@ -163,11 +163,13 @@ done
 # Summary
 report_finalize
 
-# Generate HTML report if we have a results file
-if [[ -n "${RESULTS_FILE:-}" && -f "${RESULTS_FILE:-}" ]]; then
-    generate_html_report "${REPORT_DIR}/module-${MODULE_INPUT}-report.html" "Module-${MODULE_INPUT}"
-else
-    log_warning "No results file found, skipping HTML report generation"
+# Generate HTML report if we have a results file and are not delegating to parent
+if [[ "${GENERATE_MODULE_REPORT:-true}" == "true" ]]; then
+    if [[ -n "${RESULTS_FILE:-}" && -f "${RESULTS_FILE:-}" ]]; then
+        generate_html_report "${REPORT_DIR}/module-${MODULE_INPUT}-report.html" "Module-${MODULE_INPUT}"
+    else
+        log_warning "No results file found, skipping HTML report generation"
+    fi
 fi
 
 log_section "Test completed"

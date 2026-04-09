@@ -7,6 +7,7 @@ set -uo pipefail
 REPORTS_DIR="${1:-reports}"
 OUTPUT_HTML="${2:-index.html}"
 GEN_TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
+OUTPUT_DIR=$(dirname "$OUTPUT_HTML")
 
 # ── Collect per-environment data ──────────────────────────────────────────────
 env_json_parts=()
@@ -47,7 +48,7 @@ if [[ -d "$REPORTS_DIR" ]]; then
             links_parts=()
             for html_file in "$tsdir"*.html; do
                 [[ -f "$html_file" ]] || continue
-                rel="${html_file#./}"
+                rel="${html_file#${OUTPUT_DIR}/}"
                 links_parts+=("\"${rel}\"")
             done
             links_str=""

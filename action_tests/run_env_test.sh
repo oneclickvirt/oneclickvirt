@@ -203,6 +203,7 @@ export ADMIN_TOKEN
 log_section "Phase 8: Run test modules"
 export RESULTS_FILE="${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
 export REPORT_DIR
+export GENERATE_MODULE_REPORT=false
 bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${REPORT_DIR}/${ENV_TYPE}-output.log"
 EXIT_CODE=${PIPESTATUS[0]}
 
