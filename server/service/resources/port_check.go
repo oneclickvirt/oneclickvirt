@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/utils"
 	"strconv"
 	"strings"
+	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -413,6 +414,8 @@ func (s *PortMappingService) createSSHClientForProvider(providerInfo *provider.P
 		}
 	}
 
+	// 端口检查目的的SSH连接使用较短超时，避免阀塞HTTP处理程序
+	sshConfig.ConnectTimeout = 8 * time.Second
 	// 创建SSH客户端
 	sshClient, err := utils.NewSSHClient(sshConfig)
 	if err != nil {

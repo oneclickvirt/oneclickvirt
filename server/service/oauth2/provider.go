@@ -202,14 +202,18 @@ func (s *ProviderService) DeleteProvider(id uint) error {
 
 // ResetRegistrationCount 重置注册计数
 func (s *ProviderService) ResetRegistrationCount(id uint) error {
-	if err := global.APP_DB.Model(&oauth2Model.OAuth2Provider{}).
+	result := global.APP_DB.Model(&oauth2Model.OAuth2Provider{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"current_registrations": 0,
 			"total_users":           0,
-		}).Error; err != nil {
-		global.APP_LOG.Error("重置注册计数失败", zap.Error(err))
+		})
+	if result.Error != nil {
+		global.APP_LOG.Error("重置注册计数失败", zap.Error(result.Error))
 		return common.NewError(common.CodeInternalError, "重置失败")
+	}
+	if result.RowsAffected == 0 {
+		return common.NewError(common.CodeNotFound, "OAuth2提供商不存在")
 	}
 
 	global.APP_LOG.Info("重置OAuth2提供商注册计数成功", zap.Uint("id", id))

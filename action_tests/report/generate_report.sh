@@ -257,6 +257,7 @@ declare -A group_pass group_fail group_skip
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     grp=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
+    [[ -z "$grp" || "$grp" == "null" ]] && grp="default"
     status=$(echo "$line" | jq -r '.status // empty' 2>/dev/null)
     if [[ "$status" == "PASS" ]]; then
         group_pass[$grp]=$(( ${group_pass[$grp]:-0} + 1 ))
@@ -272,6 +273,7 @@ current_group=""
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     grp=$(echo "$line" | jq -r '.group // "default"' 2>/dev/null)
+    [[ -z "$grp" || "$grp" == "null" ]] && grp="default"
     status=$(echo "$line" | jq -r '.status // empty' 2>/dev/null)
     name=$(echo "$line" | jq -r '.name // ""' 2>/dev/null)
     method=$(echo "$line" | jq -r '.method // ""' 2>/dev/null)

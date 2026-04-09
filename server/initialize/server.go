@@ -26,8 +26,8 @@ func InitServer(address string, router *gin.Engine) *http.Server {
 	s := &http.Server{
 		Addr:           address,
 		Handler:        router,
-		ReadTimeout:    20 * time.Second,
-		WriteTimeout:   20 * time.Second,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   120 * time.Second,
 		MaxHeaderBytes: 1 << 20,
 	}
 
