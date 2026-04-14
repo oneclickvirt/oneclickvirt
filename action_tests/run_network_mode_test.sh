@@ -55,6 +55,7 @@ NODE_HOURS="${NODE_HOURS:-8}"
 # Port-mapping methods supported by each provider type.
 # Docker/Podman/Containerd: backend enforces "native" regardless of request.
 # LXD/Incus/ProxmoxVE: "device_proxy" (default) and "iptables" are supported.
+# KubeVirt/QEMU: "iptables" is the primary supported method.
 # ============================================================================
 _get_supported_mapping_methods() {
     local env="$1"
@@ -64,6 +65,9 @@ _get_supported_mapping_methods() {
             ;;
         lxd|incus|proxmoxve)
             echo "device_proxy iptables"
+            ;;
+        kubevirt|qemu)
+            echo "iptables"
             ;;
         *)
             echo "native"

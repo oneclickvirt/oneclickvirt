@@ -139,14 +139,17 @@ should_test_type() {
 # podman    Podman                container
 # containerd Containerd (nerdctl)  container
 # proxmoxve Proxmox VE            container, vm
+# kubevirt  KubeVirt              vm
+# qemu      QEMU                  vm
 declare -A PLATFORM_SUPPORTS_VM=(
-    [docker]=0 [lxd]=1 [incus]=1 [podman]=0 [containerd]=0 [proxmoxve]=1
+    [docker]=0 [lxd]=1 [incus]=1 [podman]=0 [containerd]=0 [proxmoxve]=1 [kubevirt]=1 [qemu]=1
 )
 
 env_supports_container() {
     # All supported platforms support containers
     case "$ENV_TYPE" in
         docker|lxd|incus|podman|containerd|proxmoxve) return 0 ;;
+        kubevirt|qemu) return 1 ;;
         *) return 1 ;;
     esac
 }
@@ -160,11 +163,21 @@ validate_instance_types() {
     local platform="$1"
     local types="$2"
     local supports_vm="${PLATFORM_SUPPORTS_VM[$platform]:-0}"
+    # Determine container support: platforms not in VM-only list support containers
+    local supports_container=1
+    case "$platform" in
+        kubevirt|qemu) supports_container=0 ;;
+    esac
     case "$types" in
         both)
             if [[ "$supports_vm" -eq 0 ]]; then
                 log_warning "Platform '${platform}' does not support VM; auto-correcting to 'container'"
                 echo "container"
+                return 0
+            fi
+            if [[ "$supports_container" -eq 0 ]]; then
+                log_warning "Platform '${platform}' does not support containers; auto-correcting to 'vm'"
+                echo "vm"
                 return 0
             fi
             echo "both"
@@ -179,6 +192,12 @@ validate_instance_types() {
             echo "vm"
             ;;
         container)
+            if [[ "$supports_container" -eq 0 ]]; then
+                log_error "Platform '${platform}' does not support container instance type"
+                log_warning "Auto-correcting to 'vm'"
+                echo "vm"
+                return 0
+            fi
             echo "container"
             ;;
         *)

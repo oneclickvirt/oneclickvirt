@@ -8,8 +8,9 @@
 #   bash run_env_test.sh incus all vm
 #
 # Platform instance type support (hardcoded):
-#   docker/podman/containerd → container only
-#   lxd/incus/proxmoxve     → container + vm
+#   docker/podman/containerd        → container only
+#   lxd/incus/proxmoxve             → container + vm
+#   kubevirt/qemu                   → vm only
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

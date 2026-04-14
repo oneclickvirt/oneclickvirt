@@ -86,10 +86,10 @@ action_tests/
 | `podman` | Podman | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `containerd` | Containerd | 是 | 否 | `both`/`vm` 自动纠正为 `container` |
 | `proxmoxve` | Proxmox VE | 是 | 是 | 无需纠正 |
+| `kubevirt` | KubeVirt | 否 | 是 | `both`/`container` 自动纠正为 `vm` |
+| `qemu` | QEMU | 否 | 是 | `both`/`container` 自动纠正为 `vm` |
 
 实例类型自动纠正：测试框架会根据平台能力自动纠正 `instance_types` 参数。例如选择 `docker` 平台并指定 `both`，框架会自动纠正为 `container`。纠正逻辑同时在 GitHub Actions 工作流和测试脚本中双重验证。
-
-QEMU 和 KubeVirt 暂不纳入自动化测试。
 
 ## 核心特性
 
