@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"oneclickvirt/service/auth"
+	"strconv"
 	"strings"
 
 	"oneclickvirt/config"
@@ -144,6 +145,12 @@ func UpdateUnifiedConfig(c *gin.Context) {
 
 	// 根据范围过滤配置项
 	filteredConfig := filterConfigByScope(req.Config, req.Scope, authCtx)
+
+	// 验证 level_limits 配置
+	if err := validateLevelLimitsConfig(filteredConfig); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
 
 	// 更新配置
 	// UpdateConfig 会自动：
@@ -382,4 +389,54 @@ func filterConfigByScope(config map[string]interface{}, scope string, authCtx *a
 	}
 
 	return filtered
+}
+
+// validateLevelLimitsConfig validates the level_limits section of config updates.
+// Keys must be numeric level identifiers and quota values must be non-negative numbers.
+func validateLevelLimitsConfig(cfg map[string]interface{}) error {
+	rawLimits, ok := cfg["level_limits"]
+	if !ok {
+		return nil
+	}
+	limits, ok := rawLimits.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("level_limits 格式无效")
+	}
+	numericFields := []string{"max_instances", "max_cpu", "max_memory", "max_disk"}
+	for levelKey, levelVal := range limits {
+		// Key must be a valid non-negative integer
+		levelNum, err := strconv.Atoi(levelKey)
+		if err != nil || levelNum < 0 {
+			return fmt.Errorf("level_limits 的键必须为非负整数，无效键: %s", levelKey)
+		}
+		levelMap, ok := levelVal.(map[string]interface{})
+		if !ok {
+			return fmt.Errorf("level_limits[%s] 格式无效", levelKey)
+		}
+		for _, field := range numericFields {
+			val, exists := levelMap[field]
+			if !exists {
+				continue
+			}
+			switch v := val.(type) {
+			case float64:
+				if v < 0 {
+					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
+				}
+			case int:
+				if v < 0 {
+					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
+				}
+			case int64:
+				if v < 0 {
+					return fmt.Errorf("level_limits[%s].%s 不能为负数", levelKey, field)
+				}
+			case string:
+				return fmt.Errorf("level_limits[%s].%s 必须为数字类型", levelKey, field)
+			default:
+				return fmt.Errorf("level_limits[%s].%s 类型无效", levelKey, field)
+			}
+		}
+	}
+	return nil
 }

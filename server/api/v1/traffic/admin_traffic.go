@@ -118,7 +118,7 @@ func (api *AdminTrafficAPI) GetUserTrafficStats(c *gin.Context) {
 		global.APP_LOG.Error("获取用户流量统计失败",
 			zap.Uint("userID", uint(userID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户流量统计失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

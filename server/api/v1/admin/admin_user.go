@@ -156,7 +156,7 @@ func DeleteUser(c *gin.Context) {
 	userService := user.NewService()
 	err = userService.DeleteUser(uint(userID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

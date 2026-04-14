@@ -21,7 +21,7 @@ func GetUserQuotaInfo(c *gin.Context) {
 	quotaService := resources.NewQuotaService()
 	quotaInfo, err := quotaService.GetUserQuotaInfo(uint(userID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

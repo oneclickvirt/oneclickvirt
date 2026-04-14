@@ -202,7 +202,7 @@ func QueryAlipayKYCResult(c *gin.Context) {
 	svc := &kycService.Service{}
 	passed, err := svc.QueryAlipayKYCResult(userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, gin.H{"passed": passed})
@@ -227,7 +227,7 @@ func GenerateCheckinCode(c *gin.Context) {
 	svc := &checkinService.Service{}
 	result, err := svc.GetCheckinChallenge(userID, uint(instanceID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, result)
@@ -249,7 +249,7 @@ func DoCheckin(c *gin.Context) {
 
 	svc := &checkinService.Service{}
 	if err := svc.DoCheckin(userID, req.InstanceID, &req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)

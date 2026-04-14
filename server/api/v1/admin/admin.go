@@ -186,7 +186,7 @@ func DeleteInstance(c *gin.Context) {
 			zap.Error(err),
 			zap.Uint64("instance_id", instanceID),
 			zap.String("admin_ip", c.ClientIP()))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -298,13 +298,7 @@ func AdminInstanceAction(c *gin.Context) {
 			zap.Uint64("instanceId", instanceID),
 			zap.String("action", req.Action),
 			zap.Error(err))
-
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "实例不存在"))
-			return
-		}
-
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "操作失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

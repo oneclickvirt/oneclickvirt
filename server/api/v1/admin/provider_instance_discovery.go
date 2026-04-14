@@ -172,7 +172,7 @@ func CheckInstanceSync(c *gin.Context) {
 		global.APP_LOG.Error("检查实例同步失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "检查实例同步失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

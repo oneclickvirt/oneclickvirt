@@ -38,7 +38,7 @@ func GetBlockRule(c *gin.Context) {
 	svc := &firewallService.Service{}
 	rule, err := svc.GetRule(uint(id))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取屏蔽规则失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, rule)
@@ -77,7 +77,7 @@ func UpdateBlockRule(c *gin.Context) {
 	rule, err := svc.UpdateRule(uint(id), &req)
 	if err != nil {
 		global.APP_LOG.Error("更新屏蔽规则失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新屏蔽规则失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, rule, "更新成功")
@@ -130,7 +130,7 @@ func ApplyBlockRules(c *gin.Context) {
 	apps, err := svc.ApplyRules(context.Background(), &req)
 	if err != nil {
 		global.APP_LOG.Error("应用屏蔽规则失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "应用屏蔽规则失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, apps, "规则应用中")

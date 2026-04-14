@@ -164,7 +164,7 @@ func FreezeProvider(c *gin.Context) {
 
 	providerService := adminProvider.NewService()
 	if err := providerService.FreezeProvider(req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -181,7 +181,7 @@ func UnfreezeProvider(c *gin.Context) {
 
 	providerService := adminProvider.NewService()
 	if err := providerService.UnfreezeProvider(req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -302,11 +302,14 @@ func CheckProviderHealth(c *gin.Context) {
 			errorMsg = "无法连接到服务器，请检查服务器状态和网络配置"
 		} else if strings.Contains(err.Error(), "handshake failed") {
 			errorMsg = "SSH握手失败，请检查认证信息和服务器配置"
+		} else if strings.Contains(err.Error(), "不存在") {
+			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
+			return
 		} else {
 			errorMsg = "健康检查失败: " + err.Error()
 		}
 
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, errorMsg))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, errorMsg))
 		return
 	}
 
@@ -340,6 +343,18 @@ func GetProviderStatus(c *gin.Context) {
 
 // ExportProviderConfigs 导出所有Provider配置
 func ExportProviderConfigs(c *gin.Context) {
+	var req struct {
+		ProviderIDs []uint `json:"provider_ids"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if len(req.ProviderIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "provider_ids 不能为空"))
+		return
+	}
+
 	configService := &provider.ProviderConfigService{}
 
 	exportDir := "exports"

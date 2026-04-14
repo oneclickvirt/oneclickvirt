@@ -216,7 +216,7 @@ func InstanceAction(c *gin.Context) {
 			zap.Uint("instanceID", req.InstanceID),
 			zap.String("action", req.Action),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

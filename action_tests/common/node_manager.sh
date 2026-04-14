@@ -255,3 +255,86 @@ cleanup_all_nodes() {
     local ids="$1"
     platform_cleanup_all "$ids"
 }
+
+# reset_master_server: stop the current server, wipe the DB, restart, and re-initialise.
+# Call between execution-rule iterations when EXECUTION_RULE=all.
+# Depends on: MASTER_SERVER_DIR, ADMIN_USER, ADMIN_PASS, MASTER_PORT  (all exported by run_env_test.sh)
+# and the helper functions init_system / admin_login / wait_init_ready / wait_db_ready
+# from test_framework.sh (already sourced before this file).
+reset_master_server() {
+    local port="${1:-${MASTER_PORT:-8888}}"
+    log_section "Resetting master server for execution-rule switch (port ${port})"
+
+    # 1. Kill existing server process
+    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
+        local old_pid; old_pid=$(cat /tmp/oneclickvirt-server.pid 2>/dev/null || true)
+        kill "${old_pid}" 2>/dev/null || true
+        rm -f /tmp/oneclickvirt-server.pid
+    fi
+    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+    sleep 2
+
+    # 2. Reset MySQL database
+    log_info "Resetting database (drop + recreate oneclickvirt)..."
+    if mysql -u root -h 127.0.0.1 \
+        -e "DROP DATABASE IF EXISTS oneclickvirt; CREATE DATABASE oneclickvirt CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>/dev/null; then
+        log_success "Database reset successful"
+    else
+        log_error "Database reset failed"
+        return 1
+    fi
+
+    # 3. Restart server binary from the already-compiled binary in /tmp
+    if [[ -z "${MASTER_SERVER_DIR:-}" || ! -d "${MASTER_SERVER_DIR}" ]]; then
+        log_error "MASTER_SERVER_DIR ('${MASTER_SERVER_DIR:-}') not set or missing; cannot restart"
+        return 1
+    fi
+    cd "${MASTER_SERVER_DIR}" || return 1
+    GIN_MODE=debug nohup /tmp/oneclickvirt-server >> /tmp/oneclickvirt-server.log 2>&1 &
+    local pid=$!
+    echo "${pid}" > /tmp/oneclickvirt-server.pid
+    cd - >/dev/null || true
+    log_info "Server restarted (PID ${pid})"
+
+    # 4. Wait for HTTP endpoint
+    local i
+    for i in $(seq 1 12); do
+        sleep 5
+        local sc
+        sc=$(curl -s -o /dev/null -w "%{http_code}" --max-time 3 "http://localhost:${port}/health" 2>/dev/null) || true
+        if [[ "${sc}" == "200" || "${sc}" == "503" ]]; then
+            log_success "Server responding after reset (HTTP ${sc})"
+            break
+        fi
+        [[ ${i} -eq 12 ]] && { log_error "Server restart timeout (60 s)"; return 1; }
+    done
+
+    # 5. Wait for init endpoint
+    if ! wait_init_ready "http://localhost:${port}" 120 5; then
+        log_error "Init endpoint not ready after reset"
+        return 1
+    fi
+
+    # 6. Re-initialise system
+    local init_check; init_check=$(curl -s --max-time 10 "http://localhost:${port}/api/v1/public/init/check" 2>/dev/null)
+    local need_init; need_init=$(echo "${init_check}" | jq -r '.data.needInit // true' 2>/dev/null)
+    if [[ "${need_init}" == "true" ]]; then
+        local init_resp; init_resp=$(init_system "http://localhost:${port}" "${ADMIN_USER}" "${ADMIN_PASS}")
+        local init_code; init_code=$(echo "${init_resp}" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "${init_code}" != "0" ]]; then
+            log_error "System re-initialisation failed (code=${init_code}): ${init_resp}"
+            return 1
+        fi
+        log_success "System re-initialised"
+        wait_db_ready "http://localhost:${port}" 120 3
+    fi
+
+    # 7. Re-login and refresh ADMIN_TOKEN
+    ADMIN_TOKEN=$(admin_login "http://localhost:${port}" "${ADMIN_USER}" "${ADMIN_PASS}")
+    if [[ -z "${ADMIN_TOKEN}" ]]; then
+        log_error "Admin re-login failed after reset"
+        return 1
+    fi
+    export ADMIN_TOKEN
+    log_success "Master server reset complete; ADMIN_TOKEN refreshed"
+}

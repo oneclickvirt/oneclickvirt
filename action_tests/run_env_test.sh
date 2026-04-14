@@ -207,13 +207,51 @@ log_section "Phase 8: Run test modules"
 export RESULTS_FILE="${REPORT_DIR}/${ENV_TYPE}-results.jsonl"
 export REPORT_DIR
 export GENERATE_MODULE_REPORT=false
-bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${REPORT_DIR}/${ENV_TYPE}-output.log"
-EXIT_CODE=${PIPESTATUS[0]}
+
+# Determine which execution rules to test.
+# If EXECUTION_RULE=all, cycle through api_only → ssh_only → auto, resetting
+# the server and re-registering state between each run.
+if [[ "${EXECUTION_RULE}" == "all" ]]; then
+    EXECUTION_RULES_LIST="api_only ssh_only auto"
+else
+    EXECUTION_RULES_LIST="${EXECUTION_RULE}"
+fi
+
+EXIT_CODE=0
+_first_rule=true
+for _current_rule in ${EXECUTION_RULES_LIST}; do
+    # Reset system before each subsequent run
+    if [[ "${_first_rule}" == "true" ]]; then
+        _first_rule=false
+    else
+        log_section "Resetting system for execution rule: ${_current_rule}"
+        reset_master_server "${MASTER_PORT}" || {
+            log_error "System reset failed before execution rule ${_current_rule}"
+            EXIT_CODE=1
+            break
+        }
+    fi
+
+    export EXECUTION_RULE="${_current_rule}"
+    log_section "Running modules with EXECUTION_RULE=${_current_rule}"
+
+    local_output_log="${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-output.log"
+    bash "${SCRIPT_DIR}/run_module.sh" "$MODULES" "$SERVER_URL" 2>&1 | tee "${local_output_log}"
+    _run_exit=${PIPESTATUS[0]}
+    [[ ${_run_exit} -ne 0 ]] && EXIT_CODE=${_run_exit}
+
+    # Produce per-rule HTML report
+    generate_html_report "${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-report.html" "${ENV_TYPE}-${_current_rule}" 2>/dev/null || true
+done
+# Also write the combined last-run output to the default log file for backward compat
+cp "${REPORT_DIR}/${ENV_TYPE}-${_current_rule}-output.log" "${REPORT_DIR}/${ENV_TYPE}-output.log" 2>/dev/null || true
 
 # =============================================================
 # Phase 9: Generate HTML report
 # =============================================================
 log_section "Phase 9: Generate reports"
+# The per-rule reports were generated inside the loop above.
+# Generate a final combined/summary report using the last run's state (always present).
 generate_html_report "${REPORT_DIR}/${ENV_TYPE}-report.html" "${ENV_TYPE}"
 
 # =============================================================

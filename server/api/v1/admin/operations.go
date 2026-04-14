@@ -44,7 +44,7 @@ func AdminDeleteDomain(c *gin.Context) {
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	svc := &domainService.Service{}
 	if err := svc.AdminDeleteDomain(uint(domainID), ownerAdminID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -208,7 +208,7 @@ func AdminLoginAsUser(c *gin.Context) {
 	svc := &operationService.OperationService{}
 	token, err := svc.LoginAsUser(authCtx.UserID, uint(userID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, gin.H{"token": token})

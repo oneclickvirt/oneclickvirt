@@ -1,6 +1,7 @@
 package provider
 
 import (
+	"fmt"
 	"strconv"
 
 	"oneclickvirt/global"
@@ -28,7 +29,10 @@ func (s *RequestProcessService) ProcessUserListRequest(c *gin.Context, req *admi
 	}
 
 	// 设置默认值
-	if req.Page <= 0 {
+	if req.Page < 0 {
+		return fmt.Errorf("页码不能为负数")
+	}
+	if req.Page == 0 {
 		req.Page = 1
 	}
 	if req.PageSize <= 0 {

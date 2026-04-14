@@ -49,7 +49,7 @@ func SaveHardwareReport(c *gin.Context) {
 	svc := adminProviderService.NewService()
 	report, err := svc.SaveHardwareReport(c.Request.Context(), uint(providerID), authCtx.UserID, req.PasteURL)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

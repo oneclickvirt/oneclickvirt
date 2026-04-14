@@ -159,7 +159,7 @@ func GetProviderCapabilities(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	capabilities, err := userServiceInstance.GetProviderCapabilities(userID, uint(id))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

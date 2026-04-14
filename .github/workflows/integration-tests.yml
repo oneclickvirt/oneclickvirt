@@ -60,13 +60,14 @@ on:
         type: boolean
         default: false
       execution_rule:
-        description: 'Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only)'
+        description: 'Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only, all=test all three sequentially with system reset between each)'
         required: false
         type: choice
         options:
           - auto
           - api_only
           - ssh_only
+          - all
         default: 'auto'
       full_system_test:
         description: 'Test all system images (default: only Alpine+Debian)'

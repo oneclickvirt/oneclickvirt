@@ -392,8 +392,8 @@ type UpdateCheckinConfigRequest struct {
 
 type DoCheckinRequest struct {
 	InstanceID uint   `json:"instanceId" binding:"required"`
-	Code       string `json:"code"`      // 内置验证码
-	Token      string `json:"token"`     // 第三方captcha token (turnstile/recaptcha/hcaptcha)
-	Challenge  string `json:"challenge"` // PoW challenge
-	Nonce      string `json:"nonce"`     // PoW nonce
+	Code       string `json:"code" binding:"omitempty,max=128"`      // 内置验证码
+	Token      string `json:"token" binding:"omitempty,max=512"`     // 第三方captcha token (turnstile/recaptcha/hcaptcha)
+	Challenge  string `json:"challenge" binding:"omitempty,max=128"` // PoW challenge
+	Nonce      string `json:"nonce" binding:"omitempty,max=64"`      // PoW nonce
 }

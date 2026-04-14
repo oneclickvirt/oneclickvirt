@@ -1,10 +1,13 @@
 package common
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
 )
 
 // 错误码定义
@@ -127,6 +130,28 @@ func NewError(code int, details ...string) *AppError {
 	}
 
 	return err
+}
+
+// ClassifyError maps a raw error to an AppError with an appropriate error code.
+// It detects gorm.ErrRecordNotFound and "not found" message patterns → CodeNotFound (404).
+// Already-wrapped AppErrors pass through unchanged.
+func ClassifyError(err error) *AppError {
+	if err == nil {
+		return nil
+	}
+	if appErr, ok := err.(*AppError); ok {
+		return appErr
+	}
+	if errors.Is(err, gorm.ErrRecordNotFound) {
+		return NewError(CodeNotFound)
+	}
+	msg := err.Error()
+	lower := strings.ToLower(msg)
+	if strings.Contains(msg, "不存在") || strings.Contains(msg, "找不到") ||
+		strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") {
+		return NewError(CodeNotFound, msg)
+	}
+	return NewError(CodeInternalError, msg)
 }
 
 // 统一响应函数

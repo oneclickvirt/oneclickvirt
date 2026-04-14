@@ -130,7 +130,7 @@ func UpdateAnnouncementItem(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err = systemService.UpdateAnnouncement(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
