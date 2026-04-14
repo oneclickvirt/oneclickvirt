@@ -173,9 +173,9 @@ jobs:
 
     - name: Prepare embedded frontend
       run: |
-        mkdir -p server/router/dist
-        cp -r web/dist/* server/router/dist/
-        ls -la server/router/dist/
+        mkdir -p server/service/router/dist
+        cp -r web/dist/* server/service/router/dist/
+        ls -la server/service/router/dist/
 
     - name: Build Go server binaries (All-in-one - with embedded frontend)
       working-directory: ./server
