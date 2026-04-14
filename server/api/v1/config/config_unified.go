@@ -164,25 +164,12 @@ func UpdateUnifiedConfig(c *gin.Context) {
 
 // getPublicConfig 获取公开配置
 func getPublicConfig(cm *config.ConfigManager) map[string]interface{} {
-	allConfig := cm.GetAllConfig()
-	publicConfig := make(map[string]interface{})
-
-	// 只返回公开的配置项
-	publicKeys := []string{
-		"app.name",
-		"app.version",
-		"app.description",
-		"auth.enablePublicRegistration",
-	}
-
-	for _, key := range publicKeys {
-		if value, exists := allConfig[key]; exists {
-			publicConfig[key] = value
-		}
-	}
-
-	// 将扁平化配置转换为嵌套结构
-	return unflattenConfig(publicConfig)
+	// 直接从全局配置构建，不依赖扁平化的configCache
+	result := make(map[string]interface{})
+	result["captchaEnabled"] = global.GetAppConfig().Captcha.Enabled
+	result["oauth2Enabled"] = global.GetAppConfig().Auth.EnableOAuth2
+	result["registrationEnabled"] = global.GetAppConfig().Auth.EnablePublicRegistration
+	return result
 }
 
 // getUserConfig 获取用户配置（使用服务端权限验证）
@@ -284,6 +271,11 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 		"defaultLanguage": global.GetAppConfig().Other.DefaultLanguage,
 		"logoURL":         global.GetAppConfig().Other.LogoURL,
 		"siteName":        global.GetAppConfig().Other.SiteName,
+	}
+
+	// 验证码配置
+	result["captcha"] = map[string]interface{}{
+		"enabled": global.GetAppConfig().Captcha.Enabled,
 	}
 
 	// KYC实名认证配置

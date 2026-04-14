@@ -51,7 +51,7 @@ run_module_23() {
     fi
 
     # ---- Import with empty list ----
-    test_api "Import empty names" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400" \
+    test_api "Import empty names" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "400" \
         '{"instanceUuids":[]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Import nonexistent instance UUID ----

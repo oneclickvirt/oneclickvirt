@@ -380,9 +380,9 @@ func (s *Service) GetCheckinRecords(userID uint, page, pageSize int) ([]checkinM
 
 type UpdateCheckinConfigRequest struct {
 	Enabled           bool   `json:"enabled"`
-	DefaultExpireDays int    `json:"defaultExpireDays"`
-	RenewalDays       int    `json:"renewalDays"`
-	MaxExpireDays     int    `json:"maxExpireDays"`
+	DefaultExpireDays int    `json:"defaultExpireDays" binding:"omitempty,min=0"`
+	RenewalDays       int    `json:"renewalDays" binding:"omitempty,min=0"`
+	MaxExpireDays     int    `json:"maxExpireDays" binding:"omitempty,min=0"`
 	OverdueAction     string `json:"overdueAction" binding:"omitempty,oneof=stop delete"`
 	CheckinMethod     string `json:"checkinMethod" binding:"omitempty,oneof=captcha turnstile recaptcha hcaptcha pow"`
 	CaptchaSiteKey    string `json:"captchaSiteKey"`

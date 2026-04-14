@@ -253,6 +253,12 @@ func UpdateProfile(c *gin.Context) {
 		return
 	}
 
+	// XSS validation
+	if utils.ContainsHTMLTags(req.Nickname) || utils.ContainsHTMLTags(req.Email) || utils.ContainsHTMLTags(req.Phone) || utils.ContainsHTMLTags(req.Telegram) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "输入包含不允许的HTML标签"))
+		return
+	}
+
 	userServiceInstance := userService.NewService()
 	err = userServiceInstance.UpdateProfile(userID, req)
 	if err != nil {

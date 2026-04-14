@@ -45,6 +45,8 @@ export default {
   domainFeatureHint: "启用后，用户可以看到并使用域名绑定功能",
   checkinFeature: "签到续期",
   checkinFeatureHint: "启用后，用户可以使用签到续期功能（默认关闭）",
+  captchaFeature: "验证码",
+  captchaFeatureHint: "启用后，登录和注册页面将显示图片验证码（默认关闭）",
   emailConfig: "邮箱配置",
   smtpConfigDesc: "SMTP邮件服务器配置",
   smtpConfigHint: "用于发送验证邮件、密码重置邮件等系统邮件",

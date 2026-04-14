@@ -245,6 +245,6 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 // Request types
 
 type SubmitKYCRequest struct {
-	RealName string `json:"realName" binding:"required"`
-	IDNumber string `json:"idNumber" binding:"required"`
+	RealName string `json:"realName" binding:"required,max=100"`
+	IDNumber string `json:"idNumber" binding:"required,max=50"`
 }

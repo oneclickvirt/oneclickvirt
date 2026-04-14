@@ -72,15 +72,15 @@ run_module_08() {
         '{"name":"Ghost Image"}' "$group"
 
     # -- Negative: Create with negative resource values --
-    test_api "Create image (negative memory)" "POST" "/api/v1/admin/system-images" "400|200" \
+    test_api "Create image (negative memory)" "POST" "/api/v1/admin/system-images" "400" \
         '{"name":"neg-test","providerType":"docker","instanceType":"container","architecture":"amd64","url":"https://example.com/neg.tar.gz","minMemoryMB":-1,"minDiskMB":-1}' "$group"
 
     # -- Negative: Batch status with empty ids --
-    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/system-images/batch-status" "400|200" \
+    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/system-images/batch-status" "400" \
         '{"ids":[],"status":"active"}' "$group"
 
     # -- Negative: Batch delete empty --
-    test_api "Batch delete (empty)" "POST" "/api/v1/admin/system-images/batch-delete" "400|200" \
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/system-images/batch-delete" "400" \
         '{"ids":[]}' "$group"
 
     # -- Negative: User cannot manage images --

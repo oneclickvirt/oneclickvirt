@@ -78,7 +78,7 @@ run_module_22() {
 
     # ---- Negative: Update checkin config invalid values ----
     if [[ -n "$PROVIDER_ID" ]]; then
-        test_api "Checkin config (negative days)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "200|400" \
+        test_api "Checkin config (negative days)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/checkin-config" "400" \
             '{"enabled":true,"defaultExpireDays":-1,"renewalDays":-1}' "$group" "$ADMIN_TOKEN"
     fi
 

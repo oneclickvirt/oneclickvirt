@@ -9,6 +9,7 @@ import (
 	checkinService "oneclickvirt/service/checkin"
 	domainService "oneclickvirt/service/domain"
 	kycService "oneclickvirt/service/kyc"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -144,6 +145,12 @@ func SubmitUserKYC(c *gin.Context) {
 	var req kycService.SubmitKYCRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	// XSS validation
+	if utils.ContainsHTMLTags(req.RealName) || utils.ContainsHTMLTags(req.IDNumber) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "输入包含不允许的HTML标签"))
 		return
 	}
 

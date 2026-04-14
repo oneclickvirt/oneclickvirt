@@ -3,6 +3,7 @@ package utils
 import (
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -94,6 +95,14 @@ func SanitizeUserInput(input string) string {
 	input = strings.ReplaceAll(input, "\t", "\\t")
 
 	return TruncateString(input, MaxStringLength)
+}
+
+// htmlTagPattern matches HTML tags like <script>, <img ...>, </div>, etc.
+var htmlTagPattern = regexp.MustCompile(`<[a-zA-Z/][^>]*>`)
+
+// ContainsHTMLTags checks if a string contains HTML tags (XSS indicator)
+func ContainsHTMLTags(s string) bool {
+	return htmlTagPattern.MatchString(s)
 }
 
 // FormatError 格式化错误信息，避免过长的堆栈信息

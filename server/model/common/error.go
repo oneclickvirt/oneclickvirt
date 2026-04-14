@@ -142,11 +142,10 @@ func ResponseWithError(c *gin.Context, err error) {
 		})
 	} else {
 		msg := ErrorMessages[CodeInternalError]
-		c.JSON(http.StatusBadRequest, gin.H{
+		c.JSON(http.StatusInternalServerError, gin.H{
 			"code":    CodeInternalError,
 			"msg":     msg,
 			"message": msg,
-			"details": err.Error(),
 			"data":    nil,
 		})
 	}
@@ -202,7 +201,7 @@ func getHTTPCode(code int) int {
 	case CodeError:
 		return http.StatusBadRequest
 	case CodeInternalError:
-		return http.StatusBadRequest
+		return http.StatusInternalServerError
 	case CodeDatabaseError:
 		return http.StatusServiceUnavailable
 	case CodeConfigError:

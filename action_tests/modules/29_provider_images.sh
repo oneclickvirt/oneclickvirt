@@ -1,0 +1,146 @@
+#!/bin/bash
+# Module 29: Provider Image Individual Testing
+# Dependencies: 01_init (ADMIN_TOKEN), 09_providers (PROVIDER_ID)
+# Tests each available provider image: create instance → verify running → delete → verify deleted
+
+run_module_29() {
+    report_add_section "29 - Provider Image Testing"
+    local group="provider_images"
+
+    if [[ -z "$PROVIDER_ID" ]]; then
+        chain_break "$group" "No provider, skipping image tests"
+        return 1
+    fi
+
+    # -- Fetch available images for this provider --
+    local images_resp; images_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/providers/${PROVIDER_ID}/images" 2>/dev/null) || true
+    local images_json; images_json=$(echo "$images_resp" | jq -c '.data // []' 2>/dev/null)
+    local image_count; image_count=$(echo "$images_json" | jq 'length' 2>/dev/null)
+
+    if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
+        log_warning "No images available for provider ${PROVIDER_ID}, testing with default images"
+        # Try system images as fallback
+        images_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=100&status=active" 2>/dev/null) || true
+        images_json=$(echo "$images_resp" | jq -c '[.data.list[]? | select(.providerType=="'"${ENV_TYPE}"'")]' 2>/dev/null)
+        image_count=$(echo "$images_json" | jq 'length' 2>/dev/null)
+
+        if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
+            log_warning "No images found for provider type ${ENV_TYPE}"
+            chain_break "$group" "No images available for testing"
+            return 1
+        fi
+    fi
+
+    log_info "Found ${image_count} images to test"
+
+    # -- Test each image --
+    local tested=0 passed=0 failed=0
+
+    for idx in $(seq 0 $((image_count - 1))); do
+        local img_entry; img_entry=$(echo "$images_json" | jq -c ".[$idx]" 2>/dev/null)
+        # Try different field names for image identifier
+        local img_name; img_name=$(echo "$img_entry" | jq -r '.image // .name // .url // empty' 2>/dev/null)
+        local img_type; img_type=$(echo "$img_entry" | jq -r '.instanceType // .instance_type // "container"' 2>/dev/null)
+
+        if [[ -z "$img_name" ]]; then
+            log_warning "Skipping image at index ${idx}: no name/identifier"
+            continue
+        fi
+
+        # Skip images not matching current instance type config
+        if ! should_test_type "$img_type"; then
+            log_debug "Skipping ${img_type} image: ${img_name} (not testing ${img_type})"
+            continue
+        fi
+
+        # Skip images not matching TEST_IMAGES filter (default: alpine,debian)
+        if ! should_test_image "$img_name"; then
+            log_debug "Skipping image: ${img_name} (not in TEST_IMAGES=${TEST_IMAGES})"
+            continue
+        fi
+
+        tested=$((tested + 1))
+        local test_label="Image: ${img_name} (${img_type})"
+        log_info "Testing: ${test_label}"
+
+        # -- Create instance with this image --
+        local inst_data
+        if [[ "$img_type" == "vm" ]]; then
+            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"vm\",\"image\":\"${img_name}\",\"cpu\":1,\"memory\":512,\"disk\":10,\"network_type\":\"nat_ipv4\"}"
+        else
+            inst_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"${img_name}\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
+        fi
+
+        local create_resp; create_resp=$(test_api "Create ${test_label}" "POST" "/api/v1/admin/instances" "200" \
+            "$inst_data" "$group")
+
+        local inst_id; inst_id=$(echo "$create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        local task_id; task_id=$(echo "$create_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+
+        # Handle async task-based creation
+        if [[ -n "$task_id" ]]; then
+            log_info "Waiting for creation task: ${task_id}"
+            local task_result; task_result=$(wait_task_complete "$SERVER_URL" "$task_id" "$ADMIN_TOKEN" 300 10) || true
+            if [[ -z "$inst_id" ]]; then
+                inst_id=$(echo "$task_result" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            fi
+        fi
+
+        if [[ -z "$inst_id" ]]; then
+            log_error "Failed to create instance for image: ${img_name}"
+            _record_result "Create ${test_label}" "POST" "/api/v1/admin/instances" "FAIL" "200" "" "No instance ID in response" "$group"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        log_info "Created instance ${inst_id} with image ${img_name}"
+
+        # -- Verify instance exists and has expected state --
+        local verify_resp; verify_resp=$(test_api "Verify ${test_label}" "GET" \
+            "/api/v1/admin/instances/${inst_id}" "200" "" "$group")
+        local inst_status; inst_status=$(echo "$verify_resp" | jq -r '.data.status // empty' 2>/dev/null)
+        local inst_image; inst_image=$(echo "$verify_resp" | jq -r '.data.image // empty' 2>/dev/null)
+
+        if [[ -n "$inst_status" ]]; then
+            log_info "Instance ${inst_id} status: ${inst_status}, image: ${inst_image}"
+        fi
+
+        # -- Delete instance --
+        log_info "Deleting instance ${inst_id}..."
+        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 60; then
+            log_success "Deleted instance ${inst_id} (image: ${img_name})"
+            _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
+        else
+            log_error "Failed to delete instance ${inst_id} (image: ${img_name})"
+            _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "FAIL" "200" "" "Deletion failed" "$group"
+            failed=$((failed + 1))
+            continue
+        fi
+
+        # -- Verify deleted --
+        local del_verify; del_verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
+        local del_code; del_code=$(echo "$del_verify" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "$del_code" != "0" ]]; then
+            log_success "Verified instance ${inst_id} deleted (image: ${img_name})"
+            _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "PASS" "404" "$del_code" "" "$group"
+            passed=$((passed + 1))
+        else
+            log_error "Instance ${inst_id} still exists after deletion (image: ${img_name})"
+            _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "FAIL" "404" "200" "Instance still exists" "$group"
+            failed=$((failed + 1))
+            # Force cleanup to prevent disk full
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 30 2>/dev/null || true
+        fi
+    done
+
+    log_section "Image test summary: tested=${tested} passed=${passed} failed=${failed}"
+
+    if [[ $tested -eq 0 ]]; then
+        log_warning "No images were tested (check INSTANCE_TYPES and provider type compatibility)"
+    fi
+
+    [[ $failed -eq 0 ]]
+}

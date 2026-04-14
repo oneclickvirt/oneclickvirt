@@ -63,6 +63,23 @@ func UpdateMonitoringConfig(c *gin.Context) {
 		return
 	}
 
+	// Validate monitoring mode
+	validModes := map[string]bool{"agent": true, "passive": true, "": true}
+	if !validModes[req.MonitoringMode] {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的监控模式"))
+		return
+	}
+
+	// Reject non-positive intervals and negative port
+	if req.CollectInterval < 0 || req.ResourceCollectInterval < 0 || req.AgentPort < 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "配置值不能为负数"))
+		return
+	}
+	if req.CollectInterval == 0 && req.ResourceCollectInterval == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "采集间隔不能为零"))
+		return
+	}
+
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))

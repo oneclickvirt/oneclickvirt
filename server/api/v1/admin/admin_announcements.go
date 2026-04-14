@@ -4,6 +4,7 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	adminSystem "oneclickvirt/service/admin/system"
+	"oneclickvirt/utils"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -70,6 +71,12 @@ func CreateAnnouncement(c *gin.Context) {
 	var req admin.CreateAnnouncementRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	// XSS validation
+	if utils.ContainsHTMLTags(req.Title) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "标题包含不允许的HTML标签"))
 		return
 	}
 

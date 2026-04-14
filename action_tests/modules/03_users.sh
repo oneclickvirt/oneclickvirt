@@ -148,7 +148,7 @@ run_module_03() {
         '{"userIds":[],"level":1}' "$group"
     test_api "Batch status (empty)" "PUT" "/api/v1/admin/users/batch-status" "400" \
         '{"userIds":[],"status":1}' "$group"
-    test_api "Batch delete (empty)" "POST" "/api/v1/admin/users/batch-delete" "400|200" \
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/users/batch-delete" "400" \
         '{"userIds":[]}' "$group"
 
     # -- Negative: User cannot access admin user management --

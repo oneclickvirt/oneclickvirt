@@ -16,13 +16,13 @@ run_module_25() {
         '{"username":"admin'\'' OR 1=1 --","password":"test"}' "$group" ""
     test_api "SQL injection register" "POST" "/api/v1/auth/register" "400|403" \
         '{"username":"test; DROP TABLE users;--","password":"Test123!@#"}' "$group" ""
-    test_api "SQL injection provider name" "GET" "/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--" "200|400" \
+    test_api "SQL injection provider name" "GET" "/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--" "400" \
         "" "$group" "$ADMIN_TOKEN"
 
     # ---- XSS attempts (may return 403 if registration disabled) ----
     test_api "XSS in username" "POST" "/api/v1/auth/register" "400|403" \
         '{"username":"<script>alert(1)</script>","password":"Test123!@#"}' "$group" ""
-    test_api "XSS in announcement" "POST" "/api/v1/admin/announcements" "200|400" \
+    test_api "XSS in announcement" "POST" "/api/v1/admin/announcements" "400" \
         '{"title":"<img onerror=alert(1) src=x>","content":"test","type":"notice","status":"active"}' \
         "$group" "$ADMIN_TOKEN"
 
@@ -62,7 +62,7 @@ run_module_25() {
 
     # ---- Pagination boundaries ----
     test_api "Page 0" "GET" "/api/v1/admin/users?page=0&pageSize=10" "200|400" "" "$group" "$ADMIN_TOKEN"
-    test_api "Negative page" "GET" "/api/v1/admin/users?page=-1&pageSize=10" "200|400" "" "$group" "$ADMIN_TOKEN"
+    test_api "Negative page" "GET" "/api/v1/admin/users?page=-1&pageSize=10" "400" "" "$group" "$ADMIN_TOKEN"
     test_api "Huge pageSize" "GET" "/api/v1/admin/users?page=1&pageSize=999999" "200|400" "" "$group" "$ADMIN_TOKEN"
     test_api "Page very large" "GET" "/api/v1/admin/users?page=999999&pageSize=10" "200" "" "$group" "$ADMIN_TOKEN"
 

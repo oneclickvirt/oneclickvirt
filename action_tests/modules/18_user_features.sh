@@ -80,21 +80,21 @@ run_module_18() {
         test_api "User2 cannot see user1 instance" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "403|404" "" "$group" "$USER_TOKEN2"
     fi
 
-    # ---- Unauthenticated access blocked (may return 200 if middleware doesn't enforce) ----
-    test_api "No token -> profile (401)" "GET" "/api/v1/user/profile" "200|401" "" "$group" ""
-    test_api "No token -> instances (401)" "GET" "/api/v1/user/instances" "200|401" "" "$group" ""
+    # ---- Unauthenticated access must be blocked ----
+    test_api "No token -> profile (401)" "GET" "/api/v1/user/profile" "401" "" "$group" ""
+    test_api "No token -> instances (401)" "GET" "/api/v1/user/instances" "401" "" "$group" ""
 
     # ---- Claim resource (invalid) ----
     test_api "Claim resource invalid" "POST" "/api/v1/user/resources/claim" "400" \
         '{}' "$group" "$USER_TOKEN"
 
     # ---- Negative: User profile update with XSS ----
-    test_api "Profile XSS nickname" "PUT" "/api/v1/user/profile" "200|400" \
+    test_api "Profile XSS nickname" "PUT" "/api/v1/user/profile" "400" \
         '{"nickname":"<script>alert(1)</script>"}' "$group" "$USER_TOKEN"
 
     # ---- Negative: User profile update with long nickname ----
     local long_nick; long_nick=$(printf 'N%.0s' {1..300})
-    test_api "Profile long nickname" "PUT" "/api/v1/user/profile" "400|200" \
+    test_api "Profile long nickname" "PUT" "/api/v1/user/profile" "400" \
         "{\"nickname\":\"${long_nick}\"}" "$group" "$USER_TOKEN"
 
     # ---- Negative: User get nonexistent instance ----

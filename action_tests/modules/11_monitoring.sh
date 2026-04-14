@@ -51,7 +51,7 @@ run_module_11() {
     test_api "Deploy agent (nonexistent)" "POST" "/api/v1/admin/providers/99999/monitoring/agent" "400|404" '{}' "$group"
 
     # -- Negative: invalid monitoring config --
-    test_api "Update monitoring config (invalid interval)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "200|400" \
+    test_api "Update monitoring config (invalid interval)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "400" \
         '{"monitoring_mode":"invalid_mode","collect_interval":-1}' "$group"
 
     # -- Negative: User cannot manage monitoring --
@@ -67,6 +67,6 @@ run_module_11() {
     test_api "Clear (nonexistent provider)" "DELETE" "/api/v1/admin/providers/99999/monitoring/clear" "400|404" "" "$group"
 
     # -- Negative: Update config with extreme values --
-    test_api "Config (extreme interval)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "200|400" \
+    test_api "Config (extreme interval)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "400" \
         '{"collect_interval":0,"resource_collect_interval":0}' "$group"
 }

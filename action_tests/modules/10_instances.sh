@@ -219,6 +219,32 @@ run_module_10() {
     test_api "Create instance (missing image)" "POST" "/api/v1/admin/instances" "400" \
         "{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"cpu\":1,\"memory\":256}" "$group"
 
+    # -- Negative: Create with negative resources --
+    test_api "Create instance (negative cpu)" "POST" "/api/v1/admin/instances" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":-1,\"memory\":256,\"disk\":5}" "$group"
+    test_api "Create instance (negative memory)" "POST" "/api/v1/admin/instances" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":-256,\"disk\":5}" "$group"
+    test_api "Create instance (zero disk)" "POST" "/api/v1/admin/instances" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":0}" "$group"
+
+    # -- Negative: Create with invalid instance_type --
+    test_api "Create instance (bad type)" "POST" "/api/v1/admin/instances" "400" \
+        "{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"invalid_type\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5}" "$group"
+
+    # -- Negative: Instance action with missing instanceId --
+    test_api "Instance action (no id)" "POST" "/api/v1/admin/instances/action" "400|404" \
+        '{"action":"stop"}' "$group"
+
+    # -- Negative: Instance action on nonexistent instance --
+    test_api "Action nonexistent instance" "POST" "/api/v1/admin/instances/99999/action" "400|404" \
+        '{"action":"stop"}' "$group"
+
+    # -- Negative: User creates instance without permission (if provider restricted) --
+    if [[ -n "$USER_TOKEN" ]]; then
+        test_api "User instance list" "GET" "/api/v1/user/instances?page=1&pageSize=10" "200" "" "$group" "$USER_TOKEN"
+        test_api "User task list" "GET" "/api/v1/user/tasks?page=1&pageSize=10" "200" "" "$group" "$USER_TOKEN"
+    fi
+
     # -- Task management --
     test_api "Admin task list" "GET" "/api/v1/admin/tasks?page=1&pageSize=10" "200" "" "$group"
     test_api "Task stats" "GET" "/api/v1/admin/tasks/stats" "200" "" "$group"

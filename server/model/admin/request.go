@@ -471,7 +471,7 @@ type CreatePortMappingRequest struct {
 
 // BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）
 type BatchDeletePortMappingRequest struct {
-	IDs []uint `json:"ids" binding:"required"`
+	IDs []uint `json:"ids" binding:"required,min=1"`
 }
 
 // ProviderPortConfigRequest Provider端口配置请求

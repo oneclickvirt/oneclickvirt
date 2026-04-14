@@ -54,27 +54,27 @@ run_module_07() {
         '{"name":"CI Test Group","description":"Integration test group"}' "$group"
 
     # -- Negative: Update config with invalid level limits (non-numeric) --
-    test_api "Update config (invalid level limit type)" "PUT" "/api/v1/admin/config" "400|200" \
+    test_api "Update config (invalid level limit type)" "PUT" "/api/v1/admin/config" "400" \
         '{"level_limits":{"invalid_key":{"max_instances":"not_a_number"}}}' "$group"
 
     # -- Negative: Update config with empty body --
     test_api "Update config (empty body)" "PUT" "/api/v1/admin/config" "400|200" '{}' "$group"
 
-    # -- Negative: Access admin config without token --
-    test_api_noauth "Admin config without token" "GET" "/api/v1/admin/config" "200|401" "" "$group"
+    # -- Negative: Access admin config without token (must return 401) --
+    test_api_noauth "Admin config without token" "GET" "/api/v1/admin/config" "401" "" "$group"
 
-    # -- Negative: Access admin dashboard without token --
-    test_api_noauth "Dashboard without token" "GET" "/api/v1/admin/dashboard" "200|401" "" "$group"
+    # -- Negative: Access admin dashboard without token (must return 401) --
+    test_api_noauth "Dashboard without token" "GET" "/api/v1/admin/dashboard" "401" "" "$group"
 
-    # -- Negative: Update config with SQL injection --
-    test_api "Config (SQL injection)" "PUT" "/api/v1/admin/config" "200|400" \
+    # -- Negative: Update config with SQL injection (GORM parameterized, not exploitable, accepts as plain text) --
+    test_api "Config (SQL injection)" "PUT" "/api/v1/admin/config" "200" \
         '{"site_name":"test\"; DROP TABLE users;--"}' "$group"
 
-    # -- Negative: Access performance metrics without token --
-    test_api_noauth "Metrics without token" "GET" "/api/v1/admin/performance/metrics" "200|401" "" "$group"
+    # -- Negative: Access performance metrics without token (must return 401) --
+    test_api_noauth "Metrics without token" "GET" "/api/v1/admin/performance/metrics" "401" "" "$group"
 
-    # -- Negative: Access audit logs without token --
-    test_api_noauth "Audit logs without token" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "200|401" "" "$group"
+    # -- Negative: Access audit logs without token (must return 401) --
+    test_api_noauth "Audit logs without token" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "401" "" "$group"
 
     # -- Negative: User cannot manage system config --
     if [[ -n "$USER_TOKEN" ]]; then
@@ -87,7 +87,7 @@ run_module_07() {
     # -- Negative: Update level limits with boundary values --
     test_api "Level limits (zero values)" "PUT" "/api/v1/admin/config" "200|400" \
         '{"level_limits":{"1":{"max_instances":0,"max_cpu":0,"max_memory":0,"max_disk":0}}}' "$group"
-    test_api "Level limits (negative values)" "PUT" "/api/v1/admin/config" "200|400" \
+    test_api "Level limits (negative values)" "PUT" "/api/v1/admin/config" "400" \
         '{"level_limits":{"1":{"max_instances":-1,"max_cpu":-1}}}' "$group"
 
     # -- Negative: Invalid pagination --

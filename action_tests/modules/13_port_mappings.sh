@@ -68,7 +68,7 @@ run_module_13() {
         "{\"instanceId\":${inst_for_pm},\"guestPort\":-1,\"protocol\":\"tcp\",\"hostPort\":-1}" "$group"
 
     # -- Negative: Check port with invalid protocol --
-    test_api "Check port (invalid proto)" "POST" "/api/v1/admin/ports/check" "200|400" \
+    test_api "Check port (invalid proto)" "POST" "/api/v1/admin/ports/check" "400" \
         "{\"providerId\":${PROVIDER_ID},\"hostPort\":25000,\"portCount\":1,\"protocol\":\"invalid\"}" "$group"
 
     # -- Negative: Sync with nonexistent provider --
@@ -76,7 +76,7 @@ run_module_13() {
         '{"providerIds":[99999]}' "$group"
 
     # -- Negative: Batch delete empty --
-    test_api "Batch delete (empty)" "POST" "/api/v1/admin/port-mappings/batch-delete" "400|200" \
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/port-mappings/batch-delete" "400" \
         '{"ids":[]}' "$group"
 
     # -- Negative: Create for nonexistent instance --

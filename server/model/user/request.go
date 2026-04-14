@@ -34,7 +34,7 @@ type AvailableResourcesRequest struct {
 }
 
 type UpdateProfileRequest struct {
-	Nickname string `json:"nickname"`
+	Nickname string `json:"nickname" binding:"omitempty,max=50"`
 	Email    string `json:"email"`
 	Phone    string `json:"phone"`
 	Telegram string `json:"telegram"`

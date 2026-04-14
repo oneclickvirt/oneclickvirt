@@ -2,14 +2,14 @@ package auth
 
 // LoginRequest 登录请求
 type LoginRequest struct {
-	Username   string `json:"username" example:"admin"`    // 用户名登录时必填
-	Password   string `json:"password" example:"password"` // 密码登录时必填
-	Captcha    string `json:"captcha,omitempty"`           // 图形验证码
-	CaptchaId  string `json:"captchaId,omitempty"`         // 图形验证码ID
-	LoginType  string `json:"loginType,omitempty"`         // 登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)
-	UserType   string `json:"userType,omitempty"`          // 用户类型: admin, user
-	Target     string `json:"target,omitempty"`            // 验证码登录时的目标: 邮箱地址/TG用户名/QQ号
-	VerifyCode string `json:"verifyCode,omitempty"`        // 验证码登录时的验证码
+	Username   string `json:"username" binding:"required" example:"admin"`                    // 用户名登录时必填
+	Password   string `json:"password" binding:"required" example:"password"`                 // 密码登录时必填
+	Captcha    string `json:"captcha,omitempty"`                                              // 图形验证码
+	CaptchaId  string `json:"captchaId,omitempty"`                                            // 图形验证码ID
+	LoginType  string `json:"loginType" binding:"omitempty,oneof=username email telegram qq"` // 登录类型
+	UserType   string `json:"userType" binding:"omitempty,oneof=admin user"`                  // 用户类型
+	Target     string `json:"target,omitempty"`                                               // 验证码登录时的目标
+	VerifyCode string `json:"verifyCode,omitempty"`                                           // 验证码登录时的验证码
 }
 
 // SendVerifyCodeRequest 发送验证码请求

@@ -426,7 +426,8 @@ _network_test_cleanup() {
             kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
             rm -f /tmp/oneclickvirt-server.pid
         fi
-        pkill -f 'server/oneclickvirt$' 2>/dev/null || true
+        pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+        rm -f /tmp/oneclickvirt-server
     fi
     # Delete worker node if we created it
     if [[ -n "$CREATED_IDS" ]]; then

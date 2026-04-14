@@ -89,7 +89,7 @@ run_module_14() {
         '{"name":"Ghost Rule"}' "$group"
 
     # -- Negative: Apply with empty rule ids --
-    test_api "Apply empty rules" "POST" "/api/v1/admin/block-rules/apply" "400|200" \
+    test_api "Apply empty rules" "POST" "/api/v1/admin/block-rules/apply" "400" \
         '{"rule_ids":[],"scope":"global"}' "$group"
 
     # -- Negative: Apply with invalid scope --
@@ -101,7 +101,7 @@ run_module_14() {
         '{"rule_ids":[99999],"scope":"provider","target_ids":[99999]}' "$group"
 
     # -- Negative: Remove with empty application ids --
-    test_api "Remove empty apps" "POST" "/api/v1/admin/block-rules/remove" "400|200" \
+    test_api "Remove empty apps" "POST" "/api/v1/admin/block-rules/remove" "400" \
         '{"application_ids":[]}' "$group"
 
     # -- Negative: User cannot manage block rules --

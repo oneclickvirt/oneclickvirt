@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"net/url"
 	"oneclickvirt/model/common"
 	"regexp"
 
@@ -39,6 +40,11 @@ var xssPatterns = []*regexp.Regexp{
 func InputValidator() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		target := c.Request.URL.RawQuery + c.Request.URL.Path
+		// Also check URL-decoded version to catch encoded injection attempts
+		decoded, err := url.QueryUnescape(target)
+		if err == nil && decoded != target {
+			target = target + decoded
+		}
 
 		if containsSQLInjection(target) {
 			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "检测到潜在的SQL注入攻击"))

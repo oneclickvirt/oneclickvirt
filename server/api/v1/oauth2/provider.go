@@ -4,6 +4,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	oauth2Service "oneclickvirt/service/oauth2"
+	"oneclickvirt/utils"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
@@ -79,7 +80,11 @@ func GetEnabledProviders(c *gin.Context) {
 // @Success 200 {object} common.Response{data=oauth2.OAuth2Provider}
 // @Router /oauth2/providers/{id} [get]
 func GetProvider(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的提供商ID"))
+		return
+	}
 
 	providerService := oauth2Service.ProviderService{}
 	provider, err := providerService.GetProvider(uint(id))
@@ -112,6 +117,12 @@ func CreateProvider(c *gin.Context) {
 	var req oauth2Service.CreateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+
+	// XSS validation
+	if utils.ContainsHTMLTags(req.Name) || utils.ContainsHTMLTags(req.DisplayName) {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "输入包含不允许的HTML标签"))
 		return
 	}
 
@@ -159,7 +170,11 @@ func CreateProvider(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /oauth2/providers/{id} [put]
 func UpdateProvider(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的提供商ID"))
+		return
+	}
 
 	var req oauth2Service.UpdateProviderRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -192,7 +207,11 @@ func UpdateProvider(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /oauth2/providers/{id} [delete]
 func DeleteProvider(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的提供商ID"))
+		return
+	}
 
 	providerService := oauth2Service.ProviderService{}
 	if err := providerService.DeleteProvider(uint(id)); err != nil {
@@ -219,7 +238,11 @@ func DeleteProvider(c *gin.Context) {
 // @Success 200 {object} common.Response
 // @Router /oauth2/providers/{id}/reset-count [post]
 func ResetRegistrationCount(c *gin.Context) {
-	id, _ := strconv.ParseUint(c.Param("id"), 10, 32)
+	id, err := strconv.ParseUint(c.Param("id"), 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的提供商ID"))
+		return
+	}
 
 	providerService := oauth2Service.ProviderService{}
 	if err := providerService.ResetRegistrationCount(uint(id)); err != nil {

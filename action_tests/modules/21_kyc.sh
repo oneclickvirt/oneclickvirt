@@ -68,14 +68,14 @@ run_module_21() {
 
     # ---- Negative: Submit KYC with XSS in fields ----
     if [[ -n "$USER_TOKEN2" ]]; then
-        test_api "KYC XSS realName" "POST" "/api/v1/user/kyc" "200|400" \
+        test_api "KYC XSS realName" "POST" "/api/v1/user/kyc" "400" \
             '{"realName":"<script>alert(1)</script>","idNumber":"110101199001012345"}' "$group" "$USER_TOKEN2"
     fi
 
     # ---- Negative: Submit KYC with overly long fields ----
     local long_name; long_name=$(printf 'X%.0s' {1..300})
     if [[ -n "$USER_TOKEN2" ]]; then
-        test_api "KYC long realName" "POST" "/api/v1/user/kyc" "400|200" \
+        test_api "KYC long realName" "POST" "/api/v1/user/kyc" "400" \
             "{\"realName\":\"${long_name}\",\"idNumber\":\"110101199001013456\"}" "$group" "$USER_TOKEN2"
     fi
 

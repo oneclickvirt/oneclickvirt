@@ -65,6 +65,7 @@ log_section "Starting module tests: ${MODULES[*]}"
 log_info "Server: ${SERVER_URL}"
 log_info "Environment: ${ENV_TYPE}"
 log_info "Instance types: ${INSTANCE_TYPES}"
+log_info "Execution rule: ${EXECUTION_RULE}"
 
 # Init report
 REPORT_DIR="${REPORT_DIR:-${SCRIPT_DIR}/reports}"
@@ -117,6 +118,30 @@ NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_
 
 export ADMIN_TOKEN USER_TOKEN USER_TOKEN2 NORMAL_ADMIN_TOKEN
 
+# -- Safe state restoration function --
+# Called after each module to ensure critical state is clean
+_restore_safe_state() {
+    # Ensure captcha is disabled (module 07 might have enabled it)
+    curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -H "Content-Type: application/json" -X PUT \
+        -d '{"captcha":{"enabled":false}}' \
+        "${SERVER_URL}/api/v1/admin/config" > /dev/null 2>&1 || true
+
+    # Ensure instance type permissions are accessible (module 26 might have set minLevel=99)
+    curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        -H "Content-Type: application/json" -X PUT \
+        -d '{"instance_type_config":{"min_level_for_container":1,"min_level_for_vm":1}}' \
+        "${SERVER_URL}/api/v1/admin/config" > /dev/null 2>&1 || true
+
+    # Unfreeze test instance if it exists and is frozen (module 16 might have frozen it)
+    if [[ -n "${TEST_INSTANCE_ID:-}" ]]; then
+        curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" -X POST \
+            -d "{\"instanceId\":${TEST_INSTANCE_ID},\"action\":\"unfreeze\"}" \
+            "${SERVER_URL}/api/v1/admin/instances/action" > /dev/null 2>&1 || true
+    fi
+}
+
 # Load and run modules (with state save/restore between each)
 EXIT_CODE=0
 MODULE_COUNT=${#MODULES[@]}
@@ -133,6 +158,9 @@ for mod in "${MODULES[@]}"; do
     func_name="run_module_${mod}"
     if declare -f "$func_name" > /dev/null 2>&1; then
         log_section "Running module ${mod} (${MODULE_IDX}/${MODULE_COUNT})"
+        
+        # Reset chain_broken state to prevent cross-module contamination
+        reset_chain_broken
         
         # Save state before module
         save_base_state 2>/dev/null || true
@@ -153,6 +181,8 @@ for mod in "${MODULES[@]}"; do
                 fi
             fi
         fi
+        # Restore safe state (captcha off, permissions normal, instances unfrozen)
+        _restore_safe_state
         # Restore state after module to prevent cross-module contamination
         restore_base_state 2>/dev/null || true
     else
@@ -178,4 +208,4 @@ if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some modules had failures (exit_code=${EXIT_CODE}), see reports for details"
 fi
 # Always exit 0 to avoid failing the entire Action; failures are captured in reports
-exit 0
+exit ${EXIT_CODE}

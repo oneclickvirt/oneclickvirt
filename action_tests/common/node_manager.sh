@@ -12,6 +12,8 @@ declare -A ENV_INSTALL_SCRIPTS=(
     [podman]="https://raw.githubusercontent.com/oneclickvirt/podman/main/podmaninstall.sh"
     [containerd]="https://raw.githubusercontent.com/oneclickvirt/containerd/main/containerdinstall.sh"
     [proxmoxve]="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/install_pve.sh"
+    [qemu]="https://raw.githubusercontent.com/oneclickvirt/qemu/main/qemuinstall.sh"
+    [kubevirt]="https://raw.githubusercontent.com/oneclickvirt/kubevirt/main/kubevirtinstall.sh"
 )
 PVE_BUILD_BACKEND="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_backend.sh"
 PVE_BUILD_NAT="https://raw.githubusercontent.com/oneclickvirt/pve/main/scripts/build_nat_network.sh"
@@ -42,13 +44,13 @@ create_test_node() {
     [[ -n "$password" ]] && PLATFORM_SSH_PASSWORD="$password"
     # Wait for SSH to be available before handing off the node
     wait_for_ssh "${ip}" 600 || { log_error "SSH never became available on ${ip}"; return 1; }
-    log_success "Node created on '${platform_name}': ID=${id} IP=${ip}"
+    log_success "Node created on '${platform_name}': ID=${id} IP=[MASKED]"
     echo "{\"instance_id\":\"${id}\",\"ipv4\":\"${ip}\",\"password\":\"${password}\",\"platform\":\"${platform_name}\"}"
 }
 
 install_env() {
     local id="$1" ip="$2" env="$3"
-    log_section "Installing ${env} environment on ${ip}"
+    log_section "Installing ${env} environment on worker node"
     # Wait for cloud-init and other processes to release apt/dpkg locks
     # min_wait=120s (required wait), max_wait=300s (timeout), interval=10s
     wait_for_apt_lock "${ip}" 120 300 10
@@ -73,6 +75,12 @@ install_env() {
         containerd)
             env_prefix="NEED_DISK_LIMIT=n WITHOUTCDN=false"
             ;;
+        qemu)
+            env_prefix="DEBIAN_FRONTEND=noninteractive QEMU_IMAGES_PATH=/var/lib/libvirt/images"
+            ;;
+        kubevirt)
+            env_prefix="DEBIAN_FRONTEND=noninteractive"
+            ;;
         *)
             env_prefix="DEBIAN_FRONTEND=noninteractive"
             ;;
@@ -90,6 +98,14 @@ install_env() {
         platform_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_BACKEND}' | bash" 600
         log_info "PVE install step 3b/3: building NAT IPv4 network..."
         platform_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_NAT}' | bash" 600
+    elif [[ "$env" == "kubevirt" ]]; then
+        # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
+        log_info "Installing KubeVirt environment (K3s + KubeVirt + CDI)..."
+        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1800
+    elif [[ "$env" == "qemu" ]]; then
+        # qemu needs libvirt + QEMU/KVM, single-pass install
+        log_info "Installing QEMU/KVM environment..."
+        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200
     else
         platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1200 || true
         log_info "Rebooting worker to apply network/kernel settings..."
@@ -104,7 +120,7 @@ install_env() {
 # Pre-populate worker with dummy containers for discovery/import testing
 prepare_dirty_node() {
     local id="$1" ip="$2" env="$3"
-    log_section "Preparing non-clean worker node for discovery tests (${ip})"
+    log_section "Preparing non-clean worker node for discovery tests"
     case "$env" in
         docker)
             platform_exec_and_wait "${ip}" "docker run -d --name pre_existing_1 alpine sleep 3600" 120
@@ -124,6 +140,12 @@ prepare_dirty_node() {
             ;;
         proxmoxve)
             log_info "Proxmox pre-population skipped (requires manual template)"
+            ;;
+        qemu)
+            log_info "QEMU pre-population skipped (requires VM images)"
+            ;;
+        kubevirt)
+            log_info "KubeVirt pre-population skipped (requires VM manifests)"
             ;;
     esac
 }
@@ -174,23 +196,33 @@ deploy_master_local() {
     sed -i 's/^\( \{4\}enabled:\) true/\1 false/' "$cfg"
     log_success "config.yaml patched"
 
-    # Start the server in background via `go run .` from server_dir so that:
+    # Build and start the server binary in background so that:
     #   - config.yaml is found in the working directory (no binary path issues)
     #   - storage/ and logs/ are created relative to server_dir
+    #   - killing the PID actually kills the server (no go run wrapper)
     rm -f /tmp/oneclickvirt-server.pid /tmp/oneclickvirt-server.log
     
-    # Start server and capture PID correctly (avoid subshell issues)
+    # Build server binary first, then run it (avoids orphan child process from go run)
     cd "$server_dir" || return 1
-    GIN_MODE=debug nohup go run . > /tmp/oneclickvirt-server.log 2>&1 &
+    log_info "Building server binary..."
+    if ! go build -o /tmp/oneclickvirt-server . 2>/tmp/oneclickvirt-build.log; then
+        log_error "Server build failed:"
+        cat /tmp/oneclickvirt-build.log >&2 || true
+        cd - >/dev/null || true
+        return 1
+    fi
+    log_success "Server binary built"
+    
+    GIN_MODE=debug nohup /tmp/oneclickvirt-server > /tmp/oneclickvirt-server.log 2>&1 &
     local pid=$!
     echo "$pid" > /tmp/oneclickvirt-server.pid
     cd - >/dev/null || true
     
-    log_info "Server process started (PID ${pid}), waiting for compilation and startup..."
+    log_info "Server process started (PID ${pid}), waiting for startup..."
     
-    # go run takes longer to start (compilation happens at runtime); wait up to 120s for process + HTTP
-    local i elapsed=0 max_wait=120
-    for i in $(seq 1 24); do  # 24 * 5 = 120s
+    # Binary start is faster than go run; wait up to 60s for HTTP
+    local i elapsed=0 max_wait=60
+    for i in $(seq 1 12); do  # 12 * 5 = 60s
         sleep 5
         elapsed=$((i * 5))
         

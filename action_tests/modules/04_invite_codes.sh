@@ -66,7 +66,7 @@ run_module_04() {
         '{"count":-1,"maxUses":3}' "$group"
 
     # -- Negative: Generate with excessive count --
-    test_api "Generate codes (excessive)" "POST" "/api/v1/admin/invite-codes/generate" "400|200" \
+    test_api "Generate codes (excessive)" "POST" "/api/v1/admin/invite-codes/generate" "400" \
         '{"count":10000,"maxUses":3}' "$group"
 
     # -- Negative: Create with empty code (server auto-generates code when empty) --
@@ -74,7 +74,7 @@ run_module_04() {
         '{"code":"","count":1,"maxUses":5}' "$group"
 
     # -- Negative: Batch delete empty --
-    test_api "Batch delete empty" "POST" "/api/v1/admin/invite-codes/batch-delete" "400|200" \
+    test_api "Batch delete empty" "POST" "/api/v1/admin/invite-codes/batch-delete" "400" \
         '{"ids":[]}' "$group"
 
     # -- Negative: User cannot manage invite codes --

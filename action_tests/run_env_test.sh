@@ -38,6 +38,7 @@ VALIDATED_TYPES=$(validate_instance_types "$ENV_TYPE" "$RAW_INSTANCE_TYPES")
 export INSTANCE_TYPES="$VALIDATED_TYPES"
 log_info "Modules: ${MODULES}"
 log_info "Instance types: ${INSTANCE_TYPES} (requested: ${RAW_INSTANCE_TYPES})"
+log_info "Execution rule: ${EXECUTION_RULE}"
 log_info "Node hours: ${NODE_HOURS}h"
 
 # Preflight: check that at least one platform is enabled and has credentials
@@ -74,7 +75,8 @@ _cleanup_on_exit() {
         kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
         rm -f /tmp/oneclickvirt-server.pid
     fi
-    pkill -f 'server/oneclickvirt$' 2>/dev/null || true
+    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+    rm -f /tmp/oneclickvirt-server
     report_finalize 2>/dev/null || true
 }
 trap _cleanup_on_exit EXIT
@@ -118,7 +120,7 @@ if [[ -n "$WORKER_PLATFORM" ]]; then
     ACTIVE_INSTANCE_ID="${WORKER_ID_VAL}"
     ACTIVE_INSTANCE_IP="${WORKER_IP}"
 fi
-log_success "Worker node: ID=${WORKER_ID_VAL} IP=${WORKER_IP} Platform=${WORKER_PLATFORM}"
+log_success "Worker node: ID=${WORKER_ID_VAL} IP=[MASKED] Platform=${WORKER_PLATFORM}"
 log_info "Waiting for cloud-init on worker node (handled by wait_for_apt_lock)..."
 
 # =============================================================
@@ -226,7 +228,8 @@ if [[ -f /tmp/oneclickvirt-server.pid ]]; then
     kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
     rm -f /tmp/oneclickvirt-server.pid
 fi
-pkill -f 'server/oneclickvirt$' 2>/dev/null || true
+pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+rm -f /tmp/oneclickvirt-server
 
 # -- Finalize --
 report_finalize
@@ -237,4 +240,4 @@ if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some test modules had failures, see reports for details"
 fi
 # Always exit 0 to avoid failing the entire Action; test failures are captured in reports
-exit 0
+exit ${EXIT_CODE}

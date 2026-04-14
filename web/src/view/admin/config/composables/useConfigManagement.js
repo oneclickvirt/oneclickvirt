@@ -52,6 +52,9 @@ export function useConfigManagement() {
       logoURL: '',
       siteName: ''
     },
+    captcha: {
+      enabled: false
+    },
     kyc: {
       method: 'manual',
       requireRealName: false,
@@ -90,6 +93,9 @@ export function useConfigManagement() {
         if (response.data.other) {
           config.value.other = { ...config.value.other, ...response.data.other }
           systemConfigLanguage.value = config.value.other.defaultLanguage || ''
+        }
+        if (response.data.captcha) {
+          config.value.captcha = { ...config.value.captcha, ...response.data.captcha }
         }
         if (response.data.kyc) {
           config.value.kyc = { ...config.value.kyc, ...response.data.kyc }

@@ -41,7 +41,7 @@ run_module_27() {
         # ---- Export provider configs ----
         test_api "Export provider configs" "POST" "/api/v1/admin/providers/export-configs" "200" \
             '{"provider_ids":['"$PROVIDER_ID"']}' "$group" "$ADMIN_TOKEN"
-        test_api "Export empty provider list" "POST" "/api/v1/admin/providers/export-configs" "400|200" \
+        test_api "Export empty provider list" "POST" "/api/v1/admin/providers/export-configs" "400" \
             '{"provider_ids":[]}' "$group" "$ADMIN_TOKEN"
 
         # ---- Hardware report ----

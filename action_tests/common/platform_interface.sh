@@ -88,7 +88,7 @@ try_create_with_fallback() {
             first_id=$(echo "$existing" | jq -r '.[0].instance_id // empty' 2>/dev/null)
             first_ip=$(echo "$existing" | jq -r '.[0].ipv4 // empty' 2>/dev/null)
             if [[ -n "$first_id" ]]; then
-                log_info "[${platform}] Found existing instance ${first_id} (IP: ${first_ip:-unknown}), reinstalling OS..."
+                log_info "[${platform}] Found existing instance ${first_id}, reinstalling OS..."
                 result=$(platform_dispatch "$platform" "reinstall_instance" "$first_id" "debian")
                 exit_code=$?
                 if [[ $exit_code -eq 0 && -n "$result" ]]; then

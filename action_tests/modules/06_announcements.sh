@@ -64,15 +64,15 @@ run_module_06() {
         '{"title":"Ghost"}' "$group"
 
     # -- Negative: Create with empty content --
-    test_api "Create (empty content)" "POST" "/api/v1/admin/announcements" "400|200" \
+    test_api "Create (empty content)" "POST" "/api/v1/admin/announcements" "400" \
         '{"title":"EmptyContent","content":""}' "$group"
 
     # -- Negative: Batch status with empty ids --
-    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/announcements/batch-status" "400|200" \
+    test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/announcements/batch-status" "400" \
         '{"ids":[],"status":"active"}' "$group"
 
     # -- Negative: Batch delete empty --
-    test_api "Batch delete (empty ids)" "POST" "/api/v1/admin/announcements/batch-delete" "400|200" \
+    test_api "Batch delete (empty ids)" "POST" "/api/v1/admin/announcements/batch-delete" "400" \
         '{"ids":[]}' "$group"
 
     # -- Negative: User cannot manage announcements --

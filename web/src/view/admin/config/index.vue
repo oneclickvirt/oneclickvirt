@@ -108,6 +108,14 @@
                   </div>
                 </el-form-item>
               </el-col>
+              <el-col :span="12">
+                <el-form-item :label="$t('admin.config.captchaFeature')">
+                  <el-switch v-model="config.captcha.enabled" />
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.captchaFeatureHint') }}
+                  </div>
+                </el-form-item>
+              </el-col>
             </el-row>
           </el-form>
         </el-tab-pane>

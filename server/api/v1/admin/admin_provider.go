@@ -395,11 +395,7 @@ func TestSSHConnection(c *gin.Context) {
 			zap.Int("port", req.Port),
 			zap.Error(err))
 
-		common.ResponseSuccess(c, admin.TestSSHConnectionResponse{
-			Success:      false,
-			ErrorMessage: err.Error(),
-			TestCount:    req.TestCount,
-		}, "SSH连接测试失败")
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "SSH连接测试失败: "+err.Error()))
 		return
 	}
 

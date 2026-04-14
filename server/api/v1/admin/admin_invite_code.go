@@ -139,7 +139,12 @@ func GenerateInviteCode(c *gin.Context) {
 	}
 
 	// 获取当前管理员ID
-	createdBy := uint(1) // 这里应该从JWT中获取管理员ID
+	authCtx, exists := middleware.GetAuthContext(c)
+	if !exists {
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "未登录"))
+		return
+	}
+	createdBy := authCtx.UserID
 
 	inviteService := invite.NewService()
 	codes, err := inviteService.GenerateInviteCodes(req, createdBy)

@@ -59,6 +59,20 @@ on:
         required: false
         type: boolean
         default: false
+      execution_rule:
+        description: 'Provider execution rule (auto=API-first+SSH-fallback, api_only=API-only, ssh_only=SSH-only)'
+        required: false
+        type: choice
+        options:
+          - auto
+          - api_only
+          - ssh_only
+        default: 'auto'
+      full_system_test:
+        description: 'Test all system images (default: only Alpine+Debian)'
+        required: false
+        type: boolean
+        default: false
 
 jobs:
   integration-test:
@@ -128,6 +142,12 @@ jobs:
             lxd|incus|proxmoxve)
               # Supports both container and vm
               ;;
+            kubevirt|qemu)
+              if [[ "$TYPES" == "container" || "$TYPES" == "both" ]]; then
+                echo "::warning::Platform '${ENV}' only supports VMs. Auto-correcting instance_types to 'vm'."
+                TYPES="vm"
+              fi
+              ;;
             *)
               echo "::error::Unknown platform: ${ENV}"
               exit 1
@@ -185,8 +205,11 @@ jobs:
           ENV_TYPE: ${{ matrix.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
+          EXECUTION_RULE: ${{ inputs.execution_rule }}
+          FULL_SYSTEM_TEST: ${{ inputs.full_system_test }}
+          TEST_IMAGES: ${{ inputs.full_system_test == true && 'all' || 'alpine,debian' }}
           ADMIN_USER: admin
-          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin123!@#' }}
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS }}
           DEBUG: "1"
         run: |
           chmod +x action_tests/run_env_test.sh
@@ -236,7 +259,7 @@ jobs:
 
           # Ensure we always have SOME output for debugging
           if [[ ! -s action_tests/reports/full-output.log ]]; then
-            echo "WARNING: Test produced no output. Check ALICE_CLIENT_ID, ALICE_CLIENT_SECRET, ALICE_PUBLIC_KEY, and ALICE_PRIVATE_KEY secrets." > action_tests/reports/full-output.log
+            echo "WARNING: Test produced no output. Check that required platform secrets are configured." > action_tests/reports/full-output.log
           fi
 
           # Ensure report directory has at least a fallback file

@@ -12,7 +12,15 @@ log_error()   { echo -e "${RED}[FAIL]${NC} $(date '+%H:%M:%S') $*" >&2; }
 log_warning() { echo -e "${YELLOW}[WARN]${NC} $(date '+%H:%M:%S') $*" >&2; }
 log_section() { echo -e "\n${CYAN}========== $* ==========${NC}\n" >&2; }
 log_skip()    { echo -e "${YELLOW}[SKIP]${NC} $(date '+%H:%M:%S') $*" >&2; }
-log_debug()   { [[ "${DEBUG:-0}" == "1" ]] && echo -e "[DEBUG] $(date '+%H:%M:%S') $*" >&2 || true; }
+log_debug()   {
+    if [[ "${DEBUG:-0}" == "1" ]]; then
+        # Redact sensitive patterns from debug output
+        local msg="$*"
+        msg=$(echo "$msg" | sed -E 's/"token":"[^"]*"/"token":"[REDACTED]"/g; s/"password":"[^"]*"/"password":"[REDACTED]"/g; s/"ssh_password":"[^"]*"/"ssh_password":"[REDACTED]"/g; s/Bearer [A-Za-z0-9._-]+/Bearer [REDACTED]/g')
+        echo -e "[DEBUG] $(date '+%H:%M:%S') ${msg}" >&2
+    fi
+    return 0
+}
 
 # -- Counters --
 TOTAL_TESTS=0; PASSED_TESTS=0; FAILED_TESTS=0; SKIPPED_TESTS=0
@@ -46,6 +54,9 @@ WORKER_IP="${WORKER_IP:-}"
 WORKER_PASSWORD="${WORKER_PASSWORD:-}"
 WORKER_ID="${WORKER_ID:-}"
 TEST_INSTANCE_ID="${TEST_INSTANCE_ID:-}"
+EXECUTION_RULE="${EXECUTION_RULE:-auto}"
+# Image filter: comma-separated OS names to test (default: alpine,debian; "all" = test everything)
+TEST_IMAGES="${TEST_IMAGES:-alpine,debian}"
 # Path to the server directory; set by deploy_master_local() in node_manager.sh
 MASTER_SERVER_DIR="${MASTER_SERVER_DIR:-}"
 
@@ -129,6 +140,20 @@ should_test_type() {
         vm) [[ "$itype" == "vm" ]] && return 0 || return 1 ;;
     esac
     return 0
+}
+
+# -- Utility: should we test this image? --
+# Returns 0 if the image name matches TEST_IMAGES filter, 1 otherwise
+should_test_image() {
+    local image_name="$1"
+    [[ "$TEST_IMAGES" == "all" ]] && return 0
+    local lower_name; lower_name=$(echo "$image_name" | tr '[:upper:]' '[:lower:]')
+    IFS=',' read -ra allowed <<< "$TEST_IMAGES"
+    for pattern in "${allowed[@]}"; do
+        pattern=$(echo "$pattern" | tr '[:upper:]' '[:lower:]' | xargs)
+        [[ "$lower_name" == *"$pattern"* ]] && return 0
+    done
+    return 1
 }
 
 # -- Platform capabilities map (hardcoded per spec) --
@@ -380,7 +405,8 @@ init_system() {
         '{"admin":{"username":"%s","password":"%s","email":"%s@test.local"},"user":{"username":"%s","password":"%s","email":"%s@test.local","enabled":true},"database":{"type":"mysql","host":"127.0.0.1","port":"3306","database":"oneclickvirt","username":"root","password":""}}' \
         "$user" "$pass" "$user" "$TEST_USER" "$TEST_USER_PASS" "$TEST_USER"
     local resp; resp=$(curl -s --max-time 60 -H "Content-Type: application/json" -X POST -d "$data" "${url}/api/v1/public/init" 2>/dev/null)
-    log_info "Init response: ${resp}"
+    local init_code; init_code=$(echo "$resp" | jq -r '.code // empty' 2>/dev/null)
+    log_info "Init response code: ${init_code}"
     echo "$resp"
 }
 

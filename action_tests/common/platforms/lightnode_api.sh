@@ -7,7 +7,7 @@ LIGHTNODE_API_BASE="${LIGHTNODE_API_BASE:-https://openapi.lightnode.com}"
 LIGHTNODE_TOKEN="${LIGHTNODE_TOKEN:-}"
 LIGHTNODE_REGION="${LIGHTNODE_REGION:-}"
 LIGHTNODE_ZONE="${LIGHTNODE_ZONE:-}"
-LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-Pass4422@Ci}"
+LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-}"
 
 # ============================================================================
 # Low-level API helpers

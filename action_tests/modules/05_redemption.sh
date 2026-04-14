@@ -63,7 +63,7 @@ run_module_05() {
         '{"code":"TESTCODE"}' "$group" ""
 
     # -- Negative: Batch delete empty --
-    test_api "Batch delete (empty)" "POST" "/api/v1/admin/redemption-codes/batch-delete" "400|200" \
+    test_api "Batch delete (empty)" "POST" "/api/v1/admin/redemption-codes/batch-delete" "400" \
         '{"ids":[]}' "$group"
 
     # -- Negative: User cannot manage redemption codes --

@@ -53,19 +53,23 @@ run_module_02() {
         log_success "Test user login success"
     else
         log_error "Test user login failed"
+        chain_break "$group" "USER_TOKEN acquisition failed"
+        return 1
     fi
 
     USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS")
     if [[ -n "$USER_TOKEN2" ]]; then
         log_success "Test user 2 login success"
+    else
+        log_warning "Test user 2 login failed, some isolation tests may skip"
     fi
 
     # -- User profile --
     test_api "User profile" "GET" "/api/v1/user/profile" "200" "" "$group" "$USER_TOKEN"
 
-    # -- Unauthenticated access --
-    test_api_noauth "Admin API without token" "GET" "/api/v1/admin/users" "200|401" "" "$group"
-    test_api_noauth "User API without token" "GET" "/api/v1/user/profile" "200|401" "" "$group"
+    # -- Unauthenticated access (must return 401) --
+    test_api_noauth "Admin API without token" "GET" "/api/v1/admin/users" "401" "" "$group"
+    test_api_noauth "User API without token" "GET" "/api/v1/user/profile" "401" "" "$group"
 
     # -- Invalid token --
     test_api "Invalid token access" "GET" "/api/v1/user/profile" "401" "" "$group" "invalid_token_xxx"
@@ -116,13 +120,33 @@ run_module_02() {
         '{"token":"some_token","new_password":"123"}' "$group"
 
     # -- Negative: Logout without token --
-    test_api "Logout no token" "POST" "/api/v1/auth/logout" "200|401" "" "$group" ""
+    test_api "Logout no token" "POST" "/api/v1/auth/logout" "401" "" "$group" ""
 
     # -- Captcha toggle: verify login works when captcha is disabled (CI default) --
     test_api_noauth "Login without captcha (disabled)" "POST" "/api/v1/auth/login" "200" \
         "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" "$group"
 
-    # -- Register without captcha (disabled in CI) --
-    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|400|403|409" \
+    # -- Negative: Login with invalid loginType (must return 400 due to oneof validation) --
+    test_api_noauth "Login (invalid loginType)" "POST" "/api/v1/auth/login" "400" \
+        '{"username":"admin","password":"test","loginType":"invalid_type"}' "$group"
+
+    # -- Negative: Login with invalid userType --
+    test_api_noauth "Login (invalid userType)" "POST" "/api/v1/auth/login" "400" \
+        '{"username":"admin","password":"test","userType":"hacker"}' "$group"
+
+    # -- Negative: Login with valid loginType (email) but missing target --
+    test_api_noauth "Login (email type, no target)" "POST" "/api/v1/auth/login" "400|401" \
+        '{"username":"admin","password":"test","loginType":"email"}' "$group"
+
+    # -- Negative: Register without captcha (disabled in CI) --
+    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|409" \
         '{"username":"captcha_test_user","password":"Test123!@#","email":"captcha@ci.local"}' "$group"
+
+    # -- Negative: Send verify code without type --
+    test_api_noauth "Send verify code (no type)" "POST" "/api/v1/auth/send-verify-code" "400" \
+        '{"target":"test@ci.local"}' "$group"
+
+    # -- Negative: Send verify code without target --
+    test_api_noauth "Send verify code (no target)" "POST" "/api/v1/auth/send-verify-code" "400" \
+        '{"type":"email"}' "$group"
 }

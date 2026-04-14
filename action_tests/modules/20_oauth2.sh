@@ -82,12 +82,12 @@ run_module_20() {
         '' "$group" "$ADMIN_TOKEN"
 
     # ---- Negative: Create with invalid redirect URL ----
-    test_api "Create OAuth2 (invalid URL)" "POST" "/api/v1/oauth2/providers" "400|200" \
+    test_api "Create OAuth2 (invalid URL)" "POST" "/api/v1/oauth2/providers" "400" \
         '{"name":"bad_url","displayName":"Bad URL","providerType":"custom","clientId":"x","clientSecret":"x","redirectUrl":"not_a_url","authUrl":"not_a_url","tokenUrl":"not_a_url","userInfoUrl":"not_a_url","enabled":true}' \
         "$group" "$ADMIN_TOKEN"
 
     # ---- Negative: Create with XSS in name ----
-    test_api "Create OAuth2 (XSS)" "POST" "/api/v1/oauth2/providers" "400|200" \
+    test_api "Create OAuth2 (XSS)" "POST" "/api/v1/oauth2/providers" "400" \
         '{"name":"<script>","displayName":"<img onerror=alert(1)>","providerType":"custom","clientId":"x","clientSecret":"x","redirectUrl":"http://localhost/cb","authUrl":"http://a.com","tokenUrl":"http://t.com","userInfoUrl":"http://u.com","enabled":true}' \
         "$group" "$ADMIN_TOKEN"
 

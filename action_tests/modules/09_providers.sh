@@ -30,8 +30,8 @@ run_module_09() {
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group"
     fi
 
-    # -- SSH test with invalid credentials (may timeout or return error) --
-    test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|000" \
+    # -- SSH test with invalid credentials --
+    test_api "Test SSH (invalid)" "POST" "/api/v1/admin/providers/test-ssh-connection" "400" \
         '{"host":"192.0.2.1","port":22,"username":"root","password":"wrong"}' "$group"
 
     # -- Check provider name --
@@ -62,8 +62,9 @@ run_module_09() {
             local escaped_key_create; escaped_key_create=$(echo "$worker_key" | jq -Rsa .)
             auth_payload="\"sshKey\":${escaped_key_create}"
         fi
+        log_info "Creating provider with executionRule=${EXECUTION_RULE}"
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
-            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
+            "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")
         
         # Debug: log the response
         log_debug "Provider creation response: ${pr}"
@@ -91,7 +92,7 @@ run_module_09() {
 
     # -- Create duplicate name --
     test_api "Create duplicate provider" "POST" "/api/v1/admin/providers" "409" \
-        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
+        "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group"
 
     # -- Edit provider --
     test_api "Edit provider" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
@@ -99,17 +100,22 @@ run_module_09() {
     test_api "Edit provider back" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         "{\"name\":\"ci-${ENV_TYPE}-provider\"}" "$group"
 
-    # -- Auto configure (streaming) --
-    test_api_retry "Auto configure (stream)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/auto-configure-stream" "200" \
-        '{}' 3 10 "$group"
-    sleep 5
+    # -- Auto configure (required for api_only and auto execution rules, skip for ssh_only) --
+    if [[ "$EXECUTION_RULE" != "ssh_only" ]]; then
+        # -- Auto configure (streaming) --
+        test_api_retry "Auto configure (stream)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/auto-configure-stream" "200" \
+            '{}' 3 10 "$group"
+        sleep 5
 
-    # -- Auto configure (task) --
-    local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400" \
-        "{\"providerId\":${PROVIDER_ID}}" "$group")
-    local ac_task; ac_task=$(echo "$ac" | jq -r '.data.task_id // empty' 2>/dev/null)
-    if [[ -n "$ac_task" ]]; then
-        wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" 300 10 || true
+        # -- Auto configure (task) --
+        local ac; ac=$(test_api "Auto configure (task)" "POST" "/api/v1/admin/providers/auto-configure" "200|400" \
+            "{\"providerId\":${PROVIDER_ID}}" "$group")
+        local ac_task; ac_task=$(echo "$ac" | jq -r '.data.task_id // empty' 2>/dev/null)
+        if [[ -n "$ac_task" ]]; then
+            wait_task_complete "$SERVER_URL" "$ac_task" "$ADMIN_TOKEN" 300 10 || true
+        fi
+    else
+        log_info "Skipping auto-configure for ssh_only execution rule"
     fi
 
     # -- Health check --
