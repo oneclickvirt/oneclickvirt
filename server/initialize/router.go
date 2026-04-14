@@ -1,7 +1,7 @@
 package initialize
 
 import (
-	"oneclickvirt/router"
+	"oneclickvirt/service/router"
 
 	"github.com/gin-gonic/gin"
 )
