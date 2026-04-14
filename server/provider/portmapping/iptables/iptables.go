@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/provider"
+	"oneclickvirt/provider/firewall"
 	"oneclickvirt/provider/portmapping"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
@@ -285,84 +286,42 @@ func (i *IptablesPortMapping) getPublicIP(providerInfo *provider.Provider) strin
 	return providerInfo.Endpoint
 }
 
-// createIptablesRule 创建iptables规则
+// createIptablesRule 创建防火墙规则（nft优先，iptables回退）
 func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string, providerInfo *provider.Provider) error {
-	global.APP_LOG.Debug("Creating iptables rule",
+	global.APP_LOG.Debug("Creating firewall rule",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol))
 
-	// 获取实例IP地址
 	instanceIP := instance.PrivateIP
 	if instanceIP == "" {
 		return fmt.Errorf("instance private IP address not found for %s", instance.Name)
 	}
 
-	// 如果协议是both，需要同时创建TCP和UDP规则
-	protocols := []string{protocol}
-	if protocol == "both" {
-		protocols = []string{"tcp", "udp"}
-	}
+	comment := fmt.Sprintf("pm:%s:%d:%d", instance.Name, hostPort, guestPort)
 
-	var allCommands []string
-
-	for _, proto := range protocols {
-		// 创建PREROUTING DNAT规则 - 将外部端口转发到内部实例
-		dnatRule := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-			proto, hostPort, instanceIP, guestPort)
-
-		// 创建FORWARD规则 - 允许转发到实例
-		forwardRule := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-			proto, instanceIP, guestPort)
-
-		// 创建POSTROUTING MASQUERADE规则 - 对来自实例的响应进行SNAT
-		masqueradeRule := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-			proto, instanceIP, guestPort)
-
-		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
-	}
-
-	global.APP_LOG.Debug("Executing iptables commands",
-		zap.String("protocol", protocol),
-		zap.Int("commandCount", len(allCommands)))
-
-	// 尝试从ProviderService获取Provider实例，以使用其SSH连接
-	providerSvc := providerService.GetProviderService()
-	providerInstance, exists := providerSvc.GetProviderByID(providerInfo.ID)
-
-	if !exists || !providerInstance.IsConnected() {
-		// 如果Provider未加载或未连接，回退到创建临时SSH连接
-		global.APP_LOG.Warn("Provider未连接，使用临时SSH连接",
-			zap.Uint("providerId", providerInfo.ID),
-			zap.String("providerName", providerInfo.Name))
-		return i.createIptablesRuleWithTempSSH(ctx, allCommands, instance, hostPort, guestPort, providerInfo)
-	}
-
-	// 使用Provider实例的SSH连接执行命令
-	global.APP_LOG.Debug("使用Provider实例执行iptables命令",
-		zap.Uint("providerId", providerInfo.ID),
-		zap.String("providerName", providerInfo.Name))
-
-	// 执行iptables命令
-	for _, cmd := range allCommands {
-		_, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
-		if err != nil {
-			global.APP_LOG.Error("Failed to execute iptables command",
-				zap.String("command", cmd),
-				zap.Error(err))
-			return fmt.Errorf("failed to execute iptables command '%s': %v", cmd, err)
-		}
-	}
-
-	// 保存iptables规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"
-	_, err := providerInstance.ExecuteSSHCommand(ctx, saveCmd)
+	// 获取SSH客户端
+	sshClient, cleanup, err := i.getSSHClient(ctx, providerInfo)
 	if err != nil {
-		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
+		return fmt.Errorf("failed to get SSH client: %v", err)
+	}
+	if cleanup != nil {
+		defer cleanup()
 	}
 
-	global.APP_LOG.Debug("Successfully created iptables rules",
+	// 使用 firewall.Manager 统一处理
+	tableName := i.getTableName(providerInfo)
+	fwMgr := firewall.NewManager(sshClient, tableName, "")
+	fwMgr.DetectBackend(i.getMarkerFile(providerInfo))
+
+	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("failed to add DNAT rule: %v", err)
+	}
+
+	fwMgr.SaveRules()
+
+	global.APP_LOG.Debug("Successfully created firewall rules",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort))
@@ -370,122 +329,45 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 	return nil
 }
 
-// createIptablesRuleWithTempSSH 使用临时SSH连接创建iptables规则（回退方案）
-func (i *IptablesPortMapping) createIptablesRuleWithTempSSH(ctx context.Context, commands []string, instance *provider.Instance, hostPort, guestPort int, providerInfo *provider.Provider) error {
-	global.APP_LOG.Warn("使用临时SSH连接创建iptables规则（回退方案）",
-		zap.Uint("providerId", providerInfo.ID),
-		zap.String("providerName", providerInfo.Name))
-
-	// 创建SSH客户端连接到provider主机执行iptables命令
-	sshClient, err := i.createSSHClient(providerInfo)
-	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %v", err)
-	}
-	defer sshClient.Close()
-
-	// 执行iptables命令
-	for _, cmd := range commands {
-		_, err := sshClient.Execute(cmd)
-		if err != nil {
-			global.APP_LOG.Error("Failed to execute iptables command",
-				zap.String("command", cmd),
-				zap.Error(err))
-			return fmt.Errorf("failed to execute iptables command '%s': %v", cmd, err)
-		}
-	}
-
-	// 保存iptables规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"
-	_, err = sshClient.Execute(saveCmd)
-	if err != nil {
-		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
-	}
-
-	global.APP_LOG.Debug("Successfully created iptables rules",
-		zap.String("instance", instance.Name),
-		zap.Int("hostPort", hostPort),
-		zap.Int("guestPort", guestPort))
-
-	return nil
-}
-
-// removeIptablesRule 删除iptables规则
+// removeIptablesRule 删除防火墙规则（nft优先，iptables回退）
 func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) error {
-	global.APP_LOG.Debug("Removing iptables rule",
+	global.APP_LOG.Debug("Removing firewall rule",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol))
 
-	// 获取实例IP地址
 	instanceIP := instance.PrivateIP
 	if instanceIP == "" {
 		return fmt.Errorf("instance private IP address not found for %s", instance.Name)
 	}
 
-	// 如果协议是both，需要同时删除TCP和UDP规则
-	protocols := []string{protocol}
-	if protocol == "both" {
-		protocols = []string{"tcp", "udp"}
-	}
+	comment := fmt.Sprintf("pm:%s:%d:%d", instance.Name, hostPort, guestPort)
 
-	var allCommands []string
-
-	for _, proto := range protocols {
-		// 删除PREROUTING DNAT规则
-		dnatRule := fmt.Sprintf("iptables -t nat -D PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-			proto, hostPort, instanceIP, guestPort)
-
-		// 删除FORWARD规则
-		forwardRule := fmt.Sprintf("iptables -D FORWARD -p %s -d %s --dport %d -j ACCEPT",
-			proto, instanceIP, guestPort)
-
-		// 删除POSTROUTING MASQUERADE规则
-		masqueradeRule := fmt.Sprintf("iptables -t nat -D POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-			proto, instanceIP, guestPort)
-
-		allCommands = append(allCommands, dnatRule, forwardRule, masqueradeRule)
-	}
-
-	global.APP_LOG.Debug("Executing iptables removal commands",
-		zap.String("protocol", protocol),
-		zap.Int("commandCount", len(allCommands)))
-
-	// 获取provider信息以创建SSH连接
-	var providerInfo *provider.Provider
-	var err error
-
-	// 从实例信息中获取provider ID，然后获取provider信息
-	if providerInfo, err = i.getProvider(instance.ProviderID); err != nil {
+	providerInfo, err := i.getProvider(instance.ProviderID)
+	if err != nil {
 		return fmt.Errorf("failed to get provider info: %v", err)
 	}
 
-	// 创建SSH客户端连接到provider主机执行iptables命令
-	sshClient, err := i.createSSHClient(providerInfo)
+	sshClient, cleanup, err := i.getSSHClient(ctx, providerInfo)
 	if err != nil {
-		return fmt.Errorf("failed to create SSH client: %v", err)
+		return fmt.Errorf("failed to get SSH client: %v", err)
 	}
-	defer sshClient.Close()
-
-	// 执行iptables删除命令
-	for _, cmd := range allCommands {
-		_, err := sshClient.Execute(cmd)
-		if err != nil {
-			global.APP_LOG.Warn("Failed to execute iptables removal command",
-				zap.String("command", cmd),
-				zap.Error(err))
-			// 对于删除命令，即使失败也继续执行其他命令
-		}
+	if cleanup != nil {
+		defer cleanup()
 	}
 
-	// 保存iptables规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4 2>/dev/null || true"
-	_, err = sshClient.Execute(saveCmd)
-	if err != nil {
-		global.APP_LOG.Warn("Failed to save iptables rules", zap.Error(err))
+	tableName := i.getTableName(providerInfo)
+	fwMgr := firewall.NewManager(sshClient, tableName, "")
+	fwMgr.DetectBackend(i.getMarkerFile(providerInfo))
+
+	if err := fwMgr.RemoveSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		global.APP_LOG.Warn("Failed to remove DNAT rule", zap.Error(err))
 	}
 
-	global.APP_LOG.Debug("Successfully removed iptables rules",
+	fwMgr.SaveRules()
+
+	global.APP_LOG.Debug("Successfully removed firewall rules",
 		zap.String("instance", instance.Name),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort))
@@ -493,10 +375,70 @@ func (i *IptablesPortMapping) removeIptablesRule(ctx context.Context, instance *
 	return nil
 }
 
-// cleanupIptablesRule 清理iptables规则（在出错时调用）
+// cleanupIptablesRule 清理防火墙规则（在出错时调用）
 func (i *IptablesPortMapping) cleanupIptablesRule(ctx context.Context, instance *provider.Instance, hostPort, guestPort int, protocol string) {
 	if err := i.removeIptablesRule(ctx, instance, hostPort, guestPort, protocol); err != nil {
-		global.APP_LOG.Error("Failed to cleanup iptables rule", zap.Error(err))
+		global.APP_LOG.Error("Failed to cleanup firewall rule", zap.Error(err))
+	}
+}
+
+// getSSHClient 获取SSH客户端（优先复用Provider实例连接，回退到临时连接）
+func (i *IptablesPortMapping) getSSHClient(ctx context.Context, providerInfo *provider.Provider) (sshClient *utils.SSHClient, cleanup func(), err error) {
+	// 尝试从ProviderService获取Provider实例
+	providerSvc := providerService.GetProviderService()
+	providerInstance, exists := providerSvc.GetProviderByID(providerInfo.ID)
+
+	if exists && providerInstance.IsConnected() {
+		// 复用Provider实例的SSH连接 - 通过ExecuteSSHCommand间接使用
+		// 直接创建新的SSH连接以获取 *utils.SSHClient
+		global.APP_LOG.Debug("使用Provider实例执行防火墙命令",
+			zap.Uint("providerId", providerInfo.ID),
+			zap.String("providerName", providerInfo.Name))
+	}
+
+	// 创建临时SSH连接
+	client, err := i.createSSHClient(providerInfo)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create SSH client: %v", err)
+	}
+	return client, func() { client.Close() }, nil
+}
+
+// getTableName 根据Provider类型获取nft表名
+func (i *IptablesPortMapping) getTableName(providerInfo *provider.Provider) string {
+	switch providerInfo.Type {
+	case "qemu":
+		return "qemu"
+	case "kubevirt":
+		return "kubevirt"
+	case "proxmox":
+		return "proxmox"
+	case "incus":
+		return "incus"
+	case "lxd":
+		return "lxd"
+	case "docker":
+		return "docker"
+	default:
+		return "portmap"
+	}
+}
+
+// getMarkerFile 根据Provider类型获取防火墙后端标记文件路径
+func (i *IptablesPortMapping) getMarkerFile(providerInfo *provider.Provider) string {
+	switch providerInfo.Type {
+	case "qemu":
+		return "/usr/local/bin/qemu_fw_backend"
+	case "kubevirt":
+		return "/usr/local/bin/kubevirt_fw_backend"
+	case "proxmox":
+		return "/usr/local/bin/proxmox_fw_backend"
+	case "incus":
+		return "/usr/local/bin/incus_fw_backend"
+	case "lxd":
+		return "/usr/local/bin/lxd_fw_backend"
+	default:
+		return ""
 	}
 }
 

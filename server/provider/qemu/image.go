@@ -76,6 +76,13 @@ func (p *QEMUProvider) sshPullImage(ctx context.Context, imageURL string) error 
 		return fmt.Errorf("cannot extract filename from URL: %s", imageURL)
 	}
 
+	// Validate URL to prevent command injection
+	for _, ch := range []string{"'", "`", "$", "(", ")", ";", "|", "&", "\n", "\r"} {
+		if strings.Contains(imageURL, ch) {
+			return fmt.Errorf("image URL contains invalid character: %s", ch)
+		}
+	}
+
 	remotePath := fmt.Sprintf("%s/%s", ImageDir, fileName)
 
 	// 使用 singleflight 防止并发下载

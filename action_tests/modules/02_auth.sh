@@ -9,6 +9,9 @@ run_module_02() {
     # -- Captcha --
     test_api_noauth "Get captcha" "GET" "/api/v1/auth/captcha" "200" "" "$group"
 
+    # -- Register config (verify captchaEnabled field) --
+    test_api_noauth "Register config has captchaEnabled" "GET" "/api/v1/public/register-config" "200" "" "$group"
+
     # -- Login valid --
     test_api_noauth "Admin login (valid)" "POST" "/api/v1/auth/login" "200" \
         "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" "$group"
@@ -114,4 +117,12 @@ run_module_02() {
 
     # -- Negative: Logout without token --
     test_api "Logout no token" "POST" "/api/v1/auth/logout" "200|401" "" "$group" ""
+
+    # -- Captcha toggle: verify login works when captcha is disabled (CI default) --
+    test_api_noauth "Login without captcha (disabled)" "POST" "/api/v1/auth/login" "200" \
+        "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" "$group"
+
+    # -- Register without captcha (disabled in CI) --
+    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|400|403|409" \
+        '{"username":"captcha_test_user","password":"Test123!@#","email":"captcha@ci.local"}' "$group"
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/provider/firewall"
 	"sort"
 	"strings"
 	"time"
@@ -514,115 +515,58 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 	return nil
 }
 
-// setupIptablesMapping 使用iptables设置端口映射
+// setupIptablesMapping 使用防火墙设置端口映射（nft优先，iptables回退）
 func (l *LXDProvider) setupIptablesMapping(instanceName string, hostPort, guestPort int, protocol string) error {
-	// 获取实例IP
 	instanceIP, err := l.getInstanceIP(instanceName)
 	if err != nil {
 		return fmt.Errorf("获取实例IP失败: %w", err)
 	}
 
-	// DNAT规则
-	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-		protocol, hostPort, instanceIP, guestPort)
+	fwMgr := firewall.NewManager(l.sshClient, "lxd", "")
+	fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend")
 
-	_, err = l.sshClient.Execute(dnatCmd)
-	if err != nil {
-		return fmt.Errorf("添加DNAT规则失败: %w", err)
+	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
+	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("添加防火墙规则失败: %w", err)
 	}
 
-	// FORWARD规则
-	forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-		protocol, instanceIP, guestPort)
-
-	_, err = l.sshClient.Execute(forwardCmd)
-	if err != nil {
-		return fmt.Errorf("添加FORWARD规则失败: %w", err)
-	}
-
-	// MASQUERADE规则
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-		protocol, instanceIP, guestPort)
-
-	_, err = l.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		return fmt.Errorf("添加MASQUERADE规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("Iptables端口映射设置成功",
+	global.APP_LOG.Debug("防火墙端口映射设置成功",
 		zap.String("instance", instanceName),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
 	return nil
 }
 
-// setupIptablesMappingWithIP 使用指定的实例IP设置iptables端口映射
+// setupIptablesMappingWithIP 使用指定的实例IP设置防火墙端口映射（nft优先，iptables回退）
 func (l *LXDProvider) setupIptablesMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Debug("设置Iptables端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置防火墙端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("instanceIP", instanceIP),
 		zap.String("protocol", protocol),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
-	// 如果协议是both，需要同时创建TCP和UDP规则
-	protocols := []string{protocol}
-	if protocol == "both" {
-		protocols = []string{"tcp", "udp"}
+	fwMgr := firewall.NewManager(l.sshClient, "lxd", "")
+	fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend")
+
+	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
+	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("添加防火墙规则失败: %w", err)
 	}
 
-	for _, proto := range protocols {
-		// DNAT规则
-		dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-			proto, hostPort, instanceIP, guestPort)
-
-		_, err := l.sshClient.Execute(dnatCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s DNAT规则失败: %w", proto, err)
-		}
-
-		// FORWARD规则
-		forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-			proto, instanceIP, guestPort)
-
-		_, err = l.sshClient.Execute(forwardCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s FORWARD规则失败: %w", proto, err)
-		}
-
-		// MASQUERADE规则
-		masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-			proto, instanceIP, guestPort)
-
-		_, err = l.sshClient.Execute(masqueradeCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s MASQUERADE规则失败: %w", proto, err)
-		}
-
-		global.APP_LOG.Debug("Iptables端口映射设置成功",
-			zap.String("instance", instanceName),
-			zap.String("protocol", proto),
-			zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
-	}
+	global.APP_LOG.Debug("防火墙端口映射设置成功",
+		zap.String("instance", instanceName),
+		zap.String("protocol", protocol),
+		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
 	return nil
 }
 
-// SaveIptablesRules 保存iptables规则到文件（公开方法）
+// SaveIptablesRules 保存防火墙规则到文件（公开方法）
 func (l *LXDProvider) SaveIptablesRules() error {
-	// 创建iptables目录
-	_, err := l.sshClient.Execute("mkdir -p /etc/iptables")
-	if err != nil {
-		global.APP_LOG.Warn("创建iptables目录失败", zap.Error(err))
-	}
-
-	// 保存IPv4规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4"
-	_, err = l.sshClient.Execute(saveCmd)
-	if err != nil {
-		return fmt.Errorf("保存iptables规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("LXD iptables规则保存成功")
+	fwMgr := firewall.NewManager(l.sshClient, "lxd", "")
+	fwMgr.DetectBackend("/usr/local/bin/lxd_fw_backend")
+	fwMgr.SaveRules()
+	global.APP_LOG.Debug("LXD防火墙规则保存成功")
 	return nil
 }
 

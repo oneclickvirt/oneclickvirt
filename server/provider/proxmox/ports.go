@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/provider/firewall"
 
 	"go.uber.org/zap"
 )
@@ -153,36 +154,14 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 	return nil
 }
 
-// cleanupIptablesRulesForIP 清理指定IP地址的iptables规则
+// cleanupIptablesRulesForIP 清理指定IP地址的防火墙规则（nft优先，iptables回退）
 func (p *ProxmoxProvider) cleanupIptablesRulesForIP(ctx context.Context, ipAddress string) error {
-	global.APP_LOG.Debug("清理IP地址的iptables规则", zap.String("ipAddress", ipAddress))
+	global.APP_LOG.Debug("清理IP地址的防火墙规则", zap.String("ipAddress", ipAddress))
 
-	// 清理DNAT规则
-	dnatCmd := fmt.Sprintf("iptables -t nat -S PREROUTING | grep 'DNAT.*%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
-	_, err := p.sshClient.Execute(dnatCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理DNAT规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 清理FORWARD规则
-	forwardCmd := fmt.Sprintf("iptables -S FORWARD | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables $line 2>/dev/null || true; done", ipAddress)
-	_, err = p.sshClient.Execute(forwardCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理FORWARD规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 清理MASQUERADE规则
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -S POSTROUTING | grep '%s' | sed 's/^-A /-D /' | while read line; do iptables -t nat $line 2>/dev/null || true; done", ipAddress)
-	_, err = p.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		global.APP_LOG.Warn("清理MASQUERADE规则失败", zap.String("ipAddress", ipAddress), zap.Error(err))
-	}
-
-	// 保存iptables规则
-	_, err = p.sshClient.Execute("iptables-save > /etc/iptables/rules.v4 2>/dev/null || true")
-	if err != nil {
-		global.APP_LOG.Warn("保存iptables规则失败", zap.Error(err))
-	}
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
+	fwMgr.DeleteRulesByIP(ipAddress)
+	fwMgr.SaveRules()
 
 	return nil
 }
@@ -317,47 +296,27 @@ func (p *ProxmoxProvider) setupSinglePortMapping(ctx context.Context, instanceNa
 	}
 }
 
-// setupIptablesMappingWithIP 使用指定的实例IP设置iptables端口映射
+// setupIptablesMappingWithIP 使用防火墙设置端口映射（nft优先，iptables回退）
 func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Debug("设置Iptables端口映射(使用已知IP)",
+	global.APP_LOG.Debug("设置防火墙端口映射(使用已知IP)",
 		zap.String("instance", instanceName),
 		zap.String("instanceIP", instanceIP),
 		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
-	// 确保instanceIP是纯IP地址
 	cleanInstanceIP := strings.TrimSpace(instanceIP)
 	if strings.Contains(cleanInstanceIP, "/") {
 		cleanInstanceIP = strings.Split(cleanInstanceIP, "/")[0]
 	}
 
-	// DNAT规则 - 将外部请求转发到内部实例
-	dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -i vmbr0 -p %s --dport %d -j DNAT --to-destination %s:%d",
-		protocol, hostPort, cleanInstanceIP, guestPort)
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
 
-	_, err := p.sshClient.Execute(dnatCmd)
-	if err != nil {
-		return fmt.Errorf("添加DNAT规则失败: %w", err)
+	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
+	if err := fwMgr.AddSingleDNAT(cleanInstanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("添加防火墙规则失败: %w", err)
 	}
 
-	// FORWARD规则 - 允许转发流量
-	forwardCmd := fmt.Sprintf("iptables -A FORWARD -d %s -p %s --dport %d -j ACCEPT",
-		cleanInstanceIP, protocol, guestPort)
-
-	_, err = p.sshClient.Execute(forwardCmd)
-	if err != nil {
-		return fmt.Errorf("添加FORWARD规则失败: %w", err)
-	}
-
-	// MASQUERADE规则 - 处理返回流量
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -s %s -p %s --sport %d -j MASQUERADE",
-		cleanInstanceIP, protocol, guestPort)
-
-	_, err = p.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		return fmt.Errorf("添加MASQUERADE规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("Iptables端口映射设置成功",
+	global.APP_LOG.Debug("防火墙端口映射设置成功",
 		zap.String("instance", instanceName),
 		zap.String("target", fmt.Sprintf("%s:%d", cleanInstanceIP, guestPort)))
 
@@ -372,91 +331,50 @@ func (p *ProxmoxProvider) removePortMapping(ctx context.Context, instanceName st
 		zap.String("protocol", protocol),
 		zap.String("method", method))
 
-	switch method {
-	case "iptables":
-		return p.removeIptablesMapping(ctx, instanceName, hostPort, protocol)
-	case "native":
-		// Proxmox原生端口映射移除（暂时使用iptables实现）
-		return p.removeIptablesMapping(ctx, instanceName, hostPort, protocol)
-	default:
-		// 默认使用iptables方式
-		return p.removeIptablesMapping(ctx, instanceName, hostPort, protocol)
-	}
+	return p.removeIptablesMapping(ctx, instanceName, hostPort, protocol)
 }
 
-// removeIptablesMapping 移除iptables端口映射
+// removeIptablesMapping 移除防火墙端口映射（nft优先，iptables回退）
 func (p *ProxmoxProvider) removeIptablesMapping(ctx context.Context, instanceName string, hostPort int, protocol string) error {
-	// 获取实例IP
 	instanceIP, err := p.getInstancePrivateIP(ctx, instanceName)
 	if err != nil {
 		return fmt.Errorf("获取实例IP失败: %w", err)
 	}
 
-	// 确保instanceIP是纯IP地址
 	cleanInstanceIP := strings.TrimSpace(instanceIP)
 	if strings.Contains(cleanInstanceIP, "/") {
 		cleanInstanceIP = strings.Split(cleanInstanceIP, "/")[0]
 	}
 
-	// 移除DNAT规则
-	dnatCmd := fmt.Sprintf("iptables -t nat -D PREROUTING -i vmbr0 -p %s --dport %d -j DNAT --to-destination %s",
-		protocol, hostPort, cleanInstanceIP)
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
 
-	_, err = p.sshClient.Execute(dnatCmd)
-	if err != nil {
-		global.APP_LOG.Warn("移除DNAT规则失败",
-			zap.String("instance", instanceName),
-			zap.Error(err))
+	// 尝试先按注释删除（新规则），再按IP+端口删除（旧规则）
+	comment := fmt.Sprintf("pm:%s:%d:", instanceName, hostPort)
+	backend := fwMgr.GetBackend()
+	if backend == firewall.BackendNft {
+		fwMgr.DeleteRulesByComment(comment)
+	} else {
+		// iptables: 精确删除3条规则
+		fwMgr.RemoveSingleDNAT(cleanInstanceIP, hostPort, 0, protocol, "")
 	}
 
-	// 移除FORWARD规则
-	forwardCmd := fmt.Sprintf("iptables -D FORWARD -d %s -p %s --dport %d -j ACCEPT",
-		cleanInstanceIP, protocol, hostPort)
-
-	_, err = p.sshClient.Execute(forwardCmd)
-	if err != nil {
-		global.APP_LOG.Warn("移除FORWARD规则失败",
-			zap.String("instance", instanceName),
-			zap.Error(err))
-	}
-
-	// 移除MASQUERADE规则
-	masqueradeCmd := fmt.Sprintf("iptables -t nat -D POSTROUTING -s %s -p %s --sport %d -j MASQUERADE",
-		cleanInstanceIP, protocol, hostPort)
-
-	_, err = p.sshClient.Execute(masqueradeCmd)
-	if err != nil {
-		global.APP_LOG.Warn("移除MASQUERADE规则失败",
-			zap.String("instance", instanceName),
-			zap.Error(err))
-	}
-
-	global.APP_LOG.Debug("Iptables端口映射移除成功",
+	global.APP_LOG.Debug("防火墙端口映射移除成功",
 		zap.String("instance", instanceName))
 
 	return nil
 }
 
-// saveIptablesRules 保存iptables规则（内部方法）
+// saveIptablesRules 保存防火墙规则
 func (p *ProxmoxProvider) saveIptablesRules() error {
-	// 创建iptables目录
-	_, err := p.sshClient.Execute("mkdir -p /etc/iptables")
-	if err != nil {
-		global.APP_LOG.Warn("创建iptables目录失败", zap.Error(err))
-	}
-
-	// 保存IPv4规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4"
-	_, err = p.sshClient.Execute(saveCmd)
-	if err != nil {
-		return fmt.Errorf("保存iptables规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("iptables规则保存成功")
+	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
+	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
+	fwMgr.SaveRules()
+	global.APP_LOG.Debug("防火墙规则保存成功")
 	return nil
 }
 
-// SaveIptablesRules 保存iptables规则（公开方法）
+// SaveIptablesRules 保存防火墙规则（公开方法）
 func (p *ProxmoxProvider) SaveIptablesRules() error {
 	return p.saveIptablesRules()
 }

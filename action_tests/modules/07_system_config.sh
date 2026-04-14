@@ -93,4 +93,12 @@ run_module_07() {
     # -- Negative: Invalid pagination --
     test_api "Audit logs (page=0)" "GET" "/api/v1/admin/monitoring/audit-logs?page=0&pageSize=10" "200|400" "" "$group"
     test_api "Audit logs (huge page)" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=99999" "200|400" "" "$group"
+
+    # -- Captcha config toggle --
+    test_api "Enable captcha" "PUT" "/api/v1/admin/config" "200" \
+        '{"captcha":{"enabled":true}}' "$group"
+    test_api "Verify captcha enabled" "GET" "/api/v1/admin/config" "200" "" "$group"
+    test_api "Disable captcha" "PUT" "/api/v1/admin/config" "200" \
+        '{"captcha":{"enabled":false}}' "$group"
+    test_api "Verify captcha disabled" "GET" "/api/v1/admin/config" "200" "" "$group"
 }

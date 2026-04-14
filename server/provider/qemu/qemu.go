@@ -22,16 +22,14 @@ const (
 	ImageDir = "/var/lib/libvirt/images"
 	// VMLogDir VM 信息日志目录
 	VMLogDir = "/root/vmlog"
-	// ScriptDir 脚本存放目录
-	ScriptDir = "/usr/local/bin"
-	// ScriptRepo 脚本所在 GitHub 仓库
-	ScriptRepo = "oneclickvirt/qemu"
-	// InternalNetwork libvirt 默认 NAT 网络
-	InternalNetwork = "virbr0"
 	// InternalSubnet 内网网段
 	InternalSubnet = "192.168.122.0/24"
 	// InternalGateway 内网网关
 	InternalGateway = "192.168.122.1"
+	// FWBackendFile 防火墙后端标记文件
+	FWBackendFile = "/usr/local/bin/qemu_fw_backend"
+	// NFTTableName nftables 表名
+	NFTTableName = "qemu"
 )
 
 // QEMUProvider 基于 libvirt/virsh 的 QEMU/KVM 虚拟机 Provider

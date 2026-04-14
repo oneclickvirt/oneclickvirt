@@ -122,6 +122,7 @@
         </el-form-item>
 
         <el-form-item
+          v-if="captchaEnabled"
           :label="t('register.captcha')"
           prop="captcha"
         >
@@ -208,6 +209,7 @@ const loading = ref(false)
 const showInviteCode = ref(false)
 const inviteCodeRequired = ref(false)
 const captchaImage = ref('')
+const captchaEnabled = ref(false)
 const registrationEnabled = ref(true)
 
 const registerForm = reactive({
@@ -249,9 +251,11 @@ const registerRules = computed(() => ({
     { required: true, message: t('register.pleaseConfirmPassword'), trigger: 'blur' },
     { validator: validateConfirmPassword, trigger: 'blur' }
   ],
-  captcha: [
-    { required: true, message: t('register.pleaseEnterCaptcha'), trigger: 'blur' }
-  ],
+  ...(captchaEnabled.value ? {
+    captcha: [
+      { required: true, message: t('register.pleaseEnterCaptcha'), trigger: 'blur' }
+    ]
+  } : {}),
   inviteCode: [
     { validator: validateInviteCode, trigger: 'blur' }
   ]
@@ -287,8 +291,10 @@ const handleRegister = async () => {
         return await register({
           username: registerForm.username,
           password: registerForm.password,
-          captcha: registerForm.captcha,
-          captchaId: registerForm.captchaId,
+          ...(captchaEnabled.value ? {
+            captcha: registerForm.captcha,
+            captchaId: registerForm.captchaId
+          } : {}),
           inviteCode: showInviteCode.value ? registerForm.inviteCode : undefined,
           registerType: registerForm.registerType
         })
@@ -373,6 +379,9 @@ const checkRegistrationEnabled = async () => {
     // 邀请码必填的条件：启用邀请码系统且未启用公开注册
     inviteCodeRequired.value = inviteCodeEnabled && !enablePublicRegistration
     
+    // 验证码开关
+    captchaEnabled.value = config.captchaEnabled || false
+    
     return canRegister
   }, {
     showError: false, // 不显示错误消息
@@ -396,7 +405,7 @@ const toggleTheme = () => {
 
 onMounted(async () => {
   await checkRegistrationEnabled()
-  if (registrationEnabled.value) {
+  if (registrationEnabled.value && captchaEnabled.value) {
     refreshCaptcha()
   }
 })

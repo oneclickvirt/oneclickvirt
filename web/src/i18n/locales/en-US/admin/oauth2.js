@@ -16,6 +16,8 @@ export default {
   linuxDoPreset: "Linux.do Preset",
   idcFlarePreset: "IDCFlare Preset",
   genericOAuth2: "Generic OAuth2",
+  customOAuth2: "Custom (Manual)",
+  selectPreset: "Select a preset...",
   basicConfig: "Basic Configuration",
   displayNamePlaceholder: "e.g.: Linux.do",
   identifierNamePlaceholder: "e.g.: linuxdo (unique identifier, no duplicates)",

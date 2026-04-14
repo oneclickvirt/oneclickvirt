@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/provider/firewall"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -18,7 +19,6 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("not connected")
 	}
 
-	// 检查当前状态
 	statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
 	if err != nil {
@@ -30,7 +30,6 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return nil
 	}
 
-	// 使用 virtctl start
 	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl start '%s' -n %s 2>&1", id, Namespace))
 	if err != nil {
 		global.APP_LOG.Error("KubeVirt虚拟机启动失败",
@@ -40,7 +39,6 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to start VM: %w", err)
 	}
 
-	// 等待VM运行
 	for i := 0; i < 30; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
 			"kubectl get vmi '%s' -n %s -o jsonpath='{.status.phase}' 2>/dev/null", id, Namespace))
@@ -50,7 +48,7 @@ func (p *KubeVirtProvider) StartInstance(ctx context.Context, id string) error {
 		time.Sleep(3 * time.Second)
 	}
 
-	return nil
+	return fmt.Errorf("VM '%s' did not reach Running state within timeout", id)
 }
 
 // StopInstance 停止虚拟机
@@ -68,7 +66,6 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		return fmt.Errorf("failed to stop VM: %w", err)
 	}
 
-	// 等待VM停止
 	for i := 0; i < 20; i++ {
 		statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
 			"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
@@ -78,7 +75,7 @@ func (p *KubeVirtProvider) StopInstance(ctx context.Context, id string) error {
 		time.Sleep(3 * time.Second)
 	}
 
-	return nil
+	return fmt.Errorf("VM '%s' did not reach Stopped state within timeout", id)
 }
 
 // RestartInstance 重启虚拟机
@@ -87,7 +84,6 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return fmt.Errorf("not connected")
 	}
 
-	// 检查状态
 	statusOutput, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm '%s' -n %s -o jsonpath='{.status.printableStatus}' 2>/dev/null", id, Namespace))
 	if err != nil {
@@ -99,7 +95,6 @@ func (p *KubeVirtProvider) RestartInstance(ctx context.Context, id string) error
 		return p.StartInstance(ctx, id)
 	}
 
-	// 使用 virtctl restart
 	output, err := p.sshClient.Execute(fmt.Sprintf("virtctl restart '%s' -n %s 2>&1", id, Namespace))
 	if err != nil {
 		global.APP_LOG.Warn("KubeVirt虚拟机restart失败，尝试stop+start",
@@ -147,24 +142,10 @@ func (p *KubeVirtProvider) DeleteInstance(ctx context.Context, id string) error 
 	return nil
 }
 
-// sshDeleteInstance 通过SSH删除KubeVirt虚拟机
+// sshDeleteInstance 通过SSH删除KubeVirt虚拟机（不依赖外部shell脚本）
 func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) error {
 	global.APP_LOG.Info("开始删除KubeVirt虚拟机", zap.String("id", utils.TruncateString(id, 32)))
 
-	// 检查 deletevm.sh 脚本是否存在
-	output, err := p.sshClient.Execute(fmt.Sprintf("test -f %s/deletevm.sh && echo 'exists' || echo 'missing'", ScriptDir))
-	if err == nil && strings.TrimSpace(output) == "exists" {
-		output, err := p.sshClient.Execute(fmt.Sprintf("bash %s/deletevm.sh '%s' 2>&1", ScriptDir, id))
-		if err != nil {
-			global.APP_LOG.Warn("使用脚本删除VM失败，尝试手动删除",
-				zap.String("id", utils.TruncateString(id, 32)),
-				zap.String("output", utils.TruncateString(output, 500)))
-		} else {
-			return nil
-		}
-	}
-
-	// 手动删除流程
 	// 1. 停止VM
 	p.sshClient.Execute(fmt.Sprintf("virtctl stop '%s' -n %s 2>/dev/null", id, Namespace))
 	time.Sleep(2 * time.Second)
@@ -180,17 +161,25 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc -n %s -l vm.kubevirt.io/name='%s' 2>/dev/null", Namespace, id))
 	p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s-disk' -n %s 2>/dev/null", id, Namespace))
 
-	// 5. 清理iptables DNAT规则
-	p.cleanupIptablesRules(ctx, id)
+	// 5. 通过firewall.Manager清理防火墙规则（nft优先，iptables回退）
+	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
+	backend, _ := fwMgr.DetectBackend(FWBackendFile)
+	if backend == "nft" {
+		fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
+	} else {
+		// iptables backend: use comment-based deletion (same comment format)
+		fwMgr.DeleteRulesByComment(fmt.Sprintf("vm:%s", id))
+	}
+	fwMgr.SaveRules()
 
 	// 6. 清理vmlog
-	p.sshClient.Execute(fmt.Sprintf("rm -f %s/%s.log 2>/dev/null", VMLogDir, id))
+	p.sshClient.Execute(fmt.Sprintf("sed -i '/^%s /d' /root/vmlog 2>/dev/null", id))
 
 	// 等待删除完成
 	time.Sleep(3 * time.Second)
 
 	// 验证
-	output, err = p.sshClient.Execute(fmt.Sprintf(
+	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm '%s' -n %s 2>&1", id, Namespace))
 	if err != nil || strings.Contains(output, "NotFound") || strings.Contains(output, "not found") {
 		global.APP_LOG.Info("KubeVirt虚拟机删除成功", zap.String("id", utils.TruncateString(id, 32)))
@@ -198,31 +187,4 @@ func (p *KubeVirtProvider) sshDeleteInstance(ctx context.Context, id string) err
 	}
 
 	return fmt.Errorf("VM %s still exists after deletion", id)
-}
-
-// cleanupIptablesRules 清理iptables DNAT规则
-func (p *KubeVirtProvider) cleanupIptablesRules(ctx context.Context, name string) {
-	// 从vmlog获取端口信息
-	output, err := p.sshClient.Execute(fmt.Sprintf("cat %s/%s.log 2>/dev/null", VMLogDir, name))
-	if err != nil || strings.TrimSpace(output) == "" {
-		return
-	}
-
-	// 获取所有与该VM相关的DNAT规则的完整规则描述
-	// 使用 -S 输出规则描述（而非行号），避免竞态条件
-	ruleOutput, err := p.sshClient.Execute(fmt.Sprintf(
-		"iptables -t nat -S PREROUTING 2>/dev/null | grep -i '%s'", name))
-	if err != nil || strings.TrimSpace(ruleOutput) == "" {
-		return
-	}
-
-	for _, rule := range strings.Split(strings.TrimSpace(ruleOutput), "\n") {
-		rule = strings.TrimSpace(rule)
-		if rule == "" {
-			continue
-		}
-		// -S 输出的规则以 -A 开头，替换为 -D 来删除
-		deleteRule := strings.Replace(rule, "-A PREROUTING", "-D PREROUTING", 1)
-		p.sshClient.Execute(fmt.Sprintf("iptables -t nat %s 2>/dev/null", deleteRule))
-	}
 }

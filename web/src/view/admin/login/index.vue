@@ -71,7 +71,7 @@
           />
         </el-form-item>
 
-        <el-form-item prop="captcha">
+        <el-form-item v-if="captchaEnabled" prop="captcha">
           <div class="captcha-container">
             <el-input
               v-model="loginForm.captcha"
@@ -129,6 +129,7 @@ import { ElMessage } from 'element-plus'
 import { useErrorHandler } from '@/composables/useErrorHandler'
 
 import { getCaptcha } from '@/api/auth'
+import { getPublicConfig } from '@/api/public'
 import { Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
@@ -146,6 +147,7 @@ const loginFormRef = ref()
 const loading = ref(false)
 const captchaImage = ref('')
 const captchaId = ref('')
+const captchaEnabled = ref(false)
 
 const loginForm = reactive({
   username: '',
@@ -162,9 +164,11 @@ const loginRules = computed(() => ({
   password: [
     { required: true, message: t('validation.passwordRequired'), trigger: 'blur' }
   ],
-  captcha: [
-    { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
-  ]
+  ...(captchaEnabled.value ? {
+    captcha: [
+      { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
+    ]
+  } : {})
 }))
 
 const handleLogin = async () => {
@@ -185,7 +189,7 @@ const handleLogin = async () => {
       const result = await handleSubmit(async () => {
         return await userStore.adminLogin({
           ...loginForm,
-          captchaId: captchaId.value
+          ...(captchaEnabled.value ? { captchaId: captchaId.value } : { captcha: undefined, captchaId: undefined })
         })
       }, {
         successMessage: t('login.loginSuccess'),
@@ -228,8 +232,17 @@ const toggleTheme = () => {
   themeStore.toggleTheme()
 }
 
-onMounted(() => {
-  refreshCaptcha()
+onMounted(async () => {
+  try {
+    const configResponse = await getPublicConfig()
+    captchaEnabled.value = configResponse.data?.captchaEnabled || false
+  } catch (e) {
+    // fallback: show captcha if config fetch fails
+    captchaEnabled.value = true
+  }
+  if (captchaEnabled.value) {
+    refreshCaptcha()
+  }
 })
 </script>
 

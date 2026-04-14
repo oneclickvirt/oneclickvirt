@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	"oneclickvirt/provider/firewall"
 	"sort"
 	"strings"
 
@@ -317,71 +318,37 @@ func (i *IncusProvider) setupDeviceProxyMappingWithIP(instanceName string, hostP
 	return nil
 }
 
-// setupIptablesMappingWithIP 使用iptables设置端口映射
+// setupIptablesMappingWithIP 使用防火墙设置端口映射（nft优先，iptables回退）
 func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort, guestPort int, protocol, instanceIP string) error {
-	global.APP_LOG.Debug("使用iptables设置端口映射",
+	global.APP_LOG.Debug("使用防火墙设置端口映射",
 		zap.String("instanceName", instanceName),
 		zap.Int("hostPort", hostPort),
 		zap.Int("guestPort", guestPort),
 		zap.String("protocol", protocol),
 		zap.String("instanceIP", instanceIP))
 
-	// 如果协议是both，需要同时创建TCP和UDP规则
-	protocols := []string{protocol}
-	if protocol == "both" {
-		protocols = []string{"tcp", "udp"}
+	fwMgr := firewall.NewManager(i.sshClient, "incus", "")
+	fwMgr.DetectBackend("/usr/local/bin/incus_fw_backend")
+
+	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
+	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
+		return fmt.Errorf("添加防火墙规则失败: %w", err)
 	}
 
-	for _, proto := range protocols {
-		// DNAT规则
-		dnatCmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",
-			proto, hostPort, instanceIP, guestPort)
-		_, err := i.sshClient.Execute(dnatCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s DNAT规则失败: %w", proto, err)
-		}
-
-		// FORWARD规则
-		forwardCmd := fmt.Sprintf("iptables -A FORWARD -p %s -d %s --dport %d -j ACCEPT",
-			proto, instanceIP, guestPort)
-		_, err = i.sshClient.Execute(forwardCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s FORWARD规则失败: %w", proto, err)
-		}
-
-		// MASQUERADE规则
-		masqueradeCmd := fmt.Sprintf("iptables -t nat -A POSTROUTING -p %s -s %s --sport %d -j MASQUERADE",
-			proto, instanceIP, guestPort)
-		_, err = i.sshClient.Execute(masqueradeCmd)
-		if err != nil {
-			return fmt.Errorf("添加%s MASQUERADE规则失败: %w", proto, err)
-		}
-
-		global.APP_LOG.Info("Iptables端口映射设置成功",
-			zap.String("instanceName", instanceName),
-			zap.String("protocol", proto),
-			zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
-	}
+	global.APP_LOG.Info("防火墙端口映射设置成功",
+		zap.String("instanceName", instanceName),
+		zap.String("protocol", protocol),
+		zap.String("target", fmt.Sprintf("%s:%d", instanceIP, guestPort)))
 
 	return nil
 }
 
-// SaveIptablesRules 保存iptables规则到文件（公开方法）
+// SaveIptablesRules 保存防火墙规则到文件（公开方法）
 func (i *IncusProvider) SaveIptablesRules() error {
-	// 创建iptables目录
-	_, err := i.sshClient.Execute("mkdir -p /etc/iptables")
-	if err != nil {
-		global.APP_LOG.Warn("创建iptables目录失败", zap.Error(err))
-	}
-
-	// 保存IPv4规则
-	saveCmd := "iptables-save > /etc/iptables/rules.v4"
-	_, err = i.sshClient.Execute(saveCmd)
-	if err != nil {
-		return fmt.Errorf("保存iptables规则失败: %w", err)
-	}
-
-	global.APP_LOG.Debug("Incus iptables规则保存成功")
+	fwMgr := firewall.NewManager(i.sshClient, "incus", "")
+	fwMgr.DetectBackend("/usr/local/bin/incus_fw_backend")
+	fwMgr.SaveRules()
+	global.APP_LOG.Debug("Incus防火墙规则保存成功")
 	return nil
 }
 

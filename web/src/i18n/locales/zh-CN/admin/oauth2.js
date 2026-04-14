@@ -16,6 +16,8 @@ export default {
   linuxDoPreset: "Linux.do 预设",
   idcFlarePreset: "IDCFlare 预设",
   genericOAuth2: "通用OAuth2",
+  customOAuth2: "自定义（手动填写）",
+  selectPreset: "选择预设...",
   basicConfig: "基础配置",
   displayNamePlaceholder: "例如: Linux.do",
   identifierNamePlaceholder: "例如: linuxdo (唯一标识，不可重复)",

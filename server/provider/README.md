@@ -16,6 +16,7 @@ provider/
 ├── proxmox/                 # Proxmox VE 虚拟化提供商实现
 ├── qemu/                    # QEMU/KVM 虚拟机提供商实现
 ├── kubevirt/                # KubeVirt 虚拟机提供商实现
+├── firewall/                # 防火墙管理模块（nftables 优先，iptables 兜底）
 ├── health/                  # 统一健康检查模块
 └── portmapping/             # 端口映射模块
     ├── interface.go         # 端口映射接口定义
@@ -27,7 +28,7 @@ provider/
     ├── containerd/          # Containerd 端口映射
     ├── incus/               # Incus 端口映射
     ├── lxd/                 # LXD 端口映射
-    └── iptables/            # iptables 端口映射
+    └── iptables/            # iptables/nftables 端口映射（通过 firewall.Manager）
 ```
 
 ## 核心概念
@@ -212,41 +213,50 @@ Provider 支持三种执行规则，控制操作的执行方式：
 基于 Proxmox VE 虚拟化平台的 Provider 实现。
 
 - **类型标识**：`proxmox`
-- **支持实例类型**：`vm`
+- **支持实例类型**：`container`、`vm`
 - **连接方式**：SSH + API
 - **执行方式**：根据执行规则选择 API 或 SSH
 - **特性**：虚拟机生命周期管理、Token 认证 API、SSH 命令行备用、虚拟机配置管理、网络和存储配置、Transport 资源自动清理、实例发现
 
 ### QEMU
 
-基于 QEMU/KVM 虚拟化技术的 Provider 实现，使用 virsh CLI 管理虚拟机。
+基于 QEMU/KVM 虚拟化技术的 Provider 实现，通过 SSH 直接执行命令管理虚拟机。
 
 - **类型标识**：`qemu`
 - **支持实例类型**：`vm`
 - **连接方式**：SSH
-- **执行方式**：SSH 命令行（`virsh` CLI）
+- **执行方式**：SSH 命令行（`virsh` + `virt-install` + `cloud-init` CLI）
 - **网络**：libvirt NAT（virbr0, 192.168.122.0/24）
-- **端口映射**：iptables DNAT
-- **镜像格式**：qcow2 + cloud-init
-- **创建脚本**：`oneqemu.sh`
-- **特性**：虚拟机生命周期管理、qcow2 镜像管理、多方式密码设置（guest-agent/SSH/virt-customize）、iptables DNAT 端口发现、实例发现
+- **端口映射**：通过 firewall.Manager（nftables 优先，iptables 兑底）
+- **镜像格式**：qcow2 + cloud-init ISO
+- **特性**：直接 SSH 执行创建（无需下载脚本）、KVM/TCG 自动回退、qcow2 镜像管理、多方式密码设置（guest-agent/SSH/virt-customize）、nftables/iptables DNAT 端口发现、实例发现
 
 ### KubeVirt
 
-基于 KubeVirt 虚拟化技术的 Provider 实现，使用 kubectl + virtctl CLI 管理虚拟机。
+基于 KubeVirt 虚拟化技术的 Provider 实现，通过 SSH 直接执行 kubectl YAML 管理虚拟机。
 
 - **类型标识**：`kubevirt`
 - **支持实例类型**：`vm`
 - **连接方式**：SSH
 - **执行方式**：SSH 命令行（`kubectl` + `virtctl` CLI）
-- **K8s 栏架**：K3s
+- **K8s 框架**：K3s
 - **命名空间**：`kubevirt-vms`
-- **端口映射**：NodePort Service
+- **端口映射**：NodePort Service + firewall.Manager（nftables 优先，iptables 兑底）
 - **镜像格式**：qcow2/img/raw + CDI PVC
-- **创建脚本**：`onevm.sh`
-- **特性**：虚拟机生命周期管理、磁盘镜像管理、NodePort SSH 密码设置、PVC 磁盘发现、实例发现
+- **创建方式**：直接生成 YAML 并 `kubectl apply`（PVC + VirtualMachine + NodePort Service + cloud-init）
+- **特性**：直接 YAML 创建（无需下载脚本）、虚拟机生命周期管理、PVC 磁盘发现、NodePort + DNAT 端口发现、实例发现
 
 ## 子模块
+
+### firewall/
+
+防火墙管理模块，为所有 Provider 提供统一的 DNAT 端口转发管理。支持 nftables 优先、iptables 兑底的双后端模式。
+
+- **后端检测**：通过 marker 文件自动识别当前节点的防火墙后端
+- **nftables 模式**：每个 Provider 独立的 nft 表（qemu/kubevirt/proxmox/incus/lxd）
+- **iptables 模式**：传统 iptables DNAT 规则，通过 comment 追踪规则
+- **持久化**：nftables 规则保存到 `/etc/nftables.d/{table}.nft`，iptables 使用 `iptables-save`
+- **主要 API**：`AddDNAT`, `AddSingleDNAT`, `RemoveSingleDNAT`, `DeleteRulesByComment`, `DeleteRulesByIP`, `DiscoverDNATRules`, `SaveRules`
 
 ### health/
 
@@ -256,7 +266,7 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 端口映射模块，为不同 Provider 提供统一的端口映射管理接口。
 
-- **支持的映射方法**：native（Provider 原生）、iptables
+- **支持的映射方法**：native（Provider 原生）、iptables/nftables（通过 firewall.Manager）
 - **支持的 Provider**：Docker、Podman、Containerd、Incus、LXD、iptables（通用，用于 QEMU/KubeVirt 等）
 - **功能**：端口分配、映射创建/删除、冲突检测
 - **架构**：接口定义 + Manager 统一管理 + 各 Provider 独立实现

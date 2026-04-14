@@ -7,7 +7,7 @@
 # Each platform requires its own set of secrets to be configured in GitHub Actions.
 # ============================================================================
 PLATFORM_ALICE_ENABLED="${PLATFORM_ALICE_ENABLED:-true}"
-PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-false}"
+PLATFORM_LIGHTNODE_ENABLED="${PLATFORM_LIGHTNODE_ENABLED:-true}"
 PLATFORM_RACKDOG_ENABLED="${PLATFORM_RACKDOG_ENABLED:-false}"
 PLATFORM_SKRIME_ENABLED="${PLATFORM_SKRIME_ENABLED:-false}"
 PLATFORM_PREPAIDHOST_ENABLED="${PLATFORM_PREPAIDHOST_ENABLED:-false}"

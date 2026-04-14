@@ -295,7 +295,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 
 	// 创建实例
 	instance := providerModel.Instance{
-		Name:           req.Name,
+		Name:           utils.SanitizeShellArg(req.Name),
 		Provider:       req.Provider,
 		ProviderID:     provider.ID,
 		Image:          req.Image,

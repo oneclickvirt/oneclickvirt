@@ -154,39 +154,27 @@
           <span>{{ dialogTitle }}</span>
           <div
             v-if="!isEdit"
-            class="preset-buttons"
+            class="preset-selector"
           >
-            <el-button
+            <el-select
+              v-model="selectedPreset"
+              :placeholder="$t('admin.oauth2.selectPreset')"
               size="small"
-              type="primary"
-              @click="applyPreset('linuxdo')"
+              style="width: 200px"
+              clearable
+              @change="handlePresetChange"
             >
-              <el-icon><Connection /></el-icon>
-              Linux.do
-            </el-button>
-            <el-button
-              size="small"
-              type="success"
-              @click="applyPreset('idcflare')"
-            >
-              <el-icon><Connection /></el-icon>
-              IDCFlare
-            </el-button>
-            <el-button
-              size="small"
-              @click="applyPreset('github')"
-            >
-              <el-icon><Connection /></el-icon>
-              GitHub
-            </el-button>
-            <el-button
-              size="small"
-              type="info"
-              @click="applyPreset('generic')"
-            >
-              <el-icon><Setting /></el-icon>
-              {{ $t('admin.oauth2.genericOAuth2') }}
-            </el-button>
+              <el-option label="Linux.do" value="linuxdo" />
+              <el-option label="IDCFlare" value="idcflare" />
+              <el-option label="GitHub" value="github" />
+              <el-option label="GitLab" value="gitlab" />
+              <el-option label="Gitea" value="gitea" />
+              <el-option label="Google" value="google" />
+              <el-option label="Microsoft" value="microsoft" />
+              <el-option label="Discord" value="discord" />
+              <el-option :label="$t('admin.oauth2.genericOAuth2')" value="generic" />
+              <el-option :label="$t('admin.oauth2.customOAuth2')" value="custom" />
+            </el-select>
           </div>
         </div>
       </template>
@@ -554,6 +542,7 @@ const formRef = ref(null)
 const oauth2Enabled = ref(true) // 默认为true，加载后更新
 
 const mappingDialogVisible = ref(false)
+const selectedPreset = ref('')
 const newMapping = reactive({
   externalLevel: '',
   systemLevel: 1
@@ -719,8 +708,18 @@ const applyPreset = async (presetName) => {
   }
 }
 
+// 处理预设选择变更
+const handlePresetChange = (presetName) => {
+  if (!presetName || presetName === 'custom') {
+    resetForm()
+    return
+  }
+  applyPreset(presetName)
+}
+
 const handleAdd = () => {
   resetForm()
+  selectedPreset.value = ''
   isEdit.value = false
   dialogTitle.value = t('admin.oauth2.addProvider')
   dialogVisible.value = true
@@ -921,9 +920,10 @@ const removeLevelMapping = (key) => {
   align-items: center;
   justify-content: space-between;
   
-  .preset-buttons {
+  .preset-selector {
     display: flex;
-    gap: 10px;
+    align-items: center;
+    gap: 8px;
   }
 }
 

@@ -24,10 +24,10 @@ const (
 	ImageDir = "/var/lib/libvirt/images"
 	// VMLogDir VM日志目录
 	VMLogDir = "/root/vmlog"
-	// ScriptDir 脚本存放目录
-	ScriptDir = "/usr/local/bin"
-	// ScriptRepo 脚本仓库
-	ScriptRepo = "oneclickvirt/kubevirt"
+	// FWBackendFile 防火墙后端标记文件
+	FWBackendFile = "/usr/local/bin/kubevirt_fw_backend"
+	// NFTTableName nftables 表名
+	NFTTableName = "kubevirt"
 )
 
 // KubeVirtProvider 基于 kubectl/virtctl 的 KubeVirt 虚拟机 Provider

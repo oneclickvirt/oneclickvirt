@@ -365,6 +365,7 @@ func GetRegisterConfig(c *gin.Context) {
 		"kycMethod":      global.GetAppConfig().KYC.Method,
 		"domainEnabled":  global.GetAppConfig().Auth.EnableDomain,
 		"checkinEnabled": global.GetAppConfig().Auth.EnableCheckin,
+		"captchaEnabled": global.GetAppConfig().Captcha.Enabled,
 	}
 	common.ResponseSuccess(c, config)
 }

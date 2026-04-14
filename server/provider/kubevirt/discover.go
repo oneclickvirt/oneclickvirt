@@ -9,6 +9,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/provider/firewall"
 
 	"go.uber.org/zap"
 )
@@ -24,7 +25,6 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 
 	global.APP_LOG.Debug("开始发现KubeVirt虚拟机", zap.String("provider", p.config.Name))
 
-	// 获取所有VM的JSON信息
 	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get vm -n %s -o json 2>/dev/null", Namespace))
 	if err != nil {
@@ -70,6 +70,10 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 		return nil, fmt.Errorf("failed to parse VM list: %w", err)
 	}
 
+	// 初始化防火墙管理器用于发现DNAT规则
+	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
+	fwMgr.DetectBackend(FWBackendFile)
+
 	var discovered []provider.DiscoveredInstance
 
 	for _, item := range vmList.Items {
@@ -81,13 +85,11 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 			CPU:          item.Spec.Template.Spec.Domain.CPU.Cores,
 		}
 
-		// 解析内存
 		memStr := item.Spec.Template.Spec.Domain.Resources.Requests.Memory
 		if memMB := parseMemoryString(memStr); memMB > 0 {
 			inst.Memory = memMB
 		}
 
-		// 获取PVC磁盘大小
 		for _, vol := range item.Spec.Template.Spec.Volumes {
 			if vol.PersistentVolumeClaim != nil {
 				pvcName := vol.PersistentVolumeClaim.ClaimName
@@ -102,8 +104,26 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 			}
 		}
 
-		// 获取端口映射 (NodePort Services)
+		// 获取端口映射 - 优先从NodePort Service发现，再补充防火墙DNAT规则
 		inst.PortMappings = p.discoverPortMappings(ctx, item.Metadata.Name)
+
+		// 补充通过防火墙发现的DNAT规则
+		fwRules := fwMgr.DiscoverDNATRules(item.Metadata.Name)
+		existingPorts := make(map[int]bool)
+		for _, pm := range inst.PortMappings {
+			existingPorts[pm.HostPort] = true
+		}
+		for _, rule := range fwRules {
+			if !existingPorts[rule.HostPort] {
+				inst.PortMappings = append(inst.PortMappings, provider.DiscoveredPortMapping{
+					HostPort:  rule.HostPort,
+					GuestPort: rule.GuestPort,
+					Protocol:  rule.Protocol,
+					IsSSH:     rule.IsSSH,
+				})
+			}
+		}
+
 		for _, pm := range inst.PortMappings {
 			if pm.IsSSH {
 				inst.SSHPort = pm.HostPort
@@ -122,9 +142,8 @@ func (p *KubeVirtProvider) DiscoverInstances(ctx context.Context) ([]provider.Di
 	return discovered, nil
 }
 
-// discoverPortMappings 发现VM的端口映射
+// discoverPortMappings 发现VM的端口映射（NodePort Service）
 func (p *KubeVirtProvider) discoverPortMappings(ctx context.Context, vmName string) []provider.DiscoveredPortMapping {
-	// 获取所有关联的NodePort Service（不依赖jq）
 	output, err := p.sshClient.Execute(fmt.Sprintf(
 		"kubectl get svc -n %s -o json 2>/dev/null",
 		Namespace))
@@ -180,7 +199,6 @@ func parseMemoryString(memStr string) int64 {
 	if memStr == "" {
 		return 0
 	}
-
 	if strings.HasSuffix(memStr, "Gi") {
 		if v, err := strconv.ParseFloat(strings.TrimSuffix(memStr, "Gi"), 64); err == nil {
 			return int64(v * 1024)
@@ -210,7 +228,6 @@ func parseStorageString(sizeStr string) int64 {
 	if sizeStr == "" {
 		return 0
 	}
-
 	if strings.HasSuffix(sizeStr, "Gi") {
 		if v, err := strconv.ParseFloat(strings.TrimSuffix(sizeStr, "Gi"), 64); err == nil {
 			return int64(v * 1024)

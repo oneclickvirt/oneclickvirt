@@ -71,7 +71,7 @@
           />
         </el-form-item>
 
-        <el-form-item prop="captcha">
+        <el-form-item v-if="captchaEnabled" prop="captcha">
           <div class="captcha-container">
             <el-input
               v-model="loginForm.captcha"
@@ -191,6 +191,7 @@ const captchaId = ref('')
 const oauth2Enabled = ref(false)
 const oauth2Providers = ref([])
 const oauth2Loading = ref(false) // OAuth2登录防重复点击
+const captchaEnabled = ref(false)
 
 const loginForm = reactive({
   username: '',
@@ -208,9 +209,11 @@ const loginRules = computed(() => ({
   password: [
     { required: true, message: t('validation.passwordRequired'), trigger: 'blur' }
   ],
-  captcha: [
-    { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
-  ]
+  ...(captchaEnabled.value ? {
+    captcha: [
+      { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
+    ]
+  } : {})
 }))
 
 const handleLogin = async () => {
@@ -231,7 +234,7 @@ const handleLogin = async () => {
       const result = await handleSubmit(async () => {
         return await userStore.userLogin({
           ...loginForm,
-          captchaId: captchaId.value
+          ...(captchaEnabled.value ? { captchaId: captchaId.value } : { captcha: undefined, captchaId: undefined })
         })
       }, {
         successMessage: t('login.loginSuccess'),
@@ -292,6 +295,7 @@ const checkOAuth2Config = async () => {
     // 获取OAuth2全局开关状态
     const configResponse = await getPublicConfig()
     oauth2Enabled.value = configResponse.data?.oauth2Enabled || false
+    captchaEnabled.value = configResponse.data?.captchaEnabled || false
     
     // 如果启用了OAuth2，加载提供商列表
     if (oauth2Enabled.value) {
@@ -314,9 +318,11 @@ const toggleTheme = () => {
   themeStore.toggleTheme()
 }
 
-onMounted(() => {
-  refreshCaptcha()
-  checkOAuth2Config()
+onMounted(async () => {
+  await checkOAuth2Config()
+  if (captchaEnabled.value) {
+    refreshCaptcha()
+  }
 })
 </script>
 

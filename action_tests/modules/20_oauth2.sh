@@ -14,6 +14,11 @@ run_module_20() {
     # ---- Presets ----
     test_api "List OAuth2 presets" "GET" "/api/v1/oauth2/presets" "200" "" "$group" "$ADMIN_TOKEN"
     test_api "Get preset (github)" "GET" "/api/v1/oauth2/presets/github" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Get preset (linuxdo)" "GET" "/api/v1/oauth2/presets/linuxdo" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Get preset (idcflare)" "GET" "/api/v1/oauth2/presets/idcflare" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Get preset (generic)" "GET" "/api/v1/oauth2/presets/generic" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Get preset (qq)" "GET" "/api/v1/oauth2/presets/qq" "200|404" "" "$group" "$ADMIN_TOKEN"
+    test_api "Get preset (telegram)" "GET" "/api/v1/oauth2/presets/telegram" "200|404" "" "$group" "$ADMIN_TOKEN"
     test_api "Get preset (nonexistent)" "GET" "/api/v1/oauth2/presets/nonexistent_provider" "404" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Create OAuth2 provider (with all required fields) ----

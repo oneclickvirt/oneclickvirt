@@ -8,6 +8,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
+	"oneclickvirt/provider/firewall"
 
 	"go.uber.org/zap"
 )
@@ -28,6 +29,10 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 	if err != nil {
 		return nil, fmt.Errorf("failed to list VMs: %w", err)
 	}
+
+	// 初始化防火墙管理器用于端口发现
+	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
+	fwMgr.DetectBackend(FWBackendFile)
 
 	var discovered []provider.DiscoveredInstance
 	names := strings.Split(strings.TrimSpace(output), "\n")
@@ -68,7 +73,7 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 				}
 			case "Max memory":
 				if memKB, err := parseKiBValue(value); err == nil {
-					inst.Memory = memKB / 1024 // KB → MB
+					inst.Memory = memKB / 1024
 				}
 			}
 		}
@@ -78,21 +83,28 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 			"virsh domblkinfo '%s' $(virsh domblklist '%s' 2>/dev/null | awk 'NR>2 && $2!=\"\"{print $2; exit}') 2>/dev/null | grep 'Capacity' | awk '{print $2}'", name, name))
 		if err == nil {
 			if diskBytes, err := strconv.ParseInt(strings.TrimSpace(diskOutput), 10, 64); err == nil {
-				inst.Disk = diskBytes / (1024 * 1024) // bytes → MB
+				inst.Disk = diskBytes / (1024 * 1024)
 			}
 		}
 
 		// 获取IP
 		inst.PrivateIP = p.getVMIPAddress(ctx, name)
 
-		// 获取端口映射 (从iptables DNAT规则)
+		// 使用防火墙管理器发现端口映射
 		if inst.PrivateIP != "" {
-			inst.PortMappings = p.discoverPortMappings(ctx, inst.PrivateIP)
-			for _, pm := range inst.PortMappings {
-				if pm.IsSSH {
-					inst.SSHPort = pm.HostPort
+			rules := fwMgr.DiscoverDNATRules(inst.PrivateIP)
+			for _, r := range rules {
+				pm := provider.DiscoveredPortMapping{
+					HostPort:  r.HostPort,
+					GuestPort: r.GuestPort,
+					Protocol:  r.Protocol,
+					IsSSH:     r.IsSSH,
+				}
+				inst.PortMappings = append(inst.PortMappings, pm)
+				if r.IsSSH {
+					inst.SSHPort = r.HostPort
 				} else {
-					inst.ExtraPorts = append(inst.ExtraPorts, pm.HostPort)
+					inst.ExtraPorts = append(inst.ExtraPorts, r.HostPort)
 				}
 			}
 		}
@@ -112,77 +124,4 @@ func (p *QEMUProvider) DiscoverInstances(ctx context.Context) ([]provider.Discov
 		zap.String("provider", p.config.Name))
 
 	return discovered, nil
-}
-
-// discoverPortMappings 从iptables DNAT规则发现端口映射
-func (p *QEMUProvider) discoverPortMappings(ctx context.Context, vmIP string) []provider.DiscoveredPortMapping {
-	// 获取指向该IP的所有DNAT规则
-	output, err := p.sshClient.Execute(fmt.Sprintf(
-		"iptables -t nat -L PREROUTING -n 2>/dev/null | grep 'DNAT' | grep '%s'", vmIP))
-	if err != nil {
-		return nil
-	}
-
-	var mappings []provider.DiscoveredPortMapping
-	for _, line := range strings.Split(output, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
-
-		pm := parseIptablesDNATRule(line, vmIP)
-		if pm != nil {
-			mappings = append(mappings, *pm)
-		}
-	}
-	return mappings
-}
-
-// parseIptablesDNATRule 解析 iptables DNAT 规则
-// 格式: DNAT tcp -- 0.0.0.0/0 0.0.0.0/0 tcp dpt:10022 to:192.168.122.2:22
-func parseIptablesDNATRule(line, vmIP string) *provider.DiscoveredPortMapping {
-	if !strings.Contains(line, "DNAT") {
-		return nil
-	}
-
-	pm := &provider.DiscoveredPortMapping{
-		Protocol: "tcp",
-	}
-
-	// 提取协议
-	if strings.Contains(line, "udp") {
-		pm.Protocol = "udp"
-	}
-
-	// 提取宿主机端口 (dpt:xxxxx)
-	if idx := strings.Index(line, "dpt:"); idx >= 0 {
-		portStr := line[idx+4:]
-		portStr = strings.Fields(portStr)[0]
-		if port, err := strconv.Atoi(portStr); err == nil {
-			pm.HostPort = port
-		}
-	}
-
-	// 提取目标端口 (to:IP:port)
-	if idx := strings.Index(line, "to:"); idx >= 0 {
-		target := line[idx+3:]
-		target = strings.Fields(target)[0]
-		parts := strings.Split(target, ":")
-		if len(parts) == 2 {
-			if port, err := strconv.Atoi(parts[1]); err == nil {
-				pm.GuestPort = port
-			}
-		}
-	}
-
-	if pm.HostPort == 0 || pm.GuestPort == 0 {
-		return nil
-	}
-
-	// 检查是否为SSH端口
-	if pm.GuestPort == 22 {
-		pm.IsSSH = true
-	}
-
-	return pm
 }
