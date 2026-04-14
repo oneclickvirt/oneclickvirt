@@ -170,7 +170,7 @@ run_module_09() {
         '{"format":"json"}' "$group"
 
     # -- Provider API routes --
-    test_api "Provider API list" "GET" "/api/v1/providers/" "200" "" "$group"
+    test_api "Provider API list" "GET" "/api/v1/providers" "200" "" "$group"
     test_api "Provider API status" "GET" "/api/v1/providers/${PROVIDER_ID}/status" "200" "" "$group"
     test_api "Provider API capabilities" "GET" "/api/v1/providers/${PROVIDER_ID}/capabilities" "200" "" "$group"
     test_api "Provider API images" "GET" "/api/v1/providers/${PROVIDER_ID}/images" "200|400" "" "$group"

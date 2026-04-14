@@ -1,0 +1,290 @@
+#!/bin/bash
+# Module 28: Instance SSH Connectivity + Download Speedtest
+#
+# Tests that an instance created by a provider:
+#   1. Can be reached via SSH (using remote.py with the instance's public IP + SSH port)
+#   2. Can successfully download > 1 MB from at least one of the speedtest URLs within 60 seconds
+#
+# Dependencies: 01_init (ADMIN_TOKEN, SERVER_URL), 09_providers (PROVIDER_ID),
+#               10_instances (TEST_INSTANCE_ID)
+#
+# Optional env vars:
+#   SPEEDTEST_MIN_MB    – minimum bytes (in MB) to consider a download success (default: 1)
+#   SPEEDTEST_TIMEOUT   – per-URL download timeout in seconds (default: 60)
+#   REMOTE_PY           – absolute path to remote.py (default: same dir as this script/../common/remote.py)
+#   PYTHON              – python binary to use (default: python3)
+
+SPEEDTEST_URLS=(
+    "https://speedtest.lax2.budgetvm.com/10GB.bin"
+    "https://speedtest.ord1.budgetvm.com/10GB.bin"
+    "https://speedtest.ord2.budgetvm.com/10GB.bin"
+    "https://speedtest.dtw1.budgetvm.com/10GB.bin"
+    "https://speedtest.den1.budgetvm.com/10GB.bin"
+    "https://speedtest.ny01.budgetvm.com/10GB.bin"
+    "https://speedtest.mia1.budgetvm.com/10GB.bin"
+    "https://speedtest.tky1.budgetvm.com/10GB.bin"
+    "https://speedtest.hk01.budgetvm.com/10GB.bin"
+    "https://speedtest.dfw1.budgetvm.com/10GB.bin"
+)
+
+SPEEDTEST_MIN_MB="${SPEEDTEST_MIN_MB:-1}"
+SPEEDTEST_TIMEOUT="${SPEEDTEST_TIMEOUT:-60}"
+
+_get_remote_py() {
+    # Resolve remote.py path: prefer REMOTE_PY env, else locate relative to this file
+    if [[ -n "${REMOTE_PY:-}" && -f "$REMOTE_PY" ]]; then
+        echo "$REMOTE_PY"
+        return 0
+    fi
+    local this_dir; this_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local candidate="${this_dir}/../common/remote.py"
+    if [[ -f "$candidate" ]]; then
+        realpath "$candidate" 2>/dev/null || echo "$candidate"
+        return 0
+    fi
+    return 1
+}
+
+_ensure_python() {
+    local py="${PYTHON:-python3}"
+    if ! command -v "$py" >/dev/null 2>&1; then
+        py="python"
+        command -v "$py" >/dev/null 2>&1 || { log_error "No python3/python found"; return 1; }
+    fi
+    echo "$py"
+}
+
+# Retrieve instance SSH details from the admin API
+# Outputs: INST_PUBLIC_IP, INST_SSH_PORT, INST_USERNAME, INST_PASSWORD
+_get_instance_ssh_info() {
+    local instance_id="$1"
+    local resp; resp=$(curl -s --max-time 30 \
+        -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || return 1
+
+    local code; code=$(echo "$resp" | jq -r '.code // empty' 2>/dev/null)
+    [[ "$code" != "0" ]] && { log_error "Admin instance API returned code=${code}"; return 1; }
+
+    INST_PUBLIC_IP=$(echo "$resp"  | jq -r '.data.publicIP  // .data.instance.publicIP  // empty' 2>/dev/null)
+    INST_SSH_PORT=$(echo "$resp"   | jq -r '.data.sshPort   // .data.instance.sshPort   // 22'    2>/dev/null)
+    INST_USERNAME=$(echo "$resp"   | jq -r '.data.username  // .data.instance.username  // "root"' 2>/dev/null)
+    INST_PASSWORD=$(echo "$resp"   | jq -r '.data.password  // .data.instance.password  // empty' 2>/dev/null)
+
+    log_debug "Instance SSH info: IP=${INST_PUBLIC_IP} PORT=${INST_SSH_PORT} USER=${INST_USERNAME} PASS=[hidden]"
+
+    [[ -z "$INST_PUBLIC_IP" ]] && { log_error "Could not determine instance public IP"; return 1; }
+    [[ -z "$INST_SSH_PORT" || "$INST_SSH_PORT" == "null" ]] && INST_SSH_PORT=22
+    [[ -z "$INST_USERNAME" || "$INST_USERNAME" == "null" ]] && INST_USERNAME="root"
+    return 0
+}
+
+# Wait (with retries) until the instance reports "running" status
+_wait_instance_running() {
+    local instance_id="$1" max_wait="${2:-120}" interval=10 elapsed=0
+    log_info "Waiting up to ${max_wait}s for instance ${instance_id} to reach 'running' state..."
+    while [[ $elapsed -lt $max_wait ]]; do
+        local resp; resp=$(curl -s --max-time 10 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+        local st; st=$(echo "$resp" | jq -r '.data.status // empty' 2>/dev/null)
+        if [[ "$st" == "running" ]]; then
+            log_success "Instance ${instance_id} is running (waited ${elapsed}s)"
+            return 0
+        fi
+        log_debug "Instance ${instance_id} status=${st:-unknown} (${elapsed}/${max_wait}s)"
+        sleep "$interval"
+        elapsed=$((elapsed + interval))
+    done
+    log_warning "Instance ${instance_id} did not reach 'running' within ${max_wait}s"
+    return 1
+}
+
+# Test SSH connectivity using remote.py
+# Returns 0 on success, 1 on failure
+_test_ssh_connectivity() {
+    local host="$1" port="$2" user="$3" password="$4"
+    local py; py=$(_ensure_python) || return 1
+    local remote_py; remote_py=$(_get_remote_py) || { log_error "remote.py not found"; return 1; }
+
+    log_info "Testing SSH connectivity: ${user}@${host}:${port}"
+    local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" \
+        "$py" "$remote_py" --timeout 30 echo "ssh-ok" 2>&1)
+    local rc=$?
+
+    if [[ $rc -eq 0 && "$out" == *"ssh-ok"* ]]; then
+        log_success "SSH connectivity confirmed: ${user}@${host}:${port}"
+        return 0
+    else
+        log_error "SSH connectivity failed (rc=${rc}): ${out}"
+        return 1
+    fi
+}
+
+# Test download from speedtest URLs inside the remote instance
+# Returns 0 if at least one URL downloads > SPEEDTEST_MIN_MB within SPEEDTEST_TIMEOUT
+_test_speedtest_download() {
+    local host="$1" port="$2" user="$3" password="$4"
+    local py; py=$(_ensure_python) || return 1
+    local remote_py; remote_py=$(_get_remote_py) || { log_error "remote.py not found"; return 1; }
+
+    log_info "Testing speedtest download from instance ${user}@${host}:${port}"
+    log_info "  Minimum required: ${SPEEDTEST_MIN_MB} MB within ${SPEEDTEST_TIMEOUT}s"
+    log_info "  Speedtest URLs: ${#SPEEDTEST_URLS[@]}"
+
+    for url in "${SPEEDTEST_URLS[@]}"; do
+        log_info "  Trying: ${url}"
+
+        # Run wget inside the instance, measure bytes received, and return the byte count.
+        # If wget is not available, fall back to curl.
+        local cmd
+        cmd=$(cat <<INNERSCRIPT
+tmp=\$(mktemp); \
+timeout ${SPEEDTEST_TIMEOUT} wget -q -O "\$tmp" '${url}' 2>/dev/null \
+  || timeout ${SPEEDTEST_TIMEOUT} curl -sL -o "\$tmp" '${url}' 2>/dev/null; \
+sz=\$(stat -c%s "\$tmp" 2>/dev/null || stat -f%z "\$tmp" 2>/dev/null || echo 0); \
+rm -f "\$tmp"; \
+echo "\$sz"
+INNERSCRIPT
+)
+        local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" \
+            "$py" "$remote_py" \
+            --timeout $((SPEEDTEST_TIMEOUT + 30)) \
+            bash -c "$cmd" 2>&1)
+        local rc=$?
+
+        local bytes=0
+        # Extract last integer-only line from output
+        local last_int; last_int=$(echo "$out" | grep -E '^[0-9]+$' | tail -1)
+        [[ -n "$last_int" ]] && bytes="$last_int"
+
+        local mb; mb=$(awk "BEGIN {printf \"%.2f\", ${bytes}/1048576}")
+        log_info "  Downloaded: ${mb} MB from ${url} (rc=${rc})"
+
+        if awk "BEGIN { exit (${bytes} >= ${SPEEDTEST_MIN_MB} * 1048576) ? 0 : 1 }"; then
+            log_success "Speedtest PASSED: downloaded ${mb} MB from ${url}"
+            return 0
+        fi
+    done
+
+    log_error "Speedtest FAILED: no URL delivered >= ${SPEEDTEST_MIN_MB} MB within ${SPEEDTEST_TIMEOUT}s"
+    return 1
+}
+
+run_module_28() {
+    report_add_section "28 - Instance SSH + Speedtest"
+    local group="instance_ssh_speedtest"
+
+    # -- Prerequisites --
+    if [[ -z "${PROVIDER_ID:-}" ]]; then
+        chain_break "$group" "PROVIDER_ID not set (need module 09)"
+        return 1
+    fi
+    if [[ -z "${TEST_INSTANCE_ID:-}" ]]; then
+        chain_break "$group" "TEST_INSTANCE_ID not set (need module 10)"
+        return 1
+    fi
+
+    local remote_py; remote_py=$(_get_remote_py 2>/dev/null) || true
+    if [[ -z "$remote_py" || ! -f "$remote_py" ]]; then
+        chain_break "$group" "remote.py not found (expected at action_tests/common/remote.py)"
+        return 1
+    fi
+    local py; py=$(_ensure_python 2>/dev/null) || {
+        chain_break "$group" "python3 not available"
+        return 1
+    }
+
+    # -- Wait for instance to be running --
+    _wait_instance_running "$TEST_INSTANCE_ID" 180
+
+    # -- Get SSH info from API --
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    local INST_PUBLIC_IP="" INST_SSH_PORT="" INST_USERNAME="" INST_PASSWORD=""
+    if ! _get_instance_ssh_info "$TEST_INSTANCE_ID"; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "Get SSH info - could not retrieve SSH details for instance ${TEST_INSTANCE_ID}"
+        report_add_fail "Get SSH info" "GET" \
+            "/api/v1/admin/instances/${TEST_INSTANCE_ID}" \
+            "" "SSH details in response" "missing" "publicIP/sshPort/username/password not found"
+        _record_result "Get SSH info" "GET" \
+            "/api/v1/admin/instances/${TEST_INSTANCE_ID}" \
+            "FAIL" "SSH details" "missing" "" "$group"
+        chain_break "$group" "Could not retrieve SSH info for instance"
+        return 1
+    fi
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    log_success "Get SSH info - IP=${INST_PUBLIC_IP} PORT=${INST_SSH_PORT}"
+    report_add_pass "Get SSH info" "GET" "/api/v1/admin/instances/${TEST_INSTANCE_ID}"
+    _record_result "Get SSH info" "GET" \
+        "/api/v1/admin/instances/${TEST_INSTANCE_ID}" \
+        "PASS" "SSH details" "found" "" "$group"
+
+    # -- If password is not returned by API, reset it first --
+    if [[ -z "$INST_PASSWORD" || "$INST_PASSWORD" == "null" ]]; then
+        log_info "Instance password not in API response; resetting via API..."
+        local rp_resp; rp_resp=$(test_api "Reset instance password (for SSH test)" "PUT" \
+            "/api/v1/admin/instances/${TEST_INSTANCE_ID}/reset-password" "200" \
+            '{"password":"SpeedTest123!@#"}' "$group")
+        # If the platform returned a task, wait for it
+        local rp_task; rp_task=$(echo "$rp_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        if [[ -n "$rp_task" ]]; then
+            wait_task_complete "$SERVER_URL" "$rp_task" "$ADMIN_TOKEN" 120 5 > /dev/null 2>&1 || true
+            local pw_resp; pw_resp=$(curl -s --max-time 30 \
+                -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/password/${rp_task}" 2>/dev/null) || true
+            local new_pw; new_pw=$(echo "$pw_resp" | jq -r '.data.password // empty' 2>/dev/null)
+            [[ -n "$new_pw" && "$new_pw" != "null" ]] && INST_PASSWORD="$new_pw"
+        else
+            INST_PASSWORD="SpeedTest123!@#"
+        fi
+    fi
+
+    # Allow a short breathing window for SSH daemon to be fully ready
+    log_info "Waiting 15s for SSH daemon to settle..."
+    sleep 15
+
+    # -- SSH connectivity test --
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    local ssh_ok=false
+    local ssh_attempts=3
+    for ((attempt=1; attempt<=ssh_attempts; attempt++)); do
+        if _test_ssh_connectivity \
+               "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD"; then
+            ssh_ok=true
+            break
+        fi
+        [[ $attempt -lt $ssh_attempts ]] && { log_info "SSH attempt ${attempt}/${ssh_attempts} failed, retrying in 15s..."; sleep 15; }
+    done
+
+    if [[ "$ssh_ok" == "true" ]]; then
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        report_add_pass "Instance SSH connectivity" "SSH" "${INST_PUBLIC_IP}:${INST_SSH_PORT}"
+        _record_result "Instance SSH connectivity" "SSH" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "PASS" "ssh-ok" "connected" "" "$group"
+    else
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        report_add_fail "Instance SSH connectivity" "SSH" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "" "connected" "failed" "All ${ssh_attempts} attempts failed"
+        _record_result "Instance SSH connectivity" "SSH" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "FAIL" "connected" "failed" "All ${ssh_attempts} attempts failed" "$group"
+        # SSH is a hard prerequisite for the speedtest
+        chain_break "$group" "SSH connectivity failed - cannot run speedtest"
+        return 1
+    fi
+
+    # -- Speedtest via remote.py inside the instance --
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+    if _test_speedtest_download \
+           "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD"; then
+        PASSED_TESTS=$((PASSED_TESTS + 1))
+        report_add_pass "Instance speedtest download (>=${SPEEDTEST_MIN_MB}MB)" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}"
+        _record_result "Instance speedtest download" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "PASS" ">=${SPEEDTEST_MIN_MB}MB" "downloaded" "" "$group"
+    else
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        report_add_fail "Instance speedtest download (>=${SPEEDTEST_MIN_MB}MB)" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "No URL returned enough data in ${SPEEDTEST_TIMEOUT}s"
+        _record_result "Instance speedtest download" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
+            "FAIL" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "" "$group"
+    fi
+}

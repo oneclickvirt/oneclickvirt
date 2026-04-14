@@ -30,7 +30,7 @@ func InitProviderRouter(Router *gin.RouterGroup) {
 	ProviderGroup.Use(middleware.RequireAuth(authModel.AuthLevelAdmin))
 	{
 		providerApi := &provider.ProviderApi{}
-		ProviderGroup.GET("/", providerApi.GetProviders)
+		ProviderGroup.GET("", providerApi.GetProviders)
 		ProviderGroup.POST("/connect", providerApi.ConnectProvider)
 
 		// 动态Provider路由 - 使用Provider ID
