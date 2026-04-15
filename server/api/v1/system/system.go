@@ -25,7 +25,7 @@ func GetAnnouncement(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	announcements, err := systemService.GetActiveAnnouncements(announcementType)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取公告列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, announcements, "获取成功")
@@ -44,7 +44,7 @@ func GetUsers(c *gin.Context) {
 	userService := adminUser.NewService()
 	users, total, err := userService.GetUserList(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccessWithPagination(c, users, total, req.Page, req.PageSize)
@@ -60,7 +60,7 @@ func GetProviders(c *gin.Context) {
 	userSvc := userService.NewService()
 	providers, err := userSvc.GetAvailableProviders(authCtx.UserID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取可用节点失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, providers)
@@ -84,7 +84,7 @@ func UpdateProviderStatus(c *gin.Context) {
 	req.ID = uint(id)
 	providerService := adminProvider.NewService()
 	if err := providerService.UpdateProvider(req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil, "更新提供商成功")
@@ -103,7 +103,7 @@ func GetAllInstances(c *gin.Context) {
 	instanceService := adminInstance.NewService(task.GetTaskService())
 	instances, total, err := instanceService.GetInstanceList(req, 0)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, map[string]interface{}{
@@ -135,7 +135,7 @@ func AdminInstanceAction(c *gin.Context) {
 
 	instanceService := adminInstance.NewService(task.GetTaskService())
 	if err := instanceService.InstanceAction(uint(instanceID), adminReq); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

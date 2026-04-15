@@ -79,7 +79,7 @@ func ExecWebSocket(c *gin.Context) {
 			return
 		}
 		global.APP_LOG.Error("查询实例失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询实例失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

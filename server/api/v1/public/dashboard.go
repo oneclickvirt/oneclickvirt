@@ -21,7 +21,7 @@ func GetDashboardStats(c *gin.Context) {
 	dashboardService := resources.DashboardService{}
 	stats, err := dashboardService.GetDashboardStats()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取统计数据失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

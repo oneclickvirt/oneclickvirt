@@ -45,7 +45,7 @@ func GetInstanceResourceMonitoring(c *gin.Context) {
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
 	metrics, err := resSvc.GetInstanceResources(uint(instanceID), hours)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取资源数据失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

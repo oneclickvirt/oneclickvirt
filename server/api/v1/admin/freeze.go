@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"strings"
-
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	"oneclickvirt/service/admin"
@@ -21,7 +19,7 @@ func SetUserExpiry(c *gin.Context) {
 	}
 
 	if err := freezeService.SetUserExpiry(req.UserID, req.ExpiresAt); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "设置用户过期时间失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -37,7 +35,7 @@ func SetProviderExpiry(c *gin.Context) {
 	}
 
 	if err := freezeService.SetProviderExpiry(req.ProviderID, req.ExpiresAt); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "设置Provider过期时间失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -53,7 +51,7 @@ func SetInstanceExpiry(c *gin.Context) {
 	}
 
 	if err := freezeService.SetInstanceExpiry(req.InstanceID, req.ExpiresAt); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "设置实例过期时间失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -69,12 +67,7 @@ func FreezeProviderManual(c *gin.Context) {
 	}
 
 	if err := freezeService.FreezeProvider(req.ID, req.Reason); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "冻结Provider失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -90,12 +83,7 @@ func FreezeInstance(c *gin.Context) {
 	}
 
 	if err := freezeService.FreezeInstance(req.InstanceID, req.Reason); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "冻结实例失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -111,12 +99,7 @@ func UnfreezeProviderManual(c *gin.Context) {
 	}
 
 	if err := freezeService.UnfreezeProvider(req.ID); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解冻Provider失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -132,7 +115,7 @@ func UnfreezeInstance(c *gin.Context) {
 	}
 
 	if err := freezeService.UnfreezeInstance(req.InstanceID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解冻实例失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

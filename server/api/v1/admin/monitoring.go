@@ -29,7 +29,7 @@ func GetMonitoringConfig(c *gin.Context) {
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -82,7 +82,7 @@ func UpdateMonitoringConfig(c *gin.Context) {
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -106,7 +106,7 @@ func UpdateMonitoringConfig(c *gin.Context) {
 	}
 
 	if err := global.APP_DB.Save(config).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -183,7 +183,7 @@ func DeployAgent(c *gin.Context) {
 	// Get or create monitoring config (token is auto-generated on creation)
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -226,7 +226,7 @@ func DeployAgent(c *gin.Context) {
 	// Get provider model from database for proxy config
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取Provider配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -252,7 +252,7 @@ func DeployAgent(c *gin.Context) {
 	}
 	logs, err := agentService.DeployAgentWithConfig(deployCtx, providerInstance, agentCfg, req.Version)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "部署Agent失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -284,7 +284,7 @@ func UninstallAgent(c *gin.Context) {
 	defer cancel()
 
 	if err := agentService.UninstallAgent(ctx, providerInstance); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "卸载Agent失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -359,7 +359,7 @@ func GetProviderMonitors(c *gin.Context) {
 		Order("id DESC").
 		Offset((page - 1) * pageSize).Limit(pageSize).
 		Find(&monitors).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -414,7 +414,7 @@ func SyncProviderMonitors(c *gin.Context) {
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -436,14 +436,14 @@ func SyncProviderMonitors(c *gin.Context) {
 
 	// Ensure all running instances have monitors and update existing ones' interfaces
 	if err := monitorSvc.EnsureMonitorsForProvider(providerInstance, uint(providerID), config); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "同步监控失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
 	// Return updated list
 	var monitors []monitoringModel.AgentMonitor
 	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -461,7 +461,7 @@ func ListAgentMonitors(c *gin.Context) {
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -495,7 +495,7 @@ func ListAgentMonitors(c *gin.Context) {
 	client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
 	result, err := client.ListMonitors()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询Agent监控列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -612,7 +612,7 @@ func GetInstanceResources(c *gin.Context) {
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
 	metrics, err := resSvc.GetInstanceResources(uint(instanceID), hours)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取资源数据失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -632,7 +632,7 @@ func GetProviderResourceSummary(c *gin.Context) {
 	resSvc := agentService.NewResourceSyncService(ctx, global.APP_DB)
 	metrics, err := resSvc.GetProviderResourceSummary(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取资源概览失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -658,14 +658,14 @@ func ClearProviderMonitors(c *gin.Context) {
 
 	config, err := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
 	// Get all monitors for this provider
 	var monitors []monitoringModel.AgentMonitor
 	if err := global.APP_DB.Where("provider_id = ?", providerID).Find(&monitors).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询监控列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -694,7 +694,7 @@ func ClearProviderMonitors(c *gin.Context) {
 	// Hard-delete all agent monitors from local DB
 	deletedCount := len(monitors)
 	if err := global.APP_DB.Unscoped().Where("provider_id = ?", providerID).Delete(&monitoringModel.AgentMonitor{}).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空监控记录失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

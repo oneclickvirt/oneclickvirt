@@ -100,7 +100,7 @@ func (api *UserTrafficAPI) GetInstanceTrafficHistory(c *gin.Context) {
 			zap.Uint("instanceID", uint(instanceID)),
 			zap.Bool("includeArchived", includeArchived),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量历史失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -167,7 +167,7 @@ func GetProviderTrafficHistory(c *gin.Context) {
 		global.APP_LOG.Error("获取Provider流量历史失败",
 			zap.Uint("providerID", uint(providerID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量历史失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -232,7 +232,7 @@ func (api *UserTrafficAPI) GetUserTrafficHistory(c *gin.Context) {
 		global.APP_LOG.Error("获取用户流量历史失败",
 			zap.Uint("userID", userID.(uint)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量历史失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

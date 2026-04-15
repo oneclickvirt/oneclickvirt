@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"strings"
-
 	"oneclickvirt/middleware"
 	adminModel "oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
@@ -42,7 +40,7 @@ func GetRedemptionCodeList(c *gin.Context) {
 	svc := redemptionService.NewService(task.GetTaskService())
 	codes, total, err := svc.GetList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取兑换码列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -75,13 +73,7 @@ func BatchCreateRedemptionCodes(c *gin.Context) {
 
 	svc := redemptionService.NewService(task.GetTaskService())
 	if err := svc.BatchCreate(req, adminID); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "不可用") ||
-			strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不足") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -114,7 +106,7 @@ func BatchDeleteRedemptionCodes(c *gin.Context) {
 
 	svc := redemptionService.NewService(task.GetTaskService())
 	if err := svc.BatchDelete(req.IDs, adminID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -141,7 +133,7 @@ func ExportRedemptionCodes(c *gin.Context) {
 	svc := redemptionService.NewService(task.GetTaskService())
 	codes, err := svc.ExportByIDs(req.IDs)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "导出失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

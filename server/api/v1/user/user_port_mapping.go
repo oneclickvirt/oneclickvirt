@@ -64,7 +64,7 @@ func GetInstancePorts(c *gin.Context) {
 	ports, err := portMappingService.GetPortMappingsByInstanceID(uint(instanceID))
 	if err != nil {
 		global.APP_LOG.Error("获取端口映射失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取端口映射失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -146,7 +146,7 @@ func GetUserPortMappings(c *gin.Context) {
 	ports, total, err := portMappingService.GetUserPortMappings(userID, req.Page, req.Limit, req.Keyword)
 	if err != nil {
 		global.APP_LOG.Error("获取用户端口映射失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取端口映射失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

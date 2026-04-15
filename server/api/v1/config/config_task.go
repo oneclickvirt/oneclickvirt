@@ -120,13 +120,13 @@ func AutoConfigureProvider(c *gin.Context) {
 		authCtx.Username,
 	)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
 	// 启动任务
 	if err := configService.StartTask(task.ID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -195,7 +195,7 @@ func GetConfigurationTasks(c *gin.Context) {
 	configService := config.GetTaskService()
 	tasks, total, err := configService.GetTaskList(&req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -261,7 +261,7 @@ func CancelConfigurationTask(c *gin.Context) {
 
 	configService := config.GetTaskService()
 	if err := configService.CancelTask(uint(taskID)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "取消任务失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

@@ -38,7 +38,7 @@ func GetProviderIPv4Pool(c *gin.Context) {
 	svc := adminProvider.NewIPv4PoolService()
 	entries, total, err := svc.GetIPv4Pool(uint(providerID), page, pageSize)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取地址池失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -113,7 +113,7 @@ func ClearProviderIPv4Pool(c *gin.Context) {
 	svc := adminProvider.NewIPv4PoolService()
 	count, err := svc.ClearUnallocated(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

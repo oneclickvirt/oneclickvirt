@@ -96,7 +96,7 @@ func DeleteHardwareReport(c *gin.Context) {
 
 	svc := adminProviderService.NewService()
 	if err := svc.DeleteHardwareReport(c.Request.Context(), uint(providerID)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

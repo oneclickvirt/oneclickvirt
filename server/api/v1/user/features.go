@@ -2,7 +2,6 @@ package user
 
 import (
 	"strconv"
-	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -29,7 +28,7 @@ func GetUserDomains(c *gin.Context) {
 	domains, err := svc.GetUserDomains(userID)
 	if err != nil {
 		global.APP_LOG.Error("获取用户域名失败", zap.Uint("userID", userID), zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取域名列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, domains)
@@ -52,14 +51,7 @@ func CreateUserDomain(c *gin.Context) {
 	svc := &domainService.Service{}
 	domain, err := svc.CreateDomain(userID, &req)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "无效") || strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "无权限") ||
-			strings.Contains(errMsg, "已被绑定") || strings.Contains(errMsg, "不允许") || strings.Contains(errMsg, "未启用") ||
-			strings.Contains(errMsg, "上限") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, domain)
@@ -81,7 +73,7 @@ func DeleteUserDomain(c *gin.Context) {
 
 	svc := &domainService.Service{}
 	if err := svc.DeleteDomain(userID, uint(domainID)); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -109,7 +101,7 @@ func UpdateUserDomain(c *gin.Context) {
 
 	svc := &domainService.Service{}
 	if err := svc.UpdateDomain(userID, uint(domainID), &req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -157,12 +149,7 @@ func SubmitUserKYC(c *gin.Context) {
 	svc := &kycService.Service{}
 	record, err := svc.SubmitKYC(userID, &req)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "已通过") || strings.Contains(errMsg, "已提交") || strings.Contains(errMsg, "已被其他") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, record)
@@ -185,7 +172,7 @@ func SubmitAlipayKYC(c *gin.Context) {
 	svc := &kycService.Service{}
 	certifyURL, err := svc.SubmitAlipayKYC(userID, &req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, gin.H{"certifyUrl": certifyURL})
@@ -269,7 +256,7 @@ func GetCheckinRecords(c *gin.Context) {
 	svc := &checkinService.Service{}
 	records, total, err := svc.GetCheckinRecords(userID, page, pageSize)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取签到记录失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, gin.H{

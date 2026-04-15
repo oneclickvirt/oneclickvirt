@@ -43,7 +43,7 @@ func GetUserDashboard(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	dashboard, err := userServiceInstance.GetUserDashboard(userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户首页数据失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -74,7 +74,7 @@ func GetAvailableResources(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	resources, total, err := userServiceInstance.GetAvailableResources(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -124,7 +124,7 @@ func ClaimResource(c *gin.Context) {
 			zap.Uint("providerID", req.ProviderID),
 			zap.String("instanceType", req.InstanceType),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -167,7 +167,7 @@ func GetUserInstances(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	instances, total, err := userServiceInstance.GetUserInstances(userID, req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -262,7 +262,7 @@ func UpdateProfile(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	err = userServiceInstance.UpdateProfile(userID, req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新个人信息失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -341,7 +341,7 @@ func UserResetPassword(c *gin.Context) {
 			common.ResponseSuccess(c, response, err.Error())
 			return
 		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -372,7 +372,7 @@ func GetUserLimits(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	limits, err := userServiceInstance.GetUserLimits(userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户配额限制失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

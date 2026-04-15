@@ -25,7 +25,7 @@ func GetProviders(c *gin.Context) {
 	providers, err := providerService.GetAllProviders()
 	if err != nil {
 		global.APP_LOG.Error("获取OAuth2提供商列表失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -52,7 +52,7 @@ func GetEnabledProviders(c *gin.Context) {
 	providers, err := svc.GetAllEnabledProviders()
 	if err != nil {
 		global.APP_LOG.Error("获取启用的OAuth2提供商失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -92,7 +92,7 @@ func GetProvider(c *gin.Context) {
 		if appErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, appErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取提供商失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -149,7 +149,7 @@ func CreateProvider(c *gin.Context) {
 		if appErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, appErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建提供商失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -187,7 +187,7 @@ func UpdateProvider(c *gin.Context) {
 		if appErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, appErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新提供商失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -218,7 +218,7 @@ func DeleteProvider(c *gin.Context) {
 		if appErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, appErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "删除提供商失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -249,7 +249,7 @@ func ResetRegistrationCount(c *gin.Context) {
 		if appErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, appErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "重置计数失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}

@@ -55,7 +55,7 @@ func OAuth2Login(c *gin.Context) {
 		if customErr, ok := err.(*common.AppError); ok {
 			common.ResponseWithError(c, customErr)
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取提供商失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -64,7 +64,7 @@ func OAuth2Login(c *gin.Context) {
 	state, err := oauthService.GenerateStateToken(provider.ID)
 	if err != nil {
 		global.APP_LOG.Error("生成state令牌失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成令牌失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

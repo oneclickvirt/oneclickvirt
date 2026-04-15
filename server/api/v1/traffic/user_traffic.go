@@ -39,7 +39,7 @@ func (api *UserTrafficAPI) GetTrafficOverview(c *gin.Context) {
 		global.APP_LOG.Error("获取用户流量概览失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量概览失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -77,7 +77,7 @@ func (api *UserTrafficAPI) GetInstanceTrafficDetail(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", uint(instanceID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例流量详情失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -106,7 +106,7 @@ func (api *UserTrafficAPI) GetInstancesTrafficSummary(c *gin.Context) {
 		global.APP_LOG.Error("获取用户实例流量汇总失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例流量汇总失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -135,7 +135,7 @@ func (api *UserTrafficAPI) GetTrafficLimitStatus(c *gin.Context) {
 		global.APP_LOG.Error("获取流量限制状态失败",
 			zap.Uint("userID", userID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取流量限制状态失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -182,7 +182,7 @@ func (api *UserTrafficAPI) GetPmacctData(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint("instanceID", uint(instanceID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取pmacct数据失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

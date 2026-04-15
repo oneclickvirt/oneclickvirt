@@ -2,7 +2,6 @@ package admin
 
 import (
 	"strconv"
-	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -27,7 +26,7 @@ func AdminGetDomains(c *gin.Context) {
 	domains, err := svc.AdminGetAllDomains(ownerAdminID)
 	if err != nil {
 		global.APP_LOG.Error("获取域名列表失败", zap.Error(err), zap.Uint("adminID", authCtx.UserID))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取域名列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, domains)
@@ -61,7 +60,7 @@ func GetDomainConfig(c *gin.Context) {
 	svc := &domainService.Service{}
 	config, err := svc.GetDomainConfig(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取域名配置失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, config)
@@ -94,7 +93,7 @@ func UpdateDomainConfig(c *gin.Context) {
 
 	svc := &domainService.Service{}
 	if err := svc.UpdateDomainConfig(uint(providerID), &req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -111,7 +110,7 @@ func AdminGetKYCList(c *gin.Context) {
 	svc := &kycService.Service{}
 	records, total, err := svc.AdminGetKYCList(status, page, pageSize)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取KYC列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, gin.H{
@@ -140,14 +139,7 @@ func AdminReviewKYC(c *gin.Context) {
 	authCtx, _ := middleware.GetAuthContext(c)
 	svc := &kycService.Service{}
 	if err := svc.AdminReviewKYC(uint(kycID), authCtx.UserID, req.Approved, req.RejectReason); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "记录不存在") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else if strings.Contains(errMsg, "已审核过") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -166,7 +158,7 @@ func AdminGetCheckinConfig(c *gin.Context) {
 	svc := &checkinService.Service{}
 	config, err := svc.GetCheckinConfig(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取签到配置失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, config)
@@ -188,7 +180,7 @@ func AdminUpdateCheckinConfig(c *gin.Context) {
 
 	svc := &checkinService.Service{}
 	if err := svc.UpdateCheckinConfig(uint(providerID), &req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)
@@ -228,7 +220,7 @@ func AdminTransferInstance(c *gin.Context) {
 	authCtx, _ := middleware.GetAuthContext(c)
 	svc := &operationService.OperationService{}
 	if err := svc.TransferInstance(authCtx.UserID, req.InstanceID, req.TargetUserID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil)

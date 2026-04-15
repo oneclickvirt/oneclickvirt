@@ -41,7 +41,7 @@ run_module_22() {
     fi
 
     # ---- Checkin for nonexistent instance ----
-    test_api "Generate code nonexistent" "POST" "/api/v1/user/checkin/code/99999" "400|401" \
+    test_api "Generate code nonexistent" "POST" "/api/v1/user/checkin/code/99999" "400|401|404" \
         '' "$group" "$USER_TOKEN"
 
     # ---- Checkin empty body ----
@@ -61,7 +61,7 @@ run_module_22() {
 
     # ---- Negative: Checkin with SQL injection code ----
     if [[ -n "$USER_TOKEN" ]]; then
-        test_api "Checkin SQL injection" "POST" "/api/v1/user/checkin" "400" \
+        test_api "Checkin SQL injection" "POST" "/api/v1/user/checkin" "400|404" \
             '{"code":"\" OR 1=1;--","instanceId":1}' "$group" "$USER_TOKEN"
     fi
 

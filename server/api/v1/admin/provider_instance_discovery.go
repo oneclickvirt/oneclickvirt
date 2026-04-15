@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"strconv"
-	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -39,12 +38,7 @@ func DiscoverProviderInstances(c *gin.Context) {
 		global.APP_LOG.Error("发现Provider实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "发现实例失败: "+errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "发现实例失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -98,7 +92,7 @@ func ImportProviderInstances(c *gin.Context) {
 		global.APP_LOG.Error("导入Provider实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "导入实例失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -131,12 +125,7 @@ func GetOrphanedInstances(c *gin.Context) {
 		global.APP_LOG.Error("获取未纳管实例失败",
 			zap.Uint64("providerId", providerID),
 			zap.Error(err))
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不存在") || strings.Contains(errMsg, "找不到") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "获取未纳管实例失败: "+errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取未纳管实例失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

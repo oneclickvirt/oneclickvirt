@@ -133,7 +133,7 @@ func NewError(code int, details ...string) *AppError {
 }
 
 // ClassifyError maps a raw error to an AppError with an appropriate error code.
-// It detects gorm.ErrRecordNotFound and "not found" message patterns → CodeNotFound (404).
+// It detects common patterns in error messages and maps them to proper HTTP codes.
 // Already-wrapped AppErrors pass through unchanged.
 func ClassifyError(err error) *AppError {
 	if err == nil {
@@ -147,9 +147,35 @@ func ClassifyError(err error) *AppError {
 	}
 	msg := err.Error()
 	lower := strings.ToLower(msg)
+	// Not found patterns
 	if strings.Contains(msg, "不存在") || strings.Contains(msg, "找不到") ||
 		strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") {
 		return NewError(CodeNotFound, msg)
+	}
+	// Conflict patterns
+	if strings.Contains(msg, "已存在") || strings.Contains(msg, "重复") ||
+		strings.Contains(lower, "already exists") || strings.Contains(lower, "duplicate") ||
+		strings.Contains(lower, "conflict") {
+		return NewError(CodeConflict, msg)
+	}
+	// Forbidden / permission patterns
+	if strings.Contains(msg, "无权限") || strings.Contains(msg, "权限不足") ||
+		strings.Contains(msg, "禁止") || strings.Contains(lower, "forbidden") ||
+		strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied") {
+		return NewError(CodeForbidden, msg)
+	}
+	// Unauthorized patterns
+	if strings.Contains(msg, "未授权") || strings.Contains(msg, "未登录") ||
+		strings.Contains(lower, "unauthorized") || strings.Contains(lower, "unauthenticated") {
+		return NewError(CodeUnauthorized, msg)
+	}
+	// Validation / bad request patterns
+	if strings.Contains(msg, "参数") || strings.Contains(msg, "无效") ||
+		strings.Contains(msg, "格式错误") || strings.Contains(msg, "不能为空") ||
+		strings.Contains(msg, "尚未完成") || strings.Contains(msg, "不支持") ||
+		strings.Contains(lower, "invalid") || strings.Contains(lower, "required") ||
+		strings.Contains(lower, "validation") {
+		return NewError(CodeValidationError, msg)
 	}
 	return NewError(CodeInternalError, msg)
 }

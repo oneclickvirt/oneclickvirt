@@ -31,7 +31,7 @@ type LogDatesResponse struct {
 func GetLogDates(c *gin.Context) {
 	entries, err := os.ReadDir(logBaseDir)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取日志目录失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -128,7 +128,7 @@ func GetLogContent(c *gin.Context) {
 		if os.IsNotExist(err) {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "日志文件不存在"))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取日志文件失败: "+err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}

@@ -29,7 +29,7 @@ func GetUserInfo(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	userDashboard, err := userServiceInstance.GetUserDashboard(authCtx.UserID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

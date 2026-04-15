@@ -44,11 +44,7 @@ func GetUserInstanceDetail(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	detail, err := userServiceInstance.GetInstanceDetail(userID, uint(instanceID))
 	if err != nil {
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例详情失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -84,7 +80,7 @@ func GetInstanceConfig(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	config, err := userServiceInstance.GetInstanceConfig(userID, providerID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例配置失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -112,7 +108,7 @@ func GetActiveReservations(c *gin.Context) {
 	reservationService := resources.GetResourceReservationService()
 	reservations, err := reservationService.GetActiveReservations()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取预留资源失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -157,11 +153,7 @@ func GetInstanceMonitoring(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	monitoring, err := userServiceInstance.GetInstanceMonitoring(userID, uint(instanceID))
 	if err != nil {
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取监控数据失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -213,11 +205,7 @@ func ResetInstancePassword(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint64("instanceID", instanceID),
 			zap.Error(err))
-		if err.Error() == "实例不存在或无权限" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -277,16 +265,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 			zap.Uint64("instanceID", instanceID),
 			zap.Uint64("taskID", taskID),
 			zap.Error(err))
-
-		if err.Error() == "实例不存在或无权限" || err.Error() == "任务不存在或无权限" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-			return
-		}
-		if err.Error() == "任务尚未完成" {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

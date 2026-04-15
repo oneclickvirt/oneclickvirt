@@ -102,7 +102,7 @@ func ResetPassword(c *gin.Context) {
 	}
 	authService := auth2.AuthService{}
 	if err := authService.ResetPasswordWithToken(req.Token); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil, "密码重置成功，新密码已发送到您绑定的通信渠道")
@@ -179,7 +179,7 @@ func GetCaptcha(c *gin.Context) {
 	authService := auth2.AuthService{}
 	captcha, err := authService.GenerateCaptcha(req.Width, req.Height)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, captcha)
@@ -221,7 +221,7 @@ func Logout(c *gin.Context) {
 		global.APP_LOG.Error("添加Token到黑名单失败",
 			zap.Error(err),
 			zap.Uint("userID", authCtx.UserID))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "登出失败，请稍后重试"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -256,7 +256,7 @@ func SendVerifyCode(c *gin.Context) {
 			zap.String("target", req.Target),
 			zap.String("error", err.Error()),
 			zap.String("ip", c.ClientIP()))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

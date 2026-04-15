@@ -22,7 +22,7 @@ func GetBlockRules(c *gin.Context) {
 	rules, err := svc.ListRules()
 	if err != nil {
 		global.APP_LOG.Error("获取屏蔽规则失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取屏蔽规则失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, rules)
@@ -55,7 +55,7 @@ func CreateBlockRule(c *gin.Context) {
 	rule, err := svc.CreateRule(&req)
 	if err != nil {
 		global.APP_LOG.Error("创建屏蔽规则失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建屏蔽规则失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, rule, "创建成功")
@@ -93,7 +93,7 @@ func DeleteBlockRule(c *gin.Context) {
 	svc := &firewallService.Service{}
 	if err := svc.DeleteRule(uint(id)); err != nil {
 		global.APP_LOG.Error("删除屏蔽规则失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "删除屏蔽规则失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil, "删除成功")
@@ -104,6 +104,10 @@ func ApplyBlockRules(c *gin.Context) {
 	var req firewallModel.ApplyBlockRuleRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
+		return
+	}
+	if len(req.RuleIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "规则ID不能为空"))
 		return
 	}
 	validScopes := map[string]bool{"global": true, "provider": true, "instance": true, "user": true}
@@ -175,6 +179,11 @@ func RemoveBlockRuleApplications(c *gin.Context) {
 		return
 	}
 
+	if len(req.ApplicationIDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "应用ID不能为空"))
+		return
+	}
+
 	// 普通管理员数据隔离：验证目标归属
 	ownerAdminID := middleware.GetOwnerAdminID(c)
 	if ownerAdminID > 0 && len(req.ApplicationIDs) > 0 {
@@ -215,7 +224,7 @@ func RemoveBlockRuleApplications(c *gin.Context) {
 	svc := &firewallService.Service{}
 	if err := svc.RemoveApplications(context.Background(), &req); err != nil {
 		global.APP_LOG.Error("移除屏蔽规则应用失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "移除屏蔽规则应用失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, nil, "规则已移除")
@@ -235,7 +244,7 @@ func GetBlockRuleApplications(c *gin.Context) {
 	apps, err := svc.ListApplications(ruleID)
 	if err != nil {
 		global.APP_LOG.Error("获取屏蔽规则应用记录失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取屏蔽规则应用记录失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, apps)
@@ -251,7 +260,7 @@ func GetProviderBlockStatus(c *gin.Context) {
 	svc := &firewallService.Service{}
 	status, err := svc.GetProviderBlockStatus(uint(id))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取节点屏蔽状态失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, status)
@@ -262,7 +271,7 @@ func GetAgentEnabledProviders(c *gin.Context) {
 	svc := &firewallService.Service{}
 	ids, err := svc.GetAgentEnabledProviders()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取已启用Agent的节点列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, ids)

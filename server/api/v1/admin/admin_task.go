@@ -47,7 +47,7 @@ func GetAdminTasks(c *gin.Context) {
 	taskService := task.GetTaskService()
 	tasks, total, err := taskService.GetAdminTasks(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -83,7 +83,7 @@ func ForceStopTask(c *gin.Context) {
 
 	taskService := task.GetTaskService()
 	if err := taskService.ForceStopTask(req.TaskID, req.Reason); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -105,7 +105,7 @@ func GetTaskStats(c *gin.Context) {
 	taskService := task.GetTaskService()
 	stats, err := taskService.GetTaskStats()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务统计失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -135,7 +135,7 @@ func CancelUserTaskByAdmin(c *gin.Context) {
 
 	taskService := task.GetTaskService()
 	if err := taskService.CancelTaskByAdmin(uint(taskID), "管理员取消"); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -157,7 +157,7 @@ func GetTaskOverallStats(c *gin.Context) {
 	taskService := task.GetTaskService()
 	stats, err := taskService.GetTaskOverallStats()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务总体统计失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -193,7 +193,7 @@ func GetTaskDetail(c *gin.Context) {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "任务不存在"))
 			return
 		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务详情失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

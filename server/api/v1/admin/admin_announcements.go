@@ -48,7 +48,7 @@ func GetAnnouncements(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	announcements, total, err := systemService.GetAnnouncementList(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取公告列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -90,7 +90,7 @@ func CreateAnnouncement(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err = systemService.CreateAnnouncement(req, uid)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -160,7 +160,7 @@ func DeleteAnnouncement(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err = systemService.DeleteAnnouncement(uint(announcementID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -194,7 +194,7 @@ func BatchDeleteAnnouncements(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err := systemService.BatchDeleteAnnouncements(req.IDs)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -228,7 +228,7 @@ func BatchUpdateAnnouncementStatus(c *gin.Context) {
 	systemService := adminSystem.NewService()
 	err := systemService.BatchUpdateAnnouncementStatus(req.IDs, req.Status)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

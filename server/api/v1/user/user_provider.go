@@ -31,7 +31,7 @@ func GetAvailableProviders(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	providers, err := userServiceInstance.GetAvailableProviders(userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取可用节点失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -69,7 +69,7 @@ func GetUserSystemImages(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	images, err := userServiceInstance.GetSystemImages(userID, req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取系统镜像失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -116,7 +116,7 @@ func GetFilteredSystemImages(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	images, err := userServiceInstance.GetFilteredSystemImages(userID, uint(id), instanceType)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

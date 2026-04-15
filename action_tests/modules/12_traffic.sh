@@ -84,7 +84,7 @@ run_module_12() {
     # Traffic stats for nonexistent user
     test_api "Traffic (nonexistent user)" "GET" "/api/v1/admin/traffic/user/99999" "200|400|404" "" "$group"
     # Sync traffic for nonexistent instance
-    test_api "Sync traffic (nonexistent instance)" "POST" "/api/v1/admin/traffic/sync/instance/99999" "200|400" '{}' "$group"
+    test_api "Sync traffic (nonexistent instance)" "POST" "/api/v1/admin/traffic/sync/instance/99999" "200|400|404" '{}' "$group"
     # Manage traffic with invalid action
     test_api "Manage traffic (invalid action)" "POST" "/api/v1/admin/traffic/manage" "400" \
         '{"type":"invalid","action":"invalid","target_id":99999}' "$group"

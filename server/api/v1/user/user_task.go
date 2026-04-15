@@ -44,7 +44,7 @@ func GetUserTasks(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	tasks, total, err := userServiceInstance.GetUserTasks(userID, req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取任务列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -80,7 +80,7 @@ func CancelUserTask(c *gin.Context) {
 
 	taskService := task.GetTaskService()
 	if err := taskService.CancelTask(uint(taskID), userID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -117,7 +117,7 @@ func CreateUserInstance(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	task, err := userServiceInstance.CreateUserInstance(userID, req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -153,7 +153,7 @@ func GetInstanceTypePermissions(c *gin.Context) {
 	userServiceInstance := userService.NewService()
 	permissions, err := userServiceInstance.GetInstanceTypePermissions(userID)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例类型权限配置失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

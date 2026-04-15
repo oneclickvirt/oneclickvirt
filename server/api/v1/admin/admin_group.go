@@ -88,7 +88,7 @@ func UpdateAdminGroupInfo(c *gin.Context) {
 		"group_description": req.GroupDescription,
 	}).Error; err != nil {
 		global.APP_LOG.Error("更新管理员分组信息失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新分组信息失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

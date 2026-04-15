@@ -47,7 +47,7 @@ run_module_11() {
     test_api "Status after uninstall" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/status" "200|400" "" "$group"
 
     # -- Negative: monitoring on nonexistent provider --
-    test_api "Monitoring config (nonexistent)" "GET" "/api/v1/admin/providers/99999/monitoring/config" "200|400" "" "$group"
+    test_api "Monitoring config (nonexistent)" "GET" "/api/v1/admin/providers/99999/monitoring/config" "200|400|404" "" "$group"
     test_api "Deploy agent (nonexistent)" "POST" "/api/v1/admin/providers/99999/monitoring/agent" "400|404" '{}' "$group"
 
     # -- Negative: invalid monitoring config --

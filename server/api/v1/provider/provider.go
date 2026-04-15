@@ -128,7 +128,7 @@ func (p *ProviderApi) ListInstances(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -164,7 +164,7 @@ func (p *ProviderApi) CreateInstance(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -184,7 +184,7 @@ func (p *ProviderApi) GetInstance(c *gin.Context) {
 		} else if err.Error() == "实例不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -201,7 +201,7 @@ func (p *ProviderApi) StartInstance(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -218,7 +218,7 @@ func (p *ProviderApi) StopInstance(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -235,7 +235,7 @@ func (p *ProviderApi) DeleteInstance(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -252,7 +252,7 @@ func (p *ProviderApi) ListImages(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -278,7 +278,7 @@ func (p *ProviderApi) PullImage(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -295,7 +295,7 @@ func (p *ProviderApi) DeleteImage(c *gin.Context) {
 		if err.Error() == "Provider不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}

@@ -71,7 +71,7 @@ func GetPortMappingList(c *gin.Context) {
 	ports, total, err := portMappingService.GetPortMappingList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取端口映射列表失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取端口映射列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -205,7 +205,7 @@ func CreatePortMapping(c *gin.Context) {
 			errMsg := strings.TrimPrefix(err.Error(), "port range validation error: ")
 			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -214,7 +214,7 @@ func CreatePortMapping(c *gin.Context) {
 	taskDataJSON, err := json.Marshal(taskData)
 	if err != nil {
 		global.APP_LOG.Error("序列化任务数据失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -230,14 +230,14 @@ func CreatePortMapping(c *gin.Context) {
 	)
 	if err != nil {
 		global.APP_LOG.Error("创建端口映射任务失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
 	// 启动任务
 	if err := taskService.StartTask(newTask.ID); err != nil {
 		global.APP_LOG.Error("启动端口映射任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -278,7 +278,7 @@ func DeletePortMapping(c *gin.Context) {
 	taskData, err := portMappingService.DeletePortMappingWithTask(uint(id))
 	if err != nil {
 		global.APP_LOG.Error("创建端口删除任务数据失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -286,7 +286,7 @@ func DeletePortMapping(c *gin.Context) {
 	taskDataJSON, err := json.Marshal(taskData)
 	if err != nil {
 		global.APP_LOG.Error("序列化任务数据失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -302,14 +302,14 @@ func DeletePortMapping(c *gin.Context) {
 	)
 	if err != nil {
 		global.APP_LOG.Error("创建端口删除任务失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
 	// 启动任务
 	if err := taskService.StartTask(newTask.ID); err != nil {
 		global.APP_LOG.Error("启动端口删除任务失败", zap.Uint("task_id", newTask.ID), zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "启动任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -349,7 +349,7 @@ func BatchDeletePortMapping(c *gin.Context) {
 	taskDataList, err := portMappingService.BatchDeletePortMappingWithTask(req)
 	if err != nil {
 		global.APP_LOG.Error("创建批量端口删除任务数据失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -442,7 +442,7 @@ func UpdateProviderPortConfig(c *gin.Context) {
 	err = portMappingService.UpdateProviderPortConfig(uint(id), req)
 	if err != nil {
 		global.APP_LOG.Error("更新Provider端口配置失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -473,7 +473,7 @@ func GetProviderPortUsage(c *gin.Context) {
 	usage, err := portMappingService.GetProviderPortUsage(uint(id))
 	if err != nil {
 		global.APP_LOG.Error("获取Provider端口使用情况失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -504,7 +504,7 @@ func GetInstancePortMappings(c *gin.Context) {
 	ports, err := portMappingService.GetInstancePortMappings(uint(id))
 	if err != nil {
 		global.APP_LOG.Error("获取实例端口映射失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -544,7 +544,7 @@ func CheckPortAvailability(c *gin.Context) {
 	response, err := portMappingService.CheckPortAvailability(req)
 	if err != nil {
 		global.APP_LOG.Error("检查端口可用性失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -585,7 +585,7 @@ func SyncPortMappings(c *gin.Context) {
 		global.APP_LOG.Error("创建端口映射同步任务失败",
 			zap.Uint("userId", userID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

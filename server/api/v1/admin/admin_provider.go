@@ -39,7 +39,7 @@ func GetProviderList(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	providers, total, err := providerService.GetProviderList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取提供商列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -58,12 +58,7 @@ func CreateProvider(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	providerObj, err := providerService.CreateProvider(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "已存在") || strings.Contains(errMsg, "已被") {
-			common.ResponseWithError(c, common.NewError(common.CodeConflict, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -98,14 +93,7 @@ func UpdateProvider(c *gin.Context) {
 
 	providerService := adminProvider.NewService()
 	if err := providerService.UpdateProvider(req); err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "已存在") || strings.Contains(errMsg, "已被") {
-			common.ResponseWithError(c, common.NewError(common.CodeConflict, errMsg))
-		} else if strings.Contains(errMsg, "不存在") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -140,14 +128,7 @@ func DeleteProvider(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	err = providerService.DeleteProvider(uint(providerID), forceDelete)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "运行中的实例") || strings.Contains(errMsg, "running instance") {
-			common.ResponseWithError(c, common.NewError(common.CodeProviderHasInstances, errMsg))
-		} else if strings.Contains(errMsg, "不存在") {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -200,12 +181,7 @@ func GenerateProviderCert(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	setupCommand, err := providerService.GenerateProviderCert(uint(providerID))
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "不支持") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成证书失败: "+errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -315,7 +291,7 @@ func CheckProviderHealth(c *gin.Context) {
 
 	status, err := providerService.GetProviderStatus(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取状态失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -334,7 +310,7 @@ func GetProviderStatus(c *gin.Context) {
 	providerService := adminProvider.NewService()
 	status, err := providerService.GetProviderStatus(uint(providerID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取状态失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -360,7 +336,7 @@ func ExportProviderConfigs(c *gin.Context) {
 	exportDir := "exports"
 	err := configService.ExportAllConfigs(exportDir)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "导出配置失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -461,7 +437,7 @@ func CheckProviderName(c *gin.Context) {
 	exists, err := providerService.CheckProviderNameExists(name, excludeId)
 	if err != nil {
 		global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "检查失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -504,7 +480,7 @@ func CheckProviderEndpoint(c *gin.Context) {
 	exists, err := providerService.CheckProviderEndpointExists(endpoint, sshPort, excludeId)
 	if err != nil {
 		global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "检查失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

@@ -62,7 +62,7 @@ func TrafficMonitorOperation(c *gin.Context) {
 			zap.Uint("providerID", req.ProviderID),
 			zap.String("operation", req.Operation),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建任务失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -163,7 +163,7 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 	var total int64
 	if err := db.Count(&total).Error; err != nil {
 		global.APP_LOG.Error("查询任务总数失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -175,7 +175,7 @@ func GetTrafficMonitorTaskList(c *gin.Context) {
 		Offset(offset).
 		Find(&tasks).Error; err != nil {
 		global.APP_LOG.Error("查询任务列表失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

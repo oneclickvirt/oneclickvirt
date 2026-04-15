@@ -2,7 +2,6 @@ package admin
 
 import (
 	"strconv"
-	"strings"
 
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
@@ -37,7 +36,7 @@ func GetInviteCodeList(c *gin.Context) {
 	inviteService := invite.NewService()
 	codes, total, err := inviteService.GetInviteCodeList(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取邀请码列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -77,12 +76,7 @@ func CreateInviteCode(c *gin.Context) {
 	inviteService := invite.NewService()
 	err := inviteService.CreateInviteCode(req, createdBy)
 	if err != nil {
-		errMsg := err.Error()
-		if strings.Contains(errMsg, "已存在") || strings.Contains(errMsg, "只能包含") {
-			common.ResponseWithError(c, common.NewError(common.CodeValidationError, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -112,7 +106,7 @@ func DeleteInviteCode(c *gin.Context) {
 	inviteService := invite.NewService()
 	err = inviteService.DeleteInviteCode(uint(codeID))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -149,7 +143,7 @@ func GenerateInviteCode(c *gin.Context) {
 	inviteService := invite.NewService()
 	codes, err := inviteService.GenerateInviteCodes(req, createdBy)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -178,7 +172,7 @@ func BatchDeleteInviteCodes(c *gin.Context) {
 	inviteService := invite.NewService()
 	err := inviteService.BatchDeleteInviteCodes(req.IDs)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -210,7 +204,7 @@ func ExportInviteCodes(c *gin.Context) {
 	inviteService := invite.NewService()
 	codes, err := inviteService.ExportInviteCodes(req.IDs)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

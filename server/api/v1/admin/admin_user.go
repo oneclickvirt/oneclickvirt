@@ -60,7 +60,7 @@ func GetUserList(c *gin.Context) {
 	userService := user.NewService()
 	users, total, err := userService.GetUserList(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -232,13 +232,7 @@ func AdminBatchDeleteUsers(c *gin.Context) {
 	userService := user.NewService()
 	err := userService.BatchDeleteUsers(req.UserIDs)
 	if err != nil {
-		// 根据错误信息判断错误类型
-		errMsg := err.Error()
-		if errMsg == "不能删除管理员用户" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -272,13 +266,7 @@ func AdminBatchUpdateUserStatus(c *gin.Context) {
 	userService := user.NewService()
 	err := userService.BatchUpdateUserStatus(req.UserIDs, req.Status)
 	if err != nil {
-		// 根据错误信息判断错误类型
-		errMsg := err.Error()
-		if errMsg == "不能修改管理员用户状态" {
-			common.ResponseWithError(c, common.NewError(common.CodeForbidden, errMsg))
-		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, errMsg))
-		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -316,7 +304,7 @@ func AdminBatchUpdateUserLevel(c *gin.Context) {
 	userService := user.NewService()
 	err := userService.BatchUpdateUserLevel(req.UserIDs, req.Level)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

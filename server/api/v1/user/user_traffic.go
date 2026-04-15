@@ -48,7 +48,7 @@ func GetInstancePmacctSummary(c *gin.Context) {
 		if err.Error() == "实例不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "验证实例权限失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -61,7 +61,7 @@ func GetInstancePmacctSummary(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint64("instanceID", instanceID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -108,7 +108,7 @@ func QueryInstancePmacctData(c *gin.Context) {
 		if err.Error() == "实例不存在" {
 			common.ResponseWithError(c, common.NewError(common.CodeForbidden, "实例不存在或无权限"))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "验证实例权限失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -120,7 +120,7 @@ func QueryInstancePmacctData(c *gin.Context) {
 			zap.Uint("userID", userID),
 			zap.Uint64("instanceID", instanceID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

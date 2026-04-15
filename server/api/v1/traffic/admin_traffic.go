@@ -46,7 +46,7 @@ func (api *AdminTrafficAPI) GetSystemTrafficOverview(c *gin.Context) {
 	systemStats, err := trafficLimitService.GetSystemTrafficStats()
 	if err != nil {
 		global.APP_LOG.Error("获取系统流量统计失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取系统流量统计失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -85,7 +85,7 @@ func (api *AdminTrafficAPI) GetProviderTrafficStats(c *gin.Context) {
 		global.APP_LOG.Error("获取Provider流量统计失败",
 			zap.Uint("providerID", uint(providerID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取Provider流量统计失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -161,7 +161,7 @@ func (api *AdminTrafficAPI) GetAllUsersTrafficRank(c *gin.Context) {
 	userRankings, total, err := trafficLimitService.GetUsersTrafficRanking(page, pageSize, username, nickname)
 	if err != nil {
 		global.APP_LOG.Error("获取用户流量排行榜失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取用户流量排行榜失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -229,7 +229,7 @@ func (api *AdminTrafficAPI) ManageTrafficLimits(c *gin.Context) {
 			zap.String("action", req.Action),
 			zap.Uint("targetID", req.TargetID),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, result+"失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -380,7 +380,7 @@ func (api *AdminTrafficAPI) ClearUserTrafficRecords(c *gin.Context) {
 		global.APP_LOG.Error("清空用户流量记录失败",
 			zap.Uint("userID", uint(userID)),
 			zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清空用户流量记录失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

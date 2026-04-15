@@ -46,7 +46,7 @@ run_module_18() {
 
     # ---- User tasks ----
     test_api "User tasks" "GET" "/api/v1/user/tasks" "200" "" "$group" "$USER_TOKEN"
-    test_api "Cancel nonexistent task" "POST" "/api/v1/user/tasks/99999/cancel" "400|401" "" "$group" "$USER_TOKEN"
+    test_api "Cancel nonexistent task" "POST" "/api/v1/user/tasks/99999/cancel" "400|401|404" "" "$group" "$USER_TOKEN"
 
     # ---- User domains ----
     test_api "User domains" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
@@ -101,7 +101,7 @@ run_module_18() {
     test_api "User instance 99999" "GET" "/api/v1/user/instances/99999" "400|403|404" "" "$group" "$USER_TOKEN"
 
     # ---- Negative: User action on nonexistent instance ----
-    test_api "Action nonexistent instance" "POST" "/api/v1/user/instances/action" "400" \
+    test_api "Action nonexistent instance" "POST" "/api/v1/user/instances/action" "400|404" \
         '{"instanceId":99999,"action":"stop"}' "$group" "$USER_TOKEN"
 
     # ---- Negative: User2 cannot perform actions on user1 instance ----

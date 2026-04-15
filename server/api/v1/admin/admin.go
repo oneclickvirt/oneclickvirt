@@ -36,7 +36,7 @@ func GetAdminDashboard(c *gin.Context) {
 	dashboard, err := dashboardService.GetAdminDashboard(middleware.GetOwnerAdminID(c))
 	if err != nil {
 		global.APP_LOG.Error("获取管理员仪表板失败", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取管理员首页数据失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, dashboard)
@@ -72,7 +72,7 @@ func GetInstanceList(c *gin.Context) {
 	instanceService := instance.NewService(task.GetTaskService())
 	instances, total, err := instanceService.GetInstanceList(req, middleware.GetOwnerAdminID(c))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取实例列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccessWithPagination(c, instances, total, req.Page, req.PageSize)
@@ -121,7 +121,7 @@ func CreateInstance(c *gin.Context) {
 			zap.String("instance_name", utils.TruncateString(req.Name, 50)),
 			zap.String("provider", req.Provider),
 			zap.String("admin_ip", c.ClientIP()))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -152,7 +152,7 @@ func UpdateInstance(c *gin.Context) {
 			zap.Error(err),
 			zap.Uint("instance_id", req.ID),
 			zap.String("admin_ip", c.ClientIP()))
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -236,7 +236,7 @@ func UpdateAdminInstanceTypePermissions(c *gin.Context) {
 	dashboardService := &resources.AdminDashboardService{}
 	err := dashboardService.UpdateInstanceTypePermissions(req)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -346,11 +346,7 @@ func ResetInstancePassword(c *gin.Context) {
 		global.APP_LOG.Error("管理员创建重置实例密码任务失败",
 			zap.Uint64("instanceID", instanceID),
 			zap.Error(err))
-		if err.Error() == "实例不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -400,16 +396,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 			zap.Uint64("instanceID", instanceID),
 			zap.Uint64("taskID", taskID),
 			zap.Error(err))
-
-		if err.Error() == "实例不存在" || err.Error() == "任务不存在" {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
-			return
-		}
-		if err.Error() == "任务尚未完成" {
-			common.ResponseWithError(c, common.NewError(common.CodeNotFound, err.Error()))
-			return
-		}
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

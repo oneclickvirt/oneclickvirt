@@ -123,7 +123,7 @@ func GetSystemImageList(c *gin.Context) {
 	var images []systemModel.SystemImage
 	offset := (page - 1) * pageSize
 	if err := db.Offset(offset).Limit(pageSize).Order("created_at DESC").Find(&images).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取系统镜像列表失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -209,7 +209,7 @@ func CreateSystemImage(c *gin.Context) {
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Create(&image).Error
 	}); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "创建系统镜像失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -236,7 +236,7 @@ func UpdateSystemImage(c *gin.Context) {
 		if err == gorm.ErrRecordNotFound {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "系统镜像不存在"))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -307,7 +307,7 @@ func UpdateSystemImage(c *gin.Context) {
 	updates["updated_at"] = time.Now()
 
 	if err := global.APP_DB.Model(&image).Updates(updates).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -328,7 +328,7 @@ func DeleteSystemImage(c *gin.Context) {
 		if err == gorm.ErrRecordNotFound {
 			common.ResponseWithError(c, common.NewError(common.CodeNotFound, "系统镜像不存在"))
 		} else {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "查询失败"))
+			common.ResponseWithError(c, common.ClassifyError(err))
 		}
 		return
 	}
@@ -338,7 +338,7 @@ func DeleteSystemImage(c *gin.Context) {
 	if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		return tx.Delete(&image).Error
 	}); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "删除失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -357,7 +357,7 @@ func BatchDeleteSystemImages(c *gin.Context) {
 	}
 
 	if err := global.APP_DB.Where("id IN ?", req.IDs).Delete(&systemModel.SystemImage{}).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "批量删除失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -381,7 +381,7 @@ func BatchUpdateSystemImageStatus(c *gin.Context) {
 			"status":     req.Status,
 			"updated_at": time.Now(),
 		}).Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "批量更新状态失败"))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -398,7 +398,7 @@ func GetAvailableSystemImages(c *gin.Context) {
 	imageService := images.ImageService{}
 	images, err := imageService.GetAvailableImagesWithOS(providerType, instanceType, architecture, osType)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取可用镜像失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

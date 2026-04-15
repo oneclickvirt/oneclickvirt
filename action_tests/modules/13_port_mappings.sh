@@ -72,7 +72,7 @@ run_module_13() {
         "{\"providerId\":${PROVIDER_ID},\"hostPort\":25000,\"portCount\":1,\"protocol\":\"invalid\"}" "$group"
 
     # -- Negative: Sync with nonexistent provider --
-    test_api "Sync (nonexistent provider)" "POST" "/api/v1/admin/port-mappings/sync" "200|400" \
+    test_api "Sync (nonexistent provider)" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
         '{"providerIds":[99999]}' "$group"
 
     # -- Negative: Batch delete empty --

@@ -40,7 +40,7 @@ func (s *StorageApi) GetStorageInfo(c *gin.Context) {
 func (s *StorageApi) InitializeStorage(c *gin.Context) {
 	storageService := storage.GetStorageService()
 	if err := storageService.InitializeStorage(); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "存储目录初始化失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, "存储目录初始化成功")
@@ -58,7 +58,7 @@ func (s *StorageApi) InitializeStorage(c *gin.Context) {
 func (s *StorageApi) CleanupTempFiles(c *gin.Context) {
 	storageService := storage.GetStorageService()
 	if err := storageService.CleanupTempFiles(); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "临时文件清理失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, "临时文件清理成功")
@@ -77,7 +77,7 @@ func (s *StorageApi) GetLogFiles(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()
 	files, err := logRotationService.GetLogFiles()
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取日志文件列表失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, files)
@@ -110,7 +110,7 @@ func (s *StorageApi) ReadLogFile(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()
 	content, err := logRotationService.ReadLogFile(filename, lines)
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "读取日志文件失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -133,7 +133,7 @@ func (s *StorageApi) ReadLogFile(c *gin.Context) {
 func (s *StorageApi) CleanupOldLogs(c *gin.Context) {
 	logRotationService := log.GetLogRotationService()
 	if err := logRotationService.CleanupOldLogs(); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "清理旧日志失败: "+err.Error()))
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, "旧日志清理成功")
