@@ -126,6 +126,74 @@ jobs:
             fi
           done
 
+      - name: Initialize system
+        env:
+          SERVER_URL: "http://127.0.0.1:8888"
+          ADMIN_USER: admin
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
+        run: |
+          # 等待 init/check 端点可用（数据库就绪后才可访问）
+          for i in $(seq 1 60); do
+            code=$(curl -sf -o /dev/null -w "%{http_code}" \
+              http://127.0.0.1:8888/api/v1/public/init/check 2>/dev/null || echo "000")
+            if [[ "$code" == "200" ]]; then
+              echo "Init endpoint ready after ${i}s"
+              break
+            fi
+            sleep 1
+            if [[ $i -eq 60 ]]; then
+              echo "Init endpoint never became ready"
+              cat server.log | tail -50
+              exit 1
+            fi
+          done
+
+          NEED_INIT=$(curl -sf http://127.0.0.1:8888/api/v1/public/init/check \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('needInit','true'))" \
+            2>/dev/null || echo "true")
+          echo "needInit=${NEED_INIT}"
+
+          if [[ "$NEED_INIT" == "True" || "$NEED_INIT" == "true" ]]; then
+            echo "Running system initialization..."
+            INIT_RESP=$(curl -s --max-time 60 \
+              -H "Content-Type: application/json" \
+              -X POST \
+              -d "{
+                \"admin\":{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\",\"email\":\"${ADMIN_USER}@ci.local\"},
+                \"user\":{\"username\":\"test_user_ci\",\"password\":\"TestUser123!@#\",\"email\":\"test_user_ci@ci.local\",\"enabled\":true},
+                \"database\":{\"type\":\"mysql\",\"host\":\"127.0.0.1\",\"port\":\"3306\",\"database\":\"oneclickvirt_test\",\"username\":\"root\",\"password\":\"\"}
+              }" \
+              http://127.0.0.1:8888/api/v1/public/init)
+            echo "Init response: ${INIT_RESP}"
+            INIT_CODE=$(echo "$INIT_RESP" \
+              | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('code','0'))" \
+              2>/dev/null || echo "0")
+            if [[ "$INIT_CODE" != "200" ]]; then
+              echo "System initialization failed (code=${INIT_CODE})"
+              cat server.log | tail -80
+              exit 1
+            fi
+            echo "System initialized successfully"
+
+            # 等待异步初始化完成（数据库迁移等），最多 60 秒
+            for i in $(seq 1 60); do
+              code=$(curl -sf -o /dev/null -w "%{http_code}" \
+                http://127.0.0.1:8888/api/v1/public/init/check 2>/dev/null || echo "000")
+              if [[ "$code" == "200" ]]; then
+                NEED=$(curl -sf http://127.0.0.1:8888/api/v1/public/init/check \
+                  | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('data',{}).get('needInit','true'))" \
+                  2>/dev/null || echo "true")
+                if [[ "$NEED" == "False" || "$NEED" == "false" ]]; then
+                  echo "Initialization confirmed complete after ${i}s"
+                  break
+                fi
+              fi
+              sleep 1
+            done
+          else
+            echo "System already initialized, skipping"
+          fi
+
       - name: Run controller-only tests (no provider/node)
         env:
           SERVER_URL: "http://127.0.0.1:8888"
