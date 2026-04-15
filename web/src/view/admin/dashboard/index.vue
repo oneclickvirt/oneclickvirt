@@ -212,7 +212,7 @@ const formatMB = (mb) => {
 const fetchDashboardData = async () => {
   try {
     const response = await getAdminDashboard()
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       if (response.data && response.data.statistics) {
         Object.assign(dashboardData, response.data.statistics)
       } else {

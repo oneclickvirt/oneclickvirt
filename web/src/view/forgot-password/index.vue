@@ -177,7 +177,7 @@ const handleForgotPassword = async () => {
         captchaId: captchaId.value
       })
 
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         emailSent.value = true
       }
     } catch (error) {
@@ -193,7 +193,7 @@ const handleForgotPassword = async () => {
 const refreshCaptcha = async () => {
   try {
     const response = await getCaptcha()
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       captchaImage.value = response.data.imageData
       captchaId.value = response.data.captchaId
       forgotForm.captcha = ''

@@ -10,55 +10,22 @@ const t = (...args) => i18n.global.t(...args)
  * 统一错误处理工具类
  */
 export const errorHandler = {
-  // 错误码映射 - 对应后端的错误码定义
+  // 错误码映射 - 统一使用HTTP状态码
   get codeMap() {
     return {
       // 成功
-      0: t('common.success'),
       200: t('common.success'),
 
-      // 通用错误 1000-1999
-      1000: t('common.failed'),
-      1001: t('errors.invalidParams'),
-      1002: t('errors.internalError'),
-      1003: t('errors.unauthorized'),
-      1004: t('errors.forbidden'),
-      1005: t('errors.notFound'),
-      1006: t('errors.conflict'),
-      1007: t('errors.validationFailed'),
-
-      // 用户相关错误 2000-2999
-      2001: t('errors.userNotFound'),
-      2002: t('errors.userExists'),
-      2003: t('errors.usernameExists'),
-      2004: t('errors.wrongCredentials'),
-      2005: t('common.accountDisabled'),
-      2006: t('common.noPermission'),
-
-      // 角色权限相关错误 3000-3999
-      3001: t('errors.roleNotFound'),
-      3002: t('errors.roleExists'),
-      3003: t('common.noPermission'),
-      3004: t('errors.invalidRole'),
-      3005: t('errors.roleInUse'),
-      3006: t('errors.permissionNotFound'),
-
-      // 业务相关错误 4000-4999
-      4001: t('errors.inviteCodeInvalid'),
-      4002: t('errors.inviteCodeExpired'),
-      4003: t('errors.inviteCodeUsed'),
-      4004: t('errors.captchaError'),
-      4005: t('errors.captchaRequired'),
-      4006: t('errors.tokenGenerationFailed'),
-      4007: t('errors.oauth2Failed'),
-      4008: t('errors.oauth2RegistrationLimit'),
-
-      // 系统相关错误 5000-5999
-      5001: t('errors.configError'),
-      5002: t('errors.databaseError'),
-      5003: t('errors.cacheError'),
-      5004: t('errors.externalApiFailed'),
-      5005: t('common.requestTooLarge')
+      // HTTP标准错误码
+      400: t('errors.validationFailed'),
+      401: t('errors.unauthorized'),
+      403: t('errors.forbidden'),
+      404: t('errors.notFound'),
+      409: t('errors.conflict'),
+      413: t('common.requestTooLarge'),
+      500: t('errors.internalError'),
+      502: t('errors.externalApiFailed'),
+      503: t('errors.databaseError')
     }
   },
 
@@ -137,10 +104,9 @@ export const errorHandler = {
     const currentRoute = router.currentRoute.value
 
     switch (code) {
-      case 1003: // 未授权访问
-      case 401:
+      case 401: // 未授权访问
         // 检查错误消息，如果是Token被撤销，给出更明确的提示
-        if (message && (message.includes('已失效') || message.includes('已撤销') || message.includes('revoked') || message.includes('expired') || message.includes('invalidated'))) {
+        if (message && (message.includes('已失效') || message.includes('已撤销') || message.includes('revoked') || message.includes('expired') || message.includes('invalidated') || message.includes('被禁用'))) {
           userStore.clearUserData()
           router.push('/login')
           ElMessage.warning(t('common.loginInvalid'))
@@ -152,22 +118,11 @@ export const errorHandler = {
         }
         break
 
-      case 1004: // 禁止访问
-      case 2006: // 用户权限不足
-      case 3003: // 权限不足
-      case 403:
+      case 403: // 禁止访问
         ElMessage.error(t('common.noPermission'))
         break
 
-      case 2005: // 用户已被禁用
-        // 用户被禁用时清除本地数据并跳转到登录页
-        userStore.clearUserData()
-        router.push('/login')
-        ElMessage.error(t('common.accountDisabled'))
-        break
-
-      case 5005: // 请求体过大
-      case 413:
+      case 413: // 请求体过大
         ElMessage.error(t('common.requestTooLarge'))
         break
 

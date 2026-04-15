@@ -138,7 +138,7 @@ async function fetchData() {
   loading.value = true
   try {
     const res = await adminGetDomains()
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       domains.value = res.data || []
     }
   } finally {
@@ -150,14 +150,14 @@ async function fetchProviders() {
   configLoading.value = true
   try {
     const res = await getProviderList({ page: 1, pageSize: 999 })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       providers.value = res.data?.list || []
       // Fetch domain config for each provider
       const configs = {}
       await Promise.all(providers.value.map(async (p) => {
         try {
           const r = await getDomainConfig(p.id)
-          if (r.code === 0 || r.code === 200) {
+          if (r.code === 200) {
             configs[p.id] = r.data
           }
         } catch (_) {

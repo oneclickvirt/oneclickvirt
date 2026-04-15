@@ -133,7 +133,7 @@ func UpdateUser(c *gin.Context) {
 	userService := user.NewService()
 	err = userService.UpdateUser(req, currentUserID)
 	if err != nil {
-		common.ResponseWithError(c, err)
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -148,7 +148,7 @@ func DeleteUser(c *gin.Context) {
 
 	userIDStr := c.Param("id")
 	userID, err := strconv.ParseUint(userIDStr, 10, 32)
-	if err != nil {
+	if err != nil || userID == 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的用户ID"))
 		return
 	}
@@ -193,7 +193,7 @@ func UpdateUserStatus(c *gin.Context) {
 	userService := user.NewService()
 	err = userService.UpdateUserStatus(uint(userID), req.Status)
 	if err != nil {
-		common.ResponseWithError(c, err)
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -341,7 +341,7 @@ func UpdateUserLevel(c *gin.Context) {
 	userService := user.NewService()
 	err = userService.UpdateUserLevel(uint(userID), req.Level)
 	if err != nil {
-		common.ResponseWithError(c, err)
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -383,7 +383,7 @@ func ResetUserPassword(c *gin.Context) {
 	userService := user.NewService()
 	newPassword, err := userService.ResetUserPassword(uint(userID))
 	if err != nil {
-		common.ResponseWithError(c, err)
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 
@@ -430,7 +430,7 @@ func ResetUserPasswordAndNotify(c *gin.Context) {
 	userService := user.NewService()
 	err = userService.ResetUserPasswordAndNotify(uint(userID))
 	if err != nil {
-		common.ResponseWithError(c, err)
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 

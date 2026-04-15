@@ -25,7 +25,7 @@ func GetProviderHardwareReport(c *gin.Context) {
 	svc := adminProviderService.NewService()
 	report, err := svc.GetHardwareTestReport(c.Request.Context(), uint(providerID))
 	if err != nil || report.ReportText == "" {
-		common.ResponseSuccess(c, nil, "暂无测试报告")
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "暂无测试报告"))
 		return
 	}
 

@@ -399,7 +399,7 @@ export function useUserManagement() {
         { type: 'warning' }
       )
       const response = await adminLoginAsUser(user.id)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         const token = response.data.token
         const url = window.location.origin + window.location.pathname + '#/user/dashboard'
         const newTab = window.open(url, '_blank')

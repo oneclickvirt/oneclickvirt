@@ -148,19 +148,23 @@ func ClassifyError(err error) *AppError {
 	msg := err.Error()
 	lower := strings.ToLower(msg)
 	// Not found patterns
-	if strings.Contains(msg, "不存在") || strings.Contains(msg, "找不到") ||
-		strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") {
+	if strings.Contains(msg, "不存在") || strings.Contains(msg, "找不到") || strings.Contains(msg, "未找到") ||
+		strings.Contains(msg, "暂无") || strings.Contains(msg, "无此") ||
+		strings.Contains(lower, "not found") || strings.Contains(lower, "does not exist") ||
+		strings.Contains(lower, "no such") {
 		return NewError(CodeNotFound, msg)
 	}
 	// Conflict patterns
 	if strings.Contains(msg, "已存在") || strings.Contains(msg, "重复") ||
+		strings.Contains(msg, "已被") || strings.Contains(msg, "已通过") ||
 		strings.Contains(lower, "already exists") || strings.Contains(lower, "duplicate") ||
 		strings.Contains(lower, "conflict") {
 		return NewError(CodeConflict, msg)
 	}
 	// Forbidden / permission patterns
 	if strings.Contains(msg, "无权限") || strings.Contains(msg, "权限不足") ||
-		strings.Contains(msg, "禁止") || strings.Contains(lower, "forbidden") ||
+		strings.Contains(msg, "禁止") || strings.Contains(msg, "无权") ||
+		strings.Contains(lower, "forbidden") ||
 		strings.Contains(lower, "permission denied") || strings.Contains(lower, "access denied") {
 		return NewError(CodeForbidden, msg)
 	}
@@ -173,19 +177,23 @@ func ClassifyError(err error) *AppError {
 	if strings.Contains(msg, "参数") || strings.Contains(msg, "无效") ||
 		strings.Contains(msg, "格式错误") || strings.Contains(msg, "不能为空") ||
 		strings.Contains(msg, "尚未完成") || strings.Contains(msg, "不支持") ||
+		strings.Contains(msg, "未启用") || strings.Contains(msg, "未配置") ||
+		strings.Contains(msg, "超过") || strings.Contains(msg, "过长") ||
 		strings.Contains(lower, "invalid") || strings.Contains(lower, "required") ||
-		strings.Contains(lower, "validation") {
+		strings.Contains(lower, "validation") || strings.Contains(lower, "too long") ||
+		strings.Contains(lower, "exceeded") {
 		return NewError(CodeValidationError, msg)
 	}
 	return NewError(CodeInternalError, msg)
 }
 
 // 统一响应函数
+// code 字段统一使用 HTTP 状态码，自定义错误信息通过 msg/message/details 字段传递
 func ResponseWithError(c *gin.Context, err error) {
 	if appErr, ok := err.(*AppError); ok {
 		httpCode := getHTTPCode(appErr.Code)
 		c.JSON(httpCode, gin.H{
-			"code":    appErr.Code,
+			"code":    httpCode,
 			"msg":     appErr.Message,
 			"message": appErr.Message,
 			"details": appErr.Details,
@@ -194,7 +202,7 @@ func ResponseWithError(c *gin.Context, err error) {
 	} else {
 		msg := ErrorMessages[CodeInternalError]
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"code":    CodeInternalError,
+			"code":    http.StatusInternalServerError,
 			"msg":     msg,
 			"message": msg,
 			"data":    nil,
@@ -209,7 +217,7 @@ func ResponseSuccess(c *gin.Context, data interface{}, message ...string) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"code":    CodeSuccess,
+		"code":    http.StatusOK,
 		"msg":     msg,
 		"message": msg,
 		"data":    data,
@@ -219,7 +227,7 @@ func ResponseSuccess(c *gin.Context, data interface{}, message ...string) {
 func ResponseSuccessWithPagination(c *gin.Context, data interface{}, total int64, page, pageSize int) {
 	msg := ErrorMessages[CodeSuccess]
 	c.JSON(http.StatusOK, gin.H{
-		"code":    CodeSuccess,
+		"code":    http.StatusOK,
 		"msg":     msg,
 		"message": msg,
 		"data": gin.H{

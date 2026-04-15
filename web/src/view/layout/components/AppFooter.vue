@@ -41,7 +41,7 @@ const serverVersion = ref('')
 onMounted(async () => {
   try {
     const res = await getServerVersion()
-    if (res && (res.code === 0 || res.code === 200) && res.data?.server_version) {
+    if (res && (res.code === 200) && res.data?.server_version) {
       serverVersion.value = res.data.server_version
     }
   } catch {

@@ -93,7 +93,7 @@ async function fetchData() {
   loading.value = true
   try {
     const res = await adminGetKYCList({ status: statusFilter.value, page: page.value, pageSize: pageSize.value })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       records.value = res.data?.list || []
       total.value = res.data?.total || 0
     }

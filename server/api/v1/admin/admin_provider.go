@@ -323,18 +323,18 @@ func ExportProviderConfigs(c *gin.Context) {
 		ProviderIDs []uint `json:"provider_ids"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
-		return
-	}
-	if len(req.ProviderIDs) == 0 {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "provider_ids 不能为空"))
-		return
+		// 绑定失败时导出所有
 	}
 
 	configService := &provider.ProviderConfigService{}
 
 	exportDir := "exports"
-	err := configService.ExportAllConfigs(exportDir)
+	var err error
+	if len(req.ProviderIDs) > 0 {
+		err = configService.ExportProviderConfigs(exportDir, req.ProviderIDs)
+	} else {
+		err = configService.ExportAllConfigs(exportDir)
+	}
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return

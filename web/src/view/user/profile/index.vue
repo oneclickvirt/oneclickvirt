@@ -296,7 +296,7 @@ const updateProfile = async () => {
     updating.value = true
     try {
       const response = await updateProfileApi(profileForm)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(t('user.profile.updateSuccess'))
         await userStore.fetchUserInfo()
       } else {
@@ -338,7 +338,7 @@ const resetUserPassword = async () => {
   resetPasswordLoading.value = true
   try {
     const response = await resetPassword()
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       // 获取返回的新密码
       if (response.data && response.data.newPassword) {
         generatedPassword.value = response.data.newPassword

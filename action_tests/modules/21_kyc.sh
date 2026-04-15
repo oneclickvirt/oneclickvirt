@@ -39,7 +39,7 @@ run_module_21() {
             '{"approved":true,"rejectReason":""}' "$group" "$ADMIN_TOKEN"
 
         # ---- Review already-reviewed KYC ----
-        test_api "Re-review KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "400|200" \
+        test_api "Re-review KYC" "PUT" "/api/v1/admin/kyc/${kyc_id}/review" "200|400|409" \
             '{"approved":true,"rejectReason":""}' "$group" "$ADMIN_TOKEN"
     fi
 

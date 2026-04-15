@@ -28,7 +28,7 @@ export const useSiteStore = defineStore('site', () => {
     if (initialized.value) return
     try {
       const res = await getPublicSystemConfig()
-      if (res && (res.code === 0 || res.code === 200) && res.data) {
+      if (res && (res.code === 200) && res.data) {
         if (res.data.logo_url) {
           logoURL.value = res.data.logo_url
         }

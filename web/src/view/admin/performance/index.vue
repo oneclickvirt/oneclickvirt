@@ -318,7 +318,7 @@ const fetchMetrics = async () => {
   loading.value = true
   try {
     const response = await request.get('/v1/admin/performance/metrics')
-    if ((response.code === 0 || response.code === 200) && response.data) {
+    if ((response.code === 200) && response.data) {
       Object.assign(metrics, response.data)
       if (response.data.db_stats) {
         Object.assign(dbStats, response.data.db_stats)
@@ -344,7 +344,7 @@ const fetchHistory = async () => {
     const response = await request.get('/v1/admin/performance/history', {
       params: { duration: timeRange.value }
     })
-    if ((response.code === 0 || response.code === 200) && response.data) {
+    if ((response.code === 200) && response.data) {
       updateHistoryCharts(response.data.data_points)
     }
   } catch (error) {

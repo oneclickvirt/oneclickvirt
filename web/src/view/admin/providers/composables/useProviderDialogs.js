@@ -55,7 +55,7 @@ export function useProviderDialogs(loadProviders) {
     taskLogDialog.task = null
     try {
       const response = await getConfigurationTaskDetail(taskId)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         taskLogDialog.task = response.data
       } else {
         taskLogDialog.error = response.msg || t('admin.providers.getTaskDetailsFailed')
@@ -178,7 +178,7 @@ export function useProviderDialogs(loadProviders) {
         page: page || configDialog.pagination.page,
         pageSize: pageSize || configDialog.pagination.pageSize
       })
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         configDialog.historyTasks = res.data?.list || res.data || []
         configDialog.pagination.total = res.data?.total || configDialog.historyTasks.length
       }
@@ -269,12 +269,12 @@ export function useProviderDialogs(loadProviders) {
         providerId: trafficMonitorDialog.provider.id,
         operation
       })
-      if (response.code === 200 || response.code === 0) {
+      if (response.code === 200) {
         ElMessage.success(t('admin.providers.trafficMonitorOperationSuccess'))
         if (response.data?.taskId) {
           try {
             const taskResponse = await getTrafficMonitorTaskDetail(response.data.taskId)
-            if (taskResponse.code === 200 || taskResponse.code === 0) {
+            if (taskResponse.code === 200) {
               trafficMonitorDialog.showHistory = false
               trafficMonitorDialog.task = taskResponse.data
             }
@@ -301,7 +301,7 @@ export function useProviderDialogs(loadProviders) {
     try {
       trafficMonitorDialog.loading = true
       const response = await getTrafficMonitorTaskDetail(taskId)
-      if (response.code === 200 || response.code === 0) {
+      if (response.code === 200) {
         trafficMonitorDialog.showHistory = false
         trafficMonitorDialog.task = response.data
       } else {
@@ -327,7 +327,7 @@ export function useProviderDialogs(loadProviders) {
     try {
       trafficMonitorDialog.loading = true
       const response = await getTrafficMonitorTaskDetail(trafficMonitorDialog.task.id)
-      if (response.code === 200 || response.code === 0) {
+      if (response.code === 200) {
         trafficMonitorDialog.task = response.data
         if (
           response.data.status === 'completed' ||

@@ -64,7 +64,7 @@ const fetchGroupInfo = async () => {
   loading.value = true
   try {
     const res = await service({ url: '/v1/admin/group-info', method: 'get' })
-    if ((res.code === 0 || res.code === 200) && res.data) {
+    if ((res.code === 200) && res.data) {
       form.value.groupName = res.data.groupName || ''
       form.value.groupDescription = res.data.groupDescription || ''
       await nextTick()
@@ -104,7 +104,7 @@ const handleSave = async () => {
         groupDescription: form.value.groupDescription
       }
     })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       ElMessage.success(t('common.saveSuccess'))
     } else {
       ElMessage.error(res.msg || res.message || t('common.saveFailed'))

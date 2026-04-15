@@ -74,7 +74,7 @@ export const useUserStore = defineStore('user', {
           userType: 'user'
         }
         const response = await login(loginData)
-        if (response.code === 0 || response.code === 200) {
+        if (response.code === 200) {
           this.setToken(response.data.token)
           // 使用服务器返回的实际用户类型，而不是硬编码
           const userType = response.data.user?.userType || 'user'
@@ -98,7 +98,7 @@ export const useUserStore = defineStore('user', {
           userType: 'admin'
         }
         const response = await adminLogin(loginData)
-        if (response.code === 0 || response.code === 200) {
+        if (response.code === 200) {
           this.setToken(response.data.token)
           // 使用服务器返回的实际用户类型，确保是admin
           const userType = response.data.user?.userType || 'admin'
@@ -116,7 +116,7 @@ export const useUserStore = defineStore('user', {
     async fetchUserInfo() {
       try {
         const response = await getUserInfo()
-        if (response.code === 0 || response.code === 200) {
+        if (response.code === 200) {
           const currentUserType = this.userType
           console.log('获取用户信息成功，当前用户类型:', currentUserType)
           console.log('API返回的数据结构:', response.data)
@@ -165,7 +165,7 @@ export const useUserStore = defineStore('user', {
 
       try {
         const response = await getUserInfo()
-        if (response.code === 0 || response.code === 200) {
+        if (response.code === 200) {
           // 检查用户状态是否发生变化
           const newUserType = response.data.user?.userType || response.data.userType || 'user'
           if (newUserType !== this.userType) {

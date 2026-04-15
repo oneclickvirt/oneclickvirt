@@ -133,7 +133,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   const loadUserLimits = async () => {
     try {
       const response = await getUserLimits()
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         Object.assign(userLimits, response.data)
       } else {
         console.warn('获取用户限制失败:', response.message)
@@ -146,7 +146,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
   const loadInstanceConfig = async (providerId = null) => {
     try {
       const response = await getInstanceConfig(providerId)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         Object.assign(instanceConfig.value, response.data)
       } else {
         console.warn('获取实例配置失败:', response.message)
@@ -171,7 +171,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         instance_type: configForm.type,
         architecture: capabilities?.architecture || 'amd64'
       })
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         availableImages.value = response.data || []
       } else {
         availableImages.value = []
@@ -317,7 +317,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         description: configForm.description
       })
 
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(t('user.apply.instanceCreatedSuccess'))
         if (response.data && response.data.taskId) {
           ElMessage.info(t('user.apply.taskIdInfo', { taskId: response.data.taskId }))

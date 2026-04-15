@@ -50,7 +50,7 @@ export function useProviderFormHelpers() {
 
       const result = await testSSHConnectionAPI(requestData)
 
-      if ((result.code === 0 || result.code === 200) && result.data.success) {
+      if ((result.code === 200) && result.data.success) {
         connectionTestResult.value = {
           success: true,
           title: t('admin.providers.sshTestSuccess'),

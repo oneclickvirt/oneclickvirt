@@ -61,6 +61,10 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	if !domainRegex.MatchString(req.DomainName) {
 		return nil, fmt.Errorf("域名格式无效")
 	}
+	// 验证域名长度
+	if len(req.DomainName) > 253 {
+		return nil, fmt.Errorf("域名长度不能超过253个字符")
+	}
 	// 验证IP格式
 	if net.ParseIP(req.InternalIP) == nil {
 		return nil, fmt.Errorf("内部IP格式无效")

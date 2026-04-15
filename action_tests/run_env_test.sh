@@ -166,7 +166,6 @@ fi
 # =============================================================
 log_section "Phase 7: System initialization and login"
 # Wait until /api/v1/public/init/check is reachable (MySQL + app both up)
-# NOTE: server uses code=0 for success (common.Success returns code:0)
 if ! wait_init_ready "$SERVER_URL" 180 5; then
     log_error "Init endpoint never became ready"
     fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
@@ -181,7 +180,7 @@ if [[ "$NEED_INIT" == "true" ]]; then
     log_info "Initializing system..."
     INIT_RESP=$(init_system "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
     INIT_CODE=$(echo "$INIT_RESP" | jq -r '.code // empty' 2>/dev/null)
-    if [[ "$INIT_CODE" != "0" ]]; then
+    if [[ "$INIT_CODE" != "200" ]]; then
         log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
         fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
         dump_master_logs

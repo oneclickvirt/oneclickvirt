@@ -150,7 +150,7 @@ function resetChallenge() {
 async function fetchInstances() {
   try {
     const res = await getUserInstances({ page: 1, pageSize: 100 })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       instances.value = res.data?.list || res.data || []
     }
   } catch { /* ignore */ }
@@ -161,7 +161,7 @@ async function getChallenge() {
   gettingChallenge.value = true
   try {
     const res = await generateCheckinCode(selectedInstanceId.value)
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       challengeData.value = res.data
       ElMessage.success(t('user.checkin.codeSent'))
       // 加载第三方验证组件
@@ -284,7 +284,7 @@ async function doCheckin() {
     }
 
     const res = await doCheckinApi(data)
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       ElMessage.success(t('user.checkin.checkinSuccess'))
       resetChallenge()
       fetchRecords()
@@ -298,7 +298,7 @@ async function fetchRecords() {
   loadingRecords.value = true
   try {
     const res = await getCheckinRecords({ page: page.value, pageSize: pageSize.value })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       records.value = res.data?.list || []
       total.value = res.data?.total || 0
     }

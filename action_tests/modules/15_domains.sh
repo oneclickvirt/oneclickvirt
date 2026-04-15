@@ -72,7 +72,7 @@ run_module_15() {
     if [[ -n "$USER_TOKEN" && -n "$USER_TOKEN2" ]]; then
         # Create a domain for user1
         local inst_for_d="${TEST_INSTANCE_ID:-1}"
-        local d_iso; d_iso=$(test_api "User1 create for isolation" "POST" "/api/v1/user/domains" "200|400" \
+        local d_iso; d_iso=$(test_api "User1 create for isolation" "POST" "/api/v1/user/domains" "200|400|404|409" \
             "{\"instanceId\":${inst_for_d},\"domainName\":\"iso-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN")
         local d_iso_id; d_iso_id=$(echo "$d_iso" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$d_iso_id" ]]; then

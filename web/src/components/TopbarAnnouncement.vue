@@ -97,7 +97,7 @@ let autoScrollTimer = null
 const fetchTopbarAnnouncements = async () => {
   try {
     const response = await getPublicAnnouncements('topbar')
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       announcements.value = response.data || []
       if (announcements.value.length > 0) {
         startAutoScroll()

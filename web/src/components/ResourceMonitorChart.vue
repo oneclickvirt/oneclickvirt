@@ -189,7 +189,7 @@ const loadData = async () => {
   loading.value = true
   try {
     const res = await getInstanceResourceMonitoring(props.instanceId, { hours: 24 })
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       let data = Array.isArray(res.data) ? res.data : (res.data?.metrics || [])
       if (res.data && typeof res.data === 'object' && !Array.isArray(res.data)) {
         diskMonitoringEnabled.value = res.data.disk_monitoring_enabled !== false

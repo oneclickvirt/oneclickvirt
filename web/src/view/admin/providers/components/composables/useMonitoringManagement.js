@@ -98,7 +98,7 @@ export function useMonitoringManagement(props, emit) {
     if (!props.provider) return
     try {
       const res = await getMonitoringConfig(props.provider.id)
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         const data = res.data || {}
         Object.assign(config, {
           monitoring_mode: data.monitoring_mode || 'agent',
@@ -130,7 +130,7 @@ export function useMonitoringManagement(props, emit) {
     monitorsLoading.value = true
     try {
       const res = await getProviderMonitors(props.provider.id, { page: monitorsPagination.page, pageSize: monitorsPagination.pageSize })
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         const data = res.data || {}
         monitors.value = data.list || []
         monitorsPagination.total = data.total || 0
@@ -155,7 +155,7 @@ export function useMonitoringManagement(props, emit) {
       await ElMessageBox.confirm(t('admin.providers.deployAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
       deployLoading.value = true; deployOutput.value = ''
       const res = await deployAgent(props.provider.id)
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         ElMessage.success(t('admin.providers.deployAgentSuccess'))
         deployOutput.value = res.data?.output || 'OK'
         await loadConfig(); await loadMonitors(); handleCheckStatus()
@@ -177,7 +177,7 @@ export function useMonitoringManagement(props, emit) {
       await ElMessageBox.confirm(t('admin.providers.uninstallAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       uninstallLoading.value = true
       const res = await uninstallAgent(props.provider.id)
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         ElMessage.success(t('admin.providers.uninstallAgentSuccess'))
         await loadConfig(); monitors.value = []; agentOnlineChecked.value = false; agentIsOnline.value = false
       } else { ElMessage.error(res.msg || t('admin.providers.uninstallAgentFailed')) }
@@ -190,7 +190,7 @@ export function useMonitoringManagement(props, emit) {
     statusLoading.value = true
     try {
       const res = await getAgentStatus(props.provider.id)
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         const data = res.data
         agentOnlineChecked.value = true; agentIsOnline.value = !!data.is_running
         if (data.is_running) ElMessage.success(t('admin.providers.agentOnline') + (data.version ? ' (v' + data.version + ')' : ''))
@@ -221,7 +221,7 @@ export function useMonitoringManagement(props, emit) {
       await ElMessageBox.confirm(t('admin.providers.syncMonitorsConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
       syncLoading.value = true
       const res = await syncProviderMonitors(props.provider.id)
-      if (res.code === 0 || res.code === 200) { ElMessage.success(t('admin.providers.syncMonitorsSuccess')); await loadMonitors() }
+      if (res.code === 200) { ElMessage.success(t('admin.providers.syncMonitorsSuccess')); await loadMonitors() }
       else { ElMessage.error(res.msg || t('admin.providers.syncMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.syncMonitorsFailed')) }
     finally { syncLoading.value = false }
@@ -233,7 +233,7 @@ export function useMonitoringManagement(props, emit) {
       await ElMessageBox.confirm(t('admin.providers.clearMonitorsConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       clearMonitorsLoading.value = true
       const res = await clearProviderMonitors(props.provider.id)
-      if (res.code === 0 || res.code === 200) { ElMessage.success(t('admin.providers.clearMonitorsSuccess')); await loadMonitors() }
+      if (res.code === 200) { ElMessage.success(t('admin.providers.clearMonitorsSuccess')); await loadMonitors() }
       else { ElMessage.error(res.msg || t('admin.providers.clearMonitorsFailed')) }
     } catch (e) { if (e !== 'cancel') ElMessage.error(e?.response?.data?.msg || t('admin.providers.clearMonitorsFailed')) }
     finally { clearMonitorsLoading.value = false }
@@ -244,7 +244,7 @@ export function useMonitoringManagement(props, emit) {
     listAgentLoading.value = true
     try {
       const res = await listAgentMonitors(props.provider.id, { page: agentMonitorsPagination.page, pageSize: agentMonitorsPagination.pageSize })
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         const data = res.data || {}; agentMonitors.value = data.monitors || []; agentMonitorsPagination.total = data.total || 0; showAgentMonitors.value = true
       } else { ElMessage.error(res.msg || t('common.failed')) }
     } catch (e) { ElMessage.error(e?.response?.data?.msg || t('common.failed')) }
@@ -256,7 +256,7 @@ export function useMonitoringManagement(props, emit) {
     saveConfigLoading.value = true
     try {
       const res = await updateMonitoringConfig(props.provider.id, editConfig)
-      if (res.code === 0 || res.code === 200) { ElMessage.success(t('common.saveSuccess')); await loadConfig(); showConfigEditor.value = false }
+      if (res.code === 200) { ElMessage.success(t('common.saveSuccess')); await loadConfig(); showConfigEditor.value = false }
       else { ElMessage.error(res.msg || t('common.saveFailed')) }
     } catch (e) { ElMessage.error(e?.response?.data?.msg || t('common.saveFailed')) }
     finally { saveConfigLoading.value = false }

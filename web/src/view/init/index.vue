@@ -386,7 +386,7 @@ const checkInitStatus = async () => {
     const response = await checkSystemInit()
     console.log(t('init.debug.checkingStatus'), response)
 
-    if (response && (response.code === 0 || response.code === 200) && response.data && response.data.needInit === false) {
+    if (response && (response.code === 200) && response.data && response.data.needInit === false) {
       console.log(t('init.debug.alreadyInitialized'))
       ElMessage.info(t('init.messages.alreadyInitialized'))
       clearPolling()
@@ -426,7 +426,7 @@ const detectDatabaseType = async () => {
   try {
     // 尝试从后端API获取推荐的数据库类型
     const response = await get('/v1/public/recommended-db-type')
-    if (response && (response.code === 0 || response.code === 200) && response.data) {
+    if (response && (response.code === 200) && response.data) {
       console.log(t('init.debug.serverRecommendedDb'), response.data)
       return {
         type: response.data.recommendedType,
@@ -504,7 +504,7 @@ const testDatabaseConnection = async () => {
     
     const response = await post('/v1/public/test-db-connection', testData)
     
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       connectionTestResult.value = {
         success: true,
         message: '✅ ' + t('init.messages.dbConnSuccess')
@@ -574,7 +574,7 @@ const handleInit = async () => {
 
     const response = await post('/v1/public/init', requestData)
 
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       ElMessage.success(t('init.messages.initSuccess'))
       // 延长等待时间到4.5秒，确保后端数据库重新连接完成（后端需要2秒+处理时间）
       setTimeout(() => {

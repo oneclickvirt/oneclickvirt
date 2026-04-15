@@ -57,7 +57,7 @@ export function useSystemImageManagement() {
     try {
       const params = { page: pagination.page, pageSize: pagination.pageSize, ...searchForm }
       const response = await systemImageApi.getList(params)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         tableData.value = response.data.list || []
         pagination.total = response.data.total || 0
       }

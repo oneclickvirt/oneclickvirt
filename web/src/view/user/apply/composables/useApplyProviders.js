@@ -77,7 +77,7 @@ export function useApplyProviders() {
     try {
       loading.value = true
       const response = await getAvailableProviders()
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         providers.value = response.data || []
         if (providers.value.length === 0) {
           ElMessage.info(t('user.apply.noProvidersRetry'))
@@ -100,7 +100,7 @@ export function useApplyProviders() {
   const loadProviderCapabilities = async (providerId) => {
     try {
       const response = await getProviderCapabilities(providerId)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         providerCapabilities.value[providerId] = response.data
       } else {
         console.warn('获取节点支持能力失败:', response.message)
@@ -113,7 +113,7 @@ export function useApplyProviders() {
   const loadInstanceTypePermissions = async () => {
     try {
       const response = await getUserInstanceTypePermissions()
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         Object.assign(instanceTypePermissions.value, response.data)
       } else {
         console.warn('获取实例类型权限配置失败:', response.message)

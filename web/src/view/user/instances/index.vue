@@ -320,7 +320,7 @@ const loadInstances = async (showSuccessMsg = false) => {
     }
     
     const response = await getUserInstances(params)
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       instances.value = response.data.list || []
       total.value = response.data.total || 0
       // 只有在明确刷新时才显示成功提示

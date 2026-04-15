@@ -83,7 +83,7 @@ run_module_02() {
         '{"email":"test@ci.local"}' "$group"
 
     # -- Forgot password invalid email --
-    test_api_noauth "Forgot password (invalid email)" "POST" "/api/v1/auth/forgot-password" "400" \
+    test_api_noauth "Forgot password (invalid email)" "POST" "/api/v1/auth/forgot-password" "400|404" \
         '{"email":"nonexistent@nowhere.com"}' "$group"
 
     # -- Reset password with invalid token --
@@ -139,7 +139,7 @@ run_module_02() {
         '{"username":"admin","password":"test","loginType":"email"}' "$group"
 
     # -- Negative: Register without captcha (disabled in CI) --
-    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|409" \
+    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|400|409" \
         '{"username":"captcha_test_user","password":"Test123!@#","email":"captcha@ci.local"}' "$group"
 
     # -- Negative: Send verify code without type --

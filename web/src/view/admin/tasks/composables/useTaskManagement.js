@@ -59,7 +59,7 @@ export function useTaskManagement() {
       }
 
       const response = await getAdminTasks(params)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         tasks.value = response.data.list || []
         total.value = response.data.total || 0
       } else {
@@ -76,7 +76,7 @@ export function useTaskManagement() {
   const loadStats = async () => {
     try {
       const response = await getTaskOverallStats()
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         Object.assign(stats, response.data)
       }
     } catch (error) {
@@ -87,7 +87,7 @@ export function useTaskManagement() {
   const loadProviders = async () => {
     try {
       const response = await getProviderList({ page: 1, pageSize: 1000 })
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         providers.value = response.data.list || []
       }
     } catch (error) {
@@ -121,7 +121,7 @@ export function useTaskManagement() {
         reason: forceStopDialog.form.reason
       })
 
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(t('admin.tasks.forceStopSuccess'))
         forceStopDialog.visible = false
         loadTasks()
@@ -150,7 +150,7 @@ export function useTaskManagement() {
       )
 
       const response = await cancelUserTaskByAdmin(task.id)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(t('admin.tasks.cancelSuccess'))
         loadTasks()
         loadStats()

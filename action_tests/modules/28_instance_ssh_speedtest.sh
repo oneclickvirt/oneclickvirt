@@ -63,7 +63,7 @@ _get_instance_ssh_info() {
         "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || return 1
 
     local code; code=$(echo "$resp" | jq -r '.code // empty' 2>/dev/null)
-    [[ "$code" != "0" ]] && { log_error "Admin instance API returned code=${code}"; return 1; }
+    [[ "$code" != "200" ]] && { log_error "Admin instance API returned code=${code}"; return 1; }
 
     INST_PUBLIC_IP=$(echo "$resp"  | jq -r '.data.publicIP  // .data.instance.publicIP  // empty' 2>/dev/null)
     INST_SSH_PORT=$(echo "$resp"   | jq -r '.data.sshPort   // .data.instance.sshPort   // 22'    2>/dev/null)

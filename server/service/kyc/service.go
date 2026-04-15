@@ -31,10 +31,10 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 	err := global.APP_DB.Where("user_id = ?", userID).First(&existing).Error
 	if err == nil {
 		if existing.Status == "approved" {
-			return nil, fmt.Errorf("已通过实名认证")
+			return nil, fmt.Errorf("已通过实名认证，不能重复提交")
 		}
 		if existing.Status == "pending" {
-			return nil, fmt.Errorf("已提交实名认证，请等待审核")
+			return nil, fmt.Errorf("认证申请已存在，请等待审核")
 		}
 		// rejected: allow resubmit by updating existing record
 		idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
@@ -158,7 +158,7 @@ func (s *Service) QueryAlipayKYCResult(userID uint) (bool, error) {
 		return true, nil
 	}
 	if record.AlipayCertifyID == "" {
-		return false, fmt.Errorf("缺少认证ID")
+		return false, fmt.Errorf("缺少认证ID，参数无效")
 	}
 
 	passed, err := s.AlipayFaceCertifyQuery(record.AlipayCertifyID)
@@ -210,7 +210,7 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 		return fmt.Errorf("认证记录不存在")
 	}
 	if record.Status != "pending" {
-		return fmt.Errorf("该认证已审核过")
+		return fmt.Errorf("该认证记录已存在审核结果，不能重复审核")
 	}
 
 	status := "approved"

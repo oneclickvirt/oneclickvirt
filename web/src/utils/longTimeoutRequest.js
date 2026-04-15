@@ -55,7 +55,7 @@ export const createLongTimeoutRequest = (timeout = 60000, options = {}) => {
       }
       
       if (res.code !== undefined) {
-        if (res.code === 0 || res.code === 200) {
+        if (res.code === 200) {
           return res
         } else {
           return Promise.reject(new Error(res.msg || i18n.global.t('common.requestFailed')))

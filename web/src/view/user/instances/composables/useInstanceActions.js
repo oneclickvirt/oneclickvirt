@@ -56,7 +56,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
         action: 'reset',
         image: image || undefined
       })
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         const actionText = t('user.instanceDetail.actionReset')
         ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
         ElMessage.info(t('user.instanceDetail.resetSystemNotice'))
@@ -135,7 +135,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
         action
       })
 
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(`${actionText}${t('user.tasks.request')}${t('user.tasks.submitted')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
 
         if (action === 'delete' || action === 'reset') {
@@ -219,7 +219,7 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
 
       try {
         const response = await resetInstancePassword(instance.value.id)
-        if (response.code === 0 || response.code === 200) {
+        if (response.code === 200) {
           const taskId = response.data.taskId
           ElMessage.success(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.checkProgress')}${t('user.tasks.taskList')}${t('common.inLocation')}`)
           setTimeout(() => { actionLoading.value = false }, 3000)

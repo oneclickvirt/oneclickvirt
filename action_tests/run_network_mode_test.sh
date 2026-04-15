@@ -400,7 +400,7 @@ INIT_CHECK=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/init/check" 2>/d
 NEED_INIT=$(echo "$INIT_CHECK" | jq -r '.data.needInit // true' 2>/dev/null)
 if [[ "$NEED_INIT" == "true" ]]; then
     INIT_RESP=$(init_system "$SERVER_URL" "${ADMIN_USER:-admin}" "${ADMIN_PASS:-Admin123!@#}")
-    [[ "$(echo "$INIT_RESP" | jq -r '.code // empty')" != "0" ]] && {
+    [[ "$(echo "$INIT_RESP" | jq -r '.code // empty')" != "200" ]] && {
         log_error "System init failed: ${INIT_RESP}"
         exit 1
     }

@@ -85,7 +85,7 @@ export function useInstanceDetail() {
     try {
       loading.value = true
       const response = await getUserInstanceDetail(route.params.id)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         const data = response.data
         if (data.type && !data.instance_type) {
           data.instance_type = data.type
@@ -112,7 +112,7 @@ export function useInstanceDetail() {
 
     try {
       const response = await getUserInstancePorts(route.params.id)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         portMappings.value = response.data.list || []
         if (response.data.publicIP) {
           instance.value.publicIP = response.data.publicIP
@@ -134,7 +134,7 @@ export function useInstanceDetail() {
 
     try {
       const response = await getInstanceMonitoring(route.params.id)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         Object.assign(monitoring, response.data)
         if (monitoring.trafficData?.isLimited) {
           ElMessage.warning(t('user.instanceDetail.trafficLimitWarning'))
@@ -160,7 +160,7 @@ export function useInstanceDetail() {
   const loadInstanceTypePermissions = async () => {
     try {
       const response = await getUserInstanceTypePermissions()
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         const data = response.data || {}
         instanceTypePermissions.value = {
           canCreateContainer: data.canCreateContainer || false,

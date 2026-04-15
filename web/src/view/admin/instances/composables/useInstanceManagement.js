@@ -279,7 +279,7 @@ export function useInstanceManagement() {
     try {
       transferLoading.value = true
       const response = await adminTransferInstance({ instanceId: transferForm.value.instanceId, targetUserId: transferForm.value.targetUserId })
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         ElMessage.success(t('admin.instances.transferSuccess'))
         transferDialogVisible.value = false
         await loadInstances()

@@ -2,6 +2,7 @@ package user
 
 import (
 	"strconv"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
@@ -120,7 +121,14 @@ func GetUserKYC(c *gin.Context) {
 	svc := &kycService.Service{}
 	record, err := svc.GetUserKYC(userID)
 	if err != nil {
-		common.ResponseSuccess(c, gin.H{"status": "none"})
+		// 如果用户没有KYC记录，返回 "none" 状态（不是错误）
+		if strings.Contains(err.Error(), "不存在") || strings.Contains(err.Error(), "找不到") ||
+			strings.Contains(strings.ToLower(err.Error()), "not found") ||
+			strings.Contains(strings.ToLower(err.Error()), "record not found") {
+			common.ResponseSuccess(c, gin.H{"status": "none"})
+			return
+		}
+		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
 	common.ResponseSuccess(c, record)

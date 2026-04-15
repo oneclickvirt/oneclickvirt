@@ -424,6 +424,68 @@ func (s *ProviderConfigService) ExportAllConfigs(exportDir string) error {
 	return nil
 }
 
+// ExportProviderConfigs 导出指定Provider配置到指定目录
+func (s *ProviderConfigService) ExportProviderConfigs(exportDir string, providerIDs []uint) error {
+	if err := os.MkdirAll(exportDir, 0755); err != nil {
+		return fmt.Errorf("创建导出目录失败: %w", err)
+	}
+
+	var providers []providerModel.Provider
+	if err := global.APP_DB.Where("auto_configured = ? AND id IN ?", true, providerIDs).Find(&providers).Error; err != nil {
+		return fmt.Errorf("查询Provider失败: %w", err)
+	}
+
+	for _, provider := range providers {
+		if provider.AuthConfig == "" {
+			continue
+		}
+
+		var authConfig providerModel.ProviderAuthConfig
+		if err := json.Unmarshal([]byte(provider.AuthConfig), &authConfig); err != nil {
+			global.APP_LOG.Warn("跳过无效配置",
+				zap.String("provider", provider.Name),
+				zap.Error(err))
+			continue
+		}
+
+		backup := &providerModel.ConfigBackup{
+			ProviderID:    provider.ID,
+			ProviderUUID:  provider.UUID,
+			ProviderName:  provider.Name,
+			ProviderType:  provider.Type,
+			AuthConfig:    &authConfig,
+			Status:        provider.Status,
+			LastUpdated:   *provider.LastConfigUpdate,
+			ConfigVersion: provider.ConfigVersion,
+			CreatedAt:     provider.CreatedAt,
+			UpdatedAt:     provider.UpdatedAt,
+		}
+
+		backupData, err := json.MarshalIndent(backup, "", "  ")
+		if err != nil {
+			global.APP_LOG.Warn("序列化配置失败",
+				zap.String("provider", provider.Name),
+				zap.Error(err))
+			continue
+		}
+
+		exportPath := filepath.Join(exportDir, fmt.Sprintf("%s_%s%s", provider.Name, provider.Type, ConfigFileSuffix))
+		if err := os.WriteFile(exportPath, backupData, 0644); err != nil {
+			global.APP_LOG.Warn("导出配置失败",
+				zap.String("provider", provider.Name),
+				zap.String("path", exportPath),
+				zap.Error(err))
+			continue
+		}
+
+		global.APP_LOG.Debug("导出配置成功",
+			zap.String("provider", provider.Name),
+			zap.String("path", exportPath))
+	}
+
+	return nil
+}
+
 // CleanupProviderConfig 清理Provider配置文件
 func (s *ProviderConfigService) CleanupProviderConfig(providerUUID string) error {
 	// 清理证书文件

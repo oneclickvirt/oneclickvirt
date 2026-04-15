@@ -321,7 +321,7 @@ reset_master_server() {
     if [[ "${need_init}" == "true" ]]; then
         local init_resp; init_resp=$(init_system "http://localhost:${port}" "${ADMIN_USER}" "${ADMIN_PASS}")
         local init_code; init_code=$(echo "${init_resp}" | jq -r '.code // empty' 2>/dev/null)
-        if [[ "${init_code}" != "0" ]]; then
+        if [[ "${init_code}" != "200" ]]; then
             log_error "System re-initialisation failed (code=${init_code}): ${init_resp}"
             return 1
         fi

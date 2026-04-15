@@ -50,7 +50,7 @@ service.interceptors.response.use(
     }
     
     if (res.code !== undefined) {
-      if (res.code === 0 || res.code === 200) {
+      if (res.code === 200) {
         return res
       } else {
         // 使用统一错误处理，但不自动显示错误消息

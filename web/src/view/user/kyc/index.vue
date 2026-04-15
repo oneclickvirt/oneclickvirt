@@ -55,7 +55,7 @@ const kycMethodConfig = computed(() => featureStore.kycMethod || 'manual')
 async function fetchKYC() {
   try {
     const res = await getUserKYC()
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       if (res.data?.status) {
         kycStatus.value = res.data.status
         kycRecord.value = res.data
@@ -72,7 +72,7 @@ async function handleQueryAlipay() {
   queryLoading.value = true
   try {
     const res = await queryAlipayKYCResult()
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       if (res.data?.passed) {
         ElMessage.success(t('user.kyc.alipayVerifySuccess'))
         await fetchKYC()
@@ -118,7 +118,7 @@ const KycFormComponent = defineComponent({
       try {
         if (selectedMethod.value === 'alipay') {
           const res = await submitAlipayKYC(form.value)
-          if (res.code === 0 || res.code === 200) {
+          if (res.code === 200) {
             ElMessage.success(t('user.kyc.alipayRedirectTip'))
             if (res.data?.certifyUrl) {
               window.open(res.data.certifyUrl, '_blank')
@@ -127,7 +127,7 @@ const KycFormComponent = defineComponent({
           }
         } else {
           const res = await submitUserKYC(form.value)
-          if (res.code === 0 || res.code === 200) {
+          if (res.code === 200) {
             ElMessage.success(t('user.kyc.submitSuccess'))
             emit('submitted')
           }

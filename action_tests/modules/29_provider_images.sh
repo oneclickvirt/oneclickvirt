@@ -123,7 +123,7 @@ run_module_29() {
         local del_verify; del_verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
         local del_code; del_code=$(echo "$del_verify" | jq -r '.code // empty' 2>/dev/null)
-        if [[ "$del_code" != "0" ]]; then
+        if [[ "$del_code" != "200" ]]; then
             log_success "Verified instance ${inst_id} deleted (image: ${img_name})"
             _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "PASS" "404" "$del_code" "" "$group"
             passed=$((passed + 1))

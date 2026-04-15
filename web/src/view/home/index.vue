@@ -610,7 +610,7 @@ const fetchAnnouncements = async () => {
   try {
     // 获取首页公告
     const response = await getPublicAnnouncements('homepage')
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       announcements.value = response.data.slice(0, 3) // 只显示最新3条
     }
   } catch (error) {
@@ -621,7 +621,7 @@ const fetchAnnouncements = async () => {
 const fetchPublicStats = async () => {
   try {
     const resp = await getPublicStats()
-    if (resp && (resp.code === 0 || resp.code === 200) && resp.data) {
+    if (resp && (resp.code === 200) && resp.data) {
       const d = resp.data
       // 尝试从常见字段拾取数据，做多层回退以兼容不同返回结构
       usersCount.value = d.userStats?.totalUsers ?? d.user_count ?? d.userCount ?? d.userTotal ?? null
@@ -647,7 +647,7 @@ const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
     console.log(t('home.debug.checkingInit'), response)
-    if (response && (response.code === 0 || response.code === 200) && response.data && response.data.needInit === true) {
+    if (response && (response.code === 200) && response.data && response.data.needInit === true) {
       console.log(t('home.debug.needInitRedirect'))
       router.push('/init')
     }
@@ -677,7 +677,7 @@ onMounted(() => {
   fetchPublicStats()
   // 获取服务器版本信息
   getServerVersion().then(res => {
-    if (res && (res.code === 0 || res.code === 200) && res.data?.server_version) {
+    if (res && (res.code === 200) && res.data?.server_version) {
       serverVersion.value = res.data.server_version
     }
   }).catch(() => {})

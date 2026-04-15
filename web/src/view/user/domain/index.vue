@@ -188,7 +188,7 @@ async function fetchData() {
   loading.value = true
   try {
     const res = await getUserDomains()
-    if (res.code === 0 || res.code === 200) {
+    if (res.code === 200) {
       domains.value = res.data || []
     }
   } finally {

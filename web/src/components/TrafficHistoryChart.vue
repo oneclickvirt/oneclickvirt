@@ -211,7 +211,7 @@ const loadData = async () => {
     
     console.log('Traffic history response:', response)
     
-    if (response && (response.code === 0 || response.code === 200)) {
+    if (response && (response.code === 200)) {
       loading.value = false
       // 存储数据供语言切换时使用
       chartData.value = response.data || []

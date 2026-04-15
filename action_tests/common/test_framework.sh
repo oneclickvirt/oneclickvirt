@@ -340,7 +340,7 @@ delete_instance_safe() {
     local del_code; del_code=$(echo "$del_resp" | jq -r '.code // empty' 2>/dev/null)
     
     # Check if deletion request itself failed
-    if [[ -n "$del_code" && "$del_code" != "0" ]]; then
+    if [[ -n "$del_code" && "$del_code" != "200" ]]; then
         local del_msg; del_msg=$(echo "$del_resp" | jq -r '.msg // .message // "unknown error"' 2>/dev/null)
         log_warning "Instance ${instance_id} deletion request failed: ${del_msg} (code: ${del_code})"
         # Continue anyway - instance might already be deleted
@@ -364,9 +364,9 @@ delete_instance_safe() {
         "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
     local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
     
-    # code=0 means success, which here means instance still exists (bad)
+    # code=200 means success, which here means instance still exists (bad)
     # Any other code (404, 500, etc.) or empty response means instance not found (good)
-    if [[ "$verify_code" == "0" ]]; then
+    if [[ "$verify_code" == "200" ]]; then
         local inst_status; inst_status=$(echo "$verify" | jq -r '.data.status // empty' 2>/dev/null)
         log_warning "Instance ${instance_id} still exists after deletion (status: ${inst_status})"
         return 1
@@ -377,15 +377,14 @@ delete_instance_safe() {
 }
 
 # -- Auth helpers --
-# wait_init_ready: waits until /api/v1/public/init/check responds with code=0 (server+DB both up)
-# NOTE: the server uses code=0 for success (not 200). code=0 means the API is reachable.
+# wait_init_ready: waits until /api/v1/public/init/check responds with code=200 (server+DB both up)
 wait_init_ready() {
     local url="$1" max="${2:-180}" interval="${3:-5}" elapsed=0
     log_info "Waiting for init endpoint to respond..."
     while [[ $elapsed -lt $max ]]; do
         local r; r=$(curl -s --max-time 10 "${url}/api/v1/public/init/check" 2>/dev/null) || true
         local code; code=$(echo "$r" | jq -r '.code // empty' 2>/dev/null)
-        if [[ "$code" == "0" ]]; then
+        if [[ "$code" == "200" ]]; then
             local need_init; need_init=$(echo "$r" | jq -r '.data.needInit // true' 2>/dev/null)
             log_success "Init endpoint ready (needInit=${need_init})"
             return 0

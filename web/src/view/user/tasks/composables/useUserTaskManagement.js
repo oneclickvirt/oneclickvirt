@@ -58,7 +58,7 @@ export function useUserTaskManagement() {
       if (filterForm.status) params.status = filterForm.status
       if (hasFilter) { params.page = pagination.page; params.pageSize = pagination.pageSize }
       const response = await getUserTasks(params)
-      if (response.code === 0 || response.code === 200) {
+      if (response.code === 200) {
         tasks.value = response.data.list || []; total.value = response.data.total || 0
         if (showSuccessMsg) {
           if (hasFilter) ElMessage.success(t('user.tasks.refreshedTotal', { count: total.value }))
@@ -77,7 +77,7 @@ export function useUserTaskManagement() {
   const loadProviders = async () => {
     try {
       const response = await getAvailableProviders()
-      if (response.code === 0 || response.code === 200) providers.value = response.data || []
+      if (response.code === 200) providers.value = response.data || []
     } catch (error) { console.error('获取提供商列表失败:', error) }
   }
 
@@ -90,7 +90,7 @@ export function useUserTaskManagement() {
     try {
       await ElMessageBox.confirm(`${t('user.tasks.confirmCancel')} "${getTaskTypeText(task.taskType)}"?`, t('user.tasks.confirmCancel'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const response = await cancelUserTask(task.id)
-      if (response.code === 0 || response.code === 200) { ElMessage.success(t('user.tasks.taskCancelled')); loadTasks() }
+      if (response.code === 200) { ElMessage.success(t('user.tasks.taskCancelled')); loadTasks() }
     } catch (error) { if (error !== 'cancel') ElMessage.error(t('user.tasks.cancelTaskFailed')) }
   }
 

@@ -242,7 +242,7 @@ const loadUserLimits = async () => {
   
   try {
     const response = await getUserLimits()
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       Object.assign(userLimits, response.data)
       loadingMsg.close()
       ElMessage.success(t('user.dashboard.quotaRefreshed'))
@@ -261,7 +261,7 @@ const loadUserLimits = async () => {
 const loadAnnouncements = async () => {
   try {
     const response = await getAnnouncements({ page: 1, pageSize: 3 })
-    if (response.code === 0 || response.code === 200) {
+    if (response.code === 200) {
       announcements.value = response.data.list || []
     }
   } catch (error) {
