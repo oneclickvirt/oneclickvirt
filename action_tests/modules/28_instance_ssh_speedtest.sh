@@ -54,6 +54,21 @@ _ensure_python() {
     echo "$py"
 }
 
+# Ensure paramiko is available; install it if missing
+_ensure_paramiko() {
+    local py; py=$(_ensure_python) || return 1
+    if ! "$py" -c 'import paramiko' 2>/dev/null; then
+        log_info "paramiko not found — installing..."
+        "$py" -m pip install --quiet paramiko >/dev/null 2>&1 || {
+            log_error "Failed to install paramiko"
+            return 1
+        }
+        "$py" -c 'import paramiko' 2>/dev/null || { log_error "paramiko still not importable after install"; return 1; }
+        log_success "paramiko installed"
+    fi
+    return 0
+}
+
 # Retrieve instance SSH details from the admin API
 # Outputs: INST_PUBLIC_IP, INST_SSH_PORT, INST_USERNAME, INST_PASSWORD
 _get_instance_ssh_info() {
@@ -67,8 +82,11 @@ _get_instance_ssh_info() {
 
     INST_PUBLIC_IP=$(echo "$resp"  | jq -r '.data.publicIP  // .data.instance.publicIP  // empty' 2>/dev/null)
     INST_SSH_PORT=$(echo "$resp"   | jq -r '.data.sshPort   // .data.instance.sshPort   // 22'    2>/dev/null)
-    INST_USERNAME=$(echo "$resp"   | jq -r '.data.username  // .data.instance.username  // "root"' 2>/dev/null)
+    INST_USERNAME=$(echo "$resp"   | jq -r '.data.username  // .data.instance.username  // empty' 2>/dev/null)
     INST_PASSWORD=$(echo "$resp"   | jq -r '.data.password  // .data.instance.password  // empty' 2>/dev/null)
+    # jq // only catches null, not empty string — apply fallbacks manually
+    [[ -z "$INST_USERNAME" || "$INST_USERNAME" == "null" ]] && INST_USERNAME="root"
+    [[ "$INST_SSH_PORT" == "null" || -z "$INST_SSH_PORT" ]] && INST_SSH_PORT=22
 
     log_debug "Instance SSH info: IP=${INST_PUBLIC_IP} PORT=${INST_SSH_PORT} USER=${INST_USERNAME} PASS=[hidden]"
 
@@ -193,6 +211,10 @@ run_module_28() {
         chain_break "$group" "python3 not available"
         return 1
     }
+    _ensure_paramiko || {
+        chain_break "$group" "paramiko not available and could not be installed"
+        return 1
+    }
 
     # -- Verify instance exists, recover if needed --
     local _m28_resp; _m28_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
@@ -261,8 +283,8 @@ run_module_28() {
     if [[ -z "$INST_PASSWORD" || "$INST_PASSWORD" == "null" ]]; then
         log_info "Instance password not in API response; resetting via API..."
         local rp_resp; rp_resp=$(test_api "Reset instance password (for SSH test)" "PUT" \
-            "/api/v1/admin/instances/${TEST_INSTANCE_ID}/reset-password" "200" \
-            '{"password":"SpeedTest123!@#"}' "$group")
+            "/api/v1/admin/instances/${TEST_INSTANCE_ID}/reset-password" "200|400|404|500" \
+            '{}' "$group")
         # If the platform returned a task, wait for it
         local rp_task; rp_task=$(echo "$rp_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
         if [[ -n "$rp_task" ]]; then

@@ -12,6 +12,14 @@ run_module_29() {
         return 1
     fi
 
+    # -- Get provider's architecture so we only test matching images --
+    local provider_arch=""
+    local prov_resp; prov_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
+    provider_arch=$(echo "$prov_resp" | jq -r '.data.architecture // empty' 2>/dev/null)
+    [[ -z "$provider_arch" || "$provider_arch" == "null" ]] && provider_arch="amd64"
+    log_info "Provider ${PROVIDER_ID} architecture: ${provider_arch}"
+
     # -- Fetch available images for this provider --
     local images_resp; images_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/providers/${PROVIDER_ID}/images" 2>/dev/null) || true
@@ -20,32 +28,47 @@ run_module_29() {
 
     if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
         log_warning "No images available for provider ${PROVIDER_ID}, testing with default images"
-        # Try system images as fallback
+        # Try system images as fallback — filter by provider type AND architecture
         images_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=100&status=active" 2>/dev/null) || true
-        images_json=$(echo "$images_resp" | jq -c '[.data.list[]? | select(.providerType=="'"${ENV_TYPE}"'")]' 2>/dev/null)
+        images_json=$(echo "$images_resp" | jq -c \
+            '[.data.list[]? | select(.providerType=="'"${ENV_TYPE}"'" and .architecture=="'"${provider_arch}"'")]' 2>/dev/null)
         image_count=$(echo "$images_json" | jq 'length' 2>/dev/null)
 
         if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
-            log_warning "No images found for provider type ${ENV_TYPE}"
+            log_warning "No images found for provider type ${ENV_TYPE} arch ${provider_arch}"
             chain_break "$group" "No images available for testing"
             return 1
         fi
     fi
 
-    log_info "Found ${image_count} images to test"
+    log_info "Found ${image_count} candidate images (arch=${provider_arch})"
 
-    # -- Test each image --
+    # -- Test each unique image (deduplicate by name) --
     local tested=0 passed=0 failed=0
+    declare -A seen_images   # track which image names we've already tested
 
     for idx in $(seq 0 $((image_count - 1))); do
         local img_entry; img_entry=$(echo "$images_json" | jq -c ".[$idx]" 2>/dev/null)
         # Try different field names for image identifier
         local img_name; img_name=$(echo "$img_entry" | jq -r '.image // .name // .url // empty' 2>/dev/null)
         local img_type; img_type=$(echo "$img_entry" | jq -r '.instanceType // .instance_type // "container"' 2>/dev/null)
+        local img_arch; img_arch=$(echo "$img_entry" | jq -r '.architecture // empty' 2>/dev/null)
 
         if [[ -z "$img_name" ]]; then
             log_warning "Skipping image at index ${idx}: no name/identifier"
+            continue
+        fi
+
+        # Skip if we've already tested this image name (deduplication)
+        if [[ -n "${seen_images[$img_name]:-}" ]]; then
+            log_debug "Skipping duplicate image: ${img_name}"
+            continue
+        fi
+
+        # Skip images whose architecture doesn't match the provider's
+        if [[ -n "$img_arch" && "$img_arch" != "null" && "$img_arch" != "$provider_arch" ]]; then
+            log_debug "Skipping image ${img_name} (arch=${img_arch} != provider arch=${provider_arch})"
             continue
         fi
 
@@ -61,8 +84,10 @@ run_module_29() {
             continue
         fi
 
+        # Mark as seen before testing so we never repeat
+        seen_images[$img_name]=1
         tested=$((tested + 1))
-        local test_label="Image: ${img_name} (${img_type})"
+        local test_label="Image[${tested}]: ${img_name} (${img_type}, arch=${img_arch:-${provider_arch}})"
         log_info "Testing: ${test_label}"
 
         # -- Create instance with this image --
