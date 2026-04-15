@@ -256,8 +256,8 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 	return instanceResponses, total, nil
 }
 
-// CreateInstance 创建实例
-func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
+// CreateInstance 创建实例，返回创建的实例ID
+func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) {
 	quotaService := resources.NewQuotaService()
 
 	// 构建资源请求（用于事务内配额校验）
@@ -272,17 +272,17 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 	// 检查提供商是否存在和冻结状态（这些是非并发敏感的快速读，无需放入创建事务）
 	var provider providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", req.Provider).First(&provider).Error; err != nil {
-		return fmt.Errorf("提供商不存在: %s", req.Provider)
+		return 0, fmt.Errorf("提供商不存在: %s", req.Provider)
 	}
 
 	// 检查提供商是否冻结
 	if provider.IsFrozen {
-		return fmt.Errorf("提供商 %s 已被冻结，无法创建实例", req.Provider)
+		return 0, fmt.Errorf("提供商 %s 已被冻结，无法创建实例", req.Provider)
 	}
 
 	// 检查提供商是否过期
 	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
-		return fmt.Errorf("提供商 %s 已过期，无法创建实例", req.Provider)
+		return 0, fmt.Errorf("提供商 %s 已过期，无法创建实例", req.Provider)
 	}
 
 	// 设置实例到期时间，与Provider的到期时间同步
@@ -313,7 +313,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 	dbService := database.GetDatabaseService()
 
 	// 在单个事务中完成配额验证、实例创建和配额更新，确保原子性（解决 TOCTOU）
-	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+	err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 		// 仅当指定了用户ID时才进行配额验证（管理员创建不指定用户时跳过配额）
 		if req.UserID > 0 {
 			// 在事务内验证配额：通过 FOR UPDATE 锁定用户行，保证检查与写入之间无并发窗口
@@ -355,6 +355,10 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) error {
 
 		return nil
 	})
+	if err != nil {
+		return 0, err
+	}
+	return instance.ID, nil
 }
 
 // UpdateInstance 更新实例

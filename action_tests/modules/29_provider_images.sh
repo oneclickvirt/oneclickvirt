@@ -88,6 +88,15 @@ run_module_29() {
             fi
         fi
 
+        # Fallback: if no instance ID from response, find the most recently created instance with this image
+        if [[ -z "$inst_id" ]]; then
+            log_info "Instance ID not in response, querying instance list for image: ${img_name}"
+            sleep 2
+            local list_resp; list_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=10&status=creating" 2>/dev/null) || true
+            inst_id=$(echo "$list_resp" | jq -r '[.data.list[]? | select(.image=="'"${img_name}"'")] | sort_by(.id) | last | .id // .ID // empty' 2>/dev/null)
+        fi
+
         if [[ -z "$inst_id" ]]; then
             log_error "Failed to create instance for image: ${img_name}"
             _record_result "Create ${test_label}" "POST" "/api/v1/admin/instances" "FAIL" "200" "" "No instance ID in response" "$group"

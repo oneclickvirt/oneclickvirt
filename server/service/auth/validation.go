@@ -64,7 +64,8 @@ func (s *AuthValidationService) ClassifyAuthError(err error) *common.AppError {
 	case errMsg == "用户已被禁用，有问题请联系管理员":
 		return common.NewError(common.CodeUserDisabled, errMsg)
 	default:
-		return common.NewError(common.CodeInternalError, errMsg)
+		// 使用通用错误分类，避免所有未知错误都返回500
+		return common.ClassifyError(err)
 	}
 }
 

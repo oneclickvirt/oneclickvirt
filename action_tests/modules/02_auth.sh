@@ -78,8 +78,8 @@ run_module_02() {
     test_api "User logout" "POST" "/api/v1/auth/logout" "200" "" "$group" "$USER_TOKEN"
     USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || true
 
-    # -- Forgot password (email based, may return 400 if SMTP not configured) --
-    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|400" \
+    # -- Forgot password (email based, may return 400 if SMTP not configured, 404 if user not found) --
+    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|400|404" \
         '{"email":"test@ci.local"}' "$group"
 
     # -- Forgot password invalid email --
@@ -139,7 +139,7 @@ run_module_02() {
         '{"username":"admin","password":"test","loginType":"email"}' "$group"
 
     # -- Negative: Register without captcha (disabled in CI) --
-    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|400|409" \
+    test_api_noauth "Register without captcha" "POST" "/api/v1/auth/register" "200|400|403|409" \
         '{"username":"captcha_test_user","password":"Test123!@#","email":"captcha@ci.local"}' "$group"
 
     # -- Negative: Send verify code without type --

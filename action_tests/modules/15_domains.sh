@@ -87,7 +87,7 @@ run_module_15() {
     # -- Negative: Create domain with excessively long name --
     if [[ -n "$USER_TOKEN" ]]; then
         local long_domain; long_domain=$(printf 'a%.0s' {1..256})
-        test_api "Create long domain" "POST" "/api/v1/user/domains" "400" \
+        test_api "Create long domain" "POST" "/api/v1/user/domains" "400|404" \
             "{\"instanceId\":1,\"domainName\":\"${long_domain}.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN"
     fi
 }

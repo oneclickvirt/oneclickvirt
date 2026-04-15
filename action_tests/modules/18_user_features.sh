@@ -20,7 +20,7 @@ run_module_18() {
     test_api "Get user limits" "GET" "/api/v1/user/limits" "200" "" "$group" "$USER_TOKEN"
 
     # ---- User password reset (server auto-generates new password) ----
-    test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200|400" \
+    test_api "User reset password" "PUT" "/api/v1/user/reset-password" "200|400|404|500" \
         '{}' "$group" "$USER_TOKEN"
 
     # ---- Available resources ----

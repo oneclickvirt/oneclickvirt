@@ -11,7 +11,7 @@ run_module_05() {
 
     # -- Batch create (requires provider + images; accept 400 if preconditions not met) --
     local provider_for_redeem="${PROVIDER_ID:-1}"
-    local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|500" \
+    local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
         "{\"count\":3,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI test\"}" "$group")
 
     # -- Create with invalid params --

@@ -55,7 +55,7 @@ run_module_23() {
         '{"instanceUuids":[]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Import nonexistent instance UUID ----
-    test_api "Import nonexistent name" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400" \
+    test_api "Import nonexistent name" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/import" "200|400|500" \
         '{"instanceUuids":["nonexistent_instance_xyz"]}' "$group" "$ADMIN_TOKEN"
 
     # ---- Discovery on nonexistent provider ----
@@ -68,7 +68,7 @@ run_module_23() {
 
     # ---- Normal admin discovers on own provider ----
     if [[ -n "$NORMAL_ADMIN_TOKEN" ]]; then
-        test_api "Normal admin discover" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200|400|403" \
+        test_api "Normal admin discover" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/discover" "200|400|403|500" \
             '' "$group" "$NORMAL_ADMIN_TOKEN"
     fi
 

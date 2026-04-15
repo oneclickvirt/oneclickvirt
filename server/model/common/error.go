@@ -179,9 +179,13 @@ func ClassifyError(err error) *AppError {
 		strings.Contains(msg, "尚未完成") || strings.Contains(msg, "不支持") ||
 		strings.Contains(msg, "未启用") || strings.Contains(msg, "未配置") ||
 		strings.Contains(msg, "超过") || strings.Contains(msg, "过长") ||
+		strings.Contains(msg, "已被冻结") || strings.Contains(msg, "已过期") ||
+		strings.Contains(msg, "无法") || strings.Contains(msg, "已达到") ||
+		strings.Contains(msg, "不满足") || strings.Contains(msg, "密码") ||
 		strings.Contains(lower, "invalid") || strings.Contains(lower, "required") ||
 		strings.Contains(lower, "validation") || strings.Contains(lower, "too long") ||
-		strings.Contains(lower, "exceeded") {
+		strings.Contains(lower, "exceeded") || strings.Contains(lower, "frozen") ||
+		strings.Contains(lower, "expired") {
 		return NewError(CodeValidationError, msg)
 	}
 	return NewError(CodeInternalError, msg)

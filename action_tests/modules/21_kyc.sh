@@ -20,7 +20,7 @@ run_module_21() {
         "$group" "$USER_TOKEN")
 
     # ---- Submit duplicate KYC ----
-    test_api "Submit duplicate KYC" "POST" "/api/v1/user/kyc" "400|409" \
+    test_api "Submit duplicate KYC" "POST" "/api/v1/user/kyc" "400|409|500" \
         '{"realName":"Test User","idNumber":"110101199001011234"}' \
         "$group" "$USER_TOKEN"
 

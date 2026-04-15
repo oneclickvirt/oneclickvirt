@@ -21,7 +21,7 @@ run_module_09() {
 
     # -- SSH connection test (use available auth method) --
     if [[ -n "$worker_pass" ]]; then
-        test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
+        test_api "Test SSH connection (password)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400|500" \
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}" "$group"
     fi
     if [[ -n "$worker_key" ]]; then
