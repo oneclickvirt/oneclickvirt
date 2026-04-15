@@ -40,24 +40,49 @@ func SetupRouter() *gin.Engine {
 	Router.ForwardedByClientIP = true
 
 	// 全局中间件排序：CORS → RequestID → Logger → ErrorHandler → InputValidator
-	frontendURL := global.GetAppConfig().System.FrontendURL
-	Router.Use(cors.New(cors.Config{
-		AllowOriginFunc: func(origin string) bool {
-			// 允许配置的前端地址
-			if frontendURL != "" && origin == frontendURL {
+	appConfig := global.GetAppConfig()
+	frontendURL := appConfig.System.FrontendURL
+	corsMode := appConfig.Cors.Mode
+	corsWhitelist := appConfig.Cors.Whitelist
+	var corsMiddleware gin.HandlerFunc
+	if corsMode == "allow-all" {
+		// allow-all 模式：反射实际 Origin，保留 Credentials 支持
+		corsMiddleware = cors.New(cors.Config{
+			AllowOriginFunc: func(origin string) bool {
 				return true
-			}
-			// 允许 localhost 和 127.0.0.1（开发和本地部署）
-			return strings.HasPrefix(origin, "http://localhost:") ||
-				strings.HasPrefix(origin, "https://localhost:") ||
-				strings.HasPrefix(origin, "http://127.0.0.1:") ||
-				strings.HasPrefix(origin, "https://127.0.0.1:")
-		},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowHeaders:     []string{"*"},
-		ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
-		AllowCredentials: true,
-	}))
+			},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"*"},
+			ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
+			AllowCredentials: true,
+		})
+	} else {
+		// whitelist 模式：仅允许白名单及配置的前端地址
+		allowedOrigins := make(map[string]struct{}, len(corsWhitelist)+1)
+		for _, o := range corsWhitelist {
+			allowedOrigins[o] = struct{}{}
+		}
+		corsMiddleware = cors.New(cors.Config{
+			AllowOriginFunc: func(origin string) bool {
+				if frontendURL != "" && origin == frontendURL {
+					return true
+				}
+				if _, ok := allowedOrigins[origin]; ok {
+					return true
+				}
+				// 开发环境默认允许 localhost 和 127.0.0.1
+				return strings.HasPrefix(origin, "http://localhost:") ||
+					strings.HasPrefix(origin, "https://localhost:") ||
+					strings.HasPrefix(origin, "http://127.0.0.1:") ||
+					strings.HasPrefix(origin, "https://127.0.0.1:")
+			},
+			AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+			AllowHeaders:     []string{"*"},
+			ExposeHeaders:    []string{"Content-Length", "Authorization", middleware.RequestIDHeader},
+			AllowCredentials: true,
+		})
+	}
+	Router.Use(corsMiddleware)
 	Router.Use(middleware.RequestIDMiddleware()) // 注入 X-Request-ID，必须在 Logger 前
 	Router.Use(middleware.LoggerMiddleware())    // HTTP 访问日志
 	Router.Use(middleware.ErrorHandler())        // panic 捕获与统一错误响应

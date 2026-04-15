@@ -1,0 +1,193 @@
+name: ARM Controller Self-Tests
+
+on:
+  workflow_dispatch:
+    inputs:
+      modules:
+        description: '测试模块 (默认: 01,02,03,04,05,06,07,08,17,20,21,25)'
+        required: false
+        type: string
+        default: '01,02,03,04,05,06,07,08,17,20,21,25'
+
+jobs:
+  arm-controller-test:
+    name: "ARM64 Controller Tests"
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 60
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: 'stable'
+          cache: true
+          cache-dependency-path: server/go.sum
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y jq curl mariadb-server mariadb-client
+
+      - name: Set server version
+        run: |
+          LATEST_TAG=$(curl -s "https://api.github.com/repos/${{ github.repository }}/releases/latest" \
+            | jq -r '.tag_name // "v0.0.0-dev"')
+          sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${LATEST_TAG}\"/" \
+            server/constant/version.go
+          echo "Server version set to: ${LATEST_TAG}"
+
+      - name: Setup MariaDB
+        run: |
+          sudo systemctl start mariadb
+          # 等待 MariaDB 就绪
+          for i in $(seq 1 10); do
+            if sudo mariadb -e "SELECT 1" 2>/dev/null; then
+              echo "MariaDB ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+          # 配置 root 用户可通过 TCP 以空密码访问
+          sudo mariadb -e "
+            ALTER USER 'root'@'localhost' IDENTIFIED BY '';
+            DROP USER IF EXISTS 'root'@'127.0.0.1';
+            CREATE USER 'root'@'127.0.0.1' IDENTIFIED BY '';
+            GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION;
+            FLUSH PRIVILEGES;
+          "
+          # 验证 TCP 连接
+          mariadb -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" \
+            && echo "MariaDB TCP OK"
+
+      - name: Build server binary (ARM64)
+        working-directory: ./server
+        run: |
+          export GO111MODULE=on
+          export CGO_ENABLED=0
+          go mod download
+          go build -o ../oneclickvirt-server-arm64 .
+          echo "Build OK"
+
+      - name: Prepare server working directory
+        run: |
+          mkdir -p server-runtime/storage
+          cp oneclickvirt-server-arm64 server-runtime/oneclickvirt-server
+          chmod +x server-runtime/oneclickvirt-server
+          # 生成最小化 config.yaml（数据库已由上方步骤配置好）
+          cat > server-runtime/config.yaml << 'EOF'
+          system:
+            env: public
+            addr: 8888
+            db-type: mysql
+          jwt:
+            signing-key: "ci-test-secret-arm64"
+            expires-time: 7d
+            buffer-time: 1d
+            issuer: oneclickvirt
+          mysql:
+            path: 127.0.0.1
+            port: "3306"
+            db-name: oneclickvirt_test
+            username: root
+            password: ""
+            auto-create: "true"
+            config: charset=utf8mb4&parseTime=True&loc=Local
+          cors:
+            mode: allow-all
+          captcha:
+            enabled: false
+          auth:
+            enable-public-registration: true
+          EOF
+
+      - name: Start server
+        run: |
+          cd server-runtime
+          nohup ./oneclickvirt-server > ../server.log 2>&1 &
+          echo $! > ../server.pid
+          echo "Server PID: $(cat ../server.pid)"
+
+          # 等待服务就绪（最多 30 秒）
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:8888/health > /dev/null 2>&1; then
+              echo "Server ready after ${i}s"
+              break
+            fi
+            sleep 1
+            if [[ $i -eq 30 ]]; then
+              echo "Server failed to start within 30s"
+              cat ../server.log
+              exit 1
+            fi
+          done
+
+      - name: Run controller-only tests (no provider/node)
+        env:
+          SERVER_URL: "http://127.0.0.1:8888"
+          ADMIN_USER: admin
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
+          DEBUG: "1"
+        run: |
+          chmod +x action_tests/run_module.sh
+          chmod -R +x action_tests/modules/ 2>/dev/null || true
+          chmod -R +x action_tests/common/  2>/dev/null || true
+          chmod -R +x action_tests/report/  2>/dev/null || true
+          mkdir -p action_tests/reports
+
+          MODULES_INPUT="${{ inputs.modules || '01,02,03,04,05,06,07,08,17,20,21,25' }}"
+
+          set +e
+          bash action_tests/run_module.sh "$MODULES_INPUT" "$SERVER_URL" \
+            2>&1 | tee action_tests/reports/arm-controller-output.log
+          TEST_EXIT=${PIPESTATUS[0]}
+          set -e
+
+          # 确保始终有输出文件
+          if [[ ! -s action_tests/reports/arm-controller-output.log ]]; then
+            echo "WARNING: Test produced no output." \
+              > action_tests/reports/arm-controller-output.log
+          fi
+
+          # 生成 HTML 报告兜底
+          if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
+            echo "<html><body><h1>ARM64 Controller Test</h1>" \
+              "<p>Exit code: ${TEST_EXIT}</p><pre>$(tail -200 action_tests/reports/arm-controller-output.log)</pre>" \
+              "</body></html>" \
+              > action_tests/reports/arm-controller-report.html
+          fi
+
+          echo "Test exit code: ${TEST_EXIT}"
+          # 输出非零退出码以正确标记 CI 状态
+          exit "${TEST_EXIT}"
+
+      - name: Show server log on failure
+        if: failure()
+        run: |
+          echo "=== Server Log (last 200 lines) ==="
+          tail -200 server.log || true
+
+      - name: Stop server
+        if: always()
+        run: |
+          if [[ -f server.pid ]]; then
+            kill "$(cat server.pid)" 2>/dev/null || true
+          fi
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: arm-controller-test-reports-${{ github.run_number }}
+          path: |
+            action_tests/reports/*.html
+            action_tests/reports/*.md
+            action_tests/reports/*.log
+            action_tests/reports/*.txt
+            action_tests/reports/*.jsonl
+            server.log
+          retention-days: 14
