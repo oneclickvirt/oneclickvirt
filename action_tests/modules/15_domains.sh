@@ -9,6 +9,13 @@ run_module_15() {
     # -- Admin domain list --
     test_api "Admin domain list" "GET" "/api/v1/admin/domains?page=1&pageSize=10" "200" "" "$group"
 
+    # -- Domain config at provider level (must be enabled before user domain creation) --
+    if [[ -n "$PROVIDER_ID" ]]; then
+        test_api "Get domain config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" "" "$group"
+        test_api "Update domain config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" \
+            '{"enabled":true,"base_domain":"test.example.com"}' "$group"
+    fi
+
     # -- User domains --
     if [[ -n "$USER_TOKEN" ]]; then
         test_api "User domain list" "GET" "/api/v1/user/domains" "200" "" "$group" "$USER_TOKEN"
@@ -43,13 +50,6 @@ run_module_15() {
         if [[ -n "$did1" ]]; then
             test_api "Delete user domain" "DELETE" "/api/v1/user/domains/${did1}" "200" "" "$group" "$USER_TOKEN"
         fi
-    fi
-
-    # -- Domain config at provider level --
-    if [[ -n "$PROVIDER_ID" ]]; then
-        test_api "Get domain config" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" "" "$group"
-        test_api "Update domain config" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/domain-config" "200" \
-            '{"enabled":true,"base_domain":"test.example.com"}' "$group"
     fi
 
     # -- Admin delete --

@@ -61,6 +61,15 @@ run_module_18() {
         test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
         test_api "User instance traffic hist" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" "200|403|404" "" "$group" "$USER_TOKEN"
 
+        # Instance password reset via user API
+        local urp; urp=$(test_api "User reset instance password" "PUT" "/api/v1/user/instances/${TEST_INSTANCE_ID}/reset-password" "200|400|403|404" \
+            '{"password":"UserNewPass123!"}' "$group" "$USER_TOKEN")
+        local urp_task; urp_task=$(echo "$urp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        if [[ -n "$urp_task" ]]; then
+            sleep 5
+            test_api "User get new password" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/password/${urp_task}" "200|403|404" "" "$group" "$USER_TOKEN"
+        fi
+
         # Instance action via user API
         test_api "User instance action (invalid)" "POST" "/api/v1/user/instances/action" "400|403|404" \
             '{"instanceId":'"$TEST_INSTANCE_ID"',"action":"invalid_action"}' "$group" "$USER_TOKEN"

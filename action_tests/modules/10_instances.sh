@@ -148,9 +148,29 @@ run_module_10() {
             fi
 
             # -- Rebuild --
-            test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
-                '{"action":"rebuild","image":"debian:12"}' "$group"
-            sleep 10
+            local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
+                '{"action":"rebuild","image":"debian:12"}' "$group")
+            local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+            if [[ -n "$rb_task" ]]; then
+                log_info "Waiting for rebuild task ${rb_task}..."
+                wait_task_complete "$SERVER_URL" "$rb_task" "$ADMIN_TOKEN" 300 10 > /dev/null 2>&1 || {
+                    log_warning "Rebuild task ${rb_task} did not complete within timeout"
+                }
+            fi
+            # Wait for instance to reach running state after rebuild
+            local rb_waited=0
+            while [[ $rb_waited -lt 120 ]]; do
+                local rb_st; rb_st=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                    "${SERVER_URL}/api/v1/admin/instances/${container_id}" 2>/dev/null)
+                local rb_status; rb_status=$(echo "$rb_st" | jq -r '.data.status // empty' 2>/dev/null)
+                if [[ "$rb_status" == "running" ]]; then
+                    log_success "Instance ${container_id} running after rebuild (waited ${rb_waited}s)"
+                    break
+                fi
+                log_debug "Post-rebuild status: ${rb_status:-unknown} (${rb_waited}s/120s)"
+                sleep 10
+                rb_waited=$((rb_waited + 10))
+            done
         fi
     fi
 

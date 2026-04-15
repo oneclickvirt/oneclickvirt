@@ -194,6 +194,44 @@ run_module_28() {
         return 1
     }
 
+    # -- Verify instance exists, recover if needed --
+    local _m28_resp; _m28_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null) || true
+    local _m28_code; _m28_code=$(echo "$_m28_resp" | jq -r '.code // empty' 2>/dev/null)
+    local _m28_status; _m28_status=$(echo "$_m28_resp" | jq -r '.data.status // empty' 2>/dev/null)
+
+    if [[ "$_m28_code" != "200" || -z "$_m28_status" ]]; then
+        log_warning "TEST_INSTANCE_ID=${TEST_INSTANCE_ID} not found (code=${_m28_code}), recreating..."
+        local _m28_data="{\"provider_id\":${PROVIDER_ID},\"instance_type\":\"container\",\"image\":\"debian:12\",\"cpu\":1,\"memory\":256,\"disk\":5,\"network_type\":\"nat_ipv4\"}"
+        local _m28_create; _m28_create=$(curl -s --max-time 60 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" -X POST -d "$_m28_data" \
+            "${SERVER_URL}/api/v1/admin/instances" 2>/dev/null) || true
+        local _m28_new_id; _m28_new_id=$(echo "$_m28_create" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        local _m28_task; _m28_task=$(echo "$_m28_create" | jq -r '.data.task_id // empty' 2>/dev/null)
+        if [[ -n "$_m28_task" ]]; then
+            log_info "Waiting for recreation task ${_m28_task}..."
+            local _m28_tr; _m28_tr=$(wait_task_complete "$SERVER_URL" "$_m28_task" "$ADMIN_TOKEN" 300 10) || true
+            if [[ -z "$_m28_new_id" ]]; then
+                _m28_new_id=$(echo "$_m28_tr" | jq -r '.data.instance_id // .data.result.id // empty' 2>/dev/null)
+            fi
+        fi
+        if [[ -n "$_m28_new_id" ]]; then
+            export TEST_INSTANCE_ID="$_m28_new_id"
+            log_info "Recreated instance: TEST_INSTANCE_ID=${TEST_INSTANCE_ID}"
+        else
+            chain_break "$group" "Failed to recreate instance for SSH test"
+            return 1
+        fi
+    elif [[ "$_m28_status" != "running" ]]; then
+        # Instance exists but not running — try to start it
+        log_info "Instance ${TEST_INSTANCE_ID} status=${_m28_status}, attempting to start..."
+        curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" -X POST \
+            -d '{"action":"start"}' \
+            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" > /dev/null 2>&1 || true
+        sleep 10
+    fi
+
     # -- Wait for instance to be running --
     _wait_instance_running "$TEST_INSTANCE_ID" 180
 

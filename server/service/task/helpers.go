@@ -89,7 +89,7 @@ func (s *TaskService) executeTaskLogic(ctx context.Context, task *adminModel.Tas
 		return s.executeRestartInstanceTask(ctx, task)
 	case "delete":
 		return s.executeDeleteInstanceTask(ctx, task)
-	case "reset":
+	case "reset", "rebuild":
 		return s.executeResetInstanceTask(ctx, task)
 	case "reset-password":
 		return s.executeResetPasswordTask(ctx, task)

@@ -327,11 +327,11 @@ wait_task_complete() {
     return 1
 }
 
-# Delete instance with proper async wait
+# Delete instance with proper async wait and polling
 delete_instance_safe() {
     local instance_id="$1"
     local token="${2:-$ADMIN_TOKEN}"
-    local max_wait="${3:-30}"
+    local max_wait="${3:-120}"
     
     log_debug "Deleting instance ${instance_id}..."
     local del_resp; del_resp=$(curl -s --max-time 60 -X DELETE -H "Authorization: Bearer ${token}" \
@@ -339,41 +339,53 @@ delete_instance_safe() {
     
     local del_code; del_code=$(echo "$del_resp" | jq -r '.code // empty' 2>/dev/null)
     
+    # Already gone
+    if [[ "$del_code" == "404" ]]; then
+        log_debug "Instance ${instance_id} already deleted (404)"
+        return 0
+    fi
+    
     # Check if deletion request itself failed
     if [[ -n "$del_code" && "$del_code" != "200" ]]; then
         local del_msg; del_msg=$(echo "$del_resp" | jq -r '.msg // .message // "unknown error"' 2>/dev/null)
-        log_warning "Instance ${instance_id} deletion request failed: ${del_msg} (code: ${del_code})"
-        # Continue anyway - instance might already be deleted
+        log_warning "Instance ${instance_id} deletion request returned: ${del_msg} (code: ${del_code})"
     fi
     
     # Check if deletion returns a task ID (async operation)
     local del_task; del_task=$(echo "$del_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
     if [[ -n "$del_task" ]]; then
         log_debug "Waiting for deletion task ${del_task}..."
-        wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 3 > /dev/null 2>&1 || {
-            log_warning "Deletion task ${del_task} did not complete successfully"
-            # Continue to verification
+        wait_task_complete "$SERVER_URL" "$del_task" "$token" "$max_wait" 5 > /dev/null 2>&1 || {
+            log_warning "Deletion task ${del_task} did not complete within timeout"
         }
-    else
-        # Synchronous deletion or no task returned, give some time for cleanup
-        sleep 3
     fi
     
-    # Verify instance is gone (404 or other error means deleted)
-    local verify; verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
-        "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
-    local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
-    
-    # code=200 means success, which here means instance still exists (bad)
-    # Any other code (404, 500, etc.) or empty response means instance not found (good)
-    if [[ "$verify_code" == "200" ]]; then
+    # Poll until instance is gone or status is 'deleted'/'failed'
+    local elapsed=0 poll_interval=5
+    while [[ $elapsed -lt $max_wait ]]; do
+        local verify; verify=$(curl -s --max-time 10 -H "Authorization: Bearer ${token}" \
+            "${SERVER_URL}/api/v1/admin/instances/${instance_id}" 2>/dev/null) || true
+        local verify_code; verify_code=$(echo "$verify" | jq -r '.code // empty' 2>/dev/null)
+        
+        # Instance not found (404 or other non-200) means deleted
+        if [[ "$verify_code" != "200" ]]; then
+            log_debug "Instance ${instance_id} deleted successfully (code=${verify_code})"
+            return 0
+        fi
+        
         local inst_status; inst_status=$(echo "$verify" | jq -r '.data.status // empty' 2>/dev/null)
-        log_warning "Instance ${instance_id} still exists after deletion (status: ${inst_status})"
-        return 1
-    fi
+        if [[ "$inst_status" == "deleted" || "$inst_status" == "failed" ]]; then
+            log_debug "Instance ${instance_id} in terminal state: ${inst_status}"
+            return 0
+        fi
+        
+        log_debug "Instance ${instance_id} still exists (status=${inst_status}, ${elapsed}/${max_wait}s)"
+        sleep "$poll_interval"
+        elapsed=$((elapsed + poll_interval))
+    done
     
-    log_debug "Instance ${instance_id} deleted successfully"
-    return 0
+    log_warning "Instance ${instance_id} still exists after ${max_wait}s"
+    return 1
 }
 
 # -- Auth helpers --

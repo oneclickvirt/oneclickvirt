@@ -139,6 +139,49 @@ _restore_safe_state() {
             -H "Content-Type: application/json" -X POST \
             -d "{\"instanceId\":${TEST_INSTANCE_ID},\"action\":\"unfreeze\"}" \
             "${SERVER_URL}/api/v1/admin/instances/action" > /dev/null 2>&1 || true
+
+        # Check instance state — if stuck in transitional state, wait for it to settle
+        local _rs_resp; _rs_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null) || true
+        local _rs_code; _rs_code=$(echo "$_rs_resp" | jq -r '.code // empty' 2>/dev/null)
+        local _rs_status; _rs_status=$(echo "$_rs_resp" | jq -r '.data.status // empty' 2>/dev/null)
+
+        if [[ "$_rs_code" == "200" ]]; then
+            # If instance is in transitional state (creating/rebuilding/deleting/stopping/starting)
+            # wait up to 60s for it to settle
+            case "$_rs_status" in
+                creating|rebuilding|deleting|stopping|starting|restarting)
+                    log_debug "Instance ${TEST_INSTANCE_ID} in transitional state '${_rs_status}', waiting..."
+                    local _rs_waited=0
+                    while [[ $_rs_waited -lt 60 ]]; do
+                        sleep 10
+                        _rs_waited=$((_rs_waited + 10))
+                        _rs_resp=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}" 2>/dev/null) || true
+                        _rs_status=$(echo "$_rs_resp" | jq -r '.data.status // empty' 2>/dev/null)
+                        case "$_rs_status" in
+                            running|stopped|failed|error|deleted) break ;;
+                        esac
+                    done
+                    # If instance settled to stopped, start it
+                    if [[ "$_rs_status" == "stopped" ]]; then
+                        curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                            -H "Content-Type: application/json" -X POST \
+                            -d '{"action":"start"}' \
+                            "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" > /dev/null 2>&1 || true
+                        sleep 10
+                    fi
+                    ;;
+                stopped)
+                    # Start it so downstream modules can use it
+                    curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                        -H "Content-Type: application/json" -X POST \
+                        -d '{"action":"start"}' \
+                        "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" > /dev/null 2>&1 || true
+                    sleep 10
+                    ;;
+            esac
+        fi
     fi
 }
 

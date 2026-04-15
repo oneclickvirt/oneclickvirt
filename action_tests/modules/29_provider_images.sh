@@ -106,6 +106,25 @@ run_module_29() {
 
         log_info "Created instance ${inst_id} with image ${img_name}"
 
+        # -- Wait for instance to reach running state --
+        local img_waited=0
+        while [[ $img_waited -lt 120 ]]; do
+            local img_st; img_st=$(curl -s --max-time 10 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/instances/${inst_id}" 2>/dev/null) || true
+            local img_status; img_status=$(echo "$img_st" | jq -r '.data.status // empty' 2>/dev/null)
+            if [[ "$img_status" == "running" ]]; then
+                log_success "Instance ${inst_id} is running (waited ${img_waited}s)"
+                break
+            fi
+            if [[ "$img_status" == "failed" || "$img_status" == "error" ]]; then
+                log_warning "Instance ${inst_id} in terminal state: ${img_status}"
+                break
+            fi
+            log_debug "Instance ${inst_id} status: ${img_status:-unknown} (${img_waited}s/120s)"
+            sleep 10
+            img_waited=$((img_waited + 10))
+        done
+
         # -- Verify instance exists and has expected state --
         local verify_resp; verify_resp=$(test_api "Verify ${test_label}" "GET" \
             "/api/v1/admin/instances/${inst_id}" "200" "" "$group")
@@ -118,7 +137,7 @@ run_module_29() {
 
         # -- Delete instance --
         log_info "Deleting instance ${inst_id}..."
-        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 60; then
+        if delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 180; then
             log_success "Deleted instance ${inst_id} (image: ${img_name})"
             _record_result "Delete ${test_label}" "DELETE" "/api/v1/admin/instances/${inst_id}" "PASS" "200" "200" "" "$group"
         else
@@ -141,7 +160,7 @@ run_module_29() {
             _record_result "Verify deleted ${test_label}" "GET" "/api/v1/admin/instances/${inst_id}" "FAIL" "404" "200" "Instance still exists" "$group"
             failed=$((failed + 1))
             # Force cleanup to prevent disk full
-            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 30 2>/dev/null || true
+            delete_instance_safe "$inst_id" "$ADMIN_TOKEN" 120 2>/dev/null || true
         fi
     done
 

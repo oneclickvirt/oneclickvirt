@@ -57,4 +57,15 @@ run_module_17() {
     # -- Normal admin cannot create users --
     test_api "Normal admin -> create user (403)" "POST" "/api/v1/admin/users" "403" \
         '{"username":"na_test","password":"Test123!@#"}' "$group" "$NORMAL_ADMIN_TOKEN"
+
+    # -- Super admin can login as user --
+    if [[ -n "${USER_TOKEN:-}" ]]; then
+        local _la_uid; _la_uid=$(curl -s --max-time 10 -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/profile" 2>/dev/null | jq -r '.data.user.id // .data.id // empty' 2>/dev/null)
+        if [[ -n "$_la_uid" ]]; then
+            test_api "Super admin login-as user" "POST" "/api/v1/admin/users/${_la_uid}/login-as" "200" \
+                '' "$group"
+        fi
+    fi
+    test_api "Login-as nonexistent user" "POST" "/api/v1/admin/users/99999/login-as" "400|404" '' "$group"
 }

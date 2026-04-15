@@ -69,4 +69,23 @@ run_module_11() {
     # -- Negative: Update config with extreme values --
     test_api "Config (extreme interval)" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/config" "400" \
         '{"collect_interval":0,"resource_collect_interval":0}' "$group"
+
+    # -- System monitoring & audit --
+    test_api "System monitoring dashboard" "GET" "/api/v1/admin/monitoring/system" "200" "" "$group"
+    test_api "Audit logs" "GET" "/api/v1/admin/monitoring/audit-logs?page=1&pageSize=10" "200" "" "$group"
+
+    # -- Performance metrics --
+    test_api "Performance metrics" "GET" "/api/v1/admin/performance/metrics" "200" "" "$group"
+    test_api "Performance history" "GET" "/api/v1/admin/performance/history" "200" "" "$group"
+
+    # -- Log management --
+    test_api "Log dates" "GET" "/api/v1/admin/logs/dates" "200" "" "$group"
+    test_api "Log content" "GET" "/api/v1/admin/logs/content" "200|400" "" "$group"
+
+    # -- User quota --
+    if [[ -n "${USER_TOKEN:-}" ]]; then
+        local _uid; _uid=$(curl -s --max-time 10 -H "Authorization: Bearer ${USER_TOKEN}" \
+            "${SERVER_URL}/api/v1/user/profile" 2>/dev/null | jq -r '.data.user.id // .data.id // 1' 2>/dev/null)
+        test_api "User quota info" "GET" "/api/v1/admin/quota/users/${_uid}" "200" "" "$group"
+    fi
 }
