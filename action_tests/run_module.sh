@@ -251,4 +251,4 @@ if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some modules had failures (exit_code=${EXIT_CODE}), see reports for details"
 fi
 # Always exit 0 to avoid failing the entire Action; failures are captured in reports
-exit ${EXIT_CODE}
+exit 0

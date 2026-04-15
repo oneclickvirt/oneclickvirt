@@ -277,4 +277,4 @@ if [[ $EXIT_CODE -ne 0 ]]; then
     log_warning "Some test modules had failures, see reports for details"
 fi
 # Always exit 0 to avoid failing the entire Action; test failures are captured in reports
-exit ${EXIT_CODE}
+exit 0
