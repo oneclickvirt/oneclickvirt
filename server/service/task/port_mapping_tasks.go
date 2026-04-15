@@ -32,7 +32,7 @@ func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.Sy
 	}
 
 	if len(providers) == 0 {
-		return nil, fmt.Errorf("没有找到活跃的Provider")
+		return nil, fmt.Errorf("Provider不存在")
 	}
 
 	// 为每个Provider创建一个任务

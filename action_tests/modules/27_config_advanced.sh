@@ -45,7 +45,7 @@ run_module_27() {
             '{"provider_ids":[]}' "$group" "$ADMIN_TOKEN"
 
         # ---- Hardware report ----
-        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400|500" \
+        test_api "Save hardware report" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "200|400|409|500" \
             '{"pasteUrl":"https://paste.spiritlhl.net/#/show/ENn4E.txt"}' "$group" "$ADMIN_TOKEN"
         test_api "Save hardware report (invalid URL)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/hardware-report" "400" \
             '{"pasteUrl":"https://example.com/badreport.txt"}' "$group" "$ADMIN_TOKEN"

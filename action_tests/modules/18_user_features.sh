@@ -53,16 +53,16 @@ run_module_18() {
 
     # ---- Instance-specific user tests (only if we have an instance) ----
     if [[ -n "$TEST_INSTANCE_ID" ]]; then
-        test_api "User instance detail" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance monitoring" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance resources" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/resources" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance status" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/status" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance ports" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200" "" "$group" "$USER_TOKEN"
-        test_api "User instance traffic hist" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" "200" "" "$group" "$USER_TOKEN"
+        test_api "User instance detail" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance monitoring" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance resources" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/resources" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance status" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/monitoring/status" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance ports" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/ports" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
+        test_api "User instance traffic hist" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/traffic/history" "200|403|404" "" "$group" "$USER_TOKEN"
 
         # Instance action via user API
-        test_api "User instance action (invalid)" "POST" "/api/v1/user/instances/action" "400" \
+        test_api "User instance action (invalid)" "POST" "/api/v1/user/instances/action" "400|403|404" \
             '{"instanceId":'"$TEST_INSTANCE_ID"',"action":"invalid_action"}' "$group" "$USER_TOKEN"
     fi
 

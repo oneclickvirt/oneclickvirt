@@ -21,6 +21,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 
 		// 实例管理
 		NormalAdminGroup.GET("/instances", admin.GetInstanceList)
+		NormalAdminGroup.GET("/instances/:id", admin.GetInstanceDetail)
 		NormalAdminGroup.POST("/instances", admin.CreateInstance)
 		NormalAdminGroup.PUT("/instances/:id", admin.UpdateInstance)
 		NormalAdminGroup.DELETE("/instances/:id", admin.DeleteInstance)

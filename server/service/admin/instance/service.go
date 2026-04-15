@@ -451,7 +451,7 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 
 	// 根据操作类型执行相应的操作
 	switch req.Action {
-	case "start", "stop", "restart", "reset":
+	case "start", "stop", "restart", "reset", "rebuild":
 		// 创建异步任务
 		taskData := map[string]interface{}{
 			"instanceId": instanceID,
@@ -480,6 +480,7 @@ func (s *Service) InstanceAction(instanceID uint, req admin.InstanceActionReques
 			"stop":    "stopping",
 			"restart": "restarting",
 			"reset":   "resetting",
+			"rebuild": "rebuilding",
 		}
 		if newStatus, exists := statusMap[req.Action]; exists {
 			instance.Status = newStatus
@@ -539,7 +540,7 @@ func (s *Service) ResetInstancePassword(instanceID uint) (uint, error) {
 
 	// 检查实例状态
 	if instance.Status != "running" {
-		return 0, errors.New("只有运行中的实例才能重置密码")
+		return 0, errors.New("参数错误: 只有运行中的实例才能重置密码")
 	}
 
 	// 检查是否已有进行中的密码重置任务

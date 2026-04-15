@@ -133,7 +133,7 @@ func (s *TaskService) CancelTaskByAdmin(taskID uint, reason string) error {
 		case "cancelling":
 			return s.forceKillTask(tx, taskID, fmt.Sprintf("管理员强制终止: %s", reason))
 		default:
-			return fmt.Errorf("任务状态[%s]不允许操作", task.Status)
+			return fmt.Errorf("参数错误: 任务状态[%s]不允许操作", task.Status)
 		}
 	})
 

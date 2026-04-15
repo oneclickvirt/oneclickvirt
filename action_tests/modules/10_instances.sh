@@ -138,7 +138,7 @@ run_module_10() {
             if [[ -n "$USER_TOKEN" && "$USER_TOKEN" != "$ADMIN_TOKEN" ]]; then
                 local user_info; user_info=$(curl -s --max-time 30 \
                     -H "Authorization: Bearer ${USER_TOKEN}" "${SERVER_URL}/api/v1/user/profile" 2>/dev/null)
-                local target_uid; target_uid=$(echo "$user_info" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+                local target_uid; target_uid=$(echo "$user_info" | jq -r '.data.user.id // .data.user.ID // .data.id // .data.ID // empty' 2>/dev/null)
                 if [[ -n "$target_uid" ]]; then
                     test_api "Transfer container" "POST" "/api/v1/admin/instances/transfer" "200" \
                         "{\"instanceId\":${container_id},\"targetUserId\":${target_uid}}" "$group"

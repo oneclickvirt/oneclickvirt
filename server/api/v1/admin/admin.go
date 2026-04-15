@@ -78,6 +78,36 @@ func GetInstanceList(c *gin.Context) {
 	common.ResponseSuccessWithPagination(c, instances, total, req.Page, req.PageSize)
 }
 
+// GetInstanceDetail 获取实例详情
+// @Summary 获取实例详情
+// @Description 管理员获取指定实例的详细信息
+// @Tags 管理员管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path int true "实例ID"
+// @Success 200 {object} common.Response{data=object} "获取成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 404 {object} common.Response "实例不存在"
+// @Router /admin/instances/{id} [get]
+func GetInstanceDetail(c *gin.Context) {
+	instanceIDStr := c.Param("id")
+	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+
+	instanceService := instance.NewService(task.GetTaskService())
+	inst, err := instanceService.GetInstanceByID(uint(instanceID))
+	if err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	common.ResponseSuccess(c, inst)
+}
+
 // CreateInstance 创建实例
 func CreateInstance(c *gin.Context) {
 	var req admin.CreateInstanceRequest
@@ -134,19 +164,27 @@ func CreateInstance(c *gin.Context) {
 }
 
 func UpdateInstance(c *gin.Context) {
+	instanceIDStr := c.Param("id")
+	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的实例ID"))
+		return
+	}
+
 	var req admin.UpdateInstanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		global.APP_LOG.Warn("管理员更新实例参数错误", zap.Error(err), zap.String("admin_ip", c.ClientIP()))
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	req.ID = uint(instanceID)
 
 	global.APP_LOG.Debug("管理员开始更新实例",
 		zap.Uint("instance_id", req.ID),
 		zap.String("admin_ip", c.ClientIP()))
 
 	instanceService := instance.NewService(task.GetTaskService())
-	err := instanceService.UpdateInstance(req)
+	err = instanceService.UpdateInstance(req)
 	if err != nil {
 		global.APP_LOG.Error("管理员更新实例失败",
 			zap.Error(err),
@@ -279,6 +317,7 @@ func AdminInstanceAction(c *gin.Context) {
 		"restart": true,
 		"reset":   true,
 		"delete":  true,
+		"rebuild": true,
 	}
 
 	if !validActions[req.Action] {

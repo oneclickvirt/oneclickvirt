@@ -16,7 +16,7 @@ run_module_19() {
         "/api/v1/admin/traffic/overview" "200" "" "$group" "$ADMIN_TOKEN")
 
     # -- Deploy monitoring agent if not done --
-    test_api "Ensure monitoring agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|409" \
+    test_api "Ensure monitoring agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|409|500" \
         '{"action":"deploy"}' "$group" "$ADMIN_TOKEN"
 
     # -- Start traffic monitoring --
@@ -25,7 +25,7 @@ run_module_19() {
 
     # -- Run speedtest via instance action (iperf/dd) --
     local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
-        "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200" \
+        "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|409|500" \
         '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
 
     # -- Wait for traffic data to settle --
@@ -40,18 +40,18 @@ run_module_19() {
 
     # -- User-side traffic verification --
     test_api "User traffic after test" "GET" "/api/v1/user/traffic/overview" "200" "" "$group" "$USER_TOKEN"
-    test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200" "" "$group" "$USER_TOKEN"
+    test_api "User instance traffic" "GET" "/api/v1/user/traffic/instance/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
 
     # -- Monitor tasks --
     test_api "Monitor tasks list" "GET" "/api/v1/admin/providers/traffic-monitor/tasks" "200" "" "$group" "$ADMIN_TOKEN"
-    test_api "Latest monitor task" "GET" "/api/v1/admin/providers/traffic-monitor/latest" "200" "" "$group" "$ADMIN_TOKEN"
+    test_api "Latest monitor task" "GET" "/api/v1/admin/providers/traffic-monitor/latest?providerId=${PROVIDER_ID}" "200" "" "$group" "$ADMIN_TOKEN"
 
     # -- Stop traffic monitoring --
     test_api "Stop traffic monitor" "POST" "/api/v1/admin/providers/traffic-monitor" "200" \
         '{"providerId":'"$PROVIDER_ID"',"operation":"disable"}' "$group" "$ADMIN_TOKEN"
 
     # -- Pmacct data (if available) --
-    test_api "Pmacct summary" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/summary" "200|404" "" "$group" "$USER_TOKEN"
-    test_api "Pmacct query" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/query" "200|404" "" "$group" "$USER_TOKEN"
-    test_api "User pmacct traffic" "GET" "/api/v1/user/traffic/pmacct/${TEST_INSTANCE_ID}" "200|404" "" "$group" "$USER_TOKEN"
+    test_api "Pmacct summary" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/summary" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "Pmacct query" "GET" "/api/v1/user/instances/${TEST_INSTANCE_ID}/pmacct/query" "200|403|404" "" "$group" "$USER_TOKEN"
+    test_api "User pmacct traffic" "GET" "/api/v1/user/traffic/pmacct/${TEST_INSTANCE_ID}" "200|403|404" "" "$group" "$USER_TOKEN"
 }

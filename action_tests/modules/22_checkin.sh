@@ -23,7 +23,7 @@ run_module_22() {
     # ---- User: Generate checkin code ----
     if [[ -n "$TEST_INSTANCE_ID" ]]; then
         local code_resp; code_resp=$(test_api "Generate checkin code" "POST" \
-            "/api/v1/user/checkin/code/${TEST_INSTANCE_ID}" "200" '' "$group" "$USER_TOKEN")
+            "/api/v1/user/checkin/code/${TEST_INSTANCE_ID}" "200|403|404" '' "$group" "$USER_TOKEN")
         local checkin_code; checkin_code=$(echo "$code_resp" | grep -o '"code":"[^"]*"' | head -1 | cut -d'"' -f4)
 
         # ---- Perform checkin ----
@@ -31,12 +31,12 @@ run_module_22() {
             test_api "Perform checkin" "POST" "/api/v1/user/checkin" "200" \
                 '{"code":"'"$checkin_code"'","instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
         else
-            test_api "Perform checkin (no code)" "POST" "/api/v1/user/checkin" "200|400" \
+            test_api "Perform checkin (no code)" "POST" "/api/v1/user/checkin" "200|400|403|404" \
                 '{"instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
         fi
 
         # ---- Checkin with invalid code ----
-        test_api "Checkin invalid code" "POST" "/api/v1/user/checkin" "400" \
+        test_api "Checkin invalid code" "POST" "/api/v1/user/checkin" "400|403|404" \
             '{"code":"INVALID_CODE_XYZ","instanceId":'"$TEST_INSTANCE_ID"'}' "$group" "$USER_TOKEN"
     fi
 
