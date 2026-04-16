@@ -120,12 +120,12 @@ _wait_instance_running() {
 # Test SSH connectivity using remote.py
 # Returns 0 on success, 1 on failure
 _test_ssh_connectivity() {
-    local host="$1" port="$2" user="$3" password="$4"
+    local host="$1" port="$2" user="$3" password="$4" key_file="${5:-${PLATFORM_SSH_KEY_FILE:-}}"
     local py; py=$(_ensure_python) || return 1
     local remote_py; remote_py=$(_get_remote_py) || { log_error "remote.py not found"; return 1; }
 
     log_info "Testing SSH connectivity: ${user}@${host}:${port}"
-    local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" \
+    local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" REMOTE_KEY_FILE="$key_file" \
         "$py" "$remote_py" --timeout 30 echo "ssh-ok" 2>&1)
     local rc=$?
 
@@ -141,7 +141,7 @@ _test_ssh_connectivity() {
 # Test download from speedtest URLs inside the remote instance
 # Returns 0 if at least one URL downloads > SPEEDTEST_MIN_MB within SPEEDTEST_TIMEOUT
 _test_speedtest_download() {
-    local host="$1" port="$2" user="$3" password="$4"
+    local host="$1" port="$2" user="$3" password="$4" key_file="${5:-${PLATFORM_SSH_KEY_FILE:-}}"
     local py; py=$(_ensure_python) || return 1
     local remote_py; remote_py=$(_get_remote_py) || { log_error "remote.py not found"; return 1; }
 
@@ -164,7 +164,7 @@ rm -f "\$tmp"; \
 echo "\$sz"
 INNERSCRIPT
 )
-        local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" \
+        local out; out=$(REMOTE_HOST="$host" REMOTE_PORT="$port" REMOTE_USER="$user" REMOTE_PASS="$password" REMOTE_KEY_FILE="$key_file" \
             "$py" "$remote_py" \
             --timeout $((SPEEDTEST_TIMEOUT + 30)) \
             bash -c "$cmd" 2>&1)

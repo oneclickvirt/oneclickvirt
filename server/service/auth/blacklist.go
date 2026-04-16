@@ -52,7 +52,8 @@ func GetJWTBlacklistService() *JWTBlacklistService {
 func (s *JWTBlacklistService) loadFromDB() {
 	var entries []userModel.JWTBlacklistedToken
 	if err := global.APP_DB.Where("expires_at > ?", time.Now()).Find(&entries).Error; err != nil {
-		global.APP_LOG.Error("从数据库加载JWT黑名单失败", zap.Error(err))
+		// 表不存在时（如首次部署或升级）降级为 Warn，避免误报为错误
+		global.APP_LOG.Warn("从数据库加载JWT黑名单失败（可忽略，如果是新数据库或刚升级）", zap.Error(err))
 		return
 	}
 

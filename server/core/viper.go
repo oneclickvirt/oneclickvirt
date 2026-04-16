@@ -34,9 +34,17 @@ func Viper(path ...string) *viper.Viper {
 	v.SetConfigFile(cfgFile)
 	v.SetConfigType("yaml")
 
+	// 先设置安全默认值，确保即使配置文件读取失败也有合理的基础值
+	setDefaults(v)
+
 	if err := v.ReadInConfig(); err != nil {
 		// 读取失败降级为内存默认配置，不中断启动流程
 		fmt.Fprintf(os.Stderr, "[VIPER WARN] 配置文件读取失败: %v，将使用默认配置\n", err)
+		// 仍然从默认值构建配置并设置全局变量，避免 GetAppConfig() 返回零值
+		var defaultCfg config.Server
+		if uerr := v.Unmarshal(&defaultCfg); uerr == nil {
+			global.SetAppConfig(defaultCfg)
+		}
 		return v
 	}
 
@@ -63,12 +71,17 @@ func Viper(path ...string) *viper.Viper {
 	var initCfg config.Server
 	if err := v.Unmarshal(&initCfg); err != nil {
 		fmt.Fprintf(os.Stderr, "[VIPER WARN] 初始配置解析失败: %v，将使用默认配置\n", err)
+		// 即使解析失败也要设置基本配置，避免 GetAppConfig() 返回零值
+		// （零值 Cors.Mode=="" 会导致 CORS 使用白名单模式，非 localhost 请求返回 403）
+		fallbackCfg := config.Server{}
+		fallbackCfg.System.Addr = 8888
+		fallbackCfg.System.DbType = "mysql"
+		fallbackCfg.System.Env = "public"
+		fallbackCfg.Cors.Mode = "allow-all"
+		global.SetAppConfig(fallbackCfg)
 	} else {
 		global.SetAppConfig(initCfg)
 	}
-
-	// 设置各字段的安全默认值
-	setDefaults(v)
 
 	return v
 }
@@ -106,6 +119,9 @@ func setDefaults(v *viper.Viper) {
 	v.SetDefault("zap.encode-level", "LowercaseColorLevelEncoder")
 	v.SetDefault("zap.stacktrace-key", "stacktrace")
 	v.SetDefault("zap.log-in-console", true)
+
+	// CORS 默认值（缺失会导致白名单模式，非 localhost 请求返回 403）
+	v.SetDefault("cors.mode", "allow-all")
 }
 
 // generateSecureJWTKey 生成一个随机 256 位十六进制字符串作为 JWT 签名密钒。

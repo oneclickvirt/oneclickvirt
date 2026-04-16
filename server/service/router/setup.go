@@ -44,6 +44,19 @@ func SetupRouter() *gin.Engine {
 	frontendURL := appConfig.System.FrontendURL
 	corsMode := appConfig.Cors.Mode
 	corsWhitelist := appConfig.Cors.Whitelist
+
+	// 空值兜底：如果配置加载失败导致 corsMode 为空，默认使用 allow-all
+	// 避免因配置问题导致非 localhost 请求被 CORS 拦截返回 403
+	if corsMode == "" {
+		corsMode = "allow-all"
+	}
+	if global.APP_LOG != nil {
+		global.APP_LOG.Info("CORS中间件配置",
+			zap.String("mode", corsMode),
+			zap.String("frontendURL", frontendURL),
+			zap.Int("whitelistCount", len(corsWhitelist)))
+	}
+
 	var corsMiddleware gin.HandlerFunc
 	if corsMode == "allow-all" {
 		// allow-all 模式：反射实际 Origin，保留 Credentials 支持

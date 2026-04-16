@@ -63,6 +63,10 @@ func Gorm() *gorm.DB {
 		zap.String("dbType", dbType),
 		zap.String("engine", global.GetAppConfig().Mysql.Engine))
 
+	// 提前设置全局 APP_DB，使 RegisterTables 内部调用的服务（如 FixAllDuplicateData）
+	// 能通过 global.APP_DB 访问数据库连接，避免出现「数据库连接不可用」警告
+	global.APP_DB = db
+
 	// 只有在数据库连接成功时才进行表结构迁移
 	global.APP_LOG.Info("开始数据库表结构自动迁移")
 	RegisterTables(db)
