@@ -173,11 +173,63 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	// 确保目录存在
 	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s %s", ImageDir, VMLogDir))
 
-	// 确保基础镜像存在
+	// 确保基础镜像存在，如果不存在则从 seed 数据库中的 URL 下载
 	baseImage := fmt.Sprintf("%s/%s.qcow2", ImageDir, system)
 	output, err := p.sshClient.Execute(fmt.Sprintf("test -f '%s' && test -s '%s' && echo 'ok'", baseImage, baseImage))
 	if err != nil || strings.TrimSpace(output) != "ok" {
-		return fmt.Errorf("base image not found: %s (please use PullImage to download first)", baseImage)
+		if config.ImageURL == "" {
+			return fmt.Errorf("base image not found and no image URL configured for %s", system)
+		}
+		global.APP_LOG.Info("QEMU基础镜像不存在，开始自动下载",
+			zap.String("system", system),
+			zap.String("imageURL", config.ImageURL))
+		updateProgress(11, fmt.Sprintf("下载基础镜像 %s", system))
+
+		// 确定下载URL：对GitHub链接尝试CDN加速
+		downloadURL := config.ImageURL
+		if config.UseCDN && (strings.Contains(config.ImageURL, "github.com/") || strings.Contains(config.ImageURL, "raw.githubusercontent.com/")) {
+			cdnURL := utils.GetCDNURL(p.sshClient, config.ImageURL, "QEMU")
+			if cdnURL != "" {
+				downloadURL = cdnURL
+			}
+		}
+
+		tmpPath := baseImage + ".tmp"
+		downloadCmd := fmt.Sprintf(
+			"curl -4 -fL --connect-timeout 30 --max-time 900 -o '%s' '%s' 2>&1",
+			tmpPath, downloadURL)
+		dlOutput, dlErr := p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
+		if dlErr != nil {
+			// CDN下载失败，回退到原始URL重试
+			if downloadURL != config.ImageURL {
+				global.APP_LOG.Warn("CDN下载失败，回退到原始URL",
+					zap.String("cdnURL", utils.TruncateString(downloadURL, 200)),
+					zap.String("output", utils.TruncateString(dlOutput, 200)))
+				p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+				downloadCmd = fmt.Sprintf(
+					"curl -4 -fL --connect-timeout 30 --max-time 900 -o '%s' '%s' 2>&1",
+					tmpPath, config.ImageURL)
+				dlOutput, dlErr = p.sshClient.ExecuteWithTimeout(downloadCmd, 20*time.Minute)
+			}
+			if dlErr != nil {
+				p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+				return fmt.Errorf("failed to download base image for %s: %s", system, utils.TruncateString(dlOutput, 200))
+			}
+		}
+
+		// 验证并移动文件
+		checkOutput, _ := p.sshClient.Execute(fmt.Sprintf("test -s '%s' && echo 'ok'", tmpPath))
+		if strings.TrimSpace(checkOutput) != "ok" {
+			p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+			return fmt.Errorf("downloaded image is empty for %s", system)
+		}
+		if _, mvErr := p.sshClient.Execute(fmt.Sprintf("mv '%s' '%s'", tmpPath, baseImage)); mvErr != nil {
+			p.sshClient.Execute(fmt.Sprintf("rm -f '%s'", tmpPath))
+			return fmt.Errorf("failed to move downloaded image: %w", mvErr)
+		}
+		global.APP_LOG.Info("QEMU基础镜像下载成功",
+			zap.String("system", system),
+			zap.String("url", utils.TruncateString(downloadURL, 200)))
 	}
 
 	updateProgress(15, "确保 libvirt default 网络就绪")
@@ -242,16 +294,22 @@ func (p *QEMUProvider) sshCreateInstance(ctx context.Context, config provider.In
 	// 配置防火墙端口转发
 	fwMgr := firewall.NewManager(p.sshClient, NFTTableName, InternalSubnet)
 	if _, err := fwMgr.DetectBackend(FWBackendFile); err != nil {
-		global.APP_LOG.Warn("防火墙后端检测失败", zap.Error(err))
-	} else {
-		fwMgr.InitTable()
-		if sshPort > 0 {
-			if err := fwMgr.AddDNAT(config.Name, vmIP, sshPort, startPort, endPort); err != nil {
-				global.APP_LOG.Warn("端口转发规则添加失败", zap.Error(err))
-			}
-		}
-		fwMgr.SaveRules()
+		// 清理磁盘和 cloud-init ISO
+		p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+		return fmt.Errorf("防火墙后端检测失败: %w", err)
 	}
+	if err := fwMgr.InitTable(); err != nil {
+		p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+		return fmt.Errorf("防火墙初始化失败: %w", err)
+	}
+	if sshPort > 0 {
+		if err := fwMgr.AddDNAT(config.Name, vmIP, sshPort, startPort, endPort); err != nil {
+			// 端口转发失败是致命错误 —— VM 创建后无法被外部访问
+			p.sshClient.Execute(fmt.Sprintf("rm -f '%s' '%s'", vmDisk, ciISO))
+			return fmt.Errorf("端口转发规则添加失败: %w", err)
+		}
+	}
+	fwMgr.SaveRules()
 
 	updateProgress(65, "部署虚拟机")
 

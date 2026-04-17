@@ -107,6 +107,13 @@ func (m *Manager) initNftTable() error {
 		}
 	}
 
+	// 验证 prerouting chain 已创建成功，这是 DNAT 规则的必要前提
+	verifyCmd := fmt.Sprintf("nft list chain ip %s prerouting >/dev/null 2>&1 && echo 'ok'", m.tableName)
+	verifyOutput, verifyErr := m.sshClient.Execute(verifyCmd)
+	if verifyErr != nil || strings.TrimSpace(verifyOutput) != "ok" {
+		return fmt.Errorf("nft prerouting chain verification failed for table %s: init commands may have silently failed (check nft/kernel support)", m.tableName)
+	}
+
 	// 添加基础 NAT/FORWARD 规则（仅在 subnet 非空时）
 	if m.subnet != "" {
 		baseCmds := []string{
@@ -174,23 +181,22 @@ func (m *Manager) AddDNAT(vmName, vmIP string, sshPort, startPort, endPort int) 
 }
 
 func (m *Manager) addDNATNft(vmName, vmIP string, sshPort, startPort, endPort int) error {
-	comment := fmt.Sprintf("\"vm:%s\"", vmName)
-
+	// 使用单引号包裹整个nft表达式，确保双引号的comment值不被SSH shell解析
 	cmds := []string{
 		// SSH DNAT tcp + udp
-		fmt.Sprintf("nft add rule ip %s prerouting tcp dport %d dnat to %s:22 comment %s",
-			m.tableName, sshPort, vmIP, comment),
-		fmt.Sprintf("nft add rule ip %s prerouting udp dport %d dnat to %s:22 comment %s",
-			m.tableName, sshPort, vmIP, comment),
+		fmt.Sprintf("nft 'add rule ip %s prerouting tcp dport %d dnat to %s:22 comment \"vm:%s\"'",
+			m.tableName, sshPort, vmIP, vmName),
+		fmt.Sprintf("nft 'add rule ip %s prerouting udp dport %d dnat to %s:22 comment \"vm:%s\"'",
+			m.tableName, sshPort, vmIP, vmName),
 	}
 
 	// 端口范围 DNAT（identity mapping）
 	if startPort > 0 && endPort > 0 && startPort <= endPort {
 		cmds = append(cmds,
-			fmt.Sprintf("nft add rule ip %s prerouting tcp dport %d-%d dnat to %s comment %s",
-				m.tableName, startPort, endPort, vmIP, comment),
-			fmt.Sprintf("nft add rule ip %s prerouting udp dport %d-%d dnat to %s comment %s",
-				m.tableName, startPort, endPort, vmIP, comment),
+			fmt.Sprintf("nft 'add rule ip %s prerouting tcp dport %d-%d dnat to %s comment \"vm:%s\"'",
+				m.tableName, startPort, endPort, vmIP, vmName),
+			fmt.Sprintf("nft 'add rule ip %s prerouting udp dport %d-%d dnat to %s comment \"vm:%s\"'",
+				m.tableName, startPort, endPort, vmIP, vmName),
 		)
 	}
 
@@ -237,13 +243,19 @@ func (m *Manager) AddSingleDNAT(instanceIP string, hostPort, guestPort int, prot
 
 	for _, proto := range protocols {
 		if m.backend == BackendNft {
-			cmd := fmt.Sprintf("nft add rule ip %s prerouting %s dport %d dnat to %s:%d",
-				m.tableName, proto, hostPort, instanceIP, guestPort)
+			// 使用单引号包裹整个nft表达式，确保双引号的comment值不被SSH shell解析
 			if comment != "" {
-				cmd += fmt.Sprintf(" comment \"\\\"%s\\\"\"", comment)
-			}
-			if _, err := m.sshClient.Execute(cmd); err != nil {
-				return fmt.Errorf("nft add DNAT failed: %w", err)
+				cmd := fmt.Sprintf("nft 'add rule ip %s prerouting %s dport %d dnat to %s:%d comment \"%s\"'",
+					m.tableName, proto, hostPort, instanceIP, guestPort, comment)
+				if _, err := m.sshClient.Execute(cmd); err != nil {
+					return fmt.Errorf("nft add DNAT failed: %w", err)
+				}
+			} else {
+				cmd := fmt.Sprintf("nft 'add rule ip %s prerouting %s dport %d dnat to %s:%d'",
+					m.tableName, proto, hostPort, instanceIP, guestPort)
+				if _, err := m.sshClient.Execute(cmd); err != nil {
+					return fmt.Errorf("nft add DNAT failed: %w", err)
+				}
 			}
 		} else {
 			cmd := fmt.Sprintf("iptables -t nat -A PREROUTING -p %s --dport %d -j DNAT --to-destination %s:%d",

@@ -261,6 +261,20 @@ func SeedSystemImages() {
 	// 按优先级排序：cloud镜像优先
 	sortedURLs := prioritizeCloudImages(imageURLs)
 
+	// 确保 kvm_images 优先级最低：排到最后，pve_kvm_images 等先处理
+	{
+		primary := make([]string, 0, len(sortedURLs))
+		supplement := make([]string, 0)
+		for _, u := range sortedURLs {
+			if strings.Contains(u, "github.com/oneclickvirt/kvm_images/") {
+				supplement = append(supplement, u)
+			} else {
+				primary = append(primary, u)
+			}
+		}
+		sortedURLs = append(primary, supplement...)
+	}
+
 	processedCount := 0
 	importedImages := make(map[string]bool) // 用于跟踪已导入的镜像基础信息
 
@@ -317,6 +331,9 @@ func SeedSystemImages() {
 				// 获取最低硬件要求
 				minMemoryMB, minDiskMB := getMinHardwareRequirements(imageInfo.OSType, imageInfo.InstanceType)
 
+				// 判断是否使用CDN：仅对GitHub链接启用CDN加速，非GitHub链接（如官方上游）不启用
+				useCDN := isGitHubURL(imageInfo.URL)
+
 				// 创建新镜像记录
 				systemImage := system.SystemImage{
 					Name:         imageInfo.Name,
@@ -330,8 +347,8 @@ func SeedSystemImages() {
 					OSVersion:    imageInfo.OSVersion,
 					MinMemoryMB:  minMemoryMB,
 					MinDiskMB:    minDiskMB,
-					UseCDN:       true, // 系统镜像默认使用CDN加速
-					CreatedBy:    nil,  // 系统创建，设为nil
+					UseCDN:       useCDN,
+					CreatedBy:    nil, // 系统创建，设为nil
 				}
 
 				dbService := database.GetDatabaseService()
@@ -351,6 +368,62 @@ func SeedSystemImages() {
 						zap.String("name", imageInfo.Name),
 						zap.String("url", imageURL),
 						zap.String("variant", currentVariant))
+				}
+
+				// 对于 KVM qcow2 虚拟机镜像，同时为 QEMU 和 KubeVirt 创建镜像记录
+				// 因为 pve_kvm_images/kvm_images 的 qcow2 镜像是通用的 cloud image，
+				// 可以被 Proxmox、QEMU(libvirt) 和 KubeVirt(CDI) 三种 provider 共用
+				if imageInfo.InstanceType == "vm" && strings.HasSuffix(imageInfo.URL, ".qcow2") {
+					for _, extraProvider := range []string{"qemu", "kubevirt"} {
+						// 使用镜像名称作为去重key，避免同osType+osVersion的不同镜像（如centos8 vs centos8-stream）互相阻塞
+						extraKey := fmt.Sprintf("%s-%s-%s-%s",
+							extraProvider, imageInfo.InstanceType, imageInfo.Architecture,
+							imageInfo.Name)
+
+						if importedImages[extraKey] {
+							continue
+						}
+
+						var existingExtra system.SystemImage
+						checkResult := global.APP_DB.Where("name = ? AND provider_type = ? AND instance_type = ? AND architecture = ?",
+							imageInfo.Name, extraProvider, imageInfo.InstanceType, imageInfo.Architecture).First(&existingExtra)
+						if checkResult.Error == nil {
+							importedImages[extraKey] = true
+							continue
+						}
+
+						providerLabel := strings.ToUpper(extraProvider[:1]) + extraProvider[1:]
+						extraImage := system.SystemImage{
+							Name:         imageInfo.Name,
+							ProviderType: extraProvider,
+							InstanceType: "vm",
+							Architecture: imageInfo.Architecture,
+							URL:          imageInfo.URL,
+							Status:       imageStatus,
+							Description:  fmt.Sprintf("%s KVM %s image", providerLabel, imageInfo.Name),
+							OSType:       imageInfo.OSType,
+							OSVersion:    imageInfo.OSVersion,
+							MinMemoryMB:  minMemoryMB,
+							MinDiskMB:    minDiskMB,
+							UseCDN:       useCDN,
+							CreatedBy:    nil,
+						}
+
+						if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+							return tx.Create(&extraImage).Error
+						}); err != nil {
+							global.APP_LOG.Warn("创建额外provider镜像记录失败",
+								zap.Error(err),
+								zap.String("name", imageInfo.Name),
+								zap.String("provider", extraProvider))
+						} else {
+							processedCount++
+							importedImages[extraKey] = true
+							global.APP_LOG.Debug("导入额外provider镜像成功",
+								zap.String("name", imageInfo.Name),
+								zap.String("provider", extraProvider))
+						}
+					}
 				}
 			}
 		}
@@ -496,7 +569,7 @@ func parseImageURL(imageURL string) *ImageInfo {
 		}
 	}
 
-	// Proxmox KVM镜像
+	// Proxmox KVM镜像（pve_kvm_images）
 	proxmoxRe := regexp.MustCompile(`https://github\.com/oneclickvirt/pve_kvm_images/releases/download/([^/]+)/([^.]+)\.qcow2`)
 	if matches := proxmoxRe.FindStringSubmatch(imageURL); matches != nil {
 		return &ImageInfo{
@@ -508,6 +581,21 @@ func parseImageURL(imageURL string) *ImageInfo {
 			OSType:       extractOSFromFilename(matches[2]),
 			OSVersion:    extractVersionFromFilename(matches[2]),
 			Description:  fmt.Sprintf("Proxmox KVM %s image", matches[2]),
+		}
+	}
+
+	// KVM镜像（kvm_images仓库）
+	kvmImagesRe := regexp.MustCompile(`https://github\.com/oneclickvirt/kvm_images/releases/download/([^/]+)/([^.]+)\.qcow2`)
+	if matches := kvmImagesRe.FindStringSubmatch(imageURL); matches != nil {
+		return &ImageInfo{
+			Name:         matches[2],
+			ProviderType: "proxmox",
+			InstanceType: "vm",
+			Architecture: "amd64",
+			URL:          imageURL,
+			OSType:       extractOSFromFilename(matches[2]),
+			OSVersion:    extractVersionFromFilename(matches[2]),
+			Description:  fmt.Sprintf("KVM %s image", matches[2]),
 		}
 	}
 
@@ -628,6 +716,12 @@ func getImageVariant(imageURL string) string {
 		return "systemd"
 	}
 	return "standard"
+}
+
+// isGitHubURL 判断URL是否为GitHub链接
+// 仅对GitHub链接启用CDN加速，非GitHub链接（如官方上游镜像站）不应使用CDN
+func isGitHubURL(url string) bool {
+	return strings.Contains(url, "github.com/") || strings.Contains(url, "raw.githubusercontent.com/")
 }
 
 // initLevelConfigurations 初始化用户等级与带宽配置

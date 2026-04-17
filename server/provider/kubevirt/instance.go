@@ -181,48 +181,122 @@ func (p *KubeVirtProvider) sshCreateInstance(ctx context.Context, config provide
 	p.sshClient.Execute(fmt.Sprintf("kubectl create namespace %s 2>/dev/null || true", Namespace))
 	p.sshClient.Execute(fmt.Sprintf("mkdir -p %s", VMLogDir))
 
-	updateProgress(20, "创建 PVC 磁盘")
+	updateProgress(20, "解析镜像地址")
 
-	// 创建 PVC
-	pvcName := fmt.Sprintf("%s-disk", config.Name)
-	pvcYAML := fmt.Sprintf(`apiVersion: v1
-kind: PersistentVolumeClaim
+	// 直接使用 seed 数据库中的 ImageURL，对GitHub链接尝试CDN加速
+	if config.ImageURL == "" {
+		return fmt.Errorf("no image URL configured for system: %s", system)
+	}
+	resolvedURL := config.ImageURL
+	if config.UseCDN && (strings.Contains(config.ImageURL, "github.com/") || strings.Contains(config.ImageURL, "raw.githubusercontent.com/")) {
+		cdnURL := utils.GetCDNURL(p.sshClient, config.ImageURL, "KubeVirt")
+		if cdnURL != "" {
+			resolvedURL = cdnURL
+		}
+	}
+	global.APP_LOG.Info("KubeVirt镜像地址已解析",
+		zap.String("system", system),
+		zap.String("url", utils.TruncateString(resolvedURL, 200)))
+
+	updateProgress(25, "创建 CDI DataVolume")
+
+	// 使用 CDI DataVolume 代替空 PVC，CDI 会自动从 HTTP URL 下载镜像到 PVC
+	dvName := fmt.Sprintf("%s-dv", config.Name)
+	dvYAML := fmt.Sprintf(`apiVersion: cdi.kubevirt.io/v1beta1
+kind: DataVolume
 metadata:
   name: %s
   namespace: %s
   labels:
-    vm.kubevirt.io/name: "%s"
+    kubevirt.io/vm: "%s"
+    app: kubevirt-vm
 spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: %dGi`, pvcName, Namespace, config.Name, diskGB)
+  source:
+    http:
+      url: "%s"
+  storage:
+    accessModes:
+      - ReadWriteOnce
+    resources:
+      requests:
+        storage: %dGi
+    storageClassName: local-path`, dvName, Namespace, config.Name, resolvedURL, diskGB)
 
-	pvcCmd := fmt.Sprintf("cat << 'PVCEOF' | kubectl apply -f - 2>&1\n%s\nPVCEOF", pvcYAML)
-	output, err := p.sshClient.Execute(pvcCmd)
+	// 先清理可能存在的同名 DataVolume
+	p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+
+	dvCmd := fmt.Sprintf("cat << 'DVEOF' | kubectl apply -f - 2>&1\n%s\nDVEOF", dvYAML)
+	output, err := p.sshClient.Execute(dvCmd)
 	if err != nil {
-		global.APP_LOG.Error("PVC创建失败",
+		global.APP_LOG.Error("DataVolume创建失败",
 			zap.String("name", config.Name),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		return fmt.Errorf("failed to create PVC: %w", err)
+		return fmt.Errorf("failed to create DataVolume: %w", err)
 	}
 
-	updateProgress(35, "创建 VirtualMachine 资源")
+	updateProgress(30, "等待镜像导入完成")
 
-	// 构建 VirtualMachine YAML
+	// 等待 DataVolume 导入完成（最长30分钟）
+	var dvReady bool
+	maxWait := 600 // 30分钟 / 3秒间隔
+	for i := 0; i < maxWait; i++ {
+		phaseOutput, phaseErr := p.sshClient.Execute(fmt.Sprintf(
+			"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.phase}' 2>/dev/null", dvName, Namespace))
+		if phaseErr == nil {
+			phase := strings.TrimSpace(phaseOutput)
+			if phase == "Succeeded" {
+				dvReady = true
+				break
+			}
+			if phase == "Failed" {
+				// 获取失败原因
+				msgOutput, _ := p.sshClient.Execute(fmt.Sprintf(
+					"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.conditions[*].message}' 2>/dev/null", dvName, Namespace))
+				p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+				return fmt.Errorf("DataVolume import failed: %s", strings.TrimSpace(msgOutput))
+			}
+		}
+
+		// 更新进度（30-50之间线性递增）
+		if i%20 == 0 && i > 0 {
+			pct := 30 + (i*20)/maxWait
+			if pct > 50 {
+				pct = 50
+			}
+			progressOutput, _ := p.sshClient.Execute(fmt.Sprintf(
+				"kubectl get datavolume '%s' -n %s -o jsonpath='{.status.progress}' 2>/dev/null", dvName, Namespace))
+			progress := strings.TrimSpace(progressOutput)
+			if progress != "" {
+				updateProgress(pct, fmt.Sprintf("镜像导入中 %s", progress))
+			}
+		}
+
+		time.Sleep(3 * time.Second)
+	}
+	if !dvReady {
+		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
+		return fmt.Errorf("DataVolume import timed out for '%s' (30 minutes)", dvName)
+	}
+
+	updateProgress(55, "创建 VirtualMachine 资源")
+
+	// 构建 VirtualMachine YAML（引用 DataVolume 而非 PVC）
 	vmYAML := fmt.Sprintf(`apiVersion: kubevirt.io/v1
 kind: VirtualMachine
 metadata:
   name: %s
   namespace: %s
+  labels:
+    kubevirt.io/vm: "%s"
+    app: kubevirt-vm
 spec:
   running: true
   template:
     metadata:
       labels:
         kubevirt.io/vm: "%s"
+        app: kubevirt-vm
     spec:
       domain:
         cpu:
@@ -232,22 +306,25 @@ spec:
             memory: "%dGi"
         devices:
           disks:
-            - name: rootdisk
+            - name: datavolumedisk
               disk:
                 bus: virtio
+              bootOrder: 1
             - name: cloudinitdisk
               disk:
                 bus: virtio
           interfaces:
             - name: default
               masquerade: {}
+          rng: {}
       networks:
         - name: default
           pod: {}
+      terminationGracePeriodSeconds: 30
       volumes:
-        - name: rootdisk
-          persistentVolumeClaim:
-            claimName: %s
+        - name: datavolumedisk
+          dataVolume:
+            name: %s
         - name: cloudinitdisk
           cloudInitNoCloud:
             userData: |
@@ -263,9 +340,9 @@ spec:
                 - sed -i 's/^#*PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config
                 - sed -i 's/^#*PasswordAuthentication.*/PasswordAuthentication yes/' /etc/ssh/sshd_config
                 - systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || true`,
-		config.Name, Namespace, config.Name,
+		config.Name, Namespace, config.Name, config.Name,
 		cpu, memoryGB,
-		pvcName, config.Name, password)
+		dvName, config.Name, password)
 
 	vmCmd := fmt.Sprintf("cat << 'VMEOF' | kubectl apply -f - 2>&1\n%s\nVMEOF", vmYAML)
 	output, err = p.sshClient.Execute(vmCmd)
@@ -274,12 +351,12 @@ spec:
 			zap.String("name", config.Name),
 			zap.String("output", utils.TruncateString(output, 500)),
 			zap.Error(err))
-		// 清理 PVC
-		p.sshClient.Execute(fmt.Sprintf("kubectl delete pvc '%s' -n %s 2>/dev/null || true", pvcName, Namespace))
+		// 清理 DataVolume
+		p.sshClient.Execute(fmt.Sprintf("kubectl delete datavolume '%s' -n %s 2>/dev/null || true", dvName, Namespace))
 		return fmt.Errorf("failed to create VM: %w", err)
 	}
 
-	updateProgress(50, "创建 SSH NodePort Service")
+	updateProgress(70, "创建 SSH NodePort Service")
 
 	// 创建 SSH Service (NodePort)
 	if sshPort > 0 {
@@ -308,7 +385,7 @@ spec:
 		}
 	}
 
-	updateProgress(60, "配置端口转发")
+	updateProgress(80, "配置端口转发")
 
 	// 配置防火墙端口转发（用于不通过 NodePort 的额外端口范围）
 	if startPort > 0 && endPort > 0 && startPort <= endPort {
@@ -321,7 +398,7 @@ spec:
 		}
 	}
 
-	updateProgress(70, "等待虚拟机启动")
+	updateProgress(85, "等待虚拟机启动")
 
 	// 等待VM进入Running状态
 	var vmStarted bool

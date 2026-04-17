@@ -681,7 +681,16 @@ https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/rockylin
 https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/ubuntu18.qcow2
 https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/ubuntu20.qcow2
 https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/ubuntu22.qcow2
-https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/ubuntu24.qcow2`
+https://github.com/oneclickvirt/pve_kvm_images/releases/download/images/ubuntu24.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/debian11/debian11.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/debian12/debian12.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/ubuntu22/ubuntu22.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/ubuntu24/ubuntu24.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/almalinux9/almalinux9.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/rockylinux9/rockylinux9.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/centos7/centos7.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/centos8-stream/centos8-stream.qcow2
+https://github.com/oneclickvirt/kvm_images/releases/download/opensuse-leap-15/opensuse-leap-15.qcow2`
 
 // getDefaultImageURLs 返回默认的镜像URL列表
 // 当网络不通无法从远程获取镜像列表时，使用此默认列表进行初始化

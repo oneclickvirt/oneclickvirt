@@ -155,7 +155,8 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		Memory:       fmt.Sprintf("%dm", memorySpec.SizeMB), // 使用实际内存大小（MB格式）
 		Disk:         fmt.Sprintf("%dm", diskSpec.SizeMB),   // 使用实际磁盘大小（MB格式）
 		InstanceType: instance.InstanceType,
-		ImageURL:     systemImage.URL, // 镜像URL用于下载
+		ImageURL:     systemImage.URL,    // 镜像URL用于下载
+		UseCDN:       systemImage.UseCDN, // 传递CDN加速配置（仅GitHub链接启用）
 		Metadata: map[string]string{
 			"user_level":               fmt.Sprintf("%d", user.Level),              // 用户等级，用于带宽限制配置
 			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpec.SpeedMbps), // 用户选择的带宽规格
