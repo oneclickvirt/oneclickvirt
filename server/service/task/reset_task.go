@@ -509,8 +509,15 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		return fmt.Errorf("Provider创建实例失败: %v", err)
 	}
 
-	// 等待实例启动
-	time.Sleep(15 * time.Second)
+	// 等待实例启动：QEMU/KubeVirt虚拟机启动慢，需要更长等待
+	instanceStartWait := 15 * time.Second
+	switch resetCtx.Provider.Type {
+	case "qemu", "kubevirt":
+		instanceStartWait = 120 * time.Second
+	case "proxmox":
+		instanceStartWait = 60 * time.Second
+	}
+	time.Sleep(instanceStartWait)
 
 	// 确保实例运行
 	if prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID); err == nil {

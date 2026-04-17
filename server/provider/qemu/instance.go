@@ -563,7 +563,7 @@ func (p *QEMUProvider) getOSVariant(system string) string {
 	case strings.HasPrefix(system, "debian12"):
 		return "debian12"
 	case strings.HasPrefix(system, "debian13"):
-		return "debian13"
+		return "debian12"
 	case strings.HasPrefix(system, "ubuntu18"):
 		return "ubuntu18.04"
 	case strings.HasPrefix(system, "ubuntu20"):

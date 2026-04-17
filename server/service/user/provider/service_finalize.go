@@ -380,6 +380,26 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 								zap.String("instanceName", instance.Name))
 						}
 					}
+				} else if dbProvider.Type == "qemu" || dbProvider.Type == "kubevirt" {
+					// 对于QEMU/KubeVirt，通过GetInstance获取内网IP
+					if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
+						if vmInstance.PrivateIP != "" {
+							instanceUpdates["private_ip"] = vmInstance.PrivateIP
+							global.APP_LOG.Debug("获取到VM实例内网IPv4地址",
+								zap.String("instanceName", instance.Name),
+								zap.String("privateIP", vmInstance.PrivateIP))
+						} else if vmInstance.IP != "" {
+							instanceUpdates["private_ip"] = vmInstance.IP
+							global.APP_LOG.Debug("获取到VM实例内网IPv4地址",
+								zap.String("instanceName", instance.Name),
+								zap.String("privateIP", vmInstance.IP))
+						}
+					} else {
+						global.APP_LOG.Warn("获取VM实例详情失败",
+							zap.String("instanceName", instance.Name),
+							zap.String("providerType", dbProvider.Type),
+							zap.Error(err))
+					}
 				}
 			}
 		}
@@ -463,8 +483,20 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 更新进度到75% (等待实例SSH服务就绪)
 			s.updateTaskProgress(taskID, 75, "等待实例SSH服务就绪...")
 
+			// 根据Provider类型确定SSH等待时长：QEMU/KubeVirt虚拟机启动慢，需要更长等待
+			sshWaitTimeout := 120 * time.Second
+			var dbProviderForWait providerModel.Provider
+			if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
+				switch dbProviderForWait.Type {
+				case "qemu", "kubevirt":
+					sshWaitTimeout = 360 * time.Second // 6分钟等待VM cloud-init完成
+				case "proxmox":
+					sshWaitTimeout = 240 * time.Second // 4分钟
+				}
+			}
+
 			// 智能等待实例SSH服务就绪，传入taskID以便更新进度
-			if err := s.waitForInstanceSSHReady(instanceID, providerID, taskID, 120*time.Second); err != nil {
+			if err := s.waitForInstanceSSHReady(instanceID, providerID, taskID, sshWaitTimeout); err != nil {
 				global.APP_LOG.Warn("等待实例SSH就绪超时",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))

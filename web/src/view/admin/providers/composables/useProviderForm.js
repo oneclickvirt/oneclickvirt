@@ -222,6 +222,14 @@ export function useProviderForm(loadProviders) {
     addProviderForm.city = provider.city || ''
     addProviderForm.containerEnabled = Boolean(provider.container_enabled)
     addProviderForm.vmEnabled = Boolean(provider.vm_enabled)
+    // 强制修正：根据类型确保虚拟化类型正确
+    if (['docker', 'podman', 'containerd'].includes(provider.type)) {
+      addProviderForm.containerEnabled = true
+      addProviderForm.vmEnabled = false
+    } else if (['qemu', 'kubevirt'].includes(provider.type)) {
+      addProviderForm.containerEnabled = false
+      addProviderForm.vmEnabled = true
+    }
     addProviderForm.architecture = provider.architecture || 'amd64'
     addProviderForm.status = provider.status || 'active'
     addProviderForm.expiresAt = provider.expiresAt || ''

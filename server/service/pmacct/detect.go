@@ -564,6 +564,48 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 				info.IPv6Interface = vethInterface
 			}
 		}
+	} else if providerType == "qemu" {
+		// QEMU/libvirt: 通过 virsh domiflist 检测 tap/vnet 接口
+		qemuIface, err := s.detectQEMUNetworkInterface(providerInstance, instanceName)
+		if err != nil {
+			global.APP_LOG.Warn("检测QEMU VM接口失败，回退到主网络接口",
+				zap.String("instance", instanceName),
+				zap.Error(err))
+			mainInterface, _ := s.detectNetworkInterface(providerInstance)
+			if mainInterface != "" {
+				if info.IPv4Interface == "" {
+					info.IPv4Interface = mainInterface
+				}
+			}
+		} else {
+			if info.IPv4Interface == "" {
+				info.IPv4Interface = qemuIface
+			}
+			if hasIPv6 && info.IPv6Interface == "" {
+				info.IPv6Interface = qemuIface
+			}
+		}
+	} else if providerType == "kubevirt" {
+		// KubeVirt: 通过 pod 网络命名空间检测 veth 接口
+		kvIface, err := s.detectKubeVirtNetworkInterface(providerInstance, instanceName)
+		if err != nil {
+			global.APP_LOG.Warn("检测KubeVirt VM接口失败，回退到主网络接口",
+				zap.String("instance", instanceName),
+				zap.Error(err))
+			mainInterface, _ := s.detectNetworkInterface(providerInstance)
+			if mainInterface != "" {
+				if info.IPv4Interface == "" {
+					info.IPv4Interface = mainInterface
+				}
+			}
+		} else {
+			if info.IPv4Interface == "" {
+				info.IPv4Interface = kvIface
+			}
+			if hasIPv6 && info.IPv6Interface == "" {
+				info.IPv6Interface = kvIface
+			}
+		}
 	} else if providerType == "proxmox" {
 		// Proxmox VE: 使用专门的检测方法
 		// 通过实例ID或MAC地址精确识别 veth/tap 接口
@@ -656,4 +698,71 @@ func (s *Service) extractProxmoxInstanceID(instanceName string) string {
 	global.APP_LOG.Debug("无法从实例名称提取Proxmox ID",
 		zap.String("instanceName", instanceName))
 	return ""
+}
+
+// detectQEMUNetworkInterface 检测 QEMU/libvirt VM 的网络接口
+// 通过 virsh domiflist 获取 VM 的 tap/vnet 接口名
+func (s *Service) detectQEMUNetworkInterface(providerInstance provider.Provider, instanceName string) (string, error) {
+	detectCmd := fmt.Sprintf(`virsh domiflist '%s' 2>/dev/null | awk 'NR>2 && $1 != "" {print $1}' | head -n1`,
+		instanceName)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 15*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("detect qemu interface for %s: %w", instanceName, err)
+	}
+
+	iface := strings.TrimSpace(output)
+	if iface == "" {
+		return "", fmt.Errorf("no interface found for QEMU VM %s", instanceName)
+	}
+
+	global.APP_LOG.Debug("检测到QEMU VM网络接口",
+		zap.String("instance", instanceName),
+		zap.String("interface", iface))
+	return iface, nil
+}
+
+// detectKubeVirtNetworkInterface 检测 KubeVirt VM 的网络接口
+// 通过 pod 网络命名空间获取 veth 接口
+func (s *Service) detectKubeVirtNetworkInterface(providerInstance provider.Provider, instanceName string) (string, error) {
+	detectCmd := fmt.Sprintf(`
+POD=$(kubectl get pod -n kubevirt-vms -l kubevirt.io/vm=%s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -z "$POD" ]; then
+    exit 1
+fi
+CID=$(kubectl get pod -n kubevirt-vms "$POD" -o jsonpath='{.status.containerStatuses[0].containerID}' 2>/dev/null | sed 's|.*://||')
+POD_PID=$(crictl inspect "$CID" 2>/dev/null | grep -m1 '"pid"' | grep -oE '[0-9]+')
+if [ -n "$POD_PID" ]; then
+    HOST_VETH_IFINDEX=$(nsenter -t $POD_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
+    if [ -n "$HOST_VETH_IFINDEX" ]; then
+        VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
+        if [ -n "$VETH_NAME" ]; then
+            echo "$VETH_NAME"
+            exit 0
+        fi
+    fi
+fi
+exit 1
+`, instanceName)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("detect kubevirt interface for %s: %w", instanceName, err)
+	}
+
+	iface := strings.TrimSpace(output)
+	if iface == "" {
+		return "", fmt.Errorf("no interface found for KubeVirt VM %s", instanceName)
+	}
+
+	global.APP_LOG.Debug("检测到KubeVirt VM网络接口",
+		zap.String("instance", instanceName),
+		zap.String("interface", iface))
+	return iface, nil
 }

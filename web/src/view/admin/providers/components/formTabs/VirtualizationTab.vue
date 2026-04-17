@@ -36,7 +36,7 @@
           >
             <el-checkbox
               v-model="modelValue.containerEnabled"
-              :disabled="['qemu', 'kubevirt'].includes(modelValue.type)"
+              :disabled="['qemu', 'kubevirt'].includes(modelValue.type) || ['docker', 'podman', 'containerd'].includes(modelValue.type)"
               style="margin-right: 30px;"
             >
               <span style="font-size: 14px;">{{ $t('admin.providers.supportContainer') }}</span>
@@ -51,7 +51,7 @@
             </el-checkbox>
             <el-checkbox 
               v-model="modelValue.vmEnabled"
-              :disabled="['docker', 'podman', 'containerd', 'qemu', 'kubevirt'].includes(modelValue.type)"
+              :disabled="['docker', 'podman', 'containerd'].includes(modelValue.type) || ['qemu', 'kubevirt'].includes(modelValue.type)"
             >
               <span style="font-size: 14px;">{{ $t('admin.providers.supportVM') }}</span>
               <el-tooltip

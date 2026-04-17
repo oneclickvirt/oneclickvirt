@@ -436,7 +436,19 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		}
 
 		s.updateTaskProgress(taskID, 75, "等待实例SSH服务就绪...")
-		_ = s.waitForInstanceSSHReady(instanceID, providerID, taskID, 120*time.Second)
+
+		// 根据Provider类型确定SSH等待时长
+		redeemSSHWait := 120 * time.Second
+		var redeemProvider providerModel.Provider
+		if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&redeemProvider).Error; err == nil {
+			switch redeemProvider.Type {
+			case "qemu", "kubevirt":
+				redeemSSHWait = 360 * time.Second
+			case "proxmox":
+				redeemSSHWait = 240 * time.Second
+			}
+		}
+		_ = s.waitForInstanceSSHReady(instanceID, providerID, taskID, redeemSSHWait)
 
 		s.updateTaskProgress(taskID, 80, "正在配置端口映射...")
 		portMappingService := &resources.PortMappingService{}

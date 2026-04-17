@@ -410,6 +410,21 @@ watch(() => formData.value.country, (newCountry, oldCountry) => {
   }
 })
 
+// 监听 Provider 类型变化，自动设置虚拟化类型
+watch(() => formData.value.type, (newType) => {
+  if (!newType) return
+  if (['docker', 'podman', 'containerd'].includes(newType)) {
+    // 容器类型：仅支持容器
+    formData.value.containerEnabled = true
+    formData.value.vmEnabled = false
+  } else if (['qemu', 'kubevirt'].includes(newType)) {
+    // VM 专用类型：仅支持虚拟机
+    formData.value.containerEnabled = false
+    formData.value.vmEnabled = true
+  }
+  // lxd/incus/proxmox: 两者都可选，不自动修改
+})
+
 // 监听对话框关闭，重置表单
 watch(() => props.visible, (val) => {
   if (!val) {

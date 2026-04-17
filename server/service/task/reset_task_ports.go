@@ -492,6 +492,17 @@ func getInstancePrivateIP(ctx context.Context, prov interface{}, providerType, i
 				return ip
 			}
 		}
+	case "qemu", "kubevirt":
+		if p, ok := prov.(interface {
+			GetInstance(context.Context, string) (*providerModel.ProviderInstance, error)
+		}); ok {
+			if info, err := p.GetInstance(ctx, instanceName); err == nil && info != nil {
+				if info.PrivateIP != "" {
+					return info.PrivateIP
+				}
+				return info.IP
+			}
+		}
 	}
 	return ""
 }

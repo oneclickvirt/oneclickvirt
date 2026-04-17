@@ -23,6 +23,10 @@ func (phc *ProviderHealthChecker) DetectStoragePoolPath(client *ssh.Client, prov
 	case "podman", "containerd", "nerdctl":
 		// podman/containerd 的镜像存储通常在 /var/lib/containers 或 /var/lib/containerd
 		return phc.detectContainerStoragePath(client, providerType)
+	case "qemu":
+		return "/var/lib/libvirt/images", nil
+	case "kubevirt":
+		return "/var/lib/libvirt/images", nil
 	default:
 		// 默认返回根目录
 		if phc.logger != nil {

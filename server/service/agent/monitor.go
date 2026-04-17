@@ -337,6 +337,20 @@ func (s *MonitorService) detectInstanceInterfaces(
 		}
 		interfaces = append(interfaces, iface)
 
+	case "qemu":
+		iface, err := s.detectQEMUInterface(providerInstance, instance.Name)
+		if err != nil {
+			return nil, err
+		}
+		interfaces = append(interfaces, iface)
+
+	case "kubevirt":
+		iface, err := s.detectKubeVirtInterface(providerInstance, instance.Name)
+		if err != nil {
+			return nil, err
+		}
+		interfaces = append(interfaces, iface)
+
 	default:
 		return nil, fmt.Errorf("unsupported provider type: %s", providerType)
 	}
@@ -490,6 +504,79 @@ exit 1
 	iface := strings.TrimSpace(output)
 	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
 		return "", fmt.Errorf("detect proxmox iface for %s: %s", instanceName, iface)
+	}
+	return iface, nil
+}
+
+// detectQEMUInterface detects the network interface for a QEMU/libvirt VM.
+// Uses `virsh domiflist` to find the tap/vnet interface attached to the VM.
+func (s *MonitorService) detectQEMUInterface(providerInstance provider.Provider, instanceName string) (string, error) {
+	detectCmd := fmt.Sprintf(`
+IFACE=$(virsh domiflist '%s' 2>/dev/null | awk 'NR>2 && $1 != "" {print $1}' | head -n1)
+if [ -n "$IFACE" ]; then
+    echo "$IFACE"
+    exit 0
+fi
+echo "ERROR: no interface for VM %s"
+exit 1
+`, instanceName, instanceName)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("detect qemu iface for %s: %w", instanceName, err)
+	}
+
+	iface := strings.TrimSpace(output)
+	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
+		return "", fmt.Errorf("detect qemu iface for %s: %s", instanceName, iface)
+	}
+	return iface, nil
+}
+
+// detectKubeVirtInterface detects the network interface for a KubeVirt VM.
+// KubeVirt VMs use tap interfaces, detected via pod network namespace.
+func (s *MonitorService) detectKubeVirtInterface(providerInstance provider.Provider, instanceName string) (string, error) {
+	detectCmd := fmt.Sprintf(`
+# Try to find the virt-launcher pod for this VM and its tap interface
+POD=$(kubectl get pod -n kubevirt-vms -l kubevirt.io/vm=%s -o jsonpath='{.items[0].metadata.name}' 2>/dev/null)
+if [ -z "$POD" ]; then
+    echo "ERROR: no pod for VM %s"
+    exit 1
+fi
+POD_PID=$(kubectl exec -n kubevirt-vms "$POD" -- cat /proc/1/status 2>/dev/null | grep ^NStgid | awk '{print $2}')
+if [ -z "$POD_PID" ]; then
+    # fallback: use crictl to get PID
+    CID=$(kubectl get pod -n kubevirt-vms "$POD" -o jsonpath='{.status.containerStatuses[0].containerID}' 2>/dev/null | sed 's|.*://||')
+    POD_PID=$(crictl inspect "$CID" 2>/dev/null | grep -m1 '"pid"' | grep -oE '[0-9]+')
+fi
+if [ -n "$POD_PID" ]; then
+    HOST_VETH_IFINDEX=$(nsenter -t $POD_PID -n ip link show eth0 2>/dev/null | head -n1 | sed -n 's/.*@if\([0-9]\+\).*/\1/p')
+    if [ -n "$HOST_VETH_IFINDEX" ]; then
+        VETH_NAME=$(ip -o link show 2>/dev/null | awk -v idx="$HOST_VETH_IFINDEX" -F': ' '$1 == idx {print $2}' | cut -d'@' -f1)
+        if [ -n "$VETH_NAME" ]; then
+            echo "$VETH_NAME"
+            exit 0
+        fi
+    fi
+fi
+echo "ERROR: no interface for KubeVirt VM %s"
+exit 1
+`, instanceName, instanceName, instanceName)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("detect kubevirt iface for %s: %w", instanceName, err)
+	}
+
+	iface := strings.TrimSpace(output)
+	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
+		return "", fmt.Errorf("detect kubevirt iface for %s: %s", instanceName, iface)
 	}
 	return iface, nil
 }
