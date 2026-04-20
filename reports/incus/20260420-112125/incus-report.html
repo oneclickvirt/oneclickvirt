@@ -1,0 +1,74 @@
+<html><body><h1>Test Failed</h1><p>Exit code: 1</p><pre>
+[0;36m========== Environment Integration Test: incus ==========[0m
+
+[0;34m[INFO][0m 11:21:03 Modules: all
+[0;34m[INFO][0m 11:21:03 Instance types: both (requested: both)
+[0;34m[INFO][0m 11:21:03 Execution rule: auto
+[0;34m[INFO][0m 11:21:03 Node hours: 8h
+[0;34m[INFO][0m 11:21:03 Enabled platforms: alice lightnode rackdog
+[0;34m[INFO][0m 11:21:03 Active platform will be selected automatically with fallback
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 11:21:03 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/server
+[0;34m[INFO][0m 11:21:03 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 11:21:03 config.yaml patched
+[0;34m[INFO][0m 11:21:03 Building server binary...
+[0;32m[PASS][0m 11:21:12 Server binary built
+[0;34m[INFO][0m 11:21:12 Server process started (PID 3256), waiting for startup...
+[0;32m[PASS][0m 11:21:17 Server started and responding (PID 3256, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 11:21:17 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 11:21:17 Creating test node: env=incus hours=8
+[0;34m[INFO][0m 11:21:17 Enabled platforms (priority order): alice lightnode rackdog
+[0;34m[INFO][0m 11:21:17 === Trying platform: alice ===
+[0;34m[INFO][0m 11:21:17 Initializing platform: alice
+[0;34m[INFO][0m 11:21:17 [alice] Platform initialized (API: https://app.alice.ws/cli/v1)
+[0;32m[PASS][0m 11:21:17 Platform 'alice' initialized
+[0;34m[INFO][0m 11:21:17 [alice] Checking for existing instances to reinstall...
+[DEBUG] 11:21:17 [alice] list_instances raw: []
+[0;34m[INFO][0m 11:21:17 [alice] No existing instances found, will create new.
+[0;34m[INFO][0m 11:21:17 [alice] Creating new instance (env=incus hours=8)...
+[0;34m[INFO][0m 11:21:17 [alice] Creating instance: env=incus hours=8
+[DEBUG] 11:21:18 [alice] GET /evo/permissions HTTP 200
+[DEBUG] 11:21:18 [alice] GET /evo/plans/38/os-images HTTP 200
+[0;31m[FAIL][0m 11:21:18 [alice] Create failed (HTTP 400): {"code":400,"message":"failed to create server via VirtFusion: no available resources: No hypervisors in the selected group have enough resources."}
+[0;31m[FAIL][0m 11:21:18 [alice] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 11:21:18 Platform 'alice' exhausted, trying next...
+[0;34m[INFO][0m 11:21:18 === Trying platform: lightnode ===
+[0;34m[INFO][0m 11:21:18 Initializing platform: lightnode
+[0;34m[INFO][0m 11:21:18 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 11:21:19 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 11:21:19 [lightnode] Platform initialized
+[0;32m[PASS][0m 11:21:19 Platform 'lightnode' initialized
+[0;34m[INFO][0m 11:21:19 [lightnode] Checking for existing instances to reinstall...
+[DEBUG] 11:21:20 [lightnode] list_instances raw: []
+[0;34m[INFO][0m 11:21:20 [lightnode] No existing instances found, will create new.
+[0;34m[INFO][0m 11:21:20 [lightnode] Creating new instance (env=incus hours=8)...
+[0;34m[INFO][0m 11:21:20 [lightnode] Creating instance: env=incus
+[0;31m[FAIL][0m 11:21:22 [lightnode] No debian image found
+[0;31m[FAIL][0m 11:21:22 [lightnode] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 11:21:22 Platform 'lightnode' exhausted, trying next...
+[0;34m[INFO][0m 11:21:22 === Trying platform: rackdog ===
+[0;34m[INFO][0m 11:21:22 Initializing platform: rackdog
+[0;34m[INFO][0m 11:21:23 [rackdog] Using location: ash01
+[0;34m[INFO][0m 11:21:23 [rackdog] Platform initialized
+[0;32m[PASS][0m 11:21:23 Platform 'rackdog' initialized
+[0;34m[INFO][0m 11:21:23 [rackdog] Checking for existing instances to reinstall...
+[DEBUG] 11:21:23 [rackdog] list_instances raw: []
+[0;34m[INFO][0m 11:21:23 [rackdog] No existing instances found, will create new.
+[0;34m[INFO][0m 11:21:23 [rackdog] Creating new instance (env=incus hours=8)...
+[0;34m[INFO][0m 11:21:23 [rackdog] Creating VM: env=incus
+[0;31m[FAIL][0m 11:21:24 [rackdog] Create failed (HTTP 400): {"errors": {"Error": "For global token billing_account_id is required."}}
+[0;31m[FAIL][0m 11:21:24 [rackdog] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 11:21:24 Platform 'rackdog' exhausted, trying next...
+[0;31m[FAIL][0m 11:21:24 All enabled platforms failed to create an instance
+[0;31m[FAIL][0m 11:21:24 All platforms failed to create a test node
+[0;31m[FAIL][0m 11:21:24 Failed to create worker node
+[0;31m[FAIL][0m 11:21:24 Script exiting with code 1
+[0;34m[INFO][0m 11:21:24 Capturing service logs for debugging...</pre></body></html>
