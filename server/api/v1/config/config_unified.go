@@ -16,6 +16,10 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+type configGetter interface {
+	GetConfig(key string) (interface{}, bool)
+}
+
 // GetUnifiedConfig 获取统一配置接口
 // @Summary 获取系统配置
 // @Description 根据用户权限返回相应的配置信息
@@ -51,7 +55,7 @@ func GetUnifiedConfig(c *gin.Context) {
 
 	// 根据用户权限和请求范围决定返回的配置
 	configManager := config.GetConfigManager()
-	if configManager == nil {
+	if configManager == nil && scope != "admin" && scope != "public" {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "配置管理器未初始化"))
 		return
 	}
@@ -169,13 +173,49 @@ func UpdateUnifiedConfig(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "配置更新成功")
 }
 
+func getConfigBool(cm configGetter, key string, fallback bool) bool {
+	if cm == nil {
+		return fallback
+	}
+
+	value, exists := cm.GetConfig(key)
+	if !exists {
+		return fallback
+	}
+
+	booleanValue, ok := value.(bool)
+	if !ok {
+		return fallback
+	}
+
+	return booleanValue
+}
+
+func getConfigString(cm configGetter, key string, fallback string) string {
+	if cm == nil {
+		return fallback
+	}
+
+	value, exists := cm.GetConfig(key)
+	if !exists {
+		return fallback
+	}
+
+	stringValue, ok := value.(string)
+	if !ok {
+		return fallback
+	}
+
+	return stringValue
+}
+
 // getPublicConfig 获取公开配置
 func getPublicConfig(cm *config.ConfigManager) map[string]interface{} {
 	// 直接从全局配置构建，不依赖扁平化的configCache
 	result := make(map[string]interface{})
-	result["captchaEnabled"] = global.GetAppConfig().Captcha.Enabled
-	result["oauth2Enabled"] = global.GetAppConfig().Auth.EnableOAuth2
-	result["registrationEnabled"] = global.GetAppConfig().Auth.EnablePublicRegistration
+	result["captchaEnabled"] = getConfigBool(cm, "captcha.enabled", global.GetAppConfig().Captcha.Enabled)
+	result["oauth2Enabled"] = getConfigBool(cm, "auth.enable-oauth2", global.GetAppConfig().Auth.EnableOAuth2)
+	result["registrationEnabled"] = getConfigBool(cm, "auth.enable-public-registration", global.GetAppConfig().Auth.EnablePublicRegistration)
 	return result
 }
 
@@ -282,12 +322,12 @@ func getAdminConfig(cm *config.ConfigManager) map[string]interface{} {
 
 	// 验证码配置
 	result["captcha"] = map[string]interface{}{
-		"enabled": global.GetAppConfig().Captcha.Enabled,
+		"enabled": getConfigBool(cm, "captcha.enabled", global.GetAppConfig().Captcha.Enabled),
 	}
 
 	// KYC实名认证配置
 	result["kyc"] = map[string]interface{}{
-		"method":                 global.GetAppConfig().KYC.Method,
+		"method":                 getConfigString(cm, "kyc.method", global.GetAppConfig().KYC.Method),
 		"requireRealName":        global.GetAppConfig().KYC.RequireRealName,
 		"restrictCreateInstance": global.GetAppConfig().KYC.RestrictCreateInstance,
 		"restrictRedeemCode":     global.GetAppConfig().KYC.RestrictRedeemCode,

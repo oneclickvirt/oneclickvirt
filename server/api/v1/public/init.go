@@ -1,6 +1,7 @@
 package public
 
 import (
+	"oneclickvirt/config"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/system"
@@ -373,19 +374,71 @@ func InitSystem(c *gin.Context) {
 // @Success 200 {object} common.Response{data=object} "获取成功"
 // @Router /public/register-config [get]
 func GetRegisterConfig(c *gin.Context) {
+	captchaEnabled := global.GetAppConfig().Captcha.Enabled
+	registrationEnabled := global.GetAppConfig().Auth.EnablePublicRegistration
+	inviteCodeEnabled := global.GetAppConfig().InviteCode.Enabled
+	oauth2Enabled := global.GetAppConfig().Auth.EnableOAuth2
+	kycEnabled := global.GetAppConfig().Auth.EnableKYC
+	kycMethod := global.GetAppConfig().KYC.Method
+	domainEnabled := global.GetAppConfig().Auth.EnableDomain
+	checkinEnabled := global.GetAppConfig().Auth.EnableCheckin
+
+	if configManager := config.GetConfigManager(); configManager != nil {
+		if value, exists := configManager.GetConfig("captcha.enabled"); exists {
+			if enabled, ok := value.(bool); ok {
+				captchaEnabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("auth.enable-public-registration"); exists {
+			if enabled, ok := value.(bool); ok {
+				registrationEnabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("invite-code.enabled"); exists {
+			if enabled, ok := value.(bool); ok {
+				inviteCodeEnabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("auth.enable-oauth2"); exists {
+			if enabled, ok := value.(bool); ok {
+				oauth2Enabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("auth.enable-kyc"); exists {
+			if enabled, ok := value.(bool); ok {
+				kycEnabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("kyc.method"); exists {
+			if method, ok := value.(string); ok {
+				kycMethod = method
+			}
+		}
+		if value, exists := configManager.GetConfig("auth.enable-domain"); exists {
+			if enabled, ok := value.(bool); ok {
+				domainEnabled = enabled
+			}
+		}
+		if value, exists := configManager.GetConfig("auth.enable-checkin"); exists {
+			if enabled, ok := value.(bool); ok {
+				checkinEnabled = enabled
+			}
+		}
+	}
+
 	config := map[string]interface{}{
 		"auth": map[string]interface{}{
-			"enablePublicRegistration": global.GetAppConfig().Auth.EnablePublicRegistration,
+			"enablePublicRegistration": registrationEnabled,
 		},
 		"inviteCode": map[string]interface{}{
-			"enabled": global.GetAppConfig().InviteCode.Enabled,
+			"enabled": inviteCodeEnabled,
 		},
-		"oauth2Enabled":  global.GetAppConfig().Auth.EnableOAuth2,
-		"kycEnabled":     global.GetAppConfig().Auth.EnableKYC,
-		"kycMethod":      global.GetAppConfig().KYC.Method,
-		"domainEnabled":  global.GetAppConfig().Auth.EnableDomain,
-		"checkinEnabled": global.GetAppConfig().Auth.EnableCheckin,
-		"captchaEnabled": global.GetAppConfig().Captcha.Enabled,
+		"oauth2Enabled":  oauth2Enabled,
+		"kycEnabled":     kycEnabled,
+		"kycMethod":      kycMethod,
+		"domainEnabled":  domainEnabled,
+		"checkinEnabled": checkinEnabled,
+		"captchaEnabled": captchaEnabled,
 	}
 	common.ResponseSuccess(c, config)
 }

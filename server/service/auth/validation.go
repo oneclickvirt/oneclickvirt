@@ -3,15 +3,38 @@ package auth
 import (
 	"strings"
 
+	"oneclickvirt/config"
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 )
 
 type AuthValidationService struct{}
 
+type configGetter interface {
+	GetConfig(key string) (interface{}, bool)
+}
+
+func getCaptchaEnabled(getter configGetter, fallback bool) bool {
+	if getter == nil {
+		return fallback
+	}
+
+	value, exists := getter.GetConfig("captcha.enabled")
+	if !exists {
+		return fallback
+	}
+
+	enabled, ok := value.(bool)
+	if !ok {
+		return fallback
+	}
+
+	return enabled
+}
+
 // ShouldCheckCaptcha 检查是否需要验证码（仅由管理员后台配置控制）
 func (s *AuthValidationService) ShouldCheckCaptcha() bool {
-	return global.GetAppConfig().Captcha.Enabled
+	return getCaptchaEnabled(config.GetConfigManager(), global.GetAppConfig().Captcha.Enabled)
 }
 
 // ValidateCaptchaRequired 验证验证码是否必需
