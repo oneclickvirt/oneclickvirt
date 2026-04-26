@@ -57,7 +57,10 @@
             />
           </el-form-item>
 
-          <el-form-item prop="captcha">
+          <el-form-item
+            v-if="captchaEnabled"
+            prop="captcha"
+          >
             <div class="captcha-container">
               <el-input
                 v-model="forgotForm.captcha"
@@ -132,6 +135,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { forgotPassword } from '@/api/auth'
 import { getCaptcha } from '@/api/auth'
+import { getPublicConfig } from '@/api/public'
 import { Operation, HomeFilled, Sunny, Moon } from '@element-plus/icons-vue'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
@@ -147,6 +151,7 @@ const loading = ref(false)
 const emailSent = ref(false)
 const captchaImage = ref('')
 const captchaId = ref('')
+const captchaEnabled = ref(false)
 
 const forgotForm = reactive({
   email: '',
@@ -158,9 +163,11 @@ const forgotRules = computed(() => ({
     { required: true, message: t('validation.emailRequired'), trigger: 'blur' },
     { type: 'email', message: t('validation.emailFormat'), trigger: 'blur' }
   ],
-  captcha: [
-    { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
-  ]
+  ...(captchaEnabled.value ? {
+    captcha: [
+      { required: true, message: t('validation.captchaRequired'), trigger: 'blur' }
+    ]
+  } : {})
 }))
 
 const handleForgotPassword = async () => {
@@ -173,8 +180,13 @@ const handleForgotPassword = async () => {
     try {
       const response = await forgotPassword({
         email: forgotForm.email,
-        captcha: forgotForm.captcha,
-        captchaId: captchaId.value
+        ...(captchaEnabled.value ? {
+          captcha: forgotForm.captcha,
+          captchaId: captchaId.value
+        } : {
+          captcha: undefined,
+          captchaId: undefined
+        })
       })
 
       if (response.code === 200) {
@@ -183,7 +195,9 @@ const handleForgotPassword = async () => {
     } catch (error) {
       console.error(t('forgotPassword.resetFailed'), error)
       ElMessage.error(t('forgotPassword.resetFailed'))
-      refreshCaptcha()
+      if (captchaEnabled.value) {
+        refreshCaptcha()
+      }
     } finally {
       loading.value = false
     }
@@ -191,6 +205,11 @@ const handleForgotPassword = async () => {
 }
 
 const refreshCaptcha = async () => {
+  if (!captchaEnabled.value) {
+    clearCaptchaState()
+    return
+  }
+
   try {
     const response = await getCaptcha()
     if (response.code === 200) {
@@ -200,6 +219,21 @@ const refreshCaptcha = async () => {
     }
   } catch (error) {
     console.error(t('forgotPassword.captchaFailed'), error)
+  }
+}
+
+const clearCaptchaState = () => {
+  captchaImage.value = ''
+  captchaId.value = ''
+  forgotForm.captcha = ''
+}
+
+const loadCaptchaConfig = async () => {
+  try {
+    const response = await getPublicConfig()
+    captchaEnabled.value = response.data?.captchaEnabled ?? false
+  } catch (error) {
+    captchaEnabled.value = false
   }
 }
 
@@ -218,8 +252,13 @@ const toggleTheme = () => {
   themeStore.toggleTheme()
 }
 
-onMounted(() => {
-  refreshCaptcha()
+onMounted(async () => {
+  await loadCaptchaConfig()
+  if (captchaEnabled.value) {
+    refreshCaptcha()
+  } else {
+    clearCaptchaState()
+  }
 })
 </script>
 

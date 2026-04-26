@@ -262,6 +262,13 @@ const registerRules = computed(() => ({
 }))
 
 const refreshCaptcha = async () => {
+  if (!captchaEnabled.value) {
+    captchaImage.value = ''
+    registerForm.captchaId = ''
+    registerForm.captcha = ''
+    return
+  }
+
   await executeAsync(async () => {
     const response = await getCaptcha()
     captchaImage.value = response.data.imageData
@@ -349,11 +356,15 @@ const handleRegister = async () => {
           }
         } else {
           console.error('注册响应数据不完整. hasToken:', hasToken, 'hasUser:', hasUser, 'responseData:', responseData, 'result.data:', result.data)
-          refreshCaptcha()
+          if (captchaEnabled.value) {
+            refreshCaptcha()
+          }
         }
       } else {
         console.error('注册失败. result.success:', result.success, 'result.data:', result.data)
-        refreshCaptcha() // 注册失败刷新验证码
+        if (captchaEnabled.value) {
+          refreshCaptcha() // 注册失败刷新验证码
+        }
       }
     } finally {
       loading.value = false

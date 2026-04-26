@@ -509,7 +509,7 @@ func (m *LifecycleManager) BatchDetectMonitoring(ctx context.Context, providerID
 
 	var fullyEnabledCount, partialCount, disabledCount, errorCount int
 	var outputBuilder strings.Builder
-	outputBuilder.WriteString(fmt.Sprintf("=== 流量监控三层检测 ===\n"))
+	outputBuilder.WriteString("=== 流量监控三层检测 ===\n")
 	outputBuilder.WriteString(fmt.Sprintf("Provider: %s (ID: %d)\n", provider.Name, provider.ID))
 	outputBuilder.WriteString(fmt.Sprintf("实例总数: %d\n\n", totalCount))
 
@@ -631,7 +631,7 @@ func (m *LifecycleManager) BatchDetectMonitoring(ctx context.Context, providerID
 	finalMessage := fmt.Sprintf("检测完成: 完全启用 %d, 部分异常 %d, 未启用 %d, 异常 %d",
 		fullyEnabledCount, partialCount, disabledCount, errorCount)
 
-	outputBuilder.WriteString(fmt.Sprintf("\n=== 检测汇总 ===\n"))
+	outputBuilder.WriteString("\n=== 检测汇总 ===\n")
 	outputBuilder.WriteString(fmt.Sprintf("总计: %d\n", totalCount))
 	outputBuilder.WriteString(fmt.Sprintf("正常: %d (服务运行正常，包含暂无流量记录的新启用实例)\n", fullyEnabledCount))
 	outputBuilder.WriteString(fmt.Sprintf("部分异常: %d (配置✓ 但数据或服务异常)\n", partialCount))

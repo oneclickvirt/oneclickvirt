@@ -105,6 +105,8 @@ action_tests/
 - 关键状态变量（`PROVIDER_ID`、`TEST_INSTANCE_ID`）在模块间正确传递
 - 防止上一模块的副作用影响下一模块
 
+所有 `run_module.sh`、`run_env_test.sh`、`run_network_mode_test.sh` 流程都会自动执行一组全局认证 guard：验证初始化后的公开配置 `captchaEnabled=false`、管理员配置中的 `captcha.enabled=false`、管理员登录默认无需图片验证码、忘记密码默认无需图片验证码。
+
 ### 错误日志捕获
 
 当测试用例失败时，框架自动从 Master 节点的 OneClickVirt 服务容器中捕获时间相关的日志：

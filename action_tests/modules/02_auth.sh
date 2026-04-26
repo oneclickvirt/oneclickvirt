@@ -9,8 +9,8 @@ run_module_02() {
     # -- Captcha --
     test_api_noauth "Get captcha" "GET" "/api/v1/auth/captcha" "200" "" "$group"
 
-    # -- Register config (verify captchaEnabled field) --
-    test_api_noauth "Register config has captchaEnabled" "GET" "/api/v1/public/register-config" "200" "" "$group"
+    # -- Register config (verify captchaEnabled default) --
+    test_api_json_value_noauth "Register config captcha disabled by default" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"
 
     # -- Login valid --
     test_api_noauth "Admin login (valid)" "POST" "/api/v1/auth/login" "200" \
@@ -78,12 +78,12 @@ run_module_02() {
     test_api "User logout" "POST" "/api/v1/auth/logout" "200" "" "$group" "$USER_TOKEN"
     USER_TOKEN=$(do_login "$SERVER_URL" "$TEST_USER" "$TEST_USER_PASS") || true
 
-    # -- Forgot password (email based, may return 400 if SMTP not configured, 404 if user not found) --
-    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|400|404" \
+    # -- Forgot password (email based, may return 400 if SMTP not configured) --
+    test_api_noauth "Forgot password" "POST" "/api/v1/auth/forgot-password" "200|400" \
         '{"email":"test@ci.local"}' "$group"
 
-    # -- Forgot password invalid email --
-    test_api_noauth "Forgot password (invalid email)" "POST" "/api/v1/auth/forgot-password" "400|404" \
+    # -- Forgot password nonexistent email should not reveal user existence --
+    test_api_noauth "Forgot password (nonexistent email)" "POST" "/api/v1/auth/forgot-password" "200|400" \
         '{"email":"nonexistent@nowhere.com"}' "$group"
 
     # -- Reset password with invalid token --

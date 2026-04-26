@@ -81,7 +81,7 @@ run_module_27() {
     test_api "Dashboard stats" "GET" "/api/v1/dashboard/stats" "200" "" "$group" "$ADMIN_TOKEN"
 
     # ---- Register config (public) ----
-    test_api "Register config" "GET" "/api/v1/public/register-config" "200" "" "$group" ""
+    test_api_json_value_noauth "Register config captcha disabled by default" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"
     test_api "System config (public)" "GET" "/api/v1/public/system-config" "200" "" "$group" ""
 
     # ---- Version and build info ----

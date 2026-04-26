@@ -26,6 +26,11 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 		if req.CaptchaId == "" || req.Captcha == "" {
 			return common.NewError(common.CodeCaptchaRequired, "请填写验证码")
 		}
+
+		// 在查询账号前先验证验证码，避免通过错误信息或处理路径枚举邮箱是否存在。
+		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
+			return common.NewError(common.CodeCaptchaInvalid, err.Error())
+		}
 	}
 
 	// 查询用户
@@ -35,14 +40,13 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 		query = query.Where("user_type = ?", req.UserType)
 	}
 	if err := query.First(&user).Error; err != nil {
-		return errors.New("未找到该邮箱对应的用户")
-	}
-
-	// 用户存在，现在验证并消费验证码
-	if authValidationService.ShouldCheckCaptcha() {
-		if err := s.verifyCaptcha(req.CaptchaId, req.Captcha); err != nil {
-			return common.NewError(common.CodeCaptchaInvalid, err.Error())
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			global.APP_LOG.Info("密码重置请求未命中用户，按成功处理",
+				zap.String("email", req.Email),
+				zap.String("user_type", req.UserType))
+			return nil
 		}
+		return err
 	}
 
 	// 生成重置令牌
@@ -62,8 +66,7 @@ func (s *AuthService) ForgotPassword(req auth.ForgotPasswordRequest) error {
 	// 发送重置邮件（非生产环境下只模拟发送）
 	if global.GetAppConfig().System.Env != "production" {
 		global.APP_LOG.Debug("非生产环境：模拟发送密码重置邮件",
-			zap.String("email", req.Email),
-			zap.String("token", resetToken))
+			zap.String("email", req.Email))
 		return nil
 	}
 	frontendURL := global.GetAppConfig().System.FrontendURL

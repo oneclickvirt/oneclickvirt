@@ -32,3 +32,15 @@ func TestSyncQuotaConfigExpiryDays(t *testing.T) {
 		})
 	}
 }
+
+func TestGetDefaultConfigCaptchaDisabled(t *testing.T) {
+	cfg := getDefaultConfig()
+
+	if cfg.Captcha.Enabled {
+		t.Fatalf("expected captcha to be disabled by default")
+	}
+
+	if cfg.Captcha.Width != 120 || cfg.Captcha.Height != 40 || cfg.Captcha.Length != 4 || cfg.Captcha.ExpireTime != 5 {
+		t.Fatalf("unexpected default captcha config: %+v", cfg.Captcha)
+	}
+}

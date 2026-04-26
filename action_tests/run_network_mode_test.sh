@@ -414,6 +414,12 @@ fi
 export ADMIN_TOKEN
 log_success "Logged in, ADMIN_TOKEN obtained"
 
+BASELINE_GUARD_FAILED=false
+if ! run_captcha_disabled_contract_checks "Global Guard - Network Mode Captcha Disabled Contract" "network-captcha-baseline"; then
+    BASELINE_GUARD_FAILED=true
+    log_error "Network mode baseline captcha-disabled contract validation failed"
+fi
+
 # ============================================================================
 # Cleanup handler
 # ============================================================================
@@ -441,6 +447,9 @@ trap _network_test_cleanup EXIT
 # Phase 3: Test each mapping method (single-threaded)
 # ============================================================================
 OVERALL_PASS=true
+if [[ "$BASELINE_GUARD_FAILED" == "true" ]]; then
+    OVERALL_PASS=false
+fi
 declare -A METHOD_RESULT  # method -> PASS|FAIL
 
 for mapping_method in "${MAPPING_METHODS[@]}"; do

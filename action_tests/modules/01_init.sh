@@ -47,7 +47,7 @@ run_module_01() {
     test_api_noauth "Build info" "GET" "/api/v1/public/build-info" "200" "" "$group"
     test_api_noauth "Public announcements" "GET" "/api/v1/public/announcements" "200" "" "$group"
     test_api_noauth "Public stats" "GET" "/api/v1/public/stats" "200" "" "$group"
-    test_api_noauth "Register config" "GET" "/api/v1/public/register-config" "200" "" "$group"
+    test_api_json_value_noauth "Register config captcha disabled by default" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"
     test_api_noauth "System config" "GET" "/api/v1/public/system-config" "200" "" "$group"
     test_api_noauth "Available system images" "GET" "/api/v1/public/system-images/available" "200" "" "$group"
 

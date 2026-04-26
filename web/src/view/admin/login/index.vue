@@ -201,7 +201,9 @@ const handleLogin = async () => {
         console.log('管理员登录成功，跳转到管理员界面')
         router.push('/admin/dashboard')
       } else {
-        refreshCaptcha() // 登录失败刷新验证码
+        if (captchaEnabled.value) {
+          refreshCaptcha() // 登录失败刷新验证码
+        }
       }
     } finally {
       loading.value = false
@@ -210,6 +212,11 @@ const handleLogin = async () => {
 }
 
 const refreshCaptcha = async () => {
+  if (!captchaEnabled.value) {
+    clearCaptchaState()
+    return
+  }
+
   await executeAsync(async () => {
     const response = await getCaptcha()
     captchaImage.value = response.data.imageData
@@ -219,6 +226,12 @@ const refreshCaptcha = async () => {
     showError: false, // 静默处理验证码错误
     showLoading: false
   })
+}
+
+const clearCaptchaState = () => {
+  captchaImage.value = ''
+  captchaId.value = ''
+  loginForm.captcha = ''
 }
 
 // 切换语言
@@ -235,13 +248,14 @@ const toggleTheme = () => {
 onMounted(async () => {
   try {
     const configResponse = await getPublicConfig()
-    captchaEnabled.value = configResponse.data?.captchaEnabled || false
+    captchaEnabled.value = configResponse.data?.captchaEnabled ?? false
   } catch (e) {
-    // fallback: show captcha if config fetch fails
-    captchaEnabled.value = true
+    captchaEnabled.value = false
   }
   if (captchaEnabled.value) {
     refreshCaptcha()
+  } else {
+    clearCaptchaState()
   }
 })
 </script>

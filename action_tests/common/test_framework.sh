@@ -129,6 +129,106 @@ test_api_noauth() {
     test_api "$name" "$method" "$url" "$expected" "$data" "$group" ""
 }
 
+test_api_json_value() {
+    local name="$1" method="$2" url="$3" expected_http="$4" jq_expr="$5" expected_value="$6"
+    local data="${7:-}" group="${8:-default}" token="${9-$ADMIN_TOKEN}"
+    local test_start; test_start=$(_ts)
+    TOTAL_TESTS=$((TOTAL_TESTS + 1))
+
+    if [[ -n "${CHAIN_BROKEN[$group]:-}" ]]; then
+        SKIPPED_TESTS=$((SKIPPED_TESTS + 1))
+        log_skip "${name} (chain broken: ${CHAIN_BROKEN[$group]})"
+        report_add_skip "$name" "$method" "$url" "${CHAIN_BROKEN[$group]}"
+        _record_result "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
+        return 1
+    fi
+
+    local args=(-s -w "\n%{http_code}" --max-time 120 -H "Content-Type: application/json" -X "${method}")
+    [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
+    [[ -n "$data" ]] && args+=(-d "$data")
+
+    local resp; resp=$(curl "${args[@]}" "${SERVER_URL}${url}" 2>&1) || true
+    local code; code=$(echo "$resp" | tail -1)
+    local body; body=$(echo "$resp" | sed '$d')
+    sleep 0.3
+
+    local http_match=false
+    IFS='|' read -ra exp_codes <<< "$expected_http"
+    for ec in "${exp_codes[@]}"; do
+        [[ "$code" == "$ec" ]] && { http_match=true; break; }
+    done
+
+    if [[ "$http_match" == "false" ]]; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "${name} - expected HTTP ${expected_http}, got HTTP ${code}"
+        local error_logs=""
+        error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        report_add_fail "$name" "$method" "$url" "$data" "$expected_http" "$code" "$body"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected_http" "$code" "$body" "$group" "$error_logs"
+        return 1
+    fi
+
+    local actual_value="__JQ_EVAL_ERROR__"
+    if actual_value=$(echo "$body" | jq -er "$jq_expr" 2>/dev/null); then
+        :
+    fi
+
+    if [[ "$actual_value" != "$expected_value" ]]; then
+        FAILED_TESTS=$((FAILED_TESTS + 1))
+        log_error "${name} - expected jq(${jq_expr})=${expected_value}, got ${actual_value}"
+        local error_logs=""
+        local expected_detail="HTTP ${expected_http}, jq(${jq_expr})=${expected_value}"
+        local actual_detail="HTTP ${code}, jq(${jq_expr})=${actual_value}"
+        error_logs=$(capture_service_logs "$test_start" 2>/dev/null) || true
+        report_add_fail "$name" "$method" "$url" "$data" "$expected_detail" "$actual_detail" "$body"
+        _record_result "$name" "$method" "$url" "FAIL" "$expected_detail" "$actual_detail" "$body" "$group" "$error_logs"
+        return 1
+    fi
+
+    PASSED_TESTS=$((PASSED_TESTS + 1))
+    log_success "${name}"
+    report_add_pass "$name" "$method" "$url"
+    _record_result "$name" "$method" "$url" "PASS" "HTTP ${expected_http}, jq(${jq_expr})=${expected_value}" "HTTP ${code}, jq(${jq_expr})=${actual_value}" "" "$group"
+    echo "$body"
+    return 0
+}
+
+test_api_json_value_noauth() {
+    local name="$1" method="$2" url="$3" expected_http="$4" jq_expr="$5" expected_value="$6"
+    local data="${7:-}" group="${8:-default}"
+    test_api_json_value "$name" "$method" "$url" "$expected_http" "$jq_expr" "$expected_value" "$data" "$group" ""
+}
+
+run_captcha_disabled_contract_checks() {
+    local section_title="${1:-Global Guard: Captcha Disabled Contract}"
+    local group="${2:-captcha-contract}"
+    local failed=0
+
+    report_add_section "$section_title"
+
+    test_api_json_value_noauth \
+        "Public register-config exposes captchaEnabled=false" \
+        "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group" >/dev/null || failed=1
+
+    if [[ -n "${ADMIN_TOKEN:-}" ]]; then
+        test_api_json_value \
+            "Admin config keeps captcha.enabled=false" \
+            "GET" "/api/v1/admin/config" "200" '.data.captcha.enabled' "false" "" "$group" "$ADMIN_TOKEN" >/dev/null || failed=1
+    fi
+
+    test_api_noauth \
+        "Admin login works without captcha by default" \
+        "POST" "/api/v1/auth/login" "200" \
+        "{\"username\":\"${ADMIN_USER}\",\"password\":\"${ADMIN_PASS}\"}" "$group" >/dev/null || failed=1
+
+    test_api_noauth \
+        "Forgot password does not require captcha by default" \
+        "POST" "/api/v1/auth/forgot-password" "200" \
+        '{"email":"nonexistent-captcha-guard@ci.local"}' "$group" >/dev/null || failed=1
+
+    return $failed
+}
+
 chain_break() { CHAIN_BROKEN[$1]="$2"; log_warning "Chain broken [${1}]: ${2}"; }
 
 # -- Utility: should we test this instance type? --

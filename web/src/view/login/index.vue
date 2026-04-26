@@ -256,7 +256,9 @@ const handleLogin = async () => {
           router.push('/user/dashboard')
         }
       } else {
-        refreshCaptcha() // 登录失败刷新验证码
+        if (captchaEnabled.value) {
+          refreshCaptcha() // 登录失败刷新验证码
+        }
       }
     } finally {
       loading.value = false
@@ -265,6 +267,13 @@ const handleLogin = async () => {
 }
 
 const refreshCaptcha = async () => {
+  if (!captchaEnabled.value) {
+    captchaImage.value = ''
+    captchaId.value = ''
+    loginForm.captcha = ''
+    return
+  }
+
   await executeAsync(async () => {
     const response = await getCaptcha()
     captchaImage.value = response.data.imageData

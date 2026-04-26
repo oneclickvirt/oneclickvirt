@@ -29,7 +29,7 @@ run_module_07() {
     test_api_noauth "Public system config" "GET" "/api/v1/public/system-config" "200" "" "$group"
 
     # -- Register config --
-    test_api_noauth "Register config" "GET" "/api/v1/public/register-config" "200" "" "$group"
+    test_api_json_value_noauth "Register config captcha disabled by default" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"
 
     # -- Admin dashboard --
     test_api "Admin dashboard" "GET" "/api/v1/admin/dashboard" "200" "" "$group"
@@ -97,8 +97,10 @@ run_module_07() {
     # -- Captcha config toggle --
     test_api "Enable captcha" "PUT" "/api/v1/admin/config" "200" \
         '{"captcha":{"enabled":true}}' "$group"
-    test_api "Verify captcha enabled" "GET" "/api/v1/admin/config" "200" "" "$group"
+    test_api_json_value "Verify admin captcha enabled" "GET" "/api/v1/admin/config" "200" '.data.captcha.enabled' "true" "" "$group"
+    test_api_json_value_noauth "Verify public captcha enabled" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "true" "" "$group"
     test_api "Disable captcha" "PUT" "/api/v1/admin/config" "200" \
         '{"captcha":{"enabled":false}}' "$group"
-    test_api "Verify captcha disabled" "GET" "/api/v1/admin/config" "200" "" "$group"
+    test_api_json_value "Verify admin captcha disabled" "GET" "/api/v1/admin/config" "200" '.data.captcha.enabled' "false" "" "$group"
+    test_api_json_value_noauth "Verify public captcha disabled" "GET" "/api/v1/public/register-config" "200" '.data.captchaEnabled' "false" "" "$group"
 }

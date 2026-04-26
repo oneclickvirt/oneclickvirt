@@ -117,6 +117,12 @@ USER_TOKEN2=$(do_login "$SERVER_URL" "$TEST_USER2" "$TEST_USER2_PASS") || USER_T
 NORMAL_ADMIN_TOKEN=$(do_login "$SERVER_URL" "$NORMAL_ADMIN_USER" "$NORMAL_ADMIN_PASS") || NORMAL_ADMIN_TOKEN=""
 
 export ADMIN_TOKEN USER_TOKEN USER_TOKEN2 NORMAL_ADMIN_TOKEN
+EXIT_CODE=0
+
+if ! run_captcha_disabled_contract_checks "Global Guard - Baseline Captcha Disabled Contract" "global-captcha-baseline"; then
+    EXIT_CODE=1
+    log_error "Baseline captcha-disabled contract validation failed"
+fi
 
 # -- Safe state restoration function --
 # Called after each module to ensure critical state is clean
@@ -183,10 +189,14 @@ _restore_safe_state() {
             esac
         fi
     fi
+
+    if ! run_captcha_disabled_contract_checks "Global Guard - Post-module Safe State Contract" "global-captcha-safe-state"; then
+        EXIT_CODE=1
+        log_error "Post-module captcha-disabled contract validation failed"
+    fi
 }
 
 # Load and run modules (with state save/restore between each)
-EXIT_CODE=0
 MODULE_COUNT=${#MODULES[@]}
 MODULE_IDX=0
 for mod in "${MODULES[@]}"; do
