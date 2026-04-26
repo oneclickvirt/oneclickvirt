@@ -14,9 +14,24 @@ import {
   setUserExpiry
 } from '@/api/admin'
 import { adminLoginAsUser } from '@/api/features'
+import { containsUnsafeUsernameContent } from '@/utils/validate'
 
 export function useUserManagement() {
   const { t, locale } = useI18n()
+
+  const validateUsernameSafety = (rule, value, callback) => {
+    if (!value) {
+      callback()
+      return
+    }
+
+    if (containsUnsafeUsernameContent(value)) {
+      callback(new Error(t('validation.usernameUnsafe')))
+      return
+    }
+
+    callback()
+  }
 
   const users = ref([])
   const loading = ref(false)
@@ -77,7 +92,8 @@ export function useUserManagement() {
   const addUserRules = {
     username: [
       { required: true, message: t('validation.usernameRequired'), trigger: 'blur' },
-      { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' }
+      { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' },
+      { validator: validateUsernameSafety, trigger: 'blur' }
     ],
     nickname: [],
     email: [

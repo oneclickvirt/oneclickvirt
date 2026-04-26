@@ -114,6 +114,13 @@ func (s *Service) GetUserList(req admin.UserListRequest) ([]admin.UserManageResp
 func (s *Service) CreateUser(req admin.CreateUserRequest) error {
 	global.APP_LOG.Debug("开始创建用户", zap.String("username", utils.TruncateString(req.Username, 32)))
 
+	if err := utils.ValidateUsername(req.Username); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
+	if err := utils.ValidateOptionalEmail(req.Email); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
+
 	var existingUser userModel.User
 	if err := global.APP_DB.Where("username = ?", req.Username).First(&existingUser).Error; err == nil {
 		global.APP_LOG.Warn("用户创建失败：用户名已存在", zap.String("username", utils.TruncateString(req.Username, 32)))
@@ -207,6 +214,9 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 
 	// 检查用户名是否被其他用户使用
 	if req.Username != "" && req.Username != user.Username {
+		if err := utils.ValidateUsername(req.Username); err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
 		var count int64
 		global.APP_DB.Model(&userModel.User{}).Where("username = ? AND id != ?", req.Username, req.ID).Count(&count)
 		if count > 0 {
@@ -220,6 +230,9 @@ func (s *Service) UpdateUser(req admin.UpdateUserRequest, currentUserID uint) er
 
 	// 检查邮箱是否被其他用户使用
 	if req.Email != "" && req.Email != user.Email {
+		if err := utils.ValidateOptionalEmail(req.Email); err != nil {
+			return common.NewError(common.CodeValidationError, err.Error())
+		}
 		var count int64
 		global.APP_DB.Model(&userModel.User{}).Where("email = ? AND id != ?", req.Email, req.ID).Count(&count)
 		if count > 0 {

@@ -9,6 +9,7 @@ export default {
   passwordLength: '密码长度至少为8位',
   confirmPasswordMatch: '两次输入的密码不一致',
   usernameLength: '用户名长度在 {min} 到 {max} 个字符',
+  usernameUnsafe: '用户名包含非法或危险内容',
   phoneFormat: '请输入有效的电话号码',
   urlFormat: '请输入有效的URL',
   fileNameTooLong: '文件名过长（最大255字符）',

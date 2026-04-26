@@ -25,7 +25,7 @@ type RegisterRequest struct {
 	Username     string `json:"username" binding:"required" example:"user123"`
 	Password     string `json:"password" binding:"required" example:"password123"`
 	Nickname     string `json:"nickname" example:"昵称"`
-	Email        string `json:"email" example:"user@example.com"`
+	Email        string `json:"email" binding:"omitempty,email" example:"user@example.com"`
 	Phone        string `json:"phone,omitempty" example:"13800138000"`
 	Telegram     string `json:"telegram,omitempty"`
 	QQ           string `json:"qq,omitempty"`

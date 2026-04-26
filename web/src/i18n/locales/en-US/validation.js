@@ -9,6 +9,7 @@ export default {
   passwordLength: 'Password must be at least 8 characters',
   confirmPasswordMatch: 'The passwords entered do not match',
   usernameLength: 'Username length must be between {min} and {max} characters',
+  usernameUnsafe: 'Username contains unsafe or invalid content',
   phoneFormat: 'Please enter a valid phone number',
   urlFormat: 'Please enter a valid URL',
   fileNameTooLong: 'File name is too long (max 255 characters)',

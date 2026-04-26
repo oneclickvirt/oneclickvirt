@@ -197,6 +197,7 @@ import { ElMessage } from 'element-plus'
 import { useLanguageStore } from '@/pinia/modules/language'
 import { useThemeStore } from '@/pinia/modules/theme'
 import { useSiteStore } from '@/pinia/modules/site'
+import { containsUnsafeUsernameContent } from '@/utils/validate'
 
 const router = useRouter()
 const { t, locale } = useI18n()
@@ -238,10 +239,25 @@ const validateInviteCode = (rule, value, callback) => {
   }
 }
 
+const validateUsernameSafety = (rule, value, callback) => {
+  if (!value) {
+    callback()
+    return
+  }
+
+  if (containsUnsafeUsernameContent(value)) {
+    callback(new Error(t('validation.usernameUnsafe')))
+    return
+  }
+
+  callback()
+}
+
 const registerRules = computed(() => ({
   username: [
     { required: true, message: t('register.pleaseEnterUsername'), trigger: 'blur' },
-    { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' }
+    { min: 3, max: 20, message: t('validation.usernameLength', { min: 3, max: 20 }), trigger: 'blur' },
+    { validator: validateUsernameSafety, trigger: 'blur' }
   ],
   password: [
     { required: true, message: t('register.pleaseEnterPassword'), trigger: 'blur' },

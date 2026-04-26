@@ -8,17 +8,68 @@ import (
 )
 
 // syncToGlobalConfig 同步配置到全局配置
-// 此方法不再写回YAML文件，以处理下述边界条件：
-//  1. 每次API保存只包含部分quota字段（如只有level-limits或只有instance-type-permissions），
-//     会导致writeConfigToYAML将整个quota节点替换为仅含请求字段的子集，破坏YAML中其余字段。
-//  2. 上述YAML写入会触发fsnotify文件监听器（InitConfig中注册），
-//     监听器调用v.Unmarshal读取不完整YAML，使LevelLimits等字段被重置为默认值或清空。
-//
-// 全局配置的同步通过UpdateConfig注册的回调（changeCallbacks）完成；
-// YAML文件在重启时通过RestoreConfigFromDatabase从数据库恢复，保持最终一致性。
+// 此方法不写回 YAML，而是基于当前缓存快照重建完整嵌套配置并触发回调，
+// 确保 API 局部更新后 global.APP_CONFIG 与 configCache 保持一致。
 func (cm *ConfigManager) syncToGlobalConfig(config map[string]interface{}) error {
 	cm.logger.Info("配置已更新，将通过回调同步到全局配置", zap.Any("config", config))
+
+	nestedConfig, skippedSystemCount := cm.buildNestedConfigSnapshot()
+	cm.logger.Info("配置缓存快照已构建完成",
+		zap.Int("nestedConfigCount", len(nestedConfig)),
+		zap.Int("skippedSystemCount", skippedSystemCount),
+		zap.Any("topLevelKeys", func() []string {
+			keys := make([]string, 0, len(nestedConfig))
+			for k := range nestedConfig {
+				keys = append(keys, k)
+			}
+			return keys
+		}()))
+
+	cm.emitNestedConfigToCallbacks(nestedConfig)
 	return nil
+}
+
+func (cm *ConfigManager) buildNestedConfigSnapshot() (map[string]interface{}, int) {
+	cacheSnapshot := cm.GetAllConfig()
+	nestedConfig := make(map[string]interface{})
+	skippedSystemCount := 0
+
+	for key, value := range cacheSnapshot {
+		if isSystemLevelConfig(key) {
+			skippedSystemCount++
+			cm.logger.Debug("跳过系统级配置同步（已从YAML加载）",
+				zap.String("key", key))
+			continue
+		}
+
+		cm.logger.Debug("处理配置项",
+			zap.String("key", key),
+			zap.Any("value", value))
+		setNestedValue(nestedConfig, key, value)
+	}
+
+	return nestedConfig, skippedSystemCount
+}
+
+func (cm *ConfigManager) emitNestedConfigToCallbacks(nestedConfig map[string]interface{}) {
+	cm.mu.RLock()
+	callbacks := make([]ConfigChangeCallback, len(cm.changeCallbacks))
+	copy(callbacks, cm.changeCallbacks)
+	cm.mu.RUnlock()
+
+	for key, value := range nestedConfig {
+		cm.logger.Info("触发配置同步回调",
+			zap.String("key", key),
+			zap.String("valueType", fmt.Sprintf("%T", value)))
+
+		for _, callback := range callbacks {
+			if err := callback(key, nil, value); err != nil {
+				cm.logger.Error("同步配置到全局变量失败",
+					zap.String("key", key),
+					zap.Error(err))
+			}
+		}
+	}
 }
 
 // setNodeValue 设置节点的值
@@ -97,28 +148,7 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 // 系统级配置（system, mysql, redis, zap）已经在启动时从YAML加载到global，
 // 这里只同步业务配置（auth, quota, invite-code等）到global
 func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
-	// 构建嵌套配置结构
-	nestedConfig := make(map[string]interface{})
-
-	// 将扁平配置转换为嵌套结构（过滤系统级配置）
-	cm.logger.Info("开始构建嵌套配置",
-		zap.Int("flatConfigCount", len(cm.configCache)))
-
-	skippedSystemCount := 0
-	for key, value := range cm.configCache {
-		// 跳过系统级配置（它们已经在启动时从YAML加载）
-		if isSystemLevelConfig(key) {
-			skippedSystemCount++
-			cm.logger.Debug("跳过系统级配置同步（已从YAML加载）",
-				zap.String("key", key))
-			continue
-		}
-
-		cm.logger.Debug("处理配置项",
-			zap.String("key", key),
-			zap.Any("value", value))
-		setNestedValue(nestedConfig, key, value)
-	}
+	nestedConfig, skippedSystemCount := cm.buildNestedConfigSnapshot()
 
 	cm.logger.Info("嵌套配置构建完成",
 		zap.Int("nestedConfigCount", len(nestedConfig)),
@@ -131,22 +161,7 @@ func (cm *ConfigManager) syncDatabaseConfigToGlobal() error {
 			return keys
 		}()))
 
-	// 遍历配置并同步到全局配置
-	// 这里需要导入 global 包，但为了避免循环导入
-	// 通过回调机制来实现同步
-	for key, value := range nestedConfig {
-		cm.logger.Info("触发配置同步回调",
-			zap.String("key", key),
-			zap.String("valueType", fmt.Sprintf("%T", value)))
-
-		for _, callback := range cm.changeCallbacks {
-			if err := callback(key, nil, value); err != nil {
-				cm.logger.Error("同步配置到全局变量失败",
-					zap.String("key", key),
-					zap.Error(err))
-			}
-		}
-	}
+	cm.emitNestedConfigToCallbacks(nestedConfig)
 
 	return nil
 }

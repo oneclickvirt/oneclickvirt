@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	userModel "oneclickvirt/model/user"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
@@ -81,6 +82,21 @@ func (s *AuthService) InitSystemWithUsers(adminInfo UserInfo, userInfo *UserInfo
 	global.APP_DB.Model(&userModel.User{}).Count(&count)
 	if count > 0 {
 		return errors.New("系统已初始化")
+	}
+
+	if err := utils.ValidateUsername(adminInfo.Username); err != nil {
+		return err
+	}
+	if err := utils.ValidateOptionalEmail(adminInfo.Email); err != nil {
+		return err
+	}
+	if userInfo != nil {
+		if err := utils.ValidateUsername(userInfo.Username); err != nil {
+			return err
+		}
+		if err := utils.ValidateOptionalEmail(userInfo.Email); err != nil {
+			return err
+		}
 	}
 
 	// 创建管理员用户

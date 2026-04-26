@@ -77,3 +77,14 @@ export function validEmail(email) {
   const reg = /^(([^<>()\[\]\\.,;:\s@"]+(\.[^<>()\[\]\\.,;:\s@"]+)*)|(".+"))@((\[[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\])|(([a-zA-Z\-0-9]+\.)+[a-zA-Z]{2,}))$/
   return reg.test(email)
 }
+
+const htmlTagPattern = /<[a-zA-Z/][^>]*>/
+const sqlInjectionPattern = /(union\s+select|drop\s+table|delete\s+from|insert\s+into|update\s+set|exec\s*\(|\bor\s+1\s*=\s*1\b|--|\/\*|\*\/)/i
+
+export function containsUnsafeUsernameContent(username) {
+  if (!isString(username)) {
+    return true
+  }
+
+  return username.trim() !== username || htmlTagPattern.test(username) || sqlInjectionPattern.test(username)
+}

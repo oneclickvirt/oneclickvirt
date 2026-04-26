@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/url"
 	"oneclickvirt/model/common"
+	"oneclickvirt/utils"
 	"regexp"
 
 	"github.com/gin-gonic/gin"
@@ -46,7 +47,7 @@ func InputValidator() gin.HandlerFunc {
 			target = target + decoded
 		}
 
-		if containsSQLInjection(target) {
+		if utils.ContainsSQLInjectionPattern(target) {
 			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "检测到潜在的SQL注入攻击"))
 			c.Abort()
 			return
@@ -60,16 +61,6 @@ func InputValidator() gin.HandlerFunc {
 
 		c.Next()
 	}
-}
-
-// containsSQLInjection 检查是否包含SQL注入模式
-func containsSQLInjection(input string) bool {
-	for _, re := range sqlInjectionPatterns {
-		if re.MatchString(input) {
-			return true
-		}
-	}
-	return false
 }
 
 // containsXSS 检查是否包含XSS攻击模式

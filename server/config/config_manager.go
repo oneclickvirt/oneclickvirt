@@ -362,12 +362,6 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 		}
 	}
 
-	// 保存旧配置用于比较
-	oldConfig := make(map[string]interface{})
-	for key := range flatConfig {
-		oldConfig[key] = cm.configCache[key]
-	}
-
 	// 先准备所有配置数据（事务外）
 	oldValues := make(map[string]interface{})
 	var configsToSave []SystemConfig
@@ -424,29 +418,13 @@ func (cm *ConfigManager) UpdateConfig(config map[string]interface{}) error {
 
 	cm.lastUpdate = time.Now()
 
-	// 在释放锁之前复制回调列表，避免锁外遍历 changeCallbacks 时与 RegisterChangeCallback 产生数据竞态
-	callbacks := make([]ConfigChangeCallback, len(cm.changeCallbacks))
-	copy(callbacks, cm.changeCallbacks)
-
 	// 释放锁，准备执行可能耗时的操作
 	cm.mu.Unlock()
 
-	// 同步配置到全局配置 - 使用连接符格式的配置
-	// 这里在锁外执行，避免持锁时间过长
+	// 使用当前缓存快照重建完整的 top-level 配置，再统一同步到全局配置。
+	// 这样可以避免部分字段更新时全局内存配置与数据库缓存出现短暂不一致。
 	if err := cm.syncToGlobalConfig(kebabConfig); err != nil {
 		cm.logger.Error("同步配置到全局配置失败", zap.Error(err))
-	}
-
-	// 触发回调 - 使用连接符格式的配置（使用本地副本，避免数据竞态）
-	for key, newValue := range kebabConfig {
-		oldValue := oldValues[key]
-		for _, callback := range callbacks {
-			if err := callback(key, oldValue, newValue); err != nil {
-				cm.logger.Error("配置变更回调失败",
-					zap.String("key", key),
-					zap.Error(err))
-			}
-		}
 	}
 
 	return nil

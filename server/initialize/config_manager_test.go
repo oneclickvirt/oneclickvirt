@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"oneclickvirt/config"
+	"oneclickvirt/global"
 )
 
 func TestSyncQuotaConfigExpiryDays(t *testing.T) {
@@ -42,5 +43,17 @@ func TestGetDefaultConfigCaptchaDisabled(t *testing.T) {
 
 	if cfg.Captcha.Width != 120 || cfg.Captcha.Height != 40 || cfg.Captcha.Length != 4 || cfg.Captcha.ExpireTime != 5 {
 		t.Fatalf("unexpected default captcha config: %+v", cfg.Captcha)
+	}
+}
+
+func TestSyncConfigToGlobalCaptchaEnabled(t *testing.T) {
+	global.SetAppConfig(getDefaultConfig())
+
+	if err := syncConfigToGlobal("captcha", nil, map[string]interface{}{"enabled": true}); err != nil {
+		t.Fatalf("syncConfigToGlobal returned error: %v", err)
+	}
+
+	if !global.GetAppConfig().Captcha.Enabled {
+		t.Fatalf("expected captcha to be enabled after sync")
 	}
 }

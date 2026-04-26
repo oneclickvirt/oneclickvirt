@@ -239,6 +239,14 @@ func (s *AuthService) RegisterWithContext(req auth.RegisterRequest, ip string, u
 		return errors.New("注册功能已被禁用")
 	}
 
+	if err := utils.ValidateUsername(req.Username); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
+
+	if err := utils.ValidateOptionalEmail(req.Email); err != nil {
+		return common.NewError(common.CodeValidationError, err.Error())
+	}
+
 	// 先验证验证码（在所有其他检查之前），但在检查用户名是否存在之后再消费
 	// 注意：此时只验证格式，不消费验证码
 	authValidationService := AuthValidationService{}

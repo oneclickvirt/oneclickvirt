@@ -13,6 +13,7 @@ import (
 	"oneclickvirt/model/common"
 	configModel "oneclickvirt/model/config"
 	"oneclickvirt/source"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -230,6 +231,25 @@ func InitSystem(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
+	}
+
+	if err := utils.ValidateUsername(req.Admin.Username); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+	if err := utils.ValidateOptionalEmail(req.Admin.Email); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+		return
+	}
+	if req.User.Enabled {
+		if err := utils.ValidateUsername(req.User.Username); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+			return
+		}
+		if err := utils.ValidateOptionalEmail(req.User.Email); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
+			return
+		}
 	}
 
 	// 先检查数据库配置并确保数据库连接

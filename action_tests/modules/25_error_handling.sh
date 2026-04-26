@@ -5,6 +5,7 @@
 run_module_25() {
     report_add_section "25 - Error Handling"
     local group="error_handling"
+    local xss_username="<i>${RANDOM}</i>"
 
     if [[ -z "$ADMIN_TOKEN" ]]; then
         chain_break "$group" "No admin token"
@@ -21,7 +22,7 @@ run_module_25() {
 
     # ---- XSS attempts (may return 403 if registration disabled) ----
     test_api "XSS in username" "POST" "/api/v1/auth/register" "400|403" \
-        '{"username":"<script>alert(1)</script>","password":"Test123!@#"}' "$group" ""
+        "{\"username\":\"${xss_username}\",\"password\":\"Test123!@#\"}" "$group" ""
     test_api "XSS in announcement" "POST" "/api/v1/admin/announcements" "400" \
         '{"title":"<img onerror=alert(1) src=x>","content":"test","type":"notice","status":"active"}' \
         "$group" "$ADMIN_TOKEN"

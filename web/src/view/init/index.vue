@@ -188,6 +188,7 @@ import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { post, get } from '@/utils/request'
 import { checkSystemInit } from '@/api/init'
+import { containsUnsafeUsernameContent } from '@/utils/validate'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -260,6 +261,20 @@ const validateUserConfirmPassword = (rule, value, callback) => {
   }
 }
 
+const validateUsernameSafety = (rule, value, callback) => {
+  if (!value) {
+    callback()
+    return
+  }
+
+  if (containsUnsafeUsernameContent(value)) {
+    callback(new Error(t('validation.usernameUnsafe')))
+    return
+  }
+
+  callback()
+}
+
 const validatePassword = (rule, value, callback) => {
   if (!value) {
     callback(new Error(t('init.validation.passwordRequired')))
@@ -297,7 +312,8 @@ const validatePassword = (rule, value, callback) => {
 const adminRules = {
   username: [
     { required: true, message: t('init.validation.adminUsernameRequired'), trigger: 'blur' },
-    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' }
+    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' },
+    { validator: validateUsernameSafety, trigger: 'blur' }
   ],
   password: [
     { required: true, message: t('init.validation.adminPasswordRequired'), trigger: 'blur' },
@@ -316,7 +332,8 @@ const adminRules = {
 const userRules = {
   username: [
     { required: true, message: t('init.validation.userUsernameRequired'), trigger: 'blur' },
-    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' }
+    { min: 3, max: 20, message: t('init.validation.usernameLength'), trigger: 'blur' },
+    { validator: validateUsernameSafety, trigger: 'blur' }
   ],
   password: [
     { required: true, message: t('init.validation.userPasswordRequired'), trigger: 'blur' },
