@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"reflect"
 	"strings"
 
 	"oneclickvirt/config"
@@ -14,8 +15,17 @@ type configGetter interface {
 	GetConfig(key string) (interface{}, bool)
 }
 
-func getCaptchaEnabled(getter configGetter, fallback bool) bool {
+func isNilConfigGetter(getter configGetter) bool {
 	if getter == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(getter)
+	return value.Kind() == reflect.Ptr && value.IsNil()
+}
+
+func getCaptchaEnabled(getter configGetter, fallback bool) bool {
+	if isNilConfigGetter(getter) {
 		return fallback
 	}
 

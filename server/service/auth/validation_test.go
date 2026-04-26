@@ -1,6 +1,10 @@
 package auth
 
-import "testing"
+import (
+	"testing"
+
+	configpkg "oneclickvirt/config"
+)
 
 type stubConfigGetter struct {
 	values map[string]interface{}
@@ -19,6 +23,7 @@ func TestGetCaptchaEnabled(t *testing.T) {
 		want     bool
 	}{
 		{name: "nil getter uses fallback", getter: nil, fallback: false, want: false},
+		{name: "typed nil getter uses fallback", getter: (*configpkg.ConfigManager)(nil), fallback: true, want: true},
 		{name: "getter overrides fallback", getter: stubConfigGetter{values: map[string]interface{}{"captcha.enabled": true}}, fallback: false, want: true},
 		{name: "missing key uses fallback", getter: stubConfigGetter{values: map[string]interface{}{}}, fallback: true, want: true},
 		{name: "wrong type uses fallback", getter: stubConfigGetter{values: map[string]interface{}{"captcha.enabled": "true"}}, fallback: false, want: false},

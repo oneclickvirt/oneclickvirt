@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"oneclickvirt/service/auth"
+	"reflect"
 	"strconv"
 	"strings"
 
@@ -18,6 +19,15 @@ import (
 
 type configGetter interface {
 	GetConfig(key string) (interface{}, bool)
+}
+
+func isNilConfigGetter(getter configGetter) bool {
+	if getter == nil {
+		return true
+	}
+
+	value := reflect.ValueOf(getter)
+	return value.Kind() == reflect.Ptr && value.IsNil()
 }
 
 // GetUnifiedConfig 获取统一配置接口
@@ -174,7 +184,7 @@ func UpdateUnifiedConfig(c *gin.Context) {
 }
 
 func getConfigBool(cm configGetter, key string, fallback bool) bool {
-	if cm == nil {
+	if isNilConfigGetter(cm) {
 		return fallback
 	}
 
@@ -192,7 +202,7 @@ func getConfigBool(cm configGetter, key string, fallback bool) bool {
 }
 
 func getConfigString(cm configGetter, key string, fallback string) string {
-	if cm == nil {
+	if isNilConfigGetter(cm) {
 		return fallback
 	}
 
