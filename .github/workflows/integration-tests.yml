@@ -127,6 +127,7 @@ jobs:
           RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
           RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
           RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+          RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
           SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
           SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
           PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
@@ -259,6 +260,7 @@ jobs:
           RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
           RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
           RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+          RACKDOG_BILLING_ACCOUNT_ID: ${{ secrets.RACKDOG_BILLING_ACCOUNT_ID }}
           # Skrime platform
           SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
           SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}

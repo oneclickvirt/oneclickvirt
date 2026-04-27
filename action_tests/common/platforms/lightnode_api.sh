@@ -112,6 +112,16 @@ lightnode_platform_init() {
         return 1
     fi
     _lightnode_auto_detect_region || return 1
+    # Verify at least one usable OS image exists in the selected region
+    local image_uuid; image_uuid=$(_lightnode_get_image_uuid "debian")
+    if [[ -z "$image_uuid" ]]; then
+        image_uuid=$(_lightnode_get_image_uuid "ubuntu")
+        if [[ -z "$image_uuid" ]]; then
+            log_error "[lightnode] No debian or ubuntu images available in region ${LIGHTNODE_REGION}"
+            return 1
+        fi
+        log_info "[lightnode] No debian image found; ubuntu image available as fallback"
+    fi
     # LightNode supports password auth - write password for SSH
     PLATFORM_SSH_PASSWORD="${LIGHTNODE_PASSWORD}"
     # Also support SSH key if LIGHTNODE_PRIVATE_KEY is set

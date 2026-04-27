@@ -7,6 +7,7 @@ RACKDOG_API_BASE="${RACKDOG_API_BASE:-https://api.rackdog.com/v1}"
 RACKDOG_API_KEY="${RACKDOG_API_KEY:-}"
 RACKDOG_LOCATION="${RACKDOG_LOCATION:-}"
 RACKDOG_PASSWORD="${RACKDOG_PASSWORD:-CiTest1234!}"
+RACKDOG_BILLING_ACCOUNT_ID="${RACKDOG_BILLING_ACCOUNT_ID:-}"
 
 rackdog_request() {
     local method="$1" endpoint="$2" data="${3:-}" content_type="${4:-form}"
@@ -71,6 +72,13 @@ rackdog_platform_init() {
         chmod 600 "${PLATFORM_SSH_KEY_FILE}"
         printf '%s\n' "${RACKDOG_PRIVATE_KEY}" > "${PLATFORM_SSH_KEY_FILE}"
     fi
+    # Auto-detect billing_account_id if not provided (required for global API tokens)
+    if [[ -z "${RACKDOG_BILLING_ACCOUNT_ID:-}" ]]; then
+        local ba_resp; ba_resp=$(rackdog_request "GET" "/billing_accounts")
+        local ba_body; ba_body=$(rackdog_parse_body "$ba_resp")
+        RACKDOG_BILLING_ACCOUNT_ID=$(echo "$ba_body" | jq -r '(.[0].id // .[0].uuid // empty)' 2>/dev/null)
+        [[ -n "$RACKDOG_BILLING_ACCOUNT_ID" ]] && log_info "[rackdog] Auto-detected billing_account_id: ${RACKDOG_BILLING_ACCOUNT_ID}"
+    fi
     log_info "[rackdog] Platform initialized"
     return 0
 }
@@ -89,6 +97,7 @@ rackdog_platform_create_instance() {
     fi
     local data="name=ci-test-$(date +%s)&os_name=${os_name}&os_version=${os_version}&disks=40&vcpu=2&ram=2048&username=root&password=${RACKDOG_PASSWORD}${public_key_param}"
     [[ -n "$pool_uuid" ]] && data="${data}&designated_pool_uuid=${pool_uuid}"
+    [[ -n "${RACKDOG_BILLING_ACCOUNT_ID:-}" ]] && data="${data}&billing_account_id=${RACKDOG_BILLING_ACCOUNT_ID}"
     local resp; resp=$(rackdog_request "POST" "/user-resource/vm" "$data")
     local body; body=$(rackdog_parse_body "${resp}")
     local http_code; http_code=$(rackdog_parse_code "${resp}")
