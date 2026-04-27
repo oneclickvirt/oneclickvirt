@@ -34,9 +34,9 @@ run_module_06() {
     # -- Batch status update --
     if [[ -n "$aid1" && -n "$aid2" ]]; then
         test_api "Batch deactivate" "PUT" "/api/v1/admin/announcements/batch-status" "200" \
-            "{\"ids\":[${aid1},${aid2}],\"status\":\"inactive\"}" "$group"
+            "{\"ids\":[${aid1},${aid2}],\"status\":0}" "$group"
         test_api "Batch activate" "PUT" "/api/v1/admin/announcements/batch-status" "200" \
-            "{\"ids\":[${aid1},${aid2}],\"status\":\"active\"}" "$group"
+            "{\"ids\":[${aid1},${aid2}],\"status\":1}" "$group"
     fi
 
     # -- Public access --
@@ -69,7 +69,7 @@ run_module_06() {
 
     # -- Negative: Batch status with empty ids --
     test_api "Batch status (empty ids)" "PUT" "/api/v1/admin/announcements/batch-status" "400" \
-        '{"ids":[],"status":"active"}' "$group"
+        '{"ids":[],"status":1}' "$group"
 
     # -- Negative: Batch delete empty --
     test_api "Batch delete (empty ids)" "POST" "/api/v1/admin/announcements/batch-delete" "400" \
