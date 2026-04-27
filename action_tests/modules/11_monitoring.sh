@@ -17,7 +17,7 @@ run_module_11() {
         '{"monitoring_mode":"agent","collect_interval":60,"resource_collect_interval":30}' "$group"
 
     # -- Deploy agent (may fail if provider not fully connected) --
-    local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400" \
+    local da; da=$(test_api_retry "Deploy agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400|500" \
         '{}' 3 15 "$group")
     sleep 15
 

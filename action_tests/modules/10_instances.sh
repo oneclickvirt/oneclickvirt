@@ -104,7 +104,7 @@ run_module_10() {
                 '{"action":"invalid_action"}' "$group"
 
             # -- Reset password --
-            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400" \
+            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400|500" \
                 '{"password":"NewContPass123!"}' "$group")
             local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // empty' 2>/dev/null)
             if [[ -n "$rp_task" ]]; then

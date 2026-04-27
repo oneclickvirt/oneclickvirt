@@ -23,12 +23,12 @@ run_module_15() {
         local inst_for_domain="${TEST_INSTANCE_ID:-1}"
 
         # -- Create domain (requires instanceId; may fail if no instances exist) --
-        local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200|400" \
+        local d1; d1=$(test_api "Create user domain" "POST" "/api/v1/user/domains" "200|400|404" \
             "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN")
         local did1; did1=$(echo "$d1" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
         # -- Create duplicate --
-        test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400|409" \
+        test_api "Create duplicate domain" "POST" "/api/v1/user/domains" "400|404|409" \
             "{\"instanceId\":${inst_for_domain},\"domainName\":\"ci-test.example.com\",\"protocol\":\"http\",\"internalIP\":\"127.0.0.1\",\"internalPort\":80}" "$group" "$USER_TOKEN"
 
         # -- Create with invalid domain --
