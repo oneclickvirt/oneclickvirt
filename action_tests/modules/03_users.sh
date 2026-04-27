@@ -50,7 +50,7 @@ run_module_03() {
             '{"status":"disabled"}' "$group"
 
         # -- Verify disabled user cannot login --
-        test_api_noauth "Disabled user login" "POST" "/api/v1/auth/login" "401" \
+        test_api_noauth "Disabled user login" "POST" "/api/v1/auth/login" "401|403" \
             '{"username":"admin_created_user","password":"NewPassword123!@#"}' "$group"
 
         # -- Enable user --

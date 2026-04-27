@@ -557,8 +557,8 @@ init_results_file() {
 _record_result() {
     local name="$1" method="$2" url="$3" status="$4" expected="$5" actual="$6" detail="$7" group="$8" error_logs="${9:-}"
     local ts; ts=$(_ts)
-    local safe_detail; safe_detail=$(echo "$detail" | head -c 2000 | sed 's/"/\\"/g' | tr '\n' ' ')
-    local safe_logs; safe_logs=$(echo "$error_logs" | head -c 2000 | sed 's/"/\\"/g' | tr '\n' ' ')
+    local safe_detail; safe_detail=$(echo "$detail" | head -c 2000 | tr '\000-\037' ' ' | sed 's/"/\\"/g')
+    local safe_logs; safe_logs=$(echo "$error_logs" | head -c 2000 | tr '\000-\037' ' ' | sed 's/"/\\"/g')
     local json="{\"name\":\"${name}\",\"method\":\"${method}\",\"url\":\"${url}\",\"status\":\"${status}\",\"expected\":\"${expected}\",\"actual\":\"${actual}\",\"detail\":\"${safe_detail}\",\"group\":\"${group}\",\"timestamp\":\"${ts}\",\"error_logs\":\"${safe_logs}\"}"
     [[ -n "$RESULTS_FILE" ]] && echo "$json" >> "$RESULTS_FILE"
     TEST_RESULTS_JSON+=("$json")
