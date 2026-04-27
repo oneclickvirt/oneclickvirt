@@ -26,8 +26,20 @@ lightnode_parse_body() { echo "$1" | sed '$d'; }
 lightnode_parse_code() { echo "$1" | tail -1; }
 
 lightnode_get_regions() { lightnode_request "GET" "/region/list"; }
-lightnode_get_packages() { lightnode_request "GET" "/package/list"; }
-lightnode_get_images() { lightnode_request "GET" "/image/list"; }
+lightnode_get_packages() {
+    local region="${1:-${LIGHTNODE_REGION}}" zone="${2:-${LIGHTNODE_ZONE}}"
+    local qs=""
+    [[ -n "$region" ]] && qs="regionCode=${region}"
+    [[ -n "$zone" ]] && qs="${qs:+${qs}&}zoneCode=${zone}"
+    [[ -n "$qs" ]] && qs="?${qs}"
+    lightnode_request "GET" "/package/list${qs}"
+}
+lightnode_get_images() {
+    local region="${1:-${LIGHTNODE_REGION}}"
+    local qs="pageSize=50"
+    [[ -n "$region" ]] && qs="${qs}&regionCode=${region}&imageType=System"
+    lightnode_request "GET" "/image/list?${qs}"
+}
 lightnode_get_ssh_keys() { lightnode_request "GET" "/sshKey/list"; }
 
 lightnode_get_instance_detail() {
@@ -70,14 +82,23 @@ _lightnode_auto_detect_region() {
 _lightnode_get_cheapest_package() {
     local resp; resp=$(lightnode_get_packages)
     local body; body=$(lightnode_parse_body "$resp")
-    echo "$body" | jq -r '.packages[0].packageCode // empty' 2>/dev/null
+    # Filter to current region/zone to avoid picking a package unavailable here
+    local code; code=$(lightnode_parse_code "$resp")
+    if [[ -n "${LIGHTNODE_REGION}" ]]; then
+        echo "$body" | jq -r "[.packages[]? | select(.regionCode == \"${LIGHTNODE_REGION}\")][0].packageCode // .packages[0].packageCode // empty" 2>/dev/null
+    else
+        echo "$body" | jq -r '.packages[0].packageCode // empty' 2>/dev/null
+    fi
 }
 
 _lightnode_get_image_uuid() {
     local name="${1:-debian}"
     local resp; resp=$(lightnode_get_images)
     local body; body=$(lightnode_parse_body "$resp")
-    echo "$body" | jq -r "[.images[]? | select(.imageName | test(\"${name}\";\"i\"))][0].imageResourceUUID // empty" 2>/dev/null
+    # Match against osDistroVersion (the canonical OS field, e.g. "Debian") OR imageName.
+    # The API docs show imageName is a user-defined display name; osDistroVersion is the
+    # actual OS distribution string reliably set by the platform.
+    echo "$body" | jq -r "[.images[]? | select((.osDistroVersion // \"\" | test(\"${name}\";\"i\")) or (.imageName // \"\" | test(\"${name}\";\"i\")))][0].imageResourceUUID // empty" 2>/dev/null
 }
 
 _lightnode_wait_async_task() {

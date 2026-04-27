@@ -1,5 +1,6 @@
 #!/bin/bash
 # Alice (Ephemera) Platform API Provider
+# https://github.com/Montia37/AliceEphemera
 # Implements the standard platform interface for AliceInit.
 
 ALICE_API_BASE="${ALICE_API_BASE:-https://app.alice.ws/cli/v1}"
@@ -202,6 +203,27 @@ alice_platform_init() {
     ALICEINIT_TOKEN="${ALICE_CLIENT_ID}:${ALICE_CLIENT_SECRET}"
     if [[ -z "${ALICE_PRIVATE_KEY:-}" ]]; then
         log_error "[alice] ALICE_PRIVATE_KEY is required for SSH access"
+        return 1
+    fi
+    # Verify credentials and EVO access (mirrors AliceEphemera's updateConfig behavior)
+    local r; r=$(alice_get_permissions)
+    local body; body=$(alice_parse_body "$r")
+    local http_code; http_code=$(alice_parse_code "$r")
+    if [[ "$http_code" == "401" ]]; then
+        log_error "[alice] Authentication failed: invalid ALICE_CLIENT_ID or ALICE_CLIENT_SECRET"
+        return 1
+    fi
+    if [[ "$http_code" == "400" ]]; then
+        log_error "[alice] Account has no EVO Cloud permission (HTTP 400)"
+        return 1
+    fi
+    if [[ "$http_code" != "200" && "$http_code" != "202" ]]; then
+        log_error "[alice] Failed to verify EVO permissions (HTTP ${http_code}): ${body}"
+        return 1
+    fi
+    local allow; allow=$(echo "$body" | jq -r '.data.allow_packages // empty' 2>/dev/null)
+    if [[ -z "$allow" ]]; then
+        log_error "[alice] Account has no EVO packages in allow_packages"
         return 1
     fi
     # Write SSH private key to temp file
