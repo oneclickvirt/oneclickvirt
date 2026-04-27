@@ -72,12 +72,24 @@ rackdog_platform_init() {
         chmod 600 "${PLATFORM_SSH_KEY_FILE}"
         printf '%s\n' "${RACKDOG_PRIVATE_KEY}" > "${PLATFORM_SSH_KEY_FILE}"
     fi
-    # Auto-detect billing_account_id if not provided (required for global API tokens)
+    # billing_account_id is required for global API tokens.
+    # Try several known endpoint patterns to auto-detect it.
     if [[ -z "${RACKDOG_BILLING_ACCOUNT_ID:-}" ]]; then
-        local ba_resp; ba_resp=$(rackdog_request "GET" "/billing_accounts")
-        local ba_body; ba_body=$(rackdog_parse_body "$ba_resp")
-        RACKDOG_BILLING_ACCOUNT_ID=$(echo "$ba_body" | jq -r '(.[0].id // .[0].uuid // empty)' 2>/dev/null)
-        [[ -n "$RACKDOG_BILLING_ACCOUNT_ID" ]] && log_info "[rackdog] Auto-detected billing_account_id: ${RACKDOG_BILLING_ACCOUNT_ID}"
+        for ba_path in "/billing_accounts" "/user/billing_accounts" "/account/billing_accounts"; do
+            local ba_resp; ba_resp=$(rackdog_request "GET" "${ba_path}")
+            local ba_code; ba_code=$(rackdog_parse_code "$ba_resp")
+            local ba_body; ba_body=$(rackdog_parse_body "$ba_resp")
+            if [[ "$ba_code" == "200" ]]; then
+                RACKDOG_BILLING_ACCOUNT_ID=$(echo "$ba_body" | jq -r '(.[0].id // .[0].uuid // .data[0].id // .data[0].uuid // empty)' 2>/dev/null)
+                [[ -n "$RACKDOG_BILLING_ACCOUNT_ID" ]] && break
+            fi
+        done
+        if [[ -n "$RACKDOG_BILLING_ACCOUNT_ID" ]]; then
+            log_info "[rackdog] Auto-detected billing_account_id: ${RACKDOG_BILLING_ACCOUNT_ID}"
+        else
+            log_error "[rackdog] billing_account_id could not be auto-detected and RACKDOG_BILLING_ACCOUNT_ID is not set. Set it as a repository secret."
+            return 1
+        fi
     fi
     log_info "[rackdog] Platform initialized"
     return 0

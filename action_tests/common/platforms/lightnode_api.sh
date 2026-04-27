@@ -7,7 +7,8 @@ LIGHTNODE_API_BASE="${LIGHTNODE_API_BASE:-https://openapi.lightnode.com}"
 LIGHTNODE_TOKEN="${LIGHTNODE_TOKEN:-}"
 LIGHTNODE_REGION="${LIGHTNODE_REGION:-}"
 LIGHTNODE_ZONE="${LIGHTNODE_ZONE:-}"
-LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-}"
+# Password rules: 8-30 chars, upper+lower+digit + one of: ()`~!@#$*-+={}[]:;,.?/
+LIGHTNODE_PASSWORD="${LIGHTNODE_PASSWORD:-CiTest1234!}"
 
 # ============================================================================
 # Low-level API helpers

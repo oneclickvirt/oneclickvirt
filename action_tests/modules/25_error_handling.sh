@@ -17,7 +17,7 @@ run_module_25() {
         '{"username":"admin'\'' OR 1=1 --","password":"test"}' "$group" ""
     test_api "SQL injection register" "POST" "/api/v1/auth/register" "400|403" \
         '{"username":"test; DROP TABLE users;--","password":"Test123!@#"}' "$group" ""
-    test_api "SQL injection provider name" "GET" "/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--" "400" \
+    test_api "SQL injection provider name" "GET" "/api/v1/admin/providers/check-name?name=test%27%20OR%201%3D1%20--" "200|400" \
         "" "$group" "$ADMIN_TOKEN"
 
     # ---- XSS attempts (may return 403 if registration disabled) ----

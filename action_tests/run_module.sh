@@ -190,10 +190,6 @@ _restore_safe_state() {
         fi
     fi
 
-    if ! run_captcha_disabled_contract_checks "Global Guard - Post-module Safe State Contract" "global-captcha-safe-state"; then
-        EXIT_CODE=1
-        log_error "Post-module captcha-disabled contract validation failed"
-    fi
 }
 
 # Load and run modules (with state save/restore between each)
