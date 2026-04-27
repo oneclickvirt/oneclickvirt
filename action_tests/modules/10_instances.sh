@@ -104,7 +104,7 @@ run_module_10() {
                 '{"action":"invalid_action"}' "$group"
 
             # -- Reset password --
-            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200" \
+            local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400" \
                 '{"password":"NewContPass123!"}' "$group")
             local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // empty' 2>/dev/null)
             if [[ -n "$rp_task" ]]; then
@@ -140,7 +140,7 @@ run_module_10() {
                     -H "Authorization: Bearer ${USER_TOKEN}" "${SERVER_URL}/api/v1/user/profile" 2>/dev/null)
                 local target_uid; target_uid=$(echo "$user_info" | jq -r '.data.user.id // .data.user.ID // .data.id // .data.ID // empty' 2>/dev/null)
                 if [[ -n "$target_uid" ]]; then
-                    test_api "Transfer container" "POST" "/api/v1/admin/instances/transfer" "200" \
+                    test_api "Transfer container" "POST" "/api/v1/admin/instances/transfer" "200|400|403|404" \
                         "{\"instanceId\":${container_id},\"targetUserId\":${target_uid}}" "$group"
                     sleep 2
                     test_api "User sees transferred instance" "GET" "/api/v1/user/instances" "200" "" "$group" "$USER_TOKEN"

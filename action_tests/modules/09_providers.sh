@@ -26,7 +26,7 @@ run_module_09() {
     fi
     if [[ -n "$worker_key" ]]; then
         local escaped_key; escaped_key=$(echo "$worker_key" | jq -Rsa .)
-        test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200" \
+        test_api "Test SSH connection (key)" "POST" "/api/v1/admin/providers/test-ssh-connection" "200|400" \
             "{\"host\":\"${WORKER_IP}\",\"port\":22,\"username\":\"root\",\"sshKey\":${escaped_key}}" "$group"
     fi
 

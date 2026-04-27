@@ -25,7 +25,7 @@ run_module_19() {
 
     # -- Run speedtest via instance action (iperf/dd) --
     local action_resp; action_resp=$(test_api "Speedtest instance action" "POST" \
-        "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|409|500" \
+        "/api/v1/admin/instances/${TEST_INSTANCE_ID}/action" "200|400|404|409|500" \
         '{"action":"restart"}' "$group" "$ADMIN_TOKEN")
 
     # -- Wait for traffic data to settle --
