@@ -93,7 +93,7 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Setup Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version: 'stable'
           cache: true
@@ -104,6 +104,78 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y jq curl sshpass python3 python3-pip
           pip3 install --quiet paramiko
+
+      - name: Resolve usable cloud platforms
+        id: resolve-platforms
+        env:
+          ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
+          ALICE_CLIENT_SECRET: ${{ secrets.ALICE_CLIENT_SECRET }}
+          ALICE_PUBLIC_KEY: ${{ secrets.ALICE_PUBLIC_KEY }}
+          ALICE_PRIVATE_KEY: ${{ secrets.ALICE_PRIVATE_KEY }}
+          LIGHTNODE_TOKEN: ${{ secrets.LIGHTNODE_TOKEN }}
+          LIGHTNODE_PRIVATE_KEY: ${{ secrets.LIGHTNODE_PRIVATE_KEY }}
+          LIGHTNODE_SSH_KEY_UUID: ${{ secrets.LIGHTNODE_SSH_KEY_UUID }}
+          VULTR_API_KEY: ${{ secrets.VULTR_API_KEY }}
+          VULTR_PRIVATE_KEY: ${{ secrets.VULTR_PRIVATE_KEY }}
+          VULTR_SSH_KEY_ID: ${{ secrets.VULTR_SSH_KEY_ID }}
+          HETZNER_API_TOKEN: ${{ secrets.HETZNER_API_TOKEN }}
+          HETZNER_PRIVATE_KEY: ${{ secrets.HETZNER_PRIVATE_KEY }}
+          HETZNER_SSH_PUBLIC_KEY: ${{ secrets.HETZNER_SSH_PUBLIC_KEY }}
+          LINODE_TOKEN: ${{ secrets.LINODE_TOKEN }}
+          LINODE_PRIVATE_KEY: ${{ secrets.LINODE_PRIVATE_KEY }}
+          LINODE_SSH_PUBLIC_KEY: ${{ secrets.LINODE_SSH_PUBLIC_KEY }}
+          RACKDOG_API_KEY: ${{ secrets.RACKDOG_API_KEY }}
+          RACKDOG_PRIVATE_KEY: ${{ secrets.RACKDOG_PRIVATE_KEY }}
+          RACKDOG_SSH_PUBLIC_KEY: ${{ secrets.RACKDOG_SSH_PUBLIC_KEY }}
+          SKRIME_API_KEY: ${{ secrets.SKRIME_API_KEY }}
+          SKRIME_ROOT_PASSWORD: ${{ secrets.SKRIME_ROOT_PASSWORD }}
+          PREPAIDHOST_API_KEY: ${{ secrets.PREPAIDHOST_API_KEY }}
+          PREPAIDHOST_ROOT_PASSWORD: ${{ secrets.PREPAIDHOST_ROOT_PASSWORD }}
+          CUBEPATH_API_KEY: ${{ secrets.CUBEPATH_API_KEY }}
+          CUBEPATH_PRIVATE_KEY: ${{ secrets.CUBEPATH_PRIVATE_KEY }}
+          CUBEPATH_SSH_PUBLIC_KEY: ${{ secrets.CUBEPATH_SSH_PUBLIC_KEY }}
+          CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
+          CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
+          CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+
+          source action_tests/common/test_framework.sh
+          source action_tests/common/platform_interface.sh
+
+          requested_platform="${{ inputs.platform }}"
+          if [[ "$requested_platform" == "auto" ]]; then
+            candidates=(alice lightnode vultr hetzner linode rackdog skrime prepaidhost cubepath cloudsigma)
+          else
+            candidates=("$requested_platform")
+          fi
+
+          usable_platforms=()
+          for platform in "${candidates[@]}"; do
+            log_info "Checking platform availability: ${platform}"
+            log_file="/tmp/platform-init-${platform}.log"
+            if platform_init "$platform" >"$log_file" 2>&1; then
+              usable_platforms+=("$platform")
+              log_success "Platform '${platform}' is usable for this run"
+            else
+              reason=$(tail -1 "$log_file" 2>/dev/null | sed -E 's/\x1b\[[0-9;]*m//g')
+              if [[ -z "$reason" ]]; then
+                reason="initialization failed"
+              fi
+              echo "::warning::Platform '${platform}' unavailable: ${reason}"
+            fi
+          done
+
+          if [[ ${#usable_platforms[@]} -eq 0 ]]; then
+            echo "::error::No usable cloud platforms are configured for platform='${requested_platform}'. Configure the required repository secrets or choose a configured platform."
+            exit 1
+          fi
+
+          usable_csv=$(IFS=,; echo "${usable_platforms[*]}")
+          usable_order=$(IFS=' '; echo "${usable_platforms[*]}")
+          echo "usable_platforms=${usable_csv}" >> "$GITHUB_OUTPUT"
+          echo "platform_priority=${usable_order}" >> "$GITHUB_OUTPUT"
+          echo "Resolved usable cloud platforms: ${usable_order}"
 
       - name: Set server version from latest release
         run: |
@@ -160,6 +232,7 @@ jobs:
           echo "Validated: env=${ENV} instance_types=${TYPES} platform=${PLATFORM}"
 
       - name: Run integration tests
+        id: run-tests
         env:
           # Alice platform
           ALICE_CLIENT_ID: ${{ secrets.ALICE_CLIENT_ID }}
@@ -211,9 +284,11 @@ jobs:
           FULL_SYSTEM_TEST: ${{ inputs.full_system_test }}
           TEST_IMAGES: ${{ inputs.full_system_test == true && 'all' || 'alpine,debian' }}
           ADMIN_USER: admin
-          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS }}
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
           DEBUG: "1"
         run: |
+          set -euo pipefail
+
           chmod +x action_tests/run_env_test.sh
           chmod +x action_tests/run_module.sh
           chmod -R +x action_tests/modules/ 2>/dev/null || true
@@ -221,34 +296,29 @@ jobs:
           chmod -R +x action_tests/report/ 2>/dev/null || true
           mkdir -p action_tests/reports
 
-          # Auto-enable platform based on selection
-          if [[ "$PLATFORM_SELECTION" != "auto" ]]; then
-            # Disable all, enable only the selected one
-            export PLATFORM_ALICE_ENABLED=false
-            export PLATFORM_LIGHTNODE_ENABLED=false
-            export PLATFORM_VULTR_ENABLED=false
-            export PLATFORM_HETZNER_ENABLED=false
-            export PLATFORM_LINODE_ENABLED=false
-            export PLATFORM_RACKDOG_ENABLED=false
-            export PLATFORM_SKRIME_ENABLED=false
-            export PLATFORM_PREPAIDHOST_ENABLED=false
-            export PLATFORM_CUBEPATH_ENABLED=false
-            export PLATFORM_CLOUDSIGMA_ENABLED=false
-            PLATFORM_VAR="PLATFORM_$(echo "$PLATFORM_SELECTION" | tr '[:lower:]' '[:upper:]')_ENABLED"
-            export "${PLATFORM_VAR}=true"
-          else
-            # Auto mode: enable alice (default) + lightnode (fallback) if secrets are set
-            export PLATFORM_ALICE_ENABLED=true
-            [[ -n "${LIGHTNODE_TOKEN:-}" ]] && export PLATFORM_LIGHTNODE_ENABLED=true
-            [[ -n "${VULTR_API_KEY:-}" ]] && export PLATFORM_VULTR_ENABLED=true
-            [[ -n "${HETZNER_API_TOKEN:-}" ]] && export PLATFORM_HETZNER_ENABLED=true
-            [[ -n "${LINODE_TOKEN:-}" ]] && export PLATFORM_LINODE_ENABLED=true
-            [[ -n "${RACKDOG_API_KEY:-}" ]] && export PLATFORM_RACKDOG_ENABLED=true
-            [[ -n "${SKRIME_API_KEY:-}" ]] && export PLATFORM_SKRIME_ENABLED=true
-            [[ -n "${PREPAIDHOST_API_KEY:-}" ]] && export PLATFORM_PREPAIDHOST_ENABLED=true
-            [[ -n "${CUBEPATH_API_KEY:-}" ]] && export PLATFORM_CUBEPATH_ENABLED=true
-            [[ -n "${CLOUDSIGMA_EMAIL:-}" ]] && export PLATFORM_CLOUDSIGMA_ENABLED=true
+          RESOLVED_PLATFORMS="${{ steps.resolve-platforms.outputs.usable_platforms }}"
+          if [[ -z "$RESOLVED_PLATFORMS" ]]; then
+            echo "::error::No validated cloud platforms were resolved for this run."
+            exit 1
           fi
+
+          export PLATFORM_ALICE_ENABLED=false
+          export PLATFORM_LIGHTNODE_ENABLED=false
+          export PLATFORM_VULTR_ENABLED=false
+          export PLATFORM_HETZNER_ENABLED=false
+          export PLATFORM_LINODE_ENABLED=false
+          export PLATFORM_RACKDOG_ENABLED=false
+          export PLATFORM_SKRIME_ENABLED=false
+          export PLATFORM_PREPAIDHOST_ENABLED=false
+          export PLATFORM_CUBEPATH_ENABLED=false
+          export PLATFORM_CLOUDSIGMA_ENABLED=false
+
+          for platform in ${RESOLVED_PLATFORMS//,/ }; do
+            PLATFORM_VAR="PLATFORM_$(echo "$platform" | tr '[:lower:]' '[:upper:]')_ENABLED"
+            export "${PLATFORM_VAR}=true"
+          done
+          export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
+          echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
 
           # Run with error capture - never fail silently
           set +e
@@ -258,6 +328,7 @@ jobs:
             "${{ steps.validate.outputs.instance_types }}" 2>&1 | tee action_tests/reports/full-output.log
           TEST_EXIT=${PIPESTATUS[0]}
           set -e
+          echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
 
           # Ensure we always have SOME output for debugging
           if [[ ! -s action_tests/reports/full-output.log ]]; then
@@ -271,6 +342,66 @@ jobs:
 
           # Always exit 0 - test failures are captured in reports/artifacts, not as step failure
           exit 0
+
+      - name: Validate integration test results
+        if: always()
+        env:
+          TEST_EXIT: ${{ steps.run-tests.outputs.test_exit }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          result_files=(action_tests/reports/*.jsonl)
+          if [[ ${#result_files[@]} -eq 0 ]]; then
+            echo "::error::Integration tests did not produce any JSONL result files."
+            [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
+            exit 1
+          fi
+
+          total=$(cat "${result_files[@]}" | jq -s 'length')
+          passed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "PASS")] | length')
+          failed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "FAIL")] | length')
+          skipped=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "SKIP")] | length')
+          executed=$((passed + failed))
+
+          {
+            echo "## Integration Validation"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+            echo "| Harness Exit Code | ${TEST_EXIT:-0} |"
+            echo "| Total | ${total} |"
+            echo "| Passed | ${passed} |"
+            echo "| Failed | ${failed} |"
+            echo "| Skipped | ${skipped} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -n "${TEST_EXIT:-}" && "${TEST_EXIT}" != "0" ]]; then
+            echo "::error::Integration harness exited with code ${TEST_EXIT}."
+            exit 1
+          fi
+
+          if [[ "$total" -eq 0 ]]; then
+            echo "::error::Integration tests produced an empty result set."
+            exit 1
+          fi
+
+          if [[ "$executed" -eq 0 ]]; then
+            echo "::error::Integration tests produced only skipped checks; no executable assertions ran."
+            exit 1
+          fi
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::Integration tests recorded ${failed} failing assertions."
+            exit 1
+          fi
+
+      - name: Show integration log on failure
+        if: failure()
+        run: |
+          echo "=== Integration Test Output (last 200 lines) ==="
+          tail -200 action_tests/reports/full-output.log || true
 
       - name: Upload test reports
         if: always()
@@ -346,6 +477,7 @@ jobs:
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
           echo "| Environment | ${{ matrix.environment }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Platform | ${{ inputs.platform }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

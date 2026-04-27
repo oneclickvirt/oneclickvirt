@@ -130,7 +130,7 @@ jobs:
         env:
           SERVER_URL: "http://127.0.0.1:8888"
           ADMIN_USER: admin
-          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
         run: |
           # 等待 init/check 端点可用（数据库就绪后才可访问）
           for i in $(seq 1 60); do
@@ -195,12 +195,15 @@ jobs:
           fi
 
       - name: Run controller-only tests (no provider/node)
+        id: run-controller-tests
         env:
           SERVER_URL: "http://127.0.0.1:8888"
           ADMIN_USER: admin
-          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
+          ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
           DEBUG: "1"
         run: |
+          set -euo pipefail
+
           chmod +x action_tests/run_module.sh
           chmod -R +x action_tests/modules/ 2>/dev/null || true
           chmod -R +x action_tests/common/  2>/dev/null || true
@@ -230,14 +233,67 @@ jobs:
           fi
 
           echo "Test exit code: ${TEST_EXIT}"
-          # 输出非零退出码以正确标记 CI 状态
-          exit "${TEST_EXIT}"
+          echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
+          exit 0
 
       - name: Show server log on failure
-        if: failure()
+        if: ${{ failure() || steps.run-controller-tests.outputs.test_exit != '0' }}
         run: |
           echo "=== Server Log (last 200 lines) ==="
           tail -200 server.log || true
+
+      - name: Validate ARM controller test results
+        if: always()
+        env:
+          TEST_EXIT: ${{ steps.run-controller-tests.outputs.test_exit }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          result_files=(action_tests/reports/*.jsonl)
+          if [[ ${#result_files[@]} -eq 0 ]]; then
+            echo "::error::ARM controller tests did not produce any JSONL result files."
+            [[ -f action_tests/reports/arm-controller-output.log ]] && tail -200 action_tests/reports/arm-controller-output.log || true
+            exit 1
+          fi
+
+          total=$(cat "${result_files[@]}" | jq -s 'length')
+          passed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "PASS")] | length')
+          failed=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "FAIL")] | length')
+          skipped=$(cat "${result_files[@]}" | jq -s '[.[] | select(.status == "SKIP")] | length')
+          executed=$((passed + failed))
+
+          {
+            echo "## ARM Controller Validation"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Harness Exit Code | ${TEST_EXIT:-0} |"
+            echo "| Total | ${total} |"
+            echo "| Passed | ${passed} |"
+            echo "| Failed | ${failed} |"
+            echo "| Skipped | ${skipped} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [[ -n "${TEST_EXIT:-}" && "${TEST_EXIT}" != "0" ]]; then
+            echo "::error::ARM controller harness exited with code ${TEST_EXIT}."
+            exit 1
+          fi
+
+          if [[ "$total" -eq 0 ]]; then
+            echo "::error::ARM controller tests produced an empty result set."
+            exit 1
+          fi
+
+          if [[ "$executed" -eq 0 ]]; then
+            echo "::error::ARM controller tests produced only skipped checks; no executable assertions ran."
+            exit 1
+          fi
+
+          if [[ "$failed" -ne 0 ]]; then
+            echo "::error::ARM controller tests recorded ${failed} failing assertions."
+            exit 1
+          fi
 
       - name: Stop server
         if: always()
