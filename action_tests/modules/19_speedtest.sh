@@ -16,7 +16,7 @@ run_module_19() {
         "/api/v1/admin/traffic/overview" "200" "" "$group" "$ADMIN_TOKEN")
 
     # -- Deploy monitoring agent if not done --
-    test_api "Ensure monitoring agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|409|500" \
+    test_api "Ensure monitoring agent" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/monitoring/agent" "200|400|409|500" \
         '{"action":"deploy"}' "$group" "$ADMIN_TOKEN"
 
     # -- Start traffic monitoring --

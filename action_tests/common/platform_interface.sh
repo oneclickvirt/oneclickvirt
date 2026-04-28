@@ -57,10 +57,11 @@ platform_init() {
 # ============================================================================
 # Create instance with auto-fallback across enabled platforms
 # Tries each enabled platform in priority order until one succeeds.
-# For every platform that supports reinstall, always checks for an existing
-# instance first and reinstalls its OS instead of creating a new one.
-# A new instance is only created if the account has no existing instances.
-# All platform errors are intentionally forwarded to stderr for visibility.
+# Enforces a hard max of 1 running instance per platform at all times:
+#   - Extra instances (beyond the first) are always deleted immediately.
+#   - If the single kept instance can be reinstalled, reinstall it.
+#   - If reinstall fails (or platform doesn't support it), delete it and
+#     create a brand-new instance so we always start clean.
 # ============================================================================
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
@@ -78,26 +79,37 @@ try_create_with_fallback() {
             continue
         fi
         local result="" exit_code
-        # Always check for an existing instance to reinstall before creating new
-        if should_reinstall "$platform"; then
-            log_info "[${platform}] Checking for existing instances to reinstall..."
-            local existing="[]"
-            existing=$(platform_dispatch "$platform" "list_instances") || existing="[]"
-            log_debug "[${platform}] list_instances raw: ${existing}"
-            local first_id first_ip
-            first_id=$(echo "$existing" | jq -r '.[0].instance_id // empty' 2>/dev/null)
-            first_ip=$(echo "$existing" | jq -r '.[0].ipv4 // empty' 2>/dev/null)
-            if [[ -n "$first_id" ]]; then
-                log_info "[${platform}] Found existing instance ${first_id}, reinstalling OS..."
-                result=$(platform_dispatch "$platform" "reinstall_instance" "$first_id" "debian")
+
+        # --- Enforce max-1 invariant ---
+        # List all existing instances; delete every one beyond the first.
+        local existing="[]"
+        existing=$(platform_dispatch "$platform" "list_instances" 2>/dev/null) || existing="[]"
+        log_debug "[${platform}] list_instances raw: ${existing}"
+        local all_ids=() keep_id=""
+        mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
+        local inst_count=${#all_ids[@]}
+        if [[ $inst_count -gt 1 ]]; then
+            log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting ${$((inst_count - 1))} extra(s)..."
+            for (( _i=1; _i<inst_count; _i++ )); do
+                log_info "[${platform}] Deleting extra instance ${all_ids[$_i]}..."
+                platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null || true
+            done
+        fi
+        [[ $inst_count -ge 1 ]] && keep_id="${all_ids[0]}"
+
+        # --- Reuse or discard the kept instance ---
+        if [[ -n "$keep_id" ]]; then
+            if should_reinstall "$platform"; then
+                log_info "[${platform}] Reinstalling existing instance ${keep_id}..."
+                result=$(platform_dispatch "$platform" "reinstall_instance" "$keep_id" "debian")
                 exit_code=$?
                 if [[ $exit_code -eq 0 && -n "$result" ]]; then
                     local rip
                     rip=$(echo "$result" | jq -r '.ipv4 // empty' 2>/dev/null)
                     if [[ -n "$rip" ]]; then
-                        log_success "Reinstalled existing instance on '${platform}': ID=${first_id} IP=${rip}"
+                        log_success "Reinstalled existing instance on '${platform}': ID=${keep_id} IP=${rip}"
                         ACTIVE_PLATFORM="$platform"
-                        ACTIVE_INSTANCE_ID="$first_id"
+                        ACTIVE_INSTANCE_ID="$keep_id"
                         ACTIVE_INSTANCE_IP="$rip"
                         echo "$result"
                         return 0
@@ -107,12 +119,16 @@ try_create_with_fallback() {
                 else
                     log_error "[${platform}] Reinstall failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
                 fi
-                log_warning "[${platform}] Reinstall failed, will try creating new instance..."
+                log_warning "[${platform}] Reinstall failed — deleting ${keep_id} and creating fresh instance..."
             else
-                log_info "[${platform}] No existing instances found, will create new."
+                log_info "[${platform}] Platform does not support reinstall — deleting instance ${keep_id}..."
             fi
+            # Delete the kept instance before creating a fresh one
+            platform_dispatch "$platform" "delete_instance" "$keep_id" 2>/dev/null || true
+            keep_id=""
         fi
-        # Create a new instance
+
+        # --- Create a brand-new instance (no existing instances remain) ---
         log_info "[${platform}] Creating new instance (env=${env_type} hours=${hours})..."
         result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$hours")
         exit_code=$?

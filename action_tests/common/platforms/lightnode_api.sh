@@ -211,6 +211,25 @@ lightnode_platform_delete_instance() {
 lightnode_platform_reinstall_instance() {
     local id="$1" os_name="${2:-debian}"
     log_info "[lightnode] Reinstalling instance ${id} with ${os_name}..."
+
+    # LightNode requires the instance to be in STOPPED state before reinstall.
+    # Check current status and force-stop if needed.
+    local chk_resp; chk_resp=$(lightnode_get_instance_detail "${id}")
+    local chk_body; chk_body=$(lightnode_parse_body "${chk_resp}")
+    local cur_status; cur_status=$(echo "$chk_body" | jq -r '.instance.ecsStatus // empty' 2>/dev/null)
+    if [[ "$cur_status" != "STOPPED" && "$cur_status" != "stopped" ]]; then
+        log_info "[lightnode] Instance ${id} status='${cur_status}', force-stopping before reinstall..."
+        local stop_resp; stop_resp=$(lightnode_request "POST" "/instance/stop" "{\"ecsResourceUUID\":\"${id}\",\"forceStop\":true}")
+        local stop_body; stop_body=$(lightnode_parse_body "${stop_resp}")
+        local stop_code; stop_code=$(lightnode_parse_code "${stop_resp}")
+        if [[ "$stop_code" == "200" || "$stop_code" == "202" ]]; then
+            local stop_task; stop_task=$(echo "$stop_body" | jq -r '.asyncTaskUUID // empty' 2>/dev/null)
+            [[ -n "$stop_task" ]] && _lightnode_wait_async_task "${stop_task}" 180 || true
+        else
+            log_warning "[lightnode] Stop returned HTTP ${stop_code}, proceeding anyway..."
+        fi
+    fi
+
     local image_uuid; image_uuid=$(_lightnode_get_image_uuid "${os_name}")
     [[ -z "$image_uuid" ]] && { log_error "[lightnode] No ${os_name} image found"; return 1; }
     local ssh_key_field=""
