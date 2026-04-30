@@ -39,7 +39,9 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 		// rejected: allow resubmit by updating existing record
 		idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
 		var hashCount int64
-		global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount)
+		if err := global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount).Error; err != nil {
+			return nil, fmt.Errorf("校验身份证号失败: %v", err)
+		}
 		if hashCount > 0 {
 			return nil, fmt.Errorf("该身份证号已被其他账户认证")
 		}
@@ -69,7 +71,9 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 	}
 	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		var hashCount int64
-		tx.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ?", idHash).Count(&hashCount)
+		if err := tx.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ?", idHash).Count(&hashCount).Error; err != nil {
+			return err
+		}
 		if hashCount > 0 {
 			return fmt.Errorf("该身份证号已被其他账户认证")
 		}
@@ -96,7 +100,9 @@ func (s *Service) SubmitAlipayKYC(userID uint, req *SubmitKYCRequest) (certifyUR
 
 	idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
 	var hashCount int64
-	global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount)
+	if err := global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount).Error; err != nil {
+		return "", fmt.Errorf("校验身份证号失败: %w", err)
+	}
 	if hashCount > 0 {
 		return "", fmt.Errorf("该身份证号已被其他账户认证")
 	}
@@ -198,7 +204,9 @@ func (s *Service) AdminGetKYCList(status string, page, pageSize int) ([]kycModel
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
-	query.Count(&total)
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("统计认证记录失败: %w", err)
+	}
 	err := query.Order("created_at DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&records).Error
 	return records, total, err
 }

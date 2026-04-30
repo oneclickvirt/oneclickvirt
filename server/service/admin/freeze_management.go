@@ -213,11 +213,17 @@ func (s *FreezeManagementService) FreezeInstance(instanceID uint, reason string)
 
 // UnfreezeUser 解冻用户
 func (s *FreezeManagementService) UnfreezeUser(userID uint) error {
-	return global.APP_DB.Model(&user.User{}).
+	err := global.APP_DB.Model(&user.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"status": 1, // 恢复为正常状态
 		}).Error
+	if err != nil {
+		return err
+	}
+
+	cache.GetUserCacheService().InvalidateUserCache(userID)
+	return nil
 }
 
 // UnfreezeProvider 解冻Provider及其实例
@@ -236,6 +242,17 @@ func (s *FreezeManagementService) UnfreezeProvider(providerID uint) error {
 		}
 		if result.RowsAffected == 0 {
 			return fmt.Errorf("Provider不存在")
+		}
+
+		// 同步解冻由节点冻结导致的实例，避免Provider与实例状态不一致
+		if err := tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND frozen_reason = ?", providerID, "node_frozen").
+			Updates(map[string]interface{}{
+				"is_frozen":     false,
+				"frozen_at":     nil,
+				"frozen_reason": "",
+			}).Error; err != nil {
+			return err
 		}
 
 		return nil

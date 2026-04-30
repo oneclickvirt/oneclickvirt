@@ -1,23 +1,8 @@
-name: Integration Tests
+name: Integration Full-System Tests
 
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Virtualization environment (choose one, or "all" to test every env in parallel)'
-        required: true
-        type: choice
-        options:
-          - docker
-          - all
-          - lxd
-          - incus
-          - podman
-          - containerd
-          - proxmoxve
-          - kubevirt
-          - qemu
-        default: 'docker'
       platform:
         description: 'Cloud platform to use (auto = priority-order fallback)'
         required: false
@@ -37,13 +22,13 @@ on:
         default: 'auto'
       instance_types:
         description: 'Instance types to test (auto-corrected per platform)'
-        required: true
+        required: false
         type: choice
         options:
           - both
           - container
           - vm
-        default: 'container'
+        default: 'both'
       modules:
         description: 'Test modules to run (e.g. all, 01-10, 01,03,05)'
         required: false
@@ -81,7 +66,7 @@ jobs:
       fail-fast: false
       max-parallel: 1
       matrix:
-        environment: ${{ inputs.environment == 'all' && fromJSON('["docker","lxd","incus","podman","containerd","proxmoxve","kubevirt","qemu"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+        environment: [docker, lxd, incus, podman, containerd, proxmoxve, kubevirt, qemu]
 
     steps:
       - name: Checkout code
@@ -278,8 +263,8 @@ jobs:
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
           EXECUTION_RULE: ${{ inputs.execution_rule }}
-          FULL_SYSTEM_TEST: false
-          TEST_IMAGES: alpine,debian
+          FULL_SYSTEM_TEST: true
+          TEST_IMAGES: all
           ADMIN_USER: admin
           ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
           DEBUG: "1"
