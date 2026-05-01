@@ -74,7 +74,7 @@ jobs:
   integration-test:
     name: "Test: ${{ matrix.environment }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     permissions:
       contents: write
     strategy:

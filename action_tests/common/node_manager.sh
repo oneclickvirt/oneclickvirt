@@ -100,8 +100,9 @@ install_env() {
         platform_exec_and_wait "${ip}" "curl -sSL '${PVE_BUILD_NAT}' | bash" 600
     elif [[ "$env" == "kubevirt" ]]; then
         # kubevirt needs K3s + KubeVirt + CDI, single-pass install (no reboot needed)
+        # K3s + KubeVirt + CDI typically takes 60-120 minutes; use 7200s (2h) to be safe
         log_info "Installing KubeVirt environment (K3s + KubeVirt + CDI)..."
-        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 1800
+        platform_exec_and_wait "${ip}" "curl -sSL '${url}' -o /tmp/envinstall.sh && chmod +x /tmp/envinstall.sh && ${env_prefix} bash /tmp/envinstall.sh" 7200
     elif [[ "$env" == "qemu" ]]; then
         # qemu needs libvirt + QEMU/KVM, single-pass install
         log_info "Installing QEMU/KVM environment..."

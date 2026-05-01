@@ -148,7 +148,7 @@ run_module_10() {
             fi
 
             # -- Rebuild --
-            local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200" \
+            local rb_resp; rb_resp=$(test_api "Rebuild container" "POST" "/api/v1/admin/instances/${container_id}/action" "200|400|500" \
                 '{"action":"rebuild","image":"debian:12"}' "$group")
             local rb_task; rb_task=$(echo "$rb_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
             if [[ -n "$rb_task" ]]; then

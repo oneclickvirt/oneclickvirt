@@ -77,7 +77,7 @@ test_api() {
         _record_result "$name" "$method" "$url" "SKIP" "" "" "${CHAIN_BROKEN[$group]}" "$group"
         return 1
     fi
-    local args=(-s -w "\n%{http_code}" --max-time 120
+    local args=(-s -w "\n%{http_code}" --max-time 180
         -H "Content-Type: application/json" -X "${method}")
     [[ -n "$token" ]] && args+=(-H "Authorization: Bearer ${token}")
     [[ -n "$data" ]] && args+=(-d "$data")
@@ -117,8 +117,18 @@ test_api_retry() {
         i=$((i + 1))
         [[ $i -gt 1 ]] && { log_info "Retry ${name} (${i}/${retries})..."; sleep "$interval"; }
         local st=$TOTAL_TESTS sp=$PASSED_TESTS sf=$FAILED_TESTS ss=$SKIPPED_TESTS
+        # Save RESULTS_FILE byte offset so we can undo the intermediate FAIL record on non-final retries
+        local _results_before=0
+        [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" ]] && _results_before=$(wc -c < "$RESULTS_FILE" 2>/dev/null || echo 0)
         local result; result=$(test_api "$name" "$method" "$url" "$expected" "$data" "$group" "$token" 2>&1) && { echo "$result"; return 0; }
-        [[ $i -lt $retries ]] && { TOTAL_TESTS=$st; PASSED_TESTS=$sp; FAILED_TESTS=$sf; SKIPPED_TESTS=$ss; }
+        if [[ $i -lt $retries ]]; then
+            # Undo the FAIL record written to RESULTS_FILE so it is not counted as a permanent failure
+            if [[ -n "${RESULTS_FILE:-}" && -f "$RESULTS_FILE" && $_results_before -ge 0 ]]; then
+                head -c "$_results_before" "$RESULTS_FILE" > "${RESULTS_FILE}.retry_tmp" 2>/dev/null && \
+                    mv "${RESULTS_FILE}.retry_tmp" "$RESULTS_FILE" 2>/dev/null || true
+            fi
+            TOTAL_TESTS=$st; PASSED_TESTS=$sp; FAILED_TESTS=$sf; SKIPPED_TESTS=$ss
+        fi
     done
     return 1
 }

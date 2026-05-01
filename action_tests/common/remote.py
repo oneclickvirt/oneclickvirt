@@ -197,20 +197,24 @@ if __name__ == "__main__":
         sys.exit(1)
 
     cmd_str = ' '.join(args.command)
-    if args.stream:
-        out, err, rc = ssh_exec_stream(
-            cmd_str, timeout=args.timeout,
-            host=args.host, port=args.port,
-            user=args.user, password=args.password,
-            key_filename=args.key_file if args.key_file else None,
-        )
-    else:
-        out, err, rc = ssh_exec(
-            cmd_str, timeout=args.timeout,
-            host=args.host, port=args.port,
-            user=args.user, password=args.password,
-            key_filename=args.key_file if args.key_file else None,
-        )
+    try:
+        if args.stream:
+            out, err, rc = ssh_exec_stream(
+                cmd_str, timeout=args.timeout,
+                host=args.host, port=args.port,
+                user=args.user, password=args.password,
+                key_filename=args.key_file if args.key_file else None,
+            )
+        else:
+            out, err, rc = ssh_exec(
+                cmd_str, timeout=args.timeout,
+                host=args.host, port=args.port,
+                user=args.user, password=args.password,
+                key_filename=args.key_file if args.key_file else None,
+            )
+    except Exception as exc:
+        print(f"SSH connection failed: {exc}", file=sys.stderr)
+        sys.exit(1)
     if out:
         print(out, end='')
     if err:
