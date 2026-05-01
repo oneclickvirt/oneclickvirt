@@ -490,14 +490,6 @@ export const batchDeleteRedemptionCodes = (data) => {
   })
 }
 
-export const getProviderMonitoring = (params) => {
-  return request({
-    url: '/v1/admin/monitoring/providers',
-    method: 'get',
-    params
-  })
-}
-
 // 用户状态相关接口
 export const toggleUserStatus = (id, status) => {
   return updateUserStatus(id, status)
@@ -718,21 +710,6 @@ export const checkPortAvailable = (data) => {
     url: '/v1/admin/ports/check',
     method: 'post',
     data
-  })
-}
-
-export const allocatePortsForInstance = (instanceId, data) => {
-  return request({
-    url: `/v1/admin/instances/${instanceId}/port-mappings`,
-    method: 'post',
-    data
-  })
-}
-
-export const getInstancePorts = (instanceId) => {
-  return request({
-    url: `/v1/admin/instances/${instanceId}/port-mappings`,
-    method: 'get'
   })
 }
 

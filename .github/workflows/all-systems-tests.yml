@@ -1,23 +1,8 @@
-name: Integration Tests
+name: All Systems Tests
 
 on:
   workflow_dispatch:
     inputs:
-      environment:
-        description: 'Virtualization environment (choose one, or "all" to test every env in parallel)'
-        required: true
-        type: choice
-        options:
-          - docker
-          - all
-          - lxd
-          - incus
-          - podman
-          - containerd
-          - proxmoxve
-          - kubevirt
-          - qemu
-        default: 'docker'
       platform:
         description: 'Cloud platform to use (auto = priority-order fallback)'
         required: false
@@ -55,7 +40,7 @@ on:
         type: string
         default: '8'
       skip_instance_delete:
-        description: 'Skip instance deletion after tests (keep alive)'
+        description: 'Skip instance deletion after tests (keep alive) — regardless of this, only 1 machine is kept per platform account'
         required: false
         type: boolean
         default: false
@@ -71,17 +56,25 @@ on:
         default: 'auto'
 
 jobs:
-  integration-test:
-    name: "Test: ${{ matrix.environment }}"
+  all-systems-test:
+    name: "AllSys: ${{ matrix.environment }}"
     runs-on: ubuntu-latest
-    timeout-minutes: 180
+    timeout-minutes: 300
     permissions:
       contents: write
     strategy:
       fail-fast: false
       max-parallel: 1
       matrix:
-        environment: ${{ inputs.environment == 'all' && fromJSON('["docker","lxd","incus","podman","containerd","proxmoxve","kubevirt","qemu"]') || fromJSON(format('["{0}"]', inputs.environment)) }}
+        environment:
+          - docker
+          - lxd
+          - incus
+          - podman
+          - containerd
+          - proxmoxve
+          - kubevirt
+          - qemu
 
     steps:
       - name: Checkout code
@@ -183,8 +176,6 @@ jobs:
         run: |
           sudo systemctl start mysql
           sleep 5
-          # Ubuntu's mysql-server uses auth_socket for root; connect via sudo (no -u flag)
-          # Match Dockerfile: use mysql_native_password with empty password
           if sudo mysql -e "SELECT 1" 2>/dev/null; then
             echo "auth_socket OK – configuring root with mysql_native_password"
             sudo mysql -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
@@ -192,7 +183,6 @@ jobs:
             echo "auth_socket failed – trying with password 'root'"
             mysql -u root -proot -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY ''; DROP USER IF EXISTS 'root'@'127.0.0.1'; CREATE USER 'root'@'127.0.0.1' IDENTIFIED WITH mysql_native_password BY ''; GRANT ALL PRIVILEGES ON *.* TO 'root'@'127.0.0.1' WITH GRANT OPTION; FLUSH PRIVILEGES;"
           fi
-          # Verify TCP connectivity (what the Go server uses)
           mysql -u root -h 127.0.0.1 -P 3306 -e "SELECT 1;" && echo "MySQL TCP OK"
 
       - name: Validate platform and instance types
@@ -201,7 +191,6 @@ jobs:
           ENV="${{ matrix.environment }}"
           TYPES="${{ inputs.instance_types }}"
           PLATFORM="${{ inputs.platform }}"
-          # Platform capabilities (hardcoded)
           case "$ENV" in
             docker|podman|containerd)
               if [[ "$TYPES" == "vm" || "$TYPES" == "both" ]]; then
@@ -210,7 +199,6 @@ jobs:
               fi
               ;;
             lxd|incus|proxmoxve)
-              # Supports both container and vm
               ;;
             kubevirt|qemu)
               if [[ "$TYPES" == "container" || "$TYPES" == "both" ]]; then
@@ -227,7 +215,7 @@ jobs:
           echo "platform=${PLATFORM}" >> "$GITHUB_OUTPUT"
           echo "Validated: env=${ENV} instance_types=${TYPES} platform=${PLATFORM}"
 
-      - name: Run integration tests
+      - name: Run all-systems tests
         id: run-tests
         env:
           # Alice platform
@@ -270,15 +258,16 @@ jobs:
           CLOUDSIGMA_EMAIL: ${{ secrets.CLOUDSIGMA_EMAIL }}
           CLOUDSIGMA_PASSWORD: ${{ secrets.CLOUDSIGMA_PASSWORD }}
           CLOUDSIGMA_PRIVATE_KEY: ${{ secrets.CLOUDSIGMA_PRIVATE_KEY }}
-          # Platform selection (auto = try all enabled in priority order)
+          # Platform selection
           PLATFORM_SELECTION: ${{ steps.validate.outputs.platform }}
           SKIP_INSTANCE_DELETE: ${{ inputs.skip_instance_delete }}
-          # Test settings
+          # Test settings — always test ALL system images
           ENV_TYPE: ${{ matrix.environment }}
           INSTANCE_TYPES: ${{ steps.validate.outputs.instance_types }}
           NODE_HOURS: ${{ inputs.node_hours }}
           EXECUTION_RULE: ${{ inputs.execution_rule }}
-          TEST_IMAGES: 'alpine,debian'
+          FULL_SYSTEM_TEST: 'true'
+          TEST_IMAGES: 'all'
           ADMIN_USER: admin
           ADMIN_PASS: ${{ secrets.TEST_ADMIN_PASS != '' && secrets.TEST_ADMIN_PASS || 'Admin@123456' }}
           DEBUG: "1"
@@ -316,7 +305,6 @@ jobs:
           export PLATFORM_PRIORITY_ORDER="${{ steps.resolve-platforms.outputs.platform_priority }}"
           echo "Using validated cloud platforms: ${PLATFORM_PRIORITY_ORDER}"
 
-          # Run with error capture - never fail silently
           set +e
           bash action_tests/run_env_test.sh \
             "${{ matrix.environment }}" \
@@ -326,20 +314,17 @@ jobs:
           set -e
           echo "test_exit=${TEST_EXIT}" >> "$GITHUB_OUTPUT"
 
-          # Ensure we always have SOME output for debugging
           if [[ ! -s action_tests/reports/full-output.log ]]; then
             echo "WARNING: Test produced no output. Check that required platform secrets are configured." > action_tests/reports/full-output.log
           fi
 
-          # Ensure report directory has at least a fallback file
           if ! ls action_tests/reports/*.html 1>/dev/null 2>&1; then
             echo "<html><body><h1>Test Failed</h1><p>Exit code: ${TEST_EXIT}</p><pre>$(cat action_tests/reports/full-output.log | tail -100)</pre></body></html>" > "action_tests/reports/${{ matrix.environment }}-report.html"
           fi
 
-          # Always exit 0 - test failures are captured in reports/artifacts, not as step failure
           exit 0
 
-      - name: Validate integration test results
+      - name: Validate all-systems test results
         if: always()
         env:
           TEST_EXIT: ${{ steps.run-tests.outputs.test_exit }}
@@ -349,7 +334,7 @@ jobs:
 
           result_files=(action_tests/reports/*.jsonl)
           if [[ ${#result_files[@]} -eq 0 ]]; then
-            echo "::error::Integration tests did not produce any JSONL result files."
+            echo "::error::All-systems tests did not produce any JSONL result files."
             [[ -f action_tests/reports/full-output.log ]] && tail -200 action_tests/reports/full-output.log || true
             exit 1
           fi
@@ -361,7 +346,7 @@ jobs:
           executed=$((passed + failed))
 
           {
-            echo "## Integration Validation"
+            echo "## All-Systems Test Validation"
             echo ""
             echo "| Metric | Value |"
             echo "|--------|-------|"
@@ -374,36 +359,36 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
           if [[ -n "${TEST_EXIT:-}" && "${TEST_EXIT}" != "0" ]]; then
-            echo "::error::Integration harness exited with code ${TEST_EXIT}."
+            echo "::error::All-systems harness exited with code ${TEST_EXIT}."
             exit 1
           fi
 
           if [[ "$total" -eq 0 ]]; then
-            echo "::error::Integration tests produced an empty result set."
+            echo "::error::All-systems tests produced an empty result set."
             exit 1
           fi
 
           if [[ "$executed" -eq 0 ]]; then
-            echo "::error::Integration tests produced only skipped checks; no executable assertions ran."
+            echo "::error::All-systems tests produced only skipped checks; no executable assertions ran."
             exit 1
           fi
 
           if [[ "$failed" -ne 0 ]]; then
-            echo "::error::Integration tests recorded ${failed} failing assertions."
+            echo "::error::All-systems tests recorded ${failed} failing assertions."
             exit 1
           fi
 
-      - name: Show integration log on failure
+      - name: Show log on failure
         if: failure()
         run: |
-          echo "=== Integration Test Output (last 200 lines) ==="
+          echo "=== All-Systems Test Output (last 200 lines) ==="
           tail -200 action_tests/reports/full-output.log || true
 
       - name: Upload test reports
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: test-reports-${{ matrix.environment }}-${{ github.run_number }}
+          name: allsys-test-reports-${{ matrix.environment }}-${{ github.run_number }}
           path: |
             action_tests/reports/*.html
             action_tests/reports/*.md
@@ -419,9 +404,9 @@ jobs:
         run: |
           REPORT_BRANCH="gh-pages"
           TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
-          ENV="${{ matrix.environment }}"
+          # Use "allsys-" prefix to distinguish from regular integration tests in gh-pages
+          ENV="allsys-${{ matrix.environment }}"
 
-          # Clone or init gh-pages branch
           git clone --depth 1 --branch "$REPORT_BRANCH" \
             "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
             report-repo 2>/dev/null || {
@@ -432,12 +417,10 @@ jobs:
               cd ..
             }
 
-          # Copy reports
           mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
           cp action_tests/reports/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
           cp action_tests/reports/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
 
-          # Prune old reports: keep only the latest 7 runs per environment
           KEEP=7
           if [[ -d "report-repo/reports/${ENV}" ]]; then
             SORTED=$(ls -d "report-repo/reports/${ENV}/"*/ 2>/dev/null | sort -r)
@@ -451,15 +434,13 @@ jobs:
             done <<< "$SORTED"
           fi
 
-          # Generate top-level index
           bash action_tests/report/generate_index.sh "report-repo/reports" "report-repo/index.html"
 
-          # Commit and push
           cd report-repo
           git add -A
           git config user.name "GitHub Actions"
           git config user.email "actions@github.com"
-          git commit -m "Update test reports: ${ENV} ${TIMESTAMP}" || true
+          git commit -m "Update all-systems test reports: ${ENV} ${TIMESTAMP}" || true
           git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" 2>/dev/null || {
             echo "::warning::Failed to push to gh-pages. This is non-critical."
           }
@@ -467,7 +448,7 @@ jobs:
       - name: Summary
         if: always()
         run: |
-          echo "## Integration Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "## All-Systems Test Results" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "| Setting | Value |" >> $GITHUB_STEP_SUMMARY
           echo "|---------|-------|" >> $GITHUB_STEP_SUMMARY
@@ -476,13 +457,13 @@ jobs:
           echo "| Resolved Cloud Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Instance Types | ${{ steps.validate.outputs.instance_types }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Modules | ${{ inputs.modules }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Test Images | all systems |" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           if [[ -f "action_tests/reports/${{ matrix.environment }}-report.md" ]]; then
             cat "action_tests/reports/${{ matrix.environment }}-report.md" >> $GITHUB_STEP_SUMMARY
           else
             echo "No markdown report file found." >> $GITHUB_STEP_SUMMARY
           fi
-          # Also show last 30 lines of output for quick debugging
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "<details><summary>Last 30 lines of test output</summary>" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

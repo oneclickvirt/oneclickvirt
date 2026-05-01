@@ -1,0 +1,571 @@
+package provider
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"time"
+
+	"oneclickvirt/global"
+	"oneclickvirt/model/admin"
+	providerModel "oneclickvirt/model/provider"
+	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
+	"oneclickvirt/service/database"
+	"oneclickvirt/utils"
+
+	"go.uber.org/zap"
+	"gorm.io/gorm"
+)
+
+// UpdateProvider 更新Provider
+func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
+	global.APP_LOG.Debug("开始更新Provider", zap.Uint("providerID", req.ID))
+
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, req.ID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			global.APP_LOG.Warn("Provider更新失败：Provider不存在", zap.Uint("providerID", req.ID))
+		} else {
+			global.APP_LOG.Error("查询Provider失败", zap.Uint("providerID", req.ID), zap.Error(err))
+		}
+		return err
+	}
+
+	// 1. 检查Provider名称是否与其他Provider重复（排除当前Provider）
+	if req.Name != provider.Name {
+		var existingNameCount int64
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("name = ? AND id != ?", req.Name, req.ID).
+			Count(&existingNameCount).Error; err != nil {
+			global.APP_LOG.Error("检查Provider名称失败", zap.Error(err))
+			return fmt.Errorf("检查Provider名称失败: %v", err)
+		}
+		if existingNameCount > 0 {
+			global.APP_LOG.Warn("Provider更新失败：名称已存在",
+				zap.Uint("providerID", req.ID),
+				zap.String("name", utils.TruncateString(req.Name, 32)))
+			return fmt.Errorf("Provider名称 '%s' 已被其他Provider使用，请使用其他名称", req.Name)
+		}
+	}
+
+	// 2. 检查SSH地址和端口组合是否与其他Provider重复（排除当前Provider）
+	if req.Endpoint != "" {
+		sshPort := req.SSHPort
+		if sshPort == 0 {
+			sshPort = 22 // 默认SSH端口
+		}
+		// 只有当SSH地址或端口发生变化时才检查
+		if req.Endpoint != provider.Endpoint || sshPort != provider.SSHPort {
+			var existingEndpointCount int64
+			if err := global.APP_DB.Model(&providerModel.Provider{}).
+				Where("endpoint = ? AND ssh_port = ? AND id != ?", req.Endpoint, sshPort, req.ID).
+				Count(&existingEndpointCount).Error; err != nil {
+				global.APP_LOG.Error("检查Provider SSH地址失败", zap.Error(err))
+				return fmt.Errorf("检查Provider SSH地址失败: %v", err)
+			}
+			if existingEndpointCount > 0 {
+				global.APP_LOG.Warn("Provider更新失败：SSH地址和端口组合已存在",
+					zap.Uint("providerID", req.ID),
+					zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
+					zap.Int("sshPort", sshPort))
+				return fmt.Errorf("SSH地址 '%s:%d' 已被其他Provider使用，请检查是否重复配置", req.Endpoint, sshPort)
+			}
+		}
+	}
+
+	// 解析过期时间
+	if req.ExpiresAt != "" {
+		// 尝试解析多种时间格式
+		var t time.Time
+		var err error
+
+		// 首先尝试ISO 8601格式（前端默认格式）
+		t, err = time.Parse(time.RFC3339, req.ExpiresAt)
+		if err != nil {
+			// 尝试标准日期时间格式
+			t, err = time.Parse("2006-01-02 15:04:05", req.ExpiresAt)
+			if err != nil {
+				// 尝试日期格式
+				t, err = time.Parse("2006-01-02", req.ExpiresAt)
+				if err != nil {
+					return fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
+				}
+			}
+		}
+		provider.ExpiresAt = &t
+	} else {
+		// 如果没有指定过期时间，设置为31天后
+		defaultExpiry := time.Now().AddDate(0, 0, 31)
+		provider.ExpiresAt = &defaultExpiry
+	}
+
+	// 只更新请求中提供的非零值字段
+	if req.Name != "" {
+		provider.Name = req.Name
+	}
+	if req.Type != "" {
+		provider.Type = req.Type
+	}
+	if req.Endpoint != "" {
+		provider.Endpoint = req.Endpoint
+	}
+	if req.PortIP != "" {
+		provider.PortIP = req.PortIP
+	}
+	if req.SSHPort > 0 {
+		provider.SSHPort = req.SSHPort
+	}
+	if req.Username != "" {
+		provider.Username = req.Username
+	}
+
+	// 密码和SSH密钥的更新逻辑（使用指针以区分"未提供"和"空值"）：
+	// - nil: 不修改（前端未提供该字段，保持原值）
+	// - 指向空字符串: 清空该字段（切换到另一种认证方式）
+	// - 指向非空字符串: 更新为新值
+
+	// 临时保存更新后的值，用于验证
+	newPassword := provider.Password
+	newSSHKey := provider.SSHKey
+
+	// 是否修改了密码
+	passwordChanged := false
+	if req.Password != nil {
+		newPassword = *req.Password
+		passwordChanged = true
+		global.APP_LOG.Debug("更新Provider密码",
+			zap.Uint("providerID", req.ID),
+			zap.Bool("isEmpty", *req.Password == ""))
+	}
+
+	// 是否修改了SSH密钥
+	sshKeyChanged := false
+	if req.SSHKey != nil {
+		newSSHKey = *req.SSHKey
+		sshKeyChanged = true
+		global.APP_LOG.Debug("更新Provider SSH密钥",
+			zap.Uint("providerID", req.ID),
+			zap.Bool("isEmpty", *req.SSHKey == ""))
+	}
+
+	// 验证：更新后必须至少保留一种认证方式
+	// 只有在实际修改了认证字段时才进行验证
+	if (passwordChanged || sshKeyChanged) && newPassword == "" && newSSHKey == "" {
+		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
+			zap.Uint("providerID", req.ID))
+		return fmt.Errorf("必须保留至少一种SSH认证方式（密码或密钥）")
+	}
+
+	// 应用更新（只有在字段被修改时才更新）
+	if passwordChanged {
+		provider.Password = newPassword
+	}
+	if sshKeyChanged {
+		provider.SSHKey = newSSHKey
+	}
+	if req.Token != "" {
+		provider.Token = req.Token
+	}
+	if req.Config != "" {
+		provider.Config = req.Config
+	}
+	if req.Region != "" {
+		provider.Region = req.Region
+	}
+	if req.Country != "" {
+		provider.Country = req.Country
+	}
+	if req.CountryCode != "" {
+		provider.CountryCode = req.CountryCode
+	}
+	if req.City != "" {
+		provider.City = req.City
+	}
+	if req.Architecture != "" {
+		provider.Architecture = req.Architecture
+	}
+	// Boolean字段：需要区分"未提供"和"提供false"，这里简化处理为直接赋值
+	// 如果需要更精确的控制，应使用指针类型
+	provider.ContainerEnabled = req.ContainerEnabled
+	provider.VirtualMachineEnabled = req.VirtualMachineEnabled
+	if req.TotalQuota > 0 {
+		provider.TotalQuota = req.TotalQuota
+	}
+	provider.AllowClaim = req.AllowClaim
+	provider.RedeemCodeOnly = req.RedeemCodeOnly
+	if req.Status != "" {
+		provider.Status = req.Status
+	}
+	if req.MaxContainerInstances > 0 {
+		provider.MaxContainerInstances = req.MaxContainerInstances
+	}
+	if req.MaxVMInstances > 0 {
+		provider.MaxVMInstances = req.MaxVMInstances
+	}
+	provider.AllowConcurrentTasks = req.AllowConcurrentTasks
+	if req.MaxConcurrentTasks > 0 {
+		provider.MaxConcurrentTasks = req.MaxConcurrentTasks
+	}
+	if req.TaskPollInterval > 0 {
+		provider.TaskPollInterval = req.TaskPollInterval
+	}
+	provider.EnableTaskPolling = req.EnableTaskPolling
+	// 存储配置（所有Provider类型通用）
+	if req.StoragePool != "" {
+		provider.StoragePool = req.StoragePool
+	}
+	// 操作执行配置更新
+	if req.ExecutionRule != "" {
+		provider.ExecutionRule = req.ExecutionRule
+	}
+	// 端口映射配置更新
+	if req.DefaultPortCount > 0 {
+		provider.DefaultPortCount = req.DefaultPortCount
+	}
+	if req.PortRangeStart > 0 {
+		provider.PortRangeStart = req.PortRangeStart
+	}
+	if req.PortRangeEnd > 0 {
+		provider.PortRangeEnd = req.PortRangeEnd
+	}
+	if req.NetworkType != "" {
+		provider.NetworkType = req.NetworkType
+	}
+	// 带宽配置更新
+	if req.DefaultInboundBandwidth > 0 {
+		provider.DefaultInboundBandwidth = req.DefaultInboundBandwidth
+	}
+	if req.DefaultOutboundBandwidth > 0 {
+		provider.DefaultOutboundBandwidth = req.DefaultOutboundBandwidth
+	}
+	if req.MaxInboundBandwidth > 0 {
+		provider.MaxInboundBandwidth = req.MaxInboundBandwidth
+	}
+	if req.MaxOutboundBandwidth > 0 {
+		provider.MaxOutboundBandwidth = req.MaxOutboundBandwidth
+	}
+	// 流量控制开关更新
+	oldEnableTrafficControl := provider.EnableTrafficControl
+	provider.EnableTrafficControl = req.EnableTrafficControl
+	// 硬件资源监控开关更新
+	provider.EnableResourceMonitoring = req.EnableResourceMonitoring
+	// 流量同步方式更新
+	if req.TrafficSyncMethod != "" {
+		provider.TrafficSyncMethod = req.TrafficSyncMethod
+	}
+
+	// 检测流量统计开关是否发生变化
+	trafficControlChanged := oldEnableTrafficControl != req.EnableTrafficControl
+
+	// 流量限制更新
+	if req.MaxTraffic > 0 {
+		provider.MaxTraffic = req.MaxTraffic
+	}
+	// 流量统计模式更新
+	if req.TrafficCountMode != "" {
+		provider.TrafficCountMode = req.TrafficCountMode
+	}
+	// 流量统计性能模式更新
+	if req.TrafficStatsMode != "" {
+		oldMode := provider.TrafficStatsMode
+		provider.TrafficStatsMode = req.TrafficStatsMode
+
+		// 如果切换到非自定义模式，强制应用预设配置
+		if req.TrafficStatsMode != providerModel.TrafficStatsModeCustom {
+			global.APP_LOG.Debug("应用流量统计预设配置",
+				zap.Uint("providerID", req.ID),
+				zap.String("oldMode", oldMode),
+				zap.String("newMode", req.TrafficStatsMode))
+			provider.ApplyTrafficStatsPreset()
+		}
+	}
+	// 流量统计详细配置更新（仅在自定义模式下使用）
+	if req.TrafficCollectInterval > 0 {
+		// 验证采集间隔最大不超过5分钟（300秒）
+		if req.TrafficCollectInterval > 300 {
+			return fmt.Errorf("流量采集间隔不能超过300秒（5分钟），当前值: %d秒", req.TrafficCollectInterval)
+		}
+		provider.TrafficCollectInterval = req.TrafficCollectInterval
+	}
+	if req.TrafficCollectBatchSize > 0 {
+		provider.TrafficCollectBatchSize = req.TrafficCollectBatchSize
+	}
+	if req.TrafficLimitCheckInterval > 0 {
+		provider.TrafficLimitCheckInterval = req.TrafficLimitCheckInterval
+	}
+	if req.TrafficLimitCheckBatchSize > 0 {
+		provider.TrafficLimitCheckBatchSize = req.TrafficLimitCheckBatchSize
+	}
+	if req.TrafficAutoResetInterval > 0 {
+		provider.TrafficAutoResetInterval = req.TrafficAutoResetInterval
+	}
+	if req.TrafficAutoResetBatchSize > 0 {
+		provider.TrafficAutoResetBatchSize = req.TrafficAutoResetBatchSize
+	}
+	// 流量计费倍率更新
+	if req.TrafficMultiplier > 0 {
+		oldValue := provider.TrafficMultiplier
+		provider.TrafficMultiplier = req.TrafficMultiplier
+		global.APP_LOG.Debug("更新流量计费倍率",
+			zap.Uint("providerID", req.ID),
+			zap.Float64("oldValue", oldValue),
+			zap.Float64("newValue", req.TrafficMultiplier))
+	}
+
+	// 检查Provider过期时间是否发生变化，需要同步到非手动设置过期时间的实例
+	var oldProvider providerModel.Provider
+	if err := global.APP_DB.First(&oldProvider, req.ID).Error; err == nil {
+		// 比较新旧过期时间是否不同
+		expireTimeChanged := false
+		if (oldProvider.ExpiresAt == nil && provider.ExpiresAt != nil) ||
+			(oldProvider.ExpiresAt != nil && provider.ExpiresAt == nil) ||
+			(oldProvider.ExpiresAt != nil && provider.ExpiresAt != nil && !oldProvider.ExpiresAt.Equal(*provider.ExpiresAt)) {
+			expireTimeChanged = true
+		}
+
+		// 如果过期时间发生变化，记录日志并准备同步
+		if expireTimeChanged {
+			global.APP_LOG.Info("Provider过期时间发生变化，将同步非手动设置过期时间的实例",
+				zap.Uint("providerID", req.ID),
+				zap.Any("oldExpiresAt", oldProvider.ExpiresAt),
+				zap.Any("newExpiresAt", provider.ExpiresAt))
+		}
+	}
+
+	// 端口映射方式更新
+	// Docker/Podman/Containerd 类型固定使用 native，忽略前端传入的値
+	if provider.Type == "docker" || provider.Type == "podman" || provider.Type == "containerd" {
+		provider.IPv4PortMappingMethod = "native"
+		provider.IPv6PortMappingMethod = "native"
+	} else {
+		if req.IPv4PortMappingMethod != "" {
+			provider.IPv4PortMappingMethod = req.IPv4PortMappingMethod
+		}
+		if req.IPv6PortMappingMethod != "" {
+			provider.IPv6PortMappingMethod = req.IPv6PortMappingMethod
+		}
+	}
+	// SSH超时配置更新
+	if req.SSHConnectTimeout > 0 {
+		provider.SSHConnectTimeout = req.SSHConnectTimeout
+	}
+	if req.SSHExecuteTimeout > 0 {
+		provider.SSHExecuteTimeout = req.SSHExecuteTimeout
+	}
+	// 容器资源限制配置更新
+	provider.ContainerLimitCPU = req.ContainerLimitCpu
+	provider.ContainerLimitMemory = req.ContainerLimitMemory
+	provider.ContainerLimitDisk = req.ContainerLimitDisk
+	// 虚拟机资源限制配置更新
+	provider.VMLimitCPU = req.VMLimitCpu
+	provider.VMLimitMemory = req.VMLimitMemory
+	provider.VMLimitDisk = req.VMLimitDisk
+	// 容器特殊配置选项更新（仅 LXD/Incus 容器）
+	provider.ContainerPrivileged = req.ContainerPrivileged
+	provider.ContainerAllowNesting = req.ContainerAllowNesting
+	provider.ContainerEnableLXCFS = req.ContainerEnableLXCFS
+	if req.ContainerCPUAllowance != "" {
+		provider.ContainerCPUAllowance = req.ContainerCPUAllowance
+	}
+	provider.ContainerMemorySwap = req.ContainerMemorySwap
+	provider.ContainerMaxProcesses = req.ContainerMaxProcesses
+	provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
+
+	// 节点级别等级限制配置更新
+	if req.LevelLimits != nil {
+		// 转换前端发送的 camelCase 为存储的 kebab-case
+		convertedLimits := make(map[int]map[string]interface{})
+		for level, limits := range req.LevelLimits {
+			convertedLimit := make(map[string]interface{})
+			for key, value := range limits {
+				// 转换 camelCase 键为 kebab-case
+				switch key {
+				case "maxInstances":
+					convertedLimit["max-instances"] = value
+				case "maxResources":
+					convertedLimit["max-resources"] = value
+				case "maxTraffic":
+					convertedLimit["max-traffic"] = value
+				default:
+					// 保留其他键不变（已经是正确格式或未知字段）
+					convertedLimit[key] = value
+				}
+			}
+			convertedLimits[level] = convertedLimit
+		}
+		// 将转换后的 map[int]map[string]interface{} 序列化为 JSON 字符串
+		levelLimitsJSON, err := json.Marshal(convertedLimits)
+		if err != nil {
+			global.APP_LOG.Error("序列化节点等级限制配置失败",
+				zap.Uint("providerID", req.ID),
+				zap.Error(err))
+			return fmt.Errorf("节点等级限制配置格式错误: %v", err)
+		}
+		provider.LevelLimits = string(levelLimitsJSON)
+	}
+
+	// 设置默认值
+	// 并发控制默认值：确保一致性
+	if !provider.AllowConcurrentTasks && provider.MaxConcurrentTasks <= 0 {
+		provider.MaxConcurrentTasks = 1
+	}
+	if provider.MaxConcurrentTasks <= 0 {
+		provider.MaxConcurrentTasks = 1
+	}
+	if provider.TaskPollInterval <= 0 {
+		provider.TaskPollInterval = 60
+	}
+
+	dbService := database.GetDatabaseService()
+	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		// 保存Provider更新
+		if err := tx.Save(&provider).Error; err != nil {
+			return err
+		}
+
+		// 同步更新该Provider下所有非手动设置过期时间的实例的到期时间
+		if provider.ExpiresAt != nil {
+			if err := tx.Model(&providerModel.Instance{}).
+				Where("provider_id = ? AND is_manual_expiry = ? AND status NOT IN (?)", provider.ID, false, []string{"deleting", "deleted"}).
+				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
+				global.APP_LOG.Error("同步实例到期时间失败",
+					zap.Uint("providerID", provider.ID),
+					zap.Time("newExpiresAt", *provider.ExpiresAt),
+					zap.Error(err))
+				return fmt.Errorf("同步实例到期时间失败: %v", err)
+			}
+			global.APP_LOG.Info("已同步非手动设置过期时间的实例到期时间",
+				zap.Uint("providerID", provider.ID),
+				zap.Time("newExpiresAt", *provider.ExpiresAt))
+		}
+
+		// 如果流量统计开关发生变化，触发后台任务处理监控配置
+		if trafficControlChanged {
+			go s.handleTrafficControlToggle(provider.ID, req.EnableTrafficControl)
+		}
+
+		return nil
+	})
+}
+
+// handleTrafficControlToggle 处理流量统计开关切换（后台任务）
+// 当Provider的EnableTrafficControl从false->true或true->false时调用
+func (s *Service) handleTrafficControlToggle(providerID uint, enabled bool) {
+	defer func() {
+		if r := recover(); r != nil {
+			global.APP_LOG.Error("处理流量统计开关切换时发生panic",
+				zap.Uint("providerID", providerID),
+				zap.Bool("enabled", enabled),
+				zap.Any("panic", r))
+		}
+	}()
+
+	global.APP_LOG.Info("开始处理Provider流量统计开关切换",
+		zap.Uint("providerID", providerID),
+		zap.Bool("enabled", enabled))
+
+	// 获取Provider信息（预加载，避免循环中重复查询）
+	var provider providerModel.Provider
+	if err := global.APP_DB.First(&provider, providerID).Error; err != nil {
+		global.APP_LOG.Error("查询Provider失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return
+	}
+
+	// 获取该Provider下所有活跃实例（预加载所有字段）
+	var instances []providerModel.Instance
+	if err := global.APP_DB.Where("provider_id = ? AND status NOT IN (?)",
+		providerID, []string{"deleted", "deleting"}).Find(&instances).Error; err != nil {
+		global.APP_LOG.Error("查询Provider实例失败",
+			zap.Uint("providerID", providerID),
+			zap.Error(err))
+		return
+	}
+
+	if len(instances) == 0 {
+		global.APP_LOG.Debug("Provider没有活跃实例，无需处理",
+			zap.Uint("providerID", providerID))
+		return
+	}
+
+	// 使用统一的流量监控管理器
+	trafficMonitorManager := traffic_monitor.GetManager()
+
+	// 创建带超时的context
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	defer cancel()
+
+	if enabled {
+		// 启用流量统计：为所有运行中实例初始化监控
+		global.APP_LOG.Info("启用流量统计，开始为实例初始化监控",
+			zap.Uint("providerID", providerID),
+			zap.Int("instanceCount", len(instances)))
+
+		successCount := 0
+		failCount := 0
+		skippedCount := 0
+
+		for _, instance := range instances {
+			// 只为运行中的实例初始化监控
+			if instance.Status != "running" {
+				global.APP_LOG.Debug("跳过非运行状态实例",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("status", instance.Status))
+				skippedCount++
+				continue
+			}
+
+			// 使用统一的流量监控管理器
+			if err := trafficMonitorManager.AttachMonitor(ctx, instance.ID); err != nil {
+				global.APP_LOG.Warn("初始化实例监控失败",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name),
+					zap.Error(err))
+				failCount++
+			} else {
+				global.APP_LOG.Debug("实例监控初始化成功",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name))
+				successCount++
+			}
+		}
+
+		global.APP_LOG.Info("Provider流量统计启用处理完成",
+			zap.Uint("providerID", providerID),
+			zap.Int("成功", successCount),
+			zap.Int("失败", failCount),
+			zap.Int("跳过", skippedCount))
+
+	} else {
+		// 禁用流量统计：清理所有实例的监控
+		global.APP_LOG.Info("禁用流量统计，开始清理实例监控",
+			zap.Uint("providerID", providerID),
+			zap.Int("instanceCount", len(instances)))
+
+		successCount := 0
+		failCount := 0
+
+		for _, instance := range instances {
+			// 使用统一的流量监控管理器清理监控
+			if err := trafficMonitorManager.DetachMonitor(ctx, instance.ID); err != nil {
+				global.APP_LOG.Warn("清理实例监控失败",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name),
+					zap.Error(err))
+				failCount++
+			} else {
+				global.APP_LOG.Debug("实例监控清理成功",
+					zap.Uint("instanceID", instance.ID),
+					zap.String("instanceName", instance.Name))
+				successCount++
+			}
+		}
+
+		global.APP_LOG.Info("Provider流量统计禁用处理完成",
+			zap.Uint("providerID", providerID),
+			zap.Int("成功", successCount),
+			zap.Int("失败", failCount))
+	}
+} // FreezeProvider 冻结Provider

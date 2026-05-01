@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout code
@@ -315,3 +315,52 @@ jobs:
             action_tests/reports/*.jsonl
             server.log
           retention-days: 14
+
+      - name: Publish to GitHub Pages
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          REPORT_BRANCH="gh-pages"
+          TIMESTAMP=$(date -u '+%Y%m%d-%H%M%S')
+          # Use "arm-controller" as the env key in gh-pages
+          ENV="arm-controller"
+
+          git clone --depth 1 --branch "$REPORT_BRANCH" \
+            "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" \
+            report-repo 2>/dev/null || {
+              mkdir -p report-repo
+              cd report-repo
+              git init
+              git checkout -b "$REPORT_BRANCH"
+              cd ..
+            }
+
+          mkdir -p "report-repo/reports/${ENV}/${TIMESTAMP}"
+          cp action_tests/reports/*.html "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+          cp action_tests/reports/*.jsonl "report-repo/reports/${ENV}/${TIMESTAMP}/" 2>/dev/null || true
+
+          # Prune old reports: keep only the latest 7 runs
+          KEEP=7
+          if [[ -d "report-repo/reports/${ENV}" ]]; then
+            SORTED=$(ls -d "report-repo/reports/${ENV}/"/*/  2>/dev/null | sort -r)
+            COUNT=0
+            while IFS= read -r dir; do
+              COUNT=$((COUNT + 1))
+              if [[ $COUNT -gt $KEEP ]]; then
+                rm -rf "$dir"
+                echo "Pruned old report: $dir"
+              fi
+            done <<< "$SORTED"
+          fi
+
+          bash action_tests/report/generate_index.sh "report-repo/reports" "report-repo/index.html"
+
+          cd report-repo
+          git add -A
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git commit -m "Update ARM controller test reports: ${TIMESTAMP}" || true
+          git push "https://x-access-token:${GITHUB_TOKEN}@github.com/${{ github.repository }}.git" "$REPORT_BRANCH" 2>/dev/null || {
+            echo "::warning::Failed to push to gh-pages. This is non-critical."
+          }

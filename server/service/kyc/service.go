@@ -40,7 +40,7 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 		idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
 		var hashCount int64
 		if err := global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount).Error; err != nil {
-			return nil, fmt.Errorf("校验身份证号失败: %v", err)
+			return nil, fmt.Errorf("校验身份证号失败: %w", err)
 		}
 		if hashCount > 0 {
 			return nil, fmt.Errorf("该身份证号已被其他账户认证")
@@ -174,6 +174,9 @@ func (s *Service) QueryAlipayKYCResult(userID uint) (bool, error) {
 
 	if passed {
 		tx := global.APP_DB.Begin()
+		if tx.Error != nil {
+			return false, fmt.Errorf("开启事务失败: %w", tx.Error)
+		}
 		defer tx.Rollback()
 		now := global.APP_DB.NowFunc()
 		if err := tx.Model(&record).Updates(map[string]interface{}{
@@ -227,6 +230,9 @@ func (s *Service) AdminReviewKYC(kycID, reviewerID uint, approved bool, rejectRe
 	}
 
 	tx := global.APP_DB.Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("开启事务失败: %w", tx.Error)
+	}
 	defer tx.Rollback()
 
 	now := global.APP_DB.NowFunc()

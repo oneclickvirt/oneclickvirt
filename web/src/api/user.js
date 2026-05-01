@@ -33,22 +33,6 @@ export function getUserInstances(params) {
   })
 }
 
-export function getUserContainers(params) {
-  return request({
-    url: '/v1/user/containers',
-    method: 'get',
-    params
-  })
-}
-
-export function getUserVMs(params) {
-  return request({
-    url: '/v1/user/vms',
-    method: 'get',
-    params
-  })
-}
-
 // 用户端口映射API
 export const getUserInstancePorts = (instanceId) => {
   return request({
@@ -65,26 +49,10 @@ export const getUserPortMappings = (params) => {
   })
 }
 
-export function instanceAction(instanceId, action) {
-  return request({
-    url: `/v1/user/instances/${instanceId}/action`,
-    method: 'post',
-    data: { action }
-  })
-}
-
 export function getInstanceDetail(instanceId) {
   return request({
     url: `/v1/user/instances/${instanceId}`,
     method: 'get'
-  })
-}
-
-export function getInstanceLogs(instanceId, params) {
-  return request({
-    url: `/v1/user/instances/${instanceId}/logs`,
-    method: 'get',
-    params
   })
 }
 
@@ -119,65 +87,11 @@ export function resetInstancePassword(instanceId) {
   })
 }
 
-export function createUserContainer(data) {
-  return request({
-    url: '/v1/user/containers',
-    method: 'post',
-    data
-  })
-}
-
-export function controlUserContainer(containerId, action) {
-  return request({
-    url: `/v1/user/containers/${containerId}/action`,
-    method: 'post',
-    data: { action }
-  })
-}
-
-export function deleteUserContainer(containerId) {
-  return request({
-    url: `/v1/user/containers/${containerId}`,
-    method: 'delete'
-  })
-}
-
-export function createUserVM(data) {
-  return request({
-    url: '/v1/user/vms',
-    method: 'post',
-    data
-  })
-}
-
-export function controlUserVM(vmId, action) {
-  return request({
-    url: `/v1/user/vms/${vmId}/action`,
-    method: 'post',
-    data: { action }
-  })
-}
-
-export function deleteUserVM(vmId) {
-  return request({
-    url: `/v1/user/vms/${vmId}`,
-    method: 'delete'
-  })
-}
-
 export function getAvailableProviders() {
   return request({
     url: '/v1/user/providers/available',
     method: 'get',
     timeout: 10000  // 10秒超时，因为这个API可能需要资源同步
-  })
-}
-
-export function updateNickname(data) {
-  return request({
-    url: '/v1/user/nickname',
-    method: 'put',
-    data
   })
 }
 

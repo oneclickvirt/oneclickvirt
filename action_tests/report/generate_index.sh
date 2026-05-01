@@ -1,6 +1,9 @@
 #!/bin/bash
 # HTML Index Report Generator for OneClickVirt Test Reports
-# Generates a rich overview page with per-environment statistics
+# Generates a rich overview page with per-environment statistics, grouped by Action type:
+#   - Integration Tests  (docker, lxd, incus, podman, containerd, proxmoxve, kubevirt, qemu)
+#   - All Systems Tests  (allsys-docker, allsys-lxd, …)
+#   - ARM Controller Tests (arm-controller)
 # Usage: bash generate_index.sh <reports_dir> <output_html>
 set -uo pipefail
 
@@ -8,6 +11,16 @@ REPORTS_DIR="${1:-reports}"
 OUTPUT_HTML="${2:-index.html}"
 GEN_TS=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 OUTPUT_DIR=$(dirname "$OUTPUT_HTML")
+
+# ── Classify an env name into a group key ────────────────────────────────────
+_classify_group() {
+    local name="$1"
+    case "$name" in
+        allsys-*)   echo "all-systems" ;;
+        arm-controller) echo "arm" ;;
+        *)          echo "integration" ;;
+    esac
+}
 
 # ── Collect per-environment data ──────────────────────────────────────────────
 env_json_parts=()
@@ -75,7 +88,7 @@ if [[ -d "$REPORTS_DIR" ]]; then
             runs_str+="$rp"
         done
 
-        env_obj="{\"name\":\"${envname}\",\"latestTs\":\"${latest_ts}\",\"total\":${latest_total},\"pass\":${latest_pass},\"fail\":${latest_fail},\"skip\":${latest_skip},\"rate\":${latest_rate},\"runs\":[${runs_str}]}"
+        env_obj="{\"name\":\"${envname}\",\"group\":\"$(_classify_group "${envname}")\",\"latestTs\":\"${latest_ts}\",\"total\":${latest_total},\"pass\":${latest_pass},\"fail\":${latest_fail},\"skip\":${latest_skip},\"rate\":${latest_rate},\"runs\":[${runs_str}]}"
         env_json_parts+=("$env_obj")
     done
 fi
@@ -96,7 +109,7 @@ cat > "$OUTPUT_HTML" << 'HTMLHEAD'
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OneClickVirt 集成测试报告总览 / Integration Test Reports</title>
+<title>OneClickVirt 测试报告总览 / Test Reports</title>
 <style>
 :root{--pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;--text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;--shadow:0 4px 24px rgba(0,0,0,.3)}
 [data-theme=light]{--bg:#f8fafc;--card:#fff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;--text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#fff;--shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -116,6 +129,8 @@ h1{font-size:1.8rem;margin-bottom:.3rem;background:linear-gradient(135deg,var(--
 .stat-card .value{font-size:2rem;font-weight:700}
 .stat-card .label{color:var(--text-muted);font-size:.78rem;margin-top:.2rem;text-transform:uppercase;letter-spacing:.05em}
 .s-pass .value{color:var(--pass)}.s-fail .value{color:var(--fail)}.s-skip .value{color:var(--skip)}.s-rate .value{color:var(--accent)}
+.section-heading{font-size:1.1rem;font-weight:700;margin:1.5rem 0 .8rem;padding:.5rem .8rem;background:var(--card);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;box-shadow:var(--shadow);display:flex;align-items:center;gap:.5rem}
+.section-heading .badge{font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:12px;border:1px solid var(--border);color:var(--text-muted)}
 .env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1.5rem;margin-bottom:2rem}
 .env-card{background:var(--card);border-radius:14px;padding:1.4rem;border:1px solid var(--border);box-shadow:var(--shadow);transition:all .2s}
 .env-card:hover{border-color:rgba(96,165,250,.4);transform:translateY(-2px)}
@@ -167,7 +182,7 @@ HTMLHEAD
 cat >> "$OUTPUT_HTML" << DYNBLOCK
 <header>
   <div class="header-left">
-    <h1><span class="zh">集成测试报告总览</span><span class="en">Integration Test Reports</span></h1>
+    <h1><span class="zh">测试报告总览</span><span class="en">Test Reports Overview</span></h1>
     <p class="meta"><span class="zh">生成时间：</span><span class="en">Generated: </span>${GEN_TS}</p>
   </div>
   <div class="header-btns">
@@ -179,7 +194,7 @@ cat >> "$OUTPUT_HTML" << DYNBLOCK
   <input class="search-box" type="search" id="search" placeholder="搜索环境… / Filter env…" oninput="filterCards(this.value)">
 </div>
 <div class="summary-grid" id="summary-grid"></div>
-<div class="env-grid" id="env-grid">
+<div id="all-groups">
   <div class="empty-state"><span class="zh">暂无测试报告</span><span class="en">No test reports yet</span></div>
 </div>
 <script>
@@ -190,7 +205,43 @@ DYNBLOCK
 cat >> "$OUTPUT_HTML" << 'STATICJS'
 const ENV_ZH = {
   docker:'Docker', podman:'Podman', containerd:'Containerd',
-  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE'
+  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE', kubevirt:'KubeVirt', qemu:'QEMU',
+  'allsys-docker':'全系统-Docker', 'allsys-podman':'全系统-Podman',
+  'allsys-containerd':'全系统-Containerd', 'allsys-lxd':'全系统-LXD',
+  'allsys-incus':'全系统-Incus', 'allsys-proxmoxve':'全系统-Proxmox VE',
+  'allsys-kubevirt':'全系统-KubeVirt', 'allsys-qemu':'全系统-QEMU',
+  'arm-controller':'ARM 控制器',
+};
+
+const ENV_ZH_EN = {
+  docker:'Docker', podman:'Podman', containerd:'Containerd',
+  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE', kubevirt:'KubeVirt', qemu:'QEMU',
+  'allsys-docker':'AllSys-Docker', 'allsys-podman':'AllSys-Podman',
+  'allsys-containerd':'AllSys-Containerd', 'allsys-lxd':'AllSys-LXD',
+  'allsys-incus':'AllSys-Incus', 'allsys-proxmoxve':'AllSys-Proxmox VE',
+  'allsys-kubevirt':'AllSys-KubeVirt', 'allsys-qemu':'AllSys-QEMU',
+  'arm-controller':'ARM Controller',
+};
+
+const GROUP_META = {
+  'integration': {
+    zh: '集成测试',
+    en: 'Integration Tests',
+    desc_zh: 'Debian & Alpine 系统 · 选定平台',
+    desc_en: 'Debian & Alpine images · Selected platforms',
+  },
+  'all-systems': {
+    zh: '全系统测试',
+    en: 'All Systems Tests',
+    desc_zh: '全部系统镜像 · 全部平台',
+    desc_en: 'All system images · All platforms',
+  },
+  'arm': {
+    zh: 'ARM 控制器测试',
+    en: 'ARM Controller Tests',
+    desc_zh: 'ARM64 架构 · 仅控制器',
+    desc_en: 'ARM64 architecture · Controller only',
+  },
 };
 
 function rateColor(r) {
@@ -220,66 +271,98 @@ function renderSummary(data) {
   applyLang();
 }
 
-function renderCards(data) {
-  const g = document.getElementById('env-grid');
-  if (!data.length) return;
-  g.innerHTML = '';
-  data.forEach(env => {
-    const zh = ENV_ZH[env.name] || env.name;
-    const rc = rateColor(env.rate);
-    const div = document.createElement('div');
-    div.className = 'env-card';
-    div.dataset.name = env.name;
+function makeEnvCard(env) {
+  const zh = ENV_ZH[env.name] || env.name;
+  const en = ENV_ZH_EN[env.name] || env.name;
+  const rc = rateColor(env.rate);
+  const div = document.createElement('div');
+  div.className = 'env-card';
+  div.dataset.name = env.name;
 
-    const runsHtml = env.runs.map(r => {
-      const lh = r.links.map(l => {
-        const fn = l.replace(/.*\//, '');
-        const label = fn.replace(/-report\.html$/, '').replace(/-/g, ' ');
-        return `<a href="${l}" class="run-link">${label}</a>`;
-      }).join('');
-      return `<div class="run-item">
-        <span class="run-ts">${formatTs(r.ts)}</span>
-        <div class="run-links">${lh}</div>
-        <div class="run-stats">
-          <span class="mp">✓${r.pass}</span>
-          ${r.fail > 0 ? `<span class="mf">✗${r.fail}</span>` : ''}
-          ${r.skip > 0 ? `<span class="ms">⊘${r.skip}</span>` : ''}
-        </div>
-      </div>`;
+  const runsHtml = env.runs.map(r => {
+    const lh = r.links.map(l => {
+      const fn = l.replace(/.*\//, '');
+      const label = fn.replace(/-report\.html$/, '').replace(/-/g, ' ');
+      return `<a href="${l}" class="run-link">${label}</a>`;
     }).join('');
+    return `<div class="run-item">
+      <span class="run-ts">${formatTs(r.ts)}</span>
+      <div class="run-links">${lh}</div>
+      <div class="run-stats">
+        <span class="mp">✓${r.pass}</span>
+        ${r.fail > 0 ? `<span class="mf">✗${r.fail}</span>` : ''}
+        ${r.skip > 0 ? `<span class="ms">⊘${r.skip}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 
-    const skipHtml = env.skip > 0
-      ? `<span class="stat-pill ss">⊘ ${env.skip} <span class="zh">跳过</span><span class="en">Skip</span></span>`
-      : '';
+  const skipHtml = env.skip > 0
+    ? `<span class="stat-pill ss">⊘ ${env.skip} <span class="zh">跳过</span><span class="en">Skip</span></span>`
+    : '';
 
-    div.innerHTML = `
-      <div class="env-card-header">
-        <div class="env-name">
-          <span>${zh}</span>
-          <span class="env-badge" style="color:${rc};border-color:${rc}">${env.rate}%</span>
-        </div>
+  div.innerHTML = `
+    <div class="env-card-header">
+      <div class="env-name">
+        <span class="zh">${zh}</span><span class="en">${en}</span>
+        <span class="env-badge" style="color:${rc};border-color:${rc}">${env.rate}%</span>
       </div>
-      <div class="env-ts"><span class="zh">最新：</span><span class="en">Latest: </span>${formatTs(env.latestTs)}</div>
-      <div class="env-stats">
-        <span class="stat-pill sp">✓ ${env.pass} <span class="zh">通过</span><span class="en">Pass</span></span>
-        <span class="stat-pill sf">✗ ${env.fail} <span class="zh">失败</span><span class="en">Fail</span></span>
-        ${skipHtml}
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${env.rate}%;background:${rc}"></div>
-      </div>
-      <div class="rate-label">
-        <span>${env.total} <span class="zh">项测试</span><span class="en">tests</span></span>
-        <span style="color:${rc};font-weight:600">${env.rate}%</span>
-      </div>
-      <button class="expand-btn" onclick="toggleRuns(this)">
-        <span><span class="zh">历史记录</span><span class="en">Run History</span> (${env.runs.length})</span>
-        <span class="chev" style="transition:transform .3s">▼</span>
-      </button>
-      <div class="run-list">${runsHtml}</div>
-    `;
-    g.appendChild(div);
+    </div>
+    <div class="env-ts"><span class="zh">最新：</span><span class="en">Latest: </span>${formatTs(env.latestTs)}</div>
+    <div class="env-stats">
+      <span class="stat-pill sp">✓ ${env.pass} <span class="zh">通过</span><span class="en">Pass</span></span>
+      <span class="stat-pill sf">✗ ${env.fail} <span class="zh">失败</span><span class="en">Fail</span></span>
+      ${skipHtml}
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width:${env.rate}%;background:${rc}"></div>
+    </div>
+    <div class="rate-label">
+      <span>${env.total} <span class="zh">项测试</span><span class="en">tests</span></span>
+      <span style="color:${rc};font-weight:600">${env.rate}%</span>
+    </div>
+    <button class="expand-btn" onclick="toggleRuns(this)">
+      <span><span class="zh">历史记录</span><span class="en">Run History</span> (${env.runs.length})</span>
+      <span class="chev" style="transition:transform .3s">▼</span>
+    </button>
+    <div class="run-list">${runsHtml}</div>
+  `;
+  return div;
+}
+
+function renderGroups(data) {
+  const container = document.getElementById('all-groups');
+  if (!data.length) return;
+  container.innerHTML = '';
+
+  const order = ['integration', 'all-systems', 'arm'];
+  const byGroup = {};
+  data.forEach(env => {
+    const g = env.group || 'integration';
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(env);
   });
+
+  order.forEach(gKey => {
+    const envs = byGroup[gKey];
+    if (!envs || envs.length === 0) return;
+    const meta = GROUP_META[gKey] || { zh: gKey, en: gKey, desc_zh: '', desc_en: '' };
+
+    const heading = document.createElement('div');
+    heading.className = 'section-heading';
+    heading.innerHTML = `
+      <span class="zh">🗂 ${meta.zh}</span>
+      <span class="en">🗂 ${meta.en}</span>
+      <span class="badge zh">${meta.desc_zh}</span>
+      <span class="badge en">${meta.desc_en}</span>
+    `;
+    container.appendChild(heading);
+
+    const grid = document.createElement('div');
+    grid.className = 'env-grid';
+    envs.forEach(env => grid.appendChild(makeEnvCard(env)));
+    container.appendChild(grid);
+  });
+
   applyLang();
 }
 
@@ -313,7 +396,7 @@ function toggleTheme() {
 }
 
 renderSummary(ALL_ENV_DATA);
-renderCards(ALL_ENV_DATA);
+renderGroups(ALL_ENV_DATA);
 </script>
 STATICJS
 

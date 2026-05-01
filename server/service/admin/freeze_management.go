@@ -64,6 +64,9 @@ func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt t
 	now := time.Now()
 
 	tx := global.APP_DB.Begin()
+	if tx.Error != nil {
+		return fmt.Errorf("开启事务失败: %w", tx.Error)
+	}
 	defer tx.Rollback()
 
 	var p provider.Provider
@@ -221,7 +224,6 @@ func (s *FreezeManagementService) UnfreezeUser(userID uint) error {
 	if err != nil {
 		return err
 	}
-
 	cache.GetUserCacheService().InvalidateUserCache(userID)
 	return nil
 }
@@ -252,7 +254,7 @@ func (s *FreezeManagementService) UnfreezeProvider(providerID uint) error {
 				"frozen_at":     nil,
 				"frozen_reason": "",
 			}).Error; err != nil {
-			return err
+			return fmt.Errorf("解冻实例失败: %w", err)
 		}
 
 		return nil
