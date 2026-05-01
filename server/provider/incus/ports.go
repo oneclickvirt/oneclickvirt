@@ -328,7 +328,12 @@ func (i *IncusProvider) setupIptablesMappingWithIP(instanceName string, hostPort
 		zap.String("instanceIP", instanceIP))
 
 	fwMgr := firewall.NewManager(i.sshClient, "incus", "")
-	fwMgr.DetectBackend("/usr/local/bin/incus_fw_backend")
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/incus_fw_backend"); err != nil {
+		return fmt.Errorf("防火墙后端检测失败: %w", err)
+	}
+	if err := fwMgr.InitTable(); err != nil {
+		return fmt.Errorf("防火墙初始化失败: %w", err)
+	}
 
 	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
 	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {

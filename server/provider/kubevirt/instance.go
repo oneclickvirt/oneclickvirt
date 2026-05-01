@@ -391,7 +391,10 @@ spec:
 	if startPort > 0 && endPort > 0 && startPort <= endPort {
 		fwMgr := firewall.NewManager(p.sshClient, NFTTableName, "")
 		if _, err := fwMgr.DetectBackend(FWBackendFile); err == nil {
-			fwMgr.InitTable()
+			if initErr := fwMgr.InitTable(); initErr != nil {
+				global.APP_LOG.Warn("kubevirt: 防火墙初始化失败，端口映射可能不可用",
+					zap.Error(initErr))
+			}
 			// KubeVirt 额外端口范围通过防火墙 DNAT 到 Pod IP
 			// 此处仅初始化，实际端口映射在 VM 运行后通过 portmapping 层处理
 			fwMgr.SaveRules()
