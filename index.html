@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>OneClickVirt 集成测试报告总览 / Integration Test Reports</title>
+<title>OneClickVirt 测试报告总览 / Test Reports</title>
 <style>
 :root{--pass:#22c55e;--fail:#ef4444;--skip:#eab308;--accent:#60a5fa;--bg:#0f172a;--card:#1e293b;--text:#e2e8f0;--border:#334155;--hover:#283548;--text-muted:#94a3b8;--code-bg:#0f172a;--input-bg:#0f172a;--shadow:0 4px 24px rgba(0,0,0,.3)}
 [data-theme=light]{--bg:#f8fafc;--card:#fff;--text:#1e293b;--border:#e2e8f0;--hover:#f1f5f9;--text-muted:#64748b;--code-bg:#f1f5f9;--input-bg:#fff;--shadow:0 4px 24px rgba(0,0,0,.08)}
@@ -23,6 +23,8 @@ h1{font-size:1.8rem;margin-bottom:.3rem;background:linear-gradient(135deg,var(--
 .stat-card .value{font-size:2rem;font-weight:700}
 .stat-card .label{color:var(--text-muted);font-size:.78rem;margin-top:.2rem;text-transform:uppercase;letter-spacing:.05em}
 .s-pass .value{color:var(--pass)}.s-fail .value{color:var(--fail)}.s-skip .value{color:var(--skip)}.s-rate .value{color:var(--accent)}
+.section-heading{font-size:1.1rem;font-weight:700;margin:1.5rem 0 .8rem;padding:.5rem .8rem;background:var(--card);border-left:3px solid var(--accent);border-radius:0 8px 8px 0;box-shadow:var(--shadow);display:flex;align-items:center;gap:.5rem}
+.section-heading .badge{font-size:.72rem;font-weight:600;padding:2px 8px;border-radius:12px;border:1px solid var(--border);color:var(--text-muted)}
 .env-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(340px,1fr));gap:1.5rem;margin-bottom:2rem}
 .env-card{background:var(--card);border-radius:14px;padding:1.4rem;border:1px solid var(--border);box-shadow:var(--shadow);transition:all .2s}
 .env-card:hover{border-color:rgba(96,165,250,.4);transform:translateY(-2px)}
@@ -70,8 +72,8 @@ footer a:hover{text-decoration:underline}
 <div class="container">
 <header>
   <div class="header-left">
-    <h1><span class="zh">集成测试报告总览</span><span class="en">Integration Test Reports</span></h1>
-    <p class="meta"><span class="zh">生成时间：</span><span class="en">Generated: </span>2026-04-27 21:39:00 UTC</p>
+    <h1><span class="zh">测试报告总览</span><span class="en">Test Reports Overview</span></h1>
+    <p class="meta"><span class="zh">生成时间：</span><span class="en">Generated: </span>2026-05-01 04:22:31 UTC</p>
   </div>
   <div class="header-btns">
     <button class="btn" onclick="toggleTheme()" id="theme-btn">🌙 <span class="zh">暗色</span><span class="en">Dark</span></button>
@@ -82,14 +84,50 @@ footer a:hover{text-decoration:underline}
   <input class="search-box" type="search" id="search" placeholder="搜索环境… / Filter env…" oninput="filterCards(this.value)">
 </div>
 <div class="summary-grid" id="summary-grid"></div>
-<div class="env-grid" id="env-grid">
+<div id="all-groups">
   <div class="empty-state"><span class="zh">暂无测试报告</span><span class="en">No test reports yet</span></div>
 </div>
 <script>
-const ALL_ENV_DATA = [{"name":"containerd","latestTs":"20260427-193044","total":647,"pass":646,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-193044","links":["reports/containerd/20260427-193044/containerd-auto-report.html","reports/containerd/20260427-193044/containerd-report.html"],"total":647,"pass":646,"fail":0,"skip":1,"rate":99},{"ts":"20260426-103931","links":["reports/containerd/20260426-103931/containerd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112629","links":["reports/containerd/20260420-112629/containerd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-072641","links":["reports/containerd/20260417-072641/containerd-auto-report.html","reports/containerd/20260417-072641/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260416-140601","links":["reports/containerd/20260416-140601/containerd-auto-report.html","reports/containerd/20260416-140601/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260415-171354","links":["reports/containerd/20260415-171354/containerd-auto-report.html","reports/containerd/20260415-171354/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260414-114311","links":["reports/containerd/20260414-114311/containerd-report.html"],"total":564,"pass":564,"fail":0,"skip":0,"rate":100}]},{"name":"docker","latestTs":"20260427-155149","total":658,"pass":657,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-155149","links":["reports/docker/20260427-155149/docker-auto-report.html","reports/docker/20260427-155149/docker-report.html"],"total":658,"pass":657,"fail":0,"skip":1,"rate":99},{"ts":"20260427-145751","links":["reports/docker/20260427-145751/docker-auto-report.html","reports/docker/20260427-145751/docker-report.html"],"total":658,"pass":657,"fail":0,"skip":1,"rate":99},{"ts":"20260427-125405","links":["reports/docker/20260427-125405/docker-auto-report.html","reports/docker/20260427-125405/docker-report.html"],"total":660,"pass":653,"fail":6,"skip":1,"rate":98},{"ts":"20260427-111941","links":["reports/docker/20260427-111941/docker-auto-report.html","reports/docker/20260427-111941/docker-report.html"],"total":660,"pass":650,"fail":10,"skip":0,"rate":98},{"ts":"20260427-075200","links":["reports/docker/20260427-075200/docker-auto-report.html","reports/docker/20260427-075200/docker-report.html"],"total":655,"pass":650,"fail":5,"skip":0,"rate":99},{"ts":"20260427-044943","links":["reports/docker/20260427-044943/docker-auto-report.html","reports/docker/20260427-044943/docker-report.html"],"total":655,"pass":650,"fail":5,"skip":0,"rate":99},{"ts":"20260427-023113","links":["reports/docker/20260427-023113/docker-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0}]},{"name":"incus","latestTs":"20260427-182144","total":747,"pass":746,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-182144","links":["reports/incus/20260427-182144/incus-auto-report.html","reports/incus/20260427-182144/incus-report.html"],"total":747,"pass":746,"fail":0,"skip":1,"rate":99},{"ts":"20260427-102124","links":["reports/incus/20260427-102124/incus-auto-report.html","reports/incus/20260427-102124/incus-report.html"],"total":744,"pass":739,"fail":5,"skip":0,"rate":99},{"ts":"20260426-103449","links":["reports/incus/20260426-103449/incus-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112125","links":["reports/incus/20260420-112125/incus-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-060425","links":["reports/incus/20260417-060425/incus-auto-report.html","reports/incus/20260417-060425/incus-report.html"],"total":652,"pass":648,"fail":4,"skip":0,"rate":99},{"ts":"20260416-125408","links":["reports/incus/20260416-125408/incus-auto-report.html","reports/incus/20260416-125408/incus-report.html"],"total":736,"pass":733,"fail":3,"skip":0,"rate":99},{"ts":"20260415-155033","links":["reports/incus/20260415-155033/incus-auto-report.html","reports/incus/20260415-155033/incus-report.html"],"total":737,"pass":733,"fail":4,"skip":0,"rate":99}]},{"name":"kubevirt","latestTs":"20260427-205450","total":627,"pass":627,"fail":0,"skip":0,"rate":100,"runs":[{"ts":"20260427-205450","links":["reports/kubevirt/20260427-205450/kubevirt-auto-report.html","reports/kubevirt/20260427-205450/kubevirt-report.html"],"total":627,"pass":627,"fail":0,"skip":0,"rate":100},{"ts":"20260426-104400","links":["reports/kubevirt/20260426-104400/kubevirt-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-113140","links":["reports/kubevirt/20260420-113140/kubevirt-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-084028","links":["reports/kubevirt/20260417-084028/kubevirt-auto-report.html","reports/kubevirt/20260417-084028/kubevirt-report.html"],"total":619,"pass":617,"fail":2,"skip":0,"rate":99},{"ts":"20260416-152301","links":["reports/kubevirt/20260416-152301/kubevirt-auto-report.html","reports/kubevirt/20260416-152301/kubevirt-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99},{"ts":"20260415-183458","links":["reports/kubevirt/20260415-183458/kubevirt-auto-report.html","reports/kubevirt/20260415-183458/kubevirt-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99}]},{"name":"lxd","latestTs":"20260427-163311","total":662,"pass":661,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-163311","links":["reports/lxd/20260427-163311/lxd-auto-report.html","reports/lxd/20260427-163311/lxd-report.html"],"total":662,"pass":661,"fail":0,"skip":1,"rate":99},{"ts":"20260427-083252","links":["reports/lxd/20260427-083252/lxd-auto-report.html","reports/lxd/20260427-083252/lxd-report.html"],"total":659,"pass":654,"fail":5,"skip":0,"rate":99},{"ts":"20260426-103215","links":["reports/lxd/20260426-103215/lxd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-111834","links":["reports/lxd/20260420-111834/lxd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-051638","links":["reports/lxd/20260417-051638/lxd-auto-report.html","reports/lxd/20260417-051638/lxd-report.html"],"total":701,"pass":697,"fail":4,"skip":0,"rate":99},{"ts":"20260416-110203","links":["reports/lxd/20260416-110203/lxd-auto-report.html","reports/lxd/20260416-110203/lxd-report.html"],"total":717,"pass":713,"fail":4,"skip":0,"rate":99},{"ts":"20260415-140257","links":["reports/lxd/20260415-140257/lxd-auto-report.html","reports/lxd/20260415-140257/lxd-report.html"],"total":717,"pass":713,"fail":4,"skip":0,"rate":99}]},{"name":"podman","latestTs":"20260427-185737","total":654,"pass":653,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-185737","links":["reports/podman/20260427-185737/podman-auto-report.html","reports/podman/20260427-185737/podman-report.html"],"total":654,"pass":653,"fail":0,"skip":1,"rate":99},{"ts":"20260427-103533","links":[],"total":240,"pass":239,"fail":1,"skip":0,"rate":99},{"ts":"20260426-103710","links":["reports/podman/20260426-103710/podman-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112347","links":["reports/podman/20260420-112347/podman-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-064246","links":["reports/podman/20260417-064246/podman-auto-report.html","reports/podman/20260417-064246/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99},{"ts":"20260416-133104","links":["reports/podman/20260416-133104/podman-auto-report.html","reports/podman/20260416-133104/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99},{"ts":"20260415-163223","links":["reports/podman/20260415-163223/podman-auto-report.html","reports/podman/20260415-163223/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99}]},{"name":"proxmoxve","latestTs":"20260427-200648","total":659,"pass":657,"fail":1,"skip":1,"rate":99,"runs":[{"ts":"20260427-200648","links":["reports/proxmoxve/20260427-200648/proxmoxve-auto-report.html","reports/proxmoxve/20260427-200648/proxmoxve-report.html"],"total":659,"pass":657,"fail":1,"skip":1,"rate":99},{"ts":"20260426-104147","links":["reports/proxmoxve/20260426-104147/proxmoxve-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112912","links":["reports/proxmoxve/20260420-112912/proxmoxve-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-075822","links":["reports/proxmoxve/20260417-075822/proxmoxve-auto-report.html","reports/proxmoxve/20260417-075822/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260416-145856","links":["reports/proxmoxve/20260416-145856/proxmoxve-auto-report.html","reports/proxmoxve/20260416-145856/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260415-180920","links":["reports/proxmoxve/20260415-180920/proxmoxve-auto-report.html","reports/proxmoxve/20260415-180920/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260414-122514","links":["reports/proxmoxve/20260414-122514/proxmoxve-report.html"],"total":566,"pass":566,"fail":0,"skip":0,"rate":100}]},{"name":"qemu","latestTs":"20260427-213859","total":627,"pass":627,"fail":0,"skip":0,"rate":100,"runs":[{"ts":"20260427-213859","links":["reports/qemu/20260427-213859/qemu-auto-report.html","reports/qemu/20260427-213859/qemu-report.html"],"total":627,"pass":627,"fail":0,"skip":0,"rate":100},{"ts":"20260426-104610","links":["reports/qemu/20260426-104610/qemu-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-113417","links":["reports/qemu/20260420-113417/qemu-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-093247","links":["reports/qemu/20260417-093247/qemu-auto-report.html","reports/qemu/20260417-093247/qemu-report.html"],"total":619,"pass":617,"fail":2,"skip":0,"rate":99},{"ts":"20260416-154756","links":["reports/qemu/20260416-154756/qemu-auto-report.html","reports/qemu/20260416-154756/qemu-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99},{"ts":"20260415-185753","links":["reports/qemu/20260415-185753/qemu-auto-report.html","reports/qemu/20260415-185753/qemu-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99}]}];
+const ALL_ENV_DATA = [{"name":"arm-controller","group":"arm","latestTs":"20260501-042231","total":282,"pass":282,"fail":0,"skip":0,"rate":100,"runs":[{"ts":"20260501-042231","links":["reports/arm-controller/20260501-042231/module-01,02,03,04,05,06,07,08,17,20,21,25-report.html"],"total":282,"pass":282,"fail":0,"skip":0,"rate":100}]},{"name":"containerd","group":"integration","latestTs":"20260427-193044","total":647,"pass":646,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-193044","links":["reports/containerd/20260427-193044/containerd-auto-report.html","reports/containerd/20260427-193044/containerd-report.html"],"total":647,"pass":646,"fail":0,"skip":1,"rate":99},{"ts":"20260426-103931","links":["reports/containerd/20260426-103931/containerd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112629","links":["reports/containerd/20260420-112629/containerd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-072641","links":["reports/containerd/20260417-072641/containerd-auto-report.html","reports/containerd/20260417-072641/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260416-140601","links":["reports/containerd/20260416-140601/containerd-auto-report.html","reports/containerd/20260416-140601/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260415-171354","links":["reports/containerd/20260415-171354/containerd-auto-report.html","reports/containerd/20260415-171354/containerd-report.html"],"total":640,"pass":636,"fail":4,"skip":0,"rate":99},{"ts":"20260414-114311","links":["reports/containerd/20260414-114311/containerd-report.html"],"total":564,"pass":564,"fail":0,"skip":0,"rate":100}]},{"name":"docker","group":"integration","latestTs":"20260427-155149","total":658,"pass":657,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-155149","links":["reports/docker/20260427-155149/docker-auto-report.html","reports/docker/20260427-155149/docker-report.html"],"total":658,"pass":657,"fail":0,"skip":1,"rate":99},{"ts":"20260427-145751","links":["reports/docker/20260427-145751/docker-auto-report.html","reports/docker/20260427-145751/docker-report.html"],"total":658,"pass":657,"fail":0,"skip":1,"rate":99},{"ts":"20260427-125405","links":["reports/docker/20260427-125405/docker-auto-report.html","reports/docker/20260427-125405/docker-report.html"],"total":660,"pass":653,"fail":6,"skip":1,"rate":98},{"ts":"20260427-111941","links":["reports/docker/20260427-111941/docker-auto-report.html","reports/docker/20260427-111941/docker-report.html"],"total":660,"pass":650,"fail":10,"skip":0,"rate":98},{"ts":"20260427-075200","links":["reports/docker/20260427-075200/docker-auto-report.html","reports/docker/20260427-075200/docker-report.html"],"total":655,"pass":650,"fail":5,"skip":0,"rate":99},{"ts":"20260427-044943","links":["reports/docker/20260427-044943/docker-auto-report.html","reports/docker/20260427-044943/docker-report.html"],"total":655,"pass":650,"fail":5,"skip":0,"rate":99},{"ts":"20260427-023113","links":["reports/docker/20260427-023113/docker-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0}]},{"name":"incus","group":"integration","latestTs":"20260427-182144","total":747,"pass":746,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-182144","links":["reports/incus/20260427-182144/incus-auto-report.html","reports/incus/20260427-182144/incus-report.html"],"total":747,"pass":746,"fail":0,"skip":1,"rate":99},{"ts":"20260427-102124","links":["reports/incus/20260427-102124/incus-auto-report.html","reports/incus/20260427-102124/incus-report.html"],"total":744,"pass":739,"fail":5,"skip":0,"rate":99},{"ts":"20260426-103449","links":["reports/incus/20260426-103449/incus-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112125","links":["reports/incus/20260420-112125/incus-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-060425","links":["reports/incus/20260417-060425/incus-auto-report.html","reports/incus/20260417-060425/incus-report.html"],"total":652,"pass":648,"fail":4,"skip":0,"rate":99},{"ts":"20260416-125408","links":["reports/incus/20260416-125408/incus-auto-report.html","reports/incus/20260416-125408/incus-report.html"],"total":736,"pass":733,"fail":3,"skip":0,"rate":99},{"ts":"20260415-155033","links":["reports/incus/20260415-155033/incus-auto-report.html","reports/incus/20260415-155033/incus-report.html"],"total":737,"pass":733,"fail":4,"skip":0,"rate":99}]},{"name":"kubevirt","group":"integration","latestTs":"20260427-205450","total":627,"pass":627,"fail":0,"skip":0,"rate":100,"runs":[{"ts":"20260427-205450","links":["reports/kubevirt/20260427-205450/kubevirt-auto-report.html","reports/kubevirt/20260427-205450/kubevirt-report.html"],"total":627,"pass":627,"fail":0,"skip":0,"rate":100},{"ts":"20260426-104400","links":["reports/kubevirt/20260426-104400/kubevirt-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-113140","links":["reports/kubevirt/20260420-113140/kubevirt-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-084028","links":["reports/kubevirt/20260417-084028/kubevirt-auto-report.html","reports/kubevirt/20260417-084028/kubevirt-report.html"],"total":619,"pass":617,"fail":2,"skip":0,"rate":99},{"ts":"20260416-152301","links":["reports/kubevirt/20260416-152301/kubevirt-auto-report.html","reports/kubevirt/20260416-152301/kubevirt-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99},{"ts":"20260415-183458","links":["reports/kubevirt/20260415-183458/kubevirt-auto-report.html","reports/kubevirt/20260415-183458/kubevirt-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99}]},{"name":"lxd","group":"integration","latestTs":"20260427-163311","total":662,"pass":661,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-163311","links":["reports/lxd/20260427-163311/lxd-auto-report.html","reports/lxd/20260427-163311/lxd-report.html"],"total":662,"pass":661,"fail":0,"skip":1,"rate":99},{"ts":"20260427-083252","links":["reports/lxd/20260427-083252/lxd-auto-report.html","reports/lxd/20260427-083252/lxd-report.html"],"total":659,"pass":654,"fail":5,"skip":0,"rate":99},{"ts":"20260426-103215","links":["reports/lxd/20260426-103215/lxd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-111834","links":["reports/lxd/20260420-111834/lxd-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-051638","links":["reports/lxd/20260417-051638/lxd-auto-report.html","reports/lxd/20260417-051638/lxd-report.html"],"total":701,"pass":697,"fail":4,"skip":0,"rate":99},{"ts":"20260416-110203","links":["reports/lxd/20260416-110203/lxd-auto-report.html","reports/lxd/20260416-110203/lxd-report.html"],"total":717,"pass":713,"fail":4,"skip":0,"rate":99},{"ts":"20260415-140257","links":["reports/lxd/20260415-140257/lxd-auto-report.html","reports/lxd/20260415-140257/lxd-report.html"],"total":717,"pass":713,"fail":4,"skip":0,"rate":99}]},{"name":"podman","group":"integration","latestTs":"20260427-185737","total":654,"pass":653,"fail":0,"skip":1,"rate":99,"runs":[{"ts":"20260427-185737","links":["reports/podman/20260427-185737/podman-auto-report.html","reports/podman/20260427-185737/podman-report.html"],"total":654,"pass":653,"fail":0,"skip":1,"rate":99},{"ts":"20260427-103533","links":[],"total":240,"pass":239,"fail":1,"skip":0,"rate":99},{"ts":"20260426-103710","links":["reports/podman/20260426-103710/podman-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112347","links":["reports/podman/20260420-112347/podman-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-064246","links":["reports/podman/20260417-064246/podman-auto-report.html","reports/podman/20260417-064246/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99},{"ts":"20260416-133104","links":["reports/podman/20260416-133104/podman-auto-report.html","reports/podman/20260416-133104/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99},{"ts":"20260415-163223","links":["reports/podman/20260415-163223/podman-auto-report.html","reports/podman/20260415-163223/podman-report.html"],"total":644,"pass":640,"fail":4,"skip":0,"rate":99}]},{"name":"proxmoxve","group":"integration","latestTs":"20260427-200648","total":659,"pass":657,"fail":1,"skip":1,"rate":99,"runs":[{"ts":"20260427-200648","links":["reports/proxmoxve/20260427-200648/proxmoxve-auto-report.html","reports/proxmoxve/20260427-200648/proxmoxve-report.html"],"total":659,"pass":657,"fail":1,"skip":1,"rate":99},{"ts":"20260426-104147","links":["reports/proxmoxve/20260426-104147/proxmoxve-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-112912","links":["reports/proxmoxve/20260420-112912/proxmoxve-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-075822","links":["reports/proxmoxve/20260417-075822/proxmoxve-auto-report.html","reports/proxmoxve/20260417-075822/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260416-145856","links":["reports/proxmoxve/20260416-145856/proxmoxve-auto-report.html","reports/proxmoxve/20260416-145856/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260415-180920","links":["reports/proxmoxve/20260415-180920/proxmoxve-auto-report.html","reports/proxmoxve/20260415-180920/proxmoxve-report.html"],"total":650,"pass":646,"fail":4,"skip":0,"rate":99},{"ts":"20260414-122514","links":["reports/proxmoxve/20260414-122514/proxmoxve-report.html"],"total":566,"pass":566,"fail":0,"skip":0,"rate":100}]},{"name":"qemu","group":"integration","latestTs":"20260427-213859","total":627,"pass":627,"fail":0,"skip":0,"rate":100,"runs":[{"ts":"20260427-213859","links":["reports/qemu/20260427-213859/qemu-auto-report.html","reports/qemu/20260427-213859/qemu-report.html"],"total":627,"pass":627,"fail":0,"skip":0,"rate":100},{"ts":"20260426-104610","links":["reports/qemu/20260426-104610/qemu-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260420-113417","links":["reports/qemu/20260420-113417/qemu-report.html"],"total":0,"pass":0,"fail":0,"skip":0,"rate":0},{"ts":"20260417-093247","links":["reports/qemu/20260417-093247/qemu-auto-report.html","reports/qemu/20260417-093247/qemu-report.html"],"total":619,"pass":617,"fail":2,"skip":0,"rate":99},{"ts":"20260416-154756","links":["reports/qemu/20260416-154756/qemu-auto-report.html","reports/qemu/20260416-154756/qemu-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99},{"ts":"20260415-185753","links":["reports/qemu/20260415-185753/qemu-auto-report.html","reports/qemu/20260415-185753/qemu-report.html"],"total":591,"pass":589,"fail":2,"skip":0,"rate":99}]}];
 const ENV_ZH = {
   docker:'Docker', podman:'Podman', containerd:'Containerd',
-  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE'
+  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE', kubevirt:'KubeVirt', qemu:'QEMU',
+  'allsys-docker':'全系统-Docker', 'allsys-podman':'全系统-Podman',
+  'allsys-containerd':'全系统-Containerd', 'allsys-lxd':'全系统-LXD',
+  'allsys-incus':'全系统-Incus', 'allsys-proxmoxve':'全系统-Proxmox VE',
+  'allsys-kubevirt':'全系统-KubeVirt', 'allsys-qemu':'全系统-QEMU',
+  'arm-controller':'ARM 控制器',
+};
+
+const ENV_ZH_EN = {
+  docker:'Docker', podman:'Podman', containerd:'Containerd',
+  lxd:'LXD', incus:'Incus', proxmoxve:'Proxmox VE', kubevirt:'KubeVirt', qemu:'QEMU',
+  'allsys-docker':'AllSys-Docker', 'allsys-podman':'AllSys-Podman',
+  'allsys-containerd':'AllSys-Containerd', 'allsys-lxd':'AllSys-LXD',
+  'allsys-incus':'AllSys-Incus', 'allsys-proxmoxve':'AllSys-Proxmox VE',
+  'allsys-kubevirt':'AllSys-KubeVirt', 'allsys-qemu':'AllSys-QEMU',
+  'arm-controller':'ARM Controller',
+};
+
+const GROUP_META = {
+  'integration': {
+    zh: '集成测试',
+    en: 'Integration Tests',
+    desc_zh: 'Debian & Alpine 系统 · 选定平台',
+    desc_en: 'Debian & Alpine images · Selected platforms',
+  },
+  'all-systems': {
+    zh: '全系统测试',
+    en: 'All Systems Tests',
+    desc_zh: '全部系统镜像 · 全部平台',
+    desc_en: 'All system images · All platforms',
+  },
+  'arm': {
+    zh: 'ARM 控制器测试',
+    en: 'ARM Controller Tests',
+    desc_zh: 'ARM64 架构 · 仅控制器',
+    desc_en: 'ARM64 architecture · Controller only',
+  },
 };
 
 function rateColor(r) {
@@ -119,66 +157,98 @@ function renderSummary(data) {
   applyLang();
 }
 
-function renderCards(data) {
-  const g = document.getElementById('env-grid');
-  if (!data.length) return;
-  g.innerHTML = '';
-  data.forEach(env => {
-    const zh = ENV_ZH[env.name] || env.name;
-    const rc = rateColor(env.rate);
-    const div = document.createElement('div');
-    div.className = 'env-card';
-    div.dataset.name = env.name;
+function makeEnvCard(env) {
+  const zh = ENV_ZH[env.name] || env.name;
+  const en = ENV_ZH_EN[env.name] || env.name;
+  const rc = rateColor(env.rate);
+  const div = document.createElement('div');
+  div.className = 'env-card';
+  div.dataset.name = env.name;
 
-    const runsHtml = env.runs.map(r => {
-      const lh = r.links.map(l => {
-        const fn = l.replace(/.*\//, '');
-        const label = fn.replace(/-report\.html$/, '').replace(/-/g, ' ');
-        return `<a href="${l}" class="run-link">${label}</a>`;
-      }).join('');
-      return `<div class="run-item">
-        <span class="run-ts">${formatTs(r.ts)}</span>
-        <div class="run-links">${lh}</div>
-        <div class="run-stats">
-          <span class="mp">✓${r.pass}</span>
-          ${r.fail > 0 ? `<span class="mf">✗${r.fail}</span>` : ''}
-          ${r.skip > 0 ? `<span class="ms">⊘${r.skip}</span>` : ''}
-        </div>
-      </div>`;
+  const runsHtml = env.runs.map(r => {
+    const lh = r.links.map(l => {
+      const fn = l.replace(/.*\//, '');
+      const label = fn.replace(/-report\.html$/, '').replace(/-/g, ' ');
+      return `<a href="${l}" class="run-link">${label}</a>`;
     }).join('');
+    return `<div class="run-item">
+      <span class="run-ts">${formatTs(r.ts)}</span>
+      <div class="run-links">${lh}</div>
+      <div class="run-stats">
+        <span class="mp">✓${r.pass}</span>
+        ${r.fail > 0 ? `<span class="mf">✗${r.fail}</span>` : ''}
+        ${r.skip > 0 ? `<span class="ms">⊘${r.skip}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
 
-    const skipHtml = env.skip > 0
-      ? `<span class="stat-pill ss">⊘ ${env.skip} <span class="zh">跳过</span><span class="en">Skip</span></span>`
-      : '';
+  const skipHtml = env.skip > 0
+    ? `<span class="stat-pill ss">⊘ ${env.skip} <span class="zh">跳过</span><span class="en">Skip</span></span>`
+    : '';
 
-    div.innerHTML = `
-      <div class="env-card-header">
-        <div class="env-name">
-          <span>${zh}</span>
-          <span class="env-badge" style="color:${rc};border-color:${rc}">${env.rate}%</span>
-        </div>
+  div.innerHTML = `
+    <div class="env-card-header">
+      <div class="env-name">
+        <span class="zh">${zh}</span><span class="en">${en}</span>
+        <span class="env-badge" style="color:${rc};border-color:${rc}">${env.rate}%</span>
       </div>
-      <div class="env-ts"><span class="zh">最新：</span><span class="en">Latest: </span>${formatTs(env.latestTs)}</div>
-      <div class="env-stats">
-        <span class="stat-pill sp">✓ ${env.pass} <span class="zh">通过</span><span class="en">Pass</span></span>
-        <span class="stat-pill sf">✗ ${env.fail} <span class="zh">失败</span><span class="en">Fail</span></span>
-        ${skipHtml}
-      </div>
-      <div class="progress-bar">
-        <div class="progress-fill" style="width:${env.rate}%;background:${rc}"></div>
-      </div>
-      <div class="rate-label">
-        <span>${env.total} <span class="zh">项测试</span><span class="en">tests</span></span>
-        <span style="color:${rc};font-weight:600">${env.rate}%</span>
-      </div>
-      <button class="expand-btn" onclick="toggleRuns(this)">
-        <span><span class="zh">历史记录</span><span class="en">Run History</span> (${env.runs.length})</span>
-        <span class="chev" style="transition:transform .3s">▼</span>
-      </button>
-      <div class="run-list">${runsHtml}</div>
-    `;
-    g.appendChild(div);
+    </div>
+    <div class="env-ts"><span class="zh">最新：</span><span class="en">Latest: </span>${formatTs(env.latestTs)}</div>
+    <div class="env-stats">
+      <span class="stat-pill sp">✓ ${env.pass} <span class="zh">通过</span><span class="en">Pass</span></span>
+      <span class="stat-pill sf">✗ ${env.fail} <span class="zh">失败</span><span class="en">Fail</span></span>
+      ${skipHtml}
+    </div>
+    <div class="progress-bar">
+      <div class="progress-fill" style="width:${env.rate}%;background:${rc}"></div>
+    </div>
+    <div class="rate-label">
+      <span>${env.total} <span class="zh">项测试</span><span class="en">tests</span></span>
+      <span style="color:${rc};font-weight:600">${env.rate}%</span>
+    </div>
+    <button class="expand-btn" onclick="toggleRuns(this)">
+      <span><span class="zh">历史记录</span><span class="en">Run History</span> (${env.runs.length})</span>
+      <span class="chev" style="transition:transform .3s">▼</span>
+    </button>
+    <div class="run-list">${runsHtml}</div>
+  `;
+  return div;
+}
+
+function renderGroups(data) {
+  const container = document.getElementById('all-groups');
+  if (!data.length) return;
+  container.innerHTML = '';
+
+  const order = ['integration', 'all-systems', 'arm'];
+  const byGroup = {};
+  data.forEach(env => {
+    const g = env.group || 'integration';
+    if (!byGroup[g]) byGroup[g] = [];
+    byGroup[g].push(env);
   });
+
+  order.forEach(gKey => {
+    const envs = byGroup[gKey];
+    if (!envs || envs.length === 0) return;
+    const meta = GROUP_META[gKey] || { zh: gKey, en: gKey, desc_zh: '', desc_en: '' };
+
+    const heading = document.createElement('div');
+    heading.className = 'section-heading';
+    heading.innerHTML = `
+      <span class="zh">🗂 ${meta.zh}</span>
+      <span class="en">🗂 ${meta.en}</span>
+      <span class="badge zh">${meta.desc_zh}</span>
+      <span class="badge en">${meta.desc_en}</span>
+    `;
+    container.appendChild(heading);
+
+    const grid = document.createElement('div');
+    grid.className = 'env-grid';
+    envs.forEach(env => grid.appendChild(makeEnvCard(env)));
+    container.appendChild(grid);
+  });
+
   applyLang();
 }
 
@@ -212,15 +282,15 @@ function toggleTheme() {
 }
 
 renderSummary(ALL_ENV_DATA);
-renderCards(ALL_ENV_DATA);
+renderGroups(ALL_ENV_DATA);
 </script>
 <footer>
   <p>
     <span class="zh">由 GitHub Actions 自动生成 · </span>
     <span class="en">Auto-generated by GitHub Actions · </span>
     <a href="https://github.com/oneclickvirt/oneclickvirt">OneClickVirt</a>
-    <span class="zh"> · 最后更新：2026-04-27 21:39:00 UTC</span>
-    <span class="en"> · Last updated: 2026-04-27 21:39:00 UTC</span>
+    <span class="zh"> · 最后更新：2026-05-01 04:22:31 UTC</span>
+    <span class="en"> · Last updated: 2026-05-01 04:22:31 UTC</span>
   </p>
 </footer>
 </div>
