@@ -309,7 +309,13 @@ func (p *ProxmoxProvider) setupIptablesMappingWithIP(ctx context.Context, instan
 	}
 
 	fwMgr := firewall.NewManager(p.sshClient, "proxmox", "")
-	fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend")
+	if _, err := fwMgr.DetectBackend("/usr/local/bin/proxmox_fw_backend"); err != nil {
+		return fmt.Errorf("防火墙后端检测失败: %w", err)
+	}
+	// 确保 nft table/chain 已初始化（首次使用前可能尚未创建）
+	if err := fwMgr.InitTable(); err != nil {
+		return fmt.Errorf("防火墙初始化失败: %w", err)
+	}
 
 	comment := fmt.Sprintf("pm:%s:%d:%d", instanceName, hostPort, guestPort)
 	if err := fwMgr.AddSingleDNAT(cleanInstanceIP, hostPort, guestPort, protocol, comment); err != nil {

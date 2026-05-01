@@ -313,7 +313,13 @@ func (i *IptablesPortMapping) createIptablesRule(ctx context.Context, instance *
 	// 使用 firewall.Manager 统一处理
 	tableName := i.getTableName(providerInfo)
 	fwMgr := firewall.NewManager(sshClient, tableName, "")
-	fwMgr.DetectBackend(i.getMarkerFile(providerInfo))
+	if _, err := fwMgr.DetectBackend(i.getMarkerFile(providerInfo)); err != nil {
+		return fmt.Errorf("failed to detect firewall backend: %v", err)
+	}
+	// 确保 nft table/chain 已初始化（首次使用前可能尚未创建）
+	if err := fwMgr.InitTable(); err != nil {
+		return fmt.Errorf("failed to init firewall table: %v", err)
+	}
 
 	if err := fwMgr.AddSingleDNAT(instanceIP, hostPort, guestPort, protocol, comment); err != nil {
 		return fmt.Errorf("failed to add DNAT rule: %v", err)

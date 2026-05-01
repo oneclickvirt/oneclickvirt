@@ -40,7 +40,7 @@ func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 	}
 
 	svc := NewMonitorService(ctx, db)
-	monitor, err := svc.RegisterMonitor(providerInstance, &instance, config)
+	monitor, err := svc.RegisterMonitor(providerInstance, &instance, config, "")
 	if err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("agent lifecycle: failed to register monitor on instance create",
@@ -94,7 +94,7 @@ func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 	}
 
 	svc := NewMonitorService(ctx, db)
-	if err := svc.UpdateMonitorInterfaces(providerInstance, &instance, config); err != nil {
+	if err := svc.UpdateMonitorInterfaces(providerInstance, &instance, config, ""); err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("agent lifecycle: failed to update monitor on instance rebuild",
 				zap.Uint("instance_id", instanceID), zap.Error(err))
@@ -133,7 +133,7 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	existing, _ := svc.GetMonitorByInstanceID(instanceID)
 	if existing != nil {
 		// Update interfaces (may have changed after restart)
-		if err := svc.UpdateMonitorInterfaces(providerInstance, &instance, config); err != nil {
+		if err := svc.UpdateMonitorInterfaces(providerInstance, &instance, config, ""); err != nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("agent lifecycle: failed to update monitor on instance start",
 					zap.Uint("instance_id", instanceID), zap.Error(err))
@@ -145,7 +145,7 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	}
 
 	// Register new monitor
-	monitor, err := svc.RegisterMonitor(providerInstance, &instance, config)
+	monitor, err := svc.RegisterMonitor(providerInstance, &instance, config, "")
 	if err != nil {
 		if global.APP_LOG != nil {
 			global.APP_LOG.Warn("agent lifecycle: failed to register monitor on instance start",

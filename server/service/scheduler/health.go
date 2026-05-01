@@ -2,6 +2,7 @@ package scheduler
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -12,23 +13,29 @@ import (
 	"go.uber.org/zap"
 )
 
+// autoFreezeThreshold 连续失败多少次后自动冻结Provider（3分钟/次 × 120 = 360分钟）
+const autoFreezeThreshold = 120
+
 // ProviderHealthSchedulerService Provider健康检查调度服务
 type ProviderHealthSchedulerService struct {
-	providerService *adminProviderService.Service
-	stopChan        chan struct{}
-	mu              sync.RWMutex
-	isRunning       bool
-	maxConcurrency  int // 最大并发数
+	providerService     *adminProviderService.Service
+	stopChan            chan struct{}
+	mu                  sync.RWMutex
+	isRunning           bool
+	maxConcurrency      int // 最大并发数
+	consecutiveFailures map[uint]int
+	failureMu           sync.Mutex
 }
 
 // NewProviderHealthSchedulerService 创建Provider健康检查调度服务
 func NewProviderHealthSchedulerService() *ProviderHealthSchedulerService {
 	maxConcurrency := 3 // 最多同时检查3个provider
 	return &ProviderHealthSchedulerService{
-		providerService: adminProviderService.NewService(),
-		stopChan:        make(chan struct{}),
-		isRunning:       false,
-		maxConcurrency:  maxConcurrency,
+		providerService:     adminProviderService.NewService(),
+		stopChan:            make(chan struct{}),
+		isRunning:           false,
+		maxConcurrency:      maxConcurrency,
+		consecutiveFailures: make(map[uint]int),
 	}
 }
 
@@ -162,6 +169,20 @@ func (s *ProviderHealthSchedulerService) checkAllProvidersHealth() {
 	// 等待所有检查完成
 	wg.Wait()
 	global.APP_LOG.Debug("所有Provider健康检查完成")
+
+	// 清理 consecutiveFailures 中已不在活跃集的 Provider 条目，
+	// 防止 Provider 被删除后其 ID 被新 Provider 复用时继承旧的失败计数。
+	activeSet := make(map[uint]struct{}, len(providers))
+	for _, p := range providers {
+		activeSet[p.ID] = struct{}{}
+	}
+	s.failureMu.Lock()
+	for id := range s.consecutiveFailures {
+		if _, active := activeSet[id]; !active {
+			delete(s.consecutiveFailures, id)
+		}
+	}
+	s.failureMu.Unlock()
 }
 
 // checkSingleProviderHealth 检查单个Provider的健康状态
@@ -224,6 +245,44 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 	// 检测同类型Provider的hostname冲突（仅记录警告，不做任何处理）
 	if updatedProvider.HostName != "" {
 		s.detectHostnameConflicts(providerID, providerName, providerType, updatedProvider.HostName, updatedProvider.Endpoint)
+	}
+
+	// 连续失败计数：inactive 递增，非 inactive 归零
+	s.failureMu.Lock()
+	if updatedProvider.Status == "inactive" {
+		s.consecutiveFailures[providerID]++
+	} else {
+		delete(s.consecutiveFailures, providerID)
+	}
+	currentFailures := s.consecutiveFailures[providerID]
+	s.failureMu.Unlock()
+
+	// 连续失败超过阈值时自动冻结，停止重复的健康检查噪音
+	if currentFailures >= autoFreezeThreshold && !updatedProvider.IsFrozen {
+		now := time.Now()
+		reason := fmt.Sprintf("健康检查连续失败 %d 次（约 %d 分钟），自动冻结", currentFailures, currentFailures*3)
+		if dbErr := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ?", providerID).
+			Updates(map[string]interface{}{
+				"is_frozen":     true,
+				"frozen_reason": reason,
+				"frozen_at":     &now,
+				"allow_claim":   false,
+			}).Error; dbErr != nil {
+			global.APP_LOG.Error("自动冻结Provider失败",
+				zap.Uint("provider_id", providerID),
+				zap.Error(dbErr))
+		} else {
+			global.APP_LOG.Warn("Provider连续健康检查失败已自动冻结，请检查Provider网络可达性",
+				zap.Uint("provider_id", providerID),
+				zap.String("provider_name", providerName),
+				zap.Int("consecutive_failures", currentFailures),
+				zap.String("reason", reason))
+			s.failureMu.Lock()
+			delete(s.consecutiveFailures, providerID)
+			s.failureMu.Unlock()
+		}
+		return
 	}
 
 	// 检查Provider状态是否发生变化

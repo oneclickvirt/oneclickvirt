@@ -115,6 +115,19 @@ func (s *SamplingCore) getSamplingInterval(level zapcore.Level, message string) 
 		return 1 * time.Minute // 流量数据每分钟最多记录一次
 	case contains(message, "Task"):
 		return 5 * time.Second // 任务相关消息每5秒最多记录一次
+	// 高频操作日志：端口分配、端口映射、监控注册——每次进行多端口VM创建时会科寁弹出 N 条相同消息
+	case contains(message, "分配端口"):
+		return 5 * time.Second // 端口分配：创建 VM 时会快速连续触发多次
+	case contains(message, "端口映射"):
+		return 5 * time.Second // 端口映射创建/删除/同步
+	case contains(message, "防火墙端口映射"):
+		return 5 * time.Second // 防火墙规则
+	case contains(message, "iptables port mapping"):
+		return 5 * time.Second // iptables端口映射英文日志
+	case contains(message, "agent monitor"):
+		return 5 * time.Second // registered/updated agent monitor
+	case contains(message, "pmacct监控"):
+		return 5 * time.Second // pmacct监控初始化
 	case level == zapcore.DebugLevel:
 		return 5 * time.Second // Debug级别消息每5秒最多记录一次
 	case level == zapcore.InfoLevel:
@@ -128,9 +141,9 @@ func (s *SamplingCore) getSamplingInterval(level zapcore.Level, message string) 
 func (s *SamplingCore) getMaxSkipLogs(level zapcore.Level) int64 {
 	switch level {
 	case zapcore.DebugLevel:
-		return 10 // Debug级别最多跳过10次
+		return 19 // Debug级别每素 20 条输出 1 条
 	case zapcore.InfoLevel:
-		return 5 // Info级别最多跳过5次
+		return 9 // Info级别每素 10 条输出 1 条
 	default:
 		return 3
 	}

@@ -110,8 +110,9 @@ func SetupRouter() *gin.Engine {
 	// API 路由组
 	ApiGroup := Router.Group("/api")
 	{
-		// 健康检查在 /api 路径下保持一致
+		// 健康检查在 /api 和 /api/v1 路径下保持一致
 		ApiGroup.GET("/health", public.HealthCheck)
+		ApiGroup.GET("/v1/health", public.HealthCheck)
 
 		// 无数据库健康检查组：系统初始化完成前必需可访问的接口
 		NoDBGroup := ApiGroup.Group("")

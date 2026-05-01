@@ -228,10 +228,18 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 			restartCmd := fmt.Sprintf("qm reboot %s", vmid)
 			_, err = p.sshClient.Execute(restartCmd)
 			if err != nil {
-				global.APP_LOG.Warn("重启虚拟机应用密码更改失败，可能需要手动重启",
-					zap.String("instanceID", instanceID),
-					zap.String("vmid", vmid),
-					zap.Error(err))
+				// exit status 255 表示 SSH channel 在重启过程中被断开，
+				// 这是 qm reboot 的正常行为（VM 重启导致连接中断），视为成功
+				if strings.Contains(err.Error(), "status 255") || strings.Contains(err.Error(), "exit status 255") {
+					global.APP_LOG.Debug("虚拟机重启已触发（SSH连接正常断开）",
+						zap.String("instanceID", instanceID),
+						zap.String("vmid", vmid))
+				} else {
+					global.APP_LOG.Warn("重启虚拟机应用密码更改失败，可能需要手动重启",
+						zap.String("instanceID", instanceID),
+						zap.String("vmid", vmid),
+						zap.Error(err))
+				}
 				// 不返回错误，因为密码已经设置，只是可能需要手动重启
 			} else {
 				global.APP_LOG.Debug("已重启虚拟机以应用密码更改",

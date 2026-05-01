@@ -75,22 +75,17 @@ func (s *PortMappingService) allocateConsecutivePortsInTx(tx *gorm.DB, providerI
 
 			// 如果找到了连续的可用端口区间
 			if allAvailable {
-				// 在事务中再次确认，使用 LOCK IN SHARE MODE 防止并发幻读
-				conflict := false
-				for _, port := range ports {
-					var existingPort provider.Port
-					// 不过滤status：unique index 在 (provider_id, host_port) 上，任何status的记录都占用该端口
-					err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
-						Where("provider_id = ? AND host_port = ?",
-							providerInfo.ID, port).First(&existingPort).Error
-
-					if err != gorm.ErrRecordNotFound {
-						conflict = true
-						break
-					}
+				// 在事务中一次性批量确认，使用 LOCK IN SHARE MODE 防止并发幻读
+				var conflictCount int64
+				if err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+					Model(&provider.Port{}).
+					Where("provider_id = ? AND host_port IN ?", providerInfo.ID, ports).
+					Count(&conflictCount).Error; err != nil {
+					// DB 错误视为冲突，放弃本次候选区间，继续搜索
+					break
 				}
 
-				if !conflict {
+				if conflictCount == 0 {
 					global.APP_LOG.Debug("成功分配连续端口区间",
 						zap.Uint("providerId", providerInfo.ID),
 						zap.Int("startPort", startPort),

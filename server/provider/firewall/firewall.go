@@ -3,12 +3,19 @@ package firewall
 import (
 	"fmt"
 	"strings"
+	"sync"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
+
+// tableInitCache prevents redundant SSH round-trips for InitTable on the same
+// (sshClient, tableName) pair. The table persists on the remote host for the
+// lifetime of the process, so one successful InitTable per connection is enough.
+// Key: fmt.Sprintf("%p:%s", sshClient, tableName), Value: struct{}{}
+var tableInitCache sync.Map
 
 // Backend 防火墙后端类型
 type Backend string
@@ -87,10 +94,23 @@ func (m *Manager) InitTable() error {
 		return fmt.Errorf("firewall backend not detected, call DetectBackend first")
 	}
 
-	if m.backend == BackendNft {
-		return m.initNftTable()
+	if m.backend == BackendIptables {
+		return m.initIptablesBase()
 	}
-	return m.initIptablesBase()
+
+	// nft: avoid re-running 5 SSH commands on every port mapping call.
+	// The table/chain persists on the remote host, so one successful init
+	// per (SSH connection, table name) pair per process is sufficient.
+	cacheKey := fmt.Sprintf("%p:%s", m.sshClient, m.tableName)
+	if _, ok := tableInitCache.Load(cacheKey); ok {
+		return nil
+	}
+
+	if err := m.initNftTable(); err != nil {
+		return err
+	}
+	tableInitCache.Store(cacheKey, struct{}{})
+	return nil
 }
 
 func (m *Manager) initNftTable() error {

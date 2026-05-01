@@ -45,10 +45,12 @@ func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel
 
 // RegisterMonitor creates a monitor on the agent and saves the mapping in MySQL.
 // It detects the network interfaces for the instance and calls the agent's add API.
+// vmidHint is the provider-side instance ID (e.g. Proxmox VMID); pass "" to auto-detect via GetInstance.
 func (s *MonitorService) RegisterMonitor(
 	providerInstance provider.Provider,
 	instance *providerModel.Instance,
 	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
 ) (*monitoringModel.AgentMonitor, error) {
 	// Check if already registered
 	var existing monitoringModel.AgentMonitor
@@ -58,7 +60,7 @@ func (s *MonitorService) RegisterMonitor(
 	}
 
 	// Detect network interfaces for this instance
-	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance)
+	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)
 	if err != nil {
 		return nil, fmt.Errorf("detect interfaces for instance %s: %w", instance.Name, err)
 	}
@@ -149,23 +151,25 @@ func (s *MonitorService) DeregisterMonitor(instanceID uint, config *monitoringMo
 
 // UpdateMonitorInterfaces re-detects interfaces and updates the agent monitor.
 // Called when an instance is restarted/rebuilt and its veth may have changed.
+// vmidHint is the provider-side instance ID (e.g. Proxmox VMID); pass "" to auto-detect via GetInstance.
 func (s *MonitorService) UpdateMonitorInterfaces(
 	providerInstance provider.Provider,
 	instance *providerModel.Instance,
 	config *monitoringModel.MonitoringConfig,
+	vmidHint string,
 ) error {
 	var monitor monitoringModel.AgentMonitor
 	if err := s.db.Where("instance_id = ?", instance.ID).First(&monitor).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			// Not registered yet, register now
-			_, err := s.RegisterMonitor(providerInstance, instance, config)
+			_, err := s.RegisterMonitor(providerInstance, instance, config, vmidHint)
 			return err
 		}
 		return fmt.Errorf("find monitor: %w", err)
 	}
 
 	// Detect current interfaces
-	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance)
+	interfaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)
 	if err != nil {
 		return fmt.Errorf("detect interfaces: %w", err)
 	}
@@ -236,13 +240,30 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 		monitorByInstanceID[monitors[i].InstanceID] = &monitors[i]
 	}
 
+	// Pre-fetch provider-side instance list once for Proxmox to map name→VMID,
+	// avoiding N+1 API calls when iterating over instances.
+	vmidByName := make(map[string]string)
+	if providerInstance.GetType() == "proxmox" {
+		pInstances, listErr := providerInstance.ListInstances(s.ctx)
+		if listErr == nil {
+			for _, pi := range pInstances {
+				vmidByName[pi.Name] = pi.ID
+			}
+		} else if global.APP_LOG != nil {
+			global.APP_LOG.Warn("failed to list proxmox instances for VMID lookup",
+				zap.Uint("provider_id", providerID),
+				zap.Error(listErr))
+		}
+	}
+
 	for i := range instances {
 		inst := &instances[i]
 		existing := monitorByInstanceID[inst.ID]
+		vmid := vmidByName[inst.Name]
 
 		if existing != nil {
 			// Already registered - re-detect interfaces and update on agent
-			if err := s.UpdateMonitorInterfaces(providerInstance, inst, config); err != nil {
+			if err := s.UpdateMonitorInterfaces(providerInstance, inst, config, vmid); err != nil {
 				if global.APP_LOG != nil {
 					global.APP_LOG.Warn("failed to update monitor interfaces for instance",
 						zap.Uint("instance_id", inst.ID),
@@ -252,7 +273,7 @@ func (s *MonitorService) EnsureMonitorsForProvider(
 			}
 		} else {
 			// Not registered - create new monitor
-			if _, err := s.RegisterMonitor(providerInstance, inst, config); err != nil {
+			if _, err := s.RegisterMonitor(providerInstance, inst, config, vmid); err != nil {
 				if global.APP_LOG != nil {
 					global.APP_LOG.Warn("failed to register monitor for instance",
 						zap.Uint("instance_id", inst.ID),
@@ -308,9 +329,11 @@ func (s *MonitorService) GetMonitorsByProviderID(providerID uint) ([]monitoringM
 
 // detectInstanceInterfaces detects the network interfaces for an instance.
 // Returns a list of interface names (typically 1 for IPv4, possibly 2 for IPv4+IPv6).
+// vmidHint is the provider-side instance ID (Proxmox VMID string); pass "" to look it up via GetInstance.
 func (s *MonitorService) detectInstanceInterfaces(
 	providerInstance provider.Provider,
 	instance *providerModel.Instance,
+	vmidHint string,
 ) ([]string, error) {
 	providerType := providerInstance.GetType()
 	var interfaces []string
@@ -331,7 +354,17 @@ func (s *MonitorService) detectInstanceInterfaces(
 		interfaces = append(interfaces, iface)
 
 	case "proxmox":
-		iface, err := s.detectProxmoxInterface(providerInstance, instance.Name, fmt.Sprintf("%d", instance.ID))
+		// Resolve the actual Proxmox VMID (not the DB primary key).
+		// Prefer the pre-fetched hint to avoid extra API calls.
+		vmid := vmidHint
+		if vmid == "" {
+			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.Name)
+			if err != nil {
+				return nil, fmt.Errorf("get proxmox vmid for %s: %w", instance.Name, err)
+			}
+			vmid = pvmInst.ID
+		}
+		iface, err := s.detectProxmoxInterface(providerInstance, instance.Name, vmid)
 		if err != nil {
 			return nil, err
 		}
