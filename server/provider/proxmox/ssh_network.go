@@ -289,6 +289,15 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 		return err
 	}
 
+	// 提前检查provider是否启用了流量统计，避免不必要的SSH命令和DB操作
+	if !providerRecord.EnableTrafficControl {
+		global.APP_LOG.Debug("Provider未启用流量统计，跳过Proxmox实例pmacct监控初始化",
+			zap.String("providerName", p.config.Name),
+			zap.String("instanceName", instanceName),
+			zap.Int("vmid", vmid))
+		return nil
+	}
+
 	// 查找实例ID用于pmacct初始化
 	var instanceID uint
 	var instance providerModel.Instance
@@ -347,24 +356,6 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 	} else {
 		global.APP_LOG.Debug("未获取到IPv6网络接口或实例无公网IPv6",
 			zap.String("instanceName", instanceName))
-	}
-
-	// 通过provider名称查找provider记录以检查流量统计配置
-	var providerRecordCheck providerModel.Provider
-	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecordCheck).Error; err != nil {
-		global.APP_LOG.Warn("查找provider记录失败，跳过pmacct初始化",
-			zap.String("provider_name", p.config.Name),
-			zap.Error(err))
-		return err
-	}
-
-	// 检查provider是否启用了流量统计
-	if !providerRecordCheck.EnableTrafficControl {
-		global.APP_LOG.Debug("Provider未启用流量统计，跳过Proxmox实例pmacct监控初始化",
-			zap.String("providerName", p.config.Name),
-			zap.String("instanceName", instanceName),
-			zap.Int("vmid", vmid))
-		return nil
 	}
 
 	// 初始化流量监控

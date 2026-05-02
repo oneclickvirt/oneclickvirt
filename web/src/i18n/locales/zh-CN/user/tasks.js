@@ -83,5 +83,9 @@ export default {
   duration: "耗时",
   cancelReason: "取消原因",
   apiLoadTasks: "获取任务列表",
-  apiLoadProviders: "获取提供商列表"
+  apiLoadProviders: "获取提供商列表",
+  progressLogs: "进度日志",
+  showProgressLogs: "查看进度日志",
+  hideProgressLogs: "收起进度日志",
+  noProgressLogs: "暂无进度日志"
 }

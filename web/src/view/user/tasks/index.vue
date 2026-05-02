@@ -220,6 +220,33 @@
                   </span>
                 </div>
               </div>
+              <!-- 进度日志（可折叠展示） -->
+              <div
+                v-if="currentTask.progressLogs"
+                class="task-progress-logs"
+              >
+                <el-button
+                  link
+                  size="small"
+                  @click="toggleProgressLogs(currentTask.id)"
+                >
+                  {{ expandedLogTaskIds.has(currentTask.id) ? t('user.tasks.hideProgressLogs') : t('user.tasks.showProgressLogs') }}
+                </el-button>
+                <div
+                  v-if="expandedLogTaskIds.has(currentTask.id)"
+                  class="progress-log-list"
+                >
+                  <div
+                    v-for="(entry, idx) in parseProgressLogs(currentTask.progressLogs)"
+                    :key="idx"
+                    class="progress-log-entry"
+                  >
+                    <span class="log-time">{{ entry.t }}</span>
+                    <span class="log-badge">{{ entry.p }}%</span>
+                    <span class="log-msg">{{ entry.m }}</span>
+                  </div>
+                </div>
+              </div>
             </el-card>
           </div>
         </div>
@@ -362,6 +389,33 @@
                       {{ t('user.tasks.cancelReason') }}: {{ task.cancelReason }}
                     </el-text>
                   </div>
+                  <!-- 进度日志（可折叠展示） -->
+                  <div
+                    v-if="task.progressLogs"
+                    class="task-progress-logs"
+                  >
+                    <el-button
+                      link
+                      size="small"
+                      @click.stop="toggleProgressLogs(task.id)"
+                    >
+                      {{ expandedLogTaskIds.has(task.id) ? t('user.tasks.hideProgressLogs') : t('user.tasks.showProgressLogs') }}
+                    </el-button>
+                    <div
+                      v-if="expandedLogTaskIds.has(task.id)"
+                      class="progress-log-list"
+                    >
+                      <div
+                        v-for="(entry, idx) in parseProgressLogs(task.progressLogs)"
+                        :key="idx"
+                        class="progress-log-entry"
+                      >
+                        <span class="log-time">{{ entry.t }}</span>
+                        <span class="log-badge">{{ entry.p }}%</span>
+                        <span class="log-msg">{{ entry.m }}</span>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               </div>
             </el-collapse-item>
@@ -424,7 +478,7 @@
 </template>
 
 <script setup>
-import { onMounted, onUnmounted, onActivated } from 'vue'
+import { onMounted, onUnmounted, onActivated, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUserTaskManagement } from './composables/useUserTaskManagement'
 
@@ -439,6 +493,28 @@ const {
   handleRouterNavigation, handleForceRefresh,
   t
 } = useUserTaskManagement()
+
+// 进度日志展开状态（记录哪些任务的日志是展开的）
+const expandedLogTaskIds = ref(new Set())
+
+function toggleProgressLogs(taskId) {
+  const s = expandedLogTaskIds.value
+  if (s.has(taskId)) {
+    s.delete(taskId)
+  } else {
+    s.add(taskId)
+  }
+  expandedLogTaskIds.value = new Set(s)
+}
+
+function parseProgressLogs(logsStr) {
+  if (!logsStr) return []
+  try {
+    return JSON.parse(logsStr)
+  } catch {
+    return []
+  }
+}
 
 onMounted(async () => {
   window.addEventListener('router-navigation', handleRouterNavigation)
@@ -683,6 +759,51 @@ onUnmounted(() => {
 .task-cancel-reason {
   grid-column: 1 / -1;
   margin-top: 8px;
+}
+
+.task-progress-logs {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
+.progress-log-list {
+  margin-top: 6px;
+  max-height: 200px;
+  overflow-y: auto;
+  border: 1px solid var(--el-border-color-lighter);
+  border-radius: 4px;
+  padding: 6px 8px;
+  background: var(--el-fill-color-lighter);
+  font-size: 12px;
+}
+
+.progress-log-entry {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 0;
+  line-height: 1.5;
+}
+
+.log-time {
+  color: var(--el-text-color-secondary);
+  white-space: nowrap;
+  font-family: monospace;
+}
+
+.log-badge {
+  display: inline-block;
+  min-width: 38px;
+  text-align: right;
+  color: var(--el-color-primary);
+  font-family: monospace;
+  font-weight: 600;
+}
+
+.log-msg {
+  color: var(--el-text-color-primary);
+  flex: 1;
+  word-break: break-all;
 }
 
 .empty-provider {

@@ -359,14 +359,15 @@ type Instance struct {
 	Bandwidth int   `json:"bandwidth" gorm:"default:10"` // 网络带宽（Mbps）
 
 	// 网络配置
-	Network        string `json:"network" gorm:"size:64"`      // 网络名称或配置
-	PrivateIP      string `json:"privateIP" gorm:"size:64"`    // 内网/私有IPv4地址
-	PublicIP       string `json:"publicIP" gorm:"size:64"`     // 公网IPv4地址
-	IPv6Address    string `json:"ipv6Address" gorm:"size:128"` // 内网IPv6地址
-	PublicIPv6     string `json:"publicIPv6" gorm:"size:128"`  // 公网IPv6地址
-	SSHPort        int    `json:"sshPort" gorm:"default:22"`   // SSH访问端口
-	PortRangeStart int    `json:"portRangeStart"`              // 端口映射范围起始
-	PortRangeEnd   int    `json:"portRangeEnd"`                // 端口映射范围结束
+	Network        string `json:"network" gorm:"size:64"`                      // 网络名称或配置
+	PrivateIP      string `json:"privateIP" gorm:"size:64"`                    // 内网/私有IPv4地址
+	PublicIP       string `json:"publicIP" gorm:"size:64"`                     // 公网IPv4地址
+	IPv6Address    string `json:"ipv6Address" gorm:"size:128"`                 // 内网IPv6地址
+	PublicIPv6     string `json:"publicIPv6" gorm:"size:128"`                  // 公网IPv6地址
+	SSHPort        int    `json:"sshPort" gorm:"default:22"`                   // SSH访问端口
+	PortRangeStart int    `json:"portRangeStart"`                              // 端口映射范围起始
+	PortRangeEnd   int    `json:"portRangeEnd"`                                // 端口映射范围结束
+	NetworkType    string `json:"networkType" gorm:"size:32;default:nat_ipv4"` // 创建时继承的网络类型（用于reset时恢复IPv6配置）
 
 	// 访问凭据
 	Username string `json:"username" gorm:"size:64"`  // 登录用户名
@@ -455,9 +456,9 @@ type HardwareTestReport struct {
 	UpdatedAt  time.Time      `json:"updatedAt"`
 	DeletedAt  gorm.DeletedAt `json:"-" gorm:"index"`
 	ProviderID uint           `json:"providerId" gorm:"uniqueIndex"`
-	PasteURL   string         `json:"pasteUrl" gorm:"size:512"`          // 粘贴板URL，如 https://paste.spiritlhl.net/#/show/xxx.txt
-	ReportText string         `json:"reportText" gorm:"type:longtext"`   // 从粘贴板URL下载的报告内容
-	UpdatedBy  uint           `json:"updatedBy"`                         // 最后更新者
+	PasteURL   string         `json:"pasteUrl" gorm:"size:512"`        // 粘贴板URL，如 https://paste.spiritlhl.net/#/show/xxx.txt
+	ReportText string         `json:"reportText" gorm:"type:longtext"` // 从粘贴板URL下载的报告内容
+	UpdatedBy  uint           `json:"updatedBy"`                       // 最后更新者
 }
 
 // 以下是业务层结构体（不是数据库模型）

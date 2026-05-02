@@ -13,8 +13,8 @@ import (
 	"go.uber.org/zap"
 )
 
-// autoFreezeThreshold 连续失败多少次后自动冻结Provider（3分钟/次 × 120 = 360分钟）
-const autoFreezeThreshold = 120
+// autoFreezeThreshold 连续失败多少次后自动冻结Provider（3分钟/次 × 20 = 60分钟）
+const autoFreezeThreshold = 20
 
 // ProviderHealthSchedulerService Provider健康检查调度服务
 type ProviderHealthSchedulerService struct {

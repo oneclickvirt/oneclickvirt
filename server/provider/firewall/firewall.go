@@ -452,6 +452,10 @@ echo "table ip %s"
 echo "delete table ip %s"
 nft list table ip %s
 } > /etc/nftables.d/%s.nft 2>/dev/null || true`, m.tableName, m.tableName, m.tableName, m.tableName),
+		// Ensure /etc/nftables.conf includes our rules directory so they survive host reboots
+		`grep -q 'include.*nftables\.d' /etc/nftables.conf 2>/dev/null || echo 'include "/etc/nftables.d/*.nft"' >> /etc/nftables.conf 2>/dev/null || true`,
+		// Also enable and start nftables service so the config is loaded on boot
+		`systemctl is-enabled nftables >/dev/null 2>&1 || systemctl enable nftables >/dev/null 2>&1 || true`,
 	}
 	for _, cmd := range cmds {
 		m.sshClient.Execute(cmd)

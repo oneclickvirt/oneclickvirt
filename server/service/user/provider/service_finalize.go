@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"net"
 	"strings"
 	"time"
 
@@ -599,6 +600,32 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 						break
 					}
 				}
+
+				// 密码设置成功后，验证SSH密码认证是否真正可用
+				if passwordSetSuccess {
+					s.updateTaskProgress(taskID, 92, "正在验证SSH密码可用性...")
+					var sshVerifyProvider providerModel.Provider
+					if err := global.APP_DB.First(&sshVerifyProvider, providerID).Error; err == nil {
+						verifyHost := sshVerifyProvider.PortIP
+						if verifyHost == "" {
+							verifyHost = sshVerifyProvider.Endpoint
+						}
+						if colonIndex := strings.LastIndex(verifyHost, ":"); colonIndex > 0 {
+							if strings.Count(verifyHost, ":") == 1 || strings.HasPrefix(verifyHost, "[") {
+								verifyHost = verifyHost[:colonIndex]
+							}
+						}
+						verifyPort := currentInstance.SSHPort
+						if verifyPort == 0 {
+							verifyPort = 22
+						}
+						var sshPortMapping providerModel.Port
+						if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
+							verifyPort = sshPortMapping.HostPort
+						}
+						s.verifySSHPasswordAuth(instanceID, verifyHost, verifyPort, currentInstance.Username, currentInstance.Password)
+					}
+				}
 			}
 
 			// 更新进度到95% (配置网络监控)
@@ -740,9 +767,9 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 	startTime := time.Now()
 	attemptCount := 0
 
-	// 进度范围：62% - 68%，根据等待时间百分比更新
-	progressStart := 62
-	progressEnd := 68
+	// 进度范围：75% - 79%，根据等待时间百分比更新
+	progressStart := 75
+	progressEnd := 79
 
 	for {
 		attemptCount++
@@ -753,7 +780,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 			return fmt.Errorf("等待SSH服务超时 (%v), 尝试次数: %d", maxWaitTime, attemptCount)
 		}
 
-		// 计算当前进度（62-68%范围内）
+		// 计算当前进度（75-79%范围内）
 		progressPercent := float64(elapsed) / float64(maxWaitTime)
 		currentProgress := progressStart + int(float64(progressEnd-progressStart)*progressPercent)
 		if currentProgress > progressEnd {
@@ -764,29 +791,17 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		waitMsg := fmt.Sprintf("等待实例SSH服务就绪... (尝试 %d次, 已等待 %ds)", attemptCount, int(elapsed.Seconds()))
 		s.updateTaskProgress(taskID, currentProgress, waitMsg)
 
-		// 尝试连接SSH
-		address := fmt.Sprintf("%s:%d", sshHost, sshPort)
-		config := &ssh.ClientConfig{
-			User: instance.Username,
-			Auth: []ssh.AuthMethod{
-				ssh.Password(instance.Password),
-			},
-			HostKeyCallback: ssh.InsecureIgnoreHostKey(),
-			Timeout:         5 * time.Second,
-		}
-
-		client, err := ssh.Dial("tcp", address, config)
+		// 仅检测TCP端口连通性（不尝试密码认证，因为此时密码尚未写入实例）
+		address := net.JoinHostPort(sshHost, fmt.Sprintf("%d", sshPort))
+		conn, err := net.DialTimeout("tcp", address, 5*time.Second)
 		if err == nil {
-			// SSH连接成功
-			client.Close()
-			global.APP_LOG.Debug("实例SSH服务已就绪",
+			conn.Close()
+			global.APP_LOG.Debug("实例SSH端口已开放",
 				zap.Uint("instanceId", instanceID),
 				zap.String("instanceName", instance.Name),
 				zap.Duration("waitTime", elapsed),
 				zap.Int("attempts", attemptCount))
-
-			// 确保进度达到68%
-			s.updateTaskProgress(taskID, progressEnd, "实例SSH服务已就绪")
+			s.updateTaskProgress(taskID, progressEnd, "实例SSH端口已开放")
 			return nil
 		}
 
@@ -801,6 +816,41 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		// 等待后重试
 		time.Sleep(checkInterval)
 	}
+}
+
+// verifySSHPasswordAuth 在密码设置完成后，通过密码认证验证SSH可用性（最多重试3次）
+func (s *Service) verifySSHPasswordAuth(instanceID uint, sshHost string, sshPort int, username, password string) bool {
+	address := net.JoinHostPort(sshHost, fmt.Sprintf("%d", sshPort))
+	config := &ssh.ClientConfig{
+		User: username,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(password),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         10 * time.Second,
+	}
+
+	for i := 0; i < 3; i++ {
+		client, err := ssh.Dial("tcp", address, config)
+		if err == nil {
+			client.Close()
+			global.APP_LOG.Info("SSH密码认证验证成功",
+				zap.Uint("instanceId", instanceID),
+				zap.String("address", address))
+			return true
+		}
+		global.APP_LOG.Debug("SSH密码认证验证失败，等待重试",
+			zap.Uint("instanceId", instanceID),
+			zap.Int("attempt", i+1),
+			zap.Error(err))
+		if i < 2 {
+			time.Sleep(5 * time.Second)
+		}
+	}
+	global.APP_LOG.Warn("SSH密码认证验证失败（密码可能未正确设置）",
+		zap.Uint("instanceId", instanceID),
+		zap.String("address", address))
+	return false
 }
 
 // 辅助函数：创建 bool 指针

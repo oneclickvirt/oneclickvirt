@@ -379,7 +379,7 @@ func ResetInstancePassword(c *gin.Context) {
 		zap.Uint64("instanceID", instanceID),
 		zap.String("admin_ip", c.ClientIP()))
 
-	adminInstanceService := instance.Service{}
+	adminInstanceService := instance.NewService(task.GetTaskService())
 	taskID, err := adminInstanceService.ResetInstancePassword(uint(instanceID))
 	if err != nil {
 		global.APP_LOG.Error("管理员创建重置实例密码任务失败",
@@ -428,7 +428,7 @@ func GetInstanceNewPassword(c *gin.Context) {
 		return
 	}
 
-	adminInstanceService := instance.Service{}
+	adminInstanceService := instance.NewService(task.GetTaskService())
 	newPassword, resetTime, err := adminInstanceService.GetInstanceNewPassword(uint(instanceID), uint(taskID))
 	if err != nil {
 		global.APP_LOG.Error("管理员获取实例新密码失败",

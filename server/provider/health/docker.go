@@ -216,7 +216,7 @@ func (d *DockerHealthChecker) checkSSH(ctx context.Context) error {
 	client, err := ssh.Dial("tcp", address, config)
 	if err != nil {
 		if d.logger != nil {
-			d.logger.Error("SSH Dial失败",
+			d.logger.Warn("SSH Dial失败",
 				zap.Uint("providerID", providerID),
 				zap.String("providerName", providerName),
 				zap.String("address", address),

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 
@@ -157,6 +158,32 @@ func (p *ProxmoxProvider) apiSetVMPassword(ctx context.Context, vmid, password s
 		return nil // 密码已设置，重启失败不影响
 	}
 	defer restartResp.Body.Close()
+
+	// 等待虚拟机重启完成（最多2分钟），避免任务提前完成而VM仍在重启中
+	global.APP_LOG.Debug("等待虚拟机重启完成", zap.String("vmid", vmid))
+	time.Sleep(10 * time.Second)
+	statusPollURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/current", p.config.Host, p.node, vmid)
+	for i := 0; i < 22; i++ {
+		time.Sleep(5 * time.Second)
+		pollReq, pollErr := http.NewRequestWithContext(ctx, "GET", statusPollURL, nil)
+		if pollErr != nil {
+			break
+		}
+		p.setAPIAuth(pollReq)
+		pollResp, pollErr := p.apiClient.Do(pollReq)
+		if pollErr != nil {
+			continue
+		}
+		var pollData map[string]interface{}
+		json.NewDecoder(pollResp.Body).Decode(&pollData)
+		pollResp.Body.Close()
+		if data, ok := pollData["data"].(map[string]interface{}); ok {
+			if status, ok := data["status"].(string); ok && status == "running" {
+				global.APP_LOG.Debug("虚拟机重启完成，已恢复运行", zap.String("vmid", vmid))
+				break
+			}
+		}
+	}
 
 	global.APP_LOG.Info("通过API成功设置虚拟机密码并重启", zap.String("vmid", vmid))
 	return nil

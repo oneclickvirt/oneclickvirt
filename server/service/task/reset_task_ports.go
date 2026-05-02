@@ -371,16 +371,14 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			}
 		}
 
-		// 如果使用 iptables 方法，保存规则到 /etc/iptables/rules.v4
-		if resetCtx.Provider.IPv4PortMappingMethod == "iptables" {
-			if provWithSave, ok := prov.(interface {
-				SaveIptablesRules() error
-			}); ok {
-				if err := provWithSave.SaveIptablesRules(); err != nil {
-					global.APP_LOG.Warn("保存Incus iptables规则失败，重启后可能丢失", zap.Error(err))
-				} else {
-					global.APP_LOG.Debug("Incus iptables规则已保存到 /etc/iptables/rules.v4")
-				}
+		// 保存防火墙规则（nft 和 iptables 两种后端都需要保存以确保重启后规则持久化）
+		if provWithSave, ok := prov.(interface {
+			SaveIptablesRules() error
+		}); ok {
+			if err := provWithSave.SaveIptablesRules(); err != nil {
+				global.APP_LOG.Warn("保存Incus防火墙规则失败，重启后可能丢失", zap.Error(err))
+			} else {
+				global.APP_LOG.Debug("Incus防火墙规则已保存")
 			}
 		}
 
@@ -406,16 +404,14 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			}
 		}
 
-		// 如果使用 iptables 方法，保存规则到 /etc/iptables/rules.v4
-		if resetCtx.Provider.IPv4PortMappingMethod == "iptables" {
-			if provWithSave, ok := prov.(interface {
-				SaveIptablesRules() error
-			}); ok {
-				if err := provWithSave.SaveIptablesRules(); err != nil {
-					global.APP_LOG.Warn("保存LXD iptables规则失败，重启后可能丢失", zap.Error(err))
-				} else {
-					global.APP_LOG.Debug("LXD iptables规则已保存到 /etc/iptables/rules.v4")
-				}
+		// 保存防火墙规则（nft 和 iptables 两种后端都需要保存以确保重启后规则持久化）
+		if provWithSave, ok := prov.(interface {
+			SaveIptablesRules() error
+		}); ok {
+			if err := provWithSave.SaveIptablesRules(); err != nil {
+				global.APP_LOG.Warn("保存LXD防火墙规则失败，重启后可能丢失", zap.Error(err))
+			} else {
+				global.APP_LOG.Debug("LXD防火墙规则已保存")
 			}
 		}
 

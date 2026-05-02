@@ -94,8 +94,8 @@ func (p *ProxmoxProvider) sshCreateInstanceWithProgress(ctx context.Context, con
 		global.APP_LOG.Warn("配置SSH密码失败", zap.Error(err))
 	}
 
-	// 初始化pmacct流量监控
-	updateProgress(95, "初始化pmacct流量监控...")
+	// 初始化流量监控（仅当 provider 启用流量统计时才生效）
+	updateProgress(95, "配置实例网络监控...")
 	if err := p.initializePmacctMonitoring(ctx, vmid, config.Name); err != nil {
 		global.APP_LOG.Warn("初始化流量监控失败",
 			zap.Int("vmid", vmid),

@@ -1,12 +1,50 @@
 package utils
 
 import (
+	"encoding/json"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	"time"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
+
+// progressLogEntry 单条进度日志条目
+type progressLogEntry struct {
+	T string `json:"t"` // 时间（HH:MM:SS）
+	P int    `json:"p"` // 进度百分比
+	M string `json:"m"` // 消息
+}
+
+// appendProgressLog 使用 SQL CONCAT 原子追加进度日志条目，避免并发读写问题
+func appendProgressLog(taskID uint, progress int, message string) {
+	if message == "" {
+		return
+	}
+	entry := progressLogEntry{
+		T: time.Now().Format("15:04:05"),
+		P: progress,
+		M: message,
+	}
+	entryJSON, err := json.Marshal(entry)
+	if err != nil {
+		return
+	}
+
+	// 使用参数化 SQL 原子追加日志（避免单引号/反斜杠注入问题）：
+	// 若已有日志则追加 ",<entry>" ，否则初始化为 "[<entry>]"
+	appendExpr := gorm.Expr(`CASE
+		WHEN (progress_logs IS NULL OR progress_logs = '') THEN CONCAT('[', ?, ']')
+		ELSE CONCAT(LEFT(progress_logs, CHAR_LENGTH(progress_logs)-1), ',', ?, ']')
+	END`, string(entryJSON), string(entryJSON))
+
+	if err := global.APP_DB.Model(&adminModel.Task{}).
+		Where("id = ?", taskID).
+		Update("progress_logs", appendExpr).Error; err != nil {
+		global.APP_LOG.Debug("追加进度日志失败", zap.Uint("taskId", taskID), zap.Error(err))
+	}
+}
 
 // UpdateTaskProgress 更新任务进度（全局统一函数）
 func UpdateTaskProgress(taskID uint, progress int, message string) {
@@ -28,6 +66,10 @@ func UpdateTaskProgress(taskID uint, progress int, message string) {
 			zap.Uint("taskId", taskID),
 			zap.Int("progress", progress),
 			zap.String("message", message))
+		// 同时追加进度日志
+		if message != "" {
+			appendProgressLog(taskID, progress, message)
+		}
 	}
 }
 

@@ -83,5 +83,9 @@ export default {
   duration: "Duration",
   cancelReason: "Cancel Reason",
   apiLoadTasks: "Load Task List",
-  apiLoadProviders: "Load Provider List"
+  apiLoadProviders: "Load Provider List",
+  progressLogs: "Progress Logs",
+  showProgressLogs: "Show Progress Logs",
+  hideProgressLogs: "Hide Progress Logs",
+  noProgressLogs: "No progress logs available"
 }

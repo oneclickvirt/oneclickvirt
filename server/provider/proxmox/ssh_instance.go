@@ -227,6 +227,7 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 			// 虚拟机正在运行，尝试重启以应用密码更改
 			restartCmd := fmt.Sprintf("qm reboot %s", vmid)
 			_, err = p.sshClient.Execute(restartCmd)
+			rebootTriggered := false
 			if err != nil {
 				// exit status 255 表示 SSH channel 在重启过程中被断开，
 				// 这是 qm reboot 的正常行为（VM 重启导致连接中断），视为成功
@@ -234,6 +235,7 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 					global.APP_LOG.Debug("虚拟机重启已触发（SSH连接正常断开）",
 						zap.String("instanceID", instanceID),
 						zap.String("vmid", vmid))
+					rebootTriggered = true
 				} else {
 					global.APP_LOG.Warn("重启虚拟机应用密码更改失败，可能需要手动重启",
 						zap.String("instanceID", instanceID),
@@ -245,6 +247,26 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 				global.APP_LOG.Debug("已重启虚拟机以应用密码更改",
 					zap.String("instanceID", instanceID),
 					zap.String("vmid", vmid))
+				rebootTriggered = true
+			}
+
+			// 等待虚拟机重启完成（最多2分钟），避免任务提前完成而VM仍在重启中
+			if rebootTriggered {
+				global.APP_LOG.Debug("等待虚拟机重启完成",
+					zap.String("instanceID", instanceID),
+					zap.String("vmid", vmid))
+				time.Sleep(10 * time.Second)
+				waitStatusCmd := fmt.Sprintf("qm status %s", vmid)
+				for i := 0; i < 22; i++ {
+					time.Sleep(5 * time.Second)
+					out, e := p.sshClient.Execute(waitStatusCmd)
+					if e == nil && strings.Contains(out, "status: running") {
+						global.APP_LOG.Debug("虚拟机重启完成，已恢复运行",
+							zap.String("instanceID", instanceID),
+							zap.String("vmid", vmid))
+						break
+					}
+				}
 			}
 		} else {
 			// 虚拟机未运行，无需重启，密码将在下次启动时生效

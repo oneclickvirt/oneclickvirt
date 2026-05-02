@@ -374,6 +374,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			UserID:         resetCtx.OriginalUserID,
 			Status:         "creating",
 			OSType:         resetCtx.Instance.OSType,
+			NetworkType:    resetCtx.Instance.NetworkType, // 继承原实例的网络类型，保留IPv6配置
 			ExpiresAt:      resetCtx.OriginalExpiresAt,
 			IsManualExpiry: resetCtx.OriginalIsManualExpiry, // 继承原实例的手动过期时间设置
 			PublicIP:       resetCtx.Provider.Endpoint,
@@ -434,7 +435,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 				"bandwidth_spec":           fmt.Sprintf("%d", resetCtx.Instance.Bandwidth),
 				"ipv4_port_mapping_method": resetCtx.Provider.IPv4PortMappingMethod,
 				"ipv6_port_mapping_method": resetCtx.Provider.IPv6PortMappingMethod,
-				"network_type":             resetCtx.Provider.NetworkType,
+				"network_type":             resetCtx.Instance.NetworkType, // 继承原实例的网络类型（而非Provider默认类型）
 				"instance_id":              fmt.Sprintf("%d", resetCtx.NewInstanceID),
 				"provider_id":              fmt.Sprintf("%d", resetCtx.Provider.ID),
 				"reset_from_instance_id":   fmt.Sprintf("%d", resetCtx.OldInstanceID),
