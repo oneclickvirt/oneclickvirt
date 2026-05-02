@@ -264,14 +264,14 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 			"mysql.password":       dbConfig.Password,
 			"mysql.config":         "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27",
 			"mysql.prefix":         "",
-			"mysql.singular":       "false",
+			"mysql.singular":       false,
 			"mysql.engine":         "InnoDB",
-			"mysql.max-idle-conns": "10",
-			"mysql.max-open-conns": "100",
+			"mysql.max-idle-conns": 10,
+			"mysql.max-open-conns": 100,
 			"mysql.log-mode":       "error",
-			"mysql.log-zap":        "false",
-			"mysql.max-lifetime":   "3600",
-			"mysql.auto-create":    "true",
+			"mysql.log-zap":        false,
+			"mysql.max-lifetime":   3600,
+			"mysql.auto-create":    true,
 		}
 
 		for key, value := range mysqlUpdates {
@@ -379,14 +379,17 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 		}
 	case int:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!int"
 		node.Value = fmt.Sprintf("%d", v)
 	case int64:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!int"
 		node.Value = fmt.Sprintf("%d", v)
 	case float64:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		if v == float64(int64(v)) {
 			node.Tag = "!!int"
 			node.Value = fmt.Sprintf("%d", int64(v))
@@ -396,6 +399,7 @@ func setYAMLNodeValue(node *yaml.Node, value interface{}) error {
 		}
 	case bool:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!bool"
 		if v {
 			node.Value = "true"

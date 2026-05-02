@@ -161,10 +161,10 @@ func (p *ProxmoxProvider) apiSetVMPassword(ctx context.Context, vmid, password s
 
 	// 等待虚拟机重启完成（最多2分钟），避免任务提前完成而VM仍在重启中
 	global.APP_LOG.Debug("等待虚拟机重启完成", zap.String("vmid", vmid))
-	time.Sleep(10 * time.Second)
+	time.Sleep(p.waitScale(10 * time.Second))
 	statusPollURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/qemu/%s/status/current", p.config.Host, p.node, vmid)
 	for i := 0; i < 22; i++ {
-		time.Sleep(5 * time.Second)
+		time.Sleep(p.waitScale(5 * time.Second))
 		pollReq, pollErr := http.NewRequestWithContext(ctx, "GET", statusPollURL, nil)
 		if pollErr != nil {
 			break

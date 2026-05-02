@@ -89,14 +89,17 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 		node.Value = v
 	case int:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!int"
 		node.Value = fmt.Sprintf("%d", v)
 	case int64:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!int"
 		node.Value = fmt.Sprintf("%d", v)
 	case float64:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		// 如果是整数，转换为int显示
 		if v == float64(int64(v)) {
 			node.Tag = "!!int"
@@ -107,6 +110,7 @@ func setNodeValue(node *yaml.Node, value interface{}) error {
 		}
 	case bool:
 		node.Kind = yaml.ScalarNode
+		node.Style = 0
 		node.Tag = "!!bool"
 		if v {
 			node.Value = "true"

@@ -88,6 +88,16 @@ type ProxmoxProvider struct {
 	mu               sync.RWMutex       // 保护并发访问
 	pendingVMIDs     map[int]bool       // 已分配但尚未创建完成的VMID集合，防止并发重复分配
 	imageImportGroup singleflight.Group // 防止同一镜像并发下载
+	kvmUnavailable   bool               // KVM硬件加速不可用时为true（软件模拟qemu64），此时所有等待时间翻倍
+}
+
+// waitScale 根据KVM可用性返回调整后的等待时间。
+// KVM不可用（软件模拟）时返回2倍时间，否则返回原始时间。
+func (p *ProxmoxProvider) waitScale(d time.Duration) time.Duration {
+	if p.kvmUnavailable {
+		return 2 * d
+	}
+	return d
 }
 
 func NewProxmoxProvider() provider.Provider {

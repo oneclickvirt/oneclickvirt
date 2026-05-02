@@ -275,7 +275,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	}
 
 	updateProgress(80, "启动容器...")
-	time.Sleep(3 * time.Second)
+	time.Sleep(p.waitScale(3 * time.Second))
 	// 启动容器
 	_, err = p.sshClient.Execute(fmt.Sprintf("pct start %d", vmid))
 	if err != nil {
@@ -283,7 +283,7 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	}
 
 	// 等待容器启动
-	time.Sleep(5 * time.Second)
+	time.Sleep(p.waitScale(5 * time.Second))
 
 	updateProgress(85, "配置容器SSH...")
 
@@ -381,6 +381,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	if strings.TrimSpace(kvmOutput) != "kvm_available" {
 		// 如果KVM不可用，使用软件模拟
 		kvmFlag = "--kvm 0"
+		p.kvmUnavailable = true // 标记KVM不可用，后续等待时间将翻倍
 		switch systemArch {
 		case "aarch64", "armv7l", "armv8", "armv8l":
 			cpuType = "max"
@@ -554,7 +555,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	updateProgress(60, "配置虚拟机磁盘...")
 
 	// 等待导入完成
-	time.Sleep(3 * time.Second)
+	time.Sleep(p.waitScale(3 * time.Second))
 
 	// 查找导入的磁盘文件（参考脚本逻辑）
 	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", storage, vmid)
@@ -740,8 +741,8 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	updateProgress(96, "等待虚拟机启动...")
 
 	// 等待虚拟机状态变为running
-	maxWaitTime := 90 * time.Second
-	checkInterval := 3 * time.Second
+	maxWaitTime := p.waitScale(90 * time.Second)
+	checkInterval := p.waitScale(3 * time.Second)
 	startTime := time.Now()
 	vmRunning := false
 
@@ -779,7 +780,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 					zap.Int("vmid", vmid))
 				break
 			}
-			time.Sleep(2 * time.Second)
+			time.Sleep(p.waitScale(2 * time.Second))
 		}
 
 		// 如果快速检测失败，说明镜像可能没有安装Agent，进行较短的等待
@@ -788,7 +789,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 				zap.Int("vmid", vmid))
 
 			// 只再等待15秒，给系统更多启动时间
-			agentWaitTime := 15 * time.Second
+			agentWaitTime := p.waitScale(15 * time.Second)
 			agentStartTime := time.Now()
 
 			for time.Since(agentStartTime) < agentWaitTime {
@@ -801,7 +802,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 					agentSupported = true
 					break
 				}
-				time.Sleep(3 * time.Second)
+				time.Sleep(p.waitScale(3 * time.Second))
 			}
 
 			if !agentSupported {

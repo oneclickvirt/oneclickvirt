@@ -217,6 +217,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	kvmOutput, _ := p.sshClient.Execute(kvmCheckCmd)
 	if strings.TrimSpace(kvmOutput) != "kvm_available" {
 		kvmFlag = 0
+		p.kvmUnavailable = true // 标记KVM不可用，后续等待时间将翻倍
 		switch systemArch {
 		case "aarch64", "armv7l", "armv8", "armv8l":
 			cpuType = "max"
@@ -341,7 +342,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 	// 配置磁盘和启动（通过SSH，因为这些配置复杂且没有直接的简单API）
 	// 这部分使用SSH来完成剩余的配置
-	time.Sleep(3 * time.Second)
+	time.Sleep(p.waitScale(3 * time.Second))
 
 	// 查找并设置磁盘
 	findDiskCmd := fmt.Sprintf("pvesm list %s | awk -v vmid=\"%d\" '$5 == vmid && $1 ~ /\\.raw$/ {print $1}' | tail -n 1", storage, vmid)
@@ -441,8 +442,8 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		updateProgress(90, "等待虚拟机启动...")
 
 		// 等待虚拟机状态变为running
-		maxWaitTime := 90 * time.Second
-		checkInterval := 3 * time.Second
+		maxWaitTime := p.waitScale(90 * time.Second)
+		checkInterval := p.waitScale(3 * time.Second)
 		startTime := time.Now()
 		vmRunning := false
 
@@ -480,7 +481,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 						zap.Int("vmid", vmid))
 					break
 				}
-				time.Sleep(2 * time.Second)
+				time.Sleep(p.waitScale(2 * time.Second))
 			}
 
 			// 如果快速检测失败，进行较短的等待
@@ -488,7 +489,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 				global.APP_LOG.Debug("镜像可能未安装QEMU Guest Agent，进行短时等待...",
 					zap.Int("vmid", vmid))
 
-				agentWaitTime := 15 * time.Second
+				agentWaitTime := p.waitScale(15 * time.Second)
 				agentStartTime := time.Now()
 
 				for time.Since(agentStartTime) < agentWaitTime {
@@ -501,7 +502,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 						agentSupported = true
 						break
 					}
-					time.Sleep(3 * time.Second)
+					time.Sleep(p.waitScale(3 * time.Second))
 				}
 
 				if !agentSupported {

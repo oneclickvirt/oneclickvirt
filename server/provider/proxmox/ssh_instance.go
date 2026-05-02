@@ -255,10 +255,10 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 				global.APP_LOG.Debug("等待虚拟机重启完成",
 					zap.String("instanceID", instanceID),
 					zap.String("vmid", vmid))
-				time.Sleep(10 * time.Second)
+				time.Sleep(p.waitScale(10 * time.Second))
 				waitStatusCmd := fmt.Sprintf("qm status %s", vmid)
 				for i := 0; i < 22; i++ {
-					time.Sleep(5 * time.Second)
+					time.Sleep(p.waitScale(5 * time.Second))
 					out, e := p.sshClient.Execute(waitStatusCmd)
 					if e == nil && strings.Contains(out, "status: running") {
 						global.APP_LOG.Debug("虚拟机重启完成，已恢复运行",
@@ -320,8 +320,8 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 	}
 
 	// 等待实例完全启动并确认状态 - 最多等待90秒
-	maxWaitTime := 90 * time.Second
-	checkInterval := 10 * time.Second
+	maxWaitTime := p.waitScale(90 * time.Second)
+	checkInterval := p.waitScale(10 * time.Second)
 	startTime := time.Now()
 	vmidStr := fmt.Sprintf("%d", vmid)
 
@@ -359,7 +359,7 @@ func (p *ProxmoxProvider) configureInstanceSSHPasswordByVMID(ctx context.Context
 
 	// 如果是容器，额外等待一些时间确保SSH服务就绪
 	if config.InstanceType == "container" && isRunning {
-		time.Sleep(3 * time.Second)
+		time.Sleep(p.waitScale(3 * time.Second))
 	}
 
 	// 设置SSH密码，使用vmid而不是名称
