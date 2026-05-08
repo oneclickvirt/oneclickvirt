@@ -9,6 +9,8 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	adminProviderService "oneclickvirt/service/admin/provider"
+	agentService "oneclickvirt/service/agent"
+	providerService "oneclickvirt/service/provider"
 
 	"go.uber.org/zap"
 )
@@ -229,6 +231,10 @@ func (s *InstanceSyncSchedulerService) syncAllProvidersInstances() {
 	// Cleanup expired mismatch records
 	s.cleanupExpiredMismatchRecords()
 
+	// Refresh network interfaces for running instances that have not been recorded yet.
+	// Run in a goroutine so it does not block the next sync cycle.
+	go s.refreshMissingInterfaces()
+
 	duration := time.Since(startTime)
 	global.APP_LOG.Debug("Provider实例同步检查完成",
 		zap.Int("totalProviders", len(providers)),
@@ -393,6 +399,52 @@ func (s *InstanceSyncSchedulerService) cleanupExpiredMismatchRecords() {
 				zap.Uint("instanceId", id),
 				zap.Duration("age", now.Sub(rec.FirstDetected)))
 			delete(s.mismatchTracker, id)
+		}
+	}
+}
+
+// refreshMissingInterfaces detects and persists pmacct_interface_v4/v6 for running
+// instances that have not yet had their host-side network interface recorded.
+// It groups instances by provider to reuse SSH connections and avoids N+1 DB queries.
+func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
+	// Single query: all running instances missing the IPv4 interface field.
+	var instances []providerModel.Instance
+	if err := global.APP_DB.
+		Where("status = ? AND (pmacct_interface_v4 = '' OR pmacct_interface_v4 IS NULL)", "running").
+		Find(&instances).Error; err != nil {
+		global.APP_LOG.Warn("refreshMissingInterfaces: 查询实例失败", zap.Error(err))
+		return
+	}
+	if len(instances) == 0 {
+		return
+	}
+
+	global.APP_LOG.Debug("开始刷新缺失的网络接口记录", zap.Int("instanceCount", len(instances)))
+
+	// Group by provider to reuse the provider connection.
+	byProvider := make(map[uint][]*providerModel.Instance)
+	for i := range instances {
+		pid := instances[i].ProviderID
+		byProvider[pid] = append(byProvider[pid], &instances[i])
+	}
+
+	for providerID, provInstances := range byProvider {
+		prov, err := providerService.GetProviderInstanceByID(providerID)
+		if err != nil {
+			global.APP_LOG.Debug("refreshMissingInterfaces: 跳过未连接的provider",
+				zap.Uint("providerId", providerID), zap.Error(err))
+			continue
+		}
+
+		for _, inst := range provInstances {
+			ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+			if err := agentService.DetectAndSaveInstanceInterfaces(ctx, global.APP_DB, prov, inst, ""); err != nil {
+				global.APP_LOG.Debug("refreshMissingInterfaces: 接口检测失败",
+					zap.Uint("instanceId", inst.ID),
+					zap.String("instanceName", inst.Name),
+					zap.Error(err))
+			}
+			cancel()
 		}
 	}
 }

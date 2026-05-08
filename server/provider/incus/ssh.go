@@ -396,12 +396,10 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 					zap.Error(err))
 			}
 
-			// 获取IPv6的veth接口（尝试检查实例是否有公网IPv6）
-			// 先尝试获取公网IPv6地址来判断是否需要获取eth1接口
-			ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
-			defer cancel4()
-			if publicIPv6, err := i.GetInstancePublicIPv6(ctx4, config.Name); err == nil && publicIPv6 != "" {
-				// 实例有公网IPv6，获取对应的veth接口
+			// 仅当网络类型包含IPv6时才检测V6的veth接口
+			if instance.NetworkType == "nat_ipv4_ipv6" || instance.NetworkType == "dedicated_ipv4_ipv6" || instance.NetworkType == "ipv6_only" {
+				ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
+				defer cancel4()
 				if vethV6, err := i.GetVethInterfaceNameV6(ctx4, config.Name); err == nil && vethV6 != "" {
 					if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", vethV6).Error; err == nil {
 						global.APP_LOG.Debug("已更新Incus实例IPv6网络接口",
@@ -409,12 +407,10 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 							zap.String("interfaceV6", vethV6))
 					}
 				} else {
-					global.APP_LOG.Debug("未获取到IPv6网络接口或使用与IPv4相同的接口",
-						zap.String("instanceName", config.Name))
+					global.APP_LOG.Debug("未获取到IPv6网络接口",
+						zap.String("instanceName", config.Name),
+						zap.Error(err))
 				}
-			} else {
-				global.APP_LOG.Debug("实例没有公网IPv6地址，跳过IPv6网络接口获取",
-					zap.String("instanceName", config.Name))
 			}
 		}
 

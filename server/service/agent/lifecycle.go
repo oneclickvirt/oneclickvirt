@@ -2,7 +2,7 @@ package agent
 
 import (
 	"context"
-	"fmt"
+	"strings"
 
 	"oneclickvirt/global"
 	monitoringModel "oneclickvirt/model/monitoring"
@@ -14,28 +14,42 @@ import (
 )
 
 // OnInstanceCreated is called after an instance is successfully created and running.
-// It registers an agent monitor if agent monitoring is enabled for the provider.
+// It always tries to detect network interfaces, and also registers an agent monitor
+// if agent monitoring is enabled for the provider.
 func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 	var instance providerModel.Instance
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("agent lifecycle: instance not found for monitoring",
+			global.APP_LOG.Warn("agent lifecycle: instance not found",
 				zap.Uint("instance_id", instanceID), zap.Error(err))
 		}
 		return
 	}
 
+	// Get the connected provider; needed for both interface detection and monitoring.
+	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
+
+	// Always detect and save network interfaces regardless of monitoring mode.
+	if provErr == nil {
+		if err := DetectAndSaveInstanceInterfaces(ctx, db, providerInstance, &instance, ""); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("agent lifecycle: failed to detect interfaces on instance create",
+					zap.Uint("instance_id", instanceID), zap.Error(err))
+			}
+		}
+	} else {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("agent lifecycle: provider not connected for interface detection",
+				zap.Uint("provider_id", instance.ProviderID), zap.Error(provErr))
+		}
+	}
+
+	// Monitoring registration requires agent to be installed.
 	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
 	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled {
 		return
 	}
-
-	providerInstance, err := providerService.GetProviderInstanceByID(instance.ProviderID)
-	if err != nil {
-		if global.APP_LOG != nil {
-			global.APP_LOG.Warn("agent lifecycle: provider not connected",
-				zap.Uint("provider_id", instance.ProviderID), zap.Error(err))
-		}
+	if provErr != nil {
 		return
 	}
 
@@ -49,12 +63,13 @@ func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 		return
 	}
 
-	// Also update the instance's PmacctInterfaceV4/V6 fields from detected interfaces
+	// Re-read updated instance from DB then sync interfaces from monitor.
+	_ = db.WithContext(ctx).First(&instance, instanceID)
 	updateInstanceInterfaces(ctx, db, &instance, monitor)
 }
 
 // OnInstanceDeleted is called when an instance is being deleted.
-// It deregisters the agent monitor but keeps the DB record (soft approach - caller can hard-delete).
+// It deregisters the agent monitor if one exists.
 func OnInstanceDeleted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	var instance providerModel.Instance
 	if err := db.WithContext(ctx).Unscoped().First(&instance, instanceID).Error; err != nil {
@@ -76,20 +91,28 @@ func OnInstanceDeleted(ctx context.Context, db *gorm.DB, instanceID uint) {
 }
 
 // OnInstanceRebuilt is called after an instance is rebuilt (new container, new interfaces).
-// It updates the monitor interfaces on the agent.
+// Always re-detects interfaces; also updates the agent monitor if monitoring is enabled.
 func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 	var instance providerModel.Instance
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
 
-	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
-	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled {
-		return
+	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
+
+	// Always re-detect interfaces.
+	if provErr == nil {
+		if err := DetectAndSaveInstanceInterfaces(ctx, db, providerInstance, &instance, ""); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("agent lifecycle: failed to detect interfaces on instance rebuild",
+					zap.Uint("instance_id", instanceID), zap.Error(err))
+			}
+		}
 	}
 
-	providerInstance, err := providerService.GetProviderInstanceByID(instance.ProviderID)
-	if err != nil {
+	// Update the agent monitor if monitoring is configured.
+	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
+	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled || provErr != nil {
 		return
 	}
 
@@ -102,49 +125,57 @@ func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 		return
 	}
 
-	// Update instance interface fields
+	// Sync interfaces from the updated monitor record.
 	monitor, err := svc.GetMonitorByInstanceID(instanceID)
 	if err == nil && monitor != nil {
+		_ = db.WithContext(ctx).First(&instance, instanceID)
 		updateInstanceInterfaces(ctx, db, &instance, monitor)
 	}
 }
 
 // OnInstanceStarted is called after an instance is started.
-// Same as OnInstanceCreated but also handles re-detection of interfaces.
+// Always re-detects interfaces; also registers/updates the agent monitor if enabled.
 func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 	var instance providerModel.Instance
 	if err := db.WithContext(ctx).First(&instance, instanceID).Error; err != nil {
 		return
 	}
 
-	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
-	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled {
-		return
+	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
+
+	// Always re-detect interfaces on start (veth name may change after restart).
+	if provErr == nil {
+		if err := DetectAndSaveInstanceInterfaces(ctx, db, providerInstance, &instance, ""); err != nil {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("agent lifecycle: failed to detect interfaces on instance start",
+					zap.Uint("instance_id", instanceID), zap.Error(err))
+			}
+		}
 	}
 
-	providerInstance, err := providerService.GetProviderInstanceByID(instance.ProviderID)
-	if err != nil {
+	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
+	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled || provErr != nil {
 		return
 	}
 
 	svc := NewMonitorService(ctx, db)
 
-	// Check if monitor already exists
 	existing, _ := svc.GetMonitorByInstanceID(instanceID)
 	if existing != nil {
-		// Update interfaces (may have changed after restart)
 		if err := svc.UpdateMonitorInterfaces(providerInstance, &instance, config, ""); err != nil {
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("agent lifecycle: failed to update monitor on instance start",
 					zap.Uint("instance_id", instanceID), zap.Error(err))
 			}
 		}
-		// Re-read monitor to get updated interfaces
-		updateInstanceInterfaces(ctx, db, &instance, existing)
+		// Re-read updated monitor and sync interfaces.
+		if updated, err := svc.GetMonitorByInstanceID(instanceID); err == nil && updated != nil {
+			_ = db.WithContext(ctx).First(&instance, instanceID)
+			updateInstanceInterfaces(ctx, db, &instance, updated)
+		}
 		return
 	}
 
-	// Register new monitor
 	monitor, err := svc.RegisterMonitor(providerInstance, &instance, config, "")
 	if err != nil {
 		if global.APP_LOG != nil {
@@ -154,23 +185,35 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 		return
 	}
 
+	_ = db.WithContext(ctx).First(&instance, instanceID)
 	updateInstanceInterfaces(ctx, db, &instance, monitor)
 }
 
 // updateInstanceInterfaces updates the PmacctInterfaceV4/V6 fields on the instance
-// from the detected agent monitor interfaces. This ensures the DB always reflects
-// the current network interfaces regardless of monitoring mode.
+// from the detected agent monitor interfaces. monitor.Interfaces is a comma-separated
+// list where index 0 is the IPv4 interface and index 1 (if present) is the IPv6 interface.
 func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *providerModel.Instance, monitor *monitoringModel.AgentMonitor) {
 	if monitor == nil || monitor.Interfaces == "" {
 		return
 	}
 
+	parts := strings.Split(monitor.Interfaces, ",")
 	updates := map[string]interface{}{}
-	interfaces := monitor.Interfaces
 
-	// The first interface is typically IPv4's veth, set it as PmacctInterfaceV4
-	if instance.PmacctInterfaceV4 != interfaces {
-		updates["pmacct_interface_v4"] = interfaces
+	ifaceV4 := strings.TrimSpace(parts[0])
+	if ifaceV4 != "" && instance.PmacctInterfaceV4 != ifaceV4 {
+		updates["pmacct_interface_v4"] = ifaceV4
+	}
+
+	// Only set V6 from an explicit second interface entry in the monitor.
+	// Do NOT fall back to V4 here: DetectAndSaveInstanceInterfaces is the
+	// authoritative path for V6 and may have already stored a distinct veth.
+	// Overwriting with V4 would corrupt the V6 field for IPv6-capable instances.
+	if len(parts) >= 2 {
+		ifaceV6 := strings.TrimSpace(parts[1])
+		if ifaceV6 != "" && instance.PmacctInterfaceV6 != ifaceV6 {
+			updates["pmacct_interface_v6"] = ifaceV6
+		}
 	}
 
 	if len(updates) > 0 {
@@ -184,7 +227,7 @@ func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *provid
 			if global.APP_LOG != nil {
 				global.APP_LOG.Debug("updated instance network interfaces",
 					zap.Uint("instance_id", instance.ID),
-					zap.String("interfaces", fmt.Sprintf("%v", updates)))
+					zap.String("v4", ifaceV4))
 			}
 		}
 	}

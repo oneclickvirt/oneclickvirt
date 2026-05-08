@@ -625,3 +625,163 @@ func stringsEqual(a, b []string) bool {
 	}
 	return true
 }
+
+// InstanceInterfaces holds the detected host-side network interface names for an instance.
+// V4 is the veth backing eth0 (IPv4). V6 is the veth backing eth1 (IPv6);
+// if the instance uses a single interface for both stacks, V6 equals V4.
+type InstanceInterfaces struct {
+	V4 string
+	V6 string
+}
+
+// detectBothInterfaces detects both the IPv4 and IPv6 host-side network interfaces
+// for an instance. It never returns an error for missing V6; in that case V6 = V4.
+func (s *MonitorService) detectBothInterfaces(
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	vmidHint string,
+) (*InstanceInterfaces, error) {
+	providerType := providerInstance.GetType()
+	result := &InstanceInterfaces{}
+
+	// 仅在网络类型包含IPv6时才尝试检测V6独立接口（eth1 veth）
+	hasIPv6 := instance.NetworkType == "nat_ipv4_ipv6" ||
+		instance.NetworkType == "dedicated_ipv4_ipv6" ||
+		instance.NetworkType == "ipv6_only"
+
+	switch providerType {
+	case "lxd":
+		if lxdProv, ok := providerInstance.(interface {
+			GetVethInterfaceName(string) (string, error)
+			GetVethInterfaceNameV6(string) (string, error)
+		}); ok {
+			if v4, err := lxdProv.GetVethInterfaceName(instance.Name); err == nil && v4 != "" {
+				result.V4 = v4
+			}
+			if hasIPv6 {
+				if v6, err := lxdProv.GetVethInterfaceNameV6(instance.Name); err == nil && v6 != "" {
+					result.V6 = v6
+				}
+			}
+		}
+		if result.V4 == "" {
+			iface, err := s.detectLxdIncusInterface(providerInstance, instance.Name, providerType)
+			if err != nil {
+				return nil, err
+			}
+			result.V4 = iface
+		}
+		if result.V6 == "" {
+			result.V6 = result.V4
+		}
+
+	case "incus":
+		if incusProv, ok := providerInstance.(interface {
+			GetVethInterfaceName(context.Context, string) (string, error)
+			GetVethInterfaceNameV6(context.Context, string) (string, error)
+		}); ok {
+			ctx4, cancel4 := context.WithTimeout(s.ctx, 15*time.Second)
+			defer cancel4()
+			if v4, err := incusProv.GetVethInterfaceName(ctx4, instance.Name); err == nil && v4 != "" {
+				result.V4 = v4
+			}
+			if hasIPv6 {
+				ctx6, cancel6 := context.WithTimeout(s.ctx, 15*time.Second)
+				defer cancel6()
+				if v6, err := incusProv.GetVethInterfaceNameV6(ctx6, instance.Name); err == nil && v6 != "" {
+					result.V6 = v6
+				}
+			}
+		}
+		if result.V4 == "" {
+			iface, err := s.detectLxdIncusInterface(providerInstance, instance.Name, providerType)
+			if err != nil {
+				return nil, err
+			}
+			result.V4 = iface
+		}
+		if result.V6 == "" {
+			result.V6 = result.V4
+		}
+
+	case "docker", "podman", "containerd":
+		iface, err := s.detectVethInterface(providerInstance, instance.Name, providerType)
+		if err != nil {
+			return nil, err
+		}
+		result.V4 = iface
+		result.V6 = iface // same veth handles both stacks
+
+	case "proxmox":
+		vmid := vmidHint
+		if vmid == "" {
+			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.Name)
+			if err != nil {
+				return nil, fmt.Errorf("get proxmox vmid for %s: %w", instance.Name, err)
+			}
+			vmid = pvmInst.ID
+		}
+		iface, err := s.detectProxmoxInterface(providerInstance, instance.Name, vmid)
+		if err != nil {
+			return nil, err
+		}
+		result.V4 = iface
+		result.V6 = iface // Proxmox LXC/KVM use same bridge interface for both stacks
+
+	default:
+		ifaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)
+		if err != nil {
+			return nil, err
+		}
+		if len(ifaces) > 0 {
+			result.V4 = ifaces[0]
+			result.V6 = ifaces[0]
+		}
+		if len(ifaces) > 1 {
+			result.V6 = ifaces[1]
+		}
+	}
+
+	return result, nil
+}
+
+// DetectAndSaveInstanceInterfaces detects the host-side network interfaces for the given
+// instance via SSH and persists pmacct_interface_v4 / pmacct_interface_v6 to the database.
+// This function is safe to call regardless of whether agent monitoring is enabled.
+func DetectAndSaveInstanceInterfaces(
+	ctx context.Context,
+	db *gorm.DB,
+	providerInstance provider.Provider,
+	instance *providerModel.Instance,
+	vmidHint string,
+) error {
+	svc := NewMonitorService(ctx, db)
+	ifaces, err := svc.detectBothInterfaces(providerInstance, instance, vmidHint)
+	if err != nil {
+		return fmt.Errorf("detect interfaces for %s: %w", instance.Name, err)
+	}
+
+	updates := map[string]interface{}{}
+	if ifaces.V4 != "" && instance.PmacctInterfaceV4 != ifaces.V4 {
+		updates["pmacct_interface_v4"] = ifaces.V4
+	}
+	if ifaces.V6 != "" && instance.PmacctInterfaceV6 != ifaces.V6 {
+		updates["pmacct_interface_v6"] = ifaces.V6
+	}
+
+	if len(updates) == 0 {
+		return nil
+	}
+
+	if err := db.WithContext(ctx).Model(instance).Updates(updates).Error; err != nil {
+		return fmt.Errorf("save interfaces for %s: %w", instance.Name, err)
+	}
+
+	if global.APP_LOG != nil {
+		global.APP_LOG.Debug("updated instance network interfaces",
+			zap.Uint("instance_id", instance.ID),
+			zap.String("v4", ifaces.V4),
+			zap.String("v6", ifaces.V6))
+	}
+	return nil
+}
