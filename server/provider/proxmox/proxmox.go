@@ -89,6 +89,12 @@ type ProxmoxProvider struct {
 	pendingVMIDs     map[int]bool       // 已分配但尚未创建完成的VMID集合，防止并发重复分配
 	imageImportGroup singleflight.Group // 防止同一镜像并发下载
 	kvmUnavailable   bool               // KVM硬件加速不可用时为true（软件模拟qemu64），此时所有等待时间翻倍
+	// 缓存的网桥名称（从NodeConfig加载，避免重复查询数据库）
+	bridgeNAT         string // NAT网桥名（脚本安装=vmbr1，第三方安装=配置值）
+	bridgeDedicatedV4 string // 独立IPv4网桥名（脚本安装=vmbr0，第三方安装=配置值）
+	bridgeDedicatedV6 string // 独立IPv6网桥名（脚本安装=vmbr2，第三方安装=配置值，可为空）
+	internalIPPrefix  string // NAT内网IP前缀（如 172.16.1）——第三方安装对应 NATSubnet，其他为包常量 InternalIPPrefix
+	internalGateway   string // NAT内网网关（如 172.16.1.1）——第三方安装对应 NATSubnet+1，其他为 InternalGateway
 }
 
 // waitScale 根据KVM可用性返回调整后的等待时间。
@@ -136,6 +142,9 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	p.config = config
 	p.providerUUID = config.UUID // 存储Provider UUID
 	p.providerID = config.ID     // 存储providerID
+
+	// 初始化网桥名称缓存（从NodeConfig中读取，避免重复查询数据库）
+	p.initBridgeNames(config)
 
 	// 注册transport并关联providerID
 	if p.transport != nil && p.providerID > 0 {
@@ -307,6 +316,91 @@ func (p *ProxmoxProvider) GetVersion() string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	return p.version
+}
+
+// initBridgeNames 从 NodeConfig 初始化网桥名称缓存
+// 脚本安装(script)时使用固定的 vmbr0/vmbr1/vmbr2；
+// 第三方安装(third_party)时使用配置值，若配置为空则回退到默认值。
+func (p *ProxmoxProvider) initBridgeNames(config provider.NodeConfig) {
+	if config.NodeInstallType == "third_party" {
+		p.bridgeNAT = config.BridgeNAT
+		if p.bridgeNAT == "" {
+			p.bridgeNAT = "vmbr1"
+		}
+		p.bridgeDedicatedV4 = config.BridgeDedicatedV4
+		if p.bridgeDedicatedV4 == "" {
+			p.bridgeDedicatedV4 = "vmbr0"
+		}
+		p.bridgeDedicatedV6 = config.BridgeDedicatedV6 // 可以为空（表示无独立IPv6桥）
+
+		// 解析 NATSubnet CIDR，提取IP前缀和网关地址
+		// 格式应为 x.x.x.0/prefix，取前3个octet作为前缀，.1作为网关
+		if config.NATSubnet != "" {
+			subnetIP := config.NATSubnet
+			if idx := strings.Index(subnetIP, "/"); idx > 0 {
+				subnetIP = subnetIP[:idx]
+			}
+			parts := strings.Split(subnetIP, ".")
+			if len(parts) == 4 {
+				p.internalIPPrefix = strings.Join(parts[:3], ".")
+				p.internalGateway = p.internalIPPrefix + ".1"
+			}
+		}
+	} else {
+		// 脚本安装或未指定：使用标准 vmbr 命名
+		p.bridgeNAT = "vmbr1"
+		p.bridgeDedicatedV4 = "vmbr0"
+		p.bridgeDedicatedV6 = "vmbr2"
+	}
+	// 回退到包级常量（未配置或脚本安装时）
+	if p.internalIPPrefix == "" {
+		p.internalIPPrefix = InternalIPPrefix
+	}
+	if p.internalGateway == "" {
+		p.internalGateway = InternalGateway
+	}
+	global.APP_LOG.Debug("初始化Proxmox网桥配置",
+		zap.String("nodeInstallType", config.NodeInstallType),
+		zap.String("bridgeNAT", p.bridgeNAT),
+		zap.String("bridgeDedicatedV4", p.bridgeDedicatedV4),
+		zap.String("bridgeDedicatedV6", p.bridgeDedicatedV6),
+		zap.String("internalIPPrefix", p.internalIPPrefix),
+		zap.String("internalGateway", p.internalGateway))
+}
+
+// getBridgeName 返回指定类型的网桥名称
+// bridgeType: "nat" → NAT网桥(vmbr1), "dedicated_v4" → 独立IPv4网桥(vmbr0), "dedicated_v6" → 独立IPv6网桥(vmbr2)
+func (p *ProxmoxProvider) getBridgeName(bridgeType string) string {
+	switch bridgeType {
+	case "nat":
+		return p.bridgeNAT
+	case "dedicated_v4":
+		return p.bridgeDedicatedV4
+	case "dedicated_v6":
+		return p.bridgeDedicatedV6
+	}
+	return p.bridgeNAT // 默认返回NAT网桥
+}
+
+// vmidToInternalIP 将 VMID 转换为内网IP地址，使用实例缓存的 internalIPPrefix
+func (p *ProxmoxProvider) vmidToInternalIP(vmid int) string {
+	if vmid < MinVMID || vmid > MaxVMID {
+		return ""
+	}
+	prefix := p.internalIPPrefix
+	if prefix == "" {
+		prefix = InternalIPPrefix
+	}
+	lastOctet := ((vmid-MinVMID)%MaxIPAddresses + MinInternalIPLastOctet)
+	return fmt.Sprintf("%s.%d", prefix, lastOctet)
+}
+
+// getInternalGateway 返回NAT内网网关地址
+func (p *ProxmoxProvider) getInternalGateway() string {
+	if p.internalGateway != "" {
+		return p.internalGateway
+	}
+	return InternalGateway
 }
 
 // 获取节点名

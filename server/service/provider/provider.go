@@ -143,10 +143,16 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		ContainerEnabled:      dbProvider.ContainerEnabled,
 		VirtualMachineEnabled: dbProvider.VirtualMachineEnabled,
 		NetworkType:           dbProvider.NetworkType,
-		ExecutionRule:         dbProvider.ExecutionRule,
-		SSHConnectTimeout:     dbProvider.SSHConnectTimeout,
-		SSHExecuteTimeout:     dbProvider.SSHExecuteTimeout,
-		HostName:              dbProvider.HostName, // 传递数据库中存储的主机名，避免动态获取导致的节点混淆
+		// Proxmox 网桥配置
+		NodeInstallType:   dbProvider.NodeInstallType,
+		BridgeNAT:         dbProvider.BridgeNAT,
+		BridgeDedicatedV4: dbProvider.BridgeDedicatedV4,
+		BridgeDedicatedV6: dbProvider.BridgeDedicatedV6,
+		NATSubnet:         dbProvider.NATSubnet,
+		ExecutionRule:     dbProvider.ExecutionRule,
+		SSHConnectTimeout: dbProvider.SSHConnectTimeout,
+		SSHExecuteTimeout: dbProvider.SSHExecuteTimeout,
+		HostName:          dbProvider.HostName, // 传递数据库中存储的主机名，避免动态获取导致的节点混淆
 		// 资源限制配置
 		ContainerLimitCPU:    dbProvider.ContainerLimitCPU,
 		ContainerLimitMemory: dbProvider.ContainerLimitMemory,

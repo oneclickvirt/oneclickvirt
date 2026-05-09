@@ -219,6 +219,23 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.ExecutionRule != "" {
 		provider.ExecutionRule = req.ExecutionRule
 	}
+	// Proxmox 网桥配置更新（仅更新非空值，BridgeDedicatedV6 允许设为空字符串表示无IPv6桥）
+	if req.NodeInstallType != "" {
+		provider.NodeInstallType = req.NodeInstallType
+	}
+	if req.BridgeNAT != "" {
+		provider.BridgeNAT = req.BridgeNAT
+	}
+	if req.BridgeDedicatedV4 != "" {
+		provider.BridgeDedicatedV4 = req.BridgeDedicatedV4
+	}
+	// BridgeDedicatedV6 可以清空（表示不支持独立IPv6），所以当 NodeInstallType 为 third_party 时允许设置空值
+	if req.NodeInstallType == "third_party" {
+		provider.BridgeDedicatedV6 = req.BridgeDedicatedV6
+		provider.NATSubnet = req.NATSubnet // NATSubnet 同样允许更新（可为空表示使用默认）
+	} else if req.BridgeDedicatedV6 != "" {
+		provider.BridgeDedicatedV6 = req.BridgeDedicatedV6
+	}
 	// 端口映射配置更新
 	if req.DefaultPortCount > 0 {
 		provider.DefaultPortCount = req.DefaultPortCount

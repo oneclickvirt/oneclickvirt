@@ -126,7 +126,7 @@ func (p *ProxmoxProvider) getNextVMID(ctx context.Context, instanceType string) 
 		}
 
 		// 检查该ID映射的IP是否已被占用
-		mappedIP := VMIDToInternalIP(id)
+		mappedIP := p.vmidToInternalIP(id)
 		if mappedIP == "" {
 			continue // 无效映射，跳过
 		}
@@ -449,7 +449,7 @@ func (p *ProxmoxProvider) updateInstanceNotes(ctx context.Context, vmid int, con
 	}
 
 	// 内网IP
-	internalIP := VMIDToInternalIP(vmid)
+	internalIP := p.vmidToInternalIP(vmid)
 	if internalIP != "" {
 		dataFields = append(dataFields, "内网IP-internal-ip")
 		valueFields = append(valueFields, internalIP)

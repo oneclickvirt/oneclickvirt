@@ -127,6 +127,12 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		// StoragePoolPath 将在健康检查时自动检测并填充
 		// 操作执行配置
 		ExecutionRule: req.ExecutionRule,
+		// Proxmox 网桥配置
+		NodeInstallType:   req.NodeInstallType,
+		BridgeNAT:         req.BridgeNAT,
+		BridgeDedicatedV4: req.BridgeDedicatedV4,
+		BridgeDedicatedV6: req.BridgeDedicatedV6,
+		NATSubnet:         req.NATSubnet,
 		// 端口映射配置
 		DefaultPortCount: req.DefaultPortCount,
 		PortRangeStart:   req.PortRangeStart,

@@ -168,6 +168,13 @@ type Provider struct {
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" gorm:"default:auto;size:16"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
 
+	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效，否则使用脚本安装的默认值）
+	// 脚本安装(script)时固定使用：vmbr0(独立IPv4), vmbr1(NAT), vmbr2(独立IPv6)
+	NodeInstallType   string `json:"nodeInstallType" gorm:"size:16;default:script"` // 节点安装类型：script（本项目脚本安装）, third_party（第三方安装）
+	BridgeNAT         string `json:"bridgeNAT" gorm:"size:32;default:''"`           // NAT网桥（v4/v6 NAT），仅proxmox+third_party时使用，对应vmbr1
+	BridgeDedicatedV4 string `json:"bridgeDedicatedV4" gorm:"size:32;default:''"`   // 独立IPv4网桥，仅proxmox+third_party时使用，对应vmbr0
+	BridgeDedicatedV6 string `json:"bridgeDedicatedV6" gorm:"size:32;default:''"`   // 独立IPv6网桥，仅proxmox+third_party时使用，对应vmbr2，可留空
+	NATSubnet         string `json:"natSubnet" gorm:"size:32;default:''"`           // NAT内网网段（CIDR，如 172.16.1.0/24），仅proxmox+third_party时使用
 	// 实例数量限制配置
 	MaxContainerInstances int `json:"maxContainerInstances" gorm:"default:0"` // 最大容器实例数量（0表示无限制）
 	MaxVMInstances        int `json:"maxVMInstances" gorm:"default:0"`        // 最大虚拟机实例数量（0表示无限制）
@@ -544,7 +551,12 @@ type ProviderNodeConfig struct {
 	SSHExecuteTimeout     int      `json:"ssh_execute_timeout"` // SSH命令执行超时时间（秒）
 	ExecutionRule         string   `json:"execution_rule"`      // 操作轮转规则：auto, api_only, ssh_only
 	NetworkType           string   `json:"networkType"`         // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
-
+	// Proxmox 网桥配置（third_party 安装类型时生效）
+	NodeInstallType   string `json:"node_install_type"`   // 节点安装类型：script, third_party
+	BridgeNAT         string `json:"bridge_nat"`          // NAT网桥（替代vmbr1）
+	BridgeDedicatedV4 string `json:"bridge_dedicated_v4"` // 独立IPv4网桥（替代vmbr0）
+	BridgeDedicatedV6 string `json:"bridge_dedicated_v6"` // 独立IPv6网桥（替代vmbr2），可为空
+	NATSubnet         string `json:"nat_subnet"`          // NAT内网网段（CIDR，如 172.16.1.0/24），可为空表示使用默认网段
 	// 容器资源限制配置（Provider层面）
 	ContainerLimitCPU    bool `json:"containerLimitCpu"`    // 容器是否限制CPU数量，默认不限制
 	ContainerLimitMemory bool `json:"containerLimitMemory"` // 容器是否限制内存大小，默认不限制

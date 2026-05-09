@@ -65,8 +65,8 @@ func (p *ProxmoxProvider) configureContainerNetwork(ctx context.Context, vmid in
 	// 如果没有IPv6或IPv6配置失败，配置IPv4-only网络
 	// 使用VMID到IP的映射函数
 	if !hasIPv6 {
-		userIP := VMIDToInternalIP(vmid)
-		netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", vmid, userIP, InternalGateway)
+		userIP := p.vmidToInternalIP(vmid)
+		netCmd := fmt.Sprintf("pct set %d --net0 name=eth0,ip=%s/24,bridge=%s,gw=%s", vmid, userIP, p.getBridgeName("nat"), p.getInternalGateway())
 		_, err := p.sshClient.Execute(netCmd)
 		if err != nil {
 			return fmt.Errorf("配置容器IPv4网络失败: %w", err)
@@ -148,8 +148,8 @@ func (p *ProxmoxProvider) configurePortForwarding(ctx context.Context, vmid int,
 		}
 
 		// iptables规则进行端口转发
-		rule := fmt.Sprintf("iptables -t nat -A PREROUTING -i vmbr0 -p tcp --dport %s -j DNAT --to-destination %s:%s",
-			parts[0], userIP, parts[1])
+		rule := fmt.Sprintf("iptables -t nat -A PREROUTING -i %s -p tcp --dport %s -j DNAT --to-destination %s:%s",
+			p.getBridgeName("dedicated_v4"), parts[0], userIP, parts[1])
 
 		_, err := p.sshClient.Execute(rule)
 		if err != nil {

@@ -123,11 +123,15 @@ func (p *ProxmoxProvider) checkBasicIPv6Environment(ctx context.Context) error {
 		return fmt.Errorf("没有IPv6地址用于开设带独立IPv6地址的服务")
 	}
 
-	// 检查vmbr2网桥是否存在
-	checkVmbrCmd := "grep -q 'vmbr2' /etc/network/interfaces"
+	// 检查配置的IPv6网桥是否存在
+	v6Bridge := p.getBridgeName("dedicated_v6")
+	if v6Bridge == "" {
+		return fmt.Errorf("没有配置单独IPv6网桥，无法开设带独立IPv6地址的服务")
+	}
+	checkVmbrCmd := fmt.Sprintf("grep -q '%s' /etc/network/interfaces", v6Bridge)
 	_, err = p.sshClient.Execute(checkVmbrCmd)
 	if err != nil {
-		return fmt.Errorf("没有vmbr2网桥用于开设带独立IPv6地址的服务")
+		return fmt.Errorf("没有%s网桥用于开设带独立IPv6地址的服务", v6Bridge)
 	}
 
 	// 检查ndpresponder服务状态
@@ -193,11 +197,11 @@ func (p *ProxmoxProvider) configureIPv6Network(ctx context.Context, vmid int, co
 
 	if ipv6Info.HasAppendedAddresses {
 		// 有额外IPv6地址，使用NAT映射模式
-		bridgeName = "vmbr1"
+		bridgeName = p.getBridgeName("nat")
 		useNATMapping = true
 	} else {
 		// 使用直接分配模式
-		bridgeName = "vmbr2"
+		bridgeName = p.getBridgeName("dedicated_v6")
 		useNATMapping = false
 	}
 
@@ -371,8 +375,8 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 			}
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
-			userIP := VMIDToInternalIP(vmid)
-			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+			userIP := p.vmidToInternalIP(vmid)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
 			if networkConfig.OutSpeed > 0 {
 				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
 				rateMBps := networkConfig.OutSpeed / 8
@@ -438,8 +442,8 @@ func (p *ProxmoxProvider) configureContainerIPv6(ctx context.Context, vmid int, 
 		} else {
 			// IPv4+IPv6: net0为IPv4，net1为IPv6
 			// 使用VMID到IP的映射函数
-			userIP := VMIDToInternalIP(vmid)
-			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+			userIP := p.vmidToInternalIP(vmid)
+			net0ConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
 			if networkConfig.OutSpeed > 0 {
 				// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
 				rateMBps := networkConfig.OutSpeed / 8

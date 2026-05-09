@@ -119,11 +119,11 @@ func (p *ProxmoxProvider) apiCreateContainer(ctx context.Context, vmid int, conf
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
 
 	// 配置网络（使用VMID到IP的映射函数，包含带宽限制）
-	userIP := VMIDToInternalIP(vmid)
+	userIP := p.vmidToInternalIP(vmid)
 	netConfigURL := fmt.Sprintf("https://%s:8006/api2/json/nodes/%s/lxc/%d/config", p.config.Host, p.node, vmid)
 
 	// 构建网络配置字符串，包含 rate 参数
-	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
 	if networkConfig.OutSpeed > 0 {
 		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
 		rateMBps := networkConfig.OutSpeed / 8
@@ -252,9 +252,9 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 
 	var net1Bridge string
 	if ipv6Info.HasAppendedAddresses {
-		net1Bridge = "vmbr1"
+		net1Bridge = p.getBridgeName("nat")
 	} else {
-		net1Bridge = "vmbr2"
+		net1Bridge = p.getBridgeName("dedicated_v6")
 	}
 
 	// 获取网络配置用于带宽限制
@@ -270,7 +270,7 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	}
 
 	// 构建网络配置字符串，包含 rate 参数
-	net0Config := "virtio,bridge=vmbr1,firewall=0"
+	net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", p.getBridgeName("nat"))
 	if networkConfig.OutSpeed > 0 {
 		// Proxmox rate 参数单位为 MB/s，配置中的 OutSpeed 单位为 Mbps，需要转换：MB/s = Mbps ÷ 8
 		rateMBps := networkConfig.OutSpeed / 8
@@ -426,8 +426,8 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 	}
 
 	// 配置IP（使用VMID到IP的映射函数）
-	userIP := VMIDToInternalIP(vmid)
-	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, InternalGateway))
+	userIP := p.vmidToInternalIP(vmid)
+	_, _ = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, p.getInternalGateway()))
 
 	updateProgress(80, "虚拟机配置完成...")
 

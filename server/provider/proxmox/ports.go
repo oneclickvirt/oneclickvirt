@@ -133,7 +133,7 @@ func (p *ProxmoxProvider) cleanupInstancePortMappings(ctx context.Context, vmid 
 	if instanceType == "vm" || instanceType == "container" {
 		vmidInt, err := strconv.Atoi(vmid)
 		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
-			inferredIP := VMIDToInternalIP(vmidInt)
+			inferredIP := p.vmidToInternalIP(vmidInt)
 			global.APP_LOG.Debug("尝试基于推断IP清理iptables规则",
 				zap.String("vmid", vmid),
 				zap.String("inferredIP", inferredIP))

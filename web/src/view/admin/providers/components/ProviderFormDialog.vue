@@ -280,7 +280,13 @@ const formData = ref({
   containerCpuAllowance: '100%',
   containerMemorySwap: true,
   containerMaxProcesses: 0,
-  containerDiskIoLimit: ''
+  containerDiskIoLimit: '',
+  // Proxmox 网桥配置
+  nodeInstallType: 'script',
+  bridgeNAT: '',
+  bridgeDedicatedV4: '',
+  bridgeDedicatedV6: '',
+  natSubnet: ''
 })
 
 // 异步验证器：检查Provider名称是否已存在
@@ -573,6 +579,22 @@ const handleSubmit = async () => {
       }
     }
     
+    // 验证Proxmox第三方安装网桥配置
+    if (formData.value.type === 'proxmox' && formData.value.nodeInstallType === 'third_party') {
+      if (!formData.value.bridgeNAT) {
+        ElMessage.error(t('admin.providers.bridgeNATRequired'))
+        return
+      }
+      if (!formData.value.bridgeDedicatedV4) {
+        ElMessage.error(t('admin.providers.bridgeDedicatedV4Required'))
+        return
+      }
+      if (!formData.value.natSubnet) {
+        ElMessage.error(t('admin.providers.natSubnetRequired'))
+        return
+      }
+    }
+
     emit('submit', formData.value)
   } catch (error) {
     console.error('表单验证失败:', error)

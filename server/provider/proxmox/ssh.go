@@ -460,7 +460,7 @@ func (p *ProxmoxProvider) getInstanceIPAddress(ctx context.Context, vmid string,
 		// 使用VMID到IP的映射函数
 		vmidInt, err := strconv.Atoi(vmid)
 		if err == nil && vmidInt >= MinVMID && vmidInt <= MaxVMID {
-			inferredIP := VMIDToInternalIP(vmidInt)
+			inferredIP := p.vmidToInternalIP(vmidInt)
 			// 验证这个IP是否能ping通
 			pingCmd := fmt.Sprintf("ping -c 1 -W 2 %s >/dev/null 2>&1 && echo 'reachable' || echo 'unreachable'", inferredIP)
 			pingOutput, pingErr := p.sshClient.Execute(pingCmd)

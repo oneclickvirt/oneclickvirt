@@ -239,8 +239,8 @@ func (p *ProxmoxProvider) createContainer(ctx context.Context, vmid int, config 
 	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
 	// 使用 Proxmox 原生的 rate 参数限制带宽
 	networkConfig := p.parseNetworkConfigFromInstanceConfig(config)
-	userIP := VMIDToInternalIP(vmid)
-	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=vmbr1,gw=%s", userIP, InternalGateway)
+	userIP := p.vmidToInternalIP(vmid)
+	netConfigStr := fmt.Sprintf("name=eth0,ip=%s/24,bridge=%s,gw=%s", userIP, p.getBridgeName("nat"), p.getInternalGateway())
 
 	// 先尝试带rate参数的配置
 	if networkConfig.OutSpeed > 0 {
@@ -423,34 +423,41 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		networkConfig.NetworkType == "ipv6_only"
 
 	// 根据NetworkType选择第二个网络桥接
-	// 仅在配置了IPv6时才使用vmbr2，纯IPv4模式只使用vmbr1
+	// 仅在配置了IPv6时才添加第二个网络接口
 	var net1Bridge string
 	if hasIPv6 {
-		// 检查是否真正配置了IPv6
-		ipv6Info, err := p.getIPv6Info(ctx)
-		if err != nil {
-			global.APP_LOG.Warn("获取IPv6信息失败",
-				zap.Error(err),
+		v6Bridge := p.getBridgeName("dedicated_v6")
+		if v6Bridge == "" {
+			// 第三方安装且未配置IPv6桥，跳过
+			global.APP_LOG.Warn("未配置独立IPv6网桥，将使用单网络接口",
 				zap.String("networkType", networkConfig.NetworkType))
-		}
-
-		// 如果有appended addresses或基础IPv6配置，使用vmbr2
-		if ipv6Info != nil && (ipv6Info.HasAppendedAddresses ||
-			(ipv6Info.HostIPv6Address != "" && ipv6Info.IPv6Gateway != "")) {
-			net1Bridge = "vmbr2"
-			global.APP_LOG.Debug("检测到IPv6环境，使用vmbr2",
-				zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses),
-				zap.String("hostIPv6", ipv6Info.HostIPv6Address))
 		} else {
-			// 没有任何IPv6配置，使用单网络接口
-			net1Bridge = ""
-			global.APP_LOG.Warn("未检测到IPv6环境，将使用单网络接口（仅vmbr1）",
-				zap.String("networkType", networkConfig.NetworkType))
+			// 检查是否真正配置了IPv6
+			ipv6Info, err := p.getIPv6Info(ctx)
+			if err != nil {
+				global.APP_LOG.Warn("获取IPv6信息失败",
+					zap.Error(err),
+					zap.String("networkType", networkConfig.NetworkType))
+			}
+			// 如果有appended addresses或基础IPv6配置，使用配置的IPv6桥
+			if ipv6Info != nil && (ipv6Info.HasAppendedAddresses ||
+				(ipv6Info.HostIPv6Address != "" && ipv6Info.IPv6Gateway != "")) {
+				net1Bridge = v6Bridge
+				global.APP_LOG.Debug("检测到IPv6环境，使用IPv6网桥",
+					zap.String("bridge", v6Bridge),
+					zap.Bool("hasAppendedAddresses", ipv6Info.HasAppendedAddresses),
+					zap.String("hostIPv6", ipv6Info.HostIPv6Address))
+			} else {
+				// 没有任何IPv6配置，使用单网络接口
+				net1Bridge = ""
+				global.APP_LOG.Warn("未检测到IPv6环境，将使用单网络接口",
+					zap.String("networkType", networkConfig.NetworkType))
+			}
 		}
 	} else {
-		// 纯IPv4模式，只使用vmbr1
+		// 纯IPv4模式，只使用NAT网桥
 		net1Bridge = ""
-		global.APP_LOG.Debug("使用IPv4-only配置，不创建vmbr2接口",
+		global.APP_LOG.Debug("使用IPv4-only配置，不创建IPv6接口",
 			zap.String("networkType", networkConfig.NetworkType))
 	}
 
@@ -463,7 +470,7 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	}
 
 	// 构建网络配置字符串，包含 rate 参数
-	net0Config := "virtio,bridge=vmbr1,firewall=0"
+	net0Config := fmt.Sprintf("virtio,bridge=%s,firewall=0", p.getBridgeName("nat"))
 	net0ConfigWithRate := net0Config
 	useRateLimit := false
 
@@ -687,8 +694,8 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 	updateProgress(90, "配置网络...")
 
 	// 配置网络（使用VMID到IP的映射函数，充分利用IP地址空间）
-	userIP := VMIDToInternalIP(vmid)
-	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, InternalGateway))
+	userIP := p.vmidToInternalIP(vmid)
+	_, err = p.sshClient.Execute(fmt.Sprintf("qm set %d --ipconfig0 ip=%s/24,gw=%s", vmid, userIP, p.getInternalGateway()))
 	if err != nil {
 		global.APP_LOG.Warn("设置IP配置失败", zap.Int("vmid", vmid), zap.Error(err))
 	}

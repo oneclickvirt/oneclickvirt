@@ -122,6 +122,106 @@
       </el-text>
     </div>
 
+    <!-- Proxmox 节点安装类型 -->
+    <template v-if="modelValue.type === 'proxmox'">
+      <el-divider content-position="left">
+        <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.proxmoxInstallType') }}</span>
+      </el-divider>
+
+      <el-form-item
+        :label="$t('admin.providers.nodeInstallType')"
+        prop="nodeInstallType"
+      >
+        <el-radio-group v-model="modelValue.nodeInstallType">
+          <el-radio value="script">{{ $t('admin.providers.nodeInstallScript') }}</el-radio>
+          <el-radio value="third_party">
+            <span>{{ $t('admin.providers.nodeInstallThirdParty') }}</span>
+            <el-tag type="warning" size="small" style="margin-left: 8px;">{{ $t('admin.providers.nodeInstallThirdPartyTag') }}</el-tag>
+          </el-radio>
+        </el-radio-group>
+      </el-form-item>
+      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <el-text size="small" type="info">
+          {{ $t('admin.providers.nodeInstallTypeTip') }}
+          <a
+            href="https://github.com/oneclickvirt/pve"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="color: #409eff; text-decoration: none; font-weight: 600;"
+          >
+            github.com/oneclickvirt/pve
+          </a>
+        </el-text>
+      </div>
+
+      <!-- 第三方安装时显示网桥配置 -->
+      <template v-if="modelValue.nodeInstallType === 'third_party'">
+        <el-alert
+          :title="$t('admin.providers.thirdPartyBridgeAlert')"
+          type="warning"
+          :closable="false"
+          show-icon
+          style="margin-bottom: 16px;"
+        />
+
+        <el-form-item
+          :label="$t('admin.providers.bridgeNAT')"
+          prop="bridgeNAT"
+        >
+          <el-input
+            v-model="modelValue.bridgeNAT"
+            :placeholder="$t('admin.providers.bridgeNATPlaceholder')"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.bridgeNATTip') }}</el-text>
+        </div>
+
+        <el-form-item
+          :label="$t('admin.providers.bridgeDedicatedV4')"
+          prop="bridgeDedicatedV4"
+        >
+          <el-input
+            v-model="modelValue.bridgeDedicatedV4"
+            :placeholder="$t('admin.providers.bridgeDedicatedV4Placeholder')"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.bridgeDedicatedV4Tip') }}</el-text>
+        </div>
+
+        <el-form-item
+          :label="$t('admin.providers.bridgeDedicatedV6')"
+          prop="bridgeDedicatedV6"
+        >
+          <el-input
+            v-model="modelValue.bridgeDedicatedV6"
+            :placeholder="$t('admin.providers.bridgeDedicatedV6Placeholder')"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.bridgeDedicatedV6Tip') }}</el-text>
+        </div>
+
+        <el-form-item
+          :label="$t('admin.providers.natSubnet')"
+          prop="natSubnet"
+        >
+          <el-input
+            v-model="modelValue.natSubnet"
+            :placeholder="$t('admin.providers.natSubnetPlaceholder')"
+            style="width: 100%"
+          />
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.natSubnetTip') }}</el-text>
+        </div>
+      </template>
+    </template>
+
     <!-- Docker/Podman/Containerd 端口映射方式（固定为 native，不可选择） -->
     <el-form-item
       v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)"

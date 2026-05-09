@@ -82,6 +82,12 @@ type CreateProviderRequest struct {
 	PortRangeStart   int    `json:"portRangeStart"`                                                                                  // 端口映射范围起始，默认10000
 	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                    // 端口映射范围结束，默认65535
 	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
+	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script（本项目脚本安装）, third_party（第三方安装）
+	BridgeNAT         string `json:"bridgeNAT"`         // NAT网桥（替代vmbr1），仅proxmox+third_party时生效
+	BridgeDedicatedV4 string `json:"bridgeDedicatedV4"` // 独立IPv4网桥（替代vmbr0），仅proxmox+third_party时生效
+	BridgeDedicatedV6 string `json:"bridgeDedicatedV6"` // 独立IPv6网桥（替代vmbr2），仅proxmox+third_party时生效，可留空
+	NATSubnet         string `json:"natSubnet"`         // NAT内网网段（CIDR，如 172.16.1.0/24），仅proxmox+third_party时生效
 	// 带宽配置
 	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
@@ -221,6 +227,13 @@ type UpdateProviderRequest struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
+
+	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
+	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script / third_party
+	BridgeNAT         string `json:"bridgeNAT"`         // NAT网桥名（默认vmbr1）
+	BridgeDedicatedV4 string `json:"bridgeDedicatedV4"` // 独立IPv4网桥名（默认vmbr0）
+	BridgeDedicatedV6 string `json:"bridgeDedicatedV6"` // 独立IPv6网桥名（默认vmbr2，可留空）
+	NATSubnet         string `json:"natSubnet"`         // NAT内网网段（CIDR，如 172.16.1.0/24）
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
