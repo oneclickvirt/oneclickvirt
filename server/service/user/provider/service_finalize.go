@@ -113,9 +113,19 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 从IP源中提取纯IP地址
 			if publicIPSource != "" {
 				// 移除端口号获取纯IP地址
-				if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
-					if strings.Count(publicIPSource, ":") > 1 && !strings.HasPrefix(publicIPSource, "[") {
-						instanceUpdates["public_ip"] = publicIPSource // IPv6格式
+				if strings.HasPrefix(publicIPSource, "[") {
+					// 括号IPv6格式: [::1]:port 或 [::1]
+					if host, _, err := net.SplitHostPort(publicIPSource); err == nil {
+						instanceUpdates["public_ip"] = host // ::1
+					} else {
+						// 无端口，直接去掉括号: [::1] → ::1
+						trimmed := strings.TrimPrefix(publicIPSource, "[")
+						trimmed = strings.TrimSuffix(trimmed, "]")
+						instanceUpdates["public_ip"] = trimmed
+					}
+				} else if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
+					if strings.Count(publicIPSource, ":") > 1 {
+						instanceUpdates["public_ip"] = publicIPSource // 纯IPv6格式，无括号无端口
 					} else {
 						instanceUpdates["public_ip"] = publicIPSource[:colonIndex] // IPv4格式，移除端口
 					}

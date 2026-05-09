@@ -86,6 +86,27 @@ export default {
     initRetry: '系统初始化失败，请重试',
     alreadyInitialized: '系统已完成初始化，正在跳转到首页...'
   },
+  progress: {
+    title: '正在初始化系统...',
+    retry: '重新初始化',
+    goHome: '进入系统',
+    statusIdle: '等待中',
+    statusInProgress: '初始化中',
+    statusSuccess: '初始化完成',
+    statusFailed: '初始化失败',
+    successMsg: '系统初始化成功！',
+    steps: {
+      0: '验证数据库连接',
+      1: '检查初始化状态',
+      2: '创建数据库结构',
+      3: '创建管理员账户',
+      4: '初始化种子数据',
+      5: '初始化系统镜像',
+      6: '重新连接数据库',
+      7: '注册系统服务',
+      8: '启动调度器'
+    }
+  },
   debug: {
     pageMounted: 'Init页面已挂载，启动轮询检查',
     checkingStatus: '检查初始化状态:',

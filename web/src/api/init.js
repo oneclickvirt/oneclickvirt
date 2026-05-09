@@ -17,6 +17,14 @@ export const initSystem = (data) => {
   })
 }
 
+// 获取初始化进度
+export const getInitProgress = () => {
+  return request({
+    url: '/v1/public/init-progress',
+    method: 'get'
+  })
+}
+
 // 获取公告
 export const getAnnouncements = () => {
   return request({

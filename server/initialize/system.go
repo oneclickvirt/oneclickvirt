@@ -211,11 +211,6 @@ func InitializeFullSystem() {
 		return
 	}
 
-	// 注册数据库表（确保表结构是最新的）
-	// 注意：这里不会重复迁移，只是确保表结构完整
-	global.APP_LOG.Debug("确保数据库表结构完整")
-	RegisterTables(global.APP_DB)
-
 	InitializeConfigManager()
 	global.APP_LOG.Debug("数据库连接和表注册完成")
 
@@ -395,27 +390,34 @@ func initializeSchedulers() {
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化
 func InitializePostSystemInit() {
-	// 重新初始化数据库连接（确保使用最新配置）
+	// Step 6: 重新初始化数据库连接（确保使用最新配置）
+	global.APP_INIT_PROGRESS.StartStep(6)
 	global.APP_DB = Gorm()
 	if global.APP_DB == nil {
 		global.APP_LOG.Error("系统初始化完成后重新连接数据库失败")
+		global.APP_INIT_PROGRESS.FailStep(6, "重新连接数据库失败")
 		return
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(6)
 
-	// 注册数据库表
+	// Step 7: 注册数据库表 + 重新初始化配置管理器
+	global.APP_INIT_PROGRESS.StartStep(7)
 	RegisterTables(global.APP_DB)
-
-	// 重新初始化配置管理器
 	ReInitializeConfigManager()
 	global.APP_LOG.Debug("数据库连接、表注册和配置管理器重新初始化完成")
+	global.APP_INIT_PROGRESS.CompleteStep(7)
 
+	// Step 8: 启动调度器服务
+	global.APP_INIT_PROGRESS.StartStep(8)
 	// 初始化JWT密钥管理服务
 	initializeJWTService()
-
-	// 初始化任务服务（如果还未初始化）
 	if global.APP_SCHEDULER == nil {
 		initializeSchedulers()
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(8)
+
+	// 整体完成
+	global.APP_INIT_PROGRESS.Complete()
 }
 
 // SetSystemInitCallback 设置系统初始化完成后的回调函数

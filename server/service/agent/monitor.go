@@ -327,8 +327,17 @@ func (s *MonitorService) GetMonitorsByProviderID(providerID uint) ([]monitoringM
 	return monitors, nil
 }
 
+// isIPv6Capable reports whether the given network type includes IPv6.
+func isIPv6Capable(networkType string) bool {
+	return networkType == "nat_ipv4_ipv6" ||
+		networkType == "dedicated_ipv4_ipv6" ||
+		networkType == "ipv6_only"
+}
+
 // detectInstanceInterfaces detects the network interfaces for an instance.
-// Returns a list of interface names (typically 1 for IPv4, possibly 2 for IPv4+IPv6).
+// For IPv6-capable instances it returns two entries [V4-iface, V6-iface] so the
+// Rust agent creates separate nft/ipt counters for each NIC and counts traffic on
+// both.  For single-stack instances it returns one entry.
 // vmidHint is the provider-side instance ID (Proxmox VMID string); pass "" to look it up via GetInstance.
 func (s *MonitorService) detectInstanceInterfaces(
 	providerInstance provider.Provider,
@@ -336,10 +345,12 @@ func (s *MonitorService) detectInstanceInterfaces(
 	vmidHint string,
 ) ([]string, error) {
 	providerType := providerInstance.GetType()
+	hasIPv6 := isIPv6Capable(instance.NetworkType)
 	var interfaces []string
 
 	switch providerType {
 	case "docker", "podman", "containerd":
+		// Docker-family: a single veth handles both IPv4 and IPv6 traffic.
 		iface, err := s.detectVethInterface(providerInstance, instance.Name, providerType)
 		if err != nil {
 			return nil, err
@@ -347,15 +358,40 @@ func (s *MonitorService) detectInstanceInterfaces(
 		interfaces = append(interfaces, iface)
 
 	case "lxd", "incus":
-		iface, err := s.detectLxdIncusInterface(providerInstance, instance.Name, providerType)
+		// V4 interface: host-side veth for eth0 (volatile.eth0.host_name)
+		ifaceV4, err := s.detectLxdIncusInterface(providerInstance, instance.Name, providerType)
 		if err != nil {
 			return nil, err
 		}
-		interfaces = append(interfaces, iface)
+		interfaces = append(interfaces, ifaceV4)
+
+		// V6 interface: host-side veth for eth1 (volatile.eth1.host_name).
+		// Only relevant for IPv6-capable instances; only add if distinct from V4
+		// (if no eth1 exists, GetVethInterfaceNameV6 falls back to eth0 → same value).
+		if hasIPv6 {
+			var ifaceV6 string
+			if providerType == "lxd" {
+				if lxdProv, ok := providerInstance.(interface {
+					GetVethInterfaceNameV6(string) (string, error)
+				}); ok {
+					ifaceV6, _ = lxdProv.GetVethInterfaceNameV6(instance.Name)
+				}
+			} else {
+				if incusProv, ok := providerInstance.(interface {
+					GetVethInterfaceNameV6(context.Context, string) (string, error)
+				}); ok {
+					ctx6, cancel6 := context.WithTimeout(s.ctx, 15*time.Second)
+					defer cancel6()
+					ifaceV6, _ = incusProv.GetVethInterfaceNameV6(ctx6, instance.Name)
+				}
+			}
+			if ifaceV6 != "" && ifaceV6 != ifaceV4 {
+				interfaces = append(interfaces, ifaceV6)
+			}
+		}
 
 	case "proxmox":
 		// Resolve the actual Proxmox VMID (not the DB primary key).
-		// Prefer the pre-fetched hint to avoid extra API calls.
 		vmid := vmidHint
 		if vmid == "" {
 			pvmInst, err := providerInstance.GetInstance(s.ctx, instance.Name)
@@ -364,11 +400,19 @@ func (s *MonitorService) detectInstanceInterfaces(
 			}
 			vmid = pvmInst.ID
 		}
-		iface, err := s.detectProxmoxInterface(providerInstance, instance.Name, vmid)
+		// V4: first NIC (tap{vmid}i0 / veth{ctid}i0)
+		ifaceV4, err := s.detectProxmoxInterface(providerInstance, instance.Name, vmid)
 		if err != nil {
 			return nil, err
 		}
-		interfaces = append(interfaces, iface)
+		interfaces = append(interfaces, ifaceV4)
+
+		// V6: second NIC (tap{vmid}i1 / veth{ctid}i1) — only for IPv6-capable instances.
+		if hasIPv6 {
+			if ifaceV6, err := s.detectProxmoxInterfaceV6(providerInstance, instance.Name, vmid); err == nil && ifaceV6 != "" {
+				interfaces = append(interfaces, ifaceV6)
+			}
+		}
 
 	case "qemu":
 		iface, err := s.detectQEMUInterface(providerInstance, instance.Name)
@@ -502,7 +546,8 @@ exit 1
 	return iface, nil
 }
 
-// detectProxmoxInterface detects the network interface for a Proxmox instance.
+// detectProxmoxInterface detects the IPv4 network interface (i0) for a Proxmox instance.
+// Proxmox names the first NIC tap{vmid}i0 (KVM VM) or veth{ctid}i0 (LXC container).
 func (s *MonitorService) detectProxmoxInterface(providerInstance provider.Provider, instanceName, instanceID string) (string, error) {
 	detectCmd := fmt.Sprintf(`
 INSTANCE_ID='%s'
@@ -516,13 +561,7 @@ if ip link show tap${INSTANCE_ID}i0 >/dev/null 2>&1; then
     echo "tap${INSTANCE_ID}i0"
     exit 0
 fi
-# Broader search
-IFACE=$(ip link | grep -oE "(veth|tap)${INSTANCE_ID}i[0-9]+" | head -n1)
-if [ -n "$IFACE" ]; then
-    echo "$IFACE"
-    exit 0
-fi
-echo "ERROR: no interface for instance $INSTANCE_ID"
+echo "ERROR: no i0 interface for instance $INSTANCE_ID"
 exit 1
 `, instanceID)
 
@@ -537,6 +576,41 @@ exit 1
 	iface := strings.TrimSpace(output)
 	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
 		return "", fmt.Errorf("detect proxmox iface for %s: %s", instanceName, iface)
+	}
+	return iface, nil
+}
+
+// detectProxmoxInterfaceV6 detects the IPv6 network interface (i1) for a Proxmox instance.
+// Proxmox names the second NIC tap{vmid}i1 (KVM VM) or veth{ctid}i1 (LXC container).
+// Returns an error if no i1 interface is found; caller falls back to V4.
+func (s *MonitorService) detectProxmoxInterfaceV6(providerInstance provider.Provider, instanceName, instanceID string) (string, error) {
+	detectCmd := fmt.Sprintf(`
+INSTANCE_ID='%s'
+# LXC: veth<ctid>i1
+if ip link show veth${INSTANCE_ID}i1 >/dev/null 2>&1; then
+    echo "veth${INSTANCE_ID}i1"
+    exit 0
+fi
+# KVM: tap<vmid>i1
+if ip link show tap${INSTANCE_ID}i1 >/dev/null 2>&1; then
+    echo "tap${INSTANCE_ID}i1"
+    exit 0
+fi
+echo "ERROR: no i1 interface for instance $INSTANCE_ID"
+exit 1
+`, instanceID)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("detect proxmox IPv6 iface for %s: %w", instanceName, err)
+	}
+
+	iface := strings.TrimSpace(output)
+	if strings.HasPrefix(iface, "ERROR:") || iface == "" {
+		return "", fmt.Errorf("detect proxmox IPv6 iface for %s: %s", instanceName, iface)
 	}
 	return iface, nil
 }
@@ -645,9 +719,7 @@ func (s *MonitorService) detectBothInterfaces(
 	result := &InstanceInterfaces{}
 
 	// 仅在网络类型包含IPv6时才尝试检测V6独立接口（eth1 veth）
-	hasIPv6 := instance.NetworkType == "nat_ipv4_ipv6" ||
-		instance.NetworkType == "dedicated_ipv4_ipv6" ||
-		instance.NetworkType == "ipv6_only"
+	hasIPv6 := isIPv6Capable(instance.NetworkType)
 
 	switch providerType {
 	case "lxd":
@@ -721,12 +793,21 @@ func (s *MonitorService) detectBothInterfaces(
 			}
 			vmid = pvmInst.ID
 		}
+		// V4: always the first NIC (i0)
 		iface, err := s.detectProxmoxInterface(providerInstance, instance.Name, vmid)
 		if err != nil {
 			return nil, err
 		}
 		result.V4 = iface
-		result.V6 = iface // Proxmox LXC/KVM use same bridge interface for both stacks
+		// V6: the second NIC (i1) only for IPv6-capable instances
+		if hasIPv6 {
+			if v6iface, err := s.detectProxmoxInterfaceV6(providerInstance, instance.Name, vmid); err == nil && v6iface != "" {
+				result.V6 = v6iface
+			}
+		}
+		if result.V6 == "" {
+			result.V6 = result.V4 // single-stack: both use the same interface
+		}
 
 	default:
 		ifaces, err := s.detectInstanceInterfaces(providerInstance, instance, vmidHint)

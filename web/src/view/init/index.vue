@@ -15,168 +15,184 @@
         <p>{{ t('init.subtitle') }}</p>
       </div>
 
-      <!-- Steps indicator -->
-      <el-steps :active="stepIndex" finish-status="success" align-center class="init-steps">
-        <el-step :title="t('init.database.tabLabel')" />
-        <el-step :title="t('init.admin.tabLabel')" />
-        <el-step :title="t('init.user.tabLabel')" />
-      </el-steps>
+      <!-- Progress Panel (shown after submit) -->
+      <InitProgressPanel
+        v-if="showProgress"
+        :status="progressStatus"
+        :steps="progressSteps"
+        :percent="progressPercent"
+        :bar-status="progressBarStatus"
+        :tag-type="progressTagType"
+        :status-text="progressStatusText"
+        @retry="retryInit"
+        @go-home="goHome"
+      />
 
-      <!-- Step 1: Database -->
-      <div v-show="activeTab === 'database'" class="step-content">
-        <el-form 
-          ref="databaseFormRef" 
-          :model="databaseForm" 
-          :rules="databaseRules" 
-          label-width="140px" 
-          label-position="top"
-          size="large"
-        >
-          <el-form-item :label="t('init.database.type')" prop="type">
-            <el-radio-group v-model="databaseForm.type" @change="onDatabaseTypeChange">
-              <el-radio-button label="mysql">MySQL</el-radio-button>
-              <el-radio-button label="mariadb">MariaDB</el-radio-button>
-            </el-radio-group>
-            <div class="field-hint">
-              <el-text v-if="dbRecommendation" size="small" type="success">
-                {{ dbRecommendation.reason }} ({{ t('init.database.architecture') }}: {{ dbRecommendation.architecture }})
-              </el-text>
-              <el-text v-else size="small" type="info">
-                {{ t('init.database.autoSelectHint') }}
-              </el-text>
-            </div>
-          </el-form-item>
+      <!-- Form Panel (hidden after submit) -->
+      <template v-if="!showProgress">
+        <!-- Steps indicator -->
+        <el-steps :active="stepIndex" finish-status="success" align-center class="init-steps">
+          <el-step :title="t('init.database.tabLabel')" />
+          <el-step :title="t('init.admin.tabLabel')" />
+          <el-step :title="t('init.user.tabLabel')" />
+        </el-steps>
 
-          <el-row :gutter="16">
-            <el-col :span="16">
-              <el-form-item :label="t('init.database.host')" prop="host">
-                <el-input v-model="databaseForm.host" placeholder="127.0.0.1" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="8">
-              <el-form-item :label="t('init.database.port')" prop="port">
-                <el-input v-model="databaseForm.port" placeholder="3306" />
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item :label="t('init.database.dbName')" prop="database">
-            <el-input v-model="databaseForm.database" placeholder="oneclickvirt" />
-          </el-form-item>
-
-          <el-row :gutter="16">
-            <el-col :span="12">
-              <el-form-item :label="t('init.database.username')" prop="username">
-                <el-input v-model="databaseForm.username" placeholder="root" />
-              </el-form-item>
-            </el-col>
-            <el-col :span="12">
-              <el-form-item :label="t('init.database.password')" prop="password">
-                <el-input v-model="databaseForm.password" type="password" :placeholder="t('init.database.passwordPlaceholder')" show-password />
-              </el-form-item>
-            </el-col>
-          </el-row>
-
-          <el-form-item>
-            <el-button type="info" plain :loading="testingConnection" @click="testDatabaseConnection">
-              {{ t('init.database.testConnection') }}
-            </el-button>
-            <span v-if="connectionTestResult" :class="connectionTestResult.success ? 'test-success' : 'test-error'">
-              {{ connectionTestResult.message }}
-            </span>
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- Step 2: Admin -->
-      <div v-show="activeTab === 'admin'" class="step-content">
-        <el-form
-          ref="adminFormRef"
-          :model="initForm.admin"
-          :rules="adminRules"
-          label-position="top"
-          size="large"
-        >
-          <el-form-item :label="t('init.admin.username')" prop="username">
-            <el-input v-model="initForm.admin.username" :placeholder="t('init.admin.usernamePlaceholder')" clearable prefix-icon="User" />
-          </el-form-item>
-          <el-form-item :label="t('init.admin.password')" prop="password">
-            <el-input v-model="initForm.admin.password" type="password" :placeholder="t('init.admin.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
-            <div class="field-hint">
-              <el-text size="small" type="info">{{ t('init.admin.passwordHint') }}</el-text>
-            </div>
-          </el-form-item>
-          <el-form-item :label="t('init.admin.confirmPassword')" prop="confirmPassword">
-            <el-input v-model="initForm.admin.confirmPassword" type="password" :placeholder="t('init.admin.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
-          </el-form-item>
-          <el-form-item :label="t('init.admin.email')" prop="email">
-            <el-input v-model="initForm.admin.email" :placeholder="t('init.admin.emailPlaceholder')" clearable prefix-icon="Message" />
-          </el-form-item>
-        </el-form>
-      </div>
-
-      <!-- Step 3: User -->
-      <div v-show="activeTab === 'user'" class="step-content">
-        <el-form
-          ref="userFormRef"
-          :model="initForm.user"
-          :rules="userRules"
-          label-position="top"
-          size="large"
-        >
-          <el-form-item :label="t('init.user.enableStatus')">
-            <div class="enable-toggle">
-              <el-switch
-                v-model="initForm.user.enabled"
-                :active-text="t('common.enabled')"
-                :inactive-text="t('common.disabled')"
-              />
-              <el-text size="small" type="warning" class="enable-hint">{{ t('init.user.enableHint') }}</el-text>
-            </div>
-          </el-form-item>
-          <template v-if="initForm.user.enabled">
-            <el-form-item :label="t('init.user.username')" prop="username">
-              <el-input v-model="initForm.user.username" :placeholder="t('init.user.usernamePlaceholder')" clearable prefix-icon="User" />
-            </el-form-item>
-            <el-form-item :label="t('init.user.password')" prop="password">
-              <el-input v-model="initForm.user.password" type="password" :placeholder="t('init.user.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+        <!-- Step 1: Database -->
+        <div v-show="activeTab === 'database'" class="step-content">
+          <el-form 
+            ref="databaseFormRef" 
+            :model="databaseForm" 
+            :rules="databaseRules" 
+            label-width="140px" 
+            label-position="top"
+            size="large"
+          >
+            <el-form-item :label="t('init.database.type')" prop="type">
+              <el-radio-group v-model="databaseForm.type" @change="onDatabaseTypeChange">
+                <el-radio-button label="mysql">MySQL</el-radio-button>
+                <el-radio-button label="mariadb">MariaDB</el-radio-button>
+              </el-radio-group>
               <div class="field-hint">
-                <el-text size="small" type="info">{{ t('init.user.passwordHint') }}</el-text>
+                <el-text v-if="dbRecommendation" size="small" type="success">
+                  {{ dbRecommendation.reason }} ({{ t('init.database.architecture') }}: {{ dbRecommendation.architecture }})
+                </el-text>
+                <el-text v-else size="small" type="info">
+                  {{ t('init.database.autoSelectHint') }}
+                </el-text>
               </div>
             </el-form-item>
-            <el-form-item :label="t('init.user.confirmPassword')" prop="confirmPassword">
-              <el-input v-model="initForm.user.confirmPassword" type="password" :placeholder="t('init.user.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
-            </el-form-item>
-            <el-form-item :label="t('init.user.email')" prop="email">
-              <el-input v-model="initForm.user.email" :placeholder="t('init.user.emailPlaceholder')" clearable prefix-icon="Message" />
-            </el-form-item>
-          </template>
-        </el-form>
-      </div>
 
-      <!-- Navigation buttons -->
-      <div class="init-actions">
-        <el-button v-if="activeTab !== 'database'" @click="prevStep" size="large">
-          {{ t('common.back') }}
-        </el-button>
-        <el-button type="info" plain @click="fillDefaultData" size="large">
-          {{ t('init.fillDefaults') }}
-        </el-button>
-        <div style="flex: 1" />
-        <el-button v-if="activeTab !== 'user'" type="primary" @click="nextStep" size="large">
-          {{ t('init.nextStep') }}
-        </el-button>
-        <el-button
-          v-else
-          type="primary"
-          :loading="loading"
-          :disabled="loading || !isFormValid"
-          @click="handleInit"
-          size="large"
-        >
-          {{ t('init.initSystem') }}
-        </el-button>
-      </div>
+            <el-row :gutter="16">
+              <el-col :span="16">
+                <el-form-item :label="t('init.database.host')" prop="host">
+                  <el-input v-model="databaseForm.host" placeholder="127.0.0.1" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="8">
+                <el-form-item :label="t('init.database.port')" prop="port">
+                  <el-input v-model="databaseForm.port" placeholder="3306" />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-form-item :label="t('init.database.dbName')" prop="database">
+              <el-input v-model="databaseForm.database" placeholder="oneclickvirt" />
+            </el-form-item>
+
+            <el-row :gutter="16">
+              <el-col :span="12">
+                <el-form-item :label="t('init.database.username')" prop="username">
+                  <el-input v-model="databaseForm.username" placeholder="root" />
+                </el-form-item>
+              </el-col>
+              <el-col :span="12">
+                <el-form-item :label="t('init.database.password')" prop="password">
+                  <el-input v-model="databaseForm.password" type="password" :placeholder="t('init.database.passwordPlaceholder')" show-password />
+                </el-form-item>
+              </el-col>
+            </el-row>
+
+            <el-form-item>
+              <el-button type="info" plain :loading="testingConnection" @click="testDatabaseConnection">
+                {{ t('init.database.testConnection') }}
+              </el-button>
+              <span v-if="connectionTestResult" :class="connectionTestResult.success ? 'test-success' : 'test-error'">
+                {{ connectionTestResult.message }}
+              </span>
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- Step 2: Admin -->
+        <div v-show="activeTab === 'admin'" class="step-content">
+          <el-form
+            ref="adminFormRef"
+            :model="initForm.admin"
+            :rules="adminRules"
+            label-position="top"
+            size="large"
+          >
+            <el-form-item :label="t('init.admin.username')" prop="username">
+              <el-input v-model="initForm.admin.username" :placeholder="t('init.admin.usernamePlaceholder')" clearable prefix-icon="User" />
+            </el-form-item>
+            <el-form-item :label="t('init.admin.password')" prop="password">
+              <el-input v-model="initForm.admin.password" type="password" :placeholder="t('init.admin.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+              <div class="field-hint">
+                <el-text size="small" type="info">{{ t('init.admin.passwordHint') }}</el-text>
+              </div>
+            </el-form-item>
+            <el-form-item :label="t('init.admin.confirmPassword')" prop="confirmPassword">
+              <el-input v-model="initForm.admin.confirmPassword" type="password" :placeholder="t('init.admin.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
+            </el-form-item>
+            <el-form-item :label="t('init.admin.email')" prop="email">
+              <el-input v-model="initForm.admin.email" :placeholder="t('init.admin.emailPlaceholder')" clearable prefix-icon="Message" />
+            </el-form-item>
+          </el-form>
+        </div>
+
+        <!-- Step 3: User -->
+        <div v-show="activeTab === 'user'" class="step-content">
+          <el-form
+            ref="userFormRef"
+            :model="initForm.user"
+            :rules="userRules"
+            label-position="top"
+            size="large"
+          >
+            <el-form-item :label="t('init.user.enableStatus')">
+              <div class="enable-toggle">
+                <el-switch
+                  v-model="initForm.user.enabled"
+                  :active-text="t('common.enabled')"
+                  :inactive-text="t('common.disabled')"
+                />
+                <el-text size="small" type="warning" class="enable-hint">{{ t('init.user.enableHint') }}</el-text>
+              </div>
+            </el-form-item>
+            <template v-if="initForm.user.enabled">
+              <el-form-item :label="t('init.user.username')" prop="username">
+                <el-input v-model="initForm.user.username" :placeholder="t('init.user.usernamePlaceholder')" clearable prefix-icon="User" />
+              </el-form-item>
+              <el-form-item :label="t('init.user.password')" prop="password">
+                <el-input v-model="initForm.user.password" type="password" :placeholder="t('init.user.passwordPlaceholder')" show-password clearable prefix-icon="Lock" />
+                <div class="field-hint">
+                  <el-text size="small" type="info">{{ t('init.user.passwordHint') }}</el-text>
+                </div>
+              </el-form-item>
+              <el-form-item :label="t('init.user.confirmPassword')" prop="confirmPassword">
+                <el-input v-model="initForm.user.confirmPassword" type="password" :placeholder="t('init.user.confirmPasswordPlaceholder')" show-password clearable prefix-icon="Lock" />
+              </el-form-item>
+              <el-form-item :label="t('init.user.email')" prop="email">
+                <el-input v-model="initForm.user.email" :placeholder="t('init.user.emailPlaceholder')" clearable prefix-icon="Message" />
+              </el-form-item>
+            </template>
+          </el-form>
+        </div>
+
+        <!-- Navigation buttons -->
+        <div class="init-actions">
+          <el-button v-if="activeTab !== 'database'" @click="prevStep" size="large">
+            {{ t('common.back') }}
+          </el-button>
+          <el-button type="info" plain @click="fillDefaultData" size="large">
+            {{ t('init.fillDefaults') }}
+          </el-button>
+          <div style="flex: 1" />
+          <el-button v-if="activeTab !== 'user'" type="primary" @click="nextStep" size="large">
+            {{ t('init.nextStep') }}
+          </el-button>
+          <el-button
+            v-else
+            type="primary"
+            :loading="loading"
+            :disabled="loading || !isFormValid"
+            @click="handleInit"
+            size="large"
+          >
+            {{ t('init.initSystem') }}
+          </el-button>
+        </div>
+      </template>
     </div>
   </div>
 </template>
@@ -187,8 +203,9 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
 import { post, get } from '@/utils/request'
-import { checkSystemInit } from '@/api/init'
+import { checkSystemInit, getInitProgress } from '@/api/init'
 import { containsUnsafeUsernameContent } from '@/utils/validate'
+import InitProgressPanel from './components/InitProgressPanel.vue'
 
 const router = useRouter()
 const { t } = useI18n()
@@ -201,6 +218,36 @@ const connectionTestResult = ref(null)
 const pollingTimer = ref(null)
 const activeTab = ref('database')
 const dbRecommendation = ref(null)
+
+// Progress tracking
+const showProgress = ref(false)
+const progressStatus = ref('idle')   // idle | in_progress | success | failed
+const progressSteps = ref([])
+const progressPercent = computed(() => {
+  if (!progressSteps.value.length) return 0
+  const done = progressSteps.value.filter(s => s.status === 'success').length
+  return Math.round((done / progressSteps.value.length) * 100)
+})
+const progressBarStatus = computed(() => {
+  if (progressStatus.value === 'success') return 'success'
+  if (progressStatus.value === 'failed') return 'exception'
+  return undefined
+})
+const progressTagType = computed(() => {
+  if (progressStatus.value === 'success') return 'success'
+  if (progressStatus.value === 'failed') return 'danger'
+  if (progressStatus.value === 'in_progress') return 'warning'
+  return 'info'
+})
+const progressStatusText = computed(() => {
+  const map = {
+    idle: t('init.progress.statusIdle'),
+    in_progress: t('init.progress.statusInProgress'),
+    success: t('init.progress.statusSuccess'),
+    failed: t('init.progress.statusFailed'),
+  }
+  return map[progressStatus.value] || progressStatus.value
+})
 
 const steps = ['database', 'admin', 'user']
 const stepIndex = computed(() => steps.indexOf(activeTab.value))
@@ -401,11 +448,7 @@ const isFormValid = computed(() => {
 const checkInitStatus = async () => {
   try {
     const response = await checkSystemInit()
-    console.log(t('init.debug.checkingStatus'), response)
-
     if (response && (response.code === 200) && response.data && response.data.needInit === false) {
-      console.log(t('init.debug.alreadyInitialized'))
-      ElMessage.info(t('init.messages.alreadyInitialized'))
       clearPolling()
       router.push('/home')
     }
@@ -416,7 +459,6 @@ const checkInitStatus = async () => {
 
 const startPolling = () => {
   checkInitStatus()
-
   pollingTimer.value = setInterval(() => {
     checkInitStatus()
   }, 6000)
@@ -427,6 +469,53 @@ const clearPolling = () => {
     clearInterval(pollingTimer.value)
     pollingTimer.value = null
   }
+}
+
+// 进度轮询
+let progressTimer = null
+
+const startProgressPolling = () => {
+  stopProgressPolling()
+  progressTimer = setInterval(async () => {
+    try {
+      const res = await getInitProgress()
+      if (res && res.code === 200 && res.data) {
+        const data = res.data
+        progressStatus.value = data.status || 'idle'
+        if (Array.isArray(data.steps)) {
+          progressSteps.value = data.steps
+        }
+        if (data.status === 'success') {
+          stopProgressPolling()
+          ElMessage.success(t('init.progress.successMsg'))
+          setTimeout(() => router.push('/home'), 1500)
+        } else if (data.status === 'failed') {
+          stopProgressPolling()
+        }
+      }
+    } catch (e) {
+      // 后端重启中，连接可能短暂中断，忽略并继续轮询
+    }
+  }, 1500)
+}
+
+const stopProgressPolling = () => {
+  if (progressTimer) {
+    clearInterval(progressTimer)
+    progressTimer = null
+  }
+}
+
+const retryInit = () => {
+  showProgress.value = false
+  progressStatus.value = 'idle'
+  progressSteps.value = []
+  loading.value = false
+  startPolling()
+}
+
+const goHome = () => {
+  router.push('/home')
 }
 
 // 数据库类型变化处理
@@ -547,28 +636,16 @@ const testDatabaseConnection = async () => {
 }
 
 const handleInit = async () => {
-  // 防止重复点击
-  if (loading.value) {
-    console.log('初始化正在进行中，忽略重复点击')
-    return
-  }
+  if (loading.value) return
   
   try {
-    // 验证所有表单
-    const validations = [
-      adminFormRef.value.validate()
-    ]
-    
-    // 只在启用测试用户时验证用户表单
+    const validations = [adminFormRef.value.validate()]
     if (initForm.user.enabled) {
       validations.push(userFormRef.value.validate())
     }
-    
-    // 如果是MySQL或MariaDB，需要验证数据库配置
     if (databaseForm.type === 'mysql' || databaseForm.type === 'mariadb') {
       validations.push(databaseFormRef.value.validate())
     }
-    
     await Promise.all(validations)
     
     loading.value = true
@@ -592,11 +669,11 @@ const handleInit = async () => {
     const response = await post('/v1/public/init', requestData)
 
     if (response.code === 200) {
-      ElMessage.success(t('init.messages.initSuccess'))
-      // 延长等待时间到4.5秒，确保后端数据库重新连接完成（后端需要2秒+处理时间）
-      setTimeout(() => {
-        router.push('/home')
-      }, 4500)
+      // 切换到进度面板
+      showProgress.value = true
+      progressStatus.value = 'in_progress'
+      loading.value = false
+      startProgressPolling()
     } else {
       ElMessage.error(response.msg || t('init.messages.initFailed'))
       loading.value = false
@@ -608,15 +685,11 @@ const handleInit = async () => {
     loading.value = false
     startPolling()
   }
-  // 成功时不要在这里设置 loading.value = false，让页面保持loading状态直到跳转
 }
 
 onMounted(async () => {
-  console.log(t('init.debug.pageMounted'))
-  
   // 自动检测并设置数据库类型
   const detection = await detectDatabaseType()
-  console.log(t('init.debug.detectedDbType'), detection)
   databaseForm.type = detection.type
   dbRecommendation.value = detection
   
@@ -624,8 +697,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
-  console.log(t('init.debug.pageUnmounted'))
   clearPolling()
+  stopProgressPolling()
 })
 </script>
 

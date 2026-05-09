@@ -33,10 +33,8 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 	if err := s.db.Raw("SELECT endpoint, port_ip FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
+	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping.
 	endpoint := p.Endpoint
-	if endpoint == "" {
-		endpoint = p.PortIP
-	}
 	if endpoint == "" {
 		return fmt.Errorf("no endpoint for provider %d", providerID)
 	}

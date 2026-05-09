@@ -139,29 +139,66 @@ func createDatabaseIfNotExists(m config.MysqlConfig) error {
 }
 
 // gormConfig 根据配置决定是否开启日志
-func gormConfig(mod string, zap bool) (config *gorm.Config) {
+func gormConfig(mod string, useZap bool) (config *gorm.Config) {
 	config = &gorm.Config{DisableForeignKeyConstraintWhenMigrating: false}
+	// IgnoreRecordNotFoundError=true 避免将期望的"查不到记录"行为打印成错误日志
 	switch mod {
 	case "silent", "Silent":
-		config.Logger = logger.Default.LogMode(logger.Silent)
+		config.Logger = logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  logger.Silent,
+				IgnoreRecordNotFoundError: true,
+			},
+		)
 	case "error", "Error":
-		config.Logger = logger.Default.LogMode(logger.Error)
+		config.Logger = logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  logger.Error,
+				IgnoreRecordNotFoundError: true,
+			},
+		)
 	case "warn", "Warn":
-		config.Logger = logger.Default.LogMode(logger.Warn)
+		config.Logger = logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  logger.Warn,
+				IgnoreRecordNotFoundError: true,
+			},
+		)
 	case "info", "Info":
-		config.Logger = logger.Default.LogMode(logger.Info)
+		config.Logger = logger.New(
+			log.New(os.Stdout, "\r\n", log.LstdFlags),
+			logger.Config{
+				SlowThreshold:             200 * time.Millisecond,
+				LogLevel:                  logger.Info,
+				IgnoreRecordNotFoundError: true,
+			},
+		)
 	default:
-		if zap {
+		if useZap {
 			config.Logger = logger.New(
-				log.New(os.Stdout, "\r\n", log.LstdFlags), // io writer
+				log.New(os.Stdout, "\r\n", log.LstdFlags),
 				logger.Config{
-					SlowThreshold: time.Second, // 慢 SQL 阈值
-					LogLevel:      logger.Info, // Log level
-					Colorful:      true,        // 启用彩色打印
+					SlowThreshold:             time.Second,
+					LogLevel:                  logger.Info,
+					IgnoreRecordNotFoundError: true,
+					Colorful:                  true,
 				},
 			)
 		} else {
-			config.Logger = logger.Default.LogMode(logger.Info)
+			config.Logger = logger.New(
+				log.New(os.Stdout, "\r\n", log.LstdFlags),
+				logger.Config{
+					SlowThreshold:             200 * time.Millisecond,
+					LogLevel:                  logger.Info,
+					IgnoreRecordNotFoundError: true,
+				},
+			)
 		}
 	}
 	return

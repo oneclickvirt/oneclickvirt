@@ -407,10 +407,22 @@ func (s *InstanceSyncSchedulerService) cleanupExpiredMismatchRecords() {
 // instances that have not yet had their host-side network interface recorded.
 // It groups instances by provider to reuse SSH connections and avoids N+1 DB queries.
 func (s *InstanceSyncSchedulerService) refreshMissingInterfaces() {
-	// Single query: all running instances missing the IPv4 interface field.
+	// Query running instances that need interface detection:
+	// 1. V4 interface is missing (fresh instance or never detected)
+	// 2. IPv6-capable instances where V6 is missing OR V6 equals V4
+	//    (V6==V4 indicates old buggy data where V6 was never separately detected)
+	ipv6Types := []string{"nat_ipv4_ipv6", "dedicated_ipv4_ipv6", "ipv6_only"}
 	var instances []providerModel.Instance
 	if err := global.APP_DB.
-		Where("status = ? AND (pmacct_interface_v4 = '' OR pmacct_interface_v4 IS NULL)", "running").
+		Where(
+			"status = ? AND ("+
+				"pmacct_interface_v4 = '' OR pmacct_interface_v4 IS NULL "+
+				"OR (network_type IN ? AND ("+
+				"pmacct_interface_v6 = '' OR pmacct_interface_v6 IS NULL "+
+				"OR pmacct_interface_v6 = pmacct_interface_v4))"+
+				")",
+			"running", ipv6Types,
+		).
 		Find(&instances).Error; err != nil {
 		global.APP_LOG.Warn("refreshMissingInterfaces: 查询实例失败", zap.Error(err))
 		return

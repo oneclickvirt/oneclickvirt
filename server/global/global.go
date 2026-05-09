@@ -3,6 +3,7 @@ package global
 import (
 	"context"
 	"oneclickvirt/config"
+	"sync"
 	"sync/atomic"
 
 	"github.com/gin-gonic/gin"
@@ -52,6 +53,113 @@ type CaptchaStore interface {
 // SystemInitializationCallback 系统初始化完成后的回调函数类型
 type SystemInitializationCallback func()
 
+// InitProgressStatus 初始化进度状态
+type InitProgressStatus string
+
+const (
+	InitStatusIdle       InitProgressStatus = "idle"
+	InitStatusInProgress InitProgressStatus = "in_progress"
+	InitStatusSuccess    InitProgressStatus = "success"
+	InitStatusFailed     InitProgressStatus = "failed"
+)
+
+// InitProgressStep 单个初始化步骤
+type InitProgressStep struct {
+	Name    string             `json:"name"`
+	Status  InitProgressStatus `json:"status"`  // idle | in_progress | success | failed
+	Message string             `json:"message"` // 错误或描述信息
+}
+
+// InitProgress 系统初始化进度
+type InitProgress struct {
+	mu          sync.RWMutex
+	Status      InitProgressStatus `json:"status"`
+	CurrentStep int                `json:"current_step"`
+	TotalSteps  int                `json:"total_steps"`
+	Steps       []InitProgressStep `json:"steps"`
+	ErrorMsg    string             `json:"error_msg"`
+}
+
+// Reset 重置进度（开始新的初始化）
+func (p *InitProgress) Reset(steps []string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Status = InitStatusInProgress
+	p.CurrentStep = 0
+	p.TotalSteps = len(steps)
+	p.ErrorMsg = ""
+	p.Steps = make([]InitProgressStep, len(steps))
+	for i, name := range steps {
+		p.Steps[i] = InitProgressStep{Name: name, Status: InitStatusIdle}
+	}
+}
+
+// StartStep 标记某步骤开始
+func (p *InitProgress) StartStep(index int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if index >= 0 && index < len(p.Steps) {
+		p.Steps[index].Status = InitStatusInProgress
+		p.CurrentStep = index
+	}
+}
+
+// CompleteStep 标记某步骤完成
+func (p *InitProgress) CompleteStep(index int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if index >= 0 && index < len(p.Steps) {
+		p.Steps[index].Status = InitStatusSuccess
+	}
+}
+
+// FailStep 标记某步骤失败
+func (p *InitProgress) FailStep(index int, msg string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if index >= 0 && index < len(p.Steps) {
+		p.Steps[index].Status = InitStatusFailed
+		p.Steps[index].Message = msg
+	}
+	p.Status = InitStatusFailed
+	p.ErrorMsg = msg
+}
+
+// Complete 标记整体完成
+func (p *InitProgress) Complete() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Status = InitStatusSuccess
+	p.CurrentStep = p.TotalSteps
+}
+
+// Abort 放弃当前初始化尝试，恢复为 idle 状态
+// 用于因外部原因（如系统已初始化）拒绝初始化请求时，避免将状态置为 failed
+func (p *InitProgress) Abort() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.Status = InitStatusIdle
+	p.Steps = nil
+	p.TotalSteps = 0
+	p.CurrentStep = 0
+	p.ErrorMsg = ""
+}
+
+// Snapshot 返回当前进度快照（线程安全）
+func (p *InitProgress) Snapshot() map[string]interface{} {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	steps := make([]InitProgressStep, len(p.Steps))
+	copy(steps, p.Steps)
+	return map[string]interface{}{
+		"status":       p.Status,
+		"current_step": p.CurrentStep,
+		"total_steps":  p.TotalSteps,
+		"steps":        steps,
+		"error_msg":    p.ErrorMsg,
+	}
+}
+
 // DBManagerStats 数据库管理器统计信息（用于性能监控，避免循环导入）
 type DBManagerStats struct {
 	Connected         bool   `json:"connected"`
@@ -85,15 +193,16 @@ var (
 	CONFIG_MANAGER_READY          atomic.Bool
 	APP_VP                        *viper.Viper
 	APP_ENGINE                    *gin.Engine
-	APP_SCHEDULER                 Scheduler                    // 任务调度器全局变量
-	APP_MONITORING_SCHEDULER      MonitoringScheduler          // 监控调度器全局变量
-	APP_PROVIDER_HEALTH_SCHEDULER ProviderHealthScheduler      // Provider健康检查调度器全局变量
-	APP_TASK_LOCK_RELEASER        TaskLockReleaser             // 任务锁释放器全局变量
-	APP_SSH_POOL                  SSHPoolManager               // SSH连接池管理器全局变量
-	APP_CAPTCHA_STORE             CaptchaStore                 // 验证码存储全局变量
-	APP_SYSTEM_INIT_CALLBACK      SystemInitializationCallback // 系统初始化完成回调函数
-	APP_SHUTDOWN_CONTEXT          context.Context              // 系统关闭上下文
-	APP_SHUTDOWN_CANCEL           context.CancelFunc           // 系统关闭取消函数
-	APP_JWT_SECRET                string                       // JWT密钥（从数据库加载，重启后保持不变）
-	APP_DB_MANAGER_STATS          *DBManagerStats              // 数据库管理器统计信息（由DatabaseManager定期更新）
+	APP_SCHEDULER                 Scheduler                               // 任务调度器全局变量
+	APP_MONITORING_SCHEDULER      MonitoringScheduler                     // 监控调度器全局变量
+	APP_PROVIDER_HEALTH_SCHEDULER ProviderHealthScheduler                 // Provider健康检查调度器全局变量
+	APP_TASK_LOCK_RELEASER        TaskLockReleaser                        // 任务锁释放器全局变量
+	APP_SSH_POOL                  SSHPoolManager                          // SSH连接池管理器全局变量
+	APP_CAPTCHA_STORE             CaptchaStore                            // 验证码存储全局变量
+	APP_SYSTEM_INIT_CALLBACK      SystemInitializationCallback            // 系统初始化完成回调函数
+	APP_SHUTDOWN_CONTEXT          context.Context                         // 系统关闭上下文
+	APP_SHUTDOWN_CANCEL           context.CancelFunc                      // 系统关闭取消函数
+	APP_JWT_SECRET                string                                  // JWT密钥（从数据库加载，重启后保持不变）
+	APP_DB_MANAGER_STATS          *DBManagerStats                         // 数据库管理器统计信息（由DatabaseManager定期更新）
+	APP_INIT_PROGRESS             = &InitProgress{Status: InitStatusIdle} // 系统初始化进度追踪
 )

@@ -274,35 +274,56 @@ func InitSystem(c *gin.Context) {
 	// 初始化服务
 	initService := &system.InitService{}
 
-	// 测试数据库连接
+	// 重置进度追踪（共9步）
+	global.APP_INIT_PROGRESS.Reset([]string{
+		"验证数据库连接",
+		"检查初始化状态",
+		"创建数据库结构",
+		"创建管理员账户",
+		"初始化种子数据",
+		"初始化系统镜像",
+		"重新连接数据库",
+		"注册系统服务",
+		"启动调度器",
+	})
+
+	// Step 0: 测试数据库连接
+	global.APP_INIT_PROGRESS.StartStep(0)
 	if err := initService.TestDatabaseConnection(dbConfig); err != nil {
+		global.APP_INIT_PROGRESS.FailStep(0, err.Error())
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(0)
 
-	// 如果数据库已经连接，检查是否有用户数据
-	// 但要确保连接到正确的数据库
+	// Step 1: 检查是否已初始化
+	global.APP_INIT_PROGRESS.StartStep(1)
 	if global.APP_DB != nil {
-		// 先尝试使用当前连接检查，如果失败则跳过检查
 		systemStatsService := resources.SystemStatsService{}
 		hasUsers, err := systemStatsService.CheckUserExists()
 		if err == nil && hasUsers {
+			// 恢复 idle 状态：拒绝重复初始化不属于失败，避免污染全局进度状态
+			global.APP_INIT_PROGRESS.Abort()
 			common.ResponseWithError(c, common.NewError(common.CodeValidationError, "系统已初始化"))
 			return
 		}
-		// 如果检查失败（比如没有选择数据库），继续初始化流程
 		if err != nil {
 			global.APP_LOG.Debug("检查用户数据失败，继续初始化流程", zap.Error(err))
 		}
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(1)
 
-	// 确保数据库和表结构
+	// Step 2: 确保数据库和表结构
+	global.APP_INIT_PROGRESS.StartStep(2)
 	if err := initService.EnsureDatabase(dbConfig); err != nil {
+		global.APP_INIT_PROGRESS.FailStep(2, err.Error())
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(2)
 
-	// Step 1: 创建管理员和用户
+	// Step 3: 创建管理员和用户
+	global.APP_INIT_PROGRESS.StartStep(3)
 	authService := auth.AuthService{}
 	adminInfo := auth.UserInfo{
 		Username: req.Admin.Username,
@@ -319,27 +340,28 @@ func InitSystem(c *gin.Context) {
 		}
 	}
 	if err := authService.InitSystemWithUsers(adminInfo, userInfoPtr); err != nil {
+		global.APP_INIT_PROGRESS.FailStep(3, err.Error())
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
 	}
+	global.APP_INIT_PROGRESS.CompleteStep(3)
 
-	// Step 2: 初始化系统种子数据
-	// 这些操作会自动在各自的短事务中完成
+	// Step 4: 初始化系统种子数据
+	global.APP_INIT_PROGRESS.StartStep(4)
 	source.InitSeedData()
+	global.APP_INIT_PROGRESS.CompleteStep(4)
 
-	// Step 3: 初始化系统镜像
+	// Step 5: 初始化系统镜像
+	global.APP_INIT_PROGRESS.StartStep(5)
 	source.SeedSystemImages()
+	global.APP_INIT_PROGRESS.CompleteStep(5)
 
 	// 创建业务系统初始化标志文件
 	initFlagPath := "./storage/.system_initialized"
 	initFlagDir := "./storage"
-
-	// 确保目录存在
 	if err := os.MkdirAll(initFlagDir, 0755); err != nil {
 		global.APP_LOG.Warn("创建storage目录失败", zap.Error(err))
 	}
-
-	// 写入业务系统初始化标志文件
 	flagContent := "System initialized at: " + time.Now().Format(time.RFC3339)
 	if err := os.WriteFile(initFlagPath, []byte(flagContent), 0644); err != nil {
 		global.APP_LOG.Warn("创建系统初始化标志文件失败", zap.Error(err))
@@ -347,22 +369,29 @@ func InitSystem(c *gin.Context) {
 		global.APP_LOG.Info("成功创建系统初始化标志文件", zap.String("path", initFlagPath))
 	}
 
-	// 系统初始化完成后，触发完整系统重新初始化
+	// 系统初始化完成后，触发完整系统重新初始化（异步，进度由回调内部更新）
 	go func() {
 		global.APP_LOG.Info("系统初始化完成，开始完整系统重新初始化")
-
 		// 等待一小段时间确保数据库事务完成
-		time.Sleep(2 * time.Second)
-
-		// 调用系统初始化完成回调
+		time.Sleep(1 * time.Second)
 		if global.APP_SYSTEM_INIT_CALLBACK != nil {
 			global.APP_SYSTEM_INIT_CALLBACK()
 		}
-
 		global.APP_LOG.Info("完整系统重新初始化完成")
 	}()
 
 	common.ResponseSuccess(c, nil, "系统初始化成功")
+}
+
+// GetInitProgress 获取系统初始化进度
+// @Summary 获取系统初始化进度
+// @Description 轮询此接口获取系统初始化的实时进度，status 为 success 时初始化完成
+// @Tags 系统初始化
+// @Produce json
+// @Success 200 {object} common.Response "进度信息"
+// @Router /public/init-progress [get]
+func GetInitProgress(c *gin.Context) {
+	common.ResponseSuccess(c, global.APP_INIT_PROGRESS.Snapshot())
 }
 
 // GetRegisterConfig 获取注册配置信息

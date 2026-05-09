@@ -8,12 +8,14 @@ import (
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/monitoring"
 	providerModel "oneclickvirt/model/provider"
+	resourceModel "oneclickvirt/model/resource"
 	"oneclickvirt/provider"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/firewall"
 	"oneclickvirt/service/pmacct"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/task"
+	"os"
 	"time"
 
 	"go.uber.org/zap"
@@ -186,7 +188,10 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		// 8. 硬删除硬件测试报告
 		tx.Unscoped().Where("provider_id = ?", providerID).Delete(&providerModel.HardwareTestReport{})
 
-		// 9. 硬删除Provider本身
+		// 9. 硬删除资源预留记录
+		tx.Unscoped().Where("provider_id = ?", providerID).Delete(&resourceModel.ResourceReservation{})
+
+		// 10. 硬删除Provider本身
 		if err := tx.Unscoped().Delete(&providerModel.Provider{}, providerID).Error; err != nil {
 			global.APP_LOG.Error("删除Provider记录失败", zap.Error(err))
 			return err
@@ -209,10 +214,33 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	// 8. 立即清理所有相关资源（防止内存泄漏）
 	s.cleanupAllProviderResources(providerID)
 
+	// 9. 删除本地证书和配置备份文件
+	s.cleanupProviderLocalFiles(&existingProvider)
+
 	global.APP_LOG.Info("Provider及所有关联数据删除成功",
 		zap.Uint("providerID", providerID),
 		zap.Int("instanceCount", len(instanceIDs)))
 	return nil
+}
+
+// cleanupProviderLocalFiles 删除Provider关联的本地证书和配置备份文件
+func (s *Service) cleanupProviderLocalFiles(p *providerModel.Provider) {
+	paths := []string{p.CertPath, p.KeyPath, p.CACertPath, p.ConfigBackupPath}
+	for _, path := range paths {
+		if path == "" {
+			continue
+		}
+		if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+			global.APP_LOG.Warn("删除Provider本地文件失败",
+				zap.Uint("providerID", p.ID),
+				zap.String("path", path),
+				zap.Error(err))
+		} else if err == nil {
+			global.APP_LOG.Debug("已删除Provider本地文件",
+				zap.Uint("providerID", p.ID),
+				zap.String("path", path))
+		}
+	}
 }
 
 // cleanupAllProviderResources 清理Provider的所有相关资源（防止内存泄漏）

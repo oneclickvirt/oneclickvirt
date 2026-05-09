@@ -86,6 +86,27 @@ export default {
     initRetry: 'System initialization failed, please try again',
     alreadyInitialized: 'System initialization complete, redirecting to homepage...'
   },
+  progress: {
+    title: 'Initializing system...',
+    retry: 'Retry Initialization',
+    goHome: 'Enter System',
+    statusIdle: 'Waiting',
+    statusInProgress: 'Initializing',
+    statusSuccess: 'Initialization Complete',
+    statusFailed: 'Initialization Failed',
+    successMsg: 'System initialization successful!',
+    steps: {
+      0: 'Verify database connection',
+      1: 'Check initialization status',
+      2: 'Create database schema',
+      3: 'Create admin account',
+      4: 'Initialize seed data',
+      5: 'Initialize system images',
+      6: 'Reconnect to database',
+      7: 'Register system services',
+      8: 'Start scheduler'
+    }
+  },
   debug: {
     pageMounted: 'Init page mounted, starting polling check',
     checkingStatus: 'Checking initialization status:',

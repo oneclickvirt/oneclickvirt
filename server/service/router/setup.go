@@ -123,6 +123,7 @@ func SetupRouter() *gin.Engine {
 			{
 				InitPublicGroup.GET("init/check", public.CheckInit)                           // 检查初始化状态
 				InitPublicGroup.POST("init", public.InitSystem)                               // 执行系统初始化
+				InitPublicGroup.GET("init-progress", public.GetInitProgress)                  // 查询初始化进度
 				InitPublicGroup.POST("test-db-connection", public.TestDatabaseConnection)     // 测试数据库连接
 				InitPublicGroup.GET("recommended-db-type", public.GetRecommendedDatabaseType) // 获取推荐数据库类型
 				InitPublicGroup.GET("register-config", public.GetRegisterConfig)              // 获取注册配置（从内存读取）
