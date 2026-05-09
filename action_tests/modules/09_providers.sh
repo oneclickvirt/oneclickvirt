@@ -100,6 +100,57 @@ run_module_09() {
     test_api "Edit provider back" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
         "{\"name\":\"ci-${ENV_TYPE}-provider\"}" "$group"
 
+    # -- nodeInstallType / bridge fields (proxmox only) --
+    if [[ "$ENV_TYPE" == "proxmox" || "$ENV_TYPE" == "proxmoxve" ]]; then
+        # Verify default nodeInstallType is "script" in the created provider
+        local provider_detail; provider_detail=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
+        local node_install_type; node_install_type=$(echo "$provider_detail" | jq -r '.data.nodeInstallType // empty' 2>/dev/null)
+        if [[ "$node_install_type" == "script" || "$node_install_type" == "" ]]; then
+            log_info "nodeInstallType default=script verified"
+        else
+            log_warning "nodeInstallType default expected 'script', got '${node_install_type}'"
+        fi
+
+        # Update to script install type (no bridge fields required)
+        test_api "Set nodeInstallType=script" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+            '{"nodeInstallType":"script"}' "$group"
+
+        # Update to third_party with all required bridge fields
+        test_api "Set nodeInstallType=third_party" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+            '{"nodeInstallType":"third_party","bridgeNAT":"vmbr1","bridgeDedicatedV4":"vmbr0","bridgeDedicatedV6":"","natSubnet":"172.16.1.0/24"}' "$group"
+
+        # Verify third_party fields were saved
+        local tp_detail; tp_detail=$(curl -s --max-time 30 \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null) || true
+        local saved_nat; saved_nat=$(echo "$tp_detail" | jq -r '.data.bridgeNAT // empty' 2>/dev/null)
+        local saved_v4; saved_v4=$(echo "$tp_detail" | jq -r '.data.bridgeDedicatedV4 // empty' 2>/dev/null)
+        local saved_subnet; saved_subnet=$(echo "$tp_detail" | jq -r '.data.natSubnet // empty' 2>/dev/null)
+        if [[ "$saved_nat" == "vmbr1" && "$saved_v4" == "vmbr0" && "$saved_subnet" == "172.16.1.0/24" ]]; then
+            log_info "third_party bridge fields saved correctly"
+        else
+            log_warning "third_party fields mismatch: bridgeNAT=${saved_nat} bridgeDedicatedV4=${saved_v4} natSubnet=${saved_subnet}"
+        fi
+
+        # Test with custom subnet (different from default 172.16.1.0/24)
+        test_api "Set third_party custom subnet" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+            '{"nodeInstallType":"third_party","bridgeNAT":"br0","bridgeDedicatedV4":"br1","bridgeDedicatedV6":"br2","natSubnet":"10.10.0.0/24"}' "$group"
+
+        # Revert back to script install for subsequent tests
+        test_api "Revert nodeInstallType=script" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+            '{"nodeInstallType":"script"}' "$group"
+
+        # Test creating a proxmox provider with third_party type (validation should pass with required fields)
+        local tp_create_resp; tp_create_resp=$(test_api "Create proxmox third_party provider" "POST" "/api/v1/admin/providers" "200" \
+            "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
+        local tp_pid; tp_pid=$(echo "$tp_create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+        if [[ -n "$tp_pid" ]]; then
+            test_api "Delete third_party test provider" "DELETE" "/api/v1/admin/providers/${tp_pid}" "200" "" "$group"
+        fi
+    fi
+
     # -- Auto configure (required for api_only and auto execution rules, skip for ssh_only) --
     if [[ "$EXECUTION_RULE" != "ssh_only" ]]; then
         # -- Auto configure (streaming) --
@@ -173,7 +224,7 @@ run_module_09() {
 
     # -- Export configs --
     test_api "Export provider configs" "POST" "/api/v1/admin/providers/export-configs" "200" \
-        "{\"provider_ids\":[${PROVIDER_ID}]}"[${PROVIDER_ID}]}" "$group"
+        "{\"provider_ids\":[${PROVIDER_ID}]}" "$group"
 
     # -- Provider API routes --
     test_api "Provider API list" "GET" "/api/v1/providers" "200" "" "$group"
