@@ -348,8 +348,8 @@ fi
 # 检测是否为 LXC 容器
 if command -v pct >/dev/null 2>&1; then
     if pct status ${INSTANCE_ID} >/dev/null 2>&1; then
-        # 是容器，查找 veth 接口
-        VETH=$(ip link | grep -o "veth${INSTANCE_ID}i[0-9]" | head -n1)
+        # 是容器，查找 veth i0 接口（IPv4的第一张网卡）
+        VETH=$(ip link | grep -o "veth${INSTANCE_ID}i0")
         if [ -n "$VETH" ]; then
             echo "$VETH"
             exit 0
@@ -360,8 +360,8 @@ fi
 # 检测是否为 KVM 虚拟机
 if command -v qm >/dev/null 2>&1; then
     if qm status ${INSTANCE_ID} >/dev/null 2>&1; then
-        # 是虚拟机，查找 tap 接口
-        TAP=$(ip link | grep -o "tap${INSTANCE_ID}i[0-9]" | head -n1)
+        # 是虚拟机，查找 tap i0 接口（IPv4的第一张网卡）
+        TAP=$(ip link | grep -o "tap${INSTANCE_ID}i0")
         if [ -n "$TAP" ]; then
             echo "$TAP"
             exit 0
@@ -370,8 +370,8 @@ if command -v qm >/dev/null 2>&1; then
 fi
 
 # 方法3: 通过 bridge 查询
-# 列出所有 veth/tap 接口，匹配实例ID
-INTERFACE=$(bridge link | grep -E "(veth|tap)${INSTANCE_ID}i[0-9]" | awk '{print $2}' | cut -d'@' -f1 | head -n1)
+# 列出所有 veth/tap 接口，明确匹配 i0（IPv4接口，避免匹配到 i1 IPv6接口）
+INTERFACE=$(bridge link | grep -E "(veth|tap)${INSTANCE_ID}i0" | awk '{print $2}' | cut -d'@' -f1 | head -n1)
 if [ -n "$INTERFACE" ]; then
     echo "$INTERFACE"
     exit 0
