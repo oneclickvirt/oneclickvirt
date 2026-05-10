@@ -17,6 +17,12 @@ func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
 		return fmt.Errorf("数据库连接不可用")
 	}
 
+	// 防御性检查：表不存在时直接跳过（全新数据库无需修复）
+	if !db.Migrator().HasTable("instance_traffic_histories") {
+		global.APP_LOG.Info("instance_traffic_histories 表不存在，跳过重复数据检查（全新数据库）")
+		return nil
+	}
+
 	global.APP_LOG.Info("开始检查并修复 instance_traffic_histories 表中的重复数据...")
 
 	// 检查是否存在重复数据

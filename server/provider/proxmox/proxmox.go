@@ -503,7 +503,7 @@ func (p *ProxmoxProvider) GetIPv6NetworkInterface(ctx context.Context, instanceN
 
 	// 实例的宏机侧接口（tap/veth）是网桥端口，本身没有IPv6地址，
 	// IPv6地址配置在容器/虚拟机内部的eth1接口上。
-	// 因此不能通过宣地IPv6地址来判断接口类型，只能通过接口是否存在来判断：
+	// 因此不能通过读取的IPv6地址来判断接口类型，只能通过接口是否存在来判断：
 	// - i1 存在 → 实例配置了第二张网卡（net1），用于IPv6
 	// - 只有 i0 → 单网卡，允许回退到 i0
 	for _, ifIndex := range []string{"i1", "i0"} {

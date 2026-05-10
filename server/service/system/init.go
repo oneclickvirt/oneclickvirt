@@ -204,6 +204,29 @@ func (s *InitService) EnsureDatabase(dbConfig config.DatabaseConfig) error {
 }
 
 // UpdateDatabaseConfig 更新数据库配置
+// applyMysqlConfigToGlobal 将 MySQL 配置直接写入 global.APP_CONFIG，
+// 确保后续 Gorm() 调用可以读取到最新配置，不依赖 ConfigManager 回调。
+func applyMysqlConfigToGlobal(dbConfig config.DatabaseConfig) {
+	if dbConfig.Type != "mysql" && dbConfig.Type != "mariadb" {
+		return
+	}
+	appCfg := global.GetAppConfig()
+	appCfg.Mysql.Path = dbConfig.Host
+	appCfg.Mysql.Port = strconv.Itoa(dbConfig.Port)
+	appCfg.Mysql.Dbname = dbConfig.Database
+	appCfg.Mysql.Username = dbConfig.Username
+	appCfg.Mysql.Password = dbConfig.Password
+	appCfg.Mysql.Config = "charset=utf8mb4&parseTime=True&loc=Local&time_zone=%27%2B08%3A00%27"
+	appCfg.Mysql.Engine = "InnoDB"
+	appCfg.Mysql.MaxIdleConns = 10
+	appCfg.Mysql.MaxOpenConns = 100
+	appCfg.Mysql.LogMode = "error"
+	appCfg.Mysql.LogZap = false
+	appCfg.Mysql.MaxLifetime = 3600
+	appCfg.Mysql.AutoCreate = true
+	global.SetAppConfig(appCfg)
+}
+
 func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error {
 	// 使用 ConfigManager 来更新配置，保持原有格式
 	cm := configManager.GetConfigManager()
@@ -233,7 +256,12 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 			updates["mysql.auto-create"] = true
 		}
 
-		return cm.UpdateConfig(updates)
+		if err := cm.UpdateConfig(updates); err != nil {
+			return err
+		}
+		// ConfigManager 的回调不同步 mysql 节点到 global.APP_CONFIG，需要手动同步
+		applyMysqlConfigToGlobal(dbConfig)
+		return nil
 	}
 
 	// 降级方案：直接操作文件（保持向后兼容）
@@ -308,6 +336,8 @@ func (s *InitService) UpdateDatabaseConfig(dbConfig config.DatabaseConfig) error
 		global.APP_LOG.Warn("重新加载配置失败", zap.Error(err))
 		// 不返回错误，因为配置文件已经写入成功
 	}
+	// 确保 global.APP_CONFIG.Mysql 已更新（reloadConfig 通过 CM 回调可能不同步 mysql 节点）
+	applyMysqlConfigToGlobal(dbConfig)
 
 	return nil
 }

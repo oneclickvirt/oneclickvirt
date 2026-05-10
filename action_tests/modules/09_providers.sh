@@ -41,6 +41,15 @@ run_module_09() {
     test_api "Check endpoint" "GET" "/api/v1/admin/providers/check-endpoint?endpoint=${WORKER_IP}&sshPort=22" "200" "" "$group"
 
     # -- Create provider (or reuse existing one from state restoration) --
+    # Build auth payload at function scope (always set to avoid set -u issues)
+    local auth_payload=""
+    if [[ -n "$worker_pass" ]]; then
+        auth_payload="\"password\":\"${worker_pass}\""
+    elif [[ -n "$worker_key" ]]; then
+        local escaped_key_create; escaped_key_create=$(echo "$worker_key" | jq -Rsa .)
+        auth_payload="\"sshKey\":${escaped_key_create}"
+    fi
+
     if [[ -n "$PROVIDER_ID" ]]; then
         # Provider ID exists (restored from previous module),verify it's still valid
         log_info "Using existing provider ID: ${PROVIDER_ID}"
@@ -52,16 +61,8 @@ run_module_09() {
             PROVIDER_ID=""
         fi
     fi
-    
+
     if [[ -z "$PROVIDER_ID" ]]; then
-        # Build auth payload: prefer password, fall back to SSH key
-        local auth_payload
-        if [[ -n "$worker_pass" ]]; then
-            auth_payload="\"password\":\"${worker_pass}\""
-        elif [[ -n "$worker_key" ]]; then
-            local escaped_key_create; escaped_key_create=$(echo "$worker_key" | jq -Rsa .)
-            auth_payload="\"sshKey\":${escaped_key_create}"
-        fi
         log_info "Creating provider with executionRule=${EXECUTION_RULE}"
         local pr; pr=$(test_api "Create provider" "POST" "/api/v1/admin/providers" "200" \
             "{\"name\":\"ci-${ENV_TYPE}-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload}}" "$group")

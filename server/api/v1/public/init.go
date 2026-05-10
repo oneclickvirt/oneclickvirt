@@ -371,6 +371,14 @@ func InitSystem(c *gin.Context) {
 
 	// 系统初始化完成后，触发完整系统重新初始化（异步，进度由回调内部更新）
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				global.APP_LOG.Error("完整系统重新初始化发生panic",
+					zap.Any("panic", r))
+				global.APP_INIT_PROGRESS.FailStep(-1, "系统重新初始化发生内部错误")
+			}
+		}()
+
 		global.APP_LOG.Info("系统初始化完成，开始完整系统重新初始化")
 		// 等待一小段时间确保数据库事务完成
 		time.Sleep(1 * time.Second)

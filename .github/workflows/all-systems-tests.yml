@@ -93,6 +93,25 @@ jobs:
           sudo apt-get install -y jq curl sshpass python3 python3-pip
           pip3 install --quiet paramiko
 
+      - name: Validate bash syntax of test scripts
+        run: |
+          set -euo pipefail
+          errors=0
+          for f in action_tests/modules/*.sh action_tests/common/*.sh action_tests/common/platforms/*.sh \
+                   action_tests/run_module.sh action_tests/run_env_test.sh; do
+            [[ -f "$f" ]] || continue
+            if ! bash -n "$f" 2>/tmp/bash_syntax_err.txt; then
+              echo "::error file=${f}::Bash syntax error in ${f}:"
+              cat /tmp/bash_syntax_err.txt
+              errors=$((errors + 1))
+            fi
+          done
+          if [[ $errors -gt 0 ]]; then
+            echo "::error::${errors} bash script(s) have syntax errors. Fix before running CI."
+            exit 1
+          fi
+          echo "All bash scripts passed syntax check."
+
       - name: Resolve usable cloud platforms
         id: resolve-platforms
         env:

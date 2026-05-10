@@ -8,6 +8,8 @@ services:
       - "8888:80"
     networks:
       - default
+    depends_on:
+      - api
 
   api:
     build:
@@ -19,6 +21,10 @@ services:
       - ./server/config.yaml:/app/config.yaml:rw
     networks:
       - default
+    depends_on:
+      mysql:
+        condition: service_healthy
+    restart: on-failure
 
   mysql:
     image: mariadb:10.11
@@ -27,13 +33,19 @@ services:
     ports:
       - "3306:3306"
     environment:
-        MYSQL_ALLOW_EMPTY_PASSWORD:  "yes"
+        MYSQL_ALLOW_EMPTY_PASSWORD: "yes"
         MYSQL_DATABASE: oneclickvirt
     volumes:
       - mysql_data:/var/lib/mysql
       - ./deploy/my.cnf:/etc/mysql/conf.d/custom.cnf
     networks:
       - default
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
 volumes:
   mysql_data:
