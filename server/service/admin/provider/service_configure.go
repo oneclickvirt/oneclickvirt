@@ -32,8 +32,8 @@ func (s *Service) AutoConfigureProviderWithStreamContext(ctx context.Context, pr
 	default:
 	}
 
-	// 支持LXD、Incus和Proxmox
-	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" {
+	// 支持LXD、Incus和Proxmox（proxmoxve是proxmox的别名）
+	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" && provider.Type != "proxmoxve" {
 		outputChan <- fmt.Sprintf("错误: 不支持的Provider类型: %s (只支持LXD、Incus和Proxmox)", provider.Type)
 		return fmt.Errorf("只支持为LXD、Incus和Proxmox生成配置")
 	}
@@ -58,7 +58,7 @@ func (s *Service) AutoConfigureProviderWithStreamContext(ctx context.Context, pr
 	// 根据类型返回不同的成功消息
 	var message string
 	switch provider.Type {
-	case "proxmox":
+	case "proxmox", "proxmoxve":
 		message = "Proxmox VE API 自动配置成功，认证配置已保存到数据库和文件"
 	case "lxd":
 		message = "LXD 自动配置成功，证书已安装并保存到数据库和文件"

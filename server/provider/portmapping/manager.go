@@ -118,7 +118,7 @@ func (m *Manager) AutoSelectProvider(instanceType string) string {
 		return "lxd"
 	case "incus":
 		return "incus"
-	case "pve", "proxmox":
+	case "pve", "proxmox", "proxmoxve":
 		return "pve"
 	default:
 		// 默认使用iptables

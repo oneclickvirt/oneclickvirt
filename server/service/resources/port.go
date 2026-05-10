@@ -104,7 +104,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	}
 
 	// 只支持 LXD/Incus/Proxmox 手动添加端口
-	if providerInfo.Type != "lxd" && providerInfo.Type != "incus" && providerInfo.Type != "proxmox" {
+	if providerInfo.Type != "lxd" && providerInfo.Type != "incus" && providerInfo.Type != "proxmox" && providerInfo.Type != "proxmoxve" {
 		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox")
 	}
 

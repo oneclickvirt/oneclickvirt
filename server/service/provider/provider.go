@@ -198,7 +198,7 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 	}
 
 	// 对于Proxmox，设置TokenID
-	if dbProvider.Type == "proxmox" && dbProvider.Username != "" && strings.Contains(dbProvider.Token, "=") {
+	if (dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve") && dbProvider.Username != "" && strings.Contains(dbProvider.Token, "=") {
 		config.TokenID = strings.Split(dbProvider.Token, "=")[0]
 	}
 

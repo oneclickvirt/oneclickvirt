@@ -663,4 +663,5 @@ func (p *ProxmoxProvider) supportsCloneFstrim() bool {
 
 func init() {
 	provider.RegisterProvider("proxmox", NewProxmoxProvider)
+	provider.RegisterProvider("proxmoxve", NewProxmoxProvider)
 }

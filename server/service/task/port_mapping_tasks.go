@@ -229,7 +229,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 	// 确定使用的 portmapping provider 类型
 	portMappingType := localProviderType
-	if portMappingType == "proxmox" {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
 		portMappingType = "iptables"
 	}
 
@@ -275,7 +275,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上实际创建端口映射 (85%)
-	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" {
+	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" || localProviderType == "proxmoxve" {
 		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
 
 		// 调用 provider 层的方法在远程服务器上创建实际映射（使用最新获取的内网IP）
@@ -296,7 +296,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			// 调用内部方法创建端口映射，使用最新的内网IP
 			err = incusProv.SetupPortMappingWithIP(ctx, instance.Name, port.HostPort, port.GuestPort, port.Protocol, localIPv4PortMappingMethod, currentPrivateIP)
 
-		case "proxmox":
+		case "proxmox", "proxmoxve":
 			proxmoxProv, ok := prov.(*proxmox.ProxmoxProvider)
 			if !ok {
 				return fmt.Errorf("Provider类型断言失败")
@@ -419,7 +419,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		})
 
 		portMappingType := localProviderType
-		if portMappingType == "proxmox" {
+		if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
 			portMappingType = "iptables"
 		}
 

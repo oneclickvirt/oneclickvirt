@@ -185,7 +185,7 @@ func (s *TaskService) createPortMappingDirect(ctx context.Context, resetCtx *Res
 
 	// 确定端口映射类型
 	portMappingType := resetCtx.Provider.Type
-	if portMappingType == "proxmox" {
+	if portMappingType == "proxmox" || portMappingType == "proxmoxve" {
 		portMappingType = "iptables"
 	}
 

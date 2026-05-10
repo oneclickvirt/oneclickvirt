@@ -338,7 +338,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 							instanceUpdates["public_ipv6"] = publicIPv6
 						}
 					}
-				} else if dbProvider.Type == "proxmox" {
+				} else if dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve" {
 					if proxmoxProvider, ok := providerInstance.(interface {
 						GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
 						GetInstanceIPv6(ctx context.Context, instanceName string) (string, error)

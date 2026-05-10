@@ -14,8 +14,8 @@ func (s *Service) GenerateProviderCert(providerID uint) (string, error) {
 		return "", fmt.Errorf("Provider不存在")
 	}
 
-	// 支持LXD、Incus和Proxmox
-	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" {
+	// 支持LXD、Incus和Proxmox（proxmoxve是proxmox的别名）
+	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" && provider.Type != "proxmoxve" {
 		return "", fmt.Errorf("只支持为LXD、Incus和Proxmox生成配置")
 	}
 
@@ -30,7 +30,7 @@ func (s *Service) GenerateProviderCert(providerID uint) (string, error) {
 	// 根据类型返回不同的成功消息
 	var message string
 	switch provider.Type {
-	case "proxmox":
+	case "proxmox", "proxmoxve":
 		message = "Proxmox VE API 自动配置成功，认证配置已保存到数据库和文件"
 	case "lxd":
 		message = "LXD 自动配置成功，证书已安装并保存到数据库和文件"

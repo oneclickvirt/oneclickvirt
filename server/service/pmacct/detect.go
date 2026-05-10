@@ -606,7 +606,7 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 				info.IPv6Interface = kvIface
 			}
 		}
-	} else if providerType == "proxmox" {
+	} else if providerType == "proxmox" || providerType == "proxmoxve" {
 		// Proxmox VE: 使用专门的检测方法
 		// 通过实例ID或MAC地址精确识别 veth/tap 接口
 		var proxmoxInterface string

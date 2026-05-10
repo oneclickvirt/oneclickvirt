@@ -54,7 +54,7 @@ func AutoConfigureProvider(c *gin.Context) {
 	}
 
 	// 检查Provider类型
-	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" {
+	if provider.Type != "lxd" && provider.Type != "incus" && provider.Type != "proxmox" && provider.Type != "proxmoxve" {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "不支持的Provider类型: "+provider.Type))
 		return
 	}

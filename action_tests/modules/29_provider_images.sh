@@ -29,10 +29,16 @@ run_module_29() {
     if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then
         log_warning "No images available for provider ${PROVIDER_ID}, testing with default images"
         # Try system images as fallback — filter by provider type AND architecture
+        # Map env type to system image providerType
+        # proxmoxve environments use system images stored under providerType "proxmox"
+        local img_provider_type="$ENV_TYPE"
+        case "$ENV_TYPE" in
+            proxmoxve) img_provider_type="proxmox" ;;
+        esac
         images_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/system-images?page=1&pageSize=100&status=active" 2>/dev/null) || true
         images_json=$(echo "$images_resp" | jq -c \
-            '[.data.list[]? | select(.providerType=="'"${ENV_TYPE}"'" and .architecture=="'"${provider_arch}"'")]' 2>/dev/null)
+            '[.data.list[]? | select(.providerType=="'"${img_provider_type}"'" and .architecture=="'"${provider_arch}"'")]' 2>/dev/null)
         image_count=$(echo "$images_json" | jq 'length' 2>/dev/null)
 
         if [[ -z "$image_count" || "$image_count" == "0" || "$image_count" == "null" ]]; then

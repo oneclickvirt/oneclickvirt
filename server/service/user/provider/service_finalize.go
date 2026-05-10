@@ -259,7 +259,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 								zap.Error(err))
 						}
 					}
-				} else if dbProvider.Type == "proxmox" {
+				} else if dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve" {
 					// 对于Proxmox Provider，优先使用专门的IPv4/IPv6方法获取地址
 					if proxmoxProvider, ok := providerInstance.(interface {
 						GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
