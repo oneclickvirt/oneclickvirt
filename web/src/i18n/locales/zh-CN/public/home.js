@@ -53,7 +53,8 @@ export default {
     communityGroup: '交流群组',
     allRightsReserved: 'All rights reserved.',
     openSourceProject: '一键虚拟化旗下开源项目',
-    serverVersion: '主控版本'
+    serverVersion: '主控版本',
+    versionFetchFailed: '版本获取失败，后端可能已断连'
   },
   errors: {
     fetchAnnouncementsFailed: '获取公告失败:',

@@ -314,6 +314,78 @@ func (s *Service) DetectProxmoxNetworkInterface(providerInstance provider.Provid
 	return s.detectProxmoxNetworkInterface(providerInstance, instanceName, instanceID)
 }
 
+// DetectProxmoxNetworkInterfaceV6 导出方法，供Proxmox Provider调用
+// 检测 Proxmox VE 实例的IPv6网络接口（i1接口）
+// 对于通过本项目脚本安装的Proxmox，IPv6使用i1接口，与IPv4的i0接口严格分离
+func (s *Service) DetectProxmoxNetworkInterfaceV6(providerInstance provider.Provider, instanceName string, instanceID string) (string, error) {
+	return s.detectProxmoxNetworkInterfaceV6(providerInstance, instanceName, instanceID)
+}
+
+// detectProxmoxNetworkInterfaceV6 检测 Proxmox VE 实例的IPv6网络接口（i1接口，内部方法）
+// 对于通过本项目脚本安装的Proxmox节点：
+// - IPv4 使用 i0 接口（如 tap101i0, veth178i0）
+// - IPv6 使用 i1 接口（如 tap101i1, veth178i1）
+// 两者永远不会相同，本函数仅检测 i1 接口
+func (s *Service) detectProxmoxNetworkInterfaceV6(providerInstance provider.Provider, instanceName string, instanceID string) (string, error) {
+	global.APP_LOG.Debug("开始检测Proxmox IPv6网络接口(i1)",
+		zap.String("instance", instanceName),
+		zap.String("instanceID", instanceID))
+
+	detectCmd := fmt.Sprintf(`
+# 检测 Proxmox IPv6 网络接口（i1接口）
+# 参数: 实例ID
+INSTANCE_ID='%s'
+
+# 方法1: 通过接口名直接匹配 i1 接口
+# LXC 容器: veth<ctid>i1
+if ip link show veth${INSTANCE_ID}i1 >/dev/null 2>&1; then
+    echo "veth${INSTANCE_ID}i1"
+    exit 0
+fi
+
+# KVM 虚拟机: tap<vmid>i1
+if ip link show tap${INSTANCE_ID}i1 >/dev/null 2>&1; then
+    echo "tap${INSTANCE_ID}i1"
+    exit 0
+fi
+
+# 方法2: 通过 bridge 查询 i1 接口
+INTERFACE=$(bridge link 2>/dev/null | grep -E "(veth|tap)${INSTANCE_ID}i1" | awk '{print $2}' | cut -d'@' -f1 | head -n1)
+if [ -n "$INTERFACE" ]; then
+    echo "$INTERFACE"
+    exit 0
+fi
+
+echo "ERROR: 无法找到实例 ${INSTANCE_ID} 的IPv6网络接口(i1)" >&2
+exit 1
+`, instanceID)
+
+	ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	defer cancel()
+
+	output, err := providerInstance.ExecuteSSHCommand(ctx, detectCmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to execute Proxmox IPv6 interface detection: %w", err)
+	}
+
+	interfaceName := utils.CleanCommandOutput(output)
+	if interfaceName == "" || strings.HasPrefix(interfaceName, "ERROR:") {
+		return "", fmt.Errorf("无法检测Proxmox实例 %s (ID: %s) 的IPv6网络接口(i1)", instanceName, instanceID)
+	}
+
+	// 验证接口名称格式（必须是i1结尾）
+	if matched, _ := regexp.MatchString(`^(veth|tap)\d+i1$`, interfaceName); !matched {
+		return "", fmt.Errorf("invalid Proxmox IPv6 interface name (expected i1): %s", interfaceName)
+	}
+
+	global.APP_LOG.Debug("成功检测到Proxmox IPv6网络接口(i1)",
+		zap.String("instance", instanceName),
+		zap.String("instanceID", instanceID),
+		zap.String("interface", interfaceName))
+
+	return interfaceName, nil
+}
+
 // detectProxmoxNetworkInterface 检测 Proxmox VE 实例的网络接口（内部方法）
 // 根据接口命名规则精确识别：
 // - LXC容器：veth<ctid>i0 格式（如 veth178i0）
@@ -608,41 +680,50 @@ func (s *Service) detectNetworkInterfaces(providerInstance provider.Provider, in
 		}
 	} else if providerType == "proxmox" || providerType == "proxmoxve" {
 		// Proxmox VE: 使用专门的检测方法
-		// 通过实例ID或MAC地址精确识别 veth/tap 接口
-		var proxmoxInterface string
-		var err error
+		// 对于脚本安装的Proxmox节点，IPv4使用i0接口，IPv6必须使用i1接口，两者永远不同
+		var instanceID string
 
-		// 方法1: 通过实例ID检测（最可靠）
-		// 假设 instanceName 包含 VMID/CTID
-		// 例如: "vm-101" 或 "lxc-178" 或直接 "101"
-		instanceID := s.extractProxmoxInstanceID(instanceName)
+		// 优先使用数据库中保存的 ProviderVMID（最可靠）
+		if instance != nil && instance.ProviderVMID != "" {
+			instanceID = instance.ProviderVMID
+		} else {
+			// 备选：尝试从实例名称提取（旧格式兼容）
+			instanceID = s.extractProxmoxInstanceID(instanceName)
+		}
+
 		if instanceID != "" {
-			proxmoxInterface, err = s.detectProxmoxNetworkInterface(providerInstance, instanceName, instanceID)
-			if err != nil {
-				global.APP_LOG.Warn("通过实例ID检测Proxmox接口失败，尝试备用方法",
-					zap.String("instance", instanceName),
-					zap.String("instanceID", instanceID),
-					zap.Error(err))
+			// 检测IPv4接口（i0）
+			if info.IPv4Interface == "" {
+				if ifaceV4, err := s.detectProxmoxNetworkInterface(providerInstance, instanceName, instanceID); err == nil && ifaceV4 != "" {
+					info.IPv4Interface = ifaceV4
+				} else {
+					global.APP_LOG.Warn("通过实例ID检测Proxmox IPv4接口失败",
+						zap.String("instance", instanceName),
+						zap.String("instanceID", instanceID),
+						zap.Error(err))
+				}
 			}
-		}
-
-		// 方法2: 如果方法1失败，回退到主网络接口检测
-		if proxmoxInterface == "" {
-			global.APP_LOG.Debug("使用通用方法检测Proxmox网络接口",
+			// 检测IPv6接口（i1）— 严格使用i1，绝不复用IPv4的i0接口
+			if hasIPv6 && info.IPv6Interface == "" {
+				if ifaceV6, err := s.detectProxmoxNetworkInterfaceV6(providerInstance, instanceName, instanceID); err == nil && ifaceV6 != "" {
+					info.IPv6Interface = ifaceV6
+				} else {
+					global.APP_LOG.Debug("Proxmox实例未找到i1 IPv6接口（该实例可能无IPv6网卡）",
+						zap.String("instance", instanceName),
+						zap.String("instanceID", instanceID))
+					// 不回退到i0接口，让IPv6监控留空，避免监控数据混淆
+				}
+			}
+		} else {
+			// 无法获取实例ID，只能检测IPv4接口（主机接口回退）
+			global.APP_LOG.Warn("无法获取Proxmox实例ID，回退到主网络接口检测（仅IPv4）",
 				zap.String("instance", instanceName))
-			mainInterface, err := s.detectNetworkInterface(providerInstance)
-			if err != nil {
-				return nil, fmt.Errorf("failed to detect network interface: %w", err)
+			if mainInterface, err := s.detectNetworkInterface(providerInstance); err == nil && mainInterface != "" {
+				if info.IPv4Interface == "" {
+					info.IPv4Interface = mainInterface
+				}
+				// IPv6不使用同一接口，留空（数据无法区分，不如不统计）
 			}
-			proxmoxInterface = mainInterface
-		}
-
-		if info.IPv4Interface == "" {
-			info.IPv4Interface = proxmoxInterface
-		}
-		if hasIPv6 && info.IPv6Interface == "" {
-			// Proxmox 的 IPv4 和 IPv6 通常使用同一个 tap/veth 接口
-			info.IPv6Interface = proxmoxInterface
 		}
 	} else {
 		// 其他虚拟化类型: 使用主网络接口

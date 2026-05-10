@@ -312,6 +312,14 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 
 	instanceID = instance.ID
 
+	// 将VMID保存到数据库，供后续接口检测使用
+	if err := global.APP_DB.Model(&instance).Update("provider_vm_id", vmidStr).Error; err != nil {
+		global.APP_LOG.Warn("更新实例ProviderVMID失败",
+			zap.String("instanceName", instanceName),
+			zap.String("vmid", vmidStr),
+			zap.Error(err))
+	}
+
 	// 获取并更新实例的PrivateIP（确保pmacct配置使用正确的内网IP）
 	ctx2, cancel2 := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel2()
@@ -343,19 +351,29 @@ func (p *ProxmoxProvider) initializePmacctMonitoring(ctx context.Context, vmid i
 			zap.Error(err))
 	}
 
-	// 获取并更新实例的IPv6网络接口（如果有IPv6的话）
-	// 这里依赖于实例的public_ipv6字段已经在之前被设置
-	ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
-	defer cancel4()
-	if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {
+	// 获取并更新实例的IPv6网络接口（使用i1接口，确保与IPv4的i0接口不同）
+	// 对于通过本项目脚本安装的Proxmox节点，IPv4使用i0接口，IPv6必须使用i1接口
+	if interfaceV6, err := pmacctService.DetectProxmoxNetworkInterfaceV6(p, instanceName, vmidStr); err == nil && interfaceV6 != "" {
 		if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
 			global.APP_LOG.Debug("已更新Proxmox实例IPv6网络接口",
 				zap.String("instanceName", instanceName),
 				zap.String("interfaceV6", interfaceV6))
 		}
 	} else {
-		global.APP_LOG.Debug("未获取到IPv6网络接口或实例无公网IPv6",
-			zap.String("instanceName", instanceName))
+		// GetIPv6NetworkInterface作为备选方案（用于已有实例或SSH检测）
+		// 注意：sshClient.Execute不接受context参数，ctx仅用于parseInstanceInfo内的DB查询
+		ctx4, cancel4 := context.WithTimeout(ctx, 15*time.Second)
+		defer cancel4()
+		if interfaceV6, err := p.GetIPv6NetworkInterface(ctx4, instanceName); err == nil && interfaceV6 != "" {
+			if err := global.APP_DB.Model(&instance).Update("pmacct_interface_v6", interfaceV6).Error; err == nil {
+				global.APP_LOG.Debug("通过备选方案更新Proxmox实例IPv6网络接口",
+					zap.String("instanceName", instanceName),
+					zap.String("interfaceV6", interfaceV6))
+			}
+		} else {
+			global.APP_LOG.Debug("未获取到IPv6网络接口或实例无公网IPv6",
+				zap.String("instanceName", instanceName))
+		}
 	}
 
 	// 初始化流量监控

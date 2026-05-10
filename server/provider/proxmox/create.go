@@ -393,6 +393,12 @@ func (p *ProxmoxProvider) createVM(ctx context.Context, vmid int, config provide
 		global.APP_LOG.Warn("KVM不可用，使用软件模拟", zap.String("cpu_type", cpuType))
 	}
 
+	// 将KVM可用性状态持久化到数据库（每次创建VM时更新，确保状态准确）
+	kvmAvailable := !p.kvmUnavailable
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", p.config.Name).Update("pve_kvm_available", &kvmAvailable).Error; err != nil {
+		global.APP_LOG.Warn("更新KVM可用性状态失败", zap.Error(err))
+	}
+
 	updateProgress(40, "创建虚拟机基础配置...")
 
 	// 转换参数格式以适配Proxmox VE命令要求

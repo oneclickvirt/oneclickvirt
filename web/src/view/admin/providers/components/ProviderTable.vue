@@ -43,6 +43,22 @@
           >
             -
           </el-text>
+          <el-tag
+            v-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === true"
+            size="small"
+            type="success"
+            style="margin-left: 4px;"
+          >
+            {{ $t('admin.providers.pveKvmAvailableTrue') }}
+          </el-tag>
+          <el-tag
+            v-else-if="scope.row.type === 'proxmox' && scope.row.pveKvmAvailable === false"
+            size="small"
+            type="warning"
+            style="margin-left: 4px;"
+          >
+            {{ $t('admin.providers.pveKvmAvailableFalse') }}
+          </el-tag>
         </template>
       </el-table-column>
       <el-table-column

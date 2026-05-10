@@ -497,12 +497,17 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			// 根据Provider类型确定SSH等待时长：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 			sshWaitTimeout := 120 * time.Second
 			var dbProviderForWait providerModel.Provider
-			if err := global.APP_DB.Select("type").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
+			if err := global.APP_DB.Select("type, pve_kvm_available").Where("id = ?", providerID).First(&dbProviderForWait).Error; err == nil {
 				switch dbProviderForWait.Type {
 				case "qemu", "kubevirt":
 					sshWaitTimeout = 360 * time.Second // 6分钟等待VM cloud-init完成
 				case "proxmox":
-					sshWaitTimeout = 240 * time.Second // 4分钟
+					// Proxmox使用QEMU软件模拟时启动更慢，需要更长等待
+					if dbProviderForWait.PveKvmAvailable != nil && !*dbProviderForWait.PveKvmAvailable {
+						sshWaitTimeout = 360 * time.Second // 6分钟：QEMU软件模拟
+					} else {
+						sshWaitTimeout = 240 * time.Second // 4分钟：KVM硬件加速或未知
+					}
 				}
 			}
 

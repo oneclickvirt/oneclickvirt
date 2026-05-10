@@ -344,7 +344,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		return err
 	}
 
-	global.APP_LOG.Debug("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
+	global.APP_LOG.Info("Provider创建实例成功", zap.Uint("taskId", task.ID), zap.String("instanceName", instance.Name))
 
 	// 更新进度到70%
 	s.updateTaskProgress(task.ID, 70, "Provider创建实例成功")

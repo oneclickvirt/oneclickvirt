@@ -17,7 +17,7 @@ import (
 
 // CreateProvider 创建Provider
 func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID uint) (*providerModel.Provider, error) {
-	global.APP_LOG.Debug("开始创建Provider",
+	global.APP_LOG.Info("开始创建Provider",
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
 		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))

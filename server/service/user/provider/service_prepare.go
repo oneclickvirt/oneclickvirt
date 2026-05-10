@@ -27,7 +27,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		return nil, fmt.Errorf("解析任务数据失败: %v", err)
 	}
 
-	global.APP_LOG.Debug("开始实例预处理",
+	global.APP_LOG.Info("开始实例预处理",
 		zap.Uint("taskId", task.ID),
 		zap.String("sessionId", taskReq.SessionId))
 

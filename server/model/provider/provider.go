@@ -175,6 +175,7 @@ type Provider struct {
 	BridgeDedicatedV4 string `json:"bridgeDedicatedV4" gorm:"size:32;default:''"`   // 独立IPv4网桥，仅proxmox+third_party时使用，对应vmbr0
 	BridgeDedicatedV6 string `json:"bridgeDedicatedV6" gorm:"size:32;default:''"`   // 独立IPv6网桥，仅proxmox+third_party时使用，对应vmbr2，可留空
 	NATSubnet         string `json:"natSubnet" gorm:"size:32;default:''"`           // NAT内网网段（CIDR，如 172.16.1.0/24），仅proxmox+third_party时使用
+	PveKvmAvailable   *bool  `json:"pveKvmAvailable" gorm:"default:null"`           // Proxmox节点是否支持KVM硬件加速（nil=未知，true=支持，false=不支持/仅QEMU软件模拟）
 	// 实例数量限制配置
 	MaxContainerInstances int `json:"maxContainerInstances" gorm:"default:0"` // 最大容器实例数量（0表示无限制）
 	MaxVMInstances        int `json:"maxVMInstances" gorm:"default:0"`        // 最大虚拟机实例数量（0表示无限制）
@@ -385,11 +386,12 @@ type Instance struct {
 	Region string `json:"region" gorm:"size:64"` // 所在地区
 
 	// 流量统计（实例层面）
-	MaxTraffic         int64  `json:"maxTraffic" gorm:"default:0"`                  // 实例流量限制（MB），0表示不限制，从用户等级继承
-	TrafficLimited     bool   `json:"trafficLimited" gorm:"default:false"`          // 是否因流量超限被停机
-	TrafficLimitReason string `json:"trafficLimitReason" gorm:"size:16;default:''"` // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
-	PmacctInterfaceV4  string `json:"pmacctInterfaceV4" gorm:"size:32"`             // pmacct 监控的IPv4网络接口名称
-	PmacctInterfaceV6  string `json:"pmacctInterfaceV6" gorm:"size:32"`             // pmacct 监控的IPv6网络接口名称
+	MaxTraffic         int64  `json:"maxTraffic" gorm:"default:0"`                       // 实例流量限制（MB），0表示不限制，从用户等级继承
+	TrafficLimited     bool   `json:"trafficLimited" gorm:"default:false"`               // 是否因流量超限被停机
+	TrafficLimitReason string `json:"trafficLimitReason" gorm:"size:16;default:''"`      // 流量限制原因：instance(实例超限), user(用户超限), provider(Provider超限)
+	PmacctInterfaceV4  string `json:"pmacctInterfaceV4" gorm:"size:32"`                  // pmacct 监控的IPv4网络接口名称
+	PmacctInterfaceV6  string `json:"pmacctInterfaceV6" gorm:"size:32"`                  // pmacct 监控的IPv6网络接口名称
+	ProviderVMID       string `json:"providerVmId" gorm:"column:provider_vm_id;size:32"` // 虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测
 
 	// 生命周期和冻结管理
 	ExpiresAt      *time.Time `json:"expiresAt" gorm:"index:idx_expires_at;column:expires_at"` // 实例到期时间（默认与节点同步，手动设置优先级更高）

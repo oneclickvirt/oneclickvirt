@@ -53,7 +53,8 @@ export default {
     communityGroup: 'Community Group',
     allRightsReserved: 'All rights reserved.',
     openSourceProject: 'Open Source Projects by OneClickVirt',
-    serverVersion: 'Server'
+    serverVersion: 'Server',
+    versionFetchFailed: 'Version unavailable, backend may be disconnected'
   },
   errors: {
     fetchAnnouncementsFailed: 'Failed to fetch announcements:',

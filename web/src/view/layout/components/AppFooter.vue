@@ -24,6 +24,10 @@
       <span v-if="serverVersion" class="footer-version">
         {{ t('home.footer.serverVersion') }} {{ serverVersion }}
       </span>
+      <span v-if="versionFetchFailed && !serverVersion" class="footer-divider" />
+      <span v-if="versionFetchFailed && !serverVersion" class="footer-version-error">
+        {{ t('home.footer.versionFetchFailed') }}
+      </span>
     </div>
   </footer>
 </template>
@@ -37,15 +41,18 @@ import { getServerVersion } from '@/api/public'
 const { t } = useI18n()
 const siteStore = useSiteStore()
 const serverVersion = ref('')
+const versionFetchFailed = ref(false)
 
 onMounted(async () => {
   try {
     const res = await getServerVersion()
     if (res && (res.code === 200) && res.data?.server_version) {
       serverVersion.value = res.data.server_version
+    } else {
+      versionFetchFailed.value = true
     }
   } catch {
-    // version display is non-critical; silently ignore errors
+    versionFetchFailed.value = true
   }
 })
 </script>
@@ -104,5 +111,10 @@ onMounted(async () => {
   font-size: 12px;
   color: var(--text-color-placeholder);
   font-family: monospace;
+}
+
+.footer-version-error {
+  font-size: 12px;
+  color: var(--el-color-warning);
 }
 </style>

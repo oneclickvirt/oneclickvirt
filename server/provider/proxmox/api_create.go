@@ -228,6 +228,12 @@ func (p *ProxmoxProvider) apiCreateVM(ctx context.Context, vmid int, config prov
 		}
 	}
 
+	// 将KVM可用性状态持久化到数据库（每次创建VM时更新，确保状态准确）
+	kvmAvailable := !p.kvmUnavailable
+	if err := global.APP_DB.Model(&providerModel.Provider{}).Where("name = ?", p.config.Name).Update("pve_kvm_available", &kvmAvailable).Error; err != nil {
+		global.APP_LOG.Warn("更新KVM可用性状态失败", zap.Error(err))
+	}
+
 	// 获取存储配置
 	var providerRecord providerModel.Provider
 	if err := global.APP_DB.Where("name = ?", p.config.Name).First(&providerRecord).Error; err != nil {

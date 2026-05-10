@@ -527,14 +527,14 @@ func (p *ProxmoxProvider) GetIPv6NetworkInterface(ctx context.Context, instanceN
 func (p *ProxmoxProvider) parseInstanceInfo(ctx context.Context, instanceName string) (string, string, error) {
 	// 首先尝试从数据库中查找实例
 	var instance struct {
-		VMID         string
+		ProviderVMID string
 		InstanceType string
 	}
 
-	query := `SELECT vm_id as vmid, instance_type FROM instances WHERE name = ? AND provider_id = ?`
+	query := `SELECT provider_vm_id, instance_type FROM instances WHERE name = ? AND provider_id = ?`
 	err := global.APP_DB.Raw(query, instanceName, p.providerID).Scan(&instance).Error
-	if err == nil && instance.VMID != "" {
-		return instance.VMID, instance.InstanceType, nil
+	if err == nil && instance.ProviderVMID != "" {
+		return instance.ProviderVMID, instance.InstanceType, nil
 	}
 
 	// 如果数据库查询失败，尝试通过SSH命令查询

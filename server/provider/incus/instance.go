@@ -346,8 +346,7 @@ func (i *IncusProvider) configureInstanceSSHPassword(ctx context.Context, config
 	}
 
 	global.APP_LOG.Debug("实例SSH密码设置完成",
-		zap.String("instanceName", config.Name),
-		zap.String("rootPassword", password))
+		zap.String("instanceName", config.Name))
 
 	// 保存密码到实例配置中（用于后续获取）
 	if err = i.setInstanceConfig(ctx, config.Name, "user.password", password); err != nil {

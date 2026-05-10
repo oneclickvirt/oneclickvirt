@@ -65,8 +65,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	localProviderID := provider.ID
 	localProviderName := provider.Name
 
-	// 更新进度 (35%)
-	s.updateTaskProgress(task.ID, 35, "正在连接Provider服务...")
+	// 更新进度 (40%)
+	s.updateTaskProgress(task.ID, 40, "正在连接Provider服务...")
 
 	// 更新进度 (50%)
 	s.updateTaskProgress(task.ID, 50, "正在启动实例...")
@@ -166,8 +166,8 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		}
 		// 正常超时，继续执行
 
-		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在初始化流量监控...")
+		// 更新进度（从主任务的90%继续，不重复更新90%）
+		s.updateTaskProgress(taskID, 92, "正在初始化流量监控...")
 
 		// 检查Provider是否启用流量统计
 		var dbProvider providerModel.Provider
