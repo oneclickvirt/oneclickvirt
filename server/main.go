@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	_ "time/tzdata" // 嵌入时区数据，确保 Alpine/无 tzdata 环境（如 Docker）中 Asia/Shanghai 可用
 
@@ -91,7 +93,7 @@ func runServer() {
 		zap.String("swagger", fmt.Sprintf("http://0.0.0.0:%d/swagger/index.html", addr)),
 	)
 
-	if err := s.ListenAndServe(); err != nil {
+	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		global.APP_LOG.Fatal("服务器异常退出", zap.Error(err))
 	}
 }

@@ -20,3 +20,13 @@ var (
 func IsOfficialBuild() bool {
 	return BuildSignature != "unofficial" && BuildSignature != ""
 }
+
+// DisplayVersion returns the version string for display.
+// Official builds show the release tag (e.g. v20260511-143022).
+// Self-compiled builds append "(unofficial)" to indicate the source.
+func DisplayVersion() string {
+	if IsOfficialBuild() {
+		return ServerVersion
+	}
+	return ServerVersion + " (unofficial)"
+}

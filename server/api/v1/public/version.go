@@ -16,7 +16,7 @@ type VersionInfo struct {
 // GetVersion returns the current server version and the compatible agent version.
 func GetVersion(c *gin.Context) {
 	common.ResponseSuccess(c, VersionInfo{
-		ServerVersion:          constant.ServerVersion,
+		ServerVersion:          constant.DisplayVersion(),
 		CompatibleAgentVersion: constant.CompatibleAgentVersion,
 	}, "success")
 }

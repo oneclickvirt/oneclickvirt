@@ -569,7 +569,13 @@ func (s *InitService) reloadConfig() error {
 		return fmt.Errorf("读取配置文件失败: %v", err)
 	}
 
-	// 先解析配置到临时变量（用于验证）
+	// 兼容性预处理：将 YAML 中 !!str 类型的纯整数值（如 "1"）规范化为 !!int（如 1）。
+	// 这类值可能由旧版本代码或 DB 回写路径写入，否则 yaml.Unmarshal 到强类型 struct 会报错。
+	if normalized, normErr := normalizeYAMLStringInts(configData); normErr == nil {
+		configData = normalized
+	}
+
+	// 先解析配置到临时变量（用于验证及 ConfigManager 不可用时的降级加载）
 	var tempConfig configManager.Server
 	if err := yaml.Unmarshal(configData, &tempConfig); err != nil {
 		return fmt.Errorf("解析配置文件失败: %v", err)
@@ -598,4 +604,28 @@ func (s *InitService) reloadConfig() error {
 
 	global.APP_LOG.Info("配置已从文件重新加载")
 	return nil
+}
+
+// normalizeYAMLStringInts 将 YAML 中所有 !!str 类型的纯整数标量节点转换为 !!int。
+// 例如：将 min-level-for-container: "1" 转换为 min-level-for-container: 1。
+// 这解决了旧版本代码或 DB 回写路径将整数值写为带引号字符串的兼容性问题。
+func normalizeYAMLStringInts(data []byte) ([]byte, error) {
+	var root yaml.Node
+	if err := yaml.Unmarshal(data, &root); err != nil {
+		return nil, err
+	}
+	normalizeYAMLNode(&root)
+	return yaml.Marshal(&root)
+}
+
+func normalizeYAMLNode(node *yaml.Node) {
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+		if _, err := strconv.Atoi(node.Value); err == nil {
+			node.Tag = "!!int"
+			node.Style = 0
+		}
+	}
+	for _, child := range node.Content {
+		normalizeYAMLNode(child)
+	}
 }
