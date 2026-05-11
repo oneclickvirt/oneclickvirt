@@ -98,6 +98,13 @@ log_success "Master deployed locally on runner (port ${MASTER_PORT})"
 # =============================================================
 log_section "Phase 2: Create worker node"
 WORKER_INFO=$(create_test_node "$ENV_TYPE" "$NODE_HOURS") || {
+    if [[ "${PLATFORM_FAILURE_REASON:-}" == "resource_exhausted" ]]; then
+        log_error "Failed to create worker node: all cloud platforms temporarily out of resources"
+        log_info "This is a transient infrastructure condition, not a test failure."
+        log_info "Re-run the workflow when resources are available, or add more cloud platform accounts."
+        # Exit 75 (EX_TEMPFAIL) signals infrastructure unavailability to the CI wrapper
+        exit 75
+    fi
     log_error "Failed to create worker node"
     exit 1
 }

@@ -246,7 +246,14 @@ alice_platform_create_instance() {
     local body; body=$(alice_parse_body "${resp}")
     local http_code; http_code=$(alice_parse_code "${resp}")
     if [[ "${http_code}" != "200" ]]; then
-        log_error "[alice] Create failed (HTTP ${http_code}): ${body}"
+        local err_msg; err_msg=$(echo "${body}" | jq -r '.message // empty' 2>/dev/null)
+        # Detect resource-exhaustion vs other errors so callers can distinguish transient failures
+        if echo "${err_msg}" | grep -qiE "no available resources|not enough|resource|hypervisor|capacity|quota"; then
+            log_error "[alice] Create failed: resource exhaustion (HTTP ${http_code}): ${err_msg}"
+            export PLATFORM_LAST_ERROR="resource_exhausted"
+        else
+            log_error "[alice] Create failed (HTTP ${http_code}): ${body}"
+        fi
         return 1
     fi
     local id; id=$(echo "${body}" | jq -r '.data.id // .data.instance_id // empty' 2>/dev/null)

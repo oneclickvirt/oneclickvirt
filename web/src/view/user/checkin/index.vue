@@ -107,7 +107,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, nextTick } from 'vue'
+import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { ElMessage } from 'element-plus'
 import { Loading } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
@@ -132,6 +132,7 @@ const page = ref(1)
 const pageSize = ref(10)
 const total = ref(0)
 const captchaContainer = ref(null)
+const activeWorker = ref(null)
 
 function formatDate(dateStr) {
   if (!dateStr) return '-'
@@ -170,6 +171,8 @@ async function getChallenge() {
         loadCaptchaWidget(res.data.method, res.data.siteKey)
       }
     }
+  } catch (e) {
+    ElMessage.error(e?.message || t('user.checkin.getChallengeError'))
   } finally {
     gettingChallenge.value = false
   }
@@ -183,7 +186,8 @@ function loadCaptchaWidget(method, siteKey) {
   captchaContainer.value.innerHTML = ''
 
   if (method === 'turnstile') {
-    loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoaded&render=explicit', () => {
+    // 注册 onTurnstileLoaded 回调（Cloudflare SDK加载完成后调用）
+    const renderTurnstile = () => {
       if (window.turnstile) {
         window.turnstile.render('#' + containerId, {
           sitekey: siteKey,
@@ -191,7 +195,9 @@ function loadCaptchaWidget(method, siteKey) {
         })
         captchaLoaded.value = true
       }
-    })
+    }
+    window.onTurnstileLoaded = renderTurnstile
+    loadScript('https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoaded&render=explicit', renderTurnstile)
   } else if (method === 'recaptcha') {
     const renderRecaptcha = () => {
       if (window.grecaptcha) {
@@ -259,12 +265,23 @@ async function solvePow() {
     };
   `
   const blob = new Blob([workerCode], { type: 'application/javascript' })
-  const worker = new Worker(URL.createObjectURL(blob))
+  const blobUrl = URL.createObjectURL(blob)
+  const worker = new Worker(blobUrl)
+  activeWorker.value = worker
 
   worker.onmessage = (e) => {
     powNonce.value = e.data.nonce
     powComputing.value = false
     worker.terminate()
+    URL.revokeObjectURL(blobUrl)
+    activeWorker.value = null
+  }
+  worker.onerror = () => {
+    powComputing.value = false
+    worker.terminate()
+    URL.revokeObjectURL(blobUrl)
+    activeWorker.value = null
+    ElMessage.error(t('user.checkin.powFailed'))
   }
   worker.postMessage({ challenge, prefix })
 }
@@ -289,6 +306,8 @@ async function doCheckin() {
       resetChallenge()
       fetchRecords()
     }
+  } catch (e) {
+    ElMessage.error(e?.message || t('user.checkin.checkinFailed'))
   } finally {
     checkingIn.value = false
   }
@@ -302,6 +321,8 @@ async function fetchRecords() {
       records.value = res.data?.list || []
       total.value = res.data?.total || 0
     }
+  } catch (e) {
+    console.error('获取签到记录失败:', e)
   } finally {
     loadingRecords.value = false
   }
@@ -315,6 +336,14 @@ function handlePageChange(p) {
 onMounted(() => {
   fetchInstances()
   fetchRecords()
+})
+
+onUnmounted(() => {
+  // 组件卸载时终止尚在运行的PoW Worker，防止内存泄漏
+  if (activeWorker.value) {
+    activeWorker.value.terminate()
+    activeWorker.value = null
+  }
 })
 </script>
 

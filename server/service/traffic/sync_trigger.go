@@ -84,9 +84,26 @@ func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason 
 			zap.Uint("instanceID", instanceID),
 			zap.String("reason", reason))
 
-		global.APP_LOG.Debug("流量同步触发器调用",
-			zap.Uint("instanceID", instanceID),
-			zap.String("reason", reason))
+		// 创建带超时的context
+		ctx, cancel := context.WithTimeout(s.ctx, 5*time.Minute)
+		defer cancel()
+
+		// 获取实例的UserID以调用用户级限制检查
+		var inst provider.Instance
+		if err := global.APP_DB.Select("user_id").First(&inst, instanceID).Error; err != nil {
+			global.APP_LOG.Warn("触发实例流量同步：获取实例信息失败",
+				zap.Uint("instanceID", instanceID),
+				zap.Error(err))
+			return
+		}
+
+		// 检查实例所属用户的流量限制（三层限制会自动覆盖实例层级）
+		if _, err := s.checkUserTrafficLimitWithContext(ctx, inst.UserID); err != nil {
+			global.APP_LOG.Error("同步实例流量失败",
+				zap.Uint("instanceID", instanceID),
+				zap.String("reason", reason),
+				zap.Error(err))
+		}
 	}()
 }
 

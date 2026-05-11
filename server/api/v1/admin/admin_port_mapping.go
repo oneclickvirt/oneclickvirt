@@ -99,7 +99,6 @@ func GetPortMappingList(c *gin.Context) {
 		var instances []provider.Instance
 		if err := global.APP_DB.Select("id", "name").
 			Where("id IN ?", instanceIDs).
-			Limit(500).
 			Find(&instances).Error; err == nil {
 			for _, inst := range instances {
 				instanceMap[inst.ID] = inst
@@ -112,7 +111,6 @@ func GetPortMappingList(c *gin.Context) {
 		var providers []provider.Provider
 		if err := global.APP_DB.Select("id", "name", "port_ip", "endpoint").
 			Where("id IN ?", providerIDs).
-			Limit(500).
 			Find(&providers).Error; err == nil {
 			for _, prov := range providers {
 				providerMap[prov.ID] = prov

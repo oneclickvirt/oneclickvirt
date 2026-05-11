@@ -36,25 +36,34 @@ func (s *Service) SubmitKYC(userID uint, req *SubmitKYCRequest) (*kycModel.KYCRe
 		if existing.Status == "pending" {
 			return nil, fmt.Errorf("认证申请已存在，请等待审核")
 		}
-		// rejected: allow resubmit by updating existing record
+		// rejected: allow resubmit by updating existing record atomically
 		idHash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.IDNumber)))
-		var hashCount int64
-		if err := global.APP_DB.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount).Error; err != nil {
-			return nil, fmt.Errorf("校验身份证号失败: %w", err)
+		existingID := existing.ID
+		var updatedRecord kycModel.KYCRecord
+		if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			var hashCount int64
+			if err := tx.Model(&kycModel.KYCRecord{}).Where("id_number_hash = ? AND user_id != ?", idHash, userID).Count(&hashCount).Error; err != nil {
+				return fmt.Errorf("校验身份证号失败: %w", err)
+			}
+			if hashCount > 0 {
+				return fmt.Errorf("该身份证号已被其他账户认证")
+			}
+			updates := map[string]interface{}{
+				"real_name":      req.RealName,
+				"id_number":      req.IDNumber,
+				"id_number_hash": idHash,
+				"method":         "manual",
+				"status":         "pending",
+				"reject_reason":  "",
+			}
+			if err := tx.Model(&kycModel.KYCRecord{}).Where("id = ?", existingID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("重新提交认证失败: %w", err)
+			}
+			return tx.Where("id = ?", existingID).First(&updatedRecord).Error
+		}); err != nil {
+			return nil, err
 		}
-		if hashCount > 0 {
-			return nil, fmt.Errorf("该身份证号已被其他账户认证")
-		}
-		existing.RealName = req.RealName
-		existing.IDNumber = req.IDNumber
-		existing.IDNumberHash = idHash
-		existing.Method = "manual"
-		existing.Status = "pending"
-		existing.RejectReason = ""
-		if err := global.APP_DB.Save(&existing).Error; err != nil {
-			return nil, fmt.Errorf("重新提交认证失败: %v", err)
-		}
-		return &existing, nil
+		return &updatedRecord, nil
 	}
 
 	// 身份证号哈希(查重)

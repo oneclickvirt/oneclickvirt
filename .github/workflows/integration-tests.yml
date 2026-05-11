@@ -366,6 +366,23 @@ jobs:
           set -euo pipefail
           shopt -s nullglob
 
+          # Exit code 75 (EX_TEMPFAIL) means all cloud platforms were temporarily out of
+          # resources at the time of the run. This is not a test failure — treat it as a skip.
+          if [[ "${TEST_EXIT:-0}" == "75" ]]; then
+            echo "::warning::Integration tests skipped: all cloud platforms temporarily unavailable (resource exhaustion). Re-run when capacity is available."
+            {
+              echo "## Integration Validation"
+              echo ""
+              echo "| Metric | Value |"
+              echo "|--------|-------|"
+              echo "| Resolved Platforms | ${{ steps.resolve-platforms.outputs.platform_priority }} |"
+              echo "| Harness Exit Code | 75 (EX_TEMPFAIL — infrastructure unavailable) |"
+              echo "| Status | SKIPPED (transient resource exhaustion) |"
+            } >> "$GITHUB_STEP_SUMMARY"
+            [[ -f action_tests/reports/full-output.log ]] && tail -50 action_tests/reports/full-output.log || true
+            exit 0
+          fi
+
           result_files=(action_tests/reports/*.jsonl)
           if [[ ${#result_files[@]} -eq 0 ]]; then
             echo "::error::Integration tests did not produce any JSONL result files."

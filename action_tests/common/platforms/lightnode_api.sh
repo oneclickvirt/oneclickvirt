@@ -115,7 +115,15 @@ _lightnode_wait_async_task() {
             log_success "[lightnode] Task ${task_uuid} completed"
             return 0
         elif [[ "$result" == "FAIL" || "$result" == "CANCEL" ]]; then
-            log_error "[lightnode] Task ${task_uuid} failed: ${result}"
+            # Try to extract detailed error message from the task response
+            local err_msg
+            err_msg=$(echo "$body" | jq -r '.asyncTaskInfo.errorMessage // .asyncTaskInfo.failMessage // .asyncTaskInfo.remark // .asyncTaskInfo.message // empty' 2>/dev/null)
+            if [[ -n "$err_msg" ]]; then
+                log_error "[lightnode] Task ${task_uuid} failed: ${result} (reason: ${err_msg})"
+            else
+                log_error "[lightnode] Task ${task_uuid} failed: ${result}"
+                log_debug "[lightnode] Task full response: ${body}"
+            fi
             return 1
         fi
         sleep "${interval}"; elapsed=$((elapsed + interval))
@@ -182,7 +190,16 @@ lightnode_platform_create_instance() {
     local ecs_uuid; ecs_uuid=$(echo "$body" | jq -r '.asyncTaskInfo.ecsResourceUUID // empty' 2>/dev/null)
     [[ -z "$ecs_uuid" ]] && { log_error "[lightnode] No ecsResourceUUID in response"; return 1; }
     log_success "[lightnode] Instance creation requested: ${ecs_uuid}"
-    _lightnode_wait_async_task "${task_uuid}" 600 || return 1
+    if ! _lightnode_wait_async_task "${task_uuid}" 600; then
+        # Async provisioning task failed — attempt to release the partially-created instance
+        # so it does not pollute list_instances on the next run
+        log_warning "[lightnode] Async provisioning failed for ${ecs_uuid}; attempting to release stale instance..."
+        local rel_resp; rel_resp=$(lightnode_request "POST" "/instance/release" "{\"ecsResourceUUID\":\"${ecs_uuid}\"}" 2>/dev/null) || true
+        local rel_code; rel_code=$(lightnode_parse_code "${rel_resp:-}" 2>/dev/null) || true
+        log_info "[lightnode] Stale instance release returned HTTP ${rel_code:-unknown}"
+        export PLATFORM_LAST_ERROR="resource_exhausted"
+        return 1
+    fi
     # Get instance details
     local detail_resp; detail_resp=$(lightnode_get_instance_detail "${ecs_uuid}")
     local detail_body; detail_body=$(lightnode_parse_body "${detail_resp}")

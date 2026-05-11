@@ -127,13 +127,17 @@ func (s *Service) CreateDomain(userID uint, req *CreateDomainRequest) (*domainMo
 	if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
 		// 检查配额
 		var count int64
-		tx.Model(&domainModel.Domain{}).Where("user_id = ? AND provider_id = ?", userID, provider.ID).Count(&count)
+		if err := tx.Model(&domainModel.Domain{}).Where("user_id = ? AND provider_id = ?", userID, provider.ID).Count(&count).Error; err != nil {
+			return fmt.Errorf("查询域名配额失败: %w", err)
+		}
 		if int(count) >= domainConfig.MaxDomainsPerUser {
 			return fmt.Errorf("已达到域名绑定上限(%d)", domainConfig.MaxDomainsPerUser)
 		}
 		// 检查域名唯一性
 		var existing int64
-		tx.Model(&domainModel.Domain{}).Where("domain_name = ?", req.DomainName).Count(&existing)
+		if err := tx.Model(&domainModel.Domain{}).Where("domain_name = ?", req.DomainName).Count(&existing).Error; err != nil {
+			return fmt.Errorf("查询域名唯一性失败: %w", err)
+		}
 		if existing > 0 {
 			return fmt.Errorf("该域名已被绑定")
 		}

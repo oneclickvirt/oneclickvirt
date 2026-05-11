@@ -62,20 +62,30 @@ platform_init() {
 #   - If the single kept instance can be reinstalled, reinstall it.
 #   - If reinstall fails (or platform doesn't support it), delete it and
 #     create a brand-new instance so we always start clean.
+#
+# On exit, PLATFORM_FAILURE_REASON is set to:
+#   "resource_exhausted" if every platform failed due to resource/capacity limits
+#   "error"              for any other failure
 # ============================================================================
+PLATFORM_FAILURE_REASON=""
+PLATFORM_LAST_ERROR=""
+
 try_create_with_fallback() {
     local env_type="$1" hours="${2:-8}"
     local enabled_platforms
     enabled_platforms=$(get_enabled_platforms)
     if [[ -z "$enabled_platforms" ]]; then
         log_error "No platforms are enabled! Set PLATFORM_<NAME>_ENABLED=true for at least one platform."
+        PLATFORM_FAILURE_REASON="error"
         return 1
     fi
     log_info "Enabled platforms (priority order): ${enabled_platforms}"
+    local all_resource_exhausted=true
     for platform in ${enabled_platforms}; do
         log_info "=== Trying platform: ${platform} ==="
         if ! platform_init "$platform"; then
             log_warning "Platform '${platform}' init failed, trying next..."
+            all_resource_exhausted=false  # init failure is a config issue, not resource exhaustion
             continue
         fi
         local result="" exit_code
@@ -111,6 +121,7 @@ try_create_with_fallback() {
                         ACTIVE_PLATFORM="$platform"
                         ACTIVE_INSTANCE_ID="$keep_id"
                         ACTIVE_INSTANCE_IP="$rip"
+                        PLATFORM_FAILURE_REASON=""
                         echo "$result"
                         return 0
                     else
@@ -129,6 +140,8 @@ try_create_with_fallback() {
         fi
 
         # --- Create a brand-new instance (no existing instances remain) ---
+        # Reset per-attempt error tracker before the create call
+        PLATFORM_LAST_ERROR=""
         log_info "[${platform}] Creating new instance (env=${env_type} hours=${hours})..."
         result=$(platform_dispatch "$platform" "create_instance" "$env_type" "$hours")
         exit_code=$?
@@ -141,6 +154,7 @@ try_create_with_fallback() {
                 ACTIVE_PLATFORM="$platform"
                 ACTIVE_INSTANCE_ID="$cid"
                 ACTIVE_INSTANCE_IP="$cip"
+                PLATFORM_FAILURE_REASON=""
                 echo "$result"
                 return 0
             else
@@ -149,9 +163,19 @@ try_create_with_fallback() {
         else
             log_error "[${platform}] create_instance failed (exit=${exit_code}). Raw output: ${result:-<empty>}"
         fi
+        # Track whether this failure was resource exhaustion or something else
+        if [[ "${PLATFORM_LAST_ERROR:-}" != "resource_exhausted" ]]; then
+            all_resource_exhausted=false
+        fi
         log_warning "Platform '${platform}' exhausted, trying next..."
     done
     log_error "All enabled platforms failed to create an instance"
+    if [[ "$all_resource_exhausted" == "true" ]]; then
+        PLATFORM_FAILURE_REASON="resource_exhausted"
+        log_warning "All platform failures were due to resource/capacity exhaustion (transient condition)"
+    else
+        PLATFORM_FAILURE_REASON="error"
+    fi
     return 1
 }
 

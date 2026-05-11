@@ -49,8 +49,7 @@ export function setupRouterGuards(router) {
     if (oauth2Token) {
       console.log('从URL参数中检测到OAuth2 token，开始处理...')
       
-      // 保存token到localStorage和sessionStorage
-      localStorage.setItem('token', oauth2Token)
+      // 保存token到sessionStorage（不使用localStorage避免XSS token泄露）
       sessionStorage.setItem('token', oauth2Token)
       userStore.setToken(oauth2Token)
       
@@ -80,7 +79,7 @@ export function setupRouterGuards(router) {
         console.log('OAuth2登录完成，用户类型:', userType, '视图模式:', viewMode)
         
         // 只有管理员可以访问管理员界面，且只有管理员可以切换视图
-        if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
+        if ((userType === 'admin' || userType === 'normal_admin') && (viewMode === 'admin' || viewMode === 'normal_admin')) {
           next('/admin/dashboard')
           return
         } else {
@@ -108,65 +107,47 @@ export function setupRouterGuards(router) {
       userType: userStore.userType
     })
     
-    // OAuth2登录后token处理：如果localStorage有token但userStore没有，则同步
-    if (!userStore.token && localStorage.getItem('token')) {
-      console.log('检测到localStorage有token但userStore没有，开始同步...')
-      const storedToken = localStorage.getItem('token')
+    // OAuth2登录后token处理：如果sessionStorage有token但userStore没有，则同步
+    if (!userStore.token && sessionStorage.getItem('token')) {
+      const storedToken = sessionStorage.getItem('token')
       userStore.setToken(storedToken)
-      sessionStorage.setItem('token', storedToken)
       
       // 获取用户信息
       try {
-        console.log('正在获取用户信息...')
         await userStore.fetchUserInfo()
         
-        // 清理OAuth2回调相关的localStorage（可选）
+        // 清理OAuth2回调相关的localStorage
         localStorage.removeItem('username')
-        
-        console.log('OAuth2登录成功，用户信息已加载:', {
-          user: userStore.user,
-          userType: userStore.userType,
-          viewMode: userStore.viewMode,
-          userInfo: userStore.userInfo
-        })
         
         // 如果在首页且已登录，根据用户类型和视图模式跳转
         if (to.path === '/' || to.path === '/home') {
           const userType = userStore.userType
           const viewMode = userStore.viewMode || userType
-          console.log('从首页跳转，用户类型:', userType, '视图模式:', viewMode)
           
-          // 只有管理员可以访问管理员界面
-          if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
+          if ((userType === 'admin' || userType === 'normal_admin') && (viewMode === 'admin' || viewMode === 'normal_admin')) {
             next('/admin/dashboard')
             return
           } else {
-            // 普通用户或管理员切换到用户视图时，进入用户界面
             next('/user/dashboard')
             return
           }
         }
         // 如果不是首页，继续正常流程，不要return
       } catch (error) {
-        console.error('localStorage token失效，获取用户信息失败:', error)
-        // 清理无效token（包括localStorage）
+        console.error('sessionStorage token失效，获取用户信息失败:', error)
+        // 清理无效token
         userStore.clearUserData()
         
         // 如果当前在需要认证的页面，重定向到首页
         if (to.meta.requiresAuth || (!whiteList.includes(to.path) && to.path !== '/home')) {
-          console.log('Token失效且访问受保护页面，重定向到首页')
           next('/home')
           return
         }
-        
-        // 如果当前在公开页面（如登录页、首页），则继续访问
-        console.log('Token失效但访问公开页面，允许继续访问')
-        // 继续正常流程，不要return，让后续逻辑处理
       }
     }
     
-    // 重新获取token（在OAuth2同步后）
-    const token = userStore.token || sessionStorage.getItem('token') || localStorage.getItem('token')
+    // 重新获取token（OAuth2同步后）
+    const token = userStore.token || sessionStorage.getItem('token')
     console.log('最终token检查:', !!token)
     
     // 检查系统初始化状态（使用缓存，避免每次导航都请求API）
@@ -276,7 +257,7 @@ export function setupRouterGuards(router) {
       const viewMode = userStore.viewMode || userType
       
       // 只有管理员可以访问管理员界面
-      if ((userType === 'admin' || userType === 'normal_admin') && viewMode === 'admin') {
+      if ((userType === 'admin' || userType === 'normal_admin') && (viewMode === 'admin' || viewMode === 'normal_admin')) {
         next('/admin/dashboard')
         return
       } else {

@@ -240,8 +240,8 @@
           :total="total"
           :page-sizes="[10, 20, 50]"
           layout="total, sizes, prev, pager, next, jumper"
-          @size-change="loadInstances"
-          @current-change="loadInstances"
+          @size-change="() => loadInstances()"
+          @current-change="() => loadInstances()"
         />
       </div>
 

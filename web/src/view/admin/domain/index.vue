@@ -193,16 +193,24 @@ async function handleSaveConfig() {
     ElMessage.success(t('admin.domain.configUpdated'))
     showConfigDialog.value = false
     await fetchProviders()
+  } catch (e) {
+    ElMessage.error(e?.message || t('admin.domain.saveFailed'))
   } finally {
     savingConfig.value = false
   }
 }
 
 async function handleDelete(row) {
-  await ElMessageBox.confirm(t('admin.domain.confirmDelete'))
-  await adminDeleteDomain(row.id)
-  ElMessage.success(t('admin.domain.deleteSuccess'))
-  fetchData()
+  try {
+    await ElMessageBox.confirm(t('admin.domain.confirmDelete'))
+    await adminDeleteDomain(row.id)
+    ElMessage.success(t('admin.domain.deleteSuccess'))
+    fetchData()
+  } catch (e) {
+    if (e !== 'cancel') {
+      ElMessage.error(e?.message || t('admin.domain.deleteFailed'))
+    }
+  }
 }
 
 onMounted(() => {

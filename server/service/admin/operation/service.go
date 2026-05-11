@@ -81,11 +81,14 @@ func (s *OperationService) TransferInstance(adminID, instanceID, targetUserID ui
 			return fmt.Errorf("更新原用户配额失败: %v", err)
 		}
 
-		// 3. 增加目标用户已使用配额
+		// 3. 增加目标用户已使用配额（先检查是否会超限）
 		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&targetUser, targetUserID).Error; err != nil {
 			return fmt.Errorf("查询目标用户失败: %v", err)
 		}
 		newTargetUsed := targetUser.UsedQuota + resourceUsage
+		if targetUser.TotalQuota > 0 && newTargetUsed > targetUser.TotalQuota {
+			return fmt.Errorf("目标用户配额不足: 已用%d, 需要%d, 总量%d", targetUser.UsedQuota, resourceUsage, targetUser.TotalQuota)
+		}
 		if err := tx.Model(&targetUser).Update("used_quota", newTargetUsed).Error; err != nil {
 			return fmt.Errorf("更新目标用户配额失败: %v", err)
 		}

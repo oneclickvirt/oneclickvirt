@@ -17,39 +17,49 @@ type ExpiryFreezeService struct{}
 
 // CheckAndFreezeExpiredProviders 检查并冻结过期的Provider节点
 // 节点过期后自动冻结节点和对应的所有实例（未手动设置过期时间的实例）
+// 使用游标分页避免一次性加载所有Provider导致内存溢出
 func (s *ExpiryFreezeService) CheckAndFreezeExpiredProviders() error {
+	const batchSize = 100
+	var lastID uint = 0
+	totalFrozen := 0
 	now := time.Now()
 
-	// 查询已过期但未冻结的Provider
-	var providers []provider.Provider
-	err := global.APP_DB.Where("expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", now, false).
-		Find(&providers).Error
-	if err != nil {
-		global.APP_LOG.Error("查询过期Provider失败", zap.Error(err))
-		return err
-	}
-
-	if len(providers) == 0 {
-		return nil
-	}
-
-	global.APP_LOG.Info("发现过期的Provider", zap.Int("count", len(providers)))
-
-	// 批量处理过期的Provider
-	for _, p := range providers {
-		if err := s.freezeProvider(&p); err != nil {
-			global.APP_LOG.Warn("冻结Provider失败",
-				zap.Uint("provider_id", p.ID),
-				zap.String("provider_name", p.Name),
-				zap.Error(err))
-			continue
+	for {
+		var providers []provider.Provider
+		err := global.APP_DB.
+			Where("id > ? AND expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", lastID, now, false).
+			Order("id ASC").
+			Limit(batchSize).
+			Find(&providers).Error
+		if err != nil {
+			global.APP_LOG.Error("查询过期Provider失败", zap.Error(err))
+			return err
+		}
+		if len(providers) == 0 {
+			break
 		}
 
-		global.APP_LOG.Debug("已冻结过期Provider",
-			zap.Uint("provider_id", p.ID),
-			zap.String("provider_name", p.Name))
+		// 批量处理过期的Provider
+		for _, p := range providers {
+			if err := s.freezeProvider(&p); err != nil {
+				global.APP_LOG.Warn("冻结Provider失败",
+					zap.Uint("provider_id", p.ID),
+					zap.String("provider_name", p.Name),
+					zap.Error(err))
+			} else {
+				totalFrozen++
+			}
+			lastID = p.ID
+		}
+
+		if len(providers) < batchSize {
+			break
+		}
 	}
 
+	if totalFrozen > 0 {
+		global.APP_LOG.Info("已冻结过期Provider", zap.Int("count", totalFrozen))
+	}
 	return nil
 }
 
@@ -84,99 +94,80 @@ func (s *ExpiryFreezeService) freezeProvider(p *provider.Provider) error {
 }
 
 // CheckAndFreezeExpiredInstances 检查并冻结过期的实例
-// 仅冻结手动设置了过期时间的实例，或节点未冻结但实例已过期的实例
+// 使用单次批量UPDATE避免逐行处理，防止内存溢出
 func (s *ExpiryFreezeService) CheckAndFreezeExpiredInstances() error {
 	now := time.Now()
 
-	// 查询已过期但未冻结的实例
-	var instances []provider.Instance
-	err := global.APP_DB.Where("expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", now, false).
-		Find(&instances).Error
-	if err != nil {
-		global.APP_LOG.Error("查询过期实例失败", zap.Error(err))
-		return err
+	// 单次批量冻结所有已过期实例，避免加载全部记录到内存
+	result := global.APP_DB.Model(&provider.Instance{}).
+		Where("expires_at IS NOT NULL AND expires_at <= ? AND is_frozen = ?", now, false).
+		Updates(map[string]interface{}{
+			"is_frozen":     true,
+			"frozen_at":     now,
+			"frozen_reason": "expired",
+		})
+	if result.Error != nil {
+		global.APP_LOG.Error("批量冻结过期实例失败", zap.Error(result.Error))
+		return result.Error
 	}
 
-	if len(instances) == 0 {
-		return nil
+	if result.RowsAffected > 0 {
+		global.APP_LOG.Info("已批量冻结过期实例", zap.Int64("count", result.RowsAffected))
 	}
-
-	global.APP_LOG.Info("发现过期的实例", zap.Int("count", len(instances)))
-
-	// 批量处理过期的实例
-	for _, inst := range instances {
-		if err := s.freezeInstance(&inst); err != nil {
-			global.APP_LOG.Warn("冻结实例失败",
-				zap.Uint("instance_id", inst.ID),
-				zap.String("instance_name", inst.Name),
-				zap.Error(err))
-			continue
-		}
-
-		global.APP_LOG.Debug("已冻结过期实例",
-			zap.Uint("instance_id", inst.ID),
-			zap.String("instance_name", inst.Name))
-	}
-
 	return nil
-}
-
-// freezeInstance 冻结单个实例
-func (s *ExpiryFreezeService) freezeInstance(inst *provider.Instance) error {
-	now := time.Now()
-
-	return global.APP_DB.Model(inst).Updates(map[string]interface{}{
-		"is_frozen":     true,
-		"frozen_at":     now,
-		"frozen_reason": "expired",
-	}).Error
 }
 
 // CheckAndFreezeExpiredUsers 检查并冻结过期的用户
 // 用户过期后自动冻结禁用，不支持登录操作
+// 使用游标分页避免一次性加载所有用户导致内存溢出
 func (s *ExpiryFreezeService) CheckAndFreezeExpiredUsers() error {
+	const batchSize = 200
+	var lastID uint = 0
+	totalDisabled := 0
 	now := time.Now()
 
-	// 查询已过期但尚未禁用的用户（users表无is_frozen字段，用status != 0表示未禁用）
-	var users []user.User
-	err := global.APP_DB.Where("expires_at IS NOT NULL AND expires_at <= ? AND status != ?", now, 0).
-		Find(&users).Error
-	if err != nil {
-		global.APP_LOG.Error("查询过期用户失败", zap.Error(err))
-		return err
-	}
-
-	if len(users) == 0 {
-		return nil
-	}
-
-	global.APP_LOG.Info("发现过期的用户", zap.Int("count", len(users)))
-
-	// 批量处理过期的用户 - 禁用状态
-	for _, u := range users {
-		if err := s.disableUser(&u); err != nil {
-			global.APP_LOG.Warn("禁用过期用户失败",
-				zap.Uint("user_id", u.ID),
-				zap.String("username", u.Username),
-				zap.Error(err))
-			continue
+	for {
+		// 仅加载 ID 用于批量更新，避免加载全部字段
+		var userIDs []uint
+		err := global.APP_DB.Model(&user.User{}).
+			Select("id").
+			Where("id > ? AND expires_at IS NOT NULL AND expires_at <= ? AND status != ?", lastID, now, 0).
+			Order("id ASC").
+			Limit(batchSize).
+			Pluck("id", &userIDs).Error
+		if err != nil {
+			global.APP_LOG.Error("查询过期用户失败", zap.Error(err))
+			return err
+		}
+		if len(userIDs) == 0 {
+			break
 		}
 
-		global.APP_LOG.Debug("已禁用过期用户",
-			zap.Uint("user_id", u.ID),
-			zap.String("username", u.Username))
+		// 批量禁用
+		if err := global.APP_DB.Model(&user.User{}).
+			Where("id IN ?", userIDs).
+			Update("status", 0).Error; err != nil {
+			global.APP_LOG.Error("批量禁用过期用户失败", zap.Error(err))
+			return err
+		}
+
+		// 批量清除认证缓存
+		cacheService := cache.GetUserCacheService()
+		for _, uid := range userIDs {
+			cacheService.InvalidateUserCache(uid)
+		}
+
+		totalDisabled += len(userIDs)
+		lastID = userIDs[len(userIDs)-1]
+
+		if len(userIDs) < batchSize {
+			break
+		}
 	}
 
-	return nil
-}
-
-// disableUser 禁用单个过期用户
-func (s *ExpiryFreezeService) disableUser(u *user.User) error {
-	if err := global.APP_DB.Model(u).Update("status", 0).Error; err != nil {
-		return err
+	if totalDisabled > 0 {
+		global.APP_LOG.Info("已禁用过期用户", zap.Int("count", totalDisabled))
 	}
-	// 清除认证缓存，确保禁用状态即则生效
-	cache.GetUserCacheService().InvalidateUserCache(u.ID)
 	return nil
 }
 

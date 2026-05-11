@@ -118,13 +118,19 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
 				oldUID := monitor.UserID
 				monitor.UserID = currentUID
-				tx.Model(monitor).Update("user_id", currentUID)
+				if err := tx.Model(monitor).Update("user_id", currentUID).Error; err != nil {
+					return fmt.Errorf("backfill monitor user_id: %w", err)
+				}
 				// Backfill stale user_id in existing pmacct_traffic_records for this instance
 				if oldUID != currentUID {
-					tx.Exec("UPDATE pmacct_traffic_records SET user_id = ? WHERE instance_id = ? AND user_id = ?",
-						currentUID, monitor.InstanceID, oldUID)
-					tx.Exec("UPDATE instance_traffic_histories SET user_id = ? WHERE instance_id = ? AND user_id = ?",
-						currentUID, monitor.InstanceID, oldUID)
+					if err := tx.Exec("UPDATE pmacct_traffic_records SET user_id = ? WHERE instance_id = ? AND user_id = ?",
+						currentUID, monitor.InstanceID, oldUID).Error; err != nil {
+						return fmt.Errorf("backfill pmacct user_id: %w", err)
+					}
+					if err := tx.Exec("UPDATE instance_traffic_histories SET user_id = ? WHERE instance_id = ? AND user_id = ?",
+						currentUID, monitor.InstanceID, oldUID).Error; err != nil {
+						return fmt.Errorf("backfill history user_id: %w", err)
+					}
 				}
 			}
 
@@ -156,9 +162,11 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 			deltaBytes := deltaBytesIn + deltaBytesOut
 			if deltaBytes == 0 {
 				// Still update sync time
-				tx.Model(monitor).Updates(map[string]interface{}{
+				if err := tx.Model(monitor).Updates(map[string]interface{}{
 					"last_sync_at": now,
-				})
+				}).Error; err != nil {
+					return fmt.Errorf("update sync time: %w", err)
+				}
 				continue
 			}
 
