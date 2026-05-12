@@ -22,11 +22,14 @@ create_test_node() {
     local env_type="$1" hours="${2:-8}"
     log_info "Creating test node: env=${env_type} hours=${hours}"
     # Use platform abstraction with auto-fallback
-    local result
+    local result _rc
     result=$(try_create_with_fallback "$env_type" "$hours")
-    if [[ $? -ne 0 || -z "$result" ]]; then
+    _rc=$?
+    if [[ $_rc -ne 0 || -z "$result" ]]; then
         log_error "All platforms failed to create a test node"
-        return 1
+        # Propagate exit code 75 (EX_TEMPFAIL) so callers can detect transient
+        # resource exhaustion even though this function runs inside $().
+        return $_rc
     fi
     local id ip password platform_name
     id=$(echo "${result}" | jq -r '.instance_id // empty' 2>/dev/null)

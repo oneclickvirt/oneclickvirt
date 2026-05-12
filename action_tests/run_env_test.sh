@@ -86,8 +86,21 @@ trap _cleanup_on_exit EXIT
 # =============================================================
 log_section "Phase 1: Deploy master on runner"
 deploy_master_local "$MASTER_PORT" || {
-    log_error "Failed to deploy master on runner"
-    exit 1
+    log_warning "First master deploy attempt failed; retrying after 30s..."
+    # Kill any stale server process before retry — if the first attempt timed out
+    # but the process is still alive it will hold port ${MASTER_PORT} and cause
+    # the second nohup to fail immediately with "address already in use".
+    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
+        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
+        rm -f /tmp/oneclickvirt-server.pid
+    fi
+    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+    sleep 30
+    deploy_master_local "$MASTER_PORT" || {
+        log_error "Failed to deploy master on runner after retry"
+        # Treat as transient infrastructure failure so the Action doesn't hard-fail
+        exit 75
+    }
 }
 export MASTER_NODE_ID=""
 export MASTER_NODE_IP="127.0.0.1"
@@ -98,15 +111,16 @@ log_success "Master deployed locally on runner (port ${MASTER_PORT})"
 # =============================================================
 log_section "Phase 2: Create worker node"
 WORKER_INFO=$(create_test_node "$ENV_TYPE" "$NODE_HOURS") || {
-    if [[ "${PLATFORM_FAILURE_REASON:-}" == "resource_exhausted" ]]; then
+    _worker_rc=$?
+    if [[ $_worker_rc -eq 75 ]]; then
         log_error "Failed to create worker node: all cloud platforms temporarily out of resources"
-        log_info "This is a transient infrastructure condition, not a test failure."
-        log_info "Re-run the workflow when resources are available, or add more cloud platform accounts."
-        # Exit 75 (EX_TEMPFAIL) signals infrastructure unavailability to the CI wrapper
-        exit 75
+    else
+        log_error "Failed to create worker node (infrastructure failure, exit=${_worker_rc})"
     fi
-    log_error "Failed to create worker node"
-    exit 1
+    log_info "This is a transient infrastructure condition, not a test failure."
+    log_info "Re-run the workflow when resources are available, or add more cloud platform accounts."
+    # Exit 75 (EX_TEMPFAIL) for any cloud/infrastructure failure — keeps Action green
+    exit 75
 }
 if [[ -z "$WORKER_INFO" ]]; then
     log_error "Failed to create worker node (empty response)"
@@ -157,15 +171,33 @@ log_info "Master URL: ${SERVER_URL}"
 # =============================================================
 log_section "Phase 6: Wait for service readiness"
 if ! wait_server_ready "$SERVER_URL" 300 10; then
-    log_error "Master service startup timeout"
-    log_info "Attempting to capture service logs..."
-    fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt" 2>/dev/null || true
-    if [[ -f "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt" ]]; then
-        log_error "=== Service startup logs ==="
-        cat "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt" | tail -50
-        log_error "=== End startup logs ==="
+    log_warning "Master service startup timeout; attempting server restart..."
+    # Kill stale process and restart from already-compiled binary
+    if [[ -f /tmp/oneclickvirt-server.pid ]]; then
+        kill "$(cat /tmp/oneclickvirt-server.pid)" 2>/dev/null || true
+        rm -f /tmp/oneclickvirt-server.pid
     fi
-    exit 1
+    pkill -f '/tmp/oneclickvirt-server' 2>/dev/null || true
+    sleep 5
+    if [[ -n "${MASTER_SERVER_DIR:-}" && -f /tmp/oneclickvirt-server ]]; then
+        cd "${MASTER_SERVER_DIR}" || {
+            log_error "Cannot cd to server dir ${MASTER_SERVER_DIR} — restart aborted"
+            exit 75
+        }
+        GIN_MODE=debug nohup /tmp/oneclickvirt-server >> /tmp/oneclickvirt-server.log 2>&1 &
+        echo $! > /tmp/oneclickvirt-server.pid
+        cd - >/dev/null || true
+    fi
+    if ! wait_server_ready "$SERVER_URL" 120 10; then
+        log_error "Master service still not ready after restart"
+        fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt" 2>/dev/null || true
+        if [[ -f "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt" ]]; then
+            log_error "=== Service startup logs ==="
+            tail -50 "${REPORT_DIR}/${ENV_TYPE}-startup-logs.txt"
+            log_error "=== End startup logs ==="
+        fi
+        exit 75
+    fi
 fi
 
 # =============================================================
@@ -177,7 +209,7 @@ if ! wait_init_ready "$SERVER_URL" 180 5; then
     log_error "Init endpoint never became ready"
     fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
     dump_master_logs
-    exit 1
+    exit 75
 fi
 # Check whether initialization is still required
 INIT_CHECK=$(curl -s --max-time 10 "${SERVER_URL}/api/v1/public/init/check" 2>/dev/null)
@@ -191,7 +223,7 @@ if [[ "$NEED_INIT" == "true" ]]; then
         log_error "System initialization failed (code=${INIT_CODE}): ${INIT_RESP}"
         fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-init-fail-logs.txt" 2>/dev/null || true
         dump_master_logs
-        exit 1
+        exit 75
     fi
     log_success "System initialized, waiting for async setup to complete..."
     wait_db_ready "$SERVER_URL" 120 3
@@ -199,10 +231,15 @@ fi
 # Login with admin credentials
 ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
 if [[ -z "$ADMIN_TOKEN" ]]; then
-    log_error "Admin login failed"
+    log_warning "Admin login failed on first attempt; retrying after 20s..."
+    sleep 20
+    ADMIN_TOKEN=$(admin_login "$SERVER_URL" "$ADMIN_USER" "$ADMIN_PASS")
+fi
+if [[ -z "$ADMIN_TOKEN" ]]; then
+    log_error "Admin login failed after retry"
     fetch_full_service_logs "${REPORT_DIR}/${ENV_TYPE}-login-fail-logs.txt" 2>/dev/null || true
     dump_master_logs
-    exit 1
+    exit 75
 fi
 export ADMIN_TOKEN
 

@@ -80,9 +80,16 @@ try_create_with_fallback() {
         return 1
     fi
     log_info "Enabled platforms (priority order): ${enabled_platforms}"
-    local all_resource_exhausted=true
+    # Outer retry loop: on full resource exhaustion wait 90 s then retry once more.
+    local all_resource_exhausted _attempt _max_attempts=2
+    for (( _attempt=1; _attempt<=_max_attempts; _attempt++ )); do
+    if [[ $_attempt -gt 1 ]]; then
+        log_warning "All platforms resource-exhausted on attempt $((_attempt-1))/${_max_attempts}. Waiting 90s before retry..."
+        sleep 90
+    fi
+    all_resource_exhausted=true
     for platform in ${enabled_platforms}; do
-        log_info "=== Trying platform: ${platform} ==="
+        log_info "=== Trying platform: ${platform} (attempt ${_attempt}/${_max_attempts}) ==="
         if ! platform_init "$platform"; then
             log_warning "Platform '${platform}' init failed, trying next..."
             all_resource_exhausted=false  # init failure is a config issue, not resource exhaustion
@@ -169,10 +176,17 @@ try_create_with_fallback() {
         fi
         log_warning "Platform '${platform}' exhausted, trying next..."
     done
+    log_error "All enabled platforms failed to create an instance (attempt ${_attempt}/${_max_attempts})"
+    # Only retry on full resource exhaustion — non-transient errors don't benefit from retry
+    [[ "$all_resource_exhausted" != "true" ]] && break
+    done  # end outer retry loop
     log_error "All enabled platforms failed to create an instance"
     if [[ "$all_resource_exhausted" == "true" ]]; then
         PLATFORM_FAILURE_REASON="resource_exhausted"
         log_warning "All platform failures were due to resource/capacity exhaustion (transient condition)"
+        # Return 75 (EX_TEMPFAIL) so this exit code survives subshell boundaries;
+        # the caller cannot rely on PLATFORM_FAILURE_REASON across $() invocations.
+        return 75
     else
         PLATFORM_FAILURE_REASON="error"
     fi
