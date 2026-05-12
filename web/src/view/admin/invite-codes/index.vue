@@ -183,6 +183,7 @@
       v-model="showCreateDialog" 
       :title="$t('admin.inviteCodes.createCustomCode')" 
       width="500px"
+      :before-close="handleCreateDialogClose"
     >
       <el-form 
         ref="createFormRef" 
@@ -557,6 +558,27 @@ const cancelCreate = () => {
     expiresAt: '',
     description: ''
   })
+}
+
+const handleCreateDialogClose = (done) => {
+  const isFormDirty = !!(createForm.code || createForm.description)
+  if (isFormDirty) {
+    ElMessageBox.confirm(
+      t('common.unsavedChangesConfirm'),
+      t('common.unsavedChanges'),
+      {
+        confirmButtonText: t('common.discardChanges'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(() => {
+      if (typeof done === 'function') done()
+      cancelCreate()
+    }).catch(() => {})
+  } else {
+    if (typeof done === 'function') done()
+    cancelCreate()
+  }
 }
 
 const submitCreate = async () => {

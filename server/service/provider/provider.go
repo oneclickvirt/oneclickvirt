@@ -168,6 +168,8 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		ContainerMemorySwap:   dbProvider.ContainerMemorySwap,
 		ContainerMaxProcesses: dbProvider.ContainerMaxProcesses,
 		ContainerDiskIOLimit:  dbProvider.ContainerDiskIOLimit,
+		GpuEnabled:            dbProvider.GpuEnabled,
+		GpuDeviceIds:          dbProvider.GpuDeviceIds,
 	}
 
 	// 如果Provider已自动配置，尝试加载完整配置

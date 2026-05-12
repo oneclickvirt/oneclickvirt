@@ -85,6 +85,24 @@
             {{ scope.row.instanceType === 'container' ? t('admin.redemptionCodes.container') : t('admin.redemptionCodes.vm') }}
           </template>
         </el-table-column>
+        <el-table-column :label="t('admin.redemptionCodes.colCreationMode')" width="110">
+          <template #default="scope">
+            <el-tag
+              v-if="scope.row.creationMode === 'copy'"
+              type="warning"
+              size="small"
+            >
+              {{ t('admin.redemptionCodes.modeCopy') }}
+            </el-tag>
+            <el-tag
+              v-else
+              type="info"
+              size="small"
+            >
+              {{ t('admin.redemptionCodes.modeStandard') }}
+            </el-tag>
+          </template>
+        </el-table-column>
         <el-table-column :label="t('admin.redemptionCodes.colSpecs')" min-width="200">
           <template #default="scope">
             <span v-if="scope.row.cpuName || scope.row.memoryName">
@@ -132,6 +150,7 @@
       v-model="showCreateDialog"
       :title="t('admin.redemptionCodes.createDialogTitle')"
       width="560px"
+      :before-close="handleCreateDialogClose"
     >
       <el-form
         ref="createFormRef"
@@ -154,7 +173,46 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.colInstanceType')" prop="instanceType">
+        <!-- 创建模式（仅 lxd/incus 节点显示） -->
+        <el-form-item
+          v-if="isLxdIncusProvider"
+          :label="t('admin.redemptionCodes.creationMode')"
+        >
+          <el-radio-group v-model="createForm.creationMode">
+            <el-radio value="standard">{{ t('admin.redemptionCodes.modeStandard') }}</el-radio>
+            <el-radio value="copy">{{ t('admin.redemptionCodes.modeCopy') }}</el-radio>
+          </el-radio-group>
+          <div style="font-size: 12px; color: #909399; margin-top: 4px;">
+            {{ t('admin.redemptionCodes.copyModeTip') }}
+          </div>
+        </el-form-item>
+        <!-- 源容器（仅复制模式显示） -->
+        <el-form-item
+          v-if="isLxdIncusProvider && createForm.creationMode === 'copy'"
+          :label="t('admin.redemptionCodes.sourceContainer')"
+          prop="sourceContainer"
+        >
+          <el-select
+            v-model="createForm.sourceContainer"
+            :placeholder="stoppedContainersLoading ? t('admin.redemptionCodes.loadingContainers') : t('admin.redemptionCodes.sourceContainerPlaceholder')"
+            style="width: 100%"
+            :loading="stoppedContainersLoading"
+          >
+            <el-option
+              v-if="stoppedContainers.length === 0 && !stoppedContainersLoading"
+              value=""
+              :label="t('admin.redemptionCodes.noStoppedContainers')"
+              disabled
+            />
+            <el-option
+              v-for="c in stoppedContainers"
+              :key="c"
+              :value="c"
+              :label="c"
+            />
+          </el-select>
+        </el-form-item>
+        <el-form-item :label="t('admin.redemptionCodes.colInstanceType')" prop="instanceType" v-if="createForm.creationMode !== 'copy'">
           <el-select
             v-model="createForm.instanceType"
             :placeholder="t('admin.redemptionCodes.instanceTypePlaceholder')"
@@ -174,7 +232,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.colSpecs') + ' - ' + t('admin.redemptionCodes.image')" prop="imageId">
+        <el-form-item :label="t('admin.redemptionCodes.colSpecs') + ' - ' + t('admin.redemptionCodes.image')" prop="imageId" v-if="createForm.creationMode !== 'copy'">
           <el-select
             v-model="createForm.imageId"
             :placeholder="t('admin.redemptionCodes.imagePlaceholder')"
@@ -189,7 +247,7 @@
             />
           </el-select>
         </el-form-item>
-        <el-row :gutter="12">
+        <el-row :gutter="12" v-if="createForm.creationMode !== 'copy'">
           <el-col :span="12">
             <el-form-item label="CPU" prop="cpuId">
               <el-select
@@ -225,7 +283,7 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row :gutter="12">
+        <el-row :gutter="12" v-if="createForm.creationMode !== 'copy'">
           <el-col :span="12">
             <el-form-item :label="t('admin.redemptionCodes.disk')" prop="diskId">
               <el-select
@@ -346,7 +404,8 @@ import {
   batchCreateRedemptionCodes,
   exportRedemptionCodes,
   batchDeleteRedemptionCodes,
-  getProviderList
+  getProviderList,
+  getStoppedContainers
 } from '@/api/admin'
 import {
   getFilteredImages,
@@ -386,22 +445,27 @@ const createForm = reactive({
   diskId: '',
   bandwidthId: '',
   count: 1,
-  remark: ''
+  remark: '',
+  creationMode: 'standard',
+  sourceContainer: ''
 })
 
-const createRules = computed(() => ({
-  providerId: [{ required: true, message: t('admin.redemptionCodes.providerRequired'), trigger: 'change' }],
-  instanceType: [{ required: true, message: t('admin.redemptionCodes.instanceTypeRequired'), trigger: 'change' }],
-  imageId: [{ required: true, message: t('admin.redemptionCodes.imageRequired'), trigger: 'change' }],
-  cpuId: [{ required: true, message: t('admin.redemptionCodes.cpuRequired'), trigger: 'change' }],
-  memoryId: [{ required: true, message: t('admin.redemptionCodes.memoryRequired'), trigger: 'change' }],
-  diskId: [{ required: true, message: t('admin.redemptionCodes.diskRequired'), trigger: 'change' }],
-  bandwidthId: [{ required: true, message: t('admin.redemptionCodes.bandwidthRequired'), trigger: 'change' }],
-  count: [
-    { required: true, message: t('admin.redemptionCodes.countRequired'), trigger: 'blur' },
-    { type: 'number', min: 1, max: 100, message: t('admin.redemptionCodes.countRange'), trigger: 'blur' }
-  ]
-}))
+const createRules = computed(() => {
+  const isCopy = createForm.creationMode === 'copy'
+  return {
+    providerId: [{ required: true, message: t('admin.redemptionCodes.providerRequired'), trigger: 'change' }],
+    instanceType: [{ required: !isCopy, message: t('admin.redemptionCodes.instanceTypeRequired'), trigger: 'change' }],
+    imageId: [{ required: !isCopy, message: t('admin.redemptionCodes.imageRequired'), trigger: 'change' }],
+    cpuId: [{ required: !isCopy, message: t('admin.redemptionCodes.cpuRequired'), trigger: 'change' }],
+    memoryId: [{ required: !isCopy, message: t('admin.redemptionCodes.memoryRequired'), trigger: 'change' }],
+    diskId: [{ required: !isCopy, message: t('admin.redemptionCodes.diskRequired'), trigger: 'change' }],
+    bandwidthId: [{ required: !isCopy, message: t('admin.redemptionCodes.bandwidthRequired'), trigger: 'change' }],
+    count: [
+      { required: true, message: t('admin.redemptionCodes.countRequired'), trigger: 'blur' },
+      { type: 'number', min: 1, max: 100, message: t('admin.redemptionCodes.countRange'), trigger: 'blur' }
+    ]
+  }
+})
 
 // 动态规格列表
 const providerCaps = reactive({ containerEnabled: false, vmEnabled: false })
@@ -410,6 +474,15 @@ const cpuSpecs = ref([])
 const memorySpecs = ref([])
 const diskSpecs = ref([])
 const bandwidthSpecs = ref([])
+
+// 复制模式：停止中容器列表
+const stoppedContainers = ref([])
+const stoppedContainersLoading = ref(false)
+const isLxdIncusProvider = computed(() => {
+  if (!createForm.providerId) return false
+  const p = allProviders.value.find(p => p.id === createForm.providerId)
+  return p && (p.type === 'lxd' || p.type === 'incus')
+})
 
 // ── 导出对话框 ─────────────────────────────────────────────
 const showExportDialog = ref(false)
@@ -515,7 +588,9 @@ const cancelCreate = () => {
     diskId: '',
     bandwidthId: '',
     count: 1,
-    remark: ''
+    remark: '',
+    creationMode: 'standard',
+    sourceContainer: ''
   })
   providerCaps.containerEnabled = false
   providerCaps.vmEnabled = false
@@ -524,6 +599,28 @@ const cancelCreate = () => {
   memorySpecs.value = []
   diskSpecs.value = []
   bandwidthSpecs.value = []
+  stoppedContainers.value = []
+}
+
+const handleCreateDialogClose = (done) => {
+  const isFormDirty = !!(createForm.providerId || createForm.instanceType || createForm.remark)
+  if (isFormDirty) {
+    ElMessageBox.confirm(
+      t('common.unsavedChangesConfirm'),
+      t('common.unsavedChanges'),
+      {
+        confirmButtonText: t('common.discardChanges'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(() => {
+      if (typeof done === 'function') done()
+      cancelCreate()
+    }).catch(() => {})
+  } else {
+    if (typeof done === 'function') done()
+    cancelCreate()
+  }
 }
 
 const onProviderChange = async (providerId) => {
@@ -548,6 +645,27 @@ const onProviderChange = async (providerId) => {
     providerCaps.vmEnabled = caps.vmEnabled || false
   } catch (_) {
     // ignore
+  }
+
+  // 如果是 lxd/incus 节点，加载已停止的容器列表
+  const p = allProviders.value.find(p => p.id === providerId)
+  if (p && (p.type === 'lxd' || p.type === 'incus')) {
+    createForm.creationMode = 'standard'
+    createForm.sourceContainer = ''
+    stoppedContainers.value = []
+    stoppedContainersLoading.value = true
+    try {
+      const r = await getStoppedContainers(providerId)
+      stoppedContainers.value = (r.data && r.data.containers) || []
+    } catch (_) {
+      // ignore silently
+    } finally {
+      stoppedContainersLoading.value = false
+    }
+  } else {
+    createForm.creationMode = 'standard'
+    createForm.sourceContainer = ''
+    stoppedContainers.value = []
   }
 }
 
@@ -588,17 +706,24 @@ const onInstanceTypeChange = async (type) => {
 const submitCreate = async () => {
   try {
     await createFormRef.value.validate()
+    // 额外校验复制模式下的源容器
+    if (createForm.creationMode === 'copy' && !createForm.sourceContainer) {
+      ElMessage.warning(t('admin.redemptionCodes.sourceContainerRequired'))
+      return
+    }
     createLoading.value = true
     await batchCreateRedemptionCodes({
       providerId: createForm.providerId,
-      instanceType: createForm.instanceType,
-      imageId: createForm.imageId,
-      cpuId: createForm.cpuId,
-      memoryId: createForm.memoryId,
-      diskId: createForm.diskId,
-      bandwidthId: createForm.bandwidthId,
+      instanceType: createForm.creationMode === 'copy' ? 'container' : createForm.instanceType,
+      imageId: createForm.creationMode === 'copy' ? 0 : createForm.imageId,
+      cpuId: createForm.creationMode === 'copy' ? '' : createForm.cpuId,
+      memoryId: createForm.creationMode === 'copy' ? '' : createForm.memoryId,
+      diskId: createForm.creationMode === 'copy' ? '' : createForm.diskId,
+      bandwidthId: createForm.creationMode === 'copy' ? '' : createForm.bandwidthId,
       count: createForm.count,
-      remark: createForm.remark
+      remark: createForm.remark,
+      creationMode: createForm.creationMode,
+      sourceContainer: createForm.sourceContainer
     })
     ElMessage.success(t('admin.redemptionCodes.createSuccess', { count: createForm.count }))
     cancelCreate()

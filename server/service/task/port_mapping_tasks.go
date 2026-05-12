@@ -12,6 +12,7 @@ import (
 	"oneclickvirt/provider/lxd"
 	"oneclickvirt/provider/portmapping"
 	"oneclickvirt/provider/proxmox"
+	agentSvc "oneclickvirt/service/agent"
 	provider2 "oneclickvirt/service/provider"
 	"oneclickvirt/utils"
 
@@ -395,6 +396,19 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 
 	// 更新进度 (35%)
 	s.updateTaskProgress(task.ID, 35, "正在获取Provider配置...")
+
+	// 控制端转发模式：直接停止 TCP 监听，跳过节点侧删除
+	if port.MappingType == "controller" {
+		agentSvc.StopControllerPortForward(port.ID)
+		if err := global.APP_DB.Delete(&port).Error; err != nil {
+			return fmt.Errorf("删除端口映射记录失败: %v", err)
+		}
+		stateManager := GetTaskStateManager()
+		if err := stateManager.CompleteMainTask(task.ID, true, "控制端端口转发已停止并删除", nil); err != nil {
+			global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+		}
+		return nil
+	}
 
 	// 获取Provider信息
 	var providerInfo providerModel.Provider

@@ -60,6 +60,49 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	return nil
 }
 
+// configureInstanceGPU 配置实例GPU直通（仅 LXD/Incus 容器，VM不支持通过此方式直通）
+// GPU驱动需要用户在宿主机上手动安装，本函数仅负责附加GPU设备
+func (l *LXDProvider) configureInstanceGPU(ctx context.Context, config provider.InstanceConfig) error {
+	if !config.GpuEnabled {
+		return nil
+	}
+	if config.InstanceType == "vm" {
+		global.APP_LOG.Warn("GPU直通当前不支持虚拟机实例，跳过", zap.String("instance", config.Name))
+		return nil
+	}
+
+	ids := strings.Split(config.GpuDeviceIds, ",")
+	if config.GpuDeviceIds == "" {
+		// 附加所有GPU（不指定ID）
+		cmd := fmt.Sprintf("lxc config device add %s gpu gpu", config.Name)
+		if _, err := l.sshClient.Execute(cmd); err != nil {
+			return fmt.Errorf("附加GPU设备失败: %w", err)
+		}
+		global.APP_LOG.Info("已为实例附加所有GPU设备", zap.String("instance", config.Name))
+	} else {
+		for i, rawID := range ids {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				continue
+			}
+			deviceName := fmt.Sprintf("gpu%d", i)
+			cmd := fmt.Sprintf("lxc config device add %s %s gpu id=%s", config.Name, deviceName, id)
+			if _, err := l.sshClient.Execute(cmd); err != nil {
+				global.APP_LOG.Warn("附加GPU设备失败，跳过该设备",
+					zap.String("instance", config.Name),
+					zap.String("gpuId", id),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已为实例附加GPU设备",
+					zap.String("instance", config.Name),
+					zap.String("device", deviceName),
+					zap.String("gpuId", id))
+			}
+		}
+	}
+	return nil
+}
+
 // configureInstanceSecurity 配置实例安全设置
 func (l *LXDProvider) configureInstanceSecurity(ctx context.Context, config provider.InstanceConfig) error {
 	if config.InstanceType == "vm" {

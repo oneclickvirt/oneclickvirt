@@ -25,8 +25,7 @@ export default {
   colInstanceName: '实例名称',
   colCreatedAt: '创建时间',
   colRemark: '备注',
-  colRedeemedAt: '兑换时间',
-  providerPlaceholder: '选择节点',
+  colRedeemedAt: '兑换时间',  colCreationMode: '创建模式',  providerPlaceholder: '选择节点',
   instanceTypePlaceholder: '选择实例类型',
   container: '容器',
   vm: '虚拟机',
@@ -64,5 +63,16 @@ export default {
   selectAll: '全选',
   deselectAll: '全不选',
   createFailed: '兑换码创建失败',
-  image: '镜像'
+  image: '镜像',
+  // 复制模式
+  creationMode: '创建模式',
+  modeStandard: '标准创建',
+  modeCopy: '容器复制',
+  copyModeTip: '仅支持 LXD/Incus 节点。从已停止的源容器复制，跳过镜像选择。',
+  sourceContainer: '源容器',
+  sourceContainerPlaceholder: '选择要复制的源容器',
+  loadingContainers: '加载容器列表...',
+  noStoppedContainers: '当前节点无已停止的容器',
+  sourceContainerRequired: '复制模式下请选择源容器',
+  fetchContainersFailed: '获取停止容器列表失败'
 }

@@ -248,6 +248,13 @@
         {{ $t('admin.providers.architectureTip') }}
       </el-text>
     </div>
+
+    <el-form-item :label="$t('admin.providers.isPureNode')">
+      <el-switch v-model="modelValue.isPureNode" />
+      <div class="form-tip" style="margin-top: 6px;">
+        <el-text size="small" type="info">{{ $t('admin.providers.isPureNodeTip') }}</el-text>
+      </div>
+    </el-form-item>
   </el-form>
 </template>
 

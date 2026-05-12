@@ -122,5 +122,8 @@ export default {
   deleteFailed: 'Delete failed',
   updateSuccess: 'Updated successfully',
   createSuccess: 'Created successfully',
-  question: 'Prompt'
+  question: 'Prompt',
+  unsavedChanges: 'Unsaved Changes',
+  unsavedChangesConfirm: 'There are unsaved changes in the form. Are you sure you want to close?',
+  discardChanges: 'Discard Changes'
 }

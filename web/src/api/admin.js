@@ -947,3 +947,40 @@ export const blockRulesApi = {
   getProviderBlockStatus: (id) => request({ url: `/v1/admin/providers/${id}/block-status`, method: 'get' }),
   getAgentProviders: () => request({ url: '/v1/admin/block-rules/agent-providers', method: 'get' })
 }
+
+// GPU 检测
+export const detectProviderGPUs = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/detect-gpus`,
+    method: 'get',
+    timeout: 30000
+  })
+}
+
+// 获取节点上已停止的容器列表（用于复制模式）
+export const getStoppedContainers = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/stopped-containers`,
+    method: 'get',
+    timeout: 30000
+  })
+}
+
+// 生成 Agent 密钥（内网穿透模式）
+export const generateAgentSecret = (providerId) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/agent-secret`,
+    method: 'post',
+    timeout: 15000
+  })
+}
+
+// 在 Provider 节点上执行命令（SSH 或 Agent 模式）
+export const execOnProvider = (providerId, command, timeout = 30) => {
+  return request({
+    url: `/v1/admin/providers/${providerId}/exec`,
+    method: 'post',
+    data: { command, timeout },
+    timeout: (timeout + 5) * 1000
+  })
+}

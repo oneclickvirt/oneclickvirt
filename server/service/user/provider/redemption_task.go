@@ -86,32 +86,49 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		zap.Uint("taskId", task.ID),
 		zap.Uint("redemptionCodeId", taskReq.RedemptionCodeID))
 
-	// 验证规格 ID
-	cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的CPU规格ID: %v", err)
-	}
-	memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的内存规格ID: %v", err)
-	}
-	diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的磁盘规格ID: %v", err)
-	}
-	bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId)
-	if err != nil {
-		return nil, fmt.Errorf("无效的带宽规格ID: %v", err)
+	isCopyMode := taskReq.CreationMode == "copy" && taskReq.SourceContainer != ""
+
+	// 验证规格 ID（复制模式跳过，继承源容器规格）
+	var cpuSpec *constant.CPUSpec
+	var memorySpec *constant.MemorySpec
+	var diskSpec *constant.DiskSpec
+	var bandwidthSpec *constant.BandwidthSpec
+	if !isCopyMode {
+		var err error
+		cpuSpec, err = constant.GetCPUSpecByID(taskReq.CPUId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的CPU规格ID: %v", err)
+		}
+		memorySpec, err = constant.GetMemorySpecByID(taskReq.MemoryId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的内存规格ID: %v", err)
+		}
+		diskSpec, err = constant.GetDiskSpecByID(taskReq.DiskId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的磁盘规格ID: %v", err)
+		}
+		bandwidthSpec, err = constant.GetBandwidthSpecByID(taskReq.BandwidthId)
+		if err != nil {
+			return nil, fmt.Errorf("无效的带宽规格ID: %v", err)
+		}
 	}
 
 	dbService := database.GetDatabaseService()
 	var instance providerModel.Instance
 
-	err = dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
-		// 验证镜像
+	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+		// 验证镜像（复制模式跳过镜像验证，使用源容器名作为镜像标识）
 		var systemImage systemModel.SystemImage
-		if err := tx.Where("id = ? AND status = ?", taskReq.ImageId, "active").First(&systemImage).Error; err != nil {
-			return fmt.Errorf("镜像不存在或已禁用")
+		imageName := "copy:" + taskReq.SourceContainer
+		instanceType := "container"
+		osType := "linux"
+		if !isCopyMode {
+			if err := tx.Where("id = ? AND status = ?", taskReq.ImageId, "active").First(&systemImage).Error; err != nil {
+				return fmt.Errorf("镜像不存在或已禁用")
+			}
+			imageName = systemImage.Name
+			instanceType = systemImage.InstanceType
+			osType = systemImage.OSType
 		}
 
 		// 验证节点
@@ -134,19 +151,29 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		}
 
 		// 实例归属系统用户（UserID = 0），兑换后再转移
+		cpuCores := 0
+		memMB := int64(0)
+		diskMB := int64(0)
+		bwMbps := 0
+		if !isCopyMode {
+			cpuCores = cpuSpec.Cores
+			memMB = int64(memorySpec.SizeMB)
+			diskMB = int64(diskSpec.SizeMB)
+			bwMbps = bandwidthSpec.SpeedMbps
+		}
 		instance = providerModel.Instance{
 			Name:               instanceName,
 			Provider:           provider.Name,
 			ProviderID:         provider.ID,
-			Image:              systemImage.Name,
-			CPU:                cpuSpec.Cores,
-			Memory:             int64(memorySpec.SizeMB),
-			Disk:               int64(diskSpec.SizeMB),
-			Bandwidth:          bandwidthSpec.SpeedMbps,
-			InstanceType:       systemImage.InstanceType,
+			Image:              imageName,
+			CPU:                cpuCores,
+			Memory:             memMB,
+			Disk:               diskMB,
+			Bandwidth:          bwMbps,
+			InstanceType:       instanceType,
 			UserID:             0, // 系统用户占位
 			Status:             "creating",
-			OSType:             systemImage.OSType,
+			OSType:             osType,
 			ExpiresAt:          expiredAt,
 			IsManualExpiry:     false,
 			MaxTraffic:         0,
@@ -165,11 +192,13 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			return fmt.Errorf("更新任务状态失败: %v", err)
 		}
 
-		// 分配节点资源（占用 Provider 的 CPU/内存/磁盘计数）
-		resourceService := &resources.ResourceService{}
-		if err := resourceService.AllocateResourcesInTx(tx, provider.ID, systemImage.InstanceType,
-			cpuSpec.Cores, int64(memorySpec.SizeMB), int64(diskSpec.SizeMB)); err != nil {
-			return fmt.Errorf("分配节点资源失败: %v", err)
+		// 分配节点资源（复制模式不分配资源，继承源容器资源）
+		if !isCopyMode {
+			resourceService := &resources.ResourceService{}
+			if err := resourceService.AllocateResourcesInTx(tx, provider.ID, instanceType,
+				cpuCores, memMB, diskMB); err != nil {
+				return fmt.Errorf("分配节点资源失败: %v", err)
+			}
 		}
 
 		return nil

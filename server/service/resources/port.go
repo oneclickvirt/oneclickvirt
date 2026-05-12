@@ -12,6 +12,14 @@ import (
 	"gorm.io/gorm"
 )
 
+// ControllerPortForwardFunc 是启动控制端端口转发的函数类型。
+// 由 service/agent 包在初始化时注入，避免循环依赖。
+var ControllerPortForwardFunc func(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error
+
+// StopControllerPortForwardFunc 是停止控制端端口转发的函数类型。
+// 由 service/agent 包在初始化时注入，避免循环依赖。
+var StopControllerPortForwardFunc func(portID uint)
+
 // 定义错误类型
 var (
 	// ErrPortRangeValidation 端口范围验证错误（用于区分业务验证错误和系统错误）
@@ -108,7 +116,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox")
 	}
 
-	// 检查是否为独立IPv4模式或纯IPv6模式
+	// 检查是否为独立IPv4模式或纯IPv6模式或无端口映射模式
 	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" {
 		var reason string
 		switch providerInfo.NetworkType {
@@ -122,6 +130,11 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		return 0, nil, fmt.Errorf("%s", reason)
 	}
 
+	// 无端口映射模式：不允许节点侧映射，仅允许控制端转发模式
+	if providerInfo.NetworkType == "no_port_mapping" && req.MappingType != "controller" {
+		return 0, nil, fmt.Errorf("无端口映射模式下不支持节点侧端口映射，请使用控制端转发模式")
+	}
+
 	// 默认端口数量为1
 	portCount := req.PortCount
 	if portCount == 0 {
@@ -133,49 +146,89 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		return 0, nil, fmt.Errorf("端口数量必须在1-1500之间")
 	}
 
-	// 验证端口段合法性
-	if err := s.ValidatePortRange(providerInfo.ID, req.GuestPort, portCount); err != nil {
-		return 0, nil, fmt.Errorf("内部端口段验证失败: %v", err)
+	// 确定映射类型
+	mappingType := req.MappingType
+	if mappingType == "" {
+		mappingType = "node"
 	}
 
 	// 分配主机端口（起始端口）
 	hostPort := req.HostPort
-	if hostPort == 0 {
-		// 自动分配连续端口段
-		allocatedPort, err := s.allocateConsecutivePorts(providerInfo.ID, providerInfo.PortRangeStart, providerInfo.PortRangeEnd, portCount)
-		if err != nil {
-			return 0, nil, fmt.Errorf("端口分配失败: %v", err)
+
+	if mappingType == "controller" {
+		// 控制端转发模式：使用控制端端口，不受节点端口范围限制
+		if hostPort == 0 {
+			// 自动分配控制端端口（10000-65535 范围，避免与已有控制端端口冲突）
+			allocatedPort, err := s.allocateControllerPort(providerInfo.ID, 10000, 65535, portCount)
+			if err != nil {
+				return 0, nil, fmt.Errorf("控制端端口分配失败: %v", err)
+			}
+			hostPort = allocatedPort
+		} else {
+			// 检查端口有效范围
+			if hostPort < 1 || hostPort > 65535 {
+				return 0, nil, fmt.Errorf("控制端端口 %d 无效，必须在 1-65535 范围内", hostPort)
+			}
+			hostPortEnd := hostPort + portCount - 1
+			if hostPortEnd > 65535 {
+				return 0, nil, fmt.Errorf("控制端端口段 %d-%d 超出有效范围", hostPort, hostPortEnd)
+			}
+			// 检查控制端端口是否已被占用
+			var occupiedPorts []int
+			err := global.APP_DB.Model(&provider.Port{}).
+				Where("mapping_type = 'controller' AND host_port BETWEEN ? AND ? AND status = 'active'",
+					hostPort, hostPort+portCount-1).
+				Pluck("host_port", &occupiedPorts).Error
+			if err != nil {
+				return 0, nil, fmt.Errorf("检查控制端端口占用失败: %v", err)
+			}
+			if len(occupiedPorts) > 0 {
+				return 0, nil, fmt.Errorf("控制端端口段中有端口已被占用: %v", occupiedPorts)
+			}
 		}
-		hostPort = allocatedPort
 	} else {
-		// 检查主机端口是否在Provider允许的范围内
-		if hostPort < providerInfo.PortRangeStart || hostPort > providerInfo.PortRangeEnd {
-			return 0, nil, fmt.Errorf("%w: 主机端口 %d 不在节点允许的范围内 (%d-%d) / Host port %d is not within the node's allowed range (%d-%d)",
-				ErrPortRangeValidation,
-				hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd,
-				hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd)
+		// 节点侧映射模式：验证内部端口段合法性
+		if err := s.ValidatePortRange(providerInfo.ID, req.GuestPort, portCount); err != nil {
+			return 0, nil, fmt.Errorf("内部端口段验证失败: %v", err)
 		}
 
-		// 检查端口段是否超出范围
-		hostPortEnd := hostPort + portCount - 1
-		if hostPortEnd > providerInfo.PortRangeEnd {
-			return 0, nil, fmt.Errorf("%w: 主机端口段 %d-%d 超出节点允许的范围 (最大端口: %d) / Host port range %d-%d exceeds the node's allowed range (maximum port: %d)",
-				ErrPortRangeValidation,
-				hostPort, hostPortEnd, providerInfo.PortRangeEnd,
-				hostPort, hostPortEnd, providerInfo.PortRangeEnd)
-		}
+		if hostPort == 0 {
+			// 自动分配连续端口段
+			allocatedPort, err := s.allocateConsecutivePorts(providerInfo.ID, providerInfo.PortRangeStart, providerInfo.PortRangeEnd, portCount)
+			if err != nil {
+				return 0, nil, fmt.Errorf("端口分配失败: %v", err)
+			}
+			hostPort = allocatedPort
+		} else {
+			// 检查主机端口是否在Provider允许的范围内
+			if hostPort < providerInfo.PortRangeStart || hostPort > providerInfo.PortRangeEnd {
+				return 0, nil, fmt.Errorf("%w: 主机端口 %d 不在节点允许的范围内 (%d-%d) / Host port %d is not within the node's allowed range (%d-%d)",
+					ErrPortRangeValidation,
+					hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd,
+					hostPort, providerInfo.PortRangeStart, providerInfo.PortRangeEnd)
+			}
 
-		// 批量检查指定的端口段是否可用
-		var occupiedPorts []int
-		err := global.APP_DB.Model(&provider.Port{}).
-			Where("provider_id = ? AND host_port BETWEEN ? AND ? AND status = 'active'",
-				providerInfo.ID, hostPort, hostPort+portCount-1).
-			Pluck("host_port", &occupiedPorts).Error
-		if err != nil {
-			return 0, nil, fmt.Errorf("检查端口占用失败: %v", err)
-		}
-		if len(occupiedPorts) > 0 {
-			return 0, nil, fmt.Errorf("端口段中有端口已被占用: %v", occupiedPorts)
+			// 检查端口段是否超出范围
+			hostPortEnd := hostPort + portCount - 1
+			if hostPortEnd > providerInfo.PortRangeEnd {
+				return 0, nil, fmt.Errorf("%w: 主机端口段 %d-%d 超出节点允许的范围 (最大端口: %d) / Host port range %d-%d exceeds the node's allowed range (maximum port: %d)",
+					ErrPortRangeValidation,
+					hostPort, hostPortEnd, providerInfo.PortRangeEnd,
+					hostPort, hostPortEnd, providerInfo.PortRangeEnd)
+			}
+
+			// 批量检查指定的端口段是否可用
+			var occupiedPorts []int
+			err := global.APP_DB.Model(&provider.Port{}).
+				Where("provider_id = ? AND host_port BETWEEN ? AND ? AND status = 'active'",
+					providerInfo.ID, hostPort, hostPort+portCount-1).
+				Pluck("host_port", &occupiedPorts).Error
+			if err != nil {
+				return 0, nil, fmt.Errorf("检查端口占用失败: %v", err)
+			}
+			if len(occupiedPorts) > 0 {
+				return 0, nil, fmt.Errorf("端口段中有端口已被占用: %v", occupiedPorts)
+			}
 		}
 	}
 
@@ -187,8 +240,9 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		guestPortEnd = req.GuestPort + portCount - 1
 	}
 
+	internalHost := req.InternalHost
+
 	// 创建数据库记录（状态为 pending）
-	// 对于端口段，创建一个主记录来代表整个端口段
 	port := provider.Port{
 		InstanceID:    req.InstanceID,
 		ProviderID:    providerInfo.ID,
@@ -199,17 +253,45 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		PortCount:     portCount,
 		Protocol:      req.Protocol,
 		Description:   req.Description,
-		Status:        "pending", // 初始状态为 pending
+		Status:        "pending",
 		IsSSH:         req.GuestPort == 22,
 		IsAutomatic:   false,
-		PortType:      "batch", // 标记为批量添加（即使是单个端口也用batch类型）
-		IPv6Enabled:   false,   // 手动添加的端口映射默认不启用IPv6
+		PortType:      "batch",
+		IPv6Enabled:   false,
 		MappingMethod: providerInfo.IPv4PortMappingMethod,
+		MappingType:   mappingType,
+		InternalHost:  internalHost,
 	}
 
 	if err := global.APP_DB.Create(&port).Error; err != nil {
 		global.APP_LOG.Error("创建端口映射数据库记录失败", zap.Error(err))
 		return 0, nil, fmt.Errorf("创建端口映射失败: %v", err)
+	}
+
+	// 控制端转发模式：直接启动 TCP 监听，跳过节点侧任务
+	if mappingType == "controller" {
+		targetHost := internalHost
+		if targetHost == "" {
+			targetHost = instance.PrivateIP // 使用实例私有IP
+		}
+		if targetHost == "" {
+			global.APP_DB.Delete(&port)
+			return 0, nil, fmt.Errorf("控制端转发模式需要指定目标地址（internalHost）或实例须有私有IP")
+		}
+		if ControllerPortForwardFunc == nil {
+			global.APP_DB.Delete(&port)
+			return 0, nil, fmt.Errorf("控制端转发功能未初始化")
+		}
+		if err := ControllerPortForwardFunc(port.ID, providerInfo.ID, hostPort, targetHost, req.GuestPort); err != nil {
+			// 回滚端口记录
+			global.APP_DB.Delete(&port)
+			return 0, nil, fmt.Errorf("启动控制端端口转发失败: %v", err)
+		}
+		// 标记为 active（控制端模式不需要任务）
+		global.APP_DB.Model(&port).Update("status", "active")
+		global.APP_LOG.Info("控制端端口转发已启动",
+			zap.Uint("port_id", port.ID), zap.Int("host_port", hostPort))
+		return port.ID, nil, nil
 	}
 
 	// 创建任务数据
@@ -286,12 +368,20 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		return fmt.Errorf("Provider不存在")
 	}
 
-	// 检查是否为独立IPv4模式或纯IPv6模式，如果是则跳过默认端口映射创建
-	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" {
-		global.APP_LOG.Debug("独立IP模式或纯IPv6模式，跳过默认端口映射创建",
+	// 检查是否为独立IPv4模式或纯IPv6模式或无端口映射模式，如果是则跳过默认端口映射创建
+	if providerInfo.NetworkType == "dedicated_ipv4" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only" || providerInfo.NetworkType == "no_port_mapping" {
+		global.APP_LOG.Debug("独立IP模式或纯IPv6模式或无端口映射模式，跳过默认端口映射创建",
 			zap.Uint("instanceID", instanceID),
 			zap.Uint("providerID", providerID),
 			zap.String("networkType", providerInfo.NetworkType))
+		return nil
+	}
+
+	// 纯净节点标记：管理员自行分配端口，跳过自动创建
+	if providerInfo.IsPureNode {
+		global.APP_LOG.Debug("纯净节点模式，跳过默认端口映射创建",
+			zap.Uint("instanceID", instanceID),
+			zap.Uint("providerID", providerID))
 		return nil
 	}
 
@@ -324,17 +414,18 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		// 第一个端口作为SSH端口
 		sshHostPort := allocatedPorts[0]
 		sshPort := provider.Port{
-			InstanceID:  instanceID,
-			ProviderID:  providerID,
-			HostPort:    sshHostPort,
-			GuestPort:   22,     // SSH端口固定为22
-			Protocol:    "both", // SSH 使用 TCP/UDP 通用协议
-			Description: "SSH",
-			Status:      "active",
-			IsSSH:       true,
-			IsAutomatic: true,
-			PortType:    "range_mapped", // 标记为区间映射
-			IPv6Enabled: providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+			InstanceID:    instanceID,
+			ProviderID:    providerID,
+			HostPort:      sshHostPort,
+			GuestPort:     22,     // SSH端口固定为22
+			Protocol:      "both", // SSH 使用 TCP/UDP 通用协议
+			Description:   "SSH",
+			Status:        "active",
+			IsSSH:         true,
+			IsAutomatic:   true,
+			PortType:      "range_mapped", // 标记为区间映射
+			IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+			MappingMethod: providerInfo.IPv4PortMappingMethod,
 		}
 
 		if err := tx.Create(&sshPort).Error; err != nil {
@@ -353,17 +444,18 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			for i := 1; i < len(allocatedPorts); i++ {
 				port := allocatedPorts[i]
 				portRecord := provider.Port{
-					InstanceID:  instanceID,
-					ProviderID:  providerID,
-					HostPort:    port,
-					GuestPort:   port,   // 内外端口完全相同
-					Protocol:    "both", // 区间映射使用 TCP/UDP 通用协议
-					Description: fmt.Sprintf("端口%d", port),
-					Status:      "active",
-					IsSSH:       false,
-					IsAutomatic: true,
-					PortType:    "range_mapped", // 标记为区间映射
-					IPv6Enabled: providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+					InstanceID:    instanceID,
+					ProviderID:    providerID,
+					HostPort:      port,
+					GuestPort:     port,   // 内外端口完全相同
+					Protocol:      "both", // 区间映射使用 TCP/UDP 通用协议
+					Description:   fmt.Sprintf("端口%d", port),
+					Status:        "active",
+					IsSSH:         false,
+					IsAutomatic:   true,
+					PortType:      "range_mapped", // 标记为区间映射
+					IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
+					MappingMethod: providerInfo.IPv4PortMappingMethod,
 				}
 				portRecords = append(portRecords, portRecord)
 			}

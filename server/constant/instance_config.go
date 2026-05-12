@@ -57,6 +57,7 @@ const (
 	NetworkTypeDedicatedIPv4     NetworkType = "dedicated_ipv4"      // 独立IPv4
 	NetworkTypeDedicatedIPv4IPv6 NetworkType = "dedicated_ipv4_ipv6" // 独立IPv4 + 独立IPv6
 	NetworkTypeIPv6Only          NetworkType = "ipv6_only"           // 纯IPv6
+	NetworkTypeNoPortMapping     NetworkType = "no_port_mapping"     // 不进行端口映射（管理员手动分配控制端内网穿透）
 )
 
 // HasIPv4 检查网络类型是否包含IPv4
@@ -77,6 +78,16 @@ func (nt NetworkType) IsNAT() bool {
 // IsDedicated 检查网络类型是否为独立IP模式
 func (nt NetworkType) IsDedicated() bool {
 	return nt == NetworkTypeDedicatedIPv4 || nt == NetworkTypeDedicatedIPv4IPv6
+}
+
+// IsNoPortMapping 检查网络类型是否为无端口映射模式
+func (nt NetworkType) IsNoPortMapping() bool {
+	return nt == NetworkTypeNoPortMapping
+}
+
+// NeedsPortMapping 检查网络类型是否需要端口映射
+func (nt NetworkType) NeedsPortMapping() bool {
+	return nt == NetworkTypeNATIPv4 || nt == NetworkTypeNATIPv4IPv6
 }
 
 // GetLegacyValues 获取对应的旧格式值（用于向后兼容）

@@ -141,6 +141,13 @@ const buildDefaultForm = () => ({
   autoImport: true,
   autoAdjustQuota: true,
   importedInstanceOwner: 'admin',
+  gpuEnabled: false,
+  gpuDeviceIds: '',
+  connectionType: 'ssh',
+  isPureNode: false,
+  agentStatus: 'offline',
+  agentLastSeen: null,
+  agentRemoteIP: '',
   levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
 })
 
@@ -279,6 +286,13 @@ export function useProviderForm(loadProviders) {
     addProviderForm.containerMaxProcesses = provider.containerMaxProcesses || 0
     addProviderForm.containerDiskIoLimit = provider.containerDiskIoLimit || ''
     addProviderForm.redeemCodeOnly = provider.redeemCodeOnly !== undefined ? provider.redeemCodeOnly : false
+    addProviderForm.gpuEnabled = provider.gpuEnabled !== undefined ? provider.gpuEnabled : false
+    addProviderForm.gpuDeviceIds = provider.gpuDeviceIds || ''
+    addProviderForm.connectionType = provider.connectionType || 'ssh'
+    addProviderForm.isPureNode = provider.isPureNode !== undefined ? provider.isPureNode : false
+    addProviderForm.agentStatus = provider.agentStatus || 'offline'
+    addProviderForm.agentLastSeen = provider.agentLastSeen || null
+    addProviderForm.agentRemoteIP = provider.agentRemoteIP || ''
 
     if (provider.type === 'docker') {
       addProviderForm.ipv4PortMappingMethod = 'native'
@@ -388,7 +402,11 @@ export function useProviderForm(loadProviders) {
         containerMemorySwap: formData.containerMemorySwap !== undefined ? formData.containerMemorySwap : true,
         containerMaxProcesses: formData.containerMaxProcesses || 0,
         containerDiskIoLimit: formData.containerDiskIoLimit || '',
-        redeemCodeOnly: formData.redeemCodeOnly !== undefined ? formData.redeemCodeOnly : false
+        redeemCodeOnly: formData.redeemCodeOnly !== undefined ? formData.redeemCodeOnly : false,
+        gpuEnabled: formData.gpuEnabled || false,
+        gpuDeviceIds: formData.gpuDeviceIds || '',
+        connectionType: formData.connectionType || 'ssh',
+        isPureNode: formData.isPureNode !== undefined ? formData.isPureNode : false
       }
 
       // 根据 Provider 类型设置端口映射方式

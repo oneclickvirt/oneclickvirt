@@ -4,7 +4,7 @@
     :title="isEditing ? $t('admin.providers.editServer') : $t('admin.providers.addServer')" 
     width="1000px"
     :close-on-click-modal="false"
-    @close="handleClose"
+    :before-close="handleBeforeClose"
   >
     <!-- 配置分类标签页 -->
     <el-tabs
@@ -35,9 +35,16 @@
           :is-editing="isEditing"
           :testing-connection="testingConnection"
           :connection-test-result="connectionTestResult"
+          :generating-secret="generatingSecret"
+          :agent-connect-cmd="agentConnectCmd"
+          :exec-loading="execLoading"
+          :exec-result="execResult"
           @test-connection="handleTestConnection"
           @apply-timeout="handleApplyTimeout"
           @auth-method-change="handleAuthMethodChange"
+          @generate-agent-secret="handleGenerateAgentSecret"
+          @exec-command="handleExecCommand"
+          @clear-exec-result="execResult = null"
         />
       </el-tab-pane>
 
@@ -144,7 +151,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
-import { testSSHConnection as testSSHConnectionAPI } from '@/api/admin'
+import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI } from '@/api/admin'
 // 导入子标签页组件
 import BasicInfoTab from './formTabs/BasicInfoTab.vue'
 import ConnectionTab from './formTabs/ConnectionTab.vue'
@@ -158,6 +165,9 @@ import HardwareConfigTab from './formTabs/HardwareConfigTab.vue'
 import CheckinConfigTab from './formTabs/CheckinConfigTab.vue'
 
 const { t, locale } = useI18n()
+
+// 表单初始快照（用于脖测未保存更改）
+const formSnapshot = ref(null)
 
 const props = defineProps({
   visible: {
@@ -199,6 +209,10 @@ const basicInfoTabRef = ref()
 // 连接测试状态
 const testingConnection = ref(false)
 const connectionTestResult = ref(null)
+
+// Agent 密钥生成状态
+const generatingSecret = ref(false)
+const agentConnectCmd = ref('')
 
 // 国家列表数据 - 使用 computed 从 props 获取，如果没有则使用本地获取
 const groupedCountries = computed(() => {
@@ -281,6 +295,14 @@ const formData = ref({
   containerMemorySwap: true,
   containerMaxProcesses: 0,
   containerDiskIoLimit: '',
+  // GPU 直通配置（仅 LXD/Incus）
+  gpuEnabled: false,
+  gpuDeviceIds: '',
+  // 连接方式（内网穿透）
+  connectionType: 'ssh',
+  agentStatus: 'offline',
+  agentLastSeen: null,
+  agentRemoteIP: '',
   // Proxmox 网桥配置
   nodeInstallType: 'script',
   bridgeNAT: '',
@@ -390,8 +412,8 @@ watch(() => props.visible, (isVisible) => {
     if (props.providerData && Object.keys(props.providerData).length > 0) {
       // 对话框打开时，同步父组件的数据到表单（使用深拷贝避免引用问题）
       Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
-    }
-    // 清除上次遗留的验证状态
+    }    // 记录开屏快照用于脖测修改
+    formSnapshot.value = JSON.stringify(formData.value)    // 清除上次遗留的验证状态
     nextTick(() => {
       basicInfoTabRef.value?.formRef?.clearValidate()
     })
@@ -526,6 +548,53 @@ const handleAuthMethodChange = (newMethod) => {
   }
 }
 
+// 生成 Agent 密钥
+const handleGenerateAgentSecret = async () => {
+  if (!formData.value.id) return
+  generatingSecret.value = true
+  agentConnectCmd.value = ''
+  try {
+    const res = await generateAgentSecretAPI(formData.value.id)
+    if (res.data && res.data.installCmd) {
+      agentConnectCmd.value = res.data.installCmd
+      ElMessage.success(t('admin.providers.agentSecretGenerated'))
+    } else if (res.data && res.data.wsPath) {
+      // 降级：使用旧格式
+      const origin = window.location.origin
+      const wsUrl = origin.replace(/^http/, 'ws') + res.data.wsPath
+      agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
+      ElMessage.success(t('admin.providers.agentSecretGenerated'))
+    }
+  } catch (error) {
+    ElMessage.error(error.message || t('common.operationFailed'))
+  } finally {
+    generatingSecret.value = false
+  }
+}
+
+// Web 终端执行命令
+const execLoading = ref(false)
+const execResult = ref(null)
+
+const handleExecCommand = async (command) => {
+  if (!command || !command.trim() || !formData.value.id) return
+  execLoading.value = true
+  try {
+    const res = await execOnProviderAPI(formData.value.id, command.trim())
+    execResult.value = {
+      stdout: res.data?.stdout || '',
+      stderr: res.data?.stderr || ''
+    }
+  } catch (error) {
+    execResult.value = {
+      stdout: '',
+      stderr: error.message || t('common.operationFailed')
+    }
+  } finally {
+    execLoading.value = false
+  }
+}
+
 // 重置等级限制为默认值
 const handleResetLevelLimits = () => {
   ElMessageBox.confirm(
@@ -604,6 +673,30 @@ const handleSubmit = async () => {
       // 验证失败，滚动到第一个错误字段
       ElMessage.error(t('admin.providers.pleaseCheckRequiredFields'))
     }
+  }
+}
+
+// 关闭对话框（带未保存更改警告）
+const handleBeforeClose = (done) => {
+  const isDirty = formSnapshot.value !== null && JSON.stringify(formData.value) !== formSnapshot.value
+  if (isDirty) {
+    ElMessageBox.confirm(
+      t('common.unsavedChangesConfirm'),
+      t('common.unsavedChanges'),
+      {
+        confirmButtonText: t('common.discardChanges'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(() => {
+      done()
+      emit('cancel')
+    }).catch(() => {
+      // 用户取消关闭
+    })
+  } else {
+    done()
+    emit('cancel')
   }
 }
 

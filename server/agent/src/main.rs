@@ -10,6 +10,8 @@ mod models;
 mod nft;
 mod proxy;
 mod resource;
+mod tunnel;
+mod ws_client;
 
 use app_state::AppState;
 use axum::{Router, middleware, routing::{get, post}};
@@ -34,6 +36,25 @@ async fn main() {
 
     dotenvy::dotenv().ok();
     info!("loading configuration from environment");
+
+    // --ws-url <URL> --secret <SECRET> launches agent-mode WS client instead of HTTP server
+    let args: Vec<String> = std::env::args().collect();
+    let ws_url_arg = args.windows(2).find(|w| w[0] == "--ws-url").map(|w| w[1].clone());
+    let secret_arg = args.windows(2).find(|w| w[0] == "--secret").map(|w| w[1].clone());
+    if let (Some(ws_url), Some(secret)) = (ws_url_arg, secret_arg) {
+        // Append ?secret=... if not already present in URL
+        let full_url = if ws_url.contains("secret=") {
+            ws_url
+        } else if ws_url.contains('?') {
+            format!("{}&secret={}", ws_url, secret)
+        } else {
+            format!("{}?secret={}", ws_url, secret)
+        };
+        info!(url = %full_url, "starting in agent WebSocket client mode");
+        ws_client::run_ws_client(full_url).await;
+        return;
+    }
+
     let api_token = env::var("API_TOKEN").expect("missing API_TOKEN in .env or environment");
 
     let traffic_collect_interval: u64 = env::var("TRAFFIC_COLLECT_INTERVAL")

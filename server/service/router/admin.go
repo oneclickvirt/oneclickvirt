@@ -58,6 +58,10 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/providers/:id/auto-configure-stream", admin.AutoConfigureProviderStream)
 		NormalAdminGroup.POST("/providers/:id/health-check", admin.CheckProviderHealth)
 		NormalAdminGroup.GET("/providers/:id/status", admin.GetProviderStatus)
+		NormalAdminGroup.GET("/providers/:id/detect-gpus", admin.DetectGPUs)
+		NormalAdminGroup.GET("/providers/:id/stopped-containers", admin.GetStoppedContainers)
+		NormalAdminGroup.POST("/providers/:id/agent-secret", admin.GenerateAgentSecret)
+		NormalAdminGroup.POST("/providers/:id/exec", admin.ExecOnProvider)
 
 		// 配置导出
 		NormalAdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)

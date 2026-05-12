@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"oneclickvirt/global"
 	"oneclickvirt/provider"
@@ -55,6 +56,48 @@ func (i *IncusProvider) configureInstanceSecurity(ctx context.Context, config pr
 		}
 	}
 
+	return nil
+}
+
+// configureInstanceGPU 配置实例GPU直通（仅容器，VM不支持通过此方式直通）
+// GPU驱动需要用户在宿主机上手动安装，本函数仅负责附加GPU设备
+func (i *IncusProvider) configureInstanceGPU(ctx context.Context, config provider.InstanceConfig) error {
+	if !config.GpuEnabled {
+		return nil
+	}
+	if config.InstanceType == "vm" {
+		global.APP_LOG.Warn("GPU直通当前不支持虚拟机实例，跳过", zap.String("instance", config.Name))
+		return nil
+	}
+
+	ids := strings.Split(config.GpuDeviceIds, ",")
+	if config.GpuDeviceIds == "" {
+		cmd := fmt.Sprintf("incus config device add %s gpu gpu", config.Name)
+		if _, err := i.sshClient.Execute(cmd); err != nil {
+			return fmt.Errorf("附加GPU设备失败: %w", err)
+		}
+		global.APP_LOG.Info("已为实例附加所有GPU设备", zap.String("instance", config.Name))
+	} else {
+		for idx, rawID := range ids {
+			id := strings.TrimSpace(rawID)
+			if id == "" {
+				continue
+			}
+			deviceName := fmt.Sprintf("gpu%d", idx)
+			cmd := fmt.Sprintf("incus config device add %s %s gpu id=%s", config.Name, deviceName, id)
+			if _, err := i.sshClient.Execute(cmd); err != nil {
+				global.APP_LOG.Warn("附加GPU设备失败，跳过该设备",
+					zap.String("instance", config.Name),
+					zap.String("gpuId", id),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("已为实例附加GPU设备",
+					zap.String("instance", config.Name),
+					zap.String("device", deviceName),
+					zap.String("gpuId", id))
+			}
+		}
+	}
 	return nil
 }
 

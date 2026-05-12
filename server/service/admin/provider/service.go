@@ -48,6 +48,22 @@ func (s *Service) GetProviderNameByID(id uint) (string, error) {
 	return provider.Name, nil
 }
 
+// GetProviderByID 根据Provider ID获取完整Provider对象（含敏感字段，仅内部使用）
+func (s *Service) GetProviderByID(id uint, ownerAdminID uint) (*providerModel.Provider, error) {
+	var p providerModel.Provider
+	query := global.APP_DB.First(&p, id)
+	if ownerAdminID != 0 {
+		query = global.APP_DB.Where("id = ? AND owner_admin_id = ?", id, ownerAdminID).First(&p)
+	}
+	if err := query.Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("Provider不存在")
+		}
+		return nil, fmt.Errorf("查询Provider失败: %v", err)
+	}
+	return &p, nil
+}
+
 // GetProviderList 获取Provider列表
 func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID uint) ([]admin.ProviderManageResponse, int64, error) {
 	global.APP_LOG.Debug("获取Provider列表",
@@ -140,7 +156,7 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 
 		// 使用聚合表查询，性能大幅提升
 		// day=0,hour=0 表示月度汇总数据
-		global.APP_DB.Raw(`
+		if result := global.APP_DB.Raw(`
 			SELECT 
 				pth.provider_id,
 				CASE 
@@ -157,7 +173,9 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 			  AND pth.hour = 0
 			  AND p.enable_traffic_control = true
 			  AND pth.deleted_at IS NULL
-		`, providerIDs, year, month).Scan(&trafficUsages)
+		`, providerIDs, year, month).Scan(&trafficUsages); result.Error != nil {
+			global.APP_LOG.Warn("查询流量使用情况失败", zap.Error(result.Error))
+		}
 	}
 
 	// 构建映射表
@@ -227,4 +245,3 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		zap.Int("count", len(providerResponses)))
 	return providerResponses, total, nil
 }
-

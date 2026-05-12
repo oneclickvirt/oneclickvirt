@@ -447,6 +447,8 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 			MemorySwap:   boolPtr(resetCtx.Provider.ContainerMemorySwap),
 			MaxProcesses: intPtr(resetCtx.Provider.ContainerMaxProcesses),
 			DiskIOLimit:  stringPtr(resetCtx.Provider.ContainerDiskIOLimit),
+			GpuEnabled:   resetCtx.Provider.GpuEnabled,
+			GpuDeviceIds: resetCtx.Provider.GpuDeviceIds,
 		},
 		SystemImageID: resetCtx.SystemImage.ID,
 	}

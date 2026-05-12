@@ -473,3 +473,40 @@ func (s *PortMappingService) optimizeNextAvailablePortInTx(tx *gorm.DB, provider
 
 	return nil
 }
+
+// allocateControllerPort 在控制端分配可用端口（不受节点端口范围限制）
+// 查找 rangeStart-rangeEnd 范围内未被其他控制端转发占用的连续端口
+func (s *PortMappingService) allocateControllerPort(providerID uint, rangeStart, rangeEnd, portCount int) (int, error) {
+	if portCount <= 0 {
+		return 0, fmt.Errorf("端口数量必须大于0")
+	}
+
+	// 获取所有控制端转发模式的已用端口
+	var usedPorts []int
+	if err := global.APP_DB.Model(&provider.Port{}).
+		Where("mapping_type = 'controller' AND status = 'active' AND host_port BETWEEN ? AND ?", rangeStart, rangeEnd).
+		Pluck("host_port", &usedPorts).Error; err != nil {
+		return 0, fmt.Errorf("查询控制端端口占用失败: %v", err)
+	}
+
+	usedSet := make(map[int]bool)
+	for _, p := range usedPorts {
+		usedSet[p] = true
+	}
+
+	// 查找连续可用端口段
+	for start := rangeStart; start <= rangeEnd-portCount+1; start++ {
+		available := true
+		for i := 0; i < portCount; i++ {
+			if usedSet[start+i] {
+				available = false
+				break
+			}
+		}
+		if available {
+			return start, nil
+		}
+	}
+
+	return 0, fmt.Errorf("控制端在 %d-%d 范围内找不到 %d 个连续可用端口", rangeStart, rangeEnd, portCount)
+}

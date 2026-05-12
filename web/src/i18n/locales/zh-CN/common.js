@@ -122,5 +122,8 @@ export default {
   deleteFailed: '删除失败',
   updateSuccess: '更新成功',
   createSuccess: '创建成功',
-  question: '提示'
+  question: '提示',
+  unsavedChanges: '有未保存的更改',
+  unsavedChangesConfirm: '当前表单有未保存的更改，确定要关闭吗？',
+  discardChanges: '放弃更改'
 }

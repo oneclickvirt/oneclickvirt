@@ -181,10 +181,126 @@
       </div>
     </el-form-item>
   </el-form>
+
+  <!-- 连接方式（Agent 反向连接） -->
+  <el-form
+    :model="modelValue"
+    label-width="120px"
+    class="server-form"
+    style="margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--el-border-color-lighter);"
+  >
+    <el-form-item :label="$t('admin.providers.connectionType')">
+      <el-radio-group v-model="modelValue.connectionType">
+        <el-radio-button label="ssh">
+          {{ $t('admin.providers.connectionTypeSSH') }}
+        </el-radio-button>
+        <el-radio-button label="agent">
+          {{ $t('admin.providers.connectionTypeAgent') }}
+        </el-radio-button>
+      </el-radio-group>
+      <div class="form-tip" style="margin-top: 6px;">
+        <el-text size="small" type="info">{{ $t('admin.providers.connectionTypeTip') }}</el-text>
+      </div>
+    </el-form-item>
+
+    <!-- Agent 状态和密钥（仅编辑模式且已选择 agent 时显示） -->
+    <template v-if="modelValue.connectionType === 'agent' && isEditing">
+      <el-form-item :label="$t('admin.providers.agentStatus')">
+        <el-tag :type="modelValue.agentStatus === 'online' ? 'success' : 'danger'">
+          {{ modelValue.agentStatus === 'online' ? $t('admin.providers.agentStatusOnline') : $t('admin.providers.agentStatusOffline') }}
+        </el-tag>
+        <span v-if="modelValue.agentLastSeen" style="margin-left: 12px; font-size: 12px; color: var(--el-text-color-secondary);">
+          {{ $t('admin.providers.agentLastSeen') }}: {{ modelValue.agentLastSeen }}
+        </span>
+        <span v-if="modelValue.agentRemoteIP" style="margin-left: 12px; font-size: 12px; color: var(--el-text-color-secondary);">
+          {{ $t('admin.providers.agentRemoteIP') }}: {{ modelValue.agentRemoteIP }}
+        </span>
+      </el-form-item>
+
+      <el-form-item :label="$t('admin.providers.agentSecret')">
+        <el-button
+          type="primary"
+          :loading="generatingSecret"
+          @click="emit('generate-agent-secret')"
+        >
+          {{ $t('admin.providers.generateAgentSecret') }}
+        </el-button>
+        <div class="form-tip" style="margin-top: 6px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.generateAgentSecretTip') }}</el-text>
+        </div>
+      </el-form-item>
+
+      <el-form-item v-if="agentConnectCmd" :label="$t('admin.providers.agentConnectHint')">
+        <el-input
+          :model-value="agentConnectCmd"
+          type="textarea"
+          :rows="4"
+          readonly
+        />
+        <div class="form-tip" style="margin-top: 6px;">
+          <el-text size="small" type="warning">{{ $t('admin.providers.agentInstallNote') }}</el-text>
+        </div>
+      </el-form-item>
+    </template>
+
+    <!-- Web 终端：SSH 模式编辑时始终显示；Agent 模式仅在 online 时显示 -->
+    <template v-if="isEditing && (modelValue.connectionType === 'ssh' || (modelValue.connectionType === 'agent' && modelValue.agentStatus === 'online'))">
+      <el-divider content-position="left">
+        <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.webTerminal') }}</span>
+      </el-divider>
+      <el-form-item :label="$t('admin.providers.execCommand')">
+        <el-input
+          v-model="localCommand"
+          :placeholder="$t('admin.providers.execCommandPlaceholder')"
+          @keyup.enter="emit('exec-command', localCommand)"
+        />
+      </el-form-item>
+      <el-form-item>
+        <el-button
+          type="primary"
+          :loading="execLoading"
+          :disabled="!localCommand.trim()"
+          @click="emit('exec-command', localCommand)"
+        >
+          {{ $t('admin.providers.execRun') }}
+        </el-button>
+        <el-button
+          v-if="execResult"
+          @click="localCommand = ''; emit('clear-exec-result')"
+        >
+          {{ $t('common.clear') }}
+        </el-button>
+      </el-form-item>
+      <el-form-item v-if="execResult !== null" :label="$t('admin.providers.execResult')">
+        <div
+          style="
+            background: #1e1e1e;
+            color: #d4d4d4;
+            font-family: monospace;
+            font-size: 12px;
+            padding: 12px;
+            border-radius: 4px;
+            width: 100%;
+            max-height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+          "
+        >
+          <div v-if="execResult.stdout">{{ execResult.stdout }}</div>
+          <div v-if="execResult.stderr" style="color: #f48771;">{{ execResult.stderr }}</div>
+          <div v-if="!execResult.stdout && !execResult.stderr" style="color: #888;">{{ $t('admin.providers.execNoOutput') }}</div>
+        </div>
+      </el-form-item>
+    </template>
+  </el-form>
 </template>
 
 <script setup>
+import { ref } from 'vue'
 import { Connection } from '@element-plus/icons-vue'
+
+const localCommand = ref('')
 
 defineProps({
   modelValue: {
@@ -202,10 +318,26 @@ defineProps({
   connectionTestResult: {
     type: Object,
     default: null
+  },
+  generatingSecret: {
+    type: Boolean,
+    default: false
+  },
+  agentConnectCmd: {
+    type: String,
+    default: ''
+  },
+  execLoading: {
+    type: Boolean,
+    default: false
+  },
+  execResult: {
+    type: Object,
+    default: null
   }
 })
 
-const emit = defineEmits(['test-connection', 'apply-timeout', 'auth-method-change'])
+const emit = defineEmits(['test-connection', 'apply-timeout', 'auth-method-change', 'generate-agent-secret', 'exec-command', 'clear-exec-result'])
 </script>
 
 <style scoped>

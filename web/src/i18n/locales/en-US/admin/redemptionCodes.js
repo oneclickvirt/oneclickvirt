@@ -26,6 +26,7 @@ export default {
   colCreatedAt: 'Created At',
   colRemark: 'Remark',
   colRedeemedAt: 'Redeemed At',
+  colCreationMode: 'Creation Mode',
   providerPlaceholder: 'Select provider',
   instanceTypePlaceholder: 'Select instance type',
   container: 'Container',
@@ -64,5 +65,16 @@ export default {
   selectAll: 'Select All',
   deselectAll: 'Deselect All',
   createFailed: 'Failed to create redemption code',
-  image: 'Image'
+  image: 'Image',
+  // Copy mode
+  creationMode: 'Creation Mode',
+  modeStandard: 'Standard',
+  modeCopy: 'Container Copy',
+  copyModeTip: 'LXD/Incus nodes only. Copies from a stopped source container, skipping image selection.',
+  sourceContainer: 'Source Container',
+  sourceContainerPlaceholder: 'Select source container to copy',
+  loadingContainers: 'Loading container list...',
+  noStoppedContainers: 'No stopped containers on this node',
+  sourceContainerRequired: 'Please select a source container for copy mode',
+  fetchContainersFailed: 'Failed to fetch stopped containers'
 }

@@ -284,6 +284,21 @@ type Provider struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap" gorm:"default:true"`           // 内存交换：允许使用swap空间
 	ContainerMaxProcesses int    `json:"containerMaxProcesses" gorm:"default:0"`            // 最大进程数：0表示不限制
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit" gorm:"size:32"`               // 磁盘IO限制：例如 "10MB" 或 "100iops"
+
+	// GPU直通配置（仅适用于 LXD 和 Incus 节点）
+	GpuEnabled   bool   `json:"gpuEnabled" gorm:"default:false"` // 是否启用GPU直通（创建实例时自动附加GPU设备）
+	GpuDeviceIds string `json:"gpuDeviceIds" gorm:"size:256"`    // GPU设备ID列表（逗号分隔的PCI ID，如"0,1"），为空则附加所有GPU
+
+	// 内网穿透连接模式（ConnectionType = "agent" 时节点通过 Rust Agent 主动连回控制端）
+	ConnectionType string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）
+	AgentSecret    string     `json:"-" gorm:"size:128"`                          // Agent 连接鉴权密钥（不返回给前端，由控制端生成）
+	AgentStatus    string     `json:"agentStatus" gorm:"default:offline;size:16"` // Agent 在线状态：online / offline
+	AgentLastSeen  *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间
+	AgentHostname  string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
+	AgentRemoteIP  string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
+
+	// 纯净节点标记（启用后管理员自行通过控制端内网穿透分配端口，不自动创建默认端口映射）
+	IsPureNode bool `json:"isPureNode" gorm:"default:false"` // 是否为纯净节点
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
@@ -445,6 +460,10 @@ type Port struct {
 	IPv6Enabled   bool   `json:"ipv6Enabled" gorm:"default:false"`            // 是否启用IPv6映射
 	IPv6Address   string `json:"ipv6Address" gorm:"size:64"`                  // IPv6映射地址
 	MappingMethod string `json:"mappingMethod" gorm:"size:32;default:native"` // 映射方法：native, iptables, firewall
+
+	// 内网穿透（控制端转发）模式
+	MappingType  string `json:"mappingType" gorm:"size:16;default:node"` // node: 节点侧映射（默认）；controller: 控制端TCP转发
+	InternalHost string `json:"internalHost" gorm:"size:128"`            // 控制端转发目标地址（容器IP或名字）
 }
 
 // PendingDeletion 待删除资源模型
@@ -525,6 +544,14 @@ type ProviderInstanceConfig struct {
 	MemorySwap   *bool   `json:"memorySwap,omitempty"`   // 内存交换
 	MaxProcesses *int    `json:"maxProcesses,omitempty"` // 最大进程数
 	DiskIOLimit  *string `json:"diskIoLimit,omitempty"`  // 磁盘IO限制
+
+	// GPU直通配置（仅 LXD/Incus）
+	GpuEnabled   bool   `json:"gpuEnabled,omitempty"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds,omitempty"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
+
+	// 复制模式（仅 LXD/Incus）
+	CopyMode       bool   `json:"copyMode,omitempty"`       // 是否使用容器复制模式（lxc copy）代替 lxc launch
+	CopySourceName string `json:"copySourceName,omitempty"` // 复制模式下的源容器名称
 }
 
 // ProviderNodeConfig 节点配置
@@ -580,6 +607,10 @@ type ProviderNodeConfig struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 内存交换
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制
+
+	// GPU直通配置（仅 LXD/Incus）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }
 
 // ProviderResponse 用于返回给前端的Provider响应结构

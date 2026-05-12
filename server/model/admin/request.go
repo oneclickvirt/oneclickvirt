@@ -132,6 +132,15 @@ type CreateProviderRequest struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
+	// GPU直通配置（仅 LXD/Incus 节点）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
+
+	// 内网穿透连接模式
+	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
+
+	// 纯净节点标记
+	IsPureNode bool `json:"isPureNode"` // 是否为纯净节点（不自动创建默认端口映射）
 
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
@@ -179,10 +188,10 @@ type UpdateProviderRequest struct {
 	// 操作执行配置
 	ExecutionRule string `json:"executionRule" binding:"omitempty,oneof=auto api_only ssh_only"` // 操作轮转规则
 	// 端口映射配置
-	DefaultPortCount int    `json:"defaultPortCount"`                                                                                          // 每个实例默认映射端口数量，默认10
-	PortRangeStart   int    `json:"portRangeStart"`                                                                                            // 端口映射范围起始，默认10000
-	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                              // 端口映射范围结束，默认65535
-	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only"` // 网络配置类型
+	DefaultPortCount int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
+	PortRangeStart   int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
+	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
+	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型
 	// 带宽配置
 	DefaultInboundBandwidth  int `json:"defaultInboundBandwidth"`  // 默认入站带宽限制（Mbps）
 	DefaultOutboundBandwidth int `json:"defaultOutboundBandwidth"` // 默认出站带宽限制（Mbps）
@@ -227,6 +236,15 @@ type UpdateProviderRequest struct {
 	ContainerMemorySwap   bool   `json:"containerMemorySwap"`   // 是否允许使用swap
 	ContainerMaxProcesses int    `json:"containerMaxProcesses"` // 最大进程数限制（0表示不限制）
 	ContainerDiskIOLimit  string `json:"containerDiskIoLimit"`  // 磁盘IO限制（如"10MB"或"100iops"）
+	// GPU直通配置（仅 LXD/Incus 节点）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔的PCI ordinal ID，如"0,1"）
+
+	// 内网穿透连接模式
+	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
+
+	// 纯净节点标记
+	IsPureNode bool `json:"isPureNode"` // 是否为纯净节点（不自动创建默认端口映射）
 
 	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
 	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script / third_party
@@ -474,12 +492,14 @@ type PortMappingListRequest struct {
 
 // CreatePortMappingRequest 创建端口映射请求（支持单个端口和端口段批量添加，仅支持 LXD/Incus/PVE）
 type CreatePortMappingRequest struct {
-	InstanceID  uint   `json:"instanceId" binding:"required"`
-	GuestPort   int    `json:"guestPort" binding:"required,min=1,max=65535"`   // 起始端口
-	PortCount   int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量，默认1（单端口），最多1500个
-	Protocol    string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
-	Description string `json:"description"`                                    // 端口用途描述
-	HostPort    int    `json:"hostPort"`                                       // 可选，不指定则自动分配，指定时作为起始端口
+	InstanceID   uint   `json:"instanceId" binding:"required"`
+	GuestPort    int    `json:"guestPort" binding:"required,min=1,max=65535"`   // 起始端口
+	PortCount    int    `json:"portCount" binding:"min=1,max=1500"`             // 端口数量，默认1（单端口），最多1500个
+	Protocol     string `json:"protocol" binding:"required,oneof=tcp udp both"` // 协议类型
+	Description  string `json:"description"`                                    // 端口用途描述
+	HostPort     int    `json:"hostPort"`                                       // 可选，不指定则自动分配，指定时作为起始端口
+	MappingType  string `json:"mappingType"`                                    // "node"（默认）或 "controller"（控制端转发）
+	InternalHost string `json:"internalHost"`                                   // 控制端转发目标地址（容器IP）
 }
 
 // BatchDeletePortMappingRequest 批量删除端口映射请求（仅支持删除手动添加的端口）
@@ -516,6 +536,9 @@ type CreateRedemptionInstanceTaskRequest struct {
 	MemoryId         string `json:"memoryId"`
 	DiskId           string `json:"diskId"`
 	BandwidthId      string `json:"bandwidthId"`
+	// 复制模式（仅 LXD/Incus）
+	CreationMode    string `json:"creationMode,omitempty"`    // "standard"（默认）或 "copy"
+	SourceContainer string `json:"sourceContainer,omitempty"` // 复制模式下的源容器名称
 }
 
 // RedemptionCodeListRequest 兑换码列表请求
@@ -537,6 +560,9 @@ type BatchCreateRedemptionCodesRequest struct {
 	BandwidthId  string `json:"bandwidthId" binding:"required"`
 	Count        int    `json:"count" binding:"required,min=1,max=100"`
 	Remark       string `json:"remark"`
+	// 复制模式（仅 LXD/Incus 节点）
+	CreationMode    string `json:"creationMode"`    // "standard"（默认）或 "copy"
+	SourceContainer string `json:"sourceContainer"` // 复制模式下的源容器名称（仅 copy 模式）
 }
 
 // BatchDeleteRedemptionCodesRequest 批量删除兑换码请求

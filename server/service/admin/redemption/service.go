@@ -162,30 +162,49 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		return fmt.Errorf("节点不存在或不可用")
 	}
 
+	// 复制模式：必须提供源容器名称
+	if req.CreationMode == "copy" && req.SourceContainer == "" {
+		return fmt.Errorf("复制模式必须指定源容器名称")
+	}
+
 	// 验证规格 ID 并计算本次批量创建所需的总资源量
-	cpuSpec, err := constant.GetCPUSpecByID(req.CPUId)
-	if err != nil {
-		return fmt.Errorf("无效的CPU规格: %v", err)
-	}
-	memorySpec, err := constant.GetMemorySpecByID(req.MemoryId)
-	if err != nil {
-		return fmt.Errorf("无效的内存规格: %v", err)
-	}
-	diskSpec, err := constant.GetDiskSpecByID(req.DiskId)
-	if err != nil {
-		return fmt.Errorf("无效的磁盘规格: %v", err)
+	// 复制模式无需规格（资源继承自源容器），跳过规格验证和容量检查
+	isCopyMode := req.CreationMode == "copy"
+
+	var cpuSpec *constant.CPUSpec
+	var memorySpec *constant.MemorySpec
+	var diskSpec *constant.DiskSpec
+
+	if !isCopyMode {
+		var err error
+		cpuSpec, err = constant.GetCPUSpecByID(req.CPUId)
+		if err != nil {
+			return fmt.Errorf("无效的CPU规格: %v", err)
+		}
+		memorySpec, err = constant.GetMemorySpecByID(req.MemoryId)
+		if err != nil {
+			return fmt.Errorf("无效的内存规格: %v", err)
+		}
+		diskSpec, err = constant.GetDiskSpecByID(req.DiskId)
+		if err != nil {
+			return fmt.Errorf("无效的磁盘规格: %v", err)
+		}
 	}
 
 	// 根据实例类型和节点的超分配配置，决定哪些资源项需要做容量检查
 	// ContainerLimitCPU/Memory/Disk 和 VMLimitCPU/Memory/Disk 为 true 时表示该资源不允许超开
 	isContainer := req.InstanceType == "container"
-	checkCPU := (isContainer && provider.ContainerLimitCPU) || (!isContainer && provider.VMLimitCPU)
-	checkMemory := (isContainer && provider.ContainerLimitMemory) || (!isContainer && provider.VMLimitMemory)
-	checkDisk := (isContainer && provider.ContainerLimitDisk) || (!isContainer && provider.VMLimitDisk)
+	checkCPU := !isCopyMode && ((isContainer && provider.ContainerLimitCPU) || (!isContainer && provider.VMLimitCPU))
+	checkMemory := !isCopyMode && ((isContainer && provider.ContainerLimitMemory) || (!isContainer && provider.VMLimitMemory))
+	checkDisk := !isCopyMode && ((isContainer && provider.ContainerLimitDisk) || (!isContainer && provider.VMLimitDisk))
 
-	requiredCPU := cpuSpec.Cores * req.Count
-	requiredMemoryMB := int64(memorySpec.SizeMB) * int64(req.Count)
-	requiredDiskMB := int64(diskSpec.SizeMB) * int64(req.Count)
+	var requiredCPU int
+	var requiredMemoryMB, requiredDiskMB int64
+	if !isCopyMode && cpuSpec != nil && memorySpec != nil && diskSpec != nil {
+		requiredCPU = cpuSpec.Cores * req.Count
+		requiredMemoryMB = int64(memorySpec.SizeMB) * int64(req.Count)
+		requiredDiskMB = int64(diskSpec.SizeMB) * int64(req.Count)
+	}
 
 	if checkCPU && provider.NodeCPUCores > 0 {
 		availCPU := provider.NodeCPUCores - provider.UsedCPUCores
@@ -214,30 +233,34 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 
 		// 构造任务数据（字段名与 CreateInstanceTaskRequest 的 JSON 标签一致，便于 executeProviderCreation 复用）
 		taskDataReq := adminModel.CreateRedemptionInstanceTaskRequest{
-			ProviderId:  req.ProviderID,
-			ImageId:     req.ImageId,
-			CPUId:       req.CPUId,
-			MemoryId:    req.MemoryId,
-			DiskId:      req.DiskId,
-			BandwidthId: req.BandwidthId,
+			ProviderId:      req.ProviderID,
+			ImageId:         req.ImageId,
+			CPUId:           req.CPUId,
+			MemoryId:        req.MemoryId,
+			DiskId:          req.DiskId,
+			BandwidthId:     req.BandwidthId,
+			CreationMode:    req.CreationMode,
+			SourceContainer: req.SourceContainer,
 		}
 
 		var redemptionCode systemModel.RedemptionCode
 
 		err = dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
 			redemptionCode = systemModel.RedemptionCode{
-				Code:         code,
-				Status:       systemModel.RedemptionStatusPendingCreate,
-				ProviderID:   req.ProviderID,
-				ProviderName: provider.Name,
-				InstanceType: req.InstanceType,
-				ImageId:      req.ImageId,
-				CPUId:        req.CPUId,
-				MemoryId:     req.MemoryId,
-				DiskId:       req.DiskId,
-				BandwidthId:  req.BandwidthId,
-				CreatedBy:    adminID,
-				Remark:       req.Remark,
+				Code:            code,
+				Status:          systemModel.RedemptionStatusPendingCreate,
+				ProviderID:      req.ProviderID,
+				ProviderName:    provider.Name,
+				InstanceType:    req.InstanceType,
+				ImageId:         req.ImageId,
+				CPUId:           req.CPUId,
+				MemoryId:        req.MemoryId,
+				DiskId:          req.DiskId,
+				BandwidthId:     req.BandwidthId,
+				CreatedBy:       adminID,
+				Remark:          req.Remark,
+				CreationMode:    req.CreationMode,
+				SourceContainer: req.SourceContainer,
 			}
 			if err := tx.Create(&redemptionCode).Error; err != nil {
 				return fmt.Errorf("创建兑换码记录失败: %v", err)

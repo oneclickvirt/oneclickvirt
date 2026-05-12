@@ -174,6 +174,16 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		MemorySwap:   boolPtr(dbProvider.ContainerMemorySwap),
 		MaxProcesses: intPtr(dbProvider.ContainerMaxProcesses),
 		DiskIOLimit:  stringPtr(dbProvider.ContainerDiskIOLimit),
+		GpuEnabled:   dbProvider.GpuEnabled,
+		GpuDeviceIds: dbProvider.GpuDeviceIds,
+	}
+
+	// 复制模式处理（仅 LXD/Incus，通过 CreateRedemptionInstanceTaskRequest 传入）
+	var redemptionTaskReq adminModel.CreateRedemptionInstanceTaskRequest
+	if jsonErr := json.Unmarshal([]byte(task.TaskData), &redemptionTaskReq); jsonErr == nil &&
+		redemptionTaskReq.CreationMode == "copy" && redemptionTaskReq.SourceContainer != "" {
+		instanceConfig.CopyMode = true
+		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
 	}
 
 	// 预分配端口映射（所有Provider类型都需要）

@@ -172,6 +172,18 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		ContainerMemorySwap:   req.ContainerMemorySwap,
 		ContainerMaxProcesses: req.ContainerMaxProcesses,
 		ContainerDiskIOLimit:  req.ContainerDiskIOLimit,
+		// GPU直通配置
+		GpuEnabled:   req.GpuEnabled,
+		GpuDeviceIds: req.GpuDeviceIds,
+		// 内网穿透连接模式（默认 ssh）
+		ConnectionType: func() string {
+			if req.ConnectionType == "agent" {
+				return "agent"
+			}
+			return "ssh"
+		}(),
+		// 纯净节点标记
+		IsPureNode: req.IsPureNode,
 		// 普通管理员归属
 		OwnerAdminID: ownerAdminID,
 	}

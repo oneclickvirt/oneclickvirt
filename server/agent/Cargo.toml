@@ -28,6 +28,9 @@ axum-server = { version = "0.7", features = ["tls-rustls"] }
 tokio-rustls = "0.26"
 rustls = { version = "0.23", features = ["ring"] }
 rustls-pemfile = "2"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
+url = "2"
 
 [profile.release]
 opt-level = "z"

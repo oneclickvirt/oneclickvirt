@@ -2,6 +2,7 @@ package router
 
 import (
 	"net/http"
+	"oneclickvirt/api/v1/admin"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
@@ -177,6 +178,9 @@ func SetupRouter() *gin.Engine {
 		ResourceGroup.Use(middleware.DatabaseHealthCheck())
 		InitResourceRouter(ResourceGroup)
 		InitProviderRouter(ResourceGroup)
+
+		// Agent WebSocket 连接入口（使用 AgentSecret 自鉴权，无 JWT 中间件）
+		ApiGroup.GET("/v1/ws/agent", admin.AgentWebSocket)
 	}
 
 	// 设置静态文件路由（embed 构建模式下才生效）

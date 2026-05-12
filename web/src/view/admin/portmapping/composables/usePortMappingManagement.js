@@ -30,7 +30,7 @@ export function usePortMappingManagement() {
   const addDialogVisible = ref(false)
   const addFormRef = ref()
   const addLoading = ref(false)
-  const addForm = reactive({ instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '' })
+  const addForm = reactive({ instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '', mappingType: 'node', internalHost: '' })
 
   const checkingPort = ref(false)
   const portCheckResult = ref(null)
@@ -229,7 +229,7 @@ export function usePortMappingManagement() {
   }
 
   const openAddDialog = async () => {
-    Object.assign(addForm, { instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '' })
+    Object.assign(addForm, { instanceId: '', guestPort: null, hostPort: 0, portCount: 1, protocol: 'both', description: '', mappingType: 'node', internalHost: '' })
     portCheckResult.value = null
     checkingPort.value = false
     if (instances.value.length === 0) await loadInstances()
@@ -249,7 +249,7 @@ export function usePortMappingManagement() {
       if (['docker', 'podman', 'containerd'].includes(providerType)) { ElMessage.error(t('admin.portMapping.dockerNotSupported')); return }
       if (!['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt'].includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
       addLoading.value = true
-      const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description }
+      const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description, mappingType: addForm.mappingType || 'node', internalHost: addForm.internalHost || '' }
       await createPortMapping(data)
       if (data.portCount > 1) ElMessage.success(t('admin.portMapping.batchAddPortTaskCreated', { count: data.portCount }))
       else ElMessage.success(t('admin.portMapping.addPortTaskCreated'))

@@ -233,6 +233,14 @@ func (l *LXDProvider) setupDeviceProxyRangeMapping(instanceName string, startPor
 
 		_, err = l.sshClient.Execute(udpProxyCmd)
 		if err != nil {
+			// 回滚：删除已创建的TCP区间设备
+			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+			if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
+				global.APP_LOG.Warn("回滚TCP区间proxy设备失败",
+					zap.String("instance", instanceName),
+					zap.String("device", tcpDeviceName),
+					zap.Error(rollbackErr))
+			}
 			return fmt.Errorf("创建UDP端口区间映射失败: %w", err)
 		}
 
@@ -326,10 +334,18 @@ func (l *LXDProvider) setupNATPortRangeDeviceProxyWithIP(instanceName string, st
 
 	_, err = l.sshClient.Execute(udpProxyCmd)
 	if err != nil {
+		// 回滚：删除已创建的TCP设备
+		rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+		if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
+			global.APP_LOG.Warn("回滚TCP NAT proxy设备失败",
+				zap.String("instance", instanceName),
+				zap.String("device", tcpDeviceName),
+				zap.Error(rollbackErr))
+		}
 		return fmt.Errorf("创建UDP NAT端口范围proxy设备失败: %w", err)
 	}
 
-	global.APP_LOG.Debug("NAT端口范围映射设置成功",
+	global.APP_LOG.Debug("创建NAT端口范围映射成功",
 		zap.String("instance", instanceName),
 		zap.Int("startPort", startPort),
 		zap.Int("endPort", endPort))
@@ -484,6 +500,14 @@ func (l *LXDProvider) setupDeviceProxyMappingWithIP(instanceName string, hostPor
 
 		_, err = l.sshClient.Execute(udpProxyCmd)
 		if err != nil {
+			// 回滚：删除已创建的TCP设备
+			rollbackCmd := fmt.Sprintf("lxc config device remove %s %s", instanceName, tcpDeviceName)
+			if _, rollbackErr := l.sshClient.Execute(rollbackCmd); rollbackErr != nil {
+				global.APP_LOG.Warn("回滚TCP proxy设备失败",
+					zap.String("instance", instanceName),
+					zap.String("device", tcpDeviceName),
+					zap.Error(rollbackErr))
+			}
 			return fmt.Errorf("创建UDP proxy设备失败: %w", err)
 		}
 

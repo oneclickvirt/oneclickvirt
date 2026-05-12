@@ -236,39 +236,59 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 	}
 
 	updateProgress(15, "处理镜像下载和导入...")
-	if err := i.handleImageDownloadAndImport(ctx, &config); err != nil {
-		return fmt.Errorf("镜像处理失败: %w", err)
+	if config.CopyMode && config.CopySourceName != "" {
+		// 复制模式：跳过镜像下载，直接复制源容器
+		updateProgress(30, "复制源容器...")
+		copyCmd := fmt.Sprintf("incus copy %s %s", config.CopySourceName, config.Name)
+		global.APP_LOG.Debug("执行Incus容器复制命令", zap.String("command", copyCmd))
+		if _, err := i.sshClient.Execute(copyCmd); err != nil {
+			return fmt.Errorf("复制容器失败: %w", err)
+		}
+	} else {
+		if err := i.handleImageDownloadAndImport(ctx, &config); err != nil {
+			return fmt.Errorf("镜像处理失败: %w", err)
+		}
 	}
 
 	// 确保SSH脚本可用
-	updateProgress(25, "检查SSH脚本可用性...")
 	if err := i.ensureSSHScriptsAvailable(i.config.Country); err != nil {
 		global.APP_LOG.Warn("SSH脚本检查失败，但继续创建实例", zap.Error(err))
 	}
 
 	updateProgress(30, "准备实例创建命令...")
-	cmd, err := i.buildCreateCommand(config)
-	if err != nil {
-		return fmt.Errorf("构建创建命令失败: %w", err)
-	}
-
-	updateProgress(35, "创建Incus实例...")
-	if err := i.executeCreateCommand(cmd); err != nil {
-		return fmt.Errorf("执行创建命令失败: %w", err)
-	}
-
-	// 如果是虚拟机，需要额外的配置
-	if config.InstanceType == "vm" {
-		updateProgress(40, "配置虚拟机设置...")
-		if err := i.configureVMSettings(ctx, config.Name); err != nil {
-			global.APP_LOG.Warn("配置虚拟机设置失败，但继续", zap.Error(err))
+	var err error
+	if !config.CopyMode {
+		var cmd string
+		cmd, err = i.buildCreateCommand(config)
+		if err != nil {
+			return fmt.Errorf("构建创建命令失败: %w", err)
 		}
-	}
+
+		updateProgress(35, "创建Incus实例...")
+		if err := i.executeCreateCommand(cmd); err != nil {
+			return fmt.Errorf("执行创建命令失败: %w", err)
+		}
+
+		// 如果是虚拟机，需要额外的配置
+		if config.InstanceType == "vm" {
+			updateProgress(40, "配置虚拟机设置...")
+			if err := i.configureVMSettings(ctx, config.Name); err != nil {
+				global.APP_LOG.Warn("配置虚拟机设置失败，但继续", zap.Error(err))
+			}
+		}
+	} // end if !config.CopyMode
 
 	updateProgress(45, "配置实例安全设置...")
 	// 配置安全设置
 	if err := i.configureInstanceSecurity(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置实例安全设置失败，但继续", zap.Error(err))
+	}
+
+	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
+	if config.GpuEnabled {
+		if err := i.configureInstanceGPU(ctx, config); err != nil {
+			global.APP_LOG.Warn("配置GPU直通失败，但继续", zap.Error(err))
+		}
 	}
 
 	updateProgress(50, "启动实例...")

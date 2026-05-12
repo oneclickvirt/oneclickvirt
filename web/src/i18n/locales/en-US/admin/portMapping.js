@@ -4,6 +4,11 @@ export default {
   addManualPort: "Add Manual Port",
   batchDelete: "Batch Delete",
   syncPortMappings: "Sync Port Mappings",
+  labelId: "ID",
+  labelIPv6: "IPv6",
+  protocolTCP: "TCP",
+  protocolUDP: "UDP",
+  protocolBoth: "TCP/UDP",
   syncPortMappingsTooltip: "Detect and clean orphaned port mappings (instance deleted but database record still exists)",
   syncConfirmTitle: "Sync Port Mappings",
   syncConfirmMessage: "This will check port mappings on all Providers and automatically clean records for non-existent instances. This may take a few minutes. Continue?",
@@ -88,5 +93,13 @@ export default {
   instancesLoadedButNotSupported: "Loaded {count} instances, but none are supported",
   statusDeleting: "Deleting",
   statusPending: "Pending",
-  cannotGetProviderInfo: "Unable to get instance Provider info"
+  cannotGetProviderInfo: "Unable to get instance Provider info",
+  // Mapping mode (node-side / controller forwarding)
+  mappingMode: "Mapping Mode",
+  mappingModeNode: "Node-side Mapping",
+  mappingModeController: "Controller Forwarding (NAT Traversal)",
+  mappingModeTip: "Node-side: LXD/Incus/PVE on the node applies port forwarding rules. Controller: controller listens on the port and forwards via Agent WebSocket tunnel — suitable when the node has no public IP.",
+  internalHost: "Target Container Address",
+  internalHostPlaceholder: "Leave empty to use instance private IP",
+  internalHostTip: "Target address for controller forwarding (container IP or name). Leave empty to use the instance's private IP."
 }

@@ -6,6 +6,7 @@ import (
 
 	"oneclickvirt/core"
 	"oneclickvirt/global"
+	agentSvc "oneclickvirt/service/agent"
 	"oneclickvirt/service/auth"
 	"oneclickvirt/service/lifecycle"
 	"oneclickvirt/service/log"
@@ -386,6 +387,9 @@ func initializeSchedulers() {
 	lifecycleMgr.Register("LogRotationService", logRotationService)
 
 	global.APP_LOG.Info("所有调度器和全局服务已启动并注册到生命周期管理器")
+
+	// 启动 AgentHub ping 循环（保持 WebSocket 连接存活）
+	agentSvc.GetHub().StartPingLoop()
 }
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化

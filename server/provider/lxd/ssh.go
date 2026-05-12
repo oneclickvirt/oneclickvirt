@@ -249,137 +249,149 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 
 	// 在创建之前，处理镜像下载和导入
 	updateProgress(15, "处理镜像下载和导入...")
-	if err := l.handleImageDownloadAndImport(ctx, &config); err != nil {
-		return fmt.Errorf("镜像处理失败: %w", err)
+	if config.CopyMode && config.CopySourceName != "" {
+		// 复制模式：跳过镜像下载，直接复制源容器
+		updateProgress(30, "复制源容器...")
+		copyCmd := fmt.Sprintf("lxc copy %s %s", config.CopySourceName, config.Name)
+		global.APP_LOG.Debug("执行LXD容器复制命令", zap.String("command", copyCmd))
+		if _, err := l.sshClient.Execute(copyCmd); err != nil {
+			return fmt.Errorf("复制容器失败: %w", err)
+		}
+	} else {
+		if err := l.handleImageDownloadAndImport(ctx, &config); err != nil {
+			return fmt.Errorf("镜像处理失败: %w", err)
+		}
 	}
 
 	// 确保SSH脚本可用
-	updateProgress(25, "检查SSH脚本可用性...")
 	if err := l.ensureSSHScriptsAvailable(l.config.Country); err != nil {
 		global.APP_LOG.Warn("确保SSH脚本可用失败，但继续创建实例", zap.Error(err))
 	}
 
 	updateProgress(30, "初始化实例...")
-	// 根据实例类型使用正确的命令格式（参考官方buildvm.sh）
-	// 始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
-	var cmd string
-	configParams := []string{}
+	var err error
+	if !config.CopyMode {
+		// 根据实例类型使用正确的命令格式（参考官方buildvm.sh）
+		// 始终应用资源参数，资源限制配置只影响Provider层面的资源预算计算
+		var cmd string
+		configParams := []string{}
 
-	if config.InstanceType == "vm" {
-		// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB
-		cmd = fmt.Sprintf("lxc init %s %s --vm", config.Image, config.Name)
+		if config.InstanceType == "vm" {
+			// 虚拟机创建命令格式：lxc init image_name vm_name --vm -c limits.cpu=X -c limits.memory=XMiB -d root,size=XGiB
+			cmd = fmt.Sprintf("lxc init %s %s --vm", config.Image, config.Name)
 
-		// 资源配置参数
-		if config.CPU != "" {
-			configParams = append(configParams, fmt.Sprintf("limits.cpu=%s", config.CPU))
-		}
-		if config.Memory != "" {
-			// 转换内存格式为LXD支持的MiB格式
-			memoryFormatted := convertMemoryFormat(config.Memory)
-			configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
-		}
-
-		// 虚拟机通用配置
-		configParams = append(configParams, "security.secureboot=false")
-		configParams = append(configParams, "limits.memory.swap=true")
-		// 虚拟机CPU优先级配置
-		configParams = append(configParams, "limits.cpu.priority=0")
-	} else {
-		// 容器创建命令格式
-		cmd = fmt.Sprintf("lxc init %s %s", config.Image, config.Name)
-
-		// 基础资源配置
-		if config.CPU != "" {
-			configParams = append(configParams, fmt.Sprintf("limits.cpu=%s", config.CPU))
-		}
-		if config.Memory != "" {
-			memoryFormatted := convertMemoryFormat(config.Memory)
-			configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
-		}
-
-		// 容器特殊配置选项
-		// 1. 特权模式配置（Privileged）
-		if config.Privileged != nil {
-			if *config.Privileged {
-				configParams = append(configParams, "security.privileged=true")
-			} else {
-				configParams = append(configParams, "security.privileged=false")
+			// 资源配置参数
+			if config.CPU != "" {
+				configParams = append(configParams, fmt.Sprintf("limits.cpu=%s", config.CPU))
 			}
-		}
+			if config.Memory != "" {
+				// 转换内存格式为LXD支持的MiB格式
+				memoryFormatted := convertMemoryFormat(config.Memory)
+				configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
+			}
 
-		// 2. 容器嵌套配置（Allow Nesting）
-		if config.AllowNesting != nil {
-			if *config.AllowNesting {
+			// 虚拟机通用配置
+			configParams = append(configParams, "security.secureboot=false")
+			configParams = append(configParams, "limits.memory.swap=true")
+			// 虚拟机CPU优先级配置
+			configParams = append(configParams, "limits.cpu.priority=0")
+		} else {
+			// 容器创建命令格式
+			cmd = fmt.Sprintf("lxc init %s %s", config.Image, config.Name)
+
+			// 基础资源配置
+			if config.CPU != "" {
+				configParams = append(configParams, fmt.Sprintf("limits.cpu=%s", config.CPU))
+			}
+			if config.Memory != "" {
+				memoryFormatted := convertMemoryFormat(config.Memory)
+				configParams = append(configParams, fmt.Sprintf("limits.memory=%s", memoryFormatted))
+			}
+
+			// 容器特殊配置选项
+			// 1. 特权模式配置（Privileged）
+			if config.Privileged != nil {
+				if *config.Privileged {
+					configParams = append(configParams, "security.privileged=true")
+				} else {
+					configParams = append(configParams, "security.privileged=false")
+				}
+			}
+
+			// 2. 容器嵌套配置（Allow Nesting）
+			if config.AllowNesting != nil {
+				if *config.AllowNesting {
+					configParams = append(configParams, "security.nesting=true")
+				} else {
+					configParams = append(configParams, "security.nesting=false")
+				}
+			} else {
+				// 默认启用嵌套（保持原有行为）
 				configParams = append(configParams, "security.nesting=true")
-			} else {
-				configParams = append(configParams, "security.nesting=false")
 			}
-		} else {
-			// 默认启用嵌套（保持原有行为）
-			configParams = append(configParams, "security.nesting=true")
-		}
 
-		// 3. CPU限制配置（CPU Allowance vs limits.cpu）
-		// limits.cpu.allowance 与 limits.cpu 互斥，优先使用 allowance
-		if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
-			// CPU限制格式：20% 或 50%，100%等同于不限制
-			configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
-			configParams = append(configParams, "limits.cpu.priority=0")
-		} else {
-			// 使用标准的CPU核心数限制（已在上面设置）
-			configParams = append(configParams, "limits.cpu.priority=0")
-			// 设置默认的CPU调度策略（参考官方脚本）
-			configParams = append(configParams, "limits.cpu.allowance=50%")
-			configParams = append(configParams, "limits.cpu.allowance=25ms/100ms")
-		}
+			// 3. CPU限制配置（CPU Allowance vs limits.cpu）
+			// limits.cpu.allowance 与 limits.cpu 互斥，优先使用 allowance
+			if config.CPUAllowance != nil && *config.CPUAllowance != "" && *config.CPUAllowance != "100%" {
+				// CPU限制格式：20% 或 50%，100%等同于不限制
+				configParams = append(configParams, fmt.Sprintf("limits.cpu.allowance=%s", *config.CPUAllowance))
+				configParams = append(configParams, "limits.cpu.priority=0")
+			} else {
+				// 使用标准的CPU核心数限制（已在上面设置）
+				configParams = append(configParams, "limits.cpu.priority=0")
+				// 设置默认的CPU调度策略（参考官方脚本）
+				configParams = append(configParams, "limits.cpu.allowance=50%")
+				configParams = append(configParams, "limits.cpu.allowance=25ms/100ms")
+			}
 
-		// 4. 内存交换配置（Memory Swap）
-		if config.MemorySwap != nil {
-			if *config.MemorySwap {
+			// 4. 内存交换配置（Memory Swap）
+			if config.MemorySwap != nil {
+				if *config.MemorySwap {
+					configParams = append(configParams, "limits.memory.swap=true")
+					configParams = append(configParams, "limits.memory.swap.priority=1")
+				} else {
+					configParams = append(configParams, "limits.memory.swap=false")
+				}
+			} else {
+				// 默认启用swap（保持原有行为）
 				configParams = append(configParams, "limits.memory.swap=true")
 				configParams = append(configParams, "limits.memory.swap.priority=1")
-			} else {
-				configParams = append(configParams, "limits.memory.swap=false")
 			}
-		} else {
-			// 默认启用swap（保持原有行为）
-			configParams = append(configParams, "limits.memory.swap=true")
-			configParams = append(configParams, "limits.memory.swap.priority=1")
+
+			// 5. 最大进程数配置（Max Processes）
+			if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
+				configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
+			}
+
+			// LXCFS和磁盘IO在init阶段不设置，在实例启动后通过lxc config device命令设置
 		}
 
-		// 5. 最大进程数配置（Max Processes）
-		if config.MaxProcesses != nil && *config.MaxProcesses > 0 {
-			configParams = append(configParams, fmt.Sprintf("limits.processes=%d", *config.MaxProcesses))
+		// 添加所有配置参数到命令
+		for _, param := range configParams {
+			cmd += fmt.Sprintf(" -c %s", param)
 		}
 
-		// LXCFS和磁盘IO在init阶段不设置，在实例启动后通过lxc config device命令设置
-	}
-
-	// 添加所有配置参数到命令
-	for _, param := range configParams {
-		cmd += fmt.Sprintf(" -c %s", param)
-	}
-
-	// 磁盘配置
-	if config.Disk != "" {
-		diskFormatted := convertDiskFormat(config.Disk)
-		cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)
-	}
-
-	// 创建实例
-	global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))
-	_, err := l.sshClient.Execute(cmd)
-	if err != nil {
-		return fmt.Errorf("failed to create instance: %w", err)
-	}
-
-	// 如果是虚拟机，需要额外的配置
-	if config.InstanceType == "vm" {
-		updateProgress(40, "配置虚拟机设置...")
-		if err := l.configureVMSettings(ctx, config.Name); err != nil {
-			global.APP_LOG.Warn("配置虚拟机设置失败，但继续", zap.Error(err))
+		// 磁盘配置
+		if config.Disk != "" {
+			diskFormatted := convertDiskFormat(config.Disk)
+			cmd += fmt.Sprintf(" -d root,size=%s", diskFormatted)
 		}
-	}
+
+		// 创建实例
+		global.APP_LOG.Debug("执行LXD实例创建命令", zap.String("command", cmd))
+		_, err = l.sshClient.Execute(cmd)
+		if err != nil {
+			return fmt.Errorf("failed to create instance: %w", err)
+		}
+
+		// 如果是虚拟机，需要额外的配置
+		if config.InstanceType == "vm" {
+			updateProgress(40, "配置虚拟机设置...")
+			if err := l.configureVMSettings(ctx, config.Name); err != nil {
+				global.APP_LOG.Warn("配置虚拟机设置失败，但继续", zap.Error(err))
+			}
+		}
+	} // end if !config.CopyMode
 
 	updateProgress(45, "配置实例存储...")
 	// 配置存储（包括磁盘大小限制和IO限制）
@@ -401,6 +413,13 @@ func (l *LXDProvider) sshCreateInstanceWithProgress(ctx context.Context, config 
 	time.Sleep(6 * time.Second)
 	if err := l.configureInstanceSecurity(ctx, config); err != nil {
 		global.APP_LOG.Warn("配置实例安全设置失败，但继续", zap.Error(err))
+	}
+
+	// 配置GPU直通（仅 LXD/Incus 容器，需要在启动前附加设备）
+	if config.GpuEnabled {
+		if err := l.configureInstanceGPU(ctx, config); err != nil {
+			global.APP_LOG.Warn("配置GPU直通失败，但继续", zap.Error(err))
+		}
 	}
 
 	updateProgress(55, "启动实例...")

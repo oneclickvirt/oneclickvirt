@@ -85,15 +85,15 @@
               style="width: 100%;"
             >
               <el-option
-                label="TCP"
+                :label="$t('admin.portMapping.protocolTCP')"
                 value="tcp"
               />
               <el-option
-                label="UDP"
+                :label="$t('admin.portMapping.protocolUDP')"
                 value="udp"
               />
               <el-option
-                label="TCP/UDP"
+                :label="$t('admin.portMapping.protocolBoth')"
                 value="both"
               />
             </el-select>
@@ -143,7 +143,7 @@
         />
         <el-table-column
           prop="id"
-          label="ID"
+          :label="$t('admin.portMapping.labelId')"
           width="80"
         />
         <el-table-column
@@ -206,21 +206,21 @@
               type="info"
               size="small"
             >
-              TCP/UDP
+              {{ $t('admin.portMapping.protocolBoth') }}
             </el-tag>
             <el-tag
               v-else-if="row.protocol === 'tcp'"
               type="success"
               size="small"
             >
-              TCP
+              {{ $t('admin.portMapping.protocolTCP') }}
             </el-tag>
             <el-tag
               v-else-if="row.protocol === 'udp'"
               type="warning"
               size="small"
             >
-              UDP
+              {{ $t('admin.portMapping.protocolUDP') }}
             </el-tag>
             <span v-else>{{ row.protocol }}</span>
           </template>
@@ -232,7 +232,7 @@
         />
         <el-table-column
           prop="isIPv6"
-          label="IPv6"
+          :label="$t('admin.portMapping.labelIPv6')"
           width="80"
         >
           <template #default="{ row }">
@@ -344,6 +344,7 @@
       v-model="addDialogVisible"
       :title="$t('admin.portMapping.addPortDialog')"
       width="600px"
+      :before-close="handleAddDialogClose"
     >
       <el-alert
         type="warning"
@@ -521,15 +522,40 @@
         >
           <el-radio-group v-model="addForm.protocol">
             <el-radio label="tcp">
-              TCP
+              {{ $t('admin.portMapping.protocolTCP') }}
             </el-radio>
             <el-radio label="udp">
-              UDP
+              {{ $t('admin.portMapping.protocolUDP') }}
             </el-radio>
             <el-radio label="both">
-              TCP/UDP
+              {{ $t('admin.portMapping.protocolBoth') }}
             </el-radio>
           </el-radio-group>
+        </el-form-item>
+
+        <!-- 映射模式：节点侧 / 控制端转发 -->
+        <el-form-item :label="$t('admin.portMapping.mappingMode')">
+          <el-radio-group v-model="addForm.mappingType">
+            <el-radio label="node">{{ $t('admin.portMapping.mappingModeNode') }}</el-radio>
+            <el-radio label="controller">{{ $t('admin.portMapping.mappingModeController') }}</el-radio>
+          </el-radio-group>
+          <div style="margin-top: 4px;">
+            <el-text size="small" type="info">{{ $t('admin.portMapping.mappingModeTip') }}</el-text>
+          </div>
+        </el-form-item>
+
+        <!-- 控制端转发目标地址（可选，留空则使用实例私有IP） -->
+        <el-form-item
+          v-if="addForm.mappingType === 'controller'"
+          :label="$t('admin.portMapping.internalHost')"
+        >
+          <el-input
+            v-model="addForm.internalHost"
+            :placeholder="$t('admin.portMapping.internalHostPlaceholder')"
+          />
+          <div style="margin-top: 4px;">
+            <el-text size="small" type="info">{{ $t('admin.portMapping.internalHostTip') }}</el-text>
+          </div>
         </el-form-item>
         
         <el-form-item
@@ -547,7 +573,7 @@
       
       <template #footer>
         <span class="dialog-footer">
-          <el-button @click="addDialogVisible = false">{{ $t('common.cancel') }}</el-button>
+          <el-button @click="handleAddDialogClose">{{ $t('common.cancel') }}</el-button>
           <el-button
             type="primary"
             :loading="addLoading"
@@ -564,6 +590,7 @@
 
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
+import { ElMessageBox } from 'element-plus'
 import { Plus, Loading, Search, CircleCheck, CircleClose, RefreshRight } from '@element-plus/icons-vue'
 import { usePortMappingManagement } from './composables/usePortMappingManagement'
 
@@ -595,6 +622,28 @@ onMounted(() => {
 onUnmounted(() => {
   cleanupAutoRefresh()
 })
+
+// 添加端口对话框关闭（带未保存更改警告）
+const handleAddDialogClose = (done) => {
+  const isFormDirty = !!(addForm.instanceId || addForm.guestPort || addForm.description)
+  if (isFormDirty) {
+    ElMessageBox.confirm(
+      t('common.unsavedChangesConfirm'),
+      t('common.unsavedChanges'),
+      {
+        confirmButtonText: t('common.discardChanges'),
+        cancelButtonText: t('common.cancel'),
+        type: 'warning'
+      }
+    ).then(() => {
+      if (typeof done === 'function') done()
+      else addDialogVisible.value = false
+    }).catch(() => {})
+  } else {
+    if (typeof done === 'function') done()
+    else addDialogVisible.value = false
+  }
+}
 </script>
 
 <style scoped>

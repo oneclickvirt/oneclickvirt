@@ -160,16 +160,126 @@
         show-icon
       />
     </template>
+
+    <!-- GPU 直通配置（仅 LXD / Incus 节点） -->
+    <template v-if="modelValue.type === 'lxd' || modelValue.type === 'incus'">
+      <el-divider content-position="left">
+        <el-text type="warning" size="large">{{ $t('admin.providers.gpuPassthrough') }}</el-text>
+      </el-divider>
+
+      <el-alert
+        :title="$t('admin.providers.gpuDriverWarning')"
+        type="warning"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 16px;"
+      />
+
+      <el-form-item
+        :label="$t('admin.providers.gpuEnabled')"
+        prop="gpuEnabled"
+      >
+        <el-switch
+          v-model="modelValue.gpuEnabled"
+          :active-text="$t('common.enable')"
+          :inactive-text="$t('common.disable')"
+        />
+      </el-form-item>
+
+      <template v-if="modelValue.gpuEnabled">
+        <el-form-item
+          :label="$t('admin.providers.gpuDeviceIds')"
+          prop="gpuDeviceIds"
+        >
+          <el-input
+            v-model="modelValue.gpuDeviceIds"
+            :placeholder="$t('admin.providers.gpuDeviceIdsPlaceholder')"
+            style="width: 300px"
+          />
+          <el-button
+            v-if="modelValue.id"
+            type="primary"
+            plain
+            :loading="detectingGpus"
+            style="margin-left: 8px;"
+            @click="handleDetectGPUs"
+          >
+            {{ $t('admin.providers.gpuDetect') }}
+          </el-button>
+        </el-form-item>
+        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+          <el-text size="small" type="info">
+            {{ $t('admin.providers.gpuDeviceIdsTip') }}
+          </el-text>
+        </div>
+
+        <!-- 检测到的 GPU 列表 -->
+        <div v-if="detectedGpus.length > 0" style="margin-left: 180px; margin-bottom: 16px;">
+          <el-text size="small" type="success" style="display:block; margin-bottom: 8px;">
+            {{ $t('admin.providers.gpuDetectedList') }}
+          </el-text>
+          <el-tag
+            v-for="(gpu, idx) in detectedGpus"
+            :key="idx"
+            style="margin-right: 6px; margin-bottom: 6px; cursor: pointer;"
+            @click="selectGpuId(gpu)"
+          >
+            {{ gpu.id || idx }} — {{ gpu.product || gpu.card || $t('admin.providers.gpuUnknown') }}
+          </el-tag>
+        </div>
+      </template>
+    </template>
   </el-form>
 </template>
 
 <script setup>
-defineProps({
+import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus'
+import { detectProviderGPUs } from '@/api/admin'
+
+const { t } = useI18n()
+
+const props = defineProps({
   modelValue: {
     type: Object,
     required: true
   }
 })
+
+const detectingGpus = ref(false)
+const detectedGpus = ref([])
+
+async function handleDetectGPUs() {
+  const providerId = props.modelValue?.id
+  if (!providerId) return
+
+  detectingGpus.value = true
+  try {
+    const res = await detectProviderGPUs(providerId)
+    detectedGpus.value = res?.data?.gpus || []
+    if (detectedGpus.value.length === 0) {
+      ElMessage.info(t('admin.providers.gpuNoneFound'))
+    } else {
+      ElMessage.success(t('admin.providers.gpuDetectSuccess', { count: detectedGpus.value.length }))
+    }
+  } catch (e) {
+    ElMessage.error(t('admin.providers.gpuDetectFailed'))
+  } finally {
+    detectingGpus.value = false
+  }
+}
+
+function selectGpuId(gpu) {
+  const id = gpu.id
+  if (!id) return
+  const current = props.modelValue.gpuDeviceIds || ''
+  const ids = current ? current.split(',').map(s => s.trim()).filter(Boolean) : []
+  if (!ids.includes(String(id))) {
+    ids.push(String(id))
+    props.modelValue.gpuDeviceIds = ids.join(',')
+  }
+}
 </script>
 
 <style scoped>

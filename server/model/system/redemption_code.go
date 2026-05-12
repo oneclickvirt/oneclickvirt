@@ -56,6 +56,10 @@ type RedemptionCode struct {
 	CreatedBy  uint       `json:"createdBy" gorm:"not null;index"` // 创建该批次的管理员 ID
 	RedeemedAt *time.Time `json:"redeemedAt"`                      // 兑换时间
 
+	// 创建模式（standard / copy）
+	CreationMode    string `json:"creationMode" gorm:"size:16;default:standard"` // 创建模式：standard（标准）或 copy（从已有容器复制）
+	SourceContainer string `json:"sourceContainer" gorm:"size:128;default:''"`   // 复制模式下的源容器名称
+
 	// 备注（可选）
 	Remark string `json:"remark" gorm:"size:255"`
 }

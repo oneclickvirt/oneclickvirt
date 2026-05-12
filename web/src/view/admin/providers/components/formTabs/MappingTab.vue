@@ -111,6 +111,10 @@
           :label="$t('admin.providers.ipv6Only')"
           value="ipv6_only"
         />
+        <el-option
+          :label="$t('admin.providers.noPortMapping')"
+          value="no_port_mapping"
+        />
       </el-select>
     </el-form-item>
     <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
@@ -120,6 +124,19 @@
       >
         {{ $t('admin.providers.networkTypeTip') }}
       </el-text>
+    </div>
+    <!-- 无端口映射模式特殊提示 -->
+    <div
+      v-if="modelValue.networkType === 'no_port_mapping'"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-alert
+        :title="$t('admin.providers.noPortMappingTip')"
+        type="warning"
+        :closable="false"
+        show-icon
+      />
     </div>
 
     <!-- Proxmox 节点安装类型 -->

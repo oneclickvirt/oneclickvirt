@@ -4,6 +4,11 @@ export default {
   addManualPort: "手动添加端口",
   batchDelete: "批量删除",
   syncPortMappings: "同步端口映射",
+  labelId: "ID",
+  labelIPv6: "IPv6",
+  protocolTCP: "TCP",
+  protocolUDP: "UDP",
+  protocolBoth: "TCP/UDP",
   syncPortMappingsTooltip: "检测并清理孤立的端口映射（实例已删除但数据库记录仍存在）",
   syncConfirmTitle: "同步端口映射",
   syncConfirmMessage: "将检测所有Provider上的端口映射，自动清理已不存在的实例对应的端口映射记录。此操作可能需要几分钟，确定继续？",
@@ -88,5 +93,13 @@ export default {
   instancesLoadedButNotSupported: "已加载 {count} 个实例，但都不支持",
   statusDeleting: "删除中",
   statusPending: "等待中",
-  cannotGetProviderInfo: "无法获取实例的 Provider 信息"
+  cannotGetProviderInfo: "无法获取实例的 Provider 信息",
+  // 映射模式（节点侧 / 控制端转发）
+  mappingMode: "映射模式",
+  mappingModeNode: "节点侧映射",
+  mappingModeController: "控制端转发（内网穿透）",
+  mappingModeTip: "节点侧映射：由节点上的 LXD/Incus/PVE 执行端口转发规则；控制端转发：由控制端监听端口并通过 Agent WebSocket 隧道转发，适用于节点无公网IP场景。",
+  internalHost: "目标容器地址",
+  internalHostPlaceholder: "留空则自动使用实例私有IP",
+  internalHostTip: "控制端转发的目标地址（容器IP或名称），留空则自动使用实例私有IP。"
 }

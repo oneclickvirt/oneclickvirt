@@ -76,29 +76,31 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 	// 解析过期时间
 	if req.ExpiresAt != "" {
-		// 尝试解析多种时间格式
-		var t time.Time
-		var err error
+		// 特殊值 "never" 表示永不过期
+		if req.ExpiresAt == "never" {
+			provider.ExpiresAt = nil
+		} else {
+			// 尝试解析多种时间格式
+			var t time.Time
+			var err error
 
-		// 首先尝试ISO 8601格式（前端默认格式）
-		t, err = time.Parse(time.RFC3339, req.ExpiresAt)
-		if err != nil {
-			// 尝试标准日期时间格式
-			t, err = time.Parse("2006-01-02 15:04:05", req.ExpiresAt)
+			// 首先尝试ISO 8601格式（前端默认格式）
+			t, err = time.Parse(time.RFC3339, req.ExpiresAt)
 			if err != nil {
-				// 尝试日期格式
-				t, err = time.Parse("2006-01-02", req.ExpiresAt)
+				// 尝试标准日期时间格式
+				t, err = time.Parse("2006-01-02 15:04:05", req.ExpiresAt)
 				if err != nil {
-					return fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
+					// 尝试日期格式
+					t, err = time.Parse("2006-01-02", req.ExpiresAt)
+					if err != nil {
+						return fmt.Errorf("过期时间格式错误，请使用 'YYYY-MM-DD HH:MM:SS' 或 'YYYY-MM-DD' 格式")
+					}
 				}
 			}
+			provider.ExpiresAt = &t
 		}
-		provider.ExpiresAt = &t
-	} else {
-		// 如果没有指定过期时间，设置为31天后
-		defaultExpiry := time.Now().AddDate(0, 0, 31)
-		provider.ExpiresAt = &defaultExpiry
 	}
+	// 如果 req.ExpiresAt 为空字符串，不修改现有的 ExpiresAt（保持原有值）
 
 	// 只更新请求中提供的非零值字段
 	if req.Name != "" {
@@ -149,9 +151,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.Bool("isEmpty", *req.SSHKey == ""))
 	}
 
-	// 验证：更新后必须至少保留一种认证方式
-	// 只有在实际修改了认证字段时才进行验证
-	if (passwordChanged || sshKeyChanged) && newPassword == "" && newSSHKey == "" {
+	// 验证：SSH 直连模式下必须至少保留一种认证方式；agent 模式无需 SSH 凭据
+	effectiveConnectionType := provider.ConnectionType
+	if req.ConnectionType == "ssh" || req.ConnectionType == "agent" {
+		effectiveConnectionType = req.ConnectionType
+	}
+	if effectiveConnectionType != "agent" && newPassword == "" && newSSHKey == "" {
 		global.APP_LOG.Warn("Provider更新失败：尝试清空所有认证方式",
 			zap.Uint("providerID", req.ID))
 		return fmt.Errorf("必须保留至少一种SSH认证方式（密码或密钥）")
@@ -388,6 +393,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.ContainerMemorySwap = req.ContainerMemorySwap
 	provider.ContainerMaxProcesses = req.ContainerMaxProcesses
 	provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
+	provider.GpuEnabled = req.GpuEnabled
+	provider.GpuDeviceIds = req.GpuDeviceIds
+	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" {
+		provider.ConnectionType = req.ConnectionType
+	}
+	provider.IsPureNode = req.IsPureNode
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {
@@ -424,9 +435,6 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 
 	// 设置默认值
 	// 并发控制默认值：确保一致性
-	if !provider.AllowConcurrentTasks && provider.MaxConcurrentTasks <= 0 {
-		provider.MaxConcurrentTasks = 1
-	}
 	if provider.MaxConcurrentTasks <= 0 {
 		provider.MaxConcurrentTasks = 1
 	}
