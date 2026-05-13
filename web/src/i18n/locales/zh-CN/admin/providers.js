@@ -711,7 +711,7 @@ export default {
   modeSSHDesc: "通过 SSH 直接连接节点，适合具有公网 IP 的服务器",
   modeSSHTag: "推荐",
   modeAgent: "Agent 录入",
-  modeAgentDesc: "在节点上运行 Agent 和控制端建立反向隧道，适合无公网 IP 的节点",
+  modeAgentDesc: "在节点上运行 Agent 和控制端建立反向隧道，适合无独立公网 IPV4 的节点",
   modeAgentTag: "内网穿透",  agentStatus: "Agent 状态",
   agentStatusOnline: "在线",
   agentStatusOffline: "离线",
