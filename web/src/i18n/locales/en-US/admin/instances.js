@@ -48,6 +48,7 @@ export default {
   instanceNotFound: "Instance not found",
   instanceNotRunning: "Instance is not running",
   noPassword: "Instance password not set",
+  sshNoPortMapping: "Web SSH unavailable in no-port-mapping mode. Connect via internal network or controller forwarding.",
   batchStart: "Batch Start",
   batchStop: "Batch Stop",
   selectStartWarning: "Please select instances to start first",

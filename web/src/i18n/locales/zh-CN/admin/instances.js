@@ -48,6 +48,7 @@ export default {
   instanceNotFound: "实例不存在",
   instanceNotRunning: "实例未运行",
   noPassword: "实例密码未设置",
+  sshNoPortMapping: "无端口映射模式不支持网页SSH，请通过内网或控制端内网穿透连接",
   batchStart: "批量启动",
   batchStop: "批量停止",
   selectStartWarning: "请先选择要启动的实例",

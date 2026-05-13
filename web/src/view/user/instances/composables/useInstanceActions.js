@@ -174,6 +174,10 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
       ElMessage.warning(t('user.instanceDetail.noPassword'))
       return
     }
+    if (instance.value.networkType === 'no_port_mapping') {
+      ElMessage.warning(t('user.instanceDetail.sshNoPortMapping'))
+      return
+    }
     if (!sshStore.hasConnection(instance.value.id)) {
       sshStore.createConnection(instance.value.id, instance.value.name)
     } else {

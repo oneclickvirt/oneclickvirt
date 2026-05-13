@@ -271,7 +271,8 @@
               <el-button
                 size="small"
                 type="success"
-                :disabled="scope.row.status !== 'running' || !scope.row.password"
+                :disabled="scope.row.status !== 'running' || !scope.row.password || scope.row.networkType === 'no_port_mapping'"
+                :title="scope.row.networkType === 'no_port_mapping' ? $t('admin.instances.sshNoPortMapping') : ''"
                 @click="openSSHTerminal(scope.row)"
               >
                 {{ $t('admin.instances.connect') }}

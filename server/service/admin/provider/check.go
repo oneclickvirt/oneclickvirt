@@ -59,23 +59,41 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	now := time.Now()
 	ctx := context.Background()
 
-	// Agent 模式：不进行 SSH 健康检查，通过 AgentHub 检查连接状态
+	// Agent 模式：检查 WebSocket 连通性，并通过代理执行命令验证代理链路是否正常（类同 SSH 连接尝试）
 	if provider.ConnectionType == "agent" {
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(provider.ID)
 		agentStatus := "offline"
-		if ok && conn != nil {
-			agentStatus = "online"
-		}
 		generalStatus := "inactive"
-		if agentStatus == "online" {
-			generalStatus = "active"
+		var agentHostName string
+
+		if ok && conn != nil {
+			// WebSocket 连接存在，进一步执行命令验证代理命令链路可用性
+			out, execErr := conn.ExecuteWithTimeout("hostname", 10*time.Second)
+			if execErr == nil {
+				agentStatus = "online"
+				generalStatus = "active"
+				agentHostName = strings.TrimSpace(out)
+			} else {
+				// 连接存在但命令执行失败：类同 SSH partial 状态
+				agentStatus = "online"
+				generalStatus = "partial"
+				global.APP_LOG.Warn("Agent 代理命令执行失败",
+					zap.Uint("providerID", localProviderID),
+					zap.String("provider", localProviderName),
+					zap.Error(execErr))
+			}
 		}
-		global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(map[string]interface{}{
+
+		updates := map[string]interface{}{
 			"agent_status": agentStatus,
 			"status":       generalStatus,
 			"updated_at":   now,
-		})
+		}
+		if agentHostName != "" {
+			updates["host_name"] = agentHostName
+		}
+		global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(updates)
 		return nil
 	}
 

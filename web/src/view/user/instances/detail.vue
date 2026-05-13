@@ -168,6 +168,8 @@
               v-if="instance.status === 'running' && instance.password"
               type="primary"
               size="small"
+              :disabled="instance.networkType === 'no_port_mapping'"
+              :title="instance.networkType === 'no_port_mapping' ? t('user.instanceDetail.sshNoPortMapping') : ''"
               @click="openSSHTerminal"
             >
               <el-icon><Monitor /></el-icon>

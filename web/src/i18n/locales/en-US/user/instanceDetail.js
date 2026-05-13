@@ -101,6 +101,7 @@ export default {
   sshTerminal: "SSH Terminal",
   instanceNotFound: "Instance not found",
   instanceNotRunning: "Instance is not running",
+  sshNoPortMapping: "Web SSH is unavailable in no-port-mapping mode. Connect via internal network or controller forwarding.",
   noPassword: "Instance password is not available",
   sshConnectFailed: "SSH connection failed",
   sshConnectionError: "SSH connection error",

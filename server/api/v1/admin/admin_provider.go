@@ -270,9 +270,11 @@ func GetProviderDetail(c *gin.Context) {
 	}
 
 	ownerAdminID := middleware.GetOwnerAdminID(c)
-	if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
-		return
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
 	}
 
 	var providerObj providerModel.Provider
