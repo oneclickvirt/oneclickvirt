@@ -101,7 +101,7 @@ jobs:
         if: steps.login-dockerhub.outcome == 'success'
         id: build-dockerhub
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
@@ -204,7 +204,7 @@ jobs:
         if: steps.login-ghcr.outcome == 'success'
         id: build-ghcr
         continue-on-error: true
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           file: ${{ matrix.dockerfile }}
