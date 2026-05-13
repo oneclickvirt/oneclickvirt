@@ -74,5 +74,16 @@ export default {
   loadingContainers: '加载容器列表...',
   noStoppedContainers: '当前节点无已停止的容器',
   sourceContainerRequired: '复制模式下请选择源容器',
-  fetchContainersFailed: '获取停止容器列表失败'
-}
+  fetchContainersFailed: '获取停止容器列表失败',
+  // GPU 直通
+  gpuPassthrough: 'GPU 直通',
+  gpuEnabled: '启用 GPU 直通',
+  gpuDeviceIds: '选择共享的 GPU 设备',
+  gpuDetect: '检测 GPU',
+  gpuDetecting: '检测中...',
+  gpuNoneFound: '未检测到 GPU 设备',
+  gpuAllDevices: '全部 GPU',
+  gpuSelectAll: '全选',
+  gpuDeselectAll: '取消全选',
+  gpuDeviceIdx: 'GPU {idx}',
+  gpuFetchFailed: '获取 GPU 列表失败',}

@@ -184,6 +184,13 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		redemptionTaskReq.CreationMode == "copy" && redemptionTaskReq.SourceContainer != "" {
 		instanceConfig.CopyMode = true
 		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
+		// 复制模式下，GPU配置也从任务请求中获取（覆盖Provider默认值）
+		instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
+		instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
+	} else if jsonErr == nil && redemptionTaskReq.GpuEnabled {
+		// 标准模式下，如果任务请求中指定了GPU配置，覆盖Provider默认值
+		instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
+		instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 	}
 
 	// 预分配端口映射（所有Provider类型都需要）

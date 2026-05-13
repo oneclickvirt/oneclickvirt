@@ -533,6 +533,9 @@ type CreateRedemptionInstanceTaskRequest struct {
 	// 复制模式（仅 LXD/Incus）
 	CreationMode    string `json:"creationMode,omitempty"`    // "standard"（默认）或 "copy"
 	SourceContainer string `json:"sourceContainer,omitempty"` // 复制模式下的源容器名称
+	// GPU直通配置（仅 LXD/Incus 容器）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔）
 }
 
 // RedemptionCodeListRequest 兑换码列表请求
@@ -557,6 +560,9 @@ type BatchCreateRedemptionCodesRequest struct {
 	// 复制模式（仅 LXD/Incus 节点）
 	CreationMode    string `json:"creationMode"`    // "standard"（默认）或 "copy"
 	SourceContainer string `json:"sourceContainer"` // 复制模式下的源容器名称（仅 copy 模式）
+	// GPU直通配置（仅 LXD/Incus 容器）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }
 
 // BatchDeleteRedemptionCodesRequest 批量删除兑换码请求

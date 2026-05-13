@@ -296,6 +296,7 @@ type Provider struct {
 	AgentLastSeen  *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间
 	AgentHostname  string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
 	AgentRemoteIP  string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
+	AgentVersion   string     `json:"agentVersion" gorm:"size:32;default:''"`     // Agent 上报的版本号
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {

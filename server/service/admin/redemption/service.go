@@ -162,9 +162,14 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		return fmt.Errorf("节点不存在或不可用")
 	}
 
-	// 复制模式：必须提供源容器名称
-	if req.CreationMode == "copy" && req.SourceContainer == "" {
-		return fmt.Errorf("复制模式必须指定源容器名称")
+	// 复制模式：仅 LXD/Incus 节点支持
+	if req.CreationMode == "copy" {
+		if provider.Type != "lxd" && provider.Type != "incus" {
+			return fmt.Errorf("复制模式仅支持 LXD/Incus 类型的节点")
+		}
+		if req.SourceContainer == "" {
+			return fmt.Errorf("复制模式必须指定源容器名称")
+		}
 	}
 
 	// 验证规格 ID 并计算本次批量创建所需的总资源量
@@ -241,6 +246,8 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 			BandwidthId:     req.BandwidthId,
 			CreationMode:    req.CreationMode,
 			SourceContainer: req.SourceContainer,
+			GpuEnabled:      req.GpuEnabled,
+			GpuDeviceIds:    req.GpuDeviceIds,
 		}
 
 		var redemptionCode systemModel.RedemptionCode
@@ -261,6 +268,8 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 				Remark:          req.Remark,
 				CreationMode:    req.CreationMode,
 				SourceContainer: req.SourceContainer,
+				GpuEnabled:      req.GpuEnabled,
+				GpuDeviceIds:    req.GpuDeviceIds,
 			}
 			if err := tx.Create(&redemptionCode).Error; err != nil {
 				return fmt.Errorf("创建兑换码记录失败: %v", err)

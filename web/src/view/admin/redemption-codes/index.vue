@@ -319,6 +319,58 @@
             </el-form-item>
           </el-col>
         </el-row>
+        <!-- GPU 直通（仅 LXD/Incus 容器，含复制模式） -->
+        <el-form-item
+          v-if="isLxdIncusProvider && (createForm.instanceType === 'container' || createForm.creationMode === 'copy')"
+          :label="t('admin.redemptionCodes.gpuPassthrough')"
+        >
+          <div style="width: 100%">
+            <el-checkbox
+              v-model="createForm.gpuEnabled"
+              style="margin-bottom: 8px;"
+            >
+              {{ t('admin.redemptionCodes.gpuEnabled') }}
+            </el-checkbox>
+            <div v-if="createForm.gpuEnabled" style="margin-top: 8px;">
+              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
+                <span style="font-size: 13px; color: #606266;">{{ t('admin.redemptionCodes.gpuDeviceIds') }}:</span>
+                <el-button
+                  size="small"
+                  :loading="gpuDetecting"
+                  @click="detectGpus"
+                >
+                  {{ gpuDetecting ? t('admin.redemptionCodes.gpuDetecting') : t('admin.redemptionCodes.gpuDetect') }}
+                </el-button>
+              </div>
+              <!-- 检测结果列表 -->
+              <div v-if="detectedGpus.length > 0" style="margin-bottom: 8px;">
+                <el-checkbox-group
+                  v-model="selectedGpuIndices"
+                  style="display: flex; flex-wrap: wrap; gap: 6px;"
+                >
+                  <el-checkbox
+                    v-for="(gpu, idx) in detectedGpus"
+                    :key="idx"
+                    :value="idx"
+                    :label="idx"
+                  >
+                    {{ t('admin.redemptionCodes.gpuDeviceIdx', { idx }) }} — {{ gpu.name || gpu.vendor || '' }}
+                  </el-checkbox>
+                </el-checkbox-group>
+                <div style="margin-top: 4px; font-size: 12px; color: #909399;">
+                  <el-button size="small" text @click="selectAllGpus">{{ t('admin.redemptionCodes.gpuSelectAll') }}</el-button>
+                  <el-button size="small" text @click="deselectAllGpus">{{ t('admin.redemptionCodes.gpuDeselectAll') }}</el-button>
+                </div>
+              </div>
+              <div
+                v-else-if="gpuChecked && !gpuDetecting"
+                style="font-size: 12px; color: #909399;"
+              >
+                {{ t('admin.redemptionCodes.gpuNoneFound') }}
+              </div>
+            </div>
+          </div>
+        </el-form-item>
         <el-form-item :label="t('admin.redemptionCodes.countLabel')" prop="count">
           <el-input-number
             v-model="createForm.count"
@@ -405,7 +457,8 @@ import {
   exportRedemptionCodes,
   batchDeleteRedemptionCodes,
   getProviderList,
-  getStoppedContainers
+  getStoppedContainers,
+  detectProviderGPUs
 } from '@/api/admin'
 import {
   getFilteredImages,
@@ -447,7 +500,9 @@ const createForm = reactive({
   count: 1,
   remark: '',
   creationMode: 'standard',
-  sourceContainer: ''
+  sourceContainer: '',
+  gpuEnabled: false,
+  gpuDeviceIds: ''
 })
 
 const createRules = computed(() => {
@@ -483,6 +538,38 @@ const isLxdIncusProvider = computed(() => {
   const p = allProviders.value.find(p => p.id === createForm.providerId)
   return p && (p.type === 'lxd' || p.type === 'incus')
 })
+
+// ── GPU 相关 ──────────────────────────────────────────────
+const gpuDetecting = ref(false)
+const gpuChecked = ref(false)
+const detectedGpus = ref([])
+const selectedGpuIndices = ref([])
+
+const detectGpus = async () => {
+  if (!createForm.providerId) return
+  gpuDetecting.value = true
+  gpuChecked.value = true
+  try {
+    const res = await detectProviderGPUs(createForm.providerId)
+    detectedGpus.value = res.data?.gpus || res.data?.data || []
+    // Auto-select all GPUs
+    if (detectedGpus.value.length > 0) {
+      selectedGpuIndices.value = detectedGpus.value.map((_, i) => i)
+    }
+  } catch (_) {
+    ElMessage.warning(t('admin.redemptionCodes.gpuFetchFailed'))
+  } finally {
+    gpuDetecting.value = false
+  }
+}
+
+const selectAllGpus = () => {
+  selectedGpuIndices.value = detectedGpus.value.map((_, i) => i)
+}
+
+const deselectAllGpus = () => {
+  selectedGpuIndices.value = []
+}
 
 // ── 导出对话框 ─────────────────────────────────────────────
 const showExportDialog = ref(false)
@@ -590,7 +677,9 @@ const cancelCreate = () => {
     count: 1,
     remark: '',
     creationMode: 'standard',
-    sourceContainer: ''
+    sourceContainer: '',
+    gpuEnabled: false,
+    gpuDeviceIds: ''
   })
   providerCaps.containerEnabled = false
   providerCaps.vmEnabled = false
@@ -600,6 +689,9 @@ const cancelCreate = () => {
   diskSpecs.value = []
   bandwidthSpecs.value = []
   stoppedContainers.value = []
+  detectedGpus.value = []
+  selectedGpuIndices.value = []
+  gpuChecked.value = false
 }
 
 const handleCreateDialogClose = (done) => {
@@ -631,11 +723,16 @@ const onProviderChange = async (providerId) => {
   createForm.memoryId = ''
   createForm.diskId = ''
   createForm.bandwidthId = ''
+  createForm.gpuEnabled = false
+  createForm.gpuDeviceIds = ''
   availableImages.value = []
   cpuSpecs.value = []
   memorySpecs.value = []
   diskSpecs.value = []
   bandwidthSpecs.value = []
+  detectedGpus.value = []
+  selectedGpuIndices.value = []
+  gpuChecked.value = false
 
   if (!providerId) return
   try {
@@ -647,7 +744,7 @@ const onProviderChange = async (providerId) => {
     // ignore
   }
 
-  // 如果是 lxd/incus 节点，加载已停止的容器列表
+  // 如果是 lxd/incus 节点，加载已停止的容器列表和GPU列表
   const p = allProviders.value.find(p => p.id === providerId)
   if (p && (p.type === 'lxd' || p.type === 'incus')) {
     createForm.creationMode = 'standard'
@@ -662,10 +759,27 @@ const onProviderChange = async (providerId) => {
     } finally {
       stoppedContainersLoading.value = false
     }
+    // 自动检测 GPU
+    gpuDetecting.value = true
+    gpuChecked.value = true
+    try {
+      const gpuRes = await detectProviderGPUs(providerId)
+      detectedGpus.value = gpuRes.data?.gpus || gpuRes.data?.data || []
+      if (detectedGpus.value.length > 0) {
+        selectedGpuIndices.value = detectedGpus.value.map((_, i) => i)
+      }
+    } catch (_) {
+      // ignore silently
+    } finally {
+      gpuDetecting.value = false
+    }
   } else {
     createForm.creationMode = 'standard'
     createForm.sourceContainer = ''
     stoppedContainers.value = []
+    detectedGpus.value = []
+    selectedGpuIndices.value = []
+    gpuChecked.value = false
   }
 }
 
@@ -723,7 +837,9 @@ const submitCreate = async () => {
       count: createForm.count,
       remark: createForm.remark,
       creationMode: createForm.creationMode,
-      sourceContainer: createForm.sourceContainer
+      sourceContainer: createForm.sourceContainer,
+      gpuEnabled: createForm.gpuEnabled,
+      gpuDeviceIds: createForm.gpuEnabled ? selectedGpuIndices.value.join(',') : ''
     })
     ElMessage.success(t('admin.redemptionCodes.createSuccess', { count: createForm.count }))
     cancelCreate()

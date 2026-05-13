@@ -264,7 +264,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				ac.hostname = info.Hostname
 				ac.mu.Unlock()
 				now := time.Now()
-				go h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, info.Hostname)
+				go h.updateProviderAgentStatusWithVersion(ac.ProviderID, "online", &now, ac.remoteAddr, info.Hostname, info.Version)
 			}
 
 		case msgTypeTunnelAck:
@@ -347,6 +347,10 @@ func LookupProviderBySecret(secret string) (uint, error) {
 // ──────────────────────────────────────────────────────────────────────────────
 
 func (h *AgentHub) updateProviderAgentStatus(providerID uint, status string, lastSeen *time.Time, remoteAddr string, hostname string) {
+	h.updateProviderAgentStatusWithVersion(providerID, status, lastSeen, remoteAddr, hostname, "")
+}
+
+func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status string, lastSeen *time.Time, remoteAddr string, hostname string, version string) {
 	updates := map[string]interface{}{
 		"agent_status": status,
 	}
@@ -363,6 +367,9 @@ func (h *AgentHub) updateProviderAgentStatus(providerID uint, status string, las
 	}
 	if hostname != "" {
 		updates["agent_hostname"] = hostname
+	}
+	if version != "" {
+		updates["agent_version"] = version
 	}
 	if err := global.APP_DB.Model(&providerModel.Provider{}).
 		Where("id = ?", providerID).

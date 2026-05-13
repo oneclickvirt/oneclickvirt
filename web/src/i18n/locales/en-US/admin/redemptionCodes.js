@@ -76,5 +76,16 @@ export default {
   loadingContainers: 'Loading container list...',
   noStoppedContainers: 'No stopped containers on this node',
   sourceContainerRequired: 'Please select a source container for copy mode',
-  fetchContainersFailed: 'Failed to fetch stopped containers'
-}
+  fetchContainersFailed: 'Failed to fetch stopped containers',
+  // GPU Passthrough
+  gpuPassthrough: 'GPU Passthrough',
+  gpuEnabled: 'Enable GPU Passthrough',
+  gpuDeviceIds: 'Select GPU device(s) to share',
+  gpuDetect: 'Detect GPUs',
+  gpuDetecting: 'Detecting...',
+  gpuNoneFound: 'No GPU devices detected',
+  gpuAllDevices: 'All GPUs',
+  gpuSelectAll: 'Select All',
+  gpuDeselectAll: 'Deselect All',
+  gpuDeviceIdx: 'GPU {idx}',
+  gpuFetchFailed: 'Failed to fetch GPU list',}

@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
 	dashboardModel "oneclickvirt/model/dashboard"
@@ -125,6 +126,7 @@ func (s *SchedulerService) runTaskScheduler() {
 	trafficAggTicker := time.NewTicker(10 * time.Minute)   // 流量聚合保持 10分钟
 	expiryCheckTicker := time.NewTicker(1 * time.Hour)     // 过期检查保持 1小时
 	trafficLimitTicker := time.NewTicker(30 * time.Minute) // 流量限制检查保持 30分钟
+	agentVersionTicker := time.NewTicker(30 * time.Minute) // Agent版本检查保持 30分钟
 
 	defer func() {
 		taskTicker.Stop()
@@ -133,6 +135,7 @@ func (s *SchedulerService) runTaskScheduler() {
 		trafficAggTicker.Stop()
 		expiryCheckTicker.Stop()
 		trafficLimitTicker.Stop()
+		agentVersionTicker.Stop()
 	}()
 
 	global.APP_LOG.Info("Task scheduler main loop started with traffic aggregation and expiry check")
@@ -171,6 +174,10 @@ func (s *SchedulerService) runTaskScheduler() {
 		case <-trafficLimitTicker.C:
 			// 定期执行三层级流量限制检查（Provider > User > Instance）
 			s.checkAndEnforceTrafficLimits()
+
+		case <-agentVersionTicker.C:
+			// 定期检查Agent版本是否与主控兼容
+			s.checkAgentVersions()
 		}
 	}
 }
@@ -437,4 +444,38 @@ func (s *SchedulerService) checkAndEnforceTrafficLimits() {
 	}
 
 	global.APP_LOG.Debug("自动流量限制检查完成")
+}
+
+// checkAgentVersions 检查所有agent模式节点的Agent版本是否与主控兼容
+func (s *SchedulerService) checkAgentVersions() {
+	if global.APP_DB == nil {
+		return
+	}
+
+	compatibleVersion := constant.CompatibleAgentVersion
+
+	// 查询所有 agent 模式的 provider
+	var providers []provider.Provider
+	if err := global.APP_DB.Where("connection_type = ? AND agent_status = ?", "agent", "online").
+		Select("id, name, agent_version").
+		Find(&providers).Error; err != nil {
+		global.APP_LOG.Warn("检查Agent版本时查询Provider失败", zap.Error(err))
+		return
+	}
+
+	for _, p := range providers {
+		if p.AgentVersion == "" {
+			global.APP_LOG.Debug("Agent未上报版本信息",
+				zap.Uint("providerID", p.ID),
+				zap.String("providerName", p.Name))
+			continue
+		}
+		if p.AgentVersion != compatibleVersion {
+			global.APP_LOG.Warn("Agent版本与主控不兼容",
+				zap.Uint("providerID", p.ID),
+				zap.String("providerName", p.Name),
+				zap.String("agentVersion", p.AgentVersion),
+				zap.String("compatibleVersion", compatibleVersion))
+		}
+	}
 }

@@ -204,6 +204,34 @@
         </template>
       </el-table-column>
       <el-table-column
+        :label="$t('admin.providers.agentVersion')"
+        width="100"
+      >
+        <template #default="scope">
+          <el-tag
+            v-if="scope.row.connectionType === 'agent' && scope.row.agentStatus === 'online' && scope.row.agentVersion"
+            size="small"
+            :type="scope.row.agentVersion === compatibleAgentVersion ? 'success' : 'warning'"
+          >
+            {{ scope.row.agentVersion }}
+          </el-tag>
+          <el-tag
+            v-else-if="scope.row.connectionType === 'agent' && scope.row.agentStatus === 'online'"
+            size="small"
+            type="info"
+          >
+            -
+          </el-tag>
+          <el-text
+            v-else
+            size="small"
+            type="info"
+          >
+            -
+          </el-text>
+        </template>
+      </el-table-column>
+      <el-table-column
         :label="$t('admin.providers.cpuResource')"
         width="140"
       >
@@ -619,6 +647,10 @@ import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
+
+// Compatible agent version (must match server constant)
+const compatibleAgentVersion = 'v0.2.0'
+
 import { 
   formatMemorySize, 
   formatDiskSize, 
