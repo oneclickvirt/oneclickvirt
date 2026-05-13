@@ -295,6 +295,14 @@ func CheckProviderHealth(c *gin.Context) {
 		return
 	}
 
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(providerID), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
+
 	forceRefresh := c.DefaultQuery("forceRefresh", "true") == "true"
 
 	providerService := adminProvider.NewService()
@@ -628,6 +636,14 @@ func GenerateAgentSecret(c *gin.Context) {
 		return
 	}
 
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
+	}
+
 	var dbProvider providerModel.Provider
 	if err := global.APP_DB.Where("id = ?", id).First(&dbProvider).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
@@ -667,7 +683,7 @@ func GenerateAgentSecret(c *gin.Context) {
 
 	// 构造 CDN 加速安装命令（使用 sh 以保证最广兼容性）
 	cdnBase := "https://cdn.spiritlhl.net"
-	installScript := fmt.Sprintf("%s/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_agent.sh", cdnBase)
+	installScript := fmt.Sprintf("%s/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh", cdnBase)
 	installCmd := fmt.Sprintf(
 		"curl -fsSL %s | sh -s -- --ws-url %s --secret %s",
 		installScript, wsURL, secret,
@@ -696,6 +712,14 @@ func GetStoppedContainers(c *gin.Context) {
 	if err != nil || id <= 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
 	}
 
 	var dbProvider providerModel.Provider
@@ -770,6 +794,14 @@ func ExecOnProvider(c *gin.Context) {
 	if err != nil || id <= 0 {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if ownerAdminID > 0 {
+		if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+			return
+		}
 	}
 
 	var req struct {

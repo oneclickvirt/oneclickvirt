@@ -579,7 +579,7 @@ const handleGenerateAgentSecret = async () => {
       // 降级：使用旧格式
       const origin = window.location.origin
       const wsUrl = origin.replace(/^http/, 'ws') + res.data.wsPath
-      agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/scripts/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
+      agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
       ElMessage.success(t('admin.providers.agentSecretGenerated'))
     }
   } catch (error) {

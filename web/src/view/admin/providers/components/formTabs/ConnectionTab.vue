@@ -199,8 +199,6 @@
             <span>{{ $t('admin.providers.agentInstallCmd') }}</span>
             <el-button
               size="small"
-              type="primary"
-              plain
               @click="copyInstallCmd"
             >
               {{ $t('common.copy') }}
