@@ -250,6 +250,13 @@ export const createProvider = (data) => {
   })
 }
 
+export const getProviderDetail = (id) => {
+  return request({
+    url: `/v1/admin/providers/${id}`,
+    method: 'get'
+  })
+}
+
 export const updateProvider = (id, data) => {
   return request({
     url: `/v1/admin/providers/${id}`,

@@ -377,14 +377,6 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 		return nil
 	}
 
-	// 纯净节点标记：管理员自行分配端口，跳过自动创建
-	if providerInfo.IsPureNode {
-		global.APP_LOG.Debug("纯净节点模式，跳过默认端口映射创建",
-			zap.Uint("instanceID", instanceID),
-			zap.Uint("providerID", providerID))
-		return nil
-	}
-
 	defaultPortCount := providerInfo.DefaultPortCount
 	if defaultPortCount <= 0 {
 		defaultPortCount = 10 // 默认值

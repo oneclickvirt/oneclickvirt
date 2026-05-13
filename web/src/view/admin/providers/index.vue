@@ -61,6 +61,12 @@
       />
     </el-card>
 
+    <!-- 模式选择对话框 -->
+    <ProviderModeSelectDialog
+      v-model:visible="showModeSelectDialog"
+      @confirm="handleModeConfirm"
+    />
+
     <!-- 添加/编辑服务器对话框 -->
     <ProviderFormDialog
       v-model:visible="showAddDialog"
@@ -68,7 +74,7 @@
       :provider-data="addProviderForm"
       :grouped-countries="groupedCountries"
       :loading="addProviderLoading"
-      @submit="submitAddServer"
+      @submit="handleProviderFormSubmit"
       @cancel="cancelAddServer"
       @reset-level-limits="resetLevelLimitsToDefault"
     />
@@ -120,7 +126,7 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
+import { ref, onMounted, watch } from 'vue'
 import { Search, Delete, Lock } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import SearchFilter from './components/SearchFilter.vue'
@@ -130,6 +136,7 @@ import TrafficMonitorTaskDialog from './components/TrafficMonitorTaskDialog.vue'
 import MonitoringManagementDialog from './components/MonitoringManagementDialog.vue'
 import ProviderTable from './components/ProviderTable.vue'
 import ProviderFormDialog from './components/ProviderFormDialog.vue'
+import ProviderModeSelectDialog from './components/ProviderModeSelectDialog.vue'
 import { useProviderCRUD } from './composables/useProviderCRUD'
 import { useProviderForm } from './composables/useProviderForm'
 import { useProviderDialogs } from './composables/useProviderDialogs'
@@ -149,8 +156,23 @@ const {
   showAddDialog, addProviderLoading, isEditing, addProviderForm,
   maxTrafficTB, groupedCountries, getLevelTagType,
   resetLevelLimitsToDefault, cancelAddServer,
-  handleAddProvider, editProvider, submitAddServer
+  editProvider, submitAddServer
 } = useProviderForm(loadProviders)
+
+const showModeSelectDialog = ref(false)
+
+// 点击添加服务器：先弹模式选择对话框
+const handleAddProvider = () => {
+  showModeSelectDialog.value = true
+}
+
+// 模式选择确认后打开表单对话框
+const handleModeConfirm = (mode) => {
+  isEditing.value = false
+  cancelAddServer()
+  addProviderForm.connectionType = mode  // 'ssh' or 'agent'
+  showAddDialog.value = true
+}
 
 const {
   configDialog, taskLogDialog, trafficMonitorDialog,
@@ -164,6 +186,22 @@ const {
   refreshTrafficMonitorTask, debugAuthStatus
 } = useProviderDialogs(loadProviders)
 
+
+// 处理 ProviderFormDialog 提交 — 支持 agent 模式新增后留在对话框
+const handleProviderFormSubmit = async (formData) => {
+  const result = await submitAddServer(formData)
+  if (result?.agentMode && result?.newId) {
+    // agent 模式新增成功：切换到编辑模式，停留在对话框，触发生成密钥
+    isEditing.value = true
+    Object.assign(addProviderForm, formData)
+    addProviderForm.id = result.newId
+    addProviderForm.agentStatus = 'offline'
+    // 通知对话框切换到连接页并自动生成密钥
+    // 通过更新 showAddDialog 保持对话框打开（它本来就开着）
+    // ProviderFormDialog 会监听到 isEditing 变化
+  }
+  // 其他情况已在 submitAddServer 内处理（关闭对话框等）
+}
 
 // 监听provider类型变化，自动设置虚拟化类型支持和端口映射方式
 watch(() => addProviderForm.type, (newType) => {

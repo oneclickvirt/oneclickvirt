@@ -398,7 +398,6 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" {
 		provider.ConnectionType = req.ConnectionType
 	}
-	provider.IsPureNode = req.IsPureNode
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {

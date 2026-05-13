@@ -296,9 +296,6 @@ type Provider struct {
 	AgentLastSeen  *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间
 	AgentHostname  string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
 	AgentRemoteIP  string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
-
-	// 纯净节点标记（启用后管理员自行通过控制端内网穿透分配端口，不自动创建默认端口映射）
-	IsPureNode bool `json:"isPureNode" gorm:"default:false"` // 是否为纯净节点
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {

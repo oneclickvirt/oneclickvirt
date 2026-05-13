@@ -39,10 +39,12 @@
           :agent-connect-cmd="agentConnectCmd"
           :exec-loading="execLoading"
           :exec-result="execResult"
+          :checking-agent-status="checkingAgentStatus"
           @test-connection="handleTestConnection"
           @apply-timeout="handleApplyTimeout"
           @auth-method-change="handleAuthMethodChange"
           @generate-agent-secret="handleGenerateAgentSecret"
+          @check-agent-status="handleCheckAgentStatus"
           @exec-command="handleExecCommand"
           @clear-exec-result="execResult = null"
         />
@@ -151,7 +153,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
-import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI } from '@/api/admin'
+import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail } from '@/api/admin'
 // 导入子标签页组件
 import BasicInfoTab from './formTabs/BasicInfoTab.vue'
 import ConnectionTab from './formTabs/ConnectionTab.vue'
@@ -212,6 +214,7 @@ const connectionTestResult = ref(null)
 
 // Agent 密钥生成状态
 const generatingSecret = ref(false)
+const checkingAgentStatus = ref(false)
 const agentConnectCmd = ref('')
 
 // 国家列表数据 - 使用 computed 从 props 获取，如果没有则使用本地获取
@@ -420,6 +423,20 @@ watch(() => props.visible, (isVisible) => {
   }
 }, { immediate: true })
 
+// 监听 isEditing 变化：当 agent 模式新增成功后父组件切为编辑模式时
+// 自动切到连接配置页并触发生成密钥
+watch(() => props.isEditing, async (newEditing, oldEditing) => {
+  if (newEditing && !oldEditing && props.providerData?.connectionType === 'agent' && props.providerData?.id) {
+    // agent 模式新增 → 编辑模式：同步新数据，切到连接页，自动生成密钥
+    Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
+    formSnapshot.value = JSON.stringify(formData.value)
+    activeTab.value = 'connection'
+    await nextTick()
+    // 自动生成安装命令
+    await handleGenerateAgentSecret()
+  }
+})
+
 // 监听国家选择变化，自动填充国家代码和地区
 watch(() => formData.value.country, (newCountry, oldCountry) => {
   // 只在国家真正变化时处理
@@ -595,6 +612,29 @@ const handleExecCommand = async (command) => {
   }
 }
 
+// 检测 Agent 连接状态
+const handleCheckAgentStatus = async () => {
+  if (!formData.value.id) return
+  checkingAgentStatus.value = true
+  try {
+    const res = await getProviderDetail(formData.value.id)
+    if (res.data) {
+      formData.value.agentStatus = res.data.agentStatus || 'offline'
+      formData.value.agentLastSeen = res.data.agentLastSeen || null
+      formData.value.agentRemoteIP = res.data.agentRemoteIP || ''
+      if (formData.value.agentStatus === 'online') {
+        ElMessage.success(t('admin.providers.agentConnected'))
+      } else {
+        ElMessage.warning(t('admin.providers.agentNotConnected'))
+      }
+    }
+  } catch (error) {
+    ElMessage.error(error.message || t('common.operationFailed'))
+  } finally {
+    checkingAgentStatus.value = false
+  }
+}
+
 // 重置等级限制为默认值
 const handleResetLevelLimits = () => {
   ElMessageBox.confirm(
@@ -636,8 +676,8 @@ const handleSubmit = async () => {
       return
     }
     
-    // 验证SSH认证方式
-    if (!props.isEditing) {
+    // 验证SSH认证方式（agent模式无需）
+    if (!props.isEditing && formData.value.connectionType !== 'agent') {
       if (formData.value.authMethod === 'password' && !formData.value.password) {
         ElMessage.error(t('admin.providers.passwordRequired'))
         return

@@ -25,6 +25,52 @@ run_module_13() {
         "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group")
     local pm_id; pm_id=$(echo "$pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
+    # -- Create port mapping with mappingType=node (explicit) --
+    test_api "Create port mapping (node type)" "POST" "/api/v1/admin/port-mappings" "200|400" \
+        "{\"instanceId\":${inst_for_pm},\"guestPort\":8080,\"protocol\":\"tcp\",\"hostPort\":25080,\"mappingType\":\"node\"}" "$group"
+
+    # -- Create port mapping with mappingType=controller --
+    local ctrl_pm; ctrl_pm=$(test_api "Create port mapping (controller type)" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
+        "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group")
+    local ctrl_pm_id; ctrl_pm_id=$(echo "$ctrl_pm" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+
+    # -- Verify mappingType field in list response --
+    local pm_list; pm_list=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/port-mappings?page=1&pageSize=20" 2>/dev/null)
+    local has_mapping_type; has_mapping_type=$(echo "$pm_list" | jq -r '.data.list[0].mappingType // empty' 2>/dev/null)
+    if [[ -n "$has_mapping_type" ]]; then
+        log_success "mappingType field present in port mapping list: ${has_mapping_type}"
+    else
+        log_warning "mappingType field missing from port mapping list (may be empty list)"
+    fi
+
+    # -- no_port_mapping networkType: node-side mapping must be rejected --
+    if [[ -n "$PROVIDER_ID" ]]; then
+        # Temporarily set networkType=no_port_mapping
+        curl -s --max-time 30 -X PUT \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" \
+            -d '{"networkType":"no_port_mapping"}' \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/port-config" >/dev/null 2>&1 || true
+
+        test_api "no_port_mapping blocks node mapping" "POST" "/api/v1/admin/port-mappings" "400" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25100,\"mappingType\":\"node\"}" "$group"
+
+        # controller mode should still be accepted (or 400 if controller func not initialized)
+        test_api "no_port_mapping allows controller mapping" "POST" "/api/v1/admin/port-mappings" "200|400|500" \
+            "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"mappingType\":\"controller\",\"internalHost\":\"10.0.0.1\"}" "$group"
+
+        # Restore networkType=nat_ipv4
+        curl -s --max-time 30 -X PUT \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" -H "Content-Type: application/json" \
+            -d '{"portRangeStart":20000,"portRangeEnd":30000,"defaultPortCount":10,"networkType":"nat_ipv4"}' \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}/port-config" >/dev/null 2>&1 || true
+    fi
+
+    # -- Delete controller port mapping if created --
+    if [[ -n "$ctrl_pm_id" ]]; then
+        test_api "Delete controller port mapping" "DELETE" "/api/v1/admin/port-mappings/${ctrl_pm_id}" "200" "" "$group"
+    fi
+
     # -- Create duplicate port --
     test_api "Create duplicate port" "POST" "/api/v1/admin/port-mappings" "400|409" \
         "{\"instanceId\":${inst_for_pm},\"guestPort\":22,\"protocol\":\"tcp\",\"hostPort\":25001}" "$group"

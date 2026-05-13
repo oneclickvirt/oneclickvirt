@@ -6,6 +6,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider/health"
+	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/images"
 	provider2 "oneclickvirt/service/provider"
@@ -57,6 +58,26 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 
 	now := time.Now()
 	ctx := context.Background()
+
+	// Agent 模式：不进行 SSH 健康检查，通过 AgentHub 检查连接状态
+	if provider.ConnectionType == "agent" {
+		hub := agentService.GetHub()
+		conn, ok := hub.GetConn(provider.ID)
+		agentStatus := "offline"
+		if ok && conn != nil {
+			agentStatus = "online"
+		}
+		generalStatus := "inactive"
+		if agentStatus == "online" {
+			generalStatus = "active"
+		}
+		global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(map[string]interface{}{
+			"agent_status": agentStatus,
+			"status":       generalStatus,
+			"updated_at":   now,
+		})
+		return nil
+	}
 
 	// 解析endpoint获取主机
 	host := strings.Split(localEndpoint, ":")[0]

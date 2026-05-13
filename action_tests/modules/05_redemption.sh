@@ -9,10 +9,28 @@ run_module_05() {
     # -- List --
     test_api "Redemption code list" "GET" "/api/v1/admin/redemption-codes?page=1&pageSize=10" "200" "" "$group"
 
-    # -- Batch create (requires provider + images; accept 400 if preconditions not met) --
+    # -- Batch create standard mode (requires provider + images; accept 400 if preconditions not met) --
     local provider_for_redeem="${PROVIDER_ID:-1}"
-    local rc; rc=$(test_api "Batch create codes" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
-        "{\"count\":3,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI test\"}" "$group")
+    local rc; rc=$(test_api "Batch create codes (standard)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+        "{\"count\":3,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"imageId\":1,\"cpuId\":\"1\",\"memoryId\":\"1\",\"diskId\":\"1\",\"bandwidthId\":\"1\",\"remark\":\"CI test\",\"creationMode\":\"standard\"}" "$group")
+
+    # -- Batch create copy mode (requires LXD/Incus provider; accept 400/404 if no stopped containers) --
+    test_api "Batch create codes (copy mode)" "POST" "/api/v1/admin/redemption-codes/batch-create" "200|400|404|500" \
+        "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"test-source\",\"remark\":\"CI copy mode test\"}" "$group"
+
+    # -- Copy mode without sourceContainer must fail --
+    test_api "Copy mode no sourceContainer (400)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \
+        "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"\"}" "$group"
+
+    # -- Verify creationMode field is present in list response --
+    local list_resp; list_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/redemption-codes?page=1&pageSize=10" 2>/dev/null)
+    local has_mode; has_mode=$(echo "$list_resp" | jq -r '.data.list[0].creationMode // empty' 2>/dev/null)
+    if [[ -n "$has_mode" ]]; then
+        log_success "creationMode field present in list response: ${has_mode}"
+    else
+        log_warning "creationMode field missing from list response (may be empty list)"
+    fi
 
     # -- Create with invalid params --
     test_api "Create codes (zero count)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \

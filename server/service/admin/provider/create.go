@@ -85,11 +85,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		expiresAt = &defaultExpiry
 	}
 
-	// 验证：必须提供密码或SSH密钥其中一种
-	if req.Password == "" && req.SSHKey == "" {
+	// 验证：SSH直连模式下必须提供密码或SSH密钥其中一种；agent模式无需SSH凭据
+	if req.ConnectionType != "agent" && req.Password == "" && req.SSHKey == "" {
 		global.APP_LOG.Warn("Provider创建失败：未提供SSH认证方式",
 			zap.String("name", utils.TruncateString(req.Name, 32)))
-		return nil, fmt.Errorf("必须提供SSH密码或SSH密钥其中一种认证方式")
+		return nil, fmt.Errorf("SSH直连模式必须提供SSH密码或SSH密钥其中一种认证方式")
 	}
 
 	provider := providerModel.Provider{
@@ -182,8 +182,6 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			}
 			return "ssh"
 		}(),
-		// 纯净节点标记
-		IsPureNode: req.IsPureNode,
 		// 普通管理员归属
 		OwnerAdminID: ownerAdminID,
 	}

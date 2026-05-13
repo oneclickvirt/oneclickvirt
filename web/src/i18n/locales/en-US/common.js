@@ -4,6 +4,7 @@ export default {
   register: 'Register',
   submit: 'Submit',
   cancel: 'Cancel',
+  next: 'Next',
   confirm: 'Confirm',
   save: 'Save',
   saveSuccess: 'Saved successfully',

@@ -139,9 +139,6 @@ type CreateProviderRequest struct {
 	// 内网穿透连接模式
 	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
 
-	// 纯净节点标记
-	IsPureNode bool `json:"isPureNode"` // 是否为纯净节点（不自动创建默认端口映射）
-
 	// 节点级别的等级限制配置
 	// 用于限制该节点上不同等级用户能创建的最大资源
 	LevelLimits map[int]map[string]interface{} `json:"levelLimits"` // 等级限制配置
@@ -242,9 +239,6 @@ type UpdateProviderRequest struct {
 
 	// 内网穿透连接模式
 	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
-
-	// 纯净节点标记
-	IsPureNode bool `json:"isPureNode"` // 是否为纯净节点（不自动创建默认端口映射）
 
 	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
 	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script / third_party

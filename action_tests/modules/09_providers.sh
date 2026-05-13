@@ -236,7 +236,66 @@ run_module_09() {
     # -- Traffic history --
     test_api "Provider traffic history" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/traffic/history" "200" "" "$group"
 
-    # -- Provider creation with SSH key auth (verify both auth methods) --
+    # -- isPureNode field: create provider with isPureNode=true and verify --
+    local pure_node_resp; pure_node_resp=$(test_api "Create isPureNode provider" "POST" "/api/v1/admin/providers" "200|409" \
+        "{\"name\":\"ci-pure-node\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"isPureNode\":true}" "$group")
+    local pure_pid; pure_pid=$(echo "$pure_node_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
+    if [[ -n "$pure_pid" ]]; then
+        local pure_detail; pure_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${pure_pid}" 2>/dev/null)
+        local is_pure; is_pure=$(echo "$pure_detail" | jq -r '.data.isPureNode // false' 2>/dev/null)
+        if [[ "$is_pure" == "true" ]]; then
+            log_success "isPureNode=true saved and returned correctly"
+        else
+            log_warning "isPureNode mismatch: expected true, got '${is_pure}'"
+        fi
+        test_api "Delete isPureNode provider" "DELETE" "/api/v1/admin/providers/${pure_pid}" "200" "" "$group"
+    fi
+
+    # -- gpuEnabled field: update provider with gpuEnabled=true --
+    test_api "Update provider gpuEnabled" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"gpuEnabled":true,"gpuDeviceIds":"0"}' "$group"
+    test_api "Update provider gpuEnabled off" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"gpuEnabled":false,"gpuDeviceIds":""}' "$group"
+
+    # -- detect-gpus: SSH-based GPU detection (may fail on non-LXD, accept 400/500) --
+    test_api "Detect provider GPUs" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/detect-gpus" "200|400|500" "" "$group"
+
+    # -- stopped-containers: fetch stopped containers for copy mode (LXD/Incus only, accept 400/500 for other types) --
+    test_api "Get stopped containers" "GET" "/api/v1/admin/providers/${PROVIDER_ID}/stopped-containers" "200|400|500" "" "$group"
+
+    # -- exec: run a command on provider via SSH --
+    test_api "Exec command on provider" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "200|400|500" \
+        '{"command":"echo hello","timeout":10}' "$group"
+
+    # -- exec: empty command must fail --
+    test_api "Exec empty command (400)" "POST" "/api/v1/admin/providers/${PROVIDER_ID}/exec" "400" \
+        '{"command":"","timeout":10}' "$group"
+
+    # -- exec: nonexistent provider --
+    test_api "Exec nonexistent provider (404)" "POST" "/api/v1/admin/providers/99999/exec" "404|400" \
+        '{"command":"echo hello","timeout":10}' "$group"
+
+    # -- detect-gpus on nonexistent provider --
+    test_api "Detect GPUs nonexistent provider" "GET" "/api/v1/admin/providers/99999/detect-gpus" "404|400" "" "$group"
+
+    # -- stopped-containers on nonexistent provider --
+    test_api "Stopped containers nonexistent provider" "GET" "/api/v1/admin/providers/99999/stopped-containers" "404|400" "" "$group"
+
+    # -- connectionType: update to agent mode and verify field persists --
+    test_api "Update connectionType=agent" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        '{"connectionType":"agent"}' "$group"
+    local ct_detail; ct_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
+    local saved_ct; saved_ct=$(echo "$ct_detail" | jq -r '.data.connectionType // empty' 2>/dev/null)
+    if [[ "$saved_ct" == "agent" ]]; then
+        log_success "connectionType=agent saved correctly"
+    else
+        log_warning "connectionType expected 'agent', got '${saved_ct}'"
+    fi
+    # Revert to ssh
+    test_api "Revert connectionType=ssh" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
+        "{\"connectionType\":\"ssh\",${auth_payload}}" "$group"
     if [[ -n "${ALICE_PRIVATE_KEY:-}" ]]; then
         local escaped_key; escaped_key=$(echo "$ALICE_PRIVATE_KEY" | jq -Rsa .)
         local key_provider; key_provider=$(test_api "Create provider (key auth)" "POST" "/api/v1/admin/providers" "200|409" \

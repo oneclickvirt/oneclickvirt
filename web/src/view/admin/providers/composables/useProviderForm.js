@@ -319,16 +319,17 @@ export function useProviderForm(loadProviders) {
     try {
       if (!formData.containerEnabled && !formData.vmEnabled) {
         ElMessage.warning(t('admin.providers.selectVirtualizationType'))
-        return
+        return null
       }
-      if (!isEditing.value) {
+      // agent 模式新增：不需要 SSH 凭据
+      if (!isEditing.value && formData.connectionType !== 'agent') {
         if (formData.authMethod === 'password' && !formData.password) {
           ElMessage.error(t('admin.providers.passwordRequired'))
-          return
+          return null
         }
         if (formData.authMethod === 'sshKey' && !formData.sshKey) {
           ElMessage.error(t('admin.providers.sshKeyRequired'))
-          return
+          return null
         }
       }
 
@@ -446,13 +447,23 @@ export function useProviderForm(loadProviders) {
       if (isEditing.value) {
         await updateProvider(formData.id, serverData)
         ElMessage.success(t('admin.providers.serverUpdateSuccess'))
+        cancelAddServer()
+        await loadProviders()
+        return { success: true, isEditing: true }
       } else {
-        await createProvider(serverData)
+        const resp = await createProvider(serverData)
+        const newId = resp.data?.id || resp.data?.ID
+        // agent 模式：不关闭对话框，留在连接配置页让用户生成安装命令
+        if (formData.connectionType === 'agent' && newId) {
+          ElMessage.success(t('admin.providers.serverAddSuccess'))
+          await loadProviders()
+          return { success: true, isEditing: false, agentMode: true, newId }
+        }
         ElMessage.success(t('admin.providers.serverAddSuccess'))
+        cancelAddServer()
+        await loadProviders()
+        return { success: true, isEditing: false, agentMode: false }
       }
-
-      cancelAddServer()
-      await loadProviders()
     } catch (error) {
       console.error('Provider操作失败:', error)
       const errorMsg =
@@ -462,6 +473,7 @@ export function useProviderForm(loadProviders) {
           ? t('admin.providers.serverUpdateFailed')
           : t('admin.providers.serverAddFailed'))
       ElMessage.error(errorMsg)
+      return null
     } finally {
       addProviderLoading.value = false
     }

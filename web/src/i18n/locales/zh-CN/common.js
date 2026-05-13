@@ -4,6 +4,7 @@ export default {
   register: '注册',
   submit: '提交',
   cancel: '取消',
+  next: '下一步',
   confirm: '确定',
   save: '保存',
   saveSuccess: '保存成功',
