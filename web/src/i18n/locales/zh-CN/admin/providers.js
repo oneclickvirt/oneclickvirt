@@ -737,9 +737,6 @@ export default {
   // 无端口映射网络类型
   noPortMapping: "无端口映射",
   noPortMappingTip: "无端口映射模式：节点无独立IPv4地址，不进行任何自动端口映射。管理员可手动通过控制端内网穿透（Controller Forwarding）为实例分配端口。",
-  // 纯净节点
-  isPureNode: "纯净节点",
-  isPureNodeTip: "启用后不会自动为实例创建默认端口映射，管理员需手动分配端口。",
   // Web 终端
   webTerminal: "Web 终端",
   webTerminalTip: "SSH模式通过SSH连接执行命令，Agent模式通过WebSocket发送命令。",

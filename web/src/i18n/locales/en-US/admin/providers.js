@@ -739,9 +739,6 @@ export default {
   // No port mapping network type
   noPortMapping: "No Port Mapping",
   noPortMappingTip: "No Port Mapping mode: node has no dedicated IPv4 address and no automatic port mapping is performed. Admin can manually assign ports via Controller Forwarding.",
-  // Pure node
-  isPureNode: "Pure Node",
-  isPureNodeTip: "When enabled, no default port mappings will be auto-created for instances. Admin must assign ports manually.",
   // Web Terminal
   webTerminal: "Web Terminal",
   webTerminalTip: "SSH mode executes commands via SSH; Agent mode sends commands via WebSocket.",

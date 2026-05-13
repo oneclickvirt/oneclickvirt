@@ -260,6 +260,30 @@ func AutoConfigureProviderStream(c *gin.Context) {
 	}
 }
 
+// GetProviderDetail 获取单个Provider详情（含 Agent 状态字段）
+func GetProviderDetail(c *gin.Context) {
+	idStr := c.Param("id")
+	id, err := strconv.ParseUint(idStr, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "无效的Provider ID"))
+		return
+	}
+
+	ownerAdminID := middleware.GetOwnerAdminID(c)
+	if err := adminProvider.CheckProviderOwnership(uint(id), ownerAdminID); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeForbidden, err.Error()))
+		return
+	}
+
+	var providerObj providerModel.Provider
+	if err := global.APP_DB.First(&providerObj, id).Error; err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
+		return
+	}
+
+	common.ResponseSuccess(c, providerObj)
+}
+
 // CheckProviderHealth 检查Provider健康状态
 func CheckProviderHealth(c *gin.Context) {
 	providerIDStr := c.Param("id")

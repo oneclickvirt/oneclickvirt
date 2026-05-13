@@ -39,6 +39,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// Provider管理
 		NormalAdminGroup.GET("/providers", admin.GetProviderList)
 		NormalAdminGroup.POST("/providers", admin.CreateProvider)
+		NormalAdminGroup.GET("/providers/:id", admin.GetProviderDetail)
 		NormalAdminGroup.PUT("/providers/:id", admin.UpdateProvider)
 		NormalAdminGroup.DELETE("/providers/:id", admin.DeleteProvider)
 		NormalAdminGroup.POST("/providers/freeze", admin.FreezeProvider)
