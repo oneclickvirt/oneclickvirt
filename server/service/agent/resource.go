@@ -27,14 +27,15 @@ func NewResourceSyncService(ctx context.Context, db *gorm.DB) *ResourceSyncServi
 func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *monitoringModel.MonitoringConfig) error {
 	// Load the provider record for endpoint info (consistent with traffic sync)
 	var p struct {
-		Endpoint string
-		PortIP   string
+		Endpoint      string
+		PortIP        string
+		AgentRemoteIP string
 	}
-	if err := s.db.Raw("SELECT endpoint, port_ip FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
+	if err := s.db.Raw("SELECT endpoint, port_ip, agent_remote_ip FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
 	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping.
-	endpoint := p.Endpoint
+	endpoint := resolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if endpoint == "" {
 		return fmt.Errorf("no endpoint for provider %d", providerID)
 	}

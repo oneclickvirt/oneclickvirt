@@ -106,6 +106,19 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 
 		// 重新获取Provider实例并确认连接状态
 		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
+		if dbProvider.ConnectionType == "agent" && (!exists || !providerInstance.IsConnected()) {
+			// Agent 连接可能在重载后短时间内重连，给一个短暂重试窗口避免误判不可用。
+			for i := 0; i < 20; i++ {
+				if ctx.Err() != nil {
+					return ctx.Err()
+				}
+				time.Sleep(500 * time.Millisecond)
+				providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
+				if exists && providerInstance.IsConnected() {
+					break
+				}
+			}
+		}
 		if !exists || !providerInstance.IsConnected() {
 			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", localProviderID)
 			global.APP_LOG.Error("Provider连接后仍然不可用",

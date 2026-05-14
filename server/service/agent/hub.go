@@ -493,6 +493,7 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 	updates := map[string]interface{}{
 		"agent_status": status,
 	}
+	remoteIP := ""
 	if lastSeen != nil {
 		updates["agent_last_seen"] = lastSeen
 	}
@@ -500,8 +501,10 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 		// 只保存 IP 部分
 		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
 			updates["agent_remote_ip"] = host
+			remoteIP = host
 		} else {
 			updates["agent_remote_ip"] = remoteAddr
+			remoteIP = remoteAddr
 		}
 	}
 	if hostname != "" {
@@ -514,6 +517,14 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 		Where("id = ?", providerID).
 		Updates(updates).Error; err != nil {
 		global.APP_LOG.Warn("更新 Agent 状态失败", zap.Uint("providerID", providerID), zap.Error(err))
+	}
+
+	if status == "online" && remoteIP != "" {
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ? AND connection_type = ? AND (endpoint IS NULL OR endpoint = '')", providerID, "agent").
+			Update("endpoint", remoteIP).Error; err != nil {
+			global.APP_LOG.Warn("回填 Agent 节点 endpoint 失败", zap.Uint("providerID", providerID), zap.Error(err))
+		}
 	}
 }
 

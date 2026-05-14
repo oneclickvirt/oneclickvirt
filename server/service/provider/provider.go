@@ -219,7 +219,7 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		config.Port = 22
 	}
 
-	if dbProvider.ConnectionType == "agent" && config.Password == "" && config.PrivateKey == "" {
+	if dbProvider.ConnectionType == "agent" {
 		// 对于支持 Agent 模式的 Provider（如 Docker/Podman/Containerd），
 		// 注入基于 AgentHub WebSocket 的执行器代替 SSH。
 		if AgentExecutorFactory != nil {
