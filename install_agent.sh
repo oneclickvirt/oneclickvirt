@@ -77,7 +77,28 @@ if [ -z "$VERSION" ]; then
 fi
 log_info "Latest version: ${VERSION}"
 
-# ── download binary with retry + fallback ─────────────────────────────────────
+# ── check which CDN mirrors are reachable ─────────────────────────────────────
+
+check_cdn_alive() {
+  local test_url="https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.back/test"
+  for cdn in $CDN_URLS; do
+    if curl -sL -k --max-time 6 "${cdn}/${test_url}" 2>/dev/null | grep -q "success"; then
+      return 0  # at least one CDN works
+    fi
+    sleep 0.5
+  done
+  return 1
+}
+
+CDN_AVAILABLE=false
+if check_cdn_alive; then
+  CDN_AVAILABLE=true
+  log_info "CDN available, using CDN acceleration"
+else
+  log_warning "No CDN available, using direct GitHub download (may be slower)"
+fi
+
+# ── download binary ───────────────────────────────────────────────────────────
 
 mkdir -p "$INSTALL_DIR"
 TMP_FILE="${INSTALL_DIR}/${BINARY_NAME}.tmp"
@@ -127,8 +148,15 @@ download_one() {
   local mon_pid=$!
   wait "$dl_pid" 2>/dev/null
   wait "$mon_pid" 2>/dev/null
+  # Validate: file must exist, be non-empty, and not start with '<' (HTML error page)
   if [ -s "$TMP_FILE" ]; then
-    return 0
+    local first_byte
+    first_byte=$(dd if="$TMP_FILE" bs=1 count=1 2>/dev/null)
+    if [ "$first_byte" != "<" ]; then
+      return 0
+    fi
+    # HTML error page — clean up and return failure
+    rm -f "$TMP_FILE"
   fi
 
   # Try wget
@@ -153,16 +181,19 @@ log_info "Downloading ${BINARY_NAME} ..."
 DOWNLOADED=0
 GITHUB_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
 
-# Try CDN mirrors
-for CDN in $CDN_URLS; do
-  CDN_TARGET="${CDN}/${GITHUB_URL}"
-  log_info "Trying CDN: ${CDN_TARGET}"
-  if download_one "$CDN_TARGET"; then
-    log_success "Downloaded via CDN (${CDN})."
-    DOWNLOADED=1
-    break
-  fi
-done
+# Only try CDNs if at least one is reachable
+if [ "$CDN_AVAILABLE" = true ]; then
+  for CDN in $CDN_URLS; do
+    CDN_TARGET="${CDN}/${GITHUB_URL}"
+    log_info "Trying CDN: ${CDN_TARGET}"
+    rm -f "$TMP_FILE"
+    if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
+      log_success "Downloaded via CDN (${CDN})."
+      DOWNLOADED=1
+      break
+    fi
+  done
+fi
 
 # Try direct GitHub
 if [ "$DOWNLOADED" -eq 0 ]; then

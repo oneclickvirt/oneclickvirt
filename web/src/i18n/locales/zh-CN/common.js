@@ -92,6 +92,7 @@ export default {
   accountDisabled: '您的账户已被禁用，请联系管理员',
   requestTooLarge: '上传的文件或数据过大，请减少文件大小或数据量',
   nothingToCopy: '没有可复制的内容',
+  copySuccess: '复制成功',
   copyFailed: '复制失败，请手动复制',
   cannotSerialize: '无法序列化对象',
   unknownError: '未知错误',

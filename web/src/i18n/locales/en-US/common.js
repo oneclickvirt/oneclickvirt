@@ -91,6 +91,7 @@ export default {
   accountDisabled: 'Your account has been disabled, please contact the administrator',
   requestTooLarge: 'The uploaded file or data is too large, please reduce the size',
   nothingToCopy: 'Nothing to copy',
+  copySuccess: 'Copied',
   copyFailed: 'Copy failed, please copy manually',
   cannotSerialize: 'Unable to serialize object',
   unknownError: 'Unknown error',
