@@ -33,7 +33,7 @@ const (
 // PodmanProvider Podman容器运行时Provider（独立实现，不依赖docker包）
 type PodmanProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -116,6 +116,22 @@ func (p *PodmanProvider) Connect(ctx context.Context, config provider.NodeConfig
 	return nil
 }
 
+func (p *PodmanProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	p.config = config
+	p.sshClient = executor
+	p.connected = true
+	p.healthChecker = nil
+
+	if err := p.getPodmanVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下Podman版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Podman provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", providerType))
+	return nil
+}
+
 func (p *PodmanProvider) Disconnect(ctx context.Context) error {
 	if p.sshClient != nil {
 		p.sshClient.Close()
@@ -140,13 +156,33 @@ func (p *PodmanProvider) EnsureConnection() error {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !p.sshClient.IsHealthy() {
+			p.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 	}
 	return nil
 }
 
 func (p *PodmanProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if p.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if p.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      p.config.HostName,
+		}, nil
 	}
 	return p.healthChecker.CheckHealth(ctx)
 }

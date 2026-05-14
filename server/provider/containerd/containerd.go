@@ -33,7 +33,7 @@ const (
 // ContainerdProvider Containerd/nerdctl容器运行时Provider（独立实现，不依赖docker包）
 type ContainerdProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -116,6 +116,22 @@ func (c *ContainerdProvider) Connect(ctx context.Context, config provider.NodeCo
 	return nil
 }
 
+func (c *ContainerdProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	c.config = config
+	c.sshClient = executor
+	c.connected = true
+	c.healthChecker = nil
+
+	if err := c.getContainerdVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下Containerd版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Containerd provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", providerType))
+	return nil
+}
+
 func (c *ContainerdProvider) Disconnect(ctx context.Context) error {
 	if c.sshClient != nil {
 		c.sshClient.Close()
@@ -140,13 +156,33 @@ func (c *ContainerdProvider) EnsureConnection() error {
 			c.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !c.sshClient.IsHealthy() {
+			c.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 	}
 	return nil
 }
 
 func (c *ContainerdProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if c.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if c.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if c.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      c.config.HostName,
+		}, nil
 	}
 	return c.healthChecker.CheckHealth(ctx)
 }

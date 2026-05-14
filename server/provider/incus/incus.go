@@ -22,7 +22,7 @@ import (
 
 type IncusProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	apiClient        *http.Client
 	transport        *http.Transport // 保存transport以便清理
 	providerID       uint            // 存储providerID用于清理
@@ -156,6 +156,22 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 	return nil
 }
 
+func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	i.config = config
+	i.sshClient = executor
+	i.connected = true
+	i.healthChecker = nil
+
+	if err := i.getIncusVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下Incus版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Incus provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", config.Type))
+	return nil
+}
+
 func (i *IncusProvider) GetVersion() string {
 	i.mu.RLock()
 	defer i.mu.RUnlock()
@@ -234,6 +250,10 @@ func (i *IncusProvider) EnsureConnection() error {
 			i.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !i.sshClient.IsHealthy() {
+			i.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 
 		global.APP_LOG.Info("Incus Provider SSH连接重建成功",
 			zap.String("host", utils.TruncateString(i.config.Host, 32)),
@@ -245,7 +265,23 @@ func (i *IncusProvider) EnsureConnection() error {
 
 func (i *IncusProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if i.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if i.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if i.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      i.config.HostName,
+		}, nil
 	}
 	return i.healthChecker.CheckHealth(ctx)
 }

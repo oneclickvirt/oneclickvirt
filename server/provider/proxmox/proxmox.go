@@ -76,7 +76,7 @@ func InternalIPToVMIDCandidates(ip string) []int {
 
 type ProxmoxProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	apiClient        *http.Client
 	transport        *http.Transport
 	providerID       uint // 存储providerID用于清理
@@ -253,6 +253,34 @@ func (p *ProxmoxProvider) Connect(ctx context.Context, config provider.NodeConfi
 	return nil
 }
 
+func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	p.config = config
+	p.providerUUID = config.UUID
+	p.providerID = config.ID
+	p.sshClient = executor
+	p.connected = true
+	p.healthChecker = nil
+
+	p.initBridgeNames(config)
+
+	if err := p.getNodeName(context.Background()); err != nil {
+		p.node = config.HostName
+		if p.node == "" {
+			p.node = "pve"
+		}
+	}
+
+	if err := p.getProxmoxVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下Proxmox版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Proxmox provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", config.Type),
+		zap.String("node", utils.TruncateString(p.node, 32)))
+	return nil
+}
+
 func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 	if p.sshClient != nil {
 		p.sshClient.Close()
@@ -292,6 +320,10 @@ func (p *ProxmoxProvider) EnsureConnection() error {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !p.sshClient.IsHealthy() {
+			p.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 
 		global.APP_LOG.Info("Proxmox Provider SSH连接重建成功",
 			zap.String("host", utils.TruncateString(p.config.Host, 32)),
@@ -303,7 +335,23 @@ func (p *ProxmoxProvider) EnsureConnection() error {
 
 func (p *ProxmoxProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if p.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if p.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      p.config.HostName,
+		}, nil
 	}
 	return p.healthChecker.CheckHealth(ctx)
 }

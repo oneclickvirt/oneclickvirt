@@ -22,7 +22,7 @@ import (
 
 type LXDProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	apiClient        *http.Client
 	transport        *http.Transport
 	providerID       uint // 存储providerID用于清理
@@ -160,6 +160,22 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 	return nil
 }
 
+func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	l.config = config
+	l.sshClient = executor
+	l.connected = true
+	l.healthChecker = nil
+
+	if err := l.getLXDVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下LXD版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("LXD provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", config.Type))
+	return nil
+}
+
 func (l *LXDProvider) GetVersion() string {
 	l.mu.RLock()
 	defer l.mu.RUnlock()
@@ -238,6 +254,10 @@ func (l *LXDProvider) EnsureConnection() error {
 			l.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !l.sshClient.IsHealthy() {
+			l.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 
 		global.APP_LOG.Info("LXD Provider SSH连接重建成功",
 			zap.String("host", utils.TruncateString(l.config.Host, 50)),
@@ -249,7 +269,23 @@ func (l *LXDProvider) EnsureConnection() error {
 
 func (l *LXDProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if l.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if l.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if l.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      l.config.HostName,
+		}, nil
 	}
 	return l.healthChecker.CheckHealth(ctx)
 }

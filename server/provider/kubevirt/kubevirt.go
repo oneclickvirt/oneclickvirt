@@ -33,7 +33,7 @@ const (
 // KubeVirtProvider 基于 kubectl/virtctl 的 KubeVirt 虚拟机 Provider
 type KubeVirtProvider struct {
 	config           provider.NodeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string
@@ -117,6 +117,22 @@ func (p *KubeVirtProvider) Connect(ctx context.Context, config provider.NodeConf
 	return nil
 }
 
+func (p *KubeVirtProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	p.config = config
+	p.sshClient = executor
+	p.connected = true
+	p.healthChecker = nil
+
+	if err := p.getKubeVirtVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下KubeVirt版本获取失败", zap.Error(err))
+	}
+
+	global.APP_LOG.Info("KubeVirt provider (Agent模式) 加载完成",
+		zap.String("name", config.Name),
+		zap.String("type", config.Type))
+	return nil
+}
+
 func (p *KubeVirtProvider) Disconnect(ctx context.Context) error {
 	if p.sshClient != nil {
 		p.sshClient.Close()
@@ -145,6 +161,10 @@ func (p *KubeVirtProvider) EnsureConnection() error {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
+		if !p.sshClient.IsHealthy() {
+			p.connected = false
+			return fmt.Errorf("connection remains unhealthy after reconnect")
+		}
 
 		global.APP_LOG.Info("KubeVirt Provider SSH连接重建成功",
 			zap.String("host", utils.TruncateString(p.config.Host, 50)),
@@ -156,7 +176,23 @@ func (p *KubeVirtProvider) EnsureConnection() error {
 
 func (p *KubeVirtProvider) HealthCheck(ctx context.Context) (*health.HealthResult, error) {
 	if p.healthChecker == nil {
-		return nil, fmt.Errorf("health checker not initialized")
+		if p.sshClient == nil {
+			return nil, fmt.Errorf("health checker not initialized")
+		}
+		status := health.HealthStatusUnhealthy
+		sshStatus := "offline"
+		if p.sshClient.IsHealthy() {
+			status = health.HealthStatusHealthy
+			sshStatus = "online"
+		}
+		return &health.HealthResult{
+			Status:        status,
+			Timestamp:     time.Now(),
+			SSHStatus:     sshStatus,
+			APIStatus:     "unknown",
+			ServiceStatus: "unknown",
+			HostName:      p.config.HostName,
+		}, nil
 	}
 	return p.healthChecker.CheckHealth(ctx)
 }

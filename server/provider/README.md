@@ -36,6 +36,7 @@ provider/
 ### Provider 接口
 
 Provider 是所有虚拟化平台的统一抽象接口，定义了实例管理、镜像管理、连接管理、健康检查、实例发现等标准操作。
+在 `connection_type=agent` 时，控制端会注入基于 AgentHub 的 ShellExecutor，Provider 仍然通过统一接口执行命令，但底层由 WebSocket 代理到远端 Agent。
 
 ```go
 type Provider interface {
@@ -139,8 +140,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 | 规则 | 说明 |
 |---|---|
 | `api_only` | 仅通过 API 执行操作 |
-| `ssh_only` | 仅通过 SSH 执行操作 |
-| `auto` | 优先使用 API，失败时自动回退到 SSH |
+| `ssh_only` | 仅通过命令执行通道执行操作 |
+| `auto` | 优先使用 API，失败时自动回退到命令执行通道 |
 
 ## 已支持的 Provider
 
@@ -150,8 +151,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`docker`
 - **支持实例类型**：`container`
-- **连接方式**：SSH
-- **执行方式**：SSH 命令行（`docker` CLI）
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
 - **IPv4 网络**：`docker-net`
 - **IPv6 网络**：`docker-ipv6`
 - **特性**：容器生命周期管理、镜像拉取/删除、IPv6 支持检测、自动重连、实例发现与导入
@@ -162,8 +163,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`podman`
 - **支持实例类型**：`container`
-- **连接方式**：SSH
-- **执行方式**：SSH 命令行（`podman` CLI）
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
 - **端口映射方式**：固定使用 `native`
 - **IPv4 网络**：`podman-net`（172.20.0.0/16）
 - **IPv6 网络**：`podman-ipv6`
@@ -178,8 +179,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`containerd`
 - **支持实例类型**：`container`
-- **连接方式**：SSH
-- **执行方式**：SSH 命令行（`nerdctl` CLI）
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
 - **端口映射方式**：固定使用 `native`
 - **IPv4 网络**：`containerd-net`
 - **IPv6 网络**：`containerd-ipv6`
@@ -194,8 +195,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`incus`
 - **支持实例类型**：`container`、`vm`
-- **连接方式**：SSH + API（可选）
-- **执行方式**：根据执行规则选择 API 或 SSH
+- **连接方式**：SSH / Agent + API（可选）
+- **执行方式**：根据执行规则选择 API 或命令执行通道
 - **特性**：容器和虚拟机管理、证书认证 API、SSH 命令行备用、IPv6 配置、端口映射、Transport 资源自动清理、实例发现
 
 ### LXD
@@ -204,8 +205,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`lxd`
 - **支持实例类型**：`container`、`vm`
-- **连接方式**：SSH + API（可选）
-- **执行方式**：根据执行规则选择 API 或 SSH
+- **连接方式**：SSH / Agent + API（可选）
+- **执行方式**：根据执行规则选择 API 或命令执行通道
 - **特性**：容器和虚拟机管理、证书认证 API、SSH 命令行备用、IPv6 配置、端口映射、Transport 资源自动清理、实例发现
 
 ### Proxmox
@@ -214,8 +215,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`proxmox`
 - **支持实例类型**：`container`、`vm`
-- **连接方式**：SSH + API
-- **执行方式**：根据执行规则选择 API 或 SSH
+- **连接方式**：SSH / Agent + API
+- **执行方式**：根据执行规则选择 API 或命令执行通道
 - **特性**：虚拟机生命周期管理、Token 认证 API、SSH 命令行备用、虚拟机配置管理、网络和存储配置、Transport 资源自动清理、实例发现
 
 ### QEMU
@@ -224,8 +225,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`qemu`
 - **支持实例类型**：`vm`
-- **连接方式**：SSH
-- **执行方式**：SSH 命令行（`virsh` + `virt-install` + `cloud-init` CLI）
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
 - **网络**：libvirt NAT（virbr0, 192.168.122.0/24）
 - **端口映射**：通过 firewall.Manager（nftables 优先，iptables 兑底）
 - **镜像格式**：qcow2 + cloud-init ISO
@@ -237,8 +238,8 @@ Provider 支持三种执行规则，控制操作的执行方式：
 
 - **类型标识**：`kubevirt`
 - **支持实例类型**：`vm`
-- **连接方式**：SSH
-- **执行方式**：SSH 命令行（`kubectl` + `virtctl` CLI）
+- **连接方式**：SSH / Agent
+- **执行方式**：命令执行通道（SSH 或 Agent WebSocket）
 - **K8s 框架**：K3s
 - **命名空间**：`kubevirt-vms`
 - **端口映射**：NodePort Service + firewall.Manager（nftables 优先，iptables 兑底）

@@ -1,7 +1,10 @@
 package agent
 
 import (
+	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"oneclickvirt/global"
@@ -70,6 +73,18 @@ func (a *AgentShellExecutor) ExecuteWithLogging(command string, logPrefix string
 		}
 	}
 	return output, err
+}
+
+// UploadContent writes file content to the remote agent host using a base64 round-trip.
+func (a *AgentShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {
+	directory := filepath.Dir(remotePath)
+	encodedContent := base64.StdEncoding.EncodeToString([]byte(content))
+	command := fmt.Sprintf(
+		"mkdir -p %q && base64 -d > %q <<'EOF'\n%s\nEOF\nchmod %o %q",
+		directory, remotePath, encodedContent, perm, remotePath,
+	)
+	_, err := a.ExecuteWithTimeout(command, 300*time.Second)
+	return err
 }
 
 // IsHealthy returns true when the agent WebSocket connection is currently active.
