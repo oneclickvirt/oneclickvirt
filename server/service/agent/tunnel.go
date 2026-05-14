@@ -22,7 +22,6 @@ import (
 
 	"oneclickvirt/global"
 
-	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 )
 
@@ -149,15 +148,13 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 		// 通知 Agent 关闭隧道
 		closePayload, _ := json.Marshal(tunnelClosePayload{ConnID: connID})
 		closeMsg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelClose, Payload: closePayload})
-		tm.ac.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-		tm.ac.conn.WriteMessage(websocket.TextMessage, closeMsg) //nolint:errcheck
+		_ = tm.ac.writeTextMessage(closeMsg, 5*time.Second)
 	}()
 
 	// 1. 发送 tunnel_open 给 Agent
 	openPayload, _ := json.Marshal(tunnelOpenPayload{ConnID: connID, Host: targetHost, Port: targetPort})
 	openMsg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelOpen, Payload: openPayload})
-	tm.ac.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := tm.ac.conn.WriteMessage(websocket.TextMessage, openMsg); err != nil {
+	if err := tm.ac.writeTextMessage(openMsg, 10*time.Second); err != nil {
 		global.APP_LOG.Warn("发送 tunnel_open 失败", zap.Error(err))
 		return
 	}
@@ -186,8 +183,7 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 				frame := make([]byte, 8+n)
 				copy(frame[:8], header)
 				copy(frame[8:], buf[:n])
-				tm.ac.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-				if werr := tm.ac.conn.WriteMessage(websocket.BinaryMessage, frame); werr != nil {
+				if werr := tm.ac.writeBinaryMessage(frame, 10*time.Second); werr != nil {
 					return
 				}
 			}

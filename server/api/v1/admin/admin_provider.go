@@ -831,44 +831,35 @@ func ExecOnProvider(c *gin.Context) {
 		return
 	}
 
-	var stdout, stderr string
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+	defer cancel()
 
+	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "Provider连接不可用: "+err.Error()))
+		return
+	}
+
+	stdout := ""
+	stderr := ""
 	if dbProvider.ConnectionType == "agent" {
-		// Agent 模式：通过 WebSocket 发送命令
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(dbProvider.ID)
 		if !ok || conn == nil {
 			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "Agent 节点未连接，请检查节点是否在线"))
 			return
 		}
-		timeout := time.Duration(req.Timeout) * time.Second
-		output, execErr := conn.ExecuteWithTimeout(req.Command, timeout)
+		exec := agentService.NewAgentShellExecutor(dbProvider.ID, hub)
+		output, execErr := exec.ExecuteWithTimeout(req.Command, time.Duration(req.Timeout)*time.Second)
+		stdout = output
 		if execErr != nil {
 			stderr = execErr.Error()
-		} else {
-			stdout = output
 		}
 	} else {
-		// SSH 模式：通过 SSH 连接执行命令
-		sshConf := utils.SSHConfig{
-			Host:       dbProvider.Endpoint,
-			Port:       dbProvider.SSHPort,
-			Username:   dbProvider.Username,
-			Password:   dbProvider.Password,
-			PrivateKey: dbProvider.SSHKey,
-		}
-		client, sshErr := utils.NewSSHClient(sshConf)
-		if sshErr != nil {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "SSH连接失败: "+sshErr.Error()))
-			return
-		}
-		defer client.Close()
-
-		output, execErr := client.Execute(req.Command)
+		output, execErr := providerInstance.ExecuteSSHCommand(execCtx, req.Command)
+		stdout = output
 		if execErr != nil {
 			stderr = execErr.Error()
-		} else {
-			stdout = output
 		}
 	}
 

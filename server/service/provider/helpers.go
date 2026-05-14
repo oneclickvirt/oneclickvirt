@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
@@ -53,10 +54,48 @@ func EnsureProviderConnected(ctx context.Context, providerID uint) (provider.Pro
 		return nil, err
 	}
 
-	// 可以在这里添加健康检查逻辑
-	// 例如：调用 providerInstance 的某个方法验证连接
+	if providerInstance.IsConnected() {
+		return providerInstance, nil
+	}
 
-	return providerInstance, nil
+	providerSvc := GetProviderService()
+	if err := providerSvc.ReloadProvider(providerID); err != nil {
+		var dbProvider providerModel.Provider
+		if dbErr := global.APP_DB.First(&dbProvider, providerID).Error; dbErr != nil {
+			return nil, fmt.Errorf("获取Provider信息失败: %w", dbErr)
+		}
+		if loadErr := providerSvc.LoadProvider(dbProvider); loadErr != nil {
+			return nil, fmt.Errorf("重连Provider失败: %w", loadErr)
+		}
+	}
+
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		providerInstance, ok := providerSvc.GetProviderByID(providerID)
+		if ok && providerInstance.IsConnected() {
+			return providerInstance, nil
+		}
+
+		if dbProvider.ConnectionType != "agent" || time.Now().After(deadline) {
+			break
+		}
+
+		if ctx != nil {
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			default:
+			}
+		}
+		time.Sleep(500 * time.Millisecond)
+	}
+
+	return nil, fmt.Errorf("Provider ID %d 连接后仍然不可用", providerID)
 }
 
 // GetProviderWithDatabase 获取Provider实例和数据库记录

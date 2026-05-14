@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -27,11 +28,25 @@ func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
 }
 
 func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
-	conn, ok := a.hub.GetConn(a.providerID)
-	if !ok || conn == nil {
-		return nil, fmt.Errorf("agent not connected for provider %d", a.providerID)
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		conn, ok := a.hub.GetConn(a.providerID)
+		if ok && conn != nil {
+			return conn, nil
+		}
+		if time.Now().After(deadline) {
+			return nil, fmt.Errorf("agent not connected for provider %d", a.providerID)
+		}
+		time.Sleep(500 * time.Millisecond)
 	}
-	return conn, nil
+}
+
+func wrapShellEnv(command string) string {
+	trimmed := strings.TrimSpace(command)
+	if trimmed == "" {
+		return trimmed
+	}
+	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; [ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; [ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
 }
 
 // Execute runs a command on the remote agent with a default 300s timeout.
@@ -40,7 +55,7 @@ func (a *AgentShellExecutor) Execute(command string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return conn.ExecuteWithTimeout(command, 300*time.Second)
+	return conn.ExecuteWithTimeout(wrapShellEnv(command), 300*time.Second)
 }
 
 // ExecuteWithTimeout runs a command on the remote agent with a custom timeout.
@@ -49,7 +64,7 @@ func (a *AgentShellExecutor) ExecuteWithTimeout(command string, timeout time.Dur
 	if err != nil {
 		return "", err
 	}
-	return conn.ExecuteWithTimeout(command, timeout)
+	return conn.ExecuteWithTimeout(wrapShellEnv(command), timeout)
 }
 
 // ExecuteWithLogging runs a command and logs debug information around it.

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -111,6 +112,7 @@ type AgentConn struct {
 	hostname   string
 
 	mu            sync.Mutex
+	writeMu       sync.Mutex
 	pending       map[string]chan execResponsePayload // reqID → response channel
 	shellSessions map[string]*AgentShellSession
 }
@@ -128,6 +130,20 @@ func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 // NewAgentConn 导出的构造函数供 API handler 调用。
 func NewAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *AgentConn {
 	return newAgentConn(providerID, conn, remoteAddr)
+}
+
+func (a *AgentConn) writeTextMessage(payload []byte, timeout time.Duration) error {
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
+	a.conn.SetWriteDeadline(time.Now().Add(timeout))
+	return a.conn.WriteMessage(websocket.TextMessage, payload)
+}
+
+func (a *AgentConn) writeBinaryMessage(payload []byte, timeout time.Duration) error {
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
+	a.conn.SetWriteDeadline(time.Now().Add(timeout))
+	return a.conn.WriteMessage(websocket.BinaryMessage, payload)
 }
 
 // Execute 通过 WebSocket 在远端 Agent 上执行命令，返回 (stdout, error)。
@@ -154,17 +170,26 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 	msg := wsMessage{Type: msgTypeExecRequest, ID: reqID, Payload: payload}
 	raw, _ := json.Marshal(msg)
 
-	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
 		return "", fmt.Errorf("写入 WebSocket 失败: %w", err)
 	}
 
 	select {
 	case resp := <-respCh:
-		if resp.Error != "" {
-			return resp.Stdout, fmt.Errorf("agent 执行错误: %s", resp.Error)
+		combined := resp.Stdout
+		if resp.Stderr != "" {
+			if combined != "" && !strings.HasSuffix(combined, "\n") {
+				combined += "\n"
+			}
+			combined += resp.Stderr
 		}
-		return resp.Stdout, nil
+		if resp.Error != "" {
+			return combined, fmt.Errorf("agent 执行错误: %s", resp.Error)
+		}
+		if resp.ExitCode != 0 {
+			return combined, fmt.Errorf("agent command execution failed: exit code %d", resp.ExitCode)
+		}
+		return combined, nil
 	case <-time.After(timeout):
 		return "", fmt.Errorf("执行命令超时（%s）", timeout)
 	}
@@ -185,8 +210,7 @@ func (a *AgentConn) StartShell(cols, rows int) (*AgentShellSession, error) {
 	a.shellSessions[sessionID] = session
 	a.mu.Unlock()
 
-	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
 		a.mu.Lock()
 		delete(a.shellSessions, sessionID)
 		a.mu.Unlock()
@@ -200,8 +224,7 @@ func (a *AgentConn) WriteShellInput(sessionID string, data []byte) error {
 	payload, _ := json.Marshal(shellDataPayload{Data: string(data)})
 	msg := wsMessage{Type: msgTypeShellData, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
-	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
 		return fmt.Errorf("发送 shell 输入失败: %w", err)
 	}
 	return nil
@@ -211,8 +234,7 @@ func (a *AgentConn) ResizeShell(sessionID string, cols, rows int) error {
 	payload, _ := json.Marshal(shellResizePayload{Cols: cols, Rows: rows})
 	msg := wsMessage{Type: msgTypeShellResize, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
-	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+	if err := a.writeTextMessage(raw, 10*time.Second); err != nil {
 		return fmt.Errorf("发送 shell resize 失败: %w", err)
 	}
 	return nil
@@ -222,8 +244,7 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 	payload, _ := json.Marshal(shellClosePayload{})
 	msg := wsMessage{Type: msgTypeShellClose, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
-	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	err := a.conn.WriteMessage(websocket.TextMessage, raw)
+	err := a.writeTextMessage(raw, 10*time.Second)
 	a.mu.Lock()
 	if session, ok := a.shellSessions[sessionID]; ok {
 		delete(a.shellSessions, sessionID)
@@ -446,8 +467,7 @@ func (h *AgentHub) StartPingLoop() {
 			now := time.Now()
 			for _, ac := range conns {
 				pingMsg, _ := json.Marshal(wsMessage{Type: msgTypePing})
-				ac.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-				if err := ac.conn.WriteMessage(websocket.TextMessage, pingMsg); err != nil {
+				if err := ac.writeTextMessage(pingMsg, 5*time.Second); err != nil {
 					continue
 				}
 				go h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
