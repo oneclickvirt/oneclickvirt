@@ -13,6 +13,13 @@ let needsInit = false
 const INIT_CHECK_INTERVAL = 5 * 60 * 1000 // Re-check every 5 minutes
 let lastInitCheck = 0
 
+// resetInitCache 供初始化成功后的页面调用，强制下次路由守卫重新查询初始化状态
+export function resetInitCache() {
+  initStatusChecked = false
+  needsInit = false
+  lastInitCheck = 0
+}
+
 async function checkInitStatus() {
   const now = Date.now()
   if (initStatusChecked && (now - lastInitCheck) < INIT_CHECK_INTERVAL) {

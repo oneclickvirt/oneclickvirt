@@ -205,6 +205,7 @@ import { ElMessage } from 'element-plus'
 import { post, get } from '@/utils/request'
 import { checkSystemInit, getInitProgress } from '@/api/init'
 import { containsUnsafeUsernameContent } from '@/utils/validate'
+import { resetInitCache } from '@/router/guards'
 import InitProgressPanel from './components/InitProgressPanel.vue'
 
 const router = useRouter()
@@ -450,6 +451,7 @@ const checkInitStatus = async () => {
     const response = await checkSystemInit()
     if (response && (response.code === 200) && response.data && response.data.needInit === false) {
       clearPolling()
+      resetInitCache()
       router.push('/home')
     }
   } catch (error) {
@@ -488,6 +490,7 @@ const startProgressPolling = () => {
         if (data.status === 'success') {
           stopProgressPolling()
           ElMessage.success(t('init.progress.successMsg'))
+          resetInitCache()
           setTimeout(() => router.push('/home'), 1500)
         } else if (data.status === 'failed') {
           stopProgressPolling()
@@ -515,6 +518,7 @@ const retryInit = () => {
 }
 
 const goHome = () => {
+  resetInitCache()
   router.push('/home')
 }
 
