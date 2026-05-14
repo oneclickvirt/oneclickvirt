@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math/rand"
 	"net"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -304,6 +305,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	now := time.Now()
 	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 
+	// 异步同步节点硬件资源（CPU/内存/磁盘），解决 Agent 模式节点无 SSH 健康检查的资源同步问题
+	go h.syncNodeResources(ac)
+
 	// 启动读取循环（异步，包含后续心跳和 info 帧处理）
 	go h.readLoop(ac)
 }
@@ -546,6 +550,122 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 			global.APP_LOG.Warn("回填 Agent 节点 endpoint 失败", zap.Uint("providerID", providerID), zap.Error(err))
 		}
 	}
+}
+
+// syncNodeResources 通过 Agent WebSocket 获取节点硬件资源（CPU/内存/磁盘），
+// 更新 Provider 的 NodeCPUCores / NodeMemoryTotal / NodeDiskTotal。
+// Agent 模式节点不依赖 SSH 健康检查，资源通过此函数在 Agent 上线时同步。
+func (h *AgentHub) syncNodeResources(ac *AgentConn) {
+	// 稍等片刻确保 WebSocket 连接稳定
+	time.Sleep(2 * time.Second)
+
+	providerID := ac.ProviderID
+
+	// 检查 Provider 是否已有资源数据，已有则跳过（避免覆盖手动设置的值）
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("node_cpu_cores, node_memory_total, node_disk_total, resource_synced").
+		Where("id = ?", providerID).First(&provider).Error; err != nil {
+		global.APP_LOG.Warn("syncNodeResources: 查询 Provider 失败", zap.Uint("providerID", providerID), zap.Error(err))
+		return
+	}
+	if provider.ResourceSynced && provider.NodeCPUCores > 0 && provider.NodeMemoryTotal > 0 && provider.NodeDiskTotal > 0 {
+		return // 已同步过，无需重复
+	}
+
+	// 获取 CPU 核心数
+	cpuOutput, cpuErr := ac.ExecuteWithTimeout("nproc 2>/dev/null || echo 0", 10*time.Second)
+	cpuCores := 0
+	if cpuErr == nil {
+		cpuCores = parseFirstInt(strings.TrimSpace(cpuOutput))
+	}
+
+	// 获取总内存（字节）
+	memOutput, memErr := ac.ExecuteWithTimeout("free -b 2>/dev/null | awk '/^Mem:/{print $2}' || echo 0", 10*time.Second)
+	memTotal := int64(0)
+	if memErr == nil {
+		memTotal = parseInt64(strings.TrimSpace(memOutput))
+	}
+
+	// 获取根分区总磁盘（字节）
+	diskOutput, diskErr := ac.ExecuteWithTimeout("df -B1 / 2>/dev/null | awk 'NR==2{print $2}' || echo 0", 10*time.Second)
+	diskTotal := int64(0)
+	if diskErr == nil {
+		diskTotal = parseInt64(strings.TrimSpace(diskOutput))
+	}
+
+	if cpuCores == 0 && memTotal == 0 && diskTotal == 0 {
+		global.APP_LOG.Warn("syncNodeResources: 未能获取节点资源信息",
+			zap.Uint("providerID", providerID))
+		return
+	}
+
+	// 转换为 MB（内存和磁盘原始值为字节）
+	memMB := memTotal / (1024 * 1024)
+	diskMB := diskTotal / (1024 * 1024)
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"resource_synced":    true,
+		"resource_synced_at": &now,
+	}
+	if cpuCores > 0 {
+		updates["node_cpu_cores"] = cpuCores
+	}
+	if memMB > 0 {
+		updates["node_memory_total"] = memMB
+	}
+	if diskMB > 0 {
+		updates["node_disk_total"] = diskMB
+	}
+
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", providerID).
+		Updates(updates).Error; err != nil {
+		global.APP_LOG.Warn("syncNodeResources: 更新 Provider 资源失败",
+			zap.Uint("providerID", providerID), zap.Error(err))
+		return
+	}
+
+	global.APP_LOG.Info("Agent 节点资源同步完成",
+		zap.Uint("providerID", providerID),
+		zap.Int("cpuCores", cpuCores),
+		zap.Int64("memoryMB", memMB),
+		zap.Int64("diskMB", diskMB))
+}
+
+// parseFirstInt 从字符串中提取第一个整数
+func parseFirstInt(s string) int {
+	s = strings.TrimSpace(s)
+	// 提取连续数字
+	var numStr strings.Builder
+	for _, ch := range s {
+		if ch >= '0' && ch <= '9' {
+			numStr.WriteRune(ch)
+		} else if numStr.Len() > 0 {
+			break
+		}
+	}
+	if numStr.Len() == 0 {
+		return 0
+	}
+	val, err := strconv.Atoi(numStr.String())
+	if err != nil {
+		return 0
+	}
+	return val
+}
+
+// parseInt64 将字符串解析为 int64
+func parseInt64(s string) int64 {
+	s = strings.TrimSpace(s)
+	if s == "" || s == "0" {
+		return 0
+	}
+	val, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return 0
+	}
+	return val
 }
 
 // randomID 生成一个短随机字符串（用于请求 ID 和 secret 生成）。

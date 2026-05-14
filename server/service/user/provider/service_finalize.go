@@ -753,7 +753,8 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 	// 获取SSH端口映射
 	var sshPort int
 	var sshPortMapping providerModel.Port
-	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
+	hasPortMapping := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error == nil
+	if hasPortMapping {
 		sshPort = sshPortMapping.HostPort
 	} else {
 		sshPort = instance.SSHPort
@@ -762,12 +763,37 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		}
 	}
 
-	// 确定SSH连接地址
+	// 确定SSH连接地址：根据网络类型选择合适的IP
 	var sshHost string
-	if provider.PortIP != "" {
-		sshHost = provider.PortIP
-	} else {
-		sshHost = provider.Endpoint
+	networkType := provider.NetworkType
+
+	// 独立IP模式：实例有独立公网IP，直接连实例
+	if networkType == "dedicated_ipv4" || networkType == "dedicated_ipv4_ipv6" {
+		if instance.PublicIP != "" {
+			sshHost = instance.PublicIP
+		} else if instance.PrivateIP != "" {
+			// fallback: 某些独立IP场景下 private_ip 即为公网可达地址
+			sshHost = instance.PrivateIP
+		}
+	}
+
+	// NAT 模式：通过端口映射访问，使用 Provider 的公网IP
+	if sshHost == "" {
+		if provider.PortIP != "" {
+			sshHost = provider.PortIP
+		} else {
+			sshHost = provider.Endpoint
+		}
+	}
+
+	// 无端口映射且非独立IP模式（如纯IPv6、或未配置端口映射的NAT）：跳过SSH就绪检测
+	if !hasPortMapping && networkType != "dedicated_ipv4" && networkType != "dedicated_ipv4_ipv6" {
+		global.APP_LOG.Debug("无端口映射且非独立IP模式，跳过SSH就绪检测",
+			zap.Uint("instanceId", instanceID),
+			zap.String("instanceName", instance.Name),
+			zap.String("networkType", networkType))
+		s.updateTaskProgress(taskID, 79, "无端口映射模式，跳过SSH检测")
+		return nil
 	}
 
 	// 如果sshHost包含端口，去掉端口部分
@@ -911,6 +937,12 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 				} else if actualInstance.IP != "" {
 					updates["private_ip"] = actualInstance.IP
 				}
+			}
+		case "docker", "podman", "containerd":
+			// 容器类 Provider 在实例创建时已将 private_ip 写入数据库，
+			// 此处仅做幂等补齐，若已有则直接返回。
+			if instance.PrivateIP != "" {
+				return nil
 			}
 		}
 
