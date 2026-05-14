@@ -208,6 +208,14 @@ func CreatePortMapping(c *gin.Context) {
 		return
 	}
 
+	// 控制端转发模式：端口已直接在控制器上启动监听，无需创建异步任务
+	if taskData == nil {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"portId": portID,
+		}, "控制端端口转发已创建")
+		return
+	}
+
 	// 序列化任务数据
 	taskDataJSON, err := json.Marshal(taskData)
 	if err != nil {

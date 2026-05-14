@@ -622,8 +622,8 @@ func parseGPUInfo(raw string) []map[string]string {
 
 // GenerateAgentSecret godoc
 //
-//	@Summary		生成或刷新 Provider 的 Agent 密钥
-//	@Description	为 agent 连接模式的 Provider 生成新的鉴权密钥，并返回 WebSocket 连接地址和安装命令
+//	@Summary		生成或获取 Provider 的 Agent 密钥
+//	@Description	为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。
 //	@Tags			admin/providers
 //	@Param			id	path	int	true	"Provider ID"
 //	@Produce		json
@@ -650,21 +650,29 @@ func GenerateAgentSecret(c *gin.Context) {
 		return
 	}
 
-	agentSvc := agentService.GetHub()
-	_ = agentSvc
+	// 如果已有 agent_secret，直接返回现有密钥（密钥一旦创建即写死，不支持刷新）
+	var secret string
+	if dbProvider.AgentSecret != "" {
+		secret = dbProvider.AgentSecret
+	} else {
+		agentSvc := agentService.GetHub()
+		_ = agentSvc
 
-	secret, err := agentService.GenerateAgentSecret(uint(id))
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成密钥失败: "+err.Error()))
-		return
+		secret, err = agentService.GenerateAgentSecret(uint(id))
+		if err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成密钥失败: "+err.Error()))
+			return
+		}
 	}
 
-	// 更新 ConnectionType 为 agent
-	if err := global.APP_DB.Model(&providerModel.Provider{}).
-		Where("id = ?", id).
-		Update("connection_type", "agent").Error; err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新连接类型失败: "+err.Error()))
-		return
+	// 更新 ConnectionType 为 agent（如果还不是）
+	if dbProvider.ConnectionType != "agent" {
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ?", id).
+			Update("connection_type", "agent").Error; err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "更新连接类型失败: "+err.Error()))
+			return
+		}
 	}
 
 	// 构造控制端 WebSocket 地址
@@ -698,13 +706,26 @@ func GenerateAgentSecret(c *gin.Context) {
 		installScript, wsURL, secret,
 	)
 
-	common.ResponseSuccess(c, map[string]interface{}{
-		"agentSecret": secret,
-		"wsPath":      "/api/v1/ws/agent",
-		"wsURL":       wsURL,
-		"installCmd":  installCmd,
-		"hint":        fmt.Sprintf("在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret),
-	}, "Agent 密钥已生成")
+	// 判断是否为已有密钥（返回不同提示）
+	if dbProvider.AgentSecret != "" {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"agentSecret": secret,
+			"wsPath":      "/api/v1/ws/agent",
+			"wsURL":       wsURL,
+			"installCmd":  installCmd,
+			"isExisting":  true,
+			"hint":        fmt.Sprintf("密钥已存在（不可刷新）。在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret),
+		}, "Agent 密钥已存在（密钥一旦创建即写死，不支持刷新）")
+	} else {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"agentSecret": secret,
+			"wsPath":      "/api/v1/ws/agent",
+			"wsURL":       wsURL,
+			"installCmd":  installCmd,
+			"isExisting":  false,
+			"hint":        fmt.Sprintf("在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret),
+		}, "Agent 密钥已生成")
+	}
 }
 
 // GetStoppedContainers godoc

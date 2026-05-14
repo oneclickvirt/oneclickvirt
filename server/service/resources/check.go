@@ -37,6 +37,12 @@ func (s *PortMappingService) isGenericPortAvailable(providerInfo *provider.Provi
 		return false
 	}
 
+	// Agent 模式节点：若没有 SSH 凭据则跳过系统端口扫描（Agent 通过 WebSocket 通道通信，SSH 不可用是正常情况）
+	if providerInfo.ConnectionType == "agent" && providerInfo.Password == "" && providerInfo.SSHKey == "" {
+		// 仅基于数据库判断（已经检查过了，到这里说明数据库中没有记录）
+		return true
+	}
+
 	// 创建SSH客户端连接到Provider节点进行端口检查
 	sshClient, err := s.createSSHClientForProvider(providerInfo)
 	if err != nil {

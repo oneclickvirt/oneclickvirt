@@ -604,39 +604,34 @@ const handleAuthMethodChange = (newMethod) => {
   }
 }
 
-// 生成 Agent 密钥（需确认，避免意外断开已有连接）
+// 生成/查看 Agent 密钥（密钥一旦创建即写死，不支持刷新）
 const handleGenerateAgentSecret = async () => {
   if (!formData.value.id) return
-  // 首次安装直接生成，已有连接的二次确认
-  if (formData.value.agentStatus === 'online') {
-    try {
-      await ElMessageBox.confirm(
-        t('admin.providers.regenerateAgentSecretConfirm'),
-        t('admin.providers.regenerateAgentSecret'),
-        { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
-      )
-    } catch { return }
-  }
   generatingSecret.value = true
   agentConnectCmd.value = ''
   try {
     const res = await generateAgentSecretAPI(formData.value.id)
     if (res.data && res.data.installCmd) {
       agentConnectCmd.value = res.data.installCmd
-      ElMessage.success(t('admin.providers.agentSecretGenerated'))
-      // 如果 Agent 在线，提示用 ocv 更新
-      if (formData.value.agentStatus === 'online') {
+      if (res.data.isExisting) {
+        ElMessage.info(t('admin.providers.agentSecretExists'))
         ElMessageBox.alert(
           t('admin.providers.agentSecretUpdatedHint'),
           t('admin.providers.agentSecretUpdated'),
           { confirmButtonText: t('common.ok'), type: 'info' }
         )
+      } else {
+        ElMessage.success(t('admin.providers.agentSecretGenerated'))
       }
     } else if (res.data && res.data.wsPath) {
       const origin = window.location.origin
       const wsUrl = origin.replace(/^http/, 'ws') + res.data.wsPath
       agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
-      ElMessage.success(t('admin.providers.agentSecretGenerated'))
+      if (res.data.isExisting) {
+        ElMessage.info(t('admin.providers.agentSecretExists'))
+      } else {
+        ElMessage.success(t('admin.providers.agentSecretGenerated'))
+      }
     }
   } catch (error) {
     ElMessage.error(error.message || t('common.operationFailed'))

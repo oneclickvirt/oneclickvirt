@@ -342,28 +342,35 @@ func (s *PortMappingService) batchCheckPortsAvailability(providerInfo *provider.
 	// 3. 使用系统命令批量检查宿主机端口占用（一次系统调用）
 	systemOccupiedPorts := make(map[int]bool)
 
-	// 创建SSH客户端连接到Provider节点
-	sshClient, err := s.createSSHClientForProvider(providerInfo)
-	if err != nil {
-		global.APP_LOG.Warn("创建SSH连接失败，仅使用数据库结果",
-			zap.Error(err),
-			zap.Uint("providerId", providerInfo.ID))
-	} else {
-		defer sshClient.Close()
-
-		// 使用新的批量检测工具
-		scanResult := utils.BatchCheckPortsOccupied(sshClient, portsToCheck)
-		if scanResult.Error != nil {
-			global.APP_LOG.Warn("系统端口扫描失败，仅使用数据库结果",
-				zap.Error(scanResult.Error),
+	// Agent 模式节点：若没有 SSH 凭据则跳过系统端口扫描（Agent 通过 WebSocket 通道通信，SSH 不可用是正常情况）
+	if providerInfo.ConnectionType != "agent" || providerInfo.Password != "" || providerInfo.SSHKey != "" {
+		// 创建SSH客户端连接到Provider节点
+		sshClient, err := s.createSSHClientForProvider(providerInfo)
+		if err != nil {
+			global.APP_LOG.Warn("创建SSH连接失败，仅使用数据库结果",
+				zap.Error(err),
 				zap.Uint("providerId", providerInfo.ID))
 		} else {
-			systemOccupiedPorts = scanResult.OccupiedPorts
-			global.APP_LOG.Debug("系统端口扫描完成",
-				zap.Int("扫描端口数", len(portsToCheck)),
-				zap.Int("系统占用", len(systemOccupiedPorts)),
-				zap.String("工具", string(scanResult.ScannerType)))
+			defer sshClient.Close()
+
+			// 使用新的批量检测工具
+			scanResult := utils.BatchCheckPortsOccupied(sshClient, portsToCheck)
+			if scanResult.Error != nil {
+				global.APP_LOG.Warn("系统端口扫描失败，仅使用数据库结果",
+					zap.Error(scanResult.Error),
+					zap.Uint("providerId", providerInfo.ID))
+			} else {
+				systemOccupiedPorts = scanResult.OccupiedPorts
+				global.APP_LOG.Debug("系统端口扫描完成",
+					zap.Int("扫描端口数", len(portsToCheck)),
+					zap.Int("系统占用", len(systemOccupiedPorts)),
+					zap.String("工具", string(scanResult.ScannerType)))
+			}
 		}
+	} else {
+		// Agent 模式节点无 SSH 凭据属于预期情况，使用 Debug 级别日志
+		global.APP_LOG.Debug("Agent 模式节点无 SSH 凭据，跳过系统端口扫描（仅使用数据库结果）",
+			zap.Uint("providerId", providerInfo.ID))
 	}
 
 	// 4. 合并结果：数据库占用或系统占用的都视为不可用
