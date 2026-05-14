@@ -226,6 +226,37 @@ func (s *ResourceService) AllocateResourcesInTx(tx *gorm.DB, providerID uint, in
 		return fmt.Errorf("Provider不存在或无法锁定: %v", err)
 	}
 
+	availableCPU := provider.NodeCPUCores - provider.UsedCPUCores
+	availableMemory := provider.NodeMemoryTotal - provider.UsedMemory
+	availableDisk := provider.NodeDiskTotal - provider.UsedDisk
+	if instanceType == "vm" {
+		if provider.MaxVMInstances > 0 && provider.VMCount >= provider.MaxVMInstances {
+			return fmt.Errorf("虚拟机数量已达上限：%d/%d", provider.VMCount, provider.MaxVMInstances)
+		}
+		if provider.VMLimitCPU && provider.NodeCPUCores > 0 && cpu > availableCPU {
+			return fmt.Errorf("CPU资源不足：需要 %d 核，可用 %d 核", cpu, availableCPU)
+		}
+		if provider.VMLimitMemory && provider.NodeMemoryTotal > 0 && memory > availableMemory {
+			return fmt.Errorf("内存资源不足：需要 %d MB，可用 %d MB", memory, availableMemory)
+		}
+		if provider.VMLimitDisk && provider.NodeDiskTotal > 0 && disk > availableDisk {
+			return fmt.Errorf("磁盘资源不足：需要 %d MB，可用 %d MB", disk, availableDisk)
+		}
+	} else {
+		if provider.MaxContainerInstances > 0 && provider.ContainerCount >= provider.MaxContainerInstances {
+			return fmt.Errorf("容器数量已达上限：%d/%d", provider.ContainerCount, provider.MaxContainerInstances)
+		}
+		if provider.ContainerLimitCPU && provider.NodeCPUCores > 0 && cpu > availableCPU {
+			return fmt.Errorf("CPU资源不足：需要 %d 核，可用 %d 核", cpu, availableCPU)
+		}
+		if provider.ContainerLimitMemory && provider.NodeMemoryTotal > 0 && memory > availableMemory {
+			return fmt.Errorf("内存资源不足：需要 %d MB，可用 %d MB", memory, availableMemory)
+		}
+		if provider.ContainerLimitDisk && provider.NodeDiskTotal > 0 && disk > availableDisk {
+			return fmt.Errorf("磁盘资源不足：需要 %d MB，可用 %d MB", disk, availableDisk)
+		}
+	}
+
 	// 更新资源占用（根据资源限制配置决定是否扣减）
 	updates := map[string]interface{}{
 		"updated_at": time.Now(),

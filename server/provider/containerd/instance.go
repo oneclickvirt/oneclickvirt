@@ -147,12 +147,12 @@ func (c *ContainerdProvider) sshCreateInstanceWithProgress(ctx context.Context, 
 
 	updateProgress(10, "开始创建Containerd实例...")
 
+	// 确保SSH脚本文件可用（非致命错误，SSH脚本仅用于后续密码配置）
 	updateProgress(15, "确保SSH脚本可用...")
 	if err := c.ensureSSHScriptsAvailable(c.config.Country); err != nil {
-		global.APP_LOG.Error("确保SSH脚本可用失败",
+		global.APP_LOG.Warn("确保SSH脚本可用失败，但继续创建实例",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.Error(err))
-		return fmt.Errorf("确保SSH脚本可用失败: %w", err)
 	}
 
 	updateProgress(20, "处理Containerd镜像...")

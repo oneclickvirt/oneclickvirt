@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
+	"strconv"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -15,6 +18,7 @@ import (
 	"oneclickvirt/provider"
 	providerService "oneclickvirt/service/provider"
 	"oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -38,6 +42,9 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		global.APP_LOG.Error("解析任务数据失败", zap.Uint("taskId", task.ID), zap.Error(err))
 		return err
 	}
+	var redemptionTaskReq adminModel.CreateRedemptionInstanceTaskRequest
+	redemptionTaskJSONErr := json.Unmarshal([]byte(task.TaskData), &redemptionTaskReq)
+	isCopyMode := redemptionTaskJSONErr == nil && redemptionTaskReq.CreationMode == "copy" && redemptionTaskReq.SourceContainer != ""
 
 	// 直接从数据库获取Provider配置（使用ProviderID而不是Name）
 	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
@@ -107,16 +114,29 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		// 重新获取Provider实例并确认连接状态
 		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 		if dbProvider.ConnectionType == "agent" && (!exists || !providerInstance.IsConnected()) {
-			// Agent 连接可能在重载后短时间内重连，给一个短暂重试窗口避免误判不可用。
-			for i := 0; i < 20; i++ {
+			// Agent 连接可能在重载后短时间内重连，等待 Agent 重新建立 WebSocket 连接。
+			// 与 AgentShellExecutor.getConn() 的 60 秒超时保持一致。
+			agentWaitDeadline := time.Now().Add(60 * time.Second)
+			for i := 0; ; i++ {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				time.Sleep(500 * time.Millisecond)
 				providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
 				if exists && providerInstance.IsConnected() {
+					global.APP_LOG.Debug("Agent 连接已恢复",
+						zap.Uint("providerId", localProviderID),
+						zap.Int("waitIterations", i+1))
 					break
 				}
+				if time.Now().After(agentWaitDeadline) {
+					break
+				}
+				// 前 10 秒每 500ms 检查一次，之后每 2 秒检查一次
+				delay := 500 * time.Millisecond
+				if i >= 20 {
+					delay = 2 * time.Second
+				}
+				time.Sleep(delay)
 			}
 		}
 		if !exists || !providerInstance.IsConnected() {
@@ -129,77 +149,131 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		}
 	}
 
-	// 获取镜像名称
-	var systemImage systemModel.SystemImage
-	if err := global.APP_DB.Where("id = ?", taskReq.ImageId).First(&systemImage).Error; err != nil {
-		err := fmt.Errorf("获取镜像信息失败: %v", err)
-		global.APP_LOG.Error("获取镜像信息失败", zap.Uint("taskId", task.ID), zap.Uint("imageId", taskReq.ImageId), zap.Error(err))
-		return err
-	}
+	imageName := ""
+	imageURL := ""
+	useCDN := false
+	cpuValue := ""
+	memoryValue := ""
+	diskValue := ""
+	bandwidthSpeedMbps := 0
+	userLevel := 0
 
-	// 将规格ID转换为实际数值
-	cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId)
-	if err != nil {
-		err := fmt.Errorf("获取CPU规格失败: %v", err)
-		global.APP_LOG.Error("获取CPU规格失败", zap.Uint("taskId", task.ID), zap.String("cpuId", taskReq.CPUId), zap.Error(err))
-		return err
-	}
+	if isCopyMode {
+		if localProviderType != "lxd" && localProviderType != "incus" {
+			return fmt.Errorf("复制模式仅支持 LXD/Incus 类型的节点")
+		}
+		if instance.InstanceType != "container" {
+			return fmt.Errorf("复制模式仅支持容器实例")
+		}
+		if !utils.IsValidLXDInstanceName(redemptionTaskReq.SourceContainer) {
+			return fmt.Errorf("源容器名称格式无效")
+		}
+		imageName = "copy:" + redemptionTaskReq.SourceContainer
+		copyCPU, copyMemory, copyDisk, err := s.detectCopySourceResources(ctx, providerInstance, localProviderType, redemptionTaskReq.SourceContainer)
+		if err != nil {
+			return fmt.Errorf("复制模式获取源容器资源失败: %w", err)
+		}
+		if err := validateCopyResourceIsolation(dbProvider, copyCPU, copyMemory, copyDisk); err != nil {
+			return err
+		}
+		resourceService := &resources.ResourceService{}
+		if err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
+			if err := resourceService.AllocateResourcesInTx(tx, localProviderID, "container", copyCPU, copyMemory, copyDisk); err != nil {
+				return err
+			}
+			return tx.Model(instance).Updates(map[string]interface{}{
+				"cpu":    copyCPU,
+				"memory": copyMemory,
+				"disk":   copyDisk,
+			}).Error
+		}); err != nil {
+			return fmt.Errorf("复制模式分配节点资源失败: %w", err)
+		}
+		instance.CPU = copyCPU
+		instance.Memory = copyMemory
+		instance.Disk = copyDisk
+	} else {
+		// 获取镜像名称
+		var systemImage systemModel.SystemImage
+		if err := global.APP_DB.Where("id = ?", taskReq.ImageId).First(&systemImage).Error; err != nil {
+			err := fmt.Errorf("获取镜像信息失败: %v", err)
+			global.APP_LOG.Error("获取镜像信息失败", zap.Uint("taskId", task.ID), zap.Uint("imageId", taskReq.ImageId), zap.Error(err))
+			return err
+		}
 
-	memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId)
-	if err != nil {
-		err := fmt.Errorf("获取内存规格失败: %v", err)
-		global.APP_LOG.Error("获取内存规格失败", zap.Uint("taskId", task.ID), zap.String("memoryId", taskReq.MemoryId), zap.Error(err))
-		return err
-	}
+		// 将规格ID转换为实际数值
+		cpuSpec, err := constant.GetCPUSpecByID(taskReq.CPUId)
+		if err != nil {
+			err := fmt.Errorf("获取CPU规格失败: %v", err)
+			global.APP_LOG.Error("获取CPU规格失败", zap.Uint("taskId", task.ID), zap.String("cpuId", taskReq.CPUId), zap.Error(err))
+			return err
+		}
 
-	diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId)
-	if err != nil {
-		err := fmt.Errorf("获取磁盘规格失败: %v", err)
-		global.APP_LOG.Error("获取磁盘规格失败", zap.Uint("taskId", task.ID), zap.String("diskId", taskReq.DiskId), zap.Error(err))
-		return err
-	}
+		memorySpec, err := constant.GetMemorySpecByID(taskReq.MemoryId)
+		if err != nil {
+			err := fmt.Errorf("获取内存规格失败: %v", err)
+			global.APP_LOG.Error("获取内存规格失败", zap.Uint("taskId", task.ID), zap.String("memoryId", taskReq.MemoryId), zap.Error(err))
+			return err
+		}
 
-	bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId)
-	if err != nil {
-		err := fmt.Errorf("获取带宽规格失败: %v", err)
-		global.APP_LOG.Error("获取带宽规格失败", zap.Uint("taskId", task.ID), zap.String("bandwidthId", taskReq.BandwidthId), zap.Error(err))
-		return err
-	}
+		diskSpec, err := constant.GetDiskSpecByID(taskReq.DiskId)
+		if err != nil {
+			err := fmt.Errorf("获取磁盘规格失败: %v", err)
+			global.APP_LOG.Error("获取磁盘规格失败", zap.Uint("taskId", task.ID), zap.String("diskId", taskReq.DiskId), zap.Error(err))
+			return err
+		}
 
-	// 获取用户等级信息，用于带宽限制配置
-	var user userModel.User
-	if err := global.APP_DB.First(&user, task.UserID).Error; err != nil {
-		err := fmt.Errorf("获取用户信息失败: %v", err)
-		global.APP_LOG.Error("获取用户信息失败", zap.Uint("taskId", task.ID), zap.Uint("userID", task.UserID), zap.Error(err))
-		return err
-	}
+		bandwidthSpec, err := constant.GetBandwidthSpecByID(taskReq.BandwidthId)
+		if err != nil {
+			err := fmt.Errorf("获取带宽规格失败: %v", err)
+			global.APP_LOG.Error("获取带宽规格失败", zap.Uint("taskId", task.ID), zap.String("bandwidthId", taskReq.BandwidthId), zap.Error(err))
+			return err
+		}
 
-	global.APP_LOG.Debug("规格ID转换为实际数值",
-		zap.Uint("taskId", task.ID),
-		zap.String("cpuId", taskReq.CPUId), zap.Int("cpuCores", cpuSpec.Cores),
-		zap.String("memoryId", taskReq.MemoryId), zap.Int("memorySizeMB", memorySpec.SizeMB),
-		zap.String("diskId", taskReq.DiskId), zap.Int("diskSizeMB", diskSpec.SizeMB),
-		zap.String("bandwidthId", taskReq.BandwidthId), zap.Int("bandwidthSpeedMbps", bandwidthSpec.SpeedMbps),
-		zap.Int("userLevel", user.Level))
+		// 获取用户等级信息，用于带宽限制配置
+		var user userModel.User
+		if err := global.APP_DB.First(&user, task.UserID).Error; err != nil {
+			err := fmt.Errorf("获取用户信息失败: %v", err)
+			global.APP_LOG.Error("获取用户信息失败", zap.Uint("taskId", task.ID), zap.Uint("userID", task.UserID), zap.Error(err))
+			return err
+		}
+
+		imageName = systemImage.Name
+		imageURL = systemImage.URL
+		useCDN = systemImage.UseCDN
+		cpuValue = fmt.Sprintf("%d", cpuSpec.Cores)
+		memoryValue = fmt.Sprintf("%dm", memorySpec.SizeMB)
+		diskValue = fmt.Sprintf("%dm", diskSpec.SizeMB)
+		bandwidthSpeedMbps = bandwidthSpec.SpeedMbps
+		userLevel = user.Level
+
+		global.APP_LOG.Debug("规格ID转换为实际数值",
+			zap.Uint("taskId", task.ID),
+			zap.String("cpuId", taskReq.CPUId), zap.Int("cpuCores", cpuSpec.Cores),
+			zap.String("memoryId", taskReq.MemoryId), zap.Int("memorySizeMB", memorySpec.SizeMB),
+			zap.String("diskId", taskReq.DiskId), zap.Int("diskSizeMB", diskSpec.SizeMB),
+			zap.String("bandwidthId", taskReq.BandwidthId), zap.Int("bandwidthSpeedMbps", bandwidthSpec.SpeedMbps),
+			zap.Int("userLevel", user.Level))
+	}
 
 	// 构建实例配置，使用实际数值而非ID
 	instanceConfig := provider.InstanceConfig{
 		Name:         instance.Name,
-		Image:        systemImage.Name,
-		CPU:          fmt.Sprintf("%d", cpuSpec.Cores),      // 使用实际核心数
-		Memory:       fmt.Sprintf("%dm", memorySpec.SizeMB), // 使用实际内存大小（MB格式）
-		Disk:         fmt.Sprintf("%dm", diskSpec.SizeMB),   // 使用实际磁盘大小（MB格式）
+		Image:        imageName,
+		CPU:          cpuValue,
+		Memory:       memoryValue,
+		Disk:         diskValue,
 		InstanceType: instance.InstanceType,
-		ImageURL:     systemImage.URL,    // 镜像URL用于下载
-		UseCDN:       systemImage.UseCDN, // 传递CDN加速配置（仅GitHub链接启用）
+		ImageURL:     imageURL, // 镜像URL用于下载
+		UseCDN:       useCDN,   // 传递CDN加速配置（仅GitHub链接启用）
 		Metadata: map[string]string{
-			"user_level":               fmt.Sprintf("%d", user.Level),              // 用户等级，用于带宽限制配置
-			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpec.SpeedMbps), // 用户选择的带宽规格
-			"ipv4_port_mapping_method": localProviderIPv4PortMappingMethod,         // IPv4端口映射方式（从Provider配置获取）
-			"ipv6_port_mapping_method": localProviderIPv6PortMappingMethod,         // IPv6端口映射方式（从Provider配置获取）
-			"network_type":             localProviderNetworkType,                   // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
-			"instance_id":              fmt.Sprintf("%d", instance.ID),             // 实例ID，用于端口分配
-			"provider_id":              fmt.Sprintf("%d", localProviderID),         // Provider ID，用于端口区间分配
+			"user_level":               fmt.Sprintf("%d", userLevel),          // 用户等级，用于带宽限制配置
+			"bandwidth_spec":           fmt.Sprintf("%d", bandwidthSpeedMbps), // 用户选择的带宽规格
+			"ipv4_port_mapping_method": localProviderIPv4PortMappingMethod,    // IPv4端口映射方式（从Provider配置获取）
+			"ipv6_port_mapping_method": localProviderIPv6PortMappingMethod,    // IPv6端口映射方式（从Provider配置获取）
+			"network_type":             localProviderNetworkType,              // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+			"instance_id":              fmt.Sprintf("%d", instance.ID),        // 实例ID，用于端口分配
+			"provider_id":              fmt.Sprintf("%d", localProviderID),    // Provider ID，用于端口区间分配
 		},
 		// 容器特殊配置选项（从Provider继承，仅用于LXD/Incus容器）
 		Privileged:   boolPtr(dbProvider.ContainerPrivileged),
@@ -209,23 +283,30 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 		MemorySwap:   boolPtr(dbProvider.ContainerMemorySwap),
 		MaxProcesses: intPtr(dbProvider.ContainerMaxProcesses),
 		DiskIOLimit:  stringPtr(dbProvider.ContainerDiskIOLimit),
-		GpuEnabled:   dbProvider.GpuEnabled,
-		GpuDeviceIds: dbProvider.GpuDeviceIds,
+	}
+
+	// GPU 直通仅支持 LXD/Incus 的容器实例，其他 Provider 类型不支持
+	isLxdIncusProvider := localProviderType == "lxd" || localProviderType == "incus"
+	if isLxdIncusProvider && instance.InstanceType != "vm" {
+		instanceConfig.GpuEnabled = dbProvider.GpuEnabled
+		instanceConfig.GpuDeviceIds = dbProvider.GpuDeviceIds
 	}
 
 	// 复制模式处理（仅 LXD/Incus，通过 CreateRedemptionInstanceTaskRequest 传入）
-	var redemptionTaskReq adminModel.CreateRedemptionInstanceTaskRequest
-	if jsonErr := json.Unmarshal([]byte(task.TaskData), &redemptionTaskReq); jsonErr == nil &&
-		redemptionTaskReq.CreationMode == "copy" && redemptionTaskReq.SourceContainer != "" {
+	if isCopyMode {
 		instanceConfig.CopyMode = true
 		instanceConfig.CopySourceName = redemptionTaskReq.SourceContainer
 		// 复制模式下，GPU配置也从任务请求中获取（覆盖Provider默认值）
-		instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
-		instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
-	} else if jsonErr == nil && redemptionTaskReq.GpuEnabled {
+		if isLxdIncusProvider {
+			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
+			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
+		}
+	} else if redemptionTaskJSONErr == nil && redemptionTaskReq.GpuEnabled {
 		// 标准模式下，如果任务请求中指定了GPU配置，覆盖Provider默认值
-		instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
-		instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
+		if isLxdIncusProvider && instance.InstanceType != "vm" {
+			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
+			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
+		}
 	}
 
 	// 预分配端口映射（所有Provider类型都需要）
@@ -402,4 +483,126 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	s.updateTaskProgress(task.ID, 70, "Provider创建实例成功")
 
 	return nil
+}
+
+func (s *Service) detectCopySourceResources(ctx context.Context, providerInstance provider.Provider, providerType, sourceName string) (int, int64, int64, error) {
+	cli := "lxc"
+	if providerType == "incus" {
+		cli = "incus"
+	}
+	cmd := fmt.Sprintf(`cpu="$(%s config get %s limits.cpu 2>/dev/null || true)"; memory="$(%s config get %s limits.memory 2>/dev/null || true)"; disk="$(%s config device get %s root size 2>/dev/null || true)"; if [ -z "$disk" ]; then disk="$(%s config device get %s root limits.max 2>/dev/null || true)"; fi; printf 'cpu=%%s\nmemory=%%s\ndisk=%%s\n' "$cpu" "$memory" "$disk"`,
+		cli, sourceName, cli, sourceName, cli, sourceName, cli, sourceName)
+	output, err := providerInstance.ExecuteSSHCommand(ctx, cmd)
+	if err != nil {
+		return 0, 0, 0, err
+	}
+	var cpu int
+	var memory, disk int64
+	for _, line := range strings.Split(output, "\n") {
+		key, value, ok := strings.Cut(strings.TrimSpace(line), "=")
+		if !ok {
+			continue
+		}
+		switch key {
+		case "cpu":
+			cpu = parseCopyCPUValue(value)
+		case "memory":
+			memory = parseCopySizeToMB(value)
+		case "disk":
+			disk = parseCopySizeToMB(value)
+		}
+	}
+	return cpu, memory, disk, nil
+}
+
+func validateCopyResourceIsolation(provider providerModel.Provider, cpu int, memory, disk int64) error {
+	if provider.ContainerLimitCPU && cpu <= 0 {
+		return fmt.Errorf("复制模式源容器未设置 limits.cpu，无法进行 CPU 资源隔离")
+	}
+	if provider.ContainerLimitMemory && memory <= 0 {
+		return fmt.Errorf("复制模式源容器未设置 limits.memory，无法进行内存资源隔离")
+	}
+	if provider.ContainerLimitDisk && disk <= 0 {
+		return fmt.Errorf("复制模式源容器未设置 root 磁盘 size/limits.max，无法进行磁盘资源隔离")
+	}
+	if provider.ContainerLimitCPU && provider.NodeCPUCores > 0 && cpu > provider.NodeCPUCores-provider.UsedCPUCores {
+		return fmt.Errorf("节点CPU资源不足：需要 %d 核，当前可用 %d 核", cpu, provider.NodeCPUCores-provider.UsedCPUCores)
+	}
+	if provider.ContainerLimitMemory && provider.NodeMemoryTotal > 0 && memory > provider.NodeMemoryTotal-provider.UsedMemory {
+		return fmt.Errorf("节点内存资源不足：需要 %d MB，当前可用 %d MB", memory, provider.NodeMemoryTotal-provider.UsedMemory)
+	}
+	if provider.ContainerLimitDisk && provider.NodeDiskTotal > 0 && disk > provider.NodeDiskTotal-provider.UsedDisk {
+		return fmt.Errorf("节点磁盘资源不足：需要 %d MB，当前可用 %d MB", disk, provider.NodeDiskTotal-provider.UsedDisk)
+	}
+	return nil
+}
+
+func parseCopyCPUValue(raw string) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return 0
+	}
+	if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+		return n
+	}
+	total := 0
+	for _, part := range strings.Split(raw, ",") {
+		part = strings.TrimSpace(part)
+		if part == "" {
+			continue
+		}
+		if start, end, ok := strings.Cut(part, "-"); ok {
+			a, aErr := strconv.Atoi(strings.TrimSpace(start))
+			b, bErr := strconv.Atoi(strings.TrimSpace(end))
+			if aErr == nil && bErr == nil && b >= a {
+				total += b - a + 1
+			}
+			continue
+		}
+		if _, err := strconv.Atoi(part); err == nil {
+			total++
+		}
+	}
+	return total
+}
+
+func parseCopySizeToMB(raw string) int64 {
+	value := strings.TrimSpace(strings.ToLower(raw))
+	if value == "" {
+		return 0
+	}
+	value = strings.TrimSuffix(value, "bytes")
+	value = strings.TrimSuffix(value, "byte")
+	multiplier := float64(1)
+	suffixes := []struct {
+		suffix string
+		mul    float64
+	}{
+		{"tib", 1024 * 1024},
+		{"tb", 1000 * 1000},
+		{"gib", 1024},
+		{"gb", 1000},
+		{"mib", 1},
+		{"mb", 1},
+		{"kib", 1.0 / 1024},
+		{"kb", 1.0 / 1000},
+		{"ti", 1024 * 1024},
+		{"t", 1024 * 1024},
+		{"gi", 1024},
+		{"g", 1024},
+		{"mi", 1},
+		{"m", 1},
+	}
+	for _, item := range suffixes {
+		if strings.HasSuffix(value, item.suffix) {
+			value = strings.TrimSpace(strings.TrimSuffix(value, item.suffix))
+			multiplier = item.mul
+			break
+		}
+	}
+	number, err := strconv.ParseFloat(value, 64)
+	if err != nil || number <= 0 {
+		return 0
+	}
+	return int64(math.Ceil(number * multiplier))
 }

@@ -237,6 +237,9 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 
 	updateProgress(15, "处理镜像下载和导入...")
 	if config.CopyMode && config.CopySourceName != "" {
+		if err := i.validateCopyModeSource(config); err != nil {
+			return err
+		}
 		// 复制模式：跳过镜像下载，直接复制源容器
 		updateProgress(30, "复制源容器...")
 		copyCmd := fmt.Sprintf("incus copy %s %s", config.CopySourceName, config.Name)
@@ -474,6 +477,35 @@ func (i *IncusProvider) sshCreateInstanceWithProgress(ctx context.Context, confi
 		zap.String("name", config.Name),
 		zap.String("type", config.InstanceType))
 	return nil
+}
+
+func (i *IncusProvider) validateCopyModeSource(config provider.InstanceConfig) error {
+	if config.InstanceType != "container" {
+		return fmt.Errorf("复制模式仅支持容器实例")
+	}
+	if !utils.IsValidLXDInstanceName(config.CopySourceName) {
+		return fmt.Errorf("源容器名称格式无效: %s", config.CopySourceName)
+	}
+	output, err := i.sshClient.Execute(fmt.Sprintf("incus list %s --format csv -c n,s,t", config.CopySourceName))
+	if err != nil {
+		return fmt.Errorf("检查源容器失败: %w", err)
+	}
+	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
+		parts := strings.Split(line, ",")
+		if len(parts) < 3 || strings.TrimSpace(parts[0]) != config.CopySourceName {
+			continue
+		}
+		status := strings.TrimSpace(parts[1])
+		instanceType := strings.TrimSpace(parts[2])
+		if !strings.EqualFold(status, "STOPPED") {
+			return fmt.Errorf("源容器 %s 必须处于 STOPPED 状态，当前状态: %s", config.CopySourceName, status)
+		}
+		if !strings.EqualFold(instanceType, "CONTAINER") && !strings.EqualFold(instanceType, "container") {
+			return fmt.Errorf("源实例 %s 不是容器类型，当前类型: %s", config.CopySourceName, instanceType)
+		}
+		return nil
+	}
+	return fmt.Errorf("源容器 %s 不存在", config.CopySourceName)
 }
 
 // configureInstanceLimits 配置实例资源限制

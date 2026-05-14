@@ -548,23 +548,20 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	sshConf := utils.SSHConfig{
-		Host:       p.Endpoint,
-		Port:       p.SSHPort,
-		Username:   p.Username,
-		Password:   p.Password,
-		PrivateKey: p.SSHKey,
-	}
-
-	client, err := utils.NewSSHClient(sshConf)
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
 	if err != nil {
-		global.APP_LOG.Error("GPU检测：SSH连接失败", zap.Error(err))
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "SSH连接失败: "+err.Error()))
+		global.APP_LOG.Error("GPU检测：Provider连接不可用", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider连接不可用: "+err.Error()))
 		return
 	}
-	defer client.Close()
 
-	output, err := client.Execute("lxc info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -60")
+	infoCmd := "lxc info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -60"
+	if p.Type == "incus" {
+		infoCmd = "incus info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -60"
+	}
+	output, err := providerInstance.ExecuteSSHCommand(execCtx, infoCmd)
 	if err != nil {
 		global.APP_LOG.Warn("GPU检测：执行命令失败", zap.Error(err))
 		common.ResponseSuccess(c, map[string]interface{}{
@@ -612,6 +609,9 @@ func parseGPUInfo(raw string) []map[string]string {
 			key := strings.ToLower(strings.TrimSpace(trimmed[:idx]))
 			val := strings.TrimSpace(trimmed[idx+2:])
 			current[key] = val
+			if key == "product" {
+				current["name"] = val
+			}
 		}
 	}
 	if len(current) > 0 {
@@ -742,19 +742,13 @@ func GetStoppedContainers(c *gin.Context) {
 		return
 	}
 
-	sshConf := utils.SSHConfig{
-		Host:       dbProvider.Endpoint,
-		Port:       dbProvider.SSHPort,
-		Username:   dbProvider.Username,
-		Password:   dbProvider.Password,
-		PrivateKey: dbProvider.SSHKey,
-	}
-	client, err := utils.NewSSHClient(sshConf)
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	defer cancel()
+	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
 	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "SSH连接失败: "+err.Error()))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider连接不可用: "+err.Error()))
 		return
 	}
-	defer client.Close()
 
 	// 根据 provider 类型选择命令
 	listCmd := "lxc list --format csv -c n,s 2>/dev/null"
@@ -762,7 +756,7 @@ func GetStoppedContainers(c *gin.Context) {
 		listCmd = "incus list --format csv -c n,s 2>/dev/null"
 	}
 
-	output, err := client.Execute(listCmd)
+	output, err := providerInstance.ExecuteSSHCommand(execCtx, listCmd)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "获取容器列表失败: "+err.Error()))
 		return

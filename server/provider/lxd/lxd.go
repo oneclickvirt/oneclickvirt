@@ -162,6 +162,10 @@ func (l *LXDProvider) Connect(ctx context.Context, config provider.NodeConfig) e
 
 func (l *LXDProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	l.config = config
+	l.providerID = config.ID
+	if l.transport != nil && l.providerID > 0 {
+		provider.GetTransportCleanupManager().RegisterTransportWithProvider(l.transport, l.providerID)
+	}
 	l.sshClient = executor
 	l.connected = true
 	l.healthChecker = nil

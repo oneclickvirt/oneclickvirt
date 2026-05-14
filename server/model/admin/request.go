@@ -550,11 +550,11 @@ type RedemptionCodeListRequest struct {
 type BatchCreateRedemptionCodesRequest struct {
 	ProviderID   uint   `json:"providerId" binding:"required"`
 	InstanceType string `json:"instanceType" binding:"required,oneof=container vm"`
-	ImageId      uint   `json:"imageId" binding:"required"`
-	CPUId        string `json:"cpuId" binding:"required"`
-	MemoryId     string `json:"memoryId" binding:"required"`
-	DiskId       string `json:"diskId" binding:"required"`
-	BandwidthId  string `json:"bandwidthId" binding:"required"`
+	ImageId      uint   `json:"imageId"`
+	CPUId        string `json:"cpuId"`
+	MemoryId     string `json:"memoryId"`
+	DiskId       string `json:"diskId"`
+	BandwidthId  string `json:"bandwidthId"`
 	Count        int    `json:"count" binding:"required,min=1,max=100"`
 	Remark       string `json:"remark"`
 	// 复制模式（仅 LXD/Incus 节点）

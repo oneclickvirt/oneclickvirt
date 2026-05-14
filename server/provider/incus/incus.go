@@ -158,6 +158,10 @@ func (i *IncusProvider) Connect(ctx context.Context, config provider.NodeConfig)
 
 func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
 	i.config = config
+	i.providerID = config.ID
+	if i.transport != nil && i.providerID > 0 {
+		provider.GetTransportCleanupManager().RegisterTransportWithProvider(i.transport, i.providerID)
+	}
 	i.sshClient = executor
 	i.connected = true
 	i.healthChecker = nil

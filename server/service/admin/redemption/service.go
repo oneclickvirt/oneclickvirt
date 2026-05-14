@@ -17,6 +17,7 @@ import (
 	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/interfaces"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -156,6 +157,13 @@ func (s *Service) GetList(req adminModel.RedemptionCodeListRequest, ownerAdminID
 func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, adminID uint) error {
 	dbService := database.GetDatabaseService()
 
+	if req.CreationMode == "" {
+		req.CreationMode = "standard"
+	}
+	if req.CreationMode != "standard" && req.CreationMode != "copy" {
+		return fmt.Errorf("无效的创建模式")
+	}
+
 	// 验证 Provider 存在
 	var provider providerModel.Provider
 	if err := global.APP_DB.Where("id = ?", req.ProviderID).First(&provider).Error; err != nil {
@@ -172,9 +180,26 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		if provider.Type != "lxd" && provider.Type != "incus" {
 			return fmt.Errorf("复制模式仅支持 LXD/Incus 类型的节点")
 		}
+		req.InstanceType = "container"
+		req.ImageId = 0
+		req.CPUId = ""
+		req.MemoryId = ""
+		req.DiskId = ""
+		req.BandwidthId = ""
 		if req.SourceContainer == "" {
 			return fmt.Errorf("复制模式必须指定源容器名称")
 		}
+		if !utils.IsValidLXDInstanceName(req.SourceContainer) {
+			return fmt.Errorf("源容器名称格式无效")
+		}
+	} else {
+		if req.ImageId == 0 {
+			return fmt.Errorf("请选择镜像")
+		}
+		if req.CPUId == "" || req.MemoryId == "" || req.DiskId == "" || req.BandwidthId == "" {
+			return fmt.Errorf("请选择完整的实例规格")
+		}
+		req.SourceContainer = ""
 	}
 
 	// GPU 直通仅支持 LXD/Incus 容器实例或容器复制模式
@@ -185,6 +210,8 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 	}
 	if !req.GpuEnabled {
 		req.GpuDeviceIds = ""
+	} else if err := validateGPUDeviceIDs(req.GpuDeviceIds); err != nil {
+		return err
 	}
 
 	// 验证规格 ID 并计算本次批量创建所需的总资源量
@@ -647,4 +674,25 @@ func (s *Service) generateUniqueCode() (string, error) {
 		}
 	}
 	return "", fmt.Errorf("无法生成唯一兑换码，请重试")
+}
+
+func validateGPUDeviceIDs(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	for _, part := range strings.Split(raw, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			return fmt.Errorf("GPU 设备 ID 不能为空")
+		}
+		for _, r := range id {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+				r == '_' || r == '-' || r == '.' || r == ':' {
+				continue
+			}
+			return fmt.Errorf("GPU 设备 ID 包含非法字符")
+		}
+	}
+	return nil
 }

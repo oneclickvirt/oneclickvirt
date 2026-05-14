@@ -173,20 +173,19 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		zap.String("image", config.Image),
 		zap.String("providerHost", d.config.Host))
 
-	// 确保SSH脚本文件可用
+	// 确保SSH脚本文件可用（非致命错误，SSH脚本仅用于后续密码配置）
 	updateProgress(15, "确保SSH脚本可用...")
 	global.APP_LOG.Debug("准备调用ensureSSHScriptsAvailable",
 		zap.String("instance", config.Name),
 		zap.String("country", d.config.Country))
 
 	if err := d.ensureSSHScriptsAvailable(d.config.Country); err != nil {
-		global.APP_LOG.Error("确保SSH脚本可用失败",
+		global.APP_LOG.Warn("确保SSH脚本可用失败，但继续创建实例",
 			zap.String("name", utils.TruncateString(config.Name, 32)),
 			zap.Error(err))
-		return fmt.Errorf("确保SSH脚本可用失败: %w", err)
 	}
 
-	global.APP_LOG.Debug("ensureSSHScriptsAvailable成功返回",
+	global.APP_LOG.Debug("ensureSSHScriptsAvailable调用完成",
 		zap.String("instance", config.Name))
 
 	updateProgress(20, "处理Docker镜像...")

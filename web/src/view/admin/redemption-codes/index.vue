@@ -448,7 +448,7 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted } from 'vue'
+import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
@@ -515,6 +515,7 @@ const createRules = computed(() => {
     memoryId: [{ required: !isCopy, message: t('admin.redemptionCodes.memoryRequired'), trigger: 'change' }],
     diskId: [{ required: !isCopy, message: t('admin.redemptionCodes.diskRequired'), trigger: 'change' }],
     bandwidthId: [{ required: !isCopy, message: t('admin.redemptionCodes.bandwidthRequired'), trigger: 'change' }],
+    sourceContainer: [{ required: isCopy, message: t('admin.redemptionCodes.sourceContainerRequired'), trigger: 'change' }],
     count: [
       { required: true, message: t('admin.redemptionCodes.countRequired'), trigger: 'blur' },
       { type: 'number', min: 1, max: 100, message: t('admin.redemptionCodes.countRange'), trigger: 'blur' }
@@ -583,6 +584,33 @@ const resetGpuSelection = () => {
   selectedGpuIndices.value = []
   gpuChecked.value = false
 }
+
+watch(() => createForm.creationMode, (mode) => {
+  if (mode === 'copy') {
+    createForm.instanceType = 'container'
+    createForm.imageId = ''
+    createForm.cpuId = ''
+    createForm.memoryId = ''
+    createForm.diskId = ''
+    createForm.bandwidthId = ''
+    availableImages.value = []
+    cpuSpecs.value = []
+    memorySpecs.value = []
+    diskSpecs.value = []
+    bandwidthSpecs.value = []
+    return
+  }
+  createForm.sourceContainer = ''
+  if (createForm.instanceType !== 'container') {
+    resetGpuSelection()
+  }
+})
+
+watch(canConfigureGpuPassthrough, (canConfigure) => {
+  if (!canConfigure) {
+    resetGpuSelection()
+  }
+})
 
 // ── 导出对话框 ─────────────────────────────────────────────
 const showExportDialog = ref(false)

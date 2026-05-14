@@ -28,7 +28,12 @@ func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
 }
 
 func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
-	deadline := time.Now().Add(10 * time.Second)
+	// 使用更长的等待时间（60秒），适应 Agent 重连、网络波动等场景。
+	// Agent 自身的重连间隔通常为 10-30 秒，60 秒窗口足以覆盖绝大多数重连场景。
+	deadline := time.Now().Add(60 * time.Second)
+	delay := 500 * time.Millisecond
+	maxDelay := 5 * time.Second
+	firstWarning := true
 	for {
 		conn, ok := a.hub.GetConn(a.providerID)
 		if ok && conn != nil {
@@ -37,7 +42,21 @@ func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("agent not connected for provider %d", a.providerID)
 		}
-		time.Sleep(500 * time.Millisecond)
+		if firstWarning && time.Now().After(deadline.Add(-50*time.Second)) {
+			// 等待超过 10 秒后记录警告，便于排查
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("等待 Agent 连接中",
+					zap.Uint("providerID", a.providerID),
+					zap.Duration("elapsed", 60*time.Second-time.Until(deadline)))
+			}
+			firstWarning = false
+		}
+		time.Sleep(delay)
+		// 指数退避，最大 5 秒
+		delay *= 2
+		if delay > maxDelay {
+			delay = maxDelay
+		}
 	}
 }
 
