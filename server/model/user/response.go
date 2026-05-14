@@ -141,6 +141,7 @@ type UserInstanceDetailResponse struct {
 	PortRangeEnd    int        `json:"portRangeEnd"`    // 端口范围结束
 	IPv4MappingType string     `json:"ipv4MappingType"` // IPv4映射类型：nat(NAT共享IP), dedicated(独立IPv4地址) (已弃用，保留向后兼容)
 	NetworkType     string     `json:"networkType"`     // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only
+	HasSshMapping   bool       `json:"hasSshMapping"`   // 是否有可用的SSH端口映射（支持Web SSH连接）
 	CreatedAt       time.Time  `json:"createdAt"`
 	ExpiresAt       *time.Time `json:"expiresAt"` // 实例过期时间
 	// 关联任务信息

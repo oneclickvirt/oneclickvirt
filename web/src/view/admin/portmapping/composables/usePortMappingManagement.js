@@ -208,7 +208,7 @@ export function usePortMappingManagement() {
 
   const searchPortMappings = () => { currentPage.value = 1; loadPortMappings() }
   const resetSearch = () => { Object.assign(searchForm, { keyword: '', providerId: '', protocol: '', status: '' }); searchPortMappings() }
-  const isManualPort = (row) => row.portType === 'manual'
+  const isDeletablePort = (row) => row.portType === 'manual' || row.portType === 'batch'
   const handleSelectionChange = (selection) => { selectedPortMappings.value = selection }
   const handleSizeChange = (val) => { pageSize.value = val; loadPortMappings() }
   const handleCurrentChange = (val) => { currentPage.value = val; loadPortMappings() }
@@ -225,7 +225,7 @@ export function usePortMappingManagement() {
 
   const batchDeleteDirect = async () => {
     if (selectedPortMappings.value.length === 0) { ElMessage.warning(t('admin.portMapping.selectPortsToDelete')); return }
-    if (selectedPortMappings.value.some(item => item.portType !== 'manual')) { ElMessage.warning(t('admin.portMapping.onlyManualPortsCanDelete')); return }
+    if (selectedPortMappings.value.some(item => item.portType !== 'manual' && item.portType !== 'batch')) { ElMessage.warning(t('admin.portMapping.onlyManualPortsCanDelete')); return }
     try {
       await ElMessageBox.confirm(t('admin.portMapping.batchDeleteConfirm', { count: selectedPortMappings.value.length }), t('admin.portMapping.batchDeleteTitle'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       const ids = selectedPortMappings.value.map(item => item.id)
@@ -312,7 +312,7 @@ export function usePortMappingManagement() {
     instanceFilterText, filteredInstances, filteredInstancesCount,
     getInstanceProviderType, getProviderTagType,
     loadPortMappings, loadProviders, loadInstances,
-    searchPortMappings, resetSearch, isManualPort,
+    searchPortMappings, resetSearch, isDeletablePort,
     handleSelectionChange, handleSizeChange, handleCurrentChange,
     deletePortMappingHandler, batchDeleteDirect,
     formatTime, openAddDialog, onInstanceChange, submitAdd,

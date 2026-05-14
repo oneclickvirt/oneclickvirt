@@ -139,7 +139,7 @@
         <el-table-column
           type="selection"
           width="55"
-          :selectable="isManualPort"
+          :selectable="isDeletablePort"
         />
         <el-table-column
           prop="id"
@@ -152,8 +152,8 @@
           width="120"
         >
           <template #default="{ row }">
-            <el-tag :type="row.portType === 'manual' ? 'warning' : 'success'">
-              {{ row.portType === 'manual' ? $t('admin.portMapping.manualPort') : $t('admin.portMapping.rangePort') }}
+            <el-tag :type="row.portType === 'manual' ? 'warning' : row.portType === 'batch' ? 'info' : 'success'">
+              {{ row.portType === 'manual' ? $t('admin.portMapping.manualPort') : row.portType === 'batch' ? $t('admin.portMapping.batchPort') : $t('admin.portMapping.rangePort') }}
             </el-tag>
           </template>
         </el-table-column>
@@ -301,7 +301,7 @@
         >
           <template #default="{ row }">
             <el-button
-              v-if="row.portType === 'manual'"
+              v-if="row.portType === 'manual' || row.portType === 'batch'"
               type="danger"
               size="small"
               @click="deletePortMappingHandler(row.id)"
@@ -603,7 +603,7 @@ const {
   instanceFilterText, filteredInstances, filteredInstancesCount,
   getInstanceProviderType, getProviderTagType,
   loadPortMappings, loadProviders, loadInstances,
-  searchPortMappings, resetSearch, isManualPort,
+  searchPortMappings, resetSearch, isDeletablePort,
   handleSelectionChange, handleSizeChange, handleCurrentChange,
   deletePortMappingHandler, batchDeleteDirect,
   formatTime, openAddDialog, onInstanceChange, submitAdd,

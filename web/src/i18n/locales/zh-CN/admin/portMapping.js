@@ -23,6 +23,7 @@ export default {
   statusFailed: "失败",
   portType: "端口类型",
   manualPort: "手动添加",
+  batchPort: "批量添加",
   rangePort: "区间映射",
   instanceName: "实例名称",
   publicIP: "公网IP",

@@ -119,6 +119,13 @@ func GetPortMappingList(c *gin.Context) {
 	}
 
 	// 转换为前端期望的格式
+	// 获取当前请求的 Host，用于控制端转发模式（内网穿透）的公网IP显示
+	requestHost := c.Request.Host
+	// 提取纯主机名（去掉端口号）
+	if colonIdx := strings.LastIndex(requestHost, ":"); colonIdx > 0 {
+		requestHost = requestHost[:colonIdx]
+	}
+
 	formattedPorts := make([]map[string]interface{}, len(ports))
 	for i, port := range ports {
 		// 从预加载的map中获取实例名称
@@ -130,7 +137,11 @@ func GetPortMappingList(c *gin.Context) {
 		// 从预加载的map中获取Provider信息
 		var providerName string
 		var publicIP string
-		if providerInfo, ok := providerMap[port.ProviderID]; ok {
+		if port.MappingType == "controller" {
+			// 控制端转发模式：使用当前请求的主机名作为公网IP
+			// 因为端口转发运行在控制端，用户连接到的是控制端的IP/域名
+			publicIP = requestHost
+		} else if providerInfo, ok := providerMap[port.ProviderID]; ok {
 			providerName = providerInfo.Name
 			// 优先使用PortIP，如果为空则使用Endpoint
 			ipSource := providerInfo.PortIP
@@ -139,6 +150,14 @@ func GetPortMappingList(c *gin.Context) {
 			}
 			// 提取纯IP地址，移除端口号
 			publicIP = extractIPFromEndpoint(ipSource)
+		} else {
+			// 兜底：没有Provider信息时也使用请求主机名
+			publicIP = requestHost
+		}
+
+		// 当Provider信息存在时设置providerName
+		if providerInfo, ok := providerMap[port.ProviderID]; ok {
+			providerName = providerInfo.Name
 		}
 
 		formattedPorts[i] = map[string]interface{}{
@@ -155,7 +174,8 @@ func GetPortMappingList(c *gin.Context) {
 			"description":  port.Description,
 			"isSSH":        port.IsSSH,
 			"isAutomatic":  port.IsAutomatic,
-			"portType":     port.PortType, // 添加端口类型字段
+			"portType":     port.PortType,    // 端口类型字段
+			"mappingType":  port.MappingType, // 映射类型: node / controller
 			"isIPv6":       port.IPv6Enabled,
 			"createdAt":    port.CreatedAt,
 		}

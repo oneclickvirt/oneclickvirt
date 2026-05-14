@@ -253,6 +253,12 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 	internalHost := req.InternalHost
 
 	// 创建数据库记录（状态为 pending）
+	// 根据端口数量决定 PortType: 单端口为 manual，多端口段为 batch
+	portTypeValue := "manual"
+	if portCount > 1 {
+		portTypeValue = "batch"
+	}
+
 	port := provider.Port{
 		InstanceID:    req.InstanceID,
 		ProviderID:    providerInfo.ID,
@@ -266,7 +272,7 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		Status:        "pending",
 		IsSSH:         req.GuestPort == 22,
 		IsAutomatic:   false,
-		PortType:      "batch",
+		PortType:      portTypeValue,
 		IPv6Enabled:   false,
 		MappingMethod: providerInfo.IPv4PortMappingMethod,
 		MappingType:   mappingType,

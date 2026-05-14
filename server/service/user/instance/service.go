@@ -374,34 +374,43 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 	// 获取SSH端口映射的公网端口
 	var sshPort int
 	var sshPortMapping providerModel.Port
+	hasSshMapping := false
 	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
 		sshPort = sshPortMapping.HostPort // 使用映射的公网端口
+		// 判断是否可通过Web SSH连接:
+		// - 节点侧映射(nat_ipv4等)始终可用
+		// - 控制端转发(controller)也可用（内网穿透到主控）
+		// - no_port_mapping模式下只有controller类型映射可用
+		hasSshMapping = true
 	} else {
 		sshPort = instance.SSHPort // fallback到默认值
+		// 如果没有端口映射且是标准NAT模式，SSH端口22默认可用
+		// 但如果networkType是no_port_mapping/dedicated_ipv4等，不能用默认22端口
 	}
 
 	detail := &userModel.UserInstanceDetailResponse{
-		ID:           instance.ID,
-		Name:         instance.Name,
-		Type:         instance.InstanceType,
-		InstanceType: instance.InstanceType,
-		Status:       instance.Status,
-		CPU:          instance.CPU,
-		Memory:       int(instance.Memory),
-		Disk:         int(instance.Disk),
-		Bandwidth:    instance.Bandwidth,
-		OsType:       instance.OSType,
-		Image:        instance.Image,
-		ProviderID:   instance.ProviderID,
-		PrivateIP:    instance.PrivateIP,   // 使用实例的内网IP
-		PublicIP:     instance.PublicIP,    // 使用实例的公网IP
-		IPv6Address:  instance.IPv6Address, // 内网IPv6地址
-		PublicIPv6:   instance.PublicIPv6,  // 公网IPv6地址
-		SSHPort:      sshPort,              // 使用映射的公网端口
-		Username:     instance.Username,
-		Password:     instance.Password,
-		CreatedAt:    instance.CreatedAt,
-		ExpiresAt:    instance.ExpiresAt,
+		ID:            instance.ID,
+		Name:          instance.Name,
+		Type:          instance.InstanceType,
+		InstanceType:  instance.InstanceType,
+		Status:        instance.Status,
+		CPU:           instance.CPU,
+		Memory:        int(instance.Memory),
+		Disk:          int(instance.Disk),
+		Bandwidth:     instance.Bandwidth,
+		OsType:        instance.OSType,
+		Image:         instance.Image,
+		ProviderID:    instance.ProviderID,
+		PrivateIP:     instance.PrivateIP,   // 使用实例的内网IP
+		PublicIP:      instance.PublicIP,    // 使用实例的公网IP
+		IPv6Address:   instance.IPv6Address, // 内网IPv6地址
+		PublicIPv6:    instance.PublicIPv6,  // 公网IPv6地址
+		SSHPort:       sshPort,              // 使用映射的公网端口
+		Username:      instance.Username,
+		Password:      instance.Password,
+		HasSshMapping: hasSshMapping, // 是否有可用的SSH端口映射
+		CreatedAt:     instance.CreatedAt,
+		ExpiresAt:     instance.ExpiresAt,
 	}
 
 	// 查询关联的 Provider 信息

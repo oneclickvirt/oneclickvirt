@@ -164,7 +164,7 @@ export function useInstanceManagement() {
     if (!instance.id) { ElMessage.error(t('admin.instances.instanceNotFound')); return }
     if (instance.status !== 'running') { ElMessage.warning(t('admin.instances.instanceNotRunning')); return }
     if (!instance.password) { ElMessage.warning(t('admin.instances.noPassword')); return }
-    if (instance.networkType === 'no_port_mapping') { ElMessage.warning(t('admin.instances.sshNoPortMapping')); return }
+    if (!instance.hasSshMapping && instance.networkType === 'no_port_mapping') { ElMessage.warning(t('admin.instances.sshNoPortMapping')); return }
     if (!sshStore.hasConnection(instance.id)) { sshStore.createConnection(instance.id, instance.name, true) } else { sshStore.showConnection(instance.id) }
   }
 

@@ -23,6 +23,7 @@ export default {
   statusFailed: "Failed",
   portType: "Port Type",
   manualPort: "Manual",
+  batchPort: "Batch",
   rangePort: "Range",
   instanceName: "Instance Name",
   publicIP: "Public IP",
