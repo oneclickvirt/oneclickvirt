@@ -209,6 +209,15 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 		config.Port = 22
 	}
 
+	if dbProvider.ConnectionType == "agent" && config.Password == "" && config.PrivateKey == "" {
+		ps.providers[dbProvider.ID] = prov
+		global.APP_LOG.Info("Agent模式节点无SSH凭据，跳过SSH连接初始化",
+			zap.String("name", dbProvider.Name),
+			zap.Uint("id", dbProvider.ID),
+			zap.String("type", dbProvider.Type))
+		return nil
+	}
+
 	// 连接Provider - 使用较短的超时时间以避免阻塞
 	// 如果Provider配置了自定义超时时间，使用自定义值，否则默认10秒
 	connectTimeout := 10 * time.Second

@@ -4,11 +4,15 @@
          SSH 模式内容（connectionType === 'ssh'）
          ====================================================== -->
     <el-form
-      v-if="modelValue.connectionType !== 'agent'"
+      v-if="showSSHSettings"
       :model="modelValue"
       label-width="120px"
       class="server-form"
     >
+      <div v-if="isAgentMode" class="form-tip" style="margin-top: -4px; margin-bottom: 12px; margin-left: 120px;">
+        <el-text size="small" type="info">{{ $t('admin.providers.agentMappedSshOptionalTip') }}</el-text>
+      </div>
+
       <el-form-item :label="$t('admin.providers.username')" prop="username">
         <el-input
           v-model="modelValue.username"
@@ -349,14 +353,6 @@ const { t } = useI18n()
 const localCommand = ref('')
 const useCDN = ref(true)
 
-const installCmdDisplay = computed(() => {
-  const cmd = props.agentConnectCmd || ''
-  if (!cmd) return ''
-  if (useCDN.value) return cmd
-  // Strip CDN prefix: https://cdn.spiritlhl.net/ → direct raw.githubusercontent.com
-  return cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
-})
-
 const props = defineProps({
   modelValue: {
     type: Object,
@@ -394,6 +390,18 @@ const props = defineProps({
     type: Boolean,
     default: false
   }
+})
+
+const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
+const hasAgentMappedNetworking = computed(() => Boolean(props.modelValue.host && props.modelValue.portIP))
+const showSSHSettings = computed(() => !isAgentMode.value || hasAgentMappedNetworking.value)
+
+const installCmdDisplay = computed(() => {
+  const cmd = props.agentConnectCmd || ''
+  if (!cmd) return ''
+  if (useCDN.value) return cmd
+  // Strip CDN prefix: https://cdn.spiritlhl.net/ → direct raw.githubusercontent.com
+  return cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
 })
 
 const emit = defineEmits([

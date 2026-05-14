@@ -52,32 +52,36 @@
       </el-text>
     </div>
 
-    <!-- SSH端口：Agent模式下不显示 -->
-    <template v-if="!isAgentMode">
-      <el-form-item
-        :label="$t('admin.providers.portIP')"
-        prop="portIP"
-      >
-        <el-input
-          v-model="modelValue.portIP"
-          :placeholder="$t('admin.providers.portIPPlaceholder')"
-        />
-      </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.portIPTip') }}</el-text>
-      </div>
-      <el-form-item
-        :label="$t('admin.providers.port')"
-        prop="port"
-      >
-        <el-input-number
-          v-model="modelValue.port"
-          :min="1"
-          :max="65535"
-          :controls="false"
-        />
-      </el-form-item>
-    </template>
+    <el-form-item
+      :label="$t('admin.providers.portIP')"
+      :prop="isAgentMode ? '' : 'portIP'"
+    >
+      <el-input
+        v-model="modelValue.portIP"
+        :placeholder="$t('admin.providers.portIPPlaceholder')"
+      />
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text size="small" type="info">
+        {{ $t('admin.providers.portIPTip') }}
+      </el-text>
+    </div>
+    <el-form-item
+      :label="$t('admin.providers.port')"
+      :prop="isAgentMode ? '' : 'port'"
+    >
+      <el-input-number
+        v-model="modelValue.port"
+        :min="1"
+        :max="65535"
+        :controls="false"
+      />
+    </el-form-item>
+    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <el-text size="small" type="info">
+        {{ $t('admin.providers.portTip') }}
+      </el-text>
+    </div>
 
     <!-- 节点模式选择 -->
     <el-form-item

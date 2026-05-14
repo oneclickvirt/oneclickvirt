@@ -751,6 +751,7 @@ export default {
   checkAgentConnectionTip: "Please run the install command on the node first, then click check",
   agentConnected: "Agent connected successfully",
   agentNotConnected: "Agent not connected yet, please run the install command first",
+  agentMappedSshOptionalTip: "In Agent mode, this section is optional. Fill it only if you want the node to also support SSH/port-mapping networking.",
   // No port mapping network type
   noPortMapping: "No Port Mapping",
   noPortMappingTip: "No Port Mapping mode: node has no dedicated IPv4 address and no automatic port mapping is performed. Admin can manually assign ports via Controller Forwarding.",

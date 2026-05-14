@@ -749,6 +749,7 @@ export default {
   checkAgentConnectionTip: "请先在节点上执行安装命令，再点击检测",
   agentConnected: "Agent 已成功连接",
   agentNotConnected: "Agent 尚未连接，请先执行安装命令",
+  agentMappedSshOptionalTip: "Agent 模式下本区为非必填：仅当你希望节点同时支持 SSH/端口映射网络时再填写。",
   // 无端口映射网络类型
   noPortMapping: "无端口映射",
   noPortMappingTip: "无端口映射模式：节点无独立IPv4地址，不进行任何自动端口映射。管理员可手动通过控制端内网穿透（Controller Forwarding）为实例分配端口。",

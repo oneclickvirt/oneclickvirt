@@ -69,9 +69,16 @@ const initTerminal = () => {
 const connect = () => {
   if (isIntentionallyClosed) return
 
+  const token = sessionStorage.getItem('token')
+  if (!token) {
+    terminal.write('\x1b[31mAuthentication token not found.\x1b[0m\r\n')
+    ElMessage.error('Authentication token not found')
+    return
+  }
+
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
   const host = window.location.host
-  const wsUrl = `${protocol}://${host}/api/v1/admin/providers/${props.providerId}/terminal`
+  const wsUrl = `${protocol}://${host}/api/v1/admin/providers/${props.providerId}/terminal?token=${encodeURIComponent(token)}`
 
   terminal.write('\x1b[33mConnecting to ' + (props.providerName || 'provider') + '...\x1b[0m\r\n')
 
