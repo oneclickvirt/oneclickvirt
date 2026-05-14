@@ -478,6 +478,8 @@ export default {
   deployAgentFailed: "Agent deployment failed",
   uninstallAgentSuccess: "Agent uninstalled successfully",
   uninstallAgentFailed: "Agent uninstall failed",
+  agentNodeAlreadyManaged: "Agent-mode providers already include the Agent and monitoring capabilities.",
+  agentNodeUninstallBlocked: "Agent-mode providers cannot uninstall the Agent from the controller. Run ocv uninstall on the node instead.",
   checkStatusFailed: "Failed to check status",
   deployOutput: "Deploy Output",
   instanceMonitors: "Instance Monitors",

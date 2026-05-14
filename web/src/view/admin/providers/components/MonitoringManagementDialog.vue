@@ -93,6 +93,7 @@
             <!-- 操作按钮 -->
             <div class="action-buttons">
               <el-button
+                v-if="!isAgentProvider"
                 type="success"
                 :loading="deployLoading"
                 @click="handleDeployAgent"
@@ -100,6 +101,7 @@
                 {{ config.agent_installed ? $t('admin.providers.redeployAgent') : $t('admin.providers.deployAgent') }}
               </el-button>
               <el-button
+                v-if="!isAgentProvider"
                 type="danger"
                 :loading="uninstallLoading"
                 :disabled="!config.agent_installed"
@@ -552,6 +554,7 @@ const {
   agentOnlineChecked, agentIsOnline, showToken, showAgentMonitors, agentMonitors,
   monitorsPagination, agentMonitorsPagination, config, editConfig,
   agentSwaggerUrl, agentStatusType, agentStatusText,
+  isAgentProvider,
   loadConfig, loadMonitors, handleCopyToken, handleCopyUrl,
   handleDeployAgent, handleUninstallAgent, handleCheckStatus,
   handleSyncMonitors, handleClearMonitors, handleListAgentMonitors,

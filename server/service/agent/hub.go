@@ -42,6 +42,10 @@ const (
 	msgTypePing         = "ping"      // 控制端 → Agent: 心跳
 	msgTypePong         = "pong"      // Agent → 控制端: 心跳应答
 	msgTypeInfo         = "info"      // Agent → 控制端: 上报自身信息
+	msgTypeShellOpen    = "shell_open"
+	msgTypeShellData    = "shell_data"
+	msgTypeShellResize  = "shell_resize"
+	msgTypeShellClose   = "shell_close"
 )
 
 type wsMessage struct {
@@ -66,6 +70,30 @@ type infoPayload struct {
 	Version  string `json:"version,omitempty"`
 }
 
+type shellOpenPayload struct {
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
+}
+
+type shellDataPayload struct {
+	Data string `json:"data"`
+}
+
+type shellResizePayload struct {
+	Cols int `json:"cols"`
+	Rows int `json:"rows"`
+}
+
+type shellClosePayload struct {
+	Reason string `json:"reason,omitempty"`
+}
+
+type AgentShellSession struct {
+	ID       string
+	OutputCh chan []byte
+	DoneCh   chan struct{}
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // AgentConn — 代表一个已连接的 Agent WebSocket 连接
 // ──────────────────────────────────────────────────────────────────────────────
@@ -76,16 +104,18 @@ type AgentConn struct {
 	remoteAddr string
 	hostname   string
 
-	mu      sync.Mutex
-	pending map[string]chan execResponsePayload // reqID → response channel
+	mu            sync.Mutex
+	pending       map[string]chan execResponsePayload // reqID → response channel
+	shellSessions map[string]*AgentShellSession
 }
 
 func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *AgentConn {
 	return &AgentConn{
-		ProviderID: providerID,
-		conn:       conn,
-		remoteAddr: remoteAddr,
-		pending:    make(map[string]chan execResponsePayload),
+		ProviderID:    providerID,
+		conn:          conn,
+		remoteAddr:    remoteAddr,
+		pending:       make(map[string]chan execResponsePayload),
+		shellSessions: make(map[string]*AgentShellSession),
 	}
 }
 
@@ -132,6 +162,77 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 	case <-time.After(timeout):
 		return "", fmt.Errorf("执行命令超时（%s）", timeout)
 	}
+}
+
+func (a *AgentConn) StartShell(cols, rows int) (*AgentShellSession, error) {
+	sessionID := randomID()
+	session := &AgentShellSession{
+		ID:       sessionID,
+		OutputCh: make(chan []byte, 128),
+		DoneCh:   make(chan struct{}),
+	}
+	payload, _ := json.Marshal(shellOpenPayload{Cols: cols, Rows: rows})
+	msg := wsMessage{Type: msgTypeShellOpen, ID: sessionID, Payload: payload}
+	raw, _ := json.Marshal(msg)
+
+	a.mu.Lock()
+	a.shellSessions[sessionID] = session
+	a.mu.Unlock()
+
+	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+		a.mu.Lock()
+		delete(a.shellSessions, sessionID)
+		a.mu.Unlock()
+		return nil, fmt.Errorf("启动 agent shell 失败: %w", err)
+	}
+
+	return session, nil
+}
+
+func (a *AgentConn) WriteShellInput(sessionID string, data []byte) error {
+	payload, _ := json.Marshal(shellDataPayload{Data: string(data)})
+	msg := wsMessage{Type: msgTypeShellData, ID: sessionID, Payload: payload}
+	raw, _ := json.Marshal(msg)
+	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+		return fmt.Errorf("发送 shell 输入失败: %w", err)
+	}
+	return nil
+}
+
+func (a *AgentConn) ResizeShell(sessionID string, cols, rows int) error {
+	payload, _ := json.Marshal(shellResizePayload{Cols: cols, Rows: rows})
+	msg := wsMessage{Type: msgTypeShellResize, ID: sessionID, Payload: payload}
+	raw, _ := json.Marshal(msg)
+	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	if err := a.conn.WriteMessage(websocket.TextMessage, raw); err != nil {
+		return fmt.Errorf("发送 shell resize 失败: %w", err)
+	}
+	return nil
+}
+
+func (a *AgentConn) CloseShell(sessionID string) error {
+	payload, _ := json.Marshal(shellClosePayload{})
+	msg := wsMessage{Type: msgTypeShellClose, ID: sessionID, Payload: payload}
+	raw, _ := json.Marshal(msg)
+	a.conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
+	err := a.conn.WriteMessage(websocket.TextMessage, raw)
+	a.mu.Lock()
+	if session, ok := a.shellSessions[sessionID]; ok {
+		delete(a.shellSessions, sessionID)
+		select {
+		case <-session.DoneCh:
+		default:
+			close(session.DoneCh)
+		}
+		close(session.OutputCh)
+	}
+	a.mu.Unlock()
+	if err != nil {
+		return fmt.Errorf("关闭 shell 会话失败: %w", err)
+	}
+	return nil
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -294,6 +395,32 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 					mgr.CloseSession(cl.ConnID)
 				}
 			}
+
+		case msgTypeShellData:
+			var payload shellDataPayload
+			if err := json.Unmarshal(msg.Payload, &payload); err == nil {
+				ac.mu.Lock()
+				if session, ok := ac.shellSessions[msg.ID]; ok {
+					select {
+					case session.OutputCh <- []byte(payload.Data):
+					default:
+					}
+				}
+				ac.mu.Unlock()
+			}
+
+		case msgTypeShellClose:
+			ac.mu.Lock()
+			if session, ok := ac.shellSessions[msg.ID]; ok {
+				delete(ac.shellSessions, msg.ID)
+				select {
+				case <-session.DoneCh:
+				default:
+					close(session.DoneCh)
+				}
+				close(session.OutputCh)
+			}
+			ac.mu.Unlock()
 		}
 	}
 }

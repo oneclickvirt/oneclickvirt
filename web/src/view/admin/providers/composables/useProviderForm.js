@@ -150,6 +150,8 @@ const buildDefaultForm = () => ({
   levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
 })
 
+const hasAgentMappedNetworking = (formData) => Boolean(formData.host && formData.portIP)
+
 export function useProviderForm(loadProviders) {
   const { t, locale } = useI18n()
 
@@ -331,15 +333,18 @@ export function useProviderForm(loadProviders) {
         }
       }
 
+      const isAgentMode = formData.connectionType === 'agent'
+      const agentCanUseMappedNetworking = hasAgentMappedNetworking(formData)
+
       addProviderLoading.value = true
 
       const serverData = {
         name: formData.name,
         type: formData.type,
-        endpoint: formData.host,
-        portIP: formData.portIP,
-        sshPort: formData.port,
-        username: formData.username,
+        endpoint: formData.host || '',
+        portIP: formData.portIP || '',
+        sshPort: isAgentMode && !formData.host ? 0 : (formData.port || 22),
+        username: isAgentMode ? (formData.username || '') : formData.username,
         config: '',
         region: formData.region,
         country: formData.country,
@@ -362,17 +367,19 @@ export function useProviderForm(loadProviders) {
         defaultPortCount: formData.defaultPortCount || 10,
         portRangeStart: formData.portRangeStart || 10000,
         portRangeEnd: formData.portRangeEnd || 65535,
-        networkType: formData.networkType || 'nat_ipv4',
+        networkType: isAgentMode
+          ? (agentCanUseMappedNetworking ? (formData.networkType || 'nat_ipv4') : 'no_port_mapping')
+          : (formData.networkType || 'nat_ipv4'),
         defaultInboundBandwidth: formData.defaultInboundBandwidth || 300,
         defaultOutboundBandwidth: formData.defaultOutboundBandwidth || 300,
         maxInboundBandwidth: formData.maxInboundBandwidth || 1000,
         maxOutboundBandwidth: formData.maxOutboundBandwidth || 1000,
-        enableTrafficControl: formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : false,
-        enableResourceMonitoring: formData.enableResourceMonitoring !== undefined ? formData.enableResourceMonitoring : false,
+        enableTrafficControl: isAgentMode ? true : (formData.enableTrafficControl !== undefined ? formData.enableTrafficControl : false),
+        enableResourceMonitoring: isAgentMode ? true : (formData.enableResourceMonitoring !== undefined ? formData.enableResourceMonitoring : false),
         maxTraffic: formData.maxTraffic || 1048576,
         trafficCountMode: formData.trafficCountMode || 'both',
         trafficMultiplier: formData.trafficMultiplier !== undefined && formData.trafficMultiplier !== null ? formData.trafficMultiplier : 1.0,
-        trafficSyncMethod: formData.trafficSyncMethod || 'pmacct',
+        trafficSyncMethod: isAgentMode ? 'agent' : (formData.trafficSyncMethod || 'pmacct'),
         trafficStatsMode: formData.trafficStatsMode || 'light',
         trafficCollectInterval: formData.trafficCollectInterval || 60,
         trafficCollectBatchSize: formData.trafficCollectBatchSize || 10,
@@ -427,7 +434,10 @@ export function useProviderForm(loadProviders) {
       }
 
       // 认证方式处理
-      if (isEditing.value) {
+      if (isAgentMode && !agentCanUseMappedNetworking) {
+        serverData.ipv4PortMappingMethod = ''
+        serverData.ipv6PortMappingMethod = ''
+      } else if (isEditing.value) {
         if (formData.authMethod === 'password' && formData.password) {
           serverData.password = formData.password
         } else if (formData.authMethod === 'sshKey' && formData.sshKey) {

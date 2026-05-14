@@ -86,4 +86,6 @@ export default {
   gpuSelectAll: '全选',
   gpuDeselectAll: '取消全选',
   gpuDeviceIdx: 'GPU {idx}',
-  gpuFetchFailed: '获取 GPU 列表失败',}
+  gpuFetchFailed: '获取 GPU 列表失败',
+  gpuUnsupportedTarget: 'GPU 直通仅支持 LXD/Incus 的容器实例或容器复制模式',
+}

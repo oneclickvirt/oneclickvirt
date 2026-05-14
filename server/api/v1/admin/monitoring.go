@@ -325,6 +325,30 @@ func GetAgentStatus(c *gin.Context) {
 		return
 	}
 
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	if dbProvider.ConnectionType == "agent" {
+		config, _ := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
+		hub := agentService.GetHub()
+		conn, ok := hub.GetConn(uint(providerID))
+		isRunning := ok && conn != nil
+
+		var monitorCount int64
+		global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&monitorCount)
+
+		common.ResponseSuccess(c, gin.H{
+			"is_running":    isRunning,
+			"version":       dbProvider.Version,
+			"config":        config,
+			"monitor_count": monitorCount,
+		})
+		return
+	}
+
 	providerInstance, err := providerService.GetProviderInstanceByID(uint(providerID))
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider未连接: "+err.Error()))

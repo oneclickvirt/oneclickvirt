@@ -321,7 +321,7 @@
         </el-row>
         <!-- GPU 直通（仅 LXD/Incus 容器，含复制模式） -->
         <el-form-item
-          v-if="isLxdIncusProvider && (createForm.instanceType === 'container' || createForm.creationMode === 'copy')"
+          v-if="canConfigureGpuPassthrough"
           :label="t('admin.redemptionCodes.gpuPassthrough')"
         >
           <div style="width: 100%">
@@ -539,6 +539,11 @@ const isLxdIncusProvider = computed(() => {
   return p && (p.type === 'lxd' || p.type === 'incus')
 })
 
+const canConfigureGpuPassthrough = computed(() => {
+  if (!isLxdIncusProvider.value) return false
+  return createForm.creationMode === 'copy' || createForm.instanceType === 'container'
+})
+
 // ── GPU 相关 ──────────────────────────────────────────────
 const gpuDetecting = ref(false)
 const gpuChecked = ref(false)
@@ -569,6 +574,14 @@ const selectAllGpus = () => {
 
 const deselectAllGpus = () => {
   selectedGpuIndices.value = []
+}
+
+const resetGpuSelection = () => {
+  createForm.gpuEnabled = false
+  createForm.gpuDeviceIds = ''
+  detectedGpus.value = []
+  selectedGpuIndices.value = []
+  gpuChecked.value = false
 }
 
 // ── 导出对话框 ─────────────────────────────────────────────
@@ -723,16 +736,12 @@ const onProviderChange = async (providerId) => {
   createForm.memoryId = ''
   createForm.diskId = ''
   createForm.bandwidthId = ''
-  createForm.gpuEnabled = false
-  createForm.gpuDeviceIds = ''
   availableImages.value = []
   cpuSpecs.value = []
   memorySpecs.value = []
   diskSpecs.value = []
   bandwidthSpecs.value = []
-  detectedGpus.value = []
-  selectedGpuIndices.value = []
-  gpuChecked.value = false
+  resetGpuSelection()
 
   if (!providerId) return
   try {
@@ -777,9 +786,7 @@ const onProviderChange = async (providerId) => {
     createForm.creationMode = 'standard'
     createForm.sourceContainer = ''
     stoppedContainers.value = []
-    detectedGpus.value = []
-    selectedGpuIndices.value = []
-    gpuChecked.value = false
+    resetGpuSelection()
   }
 }
 
@@ -794,6 +801,10 @@ const onInstanceTypeChange = async (type) => {
   memorySpecs.value = []
   diskSpecs.value = []
   bandwidthSpecs.value = []
+
+  if (type !== 'container') {
+    resetGpuSelection()
+  }
 
   if (!createForm.providerId || !type) return
   try {
@@ -825,6 +836,10 @@ const submitCreate = async () => {
       ElMessage.warning(t('admin.redemptionCodes.sourceContainerRequired'))
       return
     }
+    if (createForm.gpuEnabled && !canConfigureGpuPassthrough.value) {
+      ElMessage.warning(t('admin.redemptionCodes.gpuUnsupportedTarget'))
+      return
+    }
     createLoading.value = true
     await batchCreateRedemptionCodes({
       providerId: createForm.providerId,
@@ -838,8 +853,8 @@ const submitCreate = async () => {
       remark: createForm.remark,
       creationMode: createForm.creationMode,
       sourceContainer: createForm.sourceContainer,
-      gpuEnabled: createForm.gpuEnabled,
-      gpuDeviceIds: createForm.gpuEnabled ? selectedGpuIndices.value.join(',') : ''
+      gpuEnabled: canConfigureGpuPassthrough.value && createForm.gpuEnabled,
+      gpuDeviceIds: canConfigureGpuPassthrough.value && createForm.gpuEnabled ? selectedGpuIndices.value.join(',') : ''
     })
     ElMessage.success(t('admin.redemptionCodes.createSuccess', { count: createForm.count }))
     cancelCreate()

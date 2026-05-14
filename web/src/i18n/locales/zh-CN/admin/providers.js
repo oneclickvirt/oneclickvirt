@@ -440,6 +440,8 @@ export default {
   deployAgentFailed: "Agent 部署失败",
   uninstallAgentSuccess: "Agent 卸载成功",
   uninstallAgentFailed: "Agent 卸载失败",
+  agentNodeAlreadyManaged: "Agent 模式节点已自带 Agent 与监控能力，无需重复部署。",
+  agentNodeUninstallBlocked: "Agent 模式节点不允许在主控端卸载 Agent，请在节点上执行 ocv uninstall。",
   checkStatusFailed: "检查状态失败",
   deployOutput: "部署输出",
   instanceMonitors: "实例监控列表",

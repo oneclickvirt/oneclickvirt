@@ -200,15 +200,11 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 
 	// Agent 模式默认值：已部署 agent，开箱即用
 	if provider.ConnectionType == "agent" {
-		if !req.EnableTrafficControl {
-			provider.EnableTrafficControl = true
-			provider.TrafficSyncMethod = "agent"
-		}
-		if !req.EnableResourceMonitoring {
-			provider.EnableResourceMonitoring = true
-		}
-		// agent 模式默认无端口映射（除非手动配置了端口相关字段）
-		if req.NetworkType == "" {
+		provider.EnableTrafficControl = true
+		provider.EnableResourceMonitoring = true
+		provider.TrafficSyncMethod = "agent"
+		// agent 模式仅在显式提供接入地址时允许使用非 no_port_mapping 网络
+		if req.Endpoint == "" || req.PortIP == "" || req.NetworkType == "" {
 			provider.NetworkType = "no_port_mapping"
 		}
 	}

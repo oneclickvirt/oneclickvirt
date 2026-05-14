@@ -60,9 +60,9 @@ run_module_30() {
     # Section B: connectionType=agent Provider Creation & Update
     # =========================================================
 
-    # -- Create agent-mode provider (no SSH credentials required) --
+    # -- Create agent-mode provider (no SSH credentials or mapped networking required) --
     local agent_prov; agent_prov=$(test_api "Create agent-mode provider" "POST" "/api/v1/admin/providers" "200|409" \
-        "{\"name\":\"ci-agent-mode-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"connectionType\":\"agent\"}" "$group")
+        "{\"name\":\"ci-agent-mode-provider\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"auto\",\"networkType\":\"no_port_mapping\",\"connectionType\":\"agent\"}" "$group")
     local agent_pid; agent_pid=$(echo "$agent_prov" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
 
     if [[ -n "$agent_pid" ]]; then
@@ -70,10 +70,23 @@ run_module_30() {
         local agent_detail; agent_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
             "${SERVER_URL}/api/v1/admin/providers/${agent_pid}" 2>/dev/null)
         local ct; ct=$(echo "$agent_detail" | jq -r '.data.connectionType // empty' 2>/dev/null)
+        local nt; nt=$(echo "$agent_detail" | jq -r '.data.networkType // empty' 2>/dev/null)
+        local traffic_enabled; traffic_enabled=$(echo "$agent_detail" | jq -r '.data.enableTrafficControl // empty' 2>/dev/null)
+        local resource_enabled; resource_enabled=$(echo "$agent_detail" | jq -r '.data.enableResourceMonitoring // empty' 2>/dev/null)
         if [[ "$ct" == "agent" ]]; then
             log_success "connectionType=agent persisted correctly"
         else
             log_warning "connectionType expected 'agent', got '${ct}'"
+        fi
+        if [[ "$nt" == "no_port_mapping" ]]; then
+            log_success "agent-mode provider defaulted to no_port_mapping"
+        else
+            log_warning "agent-mode provider networkType expected 'no_port_mapping', got '${nt}'"
+        fi
+        if [[ "$traffic_enabled" == "true" && "$resource_enabled" == "true" ]]; then
+            log_success "agent-mode provider monitoring defaults enabled"
+        else
+            log_warning "agent-mode provider monitoring defaults mismatch: traffic=${traffic_enabled} resource=${resource_enabled}"
         fi
 
         # -- Generate secret for agent-mode provider --
@@ -88,9 +101,23 @@ run_module_30() {
         test_api "Update agent provider (no SSH creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
             '{"connectionType":"agent","name":"ci-agent-mode-provider-updated"}' "$group"
 
-        # -- Switch from agent back to ssh mode (requires credentials) --
-        test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
-            "{\"connectionType\":\"ssh\",\"password\":\"test\"}" "$group"
+        # -- Agent monitoring status should be queryable even without SSH endpoint --
+        test_api "Agent provider monitoring status" "GET" "/api/v1/admin/providers/${agent_pid}/monitoring/status" "200|400" "" "$group"
+
+        # -- Switch from agent back to ssh mode (requires full SSH connection info) --
+        local switch_payload=''
+        if [[ -n "$worker_pass" ]]; then
+            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}"
+        elif [[ -n "$worker_key" ]]; then
+            local escaped_switch_key; escaped_switch_key=$(echo "$worker_key" | jq -Rsa .)
+            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"sshKey\":${escaped_switch_key}}"
+        fi
+        if [[ -n "$switch_payload" ]]; then
+            test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
+                "$switch_payload" "$group"
+        else
+            log_warning "Skipping agent->ssh switch test because no SSH credentials are available"
+        fi
 
         # -- Cleanup --
         test_api "Delete agent-mode provider" "DELETE" "/api/v1/admin/providers/${agent_pid}" "200" "" "$group"

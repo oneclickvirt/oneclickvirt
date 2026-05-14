@@ -519,6 +519,12 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				// 继续执行，但后续SSH相关操作可能失败
 			}
 
+			if err := s.ensureInstanceNetworkAddresses(context.Background(), instanceID, providerID); err != nil {
+				global.APP_LOG.Warn("实例网络地址补齐失败",
+					zap.Uint("instanceId", instanceID),
+					zap.Error(err))
+			}
+
 			// 更新进度到80% (配置端口映射)
 			s.updateTaskProgress(taskID, 80, "正在配置端口映射...")
 
@@ -831,6 +837,99 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		// 等待后重试
 		time.Sleep(checkInterval)
 	}
+}
+
+func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID, providerID uint) error {
+	var instance providerModel.Instance
+	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
+		return fmt.Errorf("获取实例信息失败: %w", err)
+	}
+
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, providerID).Error; err != nil {
+		return fmt.Errorf("获取Provider信息失败: %w", err)
+	}
+
+	providerSvc := providerService.GetProviderService()
+	providerInstance, exists := providerSvc.GetProviderByID(providerID)
+	if !exists {
+		return fmt.Errorf("provider %d 未初始化", providerID)
+	}
+
+	deadline := time.Now().Add(90 * time.Second)
+	for {
+		updates := map[string]interface{}{}
+
+		switch dbProvider.Type {
+		case "lxd":
+			if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
+				if ip, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
+					updates["private_ip"] = ip
+				}
+				if ipv6, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6 != "" {
+					updates["ipv6_address"] = ipv6
+				}
+				if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
+					updates["public_ipv6"] = publicIPv6
+				}
+			}
+		case "incus":
+			if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
+				if ip, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
+					updates["private_ip"] = ip
+				}
+				if ipv6, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
+					updates["ipv6_address"] = ipv6
+				}
+				if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
+					updates["public_ipv6"] = publicIPv6
+				}
+			}
+		case "proxmox", "proxmoxve":
+			if proxmoxProvider, ok := providerInstance.(interface {
+				GetInstanceIPv4(context.Context, string) (string, error)
+				GetInstanceIPv6(context.Context, string) (string, error)
+				GetInstancePublicIPv6(context.Context, string) (string, error)
+			}); ok {
+				if ip, err := proxmoxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ip != "" {
+					updates["private_ip"] = ip
+					if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+						updates["public_ip"] = ip
+					}
+				}
+				if ipv6, err := proxmoxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6 != "" {
+					updates["ipv6_address"] = ipv6
+				}
+				if publicIPv6, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
+					updates["public_ipv6"] = publicIPv6
+				}
+			}
+		case "qemu", "kubevirt":
+			if actualInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && actualInstance != nil {
+				if actualInstance.PrivateIP != "" {
+					updates["private_ip"] = actualInstance.PrivateIP
+				} else if actualInstance.IP != "" {
+					updates["private_ip"] = actualInstance.IP
+				}
+			}
+		}
+
+		if len(updates) > 0 {
+			if err := global.APP_DB.Model(&providerModel.Instance{}).Where("id = ?", instanceID).Updates(updates).Error; err != nil {
+				return fmt.Errorf("更新实例网络地址失败: %w", err)
+			}
+			if privateIP, ok := updates["private_ip"].(string); ok && privateIP != "" {
+				return nil
+			}
+		}
+
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Second)
+	}
+
+	return fmt.Errorf("实例内网IP在重试窗口内仍未就绪")
 }
 
 // verifySSHPasswordAuth 在密码设置完成后，通过密码认证验证SSH可用性（最多重试3次）

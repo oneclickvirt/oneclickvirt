@@ -285,6 +285,17 @@ func GetOrCreateTunnelManager(providerID uint) (*TunnelManager, error) {
 	return mgr, nil
 }
 
+// OpenTunnelConn returns a net.Conn bridged through the agent tunnel to the target host and port.
+func OpenTunnelConn(providerID uint, targetHost string, targetPort int) (net.Conn, error) {
+	mgr, err := GetOrCreateTunnelManager(providerID)
+	if err != nil {
+		return nil, err
+	}
+	localConn, tunnelConn := net.Pipe()
+	go mgr.handleConn(tunnelConn, targetHost, targetPort)
+	return localConn, nil
+}
+
 // RemoveTunnelManager 移除指定 Provider 的 TunnelManager（Agent 断线时调用）。
 func RemoveTunnelManager(providerID uint) {
 	tunnelMgrMu.Lock()

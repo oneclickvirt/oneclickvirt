@@ -526,11 +526,17 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 	var config monitoringModel.MonitoringConfig
 	err := db.Where("provider_id = ?", providerID).First(&config).Error
 	if err == gorm.ErrRecordNotFound {
+		var provider providerModel.Provider
+		agentInstalled := false
+		if providerErr := db.Select("connection_type").Where("id = ?", providerID).First(&provider).Error; providerErr == nil {
+			agentInstalled = provider.ConnectionType == "agent"
+		}
 		config = monitoringModel.MonitoringConfig{
 			ProviderID:              providerID,
 			MonitoringMode:          "agent",
 			AgentToken:              GenerateAgentToken(),
 			AgentPort:               AgentPort,
+			AgentInstalled:          agentInstalled,
 			CollectInterval:         5,
 			ResourceCollectInterval: 30,
 		}
@@ -538,6 +544,21 @@ func GetMonitoringConfig(db *gorm.DB, providerID uint) (*monitoringModel.Monitor
 			return nil, err
 		}
 		return &config, nil
+	}
+	if err == nil {
+		var provider providerModel.Provider
+		if providerErr := db.Select("connection_type").Where("id = ?", providerID).First(&provider).Error; providerErr == nil && provider.ConnectionType == "agent" {
+			if !config.AgentInstalled || config.MonitoringMode != "agent" {
+				config.AgentInstalled = true
+				config.MonitoringMode = "agent"
+				if saveErr := db.Model(&config).Updates(map[string]interface{}{
+					"agent_installed": true,
+					"monitoring_mode": "agent",
+				}).Error; saveErr != nil {
+					return nil, saveErr
+				}
+			}
+		}
 	}
 	return &config, err
 }

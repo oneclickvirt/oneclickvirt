@@ -478,6 +478,11 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			}
 		}
 		_ = s.waitForInstanceSSHReady(instanceID, providerID, taskID, redeemSSHWait)
+		if err := s.ensureInstanceNetworkAddresses(context.Background(), instanceID, providerID); err != nil {
+			global.APP_LOG.Warn("兑换码实例网络地址补齐失败",
+				zap.Uint("instanceId", instanceID),
+				zap.Error(err))
+		}
 
 		s.updateTaskProgress(taskID, 80, "正在配置端口映射...")
 		portMappingService := &resources.PortMappingService{}

@@ -171,6 +171,12 @@ const handleModeConfirm = (mode) => {
   isEditing.value = false
   cancelAddServer()
   addProviderForm.connectionType = mode  // 'ssh' or 'agent'
+  if (mode === 'agent') {
+    addProviderForm.enableTrafficControl = true
+    addProviderForm.enableResourceMonitoring = true
+    addProviderForm.trafficSyncMethod = 'agent'
+    addProviderForm.networkType = 'no_port_mapping'
+  }
   showAddDialog.value = true
 }
 

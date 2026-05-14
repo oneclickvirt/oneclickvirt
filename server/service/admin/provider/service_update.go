@@ -401,6 +401,14 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 			zap.Uint("providerID", req.ID),
 			zap.String("connectionType", req.ConnectionType))
 	}
+	if provider.ConnectionType == "agent" {
+		provider.EnableTrafficControl = true
+		provider.EnableResourceMonitoring = true
+		provider.TrafficSyncMethod = "agent"
+		if provider.Endpoint == "" || provider.PortIP == "" {
+			provider.NetworkType = "no_port_mapping"
+		}
+	}
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {

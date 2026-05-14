@@ -172,6 +172,16 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 		}
 	}
 
+	// GPU 直通仅支持 LXD/Incus 容器实例或容器复制模式
+	isLxdIncusProvider := provider.Type == "lxd" || provider.Type == "incus"
+	isContainerTarget := req.InstanceType == "container" || req.CreationMode == "copy"
+	if req.GpuEnabled && (!isLxdIncusProvider || !isContainerTarget) {
+		return fmt.Errorf("GPU 直通仅支持 LXD/Incus 的容器实例或容器复制模式")
+	}
+	if !req.GpuEnabled {
+		req.GpuDeviceIds = ""
+	}
+
 	// 验证规格 ID 并计算本次批量创建所需的总资源量
 	// 复制模式无需规格（资源继承自源容器），跳过规格验证和容量检查
 	isCopyMode := req.CreationMode == "copy"

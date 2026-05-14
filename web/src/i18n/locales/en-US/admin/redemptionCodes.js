@@ -88,4 +88,6 @@ export default {
   gpuSelectAll: 'Select All',
   gpuDeselectAll: 'Deselect All',
   gpuDeviceIdx: 'GPU {idx}',
-  gpuFetchFailed: 'Failed to fetch GPU list',}
+  gpuFetchFailed: 'Failed to fetch GPU list',
+  gpuUnsupportedTarget: 'GPU passthrough is only available for LXD/Incus container instances or container copy mode.',
+}

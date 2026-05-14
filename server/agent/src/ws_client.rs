@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::collections::HashMap;
-use tokio::process::Command;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{info, warn};
@@ -44,6 +45,23 @@ struct ExecRespPayload {
 struct InfoPayload {
     hostname: String,
     version: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ShellOpenPayload {
+    cols: Option<u16>,
+    rows: Option<u16>,
+}
+
+#[derive(Deserialize, Debug)]
+struct ShellDataPayload {
+    data: String,
+}
+
+#[derive(Clone)]
+struct ShellHandle {
+    stdin: Arc<Mutex<ChildStdin>>,
+    child: Arc<Mutex<Child>>,
 }
 
 /// Run the WebSocket reverse-connect loop.
@@ -93,6 +111,7 @@ where
 
     // Shared session map for tunnel routing
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
+    let shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>> = Arc::new(Mutex::new(HashMap::new()));
 
     // Send initial info frame
     let hostname = std::fs::read_to_string("/etc/hostname")
@@ -193,6 +212,39 @@ where
                             handle_tunnel_close(payload_val, &sessions).await;
                         }
                     }
+                    "shell_open" => {
+                        let req_id = frame.id.clone().unwrap_or_default();
+                        let payload = frame.payload.unwrap_or_default();
+                        let ws_tx_clone = ws_tx.clone();
+                        let shell_sessions_clone = shell_sessions.clone();
+                        tokio::spawn(async move {
+                            if let Err(err) = open_shell_session(req_id, payload, ws_tx_clone, shell_sessions_clone).await {
+                                warn!(error = %err, "failed to open shell session");
+                            }
+                        });
+                    }
+                    "shell_data" => {
+                        let req_id = frame.id.clone().unwrap_or_default();
+                        if let Some(payload_val) = frame.payload {
+                            if let Ok(payload) = serde_json::from_value::<ShellDataPayload>(payload_val) {
+                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
+                                    let mut stdin = handle.stdin.lock().await;
+                                    let _ = stdin.write_all(payload.data.as_bytes()).await;
+                                    let _ = stdin.flush().await;
+                                }
+                            }
+                        }
+                    }
+                    "shell_resize" => {
+                        // Current fallback shell ignores resize; keep message for protocol compatibility.
+                    }
+                    "shell_close" => {
+                        let req_id = frame.id.clone().unwrap_or_default();
+                        if let Some(handle) = shell_sessions.lock().await.remove(&req_id) {
+                            let mut child = handle.child.lock().await;
+                            let _ = child.kill().await;
+                        }
+                    }
                     other => {
                         info!(msg_type = %other, "received unhandled frame type");
                     }
@@ -210,4 +262,105 @@ where
     }
 
     Ok(())
+}
+
+async fn open_shell_session(
+    session_id: String,
+    payload_val: serde_json::Value,
+    ws_tx: mpsc::Sender<Message>,
+    shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>>,
+) -> Result<(), String> {
+    let payload: ShellOpenPayload = serde_json::from_value(payload_val).unwrap_or(ShellOpenPayload {
+        cols: Some(80),
+        rows: Some(24),
+    });
+    let _ = (payload.cols, payload.rows);
+
+    let mut child = spawn_interactive_shell().await?;
+    let stdin = child.stdin.take().ok_or_else(|| "missing shell stdin".to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| "missing shell stdout".to_string())?;
+    let stderr = child.stderr.take().ok_or_else(|| "missing shell stderr".to_string())?;
+
+    let handle = ShellHandle {
+        stdin: Arc::new(Mutex::new(stdin)),
+        child: Arc::new(Mutex::new(child)),
+    };
+    shell_sessions.lock().await.insert(session_id.clone(), handle.clone());
+
+    spawn_shell_reader(stdout, session_id.clone(), ws_tx.clone());
+    spawn_shell_reader(stderr, session_id.clone(), ws_tx.clone());
+
+    let shell_sessions_clone = shell_sessions.clone();
+    tokio::spawn(async move {
+        let status = {
+            let mut child = handle.child.lock().await;
+            child.wait().await.ok()
+        };
+        shell_sessions_clone.lock().await.remove(&session_id);
+        let reason = status
+            .and_then(|s| s.code().map(|code| format!("shell exited with code {}", code)))
+            .unwrap_or_else(|| "shell closed".to_string());
+        let close_frame = WsFrame {
+            msg_type: "shell_close".to_string(),
+            id: Some(session_id),
+            payload: Some(serde_json::json!({ "reason": reason })),
+        };
+        if let Ok(text) = serde_json::to_string(&close_frame) {
+            let _ = ws_tx.send(Message::Text(text.into())).await;
+        }
+    });
+
+    Ok(())
+}
+
+fn spawn_shell_reader<R>(mut reader: R, session_id: String, ws_tx: mpsc::Sender<Message>)
+where
+    R: tokio::io::AsyncRead + Unpin + Send + 'static,
+{
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 8192];
+        loop {
+            match reader.read(&mut buf).await {
+                Ok(0) => break,
+                Ok(n) => {
+                    let frame = WsFrame {
+                        msg_type: "shell_data".to_string(),
+                        id: Some(session_id.clone()),
+                        payload: Some(serde_json::json!({
+                            "data": String::from_utf8_lossy(&buf[..n]).to_string()
+                        })),
+                    };
+                    if let Ok(text) = serde_json::to_string(&frame) {
+                        if ws_tx.send(Message::Text(text.into())).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+async fn spawn_interactive_shell() -> Result<Child, String> {
+    let mut scripted = Command::new("script");
+    scripted
+        .arg("-qfec")
+        .arg("sh -i")
+        .arg("/dev/null")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    match scripted.spawn() {
+        Ok(child) => Ok(child),
+        Err(_) => {
+            let mut plain = Command::new("sh");
+            plain
+                .arg("-i")
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped());
+            plain.spawn().map_err(|e| e.to_string())
+        }
+    }
 }

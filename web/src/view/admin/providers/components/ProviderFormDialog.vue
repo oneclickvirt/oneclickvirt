@@ -153,7 +153,7 @@ import { ref, computed, watch, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { getCountriesByRegion, getCountryByName, getLocalizedRegion } from '@/utils/countries'
-import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail } from '@/api/admin'
+import { testSSHConnection as testSSHConnectionAPI, generateAgentSecret as generateAgentSecretAPI, execOnProvider as execOnProviderAPI, getProviderDetail, checkProviderHealth as checkProviderHealthAPI } from '@/api/admin'
 // 导入子标签页组件
 import BasicInfoTab from './formTabs/BasicInfoTab.vue'
 import ConnectionTab from './formTabs/ConnectionTab.vue'
@@ -216,6 +216,10 @@ const connectionTestResult = ref(null)
 const generatingSecret = ref(false)
 const checkingAgentStatus = ref(false)
 const agentConnectCmd = ref('')
+
+const isAgentMode = computed(() => formData.value.connectionType === 'agent')
+
+const hasAgentMappedNetworking = computed(() => Boolean(formData.value.host && formData.value.portIP))
 
 // 国家列表数据 - 使用 computed 从 props 获取，如果没有则使用本地获取
 const groupedCountries = computed(() => {
@@ -340,6 +344,10 @@ const validateProviderName = async (rule, value, callback) => {
 
 // 异步验证器：检查SSH地址和端口是否已存在
 const validateEndpoint = async (rule, value, callback) => {
+  if (isAgentMode.value) {
+    callback()
+    return
+  }
   if (!formData.value.host || !formData.value.port) {
     callback()
     return
@@ -378,15 +386,42 @@ const rules = {
     { required: true, message: () => t('admin.providers.validation.serverTypeRequired'), trigger: 'change' }
   ],
   host: [
-    { required: true, message: () => t('admin.providers.validation.hostRequired'), trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (isAgentMode.value || value) {
+          callback()
+          return
+        }
+        callback(new Error(t('admin.providers.validation.hostRequired')))
+      },
+      trigger: 'blur'
+    },
     { validator: validateEndpoint, trigger: 'blur' }
   ],
   port: [
-    { required: true, message: () => t('admin.providers.validation.portRequired'), trigger: 'blur' },
+    {
+      validator: (rule, value, callback) => {
+        if (isAgentMode.value || value) {
+          callback()
+          return
+        }
+        callback(new Error(t('admin.providers.validation.portRequired')))
+      },
+      trigger: 'blur'
+    },
     { validator: validateEndpoint, trigger: 'blur' }
   ],
   username: [
-    { required: true, message: () => t('admin.providers.validation.usernameRequired'), trigger: 'blur' }
+    {
+      validator: (rule, value, callback) => {
+        if (isAgentMode.value || value) {
+          callback()
+          return
+        }
+        callback(new Error(t('admin.providers.validation.usernameRequired')))
+      },
+      trigger: 'blur'
+    }
   ],
   architecture: [
     { required: true, message: () => t('admin.providers.validation.architectureRequired'), trigger: 'change' }
@@ -420,6 +455,15 @@ watch(() => props.visible, (isVisible) => {
     nextTick(() => {
       basicInfoTabRef.value?.formRef?.clearValidate()
     })
+  }
+}, { immediate: true })
+
+watch(() => [formData.value.connectionType, formData.value.host, formData.value.portIP], ([connectionType]) => {
+  if (connectionType !== 'agent') {
+    return
+  }
+  if (!hasAgentMappedNetworking.value) {
+    formData.value.networkType = 'no_port_mapping'
   }
 }, { immediate: true })
 
@@ -629,11 +673,20 @@ const handleCheckAgentStatus = async () => {
   if (!formData.value.id) return
   checkingAgentStatus.value = true
   try {
+    await checkProviderHealthAPI(formData.value.id, { forceRefresh: true })
     const res = await getProviderDetail(formData.value.id)
     if (res.data) {
-      formData.value.agentStatus = res.data.agentStatus || 'offline'
-      formData.value.agentLastSeen = res.data.agentLastSeen || null
-      formData.value.agentRemoteIP = res.data.agentRemoteIP || ''
+      Object.assign(formData.value, {
+        host: res.data.endpoint || formData.value.host,
+        portIP: res.data.portIP || formData.value.portIP,
+        port: res.data.sshPort || formData.value.port,
+        agentStatus: res.data.agentStatus || 'offline',
+        agentLastSeen: res.data.agentLastSeen || null,
+        agentRemoteIP: res.data.agentRemoteIP || '',
+        networkType: res.data.networkType || formData.value.networkType,
+        enableTrafficControl: res.data.enableTrafficControl ?? formData.value.enableTrafficControl,
+        enableResourceMonitoring: res.data.enableResourceMonitoring ?? formData.value.enableResourceMonitoring
+      })
       if (formData.value.agentStatus === 'online') {
         ElMessage.success(t('admin.providers.agentConnected'))
       } else {
@@ -686,6 +739,10 @@ const handleSubmit = async () => {
     if (!formData.value.containerEnabled && !formData.value.vmEnabled) {
       ElMessage.warning(t('admin.providers.selectVirtualizationType'))
       return
+    }
+
+    if (isAgentMode.value && !hasAgentMappedNetworking.value) {
+      formData.value.networkType = 'no_port_mapping'
     }
     
     // 验证SSH认证方式（agent模式无需）

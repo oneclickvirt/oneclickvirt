@@ -15,6 +15,7 @@ import {
 
 export function useMonitoringManagement(props, emit) {
   const { t } = useI18n()
+  const isAgentProvider = computed(() => props.provider?.connectionType === 'agent')
 
   const activeTab = ref('agent')
   const showConfigEditor = ref(false)
@@ -151,6 +152,10 @@ export function useMonitoringManagement(props, emit) {
 
   const handleDeployAgent = async () => {
     if (!props.provider) return
+    if (isAgentProvider.value) {
+      ElMessage.warning(t('admin.providers.agentNodeAlreadyManaged'))
+      return
+    }
     try {
       await ElMessageBox.confirm(t('admin.providers.deployAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'info' })
       deployLoading.value = true; deployOutput.value = ''
@@ -173,6 +178,10 @@ export function useMonitoringManagement(props, emit) {
 
   const handleUninstallAgent = async () => {
     if (!props.provider) return
+    if (isAgentProvider.value) {
+      ElMessage.warning(t('admin.providers.agentNodeUninstallBlocked'))
+      return
+    }
     try {
       await ElMessageBox.confirm(t('admin.providers.uninstallAgentConfirm'), t('common.confirm'), { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' })
       uninstallLoading.value = true
@@ -300,6 +309,7 @@ export function useMonitoringManagement(props, emit) {
     agentOnlineChecked, agentIsOnline, showToken, showAgentMonitors, agentMonitors,
     monitorsPagination, agentMonitorsPagination, config, editConfig,
     agentSwaggerUrl, agentStatusType, agentStatusText,
+    isAgentProvider,
     loadConfig, loadMonitors, handleCopyToken, handleCopyUrl,
     handleDeployAgent, handleUninstallAgent, handleCheckStatus,
     handleSyncMonitors, handleClearMonitors, handleListAgentMonitors,

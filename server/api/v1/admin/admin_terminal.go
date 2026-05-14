@@ -9,6 +9,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -89,24 +90,57 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 		ws.WriteMessage(websocket.TextMessage, []byte("Agent 节点未连接\r\n"))
 		return
 	}
+	if p.Username == "" || (p.Password == "" && p.SSHKey == "") {
+		handleAgentShellTerminal(ws, conn, p)
+		return
+	}
 
-	// 通过 agent 启动交互式 shell
-	// 使用 sh -i 获取交互式 shell（不是一次性命令）
-	// agent Execute 是同步的，需要用特殊方式保持 stdin/stdout 流
-	// 方案：启动 `sh -i` 并持续通过 exec 传递数据
-	// 更简单的方案：定期 exec 并模拟交互
+	tunnelConn, err := agentService.OpenTunnelConn(p.ID, "127.0.0.1", 22)
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("Agent 隧道建立失败: "+err.Error()+"\r\n"))
+		return
+	}
+	defer tunnelConn.Close()
+
+	sshConfig, err := buildTerminalSSHConfig(p)
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("SSH 配置无效: "+err.Error()+"\r\n"))
+		return
+	}
+
+	sshConn, chans, reqs, err := ssh.NewClientConn(tunnelConn, fmt.Sprintf("agent-provider-%d", p.ID), sshConfig)
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("通过 Agent 隧道建立 SSH 连接失败: "+err.Error()+"\r\n"))
+		return
+	}
+	client := ssh.NewClient(sshConn, chans, reqs)
+	defer client.Close()
+
+	session, err := client.NewSession()
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("创建 SSH 会话失败: "+err.Error()+"\r\n"))
+		return
+	}
+	defer session.Close()
+
+	handleSSHSessionTerminal(ws, session)
+}
+
+func handleAgentShellTerminal(ws *websocket.Conn, conn *agentService.AgentConn, p *providerModel.Provider) {
+	session, err := conn.StartShell(80, 24)
+	if err != nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("启动 Agent Shell 失败: "+err.Error()+"\r\n"))
+		return
+	}
+	defer conn.CloseShell(session.ID)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
-
-	done := make(chan struct{})
 	wg := &sync.WaitGroup{}
 
-	// WebSocket → Agent
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		defer close(done)
 		for {
 			select {
 			case <-ctx.Done():
@@ -115,34 +149,50 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 			}
 			_, msg, err := ws.ReadMessage()
 			if err != nil {
+				cancel()
 				return
 			}
-
-			// 解析终端输入
-			var input struct {
-				Type string `json:"type,omitempty"`
-				Data string `json:"data,omitempty"`
-				Cols int    `json:"cols,omitempty"`
-				Rows int    `json:"rows,omitempty"`
+			var resize struct {
+				Type string `json:"type"`
+				Cols int    `json:"cols"`
+				Rows int    `json:"rows"`
 			}
-			if json.Unmarshal(msg, &input) == nil && input.Type == "resize" {
-				continue // agent 模式暂不支持 resize
+			if json.Unmarshal(msg, &resize) == nil && resize.Type == "resize" {
+				_ = conn.ResizeShell(session.ID, resize.Cols, resize.Rows)
+				continue
 			}
-
-			// 执行命令
-			cmd := string(msg)
-			output, execErr := conn.ExecuteWithTimeout(cmd, 15*time.Second)
-			if execErr != nil {
-				ws.WriteMessage(websocket.TextMessage, []byte("\r\nError: "+execErr.Error()+"\r\n"))
-			} else {
-				ws.WriteMessage(websocket.TextMessage, []byte(output))
+			if err := conn.WriteShellInput(session.ID, msg); err != nil {
+				ws.WriteMessage(websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
+				cancel()
+				return
 			}
 		}
 	}()
 
-	// 发送初始提示
-	ws.WriteMessage(websocket.TextMessage, []byte("Connected to "+p.Name+" (agent mode)\r\n$ "))
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for {
+			select {
+			case data, ok := <-session.OutputCh:
+				if !ok {
+					cancel()
+					return
+				}
+				if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
+					cancel()
+					return
+				}
+			case <-session.DoneCh:
+				cancel()
+				return
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
 
+	<-ctx.Done()
 	wg.Wait()
 }
 
@@ -169,6 +219,34 @@ func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	}
 	defer client.Close()
 	defer session.Close()
+
+	handleSSHSessionTerminal(ws, session)
+}
+
+func buildTerminalSSHConfig(p *providerModel.Provider) (*ssh.ClientConfig, error) {
+	authMethods := make([]ssh.AuthMethod, 0, 2)
+	if p.SSHKey != "" {
+		signer, err := ssh.ParsePrivateKey([]byte(p.SSHKey))
+		if err != nil {
+			return nil, err
+		}
+		authMethods = append(authMethods, ssh.PublicKeys(signer))
+	}
+	if p.Password != "" {
+		authMethods = append(authMethods, ssh.Password(p.Password))
+	}
+	if len(authMethods) == 0 {
+		return nil, fmt.Errorf("missing SSH password or key")
+	}
+	return &ssh.ClientConfig{
+		User:            p.Username,
+		Auth:            authMethods,
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         30 * time.Second,
+	}, nil
+}
+
+func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 
 	// 设置 PTY
 	modes := ssh.TerminalModes{
