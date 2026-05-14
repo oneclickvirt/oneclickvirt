@@ -184,22 +184,38 @@
       >
         <template #default="scope">
           <div class="connection-status">
-            <div style="margin-bottom: 4px;">
-              <el-tag 
-                size="small" 
-                :type="getStatusType(scope.row.apiStatus)"
+            <template v-if="scope.row.connectionType === 'agent'">
+              <div v-if="scope.row.agentStatus === 'online'">
+                <el-tag size="small" type="success">
+                  {{ $t('admin.providers.agentStatus') }}: {{ $t('admin.providers.agentStatusOnline') }}
+                </el-tag>
+              </div>
+              <el-text
+                v-else
+                size="small"
+                type="info"
               >
-                API: {{ getStatusText(scope.row.apiStatus) }}
-              </el-tag>
-            </div>
-            <div>
-              <el-tag 
-                size="small" 
-                :type="getStatusType(scope.row.sshStatus)"
-              >
-                SSH: {{ getStatusText(scope.row.sshStatus) }}
-              </el-tag>
-            </div>
+                -
+              </el-text>
+            </template>
+            <template v-else>
+              <div style="margin-bottom: 4px;">
+                <el-tag 
+                  size="small" 
+                  :type="getStatusType(scope.row.apiStatus)"
+                >
+                  API: {{ getStatusText(scope.row.apiStatus) }}
+                </el-tag>
+              </div>
+              <div>
+                <el-tag 
+                  size="small" 
+                  :type="getStatusType(scope.row.sshStatus)"
+                >
+                  SSH: {{ getStatusText(scope.row.sshStatus) }}
+                </el-tag>
+              </div>
+            </template>
           </div>
         </template>
       </el-table-column>
@@ -649,16 +665,20 @@
     <!-- 远程连接对话框 -->
     <el-dialog
       v-model="remoteDialogVisible"
+      class="remote-terminal-dialog"
       :title="$t('admin.providers.remoteConnect') + ' - ' + (remoteRow?.name || '')"
-      width="750px"
+      width="92%"
+      top="3vh"
       destroy-on-close
       @closed="handleRemoteDialogClosed"
     >
-      <AdminProviderTerminal
-        v-if="remoteRow && remoteDialogVisible"
-        :provider-id="remoteRow.id"
-        :provider-name="remoteRow.name"
-      />
+      <div class="remote-terminal-wrapper">
+        <AdminProviderTerminal
+          v-if="remoteRow && remoteDialogVisible"
+          :provider-id="remoteRow.id"
+          :provider-name="remoteRow.name"
+        />
+      </div>
       <template #footer>
         <el-button @click="remoteDialogVisible = false">{{ $t('common.close') }}</el-button>
       </template>
@@ -1006,6 +1026,22 @@ const handleViewHardwareReport = async () => {
 
 .actions-dialog-content .el-divider {
   margin: 10px 0;
+}
+
+.remote-terminal-wrapper {
+  height: 72vh;
+  min-height: 520px;
+}
+
+:deep(.remote-terminal-dialog .el-dialog__body) {
+  padding: 12px 16px;
+}
+
+@media (max-width: 768px) {
+  .remote-terminal-wrapper {
+    height: 62vh;
+    min-height: 360px;
+  }
 }
 
 

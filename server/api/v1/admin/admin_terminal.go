@@ -277,6 +277,9 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		return
 	}
 
+	// 优先切换到 login bash，确保交互环境与用户预期一致（PATH、profile、home目录）
+	_, _ = stdinPipe.Write([]byte("if command -v bash >/dev/null 2>&1; then exec bash -il; fi\n"))
+
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	done := make(chan struct{})

@@ -346,7 +346,7 @@ async fn spawn_interactive_shell() -> Result<Child, String> {
     let mut scripted = Command::new("script");
     scripted
         .arg("-qfec")
-        .arg("sh -i")
+        .arg("cd /root 2>/dev/null || cd \"$HOME\"; if command -v bash >/dev/null 2>&1; then exec bash -il; fi; exec sh -i")
         .arg("/dev/null")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -354,13 +354,24 @@ async fn spawn_interactive_shell() -> Result<Child, String> {
     match scripted.spawn() {
         Ok(child) => Ok(child),
         Err(_) => {
-            let mut plain = Command::new("sh");
+            let mut plain = Command::new("bash");
             plain
-                .arg("-i")
+                .arg("-il")
                 .stdin(Stdio::piped())
                 .stdout(Stdio::piped())
                 .stderr(Stdio::piped());
-            plain.spawn().map_err(|e| e.to_string())
+            match plain.spawn() {
+                Ok(child) => Ok(child),
+                Err(_) => {
+                    let mut sh_plain = Command::new("sh");
+                    sh_plain
+                        .arg("-i")
+                        .stdin(Stdio::piped())
+                        .stdout(Stdio::piped())
+                        .stderr(Stdio::piped());
+                    sh_plain.spawn().map_err(|e| e.to_string())
+                }
+            }
         }
     }
 }
