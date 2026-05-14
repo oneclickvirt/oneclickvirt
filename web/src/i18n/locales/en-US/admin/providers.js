@@ -721,6 +721,7 @@ export default {
   modeAgentTag: "NAT Traversal",
   agentStatus: "Agent Status",
   agentStatusOnline: "Online",
+  agentOnlineShort: "Agent Online",
   agentStatusOffline: "Offline",
   agentSecret: "Agent Secret",
   generateAgentSecret: "Generate / Refresh Secret",

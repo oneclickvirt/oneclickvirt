@@ -133,7 +133,11 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 
 		// 验证节点
 		var provider providerModel.Provider
-		if err := tx.Where("id = ? AND status IN (?)", taskReq.ProviderId, []string{"active", "partial"}).First(&provider).Error; err != nil {
+		if err := tx.Where("id = ?", taskReq.ProviderId).First(&provider).Error; err != nil {
+			return fmt.Errorf("节点不存在或不可用")
+		}
+		providerAvailable := provider.Status == "active" || provider.Status == "partial" || (provider.ConnectionType == "agent" && provider.AgentStatus == "online")
+		if !providerAvailable {
 			return fmt.Errorf("节点不存在或不可用")
 		}
 		if provider.IsFrozen {

@@ -185,66 +185,35 @@
         <template #default="scope">
           <div class="connection-status">
             <template v-if="scope.row.connectionType === 'agent'">
-              <div v-if="scope.row.agentStatus === 'online'">
-                <el-tag size="small" type="success">
-                  {{ $t('admin.providers.agentStatus') }}: {{ $t('admin.providers.agentStatusOnline') }}
-                </el-tag>
-              </div>
-              <el-text
-                v-else
+              <el-tag
+                v-if="scope.row.agentStatus === 'online'"
                 size="small"
-                type="info"
+                type="success"
               >
-                -
-              </el-text>
+                {{ $t('admin.providers.agentOnlineShort') }}
+              </el-tag>
             </template>
             <template v-else>
-              <div style="margin-bottom: 4px;">
+              <div class="connection-status-row">
+                <span class="status-prefix">A</span>
                 <el-tag 
                   size="small" 
                   :type="getStatusType(scope.row.apiStatus)"
                 >
-                  API: {{ getStatusText(scope.row.apiStatus) }}
+                  {{ getStatusText(scope.row.apiStatus) }}
                 </el-tag>
               </div>
-              <div>
+              <div class="connection-status-row">
+                <span class="status-prefix">S</span>
                 <el-tag 
                   size="small" 
                   :type="getStatusType(scope.row.sshStatus)"
                 >
-                  SSH: {{ getStatusText(scope.row.sshStatus) }}
+                  {{ getStatusText(scope.row.sshStatus) }}
                 </el-tag>
               </div>
             </template>
           </div>
-        </template>
-      </el-table-column>
-      <el-table-column
-        :label="$t('admin.providers.agentVersion')"
-        width="100"
-      >
-        <template #default="scope">
-          <el-tag
-            v-if="scope.row.connectionType === 'agent' && scope.row.agentStatus === 'online' && scope.row.agentVersion"
-            size="small"
-            :type="scope.row.agentVersion === compatibleAgentVersion ? 'success' : 'warning'"
-          >
-            {{ scope.row.agentVersion }}
-          </el-tag>
-          <el-tag
-            v-else-if="scope.row.connectionType === 'agent' && scope.row.agentStatus === 'online'"
-            size="small"
-            type="info"
-          >
-            -
-          </el-tag>
-          <el-text
-            v-else
-            size="small"
-            type="info"
-          >
-            -
-          </el-text>
         </template>
       </el-table-column>
       <el-table-column
@@ -695,9 +664,6 @@ import { useI18n } from 'vue-i18n'
 import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
 import AdminProviderTerminal from '@/components/AdminProviderTerminal.vue'
 
-// Compatible agent version (must match server constant)
-const compatibleAgentVersion = 'v0.2.0'
-
 import { 
   formatMemorySize, 
   formatDiskSize, 
@@ -895,6 +861,20 @@ const handleViewHardwareReport = async () => {
 .connection-status {
   display: flex;
   flex-direction: column;
+  gap: 4px;
+}
+
+.connection-status-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.status-prefix {
+  width: 10px;
+  font-size: 11px;
+  color: #909399;
+  line-height: 1;
 }
 
 .resource-info,

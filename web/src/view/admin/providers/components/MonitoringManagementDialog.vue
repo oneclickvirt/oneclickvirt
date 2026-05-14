@@ -75,16 +75,23 @@
                   </div>
                 </el-descriptions-item>
                 <el-descriptions-item :label="$t('admin.providers.agentTestUrl')">
-                  <div style="display: flex; align-items: center; gap: 8px;">
-                    <el-input
-                      :model-value="agentSwaggerUrl"
-                      readonly
-                      size="small"
-                      style="flex: 1; max-width: 400px;"
-                    />
-                    <el-button size="small" @click="handleCopyUrl(agentSwaggerUrl)">
-                      {{ $t('admin.providers.copyUrl') }}
-                    </el-button>
+                  <div>
+                    <div style="display: flex; align-items: center; gap: 8px;">
+                      <el-input
+                        :model-value="agentSwaggerUrl"
+                        readonly
+                        size="small"
+                        style="flex: 1; max-width: 400px;"
+                      />
+                      <el-button size="small" @click="handleCopyUrl(agentSwaggerUrl)">
+                        {{ $t('admin.providers.copyUrl') }}
+                      </el-button>
+                    </div>
+                    <div v-if="config.agent_version" style="margin-top: 6px;">
+                      <el-text size="small" type="info">
+                        {{ $t('admin.providers.agentVersion') }}: {{ config.agent_version }}
+                      </el-text>
+                    </div>
                   </div>
                 </el-descriptions-item>
               </el-descriptions>
