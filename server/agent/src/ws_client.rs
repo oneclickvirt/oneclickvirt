@@ -29,6 +29,7 @@ struct WsFrameLocal {
 /// Payload received in `exec_req` frames.
 #[derive(Deserialize, Debug)]
 struct ExecReqPayload {
+    #[serde(rename = "command")]
     cmd: String,
 }
 
