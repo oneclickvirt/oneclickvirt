@@ -138,7 +138,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		passwordChanged = true
 		global.APP_LOG.Debug("更新Provider密码",
 			zap.Uint("providerID", req.ID),
-			zap.Bool("isEmpty", *req.Password == ""))
+			zap.String("status", map[bool]string{true: "cleared", false: "set"}[*req.Password == ""]))
 	}
 
 	// 是否修改了SSH密钥
@@ -148,7 +148,7 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		sshKeyChanged = true
 		global.APP_LOG.Debug("更新Provider SSH密钥",
 			zap.Uint("providerID", req.ID),
-			zap.Bool("isEmpty", *req.SSHKey == ""))
+			zap.String("status", map[bool]string{true: "cleared", false: "set"}[*req.SSHKey == ""]))
 	}
 
 	// 验证：SSH 直连模式下必须至少保留一种认证方式；agent 模式无需 SSH 凭据
@@ -397,6 +397,9 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.GpuDeviceIds = req.GpuDeviceIds
 	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" {
 		provider.ConnectionType = req.ConnectionType
+		global.APP_LOG.Debug("更新Provider连接类型",
+			zap.Uint("providerID", req.ID),
+			zap.String("connectionType", req.ConnectionType))
 	}
 
 	// 节点级别等级限制配置更新

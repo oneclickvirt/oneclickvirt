@@ -15,12 +15,24 @@ import (
 	"gorm.io/gorm"
 )
 
+// maskAuthMethod 掩码认证方法，用于日志输出，避免暴露敏感信息
+func maskAuthMethod(password, sshKey string) string {
+	if password != "" {
+		return "password:***"
+	}
+	if sshKey != "" {
+		return "sshKey:***"
+	}
+	return "none"
+}
+
 // CreateProvider 创建Provider
 func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID uint) (*providerModel.Provider, error) {
 	global.APP_LOG.Info("开始创建Provider",
 		zap.String("name", utils.TruncateString(req.Name, 32)),
 		zap.String("type", req.Type),
-		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)))
+		zap.String("endpoint", utils.TruncateString(req.Endpoint, 64)),
+		zap.String("auth", maskAuthMethod(req.Password, req.SSHKey)))
 
 	// 1. 检查Provider名称是否已存在
 	var existingNameCount int64

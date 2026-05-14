@@ -57,9 +57,25 @@ func AdminProviderTerminal(c *gin.Context) {
 	}
 	defer ws.Close()
 
+	// 记录连接类型和Provider信息
+	global.APP_LOG.Info("Provider远程连接请求",
+		zap.Uint("providerID", uint(id)),
+		zap.String("providerName", dbProvider.Name),
+		zap.String("connectionType", dbProvider.ConnectionType),
+		zap.String("type", dbProvider.Type))
+
+	// 根据连接类型分发处理
 	if dbProvider.ConnectionType == "agent" {
+		global.APP_LOG.Debug("使用Agent模式连接Provider", zap.Uint("providerID", uint(id)))
 		handleAgentTerminal(ws, &dbProvider)
+	} else if dbProvider.ConnectionType == "ssh" {
+		global.APP_LOG.Debug("使用SSH模式连接Provider", zap.Uint("providerID", uint(id)))
+		handleSSHTerminal(ws, &dbProvider)
 	} else {
+		// 如果connectionType为空或未知值，记录警告并默认使用SSH
+		global.APP_LOG.Warn("Provider连接类型未设置或不合法，默认使用SSH",
+			zap.Uint("providerID", uint(id)),
+			zap.String("connectionType", dbProvider.ConnectionType))
 		handleSSHTerminal(ws, &dbProvider)
 	}
 }

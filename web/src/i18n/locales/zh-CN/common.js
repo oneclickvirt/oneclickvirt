@@ -6,6 +6,7 @@ export default {
   cancel: '取消',
   next: '下一步',
   confirm: '确定',
+  ok: '确定',
   save: '保存',
   saveSuccess: '保存成功',
   saveFailed: '保存失败',

@@ -104,7 +104,7 @@
       </el-table-column>
       <el-table-column
         :label="$t('admin.providers.sshPort')"
-        width="80"
+        width="120"
       >
         <template #default="scope">
           {{ scope.row.sshPort || 22 }}

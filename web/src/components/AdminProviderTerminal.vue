@@ -135,10 +135,20 @@ const cleanup = () => {
 <style scoped>
 .admin-terminal-container {
   width: 100%;
-  height: 400px;
+  height: 100%;
+  background-color: #1e1e1e;
+  padding: 10px;
+  border-radius: 4px;
+  overflow: hidden;
 }
 .terminal {
   width: 100%;
   height: 100%;
+}
+
+/* xterm.js 默认样式覆盖 */
+:deep(.xterm) {
+  height: 100%;
+  padding: 10px;
 }
 </style>

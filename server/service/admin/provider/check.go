@@ -65,7 +65,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		conn, ok := hub.GetConn(provider.ID)
 		agentStatus := "offline"
 		generalStatus := "inactive"
-		var agentHostName string
+		var agentHostName, agentVersion string
 
 		if ok && conn != nil {
 			// WebSocket 连接存在，进一步执行命令验证代理命令链路可用性
@@ -74,6 +74,40 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 				agentStatus = "online"
 				generalStatus = "active"
 				agentHostName = strings.TrimSpace(out)
+
+				// 获取虚拟化版本信息
+				// 根据provider类型执行对应的命令获取版本
+				switch localProviderType {
+				case "proxmox":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("pvesh get /version", 10*time.Second); versionErr == nil {
+						// 提取版本号，pvesh返回JSON格式
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "qemu", "kvm":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("qemu-system-x86_64 --version 2>/dev/null | head -1", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "lxd":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("lxd --version", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "incus":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("incus --version", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "docker":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("docker --version", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "podman":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("podman --version", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				case "containerd":
+					if versionOut, versionErr := conn.ExecuteWithTimeout("containerd --version", 10*time.Second); versionErr == nil {
+						agentVersion = strings.TrimSpace(versionOut)
+					}
+				}
 			} else {
 				// 连接存在但命令执行失败：类同 SSH partial 状态
 				agentStatus = "online"
@@ -92,6 +126,9 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		}
 		if agentHostName != "" {
 			updates["host_name"] = agentHostName
+		}
+		if agentVersion != "" {
+			updates["version"] = agentVersion
 		}
 		global.APP_DB.Model(&providerModel.Provider{}).Where("id = ?", localProviderID).Updates(updates)
 		return nil
