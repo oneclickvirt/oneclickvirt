@@ -17,6 +17,8 @@ import (
 	"gorm.io/gorm"
 )
 
+const agentReconnectGraceWindow = 2 * time.Minute
+
 // CheckProviderHealthAsync 异步检查Provider健康状态
 func (s *Service) CheckProviderHealthAsync(providerID uint) {
 	go func() {
@@ -59,7 +61,7 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 	now := time.Now()
 	ctx := context.Background()
 
-	// Agent 模式：检查 WebSocket 连通性，并通过代理执行命令验证代理链路是否正常（类同 SSH 连接尝试）
+	// Agent 模式：仅按 Agent WebSocket 链路判断；与 SSH 节点使用不同健康检测语义。
 	if provider.ConnectionType == "agent" {
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(provider.ID)
@@ -68,55 +70,18 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		var agentHostName, agentVersion string
 
 		if ok && conn != nil {
-			// WebSocket 连接存在，进一步执行命令验证代理命令链路可用性
-			out, execErr := conn.ExecuteWithTimeout("hostname", 10*time.Second)
-			if execErr == nil {
-				agentStatus = "online"
-				generalStatus = "active"
-				agentHostName = strings.TrimSpace(out)
-
-				// 获取虚拟化版本信息
-				// 根据provider类型执行对应的命令获取版本
-				switch localProviderType {
-				case "proxmox":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("pvesh get /version", 10*time.Second); versionErr == nil {
-						// 提取版本号，pvesh返回JSON格式
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "qemu", "kvm":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("qemu-system-x86_64 --version 2>/dev/null | head -1", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "lxd":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("lxd --version", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "incus":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("incus --version", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "docker":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("docker --version", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "podman":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("podman --version", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				case "containerd":
-					if versionOut, versionErr := conn.ExecuteWithTimeout("containerd --version", 10*time.Second); versionErr == nil {
-						agentVersion = strings.TrimSpace(versionOut)
-					}
-				}
-			} else {
-				// 连接存在但命令执行失败：类同 SSH partial 状态
-				agentStatus = "online"
-				generalStatus = "partial"
-				global.APP_LOG.Warn("Agent 代理命令执行失败",
-					zap.Uint("providerID", localProviderID),
-					zap.String("provider", localProviderName),
-					zap.Error(execErr))
-			}
+			// Agent 节点健康仅以反向 WebSocket 在线为准，不复用 SSH 风格命令探测。
+			agentStatus = "online"
+			generalStatus = "active"
+		} else if provider.AgentLastSeen != nil && now.Sub(*provider.AgentLastSeen) <= agentReconnectGraceWindow {
+			// 控制端重启后的短窗口内，避免把刚刚在线的 agent 立即判为掉线。
+			agentStatus = "online"
+			generalStatus = "partial"
+			global.APP_LOG.Debug("Agent 处于重连宽限期，暂不降级为离线",
+				zap.Uint("providerID", localProviderID),
+				zap.String("provider", localProviderName),
+				zap.Time("agentLastSeen", *provider.AgentLastSeen),
+				zap.Duration("graceWindow", agentReconnectGraceWindow))
 		}
 
 		updates := map[string]interface{}{

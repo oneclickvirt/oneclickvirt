@@ -22,9 +22,9 @@ import (
 func (s *Service) GetAvailableProviders(userID uint) ([]userModel.AvailableProviderResponse, error) {
 	var dbProviders []providerModel.Provider
 
-	// 获取允许申领且未冻结的Provider，包括部分在线的服务器
-	err := global.APP_DB.Where("(status = ? OR status = ?) AND allow_claim = ? AND is_frozen = ?",
-		"active", "partial", true, false).
+	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
+	err := global.APP_DB.Where("((connection_type <> ? AND status IN (?, ?)) OR (connection_type = ? AND agent_status = ?)) AND allow_claim = ? AND is_frozen = ?",
+		"agent", "active", "partial", "agent", "online", true, false).
 		Limit(1000). // 限制最多1000条，防止单次查询过大
 		Find(&dbProviders).Error
 	if err != nil {

@@ -66,7 +66,12 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		}
 
 		var provider providerModel.Provider
-		if err := tx.Where("id = ? AND status IN (?)", taskReq.ProviderId, []string{"active", "partial"}).First(&provider).Error; err != nil {
+		if err := tx.Where("id = ?", taskReq.ProviderId).First(&provider).Error; err != nil {
+			return fmt.Errorf("服务器不存在或不可用")
+		}
+		providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+			(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
+		if !providerAvailable {
 			return fmt.Errorf("服务器不存在或不可用")
 		}
 

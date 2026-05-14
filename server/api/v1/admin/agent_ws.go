@@ -34,6 +34,14 @@ var wsUpgrader = websocket.Upgrader{
 func AgentWebSocket(c *gin.Context) {
 	secret := c.Query("secret")
 	if secret == "" {
+		// 兼容历史参数名，避免主控升级后老 agent 重连失败
+		secret = c.Query("agent_secret")
+	}
+	if secret == "" {
+		// 兼容更早期 token 参数
+		secret = c.Query("token")
+	}
+	if secret == "" {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少 secret 参数"})
 		return
 	}

@@ -31,7 +31,7 @@ func (s *AdminDashboardService) GetAdminDashboard(ownerAdminID uint) (*admin.Adm
 
 	// 统计Provider
 	providerQuery.Count(&totalProviders)
-	providerActiveQuery := global.APP_DB.Model(&providerModel.Provider{}).Where("status = ? OR status = ?", "active", "partial")
+	providerActiveQuery := global.APP_DB.Model(&providerModel.Provider{}).Where("(connection_type <> ? AND status IN (?, ?)) OR (connection_type = ? AND agent_status = ?)", "agent", "active", "partial", "agent", "online")
 	if ownerAdminID > 0 {
 		providerActiveQuery = providerActiveQuery.Where("owner_admin_id = ?", ownerAdminID)
 	}

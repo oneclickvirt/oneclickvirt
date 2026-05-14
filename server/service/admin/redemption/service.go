@@ -161,7 +161,8 @@ func (s *Service) BatchCreate(req adminModel.BatchCreateRedemptionCodesRequest, 
 	if err := global.APP_DB.Where("id = ?", req.ProviderID).First(&provider).Error; err != nil {
 		return fmt.Errorf("节点不存在或不可用")
 	}
-	providerAvailable := provider.Status == "active" || provider.Status == "partial" || (provider.ConnectionType == "agent" && provider.AgentStatus == "online")
+	providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+		(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
 	if !providerAvailable {
 		return fmt.Errorf("节点不存在或不可用")
 	}

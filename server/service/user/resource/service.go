@@ -32,8 +32,9 @@ func (s *Service) GetAvailableResources(req userModel.AvailableResourcesRequest)
 	var providers []providerModel.Provider
 	var total int64
 
-	// 允许 active 和 partial 状态的Provider（与GetAvailableProviders保持一致）
-	query := global.APP_DB.Model(&providerModel.Provider{}).Where("(status = ? OR status = ?) AND allow_claim = ?", "active", "partial", true)
+	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
+	query := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("((connection_type <> ? AND status IN (?, ?)) OR (connection_type = ? AND agent_status = ?)) AND allow_claim = ?", "agent", "active", "partial", "agent", "online", true)
 
 	if req.Country != "" {
 		query = query.Where("country = ?", req.Country)
@@ -147,6 +148,12 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 
 		if !provider.AllowClaim {
 			return errors.New("该提供商不允许申领")
+		}
+
+		providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+			(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
+		if !providerAvailable {
+			return errors.New("提供商不可用")
 		}
 
 		// 检查提供商状态

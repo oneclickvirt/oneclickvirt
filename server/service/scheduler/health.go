@@ -90,7 +90,17 @@ func (s *ProviderHealthSchedulerService) startHealthCheckTask(ctx context.Contex
 		global.APP_LOG.Info("Provider健康检查任务已停止")
 	}()
 
-	// 启动后立即执行一次
+	// 启动后先等待短暂缓冲，给 Agent 反向连接重建窗口，避免主控重启后瞬时全掉线。
+	startupGrace := 45 * time.Second
+	select {
+	case <-ctx.Done():
+		return
+	case <-s.stopChan:
+		return
+	case <-time.After(startupGrace):
+	}
+
+	// 缓冲后执行首次检查
 	s.checkAllProvidersHealth()
 
 	// 确保ticker在panic时也能停止，防止goroutine泄漏

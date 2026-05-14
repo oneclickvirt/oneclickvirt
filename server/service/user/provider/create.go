@@ -43,12 +43,30 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 		return nil, errors.New("节点不存在")
 	}
 
+	providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+		(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
+	if !providerAvailable {
+		global.APP_LOG.Error("服务器不可用",
+			zap.Uint("providerId", req.ProviderId),
+			zap.String("status", provider.Status),
+			zap.String("connectionType", provider.ConnectionType),
+			zap.String("agentStatus", provider.AgentStatus))
+		return nil, errors.New("服务器不可用")
+	}
+
 	if !provider.AllowClaim || provider.IsFrozen {
 		global.APP_LOG.Error("服务器不可用",
 			zap.Uint("providerId", req.ProviderId),
 			zap.Bool("allowClaim", provider.AllowClaim),
 			zap.Bool("isFrozen", provider.IsFrozen))
 		return nil, errors.New("服务器不可用")
+	}
+
+	if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
+		global.APP_LOG.Error("服务器已过期",
+			zap.Uint("providerId", req.ProviderId),
+			zap.Time("expiresAt", *provider.ExpiresAt))
+		return nil, errors.New("服务器已过期")
 	}
 
 	// 检查Provider是否因流量超限被限制
@@ -206,6 +224,21 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 			var provider providerModel.Provider
 			if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&provider, req.ProviderId).Error; err != nil {
 				return fmt.Errorf("获取节点信息失败: %v", err)
+			}
+
+			providerAvailable := (provider.ConnectionType == "agent" && provider.AgentStatus == "online") ||
+				(provider.ConnectionType != "agent" && (provider.Status == "active" || provider.Status == "partial"))
+			if !providerAvailable {
+				return fmt.Errorf("服务器不存在或不可用")
+			}
+			if !provider.AllowClaim {
+				return fmt.Errorf("该节点不允许申领")
+			}
+			if provider.IsFrozen {
+				return fmt.Errorf("服务器已被冻结")
+			}
+			if provider.ExpiresAt != nil && provider.ExpiresAt.Before(time.Now()) {
+				return fmt.Errorf("服务器已过期")
 			}
 
 			// 3.1 检查节点容器/虚拟机总数限制

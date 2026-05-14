@@ -266,7 +266,7 @@ func syncProvidersDataOnStartup() {
 		ID   uint   `gorm:"column:id"`
 		Name string `gorm:"column:name"`
 	}{}).Table("providers").
-		Where("status IN (?)", []string{"active", "partial"}).
+		Where("(connection_type <> ? AND status IN (?, ?)) OR (connection_type = ? AND agent_status = ?)", "agent", "active", "partial", "agent", "online").
 		Select("id, name").
 		Find(&providers).Error; err != nil {
 		global.APP_LOG.Error("获取Provider列表失败", zap.Error(err))

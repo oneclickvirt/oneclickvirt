@@ -15,9 +15,9 @@ import (
 
 // CheckAllProvidersTrafficLimit 检查所有Provider的流量限制
 func (s *ThreeTierLimitService) CheckAllProvidersTrafficLimit(ctx context.Context) error {
-	// 获取所有活跃Provider
+	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
 	var providers []provider.Provider
-	if err := global.APP_DB.Where("status IN (?)", []string{"active", "partial"}).Find(&providers).Error; err != nil {
+	if err := global.APP_DB.Where("(connection_type <> ? AND status IN (?, ?)) OR (connection_type = ? AND agent_status = ?)", "agent", "active", "partial", "agent", "online").Find(&providers).Error; err != nil {
 		return fmt.Errorf("获取Provider列表失败: %w", err)
 	}
 

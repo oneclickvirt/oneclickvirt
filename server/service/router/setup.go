@@ -180,7 +180,9 @@ func SetupRouter() *gin.Engine {
 		InitProviderRouter(ResourceGroup)
 
 		// Agent WebSocket 连接入口（使用 AgentSecret 自鉴权，无 JWT 中间件）
+		// 保留历史路径兼容，避免控制端重启后旧版本 agent 无法重连。
 		ApiGroup.GET("/v1/ws/agent", admin.AgentWebSocket)
+		ApiGroup.GET("/ws/agent", admin.AgentWebSocket)
 	}
 
 	// 设置静态文件路由（embed 构建模式下才生效）

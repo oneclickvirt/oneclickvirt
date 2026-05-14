@@ -40,11 +40,18 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	}
 
 	// 直接从数据库获取Provider配置（使用ProviderID而不是Name）
-	// 允许 active 和 partial 状态的Provider执行任务（与GetAvailableProviders保持一致）
+	// 可用性口径：标准节点看 active/partial，agent 节点仅看在线状态
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("id = ? AND (status = ? OR status = ?)", instance.ProviderID, "active", "partial").First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", instance.ProviderID).First(&dbProvider).Error; err != nil {
 		err := fmt.Errorf("Provider ID %d 不存在或不可用", instance.ProviderID)
 		global.APP_LOG.Error("Provider不存在", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Error(err))
+		return err
+	}
+	providerAvailable := (dbProvider.ConnectionType == "agent" && dbProvider.AgentStatus == "online") ||
+		(dbProvider.ConnectionType != "agent" && (dbProvider.Status == "active" || dbProvider.Status == "partial"))
+	if !providerAvailable {
+		err := fmt.Errorf("Provider ID %d 不存在或不可用", instance.ProviderID)
+		global.APP_LOG.Error("Provider不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", instance.ProviderID), zap.Error(err))
 		return err
 	}
 
