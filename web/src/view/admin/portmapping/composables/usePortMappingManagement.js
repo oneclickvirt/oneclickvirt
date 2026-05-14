@@ -70,7 +70,7 @@ export function usePortMappingManagement() {
   const supportedInstances = computed(() => {
     return instances.value.filter(instance => {
       const type = getInstanceProviderType(instance)?.toLowerCase()
-      return type === 'lxd' || type === 'incus' || type === 'proxmox' || type === 'qemu' || type === 'kubevirt'
+      return type === 'lxd' || type === 'incus' || type === 'proxmox' || type === 'qemu' || type === 'kubevirt' || type === 'docker' || type === 'podman' || type === 'containerd'
     })
   })
 
@@ -103,6 +103,18 @@ export function usePortMappingManagement() {
       if (addForm.hostPort + addForm.portCount - 1 > 65535) ElMessage.warning(t('admin.portMapping.portRangeExceedsLimit'))
     }
   }
+
+  // 动态端口映射提示：根据所选实例的 Provider 类型显示不同提示
+  const portMappingHint = computed(() => {
+    if (!addForm.instanceId) return t('admin.portMapping.onlyLxdIncusProxmox')
+    const instance = instances.value.find(i => i.id === addForm.instanceId)
+    if (!instance) return t('admin.portMapping.onlyLxdIncusProxmox')
+    const providerType = getInstanceProviderType(instance)?.toLowerCase()
+    if (['docker', 'podman', 'containerd'].includes(providerType)) {
+      return t('admin.portMapping.dockerNotSupported')
+    }
+    return t('admin.portMapping.onlyLxdIncusProxmox')
+  })
 
   const checkPortAvailabilityDebounced = () => {
     if (checkPortTimeout) clearTimeout(checkPortTimeout)
@@ -237,7 +249,18 @@ export function usePortMappingManagement() {
     addDialogVisible.value = true
   }
 
-  const onInstanceChange = () => {}
+  const onInstanceChange = () => {
+    // Docker/Podman/Containerd 实例自动切换为控制端转发模式
+    if (addForm.instanceId) {
+      const instance = instances.value.find(i => i.id === addForm.instanceId)
+      if (instance) {
+        const providerType = getInstanceProviderType(instance)?.toLowerCase()
+        if (['docker', 'podman', 'containerd'].includes(providerType)) {
+          addForm.mappingType = 'controller'
+        }
+      }
+    }
+  }
 
   const submitAdd = async () => {
     if (!addFormRef.value) return
@@ -246,8 +269,16 @@ export function usePortMappingManagement() {
       const instance = instances.value.find(i => i.id === addForm.instanceId)
       if (!instance) { ElMessage.error(t('admin.portMapping.instanceNotFound')); return }
       const providerType = getInstanceProviderType(instance)?.toLowerCase()
-      if (['docker', 'podman', 'containerd'].includes(providerType)) { ElMessage.error(t('admin.portMapping.dockerNotSupported')); return }
-      if (!['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt'].includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
+      // Docker/Podman/Containerd 仅支持控制端转发模式
+      if (['docker', 'podman', 'containerd'].includes(providerType)) {
+        if (addForm.mappingType !== 'controller') {
+          ElMessage.error(t('admin.portMapping.dockerOnlyController'))
+          return
+        }
+      }
+      // 验证支持的 Provider 类型
+      const supportedTypes = ['lxd', 'incus', 'proxmox', 'qemu', 'kubevirt', 'docker', 'podman', 'containerd']
+      if (!supportedTypes.includes(providerType)) { ElMessage.error(t('admin.portMapping.onlyLxdIncusProxmoxSupported')); return }
       addLoading.value = true
       const data = { instanceId: addForm.instanceId, guestPort: addForm.guestPort, hostPort: addForm.hostPort || 0, portCount: addForm.portCount || 1, protocol: addForm.protocol, description: addForm.description, mappingType: addForm.mappingType || 'node', internalHost: addForm.internalHost || '' }
       await createPortMapping(data)
@@ -277,7 +308,7 @@ export function usePortMappingManagement() {
     selectedPortMappings, searchForm,
     addDialogVisible, addFormRef, addLoading, addForm, addRules,
     checkingPort, portCheckResult,
-    supportedInstances, selectedInstanceProvider, portRangePreview,
+    supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
     instanceFilterText, filteredInstances, filteredInstancesCount,
     getInstanceProviderType, getProviderTagType,
     loadPortMappings, loadProviders, loadInstances,

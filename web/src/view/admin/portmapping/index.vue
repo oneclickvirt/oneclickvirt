@@ -354,7 +354,7 @@
       >
         <template #title>
           <span style="font-size: 13px;">
-            {{ $t('admin.portMapping.onlyLxdIncusProxmox') }}
+            {{ portMappingHint }}
           </span>
         </template>
       </el-alert>
@@ -599,7 +599,7 @@ const {
   selectedPortMappings, searchForm,
   addDialogVisible, addFormRef, addLoading, addForm, addRules,
   checkingPort, portCheckResult,
-  supportedInstances, selectedInstanceProvider, portRangePreview,
+  supportedInstances, selectedInstanceProvider, portRangePreview, portMappingHint,
   instanceFilterText, filteredInstances, filteredInstancesCount,
   getInstanceProviderType, getProviderTagType,
   loadPortMappings, loadProviders, loadInstances,

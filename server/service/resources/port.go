@@ -111,9 +111,19 @@ func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappi
 		return 0, nil, fmt.Errorf("Provider不存在")
 	}
 
-	// 只支持 LXD/Incus/Proxmox 手动添加端口
-	if providerInfo.Type != "lxd" && providerInfo.Type != "incus" && providerInfo.Type != "proxmox" && providerInfo.Type != "proxmoxve" {
-		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox")
+	// 手动添加端口支持：
+	// - LXD/Incus/Proxmox/QEMU/KubeVirt：支持节点侧映射（device_proxy/iptables）和控制端转发
+	// - Docker/Podman/Containerd：仅支持控制端转发（内网穿透），不支持节点侧映射
+	isContainerRuntime := providerInfo.Type == "docker" || providerInfo.Type == "podman" || providerInfo.Type == "containerd"
+	isNodeSupported := providerInfo.Type == "lxd" || providerInfo.Type == "incus" || providerInfo.Type == "proxmox" || providerInfo.Type == "proxmoxve" || providerInfo.Type == "qemu" || providerInfo.Type == "kubevirt"
+
+	if isContainerRuntime {
+		// Docker/Podman/Containerd 仅支持控制端端口转发（内网穿透）
+		if req.MappingType != "controller" {
+			return 0, nil, fmt.Errorf("Docker/Podman/Containerd 实例仅支持控制端端口转发模式（内网穿透），不支持节点侧端口映射")
+		}
+	} else if !isNodeSupported {
+		return 0, nil, fmt.Errorf("不支持的 Provider 类型，手动添加端口仅支持 LXD/Incus/Proxmox/QEMU/KubeVirt/Docker/Podman/Containerd")
 	}
 
 	// 检查是否为独立IPv4模式或纯IPv6模式或无端口映射模式
