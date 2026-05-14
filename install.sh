@@ -286,11 +286,72 @@ download_file() {
     local output="$2"
     local max_retries=3
     local retry_count=0
+    local total_size=0
+
+    # Get file size from headers
+    total_size=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | tail -1)
+    total_size=${total_size:-0}
+    total_size=$((10#$total_size))
+    if ! [[ "$total_size" =~ ^[0-9]+$ ]]; then total_size=0; fi
+
+    _dl_progress() {
+        local out="$1"
+        local total="$2"
+        local pid="$3"
+        local shown=0
+        while kill -0 "$pid" 2>/dev/null; do
+            if [ -f "$out" ]; then
+                local cur
+                cur=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null)
+                cur=$(echo "$cur" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+                cur=${cur:-0}
+                cur=$((10#$cur))
+                if ! [[ "$cur" =~ ^[0-9]+$ ]]; then cur=0; fi
+                if [ "$total" -gt 0 ] && [ "$cur" -gt 0 ]; then
+                    local pct=$((cur * 100 / total))
+                    pct=$((pct > 100 ? 100 : pct))
+                    if [ "$pct" -gt "$shown" ]; then
+                        local bar=""
+                        local filled=$((pct / 2))
+                        local i=0
+                        while [ $i -lt $filled ]; do bar="${bar}#"; i=$((i+1)); done
+                        while [ $i -lt 50 ]; do bar="${bar}."; i=$((i+1)); done
+                        printf "\r [%-50s] %3d%%" "$bar" "$pct"
+                        shown=$pct
+                    fi
+                fi
+            fi
+            sleep 0.5
+        done
+        if [ -f "$out" ] && [ "$total" -gt 0 ]; then
+            printf "\r [%-50s] 100%%\n" "$(printf '#%.0s' $(seq 1 50))"
+        else
+            printf "\r\033[K"
+        fi
+    }
     
     while [ $retry_count -lt $max_retries ]; do
-        if curl -L --connect-timeout 10 --max-time 60 -o "$output" "$url" 2>/dev/null; then
+        echo ""
+        curl -L --connect-timeout 10 --max-time 600 -o "$output" "$url" 2>/dev/null &
+        local dl_pid=$!
+        _dl_progress "$output" "$total_size" "$dl_pid" &
+        local mon_pid=$!
+        wait "$dl_pid"
+        local curl_exit=$?
+        wait "$mon_pid" 2>/dev/null
+        if [ $curl_exit -eq 0 ] && [ -s "$output" ]; then
             return 0
-        elif wget -T 10 -t 3 -O "$output" "$url" 2>/dev/null; then
+        fi
+
+        rm -f "$output"
+        wget -T 10 -t 3 -O "$output" "$url" 2>/dev/null &
+        dl_pid=$!
+        _dl_progress "$output" "$total_size" "$dl_pid" &
+        mon_pid=$!
+        wait "$dl_pid"
+        local wget_exit=$?
+        wait "$mon_pid" 2>/dev/null
+        if [ $wget_exit -eq 0 ] && [ -s "$output" ]; then
             return 0
         fi
         
@@ -709,28 +770,8 @@ EOF
 }
 
 main() {
-    # 处理自定义Web路径
+    # 从环境变量读取自定义Web路径
     custom_web_path="${WEB_PATH:-}"
-    
-    # 如果非交互模式且未指定WEB_PATH，询问用户
-    if [ "$noninteractive" != "true" ] && [ -z "$custom_web_path" ]; then
-        reading "是否使用自定义Web路径? (y/N): " use_custom
-        case "$use_custom" in
-            [Yy]*)
-                reading "请输入Web路径 (如 /var/www/html): " custom_web_path
-                if [ -n "$custom_web_path" ]; then
-                    log_info "将使用自定义Web路径: $custom_web_path"
-                else
-                    log_warning "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
-                fi
-                ;;
-            *)
-                log_info "使用默认Web路径: /opt/oneclickvirt/web"
-                ;;
-        esac
-    elif [ -n "$custom_web_path" ]; then
-        log_info "检测到环境变量WEB_PATH: $custom_web_path"
-    fi
     
     case "${1:-install}" in
         "env")
@@ -740,6 +781,25 @@ main() {
         "install")
             check_root
             env_check
+            # 处理自定义Web路径（仅在 install 模式下询问）
+            if [ "$noninteractive" != "true" ] && [ -z "$custom_web_path" ]; then
+                reading "是否使用自定义Web路径? (y/N): " use_custom
+                case "$use_custom" in
+                    [Yy]*)
+                        reading "请输入Web路径 (如 /var/www/html): " custom_web_path
+                        if [ -n "$custom_web_path" ]; then
+                            log_info "将使用自定义Web路径: $custom_web_path"
+                        else
+                            log_warning "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
+                        fi
+                        ;;
+                    *)
+                        log_info "使用默认Web路径: /opt/oneclickvirt/web"
+                        ;;
+                esac
+            elif [ -n "$custom_web_path" ]; then
+                log_info "检测到环境变量WEB_PATH: $custom_web_path"
+            fi
             create_directories
             install_server
             install_web

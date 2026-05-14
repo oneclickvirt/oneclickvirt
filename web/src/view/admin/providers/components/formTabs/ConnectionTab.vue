@@ -193,22 +193,48 @@
           </div>
         </div>
 
-        <!-- 安装命令：突出显示 -->
+        <!-- 安装命令 -->
         <div v-if="agentConnectCmd" class="install-cmd-box">
           <div class="install-cmd-header">
-            <span>{{ $t('admin.providers.agentInstallCmd') }}</span>
-            <el-button
-              size="small"
-              @click="copyInstallCmd"
-            >
-              {{ $t('common.copy') }}
-            </el-button>
+            <span>{{ $t('admin.providers.agentCmdInstall') }}</span>
+            <el-button size="small" @click="copyCmd(agentConnectCmd)">{{ $t('common.copy') }}</el-button>
           </div>
           <div class="install-cmd-content">{{ agentConnectCmd }}</div>
-          <div class="install-cmd-tip">
-            <el-icon><WarningFilled /></el-icon>
-            {{ $t('admin.providers.agentInstallNote') }}
+        </div>
+
+        <!-- 卸载命令 -->
+        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+          <div class="install-cmd-header">
+            <span>{{ $t('admin.providers.agentCmdUninstall') }}</span>
+            <el-button size="small" @click="copyCmd('ocv uninstall')">{{ $t('common.copy') }}</el-button>
           </div>
+          <div class="install-cmd-content">ocv uninstall</div>
+        </div>
+
+        <!-- 升级命令 -->
+        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+          <div class="install-cmd-header">
+            <span>{{ $t('admin.providers.agentCmdUpgrade') }}</span>
+            <el-button size="small" @click="copyCmd('ocv upgrade')">{{ $t('common.copy') }}</el-button>
+          </div>
+          <div class="install-cmd-content">ocv upgrade</div>
+        </div>
+
+        <!-- ocv 快捷命令 -->
+        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+          <div class="install-cmd-header">
+            <span>{{ $t('admin.providers.agentCmdOcv') }}</span>
+            <el-button size="small" @click="copyCmd('ocv')">{{ $t('common.copy') }}</el-button>
+          </div>
+          <div class="install-cmd-content">ocv</div>
+          <div class="install-cmd-tip">
+            <el-icon><InfoFilled /></el-icon>
+            {{ $t('admin.providers.agentCmdOcvTip') }}
+          </div>
+        </div>
+
+        <div v-if="agentConnectCmd" class="form-tip" style="margin-top: 10px;">
+          <el-text size="small" type="info">{{ $t('admin.providers.agentInstallNote') }}</el-text>
         </div>
 
         <!-- 检测连接 -->
@@ -308,7 +334,7 @@
 import { ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { Connection, WarningFilled, CircleCheck } from '@element-plus/icons-vue'
+import { Connection, WarningFilled, CircleCheck, InfoFilled } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const localCommand = ref('')
@@ -362,9 +388,9 @@ const emit = defineEmits([
   'clear-exec-result'
 ])
 
-const copyInstallCmd = async () => {
+const copyCmd = async (cmd) => {
   try {
-    await navigator.clipboard.writeText(props.agentConnectCmd)
+    await navigator.clipboard.writeText(cmd)
     ElMessage.success(t('common.copySuccess'))
   } catch {
     ElMessage.error(t('common.copyFailed'))
