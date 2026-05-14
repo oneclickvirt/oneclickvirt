@@ -230,6 +230,12 @@ func DeployAgent(c *gin.Context) {
 		return
 	}
 
+	// Agent 模式节点无需重复部署监控 agent（已通过 ocv 安装）
+	if dbProvider.ConnectionType == "agent" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent 模式节点已部署 Agent，无需重复部署监控。"))
+		return
+	}
+
 	// Deploy agent with full config
 	deployCtx, deployCancel := context.WithTimeout(c.Request.Context(), 10*time.Minute)
 	defer deployCancel()
@@ -271,6 +277,17 @@ func UninstallAgent(c *gin.Context) {
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
 	if err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
+		return
+	}
+
+	// Agent 模式节点不允许从主控端卸载 agent
+	var dbProvider providerModel.Provider
+	if err := global.APP_DB.First(&dbProvider, uint(providerID)).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+	if dbProvider.ConnectionType == "agent" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Agent 模式节点不能从主控端卸载。请在节点上执行 ocv uninstall 进行卸载。"))
 		return
 	}
 

@@ -186,6 +186,21 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 		OwnerAdminID: ownerAdminID,
 	}
 
+	// Agent 模式默认值：已部署 agent，开箱即用
+	if provider.ConnectionType == "agent" {
+		if !req.EnableTrafficControl {
+			provider.EnableTrafficControl = true
+			provider.TrafficSyncMethod = "agent"
+		}
+		if !req.EnableResourceMonitoring {
+			provider.EnableResourceMonitoring = true
+		}
+		// agent 模式默认无端口映射（除非手动配置了端口相关字段）
+		if req.NetworkType == "" {
+			provider.NetworkType = "no_port_mapping"
+		}
+	}
+
 	// 节点级别等级限制配置
 	if len(req.LevelLimits) > 0 {
 		// 转换前端发送的 camelCase 为存储的 kebab-case

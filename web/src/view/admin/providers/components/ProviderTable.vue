@@ -602,6 +602,14 @@
         <el-divider />
         <el-button
           class="action-button"
+          type="primary"
+          @click="handleAction('remote-connect')"
+        >
+          <el-icon><Monitor /></el-icon>
+          {{ $t('admin.providers.remoteConnect') }}
+        </el-button>
+        <el-button
+          class="action-button"
           type="warning"
           @click="showPasteUrlDialog"
         >
@@ -644,7 +652,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { ElMessage, ElIcon } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
 
