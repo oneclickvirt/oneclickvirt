@@ -289,10 +289,9 @@ download_file() {
     local total_size=0
 
     # Get file size from headers
-    total_size=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | tail -1)
+    total_size=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i 'Content-Length' | awk '{print $2}' | tr -d '\r\n ' | grep -o '[0-9]*' | tail -1)
     total_size=${total_size:-0}
-    total_size=$((10#$total_size))
-    if ! [[ "$total_size" =~ ^[0-9]+$ ]]; then total_size=0; fi
+    [ -z "$total_size" ] && total_size=0
 
     _dl_progress() {
         local out="$1"
@@ -301,15 +300,13 @@ download_file() {
         local shown=0
         while kill -0 "$pid" 2>/dev/null; do
             if [ -f "$out" ]; then
-                local cur
+                local cur=0
                 cur=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null)
-                cur=$(echo "$cur" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
+                cur=$(printf '%s' "$cur" | tr -d '\r\n ' | grep -o '[0-9]*' | head -1)
                 cur=${cur:-0}
-                cur=$((10#$cur))
-                if ! [[ "$cur" =~ ^[0-9]+$ ]]; then cur=0; fi
                 if [ "$total" -gt 0 ] && [ "$cur" -gt 0 ]; then
                     local pct=$((cur * 100 / total))
-                    pct=$((pct > 100 ? 100 : pct))
+                    [ "$pct" -gt 100 ] && pct=100
                     if [ "$pct" -gt "$shown" ]; then
                         local bar=""
                         local filled=$((pct / 2))

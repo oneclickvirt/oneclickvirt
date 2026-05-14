@@ -87,13 +87,13 @@ _dl_progress() {
   local out="$1" total="$2" pid="$3" shown=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ -f "$out" ]; then
-      local cur
+      local cur=0
       cur=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null)
-      cur=$(echo "$cur" | tr -d '\r\n' | grep -o '[0-9]*' | head -1)
-      cur=${cur:-0}; cur=$((10#$cur))
-      if ! [[ "$cur" =~ ^[0-9]+$ ]]; then cur=0; fi
+      cur=$(printf '%s' "$cur" | tr -d '\r\n ' | grep -o '[0-9]*' | head -1)
+      cur=${cur:-0}
       if [ "$total" -gt 0 ] && [ "$cur" -gt 0 ]; then
-        local pct=$((cur * 100 / total)); pct=$((pct > 100 ? 100 : pct))
+        local pct=$((cur * 100 / total))
+        [ "$pct" -gt 100 ] && pct=100
         if [ "$pct" -gt "$shown" ]; then
           local bar="" filled=$((pct / 2)) i=0
           while [ $i -lt $filled ]; do bar="${bar}#"; i=$((i+1)); done
@@ -116,10 +116,9 @@ _dl_progress() {
 download_one() {
   local url="$1"
   local total=0
-  # Get file size from headers for progress bar
-  total=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i Content-Length | awk '{print $2}' | tr -d '\r\n' | grep -o '[0-9]*' | tail -1)
-  total=${total:-0}; total=$((10#$total))
-  if ! [[ "$total" =~ ^[0-9]+$ ]]; then total=0; fi
+  total=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i 'Content-Length' | awk '{print $2}' | tr -d '\r\n ' | grep -o '[0-9]*' | tail -1)
+  total=${total:-0}
+  [ -z "$total" ] && total=0
 
   curl -fsSL --connect-timeout 15 --max-time 300 -o "$TMP_FILE" "$url" 2>/dev/null &
   local dl_pid=$!
