@@ -667,10 +667,9 @@ func GenerateAgentSecret(c *gin.Context) {
 		return
 	}
 
-	// 构造控制端 WebSocket 地址（从请求头获取）
+	// 构造控制端 WebSocket 地址
 	scheme := "wss"
 	if c.Request.TLS == nil {
-		// 检查是否有反向代理传来的 X-Forwarded-Proto
 		if proto := c.GetHeader("X-Forwarded-Proto"); proto == "http" {
 			scheme = "ws"
 		}
@@ -678,6 +677,16 @@ func GenerateAgentSecret(c *gin.Context) {
 	host := c.Request.Host
 	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
 		host = forwardedHost
+	}
+	// nginx $host 不含端口，需从 X-Forwarded-Port 或 server config 补充端口
+	if !strings.Contains(host, ":") {
+		port := c.GetHeader("X-Forwarded-Port")
+		if port == "" {
+			port = fmt.Sprintf("%d", global.GetAppConfig().System.Addr)
+		}
+		if port != "" && port != "80" && port != "443" {
+			host = host + ":" + port
+		}
 	}
 	wsURL := fmt.Sprintf("%s://%s/api/v1/ws/agent", scheme, host)
 

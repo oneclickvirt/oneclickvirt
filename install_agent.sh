@@ -77,26 +77,23 @@ if [ -z "$VERSION" ]; then
 fi
 log_info "Latest version: ${VERSION}"
 
-# ── check which CDN mirrors are reachable ─────────────────────────────────────
-
-check_cdn_alive() {
-  local test_url="https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.back/test"
-  for cdn in $CDN_URLS; do
-    if curl -sL -k --max-time 6 "${cdn}/${test_url}" 2>/dev/null | grep -q "success"; then
-      return 0  # at least one CDN works
-    fi
-    sleep 0.5
-  done
+# ── check GitHub reachability ─────────────────────────────────────────────────
+_github_reachable() {
+  curl -sIkL --connect-timeout 6 --max-time 10 "https://github.com" 2>/dev/null | grep -q "HTTP" && return 0
   return 1
 }
 
-CDN_AVAILABLE=false
-if check_cdn_alive; then
-  CDN_AVAILABLE=true
-  log_info "CDN available, using CDN acceleration"
-else
-  log_warning "No CDN available, using direct GitHub download (may be slower)"
-fi
+# Pre-check which CDN mirrors are actually available (only called when GitHub is down)
+_check_cdn_available() {
+  local test_url="https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/.back/test"
+  printf '%s' "" > /tmp/ocv_working_cdns
+  for cdn in $CDN_URLS; do
+    if curl -sL -k --max-time 6 "${cdn}/${test_url}" 2>/dev/null | grep -q "success"; then
+      printf '%s ' "$cdn" >> /tmp/ocv_working_cdns
+    fi
+  done
+  [ -s /tmp/ocv_working_cdns ] && return 0 || return 1
+}
 
 # ── download binary ───────────────────────────────────────────────────────────
 
@@ -177,38 +174,35 @@ download_one() {
 
 log_info "Downloading ${BINARY_NAME} ..."
 
-# Build list of URLs to try: CDN mirrors first, then direct GitHub
+# GitHub direct first, CDN as fallback
 DOWNLOADED=0
 GITHUB_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
 
-# Only try CDNs if at least one is reachable
-if [ "$CDN_AVAILABLE" = true ]; then
-  for CDN in $CDN_URLS; do
+# 1. Try GitHub direct first
+if download_one "$GITHUB_URL" && [ -s "$TMP_FILE" ]; then
+  log_success "Downloaded from GitHub."
+  DOWNLOADED=1
+fi
+
+# 2. GitHub failed — check if GitHub is reachable, try CDN only if it's not
+if [ "$DOWNLOADED" -eq 0 ] && ! _github_reachable && _check_cdn_available; then
+  log_warning "GitHub unreachable, using CDN mirrors..."
+  for CDN in $(cat /tmp/ocv_working_cdns); do
     CDN_TARGET="${CDN}/${GITHUB_URL}"
-    log_info "Trying CDN: ${CDN_TARGET}"
     rm -f "$TMP_FILE"
     if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
-      log_success "Downloaded via CDN (${CDN})."
+      log_success "Downloaded via CDN."
       DOWNLOADED=1
       break
     fi
   done
-fi
-
-# Try direct GitHub
-if [ "$DOWNLOADED" -eq 0 ]; then
-  log_info "Trying direct GitHub: ${GITHUB_URL}"
-  if download_one "$GITHUB_URL"; then
-    log_success "Downloaded from GitHub."
-    DOWNLOADED=1
-  fi
+  rm -f /tmp/ocv_working_cdns
 fi
 
 # Try with .tar.gz extension (some releases package the binary)
 if [ "$DOWNLOADED" -eq 0 ]; then
   TAR_URL="${GITHUB_URL}.tar.gz"
-  log_info "Trying tar.gz: ${TAR_URL}"
-  if download_one "$TAR_URL"; then
+  if download_one "$TAR_URL" && [ -s "$TMP_FILE" ]; then
     log_info "Extracting agent binary from tar.gz..."
     TAR_TMP="/tmp/oneclickvirt-agent-extract"
     mkdir -p "$TAR_TMP"

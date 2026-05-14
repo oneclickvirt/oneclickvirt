@@ -423,17 +423,12 @@ watch(() => props.visible, (isVisible) => {
   }
 }, { immediate: true })
 
-// 监听 isEditing 变化：当 agent 模式新增成功后父组件切为编辑模式时
-// 自动切到连接配置页并触发生成密钥
+// 监听 isEditing 变化：agent 模式切到连接配置页，但不自动生成密钥（避免覆盖旧连接）
 watch(() => props.isEditing, async (newEditing, oldEditing) => {
   if (newEditing && !oldEditing && props.providerData?.connectionType === 'agent' && props.providerData?.id) {
-    // agent 模式新增 → 编辑模式：同步新数据，切到连接页，自动生成密钥
     Object.assign(formData.value, JSON.parse(JSON.stringify(props.providerData)))
     formSnapshot.value = JSON.stringify(formData.value)
     activeTab.value = 'connection'
-    await nextTick()
-    // 自动生成安装命令
-    await handleGenerateAgentSecret()
   }
 })
 
@@ -565,9 +560,19 @@ const handleAuthMethodChange = (newMethod) => {
   }
 }
 
-// 生成 Agent 密钥
+// 生成 Agent 密钥（需确认，避免意外断开已有连接）
 const handleGenerateAgentSecret = async () => {
   if (!formData.value.id) return
+  // 首次安装直接生成，已有连接的二次确认
+  if (formData.value.agentStatus === 'online') {
+    try {
+      await ElMessageBox.confirm(
+        t('admin.providers.regenerateAgentSecretConfirm'),
+        t('admin.providers.regenerateAgentSecret'),
+        { confirmButtonText: t('common.confirm'), cancelButtonText: t('common.cancel'), type: 'warning' }
+      )
+    } catch { return }
+  }
   generatingSecret.value = true
   agentConnectCmd.value = ''
   try {
@@ -575,8 +580,15 @@ const handleGenerateAgentSecret = async () => {
     if (res.data && res.data.installCmd) {
       agentConnectCmd.value = res.data.installCmd
       ElMessage.success(t('admin.providers.agentSecretGenerated'))
+      // 如果 Agent 在线，提示用 ocv 更新
+      if (formData.value.agentStatus === 'online') {
+        ElMessageBox.alert(
+          t('admin.providers.agentSecretUpdatedHint'),
+          t('admin.providers.agentSecretUpdated'),
+          { confirmButtonText: t('common.ok'), type: 'info' }
+        )
+      }
     } else if (res.data && res.data.wsPath) {
-      // 降级：使用旧格式
       const origin = window.location.origin
       const wsUrl = origin.replace(/^http/, 'ws') + res.data.wsPath
       agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
