@@ -2,6 +2,7 @@ package traffic
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"time"
 
@@ -9,6 +10,7 @@ import (
 	provider "oneclickvirt/model/provider"
 
 	"go.uber.org/zap"
+	"gorm.io/gorm"
 )
 
 // SyncTriggerService 流量同步触发服务
@@ -99,6 +101,15 @@ func (s *SyncTriggerService) TriggerInstanceTrafficSync(instanceID uint, reason 
 
 		// 检查实例所属用户的流量限制（三层限制会自动覆盖实例层级）
 		if _, err := s.checkUserTrafficLimitWithContext(ctx, inst.UserID); err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				// 典型于实例删除收尾阶段：用户已不存在，跳过即可。
+				global.APP_LOG.Warn("同步实例流量跳过：用户不存在",
+					zap.Uint("instanceID", instanceID),
+					zap.Uint("userID", inst.UserID),
+					zap.String("reason", reason),
+					zap.Error(err))
+				return
+			}
 			global.APP_LOG.Error("同步实例流量失败",
 				zap.Uint("instanceID", instanceID),
 				zap.String("reason", reason),

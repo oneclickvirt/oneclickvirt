@@ -15,6 +15,16 @@ import (
 	"go.uber.org/zap"
 )
 
+// AgentExecutorFactory 由 service/agent 包在其 init() 中注入，避免循环导入。
+// 返回一个基于 AgentHub WebSocket 连接的 ShellExecutor。
+var AgentExecutorFactory func(providerID uint) utils.ShellExecutor
+
+// AgentConnector 由支持 Agent 模式的 Provider 实现（如 DockerProvider）。
+// LoadProvider 在检测到 connection_type=agent 时通过该接口注入执行器。
+type AgentConnector interface {
+	ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error
+}
+
 // ProviderService 管理已配置的Provider实例
 type ProviderService struct {
 	providers map[uint]provider.Provider // key: provider ID, value: provider instance
@@ -210,8 +220,21 @@ func (ps *ProviderService) LoadProviderWithOptions(dbProvider providerModel.Prov
 	}
 
 	if dbProvider.ConnectionType == "agent" && config.Password == "" && config.PrivateKey == "" {
+		// 对于支持 Agent 模式的 Provider（如 Docker/Podman/Containerd），
+		// 注入基于 AgentHub WebSocket 的执行器代替 SSH。
+		if AgentExecutorFactory != nil {
+			if ac, ok := prov.(AgentConnector); ok {
+				executor := AgentExecutorFactory(dbProvider.ID)
+				if err := ac.ConnectAgent(executor, config); err != nil {
+					global.APP_LOG.Warn("Agent模式注入执行器失败，使用未连接状态存储",
+						zap.String("name", dbProvider.Name),
+						zap.Uint("id", dbProvider.ID),
+						zap.Error(err))
+				}
+			}
+		}
 		ps.providers[dbProvider.ID] = prov
-		global.APP_LOG.Info("Agent模式节点无SSH凭据，跳过SSH连接初始化",
+		global.APP_LOG.Info("Agent模式节点加载完成",
 			zap.String("name", dbProvider.Name),
 			zap.Uint("id", dbProvider.ID),
 			zap.String("type", dbProvider.Type))

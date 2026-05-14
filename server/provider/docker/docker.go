@@ -47,7 +47,7 @@ var defaultDockerRuntime = ContainerRuntimeConfig{
 type DockerProvider struct {
 	config           provider.NodeConfig
 	runtime          ContainerRuntimeConfig
-	sshClient        *utils.SSHClient
+	sshClient        utils.ShellExecutor
 	connected        bool
 	healthChecker    health.HealthChecker
 	version          string             // CLI 版本
@@ -107,7 +107,7 @@ func (d *DockerProvider) Connect(ctx context.Context, config provider.NodeConfig
 		return fmt.Errorf("failed to connect via SSH: %w", err)
 	}
 
-	d.sshClient = client
+	d.sshClient = client // *SSHClient satisfies utils.ShellExecutor
 	d.connected = true
 
 	// 初始化健康检查器，使用Provider的SSH连接，避免创建独立连接导致节点混淆
@@ -152,28 +152,52 @@ func (d *DockerProvider) Disconnect(ctx context.Context) error {
 	return nil
 }
 
+// ConnectAgent 为 Agent 模式节点注入执行器，使所有操作通过 Agent WebSocket 执行。
+// 由 service/provider.LoadProvider 在检测到 connection_type=agent 时调用。
+func (d *DockerProvider) ConnectAgent(executor utils.ShellExecutor, config provider.NodeConfig) error {
+	d.config = config
+	d.sshClient = executor
+	d.connected = true
+	// Agent 模式不使用 SSH 健康检查器；健康状态由 AgentHub 管理。
+	d.healthChecker = nil
+
+	// 尝试获取版本（Agent 在线时应成功；失败时仅警告，不中止加载）
+	if err := d.getDockerVersion(); err != nil {
+		global.APP_LOG.Warn("Agent模式下容器运行时版本获取失败",
+			zap.String("cli", d.runtime.CLI),
+			zap.String("name", config.Name),
+			zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Container provider (Agent模式) 加载完成",
+		zap.String("type", d.runtime.ProviderType),
+		zap.String("name", config.Name))
+	return nil
+}
+
 func (d *DockerProvider) IsConnected() bool {
 	return d.connected && d.sshClient != nil && d.sshClient.IsHealthy()
 }
 
-// EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
+// EnsureConnection 确保执行器连接可用，如不健康则尝试重连（SSH 模式重建连接；Agent 模式为 no-op）
 func (d *DockerProvider) EnsureConnection() error {
 	if d.sshClient == nil {
-		return fmt.Errorf("SSH client not initialized")
+		return fmt.Errorf("shell executor not initialized")
 	}
 
 	if !d.sshClient.IsHealthy() {
-		global.APP_LOG.Warn("Docker Provider SSH连接不健康，尝试重连", zap.String("host", utils.TruncateString(d.config.Host, 32)),
-			zap.Int("port", d.config.Port))
+		global.APP_LOG.Warn("Container Provider 连接不健康，尝试重连",
+			zap.String("name", d.config.Name),
+			zap.String("type", d.runtime.ProviderType))
 
 		if err := d.sshClient.Reconnect(); err != nil {
 			d.connected = false
-			return fmt.Errorf("failed to reconnect SSH: %w", err)
+			return fmt.Errorf("failed to reconnect: %w", err)
 		}
 
-		global.APP_LOG.Info("Docker Provider SSH连接重建成功",
-			zap.String("host", utils.TruncateString(d.config.Host, 32)),
-			zap.Int("port", d.config.Port))
+		global.APP_LOG.Info("Container Provider 连接重建成功",
+			zap.String("name", d.config.Name),
+			zap.String("type", d.runtime.ProviderType))
 	}
 
 	return nil
@@ -199,7 +223,7 @@ func (d *DockerProvider) GetVersion() string {
 // getDockerVersion 获取容器运行时版本
 func (d *DockerProvider) getDockerVersion() error {
 	if d.sshClient == nil {
-		return fmt.Errorf("SSH client not connected")
+		return fmt.Errorf("executor not initialized")
 	}
 
 	// 尝试结构化版本输出，失败则回退到 --version

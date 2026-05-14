@@ -83,20 +83,35 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	providerSvc := providerService.GetProviderService()
 	providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID)
 
-	if !exists {
-		// 如果Provider未连接，尝试动态加载
-		global.APP_LOG.Debug("Provider未连接，尝试动态加载", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName))
-		if err := providerSvc.LoadProvider(dbProvider); err != nil {
-			global.APP_LOG.Error("动态加载Provider失败", zap.Uint("providerId", localProviderID), zap.String("name", localProviderName), zap.Error(err))
-			err := fmt.Errorf("Provider ID %d 连接失败: %v", localProviderID, err)
-			return err
+	if !exists || !providerInstance.IsConnected() {
+		// 缓存中不存在或连接已失效时，强制重载，避免命中 stale provider 导致 "not connected"
+		global.APP_LOG.Debug("Provider未连接或连接失效，尝试重载",
+			zap.Uint("providerId", localProviderID),
+			zap.String("name", localProviderName),
+			zap.Bool("exists", exists))
+
+		if err := providerSvc.ReloadProvider(localProviderID); err != nil {
+			global.APP_LOG.Warn("Provider重载失败，回退到动态加载",
+				zap.Uint("providerId", localProviderID),
+				zap.String("name", localProviderName),
+				zap.Error(err))
+			if loadErr := providerSvc.LoadProvider(dbProvider); loadErr != nil {
+				global.APP_LOG.Error("动态加载Provider失败",
+					zap.Uint("providerId", localProviderID),
+					zap.String("name", localProviderName),
+					zap.Error(loadErr))
+				return fmt.Errorf("Provider ID %d 连接失败: %v", localProviderID, loadErr)
+			}
 		}
 
-		// 重新获取Provider实例
+		// 重新获取Provider实例并确认连接状态
 		providerInstance, exists = providerSvc.GetProviderByID(instance.ProviderID)
-		if !exists {
+		if !exists || !providerInstance.IsConnected() {
 			err := fmt.Errorf("Provider ID %d 连接后仍然不可用", localProviderID)
-			global.APP_LOG.Error("Provider连接后仍然不可用", zap.Uint("taskId", task.ID), zap.Uint("providerId", localProviderID))
+			global.APP_LOG.Error("Provider连接后仍然不可用",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("providerId", localProviderID),
+				zap.Bool("exists", exists))
 			return err
 		}
 	}

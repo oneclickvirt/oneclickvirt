@@ -20,7 +20,9 @@ import (
 
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
+	providerService "oneclickvirt/service/provider"
 	resourcesSvc "oneclickvirt/service/resources"
+	"oneclickvirt/utils"
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
@@ -30,6 +32,10 @@ func init() {
 	// 注入控制端端口转发函数，解决循环依赖
 	resourcesSvc.ControllerPortForwardFunc = StartControllerPortForward
 	resourcesSvc.StopControllerPortForwardFunc = StopControllerPortForward
+	// 注入 Agent模式执行器工厂，使 provider.LoadProvider 能为 agent 节点注入 WebSocket 执行器
+	providerService.AgentExecutorFactory = func(providerID uint) utils.ShellExecutor {
+		return NewAgentShellExecutor(providerID, GetHub())
+	}
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
