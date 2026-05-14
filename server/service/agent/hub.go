@@ -366,9 +366,9 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 	if remoteAddr != "" {
 		// 只保存 IP 部分
 		if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
-			updates["agent_remote_i_p"] = host
+			updates["agent_remote_ip"] = host
 		} else {
-			updates["agent_remote_i_p"] = remoteAddr
+			updates["agent_remote_ip"] = remoteAddr
 		}
 	}
 	if hostname != "" {

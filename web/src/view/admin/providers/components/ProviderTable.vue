@@ -646,15 +646,34 @@
       </template>
     </el-dialog>
 
+    <!-- 远程连接对话框 -->
+    <el-dialog
+      v-model="remoteDialogVisible"
+      :title="$t('admin.providers.remoteConnect') + ' - ' + (remoteRow?.name || '')"
+      width="750px"
+      destroy-on-close
+      @closed="handleRemoteDialogClosed"
+    >
+      <AdminProviderTerminal
+        v-if="remoteRow && remoteDialogVisible"
+        :provider-id="remoteRow.id"
+        :provider-name="remoteRow.name"
+      />
+      <template #footer>
+        <el-button @click="remoteDialogVisible = false">{{ $t('common.close') }}</el-button>
+      </template>
+    </el-dialog>
+
 
   </div>
 </template>
 
 <script setup>
 import { ref } from 'vue'
-import { ElMessage, ElIcon } from 'element-plus'
+import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { saveHardwareReport, getHardwareTestReport } from '@/api/admin'
+import AdminProviderTerminal from '@/components/AdminProviderTerminal.vue'
 
 // Compatible agent version (must match server constant)
 const compatibleAgentVersion = 'v0.2.0'
@@ -752,8 +771,26 @@ const handleAction = (action) => {
     case 'unfreeze':
       emit('unfreeze', currentRow.value)
       break
+    case 'remote-connect':
+      showRemoteDialog(currentRow.value)
+      return // 不关闭 actionsDialogVisible，交给 remote dialog
   }
   
+  currentRow.value = null
+}
+
+// ── 远程连接对话框 ──────────────────────────────────
+const remoteDialogVisible = ref(false)
+const remoteRow = ref(null)
+
+const showRemoteDialog = (row) => {
+  remoteRow.value = row
+  remoteDialogVisible.value = true
+  actionsDialogVisible.value = false
+}
+
+const handleRemoteDialogClosed = () => {
+  remoteRow.value = null
   currentRow.value = null
 }
 

@@ -63,6 +63,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/stopped-containers", admin.GetStoppedContainers)
 		NormalAdminGroup.POST("/providers/:id/agent-secret", admin.GenerateAgentSecret)
 		NormalAdminGroup.POST("/providers/:id/exec", admin.ExecOnProvider)
+		NormalAdminGroup.GET("/providers/:id/terminal", admin.AdminProviderTerminal)
 
 		// 配置导出
 		NormalAdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)
