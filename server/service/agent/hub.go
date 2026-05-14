@@ -172,11 +172,11 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		zap.Uint("providerID", ac.ProviderID),
 		zap.String("remoteAddr", ac.remoteAddr))
 
-	// 异步更新数据库状态
+	// 同步更新数据库状态，确保前端检测立即可见
 	now := time.Now()
-	go h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 
-	// 启动读取循环
+	// 启动读取循环（异步，包含后续心跳和 info 帧处理）
 	go h.readLoop(ac)
 }
 
@@ -188,19 +188,25 @@ func (h *AgentHub) GetConn(providerID uint) (*AgentConn, bool) {
 	return ac, ok
 }
 
-// unregister 注销连接。
+// unregister 注销连接（同步更新 DB 状态以确保前端立即可见）。
 func (h *AgentHub) unregister(providerID uint) {
 	h.mu.Lock()
 	delete(h.conns, providerID)
 	h.mu.Unlock()
 
 	global.APP_LOG.Info("Agent 已断开", zap.Uint("providerID", providerID))
-	go h.updateProviderAgentStatus(providerID, "offline", nil, "", "")
+	h.updateProviderAgentStatus(providerID, "offline", nil, "", "")
 }
 
 // readLoop 持续读取来自 Agent 的消息。
 func (h *AgentHub) readLoop(ac *AgentConn) {
 	defer func() {
+		if r := recover(); r != nil {
+			global.APP_LOG.Error("Agent readLoop panic",
+				zap.Uint("providerID", ac.ProviderID),
+				zap.Any("panic", r),
+				zap.Stack("stack"))
+		}
 		ac.conn.Close()
 		h.unregister(ac.ProviderID)
 	}()
