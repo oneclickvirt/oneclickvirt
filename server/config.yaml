@@ -5,7 +5,7 @@ auth:
     enable-telegram: false
 
 captcha:
-    enabled: true
+    enabled: false
     expire-time: 300
     height: 40
     length: 4
