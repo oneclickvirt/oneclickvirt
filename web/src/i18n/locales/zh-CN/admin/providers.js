@@ -728,6 +728,8 @@ export default {
   agentCmdUpgrade: "升级命令",
   agentCmdOcv: "快捷命令 (ocv)",
   agentCmdOcvTip: "安装后可在节点上使用 ocv 命令管理 Agent：ocv status|start|stop|restart|upgrade|uninstall|log",
+  cdnAccel: "CDN加速",
+  cdnDirect: "直连",
   agentInstallSection: "Agent 管理命令",
   agentLastSeen: "最后在线",
   agentRemoteIP: "来源IP",

@@ -197,9 +197,18 @@
         <div v-if="agentConnectCmd" class="install-cmd-box">
           <div class="install-cmd-header">
             <span>{{ $t('admin.providers.agentCmdInstall') }}</span>
-            <el-button size="small" @click="copyCmd(agentConnectCmd)">{{ $t('common.copy') }}</el-button>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <el-switch
+                v-model="useCDN"
+                size="small"
+                :active-text="$t('admin.providers.cdnAccel')"
+                :inactive-text="$t('admin.providers.cdnDirect')"
+                style="--el-switch-on-color: #13ce66;"
+              />
+              <el-button size="small" @click="copyCmd(installCmdDisplay)">{{ $t('common.copy') }}</el-button>
+            </div>
           </div>
-          <div class="install-cmd-content">{{ agentConnectCmd }}</div>
+          <div class="install-cmd-content">{{ installCmdDisplay }}</div>
         </div>
 
         <!-- 卸载命令 -->
@@ -331,13 +340,22 @@
 </template>
 
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { Connection, WarningFilled, CircleCheck, InfoFilled } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
 const localCommand = ref('')
+const useCDN = ref(true)
+
+const installCmdDisplay = computed(() => {
+  const cmd = props.agentConnectCmd || ''
+  if (!cmd) return ''
+  if (useCDN.value) return cmd
+  // Strip CDN prefix: https://cdn.spiritlhl.net/ → direct raw.githubusercontent.com
+  return cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
+})
 
 const props = defineProps({
   modelValue: {
@@ -389,8 +407,27 @@ const emit = defineEmits([
 ])
 
 const copyCmd = async (cmd) => {
+  if (!cmd) return
+  // Try modern clipboard API first
+  if (navigator.clipboard && window.isSecureContext) {
+    try {
+      await navigator.clipboard.writeText(cmd)
+      ElMessage.success(t('common.copySuccess'))
+      return
+    } catch { /* fall through */ }
+  }
+  // Fallback: legacy textarea method
   try {
-    await navigator.clipboard.writeText(cmd)
+    const ta = document.createElement('textarea')
+    ta.value = cmd
+    ta.style.position = 'fixed'
+    ta.style.left = '-9999px'
+    ta.style.top = '-9999px'
+    document.body.appendChild(ta)
+    ta.focus()
+    ta.select()
+    document.execCommand('copy')
+    document.body.removeChild(ta)
     ElMessage.success(t('common.copySuccess'))
   } catch {
     ElMessage.error(t('common.copyFailed'))

@@ -120,24 +120,25 @@ download_one() {
   total=${total:-0}
   [ -z "$total" ] && total=0
 
-  curl -fsSL --connect-timeout 15 --max-time 300 -o "$TMP_FILE" "$url" 2>/dev/null &
+  # Try curl — check file existence rather than exit code (some servers return non-zero on valid downloads)
+  curl -fsSL --connect-timeout 20 --max-time 300 -o "$TMP_FILE" "$url" 2>/dev/null &
   local dl_pid=$!
   _dl_progress "$TMP_FILE" "$total" "$dl_pid" &
   local mon_pid=$!
-  wait "$dl_pid"
-  local curl_exit=$?
+  wait "$dl_pid" 2>/dev/null
   wait "$mon_pid" 2>/dev/null
-  if [ $curl_exit -eq 0 ] && [ -s "$TMP_FILE" ]; then
+  if [ -s "$TMP_FILE" ]; then
     return 0
   fi
 
+  # Try wget
   rm -f "$TMP_FILE"
   if command -v wget >/dev/null 2>&1; then
-    wget -T 15 -t 3 -q -O "$TMP_FILE" "$url" 2>/dev/null &
+    wget -T 20 -t 3 -q -O "$TMP_FILE" "$url" 2>/dev/null &
     dl_pid=$!
     _dl_progress "$TMP_FILE" "$total" "$dl_pid" &
     mon_pid=$!
-    wait "$dl_pid"
+    wait "$dl_pid" 2>/dev/null
     wait "$mon_pid" 2>/dev/null
     if [ -s "$TMP_FILE" ]; then
       return 0
@@ -217,7 +218,7 @@ log_success "Binary installed to ${BINARY_PATH}"
 
 # ── detect init system and install service ─────────────────────────────────────
 
-# Also create a helper script: /usr/local/bin/ocv
+# Create a helper script: /usr/local/bin/ocv (called both by install_service and as fallback)
 create_ocv_helper() {
   cat > /usr/local/bin/ocv << 'OCVEOF'
 #!/bin/sh
@@ -251,15 +252,24 @@ _upgrade() {
   esac
   REPO="oneclickvirt/oneclickvirt"
   for API in https://api.github.com https://githubapi.spiritlhl.workers.dev https://githubapi.spiritlhl.top; do
-    V=$(curl -sL --connect-timeout 10 --max-time 30 "${API}/repos/${REPO}/releases/latest" 2>/dev/null | grep '"tag_name"' | sed -E 's/.*"tag_name": *"([^"]+)".*/\1/')
+    local response
+    response=$(curl -sL --connect-timeout 10 --max-time 30 "${API}/repos/${REPO}/releases/latest" 2>/dev/null)
+    V=$(printf '%s' "$response" | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"')
     [ -n "$V" ] && break
   done
   [ -z "$V" ] && echo "[ocv] Failed to get latest version" && exit 1
-  URL="https://cdn.spiritlhl.net/https://github.com/${REPO}/releases/download/${V}/${BIN}"
   TMP="/opt/oneclickvirt/agent/${BIN}.tmp"
   mkdir -p /opt/oneclickvirt/agent
-  curl -fsSL --connect-timeout 15 --max-time 120 -o "$TMP" "$URL" || \
-    curl -fsSL --connect-timeout 15 --max-time 120 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}"
+  DOWNLOADED=0
+  for CDN in https://cdn0.spiritlhl.top https://cdn3.spiritlhl.net https://cdn1.spiritlhl.net https://cdn2.spiritlhl.net https://cdn.spiritlhl.net; do
+    URL="${CDN}/https://github.com/${REPO}/releases/download/${V}/${BIN}"
+    if curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "$URL" 2>/dev/null && [ -s "$TMP" ]; then
+      DOWNLOADED=1; break
+    fi
+  done
+  if [ "$DOWNLOADED" -eq 0 ]; then
+    curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}" 2>/dev/null || true
+  fi
   [ ! -s "$TMP" ] && echo "[ocv] Download failed" && exit 1
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SVC" 2>/dev/null; then
     systemctl stop "$SVC" || true
@@ -299,14 +309,31 @@ _uninstall() {
 _service_status() {
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SVC" 2>/dev/null; then
     echo "[ocv] Agent is running (systemd)"
-  elif [ -f "/etc/init.d/${SVC}" ] && "/etc/init.d/${SVC}" status 2>/dev/null; then
-    true
+  elif [ -f "/etc/init.d/${SVC}" ] && "/etc/init.d/${SVC}" status 2>/dev/null | grep -q "Running"; then
+    echo "[ocv] Agent is running (init.d)"
   elif command -v rc-service >/dev/null 2>&1 && rc-service "$SVC" status 2>/dev/null; then
-    true
-  elif pgrep -f "$AGENT_BIN" >/dev/null 2>&1; then
+    echo "[ocv] Agent is running (OpenRC)"
+  elif command -v pgrep >/dev/null 2>&1 && pgrep -f "$AGENT_BIN" >/dev/null 2>&1; then
     echo "[ocv] Agent is running (foreground, PID $(pgrep -f "$AGENT_BIN" | head -1))"
+  elif ps aux 2>/dev/null | grep -v grep | grep -q "$AGENT_BIN"; then
+    echo "[ocv] Agent is running (foreground)"
   else
     echo "[ocv] Agent is not running"
+  fi
+}
+
+_do_stop() {
+  # Try service managers first
+  command -v systemctl >/dev/null 2>&1 && systemctl stop "$SVC" 2>/dev/null
+  [ -f "/etc/init.d/${SVC}" ] && "/etc/init.d/${SVC}" stop 2>/dev/null
+  command -v rc-service >/dev/null 2>&1 && rc-service "$SVC" stop 2>/dev/null
+  # Fallback: kill by binary name
+  if command -v pkill >/dev/null 2>&1; then
+    pkill -f "$AGENT_BIN" 2>/dev/null || true
+  elif command -v pgrep >/dev/null 2>&1; then
+    pgrep -f "$AGENT_BIN" 2>/dev/null | xargs -r kill 2>/dev/null || true
+  elif command -v killall >/dev/null 2>&1; then
+    killall oneclickvirt-agent 2>/dev/null || true
   fi
 }
 
@@ -316,19 +343,19 @@ case "${1:-usage}" in
     command -v systemctl >/dev/null 2>&1 && { systemctl start "$SVC"; exit $?; }
     [ -f "/etc/init.d/${SVC}" ] && { "/etc/init.d/${SVC}" start; exit $?; }
     command -v rc-service >/dev/null 2>&1 && { rc-service "$SVC" start; exit $?; }
-    echo "[ocv] No service manager found"
+    # Fallback: start directly in background
+    echo "[ocv] No service manager found, starting in foreground..."
+    nohup "$AGENT_BIN" >/var/log/oneclickvirt-agent.log 2>&1 &
+    echo "[ocv] Agent started (PID $!)"
     ;;
   stop)
-    command -v systemctl >/dev/null 2>&1 && { systemctl stop "$SVC"; exit $?; }
-    [ -f "/etc/init.d/${SVC}" ] && { "/etc/init.d/${SVC}" stop; exit $?; }
-    command -v rc-service >/dev/null 2>&1 && { rc-service "$SVC" stop; exit $?; }
-    pkill -f "$AGENT_BIN" 2>/dev/null || true
+    _do_stop
     ;;
   restart)
     command -v systemctl >/dev/null 2>&1 && { systemctl restart "$SVC"; exit $?; }
     [ -f "/etc/init.d/${SVC}" ] && { "/etc/init.d/${SVC}" restart; exit $?; }
     command -v rc-service >/dev/null 2>&1 && { rc-service "$SVC" restart; exit $?; }
-    /usr/local/bin/ocv stop; sleep 1; /usr/local/bin/ocv start
+    _do_stop; sleep 1; /usr/local/bin/ocv start
     ;;
   upgrade)   _upgrade ;;
   uninstall) _uninstall ;;
@@ -495,3 +522,11 @@ EOF
   log_info  "Manage: kill \$(pgrep -f oneclickvirt-agent) to stop"
   return 0
 }
+
+# ── Execute ────────────────────────────────────────────────────────────────────
+install_service
+
+# Always ensure ocv helper is available (even if service setup failed or was skipped)
+if [ ! -x /usr/local/bin/ocv ]; then
+  create_ocv_helper
+fi

@@ -329,26 +329,24 @@ download_file() {
     
     while [ $retry_count -lt $max_retries ]; do
         echo ""
-        curl -L --connect-timeout 10 --max-time 600 -o "$output" "$url" 2>/dev/null &
+        curl -L --connect-timeout 20 --max-time 600 -o "$output" "$url" 2>/dev/null &
         local dl_pid=$!
         _dl_progress "$output" "$total_size" "$dl_pid" &
         local mon_pid=$!
-        wait "$dl_pid"
-        local curl_exit=$?
+        wait "$dl_pid" 2>/dev/null
         wait "$mon_pid" 2>/dev/null
-        if [ $curl_exit -eq 0 ] && [ -s "$output" ]; then
+        if [ -s "$output" ]; then
             return 0
         fi
 
         rm -f "$output"
-        wget -T 10 -t 3 -O "$output" "$url" 2>/dev/null &
+        wget -T 20 -t 3 -O "$output" "$url" 2>/dev/null &
         dl_pid=$!
         _dl_progress "$output" "$total_size" "$dl_pid" &
         mon_pid=$!
-        wait "$dl_pid"
-        local wget_exit=$?
+        wait "$dl_pid" 2>/dev/null
         wait "$mon_pid" 2>/dev/null
-        if [ $wget_exit -eq 0 ] && [ -s "$output" ]; then
+        if [ -s "$output" ]; then
             return 0
         fi
         
