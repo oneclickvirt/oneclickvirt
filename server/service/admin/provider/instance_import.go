@@ -234,6 +234,7 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				GpuDeviceIds: discovered.GpuDeviceIds,
 				NpuEnabled:   discovered.NpuEnabled,
 				NpuDeviceIds: discovered.NpuDeviceIds,
+				NetworkType:  providerInfo.NetworkType, // 继承Provider的网络类型
 			}
 
 			if err := tx.Create(&instance).Error; err != nil {

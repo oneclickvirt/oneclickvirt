@@ -399,6 +399,10 @@ func (h *AgentHub) unregister(providerID uint) {
 	// 清理该 Provider 的 TunnelManager，释放资源
 	RemoveTunnelManager(providerID)
 
+	// 停止该 Provider 的所有控制端端口转发监听器
+	// Agent 断开后这些监听器无法转发流量，应释放端口资源
+	StopControllerPortForwardsByProvider(providerID)
+
 	global.APP_LOG.Info("Agent 已断开", zap.Uint("providerID", providerID))
 	h.updateProviderAgentStatus(providerID, "offline", nil, "", "")
 }

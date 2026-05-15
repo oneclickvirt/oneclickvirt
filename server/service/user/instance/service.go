@@ -191,6 +191,12 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
 				publicIP = ""
 			}
+			// 兼容旧实例：如果实例的NetworkType为空或为默认值，使用Provider的NetworkType
+			if modifiedInstance.NetworkType == "" || modifiedInstance.NetworkType == "nat_ipv4" {
+				if providerInfo.NetworkType != "" {
+					modifiedInstance.NetworkType = providerInfo.NetworkType
+				}
+			}
 		}
 
 		userInstance := userModel.UserInstanceResponse{
@@ -418,7 +424,8 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		SSHPort:       sshPort,              // 使用映射的公网端口
 		Username:      instance.Username,
 		Password:      instance.Password,
-		HasSshMapping: hasSshMapping, // 是否有可用的SSH端口映射
+		HasSshMapping: hasSshMapping,        // 是否有可用的SSH端口映射
+		NetworkType:   instance.NetworkType, // 默认使用实例的网络类型（创建时从Provider继承）
 		CreatedAt:     instance.CreatedAt,
 		ExpiresAt:     instance.ExpiresAt,
 	}
@@ -441,7 +448,10 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 
 		detail.PortRangeStart = provider.PortRangeStart // 端口范围起始
 		detail.PortRangeEnd = provider.PortRangeEnd     // 端口范围结束
-		detail.NetworkType = provider.NetworkType       // 网络配置类型
+		// 优先使用Provider的网络类型（权威来源），兼容旧实例未设置NetworkType的情况
+		if provider.NetworkType != "" {
+			detail.NetworkType = provider.NetworkType
+		}
 	}
 
 	// 查询关联的最新任务（如果有正在进行或待处理的任务）

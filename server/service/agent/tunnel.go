@@ -381,6 +381,38 @@ func StopControllerPortForward(portID uint) {
 	}
 }
 
+// StopControllerPortForwardsByProvider 停止指定 Provider 的所有控制端端口转发监听器。
+// 当 Agent 断开连接时调用，释放已失效的端口资源。
+// Agent 重连后会通过 RecoverControllerPortForwardsByProvider 重新启动。
+func StopControllerPortForwardsByProvider(providerID uint) {
+	var ports []providerModel.Port
+	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
+		providerID, "controller", "active").Find(&ports).Error; err != nil {
+		global.APP_LOG.Warn("查询待停止的控制器端口转发失败",
+			zap.Uint("providerID", providerID), zap.Error(err))
+		return
+	}
+
+	if len(ports) == 0 {
+		return
+	}
+
+	global.APP_LOG.Info("Agent 断开，停止控制端端口转发监听器",
+		zap.Uint("providerID", providerID),
+		zap.Int("count", len(ports)))
+
+	stopped := 0
+	for _, port := range ports {
+		StopControllerPortForward(port.ID)
+		stopped++
+	}
+
+	global.APP_LOG.Info("控制端端口转发监听器已停止",
+		zap.Uint("providerID", providerID),
+		zap.Int("stopped", stopped),
+		zap.Int("total", len(ports)))
+}
+
 // RestartControllerPortForward 重启指定 Port 的控制端监听（先停后启）。
 // 用于 Agent 重连后刷新 TunnelManager 引用。
 func RestartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {

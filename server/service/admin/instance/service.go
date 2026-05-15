@@ -147,7 +147,7 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
 		// 只查询必要字段
-		global.APP_DB.Select("id, name, type, region, status").
+		global.APP_DB.Select("id, name, type, region, status, network_type").
 			Where("id IN ?", providerIDs).
 			Find(&providers)
 	}
@@ -254,6 +254,13 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 		if instance.ProviderID > 0 {
 			if prov, ok := providerMap[instance.ProviderID]; ok {
 				instanceResponse.ProviderType = prov.Type
+				// 如果实例的NetworkType为空或为默认值nat_ipv4，使用Provider的NetworkType作为fallback
+				// 兼容旧实例（创建时未设置NetworkType字段）
+				if instanceResponse.NetworkType == "" || instanceResponse.NetworkType == "nat_ipv4" {
+					if prov.NetworkType != "" {
+						instanceResponse.NetworkType = prov.NetworkType
+					}
+				}
 			}
 		}
 		instanceResponses = append(instanceResponses, instanceResponse)
@@ -314,6 +321,7 @@ func (s *Service) CreateInstance(req admin.CreateInstanceRequest) (uint, error) 
 		ExpiresAt:      &expiredAt,
 		IsManualExpiry: false,
 		PublicIP:       provider.Endpoint,
+		NetworkType:    provider.NetworkType, // 继承Provider的网络类型
 	}
 
 	dbService := database.GetDatabaseService()

@@ -186,6 +186,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			TrafficLimitReason: "",
 			GpuEnabled:         taskReq.GpuEnabled,
 			GpuDeviceIds:       taskReq.GpuDeviceIds,
+			NetworkType:        provider.NetworkType, // 继承Provider的网络类型
 		}
 		if err := tx.Create(&instance).Error; err != nil {
 			return fmt.Errorf("创建实例记录失败: %v", err)

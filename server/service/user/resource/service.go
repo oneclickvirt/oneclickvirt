@@ -281,6 +281,7 @@ func (s *Service) ClaimResource(userID uint, req userModel.ClaimResourceRequest)
 		UserID:       userID,
 		Status:       "creating",
 		ExpiresAt:    &expiredAt,
+		NetworkType:  provider.NetworkType, // 继承Provider的网络类型
 	}
 
 	// ===== 阶段3: 短事务 - 创建实例、消费预留、更新配额 =====
