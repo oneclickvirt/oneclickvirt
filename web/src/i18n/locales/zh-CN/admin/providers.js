@@ -755,6 +755,7 @@ export default {
   cdnDirect: "直连",
   agentInstallSection: "Agent 管理命令",
   agentLastSeen: "最后在线",
+  agentOnlineDuration: "在线时长",
   agentRemoteIP: "来源IP",
   agentModeNewHint: "Agent 录入步骤",
   agentStep1: "填写节点基本信息（名称、类型等）并保存",

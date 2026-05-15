@@ -240,6 +240,12 @@ type UpdateProviderRequest struct {
 	// 内网穿透连接模式
 	ConnectionType string `json:"connectionType"` // 连接方式：ssh / agent
 
+	// 实例发现与导入配置（用于更新时的发现设置）
+	DiscoverMode          *bool   `json:"discoverMode,omitempty"`          // 是否启用实例发现模式（发现并导入已有实例），指针区分未提供
+	AutoImport            *bool   `json:"autoImport,omitempty"`            // 是否自动导入发现的实例
+	AutoAdjustQuota       *bool   `json:"autoAdjustQuota,omitempty"`       // 发现导入后是否自动调整配额
+	ImportedInstanceOwner *string `json:"importedInstanceOwner,omitempty"` // 导入实例的所有者（用户名，默认"admin"）
+
 	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
 	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script / third_party
 	BridgeNAT         string `json:"bridgeNAT"`         // NAT网桥名（默认vmbr1）
@@ -519,6 +525,9 @@ type CreateInstanceTaskRequest struct {
 	BandwidthId string `json:"bandwidthId"`
 	Description string `json:"description"`
 	SessionId   string `json:"sessionId"` // 会话ID，用于新的资源预留机制
+	// GPU直通配置（仅 LXD/Incus 容器实例支持）
+	GpuEnabled   bool   `json:"gpuEnabled"`   // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds"` // GPU设备ID列表（逗号分隔），为空则附加所有GPU
 }
 
 // CreateRedemptionInstanceTaskRequest 创建兑换码实例任务数据结构

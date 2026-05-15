@@ -309,6 +309,7 @@ const formData = ref({
   connectionType: 'ssh',
   agentStatus: 'offline',
   agentLastSeen: null,
+  agentConnectedAt: null,
   agentRemoteIP: '',
   // Proxmox 网桥配置
   nodeInstallType: 'script',
@@ -677,6 +678,7 @@ const handleCheckAgentStatus = async () => {
         port: res.data.sshPort || formData.value.port,
         agentStatus: res.data.agentStatus || 'offline',
         agentLastSeen: res.data.agentLastSeen || null,
+        agentConnectedAt: res.data.agentConnectedAt || null,
         agentRemoteIP: res.data.agentRemoteIP || '',
         networkType: res.data.networkType || formData.value.networkType,
         enableTrafficControl: res.data.enableTrafficControl ?? formData.value.enableTrafficControl,

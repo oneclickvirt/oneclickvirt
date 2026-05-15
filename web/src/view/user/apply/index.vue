@@ -371,6 +371,32 @@
           </el-col>
         </el-row>
 
+        <!-- GPU 直通配置（仅 LXD/Incus 容器实例） -->
+        <el-form-item
+          v-if="canConfigureGpuPassthrough"
+          :label="t('user.apply.gpuPassthrough')"
+        >
+          <div class="gpu-config-wrap">
+            <el-checkbox
+              v-model="configForm.gpuEnabled"
+            >
+              {{ t('user.apply.gpuEnabled') }}
+            </el-checkbox>
+            <div v-if="configForm.gpuEnabled" style="margin-top: 8px;">
+              <span style="font-size: 12px; color: #909399; margin-right: 8px;">{{ t('user.apply.gpuDeviceIds') }}:</span>
+              <el-input
+                v-model="configForm.gpuDeviceIds"
+                :placeholder="t('user.apply.gpuDeviceIdsPlaceholder')"
+                style="max-width: 340px;"
+                size="small"
+              />
+              <div style="font-size: 11px; color: #c0c4cc; margin-top: 4px;">
+                {{ t('user.apply.gpuDeviceIdsHint') }}
+              </div>
+            </div>
+          </div>
+        </el-form-item>
+
         <el-form-item :label="t('user.apply.remarks')">
           <el-input 
             v-model="configForm.description"
@@ -497,6 +523,16 @@ const {
 
 // Provider group tabs
 const activeGroupTab = ref('')
+
+// GPU 直通配置的条件：仅 LXD/Incus 节点 + 容器实例类型
+const canConfigureGpuPassthrough = computed(() => {
+  if (!selectedProvider.value) return false
+  const providerType = selectedProvider.value.type
+  const isLxdIncus = providerType === 'lxd' || providerType === 'incus'
+  const isContainer = configForm.type === 'container'
+  return isLxdIncus && isContainer
+})
+
 const providerGroups = computed(() => {
   const groupMap = new Map()
   for (const p of providers.value) {

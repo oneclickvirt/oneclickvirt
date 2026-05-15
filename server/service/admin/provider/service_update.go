@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	userModel "oneclickvirt/model/user"
 	traffic_monitor "oneclickvirt/service/admin/traffic_monitor"
 	"oneclickvirt/service/database"
 	"oneclickvirt/utils"
@@ -395,6 +396,30 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	provider.ContainerDiskIOLimit = req.ContainerDiskIOLimit
 	provider.GpuEnabled = req.GpuEnabled
 	provider.GpuDeviceIds = req.GpuDeviceIds
+	// 实例发现与导入配置更新
+	if req.DiscoverMode != nil {
+		provider.PendingDiscovery = *req.DiscoverMode
+	}
+	if req.AutoImport != nil {
+		provider.DiscoveryAutoImport = *req.AutoImport
+	}
+	if req.AutoAdjustQuota != nil {
+		provider.DiscoveryAutoAdjust = *req.AutoAdjustQuota
+	}
+	if req.ImportedInstanceOwner != nil {
+		var ownerUserID uint
+		if *req.ImportedInstanceOwner != "" {
+			var ownerUser userModel.User
+			if err := global.APP_DB.Where("username = ?", *req.ImportedInstanceOwner).First(&ownerUser).Error; err == nil {
+				ownerUserID = ownerUser.ID
+			} else {
+				global.APP_LOG.Warn("发现实例所有者用户不存在",
+					zap.Uint("providerID", req.ID),
+					zap.String("username", *req.ImportedInstanceOwner))
+			}
+		}
+		provider.DiscoveryOwnerUserID = ownerUserID
+	}
 	if req.ConnectionType == "agent" || req.ConnectionType == "ssh" {
 		provider.ConnectionType = req.ConnectionType
 		global.APP_LOG.Debug("更新Provider连接类型",
@@ -407,6 +432,11 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.TrafficSyncMethod = "agent"
 		if provider.Endpoint == "" || provider.PortIP == "" {
 			provider.NetworkType = "no_port_mapping"
+		}
+	} else {
+		// SSH 模式：如果之前是 agent 模式且 networkType 被设为 no_port_mapping，恢复默认
+		if provider.NetworkType == "no_port_mapping" {
+			provider.NetworkType = "nat_ipv4"
 		}
 	}
 

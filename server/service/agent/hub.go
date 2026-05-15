@@ -120,6 +120,7 @@ type AgentConn struct {
 	writeMu       sync.Mutex
 	pending       map[string]chan execResponsePayload // reqID → response channel
 	shellSessions map[string]*AgentShellSession
+	pingFailCount int // 连续 ping 失败计数（用于检测连接僵死）
 }
 
 func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *AgentConn {
@@ -311,6 +312,12 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	// 同步更新数据库状态，确保前端检测立即可见
 	now := time.Now()
 	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+	// 记录本次连接建立时间（用于前端显示在线时长）
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", ac.ProviderID).
+		Update("agent_connected_at", now).Error; err != nil {
+		global.APP_LOG.Warn("更新 Agent 连接时间失败", zap.Uint("providerID", ac.ProviderID), zap.Error(err))
+	}
 
 	// 异步同步节点硬件资源（CPU/内存/磁盘），解决 Agent 模式节点无 SSH 健康检查的资源同步问题
 	go h.syncNodeResources(ac)
@@ -405,6 +412,12 @@ func (h *AgentHub) unregister(providerID uint) {
 
 	global.APP_LOG.Info("Agent 已断开", zap.Uint("providerID", providerID))
 	h.updateProviderAgentStatus(providerID, "offline", nil, "", "")
+	// 清除连接建立时间（离线后无在线时长）
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", providerID).
+		Update("agent_connected_at", nil).Error; err != nil {
+		global.APP_LOG.Warn("清除 Agent 连接时间失败", zap.Uint("providerID", providerID), zap.Error(err))
+	}
 }
 
 // readLoop 持续读取来自 Agent 的消息。
@@ -534,6 +547,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 }
 
 // StartPingLoop 定期向所有在线 Agent 发送 ping 帧并更新 AgentLastSeen。
+// 检测连续 ping 失败次数，超过阈值（3次=90s无响应）强制标记离线。
 func (h *AgentHub) StartPingLoop() {
 	ticker := time.NewTicker(30 * time.Second)
 	go func() {
@@ -549,8 +563,32 @@ func (h *AgentHub) StartPingLoop() {
 			for _, ac := range conns {
 				pingMsg, _ := json.Marshal(wsMessage{Type: msgTypePing})
 				if err := ac.writeTextMessage(pingMsg, 5*time.Second); err != nil {
+					// 写入失败：累计失败次数
+					ac.mu.Lock()
+					ac.pingFailCount++
+					failCount := ac.pingFailCount
+					ac.mu.Unlock()
+
+					global.APP_LOG.Warn("Agent ping 写入失败",
+						zap.Uint("providerID", ac.ProviderID),
+						zap.Int("consecutiveFailures", failCount),
+						zap.Error(err))
+
+					// 连续 3 次（90s）写入失败 → 强制标记离线
+					if failCount >= 3 {
+						global.APP_LOG.Error("Agent 连续 ping 失败超过阈值，强制断开",
+							zap.Uint("providerID", ac.ProviderID),
+							zap.Int("consecutiveFailures", failCount))
+						ac.conn.Close()
+						h.unregister(ac.ProviderID)
+					}
 					continue
 				}
+				// 写入成功 → 重置失败计数
+				ac.mu.Lock()
+				ac.pingFailCount = 0
+				ac.mu.Unlock()
+
 				go h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 			}
 		}

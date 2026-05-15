@@ -290,13 +290,14 @@ type Provider struct {
 	GpuDeviceIds string `json:"gpuDeviceIds" gorm:"size:256"`    // GPU设备ID列表（逗号分隔的PCI ID，如"0,1"），为空则附加所有GPU
 
 	// 内网穿透连接模式（ConnectionType = "agent" 时节点通过 Rust Agent 主动连回控制端）
-	ConnectionType string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）
-	AgentSecret    string     `json:"-" gorm:"size:128"`                          // Agent 连接鉴权密钥（不返回给前端，由控制端生成）
-	AgentStatus    string     `json:"agentStatus" gorm:"default:offline;size:16"` // Agent 在线状态：online / offline
-	AgentLastSeen  *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间
-	AgentHostname  string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
-	AgentRemoteIP  string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
-	AgentVersion   string     `json:"agentVersion" gorm:"size:32;default:''"`     // Agent 上报的版本号
+	ConnectionType   string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）
+	AgentSecret      string     `json:"-" gorm:"size:128"`                          // Agent 连接鉴权密钥（不返回给前端，由控制端生成）
+	AgentStatus      string     `json:"agentStatus" gorm:"default:offline;size:16"` // Agent 在线状态：online / offline
+	AgentLastSeen    *time.Time `json:"agentLastSeen"`                              // Agent 最后心跳时间
+	AgentConnectedAt *time.Time `json:"agentConnectedAt"`                           // Agent 本次连接建立时间（用于计算在线时长）
+	AgentHostname    string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
+	AgentRemoteIP    string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
+	AgentVersion     string     `json:"agentVersion" gorm:"size:32;default:''"`     // Agent 上报的版本号
 
 	// Agent 模式延迟实例发现（Agent 连接后才触发，避免创建时 Agent 尚未连接导致失败）
 	PendingDiscovery     bool `json:"pendingDiscovery" gorm:"default:false"`   // 是否有待执行的实例发现与导入

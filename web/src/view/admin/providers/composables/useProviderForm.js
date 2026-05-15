@@ -146,6 +146,7 @@ const buildDefaultForm = () => ({
   connectionType: 'ssh',
   agentStatus: 'offline',
   agentLastSeen: null,
+  agentConnectedAt: null,
   agentRemoteIP: '',
   levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
 })
@@ -292,7 +293,13 @@ export function useProviderForm(loadProviders) {
     addProviderForm.connectionType = provider.connectionType || 'ssh'
     addProviderForm.agentStatus = provider.agentStatus || 'offline'
     addProviderForm.agentLastSeen = provider.agentLastSeen || null
+    addProviderForm.agentConnectedAt = provider.agentConnectedAt || null
     addProviderForm.agentRemoteIP = provider.agentRemoteIP || ''
+    // 实例发现与导入配置
+    addProviderForm.discoverMode = provider.pendingDiscovery !== undefined ? provider.pendingDiscovery : false
+    addProviderForm.autoImport = provider.discoveryAutoImport !== undefined ? provider.discoveryAutoImport : true
+    addProviderForm.autoAdjustQuota = provider.discoveryAutoAdjust !== undefined ? provider.discoveryAutoAdjust : true
+    addProviderForm.importedInstanceOwner = provider.discoveryOwnerName || provider.discoveryOwnerUserId ? 'admin' : ''
 
     if (provider.type === 'docker') {
       addProviderForm.ipv4PortMappingMethod = 'native'

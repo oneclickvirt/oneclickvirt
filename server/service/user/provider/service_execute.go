@@ -288,6 +288,7 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 	// GPU 直通仅支持 LXD/Incus 的容器实例，其他 Provider 类型不支持
 	isLxdIncusProvider := localProviderType == "lxd" || localProviderType == "incus"
 	if isLxdIncusProvider && instance.InstanceType != "vm" {
+		// 优先使用任务请求中的GPU配置（用户主动选择），没有则回退到Provider默认配置
 		instanceConfig.GpuEnabled = dbProvider.GpuEnabled
 		instanceConfig.GpuDeviceIds = dbProvider.GpuDeviceIds
 	}
@@ -302,10 +303,16 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
 		}
 	} else if redemptionTaskJSONErr == nil && redemptionTaskReq.GpuEnabled {
-		// 标准模式下，如果任务请求中指定了GPU配置，覆盖Provider默认值
+		// 标准模式下，如果兑换码任务请求中指定了GPU配置，覆盖Provider默认值
 		if isLxdIncusProvider && instance.InstanceType != "vm" {
 			instanceConfig.GpuEnabled = redemptionTaskReq.GpuEnabled
 			instanceConfig.GpuDeviceIds = redemptionTaskReq.GpuDeviceIds
+		}
+	} else if taskReq.GpuEnabled {
+		// 标准模式下（普通用户创建），如果任务请求中指定了GPU配置，覆盖Provider默认值
+		if isLxdIncusProvider && instance.InstanceType != "vm" {
+			instanceConfig.GpuEnabled = taskReq.GpuEnabled
+			instanceConfig.GpuDeviceIds = taskReq.GpuDeviceIds
 		}
 	}
 

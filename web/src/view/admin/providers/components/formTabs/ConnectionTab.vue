@@ -152,8 +152,11 @@
             {{ $t('admin.providers.agentStatus') }}:
             <strong>{{ modelValue.agentStatus === 'online' ? $t('admin.providers.agentStatusOnline') : $t('admin.providers.agentStatusOffline') }}</strong>
           </span>
+          <span v-if="modelValue.agentConnectedAt && modelValue.agentStatus === 'online'" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
+            {{ $t('admin.providers.agentOnlineDuration') }}: {{ formatOnlineDuration(modelValue.agentConnectedAt) }}
+          </span>
           <span v-if="modelValue.agentLastSeen" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
-            {{ $t('admin.providers.agentLastSeen') }}: {{ modelValue.agentLastSeen }}
+            {{ $t('admin.providers.agentLastSeen') }}: {{ formatDateTime(modelValue.agentLastSeen) }}
           </span>
           <span v-if="modelValue.agentRemoteIP" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
             {{ $t('admin.providers.agentRemoteIP') }}: {{ modelValue.agentRemoteIP }}
@@ -413,6 +416,31 @@ const emit = defineEmits([
   'exec-command',
   'clear-exec-result'
 ])
+
+// 格式化在线时长（输入: ISO时间字符串或Date，输出: "1h 23m" 或 "5m 30s"）
+const formatOnlineDuration = (connectedAt) => {
+  if (!connectedAt) return '-'
+  const start = new Date(connectedAt)
+  const now = new Date()
+  const diffMs = now - start
+  if (diffMs < 0) return '-'
+  const totalSeconds = Math.floor(diffMs / 1000)
+  const days = Math.floor(totalSeconds / 86400)
+  const hours = Math.floor((totalSeconds % 86400) / 3600)
+  const minutes = Math.floor((totalSeconds % 3600) / 60)
+  if (days > 0) return `${days}d ${hours}h ${minutes}m`
+  if (hours > 0) return `${hours}h ${minutes}m`
+  if (minutes > 0) return `${minutes}m ${totalSeconds % 60}s`
+  return `${totalSeconds}s`
+}
+
+// 格式化日期时间
+const formatDateTime = (dt) => {
+  if (!dt) return '-'
+  const d = new Date(dt)
+  const pad = (n) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
 
 const copyCmd = async (cmd) => {
   await copyToClipboardUtil(cmd, t('common.copySuccess'))

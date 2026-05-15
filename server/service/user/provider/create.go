@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
+	"time"
+
 	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	adminModel "oneclickvirt/model/admin"
@@ -13,7 +16,6 @@ import (
 	"oneclickvirt/service/cache"
 	"oneclickvirt/service/database"
 	"oneclickvirt/service/resources"
-	"time"
 
 	"go.uber.org/zap"
 	"gorm.io/gorm"
@@ -166,6 +168,19 @@ func (s *Service) CreateUserInstance(userID uint, req userModel.CreateInstanceRe
 			zap.Int("diskMB", diskSpec.SizeMB),
 			zap.Error(err))
 		return nil, err
+	}
+
+	// 验证 GPU 直通配置（仅 LXD/Incus 容器实例支持）
+	if req.GpuEnabled {
+		isLxdIncusProvider := provider.Type == "lxd" || provider.Type == "incus"
+		isContainerTarget := systemImage.InstanceType == "container"
+		if !isLxdIncusProvider || !isContainerTarget {
+			return nil, fmt.Errorf("GPU 直通仅支持 LXD/Incus 的容器实例")
+		}
+		// 验证 GPU 设备 ID 格式
+		if err := validateGPUDeviceIDs(req.GpuDeviceIds); err != nil {
+			return nil, err
+		}
 	}
 
 	global.APP_LOG.Debug("所有验证通过，开始创建实例",
@@ -350,8 +365,8 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		}
 
 		// 2. 创建任务
-		taskData := fmt.Sprintf(`{"providerId":%d,"imageId":%d,"cpuId":"%s","memoryId":"%s","diskId":"%s","bandwidthId":"%s","description":"%s","sessionId":"%s"}`,
-			req.ProviderId, req.ImageId, req.CPUId, req.MemoryId, req.DiskId, req.BandwidthId, req.Description, sessionID)
+		taskData := fmt.Sprintf(`{"providerId":%d,"imageId":%d,"cpuId":"%s","memoryId":"%s","diskId":"%s","bandwidthId":"%s","description":"%s","sessionId":"%s","gpuEnabled":%t,"gpuDeviceIds":"%s"}`,
+			req.ProviderId, req.ImageId, req.CPUId, req.MemoryId, req.DiskId, req.BandwidthId, req.Description, sessionID, req.GpuEnabled, req.GpuDeviceIds)
 
 		// 计算预计执行时长
 		estimatedDuration := 300 // 默认5分钟
@@ -397,4 +412,26 @@ func (s *Service) createInstanceWithMinimalTransaction(userID uint, req *userMod
 		zap.String("sessionId", sessionID))
 
 	return task, nil
+}
+
+// validateGPUDeviceIDs 验证 GPU 设备 ID 列表格式
+func validateGPUDeviceIDs(raw string) error {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	for _, part := range strings.Split(raw, ",") {
+		id := strings.TrimSpace(part)
+		if id == "" {
+			return fmt.Errorf("GPU 设备 ID 不能为空")
+		}
+		for _, r := range id {
+			if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') ||
+				r == '_' || r == '-' || r == '.' || r == ':' {
+				continue
+			}
+			return fmt.Errorf("GPU 设备 ID 包含非法字符")
+		}
+	}
+	return nil
 }

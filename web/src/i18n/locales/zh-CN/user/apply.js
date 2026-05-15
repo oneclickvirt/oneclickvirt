@@ -106,5 +106,11 @@ export default {
   loadProvidersFailed: "获取提供商列表失败，请检查网络连接",
   viewHardwareReport: "查看检测报告",
   hardwareTestReport: "硬件测试报告",
-  noHardwareReport: "暂无测试报告"
+  noHardwareReport: "暂无测试报告",
+  // GPU 直通配置
+  gpuPassthrough: "GPU 直通",
+  gpuEnabled: "启用 GPU 直通",
+  gpuDeviceIds: "GPU 设备 ID",
+  gpuDeviceIdsPlaceholder: "留空则附加所有GPU，多个ID用逗号分隔（如 0,1）",
+  gpuDeviceIdsHint: "仅 LXD/Incus 容器实例支持，留空将自动附加节点上所有可用 GPU"
 }

@@ -59,7 +59,10 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     memoryId: '',
     diskId: '',
     bandwidthId: '',
-    description: ''
+    description: '',
+    // GPU 直通配置（仅 LXD/Incus 容器实例支持）
+    gpuEnabled: false,
+    gpuDeviceIds: ''
   })
 
   const configRules = computed(() => ({
@@ -314,7 +317,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         memoryId: configForm.memoryId,
         diskId: configForm.diskId,
         bandwidthId: configForm.bandwidthId,
-        description: configForm.description
+        description: configForm.description,
+        gpuEnabled: configForm.gpuEnabled || false,
+        gpuDeviceIds: configForm.gpuDeviceIds || ''
       })
 
       if (response.code === 200) {
@@ -373,7 +378,9 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       memoryId: '',
       diskId: '',
       bandwidthId: '',
-      description: ''
+      description: '',
+      gpuEnabled: false,
+      gpuDeviceIds: ''
     })
     if (selectedProvider.value) await loadFilteredImages()
   }

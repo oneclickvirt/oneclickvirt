@@ -106,5 +106,11 @@ export default {
   loadProvidersFailed: "Failed to load providers, please check network connection",
   viewHardwareReport: "View Test Report",
   hardwareTestReport: "Hardware Test Report",
-  noHardwareReport: "No test report available"
+  noHardwareReport: "No test report available",
+  // GPU Passthrough Configuration
+  gpuPassthrough: "GPU Passthrough",
+  gpuEnabled: "Enable GPU Passthrough",
+  gpuDeviceIds: "GPU Device IDs",
+  gpuDeviceIdsPlaceholder: "Leave empty to attach all GPUs; use comma-separated IDs (e.g. 0,1)",
+  gpuDeviceIdsHint: "Only supported for LXD/Incus container instances. Leave empty to auto-attach all available GPUs on the node."
 }

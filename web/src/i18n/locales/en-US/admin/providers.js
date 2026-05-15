@@ -756,6 +756,7 @@ export default {
   cdnDirect: "Direct",
   agentInstallSection: "Agent Management Commands",
   agentLastSeen: "Last Seen",
+  agentOnlineDuration: "Online Duration",
   agentRemoteIP: "Remote IP",
   agentModeNewHint: "Agent Entry Steps",
   agentStep1: "Fill in basic node info (name, type, etc.) and save",
