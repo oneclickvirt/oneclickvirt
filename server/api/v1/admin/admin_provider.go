@@ -2,11 +2,15 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"oneclickvirt/middleware"
+	providerPkg "oneclickvirt/provider"
 	"oneclickvirt/service/provider"
 	"oneclickvirt/utils"
+	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -526,8 +530,8 @@ func CheckProviderEndpoint(c *gin.Context) {
 	}, "检查成功")
 }
 
-// DetectGPUs 检测Provider节点上的GPU设备
-// 通过SSH执行 lxc info --resources 并解析GPU部分
+// DetectGPUs 检测Provider节点上的GPU/NPU设备
+// 支持SSH与Agent模式，优先使用lxc/incus资源信息并结合nvidia-smi/lspci/npu-smi等多源检测
 func DetectGPUs(c *gin.Context) {
 	idStr := c.Param("id")
 	id, err := strconv.ParseUint(idStr, 10, 32)
@@ -557,40 +561,147 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	infoCmd := "lxc info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -60"
-	if p.Type == "incus" {
-		infoCmd = "incus info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -60"
-	}
-	output, err := providerInstance.ExecuteSSHCommand(execCtx, infoCmd)
-	if err != nil {
-		global.APP_LOG.Warn("GPU检测：执行命令失败", zap.Error(err))
-		common.ResponseSuccess(c, map[string]interface{}{
-			"gpus":    []interface{}{},
-			"rawInfo": "",
-		}, "节点无可用GPU或不支持GPU检测")
+	accelerators, rawInfo, detectErr := detectAccelerators(execCtx, providerInstance, p.Type)
+	if detectErr != nil {
+		global.APP_LOG.Warn("GPU/NPU检测失败", zap.Error(detectErr), zap.Uint("providerID", p.ID), zap.String("providerType", p.Type))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "设备检测失败: "+detectErr.Error()))
 		return
 	}
 
-	// 解析GPU信息，返回原始文本和解析后的列表供前端展示
-	gpus := parseGPUInfo(output)
+	gpus := make([]map[string]string, 0)
+	npus := make([]map[string]string, 0)
+	for _, d := range accelerators {
+		if strings.EqualFold(strings.TrimSpace(d["kind"]), "npu") {
+			npus = append(npus, d)
+		} else {
+			gpus = append(gpus, d)
+		}
+	}
 
 	common.ResponseSuccess(c, map[string]interface{}{
-		"gpus":    gpus,
-		"rawInfo": strings.TrimSpace(output),
-	}, "GPU检测完成")
+		"gpus":         gpus,
+		"npus":         npus,
+		"accelerators": accelerators,
+		"rawInfo":      strings.TrimSpace(rawInfo),
+	}, "GPU/NPU检测完成")
 }
 
-// parseGPUInfo 解析 lxc info --resources 中的GPU部分
-// 示例输出:
-//
-//	GPU:
-//	  Card 0 (DRM 0):
-//	    ID: 0
-//	    Device: 0000:01:00.0
-//	    Product: GP104 [GeForce GTX 1080]
-//	    Vendor: NVIDIA Corporation
-func parseGPUInfo(raw string) []map[string]string {
-	var gpus []map[string]string
+func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provider, providerType string) ([]map[string]string, string, error) {
+	devices := make([]map[string]string, 0)
+	rawSections := make([]string, 0)
+	seen := make(map[string]struct{})
+	hadAnySource := false
+
+	addDevice := func(kind, id, name, vendor, bus, source, card string) {
+		kind = strings.ToLower(strings.TrimSpace(kind))
+		if kind == "" {
+			kind = "gpu"
+		}
+		id = strings.TrimSpace(id)
+		name = strings.TrimSpace(name)
+		vendor = strings.TrimSpace(vendor)
+		bus = strings.TrimSpace(bus)
+		source = strings.TrimSpace(source)
+		card = strings.TrimSpace(card)
+		if name == "" {
+			name = card
+		}
+		if source == "" {
+			source = "unknown"
+		}
+
+		key := strings.ToLower(strings.Join([]string{kind, id, name, vendor, bus, source}, "|"))
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+
+		d := map[string]string{
+			"kind":    kind,
+			"id":      id,
+			"name":    name,
+			"product": name,
+			"vendor":  vendor,
+			"bus":     bus,
+			"source":  source,
+		}
+		if card != "" {
+			d["card"] = card
+		}
+		devices = append(devices, d)
+	}
+
+	appendRaw := func(title, output string) {
+		output = strings.TrimSpace(output)
+		if output == "" {
+			return
+		}
+		rawSections = append(rawSections, title+"\n"+output)
+	}
+
+	resourceCmd := "lxc info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -120"
+	if providerType == "incus" {
+		resourceCmd = "incus info --resources 2>/dev/null | awk '/^GPU:/,/^[A-Z]/' | head -120"
+	}
+	if output, err := providerInstance.ExecuteSSHCommand(ctx, resourceCmd); err == nil {
+		hadAnySource = true
+		appendRaw("[lxc/incus resources]", output)
+		for _, d := range parseLXDGPUInfo(output) {
+			addDevice("gpu", d["id"], d["name"], d["vendor"], d["device"], "lxc-resources", d["card"])
+		}
+	} else {
+		global.APP_LOG.Debug("GPU检测：lxc/incus资源命令执行失败", zap.Error(err))
+	}
+
+	if output, err := providerInstance.ExecuteSSHCommand(ctx, "nvidia-smi --query-gpu=index,name,pci.bus_id --format=csv,noheader 2>/dev/null || true"); err == nil {
+		hadAnySource = true
+		appendRaw("[nvidia-smi]", output)
+		for _, d := range parseNvidiaSMI(output) {
+			addDevice("gpu", d["id"], d["name"], "NVIDIA", d["bus"], "nvidia-smi", "")
+		}
+	}
+
+	if output, err := providerInstance.ExecuteSSHCommand(ctx, "lspci -Dnn 2>/dev/null || true"); err == nil {
+		hadAnySource = true
+		appendRaw("[lspci]", output)
+		for _, d := range parseLspciAccelerators(output) {
+			addDevice(d["kind"], d["id"], d["name"], d["vendor"], d["bus"], "lspci", "")
+		}
+	}
+
+	if output, err := providerInstance.ExecuteSSHCommand(ctx, "npu-smi info 2>/dev/null || true"); err == nil {
+		hadAnySource = true
+		appendRaw("[npu-smi]", output)
+		for _, d := range parseNPUSmiInfo(output) {
+			addDevice("npu", d["id"], d["name"], d["vendor"], d["bus"], "npu-smi", "")
+		}
+	}
+
+	if !hadAnySource {
+		return nil, strings.Join(rawSections, "\n\n"), fmt.Errorf("未能执行任何检测命令，请检查节点连接状态与命令执行权限")
+	}
+
+	sort.SliceStable(devices, func(i, j int) bool {
+		a := devices[i]
+		b := devices[j]
+		if a["kind"] != b["kind"] {
+			return a["kind"] < b["kind"]
+		}
+		if a["id"] != b["id"] {
+			return a["id"] < b["id"]
+		}
+		if a["bus"] != b["bus"] {
+			return a["bus"] < b["bus"]
+		}
+		return a["name"] < b["name"]
+	})
+
+	return devices, strings.Join(rawSections, "\n\n"), nil
+}
+
+// parseLXDGPUInfo 解析 lxc/incus info --resources 中的GPU片段
+func parseLXDGPUInfo(raw string) []map[string]string {
+	gpus := make([]map[string]string, 0)
 	current := map[string]string{}
 
 	for _, line := range strings.Split(raw, "\n") {
@@ -617,7 +728,149 @@ func parseGPUInfo(raw string) []map[string]string {
 	if len(current) > 0 {
 		gpus = append(gpus, current)
 	}
+
 	return gpus
+}
+
+func parseNvidiaSMI(raw string) []map[string]string {
+	devices := make([]map[string]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		parts := strings.Split(line, ",")
+		if len(parts) < 2 {
+			continue
+		}
+		id := strings.TrimSpace(parts[0])
+		name := strings.TrimSpace(parts[1])
+		bus := ""
+		if len(parts) >= 3 {
+			bus = strings.TrimSpace(parts[2])
+		}
+		devices = append(devices, map[string]string{
+			"id":   id,
+			"name": name,
+			"bus":  bus,
+		})
+	}
+	return devices
+}
+
+func parseLspciAccelerators(raw string) []map[string]string {
+	devices := make([]map[string]string, 0)
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		lower := strings.ToLower(line)
+
+		isNPU := containsAny(lower,
+			" npu",
+			"neural",
+			"habanalabs",
+			"gaudi",
+			"ascend",
+			"cambricon",
+			"kunlun",
+			"mlu",
+			"processing accelerators",
+		)
+		isGPU := containsAny(lower,
+			"vga compatible controller",
+			"3d controller",
+			"display controller",
+		)
+		if !isGPU && !isNPU {
+			continue
+		}
+
+		kind := "gpu"
+		if isNPU {
+			kind = "npu"
+		}
+
+		bus := ""
+		name := line
+		if idx := strings.Index(line, " "); idx > 0 {
+			bus = strings.TrimSpace(line[:idx])
+		}
+		if idx := strings.Index(line, ": "); idx >= 0 {
+			name = strings.TrimSpace(line[idx+2:])
+		}
+
+		vendor := inferVendor(name)
+		devices = append(devices, map[string]string{
+			"kind":   kind,
+			"id":     "",
+			"name":   name,
+			"vendor": vendor,
+			"bus":    bus,
+		})
+	}
+	return devices
+}
+
+func parseNPUSmiInfo(raw string) []map[string]string {
+	devices := make([]map[string]string, 0)
+	idRegex := regexp.MustCompile(`\b([0-9]{1,2})\b`)
+
+	for _, line := range strings.Split(raw, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "+") || strings.HasPrefix(line, "-") {
+			continue
+		}
+		lower := strings.ToLower(line)
+		if !containsAny(lower, "npu", "ascend") {
+			continue
+		}
+
+		id := ""
+		if m := idRegex.FindStringSubmatch(line); len(m) > 1 {
+			id = m[1]
+		}
+		devices = append(devices, map[string]string{
+			"id":     id,
+			"name":   line,
+			"vendor": inferVendor(line),
+			"bus":    "",
+		})
+	}
+
+	return devices
+}
+
+func containsAny(s string, keywords ...string) bool {
+	for _, k := range keywords {
+		if strings.Contains(s, strings.ToLower(k)) {
+			return true
+		}
+	}
+	return false
+}
+
+func inferVendor(text string) string {
+	lower := strings.ToLower(text)
+	switch {
+	case strings.Contains(lower, "nvidia"):
+		return "NVIDIA"
+	case strings.Contains(lower, "advanced micro devices"), strings.Contains(lower, " amd "), strings.HasPrefix(lower, "amd"):
+		return "AMD"
+	case strings.Contains(lower, "intel"):
+		return "Intel"
+	case strings.Contains(lower, "huawei"), strings.Contains(lower, "ascend"):
+		return "Huawei"
+	case strings.Contains(lower, "cambricon"), strings.Contains(lower, "mlu"):
+		return "Cambricon"
+	case strings.Contains(lower, "habanalabs"), strings.Contains(lower, "gaudi"):
+		return "Habana"
+	case strings.Contains(lower, "kunlun"):
+		return "Baidu"
+	default:
+		return ""
+	}
 }
 
 // GenerateAgentSecret godoc
@@ -772,9 +1025,9 @@ func GetStoppedContainers(c *gin.Context) {
 	}
 
 	// 根据 provider 类型选择命令
-	listCmd := "lxc list --format csv -c n,s 2>/dev/null"
+	listCmd := "lxc list --format json 2>/dev/null"
 	if dbProvider.Type == "incus" {
-		listCmd = "incus list --format csv -c n,s 2>/dev/null"
+		listCmd = "incus list --format json 2>/dev/null"
 	}
 
 	output, err := providerInstance.ExecuteSSHCommand(execCtx, listCmd)
@@ -783,23 +1036,78 @@ func GetStoppedContainers(c *gin.Context) {
 		return
 	}
 
-	var stopped []string
-	for _, line := range strings.Split(strings.TrimSpace(output), "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" {
+	type containerRecord struct {
+		Name            string                            `json:"name"`
+		Status          string                            `json:"status"`
+		Devices         map[string]map[string]interface{} `json:"devices"`
+		ExpandedDevices map[string]map[string]interface{} `json:"expanded_devices"`
+	}
+	type containerDetail struct {
+		Name         string `json:"name"`
+		Status       string `json:"status"`
+		HasGPU       bool   `json:"hasGpu"`
+		GpuDeviceIDs string `json:"gpuDeviceIds"`
+	}
+
+	hasGPUDevices := func(devices map[string]map[string]interface{}) (bool, string) {
+		if len(devices) == 0 {
+			return false, ""
+		}
+		hasGPU := false
+		ids := make([]string, 0)
+		seen := make(map[string]struct{})
+		for _, dev := range devices {
+			devType, _ := dev["type"].(string)
+			if strings.ToLower(strings.TrimSpace(devType)) != "gpu" {
+				continue
+			}
+			hasGPU = true
+			for _, key := range []string{"id", "pci", "pciid", "address"} {
+				if raw, ok := dev[key]; ok {
+					if s, ok := raw.(string); ok {
+						s = strings.TrimSpace(s)
+						if s != "" {
+							if _, exists := seen[s]; !exists {
+								seen[s] = struct{}{}
+								ids = append(ids, s)
+							}
+						}
+					}
+				}
+			}
+		}
+		return hasGPU, strings.Join(ids, ",")
+	}
+
+	records := make([]containerRecord, 0)
+	if err := json.Unmarshal([]byte(strings.TrimSpace(output)), &records); err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "解析容器列表失败: "+err.Error()))
+		return
+	}
+
+	stopped := make([]string, 0)
+	details := make([]containerDetail, 0, len(records))
+	for _, rec := range records {
+		status := strings.TrimSpace(rec.Status)
+		if !strings.EqualFold(status, "stopped") {
 			continue
 		}
-		parts := strings.SplitN(line, ",", 2)
-		if len(parts) == 2 && strings.TrimSpace(parts[1]) == "STOPPED" {
-			stopped = append(stopped, strings.TrimSpace(parts[0]))
+		hasGPU, gpuIDs := hasGPUDevices(rec.Devices)
+		if !hasGPU {
+			hasGPU, gpuIDs = hasGPUDevices(rec.ExpandedDevices)
 		}
-	}
-	if stopped == nil {
-		stopped = []string{}
+		stopped = append(stopped, rec.Name)
+		details = append(details, containerDetail{
+			Name:         rec.Name,
+			Status:       status,
+			HasGPU:       hasGPU,
+			GpuDeviceIDs: gpuIDs,
+		})
 	}
 
 	common.ResponseSuccess(c, map[string]interface{}{
-		"containers": stopped,
+		"containers":       stopped,
+		"containerDetails": details,
 	}, "获取停止容器列表成功")
 }
 

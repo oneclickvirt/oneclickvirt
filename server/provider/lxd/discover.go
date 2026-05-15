@@ -139,6 +139,9 @@ func (l *LXDProvider) apiDiscoverInstances(ctx context.Context) ([]provider.Disc
 			discovered.Disk = 10240
 		}
 
+		// 解析容器设备中的GPU/NPU配置
+		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseLXDInstanceAccelerators(inst.Devices)
+
 		// 解析网络信息
 		if inst.State != nil && inst.State.Network != nil {
 			var extraPorts []int
@@ -299,6 +302,9 @@ func (l *LXDProvider) sshDiscoverInstances(ctx context.Context) ([]provider.Disc
 		if discovered.Memory == 0 {
 			discovered.Memory = 512
 		}
+
+		// 解析容器设备中的GPU/NPU配置
+		discovered.GpuEnabled, discovered.GpuDeviceIds, discovered.NpuEnabled, discovered.NpuDeviceIds, discovered.Accelerators = parseLXDInstanceAccelerators(inst.Devices)
 
 		// 解析网络信息
 		if inst.State != nil && inst.State.Network != nil {
@@ -477,4 +483,87 @@ func (l *LXDProvider) parseProxyAddress(addr string) (int, string) {
 		return 0, protocol
 	}
 	return port, protocol
+}
+
+func parseLXDInstanceAccelerators(devices map[string]interface{}) (bool, string, bool, string, []provider.DiscoveredAccelerator) {
+	if len(devices) == 0 {
+		return false, "", false, "", nil
+	}
+
+	gpuEnabled := false
+	npuEnabled := false
+	gpuIDs := make([]string, 0)
+	npuIDs := make([]string, 0)
+	accelerators := make([]provider.DiscoveredAccelerator, 0)
+
+	seenGpuID := make(map[string]struct{})
+	seenNpuID := make(map[string]struct{})
+
+	appendID := func(ids *[]string, seen map[string]struct{}, id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		if _, ok := seen[id]; ok {
+			return
+		}
+		seen[id] = struct{}{}
+		*ids = append(*ids, id)
+	}
+
+	for name, devData := range devices {
+		devMap, ok := devData.(map[string]interface{})
+		if !ok {
+			continue
+		}
+		devType, _ := devMap["type"].(string)
+		if strings.ToLower(strings.TrimSpace(devType)) != "gpu" {
+			continue
+		}
+
+		kind := "gpu"
+		deviceName := strings.TrimSpace(name)
+		if v, ok := devMap["vendorid"].(string); ok {
+			lowerVendor := strings.ToLower(strings.TrimSpace(v))
+			if strings.Contains(lowerVendor, "huawei") || strings.Contains(lowerVendor, "ascend") {
+				kind = "npu"
+			}
+		}
+		if v, ok := devMap["gputype"].(string); ok {
+			lowerType := strings.ToLower(strings.TrimSpace(v))
+			if strings.Contains(lowerType, "npu") || strings.Contains(lowerType, "neural") {
+				kind = "npu"
+			}
+		}
+
+		id := ""
+		for _, key := range []string{"id", "pci", "pciid", "address"} {
+			if raw, ok := devMap[key]; ok {
+				if s, ok := raw.(string); ok && strings.TrimSpace(s) != "" {
+					id = strings.TrimSpace(s)
+					break
+				}
+			}
+		}
+
+		acc := provider.DiscoveredAccelerator{
+			Kind:   kind,
+			ID:     id,
+			Name:   deviceName,
+			Vendor: "",
+			Bus:    id,
+			Source: "devices",
+		}
+		accelerators = append(accelerators, acc)
+
+		if kind == "npu" {
+			npuEnabled = true
+			appendID(&npuIDs, seenNpuID, id)
+		} else {
+			gpuEnabled = true
+			appendID(&gpuIDs, seenGpuID, id)
+		}
+	}
+
+	return gpuEnabled, strings.Join(gpuIDs, ","), npuEnabled, strings.Join(npuIDs, ","), accelerators
 }

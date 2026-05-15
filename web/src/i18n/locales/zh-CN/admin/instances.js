@@ -133,5 +133,14 @@ export default {
   transferInstance: "转移实例",
   targetUserId: "目标用户ID",
   transferSuccess: "实例转移成功",
-  searchUserPlaceholder: "搜索用户名或昵称"
+  searchUserPlaceholder: "搜索用户名或昵称",
+  gpu: "GPU",
+  npu: "NPU",
+  gpuDevice: "GPU设备",
+  npuDevice: "NPU设备",
+  gpuDeviceIds: "GPU设备ID",
+  npuDeviceIds: "NPU设备ID",
+  gpuEnabled: "已启用",
+  gpuDisabled: "未启用",
+  acceleratorConfig: "加速设备配置"
 }

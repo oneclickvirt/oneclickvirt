@@ -419,6 +419,12 @@ type Instance struct {
 	FrozenReason   string     `json:"frozenReason" gorm:"size:255"`                            // 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
 	FrozenAt       *time.Time `json:"frozenAt"`                                                // 冻结时间
 
+	// GPU/NPU直通配置（从兑换码/导入时继承，用于展示和运维参考）
+	GpuEnabled   bool   `json:"gpuEnabled" gorm:"default:false"` // 是否启用GPU直通
+	GpuDeviceIds string `json:"gpuDeviceIds" gorm:"size:256"`    // GPU设备ID列表（逗号分隔）
+	NpuEnabled   bool   `json:"npuEnabled" gorm:"default:false"` // 是否启用NPU直通
+	NpuDeviceIds string `json:"npuDeviceIds" gorm:"size:256"`    // NPU设备ID列表（逗号分隔）
+
 	// 关联关系
 	// 添加UserID索引以支持按用户查询
 	UserID uint `json:"userId" gorm:"index:idx_user_id;index:idx_user_status,priority:1"` // 所属用户ID

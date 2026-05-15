@@ -35,8 +35,8 @@ func (s *Service) DiscoverProviderInstances(ctx context.Context, providerID uint
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	// 2. 获取Provider实例
-	providerInstance, err := provider2.GetProviderInstanceByID(providerID)
+	// 2. 获取Provider实例（确保连接可用，兼容agent模式刚上线场景）
+	providerInstance, err := provider2.EnsureProviderConnected(ctx, providerID)
 	if err != nil {
 		return nil, fmt.Errorf("获取Provider实例失败: %w", err)
 	}

@@ -169,6 +169,31 @@
           </template>
         </el-table-column>
         <el-table-column
+          :label="$t('admin.instances.acceleratorConfig')"
+          width="130"
+        >
+          <template #default="scope">
+            <template v-if="scope.row.gpuEnabled || scope.row.npuEnabled">
+              <el-tag
+                v-if="scope.row.gpuEnabled"
+                type="warning"
+                size="small"
+                style="margin-right: 4px;"
+              >
+                {{ scope.row.gpuDeviceIds ? 'GPU:' + scope.row.gpuDeviceIds : $t('admin.instances.gpuEnabled') }}
+              </el-tag>
+              <el-tag
+                v-if="scope.row.npuEnabled"
+                type="danger"
+                size="small"
+              >
+                {{ scope.row.npuDeviceIds ? 'NPU:' + scope.row.npuDeviceIds : $t('admin.instances.gpuEnabled') }}
+              </el-tag>
+            </template>
+            <span v-else style="color: #c0c4cc; font-size: 12px;">—</span>
+          </template>
+        </el-table-column>
+        <el-table-column
           prop="sshPort"
           :label="$t('admin.instances.sshPort')"
           width="80"
@@ -356,6 +381,17 @@
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.bandwidth')">
             {{ selectedInstance.bandwidth }}Mbps
+          </el-descriptions-item>
+          <el-descriptions-item
+            v-if="selectedInstance.gpuEnabled || selectedInstance.npuEnabled"
+            :label="$t('admin.instances.acceleratorConfig')"
+          >
+            <template v-if="selectedInstance.gpuEnabled">
+              <el-tag type="warning" size="small">{{ $t('admin.instances.gpu') }} {{ selectedInstance.gpuDeviceIds || $t('admin.instances.gpuEnabled') }}</el-tag>&nbsp;
+            </template>
+            <template v-if="selectedInstance.npuEnabled">
+              <el-tag type="danger" size="small">{{ $t('admin.instances.npu') }} {{ selectedInstance.npuDeviceIds || $t('admin.instances.gpuEnabled') }}</el-tag>
+            </template>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.publicIPv4')">
             {{ selectedInstance.publicIP || $t('admin.instances.unassigned') }}
