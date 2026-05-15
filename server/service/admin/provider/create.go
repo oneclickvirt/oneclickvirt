@@ -7,6 +7,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/service/database"
 	"oneclickvirt/utils"
 	"time"
@@ -14,6 +15,26 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+func init() {
+	// 注册 Agent 连接回调：当 Agent 模式节点上线后，自动执行延迟的实例发现与导入。
+	agentService.OnAgentConnected = func(providerID uint) {
+		svc := &Service{}
+		// 从 DB 读取发现参数（已在 triggerPendingDiscovery 中清除了 pending_discovery 标记）
+		var p providerModel.Provider
+		if err := global.APP_DB.Select("discovery_owner_user_id, discovery_auto_import, discovery_auto_adjust").
+			Where("id = ?", providerID).First(&p).Error; err != nil {
+			global.APP_LOG.Warn("OnAgentConnected: 查询 Provider 发现参数失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+			return
+		}
+		ownerUserID := p.DiscoveryOwnerUserID
+		if ownerUserID == 0 {
+			ownerUserID = 1 // 默认管理员
+		}
+		svc.discoverAndImportInstances(providerID, p.DiscoveryAutoImport, p.DiscoveryAutoAdjust, ownerUserID)
+	}
+}
 
 // maskAuthMethod 掩码认证方法，用于日志输出，避免暴露敏感信息
 func maskAuthMethod(password, sshKey string) string {
@@ -390,14 +411,34 @@ func (s *Service) CreateProvider(req admin.CreateProviderRequest, ownerAdminID u
 			}
 		}
 
-		global.APP_LOG.Info("Provider创建成功，开始发现实例",
-			zap.String("provider", req.Name),
-			zap.Uint("providerId", provider.ID),
-			zap.Bool("autoImport", req.AutoImport),
-			zap.Uint("ownerUserID", ownerUserID))
+		if provider.ConnectionType == "agent" {
+			// Agent 模式：Agent 尚未连接，延迟到 Agent 上线后再执行发现与导入。
+			// 将发现参数写入 Provider 记录，由 AgentHub.Register 在 Agent 连接后触发。
+			if err := global.APP_DB.Model(&provider).Updates(map[string]interface{}{
+				"pending_discovery":       true,
+				"discovery_owner_user_id": ownerUserID,
+				"discovery_auto_import":   req.AutoImport,
+				"discovery_auto_adjust":   req.AutoAdjustQuota,
+			}).Error; err != nil {
+				global.APP_LOG.Warn("设置Agent模式延迟发现标记失败",
+					zap.Uint("providerId", provider.ID),
+					zap.Error(err))
+			} else {
+				global.APP_LOG.Info("Agent模式Provider创建成功，实例发现将在Agent连接后自动执行",
+					zap.String("provider", req.Name),
+					zap.Uint("providerId", provider.ID),
+					zap.Uint("ownerUserID", ownerUserID))
+			}
+		} else {
+			// SSH 模式：立即可连接，直接异步执行发现和导入
+			global.APP_LOG.Info("Provider创建成功，开始发现实例",
+				zap.String("provider", req.Name),
+				zap.Uint("providerId", provider.ID),
+				zap.Bool("autoImport", req.AutoImport),
+				zap.Uint("ownerUserID", ownerUserID))
 
-		// 异步执行发现和导入，避免阻塞Provider创建流程
-		go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, ownerUserID)
+			go s.discoverAndImportInstances(provider.ID, req.AutoImport, req.AutoAdjustQuota, ownerUserID)
+		}
 	}
 
 	return &provider, nil

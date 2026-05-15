@@ -40,6 +40,10 @@ func init() {
 	}
 }
 
+// OnAgentConnected 是 Agent 成功连接并完成资源同步后的回调。
+// 由 service/admin/provider 包在初始化时注册，用于触发延迟的实例发现与导入。
+var OnAgentConnected func(providerID uint)
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 消息协议（文本帧 JSON）
 // ──────────────────────────────────────────────────────────────────────────────
@@ -320,6 +324,46 @@ func (h *AgentHub) Register(ac *AgentConn) {
 		time.Sleep(3 * time.Second)
 		RecoverControllerPortForwardsByProvider(ac.ProviderID)
 	}()
+
+	// 触发延迟实例发现与导入（Agent 模式节点在创建时标记了 PendingDiscovery）
+	go h.triggerPendingDiscovery(ac.ProviderID)
+}
+
+// triggerPendingDiscovery 检查 Provider 是否有待处理的实例发现任务，如有则触发。
+func (h *AgentHub) triggerPendingDiscovery(providerID uint) {
+	// 等待资源同步和 WebSocket 连接稳定
+	time.Sleep(5 * time.Second)
+
+	// 检查是否有待处理的发现任务
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("pending_discovery, discovery_owner_user_id, discovery_auto_adjust").
+		Where("id = ?", providerID).First(&provider).Error; err != nil {
+		global.APP_LOG.Warn("triggerPendingDiscovery: 查询 Provider 失败",
+			zap.Uint("providerID", providerID), zap.Error(err))
+		return
+	}
+
+	if !provider.PendingDiscovery {
+		return
+	}
+
+	// 清除 PendingDiscovery 标记（无论成功与否，避免重复触发）
+	if err := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", providerID).
+		Update("pending_discovery", false).Error; err != nil {
+		global.APP_LOG.Warn("triggerPendingDiscovery: 清除 PendingDiscovery 标记失败",
+			zap.Uint("providerID", providerID), zap.Error(err))
+	}
+
+	global.APP_LOG.Info("Agent 连接后触发延迟实例发现",
+		zap.Uint("providerID", providerID),
+		zap.Uint("ownerUserID", provider.DiscoveryOwnerUserID),
+		zap.Bool("autoAdjust", provider.DiscoveryAutoAdjust))
+
+	// 调用注册的回调执行实例发现与导入
+	if OnAgentConnected != nil {
+		OnAgentConnected(providerID)
+	}
 }
 
 // GetConn 返回指定 Provider 的 AgentConn（如果在线）。

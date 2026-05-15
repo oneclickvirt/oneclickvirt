@@ -297,6 +297,12 @@ type Provider struct {
 	AgentHostname  string     `json:"agentHostname" gorm:"size:128"`              // Agent 上报的主机名
 	AgentRemoteIP  string     `json:"agentRemoteIP" gorm:"size:64"`               // Agent 连接来源 IP（WebSocket 连接的 RemoteAddr）
 	AgentVersion   string     `json:"agentVersion" gorm:"size:32;default:''"`     // Agent 上报的版本号
+
+	// Agent 模式延迟实例发现（Agent 连接后才触发，避免创建时 Agent 尚未连接导致失败）
+	PendingDiscovery     bool `json:"pendingDiscovery" gorm:"default:false"`   // 是否有待执行的实例发现与导入
+	DiscoveryOwnerUserID uint `json:"discoveryOwnerUserId" gorm:"default:0"`   // 发现实例的归属用户 ID
+	DiscoveryAutoImport  bool `json:"discoveryAutoImport" gorm:"default:true"` // 发现时是否自动导入
+	DiscoveryAutoAdjust  bool `json:"discoveryAutoAdjust" gorm:"default:true"` // 发现时是否自动调整配额
 }
 
 func (p *Provider) BeforeCreate(tx *gorm.DB) error {
