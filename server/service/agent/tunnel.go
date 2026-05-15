@@ -266,19 +266,30 @@ var (
 func GetOrCreateTunnelManager(providerID uint) (*TunnelManager, error) {
 	// 首先检查是否有活跃的 AgentConn
 	hub := GetHub()
+	if hub == nil {
+		return nil, fmt.Errorf("AgentHub 未初始化")
+	}
 	ac, ok := hub.GetConn(providerID)
-	if !ok {
-		return nil, fmt.Errorf("provider %d 的 Agent 当前离线", providerID)
+	if !ok || ac == nil {
+		return nil, fmt.Errorf("provider %d 的 Agent 当前离线或未连接", providerID)
 	}
 
 	tunnelMgrMu.Lock()
 	defer tunnelMgrMu.Unlock()
 
 	if mgr, exists := tunnelMgrs[providerID]; exists {
-		return mgr, nil
+		// 检查现有的 TunnelManager 引用的 AgentConn 是否仍然有效
+		if mgr.ac == ac {
+			return mgr, nil
+		}
+		// AgentConn 已更换，需要重建 TunnelManager
+		delete(tunnelMgrs, providerID)
 	}
 
 	mgr := NewTunnelManager(ac)
+	if mgr == nil {
+		return nil, fmt.Errorf("创建 TunnelManager 失败")
+	}
 	tunnelMgrs[providerID] = mgr
 	return mgr, nil
 }
@@ -324,16 +335,20 @@ type controllerListener struct {
 var (
 	ctrlListenerMu sync.RWMutex
 	ctrlListeners  = make(map[uint]*controllerListener) // Port.ID → listener
+
+	// recoveryMu 防止同一 Provider 的端口转发恢复操作并发执行
+	recoveryMu   sync.Mutex
+	recoveringAt = make(map[uint]time.Time) // ProviderID → 上次恢复时间
 )
 
 // StartControllerPortForward 为一条 Port 记录启动控制端 TCP 监听转发。
 func StartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
 	ctrlListenerMu.Lock()
-	defer ctrlListenerMu.Unlock()
-
 	if _, exists := ctrlListeners[portID]; exists {
+		ctrlListenerMu.Unlock()
 		return nil // 已在运行
 	}
+	ctrlListenerMu.Unlock()
 
 	mgr, err := GetOrCreateTunnelManager(providerID)
 	if err != nil {
@@ -342,7 +357,16 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 
 	stopCh := make(chan struct{})
 	doneCh := make(chan struct{})
+
+	ctrlListenerMu.Lock()
+	// 双重检查：可能在获取 TunnelManager 期间其他 goroutine 已启动
+	if _, exists := ctrlListeners[portID]; exists {
+		ctrlListenerMu.Unlock()
+		close(stopCh)
+		return nil
+	}
 	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
+	ctrlListenerMu.Unlock()
 
 	go func() {
 		defer close(doneCh)
@@ -415,15 +439,38 @@ func StopControllerPortForwardsByProvider(providerID uint) {
 
 // RestartControllerPortForward 重启指定 Port 的控制端监听（先停后启）。
 // 用于 Agent 重连后刷新 TunnelManager 引用。
+// 包含重试机制以处理端口尚未完全释放的情况。
 func RestartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
-	// 先停止旧监听器
+	// 先停止旧监听器（同步等待其完全退出）
 	StopControllerPortForward(portID)
 
 	// 清理旧的 TunnelManager，确保 GetOrCreateTunnelManager 创建新的
 	RemoveTunnelManager(providerID)
 
-	// 启动新监听器
-	return StartControllerPortForward(portID, providerID, listenPort, targetHost, targetPort)
+	// 短暂等待以确保操作系统完全释放端口
+	time.Sleep(200 * time.Millisecond)
+
+	// 带重试的启动（处理端口尚未完全释放的情况）
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		if attempt > 0 {
+			time.Sleep(time.Duration(attempt) * 500 * time.Millisecond)
+		}
+		err := StartControllerPortForward(portID, providerID, listenPort, targetHost, targetPort)
+		if err == nil {
+			return nil
+		}
+		// 仅对"地址已占用"错误进行重试，其他错误立即返回
+		if !strings.Contains(err.Error(), "address already in use") {
+			return err
+		}
+		lastErr = err
+		global.APP_LOG.Debug("端口仍被占用，重试中",
+			zap.Uint("portID", portID),
+			zap.Int("attempt", attempt+1),
+			zap.Int("listenPort", listenPort))
+	}
+	return fmt.Errorf("重启端口转发失败（已重试3次）: %w", lastErr)
 }
 
 // resolveTargetHost 解析控制器端口转发的目标地址。
@@ -486,7 +533,21 @@ func looksLikeIP(s string) bool {
 
 // RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
 // 在 Agent 重连时调用，确保端口转发使用新的 WebSocket 连接。
+// 内置防抖机制：同一 Provider 在 30 秒内不会重复执行恢复操作。
 func RecoverControllerPortForwardsByProvider(providerID uint) {
+	// 防抖：检查上次恢复时间，30 秒内不重复执行
+	recoveryMu.Lock()
+	if lastTime, exists := recoveringAt[providerID]; exists {
+		if time.Since(lastTime) < 30*time.Second {
+			recoveryMu.Unlock()
+			global.APP_LOG.Debug("跳过重复的端口转发恢复（距上次不足30秒）",
+				zap.Uint("providerID", providerID))
+			return
+		}
+	}
+	recoveringAt[providerID] = time.Now()
+	recoveryMu.Unlock()
+
 	var ports []providerModel.Port
 	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
 		providerID, "controller", "active").Find(&ports).Error; err != nil {
@@ -505,6 +566,15 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 
 	recovered := 0
 	for _, port := range ports {
+		// 检查是否已在运行（避免不必要的重启）
+		ctrlListenerMu.RLock()
+		_, running := ctrlListeners[port.ID]
+		ctrlListenerMu.RUnlock()
+		if running {
+			recovered++
+			continue
+		}
+
 		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
@@ -572,8 +642,17 @@ func RecoverAllControllerPortForwards() {
 		zap.Int("total", len(ports)))
 }
 
+// portRepairFailCount 跟踪每个端口修复失败的次数，防止无限重试。
+var (
+	portRepairFailMu    sync.Mutex
+	portRepairFailCount = make(map[uint]int) // PortID → 连续失败次数
+)
+
+const maxRepairFailCount = 5 // 连续失败超过此次数后标记端口为 error 状态
+
 // CheckAndRepairControllerPortForwards 定期检查并修复控制器端口转发。
 // 发现已标记为 active 但未监听中的端口映射，自动恢复。
+// 连续失败超过阈值的端口会被标记为 error 状态，避免无限重试。
 // 返回 (total, repaired)。
 func CheckAndRepairControllerPortForwards() (int, int) {
 	var ports []providerModel.Port
@@ -590,8 +669,28 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		ctrlListenerMu.RUnlock()
 
 		if running {
-			continue // 已在运行，跳过
+			// 修复成功运行后重置失败计数
+			portRepairFailMu.Lock()
+			delete(portRepairFailCount, port.ID)
+			portRepairFailMu.Unlock()
+			continue
 		}
+
+		// 检查连续失败次数
+		portRepairFailMu.Lock()
+		failCount := portRepairFailCount[port.ID]
+		if failCount >= maxRepairFailCount {
+			portRepairFailMu.Unlock()
+			// 超过阈值，标记为 error 状态以避免无限重试
+			global.APP_DB.Model(&providerModel.Port{}).Where("id = ?", port.ID).
+				Update("status", "error")
+			global.APP_LOG.Warn("控制器端口转发连续修复失败，标记为 error",
+				zap.Uint("portID", port.ID),
+				zap.Int("hostPort", port.HostPort),
+				zap.Int("failCount", failCount))
+			continue
+		}
+		portRepairFailMu.Unlock()
 
 		// 监听器未运行，尝试恢复
 		targetHost := resolveTargetHost(&port)
@@ -601,12 +700,22 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 			continue
 		}
 
-		if err := StartControllerPortForward(port.ID, port.ProviderID,
-			port.HostPort, targetHost, port.GuestPort); err != nil {
+		// 使用 RestartControllerPortForward 以获得重试逻辑
+		err := RestartControllerPortForward(port.ID, port.ProviderID,
+			port.HostPort, targetHost, port.GuestPort)
+		if err != nil {
 			global.APP_LOG.Debug("修复控制器端口转发失败",
 				zap.Uint("portID", port.ID), zap.Error(err))
+			// 记录失败次数
+			portRepairFailMu.Lock()
+			portRepairFailCount[port.ID] = failCount + 1
+			portRepairFailMu.Unlock()
 		} else {
 			repaired++
+			// 修复成功，重置失败计数
+			portRepairFailMu.Lock()
+			delete(portRepairFailCount, port.ID)
+			portRepairFailMu.Unlock()
 			global.APP_LOG.Info("已修复控制器端口转发",
 				zap.Uint("portID", port.ID),
 				zap.Int("hostPort", port.HostPort),

@@ -228,6 +228,13 @@ func CreatePortMapping(c *gin.Context) {
 		return
 	}
 
+	// 防御：检查数据库连接是否可用
+	if global.APP_DB == nil {
+		global.APP_LOG.Error("创建端口映射失败：数据库连接不可用")
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "数据库连接不可用，请稍后重试"))
+		return
+	}
+
 	portMappingService := resources.PortMappingService{}
 	portID, taskData, err := portMappingService.CreatePortMappingWithTask(req)
 	if err != nil {
@@ -261,6 +268,11 @@ func CreatePortMapping(c *gin.Context) {
 
 	// 创建任务
 	taskService := task.GetTaskService()
+	if taskService == nil {
+		global.APP_LOG.Error("任务服务未初始化")
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "任务服务未初始化，请稍后重试"))
+		return
+	}
 	newTask, err := taskService.CreateTask(
 		authCtx.UserID,
 		&taskData.ProviderID,

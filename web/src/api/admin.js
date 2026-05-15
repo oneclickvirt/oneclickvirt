@@ -960,7 +960,7 @@ export const detectProviderGPUs = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/detect-gpus`,
     method: 'get',
-    timeout: 30000
+    timeout: 120000 // 2分钟超时，适应慢速节点
   })
 }
 
@@ -969,7 +969,7 @@ export const getStoppedContainers = (providerId) => {
   return request({
     url: `/v1/admin/providers/${providerId}/stopped-containers`,
     method: 'get',
-    timeout: 30000
+    timeout: 120000 // 2分钟超时，适应慢速节点
   })
 }
 

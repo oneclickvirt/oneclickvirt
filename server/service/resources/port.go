@@ -99,6 +99,11 @@ func (s *PortMappingService) GetPortMappingList(req admin.PortMappingListRequest
 // 支持单个端口和端口段批量创建
 // 返回端口ID和任务数据（由调用者创建和启动任务）
 func (s *PortMappingService) CreatePortMappingWithTask(req admin.CreatePortMappingRequest) (uint, *admin.CreatePortMappingTaskRequest, error) {
+	// 防御：检查数据库连接是否可用
+	if global.APP_DB == nil {
+		return 0, nil, fmt.Errorf("数据库连接不可用")
+	}
+
 	// 获取实例信息
 	var instance provider.Instance
 	if err := global.APP_DB.Where("id = ?", req.InstanceID).First(&instance).Error; err != nil {

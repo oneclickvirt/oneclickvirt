@@ -20,11 +20,36 @@ import (
 type AgentShellExecutor struct {
 	providerID uint
 	hub        *AgentHub
+
+	// 并发控制：限制同一 Provider 同时执行的 Agent 命令数量，防止 WebSocket 饱和
+	execSem chan struct{} // 信号量，限制并发执行数
 }
+
+// 每个 Provider 最大并发 Agent 命令数（WebSocket 通道复用）
+const maxConcurrentAgentCommands = 2
 
 // NewAgentShellExecutor creates an AgentShellExecutor for the given provider.
 func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
-	return &AgentShellExecutor{providerID: providerID, hub: hub}
+	return &AgentShellExecutor{
+		providerID: providerID,
+		hub:        hub,
+		execSem:    make(chan struct{}, maxConcurrentAgentCommands),
+	}
+}
+
+// acquireExecSlot 获取执行槽位，带有超时。防止命令堆积导致 goroutine 泄漏。
+func (a *AgentShellExecutor) acquireExecSlot(timeout time.Duration) error {
+	select {
+	case a.execSem <- struct{}{}:
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("等待 Agent 命令槽位超时（%s），Provider %d 当前命令过多", timeout, a.providerID)
+	}
+}
+
+// releaseExecSlot 释放执行槽位
+func (a *AgentShellExecutor) releaseExecSlot() {
+	<-a.execSem
 }
 
 func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
@@ -70,6 +95,12 @@ func wrapShellEnv(command string) string {
 
 // Execute runs a command on the remote agent with a default 300s timeout.
 func (a *AgentShellExecutor) Execute(command string) (string, error) {
+	// 获取并发槽位，最多等待 10 秒
+	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+		return "", err
+	}
+	defer a.releaseExecSlot()
+
 	conn, err := a.getConn()
 	if err != nil {
 		return "", err
@@ -79,6 +110,12 @@ func (a *AgentShellExecutor) Execute(command string) (string, error) {
 
 // ExecuteWithTimeout runs a command on the remote agent with a custom timeout.
 func (a *AgentShellExecutor) ExecuteWithTimeout(command string, timeout time.Duration) (string, error) {
+	// 获取并发槽位，最多等待 10 秒
+	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+		return "", err
+	}
+	defer a.releaseExecSlot()
+
 	conn, err := a.getConn()
 	if err != nil {
 		return "", err
@@ -112,6 +149,12 @@ func (a *AgentShellExecutor) ExecuteWithLogging(command string, logPrefix string
 // ExecuteRaw runs a command on the remote agent WITHOUT shell environment wrapping.
 // This is preferred for running local scripts or lightweight polling commands.
 func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (string, error) {
+	// 获取并发槽位，最多等待 10 秒
+	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+		return "", err
+	}
+	defer a.releaseExecSlot()
+
 	conn, err := a.getConn()
 	if err != nil {
 		return "", err
