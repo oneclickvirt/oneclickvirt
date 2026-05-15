@@ -318,6 +318,7 @@ func hashString(s string) uint64 {
 type controllerListener struct {
 	listenPort int
 	stopCh     chan struct{}
+	doneCh     chan struct{} // closed when the HandleControllerPort goroutine has fully exited
 }
 
 var (
@@ -340,9 +341,11 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 	}
 
 	stopCh := make(chan struct{})
-	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh}
+	doneCh := make(chan struct{})
+	ctrlListeners[portID] = &controllerListener{listenPort: listenPort, stopCh: stopCh, doneCh: doneCh}
 
 	go func() {
+		defer close(doneCh)
 		addr := fmt.Sprintf("0.0.0.0:%d", listenPort)
 		if err := mgr.HandleControllerPort(addr, targetHost, targetPort, stopCh); err != nil {
 			global.APP_LOG.Error("控制端端口转发异常退出",
@@ -356,14 +359,25 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 	return nil
 }
 
-// StopControllerPortForward 停止指定 Port 的控制端监听。
+// StopControllerPortForward 停止指定 Port 的控制端监听，并等待其 goroutine 完全退出。
+// 这确保端口已被释放，后续可立即重新绑定同一端口。
 func StopControllerPortForward(portID uint) {
 	ctrlListenerMu.Lock()
-	defer ctrlListenerMu.Unlock()
-
-	if cl, ok := ctrlListeners[portID]; ok {
+	cl, ok := ctrlListeners[portID]
+	if ok {
 		close(cl.stopCh)
 		delete(ctrlListeners, portID)
+	}
+	ctrlListenerMu.Unlock()
+
+	// 等待旧的 HandleControllerPort goroutine 完全退出，确保端口已释放
+	if ok && cl.doneCh != nil {
+		select {
+		case <-cl.doneCh:
+		case <-time.After(5 * time.Second):
+			global.APP_LOG.Warn("等待控制端端口转发停止超时",
+				zap.Uint("portID", portID))
+		}
 	}
 }
 
