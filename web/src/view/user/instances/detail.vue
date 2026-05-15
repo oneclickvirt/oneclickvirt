@@ -471,6 +471,20 @@
                 </template>
               </el-table-column>
               <el-table-column
+                prop="mappingType"
+                :label="t('user.instanceDetail.mappingSource')"
+                width="110"
+              >
+                <template #default="{ row }">
+                  <el-tag
+                    size="small"
+                    :type="row.mappingType === 'controller' ? 'warning' : 'primary'"
+                  >
+                    {{ row.mappingType === 'controller' ? t('user.instanceDetail.controllerForwarding') : t('user.instanceDetail.nodeForwarding') }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column
                 prop="hostPort"
                 :label="t('user.instanceDetail.publicPort')"
                 width="110"
@@ -514,8 +528,47 @@
               >
                 <template #default="{ row }">
                   <div class="connection-commands">
+                    <!-- 控制端转发模式 -->
                     <div
-                      v-if="row.isSSH"
+                      v-if="row.mappingType === 'controller' && row.isSSH"
+                      class="ssh-command"
+                    >
+                      <span 
+                        class="command-text"
+                        :title="t('user.instanceDetail.controllerSSHHint')"
+                      >
+                        {{ t('user.instanceDetail.controllerForwardingSSH', { port: row.hostPort }) }}
+                      </span>
+                      <el-tag
+                        size="small"
+                        type="warning"
+                        style="margin-left: 8px;"
+                      >
+                        {{ t('user.instanceDetail.controllerForwarding') }}
+                      </el-tag>
+                    </div>
+                    <!-- 控制端转发模式（非SSH端口） -->
+                    <div
+                      v-else-if="row.mappingType === 'controller'"
+                      class="port-access"
+                    >
+                      <span 
+                        class="command-text"
+                        :title="t('user.instanceDetail.controllerPortHint', { port: row.hostPort })"
+                      >
+                        {{ t('user.instanceDetail.controllerForwardingPort', { port: row.hostPort }) }}
+                      </span>
+                      <el-tag
+                        size="small"
+                        type="warning"
+                        style="margin-left: 8px;"
+                      >
+                        {{ t('user.instanceDetail.controllerForwarding') }}
+                      </el-tag>
+                    </div>
+                    <!-- 节点侧映射（SSH端口） -->
+                    <div
+                      v-else-if="row.isSSH"
                       class="ssh-command"
                     >
                       <span 
@@ -532,6 +585,7 @@
                         {{ t('user.instanceDetail.copy') }}
                       </el-button>
                     </div>
+                    <!-- 节点侧映射（非SSH端口） -->
                     <div
                       v-else
                       class="port-access"

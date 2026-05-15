@@ -116,7 +116,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
-		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint").
+		if err := global.APP_DB.Select("id, name, type, status, port_ip, endpoint, connection_type, network_type").
 			Where("id IN ?", providerIDs).
 			Limit(1000).
 			Find(&providers).Error; err != nil {
@@ -174,6 +174,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 				"protocol":    port.Protocol,
 				"description": port.Description,
 				"isSSH":       port.IsSSH,
+				"mappingType": port.MappingType, // 映射来源：node(节点侧转发) / controller(控制端转发)
 			})
 		}
 
@@ -183,6 +184,15 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			modifiedInstance.SSHPort = sshPort // 使用映射的公网端口
 		}
 
+		// 确定公网IP：agent录入模式+无端口映射模式的实例不显示公网IP
+		// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
+		publicIP := instance.PublicIP
+		if providerInfo, ok := providerMap[instance.ProviderID]; ok {
+			if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
+				publicIP = ""
+			}
+		}
+
 		userInstance := userModel.UserInstanceResponse{
 			Instance:       modifiedInstance,
 			CanStart:       instance.Status == "stopped" && !instance.TrafficLimited, // 流量受限时不能启动
@@ -190,7 +200,7 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 			CanRestart:     instance.Status == "running" && !instance.TrafficLimited, // 流量受限时不能重启
 			CanDelete:      instance.Status != "deleting",
 			PortMappings:   portMappings,
-			PublicIP:       instance.PublicIP, // 直接使用实例的PublicIP字段
+			PublicIP:       publicIP, // 公网IP（agent+no_port_mapping模式下为空）
 			ProviderType:   providerType,
 			ProviderStatus: providerStatus,
 		}
@@ -419,10 +429,16 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		detail.ProviderName = provider.Name
 		detail.ProviderType = provider.Type // Provider虚拟化类型
 		detail.ProviderStatus = provider.Status
-		// 只有当实例没有公网IP时，才使用Provider的endpoint作为fallback
-		if detail.PublicIP == "" {
+
+		// agent录入模式+无端口映射模式：不显示公网IP
+		// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
+		if provider.ConnectionType == "agent" && provider.NetworkType == "no_port_mapping" {
+			detail.PublicIP = ""
+		} else if detail.PublicIP == "" {
+			// 只有当实例没有公网IP且不是agent+no_port_mapping时，才使用Provider的endpoint作为fallback
 			detail.PublicIP = s.extractIPFromEndpoint(provider.Endpoint)
 		}
+
 		detail.PortRangeStart = provider.PortRangeStart // 端口范围起始
 		detail.PortRangeEnd = provider.PortRangeEnd     // 端口范围结束
 		detail.NetworkType = provider.NetworkType       // 网络配置类型

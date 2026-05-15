@@ -636,21 +636,27 @@ func (s *PortMappingService) GetUserPortMappings(userID uint, page, limit int, k
 		// 从预加载的map中获取Provider信息
 		if instance.ProviderID > 0 {
 			if providerInfo, ok := providerMap[instance.ProviderID]; ok {
-				// 处理Endpoint，移除端口号部分
-				endpoint := providerInfo.Endpoint
-				if endpoint != "" {
-					// 如果Endpoint包含端口（如 "192.168.1.1:22"），只取IP部分
-					if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
-						// 检查是否是IPv6地址
-						if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
-							// IPv6地址处理
-							instanceData["publicIP"] = endpoint
+				// agent+no_port_mapping模式：不显示公网IP
+				if !(providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping") {
+					// 优先使用PortIP，如果为空则使用Endpoint
+					endpoint := providerInfo.PortIP
+					if endpoint == "" {
+						endpoint = providerInfo.Endpoint
+					}
+					if endpoint != "" {
+						// 如果Endpoint包含端口（如 "192.168.1.1:22"），只取IP部分
+						if colonIndex := strings.LastIndex(endpoint, ":"); colonIndex > 0 {
+							// 检查是否是IPv6地址
+							if strings.Count(endpoint, ":") > 1 && !strings.HasPrefix(endpoint, "[") {
+								// IPv6地址处理
+								instanceData["publicIP"] = endpoint
+							} else {
+								// IPv4地址，移除端口部分
+								instanceData["publicIP"] = endpoint[:colonIndex]
+							}
 						} else {
-							// IPv4地址，移除端口部分
-							instanceData["publicIP"] = endpoint[:colonIndex]
+							instanceData["publicIP"] = endpoint
 						}
-					} else {
-						instanceData["publicIP"] = endpoint
 					}
 				}
 				instanceData["providerName"] = providerInfo.Name

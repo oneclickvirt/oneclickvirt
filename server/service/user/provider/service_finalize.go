@@ -103,42 +103,51 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 		// 获取Provider信息以设置公网IP
 		var dbProvider providerModel.Provider
 		if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err == nil {
-			// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
-			// 如果PortIP为空，则使用Endpoint（SSH连接地址）
-			publicIPSource := dbProvider.PortIP
-			if publicIPSource == "" {
-				publicIPSource = dbProvider.Endpoint
-			}
-
-			// 从IP源中提取纯IP地址
-			if publicIPSource != "" {
-				// 移除端口号获取纯IP地址
-				if strings.HasPrefix(publicIPSource, "[") {
-					// 括号IPv6格式: [::1]:port 或 [::1]
-					if host, _, err := net.SplitHostPort(publicIPSource); err == nil {
-						instanceUpdates["public_ip"] = host // ::1
-					} else {
-						// 无端口，直接去掉括号: [::1] → ::1
-						trimmed := strings.TrimPrefix(publicIPSource, "[")
-						trimmed = strings.TrimSuffix(trimmed, "]")
-						instanceUpdates["public_ip"] = trimmed
-					}
-				} else if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
-					if strings.Count(publicIPSource, ":") > 1 {
-						instanceUpdates["public_ip"] = publicIPSource // 纯IPv6格式，无括号无端口
-					} else {
-						instanceUpdates["public_ip"] = publicIPSource[:colonIndex] // IPv4格式，移除端口
-					}
-				} else {
-					instanceUpdates["public_ip"] = publicIPSource
+			// agent录入模式+无端口映射模式：不设置公网IP
+			// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
+			if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
+				// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
+				// 如果PortIP为空，则使用Endpoint（SSH连接地址）
+				publicIPSource := dbProvider.PortIP
+				if publicIPSource == "" {
+					publicIPSource = dbProvider.Endpoint
 				}
 
-				global.APP_LOG.Debug("设置实例公网IP",
+				// 从IP源中提取纯IP地址
+				if publicIPSource != "" {
+					// 移除端口号获取纯IP地址
+					if strings.HasPrefix(publicIPSource, "[") {
+						// 括号IPv6格式: [::1]:port 或 [::1]
+						if host, _, err := net.SplitHostPort(publicIPSource); err == nil {
+							instanceUpdates["public_ip"] = host // ::1
+						} else {
+							// 无端口，直接去掉括号: [::1] → ::1
+							trimmed := strings.TrimPrefix(publicIPSource, "[")
+							trimmed = strings.TrimSuffix(trimmed, "]")
+							instanceUpdates["public_ip"] = trimmed
+						}
+					} else if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
+						if strings.Count(publicIPSource, ":") > 1 {
+							instanceUpdates["public_ip"] = publicIPSource // 纯IPv6格式，无括号无端口
+						} else {
+							instanceUpdates["public_ip"] = publicIPSource[:colonIndex] // IPv4格式，移除端口
+						}
+					} else {
+						instanceUpdates["public_ip"] = publicIPSource
+					}
+
+					global.APP_LOG.Debug("设置实例公网IP",
+						zap.String("instanceName", instance.Name),
+						zap.String("portIP", dbProvider.PortIP),
+						zap.String("endpoint", dbProvider.Endpoint),
+						zap.String("publicIPSource", publicIPSource),
+						zap.Any("publicIP", instanceUpdates["public_ip"]))
+				}
+			} else {
+				global.APP_LOG.Debug("agent+no_port_mapping模式，跳过设置实例公网IP",
 					zap.String("instanceName", instance.Name),
-					zap.String("portIP", dbProvider.PortIP),
-					zap.String("endpoint", dbProvider.Endpoint),
-					zap.String("publicIPSource", publicIPSource),
-					zap.Any("publicIP", instanceUpdates["public_ip"]))
+					zap.String("connectionType", dbProvider.ConnectionType),
+					zap.String("networkType", dbProvider.NetworkType))
 			}
 		}
 

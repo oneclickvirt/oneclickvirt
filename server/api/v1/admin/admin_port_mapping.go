@@ -109,7 +109,7 @@ func GetPortMappingList(c *gin.Context) {
 	// 批量查询Provider（只选择需要的字段）
 	if len(providerIDs) > 0 {
 		var providers []provider.Provider
-		if err := global.APP_DB.Select("id", "name", "port_ip", "endpoint").
+		if err := global.APP_DB.Select("id", "name", "port_ip", "endpoint", "connection_type", "network_type").
 			Where("id IN ?", providerIDs).
 			Find(&providers).Error; err == nil {
 			for _, prov := range providers {
@@ -137,26 +137,41 @@ func GetPortMappingList(c *gin.Context) {
 		// 从预加载的map中获取Provider信息
 		var providerName string
 		var publicIP string
+
+		// 获取Provider信息用于判断是否为agent+no_port_mapping模式
+		providerInfo, hasProvider := providerMap[port.ProviderID]
+		isAgentNoPortMapping := hasProvider && providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping"
+
 		if port.MappingType == "controller" {
 			// 控制端转发模式：使用当前请求的主机名作为公网IP
-			// 因为端口转发运行在控制端，用户连接到的是控制端的IP/域名
-			publicIP = requestHost
-		} else if providerInfo, ok := providerMap[port.ProviderID]; ok {
-			providerName = providerInfo.Name
-			// 优先使用PortIP，如果为空则使用Endpoint
-			ipSource := providerInfo.PortIP
-			if ipSource == "" {
-				ipSource = providerInfo.Endpoint
+			// 但如果节点是agent+no_port_mapping模式，公网IP不显示
+			// 因为该模式下的端口转发是通过控制端内网穿透实现的
+			if isAgentNoPortMapping {
+				publicIP = ""
+			} else {
+				publicIP = requestHost
 			}
-			// 提取纯IP地址，移除端口号
-			publicIP = extractIPFromEndpoint(ipSource)
+		} else if hasProvider {
+			providerName = providerInfo.Name
+			if isAgentNoPortMapping {
+				// agent+no_port_mapping模式：不显示公网IP
+				publicIP = ""
+			} else {
+				// 优先使用PortIP，如果为空则使用Endpoint
+				ipSource := providerInfo.PortIP
+				if ipSource == "" {
+					ipSource = providerInfo.Endpoint
+				}
+				// 提取纯IP地址，移除端口号
+				publicIP = extractIPFromEndpoint(ipSource)
+			}
 		} else {
 			// 兜底：没有Provider信息时也使用请求主机名
 			publicIP = requestHost
 		}
 
 		// 当Provider信息存在时设置providerName
-		if providerInfo, ok := providerMap[port.ProviderID]; ok {
+		if hasProvider {
 			providerName = providerInfo.Name
 		}
 

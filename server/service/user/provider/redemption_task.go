@@ -303,19 +303,23 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 		// 从 Provider 记录获取公网 IP
 		var dbProvider providerModel.Provider
 		if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err == nil {
-			publicIPSource := dbProvider.PortIP
-			if publicIPSource == "" {
-				publicIPSource = dbProvider.Endpoint
-			}
-			if publicIPSource != "" {
-				if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
-					if strings.Count(publicIPSource, ":") > 1 && !strings.HasPrefix(publicIPSource, "[") {
-						instanceUpdates["public_ip"] = publicIPSource
+			// agent录入模式+无端口映射模式：不设置公网IP
+			// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
+			if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
+				publicIPSource := dbProvider.PortIP
+				if publicIPSource == "" {
+					publicIPSource = dbProvider.Endpoint
+				}
+				if publicIPSource != "" {
+					if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
+						if strings.Count(publicIPSource, ":") > 1 && !strings.HasPrefix(publicIPSource, "[") {
+							instanceUpdates["public_ip"] = publicIPSource
+						} else {
+							instanceUpdates["public_ip"] = publicIPSource[:colonIndex]
+						}
 					} else {
-						instanceUpdates["public_ip"] = publicIPSource[:colonIndex]
+						instanceUpdates["public_ip"] = publicIPSource
 					}
-				} else {
-					instanceUpdates["public_ip"] = publicIPSource
 				}
 			}
 		}

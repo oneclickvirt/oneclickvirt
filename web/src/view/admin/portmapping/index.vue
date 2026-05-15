@@ -158,6 +158,20 @@
           </template>
         </el-table-column>
         <el-table-column
+          prop="mappingType"
+          :label="$t('admin.portMapping.mappingMode')"
+          width="150"
+        >
+          <template #default="{ row }">
+            <el-tag
+              :type="row.mappingType === 'controller' ? 'warning' : 'primary'"
+              size="small"
+            >
+              {{ row.mappingType === 'controller' ? $t('admin.portMapping.mappingModeController') : $t('admin.portMapping.mappingModeNode') }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
           prop="instanceName"
           :label="$t('admin.portMapping.instanceName')"
           width="150"

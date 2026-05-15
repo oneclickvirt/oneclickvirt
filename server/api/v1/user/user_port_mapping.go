@@ -7,6 +7,7 @@ import (
 
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/service/admin/instance"
 
 	"github.com/gin-gonic/gin"
@@ -68,8 +69,21 @@ func GetInstancePorts(c *gin.Context) {
 		return
 	}
 
-	// 直接使用实例的PublicIP字段
+	// 获取Provider信息以判断是否为agent+no_port_mapping模式
+	var providerInfo providerModel.Provider
+	agentNoPortMapping := false
+	if err := global.APP_DB.Select("connection_type, network_type").
+		Where("id = ?", instance.ProviderID).First(&providerInfo).Error; err == nil {
+		if providerInfo.ConnectionType == "agent" && providerInfo.NetworkType == "no_port_mapping" {
+			agentNoPortMapping = true
+		}
+	}
+
+	// 直接使用实例的PublicIP字段（agent+no_port_mapping模式下不显示）
 	publicIP := instance.PublicIP
+	if agentNoPortMapping {
+		publicIP = ""
+	}
 
 	// 转换为前端期望的格式
 	formattedPorts := make([]map[string]interface{}, len(ports))
@@ -82,6 +96,7 @@ func GetInstancePorts(c *gin.Context) {
 			"status":      port.Status,
 			"description": port.Description,
 			"isSSH":       port.IsSSH,
+			"mappingType": port.MappingType, // 映射来源：node(节点侧转发) / controller(控制端转发)
 			"createdAt":   port.CreatedAt,
 		}
 	}
