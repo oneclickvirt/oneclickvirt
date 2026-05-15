@@ -44,6 +44,38 @@ func init() {
 // 由 service/admin/provider 包在初始化时注册，用于触发延迟的实例发现与导入。
 var OnAgentConnected func(providerID uint)
 
+// hubStartupTime AgentHub 启动时间，用于计算启动后的重连宽限期
+var hubStartupTime time.Time
+
+// MarkAgentProvidersOfflineOnStartup 在主控启动时将所有 agent 模式 Provider 标记为 offline。
+// 同时记录启动时间，Agent 在 2 分钟宽限期内重连视为正常恢复。
+// 注意：保留 agent_last_seen 不置为 nil，以便 CheckProviderHealth 中的宽限期逻辑生效。
+func MarkAgentProvidersOfflineOnStartup() {
+	hubStartupTime = time.Now()
+
+	if global.APP_DB == nil {
+		return
+	}
+
+	result := global.APP_DB.Model(&providerModel.Provider{}).
+		Where("connection_type = ? AND agent_status = ?", "agent", "online").
+		Updates(map[string]interface{}{
+			"agent_status": "offline",
+		})
+
+	if result.Error != nil {
+		global.APP_LOG.Warn("标记 Agent Provider 离线失败", zap.Error(result.Error))
+	} else if result.RowsAffected > 0 {
+		global.APP_LOG.Info("主控启动：已标记 Agent Provider 为离线，等待重连",
+			zap.Int64("count", result.RowsAffected))
+	}
+}
+
+// IsInStartupGracePeriod 检查当前是否在主控启动后的重连宽限期内（2分钟）
+func IsInStartupGracePeriod() bool {
+	return time.Since(hubStartupTime) < 2*time.Minute
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 消息协议（文本帧 JSON）
 // ──────────────────────────────────────────────────────────────────────────────
@@ -308,6 +340,24 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	global.APP_LOG.Info("Agent 已连接",
 		zap.Uint("providerID", ac.ProviderID),
 		zap.String("remoteAddr", ac.remoteAddr))
+
+	// 记录重连信息：Provider 离线了多久，是否在宽限期内
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("name, agent_connected_at, agent_last_seen").
+		Where("id = ?", ac.ProviderID).First(&provider).Error; err == nil {
+		prevConnected := provider.AgentConnectedAt
+		prevLastSeen := provider.AgentLastSeen
+		if prevLastSeen != nil {
+			offlineDuration := time.Since(*prevLastSeen)
+			if offlineDuration > 30*time.Second {
+				global.APP_LOG.Info("Agent 重连成功（曾离线较长时间）",
+					zap.Uint("providerID", ac.ProviderID),
+					zap.String("name", provider.Name),
+					zap.Duration("offlineDuration", offlineDuration))
+			}
+		}
+		_ = prevConnected
+	}
 
 	// 同步更新数据库状态，确保前端检测立即可见
 	now := time.Now()

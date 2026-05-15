@@ -5,26 +5,39 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"oneclickvirt/middleware"
-	providerPkg "oneclickvirt/provider"
-	"oneclickvirt/service/provider"
-	"oneclickvirt/utils"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"oneclickvirt/global"
+	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	providerPkg "oneclickvirt/provider"
 	adminProvider "oneclickvirt/service/admin/provider"
 	agentService "oneclickvirt/service/agent"
+	"oneclickvirt/service/provider"
+	"oneclickvirt/utils"
 
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
+
+// gpuCacheEntry GPU/NPU 检测缓存条目
+type gpuCacheEntry struct {
+	gpus         []map[string]string
+	npus         []map[string]string
+	accelerators []map[string]string
+	rawInfo      string
+	cachedAt     time.Time
+}
+
+// gpuDetectionCache GPU 检测结果缓存（5分钟有效期）
+var gpuDetectionCache sync.Map
 
 // GetProviderList 获取提供商列表
 func GetProviderList(c *gin.Context) {
@@ -552,7 +565,27 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	execCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	// 检查缓存：GPU 检测结果 5 分钟内有效，避免重复执行耗时命令导致槽位耗尽
+	forceRefresh := c.DefaultQuery("forceRefresh", "false") == "true"
+	if !forceRefresh {
+		if cached, ok := gpuDetectionCache.Load(uint(id)); ok {
+			if entry, ok2 := cached.(gpuCacheEntry); ok2 && time.Since(entry.cachedAt) < 5*time.Minute {
+				global.APP_LOG.Debug("GPU检测：命中缓存",
+					zap.Uint("providerID", uint(id)),
+					zap.Duration("age", time.Since(entry.cachedAt)))
+				common.ResponseSuccess(c, map[string]interface{}{
+					"gpus":         entry.gpus,
+					"npus":         entry.npus,
+					"accelerators": entry.accelerators,
+					"rawInfo":      entry.rawInfo,
+					"cached":       true,
+				}, "GPU/NPU检测完成（缓存）")
+				return
+			}
+		}
+	}
+
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
 	if err != nil {
@@ -578,11 +611,21 @@ func DetectGPUs(c *gin.Context) {
 		}
 	}
 
+	// 写入缓存
+	gpuDetectionCache.Store(uint(id), gpuCacheEntry{
+		gpus:         gpus,
+		npus:         npus,
+		accelerators: accelerators,
+		rawInfo:      strings.TrimSpace(rawInfo),
+		cachedAt:     time.Now(),
+	})
+
 	common.ResponseSuccess(c, map[string]interface{}{
 		"gpus":         gpus,
 		"npus":         npus,
 		"accelerators": accelerators,
 		"rawInfo":      strings.TrimSpace(rawInfo),
+		"cached":       false,
 	}, "GPU/NPU检测完成")
 }
 

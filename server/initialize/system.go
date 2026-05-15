@@ -393,6 +393,9 @@ func initializeSchedulers() {
 
 	global.APP_LOG.Info("所有调度器和全局服务已启动并注册到生命周期管理器")
 
+	// 主控启动：将所有 agent 模式 Provider 标记为 offline，等待 Agent 重连
+	agentSvc.MarkAgentProvidersOfflineOnStartup()
+
 	// 启动 AgentHub ping 循环（保持 WebSocket 连接存活）
 	agentSvc.GetHub().StartPingLoop()
 

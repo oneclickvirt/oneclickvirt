@@ -26,7 +26,8 @@ type AgentShellExecutor struct {
 }
 
 // 每个 Provider 最大并发 Agent 命令数（WebSocket 通道复用）
-const maxConcurrentAgentCommands = 2
+// 增加到 5 以避免 GPU 检测、流量同步、资源采集等并发操作时的槽位耗尽
+const maxConcurrentAgentCommands = 5
 
 // NewAgentShellExecutor creates an AgentShellExecutor for the given provider.
 func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
