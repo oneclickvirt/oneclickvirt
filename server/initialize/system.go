@@ -345,6 +345,11 @@ func initializeSchedulers() {
 	instanceSyncSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
 	lifecycleMgr.Register("InstanceSyncScheduler", instanceSyncSchedulerService)
 
+	// 启动控制端端口转发健康检查调度器（使用全局shutdown context确保可以正确关闭）
+	controllerPortHealthSchedulerService := scheduler.NewControllerPortHealthSchedulerService()
+	controllerPortHealthSchedulerService.Start(global.APP_SHUTDOWN_CONTEXT)
+	lifecycleMgr.Register("ControllerPortHealthScheduler", controllerPortHealthSchedulerService)
+
 	// 注册pmacct批处理器
 	pmacctBatchProcessor := pmacct.GetBatchProcessor()
 	lifecycleMgr.Register("PmacctBatchProcessor", pmacctBatchProcessor)
@@ -390,6 +395,10 @@ func initializeSchedulers() {
 
 	// 启动 AgentHub ping 循环（保持 WebSocket 连接存活）
 	agentSvc.GetHub().StartPingLoop()
+
+	// 延迟恢复控制端端口转发（内网穿透）
+	// 主控重启后需要等待 Agent 重新连接，多次尝试恢复直到成功
+	go recoverControllerPortForwardsWithRetry()
 }
 
 // InitializePostSystemInit 系统初始化完成后的完整初始化
@@ -430,4 +439,37 @@ func SetSystemInitCallback() {
 		global.APP_LOG.Info("执行系统初始化完成后的完整初始化")
 		InitializePostSystemInit()
 	}
+}
+
+// recoverControllerPortForwardsWithRetry 延迟并多次尝试恢复控制端端口转发。
+// 主控重启后 Agent 需要时间重新连接，此函数会多次重试直到所有活跃端口转发恢复成功。
+func recoverControllerPortForwardsWithRetry() {
+	// 初始延迟 30 秒，给 Agent 足够时间连接
+	initialDelay := 30 * time.Second
+	global.APP_LOG.Info("控制端端口转发恢复将在 30 秒后开始",
+		zap.Duration("delay", initialDelay))
+
+	select {
+	case <-time.After(initialDelay):
+	case <-global.APP_SHUTDOWN_CONTEXT.Done():
+		return
+	}
+
+	// 首次尝试
+	agentSvc.RecoverAllControllerPortForwards()
+
+	// 后续重试：每分钟一次，共重试 5 次（总计约 5.5 分钟覆盖窗口）
+	retryIntervals := []time.Duration{60 * time.Second, 60 * time.Second, 120 * time.Second, 120 * time.Second, 180 * time.Second}
+	for i, interval := range retryIntervals {
+		select {
+		case <-time.After(interval):
+			global.APP_LOG.Debug("重试恢复控制端端口转发",
+				zap.Int("attempt", i+1))
+			agentSvc.RecoverAllControllerPortForwards()
+		case <-global.APP_SHUTDOWN_CONTEXT.Done():
+			return
+		}
+	}
+
+	global.APP_LOG.Info("控制端端口转发恢复重试完成")
 }

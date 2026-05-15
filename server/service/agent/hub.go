@@ -297,6 +297,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	h.conns[ac.ProviderID] = ac
 	h.mu.Unlock()
 
+	// 清理旧的 TunnelManager，确保后续端口转发使用新的 AgentConn
+	RemoveTunnelManager(ac.ProviderID)
+
 	global.APP_LOG.Info("Agent 已连接",
 		zap.Uint("providerID", ac.ProviderID),
 		zap.String("remoteAddr", ac.remoteAddr))
@@ -310,6 +313,13 @@ func (h *AgentHub) Register(ac *AgentConn) {
 
 	// 启动读取循环（异步，包含后续心跳和 info 帧处理）
 	go h.readLoop(ac)
+
+	// Agent 重连后恢复该 Provider 的控制端端口转发（内网穿透）
+	// 延迟执行，确保 WebSocket 连接已稳定
+	go func() {
+		time.Sleep(3 * time.Second)
+		RecoverControllerPortForwardsByProvider(ac.ProviderID)
+	}()
 }
 
 // GetConn 返回指定 Provider 的 AgentConn（如果在线）。
@@ -325,6 +335,9 @@ func (h *AgentHub) unregister(providerID uint) {
 	h.mu.Lock()
 	delete(h.conns, providerID)
 	h.mu.Unlock()
+
+	// 清理该 Provider 的 TunnelManager，释放资源
+	RemoveTunnelManager(providerID)
 
 	global.APP_LOG.Info("Agent 已断开", zap.Uint("providerID", providerID))
 	h.updateProviderAgentStatus(providerID, "offline", nil, "", "")

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 
 	"go.uber.org/zap"
 )
@@ -363,4 +364,180 @@ func StopControllerPortForward(portID uint) {
 		close(cl.stopCh)
 		delete(ctrlListeners, portID)
 	}
+}
+
+// RestartControllerPortForward 重启指定 Port 的控制端监听（先停后启）。
+// 用于 Agent 重连后刷新 TunnelManager 引用。
+func RestartControllerPortForward(portID uint, providerID uint, listenPort int, targetHost string, targetPort int) error {
+	// 先停止旧监听器
+	StopControllerPortForward(portID)
+
+	// 清理旧的 TunnelManager，确保 GetOrCreateTunnelManager 创建新的
+	RemoveTunnelManager(providerID)
+
+	// 启动新监听器
+	return StartControllerPortForward(portID, providerID, listenPort, targetHost, targetPort)
+}
+
+// RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
+// 在 Agent 重连时调用，确保端口转发使用新的 WebSocket 连接。
+func RecoverControllerPortForwardsByProvider(providerID uint) {
+	var ports []providerModel.Port
+	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
+		providerID, "controller", "active").Find(&ports).Error; err != nil {
+		global.APP_LOG.Error("查询待恢复的控制器端口转发失败",
+			zap.Uint("providerID", providerID), zap.Error(err))
+		return
+	}
+
+	if len(ports) == 0 {
+		return
+	}
+
+	global.APP_LOG.Info("开始恢复控制器端口转发",
+		zap.Uint("providerID", providerID),
+		zap.Int("count", len(ports)))
+
+	recovered := 0
+	for _, port := range ports {
+		targetHost := port.InternalHost
+		if targetHost == "" {
+			// 尝试从实例获取私有IP
+			var instance providerModel.Instance
+			if err := global.APP_DB.Select("private_ip").
+				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+				targetHost = instance.PrivateIP
+			}
+		}
+		if targetHost == "" {
+			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
+				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
+			continue
+		}
+
+		if err := RestartControllerPortForward(port.ID, port.ProviderID,
+			port.HostPort, targetHost, port.GuestPort); err != nil {
+			global.APP_LOG.Warn("恢复控制器端口转发失败",
+				zap.Uint("portID", port.ID), zap.Error(err))
+		} else {
+			recovered++
+		}
+	}
+
+	global.APP_LOG.Info("控制器端口转发恢复完成",
+		zap.Uint("providerID", providerID),
+		zap.Int("recovered", recovered),
+		zap.Int("total", len(ports)))
+}
+
+// RecoverAllControllerPortForwards 恢复所有活跃的控制端端口转发。
+// 在控制端启动时调用，尝试恢复所有之前活跃的控制器端口转发。
+// 对于 Agent 尚未上线的 Provider，监听器会等待 Agent 连接后生效。
+func RecoverAllControllerPortForwards() {
+	var ports []providerModel.Port
+	if err := global.APP_DB.Where("mapping_type = ? AND status = ?",
+		"controller", "active").Find(&ports).Error; err != nil {
+		global.APP_LOG.Error("查询所有待恢复的控制器端口转发失败", zap.Error(err))
+		return
+	}
+
+	if len(ports) == 0 {
+		global.APP_LOG.Debug("没有需要恢复的控制器端口转发")
+		return
+	}
+
+	global.APP_LOG.Info("开始恢复所有控制器端口转发", zap.Int("count", len(ports)))
+
+	recovered := 0
+	skipped := 0
+	for _, port := range ports {
+		targetHost := port.InternalHost
+		if targetHost == "" {
+			var instance providerModel.Instance
+			if err := global.APP_DB.Select("private_ip").
+				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+				targetHost = instance.PrivateIP
+			}
+		}
+		if targetHost == "" {
+			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
+				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
+			skipped++
+			continue
+		}
+
+		if err := StartControllerPortForward(port.ID, port.ProviderID,
+			port.HostPort, targetHost, port.GuestPort); err != nil {
+			global.APP_LOG.Debug("启动控制器端口转发失败（Agent可能尚未上线）",
+				zap.Uint("portID", port.ID), zap.Uint("providerID", port.ProviderID), zap.Error(err))
+			skipped++
+		} else {
+			recovered++
+		}
+	}
+
+	global.APP_LOG.Info("所有控制器端口转发恢复完成",
+		zap.Int("recovered", recovered),
+		zap.Int("skipped", skipped),
+		zap.Int("total", len(ports)))
+}
+
+// CheckAndRepairControllerPortForwards 定期检查并修复控制器端口转发。
+// 发现已标记为 active 但未监听中的端口映射，自动恢复。
+// 返回 (total, repaired)。
+func CheckAndRepairControllerPortForwards() (int, int) {
+	var ports []providerModel.Port
+	if err := global.APP_DB.Where("mapping_type = ? AND status = ?",
+		"controller", "active").Find(&ports).Error; err != nil {
+		global.APP_LOG.Error("查询控制器端口转发失败", zap.Error(err))
+		return 0, 0
+	}
+
+	repaired := 0
+	for _, port := range ports {
+		ctrlListenerMu.RLock()
+		_, running := ctrlListeners[port.ID]
+		ctrlListenerMu.RUnlock()
+
+		if running {
+			continue // 已在运行，跳过
+		}
+
+		// 监听器未运行，尝试恢复
+		targetHost := port.InternalHost
+		if targetHost == "" {
+			var instance providerModel.Instance
+			if err := global.APP_DB.Select("private_ip").
+				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+				targetHost = instance.PrivateIP
+			}
+		}
+		if targetHost == "" {
+			global.APP_LOG.Warn("控制器端口转发修复失败：无目标地址",
+				zap.Uint("portID", port.ID))
+			continue
+		}
+
+		if err := StartControllerPortForward(port.ID, port.ProviderID,
+			port.HostPort, targetHost, port.GuestPort); err != nil {
+			global.APP_LOG.Debug("修复控制器端口转发失败",
+				zap.Uint("portID", port.ID), zap.Error(err))
+		} else {
+			repaired++
+			global.APP_LOG.Info("已修复控制器端口转发",
+				zap.Uint("portID", port.ID),
+				zap.Int("hostPort", port.HostPort),
+				zap.Uint("providerID", port.ProviderID))
+		}
+	}
+
+	return len(ports), repaired
+}
+
+// IsControllerPortForwardRunning 检查指定端口映射的控制端监听是否在运行。
+func IsControllerPortForwardRunning(portID uint) bool {
+	ctrlListenerMu.RLock()
+	defer ctrlListenerMu.RUnlock()
+	_, ok := ctrlListeners[portID]
+	return ok
 }
