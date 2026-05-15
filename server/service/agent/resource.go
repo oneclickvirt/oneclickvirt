@@ -35,7 +35,7 @@ func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *mon
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
 	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping.
-	endpoint := resolveAgentHost(p.Endpoint, p.AgentRemoteIP)
+	endpoint := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if endpoint == "" {
 		return fmt.Errorf("no endpoint for provider %d", providerID)
 	}

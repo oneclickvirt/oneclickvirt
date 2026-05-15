@@ -451,6 +451,7 @@
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyToClipboard } from '@/utils/clipboard'
 import {
   getRedemptionCodes,
   batchCreateRedemptionCodes,
@@ -940,25 +941,7 @@ const doExport = async () => {
 
 const copyExportedCodes = async () => {
   if (!exportedCodesText.value) return
-  try {
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(exportedCodesText.value)
-    } else {
-      const ta = document.createElement('textarea')
-      ta.value = exportedCodesText.value
-      ta.style.position = 'fixed'
-      ta.style.left = '-999999px'
-      document.body.appendChild(ta)
-      ta.focus()
-      ta.select()
-      // eslint-disable-next-line @typescript-eslint/no-deprecated
-      document.execCommand('copy')
-      document.body.removeChild(ta)
-    }
-    ElMessage.success(t('admin.redemptionCodes.copiedToClipboard'))
-  } catch (_) {
-    ElMessage.error(t('common.copyFailed'))
-  }
+  await copyToClipboard(exportedCodesText.value, t('admin.redemptionCodes.copiedToClipboard'))
 }
 
 // ── 删除 ────────────────────────────────────────────────────

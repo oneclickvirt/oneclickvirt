@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import { performInstanceAction, resetInstancePassword, getFilteredImages } from '@/api/user'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -265,37 +266,8 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     return `${truncatedIP}:${port}`
   }
 
-  const copyToClipboard = async (text) => {
-    if (!text) {
-      ElMessage.warning(t('user.instanceDetail.nothingToCopy'))
-      return
-    }
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(text)
-        ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
-        return
-      }
-      const textArea = document.createElement('textarea')
-      textArea.value = text
-      textArea.style.position = 'fixed'
-      textArea.style.left = '-999999px'
-      textArea.style.top = '-999999px'
-      document.body.appendChild(textArea)
-      textArea.focus()
-      textArea.select()
-      try {
-        // eslint-disable-next-line no-unused-expressions
-        document.execCommand('copy')
-          ? ElMessage.success(t('user.instanceDetail.copiedToClipboard'))
-          : (() => { throw new Error('execCommand failed') })()
-      } finally {
-        document.body.removeChild(textArea)
-      }
-    } catch (error) {
-      console.error('复制失败:', error)
-      ElMessage.error(t('user.profile.copyFailed'))
-    }
+  const doCopyToClipboard = async (text) => {
+    await copyToClipboardUtil(text, t('user.instanceDetail.copiedToClipboard'))
   }
 
   return {
@@ -316,6 +288,6 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     truncateIP,
     formatSSHCommand,
     formatIPPort,
-    copyToClipboard
+    copyToClipboard: doCopyToClipboard
   }
 }

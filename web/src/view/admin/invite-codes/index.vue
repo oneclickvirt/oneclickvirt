@@ -365,6 +365,7 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { copyToClipboard } from '@/utils/clipboard'
 import { getInviteCodes, createInviteCode, generateInviteCodes, deleteInviteCode, batchDeleteInviteCodes, exportInviteCodes } from '@/api/admin'
 
 const { t } = useI18n()
@@ -513,40 +514,7 @@ const copyExportedCodes = async () => {
     ElMessage.warning(t('admin.inviteCodes.nothingToCopy'))
     return
   }
-  
-  try {
-    // 优先使用 Clipboard API
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(exportedCodes.value)
-      ElMessage.success(t('admin.inviteCodes.copiedToClipboard'))
-      return
-    }
-    
-    // 降级方案：使用传统的 document.execCommand
-    const textArea = document.createElement('textarea')
-    textArea.value = exportedCodes.value
-    textArea.style.position = 'fixed'
-    textArea.style.left = '-999999px'
-    textArea.style.top = '-999999px'
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    
-    try {
-      // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
-      const successful = document.execCommand('copy')
-      if (successful) {
-        ElMessage.success(t('admin.inviteCodes.copiedToClipboard'))
-      } else {
-        throw new Error('execCommand failed')
-      }
-    } finally {
-      document.body.removeChild(textArea)
-    }
-  } catch (error) {
-    console.error('复制失败:', error)
-    ElMessage.error(t('admin.inviteCodes.copyFailed'))
-  }
+  await copyToClipboard(exportedCodes.value, t('admin.inviteCodes.copiedToClipboard'))
 }
 
 const cancelCreate = () => {

@@ -74,7 +74,7 @@
                     </el-button>
                   </div>
                 </el-descriptions-item>
-                <el-descriptions-item :label="$t('admin.providers.agentTestUrl')">
+                <el-descriptions-item v-if="!isAgentProvider" :label="$t('admin.providers.agentTestUrl')">
                   <div>
                     <div style="display: flex; align-items: center; gap: 8px;">
                       <el-input

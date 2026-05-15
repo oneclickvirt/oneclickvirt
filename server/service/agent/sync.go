@@ -59,7 +59,7 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	// Get agent client
 	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping,
 	// NOT the machine where the agent is installed.
-	host := resolveAgentHost(p.Endpoint, p.AgentRemoteIP)
+	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		return fmt.Errorf("provider %d has no endpoint", providerID)
 	}

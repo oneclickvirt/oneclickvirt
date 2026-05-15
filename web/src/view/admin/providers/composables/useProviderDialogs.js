@@ -1,6 +1,7 @@
 // 自动配置对话框 + 流量监控对话框状态与逻辑
 import { reactive } from 'vue'
 import { ElMessage } from 'element-plus'
+import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import {
   autoConfigureProvider,
   getConfigurationTaskDetail,
@@ -70,36 +71,7 @@ export function useProviderDialogs(loadProviders) {
 
   const copyTaskLog = async () => {
     const logOutput = taskLogDialog.task?.logOutput
-    if (!logOutput) {
-      ElMessage.warning(t('admin.providers.noLogToCopy'))
-      return
-    }
-    try {
-      if (navigator.clipboard && window.isSecureContext) {
-        await navigator.clipboard.writeText(logOutput)
-        ElMessage.success(t('admin.providers.logCopied'))
-        return
-      }
-      const textArea = document.createElement('textarea')
-      textArea.value = logOutput
-      textArea.style.position = 'fixed'
-      textArea.style.left = '-999999px'
-      textArea.style.top = '-999999px'
-      document.body.appendChild(textArea)
-      textArea.focus()
-      textArea.select()
-      try {
-        // eslint-disable-next-line no-unused-expressions
-        document.execCommand('copy')
-          ? ElMessage.success(t('admin.providers.logCopied'))
-          : (() => { throw new Error('execCommand failed') })()
-      } finally {
-        document.body.removeChild(textArea)
-      }
-    } catch (error) {
-      console.error('复制失败:', error)
-      ElMessage.error(t('admin.providers.copyFailed'))
-    }
+    await copyToClipboardUtil(logOutput, t('admin.providers.logCopied'))
   }
 
   const autoConfigureAPI = async (provider) => {

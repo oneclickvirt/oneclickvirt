@@ -1,6 +1,7 @@
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyToClipboard } from '@/utils/clipboard'
 import {
   getMonitoringConfig,
   updateMonitoringConfig,
@@ -62,6 +63,8 @@ export function useMonitoringManagement(props, emit) {
   })
 
   const agentSwaggerUrl = computed(() => {
+    // Agent-mode providers connect via WebSocket tunnel, the agent HTTP port is not directly reachable
+    if (isAgentProvider.value) return ''
     if (!props.provider) return ''
     const host = props.provider.portIp || props.provider.endpoint || ''
     const cleanHost = host.includes(':') && !host.startsWith('[') ? host.split(':')[0] : host
@@ -141,13 +144,11 @@ export function useMonitoringManagement(props, emit) {
   }
 
   const handleCopyToken = async () => {
-    try { await navigator.clipboard.writeText(config.agent_token); ElMessage.success(t('admin.providers.tokenCopied')) }
-    catch { ElMessage.error(t('common.copyFailed')) }
+    await copyToClipboard(config.agent_token, t('admin.providers.tokenCopied'))
   }
 
   const handleCopyUrl = async (url) => {
-    try { await navigator.clipboard.writeText(url); ElMessage.success(t('admin.providers.urlCopied')) }
-    catch { ElMessage.error(t('common.copyFailed')) }
+    await copyToClipboard(url, t('admin.providers.urlCopied'))
   }
 
   const handleDeployAgent = async () => {

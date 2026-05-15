@@ -1,5 +1,6 @@
 import { ref, reactive } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyToClipboard } from '@/utils/clipboard'
 import { useI18n } from 'vue-i18n'
 import { 
   getUserList, 

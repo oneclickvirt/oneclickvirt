@@ -345,8 +345,8 @@
 
 <script setup>
 import { ref, computed } from 'vue'
-import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import { Connection, WarningFilled, CircleCheck, InfoFilled } from '@element-plus/icons-vue'
 
 const { t } = useI18n()
@@ -415,31 +415,7 @@ const emit = defineEmits([
 ])
 
 const copyCmd = async (cmd) => {
-  if (!cmd) return
-  // Try modern clipboard API first
-  if (navigator.clipboard && window.isSecureContext) {
-    try {
-      await navigator.clipboard.writeText(cmd)
-      ElMessage.success(t('common.copySuccess'))
-      return
-    } catch { /* fall through */ }
-  }
-  // Fallback: legacy textarea method
-  try {
-    const ta = document.createElement('textarea')
-    ta.value = cmd
-    ta.style.position = 'fixed'
-    ta.style.left = '-9999px'
-    ta.style.top = '-9999px'
-    document.body.appendChild(ta)
-    ta.focus()
-    ta.select()
-    document.execCommand('copy')
-    document.body.removeChild(ta)
-    ElMessage.success(t('common.copySuccess'))
-  } catch {
-    ElMessage.error(t('common.copyFailed'))
-  }
+  await copyToClipboardUtil(cmd, t('common.copySuccess'))
 }
 </script>
 

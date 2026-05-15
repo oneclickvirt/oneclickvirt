@@ -143,6 +143,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
+import { copyToClipboard } from '@/utils/clipboard'
 import {
   Document, Refresh, CopyDocument, Folder, Loading, InfoFilled,
   DocumentDelete, Search
@@ -293,12 +294,7 @@ const loadLog = async () => {
 // 复制日志内容
 const copyContent = async () => {
   if (!logContent.value) return
-  try {
-    await navigator.clipboard.writeText(logContent.value)
-    ElMessage.success(t('admin.logs.copySuccess'))
-  } catch (e) {
-    ElMessage.error(t('admin.logs.copyFailed'))
-  }
+  await copyToClipboard(logContent.value, t('admin.logs.copySuccess'))
 }
 
 onMounted(async () => {

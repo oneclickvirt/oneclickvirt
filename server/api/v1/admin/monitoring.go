@@ -3,7 +3,6 @@ package admin
 import (
 	"context"
 	"strconv"
-	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -511,21 +510,22 @@ func ListAgentMonitors(c *gin.Context) {
 		return
 	}
 
-	// Get provider to construct client
-	var p providerModel.Provider
-	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
+	// Get provider to construct client - need endpoint AND agent_remote_ip for agent-mode fallback
+	var p struct {
+		Endpoint      string
+		AgentRemoteIP string
+	}
+	if err := global.APP_DB.Raw(
+		"SELECT endpoint, agent_remote_ip FROM providers WHERE id = ?", providerID,
+	).Scan(&p).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
 		return
 	}
 
-	host := p.Endpoint
+	host := agentService.ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
-		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider无Endpoint"))
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "Provider无可达地址"))
 		return
-	}
-	// Strip SSH port suffix from endpoint (e.g. "192.168.1.1:22" -> "192.168.1.1")
-	if idx := strings.LastIndex(host, ":"); idx > 0 {
-		host = host[:idx]
 	}
 
 	port := config.AgentPort
@@ -712,22 +712,26 @@ func ClearProviderMonitors(c *gin.Context) {
 
 	// Try to clean up agent-side monitors
 	if config.AgentInstalled {
-		var p providerModel.Provider
-		if err := global.APP_DB.First(&p, providerID).Error; err == nil && p.Endpoint != "" {
-			host := p.Endpoint
-			if idx := strings.LastIndex(host, ":"); idx > 0 {
-				host = host[:idx]
-			}
-			port := config.AgentPort
-			if port == 0 {
-				port = 23782
-			}
-			client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
-			// Call cleanup with empty max_update_time to remove all monitors
-			if _, cleanupErr := client.Cleanup(""); cleanupErr != nil {
-				global.APP_LOG.Warn("agent cleanup failed, proceeding with local cleanup",
-					zap.Uint64("provider_id", providerID),
-					zap.Error(cleanupErr))
+		var p struct {
+			Endpoint      string
+			AgentRemoteIP string
+		}
+		if err := global.APP_DB.Raw(
+			"SELECT endpoint, agent_remote_ip FROM providers WHERE id = ?", providerID,
+		).Scan(&p).Error; err == nil {
+			host := agentService.ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
+			if host != "" {
+				port := config.AgentPort
+				if port == 0 {
+					port = 23782
+				}
+				client := agentService.GetClient(uint(providerID), host, port, config.AgentToken)
+				// Call cleanup with empty max_update_time to remove all monitors
+				if _, cleanupErr := client.Cleanup("0s"); cleanupErr != nil {
+					global.APP_LOG.Warn("agent cleanup failed, proceeding with local cleanup",
+						zap.Uint64("provider_id", providerID),
+						zap.Error(cleanupErr))
+				}
 			}
 		}
 	}

@@ -32,7 +32,7 @@ func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel
 	if err := s.db.First(&p, providerID).Error; err != nil {
 		return nil, fmt.Errorf("load provider %d: %w", providerID, err)
 	}
-	host := resolveAgentHost(p.Endpoint, p.AgentRemoteIP)
+	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
 		return nil, fmt.Errorf("provider %d has no endpoint", providerID)
 	}

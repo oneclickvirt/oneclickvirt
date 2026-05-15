@@ -217,6 +217,7 @@
 import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import { useUserStore } from '@/pinia/modules/user'
 import { updateProfile as updateProfileApi, resetPassword } from '@/api/user'
 
@@ -359,44 +360,7 @@ const resetUserPassword = async () => {
 
 // 复制密码到剪贴板
 const copyPassword = async () => {
-  if (!generatedPassword.value) {
-    ElMessage.warning(t('user.profile.noPasswordToCopy'))
-    return
-  }
-  
-  try {
-    // 优先使用 Clipboard API
-    if (navigator.clipboard && window.isSecureContext) {
-      await navigator.clipboard.writeText(generatedPassword.value)
-      ElMessage.success(t('user.profile.passwordCopied'))
-      return
-    }
-    
-    // 降级方案：使用传统的 document.execCommand
-    const textArea = document.createElement('textarea')
-    textArea.value = generatedPassword.value
-    textArea.style.position = 'fixed'
-    textArea.style.left = '-999999px'
-    textArea.style.top = '-999999px'
-    document.body.appendChild(textArea)
-    textArea.focus()
-    textArea.select()
-    
-    try {
-      // @ts-ignore - execCommand 已废弃但作为降级方案仍需使用
-      const successful = document.execCommand('copy')
-      if (successful) {
-        ElMessage.success(t('user.profile.passwordCopied'))
-      } else {
-        throw new Error('execCommand failed')
-      }
-    } finally {
-      document.body.removeChild(textArea)
-    }
-  } catch (error) {
-    console.error('复制失败:', error)
-    ElMessage.error(t('user.profile.copyFailed'))
-  }
+  await copyToClipboardUtil(generatedPassword.value, t('user.profile.passwordCopied'))
 }
 
 // 关闭密码对话框
