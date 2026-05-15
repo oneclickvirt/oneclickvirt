@@ -10,6 +10,7 @@ import (
 	"oneclickvirt/global"
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
+	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
 )
@@ -340,7 +341,7 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 
 	// 根据系统类型选择脚本
 	var scriptName string
-	// 检测系统类型
+	// 检测系统类型（轻量级命令，直接执行即可）
 	output, err := l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- cat /etc/os-release 2>/dev/null | grep ^ID= | cut -d= -f2 | tr -d '\"'", config.Name))
 	if err == nil {
 		osType := strings.TrimSpace(strings.ToLower(output))
@@ -362,34 +363,39 @@ func (l *LXDProvider) configureInstanceSSHPassword(ctx context.Context, config p
 		// 即使脚本不存在，也要设置密码
 	} else {
 		time.Sleep(3 * time.Second)
-		// 复制脚本到实例
+		// 复制脚本到实例（宿主机文件操作，直接执行即可）
 		copyCmd := fmt.Sprintf("lxc file push %s %s/root/", scriptPath, config.Name)
 		_, err = l.sshClient.Execute(copyCmd)
 		if err != nil {
 			global.APP_LOG.Warn("复制SSH脚本到实例失败，仅设置密码", zap.Error(err))
 		} else {
-			// 设置脚本权限
-			_, err = l.sshClient.Execute(fmt.Sprintf("lxc exec %s -- chmod +x /root/%s", config.Name, scriptName))
-			if err != nil {
-				global.APP_LOG.Warn("设置脚本权限失败", zap.Error(err))
-			} else {
-				// 执行脚本配置SSH和密码
-				execCmd := fmt.Sprintf("lxc exec %s -- /root/%s %s", config.Name, scriptName, password)
-				_, err = l.sshClient.Execute(execCmd)
-				if err != nil {
-					global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
-						zap.String("instanceName", config.Name),
-						zap.String("scriptName", scriptName),
-						zap.Error(err))
-				}
-				time.Sleep(3 * time.Second)
+			// 设置脚本权限并执行 - 使用临时脚本方式以确保 agent 模式下稳定执行
+			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
+				PrimaryCmd: fmt.Sprintf(
+					"lxc exec %s -- chmod +x /root/%s && lxc exec %s -- /root/%s %s",
+					config.Name, scriptName, config.Name, scriptName, password,
+				),
+				TimeoutSeconds: 60,
+				SuccessMarker:  "PASSWORD_OK",
+			})
+			_, scriptErr := l.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
+			if scriptErr != nil {
+				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
+					zap.String("instanceName", config.Name),
+					zap.String("scriptName", scriptName),
+					zap.Error(scriptErr))
 			}
+			time.Sleep(3 * time.Second)
 		}
 	}
 
-	// 直接使用lxc exec设置密码
-	directPasswordCmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", config.Name, password)
-	_, err = l.sshClient.Execute(directPasswordCmd)
+	// 使用临时脚本直接设置密码（含超时回退），确保 agent 模式下不因 WebSocket 超时失败
+	directPasswordScript := utils.BuildTempScript(utils.TempScriptConfig{
+		PrimaryCmd:     fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", config.Name, password),
+		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | lxc exec %s -- chpasswd", password, config.Name),
+		TimeoutSeconds: 30,
+	})
+	_, err = l.sshClient.ExecuteViaTempScript(directPasswordScript, nil, 120*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置实例密码失败",
 			zap.String("instanceName", config.Name),

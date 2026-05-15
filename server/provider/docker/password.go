@@ -223,8 +223,13 @@ func (d *DockerProvider) sshSetInstancePassword(ctx context.Context, instanceID,
 		}
 
 		// 执行SSH配置脚本（失败不阻塞后续密码设置）
-		executeScriptCmd := fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /%s %s'", d.runtime.CLI, instanceID, shellType, shellType, scriptName, password)
-		scriptOutput, scriptErr := d.sshClient.Execute(executeScriptCmd)
+		// 使用临时脚本方式执行，避免 agent 模式下 WebSocket 超时
+		sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
+			PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /%s %s'",
+				d.runtime.CLI, instanceID, shellType, shellType, scriptName, password),
+			TimeoutSeconds: 60,
+		})
+		scriptOutput, scriptErr := d.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
 		if scriptErr != nil {
 			global.APP_LOG.Warn("执行SSH配置脚本失败，将直接用chpasswd设置密码",
 				zap.String("instanceID", instanceID),

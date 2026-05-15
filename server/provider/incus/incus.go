@@ -166,9 +166,12 @@ func (i *IncusProvider) ConnectAgent(executor utils.ShellExecutor, config provid
 	i.connected = true
 	i.healthChecker = nil
 
-	if err := i.getIncusVersion(); err != nil {
-		global.APP_LOG.Warn("Agent模式下Incus版本获取失败", zap.Error(err))
-	}
+	// Agent 模式下版本获取改为异步，避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	go func() {
+		if err := i.getIncusVersion(); err != nil {
+			global.APP_LOG.Warn("Agent模式下Incus版本获取失败", zap.Error(err))
+		}
+	}()
 
 	global.APP_LOG.Info("Incus provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),

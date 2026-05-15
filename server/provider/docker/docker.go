@@ -161,13 +161,15 @@ func (d *DockerProvider) ConnectAgent(executor utils.ShellExecutor, config provi
 	// Agent 模式不使用 SSH 健康检查器；健康状态由 AgentHub 管理。
 	d.healthChecker = nil
 
-	// 尝试获取版本（Agent 在线时应成功；失败时仅警告，不中止加载）
-	if err := d.getDockerVersion(); err != nil {
-		global.APP_LOG.Warn("Agent模式下容器运行时版本获取失败",
-			zap.String("cli", d.runtime.CLI),
-			zap.String("name", config.Name),
-			zap.Error(err))
-	}
+	// Agent 模式下版本获取改为异步，避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	go func() {
+		if err := d.getDockerVersion(); err != nil {
+			global.APP_LOG.Warn("Agent模式下容器运行时版本获取失败",
+				zap.String("cli", d.runtime.CLI),
+				zap.String("name", config.Name),
+				zap.Error(err))
+		}
+	}()
 
 	global.APP_LOG.Info("Container provider (Agent模式) 加载完成",
 		zap.String("type", d.runtime.ProviderType),

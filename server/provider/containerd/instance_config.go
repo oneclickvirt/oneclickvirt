@@ -119,9 +119,16 @@ func (c *ContainerdProvider) setContainerPasswordWithRetry(containerName, passwo
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		for _, shell := range shells {
-			cmd := fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
-				cliName, containerName, shell, password)
-			_, err := c.sshClient.Execute(cmd)
+			// 使用临时脚本方式执行 nerdctl exec 进入容器设置密码，
+			// 以避免 agent 模式下 WebSocket 连接超时或中断
+			script := utils.BuildTempScript(utils.TempScriptConfig{
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
+					cliName, containerName, shell, password),
+				FallbackCmd: fmt.Sprintf("%s exec -i %s %s -c 'chpasswd' <<< 'root:%s'",
+					cliName, containerName, shell, password),
+				TimeoutSeconds: 30,
+			})
+			_, err := c.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
 			if err == nil {
 				return nil
 			}
@@ -161,9 +168,13 @@ func (c *ContainerdProvider) configureInstanceSSHPassword(ctx context.Context, c
 		_, copyErr := c.sshClient.Execute(copyCmd)
 		if copyErr == nil {
 			c.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c 'chmod +x /root/%s'", cliName, config.Name, shellType, scriptName))
-			execCmd := fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
-				cliName, config.Name, shellType, shellType, scriptName, password)
-			_, execErr := c.sshClient.Execute(execCmd)
+			// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
+			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
+					cliName, config.Name, shellType, shellType, scriptName, password),
+				TimeoutSeconds: 60,
+			})
+			_, execErr := c.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
 			if execErr != nil {
 				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
 					zap.String("instanceName", config.Name),

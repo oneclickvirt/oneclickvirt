@@ -263,16 +263,28 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 
 	p.initBridgeNames(config)
 
-	if err := p.getNodeName(context.Background()); err != nil {
-		p.node = config.HostName
-		if p.node == "" {
-			p.node = "pve"
-		}
+	// 使用配置中的 HostName 作为节点名默认值，避免阻塞
+	p.node = config.HostName
+	if p.node == "" {
+		p.node = "pve"
 	}
 
-	if err := p.getProxmoxVersion(); err != nil {
-		global.APP_LOG.Warn("Agent模式下Proxmox版本获取失败", zap.Error(err))
-	}
+	// Agent 模式下 getNodeName 和 getProxmoxVersion 改为异步，
+	// 避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	go func() {
+		if err := p.getNodeName(context.Background()); err != nil {
+			global.APP_LOG.Warn("Agent模式下Proxmox节点名获取失败", zap.Error(err))
+		} else {
+			global.APP_LOG.Debug("Agent模式下Proxmox节点名获取成功",
+				zap.String("node", p.node))
+		}
+	}()
+
+	go func() {
+		if err := p.getProxmoxVersion(); err != nil {
+			global.APP_LOG.Warn("Agent模式下Proxmox版本获取失败", zap.Error(err))
+		}
+	}()
 
 	global.APP_LOG.Info("Proxmox provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),

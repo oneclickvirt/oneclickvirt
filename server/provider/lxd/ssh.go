@@ -789,9 +789,13 @@ func (l *LXDProvider) sshSetInstancePassword(ctx context.Context, instanceID, pa
 		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
 	}
 
-	// 设置密码 - 使用lxc exec命令
-	setPasswordCmd := fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password)
-	_, err = l.sshClient.Execute(setPasswordCmd)
+	// 使用临时脚本设置密码（支持超时回退），避免 agent 模式下 WebSocket 连接中断
+	script := utils.BuildTempScript(utils.TempScriptConfig{
+		PrimaryCmd:     fmt.Sprintf("lxc exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password),
+		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | lxc exec %s -- chpasswd", password, instanceID),
+		TimeoutSeconds: 30,
+	})
+	_, err = l.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置LXD实例密码失败",
 			zap.String("instanceID", instanceID),

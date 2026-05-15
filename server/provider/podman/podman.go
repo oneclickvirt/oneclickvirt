@@ -122,9 +122,12 @@ func (p *PodmanProvider) ConnectAgent(executor utils.ShellExecutor, config provi
 	p.connected = true
 	p.healthChecker = nil
 
-	if err := p.getPodmanVersion(); err != nil {
-		global.APP_LOG.Warn("Agent模式下Podman版本获取失败", zap.Error(err))
-	}
+	// Agent 模式下版本获取改为异步，避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	go func() {
+		if err := p.getPodmanVersion(); err != nil {
+			global.APP_LOG.Warn("Agent模式下Podman版本获取失败", zap.Error(err))
+		}
+	}()
 
 	global.APP_LOG.Info("Podman provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),

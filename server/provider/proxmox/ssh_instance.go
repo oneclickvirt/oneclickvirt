@@ -200,15 +200,30 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	}
 
 	// 根据实例类型设置密码
-	var setPasswordCmd string
 	switch instanceType {
 	case "container":
-		// LXC容器
-		setPasswordCmd = fmt.Sprintf("pct exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", vmid, password)
+		// LXC容器 - 使用临时脚本方式执行 pct exec，避免 agent 模式下 WebSocket 超时
+		script := utils.BuildTempScript(utils.TempScriptConfig{
+			PrimaryCmd:     fmt.Sprintf("pct exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", vmid, password),
+			FallbackCmd:    fmt.Sprintf("echo 'root:%s' | pct exec %s -- chpasswd", password, vmid),
+			TimeoutSeconds: 30,
+		})
+		_, err = p.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
+		if err != nil {
+			global.APP_LOG.Error("设置Proxmox容器密码失败",
+				zap.String("instanceID", instanceID),
+				zap.String("vmid", vmid),
+				zap.Error(err))
+			return fmt.Errorf("设置容器密码失败: %w", err)
+		}
+		global.APP_LOG.Info("Proxmox容器密码设置成功",
+			zap.String("instanceID", utils.TruncateString(instanceID, 12)),
+			zap.String("vmid", vmid))
+		return nil
 	case "vm":
 		// QEMU虚拟机 - 使用cloud-init设置密码
 		// 首先尝试通过cloud-init设置密码
-		setPasswordCmd = fmt.Sprintf("qm set %s --cipassword '%s'", vmid, password)
+		setPasswordCmd := fmt.Sprintf("qm set %s --cipassword '%s'", vmid, password)
 
 		// 执行设置命令
 		_, err := p.sshClient.Execute(setPasswordCmd)
@@ -283,24 +298,6 @@ func (p *ProxmoxProvider) sshSetInstancePassword(ctx context.Context, instanceID
 	default:
 		return fmt.Errorf("unsupported instance type: %s", instanceType)
 	}
-
-	// 执行密码设置命令
-	_, err = p.sshClient.Execute(setPasswordCmd)
-	if err != nil {
-		global.APP_LOG.Error("设置Proxmox实例密码失败",
-			zap.String("instanceID", instanceID),
-			zap.String("vmid", vmid),
-			zap.String("type", instanceType),
-			zap.Error(err))
-		return fmt.Errorf("设置实例密码失败: %w", err)
-	}
-
-	global.APP_LOG.Info("Proxmox实例密码设置成功",
-		zap.String("instanceID", utils.TruncateString(instanceID, 12)),
-		zap.String("vmid", vmid),
-		zap.String("type", instanceType))
-
-	return nil
 }
 
 // configureInstanceSSHPasswordByVMID 专门用于设置Proxmox实例的SSH密码（使用VMID）

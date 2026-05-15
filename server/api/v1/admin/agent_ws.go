@@ -6,6 +6,7 @@ package admin
 
 import (
 	"net/http"
+	"time"
 
 	agentSvc "oneclickvirt/service/agent"
 
@@ -17,7 +18,7 @@ import (
 )
 
 var wsUpgrader = websocket.Upgrader{
-	HandshakeTimeout: 10 * 1e9, // 10s in nanoseconds (time.Second constant)
+	HandshakeTimeout: 10 * time.Second,
 	ReadBufferSize:   4096,
 	WriteBufferSize:  4096,
 	// 允许所有来源（Agent 连接鉴权依赖 AgentSecret，不依赖 Origin）

@@ -122,9 +122,12 @@ func (c *ContainerdProvider) ConnectAgent(executor utils.ShellExecutor, config p
 	c.connected = true
 	c.healthChecker = nil
 
-	if err := c.getContainerdVersion(); err != nil {
-		global.APP_LOG.Warn("Agent模式下Containerd版本获取失败", zap.Error(err))
-	}
+	// Agent 模式下版本获取改为异步，避免因 Agent 尚未建立 WebSocket 连接而阻塞 Provider 加载
+	go func() {
+		if err := c.getContainerdVersion(); err != nil {
+			global.APP_LOG.Warn("Agent模式下Containerd版本获取失败", zap.Error(err))
+		}
+	}()
 
 	global.APP_LOG.Info("Containerd provider (Agent模式) 加载完成",
 		zap.String("name", config.Name),

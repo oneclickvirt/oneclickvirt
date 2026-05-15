@@ -684,12 +684,131 @@ func (c *SSHClient) executeCommandWithLogging(command string, logPrefix string) 
 	}
 }
 
+// ExecuteRaw 执行原始命令，不添加任何环境变量包装。
+// 适用于执行本地脚本或不需要 profile 加载的简单命令。
+func (c *SSHClient) ExecuteRaw(command string, timeout time.Duration) (string, error) {
+	if !c.IsHealthy() {
+		global.APP_LOG.Warn("SSH连接不健康，尝试重连",
+			zap.String("host", c.config.Host))
+		if err := c.Reconnect(); err != nil {
+			return "", fmt.Errorf("failed to reconnect SSH before execution: %w", err)
+		}
+	}
+
+	output, err := c.executeCommandRaw(command, timeout)
+	if err != nil && strings.Contains(err.Error(), "failed to create SSH session") {
+		global.APP_LOG.Warn("SSH session创建失败，尝试重连后重试",
+			zap.String("host", c.config.Host),
+			zap.Error(err))
+		if reconnErr := c.Reconnect(); reconnErr != nil {
+			return "", fmt.Errorf("failed to reconnect SSH: %w (original error: %v)", reconnErr, err)
+		}
+		output, err = c.executeCommandRaw(command, timeout)
+		if err != nil {
+			return output, fmt.Errorf("command failed after reconnection: %w", err)
+		}
+	}
+
+	return output, err
+}
+
+// executeCommandRaw 执行原始SSH命令（无环境变量包装）
+func (c *SSHClient) executeCommandRaw(command string, timeout time.Duration) (string, error) {
+	session, err := c.client.NewSession()
+	if err != nil {
+		return "", fmt.Errorf("failed to create SSH session: %w", err)
+	}
+	defer session.Close()
+
+	done := make(chan struct{})
+	var output []byte
+	var execErr error
+
+	go func() {
+		output, execErr = session.CombinedOutput(command)
+		close(done)
+	}()
+
+	timeoutTimer := time.NewTimer(timeout)
+	defer timeoutTimer.Stop()
+
+	select {
+	case <-done:
+		if execErr != nil {
+			return string(output), fmt.Errorf("command execution failed: %w", execErr)
+		}
+		return string(output), nil
+	case <-timeoutTimer.C:
+		session.Signal(ssh.SIGKILL)
+		return "", fmt.Errorf("command execution timeout after %v", timeout)
+	}
+}
+
+// ExecuteViaTempScript 通过临时脚本执行命令。
+// 对于 SSH 模式，直接上传脚本并同步执行（SSH 本身有超时机制）。
+func (c *SSHClient) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
+	// 生成唯一的临时文件路径
+	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%d.sh", time.Now().UnixNano())
+
+	// 上传脚本
+	if err := c.UploadContent(scriptContent, tmpPath, 0755); err != nil {
+		return "", fmt.Errorf("上传临时脚本失败: %w", err)
+	}
+
+	// 构建执行命令
+	argStr := ""
+	for _, arg := range args {
+		argStr += " " + shellEscape(arg)
+	}
+	execCmd := fmt.Sprintf("bash %s%s", tmpPath, argStr)
+
+	// 执行脚本
+	output, execErr := c.ExecuteRaw(execCmd, timeout)
+
+	// 清理临时文件（非阻塞）
+	c.ExecuteRaw(fmt.Sprintf("rm -f %s %s.marker %s.log 2>/dev/null", tmpPath, tmpPath, tmpPath), 10*time.Second)
+
+	if execErr != nil {
+		return output, fmt.Errorf("temp script execution failed: %w", execErr)
+	}
+	return output, nil
+}
+
+// shellEscape 对 shell 参数进行基本转义
+func shellEscape(s string) string {
+	if !strings.ContainsAny(s, " \t\n\r'\"$`\\*?[]{}|&;<>()~#!") {
+		return s
+	}
+	// 使用单引号包裹，并转义内部的单引号
+	escaped := strings.ReplaceAll(s, "'", "'\\''")
+	return "'" + escaped + "'"
+}
+
 // UploadContent 上传内容到远程服务器指定路径
 func (c *SSHClient) UploadContent(content, remotePath string, perm os.FileMode) error {
+	// 检查连接健康状态，如果不健康则尝试重连
+	if !c.IsHealthy() {
+		global.APP_LOG.Warn("SSH连接不健康，尝试重连后上传",
+			zap.String("host", c.config.Host))
+		if err := c.Reconnect(); err != nil {
+			return fmt.Errorf("failed to reconnect SSH before upload: %w", err)
+		}
+	}
+
 	// 创建SFTP客户端
 	sftpClient, err := sftp.NewClient(c.client)
 	if err != nil {
-		return fmt.Errorf("failed to create SFTP client: %w", err)
+		// 尝试重连后重试一次
+		global.APP_LOG.Warn("SFTP客户端创建失败，尝试重连后重试",
+			zap.String("host", c.config.Host),
+			zap.Error(err))
+		if reconnErr := c.Reconnect(); reconnErr != nil {
+			return fmt.Errorf("failed to reconnect SSH: %w (original error: %v)", reconnErr, err)
+		}
+		sftpClient, err = sftp.NewClient(c.client)
+		if err != nil {
+			return fmt.Errorf("failed to create SFTP client after reconnection: %w", err)
+		}
 	}
 	defer sftpClient.Close()
 

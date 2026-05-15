@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"oneclickvirt/global"
 	"oneclickvirt/utils"
@@ -85,9 +86,13 @@ func (i *IncusProvider) sshSetInstancePassword(instanceID, password string) erro
 	if !strings.Contains(output, "RUNNING") {
 		return fmt.Errorf("实例 %s 未运行，无法设置密码", instanceID)
 	}
-	// 设置密码 - 使用incus exec命令
-	setPasswordCmd := fmt.Sprintf("incus exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password)
-	_, err = i.sshClient.Execute(setPasswordCmd)
+	// 使用临时脚本设置密码（支持超时回退），避免 agent 模式下 WebSocket 连接中断
+	script := utils.BuildTempScript(utils.TempScriptConfig{
+		PrimaryCmd:     fmt.Sprintf("incus exec %s -- bash -c 'echo \"root:%s\" | chpasswd'", instanceID, password),
+		FallbackCmd:    fmt.Sprintf("echo 'root:%s' | incus exec %s -- chpasswd", password, instanceID),
+		TimeoutSeconds: 30,
+	})
+	_, err = i.sshClient.ExecuteViaTempScript(script, nil, 120*time.Second)
 	if err != nil {
 		global.APP_LOG.Error("设置Incus实例密码失败",
 			zap.String("instanceID", instanceID),

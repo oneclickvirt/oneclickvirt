@@ -159,9 +159,16 @@ func (d *DockerProvider) setContainerPasswordWithRetry(containerName, password, 
 	maxRetries := 3
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		for _, shell := range shells {
-			cmd := fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
-				d.runtime.CLI, containerName, shell, password)
-			_, err := d.sshClient.Execute(cmd)
+			// 使用临时脚本方式执行 docker exec 进入容器设置密码，
+			// 以避免 agent 模式下 WebSocket 连接超时或中断
+			script := utils.BuildTempScript(utils.TempScriptConfig{
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'echo \"root:%s\" | chpasswd'",
+					d.runtime.CLI, containerName, shell, password),
+				FallbackCmd: fmt.Sprintf("%s exec -i %s %s -c 'chpasswd' <<< 'root:%s'",
+					d.runtime.CLI, containerName, shell, password),
+				TimeoutSeconds: 30,
+			})
+			_, err := d.sshClient.ExecuteViaTempScript(script, nil, 60*time.Second)
 			if err == nil {
 				global.APP_LOG.Info("容器密码设置成功",
 					zap.String("containerName", containerName),
@@ -220,10 +227,13 @@ func (d *DockerProvider) configureInstanceSSHPassword(ctx context.Context, confi
 				zap.Error(copyErr))
 		} else {
 			d.sshClient.Execute(fmt.Sprintf("%s exec %s %s -c 'chmod +x /root/%s'", d.runtime.CLI, config.Name, shellType, scriptName))
-			// 使用 interactionless=true 减少脚本交互内存占用
-			execCmd := fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
-				d.runtime.CLI, config.Name, shellType, shellType, scriptName, password)
-			_, execErr := d.sshClient.Execute(execCmd)
+			// 使用临时脚本方式执行 SSH 配置脚本，避免 agent 模式下 WebSocket 超时
+			sshExecScript := utils.BuildTempScript(utils.TempScriptConfig{
+				PrimaryCmd: fmt.Sprintf("%s exec %s %s -c 'interactionless=true %s /root/%s %s'",
+					d.runtime.CLI, config.Name, shellType, shellType, scriptName, password),
+				TimeoutSeconds: 60,
+			})
+			_, execErr := d.sshClient.ExecuteViaTempScript(sshExecScript, nil, 180*time.Second)
 			if execErr != nil {
 				global.APP_LOG.Warn("执行SSH配置脚本失败，将使用直接设置密码",
 					zap.String("instanceName", config.Name),

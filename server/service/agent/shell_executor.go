@@ -109,6 +109,133 @@ func (a *AgentShellExecutor) ExecuteWithLogging(command string, logPrefix string
 	return output, err
 }
 
+// ExecuteRaw runs a command on the remote agent WITHOUT shell environment wrapping.
+// This is preferred for running local scripts or lightweight polling commands.
+func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (string, error) {
+	conn, err := a.getConn()
+	if err != nil {
+		return "", err
+	}
+	return conn.ExecuteWithTimeout(command, timeout)
+}
+
+// ExecuteViaTempScript uploads a shell script to the agent node and executes it
+// with the given arguments. For agent-mode nodes, execution is via nohup to avoid
+// WebSocket timeouts, with polling for completion. This is the RECOMMENDED method
+// for any command that enters a container or VM (e.g., lxc exec, incus exec,
+// docker exec, pct exec, qm guest exec).
+func (a *AgentShellExecutor) ExecuteViaTempScript(scriptContent string, args []string, timeout time.Duration) (string, error) {
+	ts := time.Now().UnixNano()
+	tmpPath := fmt.Sprintf("/tmp/oneclickvirt_exec_%d.sh", ts)
+	markerPath := tmpPath + ".marker"
+	logPath := tmpPath + ".log"
+
+	// Inject marker/log paths into the script so it knows where to write results.
+	// We append the marker setup at the beginning of the script.
+	fullScript := fmt.Sprintf("MARKER_FILE=%q\nLOG_FILE=%q\n%s", markerPath, logPath, scriptContent)
+
+	// Upload the script to the agent node
+	if err := a.UploadContent(fullScript, tmpPath, 0755); err != nil {
+		return "", fmt.Errorf("上传临时脚本失败: %w", err)
+	}
+
+	// Build argument string
+	argStr := ""
+	for _, arg := range args {
+		argStr += " " + shellEscapeArg(arg)
+	}
+
+	// Execute via nohup (detached from WebSocket) so long-running container/VM entry
+	// commands don't block or timeout the WebSocket connection.
+	startCmd := fmt.Sprintf("nohup bash %s%s > %s 2>&1 & echo $!", tmpPath, argStr, logPath)
+	pidOutput, err := a.ExecuteRaw(startCmd, 15*time.Second)
+	if err != nil {
+		// Cleanup even on start failure
+		a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+		return "", fmt.Errorf("启动 temp 脚本失败: %w", err)
+	}
+	pid := strings.TrimSpace(pidOutput)
+	if global.APP_LOG != nil {
+		global.APP_LOG.Debug("Temp 脚本已启动",
+			zap.String("pid", pid),
+			zap.String("tmpPath", tmpPath),
+			zap.Uint("providerID", a.providerID))
+	}
+
+	// Poll for completion marker
+	deadline := time.Now().Add(timeout)
+	pollInterval := 2 * time.Second
+	lastLogSize := 0
+	for time.Now().Before(deadline) {
+		time.Sleep(pollInterval)
+
+		// Check if the script process is still alive
+		aliveOutput, _ := a.ExecuteRaw(fmt.Sprintf("kill -0 %s 2>/dev/null && echo alive || echo dead", pid), 10*time.Second)
+		alive := strings.TrimSpace(aliveOutput) == "alive"
+
+		// Read marker file
+		markerOutput, markerErr := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", markerPath), 10*time.Second)
+		if markerErr == nil {
+			marker := strings.TrimSpace(markerOutput)
+			if marker == "PASSWORD_OK" || marker == "TEMP_SCRIPT_OK" {
+				// Success! Read the full log
+				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
+				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+				return logOutput, nil
+			}
+			if marker == "TEMP_SCRIPT_FAILED" || marker == "PASSWORD_FAIL" {
+				logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
+				a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+				return logOutput, fmt.Errorf("temp script reported failure")
+			}
+		}
+
+		// If process died without writing marker, it crashed
+		if !alive {
+			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
+			a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+			if logOutput != "" {
+				return logOutput, fmt.Errorf("temp script exited unexpectedly (PID %s)", pid)
+			}
+			return "", fmt.Errorf("temp script exited unexpectedly (PID %s) with no output", pid)
+		}
+
+		// Log progress for long-running scripts
+		if global.APP_LOG != nil && pollInterval >= 10*time.Second {
+			logOutput, _ := a.ExecuteRaw(fmt.Sprintf("wc -c < %s 2>/dev/null || echo 0", logPath), 10*time.Second)
+			logSize := 0
+			fmt.Sscanf(strings.TrimSpace(logOutput), "%d", &logSize)
+			if logSize > lastLogSize {
+				lastLogSize = logSize
+				global.APP_LOG.Debug("Temp 脚本执行中",
+					zap.String("pid", pid),
+					zap.Int("logSize", logSize),
+					zap.Uint("providerID", a.providerID))
+			}
+		}
+
+		// Adaptive polling: slow down after 30 seconds
+		if time.Now().After(deadline.Add(-timeout/2)) && pollInterval < 10*time.Second {
+			pollInterval = 10 * time.Second
+		}
+	}
+
+	// Timeout - kill the script and read partial output
+	a.ExecuteRaw(fmt.Sprintf("kill -9 %s 2>/dev/null || true", pid), 10*time.Second)
+	logOutput, _ := a.ExecuteRaw(fmt.Sprintf("cat %s 2>/dev/null", logPath), 15*time.Second)
+	a.ExecuteRaw(fmt.Sprintf("rm -f %s %s %s 2>/dev/null", tmpPath, markerPath, logPath), 10*time.Second)
+	return logOutput, fmt.Errorf("temp script execution timeout after %v (PID %s)", timeout, pid)
+}
+
+// shellEscapeArg escapes a shell argument using single quotes.
+func shellEscapeArg(s string) string {
+	if !strings.ContainsAny(s, " \t\n\r'\"$`\\*?[]{}|&;<>()~#!") {
+		return s
+	}
+	escaped := strings.ReplaceAll(s, "'", "'\\''")
+	return "'" + escaped + "'"
+}
+
 // UploadContent writes file content to the remote agent host using a base64 round-trip.
 func (a *AgentShellExecutor) UploadContent(content, remotePath string, perm os.FileMode) error {
 	directory := filepath.Dir(remotePath)
