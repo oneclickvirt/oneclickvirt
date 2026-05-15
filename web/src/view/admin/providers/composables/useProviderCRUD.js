@@ -78,52 +78,142 @@ export function useProviderCRUD() {
         provider.status === 'inactive' ||
         (provider.sshStatus === 'offline' && provider.apiStatus === 'offline')
 
-      const firstConfirmMsg = isOffline
+      // Use instanceCount from provider list data (already available)
+      const instanceCount = provider.instanceCount || 0
+
+      // Step 1: First confirmation - show the two options
+      const firstMsg = isOffline
         ? t('admin.providers.deleteOfflineConfirm', { name: provider.name })
         : t('admin.providers.deleteConfirm', { name: provider.name })
 
-      await ElMessageBox.confirm(firstConfirmMsg, t('common.warning'), {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
+      // Build the full message with options description
+      const fullMessage = `
+        <div style="text-align: left;">
+          <p>${firstMsg}</p>
+          <div style="margin: 16px 0; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; background: #f5f7fa;">
+            <p style="font-weight: bold; margin: 0 0 8px 0;">${t('admin.providers.deleteCascadeOption')}</p>
+            <p style="margin: 0; color: #606266; font-size: 13px;">${t('admin.providers.deleteCascadeDesc')}</p>
+          </div>
+          <div style="margin: 16px 0; padding: 12px; border: 1px solid #f56c6c; border-radius: 8px; background: #fef0f0;">
+            <p style="font-weight: bold; margin: 0 0 8px 0; color: #F56C6C;">${t('admin.providers.deleteForceOption')}</p>
+            <p style="margin: 0; color: #606266; font-size: 13px;">${t('admin.providers.deleteForceDesc')}</p>
+          </div>
+        </div>
+      `
+
+      // Show the choice dialog
+      const action = await ElMessageBox.confirm(fullMessage, t('common.warning'), {
+        confirmButtonText: t('admin.providers.deleteCascadeOption'),
+        cancelButtonText: t('admin.providers.deleteForceOption'),
+        distinguishCancelAndClose: true,
         type: 'warning',
-        dangerouslyUseHTMLString: true
+        dangerouslyUseHTMLString: true,
+        cancelButtonClass: 'el-button--danger'
       })
 
-      if (isOffline) {
-        try {
-          await deleteProvider(provider.id, false)
-          ElMessage.success(t('admin.providers.serverDeleteSuccess'))
-          await loadProviders()
-        } catch (normalError) {
-          const errorCode = normalError?.response?.data?.code
-          if (errorCode === 40901) {
-            await ElMessageBox.confirm(
-              t('admin.providers.forceDeleteConfirm', { name: provider.name }),
-              t('admin.providers.forceDeleteTitle'),
-              {
-                confirmButtonText: t('admin.providers.forceDeleteButton'),
-                cancelButtonText: t('common.cancel'),
-                type: 'error',
-                dangerouslyUseHTMLString: true,
-                distinguishCancelAndClose: true
-              }
-            )
-            await deleteProvider(provider.id, true)
-            ElMessage.success(t('admin.providers.serverDeleteSuccess'))
-            await loadProviders()
-          } else {
-            throw normalError
-          }
-        }
-      } else {
-        await deleteProvider(provider.id, false)
-        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
-        await loadProviders()
-      }
+      // User clicked "Cascade Delete"
+      await performCascadeDelete(provider, instanceCount)
     } catch (error) {
-      if (error !== 'cancel') {
+      if (error === 'cancel') {
+        // User clicked "Force Delete" - show force delete confirmation first
+        await performForceDelete(provider)
+      } else if (error !== 'close') {
         const errorMsg =
           error?.response?.data?.msg ||
+          error?.response?.data?.message ||
+          error?.message ||
+          t('admin.providers.serverDeleteFailed')
+        ElMessage.error(errorMsg)
+      }
+    }
+  }
+
+  const performCascadeDelete = async (provider, instanceCount) => {
+    try {
+      if (instanceCount > 0) {
+        // Second confirmation for cascade delete with instance count
+        await ElMessageBox.confirm(
+          t('admin.providers.cascadeDeleteConfirm', {
+            name: provider.name,
+            count: instanceCount
+          }),
+          t('admin.providers.cascadeDeleteTitle'),
+          {
+            confirmButtonText: t('common.confirm'),
+            cancelButtonText: t('common.cancel'),
+            type: 'warning',
+            dangerouslyUseHTMLString: true
+          }
+        )
+      }
+
+      const loadingInstance = ElLoading.service({
+        lock: true,
+        text: instanceCount > 0
+          ? t('admin.providers.cascadeDeletingInstances', { count: instanceCount })
+          : t('admin.providers.deleting'),
+        background: 'rgba(0, 0, 0, 0.7)'
+      })
+
+      try {
+        await deleteProvider(provider.id, false)
+        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+      } finally {
+        loadingInstance.close()
+      }
+
+      await loadProviders()
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') {
+        const errorMsg =
+          error?.response?.data?.msg ||
+          error?.response?.data?.message ||
+          error?.message ||
+          t('admin.providers.serverDeleteFailed')
+        // Check if the error suggests using force delete (provider unreachable)
+        if (errorMsg.includes('强制删除') || errorMsg.includes('force delete')) {
+          ElMessage.warning(errorMsg)
+        } else {
+          ElMessage.error(errorMsg)
+        }
+      }
+    }
+  }
+
+  const performForceDelete = async (provider) => {
+    try {
+      // Second confirmation specifically for force delete
+      await ElMessageBox.confirm(
+        t('admin.providers.forceDeleteConfirm', { name: provider.name }),
+        t('admin.providers.forceDeleteTitle'),
+        {
+          confirmButtonText: t('admin.providers.forceDeleteButton'),
+          cancelButtonText: t('common.cancel'),
+          type: 'error',
+          dangerouslyUseHTMLString: true,
+          distinguishCancelAndClose: true
+        }
+      )
+
+      const loadingInstance = ElLoading.service({
+        lock: true,
+        text: t('admin.providers.forceDeleting'),
+        background: 'rgba(0, 0, 0, 0.7)'
+      })
+
+      try {
+        await deleteProvider(provider.id, true)
+        ElMessage.success(t('admin.providers.serverDeleteSuccess'))
+      } finally {
+        loadingInstance.close()
+      }
+
+      await loadProviders()
+    } catch (error) {
+      if (error !== 'cancel' && error !== 'close') {
+        const errorMsg =
+          error?.response?.data?.msg ||
+          error?.response?.data?.message ||
           error?.message ||
           t('admin.providers.serverDeleteFailed')
         ElMessage.error(errorMsg)
@@ -136,68 +226,55 @@ export function useProviderCRUD() {
       ElMessage.warning(t('admin.providers.pleaseSelectProviders'))
       return
     }
-    const offlineProviders = selectedProviders.value.filter(
+
+    const offlineCount = selectedProviders.value.filter(
       p =>
         p.status === 'inactive' ||
         (p.sshStatus === 'offline' && p.apiStatus === 'offline')
-    )
-    const hasOffline = offlineProviders.length > 0
+    ).length
+    const onlineCount = selectedProviders.value.length - offlineCount
 
     try {
-      const confirmMsg = hasOffline
-        ? t('admin.providers.batchDeleteWithOfflineConfirm', {
-            total: selectedProviders.value.length,
-            offline: offlineProviders.length
-          })
-        : t('admin.providers.batchDeleteConfirm', {
-            count: selectedProviders.value.length
-          })
-
-      await ElMessageBox.confirm(confirmMsg, t('common.warning'), {
-        confirmButtonText: t('common.confirm'),
-        cancelButtonText: t('common.cancel'),
-        type: 'warning',
-        dangerouslyUseHTMLString: true
+      // Step 1: Show the two options
+      let confirmMsg = t('admin.providers.batchDeleteConfirm', {
+        count: selectedProviders.value.length
       })
-
-      const loadingInstance = ElLoading.service({
-        lock: true,
-        text: t('admin.providers.batchDeleting'),
-        background: 'rgba(0, 0, 0, 0.7)'
-      })
-
-      let successCount = 0
-      let failCount = 0
-      const errors = []
-      const needsForceDelete = []
-
-      for (const provider of selectedProviders.value) {
-        try {
-          await deleteProvider(provider.id, false)
-          successCount++
-        } catch (error) {
-          const errorCode = error?.response?.data?.code
-          const errorMsg = error?.response?.data?.msg || ''
-          const isOffline =
-            provider.status === 'inactive' ||
-            (provider.sshStatus === 'offline' && provider.apiStatus === 'offline')
-          if (isOffline && errorCode === 40901) {
-            needsForceDelete.push(provider)
-          } else {
-            failCount++
-            errors.push(
-              `${provider.name}: ${errorMsg || error?.message || t('common.failed')}`
-            )
-          }
-        }
+      if (offlineCount > 0 && onlineCount > 0) {
+        confirmMsg += `<br><br><span style='color: #F56C6C;'>${offlineCount} 个节点离线</span>，建议对这些节点使用强制删除；<span style='color: #67C23A;'>${onlineCount} 个节点在线</span>，建议使用级联删除。`
       }
-      loadingInstance.close()
 
-      if (needsForceDelete.length > 0) {
+      const fullMessage = `
+        <div style="text-align: left;">
+          <p>${confirmMsg}</p>
+          <div style="margin: 16px 0; padding: 12px; border: 1px solid #dcdfe6; border-radius: 8px; background: #f5f7fa;">
+            <p style="font-weight: bold; margin: 0 0 8px 0;">${t('admin.providers.deleteCascadeOption')}</p>
+            <p style="margin: 0; color: #606266; font-size: 13px;">${t('admin.providers.deleteCascadeDesc')}</p>
+          </div>
+          <div style="margin: 16px 0; padding: 12px; border: 1px solid #f56c6c; border-radius: 8px; background: #fef0f0;">
+            <p style="font-weight: bold; margin: 0 0 8px 0; color: #F56C6C;">${t('admin.providers.deleteForceOption')}</p>
+            <p style="margin: 0; color: #606266; font-size: 13px;">${t('admin.providers.deleteForceDesc')}</p>
+          </div>
+        </div>
+      `
+
+      const action = await ElMessageBox.confirm(fullMessage, t('common.warning'), {
+        confirmButtonText: t('admin.providers.deleteCascadeOption'),
+        cancelButtonText: t('admin.providers.deleteForceOption'),
+        distinguishCancelAndClose: true,
+        type: 'warning',
+        dangerouslyUseHTMLString: true,
+        cancelButtonClass: 'el-button--danger'
+      })
+
+      // Cascade delete all
+      await executeBatchDelete(selectedProviders.value, false)
+    } catch (error) {
+      if (error === 'cancel') {
+        // Force delete all - show force delete confirmation first
         try {
           await ElMessageBox.confirm(
             t('admin.providers.batchForceDeleteConfirm', {
-              count: needsForceDelete.length
+              count: selectedProviders.value.length
             }),
             t('admin.providers.forceDeleteTitle'),
             {
@@ -207,66 +284,71 @@ export function useProviderCRUD() {
               dangerouslyUseHTMLString: true
             }
           )
-          const forceLoadingInstance = ElLoading.service({
-            lock: true,
-            text: t('admin.providers.forceDeleting'),
-            background: 'rgba(0, 0, 0, 0.7)'
-          })
-          for (const provider of needsForceDelete) {
-            try {
-              await deleteProvider(provider.id, true)
-              successCount++
-            } catch (error) {
-              failCount++
-              errors.push(
-                `${provider.name}: ${error?.response?.data?.msg || error?.message || t('common.failed')}`
-              )
-            }
-          }
-          forceLoadingInstance.close()
+          await executeBatchDelete(selectedProviders.value, true)
         } catch (cancelError) {
           if (cancelError !== 'cancel') {
-            failCount += needsForceDelete.length
-            needsForceDelete.forEach(p =>
-              errors.push(`${p.name}: ${t('admin.providers.forceCancelled')}`)
-            )
+            ElMessage.error(t('admin.providers.serverDeleteFailed'))
           }
         }
+      } else if (error !== 'close') {
+        ElMessage.error(t('admin.providers.serverDeleteFailed'))
       }
+    }
+  }
 
-      const buildResultHtml = (success, fail, errs, tFn) =>
-        `<div>
-          <p>${tFn('admin.providers.batchOperationResult')}</p>
-          <p style="color:#67C23A;">${tFn('admin.providers.successCount')}: ${success}</p>
-          <p style="color:#F56C6C;">${tFn('admin.providers.failCount')}: ${fail}</p>
-          ${errs.length > 0
+  const executeBatchDelete = async (providers, forceDelete) => {
+    const loadingInstance = ElLoading.service({
+      lock: true,
+      text: forceDelete
+        ? t('admin.providers.forceDeleting')
+        : t('admin.providers.batchDeleting'),
+      background: 'rgba(0, 0, 0, 0.7)'
+    })
+
+    let successCount = 0
+    let failCount = 0
+    const errors = []
+
+    for (const provider of providers) {
+      try {
+        await deleteProvider(provider.id, forceDelete)
+        successCount++
+      } catch (error) {
+        failCount++
+        const errorMsg =
+          error?.response?.data?.msg ||
+          error?.response?.data?.message ||
+          error?.message ||
+          t('common.failed')
+        errors.push(`${provider.name}: ${errorMsg}`)
+      }
+    }
+    loadingInstance.close()
+
+    if (failCount === 0) {
+      ElMessage.success(
+        t('admin.providers.batchDeleteSuccess', { count: successCount })
+      )
+    } else {
+      const resultHtml = `
+        <div>
+          <p>${t('admin.providers.batchOperationResult')}</p>
+          <p style="color:#67C23A;">${t('admin.providers.successCount')}: ${successCount}</p>
+          <p style="color:#F56C6C;">${t('admin.providers.failCount')}: ${failCount}</p>
+          ${errors.length > 0
             ? `<div style="margin-top:10px;max-height:200px;overflow-y:auto;">
-                <p style="font-weight:bold;">${tFn('admin.providers.errorDetails')}:</p>
-                ${errs.map(e => `<p style="color:#F56C6C;font-size:12px;">• ${e}</p>`).join('')}
+                <p style="font-weight:bold;">${t('admin.providers.errorDetails')}:</p>
+                ${errors.map(e => `<p style="color:#F56C6C;font-size:12px;">• ${e}</p>`).join('')}
               </div>`
             : ''}
         </div>`
-
-      if (failCount === 0) {
-        ElMessage.success(
-          t('admin.providers.batchDeleteSuccess', { count: successCount })
-        )
-      } else {
-        ElMessageBox.alert(
-          buildResultHtml(successCount, failCount, errors, t),
-          t('admin.providers.operationResult'),
-          {
-            dangerouslyUseHTMLString: true,
-            confirmButtonText: t('common.confirm')
-          }
-        )
-      }
-      await loadProviders()
-    } catch (error) {
-      if (error !== 'cancel') {
-        ElMessage.error(t('admin.providers.batchDeleteFailed'))
-      }
+      ElMessageBox.alert(resultHtml, t('admin.providers.operationResult'), {
+        dangerouslyUseHTMLString: true,
+        confirmButtonText: t('common.confirm')
+      })
     }
+
+    await loadProviders()
   }
 
   const handleBatchFreeze = async () => {

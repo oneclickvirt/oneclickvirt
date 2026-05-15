@@ -2,7 +2,6 @@ package provider
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
@@ -23,7 +22,8 @@ import (
 )
 
 // DeleteProvider 删除Provider（级联硬删除所有相关数据）
-// 默认情况下会检查是否有运行中的实例，forceDelete=true时跳过检查（用于删除离线节点）
+// forceDelete=false: 正常删除，先删除节点上所有实例（实际删除宿主机资源），再清理数据库
+// forceDelete=true: 强制删除，仅清理数据库记录，不触碰宿主机上的实际实例
 func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 	global.APP_LOG.Info("开始删除Provider及其所有关联数据",
 		zap.Uint("providerID", providerID),
@@ -35,63 +35,120 @@ func (s *Service) DeleteProvider(providerID uint, forceDelete bool) error {
 		return fmt.Errorf("提供商不存在")
 	}
 
-	// 如果不是强制删除，检查是否还有运行中的实例
-	// 注意：deleting/resetting等中间状态不应阻止删除，因为这些可能是卡住的状态
 	if !forceDelete {
-		var runningInstanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).
-			Where("provider_id = ? AND status NOT IN ?", providerID,
-				[]string{"deleted", "deleting", "failed", "creating", "resetting"}).
-			Count(&runningInstanceCount)
+		// ==========================================
+		// 正常删除模式：先级联删除节点上的所有实例
+		// ==========================================
 
-		if runningInstanceCount > 0 {
-			global.APP_LOG.Warn("Provider删除失败：Provider还有运行中的实例",
+		// 获取所有非删除状态的实例
+		var instances []providerModel.Instance
+		global.APP_DB.Where("provider_id = ? AND status != ?", providerID, "deleted").
+			Find(&instances)
+
+		if len(instances) > 0 {
+			global.APP_LOG.Info("正常删除模式：开始级联删除节点上的实例",
 				zap.Uint("providerID", providerID),
-				zap.Int64("runningInstanceCount", runningInstanceCount))
-			return errors.New("提供商还有运行中的实例，无法删除。请先停止或删除所有实例")
-		}
+				zap.Int("instanceCount", len(instances)))
 
-		// 检查是否有卡住的实例，如果有则先尝试修复
-		var stuckInstanceCount int64
-		global.APP_DB.Model(&providerModel.Instance{}).
-			Where("provider_id = ? AND status IN ?", providerID,
-				[]string{"deleting", "creating", "resetting"}).
-			Count(&stuckInstanceCount)
+			// 尝试获取已连接的Provider实例来执行实际的宿主机删除
+			providerApiService := &providerService.ProviderApiService{}
+			connected := false
 
-		if stuckInstanceCount > 0 {
-			global.APP_LOG.Info("发现卡住的实例，尝试修复后再删除",
-				zap.Uint("providerID", providerID),
-				zap.Int64("stuckInstanceCount", stuckInstanceCount))
-
-			// 修复卡住的实例状态
-			if err := global.APP_DB.Model(&providerModel.Instance{}).
-				Where("provider_id = ? AND status IN ?", providerID,
-					[]string{"deleting", "creating", "resetting"}).
-				Updates(map[string]interface{}{
-					"status":     "failed",
-					"updated_at": time.Now(),
-				}).Error; err != nil {
-				global.APP_LOG.Warn("修复卡住的实例状态失败",
-					zap.Uint("providerID", providerID),
-					zap.Error(err))
-			} else {
-				global.APP_LOG.Info("成功修复卡住的实例状态",
-					zap.Uint("providerID", providerID),
-					zap.Int64("count", stuckInstanceCount))
+			// 先尝试获取已连接的provider
+			if prov, exists := providerService.GetProviderService().GetProviderByID(providerID); exists && prov.IsConnected() {
+				connected = true
 			}
+
+			if !connected {
+				// 尝试连接（删除操作允许访问冻结的provider）
+				if _, _, err := providerApiService.GetProviderByIDForOperation(providerID, "delete"); err != nil {
+					global.APP_LOG.Warn("正常删除模式：无法连接到节点，请使用强制删除",
+						zap.Uint("providerID", providerID),
+						zap.Error(err))
+					return fmt.Errorf("无法连接到节点「%s」，无法安全删除实例。请使用强制删除（仅清理数据库记录，不触碰宿主机上的实际实例）", existingProvider.Name)
+				}
+			}
+
+			// 逐个删除实例（在宿主机上实际删除）
+			// 只处理需要实际删除的实例（跳过已删除/失败状态的实例）
+			var deleteErrors []string
+			successCount := 0
+			skipCount := 0
+			for _, inst := range instances {
+				// 跳过已经处于终态的实例（deleted, failed 等无需在宿主机上操作）
+				if inst.Status == "deleted" || inst.Status == "failed" {
+					skipCount++
+					global.APP_LOG.Debug("正常删除模式：跳过已处于终态的实例",
+						zap.Uint("providerID", providerID),
+						zap.Uint("instanceID", inst.ID),
+						zap.String("instanceName", inst.Name),
+						zap.String("status", inst.Status))
+					continue
+				}
+
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				err := providerApiService.DeleteInstanceByProviderID(ctx, providerID, inst.Name)
+				cancel()
+				if err != nil {
+					errMsg := fmt.Sprintf("实例 %s(ID:%d, 状态:%s): %v", inst.Name, inst.ID, inst.Status, err)
+					deleteErrors = append(deleteErrors, errMsg)
+					global.APP_LOG.Error("正常删除模式：删除实例失败，将中止Provider删除以保护数据安全",
+						zap.Uint("providerID", providerID),
+						zap.Uint("instanceID", inst.ID),
+						zap.String("instanceName", inst.Name),
+						zap.String("status", inst.Status),
+						zap.Error(err))
+				} else {
+					successCount++
+					global.APP_LOG.Info("正常删除模式：实例删除成功",
+						zap.Uint("providerID", providerID),
+						zap.Uint("instanceID", inst.ID),
+						zap.String("instanceName", inst.Name))
+				}
+			}
+
+			if skipCount > 0 {
+				global.APP_LOG.Info("正常删除模式：跳过了已处于终态的实例",
+					zap.Uint("providerID", providerID),
+					zap.Int("skipCount", skipCount))
+			}
+
+			// 如果有实例删除失败，中止Provider删除，防止产生孤立实例
+			if len(deleteErrors) > 0 {
+				global.APP_LOG.Error("正常删除模式：部分实例删除失败，中止Provider删除",
+					zap.Uint("providerID", providerID),
+					zap.Int("successCount", successCount),
+					zap.Int("failCount", len(deleteErrors)),
+					zap.Strings("errors", deleteErrors))
+				return fmt.Errorf("级联删除失败：成功删除 %d 个实例，%d 个实例删除失败。已中止Provider删除以保护数据安全。失败的实例：%s。请检查后重试，或使用强制删除（仅清理数据库）",
+					successCount, len(deleteErrors), deleteErrors[0])
+			}
+
+			global.APP_LOG.Info("正常删除模式：所有实例删除成功",
+				zap.Uint("providerID", providerID),
+				zap.Int("count", successCount))
+		} else {
+			global.APP_LOG.Info("正常删除模式：节点上无实例，直接清理数据库",
+				zap.Uint("providerID", providerID))
 		}
 	} else {
-		// 强制删除模式：记录被强制删除的实例数量
+		// ==========================================
+		// 强制删除模式：仅清理数据库，不触碰宿主机
+		// ==========================================
 		var instanceCount int64
 		global.APP_DB.Model(&providerModel.Instance{}).
 			Where("provider_id = ?", providerID).
 			Count(&instanceCount)
 		if instanceCount > 0 {
-			global.APP_LOG.Warn("强制删除Provider及其所有实例",
+			global.APP_LOG.Warn("强制删除模式：仅清理数据库记录，宿主机上的实际实例不会被删除",
 				zap.Uint("providerID", providerID),
 				zap.Int64("instanceCount", instanceCount))
 		}
 	}
+
+	// ==========================================
+	// 数据库清理（两种模式共用）
+	// ==========================================
 
 	// 获取所有关联的实例ID（包括软删除的）
 	var instanceIDs []uint

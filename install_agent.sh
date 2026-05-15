@@ -103,12 +103,18 @@ TMP_FILE="${INSTALL_DIR}/${BINARY_NAME}.tmp"
 # _dl_progress shows an animated progress bar while a download runs in background
 _dl_progress() {
   local out="$1" total="$2" pid="$3" shown=0
+  # Strip leading zeros to avoid octal interpretation (e.g. Content-Length "06293879")
+  total=$(echo "$total" | sed 's/^0*//')
+  [ -z "$total" ] && total=0
   while kill -0 "$pid" 2>/dev/null; do
     if [ -f "$out" ]; then
       local cur=0
       cur=$(stat -c%s "$out" 2>/dev/null || stat -f%z "$out" 2>/dev/null)
       cur=$(printf '%s' "$cur" | tr -d '\r\n ' | grep -o '[0-9]*' | head -1)
       cur=${cur:-0}
+      # Strip leading zeros from cur as well (paranoia)
+      cur=$(echo "$cur" | sed 's/^0*//')
+      [ -z "$cur" ] && cur=0
       if [ "$total" -gt 0 ] && [ "$cur" -gt 0 ]; then
         local pct=$((cur * 100 / total))
         [ "$pct" -gt 100 ] && pct=100
@@ -136,6 +142,9 @@ download_one() {
   local total=0
   total=$(curl -sIkL --connect-timeout 10 "$url" 2>/dev/null | grep -i 'Content-Length' | awk '{print $2}' | tr -d '\r\n ' | grep -o '[0-9]*' | tail -1)
   total=${total:-0}
+  [ -z "$total" ] && total=0
+  # Strip leading zeros to avoid octal interpretation in dash/sh (e.g. "06293879" → "6293879")
+  total=$(echo "$total" | sed 's/^0*//')
   [ -z "$total" ] && total=0
 
   # Try curl — check file existence rather than exit code (some servers return non-zero on valid downloads)
