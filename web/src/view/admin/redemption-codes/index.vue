@@ -810,8 +810,14 @@ const onProviderChange = async (providerId) => {
       } else {
         stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
       }
-    } catch (_) {
-      // ignore silently
+    } catch (e) {
+      // 区分网络/超时错误与真正的「无容器」
+      const errMsg = e?.response?.data?.msg || e?.message || ''
+      if (errMsg) {
+        ElMessage.warning(t('admin.redemptionCodes.loadContainersFailed', { reason: errMsg }))
+      }
+      stoppedContainers.value = []
+      stoppedContainerOptions.value = []
     } finally {
       stoppedContainersLoading.value = false
     }

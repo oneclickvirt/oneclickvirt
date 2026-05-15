@@ -327,6 +327,22 @@ func (h *AgentHub) Register(ac *AgentConn) {
 
 	// 触发延迟实例发现与导入（Agent 模式节点在创建时标记了 PendingDiscovery）
 	go h.triggerPendingDiscovery(ac.ProviderID)
+
+	// 异步确保 Provider 在 ProviderService 中已加载（解决主控重启后 Provider 内存缓存为空，
+	// Agent 重连后 ProviderService.providers 中仍然缺失该 Provider，导致后续操作
+	// 如 GetStoppedContainers/ExecuteSSHCommand 等需要先通过 EnsureProviderConnected
+	// 重新加载的问题）。此处延迟 2 秒确保 Agent WebSocket 连接已稳定。
+	go func() {
+		time.Sleep(2 * time.Second)
+		if _, err := providerService.GetProviderInstanceByID(ac.ProviderID); err != nil {
+			global.APP_LOG.Warn("Agent 重连后加载 Provider 到内存缓存失败",
+				zap.Uint("providerID", ac.ProviderID),
+				zap.Error(err))
+		} else {
+			global.APP_LOG.Debug("Agent 重连后 Provider 内存缓存已同步",
+				zap.Uint("providerID", ac.ProviderID))
+		}
+	}()
 }
 
 // triggerPendingDiscovery 检查 Provider 是否有待处理的实例发现任务，如有则触发。

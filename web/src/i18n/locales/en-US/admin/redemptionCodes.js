@@ -76,6 +76,7 @@ export default {
   loadingContainers: 'Loading container list...',
   noStoppedContainers: 'No stopped containers on this node',
   sourceContainerRequired: 'Please select a source container for copy mode',
+  loadContainersFailed: 'Failed to load container list: {reason}',
   fetchContainersFailed: 'Failed to fetch stopped containers',
   // GPU Passthrough
   gpuPassthrough: 'GPU Passthrough',

@@ -1016,7 +1016,7 @@ func GetStoppedContainers(c *gin.Context) {
 		return
 	}
 
-	execCtx, cancel := context.WithTimeout(c.Request.Context(), 30*time.Second)
+	execCtx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
 	defer cancel()
 	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
 	if err != nil {

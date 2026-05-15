@@ -74,6 +74,7 @@ export default {
   loadingContainers: '加载容器列表...',
   noStoppedContainers: '当前节点无已停止的容器',
   sourceContainerRequired: '复制模式下请选择源容器',
+  loadContainersFailed: '加载容器列表失败：{reason}',
   fetchContainersFailed: '获取停止容器列表失败',
   // GPU 直通
   gpuPassthrough: 'GPU 直通',

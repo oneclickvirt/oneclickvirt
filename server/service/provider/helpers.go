@@ -9,6 +9,7 @@ import (
 	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/provider"
 
+	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
 
@@ -48,6 +49,8 @@ func GetProviderInstanceByID(providerID uint) (provider.Provider, error) {
 }
 
 // EnsureProviderConnected 确保Provider已连接并可用
+// 对于 Agent 模式的 Provider：等待 Agent WebSocket 连接就绪（最长 45 秒）
+// 对于 SSH 模式的 Provider：尝试重连后立即返回结果
 func EnsureProviderConnected(ctx context.Context, providerID uint) (provider.Provider, error) {
 	providerInstance, err := GetProviderInstanceByID(providerID)
 	if err != nil {
@@ -74,25 +77,49 @@ func EnsureProviderConnected(ctx context.Context, providerID uint) (provider.Pro
 		return nil, fmt.Errorf("获取Provider信息失败: %w", err)
 	}
 
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		providerInstance, ok := providerSvc.GetProviderByID(providerID)
-		if ok && providerInstance.IsConnected() {
+	// Agent 模式：等待 Agent WebSocket 连接就绪（最长 45 秒，Agent 自身重连间隔通常 10-30 秒）
+	// SSH 模式：不等待，立即返回结果（SSH 连接在 LoadProvider 时已同步建立）
+	if dbProvider.ConnectionType == "agent" {
+		// 先快速检查一次，避免不必要的等待
+		if providerInstance, ok := providerSvc.GetProviderByID(providerID); ok && providerInstance.IsConnected() {
 			return providerInstance, nil
 		}
 
-		if dbProvider.ConnectionType != "agent" || time.Now().After(deadline) {
-			break
-		}
+		deadline := time.Now().Add(45 * time.Second)
+		delay := 500 * time.Millisecond
+		maxDelay := 5 * time.Second
+		firstWarning := true
+		for {
+			providerInstance, ok := providerSvc.GetProviderByID(providerID)
+			if ok && providerInstance.IsConnected() {
+				return providerInstance, nil
+			}
 
-		if ctx != nil {
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			default:
+			if time.Now().After(deadline) {
+				break
+			}
+
+			if ctx != nil {
+				select {
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				default:
+				}
+			}
+
+			if firstWarning && time.Now().After(deadline.Add(-35*time.Second)) {
+				global.APP_LOG.Warn("等待 Agent 连接就绪中",
+					zap.Uint("providerID", providerID),
+					zap.Duration("elapsed", 45*time.Second-time.Until(deadline)))
+				firstWarning = false
+			}
+
+			time.Sleep(delay)
+			delay *= 2
+			if delay > maxDelay {
+				delay = maxDelay
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
 	}
 
 	return nil, fmt.Errorf("Provider ID %d 连接后仍然不可用", providerID)
