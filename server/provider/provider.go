@@ -72,6 +72,16 @@ type DiscoveredPortMapping struct {
 	IsSSH     bool   `json:"isSsh"`     // 是否为SSH端口
 }
 
+// DiscoveredAccelerator 发现到的加速设备信息（GPU/NPU）
+type DiscoveredAccelerator struct {
+	Kind   string `json:"kind"`   // gpu / npu
+	ID     string `json:"id"`     // 设备ID（如索引或PCI地址）
+	Name   string `json:"name"`   // 设备名称
+	Vendor string `json:"vendor"` // 厂商
+	Bus    string `json:"bus"`    // 总线地址（可选）
+	Source string `json:"source"` // 来源：devices/lspci/nvidia-smi/npu-smi
+}
+
 // DiscoveredInstance 发现的实例信息结构体
 type DiscoveredInstance struct {
 	// 基本标识
@@ -84,6 +94,13 @@ type DiscoveredInstance struct {
 	CPU    int   `json:"cpu"`    // CPU核心数
 	Memory int64 `json:"memory"` // 内存大小（MB）
 	Disk   int64 `json:"disk"`   // 磁盘大小（MB）
+
+	// 硬件加速配置（主要用于 LXD/Incus 导入场景）
+	GpuEnabled   bool                    `json:"gpuEnabled"`
+	GpuDeviceIds string                  `json:"gpuDeviceIds"`
+	NpuEnabled   bool                    `json:"npuEnabled"`
+	NpuDeviceIds string                  `json:"npuDeviceIds"`
+	Accelerators []DiscoveredAccelerator `json:"accelerators"`
 
 	// 网络配置
 	PrivateIP    string                  `json:"privateIP"`    // 内网IPv4地址

@@ -235,6 +235,12 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 			HealthStatus:   "healthy",
 			UsedTrafficIn:  0,
 			UsedTrafficOut: 0,
+			HasSshMapping:  false,
+		}
+
+		// 判断是否有SSH端口映射
+		if _, hasSSH := sshPortMap[instance.ID]; hasSSH {
+			instanceResponse.HasSshMapping = true
 		}
 
 		// 从流量查询服务获取的数据中获取（已应用Provider的流量计算模式）

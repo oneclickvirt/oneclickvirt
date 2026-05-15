@@ -10,7 +10,9 @@ export default {
   newExpireAt: 'New Expiry',
   checkinTime: 'Check-in Time',
   checkinSuccess: 'Check-in successful',
+  checkinFailed: 'Check-in failed',
   codeSent: 'Verification info retrieved',
+  getChallengeError: 'Failed to get verification challenge',
   noInstances: 'No instances available for check-in',
   instanceName: 'Instance Name',
   expireAt: 'Expires At',
@@ -20,5 +22,6 @@ export default {
   powStatus: 'PoW Verification',
   powComputing: 'Computing, please wait...',
   powSolved: 'Computation complete',
-  powStart: 'Start Computation'
+  powStart: 'Start Computation',
+  powFailed: 'PoW verification failed'
 }

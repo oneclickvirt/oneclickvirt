@@ -133,5 +133,14 @@ export default {
   transferInstance: "Transfer Instance",
   targetUserId: "Target User ID",
   transferSuccess: "Instance transferred successfully",
-  searchUserPlaceholder: "Search by username or nickname"
+  searchUserPlaceholder: "Search by username or nickname",
+  gpu: "GPU",
+  npu: "NPU",
+  gpuDevice: "GPU Device",
+  npuDevice: "NPU Device",
+  gpuDeviceIds: "GPU Device IDs",
+  npuDeviceIds: "NPU Device IDs",
+  gpuEnabled: "Enabled",
+  gpuDisabled: "Disabled",
+  acceleratorConfig: "Accelerator Config"
 }

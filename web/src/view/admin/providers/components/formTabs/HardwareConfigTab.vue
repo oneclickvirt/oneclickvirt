@@ -224,7 +224,7 @@
             style="margin-right: 6px; margin-bottom: 6px; cursor: pointer;"
             @click="selectGpuId(gpu)"
           >
-            {{ gpu.id || idx }} — {{ gpu.product || gpu.card || $t('admin.providers.gpuUnknown') }}
+            {{ formatDeviceLabel(gpu, idx) }}
           </el-tag>
         </div>
       </template>
@@ -257,11 +257,17 @@ async function handleDetectGPUs() {
   detectingGpus.value = true
   try {
     const res = await detectProviderGPUs(providerId)
-    detectedGpus.value = res?.data?.gpus || []
+    const gpuList = res?.data?.gpus || []
+    const npuList = res?.data?.npus || []
+    detectedGpus.value = res?.data?.accelerators || [...gpuList, ...npuList]
     if (detectedGpus.value.length === 0) {
       ElMessage.info(t('admin.providers.gpuNoneFound'))
     } else {
-      ElMessage.success(t('admin.providers.gpuDetectSuccess', { count: detectedGpus.value.length }))
+      ElMessage.success(t('admin.providers.gpuDetectSuccess', {
+        count: detectedGpus.value.length,
+        gpuCount: gpuList.length,
+        npuCount: npuList.length
+      }))
     }
   } catch (e) {
     ElMessage.error(t('admin.providers.gpuDetectFailed'))
@@ -271,6 +277,10 @@ async function handleDetectGPUs() {
 }
 
 function selectGpuId(gpu) {
+  if (gpu?.kind === 'npu') {
+    ElMessage.info(t('admin.providers.npuIdHint'))
+    return
+  }
   const id = gpu.id
   if (!id) return
   const current = props.modelValue.gpuDeviceIds || ''
@@ -279,6 +289,15 @@ function selectGpuId(gpu) {
     ids.push(String(id))
     props.modelValue.gpuDeviceIds = ids.join(',')
   }
+}
+
+function formatDeviceLabel(gpu, idx) {
+  const typeLabel = gpu?.kind === 'npu'
+    ? t('admin.providers.acceleratorNpu')
+    : t('admin.providers.acceleratorGpu')
+  const idPart = gpu?.id ? `${gpu.id} - ` : `${idx} - `
+  const namePart = gpu?.product || gpu?.name || gpu?.card || t('admin.providers.gpuUnknown')
+  return `[${typeLabel}] ${idPart}${namePart}`
 }
 </script>
 

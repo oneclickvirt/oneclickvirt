@@ -205,10 +205,10 @@
               disabled
             />
             <el-option
-              v-for="c in stoppedContainers"
-              :key="c"
-              :value="c"
-              :label="c"
+              v-for="c in stoppedContainerOptions"
+              :key="c.name"
+              :value="c.name"
+              :label="c.label"
             />
           </el-select>
         </el-form-item>
@@ -534,6 +534,7 @@ const bandwidthSpecs = ref([])
 
 // 复制模式：停止中容器列表
 const stoppedContainers = ref([])
+const stoppedContainerOptions = ref([])
 const stoppedContainersLoading = ref(false)
 const isLxdIncusProvider = computed(() => {
   if (!createForm.providerId) return false
@@ -731,6 +732,7 @@ const cancelCreate = () => {
   diskSpecs.value = []
   bandwidthSpecs.value = []
   stoppedContainers.value = []
+  stoppedContainerOptions.value = []
   detectedGpus.value = []
   selectedGpuIndices.value = []
   gpuChecked.value = false
@@ -788,10 +790,21 @@ const onProviderChange = async (providerId) => {
     createForm.creationMode = 'standard'
     createForm.sourceContainer = ''
     stoppedContainers.value = []
+    stoppedContainerOptions.value = []
     stoppedContainersLoading.value = true
     try {
       const r = await getStoppedContainers(providerId)
-      stoppedContainers.value = (r.data && r.data.containers) || []
+      const rawNames = (r.data && r.data.containers) || []
+      const rawDetails = (r.data && r.data.containerDetails) || []
+      stoppedContainers.value = rawNames
+      if (rawDetails.length > 0) {
+        stoppedContainerOptions.value = rawDetails.map(item => ({
+          name: item.name,
+          label: item.hasGpu ? `${item.name} [GPU${item.gpuDeviceIds ? `: ${item.gpuDeviceIds}` : ''}]` : item.name
+        }))
+      } else {
+        stoppedContainerOptions.value = rawNames.map(name => ({ name, label: name }))
+      }
     } catch (_) {
       // ignore silently
     } finally {
@@ -815,6 +828,7 @@ const onProviderChange = async (providerId) => {
     createForm.creationMode = 'standard'
     createForm.sourceContainer = ''
     stoppedContainers.value = []
+    stoppedContainerOptions.value = []
     resetGpuSelection()
   }
 }

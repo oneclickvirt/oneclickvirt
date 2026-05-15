@@ -184,6 +184,8 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 			MaxTraffic:         0,
 			TrafficLimited:     false,
 			TrafficLimitReason: "",
+			GpuEnabled:         taskReq.GpuEnabled,
+			GpuDeviceIds:       taskReq.GpuDeviceIds,
 		}
 		if err := tx.Create(&instance).Error; err != nil {
 			return fmt.Errorf("创建实例记录失败: %v", err)

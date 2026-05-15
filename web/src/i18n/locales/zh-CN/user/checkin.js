@@ -10,7 +10,9 @@ export default {
   newExpireAt: '新过期时间',
   checkinTime: '签到时间',
   checkinSuccess: '签到成功',
+  checkinFailed: '签到失败',
   codeSent: '验证信息已获取',
+  getChallengeError: '获取验证挑战失败',
   noInstances: '暂无可签到的实例',
   instanceName: '实例名称',
   expireAt: '过期时间',
@@ -20,5 +22,6 @@ export default {
   powStatus: '计算验证',
   powComputing: '正在计算中，请稍候...',
   powSolved: '计算完成',
-  powStart: '开始计算验证'
+  powStart: '开始计算验证',
+  powFailed: '计算验证失败'
 }

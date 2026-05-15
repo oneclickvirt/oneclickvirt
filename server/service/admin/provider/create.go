@@ -451,8 +451,24 @@ func (s *Service) discoverAndImportInstances(providerID uint, autoImport, autoAd
 	// 等待一小段时间确保Provider连接已建立
 	time.Sleep(5 * time.Second)
 
-	// 执行实例发现
-	discoveryResult, err := s.DiscoverProviderInstances(ctx, providerID)
+	// 执行实例发现（agent模式下连接刚建立时增加重试）
+	var (
+		discoveryResult *DiscoveryResult
+		err             error
+	)
+	for attempt := 1; attempt <= 3; attempt++ {
+		discoveryResult, err = s.DiscoverProviderInstances(ctx, providerID)
+		if err == nil {
+			break
+		}
+		global.APP_LOG.Warn("Provider实例发现失败，准备重试",
+			zap.Uint("providerId", providerID),
+			zap.Int("attempt", attempt),
+			zap.Error(err))
+		if attempt < 3 {
+			time.Sleep(3 * time.Second)
+		}
+	}
 	if err != nil {
 		global.APP_LOG.Error("Provider实例发现失败",
 			zap.Uint("providerId", providerID),

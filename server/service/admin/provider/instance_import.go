@@ -229,6 +229,11 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 				HasPortConflict:    hasPortConflict,
 				PortConflictDetail: conflictDetail,
 				DiscoveredData:     string(rawDataBytes),
+				// GPU/NPU配置
+				GpuEnabled:   discovered.GpuEnabled,
+				GpuDeviceIds: discovered.GpuDeviceIds,
+				NpuEnabled:   discovered.NpuEnabled,
+				NpuDeviceIds: discovered.NpuDeviceIds,
 			}
 
 			if err := tx.Create(&instance).Error; err != nil {
@@ -288,6 +293,8 @@ func (s *Service) ImportDiscoveredInstances(ctx context.Context, options ImportO
 						InstanceID:   &instance.ID,
 						CreatedBy:    adminUserID,
 						Remark:       "节点导入自动生成",
+						GpuEnabled:   discovered.GpuEnabled,
+						GpuDeviceIds: discovered.GpuDeviceIds,
 					}
 					if createCodeErr := tx.Create(&oriRedemptionCode).Error; createCodeErr != nil {
 						global.APP_LOG.Warn("为导入实例创建ORI兑换码失败",
