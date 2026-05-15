@@ -83,11 +83,19 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		resetCtx.Provider.Type == "qemu" || resetCtx.Provider.Type == "kubevirt" {
 		for _, oldPort := range resetCtx.OldPortMappings {
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
+				internalHost := oldPort.InternalHost
+				if oldPort.MappingType == "controller" && resetCtx.NewPrivateIP != "" {
+					internalHost = resetCtx.NewPrivateIP
+				}
 				newPort := providerModel.Port{
 					InstanceID:    resetCtx.NewInstanceID,
 					ProviderID:    resetCtx.Provider.ID,
 					HostPort:      oldPort.HostPort,
+					HostPortEnd:   oldPort.HostPortEnd,
 					GuestPort:     oldPort.GuestPort,
+					GuestPortEnd:  oldPort.GuestPortEnd,
+					PortCount:     oldPort.PortCount,
 					Protocol:      oldPort.Protocol,
 					Description:   oldPort.Description,
 					Status:        "active",
@@ -96,6 +104,8 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					PortType:      oldPort.PortType,
 					MappingMethod: oldPort.MappingMethod,
 					IPv6Enabled:   oldPort.IPv6Enabled,
+					MappingType:   oldPort.MappingType,
+					InternalHost:  internalHost,
 				}
 				return tx.Create(&newPort).Error
 			})
@@ -114,11 +124,19 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 		// Step 1: 先创建所有端口映射的数据库记录
 		for _, oldPort := range resetCtx.OldPortMappings {
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
+				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
+				internalHost := oldPort.InternalHost
+				if oldPort.MappingType == "controller" && resetCtx.NewPrivateIP != "" {
+					internalHost = resetCtx.NewPrivateIP
+				}
 				newPort := providerModel.Port{
 					InstanceID:    resetCtx.NewInstanceID,
 					ProviderID:    resetCtx.Provider.ID,
 					HostPort:      oldPort.HostPort,
+					HostPortEnd:   oldPort.HostPortEnd,
 					GuestPort:     oldPort.GuestPort,
+					GuestPortEnd:  oldPort.GuestPortEnd,
+					PortCount:     oldPort.PortCount,
 					Protocol:      oldPort.Protocol,
 					Description:   oldPort.Description,
 					Status:        "active",
@@ -127,6 +145,8 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					PortType:      oldPort.PortType,
 					MappingMethod: oldPort.MappingMethod,
 					IPv6Enabled:   oldPort.IPv6Enabled,
+					MappingType:   oldPort.MappingType,
+					InternalHost:  internalHost,
 				}
 				return tx.Create(&newPort).Error
 			})

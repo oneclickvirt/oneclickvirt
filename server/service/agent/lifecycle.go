@@ -141,6 +141,9 @@ func OnInstanceStarted(ctx context.Context, db *gorm.DB, instanceID uint) {
 		return
 	}
 
+	// 刷新控制端端口转发的 InternalHost（实例重启后IP可能已变更）
+	go refreshControllerPortHosts(db, instanceID)
+
 	providerInstance, provErr := providerService.GetProviderInstanceByID(instance.ProviderID)
 
 	// Always re-detect interfaces on start (veth name may change after restart).
@@ -230,5 +233,58 @@ func updateInstanceInterfaces(ctx context.Context, db *gorm.DB, instance *provid
 					zap.String("v4", ifaceV4))
 			}
 		}
+	}
+}
+
+// refreshControllerPortHosts 刷新实例的控制端端口转发的 InternalHost。
+// 实例重启/重置后IP可能变更，此函数检查并更新控制器端口转发的目标地址。
+func refreshControllerPortHosts(db *gorm.DB, instanceID uint) {
+	var instance providerModel.Instance
+	if err := db.Select("id", "private_ip").First(&instance, instanceID).Error; err != nil {
+		return
+	}
+	if instance.PrivateIP == "" {
+		return
+	}
+
+	// 查询该实例的所有活跃控制端端口转发
+	var ports []providerModel.Port
+	if err := db.Where("instance_id = ? AND mapping_type = ? AND status = ?",
+		instanceID, "controller", "active").Find(&ports).Error; err != nil {
+		if global.APP_LOG != nil {
+			global.APP_LOG.Warn("查询控制端端口转发失败",
+				zap.Uint("instance_id", instanceID), zap.Error(err))
+		}
+		return
+	}
+
+	updated := 0
+	for _, port := range ports {
+		// 如果 InternalHost 为空或是旧的IP，更新为当前IP
+		if port.InternalHost == "" || port.InternalHost != instance.PrivateIP {
+			if err := db.Model(&providerModel.Port{}).
+				Where("id = ?", port.ID).
+				Update("internal_host", instance.PrivateIP).Error; err != nil {
+				if global.APP_LOG != nil {
+					global.APP_LOG.Warn("更新控制端端口转发目标地址失败",
+						zap.Uint("port_id", port.ID), zap.Error(err))
+				}
+			} else {
+				updated++
+				if global.APP_LOG != nil {
+					global.APP_LOG.Debug("已更新控制端端口转发目标地址",
+						zap.Uint("port_id", port.ID),
+						zap.String("new_host", instance.PrivateIP),
+						zap.String("old_host", port.InternalHost))
+				}
+			}
+		}
+	}
+
+	if updated > 0 && global.APP_LOG != nil {
+		global.APP_LOG.Info("实例重启后已刷新控制端端口转发目标地址",
+			zap.Uint("instance_id", instanceID),
+			zap.Int("updated", updated),
+			zap.String("private_ip", instance.PrivateIP))
 	}
 }

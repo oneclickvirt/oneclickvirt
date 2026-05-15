@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"time"
 
@@ -379,6 +380,64 @@ func RestartControllerPortForward(portID uint, providerID uint, listenPort int, 
 	return StartControllerPortForward(portID, providerID, listenPort, targetHost, targetPort)
 }
 
+// resolveTargetHost 解析控制器端口转发的目标地址。
+// 优先使用 port.InternalHost（用户指定），若为空或可能需要刷新，
+// 则从实例的当前 PrivateIP 获取并回写到数据库。
+func resolveTargetHost(port *providerModel.Port) string {
+	// 如果 InternalHost 已设置且不是明显的IP格式（可能是容器名），直接使用
+	if port.InternalHost != "" {
+		// 如果 InternalHost 看起来像容器名（非纯IP），保持不变
+		if !looksLikeIP(port.InternalHost) {
+			return port.InternalHost
+		}
+		// 如果是IP格式，检查实例当前IP是否已变更
+		var instance providerModel.Instance
+		if err := global.APP_DB.Select("private_ip").
+			Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+			if instance.PrivateIP != "" && instance.PrivateIP != port.InternalHost {
+				// 实例IP已变更，更新 InternalHost
+				global.APP_LOG.Info("控制器端口转发目标IP已变更，自动更新",
+					zap.Uint("portID", port.ID),
+					zap.String("oldHost", port.InternalHost),
+					zap.String("newHost", instance.PrivateIP))
+				global.APP_DB.Model(&providerModel.Port{}).
+					Where("id = ?", port.ID).
+					Update("internal_host", instance.PrivateIP)
+				return instance.PrivateIP
+			}
+		}
+		return port.InternalHost
+	}
+
+	// InternalHost 为空，从实例获取
+	var instance providerModel.Instance
+	if err := global.APP_DB.Select("private_ip").
+		Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
+		if instance.PrivateIP != "" {
+			// 回写 InternalHost
+			global.APP_DB.Model(&providerModel.Port{}).
+				Where("id = ?", port.ID).
+				Update("internal_host", instance.PrivateIP)
+			return instance.PrivateIP
+		}
+	}
+
+	return ""
+}
+
+// looksLikeIP 判断字符串是否看起来像IP地址（用于区分容器名和IP）。
+func looksLikeIP(s string) bool {
+	// 简单判断：IPv4 格式 x.x.x.x，IPv6 包含多个冒号
+	parts := strings.Split(s, ".")
+	if len(parts) == 4 {
+		return true
+	}
+	if strings.Count(s, ":") >= 2 {
+		return true
+	}
+	return false
+}
+
 // RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
 // 在 Agent 重连时调用，确保端口转发使用新的 WebSocket 连接。
 func RecoverControllerPortForwardsByProvider(providerID uint) {
@@ -400,15 +459,7 @@ func RecoverControllerPortForwardsByProvider(providerID uint) {
 
 	recovered := 0
 	for _, port := range ports {
-		targetHost := port.InternalHost
-		if targetHost == "" {
-			// 尝试从实例获取私有IP
-			var instance providerModel.Instance
-			if err := global.APP_DB.Select("private_ip").
-				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
-				targetHost = instance.PrivateIP
-			}
-		}
+		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
 				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
@@ -451,14 +502,7 @@ func RecoverAllControllerPortForwards() {
 	recovered := 0
 	skipped := 0
 	for _, port := range ports {
-		targetHost := port.InternalHost
-		if targetHost == "" {
-			var instance providerModel.Instance
-			if err := global.APP_DB.Select("private_ip").
-				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
-				targetHost = instance.PrivateIP
-			}
-		}
+		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发恢复失败：无目标地址",
 				zap.Uint("portID", port.ID), zap.Uint("instanceID", port.InstanceID))
@@ -504,14 +548,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		}
 
 		// 监听器未运行，尝试恢复
-		targetHost := port.InternalHost
-		if targetHost == "" {
-			var instance providerModel.Instance
-			if err := global.APP_DB.Select("private_ip").
-				Where("id = ?", port.InstanceID).First(&instance).Error; err == nil {
-				targetHost = instance.PrivateIP
-			}
-		}
+		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
 			global.APP_LOG.Warn("控制器端口转发修复失败：无目标地址",
 				zap.Uint("portID", port.ID))
