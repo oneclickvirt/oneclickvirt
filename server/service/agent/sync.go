@@ -59,9 +59,15 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	// Get agent client
 	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping,
 	// NOT the machine where the agent is installed.
+	// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
+	// the WS fallback in Client.doRequest handles connectivity via WebSocket.
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
-		return fmt.Errorf("provider %d has no endpoint", providerID)
+		if p.ConnectionType == "agent" {
+			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+		} else {
+			return fmt.Errorf("provider %d has no endpoint", providerID)
+		}
 	}
 	port := config.AgentPort
 	if port == 0 {

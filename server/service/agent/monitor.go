@@ -27,6 +27,8 @@ func NewMonitorService(ctx context.Context, db *gorm.DB) *MonitorService {
 }
 
 // getAgentClient returns an agent client for the given provider using its endpoint.
+// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
+// the WS fallback in Client.doRequest handles connectivity via WebSocket.
 func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel.MonitoringConfig) (*Client, error) {
 	var p providerModel.Provider
 	if err := s.db.First(&p, providerID).Error; err != nil {
@@ -34,7 +36,11 @@ func (s *MonitorService) getAgentClient(providerID uint, config *monitoringModel
 	}
 	host := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if host == "" {
-		return nil, fmt.Errorf("provider %d has no endpoint", providerID)
+		if p.ConnectionType == "agent" {
+			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+		} else {
+			return nil, fmt.Errorf("provider %d has no endpoint", providerID)
+		}
 	}
 	port := config.AgentPort
 	if port == 0 {
@@ -846,7 +852,9 @@ func DetectAndSaveInstanceInterfaces(
 	if ifaces.V4 != "" && instance.PmacctInterfaceV4 != ifaces.V4 {
 		updates["pmacct_interface_v4"] = ifaces.V4
 	}
-	if ifaces.V6 != "" && instance.PmacctInterfaceV6 != ifaces.V6 {
+	// Only save V6 if the network type supports IPv6.
+	// For no_port_mapping and other IPv4-only network types, V6 should not be saved.
+	if ifaces.V6 != "" && isIPv6Capable(instance.NetworkType) && instance.PmacctInterfaceV6 != ifaces.V6 {
 		updates["pmacct_interface_v6"] = ifaces.V6
 	}
 

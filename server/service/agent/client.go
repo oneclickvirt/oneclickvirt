@@ -6,19 +6,23 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
 	"oneclickvirt/global"
+	providerModel "oneclickvirt/model/provider"
 
 	"go.uber.org/zap"
 )
 
 // Client communicates with the oneclickvirt-agent HTTP API on a provider host.
 type Client struct {
-	baseURL    string
-	token      string
-	httpClient *http.Client
+	baseURL     string
+	token       string
+	httpClient  *http.Client
+	providerID  uint
+	isAgentMode bool // true if provider uses agent reverse-connect mode
 }
 
 var (
@@ -35,12 +39,24 @@ func GetClient(providerID uint, host string, port int, token string) *Client {
 			return c
 		}
 	}
+
+	// Detect if provider is in agent mode (reverse WebSocket connect, NAT traversal)
+	isAgent := false
+	if global.APP_DB != nil {
+		var p providerModel.Provider
+		if err := global.APP_DB.Select("connection_type").Where("id = ?", providerID).First(&p).Error; err == nil {
+			isAgent = p.ConnectionType == "agent"
+		}
+	}
+
 	c := &Client{
 		baseURL: fmt.Sprintf("http://%s:%d", host, port),
 		token:   token,
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		providerID:  providerID,
+		isAgentMode: isAgent,
 	}
 	clientPool.Store(key, c)
 	return c
@@ -150,6 +166,30 @@ type ErrorResponse struct {
 // ---- API Methods ----
 
 func (c *Client) doRequest(method, path string, body interface{}, result interface{}) error {
+	// Try HTTP first
+	err := c.doHTTPRequest(method, path, body, result)
+	if err == nil {
+		return nil
+	}
+
+	// For agent-mode providers behind NAT, HTTP may fail.
+	// Fall back to WebSocket exec + curl to the agent's localhost API.
+	if c.isAgentMode {
+		if wsErr := c.doWSRequest(method, path, body, result); wsErr == nil {
+			return nil
+		} else if global.APP_LOG != nil {
+			global.APP_LOG.Debug("agent WS fallback also failed",
+				zap.Uint("provider_id", c.providerID),
+				zap.String("http_err", err.Error()),
+				zap.String("ws_err", wsErr.Error()))
+		}
+	}
+
+	return err
+}
+
+// doHTTPRequest performs the actual HTTP call.
+func (c *Client) doHTTPRequest(method, path string, body interface{}, result interface{}) error {
 	var reqBody io.Reader
 	if body != nil {
 		data, err := json.Marshal(body)
@@ -189,6 +229,61 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 	if result != nil {
 		if err := json.Unmarshal(respBody, result); err != nil {
 			return fmt.Errorf("unmarshal response: %w", err)
+		}
+	}
+	return nil
+}
+
+// doWSRequest executes the agent API call via WebSocket exec + curl to localhost.
+// This is used as a fallback for agent-mode providers where the agent's HTTP API
+// is behind NAT and only reachable via the WebSocket reverse connection.
+func (c *Client) doWSRequest(method, path string, body interface{}, result interface{}) error {
+	hub := GetHub()
+	conn, ok := hub.GetConn(c.providerID)
+	if !ok || conn == nil {
+		return fmt.Errorf("agent not connected for provider %d", c.providerID)
+	}
+
+	// Extract port from baseURL (e.g., "http://127.0.0.1:23782" → "23782")
+	port := fmt.Sprintf("%d", AgentPort)
+	if idx := strings.LastIndex(c.baseURL, ":"); idx > 0 {
+		port = c.baseURL[idx+1:]
+	}
+
+	// Build curl command to call agent's localhost HTTP API
+	curlURL := fmt.Sprintf("http://localhost:%s%s", port, path)
+	curlCmd := fmt.Sprintf("curl -s -X %s '%s' -H 'Content-Type: application/json' -H 'x-token: %s'",
+		method, curlURL, c.token)
+
+	if body != nil {
+		bodyJSON, err := json.Marshal(body)
+		if err != nil {
+			return fmt.Errorf("marshal body for WS request: %w", err)
+		}
+		// Escape single quotes in JSON body for shell
+		escaped := strings.ReplaceAll(string(bodyJSON), "'", "'\\''")
+		curlCmd += fmt.Sprintf(" -d '%s'", escaped)
+	}
+
+	output, err := conn.ExecuteWithTimeout(curlCmd, 30*time.Second)
+	if err != nil {
+		return fmt.Errorf("ws exec curl failed for %s: %w (output: %s)", path, err, output)
+	}
+
+	output = strings.TrimSpace(output)
+	if output == "" {
+		return fmt.Errorf("ws exec curl returned empty for %s", path)
+	}
+
+	// Check if output looks like an error response
+	var errResp ErrorResponse
+	if json.Unmarshal([]byte(output), &errResp) == nil && errResp.Error != "" {
+		return fmt.Errorf("agent API error via WS: %s", errResp.Error)
+	}
+
+	if result != nil {
+		if err := json.Unmarshal([]byte(output), result); err != nil {
+			return fmt.Errorf("unmarshal WS response for %s: %w (body: %s)", path, err, output)
 		}
 	}
 	return nil

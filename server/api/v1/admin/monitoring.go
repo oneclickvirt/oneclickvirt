@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"strconv"
+	"strings"
 	"time"
 
 	"oneclickvirt/constant"
@@ -490,7 +491,9 @@ func SyncProviderMonitors(c *gin.Context) {
 	common.ResponseSuccess(c, monitors, "同步完成")
 }
 
-// ListAgentMonitors returns the list of monitors directly from the remote agent.
+// ListAgentMonitors returns the list of monitors from the agent.
+// For agent-mode providers (WebSocket reverse connect), returns MySQL-synced data
+// since the agent's HTTP API is not directly reachable.
 func ListAgentMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -510,15 +513,33 @@ func ListAgentMonitors(c *gin.Context) {
 		return
 	}
 
-	// Get provider to construct client - need endpoint AND agent_remote_ip for agent-mode fallback
+	// Pagination
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
+	if page < 1 {
+		page = 1
+	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 20
+	}
+
+	// Get provider to check connection type
 	var p struct {
-		Endpoint      string
-		AgentRemoteIP string
+		Endpoint       string
+		AgentRemoteIP  string
+		ConnectionType string
 	}
 	if err := global.APP_DB.Raw(
-		"SELECT endpoint, agent_remote_ip FROM providers WHERE id = ?", providerID,
+		"SELECT endpoint, agent_remote_ip, connection_type FROM providers WHERE id = ?", providerID,
 	).Scan(&p).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
+		return
+	}
+
+	// For agent-mode providers, the agent's HTTP API is behind NAT/WS tunnel.
+	// Return MySQL-synced data instead of making direct HTTP calls.
+	if p.ConnectionType == "agent" {
+		listAgentMonitorsFromDB(c, uint(providerID), page, pageSize)
 		return
 	}
 
@@ -538,16 +559,6 @@ func ListAgentMonitors(c *gin.Context) {
 	if err != nil {
 		common.ResponseWithError(c, common.ClassifyError(err))
 		return
-	}
-
-	// Pagination
-	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
-	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "20"))
-	if page < 1 {
-		page = 1
-	}
-	if pageSize < 1 || pageSize > 100 {
-		pageSize = 20
 	}
 
 	monitors := result.Monitors
@@ -634,6 +645,84 @@ func ListAgentMonitors(c *gin.Context) {
 	})
 }
 
+// listAgentMonitorsFromDB returns agent monitors from MySQL for agent-mode providers.
+func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int) {
+	var total int64
+	global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&total)
+
+	var monitors []monitoringModel.AgentMonitor
+	if err := global.APP_DB.Where("provider_id = ?", providerID).
+		Order("id DESC").
+		Offset((page - 1) * pageSize).Limit(pageSize).
+		Find(&monitors).Error; err != nil {
+		common.ResponseWithError(c, common.ClassifyError(err))
+		return
+	}
+
+	// Batch check which instances are deleted
+	instanceIDs := make([]uint, 0, len(monitors))
+	instanceNames := make([]string, 0, len(monitors))
+	for _, m := range monitors {
+		instanceIDs = append(instanceIDs, m.InstanceID)
+		if m.InstanceName != "" {
+			instanceNames = append(instanceNames, m.InstanceName)
+		}
+	}
+
+	activeInstanceIDs := make(map[uint]bool)
+	if len(instanceIDs) > 0 {
+		var activeInstances []struct{ ID uint }
+		global.APP_DB.Model(&providerModel.Instance{}).
+			Select("id").
+			Where("id IN ?", instanceIDs).
+			Scan(&activeInstances)
+		for _, inst := range activeInstances {
+			activeInstanceIDs[inst.ID] = true
+		}
+	}
+
+	type EnrichedMonitorItem struct {
+		ID              int64    `json:"id"`
+		Interface       []string `json:"interface"`
+		ProviderKind    *string  `json:"provider_kind"`
+		InstanceName    *string  `json:"instance_name"`
+		TotalBytes      uint64   `json:"total_bytes"`
+		TotalBytesIn    uint64   `json:"total_bytes_in"`
+		TotalBytesOut   uint64   `json:"total_bytes_out"`
+		UpdatedAt       int64    `json:"updated_at"`
+		InstanceDeleted bool     `json:"instance_deleted"`
+	}
+
+	enriched := make([]EnrichedMonitorItem, 0, len(monitors))
+	for _, m := range monitors {
+		ifaces := strings.Split(m.Interfaces, ",")
+		if len(ifaces) == 1 && ifaces[0] == "" {
+			ifaces = nil
+		}
+		pk := m.ProviderKind
+		in := m.InstanceName
+		item := EnrichedMonitorItem{
+			ID:              m.AgentMonitorID,
+			Interface:       ifaces,
+			ProviderKind:    &pk,
+			InstanceName:    &in,
+			TotalBytes:      m.LastTrafficBytesIn + m.LastTrafficBytesOut,
+			TotalBytesIn:    m.LastTrafficBytesIn,
+			TotalBytesOut:   m.LastTrafficBytesOut,
+			UpdatedAt:       m.LastSyncAt.Unix(),
+			InstanceDeleted: !activeInstanceIDs[m.InstanceID],
+		}
+		enriched = append(enriched, item)
+	}
+
+	common.ResponseSuccess(c, map[string]interface{}{
+		"monitors": enriched,
+		"total":    total,
+		"page":     page,
+		"pageSize": pageSize,
+	})
+}
+
 // GetInstanceResources returns resource monitoring data for an instance.
 func GetInstanceResources(c *gin.Context) {
 	instanceIDStr := c.Param("id")
@@ -713,13 +802,17 @@ func ClearProviderMonitors(c *gin.Context) {
 	// Try to clean up agent-side monitors
 	if config.AgentInstalled {
 		var p struct {
-			Endpoint      string
-			AgentRemoteIP string
+			Endpoint       string
+			AgentRemoteIP  string
+			ConnectionType string
 		}
 		if err := global.APP_DB.Raw(
-			"SELECT endpoint, agent_remote_ip FROM providers WHERE id = ?", providerID,
+			"SELECT endpoint, agent_remote_ip, connection_type FROM providers WHERE id = ?", providerID,
 		).Scan(&p).Error; err == nil {
 			host := agentService.ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
+			if host == "" && p.ConnectionType == "agent" {
+				host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+			}
 			if host != "" {
 				port := config.AgentPort
 				if port == 0 {

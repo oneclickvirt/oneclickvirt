@@ -462,7 +462,11 @@ func (s *Service) applyBlockRulesToProvider(ctx context.Context, providerID uint
 		host = p.PortIP
 	}
 	if host == "" {
-		return
+		if p.ConnectionType == "agent" {
+			host = "127.0.0.1" // placeholder; actual calls go through WS fallback in GetClient
+		} else {
+			return
+		}
 	}
 	port := config.AgentPort
 	if port == 0 {

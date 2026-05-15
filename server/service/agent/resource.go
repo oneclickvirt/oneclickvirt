@@ -27,17 +27,24 @@ func NewResourceSyncService(ctx context.Context, db *gorm.DB) *ResourceSyncServi
 func (s *ResourceSyncService) SyncProviderResources(providerID uint, config *monitoringModel.MonitoringConfig) error {
 	// Load the provider record for endpoint info (consistent with traffic sync)
 	var p struct {
-		Endpoint      string
-		PortIP        string
-		AgentRemoteIP string
+		Endpoint       string
+		PortIP         string
+		AgentRemoteIP  string
+		ConnectionType string
 	}
-	if err := s.db.Raw("SELECT endpoint, port_ip, agent_remote_ip FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
+	if err := s.db.Raw("SELECT endpoint, port_ip, agent_remote_ip, connection_type FROM providers WHERE id = ?", providerID).Scan(&p).Error; err != nil {
 		return fmt.Errorf("load provider %d: %w", providerID, err)
 	}
 	// Agent runs on the Endpoint host — PortIP is the external NAT IP used for port mapping.
+	// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
+	// the WS fallback in Client.doRequest handles connectivity via WebSocket.
 	endpoint := ResolveAgentHost(p.Endpoint, p.AgentRemoteIP)
 	if endpoint == "" {
-		return fmt.Errorf("no endpoint for provider %d", providerID)
+		if p.ConnectionType == "agent" {
+			endpoint = "127.0.0.1" // placeholder; actual calls go through WS fallback
+		} else {
+			return fmt.Errorf("no endpoint for provider %d", providerID)
+		}
 	}
 
 	// Get all active monitors for this provider

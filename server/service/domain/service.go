@@ -22,6 +22,8 @@ type Service struct{}
 var domainRegex = regexp.MustCompile(`^([a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$`)
 
 // getAgentClient returns an agent client for the given provider, or nil if agent is not configured.
+// For agent-mode providers behind NAT, the HTTP API is not directly reachable;
+// the WS fallback in Client.doRequest handles connectivity via WebSocket.
 func getAgentClient(providerID uint) *agent.Client {
 	var p providerModel.Provider
 	if err := global.APP_DB.First(&p, providerID).Error; err != nil {
@@ -39,7 +41,11 @@ func getAgentClient(providerID uint) *agent.Client {
 		host = p.PortIP
 	}
 	if host == "" {
-		return nil
+		if p.ConnectionType == "agent" {
+			host = "127.0.0.1" // placeholder; actual calls go through WS fallback
+		} else {
+			return nil
+		}
 	}
 	port := config.AgentPort
 	if port == 0 {
