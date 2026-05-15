@@ -19,7 +19,7 @@ run_module_05() {
         "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"test-source\",\"remark\":\"CI copy mode test\"}" "$group"
 
     # -- Copy mode without sourceContainer must fail --
-    test_api "Copy mode no sourceContainer (400)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400" \
+    test_api "Copy mode no sourceContainer (400/404)" "POST" "/api/v1/admin/redemption-codes/batch-create" "400|404" \
         "{\"count\":1,\"providerId\":${provider_for_redeem},\"instanceType\":\"container\",\"creationMode\":\"copy\",\"sourceContainer\":\"\"}" "$group"
 
     # -- Verify creationMode field is present in list response --

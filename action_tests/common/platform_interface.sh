@@ -106,7 +106,7 @@ try_create_with_fallback() {
         mapfile -t all_ids < <(echo "$existing" | jq -r '.[].instance_id // empty' 2>/dev/null)
         local inst_count=${#all_ids[@]}
         if [[ $inst_count -gt 1 ]]; then
-            log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting ${$((inst_count - 1))} extra(s)..."
+            log_warning "[${platform}] Found ${inst_count} instances — enforcing max-1, deleting $((inst_count - 1)) extra(s)..."
             for (( _i=1; _i<inst_count; _i++ )); do
                 log_info "[${platform}] Deleting extra instance ${all_ids[$_i]}..."
                 platform_dispatch "$platform" "delete_instance" "${all_ids[$_i]}" 2>/dev/null || true
