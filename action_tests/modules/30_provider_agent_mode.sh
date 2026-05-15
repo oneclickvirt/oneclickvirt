@@ -13,9 +13,21 @@ run_module_30() {
         return 1
     fi
 
+    # Resolve worker credentials (global vars from run_env_test.sh)
+    local worker_pass="${WORKER_PASSWORD:-${NODE_PASSWORD:-}}"
+    local worker_key="${ALICE_PRIVATE_KEY:-}"
+
     # =========================================================
     # Section A: Agent Secret Generation
+    # CAUTION: GenerateAgentSecret side-effects connection_type→agent.
+    # Save original value and restore after this section.
     # =========================================================
+
+    # -- Save original connection_type so we can restore it later --
+    local orig_detail; orig_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+        "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
+    local orig_ct; orig_ct=$(echo "$orig_detail" | jq -r '.data.connectionType // "ssh"' 2>/dev/null)
+    log_info "Original provider connectionType: ${orig_ct}"
 
     # -- Generate agent secret --
     local secret_resp; secret_resp=$(test_api "Generate agent secret" "POST" \
@@ -56,9 +68,28 @@ run_module_30() {
     test_api "Generate agent secret (no provider)" "POST" \
         "/api/v1/admin/providers/99999/agent-secret" "404|400" "" "$group"
 
+    # -- Restore original connection_type (GenerateAgentSecret side-effect) --
+    if [[ "$orig_ct" != "agent" ]]; then
+        log_info "Restoring provider connectionType from 'agent' back to '${orig_ct}'..."
+        curl -s --max-time 30 -X PUT \
+            -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            -H "Content-Type: application/json" \
+            -d "{\"connectionType\":\"${orig_ct}\"}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" >/dev/null 2>&1 || true
+        # Verify restoration
+        local restored_detail; restored_detail=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+            "${SERVER_URL}/api/v1/admin/providers/${PROVIDER_ID}" 2>/dev/null)
+        local restored_ct; restored_ct=$(echo "$restored_detail" | jq -r '.data.connectionType // empty' 2>/dev/null)
+        if [[ "$restored_ct" == "$orig_ct" ]]; then
+            log_success "Provider connectionType restored to '${orig_ct}'"
+        else
+            log_warning "Provider connectionType restoration may have failed: expected '${orig_ct}', got '${restored_ct}'"
+        fi
+    fi
+
     # =========================================================
     # Section B: connectionType=agent Provider Creation & Update
-    # =========================================================
+    # ========================================================
 
     # -- Create agent-mode provider (no SSH credentials or mapped networking required) --
     local agent_prov; agent_prov=$(test_api "Create agent-mode provider" "POST" "/api/v1/admin/providers" "200|409" \

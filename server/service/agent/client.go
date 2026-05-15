@@ -31,21 +31,24 @@ var (
 
 // GetClient returns a cached or new agent client for the given provider.
 func GetClient(providerID uint, host string, port int, token string) *Client {
-	key := fmt.Sprintf("%d", providerID)
-	if v, ok := clientPool.Load(key); ok {
-		c := v.(*Client)
-		expected := fmt.Sprintf("http://%s:%d", host, port)
-		if c.baseURL == expected && c.token == token {
-			return c
-		}
-	}
-
-	// Detect if provider is in agent mode (reverse WebSocket connect, NAT traversal)
+	// Always re-check agent mode from DB — connection_type can change after
+	// the client was first cached (e.g. provider reconfigured from SSH to agent).
 	isAgent := false
 	if global.APP_DB != nil {
 		var p providerModel.Provider
 		if err := global.APP_DB.Select("connection_type").Where("id = ?", providerID).First(&p).Error; err == nil {
 			isAgent = p.ConnectionType == "agent"
+		}
+	}
+
+	key := fmt.Sprintf("%d", providerID)
+	if v, ok := clientPool.Load(key); ok {
+		c := v.(*Client)
+		expected := fmt.Sprintf("http://%s:%d", host, port)
+		if c.baseURL == expected && c.token == token {
+			// Refresh isAgentMode in case provider's connection_type changed
+			c.isAgentMode = isAgent
+			return c
 		}
 	}
 
@@ -177,11 +180,15 @@ func (c *Client) doRequest(method, path string, body interface{}, result interfa
 	if c.isAgentMode {
 		if wsErr := c.doWSRequest(method, path, body, result); wsErr == nil {
 			return nil
-		} else if global.APP_LOG != nil {
-			global.APP_LOG.Debug("agent WS fallback also failed",
-				zap.Uint("provider_id", c.providerID),
-				zap.String("http_err", err.Error()),
-				zap.String("ws_err", wsErr.Error()))
+		} else {
+			if global.APP_LOG != nil {
+				global.APP_LOG.Warn("agent WS fallback failed, monitoring may not work",
+					zap.Uint("provider_id", c.providerID),
+					zap.String("path", path),
+					zap.String("http_err", err.Error()),
+					zap.String("ws_err", wsErr.Error()))
+			}
+			return fmt.Errorf("agent API call failed (http: %v, ws: %v)", err, wsErr)
 		}
 	}
 
@@ -250,8 +257,10 @@ func (c *Client) doWSRequest(method, path string, body interface{}, result inter
 		port = c.baseURL[idx+1:]
 	}
 
-	// Build curl command to call agent's localhost HTTP API
-	curlURL := fmt.Sprintf("http://localhost:%s%s", port, path)
+	// Build curl command to call agent's localhost HTTP API.
+	// Use 127.0.0.1 explicitly to avoid IPv6 resolution issues
+	// (the agent binds to 127.0.0.1:23782, not [::1]:23782).
+	curlURL := fmt.Sprintf("http://127.0.0.1:%s%s", port, path)
 	curlCmd := fmt.Sprintf("curl -s -X %s '%s' -H 'Content-Type: application/json' -H 'x-token: %s'",
 		method, curlURL, c.token)
 

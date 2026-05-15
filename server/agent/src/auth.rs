@@ -1,18 +1,28 @@
 use crate::{app_state::AppState, error::ApiError};
 use axum::{
-    extract::{Request, State},
+    extract::{ConnectInfo, Request, State},
     middleware::Next,
     response::Response,
 };
+use std::net::SocketAddr;
 use subtle::ConstantTimeEq;
 use tracing::warn;
 
 pub async fn require_token(
     State(state): State<AppState>,
+    ConnectInfo(remote_addr): ConnectInfo<SocketAddr>,
     request: Request,
     next: Next,
 ) -> Result<Response, ApiError> {
     let path = request.uri().path().to_owned();
+
+    // When the API server is bound to localhost only (agent mode behind NAT),
+    // skip token auth — the request originates from the same machine via
+    // curl commands sent through the WebSocket exec channel.
+    if remote_addr.ip().is_loopback() {
+        return Ok(next.run(request).await);
+    }
+
     let token = request
         .headers()
         .get("x-token")

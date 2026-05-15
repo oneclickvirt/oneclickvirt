@@ -37,25 +37,16 @@ async fn main() {
     dotenvy::dotenv().ok();
     info!("loading configuration from environment");
 
-    // --ws-url <URL> --secret <SECRET> launches agent-mode WS client instead of HTTP server
-    let args: Vec<String> = std::env::args().collect();
-    let ws_url_arg = args.windows(2).find(|w| w[0] == "--ws-url").map(|w| w[1].clone());
-    let secret_arg = args.windows(2).find(|w| w[0] == "--secret").map(|w| w[1].clone());
-    if let (Some(ws_url), Some(secret)) = (ws_url_arg, secret_arg) {
-        // Append ?secret=... if not already present in URL
-        let full_url = if ws_url.contains("secret=") {
-            ws_url
-        } else if ws_url.contains('?') {
-            format!("{}&secret={}", ws_url, secret)
-        } else {
-            format!("{}?secret={}", ws_url, secret)
-        };
-        info!(url = %full_url, "starting in agent WebSocket client mode");
-        ws_client::run_ws_client(full_url).await;
-        return;
-    }
-
-    let api_token = env::var("API_TOKEN").expect("missing API_TOKEN in .env or environment");
+    let api_token = env::var("API_TOKEN").unwrap_or_else(|_| {
+        // In agent mode, the token is primarily used for localhost API auth.
+        // Generate a random fallback if not set via environment.
+        use std::time::{SystemTime, UNIX_EPOCH};
+        let seed = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        format!("agent-local-{:x}", seed)
+    });
 
     let traffic_collect_interval: u64 = env::var("TRAFFIC_COLLECT_INTERVAL")
         .ok()
@@ -157,41 +148,59 @@ async fn main() {
     let conn = Connection::open("traffic.db").expect("failed to open sqlite database");
     let state = AppState {
         conn: Arc::new(Mutex::new(conn)),
-        api_token,
+        api_token: api_token.clone(),
         traffic_collect_interval,
         resource_collect_interval,
-        traffic_collect_method,
+        traffic_collect_method: traffic_collect_method.clone(),
         proxy_routes: proxy_routes.clone(),
         cert_store: cert_store.clone(),
     };
 
     start_collector(state.clone());
 
-    let api_router = Router::new()
-        .route("/api/v1/add", post(handlers::add_monitor))
-        .route("/api/v1/update", post(handlers::update_monitor))
-        .route("/api/v1/delete", post(handlers::delete_monitor))
-        .route("/api/v1/info", post(handlers::info_monitor))
-        .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
-        .route("/api/v1/resources", post(handlers::query_resources))
-        .route("/api/v1/list", get(handlers::list_monitors))
-        .route(
-            "/api/v1/block-rules",
-            post(handlers::apply_block_rules)
-                .delete(handlers::remove_block_rules)
-                .get(handlers::get_block_rules),
-        )
-        .route(
-            "/api/v1/domain-proxy",
-            post(handlers::add_domain_proxy)
-                .delete(handlers::remove_domain_proxy)
-                .get(handlers::list_domain_proxies),
-        )
-        .layer(middleware::from_fn_with_state(
-            state.clone(),
-            auth::require_token,
-        ))
-        .with_state(state);
+    // Check for agent WebSocket client mode (reverse connect / NAT traversal).
+    // In this mode we also start the HTTP API on localhost so that exec_req
+    // curl commands sent by the controller can reach the monitoring API.
+    let args: Vec<String> = std::env::args().collect();
+    let ws_url_arg = args.windows(2).find(|w| w[0] == "--ws-url").map(|w| w[1].clone());
+    let secret_arg = args.windows(2).find(|w| w[0] == "--secret").map(|w| w[1].clone());
+    let is_agent_mode = ws_url_arg.is_some() && secret_arg.is_some();
+
+    if is_agent_mode {
+        let ws_url = ws_url_arg.unwrap();
+        let secret = secret_arg.unwrap();
+        let full_url = if ws_url.contains("secret=") {
+            ws_url
+        } else if ws_url.contains('?') {
+            format!("{}&secret={}", ws_url, secret)
+        } else {
+            format!("{}?secret={}", ws_url, secret)
+        };
+
+        // Build API router (same routes as standalone mode)
+        let api_router = build_api_router(state.clone());
+
+        // Bind HTTP API on localhost only for security (only the agent itself
+        // needs to reach it via curl in exec_req commands from the controller).
+        let localhost_addr: SocketAddr = "127.0.0.1:23782".parse().expect("invalid bind address");
+        info!(%localhost_addr, "starting localhost API server for agent mode");
+
+        // Spawn API server in background
+        let api_listener = tokio::net::TcpListener::bind(localhost_addr)
+            .await
+            .expect("failed to bind localhost API server in agent mode");
+        tokio::spawn(async move {
+            if let Err(e) = axum::serve(api_listener, api_router).await {
+                error!(error = %e, "agent-mode localhost API server error");
+            }
+        });
+
+        info!(url = %full_url, "starting agent WebSocket client");
+        ws_client::run_ws_client(full_url).await;
+        return;
+    }
+
+    let api_router = build_api_router(state.clone());
 
     let app = api_router.merge(
         SwaggerUi::new("/swagger-ui").url("/api-docs/openapi.json", ApiDoc::openapi()),
@@ -376,6 +385,36 @@ async fn main() {
             }
         }
     }
+}
+
+/// Build the API router with all monitoring, block-rule, and domain-proxy routes.
+/// Shared between standalone mode (binds to 0.0.0.0:23782) and agent mode (binds to 127.0.0.1:23782).
+fn build_api_router(state: AppState) -> Router {
+    Router::new()
+        .route("/api/v1/add", post(handlers::add_monitor))
+        .route("/api/v1/update", post(handlers::update_monitor))
+        .route("/api/v1/delete", post(handlers::delete_monitor))
+        .route("/api/v1/info", post(handlers::info_monitor))
+        .route("/api/v1/cleanup", post(handlers::cleanup_monitor))
+        .route("/api/v1/resources", post(handlers::query_resources))
+        .route("/api/v1/list", get(handlers::list_monitors))
+        .route(
+            "/api/v1/block-rules",
+            post(handlers::apply_block_rules)
+                .delete(handlers::remove_block_rules)
+                .get(handlers::get_block_rules),
+        )
+        .route(
+            "/api/v1/domain-proxy",
+            post(handlers::add_domain_proxy)
+                .delete(handlers::remove_domain_proxy)
+                .get(handlers::list_domain_proxies),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            auth::require_token,
+        ))
+        .with_state(state)
 }
 
 /// Load TLS configuration from certificate and key files with SNI-based cert resolution
