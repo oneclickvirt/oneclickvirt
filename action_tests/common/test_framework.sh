@@ -690,8 +690,8 @@ save_base_state() {
     
     # Save instances
     local inst_resp; inst_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
-    SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+        "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=1000" 2>/dev/null) || true
+    SAVED_INSTANCE_IDS=$(echo "$inst_resp" | jq -r '.data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved instance IDs: ${SAVED_INSTANCE_IDS:-none}"
     
     # DO NOT save PROVIDER_ID here - it should persist across modules
@@ -700,13 +700,13 @@ save_base_state() {
     # Save provider list (to avoid deleting base provider)
     local prov_resp; prov_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=100" 2>/dev/null) || true
-    SAVED_PROVIDER_IDS=$(echo "$prov_resp" | jq -r '.data.items[]?.id // .data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    SAVED_PROVIDER_IDS=$(echo "$prov_resp" | jq -r '.data.list[]?.id // .data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved provider IDs: ${SAVED_PROVIDER_IDS:-none}"
     
     # Save user list (to avoid deleting base test users)
     local user_resp; user_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
         "${SERVER_URL}/api/v1/admin/users?page=1&pageSize=100" 2>/dev/null) || true
-    SAVED_USER_IDS=$(echo "$user_resp" | jq -r '.data.items[]?.id // .data.list[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
+    SAVED_USER_IDS=$(echo "$user_resp" | jq -r '.data.list[]?.id // .data.items[]?.id // empty' 2>/dev/null | tr '\n' ',' | sed 's/,$//')
     log_debug "Saved user IDs: ${SAVED_USER_IDS:-none}"
 }
 
@@ -715,8 +715,8 @@ restore_base_state() {
     
     # Delete any instances created during the module (exclude dirty node instances)
     local curr_resp; curr_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
-        "${SERVER_URL}/api/v1/admin/instances?page=1&page_size=1000" 2>/dev/null) || true
-    local curr_ids; curr_ids=$(echo "$curr_resp" | jq -r '.data.items[]?.id // empty' 2>/dev/null)
+        "${SERVER_URL}/api/v1/admin/instances?page=1&pageSize=1000" 2>/dev/null) || true
+    local curr_ids; curr_ids=$(echo "$curr_resp" | jq -r '.data.list[]?.id // empty' 2>/dev/null)
     
     for id in $curr_ids; do
         if [[ -n "$id" ]] && ! echo ",$SAVED_INSTANCE_IDS," | grep -q ",${id},"; then
