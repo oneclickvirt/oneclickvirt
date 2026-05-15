@@ -516,22 +516,27 @@ func (s *Service) detectCopySourceResources(ctx context.Context, providerInstanc
 }
 
 func validateCopyResourceIsolation(provider providerModel.Provider, cpu int, memory, disk int64) error {
+	// 复制模式：源容器可能未设置资源限制，此时跳过该资源的校验（不阻塞流程），
+	// 仅当源容器设置了限制且超过节点可用容量时才报错。
 	if provider.ContainerLimitCPU && cpu <= 0 {
-		return fmt.Errorf("复制模式源容器未设置 limits.cpu，无法进行 CPU 资源隔离")
+		global.APP_LOG.Warn("复制模式源容器未设置 limits.cpu，跳过 CPU 资源隔离校验",
+			zap.String("provider", provider.Name))
 	}
 	if provider.ContainerLimitMemory && memory <= 0 {
-		return fmt.Errorf("复制模式源容器未设置 limits.memory，无法进行内存资源隔离")
+		global.APP_LOG.Warn("复制模式源容器未设置 limits.memory，跳过内存资源隔离校验",
+			zap.String("provider", provider.Name))
 	}
 	if provider.ContainerLimitDisk && disk <= 0 {
-		return fmt.Errorf("复制模式源容器未设置 root 磁盘 size/limits.max，无法进行磁盘资源隔离")
+		global.APP_LOG.Warn("复制模式源容器未设置 root 磁盘 size/limits.max，跳过磁盘资源隔离校验",
+			zap.String("provider", provider.Name))
 	}
-	if provider.ContainerLimitCPU && provider.NodeCPUCores > 0 && cpu > provider.NodeCPUCores-provider.UsedCPUCores {
+	if provider.ContainerLimitCPU && cpu > 0 && provider.NodeCPUCores > 0 && cpu > provider.NodeCPUCores-provider.UsedCPUCores {
 		return fmt.Errorf("节点CPU资源不足：需要 %d 核，当前可用 %d 核", cpu, provider.NodeCPUCores-provider.UsedCPUCores)
 	}
-	if provider.ContainerLimitMemory && provider.NodeMemoryTotal > 0 && memory > provider.NodeMemoryTotal-provider.UsedMemory {
+	if provider.ContainerLimitMemory && memory > 0 && provider.NodeMemoryTotal > 0 && memory > provider.NodeMemoryTotal-provider.UsedMemory {
 		return fmt.Errorf("节点内存资源不足：需要 %d MB，当前可用 %d MB", memory, provider.NodeMemoryTotal-provider.UsedMemory)
 	}
-	if provider.ContainerLimitDisk && provider.NodeDiskTotal > 0 && disk > provider.NodeDiskTotal-provider.UsedDisk {
+	if provider.ContainerLimitDisk && disk > 0 && provider.NodeDiskTotal > 0 && disk > provider.NodeDiskTotal-provider.UsedDisk {
 		return fmt.Errorf("节点磁盘资源不足：需要 %d MB，当前可用 %d MB", disk, provider.NodeDiskTotal-provider.UsedDisk)
 	}
 	return nil

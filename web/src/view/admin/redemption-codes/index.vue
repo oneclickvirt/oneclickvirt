@@ -149,7 +149,7 @@
     <el-dialog
       v-model="showCreateDialog"
       :title="t('admin.redemptionCodes.createDialogTitle')"
-      width="560px"
+      width="min(560px, calc(100vw - 32px))"
       :before-close="handleCreateDialogClose"
     >
       <el-form
@@ -197,6 +197,8 @@
             :placeholder="stoppedContainersLoading ? t('admin.redemptionCodes.loadingContainers') : t('admin.redemptionCodes.sourceContainerPlaceholder')"
             style="width: 100%"
             :loading="stoppedContainersLoading"
+            class="source-container-select"
+            popper-class="source-container-popper"
           >
             <el-option
               v-if="stoppedContainers.length === 0 && !stoppedContainersLoading"
@@ -209,7 +211,9 @@
               :key="c.name"
               :value="c.name"
               :label="c.label"
-            />
+            >
+              <div class="source-container-option" :title="c.label">{{ c.label }}</div>
+            </el-option>
           </el-select>
         </el-form-item>
         <el-form-item :label="t('admin.redemptionCodes.colInstanceType')" prop="instanceType" v-if="createForm.creationMode !== 'copy'">
@@ -324,16 +328,16 @@
           v-if="canConfigureGpuPassthrough"
           :label="t('admin.redemptionCodes.gpuPassthrough')"
         >
-          <div style="width: 100%">
+          <div class="gpu-config-wrap">
             <el-checkbox
               v-model="createForm.gpuEnabled"
-              style="margin-bottom: 8px;"
+              class="gpu-enable-checkbox"
             >
               {{ t('admin.redemptionCodes.gpuEnabled') }}
             </el-checkbox>
-            <div v-if="createForm.gpuEnabled" style="margin-top: 8px;">
-              <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 8px;">
-                <span style="font-size: 13px; color: #606266;">{{ t('admin.redemptionCodes.gpuDeviceIds') }}:</span>
+            <div v-if="createForm.gpuEnabled" class="gpu-config-panel">
+              <div class="gpu-actions-row">
+                <span class="gpu-actions-label">{{ t('admin.redemptionCodes.gpuDeviceIds') }}:</span>
                 <el-button
                   size="small"
                   :loading="gpuDetecting"
@@ -343,28 +347,29 @@
                 </el-button>
               </div>
               <!-- 检测结果列表 -->
-              <div v-if="detectedGpus.length > 0" style="margin-bottom: 8px;">
+              <div v-if="detectedGpus.length > 0" class="gpu-options-wrap">
                 <el-checkbox-group
                   v-model="selectedGpuIndices"
-                  style="display: flex; flex-wrap: wrap; gap: 6px;"
+                  class="gpu-options"
                 >
                   <el-checkbox
                     v-for="(gpu, idx) in detectedGpus"
                     :key="idx"
                     :value="idx"
                     :label="idx"
+                    class="gpu-option-item"
                   >
                     {{ t('admin.redemptionCodes.gpuDeviceIdx', { idx }) }} — {{ gpu.name || gpu.vendor || '' }}
                   </el-checkbox>
                 </el-checkbox-group>
-                <div style="margin-top: 4px; font-size: 12px; color: #909399;">
+                <div class="gpu-batch-actions">
                   <el-button size="small" text @click="selectAllGpus">{{ t('admin.redemptionCodes.gpuSelectAll') }}</el-button>
                   <el-button size="small" text @click="deselectAllGpus">{{ t('admin.redemptionCodes.gpuDeselectAll') }}</el-button>
                 </div>
               </div>
               <div
                 v-else-if="gpuChecked && !gpuDetecting"
-                style="font-size: 12px; color: #909399;"
+                class="gpu-empty-tip"
               >
                 {{ t('admin.redemptionCodes.gpuNoneFound') }}
               </div>
@@ -1035,5 +1040,89 @@ onMounted(async () => {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.gpu-config-wrap {
+  width: 100%;
+}
+
+.gpu-enable-checkbox {
+  margin-bottom: 8px;
+}
+
+.gpu-config-panel {
+  margin-top: 8px;
+}
+
+.gpu-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  flex-wrap: wrap;
+}
+
+.gpu-actions-label {
+  font-size: 13px;
+  color: #606266;
+}
+
+.gpu-options-wrap {
+  margin-bottom: 8px;
+  max-height: 220px;
+  overflow: auto;
+  padding-right: 4px;
+}
+
+.gpu-options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+:deep(.gpu-option-item.el-checkbox) {
+  display: flex;
+  align-items: flex-start;
+  margin-right: 0;
+  min-width: 0;
+  height: auto;
+}
+
+:deep(.gpu-option-item .el-checkbox__label) {
+  white-space: normal;
+  line-height: 1.4;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+}
+
+.gpu-batch-actions {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #909399;
+}
+
+.gpu-empty-tip {
+  font-size: 12px;
+  color: #909399;
+}
+
+:deep(.source-container-select .el-select__selected-item) {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:deep(.source-container-popper .el-select-dropdown__item) {
+  height: auto;
+  min-height: 34px;
+  line-height: 1.35;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+
+.source-container-option {
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
 }
 </style>
