@@ -3,6 +3,8 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -447,12 +449,13 @@ func (s *SchedulerService) checkAndEnforceTrafficLimits() {
 }
 
 // checkAgentVersions 检查所有agent模式节点的Agent版本是否与主控兼容
+// 仅在 Agent 版本明确低于最低兼容版本时发出警告，允许新版本和老版本（未上报版本号）正常工作。
 func (s *SchedulerService) checkAgentVersions() {
 	if global.APP_DB == nil {
 		return
 	}
 
-	compatibleVersion := constant.CompatibleAgentVersion
+	minVersion := constant.CompatibleAgentVersion
 
 	// 查询所有 agent 模式的 provider
 	var providers []provider.Provider
@@ -465,17 +468,70 @@ func (s *SchedulerService) checkAgentVersions() {
 
 	for _, p := range providers {
 		if p.AgentVersion == "" {
-			global.APP_LOG.Debug("Agent未上报版本信息",
-				zap.Uint("providerID", p.ID),
-				zap.String("providerName", p.Name))
+			// 旧版 agent 未上报版本号，视为兼容
 			continue
 		}
-		if p.AgentVersion != compatibleVersion {
-			global.APP_LOG.Warn("Agent版本与主控不兼容",
+		// 仅当 agent 版本明确低于最小兼容版本时才告警；
+		// 版本号格式不一致时跳过（如 date-based vs semver），避免误报。
+		if compareVersions(p.AgentVersion, minVersion) < 0 {
+			global.APP_LOG.Warn("Agent版本过低，与主控不兼容",
 				zap.Uint("providerID", p.ID),
 				zap.String("providerName", p.Name),
 				zap.String("agentVersion", p.AgentVersion),
-				zap.String("compatibleVersion", compatibleVersion))
+				zap.String("minCompatibleVersion", minVersion))
 		}
 	}
+}
+
+// compareVersions compares two version strings after normalising a leading "v".
+// Returns -1 if a < b, 0 if a == b, 1 if a > b, or -2 if the formats are
+// incomparable (e.g. semver vs date-based).
+// Supports both semver (X.Y.Z) and date-based (YYYYMMDD-HHMMSS) styles.
+func compareVersions(a, b string) int {
+	a = strings.TrimPrefix(a, "v")
+	b = strings.TrimPrefix(b, "v")
+
+	// If equal after normalisation, they are the same.
+	if a == b {
+		return 0
+	}
+
+	// Try semver-style comparison first: split by "." and compare numerically.
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	if len(aParts) >= 2 && len(bParts) >= 2 {
+		maxLen := len(aParts)
+		if len(bParts) > maxLen {
+			maxLen = len(bParts)
+		}
+		for i := 0; i < maxLen; i++ {
+			var aNum, bNum int
+			if i < len(aParts) {
+				aNum, _ = strconv.Atoi(strings.Split(aParts[i], "-")[0])
+			}
+			if i < len(bParts) {
+				bNum, _ = strconv.Atoi(strings.Split(bParts[i], "-")[0])
+			}
+			if aNum < bNum {
+				return -1
+			}
+			if aNum > bNum {
+				return 1
+			}
+		}
+		return 0
+	}
+
+	// If one is semver and the other isn't, they are incomparable.
+	aIsSemver := len(aParts) >= 2
+	bIsSemver := len(bParts) >= 2
+	if aIsSemver != bIsSemver {
+		return -2 // incomparable
+	}
+
+	// Both are non-semver — try lexicographic (works for date-based).
+	if a < b {
+		return -1
+	}
+	return 1
 }

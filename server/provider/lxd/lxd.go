@@ -190,13 +190,21 @@ func (l *LXDProvider) GetVersion() string {
 }
 
 // getLXDVersion 获取 LXD 版本
+// Uses lxd --version (fast, local binary) with a short timeout to avoid
+// blocking the agent's WebSocket read loop when lxd isn't installed.
+// Falls back to lxc version only if lxd binary is absent.
 func (l *LXDProvider) getLXDVersion() error {
 	if l.sshClient == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	// 使用 lxd --version 或 lxc version 命令获取版本
-	output, err := l.sshClient.Execute("lxd --version 2>/dev/null || lxc version 2>/dev/null")
+	// lxd --version is fast and local; lxc version may try to reach the
+	// LXD daemon socket and hang.  Use a short timeout (15 s) which is
+	// more than enough for a version query.
+	output, err := l.sshClient.ExecuteWithTimeout(
+		"lxd --version 2>/dev/null || lxc version 2>/dev/null",
+		15*time.Second,
+	)
 	if err != nil {
 		global.APP_LOG.Warn("获取 LXD 版本失败",
 			zap.Error(err))

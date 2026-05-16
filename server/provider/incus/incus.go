@@ -186,13 +186,20 @@ func (i *IncusProvider) GetVersion() string {
 }
 
 // getIncusVersion 获取 Incus 版本
+// Uses incus --version (fast, local binary) with a short timeout to avoid
+// blocking the agent's WebSocket read loop when incus isn't installed.
+// Falls back to incus version only if incus binary is absent.
 func (i *IncusProvider) getIncusVersion() error {
 	if i.sshClient == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	// 使用 incus --version 或 incus version 命令获取版本
-	output, err := i.sshClient.Execute("incus --version 2>/dev/null || incus version 2>/dev/null")
+	// incus --version is fast and local; incus version may try to reach the
+	// incus daemon socket and hang.  Use a short timeout (15 s).
+	output, err := i.sshClient.ExecuteWithTimeout(
+		"incus --version 2>/dev/null || incus version 2>/dev/null",
+		15*time.Second,
+	)
 	if err != nil {
 		global.APP_LOG.Warn("获取 Incus 版本失败",
 			zap.Error(err))

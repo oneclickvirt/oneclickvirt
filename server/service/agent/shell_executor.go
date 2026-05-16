@@ -26,8 +26,9 @@ type AgentShellExecutor struct {
 }
 
 // 每个 Provider 最大并发 Agent 命令数（WebSocket 通道复用）
-// 增加到 5 以避免 GPU 检测、流量同步、资源采集等并发操作时的槽位耗尽
-const maxConcurrentAgentCommands = 5
+// 10 个并发槽位足以覆盖 GPU 检测、流量同步、资源采集、健康检查等场景，
+// 同时防止 WebSocket 帧队列过度堆积。
+const maxConcurrentAgentCommands = 10
 
 // NewAgentShellExecutor creates an AgentShellExecutor for the given provider.
 func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
@@ -91,7 +92,12 @@ func wrapShellEnv(command string) string {
 	if trimmed == "" {
 		return trimmed
 	}
-	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; [ -f ~/.bashrc ] && . ~/.bashrc >/dev/null 2>&1 || true; [ -f ~/.bash_profile ] && . ~/.bash_profile >/dev/null 2>&1 || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+	// Only source /etc/profile (system-wide, predictable).
+	// Do NOT source ~/.bashrc / ~/.bash_profile — they are user-specific and
+	// may contain interactive prompts, network calls, or commands that hang,
+	// which would block the agent's WebSocket read loop for all commands.
+	// PATH is extended with common binary locations for LXD/Incus tooling.
+	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
 }
 
 // Execute runs a command on the remote agent with a default 300s timeout.

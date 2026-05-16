@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::collections::HashMap;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tracing::{info, warn};
 
@@ -114,6 +114,12 @@ where
     let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
     let shell_sessions: Arc<Mutex<HashMap<String, ShellHandle>>> = Arc::new(Mutex::new(HashMap::new()));
 
+    // Limit concurrent command executions to 10 to prevent the agent from
+    // spawning an unbounded number of processes when the controller sends
+    // many commands in rapid succession (e.g. GPU detection + resource
+    // sync + health check + user exec all at once).
+    let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
+
     // Send initial info frame
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
@@ -161,34 +167,60 @@ where
 
                         info!(id = %req_id, cmd = %cmd, "executing command from controller");
 
-                        let output = Command::new("sh")
-                            .arg("-c")
-                            .arg(&cmd)
-                            .stdout(Stdio::piped())
-                            .stderr(Stdio::piped())
-                            .output()
+                        // Spawn command execution in a separate task so the read loop
+                        // is never blocked by a slow or hanging command.  This prevents
+                        // a single stuck `lxc version` / `lxd --version` from starving
+                        // ping/pong and all subsequent commands for the entire agent.
+                        let ws_tx_clone = ws_tx.clone();
+                        let permits = exec_permits.clone();
+                        tokio::spawn(async move {
+                            // Acquire a concurrency permit; if all 10 slots are busy
+                            // this will wait (without blocking the read loop).
+                            let _permit = permits.acquire_owned().await
+                                .expect("exec semaphore must not be closed");
+
+                            // Default timeout: 300 s.  Individual commands that need
+                            // shorter deadlines are handled by the controller-side
+                            // ExecuteWithTimeout which will abandon the pending channel.
+                            let output = tokio::time::timeout(
+                                std::time::Duration::from_secs(300),
+                                Command::new("sh")
+                                    .arg("-c")
+                                    .arg(&cmd)
+                                    .stdout(Stdio::piped())
+                                    .stderr(Stdio::piped())
+                                    .output(),
+                            )
                             .await;
 
-                        let resp_payload = match output {
-                            Ok(out) => ExecRespPayload {
-                                stdout: String::from_utf8_lossy(&out.stdout).to_string(),
-                                stderr: String::from_utf8_lossy(&out.stderr).to_string(),
-                                exit_code: out.status.code().unwrap_or(-1),
-                            },
-                            Err(e) => ExecRespPayload {
-                                stdout: String::new(),
-                                stderr: e.to_string(),
-                                exit_code: -1,
-                            },
-                        };
+                            let resp_payload = match output {
+                                Ok(Ok(out)) => ExecRespPayload {
+                                    stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                                    stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                                    exit_code: out.status.code().unwrap_or(-1),
+                                },
+                                Ok(Err(e)) => ExecRespPayload {
+                                    stdout: String::new(),
+                                    stderr: e.to_string(),
+                                    exit_code: -1,
+                                },
+                                Err(_elapsed) => ExecRespPayload {
+                                    stdout: String::new(),
+                                    stderr: "command execution timed out (300s) on agent".to_string(),
+                                    exit_code: -1,
+                                },
+                            };
 
-                        let resp_frame = WsFrame {
-                            msg_type: "exec_resp".to_string(),
-                            id: Some(req_id),
-                            payload: Some(serde_json::to_value(resp_payload).unwrap()),
-                        };
-                        let resp_text = serde_json::to_string(&resp_frame).map_err(|e| e.to_string())?;
-                        ws_tx.send(Message::Text(resp_text.into())).await.map_err(|e| e.to_string())?;
+                            let resp_frame = WsFrame {
+                                msg_type: "exec_resp".to_string(),
+                                id: Some(req_id.clone()),
+                                payload: Some(serde_json::to_value(resp_payload).unwrap()),
+                            };
+                            let resp_text = serde_json::to_string(&resp_frame)
+                                .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
+                            let _ = ws_tx_clone.send(Message::Text(resp_text.into())).await;
+                            // _permit is dropped here, releasing the slot
+                        });
                     }
                     "ping" => {
                         let pong = WsFrame {
