@@ -625,8 +625,8 @@ const handleGenerateAgentSecret = async () => {
         ElMessage.success(t('admin.providers.agentSecretGenerated'))
       }
     } else if (res.data && res.data.wsPath) {
-      const origin = window.location.origin
-      const wsUrl = origin.replace(/^http/, 'ws') + res.data.wsPath
+      // Fallback: build install command client-side (defaults to wss)
+      const wsUrl = window.location.origin.replace(/^http/, 'wss') + res.data.wsPath
       agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
       if (res.data.isExisting) {
         ElMessage.info(t('admin.providers.agentSecretExists'))

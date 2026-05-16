@@ -754,6 +754,8 @@ export default {
   agentCmdOcvTip: "After installation, use ocv on the node to manage Agent: ocv status|start|stop|restart|upgrade|uninstall|log",
   cdnAccel: "CDN",
   cdnDirect: "Direct",
+  wssSecure: "Secure(wss)",
+  wsPlain: "Plain(ws)",
   agentInstallSection: "Agent Management Commands",
   agentLastSeen: "Last Seen",
   agentOnlineDuration: "Online Duration",

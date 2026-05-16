@@ -206,6 +206,13 @@
             <span>{{ $t('admin.providers.agentCmdInstall') }}</span>
             <div style="display:flex;align-items:center;gap:8px;">
               <el-switch
+                v-model="useWSS"
+                size="small"
+                :active-text="$t('admin.providers.wssSecure')"
+                :inactive-text="$t('admin.providers.wsPlain')"
+                style="--el-switch-on-color: #13ce66;"
+              />
+              <el-switch
                 v-model="useCDN"
                 size="small"
                 :active-text="$t('admin.providers.cdnAccel')"
@@ -355,6 +362,7 @@ import { Connection, WarningFilled, CircleCheck, InfoFilled } from '@element-plu
 const { t } = useI18n()
 const localCommand = ref('')
 const useCDN = ref(true)
+const useWSS = ref(true)
 
 const props = defineProps({
   modelValue: {
@@ -400,11 +408,19 @@ const hasAgentMappedNetworking = computed(() => Boolean(props.modelValue.host &&
 const showSSHSettings = computed(() => !isAgentMode.value || hasAgentMappedNetworking.value)
 
 const installCmdDisplay = computed(() => {
-  const cmd = props.agentConnectCmd || ''
+  let cmd = props.agentConnectCmd || ''
   if (!cmd) return ''
-  if (useCDN.value) return cmd
-  // Strip CDN prefix: https://cdn.spiritlhl.net/ → direct raw.githubusercontent.com
-  return cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
+  // WSS/WS toggle: replace scheme in --ws-url parameter
+  if (useWSS.value) {
+    cmd = cmd.replace(/--ws-url ws:\/\//g, '--ws-url wss://')
+  } else {
+    cmd = cmd.replace(/--ws-url wss:\/\//g, '--ws-url ws://')
+  }
+  // CDN toggle: strip CDN prefix for direct connection
+  if (!useCDN.value) {
+    cmd = cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
+  }
+  return cmd
 })
 
 const emit = defineEmits([
