@@ -3,6 +3,7 @@
 // exec_req / ping / info / tunnel_open frames.
 
 use futures_util::{SinkExt, StreamExt};
+use regex;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -13,6 +14,7 @@ use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_tungstenite::tungstenite::http::Request;
 use tracing::{info, warn};
+use url;
 
 use crate::tunnel::{handle_binary_frame, handle_tunnel_close, handle_tunnel_open, SessionMap, WsFrame};
 
@@ -72,13 +74,19 @@ struct ShellHandle {
 /// Reconnects automatically with exponential back-off (max 60 s).
 /// `secret` is sent via HTTP header (Authorization / X-Agent-Secret) AND the
 /// initial `info` handshake frame so that it never appears in URL logs.
+/// Any `secret` (or `agent_secret`, `token`) query params in `ws_url` are
+/// stripped before the HTTP request is built (defense-in-depth).
 pub async fn run_ws_client(ws_url: String, secret: String) {
+    // Strip any sensitive query params from the URL for security.
+    // The secret is transmitted via Authorization header instead.
+    let clean_url = strip_secret_params(&ws_url);
+
     let mut delay_secs: u64 = 2;
     loop {
-        info!(url = %ws_url, "connecting to controller via WebSocket");
+        info!(url = %clean_url, "connecting to controller via WebSocket");
         // Build request with secret in headers to avoid URL-query logging.
         let request = match Request::builder()
-            .uri(&ws_url)
+            .uri(&clean_url)
             .header("Authorization", format!("Bearer {}", secret))
             .header("X-Agent-Secret", &secret)
             .body(())
@@ -445,4 +453,42 @@ async fn spawn_interactive_shell() -> Result<Child, String> {
             }
         }
     }
+}
+
+/// Strip sensitive query parameters (secret, agent_secret, token) from a URL.
+/// Defense-in-depth: even if the caller passes a URL with the secret embedded,
+/// we remove it before using the URL in the HTTP request or logging.
+fn strip_secret_params(url_str: &str) -> String {
+    if !url_str.contains('?') {
+        return url_str.to_string();
+    }
+
+    // Use the `url` crate for robust parsing
+    if let Ok(mut parsed) = url::Url::parse(url_str) {
+        let sensitive: &[&str] = &["secret", "agent_secret", "token"];
+        let had = sensitive.iter().any(|k| {
+            parsed.query_pairs().any(|(qk, _)| *k == qk.as_ref())
+        });
+        if !had {
+            return url_str.to_string();
+        }
+        let new_query: Vec<String> = parsed
+            .query_pairs()
+            .filter(|(k, _)| !sensitive.iter().any(|sk| *sk == k.as_ref()))
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+        if new_query.is_empty() {
+            parsed.set_query(None);
+        } else {
+            parsed.set_query(Some(&new_query.join("&")));
+        }
+        return parsed.to_string();
+    }
+
+    // Fallback: simple regex-based strip
+    let re = regex::Regex::new(r"[&?](secret|agent_secret|token)=[^&]*").unwrap();
+    re.replace_all(url_str, "")
+        .replace("?&", "?")
+        .trim_end_matches('?')
+        .to_string()
 }

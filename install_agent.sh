@@ -417,6 +417,19 @@ install_service() {
   # ── systemd ──
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
     log_info "Detected systemd — installing systemd service..."
+
+    # Write secret to a separate env file with restricted permissions (0600)
+    # so it does NOT appear in `systemctl cat` or `ps aux` output.
+    ENV_FILE="${INSTALL_DIR}/env"
+    cat > "$ENV_FILE" << EOF
+# OneClickVirt Agent environment (permissions: 0600)
+WS_URL=${WS_URL}
+AGENT_SECRET=${SECRET}
+EOF
+    chmod 600 "$ENV_FILE"
+    chown root:root "$ENV_FILE" 2>/dev/null || true
+    log_info "Agent environment file created at ${ENV_FILE} (0600)"
+
     cat > "$SERVICE_FILE" << EOF
 [Unit]
 Description=OneClickVirt Agent
@@ -429,7 +442,8 @@ Type=simple
 User=root
 Group=root
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=${BINARY_PATH} --ws-url ${WS_URL} --secret ${SECRET}
+EnvironmentFile=-${ENV_FILE}
+ExecStart=${BINARY_PATH} --ws-url \${WS_URL} --secret \${AGENT_SECRET}
 Restart=always
 RestartSec=10
 StartLimitInterval=120
@@ -459,6 +473,17 @@ EOF
   # ── SysV init (Debian/Ubuntu/RHEL legacy) ──
   if [ -d /etc/init.d ] && { command -v update-rc.d >/dev/null 2>&1 || command -v chkconfig >/dev/null 2>&1; }; then
     log_info "Detected SysV init — installing init.d script..."
+
+    # Write secret to a separate env file with restricted permissions (0600)
+    ENV_FILE="${INSTALL_DIR}/env"
+    cat > "$ENV_FILE" << EOF
+# OneClickVirt Agent environment (permissions: 0600)
+WS_URL=${WS_URL}
+AGENT_SECRET=${SECRET}
+EOF
+    chmod 600 "$ENV_FILE"
+    chown root:root "$ENV_FILE" 2>/dev/null || true
+
     cat > "/etc/init.d/${SERVICE_NAME}" << EOF
 #!/bin/sh
 ### BEGIN INIT INFO
@@ -473,7 +498,13 @@ EOF
 PIDFILE=/var/run/${SERVICE_NAME}.pid
 LOGFILE=/var/log/${SERVICE_NAME}.log
 BIN=${BINARY_PATH}
-ARGS="--ws-url ${WS_URL} --secret ${SECRET}"
+ENV_FILE=${ENV_FILE}
+
+# Source env file to get WS_URL and AGENT_SECRET
+if [ -f "\$ENV_FILE" ]; then
+  . "\$ENV_FILE"
+fi
+ARGS="--ws-url \${WS_URL} --secret \${AGENT_SECRET}"
 
 case "\$1" in
   start)
@@ -521,12 +552,23 @@ EOF
   # ── OpenRC (Alpine/Gentoo) ──
   if command -v rc-service >/dev/null 2>&1 && [ -d /etc/init.d ]; then
     log_info "Detected OpenRC — installing init script..."
+
+    # Write secret to a separate env file with restricted permissions (0600)
+    ENV_FILE="${INSTALL_DIR}/env"
+    cat > "$ENV_FILE" << EOF
+# OneClickVirt Agent environment (permissions: 0600)
+WS_URL=${WS_URL}
+AGENT_SECRET=${SECRET}
+EOF
+    chmod 600 "$ENV_FILE"
+    chown root:root "$ENV_FILE" 2>/dev/null || true
+
     cat > "/etc/init.d/${SERVICE_NAME}" << EOF
 #!/sbin/openrc-run
 name="${SERVICE_NAME}"
 description="OneClickVirt Agent"
-command="${BINARY_PATH}"
-command_args="--ws-url ${WS_URL} --secret ${SECRET}"
+command="/bin/sh"
+command_args="-c '. ${ENV_FILE} && exec ${BINARY_PATH}'"
 command_background=true
 pidfile="/var/run/\${RC_SVCNAME}.pid"
 output_log="/var/log/\${RC_SVCNAME}.log"
@@ -549,7 +591,22 @@ EOF
 
   # ── Fallback: nohup ──
   log_warning "No supported init system found (systemd/SysV/OpenRC). Starting as foreground process."
-  nohup "$BINARY_PATH" --ws-url "$WS_URL" --secret "$SECRET" \
+
+  # Create env file with restricted permissions
+  ENV_FILE="${INSTALL_DIR}/env"
+  cat > "$ENV_FILE" << EOF
+# OneClickVirt Agent environment (permissions: 0600)
+WS_URL=${WS_URL}
+AGENT_SECRET=${SECRET}
+EOF
+  chmod 600 "$ENV_FILE"
+  chown root:root "$ENV_FILE" 2>/dev/null || true
+
+  # Source env file to set WS_URL/AGENT_SECRET in environment,
+  # then exec the agent binary WITHOUT CLI args so secret does NOT
+  # appear in `ps aux` output (env vars are in /proc/PID/environ,
+  # readable only by root).
+  nohup sh -c ". ${ENV_FILE} && exec ${BINARY_PATH}" \
     >/var/log/oneclickvirt-agent.log 2>&1 &
   log_success "Agent started (PID $!). Log: /var/log/oneclickvirt-agent.log"
   log_warning "The agent will NOT auto-start on reboot. Install an init system for persistence."

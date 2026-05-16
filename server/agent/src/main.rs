@@ -18,16 +18,26 @@ use axum::{Router, middleware, routing::{get, post}};
 use collector::start_collector;
 use db::init_db;
 use docs::ApiDoc;
+use regex;
 use rusqlite::Connection;
 use std::{env, fs, io::BufReader, net::SocketAddr, path::Path, sync::Arc};
 use tokio::sync::Mutex;
 use tracing::{error, info, warn};
 use tracing_subscriber::{EnvFilter, fmt};
+use url;
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
 
 #[tokio::main]
 async fn main() {
+    // Install rustls crypto provider BEFORE any TLS-related operations.
+    // rustls 0.23 requires an explicit crypto provider; without this,
+    // any wss:// connection (tokio-tungstenite via rustls) will panic with:
+    // "Could not automatically determine the process-level CryptoProvider"
+    rustls::crypto::ring::default_provider()
+        .install_default()
+        .expect("failed to install rustls ring crypto provider");
+
     fmt()
         .with_env_filter(
             EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")),
@@ -161,21 +171,29 @@ async fn main() {
     // Check for agent WebSocket client mode (reverse connect / NAT traversal).
     // In this mode we also start the HTTP API on localhost so that exec_req
     // curl commands sent by the controller can reach the monitoring API.
+    //
+    // Config sources (in priority order):
+    //   1. Env vars: WS_URL, AGENT_SECRET (preferred — avoids plaintext in ps/systemctl)
+    //   2. CLI args: --ws-url <URL> --secret <SECRET> (legacy fallback)
     let args: Vec<String> = std::env::args().collect();
     let ws_url_arg = args.windows(2).find(|w| w[0] == "--ws-url").map(|w| w[1].clone());
     let secret_arg = args.windows(2).find(|w| w[0] == "--secret").map(|w| w[1].clone());
-    let is_agent_mode = ws_url_arg.is_some() && secret_arg.is_some();
+
+    // Env vars take priority over CLI args (env vars don't appear in ps output)
+    let ws_url_final = env::var("WS_URL").ok().or(ws_url_arg);
+    let secret_final = env::var("AGENT_SECRET").ok().or(secret_arg);
+
+    let is_agent_mode = ws_url_final.is_some() && secret_final.is_some();
 
     if is_agent_mode {
-        let ws_url = ws_url_arg.unwrap();
-        let secret = secret_arg.unwrap();
-        let full_url = if ws_url.contains("secret=") {
-            ws_url
-        } else if ws_url.contains('?') {
-            format!("{}&secret={}", ws_url, secret)
-        } else {
-            format!("{}?secret={}", ws_url, secret)
-        };
+        let ws_url = ws_url_final.unwrap();
+        let secret = secret_final.unwrap();
+
+        // Strip any lingering secret= / agent_secret= / token= query params
+        // from the URL for security (secret is sent via HTTP headers instead).
+        // This provides backward compatibility with old controller versions that
+        // might still put the secret in the URL hint.
+        let clean_url = strip_secret_from_url(&ws_url);
 
         // Build API router (same routes as standalone mode)
         let api_router = build_api_router(state.clone());
@@ -195,8 +213,8 @@ async fn main() {
             }
         });
 
-        info!(url = %full_url, "starting agent WebSocket client");
-        ws_client::run_ws_client(full_url, secret).await;
+        info!(url = %clean_url, "starting agent WebSocket client (secret sent via headers)");
+        ws_client::run_ws_client(clean_url, secret).await;
         return;
     }
 
@@ -496,4 +514,61 @@ fn load_tls_config_sni_only(
     config.alpn_protocols = vec![b"h2".to_vec(), b"http/1.1".to_vec()];
 
     axum_server::tls_rustls::RustlsConfig::from_config(Arc::new(config))
+}
+
+/// Strip sensitive query parameters (secret, agent_secret, token) from a URL.
+/// This prevents the secret from appearing in:
+/// - Systemd journal / process listings (ps aux)
+/// - Controller-side HTTP access logs
+/// - Any intermediate proxy logs
+///
+/// The secret is still transmitted securely via HTTP headers
+/// (Authorization: Bearer <secret>, X-Agent-Secret: <secret>).
+fn strip_secret_from_url(url: &str) -> String {
+    // Quick path: no query params at all
+    if !url.contains('?') {
+        return url.to_string();
+    }
+
+    // Use the `url` crate for proper parsing
+    if let Ok(mut parsed) = url::Url::parse(url) {
+        let sensitive_keys = ["secret", "agent_secret", "token"];
+        let mut had_sensitive = false;
+
+        // Check if any sensitive keys exist
+        for key in &sensitive_keys {
+            if parsed.query_pairs().any(|(k, _)| k == *key) {
+                had_sensitive = true;
+                break;
+            }
+        }
+        if !had_sensitive {
+            return url.to_string();
+        }
+
+        // Rebuild query without sensitive params
+        let new_query: Vec<String> = parsed
+            .query_pairs()
+            .filter(|(k, _)| {
+                !sensitive_keys.iter().any(|sk| *sk == k.as_ref())
+            })
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect();
+
+        if new_query.is_empty() {
+            parsed.set_query(None);
+        } else {
+            parsed.set_query(Some(&new_query.join("&")));
+        }
+
+        return parsed.to_string();
+    }
+
+    // If URL parsing fails, do a simple string-based strip
+    let re = regex::Regex::new(r"[&?](secret|agent_secret|token)=[^&]*").unwrap();
+    let cleaned = re.replace_all(url, "");
+    // Fix double `?&` → `?` or trailing `?`
+    let cleaned = cleaned.replace("?&", "?");
+    let cleaned = cleaned.trim_end_matches('?').to_string();
+    cleaned
 }
