@@ -11,6 +11,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::http::Request;
 use tracing::{info, warn};
 
 use crate::tunnel::{handle_binary_frame, handle_tunnel_close, handle_tunnel_open, SessionMap, WsFrame};
@@ -46,6 +47,8 @@ struct ExecRespPayload {
 struct InfoPayload {
     hostname: String,
     version: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secret: Option<String>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -67,15 +70,32 @@ struct ShellHandle {
 
 /// Run the WebSocket reverse-connect loop.
 /// Reconnects automatically with exponential back-off (max 60 s).
-pub async fn run_ws_client(ws_url: String) {
+/// `secret` is sent via HTTP header (Authorization / X-Agent-Secret) AND the
+/// initial `info` handshake frame so that it never appears in URL logs.
+pub async fn run_ws_client(ws_url: String, secret: String) {
     let mut delay_secs: u64 = 2;
     loop {
         info!(url = %ws_url, "connecting to controller via WebSocket");
-        match connect_async(&ws_url).await {
+        // Build request with secret in headers to avoid URL-query logging.
+        let request = match Request::builder()
+            .uri(&ws_url)
+            .header("Authorization", format!("Bearer {}", secret))
+            .header("X-Agent-Secret", &secret)
+            .body(())
+        {
+            Ok(req) => req,
+            Err(e) => {
+                warn!(error = %e, "failed to build WebSocket request, retrying");
+                tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
+                if delay_secs < 60 { delay_secs = (delay_secs * 2).min(60); }
+                continue;
+            }
+        };
+        match connect_async(request).await {
             Ok((ws_stream, _)) => {
                 info!("WebSocket connected to controller");
                 delay_secs = 2; // reset back-off on successful connect
-                if let Err(e) = handle_connection(ws_stream).await {
+                if let Err(e) = handle_connection(ws_stream, &secret).await {
                     warn!(error = %e, "WebSocket connection closed with error");
                 } else {
                     info!("WebSocket connection closed normally");
@@ -92,20 +112,45 @@ pub async fn run_ws_client(ws_url: String) {
     }
 }
 
-async fn handle_connection<S>(ws_stream: tokio_tungstenite::WebSocketStream<S>) -> Result<(), String>
+async fn handle_connection<S>(ws_stream: tokio_tungstenite::WebSocketStream<S>, secret: &str) -> Result<(), String>
 where
     S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send + 'static,
 {
     let (mut write, mut read) = ws_stream.split();
 
-    // mpsc channel — tunnel sessions send outgoing WS frames here
-    let (ws_tx, mut ws_rx) = mpsc::channel::<Message>(256);
+    // ── Dual-priority write channels ──────────────────────────────────────
+    // hi: control messages (pong, exec_resp, tunnel_ack/close, info, shell)
+    //     — small capacity to apply back-pressure early on control floods.
+    // lo: tunnel binary data — larger capacity to absorb bulk TCP bursts
+    //     without blocking control frames.
+    let (ws_tx_hi, mut ws_rx_hi) = mpsc::channel::<Message>(64);
+    let (ws_tx_lo, mut ws_rx_lo) = mpsc::channel::<Message>(512);
 
-    // Forward ws_rx → ws write half in a separate task
+    // Forwarder: always drain hi-priority channel first.
     tokio::spawn(async move {
-        while let Some(msg) = ws_rx.recv().await {
-            if write.send(msg).await.is_err() {
-                break;
+        loop {
+            let msg = match ws_rx_hi.try_recv() {
+                Ok(msg) => Some(msg),
+                Err(mpsc::error::TryRecvError::Empty) => {
+                    tokio::select! {
+                        m = ws_rx_hi.recv() => m,
+                        m = ws_rx_lo.recv() => m,
+                    }
+                }
+                Err(mpsc::error::TryRecvError::Disconnected) => {
+                    match ws_rx_lo.recv().await {
+                        Some(msg) => Some(msg),
+                        None => break,
+                    }
+                }
+            };
+            match msg {
+                Some(msg) => {
+                    if write.send(msg).await.is_err() {
+                        break;
+                    }
+                }
+                None => break,
             }
         }
     });
@@ -116,11 +161,10 @@ where
 
     // Limit concurrent command executions to 10 to prevent the agent from
     // spawning an unbounded number of processes when the controller sends
-    // many commands in rapid succession (e.g. GPU detection + resource
-    // sync + health check + user exec all at once).
+    // many commands in rapid succession.
     let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
 
-    // Send initial info frame
+    // Send initial info frame (includes secret for second-factor validation)
     let hostname = std::fs::read_to_string("/etc/hostname")
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|_| std::env::var("HOSTNAME").unwrap_or_else(|_| "unknown".to_string()));
@@ -131,10 +175,11 @@ where
         payload: Some(serde_json::to_value(InfoPayload {
             hostname,
             version: env!("CARGO_PKG_VERSION").to_string(),
+            secret: Some(secret.to_string()),
         }).unwrap()),
     };
     let info_text = serde_json::to_string(&info_frame).map_err(|e| e.to_string())?;
-    ws_tx.send(Message::Text(info_text.into())).await.map_err(|e| e.to_string())?;
+    ws_tx_hi.send(Message::Text(info_text.into())).await.map_err(|e| e.to_string())?;
 
     while let Some(msg_result) = read.next().await {
         let msg = match msg_result {
@@ -168,20 +213,13 @@ where
                         info!(id = %req_id, cmd = %cmd, "executing command from controller");
 
                         // Spawn command execution in a separate task so the read loop
-                        // is never blocked by a slow or hanging command.  This prevents
-                        // a single stuck `lxc version` / `lxd --version` from starving
-                        // ping/pong and all subsequent commands for the entire agent.
-                        let ws_tx_clone = ws_tx.clone();
+                        // is never blocked by a slow or hanging command.
+                        let ws_tx_hi_clone = ws_tx_hi.clone();
                         let permits = exec_permits.clone();
                         tokio::spawn(async move {
-                            // Acquire a concurrency permit; if all 10 slots are busy
-                            // this will wait (without blocking the read loop).
                             let _permit = permits.acquire_owned().await
                                 .expect("exec semaphore must not be closed");
 
-                            // Default timeout: 300 s.  Individual commands that need
-                            // shorter deadlines are handled by the controller-side
-                            // ExecuteWithTimeout which will abandon the pending channel.
                             let output = tokio::time::timeout(
                                 std::time::Duration::from_secs(300),
                                 Command::new("sh")
@@ -218,8 +256,7 @@ where
                             };
                             let resp_text = serde_json::to_string(&resp_frame)
                                 .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
-                            let _ = ws_tx_clone.send(Message::Text(resp_text.into())).await;
-                            // _permit is dropped here, releasing the slot
+                            let _ = ws_tx_hi_clone.send(Message::Text(resp_text.into())).await;
                         });
                     }
                     "ping" => {
@@ -229,14 +266,15 @@ where
                             payload: None,
                         };
                         let pong_text = serde_json::to_string(&pong).map_err(|e| e.to_string())?;
-                        ws_tx.send(Message::Text(pong_text.into())).await.map_err(|e| e.to_string())?;
+                        ws_tx_hi.send(Message::Text(pong_text.into())).await.map_err(|e| e.to_string())?;
                     }
                     "tunnel_open" => {
                         if let Some(payload_val) = frame.payload {
-                            let sink_clone = ws_tx.clone();
+                            let hi_clone = ws_tx_hi.clone();
+                            let lo_clone = ws_tx_lo.clone();
                             let sess_clone = sessions.clone();
                             tokio::spawn(async move {
-                                handle_tunnel_open(payload_val, sink_clone, sess_clone).await;
+                                handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone).await;
                             });
                         }
                     }
@@ -248,10 +286,10 @@ where
                     "shell_open" => {
                         let req_id = frame.id.clone().unwrap_or_default();
                         let payload = frame.payload.unwrap_or_default();
-                        let ws_tx_clone = ws_tx.clone();
+                        let ws_tx_hi_clone = ws_tx_hi.clone();
                         let shell_sessions_clone = shell_sessions.clone();
                         tokio::spawn(async move {
-                            if let Err(err) = open_shell_session(req_id, payload, ws_tx_clone, shell_sessions_clone).await {
+                            if let Err(err) = open_shell_session(req_id, payload, ws_tx_hi_clone, shell_sessions_clone).await {
                                 warn!(error = %err, "failed to open shell session");
                             }
                         });
@@ -288,7 +326,7 @@ where
                 return Ok(());
             }
             Message::Ping(data) => {
-                ws_tx.send(Message::Pong(data)).await.map_err(|e| e.to_string())?;
+                ws_tx_hi.send(Message::Pong(data)).await.map_err(|e| e.to_string())?;
             }
             _ => {}
         }

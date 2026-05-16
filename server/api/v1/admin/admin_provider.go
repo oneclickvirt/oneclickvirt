@@ -972,9 +972,14 @@ func GenerateAgentSecret(c *gin.Context) {
 	}
 
 	// 构造控制端 WebSocket 地址
+	// 默认 wss（加密）。仅当直接 HTTP 无代理且无 TLS 时才降级为 ws。
 	scheme := "wss"
 	if c.Request.TLS == nil {
-		if proto := c.GetHeader("X-Forwarded-Proto"); proto == "http" {
+		proto := c.GetHeader("X-Forwarded-Proto")
+		if proto == "" {
+			// 无反向代理且无 TLS → 回退 ws（开发/测试环境）
+			scheme = "ws"
+		} else if proto == "http" {
 			scheme = "ws"
 		}
 	}

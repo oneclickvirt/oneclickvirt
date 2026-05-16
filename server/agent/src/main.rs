@@ -196,7 +196,7 @@ async fn main() {
         });
 
         info!(url = %full_url, "starting agent WebSocket client");
-        ws_client::run_ws_client(full_url).await;
+        ws_client::run_ws_client(full_url, secret).await;
         return;
     }
 

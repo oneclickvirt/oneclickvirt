@@ -6,6 +6,7 @@ package admin
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	agentSvc "oneclickvirt/service/agent"
@@ -33,17 +34,25 @@ var wsUpgrader = websocket.Upgrader{
 //	@Param			secret	query	string	true	"Agent 鉴权密钥"
 //	@Router			/v1/ws/agent [get]
 func AgentWebSocket(c *gin.Context) {
+	// 1. Query params (legacy, kept for backward compatibility)
 	secret := c.Query("secret")
 	if secret == "" {
-		// 兼容历史参数名，避免主控升级后老 agent 重连失败
 		secret = c.Query("agent_secret")
 	}
 	if secret == "" {
-		// 兼容更早期 token 参数
 		secret = c.Query("token")
 	}
+	// 2. HTTP headers (recommended — avoids URL-query logging)
 	if secret == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少 secret 参数"})
+		if auth := c.GetHeader("Authorization"); strings.HasPrefix(auth, "Bearer ") {
+			secret = auth[7:]
+		}
+	}
+	if secret == "" {
+		secret = c.GetHeader("X-Agent-Secret")
+	}
+	if secret == "" {
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少 secret 参数（支持 query/header）"})
 		return
 	}
 

@@ -112,6 +112,7 @@ type execResponsePayload struct {
 type infoPayload struct {
 	Hostname string `json:"hostname"`
 	Version  string `json:"version,omitempty"`
+	Secret   string `json:"secret,omitempty"` // optional second-factor validation
 }
 
 type shellOpenPayload struct {
@@ -544,6 +545,21 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		case msgTypeInfo:
 			var info infoPayload
 			if err := json.Unmarshal(msg.Payload, &info); err == nil && info.Hostname != "" {
+				// Optional second-factor: validate secret in info frame.
+				// If the agent sent a secret and it doesn't match the
+				// registered provider secret, reject the connection.
+				if info.Secret != "" {
+					var p providerModel.Provider
+					if err := global.APP_DB.Select("agent_secret").
+						Where("id = ?", ac.ProviderID).First(&p).Error; err == nil {
+						if p.AgentSecret != "" && info.Secret != p.AgentSecret {
+							global.APP_LOG.Warn("Agent info 帧 secret 验证失败，断开连接",
+								zap.Uint("providerID", ac.ProviderID))
+							ac.conn.Close()
+							return
+						}
+					}
+				}
 				ac.mu.Lock()
 				ac.hostname = info.Hostname
 				ac.mu.Unlock()

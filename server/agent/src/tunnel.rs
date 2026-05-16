@@ -72,9 +72,12 @@ fn fnv1a_64(s: &str) -> u64 {
 
 
 /// 处理 tunnel_open 帧：建立本地 TCP 连接并开始转发。
+/// `hi_sink` — high-priority control channel (tunnel_ack / tunnel_close).
+/// `data_sink` — low-priority bulk channel (binary data frames).
 pub async fn handle_tunnel_open(
     payload_val: serde_json::Value,
-    ws_sink: WsSink,
+    hi_sink: WsSink,
+    data_sink: WsSink,
     sessions: SessionMap,
 ) {
     let payload: TunnelOpenPayload = match serde_json::from_value(payload_val) {
@@ -96,13 +99,13 @@ pub async fn handle_tunnel_open(
         Ok(s) => s,
         Err(e) => {
             warn!(conn_id = %conn_id, addr = %addr, error = %e, "failed to connect tunnel target");
-            send_ack(ws_sink.clone(), &conn_id, false, Some(e.to_string())).await;
+            send_ack(hi_sink.clone(), &conn_id, false, Some(e.to_string())).await;
             return;
         }
     };
 
-    // 回复 ack
-    send_ack(ws_sink.clone(), &conn_id, true, None).await;
+    // 回复 ack (hi-priority control channel)
+    send_ack(hi_sink.clone(), &conn_id, true, None).await;
 
     let (mut tcp_rx, mut tcp_tx) = tcp.into_split();
 
@@ -113,8 +116,8 @@ pub async fn handle_tunnel_open(
         map.insert(conn_hash, data_tx);
     }
 
-    // Agent → 控制端（TCP → 二进制帧）
-    let ws_sink_clone = ws_sink.clone();
+    // Agent → 控制端（TCP → 二进制帧 → lo-priority data channel）
+    let data_sink_clone = data_sink.clone();
     let conn_id_clone = conn_id.clone();
     let sessions_clone = sessions.clone();
     tokio::spawn(async move {
@@ -128,20 +131,20 @@ pub async fn handle_tunnel_open(
                     let mut frame = Vec::with_capacity(8 + n);
                     frame.extend_from_slice(&header);
                     frame.extend_from_slice(&buf[..n]);
-                    if ws_sink_clone.send(Message::Binary(frame.into())).await.is_err() {
+                    if data_sink_clone.send(Message::Binary(frame.into())).await.is_err() {
                         break;
                     }
                 }
             }
         }
-        // TCP 读完后发 tunnel_close
+        // TCP 读完后发 tunnel_close (hi-priority control channel)
         let close_payload = TunnelClosePayload { id: conn_id_clone.clone() };
         if let Ok(body) = serde_json::to_string(&WsFrame {
             msg_type: "tunnel_close".to_string(),
             id: None,
             payload: serde_json::to_value(close_payload).ok(),
         }) {
-            let _ = ws_sink_clone.send(Message::Text(body.into())).await;
+            let _ = hi_sink.send(Message::Text(body.into())).await;
         }
         let mut map = sessions_clone.lock().await;
         map.remove(&conn_hash);
