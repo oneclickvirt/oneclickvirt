@@ -215,7 +215,7 @@ func (p *PodmanProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 	cleanupCmd := fmt.Sprintf("%s ps -a --filter name=^%s$ -q | xargs -r %s rm -f", cliName, config.Name, cliName)
 	p.sshClient.Execute(cleanupCmd)
 
-	// 修复 registries.conf 配置异常导致 podman 无法启动容器的问题
+	// 确认 registries.conf 配置异常导致 podman 无法启动容器的问题
 	p.ensureRegistriesConf()
 
 	updateProgress(72, "构建podman run命令...")

@@ -82,6 +82,18 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 				zap.String("provider", localProviderName),
 				zap.Time("agentLastSeen", *provider.AgentLastSeen),
 				zap.Duration("graceWindow", agentReconnectGraceWindow))
+		} else if agentService.IsInStartupGracePeriod() {
+			// 主控刚启动不久（2分钟宽限期内），Agent 可能尚未完成重连，暂不降级为 inactive。
+			// 保留 Provider 当前 status，仅更新 agent_status = offline，避免触发连续失败计数。
+			agentStatus = "offline"
+			generalStatus = provider.Status // 保持原有状态不变
+			if generalStatus == "" {
+				generalStatus = "partial"
+			}
+			global.APP_LOG.Debug("Agent 处于主控启动宽限期，暂不降级 Provider 状态",
+				zap.Uint("providerID", localProviderID),
+				zap.String("provider", localProviderName),
+				zap.String("currentStatus", provider.Status))
 		}
 
 		updates := map[string]interface{}{

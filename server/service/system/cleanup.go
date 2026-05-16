@@ -33,10 +33,10 @@ type AdminServiceInterface interface {
 	DeleteInstance(instanceID uint) error
 }
 
-// RepairStuckInstances 修复卡住的实例状态
-// 主要修复 deleting/resetting 等中间状态超时的实例
+// RepairStuckInstances 确认卡住的实例状态
+// 主要确认 deleting/resetting 等中间状态超时的实例
 func (s *InstanceCleanupService) RepairStuckInstances() error {
-	// 修复超过30分钟仍在deleting状态的实例
+	// 确认超过30分钟仍在deleting状态的实例
 	cutoffTime := time.Now().Add(-30 * time.Minute)
 
 	var stuckInstances []providerModel.Instance
@@ -50,7 +50,7 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 		return nil
 	}
 
-	global.APP_LOG.Warn("发现卡住的实例，尝试修复",
+	global.APP_LOG.Warn("发现卡住的实例，尝试确认",
 		zap.Int("count", len(stuckInstances)))
 
 	for _, instance := range stuckInstances {
@@ -87,7 +87,7 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 			"status":     newStatus,
 			"updated_at": time.Now(),
 		}).Error; err != nil {
-			global.APP_LOG.Error("修复实例状态失败",
+			global.APP_LOG.Error("确认实例状态失败",
 				zap.Uint("instanceId", instance.ID),
 				zap.String("oldStatus", instance.Status),
 				zap.String("newStatus", newStatus),
@@ -95,7 +95,7 @@ func (s *InstanceCleanupService) RepairStuckInstances() error {
 			continue
 		}
 
-		global.APP_LOG.Debug("成功修复卡住的实例",
+		global.APP_LOG.Debug("成功确认卡住的实例",
 			zap.Uint("instanceId", instance.ID),
 			zap.String("instanceName", instance.Name),
 			zap.String("oldStatus", instance.Status),
@@ -358,10 +358,10 @@ func (s *InstanceCleanupService) cleanupSingleExpiredInstance(instance *provider
 	})
 }
 
-// RepairUserQuotas 修复所有用户的配额（定期运行，批量处理，避免N+1和竞态）
-// 重新计算每个用户的实际资源占用，修复因异常、删除等操作导致的配额不准确问题
+// RepairUserQuotas 确认所有用户的配额（定期运行，批量处理，避免N+1和竞态）
+// 重新计算每个用户的实际资源占用，确认因异常、删除等操作导致的配额不准确问题
 func (s *InstanceCleanupService) RepairUserQuotas() error {
-	global.APP_LOG.Debug("开始批量修复用户配额...")
+	global.APP_LOG.Debug("开始批量确认用户配额...")
 
 	// 1. 获取所有用户ID（只查询ID，避免加载大量数据）
 	var userIDs []uint
@@ -372,7 +372,7 @@ func (s *InstanceCleanupService) RepairUserQuotas() error {
 	}
 
 	if len(userIDs) == 0 {
-		global.APP_LOG.Debug("没有用户需要修复配额")
+		global.APP_LOG.Debug("没有用户需要确认配额")
 		return nil
 	}
 
@@ -393,7 +393,7 @@ func (s *InstanceCleanupService) RepairUserQuotas() error {
 		for _, userID := range batch {
 			// 使用独立的短事务，避免长时间锁表
 			if err := quotaService.RecalculateUserQuota(userID); err != nil {
-				global.APP_LOG.Warn("修复用户配额失败",
+				global.APP_LOG.Warn("确认用户配额失败",
 					zap.Uint("userId", userID),
 					zap.Error(err))
 				errorCount++
@@ -408,7 +408,7 @@ func (s *InstanceCleanupService) RepairUserQuotas() error {
 		}
 	}
 
-	global.APP_LOG.Info("用户配额批量修复完成",
+	global.APP_LOG.Info("用户配额批量确认完成",
 		zap.Int("totalUsers", len(userIDs)),
 		zap.Int("repaired", repairedCount),
 		zap.Int("errors", errorCount))

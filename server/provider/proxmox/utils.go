@@ -673,10 +673,10 @@ func (p *ProxmoxProvider) configureArchSSH(vmid int) {
 // configureDebianBasedSSH 配置Debian/Ubuntu等基于APT的系统SSH
 func (p *ProxmoxProvider) configureDebianBasedSSH(vmid int) {
 	commands := []string{
-		// 检查并修复APT
+		// 检查并确认APT
 		"sh -c \"apt-get update 2>&1 | tee /tmp/apt_fix.txt\"",
 		"sh -c \"if grep -q 'NO_PUBKEY' /tmp/apt_fix.txt; then public_keys=$(grep -oE 'NO_PUBKEY [0-9A-F]+' /tmp/apt_fix.txt | awk '{ print $2 }' | paste -sd ' '); apt-key adv --keyserver keyserver.ubuntu.com --recv-keys $public_keys; apt-get update; fi\"",
-		// 修复损坏的包
+		// 确认损坏的包
 		"apt-get --fix-broken install -y",
 		// 更新包列表
 		"apt-get update -y",

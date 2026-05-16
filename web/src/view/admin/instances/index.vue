@@ -732,7 +732,7 @@ onUnmounted(() => {
   margin: 0;
 }
 
-/* 修复表格在窗口调整时的显示问题 */
+/* 确认表格在窗口调整时的显示问题 */
 :deep(.el-table) {
   overflow: visible !important;
 }

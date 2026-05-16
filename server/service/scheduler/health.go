@@ -270,7 +270,13 @@ func (s *ProviderHealthSchedulerService) checkSingleProviderHealth(provider prov
 	// 连续失败超过阈值时自动冻结，停止重复的健康检查噪音
 	if currentFailures >= autoFreezeThreshold && !updatedProvider.IsFrozen {
 		now := time.Now()
-		reason := fmt.Sprintf("健康检查连续失败 %d 次（约 %d 分钟），自动冻结", currentFailures, currentFailures*3)
+		// 区分 Agent 模式和 SSH 模式的冻结原因，便于排查和自动恢复逻辑识别
+		var reason string
+		if updatedProvider.ConnectionType == "agent" {
+			reason = fmt.Sprintf("Agent 反向连接连续断开 %d 次（约 %d 分钟），健康检查连续失败，自动冻结", currentFailures, currentFailures*3)
+		} else {
+			reason = fmt.Sprintf("健康检查连续失败 %d 次（约 %d 分钟），自动冻结", currentFailures, currentFailures*3)
+		}
 		if dbErr := global.APP_DB.Model(&providerModel.Provider{}).
 			Where("id = ?", providerID).
 			Updates(map[string]interface{}{

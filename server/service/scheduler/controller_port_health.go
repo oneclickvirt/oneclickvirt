@@ -12,7 +12,7 @@ import (
 )
 
 // ControllerPortHealthSchedulerService 控制端端口转发健康检查调度服务。
-// 定期检查所有控制端端口转发的监听器是否在运行，自动修复已失效的监听器。
+// 定期检查所有控制端端口转发的监听器是否在运行，自动确认已失效的监听器。
 // 解决主控重启或 Agent 重连后端口转发丢失的问题。
 type ControllerPortHealthSchedulerService struct {
 	stopChan  chan struct{}
@@ -29,7 +29,7 @@ func NewControllerPortHealthSchedulerService() *ControllerPortHealthSchedulerSer
 
 // Start 启动控制端端口转发健康检查调度器。
 // 每 2 分钟检查一次所有活跃的 controller 类型端口映射，
-// 自动修复监听器未运行的情况。
+// 自动确认监听器未运行的情况。
 func (s *ControllerPortHealthSchedulerService) Start(ctx context.Context) {
 	s.mu.Lock()
 	if s.isRunning {

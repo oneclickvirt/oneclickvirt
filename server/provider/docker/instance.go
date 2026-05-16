@@ -513,17 +513,17 @@ func (d *DockerProvider) sshCreateInstanceWithProgress(ctx context.Context, conf
 		if strings.Contains(output, "iptables") && (strings.Contains(output, "No chain") || strings.Contains(output, "no chain")) {
 			// Auto-repair: restart the container runtime to recreate iptables chains
 			if repairErr := d.repairIptablesChains(config.Name); repairErr != nil {
-				global.APP_LOG.Error("iptables自动修复失败",
+				global.APP_LOG.Error("iptables自动确认失败",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
 					zap.Error(repairErr))
 				return fmt.Errorf("Docker iptables chains missing and auto-repair failed: %w", err)
 			}
 			// Retry container creation after repair
-			global.APP_LOG.Info("iptables修复完成，重试创建容器",
+			global.APP_LOG.Info("iptables确认完成，重试创建容器",
 				zap.String("name", utils.TruncateString(config.Name, 32)))
 			output, err = d.sshClient.Execute(cmd)
 			if err != nil {
-				global.APP_LOG.Error("iptables修复后创建容器仍然失败",
+				global.APP_LOG.Error("iptables确认后创建容器仍然失败",
 					zap.String("name", utils.TruncateString(config.Name, 32)),
 					zap.String("output", utils.TruncateString(output, 500)),
 					zap.Error(err))
@@ -641,7 +641,7 @@ func (d *DockerProvider) repairIptablesChains(containerName string) error {
 		serviceName = d.runtime.ProviderType
 	}
 
-	global.APP_LOG.Info("正在重启容器运行时以修复iptables chains",
+	global.APP_LOG.Info("正在重启容器运行时以确认iptables chains",
 		zap.String("service", serviceName),
 		zap.String("provider_type", d.runtime.ProviderType))
 

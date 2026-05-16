@@ -362,6 +362,12 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	// 同步更新数据库状态，确保前端检测立即可见
 	now := time.Now()
 	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+
+	// Agent 重连成功后，如果 Provider 因健康检查连续失败被自动冻结，则自动解冻。
+	// Agent 反向连接成功即证明节点可达，无需等待健康检查周期。
+	// 同时确认因主控重启导致的 status 不一致（agent_status=online 但 status=inactive）。
+	h.recoverProviderOnReconnect(ac.ProviderID, now)
+
 	// 记录本次连接建立时间（用于前端显示在线时长）
 	if err := global.APP_DB.Model(&providerModel.Provider{}).
 		Where("id = ?", ac.ProviderID).
@@ -673,6 +679,56 @@ func LookupProviderBySecret(secret string) (uint, error) {
 // ──────────────────────────────────────────────────────────────────────────────
 // 内部辅助函数
 // ──────────────────────────────────────────────────────────────────────────────
+
+// recoverProviderOnReconnect 在 Agent 重连成功后恢复 Provider 状态。
+// 处理两种边界条件：
+//  1. Provider 因健康检查连续失败被自动冻结 → 自动解冻
+//  2. 主控重启后 agent_status 与 status 不一致（agent_status=online 但 status=inactive）→ 确认 status
+func (h *AgentHub) recoverProviderOnReconnect(providerID uint, now time.Time) {
+	var p providerModel.Provider
+	if err := global.APP_DB.Select("id, is_frozen, frozen_reason, status, connection_type").
+		Where("id = ?", providerID).First(&p).Error; err != nil {
+		return
+	}
+
+	needsUpdate := false
+	updates := map[string]interface{}{}
+
+	// 如果 Provider 因健康检查连续失败被自动冻结，Agent 重连成功即证明节点可达，自动解冻
+	if p.IsFrozen && p.FrozenReason != "" &&
+		(p.FrozenReason == "expired" || strings.Contains(p.FrozenReason, "健康检查连续失败") || strings.Contains(p.FrozenReason, "Agent 反向连接连续断开")) {
+		// expired 类型的冻结通过 Agent 重连无法解冻（需管理员手动设置新的过期时间）
+		// 仅对健康检查自动冻结（含 Agent 断连自动冻结）进行解冻
+		if strings.Contains(p.FrozenReason, "健康检查连续失败") || strings.Contains(p.FrozenReason, "Agent 反向连接连续断开") {
+			updates["is_frozen"] = false
+			updates["frozen_at"] = nil
+			updates["frozen_reason"] = ""
+			needsUpdate = true
+			global.APP_LOG.Info("Agent 重连后自动解冻 Provider（此前因健康检查失败被冻结）",
+				zap.Uint("providerID", providerID),
+				zap.String("frozen_reason", p.FrozenReason))
+		}
+	}
+
+	// Agent 重连后，若 general status 为 inactive，确认为 active
+	// 避免主控重启后 agent_status=online 但 status=inactive 的不一致状态
+	if p.Status == "inactive" && p.ConnectionType == "agent" {
+		updates["status"] = "active"
+		needsUpdate = true
+		global.APP_LOG.Debug("Agent 重连后确认 Provider 状态不一致",
+			zap.Uint("providerID", providerID),
+			zap.String("old_status", p.Status))
+	}
+
+	if needsUpdate {
+		if err := global.APP_DB.Model(&providerModel.Provider{}).
+			Where("id = ?", providerID).
+			Updates(updates).Error; err != nil {
+			global.APP_LOG.Warn("Agent 重连后恢复 Provider 状态失败",
+				zap.Uint("providerID", providerID), zap.Error(err))
+		}
+	}
+}
 
 func (h *AgentHub) updateProviderAgentStatus(providerID uint, status string, lastSeen *time.Time, remoteAddr string, hostname string) {
 	h.updateProviderAgentStatusWithVersion(providerID, status, lastSeen, remoteAddr, hostname, "")

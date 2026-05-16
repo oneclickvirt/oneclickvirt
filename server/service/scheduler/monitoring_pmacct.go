@@ -243,7 +243,7 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 		}
 	}
 
-	// 每小时执行一次状态修复，每天凌晨3点执行数据清理
+	// 每小时执行一次状态确认，每天凌晨3点执行数据清理
 	ticker = time.NewTicker(1 * time.Hour)
 
 	for {
@@ -253,11 +253,11 @@ func (s *MonitoringSchedulerService) startCleanupTask(ctx context.Context) {
 		case <-ticker.C:
 			now := time.Now()
 
-			// 每小时执行实例状态修复
-			global.APP_LOG.Debug("开始修复卡住的实例状态")
+			// 每小时执行实例状态确认
+			global.APP_LOG.Debug("开始确认卡住的实例状态")
 			cleanupService := &system.InstanceCleanupService{}
 			if err := cleanupService.RepairStuckInstances(); err != nil {
-				global.APP_LOG.Error("修复卡住的实例状态失败", zap.Error(err))
+				global.APP_LOG.Error("确认卡住的实例状态失败", zap.Error(err))
 			}
 
 			// 只在凌晨3点执行数据清理

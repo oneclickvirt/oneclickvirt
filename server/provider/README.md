@@ -171,7 +171,7 @@ Provider 支持三种执行规则，控制操作的执行方式：
 - **镜像存储目录**：`/usr/local/bin/podman_ct_images`
 - **健康检查服务名**：`podman`
 - **镜像命名空间**：`localhost/`（Podman 加载本地 tar 后镜像统一存储在 localhost/ 命名空间下）
-- **特性**：容器生命周期管理、镜像管理（singleflight 去重）、LXCFS 资源隔离、btrfs 磁盘限额、registries.conf 自动修复、IPv6 支持检测、自动重连、实例发现与导入
+- **特性**：容器生命周期管理、镜像管理（singleflight 去重）、LXCFS 资源隔离、btrfs 磁盘限额、registries.conf 自动确认、IPv6 支持检测、自动重连、实例发现与导入
 
 ### Containerd
 

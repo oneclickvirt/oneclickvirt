@@ -39,7 +39,7 @@ func (s *SchedulerService) performMaintenance() {
 	// 清理过期实例
 	s.cleanupExpiredInstances()
 
-	// 修复用户配额（定期运行，修复因重置、删除等操作导致的配额不准确）
+	// 确认用户配额（定期运行，确认因重置、删除等操作导致的配额不准确）
 	s.repairUserQuotas()
 
 	// 清理旧的任务记录（可选）
@@ -54,11 +54,11 @@ func (s *SchedulerService) cleanupExpiredInstances() {
 	}
 }
 
-// repairUserQuotas 修复用户配额
+// repairUserQuotas 确认用户配额
 func (s *SchedulerService) repairUserQuotas() {
 	cleanupService := system.GetInstanceCleanupService()
 	if err := cleanupService.RepairUserQuotas(); err != nil {
-		global.APP_LOG.Warn("修复用户配额时发生错误", zap.Error(err))
+		global.APP_LOG.Warn("确认用户配额时发生错误", zap.Error(err))
 	}
 }
 

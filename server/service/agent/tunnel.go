@@ -642,7 +642,7 @@ func RecoverAllControllerPortForwards() {
 		zap.Int("total", len(ports)))
 }
 
-// portRepairFailCount 跟踪每个端口修复失败的次数，防止无限重试。
+// portRepairFailCount 跟踪每个端口确认失败的次数，防止无限重试。
 var (
 	portRepairFailMu    sync.Mutex
 	portRepairFailCount = make(map[uint]int) // PortID → 连续失败次数
@@ -650,7 +650,7 @@ var (
 
 const maxRepairFailCount = 5 // 连续失败超过此次数后标记端口为 error 状态
 
-// CheckAndRepairControllerPortForwards 定期检查并修复控制器端口转发。
+// CheckAndRepairControllerPortForwards 定期检查并确认控制器端口转发。
 // 发现已标记为 active 但未监听中的端口映射，自动恢复。
 // 连续失败超过阈值的端口会被标记为 error 状态，避免无限重试。
 // 返回 (total, repaired)。
@@ -669,7 +669,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		ctrlListenerMu.RUnlock()
 
 		if running {
-			// 修复成功运行后重置失败计数
+			// 确认成功运行后重置失败计数
 			portRepairFailMu.Lock()
 			delete(portRepairFailCount, port.ID)
 			portRepairFailMu.Unlock()
@@ -684,7 +684,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 			// 超过阈值，标记为 error 状态以避免无限重试
 			global.APP_DB.Model(&providerModel.Port{}).Where("id = ?", port.ID).
 				Update("status", "error")
-			global.APP_LOG.Warn("控制器端口转发连续修复失败，标记为 error",
+			global.APP_LOG.Warn("控制器端口转发连续确认失败，标记为 error",
 				zap.Uint("portID", port.ID),
 				zap.Int("hostPort", port.HostPort),
 				zap.Int("failCount", failCount))
@@ -695,7 +695,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		// 监听器未运行，尝试恢复
 		targetHost := resolveTargetHost(&port)
 		if targetHost == "" {
-			global.APP_LOG.Warn("控制器端口转发修复失败：无目标地址",
+			global.APP_LOG.Warn("控制器端口转发确认失败：无目标地址",
 				zap.Uint("portID", port.ID))
 			continue
 		}
@@ -704,7 +704,7 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 		err := RestartControllerPortForward(port.ID, port.ProviderID,
 			port.HostPort, targetHost, port.GuestPort)
 		if err != nil {
-			global.APP_LOG.Debug("修复控制器端口转发失败",
+			global.APP_LOG.Debug("确认控制器端口转发失败",
 				zap.Uint("portID", port.ID), zap.Error(err))
 			// 记录失败次数
 			portRepairFailMu.Lock()
@@ -712,11 +712,11 @@ func CheckAndRepairControllerPortForwards() (int, int) {
 			portRepairFailMu.Unlock()
 		} else {
 			repaired++
-			// 修复成功，重置失败计数
+			// 确认成功，重置失败计数
 			portRepairFailMu.Lock()
 			delete(portRepairFailCount, port.ID)
 			portRepairFailMu.Unlock()
-			global.APP_LOG.Info("已修复控制器端口转发",
+			global.APP_LOG.Info("已确认控制器端口转发",
 				zap.Uint("portID", port.ID),
 				zap.Int("hostPort", port.HostPort),
 				zap.Uint("providerID", port.ProviderID))

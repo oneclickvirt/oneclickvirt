@@ -190,9 +190,9 @@ func RegisterTables(db *gorm.DB) {
 	}
 	global.APP_LOG.Info("数据库表注册成功")
 
-	// AutoMigrate完成后再修复重复数据（表已存在才安全执行）
+	// AutoMigrate完成后再确认重复数据（表已存在才安全执行）
 	if fixErr := dbService.FixAllDuplicateData(); fixErr != nil {
-		global.APP_LOG.Warn("修复重复数据时出现警告（可忽略，如果是新数据库）", zap.Error(fixErr))
+		global.APP_LOG.Warn("确认重复数据时出现警告（可忽略，如果是新数据库）", zap.Error(fixErr))
 	}
 
 	// Initialize default block rules

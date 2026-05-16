@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 )
 
-// FixDuplicateTrafficHistory 修复 instance_traffic_histories 表中的重复数据
+// FixDuplicateTrafficHistory 确认 instance_traffic_histories 表中的重复数据
 // 这个函数用于清理老数据库中可能存在的重复记录
 // 保留 ID 最小的记录，删除其他重复项
 func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
@@ -17,13 +17,13 @@ func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
 		return fmt.Errorf("数据库连接不可用")
 	}
 
-	// 防御性检查：表不存在时直接跳过（全新数据库无需修复）
+	// 防御性检查：表不存在时直接跳过（全新数据库无需确认）
 	if !db.Migrator().HasTable("instance_traffic_histories") {
 		global.APP_LOG.Info("instance_traffic_histories 表不存在，跳过重复数据检查（全新数据库）")
 		return nil
 	}
 
-	global.APP_LOG.Info("开始检查并修复 instance_traffic_histories 表中的重复数据...")
+	global.APP_LOG.Info("开始检查并确认 instance_traffic_histories 表中的重复数据...")
 
 	// 检查是否存在重复数据
 	var duplicateCount int64
@@ -41,7 +41,7 @@ func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
 	}
 
 	if duplicateCount == 0 {
-		global.APP_LOG.Info("未发现重复数据，无需修复")
+		global.APP_LOG.Info("未发现重复数据，无需确认")
 		return nil
 	}
 
@@ -76,10 +76,10 @@ func (ds *DatabaseService) FixDuplicateTrafficHistory() error {
 	return nil
 }
 
-// FixAllDuplicateData 修复所有可能存在重复数据的表
+// FixAllDuplicateData 确认所有可能存在重复数据的表
 func (ds *DatabaseService) FixAllDuplicateData() error {
 	// 目前只有 instance_traffic_histories 表有此问题
-	// 如果将来有其他表也需要修复，可以在这里添加
+	// 如果将来有其他表也需要确认，可以在这里添加
 	return ds.FixDuplicateTrafficHistory()
 }
 

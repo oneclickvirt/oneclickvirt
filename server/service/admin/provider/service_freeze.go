@@ -20,10 +20,39 @@ func (s *Service) FreezeProvider(req admin.FreezeProviderRequest) error {
 		return fmt.Errorf("Provider不存在")
 	}
 
+	now := time.Now()
+	reason := req.Reason
+	if reason == "" {
+		reason = "manual"
+	}
+
 	provider.IsFrozen = true
+	provider.FrozenAt = &now
+	provider.FrozenReason = reason
+
 	dbService := database.GetDatabaseService()
 	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-		return tx.Save(&provider).Error
+		// 使用 Updates 而非 Save，避免覆盖其他并发修改的字段
+		if err := tx.Model(&provider).Updates(map[string]interface{}{
+			"is_frozen":     true,
+			"frozen_at":     now,
+			"frozen_reason": reason,
+		}).Error; err != nil {
+			return err
+		}
+
+		// 冻结该Provider下所有未手动设置过期时间的实例
+		if err := tx.Model(&providerModel.Instance{}).
+			Where("provider_id = ? AND is_manual_expiry = ? AND is_frozen = ?", provider.ID, false, false).
+			Updates(map[string]interface{}{
+				"is_frozen":     true,
+				"frozen_at":     now,
+				"frozen_reason": "node_frozen",
+			}).Error; err != nil {
+			return err
+		}
+
+		return nil
 	})
 }
 
@@ -34,7 +63,8 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 		return fmt.Errorf("Provider不存在")
 	}
 
-	// 解析新的过期时间
+	// 解析新的过期时间（仅在显式提供时更新）
+	hasNewExpiry := false
 	if req.ExpiresAt != "" {
 		// 尝试解析多种时间格式
 		var t time.Time
@@ -58,11 +88,9 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 			return fmt.Errorf("过期时间必须是未来时间")
 		}
 		provider.ExpiresAt = &t
-	} else {
-		// 如果没有指定新的过期时间，设置为31天后
-		defaultExpiry := time.Now().AddDate(0, 0, 31)
-		provider.ExpiresAt = &defaultExpiry
+		hasNewExpiry = true
 	}
+	// 如果 req.ExpiresAt 为空，保持原有过期时间不变（不重置为默认31天）
 
 	provider.IsFrozen = false
 	dbService := database.GetDatabaseService()
@@ -72,8 +100,8 @@ func (s *Service) UnfreezeProvider(req admin.UnfreezeProviderRequest) error {
 			return err
 		}
 
-		// 同步更新该Provider下所有非手动设置过期时间的实例的到期时间
-		if provider.ExpiresAt != nil {
+		// 仅在显式提供了新的过期时间时，同步更新该Provider下非手动设置过期时间的实例
+		if hasNewExpiry && provider.ExpiresAt != nil {
 			if err := tx.Model(&providerModel.Instance{}).
 				Where("provider_id = ? AND is_manual_expiry = ? AND status NOT IN (?)", provider.ID, false, []string{"deleting", "deleted"}).
 				Update("expires_at", *provider.ExpiresAt).Error; err != nil {
