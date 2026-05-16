@@ -755,6 +755,7 @@ export default {
   cdnDirect: "直连",
   wssSecure: "加密(wss)",
   wsPlain: "明文(ws)",
+  wssUnavailable: "检测到加密连接(wss)不可用，已自动切换为明文(ws)。如需加密，请在反向代理中为该端口启用 SSL。",
   agentInstallSection: "Agent 管理命令",
   agentLastSeen: "最后在线",
   agentOnlineDuration: "在线时长",

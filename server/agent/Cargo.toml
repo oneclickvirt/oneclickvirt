@@ -31,6 +31,7 @@ rustls-pemfile = "2"
 futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 url = "2"
+rand = "0.8"
 
 [profile.release]
 opt-level = "z"

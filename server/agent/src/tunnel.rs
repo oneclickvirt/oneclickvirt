@@ -8,7 +8,11 @@
 //   Agent → Controller (text JSON): tunnel_ack   { id, ok, error? }
 //   Agent → Controller (text JSON): tunnel_close { id }
 //   双向二进制帧: [8-byte FNV hash of connID][TCP data]
+//
+// Anti-DPI: buffer size varies per read (8KB-64KB), occasional micro-delays
+// (0-3ms, ~20% probability) to break fixed-size/fixed-interval signatures.
 
+use rand;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -117,22 +121,28 @@ pub async fn handle_tunnel_open(
     }
 
     // Agent → 控制端（TCP → 二进制帧 → lo-priority data channel）
+    // Anti-DPI: vary read buffer (8KB-64KB), occasional micro-delay (20% prob).
     let data_sink_clone = data_sink.clone();
     let conn_id_clone = conn_id.clone();
     let sessions_clone = sessions.clone();
     tokio::spawn(async move {
-        let mut buf = vec![0u8; 32 * 1024];
-        let mut header = [0u8; 8];
-        header.copy_from_slice(&conn_hash.to_be_bytes());
+        let header_arr = conn_hash.to_be_bytes();
         loop {
+            let buf_size = 8192 + (rand::random::<usize>() % 57344); // 8KB-64KB
+            let mut buf = vec![0u8; buf_size];
             match tcp_rx.read(&mut buf).await {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
                     let mut frame = Vec::with_capacity(8 + n);
-                    frame.extend_from_slice(&header);
+                    frame.extend_from_slice(&header_arr);
                     frame.extend_from_slice(&buf[..n]);
                     if data_sink_clone.send(Message::Binary(frame.into())).await.is_err() {
                         break;
+                    }
+                    // Occasional micro-delay (0-3ms, ~20% probability)
+                    if rand::random::<u8>() % 5 == 0 {
+                        let us = (rand::random::<u64>() % 3000) as u64;
+                        tokio::time::sleep(std::time::Duration::from_micros(us)).await;
                     }
                 }
             }

@@ -16,6 +16,7 @@ import (
 	"encoding/binary"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"strings"
 	"sync"
@@ -175,11 +176,15 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 
 	// 3. 双向数据转发
 	// Client → Agent（读 TCP，写 WS 二进制帧，[8-byte hash][data]）
+	//
+	// Anti-DPI: vary read buffer size (8KB-64KB) and add occasional
+	// sub-millisecond delays to break fixed-size / fixed-interval patterns.
 	header := make([]byte, 8)
 	binary.BigEndian.PutUint64(header, connHash)
 	go func() {
-		buf := make([]byte, 32*1024)
 		for {
+			bufSize := 8192 + rand.Intn(57344) // 8KB - 64KB random
+			buf := make([]byte, bufSize)
 			n, err := client.Read(buf)
 			if n > 0 {
 				frame := make([]byte, 8+n)
@@ -187,6 +192,11 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 				copy(frame[8:], buf[:n])
 				if werr := tm.ac.writeBinaryMessage(frame, 10*time.Second); werr != nil {
 					return
+				}
+				// Occasional micro-delay (0-3ms, ~20% probability) to
+				// break perfect timing patterns
+				if rand.Intn(5) == 0 {
+					time.Sleep(time.Duration(rand.Intn(3000)) * time.Microsecond)
 				}
 			}
 			if err != nil {

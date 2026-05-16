@@ -208,6 +208,7 @@
               <el-switch
                 v-model="useWSS"
                 size="small"
+                :disabled="wssUnavailable"
                 :active-text="$t('admin.providers.wssSecure')"
                 :inactive-text="$t('admin.providers.wsPlain')"
                 style="--el-switch-on-color: #13ce66;"
@@ -222,6 +223,15 @@
               <el-button size="small" @click="copyCmd(installCmdDisplay)">{{ $t('common.copy') }}</el-button>
             </div>
           </div>
+          <!-- wss unavailable warning -->
+          <el-alert
+            v-if="wssUnavailable"
+            :title="$t('admin.providers.wssUnavailable')"
+            type="warning"
+            :closable="false"
+            show-icon
+            style="margin: 8px 14px 0;"
+          />
           <div class="install-cmd-content">{{ installCmdDisplay }}</div>
         </div>
 
@@ -354,7 +364,7 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
 import { Connection, WarningFilled, CircleCheck, InfoFilled } from '@element-plus/icons-vue'
@@ -363,6 +373,11 @@ const { t } = useI18n()
 const localCommand = ref('')
 const useCDN = ref(true)
 const useWSS = ref(true)
+// wssUnavailable: true when the probe detected that wss:// does NOT work
+// on this host. The toggle is forced off and a warning is shown.
+const wssUnavailable = ref(false)
+const probingWSS = ref(false)
+let wssProbeSocket = null
 
 const props = defineProps({
   modelValue: {
@@ -421,6 +436,87 @@ const installCmdDisplay = computed(() => {
     cmd = cmd.replace(/https:\/\/cdn[^/]*\.[^/]+\//, '')
   }
   return cmd
+})
+
+// ── wss:// availability probe ──────────────────────────────────────────
+// When the install command appears, extract the --ws-url host:port and
+// attempt a brief WebSocket connection via wss://.  If the TLS handshake
+// fails (onerror fires without onopen), force useWSS to false and show a
+// warning so the admin doesn't generate a broken wss:// install command.
+const extractWsOrigin = (cmd) => {
+  const m = cmd.match(/--ws-url\s+(wss?:\/\/[^\s]+)/)
+  if (!m) return null
+  try {
+    const u = new URL(m[1])
+    return { host: u.host, path: u.pathname, wss: `wss://${u.host}${u.pathname}` }
+  } catch { return null }
+}
+
+const probeWssAvailability = (cmd) => {
+  // Clean up any previous probe socket
+  if (wssProbeSocket) {
+    wssProbeSocket.onerror = null
+    wssProbeSocket.onopen = null
+    wssProbeSocket.close()
+    wssProbeSocket = null
+  }
+
+  const origin = extractWsOrigin(cmd)
+  if (!origin) return
+
+  // Only probe if the URL would be wss://
+  if (!origin.wss.startsWith('wss://')) return
+
+  probingWSS.value = true
+  let resolved = false
+
+  const finish = (available) => {
+    if (resolved) return
+    resolved = true
+    probingWSS.value = false
+    if (!available) {
+      wssUnavailable.value = true
+      useWSS.value = false
+    }
+    if (wssProbeSocket) {
+      wssProbeSocket.onerror = null
+      wssProbeSocket.onopen = null
+      wssProbeSocket.close()
+      wssProbeSocket = null
+    }
+  }
+
+  try {
+    wssProbeSocket = new WebSocket(origin.wss)
+    wssProbeSocket.onopen = () => finish(true)
+    wssProbeSocket.onerror = () => {
+      // onerror fires for TLS failures almost immediately.
+      // Wait a short grace period in case onopen is about to fire.
+      setTimeout(() => finish(false), 800)
+    }
+    // Safety timeout: give up after 4 s
+    setTimeout(() => finish(false), 4000)
+  } catch {
+    finish(false)
+  }
+}
+
+// Re-probe whenever a new install command is generated
+watch(() => props.agentConnectCmd, (cmd) => {
+  wssUnavailable.value = false
+  useWSS.value = true
+  if (cmd) {
+    probeWssAvailability(cmd)
+  }
+}, { immediate: true })
+
+onBeforeUnmount(() => {
+  if (wssProbeSocket) {
+    wssProbeSocket.onerror = null
+    wssProbeSocket.onopen = null
+    wssProbeSocket.close()
+    wssProbeSocket = null
+  }
 })
 
 const emit = defineEmits([

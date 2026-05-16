@@ -756,6 +756,7 @@ export default {
   cdnDirect: "Direct",
   wssSecure: "Secure(wss)",
   wsPlain: "Plain(ws)",
+  wssUnavailable: "Secure connection (wss) not available on this port — automatically switched to plain (ws). Enable SSL on the reverse proxy port to use wss.",
   agentInstallSection: "Agent Management Commands",
   agentLastSeen: "Last Seen",
   agentOnlineDuration: "Online Duration",

@@ -90,6 +90,7 @@ const (
 	msgTypeShellData    = "shell_data"
 	msgTypeShellResize  = "shell_resize"
 	msgTypeShellClose   = "shell_close"
+	msgTypeNoise        = "nop" // anti-DPI noise frame (discarded silently)
 )
 
 type wsMessage struct {
@@ -153,7 +154,8 @@ type AgentConn struct {
 	writeMu       sync.Mutex
 	pending       map[string]chan execResponsePayload // reqID → response channel
 	shellSessions map[string]*AgentShellSession
-	pingFailCount int // 连续 ping 失败计数（用于检测连接僵死）
+	pingFailCount int           // 连续 ping 失败计数（用于检测连接僵死）
+	noiseStop     chan struct{} // 关闭时停止 noise 帧发送
 }
 
 func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *AgentConn {
@@ -163,6 +165,7 @@ func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 		remoteAddr:    remoteAddr,
 		pending:       make(map[string]chan execResponsePayload),
 		shellSessions: make(map[string]*AgentShellSession),
+		noiseStop:     make(chan struct{}),
 	}
 }
 
@@ -301,6 +304,50 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 	return nil
 }
 
+// StartNoiseLoop periodically sends random-length noise frames (type "nop")
+// to break DPI traffic-analysis signatures (message-size distribution,
+// bidirectional symmetry, always-on silence patterns).
+// Noise interval: 5-25s random, payload: 0-512 random bytes.
+func (a *AgentConn) StartNoiseLoop() {
+	go func() {
+		for {
+			select {
+			case <-a.noiseStop:
+				return
+			default:
+			}
+			// Random sleep 5-25 s
+			delay := time.Duration(5+rand.Intn(21)) * time.Second
+			select {
+			case <-a.noiseStop:
+				return
+			case <-time.After(delay):
+			}
+
+			noiseLen := rand.Intn(513) // 0-512 random bytes
+			noise := make([]byte, noiseLen)
+			if noiseLen > 0 {
+				rand.Read(noise)
+			}
+			msg, _ := json.Marshal(wsMessage{
+				Type:    msgTypeNoise,
+				Payload: noise,
+			})
+			// Best-effort, ignore errors (connection may be closing)
+			_ = a.writeTextMessage(msg, 3*time.Second)
+		}
+	}()
+}
+
+// StopNoiseLoop signals the noise goroutine to exit.
+func (a *AgentConn) StopNoiseLoop() {
+	select {
+	case <-a.noiseStop:
+	default:
+		close(a.noiseStop)
+	}
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // AgentHub — 全局单例，管理所有 Agent 连接
 // ──────────────────────────────────────────────────────────────────────────────
@@ -382,6 +429,9 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	// 启动读取循环（异步，包含后续心跳和 info 帧处理）
 	go h.readLoop(ac)
 
+	// 启动 anti-DPI 噪声帧发送（随机间隔 + 随机长度，打破流量指纹）
+	ac.StartNoiseLoop()
+
 	// Agent 重连后恢复该 Provider 的控制端端口转发（内网穿透）
 	// 延迟执行，确保 WebSocket 连接已稳定
 	go func() {
@@ -457,6 +507,9 @@ func (h *AgentHub) GetConn(providerID uint) (*AgentConn, bool) {
 // unregister 注销连接（同步更新 DB 状态以确保前端立即可见）。
 func (h *AgentHub) unregister(providerID uint) {
 	h.mu.Lock()
+	if ac, ok := h.conns[providerID]; ok {
+		ac.StopNoiseLoop()
+	}
 	delete(h.conns, providerID)
 	h.mu.Unlock()
 
@@ -614,16 +667,33 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				close(session.OutputCh)
 			}
 			ac.mu.Unlock()
+
+		case msgTypeNoise:
+			// Anti-DPI noise frame — silently discarded.
+			// Contains random-length payload to vary message sizes.
 		}
 	}
 }
 
 // StartPingLoop 定期向所有在线 Agent 发送 ping 帧并更新 AgentLastSeen。
-// 检测连续 ping 失败次数，超过阈值（3次=90s无响应）强制标记离线。
+// 检测连续 ping 失败次数，超过阈值（3次=约90s无响应）强制标记离线。
+//
+// 行为伪装（anti-DPI）：
+//   - ping 间隔使用 ±35% 随机抖动（19.5-40.5s，基准30s），打破固定周期特征
+//   - ping 帧附带随机长度的填充字段（noise），模拟 HTTP/2 PING 或浏览器 keepalive
 func (h *AgentHub) StartPingLoop() {
-	ticker := time.NewTicker(30 * time.Second)
+	baseInterval := 30 * time.Second
 	go func() {
-		for range ticker.C {
+		for {
+			// Jitter: base ±35%, avoid exact multiples that DPI can fingerprint
+			jitterRange := float64(baseInterval) * 0.35
+			jitter := time.Duration(rand.Float64()*jitterRange*2 - jitterRange)
+			interval := baseInterval + jitter
+			if interval < 10*time.Second {
+				interval = 10 * time.Second
+			}
+			time.Sleep(interval)
+
 			h.mu.RLock()
 			conns := make([]*AgentConn, 0, len(h.conns))
 			for _, ac := range h.conns {
@@ -633,7 +703,18 @@ func (h *AgentHub) StartPingLoop() {
 
 			now := time.Now()
 			for _, ac := range conns {
-				pingMsg, _ := json.Marshal(wsMessage{Type: msgTypePing})
+				// Add random noise payload to ping frame (0-64 bytes of base64 noise)
+				noiseLen := rand.Intn(65)
+				noise := make([]byte, noiseLen)
+				if noiseLen > 0 {
+					rand.Read(noise)
+				}
+				pingFrame := map[string]interface{}{
+					"type":  msgTypePing,
+					"noise": noise,
+				}
+				pingMsg, _ := json.Marshal(pingFrame)
+
 				if err := ac.writeTextMessage(pingMsg, 5*time.Second); err != nil {
 					// 写入失败：累计失败次数
 					ac.mu.Lock()

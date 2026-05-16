@@ -3,6 +3,7 @@
 // exec_req / ping / info / tunnel_open frames.
 
 use futures_util::{SinkExt, StreamExt};
+use rand;
 use regex;
 use serde::{Deserialize, Serialize};
 use std::process::Stdio;
@@ -81,15 +82,25 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
     // The secret is transmitted via Authorization header instead.
     let clean_url = strip_secret_params(&ws_url);
 
+    // Track whether we have already tried the ws:// fallback (to avoid loops).
+    let mut ws_fallback_tried = false;
+
     let mut delay_secs: u64 = 2;
     loop {
-        info!(url = %clean_url, "connecting to controller via WebSocket");
+        let connect_url = if ws_fallback_tried {
+            // Already fell back to ws://, use it directly on subsequent attempts.
+            clean_url.replacen("wss://", "ws://", 1)
+        } else {
+            clean_url.clone()
+        };
+
+        info!(url = %connect_url, "connecting to controller via WebSocket");
         // Use ClientRequestBuilder which properly constructs a WebSocket
         // request from the URI (adding Host, Connection, Upgrade,
         // Sec-WebSocket-Key, Sec-WebSocket-Version) and THEN appends
         // custom headers.  Bare Request::builder() does NOT add WebSocket
         // headers and would cause a handshake failure.
-        let uri: Uri = match clean_url.parse() {
+        let uri: Uri = match connect_url.parse() {
             Ok(u) => u,
             Err(e) => {
                 warn!(error = %e, "invalid WebSocket URI, retrying");
@@ -113,6 +124,23 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
                 }
             }
             Err(e) => {
+                let err_msg = e.to_string();
+                // If wss:// fails with a TLS-level error (e.g. InvalidContentType,
+                // CorruptMessage, or certificate errors), the server likely does
+                // not have TLS on this port.  Fall back to plain ws:// once.
+                if !ws_fallback_tried
+                    && clean_url.starts_with("wss://")
+                    && is_tls_layer_error(&err_msg)
+                {
+                    warn!(
+                        error = %e,
+                        "wss:// failed with TLS error, falling back to ws:// (plain WebSocket)"
+                    );
+                    ws_fallback_tried = true;
+                    delay_secs = 1; // retry immediately with ws://
+                    continue;
+                }
+
                 warn!(error = %e, delay_secs, "failed to connect to controller, retrying");
             }
         }
@@ -121,6 +149,22 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
             delay_secs = (delay_secs * 2).min(60);
         }
     }
+}
+
+/// Check whether an error message indicates a TLS-layer failure (as opposed
+/// to an HTTP-level or application-level error).  When these patterns appear
+/// on a wss:// connection it usually means the server is plain HTTP — not TLS.
+fn is_tls_layer_error(err_msg: &str) -> bool {
+    let lower = err_msg.to_lowercase();
+    lower.contains("invalidcontenttype")
+        || lower.contains("corrupt message")
+        || lower.contains("tls")
+        || lower.contains("ssl")
+        || lower.contains("certificate")
+        || lower.contains("handshake")
+        || lower.contains("bad record mac")
+        || lower.contains("unknown protocol")
+        || lower.contains("peer misbehaving")
 }
 
 async fn handle_connection<S>(ws_stream: tokio_tungstenite::WebSocketStream<S>, secret: &str) -> Result<(), String>
@@ -174,6 +218,36 @@ where
     // spawning an unbounded number of processes when the controller sends
     // many commands in rapid succession.
     let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
+
+    // ── Anti-DPI noise sender ───────────────────────────────────────────
+    // Periodically sends random-length noise frames ("nop" type) at
+    // irregular intervals (15-55s) to break traffic-analysis signatures:
+    // message-size distribution, bidirectional symmetry, dead-air patterns.
+    let noise_tx = ws_tx_hi.clone();
+    tokio::spawn(async move {
+        loop {
+            let delay_secs = 15 + (rand::random::<u64>() % 41); // 15-55 s
+            tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
+            let noise_len = rand::random::<usize>() % 513; // 0-512 bytes
+            let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
+            let frame = WsFrame {
+                msg_type: "nop".to_string(),
+                id: None,
+                payload: if noise.is_empty() {
+                    None
+                } else {
+                    // Encode as hex string for JSON compatibility
+                    let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
+                    Some(serde_json::json!({ "h": hex }))
+                },
+            };
+            if let Ok(text) = serde_json::to_string(&frame) {
+                if noise_tx.send(Message::Text(text.into())).await.is_err() {
+                    break; // write channel closed, connection ended
+                }
+            }
+        }
+    });
 
     // Send initial info frame (includes secret for second-factor validation)
     let hostname = std::fs::read_to_string("/etc/hostname")
@@ -271,10 +345,24 @@ where
                         });
                     }
                     "ping" => {
+                        // Anti-DPI: add 0-500ms random jitter before pong
+                        // to break fixed-interval heartbeat fingerprint
+                        let jitter_ms = rand::random::<u64>() % 500;
+                        if jitter_ms > 0 {
+                            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
+                        }
+                        // Add small random noise to pong payload (0-16 bytes)
+                        let noise_len = (rand::random::<u8>() % 17) as usize;
+                        let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
                         let pong = WsFrame {
                             msg_type: "pong".to_string(),
                             id: frame.id.clone(),
-                            payload: None,
+                            payload: if noise.is_empty() {
+                                None
+                            } else {
+                                let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
+                                Some(serde_json::json!({ "n": hex }))
+                            },
                         };
                         let pong_text = serde_json::to_string(&pong).map_err(|e| e.to_string())?;
                         ws_tx_hi.send(Message::Text(pong_text.into())).await.map_err(|e| e.to_string())?;
@@ -326,6 +414,10 @@ where
                             let mut child = handle.child.lock().await;
                             let _ = child.kill().await;
                         }
+                    }
+                    "nop" => {
+                        // Anti-DPI noise frame — silently discarded.
+                        // Contains random-length payload from controller.
                     }
                     other => {
                         info!(msg_type = %other, "received unhandled frame type");
