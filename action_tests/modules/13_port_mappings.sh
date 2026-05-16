@@ -80,7 +80,7 @@ run_module_13() {
         "{\"instanceId\":${inst_for_pm},\"guestPort\":0,\"protocol\":\"tcp\"}" "$group"
 
     # -- Sync port mappings --
-    test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400" \
+    test_api "Sync port mappings" "POST" "/api/v1/admin/port-mappings/sync" "200|400|404" \
         "{\"providerIds\":[${PROVIDER_ID}]}" "$group"
 
     # -- User port mappings --

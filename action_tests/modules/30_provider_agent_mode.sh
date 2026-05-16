@@ -136,18 +136,85 @@ run_module_30() {
         test_api "Agent provider monitoring status" "GET" "/api/v1/admin/providers/${agent_pid}/monitoring/status" "200|400" "" "$group"
 
         # -- Switch from agent back to ssh mode (requires full SSH connection info) --
-        local switch_payload=''
-        if [[ -n "$worker_pass" ]]; then
-            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"password\":\"${worker_pass}\"}"
-        elif [[ -n "$worker_key" ]]; then
-            local escaped_switch_key; escaped_switch_key=$(echo "$worker_key" | jq -Rsa .)
-            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"sshKey\":${escaped_switch_key}}"
-        fi
-        if [[ -n "$switch_payload" ]]; then
-            test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
-                "$switch_payload" "$group"
-        else
-            log_warning "Skipping agent->ssh switch test because no SSH credentials are available"
+        local switch_endpoint="${WORKER_IP}"
+        local switch_port=22
+        if [[ -n "$switch_endpoint" ]]; then
+            local providers_resp; providers_resp=$(curl -s --max-time 30 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
+                "${SERVER_URL}/api/v1/admin/providers?page=1&pageSize=200" 2>/dev/null)
+            local endpoint_conflict; endpoint_conflict=$(echo "$providers_resp" | jq -r \
+                --arg endpoint "$switch_endpoint" \
+                --arg self_id "$agent_pid" \
+                --argjson ssh_port "$switch_port" \
+                'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
+                 def e: (.endpoint // .host // "");
+                 if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end' 2>/dev/null)
+            if [[ "$endpoint_conflict" == "yes" ]]; then
+                for candidate_port in 22022 22023 22024 22025 22026 22027 22028 22029; do
+                    local port_conflict; port_conflict=$(echo "$providers_resp" | jq -r \
+                        --arg endpoint "$switch_endpoint" \
+                        --arg self_id "$agent_pid" \
+                        --argjson ssh_port "$candidate_port" \
+                        'def p: (.sshPort // .ssh_port // 22 | tonumber? // 22);
+                         def e: (.endpoint // .host // "");
+                         if any((.data.list // .data.items // .data // [])[]?; ((.id // .ID | tostring) != $self_id) and (e == $endpoint) and (p == $ssh_port)) then "yes" else "no" end' 2>/dev/null)
+                    if [[ "$port_conflict" != "yes" ]]; then
+                        switch_port="$candidate_port"
+                        break
+                    fi
+                done
+                log_info "Switch agent->ssh uses non-conflicting endpoint tuple: ${switch_endpoint}:${switch_port}"
+            fi
+
+            # If collision still happens due backend-side normalization, retry with alternative ports.
+            local switch_payload=''
+            if [[ -n "$worker_pass" ]]; then
+                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"password\":\"${worker_pass}\"}"
+            elif [[ -n "$worker_key" ]]; then
+                local escaped_switch_key; escaped_switch_key=$(echo "$worker_key" | jq -Rsa .)
+                switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${switch_port},\"username\":\"root\",\"sshKey\":${escaped_switch_key}}"
+            fi
+            if [[ -n "$switch_payload" ]]; then
+                local switch_resp=''
+                local switch_code=''
+                local switched_ok=0
+                local try_port=''
+                for try_port in "$switch_port" 22022 22023 22024 22025 22026 22027 22028 22029; do
+                    if [[ "$try_port" != "$switch_port" ]]; then
+                        if [[ -n "$worker_pass" ]]; then
+                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"password\":\"${worker_pass}\"}"
+                        else
+                            local escaped_switch_key_retry; escaped_switch_key_retry=$(echo "$worker_key" | jq -Rsa .)
+                            switch_payload="{\"connectionType\":\"ssh\",\"endpoint\":\"${switch_endpoint}\",\"sshPort\":${try_port},\"username\":\"root\",\"sshKey\":${escaped_switch_key_retry}}"
+                        fi
+                    fi
+                    switch_resp=$(test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200|409" \
+                        "$switch_payload" "$group")
+                    switch_code=$(echo "$switch_resp" | jq -r '.code // empty' 2>/dev/null)
+                    if [[ "$switch_code" == "200" ]]; then
+                        switched_ok=1
+                        switch_port="$try_port"
+                        break
+                    fi
+                    log_warning "Switch agent->ssh conflict on ${switch_endpoint}:${try_port}, trying next port"
+                done
+
+                if [[ "$switched_ok" -eq 1 ]]; then
+                    # Run task-based configure flow after a successful switch to ssh mode.
+                    local sw_ac_resp; sw_ac_resp=$(test_api "Auto-configure switched provider" "POST" \
+                        "/api/v1/admin/providers/auto-configure" "200|400|500" \
+                        "{\"providerId\":${agent_pid}}" "$group")
+                    local sw_ac_task; sw_ac_task=$(echo "$sw_ac_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+                    if [[ -n "$sw_ac_task" ]]; then
+                        log_info "Waiting switched-provider auto-config task: ${sw_ac_task}"
+                        wait_task_complete "$SERVER_URL" "$sw_ac_task" "$ADMIN_TOKEN" 300 10 > /dev/null 2>&1 || true
+                    fi
+                else
+                    test_api "Switch agent->ssh (with creds)" "PUT" "/api/v1/admin/providers/${agent_pid}" "200" \
+                        "$switch_payload" "$group"
+                fi
+            else
+                log_warning "Skipping agent->ssh switch test because no SSH credentials are available"
+            fi
         fi
 
         # -- Cleanup --

@@ -104,12 +104,18 @@ run_module_10() {
                 '{"action":"invalid_action"}' "$group"
 
             # -- Reset password --
+            local known_test_pw="NewContPass123!"
             local rp; rp=$(test_api "Reset container password" "PUT" "/api/v1/admin/instances/${container_id}/reset-password" "200|400|500" \
-                '{"password":"NewContPass123!"}' "$group")
+                "{\"password\":\"${known_test_pw}\"}" "$group")
+            export TEST_INSTANCE_PASSWORD="${known_test_pw}"
             local rp_task; rp_task=$(echo "$rp" | jq -r '.data.task_id // empty' 2>/dev/null)
             if [[ -n "$rp_task" ]]; then
                 sleep 5
-                test_api "Get new password" "GET" "/api/v1/admin/instances/${container_id}/password/${rp_task}" "200" "" "$group"
+                local gp; gp=$(test_api "Get new password" "GET" "/api/v1/admin/instances/${container_id}/password/${rp_task}" "200" "" "$group")
+                local gp_pw; gp_pw=$(echo "$gp" | jq -r '.data.password // empty' 2>/dev/null)
+                if [[ -n "$gp_pw" && "$gp_pw" != "null" ]]; then
+                    export TEST_INSTANCE_PASSWORD="$gp_pw"
+                fi
             fi
 
             # -- Edit instance --

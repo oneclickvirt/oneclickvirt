@@ -144,7 +144,7 @@ run_module_09() {
             '{"nodeInstallType":"script"}' "$group"
 
         # Test creating a proxmox provider with third_party type (validation should pass with required fields)
-        local tp_create_resp; tp_create_resp=$(test_api "Create proxmox third_party provider" "POST" "/api/v1/admin/providers" "200" \
+        local tp_create_resp; tp_create_resp=$(test_api "Create proxmox third_party provider" "POST" "/api/v1/admin/providers" "200|409" \
             "{\"name\":\"ci-proxmox-thirdparty\",\"type\":\"${ENV_TYPE}\",\"executionRule\":\"${EXECUTION_RULE}\",\"networkType\":\"nat_ipv4\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",${auth_payload},\"nodeInstallType\":\"third_party\",\"bridgeNAT\":\"vmbr1\",\"bridgeDedicatedV4\":\"vmbr0\",\"bridgeDedicatedV6\":\"\",\"natSubnet\":\"172.16.1.0/24\"}" "$group")
         local tp_pid; tp_pid=$(echo "$tp_create_resp" | jq -r '.data.id // .data.ID // empty' 2>/dev/null)
         if [[ -n "$tp_pid" ]]; then

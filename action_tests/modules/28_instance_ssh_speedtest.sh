@@ -83,7 +83,7 @@ _get_instance_ssh_info() {
     INST_PUBLIC_IP=$(echo "$resp"  | jq -r '.data.publicIP  // .data.instance.publicIP  // empty' 2>/dev/null)
     INST_SSH_PORT=$(echo "$resp"   | jq -r '.data.sshPort   // .data.instance.sshPort   // 22'    2>/dev/null)
     INST_USERNAME=$(echo "$resp"   | jq -r '.data.username  // .data.instance.username  // empty' 2>/dev/null)
-    INST_PASSWORD=$(echo "$resp"   | jq -r '.data.password  // .data.instance.password  // empty' 2>/dev/null)
+    INST_PASSWORD=$(echo "$resp"   | jq -r '.data.password // .data.rootPassword // .data.initialPassword // .data.instance.password // empty' 2>/dev/null)
     # jq // only catches null, not empty string — apply fallbacks manually
     [[ -z "$INST_USERNAME" || "$INST_USERNAME" == "null" ]] && INST_USERNAME="root"
     [[ "$INST_SSH_PORT" == "null" || -z "$INST_SSH_PORT" ]] && INST_SSH_PORT=22
@@ -279,23 +279,40 @@ run_module_28() {
         "/api/v1/admin/instances/${TEST_INSTANCE_ID}" \
         "PASS" "SSH details" "found" "" "$group"
 
+    # Build SSH key file fallback for key-based cloud providers.
+    local m28_key_file="${PLATFORM_SSH_KEY_FILE:-}"
+    local m28_temp_key_file=""
+    if [[ -z "$m28_key_file" && -n "${ALICE_PRIVATE_KEY:-}" ]]; then
+        m28_temp_key_file=$(mktemp /tmp/m28_ssh_key_XXXXXX.pem)
+        chmod 600 "$m28_temp_key_file"
+        printf '%s\n' "${ALICE_PRIVATE_KEY}" > "$m28_temp_key_file"
+        m28_key_file="$m28_temp_key_file"
+    fi
+
     # -- If password is not returned by API, reset it first --
     if [[ -z "$INST_PASSWORD" || "$INST_PASSWORD" == "null" ]]; then
-        log_info "Instance password not in API response; resetting via API..."
+        local desired_pw="${TEST_INSTANCE_PASSWORD:-${NODE_PASSWORD:-SpeedTest123!@#}}"
+        log_info "Instance password not in API response; resetting via API with a known password..."
         local rp_resp; rp_resp=$(test_api "Reset instance password (for SSH test)" "PUT" \
             "/api/v1/admin/instances/${TEST_INSTANCE_ID}/reset-password" "200|400|404|500" \
-            '{}' "$group")
+            "{\"password\":\"${desired_pw}\"}" "$group")
         # If the platform returned a task, wait for it
         local rp_task; rp_task=$(echo "$rp_resp" | jq -r '.data.task_id // empty' 2>/dev/null)
+        local rp_code; rp_code=$(echo "$rp_resp" | jq -r '.code // empty' 2>/dev/null)
+        if [[ "$rp_code" == "200" ]]; then
+            INST_PASSWORD="$desired_pw"
+            export TEST_INSTANCE_PASSWORD="$desired_pw"
+        fi
         if [[ -n "$rp_task" ]]; then
             wait_task_complete "$SERVER_URL" "$rp_task" "$ADMIN_TOKEN" 120 5 > /dev/null 2>&1 || true
             local pw_resp; pw_resp=$(curl -s --max-time 30 \
                 -H "Authorization: Bearer ${ADMIN_TOKEN}" \
                 "${SERVER_URL}/api/v1/admin/instances/${TEST_INSTANCE_ID}/password/${rp_task}" 2>/dev/null) || true
             local new_pw; new_pw=$(echo "$pw_resp" | jq -r '.data.password // empty' 2>/dev/null)
-            [[ -n "$new_pw" && "$new_pw" != "null" ]] && INST_PASSWORD="$new_pw"
-        else
-            INST_PASSWORD="SpeedTest123!@#"
+            if [[ -n "$new_pw" && "$new_pw" != "null" ]]; then
+                INST_PASSWORD="$new_pw"
+                export TEST_INSTANCE_PASSWORD="$new_pw"
+            fi
         fi
     fi
 
@@ -309,7 +326,7 @@ run_module_28() {
     local ssh_attempts=3
     for ((attempt=1; attempt<=ssh_attempts; attempt++)); do
         if _test_ssh_connectivity \
-               "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD"; then
+             "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD" "$m28_key_file"; then
             ssh_ok=true
             break
         fi
@@ -334,7 +351,7 @@ run_module_28() {
     # -- Speedtest via remote.py inside the instance --
     TOTAL_TESTS=$((TOTAL_TESTS + 1))
     if _test_speedtest_download \
-           "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD"; then
+            "$INST_PUBLIC_IP" "$INST_SSH_PORT" "$INST_USERNAME" "$INST_PASSWORD" "$m28_key_file"; then
         PASSED_TESTS=$((PASSED_TESTS + 1))
         report_add_pass "Instance speedtest download (>=${SPEEDTEST_MIN_MB}MB)" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}"
         _record_result "Instance speedtest download" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
@@ -345,5 +362,9 @@ run_module_28() {
             "" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "No URL returned enough data in ${SPEEDTEST_TIMEOUT}s"
         _record_result "Instance speedtest download" "SSH-DL" "${INST_PUBLIC_IP}:${INST_SSH_PORT}" \
             "FAIL" ">=${SPEEDTEST_MIN_MB}MB" "all failed" "" "$group"
+    fi
+
+    if [[ -n "$m28_temp_key_file" && -f "$m28_temp_key_file" ]]; then
+        rm -f "$m28_temp_key_file"
     fi
 }
