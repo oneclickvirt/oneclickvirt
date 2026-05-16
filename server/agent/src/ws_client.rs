@@ -12,7 +12,7 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
-use tokio_tungstenite::tungstenite::http::Request;
+use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
 use tracing::{info, warn};
 use url;
 
@@ -84,21 +84,24 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
     let mut delay_secs: u64 = 2;
     loop {
         info!(url = %clean_url, "connecting to controller via WebSocket");
-        // Build request with secret in headers to avoid URL-query logging.
-        let request = match Request::builder()
-            .uri(&clean_url)
-            .header("Authorization", format!("Bearer {}", secret))
-            .header("X-Agent-Secret", &secret)
-            .body(())
-        {
-            Ok(req) => req,
+        // Use ClientRequestBuilder which properly constructs a WebSocket
+        // request from the URI (adding Host, Connection, Upgrade,
+        // Sec-WebSocket-Key, Sec-WebSocket-Version) and THEN appends
+        // custom headers.  Bare Request::builder() does NOT add WebSocket
+        // headers and would cause a handshake failure.
+        let uri: Uri = match clean_url.parse() {
+            Ok(u) => u,
             Err(e) => {
-                warn!(error = %e, "failed to build WebSocket request, retrying");
+                warn!(error = %e, "invalid WebSocket URI, retrying");
                 tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
                 if delay_secs < 60 { delay_secs = (delay_secs * 2).min(60); }
                 continue;
             }
         };
+        let request = ClientRequestBuilder::new(uri)
+            .with_header("Authorization", format!("Bearer {}", secret))
+            .with_header("X-Agent-Secret", secret.clone());
+
         match connect_async(request).await {
             Ok((ws_stream, _)) => {
                 info!("WebSocket connected to controller");
