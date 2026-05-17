@@ -22,7 +22,10 @@
         style="width: 200px"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -47,7 +50,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -71,7 +77,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -117,7 +126,10 @@
         />
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -150,15 +162,29 @@
         prop="nodeInstallType"
       >
         <el-radio-group v-model="modelValue.nodeInstallType">
-          <el-radio value="script">{{ $t('admin.providers.nodeInstallScript') }}</el-radio>
+          <el-radio value="script">
+            {{ $t('admin.providers.nodeInstallScript') }}
+          </el-radio>
           <el-radio value="third_party">
             <span>{{ $t('admin.providers.nodeInstallThirdParty') }}</span>
-            <el-tag type="warning" size="small" style="margin-left: 8px;">{{ $t('admin.providers.nodeInstallThirdPartyTag') }}</el-tag>
+            <el-tag
+              type="warning"
+              size="small"
+              style="margin-left: 8px;"
+            >
+              {{ $t('admin.providers.nodeInstallThirdPartyTag') }}
+            </el-tag>
           </el-radio>
         </el-radio-group>
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
           {{ $t('admin.providers.nodeInstallTypeTip') }}
           <a
             href="https://github.com/oneclickvirt/pve"
@@ -191,8 +217,16 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">{{ $t('admin.providers.bridgeNATTip') }}</el-text>
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.bridgeNATTip') }}
+          </el-text>
         </div>
 
         <el-form-item
@@ -205,8 +239,16 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">{{ $t('admin.providers.bridgeDedicatedV4Tip') }}</el-text>
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.bridgeDedicatedV4Tip') }}
+          </el-text>
         </div>
 
         <el-form-item
@@ -219,8 +261,16 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">{{ $t('admin.providers.bridgeDedicatedV6Tip') }}</el-text>
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.bridgeDedicatedV6Tip') }}
+          </el-text>
         </div>
 
         <el-form-item
@@ -233,8 +283,16 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">{{ $t('admin.providers.natSubnetTip') }}</el-text>
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.natSubnetTip') }}
+          </el-text>
         </div>
       </template>
     </template>
@@ -250,7 +308,11 @@
         style="width: 100%"
       />
     </el-form-item>
-    <div v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="['docker', 'podman', 'containerd'].includes(modelValue.type)"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -280,7 +342,11 @@
         />
       </el-select>
     </el-form-item>
-    <div v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only'" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only'"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -310,7 +376,11 @@
         />
       </el-select>
     </el-form-item>
-    <div v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && (modelValue.networkType === 'nat_ipv4_ipv6' || modelValue.networkType === 'dedicated_ipv4_ipv6' || modelValue.networkType === 'ipv6_only')" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && (modelValue.networkType === 'nat_ipv4_ipv6' || modelValue.networkType === 'dedicated_ipv4_ipv6' || modelValue.networkType === 'ipv6_only')"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -341,7 +411,11 @@
         />
       </el-select>
     </el-form-item>
-    <div v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only'" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only'"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -371,7 +445,11 @@
         />
       </el-select>
     </el-form-item>
-    <div v-if="modelValue.type === 'proxmox' && (modelValue.networkType === 'nat_ipv4_ipv6' || modelValue.networkType === 'dedicated_ipv4_ipv6' || modelValue.networkType === 'ipv6_only')" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="modelValue.type === 'proxmox' && (modelValue.networkType === 'nat_ipv4_ipv6' || modelValue.networkType === 'dedicated_ipv4_ipv6' || modelValue.networkType === 'ipv6_only')"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -391,7 +469,11 @@
         style="width: 100%"
       />
     </el-form-item>
-    <div v-if="['qemu', 'kubevirt'].includes(modelValue.type)" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="['qemu', 'kubevirt'].includes(modelValue.type)"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -420,7 +502,10 @@
 
     <!-- IPv4 地址池管理（仅对 dedicated_ipv4 / dedicated_ipv4_ipv6 显示） -->
     <template v-if="modelValue.networkType === 'dedicated_ipv4' || modelValue.networkType === 'dedicated_ipv4_ipv6'">
-      <el-divider content-position="left" style="margin-top: 24px;">
+      <el-divider
+        content-position="left"
+        style="margin-top: 24px;"
+      >
         <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.ipv4Pool.management') }}</span>
       </el-divider>
 
@@ -435,15 +520,27 @@
 
       <template v-else>
         <!-- 池统计 -->
-        <el-row :gutter="16" style="margin-bottom: 16px;">
+        <el-row
+          :gutter="16"
+          style="margin-bottom: 16px;"
+        >
           <el-col :span="8">
-            <el-statistic :title="$t('admin.providers.ipv4Pool.total')" :value="poolStats.total" />
+            <el-statistic
+              :title="$t('admin.providers.ipv4Pool.total')"
+              :value="poolStats.total"
+            />
           </el-col>
           <el-col :span="8">
-            <el-statistic :title="$t('admin.providers.ipv4Pool.allocated')" :value="poolStats.allocated" />
+            <el-statistic
+              :title="$t('admin.providers.ipv4Pool.allocated')"
+              :value="poolStats.allocated"
+            />
           </el-col>
           <el-col :span="8">
-            <el-statistic :title="$t('admin.providers.ipv4Pool.available')" :value="poolStats.available" />
+            <el-statistic
+              :title="$t('admin.providers.ipv4Pool.available')"
+              :value="poolStats.available"
+            />
           </el-col>
         </el-row>
 
@@ -470,7 +567,12 @@
                 @confirm="clearPool"
               >
                 <template #reference>
-                  <el-button type="danger" plain>{{ $t('admin.providers.ipv4Pool.clearBtn') }}</el-button>
+                  <el-button
+                    type="danger"
+                    plain
+                  >
+                    {{ $t('admin.providers.ipv4Pool.clearBtn') }}
+                  </el-button>
                 </template>
               </el-popconfirm>
             </el-space>
@@ -496,7 +598,10 @@
               min-width="100"
             >
               <template #default="{ row }">
-                <el-tag :type="row.is_allocated ? 'warning' : 'success'" size="small">
+                <el-tag
+                  :type="row.is_allocated ? 'warning' : 'success'"
+                  size="small"
+                >
                   {{ row.is_allocated ? $t('admin.providers.ipv4Pool.statusAllocated') : $t('admin.providers.ipv4Pool.statusFree') }}
                 </el-tag>
               </template>
@@ -521,7 +626,13 @@
                   @confirm="deleteEntry(row.id)"
                 >
                   <template #reference>
-                    <el-button type="danger" link size="small">{{ $t('common.delete') }}</el-button>
+                    <el-button
+                      type="danger"
+                      link
+                      size="small"
+                    >
+                      {{ $t('common.delete') }}
+                    </el-button>
                   </template>
                 </el-popconfirm>
               </template>

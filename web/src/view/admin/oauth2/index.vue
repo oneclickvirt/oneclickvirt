@@ -164,16 +164,46 @@
               clearable
               @change="handlePresetChange"
             >
-              <el-option label="Linux.do" value="linuxdo" />
-              <el-option label="IDCFlare" value="idcflare" />
-              <el-option label="GitHub" value="github" />
-              <el-option label="GitLab" value="gitlab" />
-              <el-option label="Gitea" value="gitea" />
-              <el-option label="Google" value="google" />
-              <el-option label="Microsoft" value="microsoft" />
-              <el-option label="Discord" value="discord" />
-              <el-option :label="$t('admin.oauth2.genericOAuth2')" value="generic" />
-              <el-option :label="$t('admin.oauth2.customOAuth2')" value="custom" />
+              <el-option
+                label="Linux.do"
+                value="linuxdo"
+              />
+              <el-option
+                label="IDCFlare"
+                value="idcflare"
+              />
+              <el-option
+                label="GitHub"
+                value="github"
+              />
+              <el-option
+                label="GitLab"
+                value="gitlab"
+              />
+              <el-option
+                label="Gitea"
+                value="gitea"
+              />
+              <el-option
+                label="Google"
+                value="google"
+              />
+              <el-option
+                label="Microsoft"
+                value="microsoft"
+              />
+              <el-option
+                label="Discord"
+                value="discord"
+              />
+              <el-option
+                :label="$t('admin.oauth2.genericOAuth2')"
+                value="generic"
+              />
+              <el-option
+                :label="$t('admin.oauth2.customOAuth2')"
+                value="custom"
+              />
             </el-select>
           </div>
         </div>

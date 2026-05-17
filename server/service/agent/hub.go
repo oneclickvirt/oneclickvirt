@@ -30,6 +30,18 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	// 仅用于兜底，真正的在线状态由 ping + 消息读循环共同维护。
+	readDeadlineWindow = 300 * time.Second
+	// 限制 online 心跳落库频率，避免每次 ping 都写 DB 引发 N+1 写放大。
+	heartbeatPersistInterval = 30 * time.Second
+)
+
+type agentStatusPersistState struct {
+	status      string
+	lastPersist time.Time
+}
+
 func init() {
 	// 注入控制端端口转发函数，解决循环依赖
 	resourcesSvc.ControllerPortForwardFunc = StartControllerPortForward
@@ -374,6 +386,9 @@ func (a *AgentConn) StopNoiseLoop() {
 type AgentHub struct {
 	mu    sync.RWMutex
 	conns map[uint]*AgentConn // providerID → AgentConn
+
+	persistMu         sync.Mutex
+	statusPersistMemo map[uint]agentStatusPersistState // providerID -> 最近一次状态持久化信息
 }
 
 var (
@@ -385,7 +400,8 @@ var (
 func GetHub() *AgentHub {
 	globalHubOnce.Do(func() {
 		globalHub = &AgentHub{
-			conns: make(map[uint]*AgentConn),
+			conns:             make(map[uint]*AgentConn),
+			statusPersistMemo: make(map[uint]agentStatusPersistState),
 		}
 	})
 	return globalHub
@@ -400,6 +416,10 @@ func (h *AgentHub) Register(ac *AgentConn) {
 	}
 	h.conns[ac.ProviderID] = ac
 	h.mu.Unlock()
+
+	h.persistMu.Lock()
+	delete(h.statusPersistMemo, ac.ProviderID)
+	h.persistMu.Unlock()
 
 	// 清理旧的 TunnelManager，确保后续端口转发使用新的 AgentConn
 	RemoveTunnelManager(ac.ProviderID)
@@ -532,6 +552,10 @@ func (h *AgentHub) unregister(providerID uint) {
 	delete(h.conns, providerID)
 	h.mu.Unlock()
 
+	h.persistMu.Lock()
+	delete(h.statusPersistMemo, providerID)
+	h.persistMu.Unlock()
+
 	// 清理该 Provider 的 TunnelManager，释放资源
 	RemoveTunnelManager(providerID)
 
@@ -562,9 +586,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		h.unregister(ac.ProviderID)
 	}()
 
-	ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
+	ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 	ac.conn.SetPongHandler(func(string) error {
-		ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
+		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 		return nil
 	})
 
@@ -578,9 +602,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			return
 		}
 
-		// 每次成功读取后刷新读超时（300s），确保任何活动都能保持连接存活
+		// 每次成功读取后刷新读超时，确保任何活动都能保持连接存活
 		// ping 循环以 ~15s 间隔检测死连接，读超时仅作为最后防线
-		ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
+		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
 		if msgType == websocket.BinaryMessage {
@@ -616,7 +640,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			}
 
 		case msgTypePong:
-			ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
+			ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 
 		case msgTypeInfo:
 			var info infoPayload
@@ -699,7 +723,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 }
 
 // StartPingLoop 定期向所有在线 Agent 发送 ping 帧并更新 AgentLastSeen。
-// 检测连续 ping 失败次数，超过阈值（3次=约45s无响应）强制标记离线。
+// 检测连续 ping 写入失败，达到阈值后强制断开以触发 Agent 重连。
 //
 // 行为伪装（anti-DPI）：
 //   - ping 间隔使用 ±35% 随机抖动（9.75-20.25s，基准15s），打破固定周期特征
@@ -753,7 +777,7 @@ func (h *AgentHub) StartPingLoop() {
 						zap.Int("consecutiveFailures", failCount),
 						zap.Error(err))
 
-					// 连续 3 次（90s）写入失败 → 强制标记离线
+					// 连续 3 次写入失败（约 15-60s，取决于抖动）→ 强制标记离线
 					if failCount >= 3 {
 						global.APP_LOG.Error("Agent 连续 ping 失败超过阈值，强制断开",
 							zap.Uint("providerID", ac.ProviderID),
@@ -768,7 +792,7 @@ func (h *AgentHub) StartPingLoop() {
 				ac.pingFailCount = 0
 				ac.mu.Unlock()
 
-				go h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
+				h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 			}
 		}
 	}()
@@ -861,6 +885,20 @@ func (h *AgentHub) updateProviderAgentStatus(providerID uint, status string, las
 }
 
 func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status string, lastSeen *time.Time, remoteAddr string, hostname string, version string) {
+	now := time.Now()
+	shouldPersist := true
+
+	// 对 online 心跳做持久化节流：状态不变且未到窗口期时跳过 DB 写。
+	if status == "online" {
+		h.persistMu.Lock()
+		memo, ok := h.statusPersistMemo[providerID]
+		shouldPersist = !ok || memo.status != status || now.Sub(memo.lastPersist) >= heartbeatPersistInterval
+		h.persistMu.Unlock()
+		if !shouldPersist {
+			return
+		}
+	}
+
 	updates := map[string]interface{}{
 		"agent_status": status,
 	}
@@ -888,7 +926,12 @@ func (h *AgentHub) updateProviderAgentStatusWithVersion(providerID uint, status 
 		Where("id = ?", providerID).
 		Updates(updates).Error; err != nil {
 		global.APP_LOG.Warn("更新 Agent 状态失败", zap.Uint("providerID", providerID), zap.Error(err))
+		return
 	}
+
+	h.persistMu.Lock()
+	h.statusPersistMemo[providerID] = agentStatusPersistState{status: status, lastPersist: now}
+	h.persistMu.Unlock()
 
 	if status == "online" && remoteIP != "" {
 		if err := global.APP_DB.Model(&providerModel.Provider{}).

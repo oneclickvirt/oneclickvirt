@@ -9,11 +9,23 @@
       label-width="120px"
       class="server-form"
     >
-      <div v-if="isAgentMode" class="form-tip" style="margin-top: -4px; margin-bottom: 12px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.agentMappedSshOptionalTip') }}</el-text>
+      <div
+        v-if="isAgentMode"
+        class="form-tip"
+        style="margin-top: -4px; margin-bottom: 12px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.agentMappedSshOptionalTip') }}
+        </el-text>
       </div>
 
-      <el-form-item :label="$t('admin.providers.username')" prop="username">
+      <el-form-item
+        :label="$t('admin.providers.username')"
+        prop="username"
+      >
         <el-input
           v-model="modelValue.username"
           :placeholder="$t('admin.providers.usernamePlaceholder')"
@@ -21,13 +33,20 @@
       </el-form-item>
 
       <!-- 认证方式选择 -->
-      <el-form-item :label="$t('admin.providers.authMethod')" prop="authMethod">
+      <el-form-item
+        :label="$t('admin.providers.authMethod')"
+        prop="authMethod"
+      >
         <el-radio-group
           v-model="modelValue.authMethod"
           @change="emit('auth-method-change', $event)"
         >
-          <el-radio-button label="password">{{ $t('admin.providers.usePassword') }}</el-radio-button>
-          <el-radio-button label="sshKey">{{ $t('admin.providers.useSSHKey') }}</el-radio-button>
+          <el-radio-button label="password">
+            {{ $t('admin.providers.usePassword') }}
+          </el-radio-button>
+          <el-radio-button label="sshKey">
+            {{ $t('admin.providers.useSSHKey') }}
+          </el-radio-button>
         </el-radio-group>
       </el-form-item>
 
@@ -43,8 +62,16 @@
           :placeholder="isEditing ? $t('admin.providers.passwordEditPlaceholder') : $t('admin.providers.passwordPlaceholder')"
           show-password
         />
-        <div v-if="isEditing" class="form-tip">
-          <el-text size="small" type="info">{{ $t('admin.providers.passwordKeepTip') }}</el-text>
+        <div
+          v-if="isEditing"
+          class="form-tip"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.passwordKeepTip') }}
+          </el-text>
         </div>
       </el-form-item>
 
@@ -60,14 +87,27 @@
           :rows="4"
           :placeholder="isEditing ? $t('admin.providers.sshKeyEditPlaceholder') : $t('admin.providers.sshKeyPlaceholder')"
         />
-        <div v-if="isEditing" class="form-tip">
-          <el-text size="small" type="info">{{ $t('admin.providers.sshKeyEditTip') }}</el-text>
+        <div
+          v-if="isEditing"
+          class="form-tip"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.sshKeyEditTip') }}
+          </el-text>
         </div>
       </el-form-item>
 
-      <el-divider content-position="left">{{ $t('admin.providers.sshTimeoutConfig') }}</el-divider>
+      <el-divider content-position="left">
+        {{ $t('admin.providers.sshTimeoutConfig') }}
+      </el-divider>
 
-      <el-form-item :label="$t('admin.providers.connectTimeout')" prop="sshConnectTimeout">
+      <el-form-item
+        :label="$t('admin.providers.connectTimeout')"
+        prop="sshConnectTimeout"
+      >
         <el-input-number
           v-model="modelValue.sshConnectTimeout"
           :min="5"
@@ -78,11 +118,22 @@
         />
         <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.connectTimeoutTip') }}</el-text>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.connectTimeoutTip') }}
+        </el-text>
       </div>
 
-      <el-form-item :label="$t('admin.providers.executeTimeout')" prop="sshExecuteTimeout">
+      <el-form-item
+        :label="$t('admin.providers.executeTimeout')"
+        prop="sshExecuteTimeout"
+      >
         <el-input-number
           v-model="modelValue.sshExecuteTimeout"
           :min="30"
@@ -93,8 +144,16 @@
         />
         <span style="margin-left: 10px;">{{ $t('admin.providers.seconds') }}</span>
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.executeTimeoutTip') }}</el-text>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.executeTimeoutTip') }}
+        </el-text>
       </div>
 
       <el-form-item :label="$t('admin.providers.connectionTest')">
@@ -104,10 +163,16 @@
           :disabled="!modelValue.host || !modelValue.username || (modelValue.authMethod === 'password' ? !modelValue.password : !modelValue.sshKey)"
           @click="emit('test-connection')"
         >
-          <el-icon v-if="!testingConnection"><Connection /></el-icon>
+          <el-icon v-if="!testingConnection">
+            <Connection />
+          </el-icon>
           {{ testingConnection ? $t('admin.providers.testing') : $t('admin.providers.testSSH') }}
         </el-button>
-        <div v-if="connectionTestResult" class="form-tip" style="margin-top: 10px;">
+        <div
+          v-if="connectionTestResult"
+          class="form-tip"
+          style="margin-top: 10px;"
+        >
           <el-alert
             :title="connectionTestResult.title"
             :type="connectionTestResult.type"
@@ -123,7 +188,12 @@
                 <p style="margin-top: 8px;">
                   <strong>{{ $t('admin.providers.recommendedTimeout') }}: {{ connectionTestResult.recommendedTimeout }}{{ $t('common.seconds') }}</strong>
                 </p>
-                <el-button type="primary" size="small" style="margin-top: 8px;" @click="emit('apply-timeout')">
+                <el-button
+                  type="primary"
+                  size="small"
+                  style="margin-top: 8px;"
+                  @click="emit('apply-timeout')"
+                >
                   {{ $t('admin.providers.applyRecommended') }}
                 </el-button>
               </div>
@@ -139,7 +209,10 @@
     <!-- ======================================================
          Agent 模式内容（connectionType === 'agent'）
          ====================================================== -->
-    <div v-if="modelValue.connectionType === 'agent'" class="agent-mode-content">
+    <div
+      v-if="modelValue.connectionType === 'agent'"
+      class="agent-mode-content"
+    >
       <!-- Agent 状态（编辑模式） -->
       <el-alert
         v-if="isEditing"
@@ -152,13 +225,22 @@
             {{ $t('admin.providers.agentStatus') }}:
             <strong>{{ modelValue.agentStatus === 'online' ? $t('admin.providers.agentStatusOnline') : $t('admin.providers.agentStatusOffline') }}</strong>
           </span>
-          <span v-if="modelValue.agentConnectedAt && modelValue.agentStatus === 'online'" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
+          <span
+            v-if="modelValue.agentConnectedAt && modelValue.agentStatus === 'online'"
+            style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
+          >
             {{ $t('admin.providers.agentOnlineDuration') }}: {{ formatOnlineDuration(modelValue.agentConnectedAt) }}
           </span>
-          <span v-if="modelValue.agentLastSeen" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
+          <span
+            v-if="modelValue.agentLastSeen"
+            style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
+          >
             {{ $t('admin.providers.agentLastSeen') }}: {{ formatDateTime(modelValue.agentLastSeen) }}
           </span>
-          <span v-if="modelValue.agentRemoteIP" style="margin-left: 16px; font-size: 12px; opacity: 0.8;">
+          <span
+            v-if="modelValue.agentRemoteIP"
+            style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
+          >
             {{ $t('admin.providers.agentRemoteIP') }}: {{ modelValue.agentRemoteIP }}
           </span>
         </template>
@@ -195,13 +277,24 @@
           >
             {{ agentConnectCmd ? $t('admin.providers.regenerateAgentSecret') : $t('admin.providers.generateAgentSecret') }}
           </el-button>
-          <div class="form-tip" style="margin-top: 6px;">
-            <el-text size="small" type="info">{{ $t('admin.providers.generateAgentSecretTip') }}</el-text>
+          <div
+            class="form-tip"
+            style="margin-top: 6px;"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
+              {{ $t('admin.providers.generateAgentSecretTip') }}
+            </el-text>
           </div>
         </div>
 
         <!-- 安装命令 -->
-        <div v-if="agentConnectCmd" class="install-cmd-box">
+        <div
+          v-if="agentConnectCmd"
+          class="install-cmd-box"
+        >
           <div class="install-cmd-header">
             <span>{{ $t('admin.providers.agentCmdInstall') }}</span>
             <div style="display:flex;align-items:center;gap:8px;">
@@ -220,7 +313,12 @@
                 :inactive-text="$t('admin.providers.cdnDirect')"
                 style="--el-switch-on-color: #13ce66;"
               />
-              <el-button size="small" @click="copyCmd(installCmdDisplay)">{{ $t('common.copy') }}</el-button>
+              <el-button
+                size="small"
+                @click="copyCmd(installCmdDisplay)"
+              >
+                {{ $t('common.copy') }}
+              </el-button>
             </div>
           </div>
           <!-- wss unavailable warning -->
@@ -232,46 +330,93 @@
             show-icon
             style="margin: 8px 14px 0;"
           />
-          <div class="install-cmd-content">{{ installCmdDisplay }}</div>
+          <div class="install-cmd-content">
+            {{ installCmdDisplay }}
+          </div>
         </div>
 
         <!-- 卸载命令 -->
-        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+        <div
+          v-if="agentConnectCmd"
+          class="install-cmd-box"
+          style="margin-top: 12px;"
+        >
           <div class="install-cmd-header">
             <span>{{ $t('admin.providers.agentCmdUninstall') }}</span>
-            <el-button size="small" @click="copyCmd('ocv uninstall')">{{ $t('common.copy') }}</el-button>
+            <el-button
+              size="small"
+              @click="copyCmd('ocv uninstall')"
+            >
+              {{ $t('common.copy') }}
+            </el-button>
           </div>
-          <div class="install-cmd-content">ocv uninstall</div>
+          <div class="install-cmd-content">
+            ocv uninstall
+          </div>
         </div>
 
         <!-- 升级命令 -->
-        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+        <div
+          v-if="agentConnectCmd"
+          class="install-cmd-box"
+          style="margin-top: 12px;"
+        >
           <div class="install-cmd-header">
             <span>{{ $t('admin.providers.agentCmdUpgrade') }}</span>
-            <el-button size="small" @click="copyCmd('ocv upgrade')">{{ $t('common.copy') }}</el-button>
+            <el-button
+              size="small"
+              @click="copyCmd('ocv upgrade')"
+            >
+              {{ $t('common.copy') }}
+            </el-button>
           </div>
-          <div class="install-cmd-content">ocv upgrade</div>
+          <div class="install-cmd-content">
+            ocv upgrade
+          </div>
         </div>
 
         <!-- ocv 快捷命令 -->
-        <div v-if="agentConnectCmd" class="install-cmd-box" style="margin-top: 12px;">
+        <div
+          v-if="agentConnectCmd"
+          class="install-cmd-box"
+          style="margin-top: 12px;"
+        >
           <div class="install-cmd-header">
             <span>{{ $t('admin.providers.agentCmdOcv') }}</span>
-            <el-button size="small" @click="copyCmd('ocv')">{{ $t('common.copy') }}</el-button>
+            <el-button
+              size="small"
+              @click="copyCmd('ocv')"
+            >
+              {{ $t('common.copy') }}
+            </el-button>
           </div>
-          <div class="install-cmd-content">ocv</div>
+          <div class="install-cmd-content">
+            ocv
+          </div>
           <div class="install-cmd-tip">
             <el-icon><InfoFilled /></el-icon>
             {{ $t('admin.providers.agentCmdOcvTip') }}
           </div>
         </div>
 
-        <div v-if="agentConnectCmd" class="form-tip" style="margin-top: 10px;">
-          <el-text size="small" type="info">{{ $t('admin.providers.agentInstallNote') }}</el-text>
+        <div
+          v-if="agentConnectCmd"
+          class="form-tip"
+          style="margin-top: 10px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
+            {{ $t('admin.providers.agentInstallNote') }}
+          </el-text>
         </div>
 
         <!-- 检测连接 -->
-        <div v-if="agentConnectCmd" style="margin-top: 16px;">
+        <div
+          v-if="agentConnectCmd"
+          style="margin-top: 16px;"
+        >
           <el-button
             type="success"
             :loading="checkingAgentStatus"
@@ -290,7 +435,11 @@
           <el-divider content-position="left">
             <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.webTerminal') }}</span>
           </el-divider>
-          <el-form :model="modelValue" label-width="120px" class="server-form">
+          <el-form
+            :model="modelValue"
+            label-width="120px"
+            class="server-form"
+          >
             <el-form-item :label="$t('admin.providers.execCommand')">
               <el-input
                 v-model="localCommand"
@@ -307,15 +456,33 @@
               >
                 {{ $t('admin.providers.execRun') }}
               </el-button>
-              <el-button v-if="execResult" @click="localCommand = ''; emit('clear-exec-result')">
+              <el-button
+                v-if="execResult"
+                @click="localCommand = ''; emit('clear-exec-result')"
+              >
                 {{ $t('common.clear') }}
               </el-button>
             </el-form-item>
-            <el-form-item v-if="execResult !== null" :label="$t('admin.providers.execResult')">
+            <el-form-item
+              v-if="execResult !== null"
+              :label="$t('admin.providers.execResult')"
+            >
               <div class="exec-output">
-                <div v-if="execResult.stdout">{{ execResult.stdout }}</div>
-                <div v-if="execResult.stderr" style="color: #f48771;">{{ execResult.stderr }}</div>
-                <div v-if="!execResult.stdout && !execResult.stderr" style="color: #888;">{{ $t('admin.providers.execNoOutput') }}</div>
+                <div v-if="execResult.stdout">
+                  {{ execResult.stdout }}
+                </div>
+                <div
+                  v-if="execResult.stderr"
+                  style="color: #f48771;"
+                >
+                  {{ execResult.stderr }}
+                </div>
+                <div
+                  v-if="!execResult.stdout && !execResult.stderr"
+                  style="color: #888;"
+                >
+                  {{ $t('admin.providers.execNoOutput') }}
+                </div>
               </div>
             </el-form-item>
           </el-form>
@@ -330,7 +497,11 @@
       <el-divider content-position="left">
         <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.webTerminal') }}</span>
       </el-divider>
-      <el-form :model="modelValue" label-width="120px" class="server-form">
+      <el-form
+        :model="modelValue"
+        label-width="120px"
+        class="server-form"
+      >
         <el-form-item :label="$t('admin.providers.execCommand')">
           <el-input
             v-model="localCommand"
@@ -347,15 +518,33 @@
           >
             {{ $t('admin.providers.execRun') }}
           </el-button>
-          <el-button v-if="execResult" @click="localCommand = ''; emit('clear-exec-result')">
+          <el-button
+            v-if="execResult"
+            @click="localCommand = ''; emit('clear-exec-result')"
+          >
             {{ $t('common.clear') }}
           </el-button>
         </el-form-item>
-        <el-form-item v-if="execResult !== null" :label="$t('admin.providers.execResult')">
+        <el-form-item
+          v-if="execResult !== null"
+          :label="$t('admin.providers.execResult')"
+        >
           <div class="exec-output">
-            <div v-if="execResult.stdout">{{ execResult.stdout }}</div>
-            <div v-if="execResult.stderr" style="color: #f48771;">{{ execResult.stderr }}</div>
-            <div v-if="!execResult.stdout && !execResult.stderr" style="color: #888;">{{ $t('admin.providers.execNoOutput') }}</div>
+            <div v-if="execResult.stdout">
+              {{ execResult.stdout }}
+            </div>
+            <div
+              v-if="execResult.stderr"
+              style="color: #f48771;"
+            >
+              {{ execResult.stderr }}
+            </div>
+            <div
+              v-if="!execResult.stdout && !execResult.stderr"
+              style="color: #888;"
+            >
+              {{ $t('admin.providers.execNoOutput') }}
+            </div>
           </div>
         </el-form-item>
       </el-form>

@@ -233,8 +233,16 @@
               >
                 {{ formatDateTime(scope.row.expiresAt) }}
               </el-tag>
-              <div v-if="scope.row.isManualExpiry" style="margin-top: 4px;">
-                <el-tag size="small" type="info">{{ $t('admin.users.manualExpiry') }}</el-tag>
+              <div
+                v-if="scope.row.isManualExpiry"
+                style="margin-top: 4px;"
+              >
+                <el-tag
+                  size="small"
+                  type="info"
+                >
+                  {{ $t('admin.users.manualExpiry') }}
+                </el-tag>
               </div>
             </div>
             <span v-else>-</span>
@@ -661,7 +669,6 @@
         </div>
       </template>
     </el-dialog>
-
   </div>
 </template>
 

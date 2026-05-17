@@ -14,7 +14,12 @@
 
     <!-- 通用配置（容器和虚拟机都支持） -->
     <el-divider content-position="left">
-      <el-text type="primary" size="large">{{ $t('admin.providers.commonConfig') }}</el-text>
+      <el-text
+        type="primary"
+        size="large"
+      >
+        {{ $t('admin.providers.commonConfig') }}
+      </el-text>
     </el-divider>
 
     <!-- 内存交换（容器和虚拟机都支持） -->
@@ -28,7 +33,10 @@
         :inactive-text="$t('common.disable')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -40,7 +48,12 @@
     <!-- 容器专用配置 -->
     <template v-if="modelValue.containerEnabled">
       <el-divider content-position="left">
-        <el-text type="warning" size="large">{{ $t('admin.providers.containerOnlyConfig') }}</el-text>
+        <el-text
+          type="warning"
+          size="large"
+        >
+          {{ $t('admin.providers.containerOnlyConfig') }}
+        </el-text>
       </el-divider>
 
       <!-- 特权模式 -->
@@ -48,110 +61,135 @@
         :label="$t('admin.providers.containerPrivileged')"
         prop="containerPrivileged"
       >
-      <el-switch
-        v-model="modelValue.containerPrivileged"
-        :active-text="$t('common.enable')"
-        :inactive-text="$t('common.disable')"
-      />
-    </el-form-item>
-    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-      <el-text
-        size="small"
-        type="warning"
+        <el-switch
+          v-model="modelValue.containerPrivileged"
+          :active-text="$t('common.enable')"
+          :inactive-text="$t('common.disable')"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.containerEnabled"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
       >
-        {{ $t('admin.providers.containerPrivilegedTip') }}
-      </el-text>
-    </div>
+        <el-text
+          size="small"
+          type="warning"
+        >
+          {{ $t('admin.providers.containerPrivilegedTip') }}
+        </el-text>
+      </div>
 
-    <!-- 容器嵌套 -->
-    <el-form-item
-      :label="$t('admin.providers.containerAllowNesting')"
-      prop="containerAllowNesting"
-    >
-      <el-switch
-        v-model="modelValue.containerAllowNesting"
-        :active-text="$t('common.enable')"
-        :inactive-text="$t('common.disable')"
-      />
-    </el-form-item>
-    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-      <el-text
-        size="small"
-        type="info"
+      <!-- 容器嵌套 -->
+      <el-form-item
+        :label="$t('admin.providers.containerAllowNesting')"
+        prop="containerAllowNesting"
       >
-        {{ $t('admin.providers.containerAllowNestingTip') }}
-      </el-text>
-    </div>
+        <el-switch
+          v-model="modelValue.containerAllowNesting"
+          :active-text="$t('common.enable')"
+          :inactive-text="$t('common.disable')"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.containerEnabled"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.containerAllowNestingTip') }}
+        </el-text>
+      </div>
 
-    <!-- CPU限制（容器专用：与limits.cpu互斥） -->
-    <el-form-item
-      :label="$t('admin.providers.containerCpuAllowance')"
-      prop="containerCpuAllowance"
-    >
-      <el-input
-        v-model="modelValue.containerCpuAllowance"
-        :placeholder="$t('admin.providers.containerCpuAllowancePlaceholder')"
-        style="width: 200px"
-      />
-    </el-form-item>
-    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-      <el-text
-        size="small"
-        type="warning"
+      <!-- CPU限制（容器专用：与limits.cpu互斥） -->
+      <el-form-item
+        :label="$t('admin.providers.containerCpuAllowance')"
+        prop="containerCpuAllowance"
       >
-        {{ $t('admin.providers.containerCpuAllowanceTip') }}
-      </el-text>
-    </div>
+        <el-input
+          v-model="modelValue.containerCpuAllowance"
+          :placeholder="$t('admin.providers.containerCpuAllowancePlaceholder')"
+          style="width: 200px"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.containerEnabled"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+      >
+        <el-text
+          size="small"
+          type="warning"
+        >
+          {{ $t('admin.providers.containerCpuAllowanceTip') }}
+        </el-text>
+      </div>
 
-    <!-- 最大进程数 -->
-    <el-form-item
-      :label="$t('admin.providers.containerMaxProcesses')"
-      prop="containerMaxProcesses"
-    >
-      <el-input-number
-        v-model="modelValue.containerMaxProcesses"
-        :min="0"
-        :max="100000"
-        :step="100"
-        :controls="false"
-        :placeholder="$t('admin.providers.containerMaxProcessesPlaceholder')"
-        style="width: 200px"
-      />
-    </el-form-item>
-    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-      <el-text
-        size="small"
-        type="info"
+      <!-- 最大进程数 -->
+      <el-form-item
+        :label="$t('admin.providers.containerMaxProcesses')"
+        prop="containerMaxProcesses"
       >
-        {{ $t('admin.providers.containerMaxProcessesTip') }}
-      </el-text>
-    </div>
+        <el-input-number
+          v-model="modelValue.containerMaxProcesses"
+          :min="0"
+          :max="100000"
+          :step="100"
+          :controls="false"
+          :placeholder="$t('admin.providers.containerMaxProcessesPlaceholder')"
+          style="width: 200px"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.containerEnabled"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.containerMaxProcessesTip') }}
+        </el-text>
+      </div>
 
-    <!-- 磁盘IO限制 -->
-    <el-form-item
-      :label="$t('admin.providers.containerDiskIoLimit')"
-      prop="containerDiskIoLimit"
-    >
-      <el-input
-        v-model="modelValue.containerDiskIoLimit"
-        :placeholder="$t('admin.providers.containerDiskIoLimitPlaceholder')"
-        style="width: 200px"
-      />
-    </el-form-item>
-    <div v-if="modelValue.containerEnabled" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-      <el-text
-        size="small"
-        type="info"
+      <!-- 磁盘IO限制 -->
+      <el-form-item
+        :label="$t('admin.providers.containerDiskIoLimit')"
+        prop="containerDiskIoLimit"
       >
-        {{ $t('admin.providers.containerDiskIoLimitTip') }}
-      </el-text>
-    </div>
+        <el-input
+          v-model="modelValue.containerDiskIoLimit"
+          :placeholder="$t('admin.providers.containerDiskIoLimitPlaceholder')"
+          style="width: 200px"
+        />
+      </el-form-item>
+      <div
+        v-if="modelValue.containerEnabled"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.containerDiskIoLimitTip') }}
+        </el-text>
+      </div>
     </template>
 
     <!-- 虚拟机配置提示 -->
     <template v-if="modelValue.vmEnabled && !modelValue.containerEnabled">
       <el-divider content-position="left">
-        <el-text type="info" size="large">{{ $t('admin.providers.vmConfigNote') }}</el-text>
+        <el-text
+          type="info"
+          size="large"
+        >
+          {{ $t('admin.providers.vmConfigNote') }}
+        </el-text>
       </el-divider>
       <el-alert
         :title="$t('admin.providers.vmHardwareConfigTip')"
@@ -164,7 +202,12 @@
     <!-- GPU 直通配置（仅 LXD / Incus 节点） -->
     <template v-if="modelValue.type === 'lxd' || modelValue.type === 'incus'">
       <el-divider content-position="left">
-        <el-text type="warning" size="large">{{ $t('admin.providers.gpuPassthrough') }}</el-text>
+        <el-text
+          type="warning"
+          size="large"
+        >
+          {{ $t('admin.providers.gpuPassthrough') }}
+        </el-text>
       </el-divider>
 
       <el-alert
@@ -207,15 +250,28 @@
             {{ $t('admin.providers.gpuDetect') }}
           </el-button>
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 180px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.gpuDeviceIdsTip') }}
           </el-text>
         </div>
 
         <!-- 检测到的 GPU 列表 -->
-        <div v-if="detectedGpus.length > 0" style="margin-left: 180px; margin-bottom: 16px;">
-          <el-text size="small" type="success" style="display:block; margin-bottom: 8px;">
+        <div
+          v-if="detectedGpus.length > 0"
+          style="margin-left: 180px; margin-bottom: 16px;"
+        >
+          <el-text
+            size="small"
+            type="success"
+            style="display:block; margin-bottom: 8px;"
+          >
             {{ $t('admin.providers.gpuDetectedList') }}
           </el-text>
           <el-tag

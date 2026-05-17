@@ -13,11 +13,21 @@
         @click="selectedMode = 'ssh'"
       >
         <div class="mode-icon">
-          <el-icon size="40"><Monitor /></el-icon>
+          <el-icon size="40">
+            <Monitor />
+          </el-icon>
         </div>
-        <div class="mode-title">{{ $t('admin.providers.modeSSH') }}</div>
-        <div class="mode-desc">{{ $t('admin.providers.modeSSHDesc') }}</div>
-        <el-tag type="success" size="small" style="margin-top: 10px;">
+        <div class="mode-title">
+          {{ $t('admin.providers.modeSSH') }}
+        </div>
+        <div class="mode-desc">
+          {{ $t('admin.providers.modeSSHDesc') }}
+        </div>
+        <el-tag
+          type="success"
+          size="small"
+          style="margin-top: 10px;"
+        >
           {{ $t('admin.providers.modeSSHTag') }}
         </el-tag>
       </div>
@@ -28,19 +38,34 @@
         @click="selectedMode = 'agent'"
       >
         <div class="mode-icon">
-          <el-icon size="40"><Connection /></el-icon>
+          <el-icon size="40">
+            <Connection />
+          </el-icon>
         </div>
-        <div class="mode-title">{{ $t('admin.providers.modeAgent') }}</div>
-        <div class="mode-desc">{{ $t('admin.providers.modeAgentDesc') }}</div>
-        <el-tag type="warning" size="small" style="margin-top: 10px;">
+        <div class="mode-title">
+          {{ $t('admin.providers.modeAgent') }}
+        </div>
+        <div class="mode-desc">
+          {{ $t('admin.providers.modeAgentDesc') }}
+        </div>
+        <el-tag
+          type="warning"
+          size="small"
+          style="margin-top: 10px;"
+        >
           {{ $t('admin.providers.modeAgentTag') }}
         </el-tag>
       </div>
     </div>
 
     <template #footer>
-      <el-button @click="handleClose">{{ $t('common.cancel') }}</el-button>
-      <el-button type="primary" @click="handleConfirm">
+      <el-button @click="handleClose">
+        {{ $t('common.cancel') }}
+      </el-button>
+      <el-button
+        type="primary"
+        @click="handleConfirm"
+      >
         {{ $t('common.next') }}
       </el-button>
     </template>

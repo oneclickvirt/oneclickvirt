@@ -655,9 +655,27 @@ const handleExecCommand = async (command) => {
       stderr: res.data?.stderr || ''
     }
   } catch (error) {
+    const rawMessage = error?.message || t('common.operationFailed')
+    const looksLikeConnectionError =
+      rawMessage.includes('执行命令超时') ||
+      rawMessage.includes('Agent 节点未连接') ||
+      rawMessage.includes('agent not connected') ||
+      rawMessage.includes('connection')
+
+    // 连接类错误时自动刷新一次 Agent 状态，避免“假在线”误导。
+    if (formData.value.connectionType === 'agent' && looksLikeConnectionError) {
+      try {
+        await handleCheckAgentStatus()
+      } catch (_) {
+        // 忽略状态刷新错误，保留原始执行错误展示
+      }
+    }
+
     execResult.value = {
       stdout: '',
-      stderr: error.message || t('common.operationFailed')
+      stderr: looksLikeConnectionError
+        ? `${rawMessage}\n\n提示：已自动刷新 Agent 状态，请等待节点重连后重试命令。`
+        : rawMessage
     }
   } finally {
     execLoading.value = false

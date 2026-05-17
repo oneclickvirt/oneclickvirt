@@ -71,7 +71,10 @@
           />
         </el-form-item>
 
-        <el-form-item v-if="captchaEnabled" prop="captcha">
+        <el-form-item
+          v-if="captchaEnabled"
+          prop="captcha"
+        >
           <div class="captcha-container">
             <el-input
               v-model="loginForm.captcha"

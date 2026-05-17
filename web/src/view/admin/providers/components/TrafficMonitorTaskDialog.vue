@@ -105,10 +105,16 @@
               show-overflow-tooltip
             >
               <template #default="{ row }">
-                <span v-if="row.status === 'completed'" style="color: #67C23A;">
+                <span
+                  v-if="row.status === 'completed'"
+                  style="color: #67C23A;"
+                >
                   ✅ {{ $t('common.success') }}: {{ row.successCount }}/{{ row.totalCount }}
                 </span>
-                <span v-else-if="row.status === 'failed'" style="color: #F56C6C;">
+                <span
+                  v-else-if="row.status === 'failed'"
+                  style="color: #F56C6C;"
+                >
                   ❌ {{ row.errorMsg || $t('common.failed') }}
                 </span>
                 <span v-else>{{ row.message || '-' }}</span>
@@ -139,9 +145,9 @@
             :background="true"
             layout="total, sizes, prev, pager, next, jumper"
             :total="pagination.total"
+            style="justify-content: center;"
             @size-change="handlePageSizeChange"
             @current-change="handlePageChange"
-            style="justify-content: center;"
           />
         </div>
 
@@ -179,9 +185,15 @@
       </div>
 
       <!-- 任务执行视图 -->
-      <div v-else-if="task" class="task-container">
+      <div
+        v-else-if="task"
+        class="task-container"
+      >
         <!-- 任务基本信息 -->
-        <el-descriptions :column="2" border>
+        <el-descriptions
+          :column="2"
+          border
+        >
           <el-descriptions-item :label="$t('admin.providers.trafficMonitorTaskType')">
             <el-tag :type="getTaskTypeTagType(task.taskType)">
               {{ getTaskTypeLabel(task.taskType) }}
@@ -192,7 +204,10 @@
               {{ getTaskStatusLabel(task.status) }}
             </el-tag>
           </el-descriptions-item>
-          <el-descriptions-item :label="$t('admin.providers.trafficMonitorTaskProgress')" :span="2">
+          <el-descriptions-item
+            :label="$t('admin.providers.trafficMonitorTaskProgress')"
+            :span="2"
+          >
             <div class="progress-container">
               <el-progress 
                 :percentage="task.progress" 

@@ -18,8 +18,12 @@
           style="margin-bottom: 20px;"
         >
           <template #default>
-            <p v-if="historyTasks.length > 0 || runningTask">{{ $t('admin.providers.configHistoryMessage') }}</p>
-            <p v-else>{{ $t('admin.providers.noConfigHistory') }}</p>
+            <p v-if="historyTasks.length > 0 || runningTask">
+              {{ $t('admin.providers.configHistoryMessage') }}
+            </p>
+            <p v-else>
+              {{ $t('admin.providers.noConfigHistory') }}
+            </p>
           </template>
         </el-alert>
 
@@ -118,19 +122,19 @@
             </el-table-column>
           </el-table>
 
-              <el-pagination
-                v-if="pagination.total > 0"
-                v-model:current-page="pagination.page"
-                v-model:page-size="pagination.pageSize"
-                :page-sizes="[5, 10, 20, 50]"
-                :small="false"
-                :background="true"
-                layout="total, sizes, prev, pager, next, jumper"
-                :total="pagination.total"
-                @size-change="$emit('pageSizeChange', $event)"
-                @current-change="$emit('pageChange', $event)"
-                style="justify-content: center; margin-top: 12px;"
-              />
+          <el-pagination
+            v-if="pagination.total > 0"
+            v-model:current-page="pagination.page"
+            v-model:page-size="pagination.pageSize"
+            :page-sizes="[5, 10, 20, 50]"
+            :small="false"
+            :background="true"
+            layout="total, sizes, prev, pager, next, jumper"
+            :total="pagination.total"
+            style="justify-content: center; margin-top: 12px;"
+            @size-change="$emit('pageSizeChange', $event)"
+            @current-change="$emit('pageChange', $event)"
+          />
         </div>
 
         <!-- 操作按钮 -->

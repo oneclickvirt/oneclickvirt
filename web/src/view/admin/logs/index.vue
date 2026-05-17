@@ -1,30 +1,48 @@
 <template>
   <div class="log-viewer">
     <!-- 页头 -->
-    <el-card class="header-card" shadow="never">
+    <el-card
+      class="header-card"
+      shadow="never"
+    >
       <div class="header-content">
         <div class="title-section">
           <h2>
             <el-icon><Document /></el-icon>
             {{ $t('admin.logs.title') }}
           </h2>
-          <p class="subtitle">{{ $t('admin.logs.subtitle') }}</p>
+          <p class="subtitle">
+            {{ $t('admin.logs.subtitle') }}
+          </p>
         </div>
       </div>
     </el-card>
 
     <!-- 工具栏 -->
-    <el-card class="toolbar-card" shadow="never">
-      <el-row :gutter="16" align="middle">
+    <el-card
+      class="toolbar-card"
+      shadow="never"
+    >
+      <el-row
+        :gutter="16"
+        align="middle"
+      >
         <!-- 日期选择 -->
-        <el-col :xs="24" :sm="8" :md="6">
+        <el-col
+          :xs="24"
+          :sm="8"
+          :md="6"
+        >
           <el-select
             v-model="selectedDate"
             :placeholder="$t('admin.logs.selectDate')"
             style="width: 100%"
             @change="onDateChange"
           >
-            <el-option-group v-if="rootFiles.length" :label="$t('admin.logs.rootFiles')">
+            <el-option-group
+              v-if="rootFiles.length"
+              :label="$t('admin.logs.rootFiles')"
+            >
               <el-option
                 v-for="f in rootFiles"
                 :key="'root::' + f"
@@ -32,7 +50,10 @@
                 :value="'root::' + f"
               />
             </el-option-group>
-            <el-option-group v-if="dates.length" :label="$t('admin.logs.dateFolders')">
+            <el-option-group
+              v-if="dates.length"
+              :label="$t('admin.logs.dateFolders')"
+            >
               <el-option
                 v-for="d in dates"
                 :key="d.date"
@@ -44,7 +65,12 @@
         </el-col>
 
         <!-- 日志级别选择（仅当选择了日期目录时显示） -->
-        <el-col v-if="isDateSelected" :xs="24" :sm="6" :md="4">
+        <el-col
+          v-if="isDateSelected"
+          :xs="24"
+          :sm="6"
+          :md="4"
+        >
           <el-select
             v-model="selectedType"
             :placeholder="$t('admin.logs.selectLevel')"
@@ -61,7 +87,11 @@
         </el-col>
 
         <!-- 行数 -->
-        <el-col :xs="12" :sm="5" :md="4">
+        <el-col
+          :xs="12"
+          :sm="5"
+          :md="4"
+        >
           <el-input-number
             v-model="tailLines"
             :min="50"
@@ -73,7 +103,11 @@
         </el-col>
 
         <!-- 搜索 -->
-        <el-col :xs="24" :sm="6" :md="4">
+        <el-col
+          :xs="24"
+          :sm="6"
+          :md="4"
+        >
           <el-input
             v-model="searchKeyword"
             :placeholder="$t('admin.logs.search')"
@@ -83,7 +117,11 @@
         </el-col>
 
         <!-- 操作按钮 -->
-        <el-col :xs="12" :sm="5" :md="6">
+        <el-col
+          :xs="12"
+          :sm="5"
+          :md="6"
+        >
           <div class="btn-group">
             <el-button
               type="primary"
@@ -93,7 +131,10 @@
             >
               {{ $t('admin.logs.refresh') }}
             </el-button>
-            <el-button :icon="CopyDocument" @click="copyContent">
+            <el-button
+              :icon="CopyDocument"
+              @click="copyContent"
+            >
               {{ $t('admin.logs.copy') }}
             </el-button>
           </div>
@@ -102,14 +143,20 @@
     </el-card>
 
     <!-- 日志内容 -->
-    <el-card class="content-card" shadow="never">
+    <el-card
+      class="content-card"
+      shadow="never"
+    >
       <template #header>
         <div class="content-header">
           <span class="file-label">
             <el-icon><Folder /></el-icon>
             {{ currentFileLabel }}
           </span>
-          <span v-if="lineCount > 0" class="line-count">
+          <span
+            v-if="lineCount > 0"
+            class="line-count"
+          >
             <template v-if="searchKeyword && filteredLineCount !== lineCount">
               {{ filteredLineCount }} / {{ lineCount }} {{ $t('admin.logs.lines') }}
             </template>
@@ -120,20 +167,39 @@
         </div>
       </template>
 
-      <div class="log-container" ref="logContainerRef">
-        <div v-if="loading" class="log-placeholder">
-          <el-icon class="is-loading"><Loading /></el-icon>
+      <div
+        ref="logContainerRef"
+        class="log-container"
+      >
+        <div
+          v-if="loading"
+          class="log-placeholder"
+        >
+          <el-icon class="is-loading">
+            <Loading />
+          </el-icon>
           <span>{{ $t('admin.logs.loading') }}</span>
         </div>
-        <div v-else-if="!hasSelection" class="log-placeholder">
+        <div
+          v-else-if="!hasSelection"
+          class="log-placeholder"
+        >
           <el-icon><InfoFilled /></el-icon>
           <span>{{ $t('admin.logs.pleaseSelect') }}</span>
         </div>
-        <div v-else-if="!logContent" class="log-placeholder">
+        <div
+          v-else-if="!logContent"
+          class="log-placeholder"
+        >
           <el-icon><DocumentDelete /></el-icon>
           <span>{{ $t('admin.logs.noContent') }}</span>
         </div>
-        <pre v-else class="log-pre" ref="logPreRef" v-html="displayContent"></pre>
+        <pre
+          v-else
+          ref="logPreRef"
+          class="log-pre"
+          v-html="displayContent"
+        />
       </div>
     </el-card>
   </div>

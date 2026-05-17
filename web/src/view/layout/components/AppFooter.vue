@@ -20,12 +20,24 @@
         </svg>
         {{ t('home.footer.openSourceProject') }}
       </a>
-      <span v-if="serverVersion" class="footer-divider" />
-      <span v-if="serverVersion" class="footer-version">
+      <span
+        v-if="serverVersion"
+        class="footer-divider"
+      />
+      <span
+        v-if="serverVersion"
+        class="footer-version"
+      >
         {{ t('home.footer.serverVersion') }} {{ serverVersion }}
       </span>
-      <span v-if="versionFetchFailed && !serverVersion" class="footer-divider" />
-      <span v-if="versionFetchFailed && !serverVersion" class="footer-version-error">
+      <span
+        v-if="versionFetchFailed && !serverVersion"
+        class="footer-divider"
+      />
+      <span
+        v-if="versionFetchFailed && !serverVersion"
+        class="footer-version-error"
+      >
         {{ t('home.footer.versionFetchFailed') }}
       </span>
     </div>

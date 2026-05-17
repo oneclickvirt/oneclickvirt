@@ -2,7 +2,12 @@
   <div class="progress-panel">
     <div class="progress-header">
       <span class="progress-title">{{ t('init.progress.title') }}</span>
-      <el-tag :type="tagType" size="large">{{ statusText }}</el-tag>
+      <el-tag
+        :type="tagType"
+        size="large"
+      >
+        {{ statusText }}
+      </el-tag>
     </div>
 
     <el-progress
@@ -24,19 +29,41 @@
         <span class="step-icon">
           <span v-if="step.status === 'success'">✅</span>
           <span v-else-if="step.status === 'failed'">❌</span>
-          <span v-else-if="step.status === 'in_progress'" class="spin">⟳</span>
+          <span
+            v-else-if="step.status === 'in_progress'"
+            class="spin"
+          >⟳</span>
           <span v-else>⬜</span>
         </span>
         <span class="step-name">{{ t('init.progress.steps.' + index) }}</span>
-        <span v-if="step.message" class="step-error">{{ step.message }}</span>
+        <span
+          v-if="step.message"
+          class="step-error"
+        >{{ step.message }}</span>
       </div>
     </div>
 
-    <div v-if="status === 'failed'" class="progress-actions">
-      <el-button type="warning" @click="emit('retry')">{{ t('init.progress.retry') }}</el-button>
+    <div
+      v-if="status === 'failed'"
+      class="progress-actions"
+    >
+      <el-button
+        type="warning"
+        @click="emit('retry')"
+      >
+        {{ t('init.progress.retry') }}
+      </el-button>
     </div>
-    <div v-if="status === 'success'" class="progress-actions">
-      <el-button type="primary" @click="emit('goHome')">{{ t('init.progress.goHome') }}</el-button>
+    <div
+      v-if="status === 'success'"
+      class="progress-actions"
+    >
+      <el-button
+        type="primary"
+        @click="emit('goHome')"
+      >
+        {{ t('init.progress.goHome') }}
+      </el-button>
     </div>
   </div>
 </template>

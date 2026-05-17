@@ -17,7 +17,10 @@
           <span class="label">{{ t('user.apply.maxInstances') }}</span>
           <span class="value">
             {{ userLimits.usedInstances }} / {{ userLimits.maxInstances }}
-            <span v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined" style="color: #909399; font-size: 12px; margin-left: 8px;">
+            <span
+              v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined"
+              style="color: #909399; font-size: 12px; margin-left: 8px;"
+            >
               ({{ t('user.dashboard.containerCount') }}: {{ userLimits.containerCount || 0 }} / {{ t('user.dashboard.vmCount') }}: {{ userLimits.vmCount || 0 }})
             </span>
           </span>
@@ -48,14 +51,22 @@
           <span>{{ t('user.apply.selectProvider') }}</span>
         </div>
       </template>
-      <el-tabs v-if="providerGroups.length > 1" v-model="activeGroupTab" type="border-card">
+      <el-tabs
+        v-if="providerGroups.length > 1"
+        v-model="activeGroupTab"
+        type="border-card"
+      >
         <el-tab-pane
           v-for="group in providerGroups"
           :key="group.name"
           :label="group.name || t('user.apply.defaultGroup')"
           :name="group.name"
         >
-          <div v-if="group.description" class="group-description" v-html="group.description" />
+          <div
+            v-if="group.description"
+            class="group-description"
+            v-html="group.description"
+          />
           <div class="providers-grid">
             <div 
               v-for="provider in group.providers" 
@@ -133,7 +144,10 @@
           </div>
         </el-tab-pane>
       </el-tabs>
-      <div v-else class="providers-grid">
+      <div
+        v-else
+        class="providers-grid"
+      >
         <div 
           v-for="provider in providers" 
           :key="provider.id"
@@ -267,7 +281,10 @@
                   :value="image.id"
                 >
                   <span style="display: inline-flex; align-items: center; gap: 6px;">
-                    <OsIcon :name="image.name" :size="18" />
+                    <OsIcon
+                      :name="image.name"
+                      :size="18"
+                    />
                     {{ image.name }}
                   </span>
                   <span style="float: right; color: #8492a6; font-size: 12px; margin-left: 10px">
@@ -383,9 +400,15 @@
             >
               {{ t('user.apply.gpuEnabled') }}
             </el-checkbox>
-            <div v-if="configForm.gpuEnabled" style="margin-top: 8px;">
+            <div
+              v-if="configForm.gpuEnabled"
+              style="margin-top: 8px;"
+            >
               <!-- Available GPUs (cached, checkbox selection) -->
-              <div v-if="detectedGpus.length > 0" class="gpu-options-wrap">
+              <div
+                v-if="detectedGpus.length > 0"
+                class="gpu-options-wrap"
+              >
                 <el-checkbox-group
                   v-model="selectedGpuIndices"
                   class="gpu-options"
@@ -401,14 +424,29 @@
                   </el-checkbox>
                 </el-checkbox-group>
                 <div class="gpu-batch-actions">
-                  <el-button size="small" text @click="selectAllGpus">{{ t('user.apply.gpuSelectAll') }}</el-button>
-                  <el-button size="small" text @click="deselectAllGpus">{{ t('user.apply.gpuDeselectAll') }}</el-button>
+                  <el-button
+                    size="small"
+                    text
+                    @click="selectAllGpus"
+                  >
+                    {{ t('user.apply.gpuSelectAll') }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    text
+                    @click="deselectAllGpus"
+                  >
+                    {{ t('user.apply.gpuDeselectAll') }}
+                  </el-button>
                 </div>
                 <div style="font-size: 11px; color: #909399; margin-top: 4px;">
                   {{ t('user.apply.gpuDeviceIdsHint') }}
                 </div>
               </div>
-              <div v-else-if="gpuInfoMsg" style="font-size: 12px; color: #909399;">
+              <div
+                v-else-if="gpuInfoMsg"
+                style="font-size: 12px; color: #909399;"
+              >
                 {{ gpuInfoMsg }}
               </div>
               <!-- Fallback text input if no cached GPUs -->
@@ -458,7 +496,10 @@
       </el-form>
 
       <!-- 兑换码兑换表单 -->
-      <div v-else class="redeem-card">
+      <div
+        v-else
+        class="redeem-card"
+      >
         <el-form label-width="120px">
           <el-form-item :label="t('user.apply.redeemCodeTitle')">
             <el-input
@@ -511,8 +552,6 @@
         animated
       />
     </div>
-
-
   </div>
 </template>
 

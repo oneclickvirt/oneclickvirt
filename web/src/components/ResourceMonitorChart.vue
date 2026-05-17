@@ -5,7 +5,11 @@
         <div class="chart-header">
           <span>{{ $t('user.instanceDetail.resourceMonitoring') }}</span>
           <div class="chart-controls">
-            <el-button size="small" :loading="loading" @click="loadData">
+            <el-button
+              size="small"
+              :loading="loading"
+              @click="loadData"
+            >
               <el-icon><Refresh /></el-icon>
               {{ $t('common.refresh') }}
             </el-button>
@@ -13,25 +17,44 @@
         </div>
       </template>
 
-      <div v-show="loading" v-loading="true" style="height: 300px;" />
+      <div
+        v-show="loading"
+        v-loading="true"
+        style="height: 300px;"
+      />
 
-      <div v-show="!loading" class="charts-container">
+      <div
+        v-show="!loading"
+        class="charts-container"
+      >
         <!-- CPU 使用率 -->
         <div class="chart-item">
           <h4>{{ $t('user.instanceDetail.cpuUsage') }}</h4>
-          <div ref="cpuChartRef" class="chart-canvas" />
+          <div
+            ref="cpuChartRef"
+            class="chart-canvas"
+          />
         </div>
 
         <!-- 内存使用率 -->
         <div class="chart-item">
           <h4>{{ $t('user.instanceDetail.memoryUsage') }}</h4>
-          <div ref="memChartRef" class="chart-canvas" />
+          <div
+            ref="memChartRef"
+            class="chart-canvas"
+          />
         </div>
 
         <!-- 磁盘使用率 -->
-        <div v-if="diskMonitoringEnabled" class="chart-item">
+        <div
+          v-if="diskMonitoringEnabled"
+          class="chart-item"
+        >
           <h4>{{ $t('user.instanceDetail.diskUsage') }}</h4>
-          <div ref="diskChartRef" class="chart-canvas" />
+          <div
+            ref="diskChartRef"
+            class="chart-canvas"
+          />
         </div>
       </div>
     </el-card>

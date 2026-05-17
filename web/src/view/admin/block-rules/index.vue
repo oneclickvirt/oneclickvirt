@@ -6,7 +6,10 @@
         <div class="card-header">
           <span>{{ t('admin.blockRules.rules') }}</span>
           <div>
-            <el-button type="primary" @click="handleCreateRule">
+            <el-button
+              type="primary"
+              @click="handleCreateRule"
+            >
               <el-icon><Plus /></el-icon>
               {{ t('admin.blockRules.addRule') }}
             </el-button>
@@ -22,27 +25,52 @@
       </template>
 
       <el-table
-        :data="rules"
         v-loading="loadingRules"
-        @selection-change="handleRuleSelectionChange"
+        :data="rules"
         stripe
+        @selection-change="handleRuleSelectionChange"
       >
-        <el-table-column type="selection" width="55" />
-        <el-table-column prop="name" :label="t('admin.blockRules.ruleName')" min-width="150" />
-        <el-table-column prop="category" :label="t('admin.blockRules.category')" width="120">
+        <el-table-column
+          type="selection"
+          width="55"
+        />
+        <el-table-column
+          prop="name"
+          :label="t('admin.blockRules.ruleName')"
+          min-width="150"
+        />
+        <el-table-column
+          prop="category"
+          :label="t('admin.blockRules.category')"
+          width="120"
+        >
           <template #default="{ row }">
-            <el-tag :type="categoryTagType(row.category)" size="small">
+            <el-tag
+              :type="categoryTagType(row.category)"
+              size="small"
+            >
               {{ t(`admin.blockRules.categories.${row.category}`) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="description" :label="t('admin.blockRules.description')" min-width="200" show-overflow-tooltip />
-        <el-table-column :label="t('admin.blockRules.strings')" width="120">
+        <el-table-column
+          prop="description"
+          :label="t('admin.blockRules.description')"
+          min-width="200"
+          show-overflow-tooltip
+        />
+        <el-table-column
+          :label="t('admin.blockRules.strings')"
+          width="120"
+        >
           <template #default="{ row }">
             {{ parseStrings(row.strings).length }} {{ t('admin.blockRules.strings') }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.blockRules.enabled')" width="100">
+        <el-table-column
+          :label="t('admin.blockRules.enabled')"
+          width="100"
+        >
           <template #default="{ row }">
             <el-switch
               :model-value="row.enabled"
@@ -50,17 +78,38 @@
             />
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.blockRules.builtin')" width="80">
+        <el-table-column
+          :label="t('admin.blockRules.builtin')"
+          width="80"
+        >
           <template #default="{ row }">
-            <el-tag v-if="row.is_builtin" type="info" size="small">{{ t('admin.blockRules.builtin') }}</el-tag>
+            <el-tag
+              v-if="row.is_builtin"
+              type="info"
+              size="small"
+            >
+              {{ t('admin.blockRules.builtin') }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.blockRules.actions')" width="160" fixed="right">
+        <el-table-column
+          :label="t('admin.blockRules.actions')"
+          width="160"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEditRule(row)">
+            <el-button
+              link
+              type="primary"
+              @click="handleEditRule(row)"
+            >
               <el-icon><Edit /></el-icon>
             </el-button>
-            <el-button link type="danger" @click="handleDeleteRule(row)">
+            <el-button
+              link
+              type="danger"
+              @click="handleDeleteRule(row)"
+            >
               <el-icon><Delete /></el-icon>
             </el-button>
           </template>
@@ -84,34 +133,69 @@
       </template>
 
       <el-table
-        :data="applications"
         v-loading="loadingApps"
-        @selection-change="handleAppSelectionChange"
+        :data="applications"
         stripe
+        @selection-change="handleAppSelectionChange"
       >
-        <el-table-column type="selection" width="55" />
-        <el-table-column prop="rule_id" :label="t('admin.blockRules.ruleId')" width="90" />
-        <el-table-column prop="scope" :label="t('admin.blockRules.scope')" width="100">
+        <el-table-column
+          type="selection"
+          width="55"
+        />
+        <el-table-column
+          prop="rule_id"
+          :label="t('admin.blockRules.ruleId')"
+          width="90"
+        />
+        <el-table-column
+          prop="scope"
+          :label="t('admin.blockRules.scope')"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag size="small">{{ t(`admin.blockRules.scopes.${row.scope}`) }}</el-tag>
+            <el-tag size="small">
+              {{ t(`admin.blockRules.scopes.${row.scope}`) }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="target_name" :label="t('admin.blockRules.targetName')" min-width="150" />
-        <el-table-column prop="status" :label="t('admin.blockRules.status')" width="100">
+        <el-table-column
+          prop="target_name"
+          :label="t('admin.blockRules.targetName')"
+          min-width="150"
+        />
+        <el-table-column
+          prop="status"
+          :label="t('admin.blockRules.status')"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="statusTagType(row.status)" size="small">
+            <el-tag
+              :type="statusTagType(row.status)"
+              size="small"
+            >
               {{ t(`admin.blockRules.statuses.${row.status}`) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="ip_version" :label="t('admin.blockRules.ipVersion')" width="120">
+        <el-table-column
+          prop="ip_version"
+          :label="t('admin.blockRules.ipVersion')"
+          width="120"
+        >
           <template #default="{ row }">
-            <el-tag size="small" type="info">
+            <el-tag
+              size="small"
+              type="info"
+            >
               {{ t(`admin.blockRules.ipVersions.${row.ip_version || 'both'}`) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="created_at" :label="t('admin.blockRules.createdAt')" width="180">
+        <el-table-column
+          prop="created_at"
+          :label="t('admin.blockRules.createdAt')"
+          width="180"
+        >
           <template #default="{ row }">
             {{ formatDate(row.created_at) }}
           </template>
@@ -126,12 +210,26 @@
       width="600px"
       destroy-on-close
     >
-      <el-form ref="ruleFormRef" :model="ruleForm" :rules="ruleFormRules" label-width="120px">
-        <el-form-item :label="t('admin.blockRules.ruleName')" prop="name">
+      <el-form
+        ref="ruleFormRef"
+        :model="ruleForm"
+        :rules="ruleFormRules"
+        label-width="120px"
+      >
+        <el-form-item
+          :label="t('admin.blockRules.ruleName')"
+          prop="name"
+        >
           <el-input v-model="ruleForm.name" />
         </el-form-item>
-        <el-form-item :label="t('admin.blockRules.category')" prop="category">
-          <el-select v-model="ruleForm.category" style="width: 100%;">
+        <el-form-item
+          :label="t('admin.blockRules.category')"
+          prop="category"
+        >
+          <el-select
+            v-model="ruleForm.category"
+            style="width: 100%;"
+          >
             <el-option
               v-for="cat in categories"
               :key="cat"
@@ -141,9 +239,16 @@
           </el-select>
         </el-form-item>
         <el-form-item :label="t('admin.blockRules.description')">
-          <el-input v-model="ruleForm.description" type="textarea" :rows="2" />
+          <el-input
+            v-model="ruleForm.description"
+            type="textarea"
+            :rows="2"
+          />
         </el-form-item>
-        <el-form-item :label="t('admin.blockRules.strings')" prop="stringsText">
+        <el-form-item
+          :label="t('admin.blockRules.strings')"
+          prop="stringsText"
+        >
           <el-input
             v-model="ruleForm.stringsText"
             type="textarea"
@@ -156,8 +261,14 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showRuleDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmitRule">
+        <el-button @click="showRuleDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="submitting"
+          @click="handleSubmitRule"
+        >
           {{ t('common.confirm') }}
         </el-button>
       </template>
@@ -170,7 +281,12 @@
       width="600px"
       destroy-on-close
     >
-      <el-form ref="applyFormRef" :model="applyForm" :rules="applyFormRules" label-width="120px">
+      <el-form
+        ref="applyFormRef"
+        :model="applyForm"
+        :rules="applyFormRules"
+        label-width="120px"
+      >
         <el-form-item :label="t('admin.blockRules.selectRules')">
           <div>
             <el-tag
@@ -183,8 +299,15 @@
             </el-tag>
           </div>
         </el-form-item>
-        <el-form-item :label="t('admin.blockRules.scope')" prop="scope">
-          <el-select v-model="applyForm.scope" @change="handleScopeChange" style="width: 100%;">
+        <el-form-item
+          :label="t('admin.blockRules.scope')"
+          prop="scope"
+        >
+          <el-select
+            v-model="applyForm.scope"
+            style="width: 100%;"
+            @change="handleScopeChange"
+          >
             <el-option
               v-for="s in scopeOptions"
               :key="s"
@@ -198,7 +321,12 @@
           :label="t('admin.blockRules.selectTargets')"
           prop="target_ids"
         >
-          <el-select v-model="applyForm.target_ids" multiple filterable style="width: 100%;">
+          <el-select
+            v-model="applyForm.target_ids"
+            multiple
+            filterable
+            style="width: 100%;"
+          >
             <el-option
               v-for="p in providerOptions"
               :key="p.id"
@@ -243,8 +371,14 @@
             </el-select>
           </div>
         </el-form-item>
-        <el-form-item :label="t('admin.blockRules.ipVersion')" prop="ip_version">
-          <el-select v-model="applyForm.ip_version" style="width: 100%;">
+        <el-form-item
+          :label="t('admin.blockRules.ipVersion')"
+          prop="ip_version"
+        >
+          <el-select
+            v-model="applyForm.ip_version"
+            style="width: 100%;"
+          >
             <el-option
               v-for="v in ipVersionOptions"
               :key="v"
@@ -255,8 +389,14 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showApplyDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleApplyRules">
+        <el-button @click="showApplyDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="submitting"
+          @click="handleApplyRules"
+        >
           {{ t('admin.blockRules.applyRules') }}
         </el-button>
       </template>

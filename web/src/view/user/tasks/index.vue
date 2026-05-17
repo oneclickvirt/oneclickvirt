@@ -215,7 +215,10 @@
                       {{ currentTask.preallocatedBandwidth }}Mbps
                     </template>
                     <template v-else>
-                      <el-text type="info" size="small">{{ t('user.tasks.configLoading') }}</el-text>
+                      <el-text
+                        type="info"
+                        size="small"
+                      >{{ t('user.tasks.configLoading') }}</el-text>
                     </template>
                   </span>
                 </div>
@@ -280,7 +283,10 @@
                   v-if="task.queuePosition > 0"
                   class="task-queue-info"
                 >
-                  <el-text type="info" size="small">
+                  <el-text
+                    type="info"
+                    size="small"
+                  >
                     {{ t('user.tasks.beforeYouInQueue', { count: task.queuePosition }) }}
                   </el-text>
                 </div>
@@ -288,7 +294,10 @@
                   v-if="task.queuePosition === 0"
                   class="task-queue-info"
                 >
-                  <el-text type="success" size="small">
+                  <el-text
+                    type="success"
+                    size="small"
+                  >
                     {{ t('user.tasks.nextToExecute') }}
                   </el-text>
                 </div>
@@ -302,7 +311,10 @@
                   v-if="task.taskType === 'create' && task.preallocatedCpu > 0"
                   class="task-config"
                 >
-                  <el-tag size="small" type="info">
+                  <el-tag
+                    size="small"
+                    type="info"
+                  >
                     {{ task.preallocatedCpu }}{{ t('common.core') }} / 
                     {{ (task.preallocatedMemory / 1024).toFixed(1) }}GB / 
                     {{ (task.preallocatedDisk / 1024).toFixed(1) }}GB / 

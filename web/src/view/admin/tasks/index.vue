@@ -565,21 +565,38 @@
               :span="2"
             >
               <template v-if="detailDialog.task.preallocatedCpu && detailDialog.task.preallocatedCpu > 0">
-                <el-tag size="small" type="info">
+                <el-tag
+                  size="small"
+                  type="info"
+                >
                   CPU: {{ detailDialog.task.preallocatedCpu }} {{ $t('common.core') }}
                 </el-tag>
-                <el-tag size="small" type="info" style="margin-left: 8px;">
+                <el-tag
+                  size="small"
+                  type="info"
+                  style="margin-left: 8px;"
+                >
                   {{ $t('admin.tasks.memory') }}: {{ (detailDialog.task.preallocatedMemory / 1024).toFixed(1) }} GB
                 </el-tag>
-                <el-tag size="small" type="info" style="margin-left: 8px;">
+                <el-tag
+                  size="small"
+                  type="info"
+                  style="margin-left: 8px;"
+                >
                   {{ $t('admin.tasks.disk') }}: {{ (detailDialog.task.preallocatedDisk / 1024).toFixed(1) }} GB
                 </el-tag>
-                <el-tag size="small" type="info" style="margin-left: 8px;">
+                <el-tag
+                  size="small"
+                  type="info"
+                  style="margin-left: 8px;"
+                >
                   {{ $t('admin.tasks.bandwidth') }}: {{ detailDialog.task.preallocatedBandwidth }} Mbps
                 </el-tag>
               </template>
               <template v-else>
-                <el-text type="info">{{ $t('admin.tasks.noPreallocatedConfig') }}</el-text>
+                <el-text type="info">
+                  {{ $t('admin.tasks.noPreallocatedConfig') }}
+                </el-text>
               </template>
             </el-descriptions-item>
             <el-descriptions-item

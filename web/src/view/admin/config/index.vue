@@ -608,17 +608,31 @@
             <el-row :gutter="20">
               <el-col :span="12">
                 <el-form-item :label="$t('admin.config.kycMethod')">
-                  <el-select v-model="config.kyc.method" style="width: 100%">
-                    <el-option value="manual" :label="$t('admin.config.kycMethodManual')" />
-                    <el-option value="alipay" :label="$t('admin.config.kycMethodAlipay')" />
-                    <el-option value="both" :label="$t('admin.config.kycMethodBoth')" />
+                  <el-select
+                    v-model="config.kyc.method"
+                    style="width: 100%"
+                  >
+                    <el-option
+                      value="manual"
+                      :label="$t('admin.config.kycMethodManual')"
+                    />
+                    <el-option
+                      value="alipay"
+                      :label="$t('admin.config.kycMethodAlipay')"
+                    />
+                    <el-option
+                      value="both"
+                      :label="$t('admin.config.kycMethodBoth')"
+                    />
                   </el-select>
                 </el-form-item>
               </el-col>
               <el-col :span="12">
                 <el-form-item :label="$t('admin.config.kycRequireRealName')">
                   <el-switch v-model="config.kyc.requireRealName" />
-                  <div class="form-item-hint">{{ $t('admin.config.kycRequireRealNameHint') }}</div>
+                  <div class="form-item-hint">
+                    {{ $t('admin.config.kycRequireRealNameHint') }}
+                  </div>
                 </el-form-item>
               </el-col>
             </el-row>
@@ -649,19 +663,32 @@
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayAppId')">
-                    <el-input v-model="config.kyc.alipayAppId" :placeholder="$t('admin.config.kycAlipayAppId')" />
+                    <el-input
+                      v-model="config.kyc.alipayAppId"
+                      :placeholder="$t('admin.config.kycAlipayAppId')"
+                    />
                   </el-form-item>
                 </el-col>
               </el-row>
               <el-row :gutter="20">
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayPrivateKey')">
-                    <el-input v-model="config.kyc.alipayPrivateKey" type="password" show-password :placeholder="$t('admin.config.kycAlipayPrivateKey')" />
+                    <el-input
+                      v-model="config.kyc.alipayPrivateKey"
+                      type="password"
+                      show-password
+                      :placeholder="$t('admin.config.kycAlipayPrivateKey')"
+                    />
                   </el-form-item>
                 </el-col>
                 <el-col :span="12">
                   <el-form-item :label="$t('admin.config.kycAlipayPublicKey')">
-                    <el-input v-model="config.kyc.alipayPublicKey" type="password" show-password :placeholder="$t('admin.config.kycAlipayPublicKey')" />
+                    <el-input
+                      v-model="config.kyc.alipayPublicKey"
+                      type="password"
+                      show-password
+                      :placeholder="$t('admin.config.kycAlipayPublicKey')"
+                    />
                   </el-form-item>
                 </el-col>
               </el-row>

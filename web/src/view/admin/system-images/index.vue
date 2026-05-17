@@ -255,7 +255,10 @@
         >
           <template #default="scope">
             <span style="display: inline-flex; align-items: center; gap: 6px;">
-              <OsIcon :name="scope.row.osType || scope.row.name" :size="20" />
+              <OsIcon
+                :name="scope.row.osType || scope.row.name"
+                :size="20"
+              />
               {{ getDisplayName(scope.row.osType) || scope.row.osType || '-' }}
             </span>
           </template>

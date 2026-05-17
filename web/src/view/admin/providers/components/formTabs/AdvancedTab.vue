@@ -17,7 +17,10 @@
         :disabled-date="(time) => time.getTime() < Date.now() - 8.64e7"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -41,7 +44,10 @@
         :inactive-text="$t('common.no')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -65,7 +71,11 @@
         style="width: 200px"
       />
     </el-form-item>
-    <div v-if="modelValue.allowConcurrentTasks" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="modelValue.allowConcurrentTasks"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -89,7 +99,10 @@
         :inactive-text="$t('common.no')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -114,7 +127,11 @@
       />
       <span style="margin-left: 10px; color: #666;">{{ $t('common.seconds') }}</span>
     </el-form-item>
-    <div v-if="modelValue.enableTaskPolling" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="modelValue.enableTaskPolling"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -160,7 +177,10 @@
         </el-option>
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -184,7 +204,10 @@
         :inactive-text="$t('common.no')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -208,7 +231,10 @@
         :inactive-text="$t('admin.providers.disabled')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -232,7 +258,10 @@
         :inactive-text="$t('admin.providers.disabled')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -252,7 +281,10 @@
           :inactive-text="$t('common.no')"
         />
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
         <el-text
           size="small"
           type="info"
@@ -276,7 +308,11 @@
           style="width: 200px"
         />
       </el-form-item>
-      <div v-if="modelValue.proxyEnableHttp" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <div
+        v-if="modelValue.proxyEnableHttp"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
         <el-text
           size="small"
           type="info"
@@ -295,7 +331,10 @@
           :inactive-text="$t('common.no')"
         />
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
         <el-text
           size="small"
           type="info"
@@ -319,7 +358,10 @@
             style="width: 200px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -339,7 +381,10 @@
             style="width: 400px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -359,7 +404,10 @@
             style="width: 400px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"

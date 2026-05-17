@@ -24,7 +24,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -48,7 +51,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -75,7 +81,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -99,7 +108,10 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
           <el-text
             size="small"
             type="info"
@@ -124,7 +136,10 @@
         :inactive-text="$t('admin.providers.disabled')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -134,9 +149,9 @@
     </div>
 
     <el-form-item
+      v-show="modelValue.enableTrafficControl"
       :label="$t('admin.providers.maxTraffic')"
       prop="maxTraffic"
-      v-show="modelValue.enableTrafficControl"
     >
       <el-input-number
         v-model="maxTrafficTB"
@@ -149,7 +164,11 @@
         style="width: 100%"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+    <div
+      v-show="modelValue.enableTrafficControl"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -159,9 +178,9 @@
     </div>
 
     <el-form-item
+      v-show="modelValue.enableTrafficControl"
       :label="$t('admin.providers.trafficCountMode')"
       prop="trafficCountMode"
-      v-show="modelValue.enableTrafficControl"
     >
       <el-select
         v-model="modelValue.trafficCountMode"
@@ -182,7 +201,11 @@
         />
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+    <div
+      v-show="modelValue.enableTrafficControl"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -192,9 +215,9 @@
     </div>
 
     <el-form-item
+      v-show="modelValue.enableTrafficControl"
       :label="$t('admin.providers.trafficMultiplier')"
       prop="trafficMultiplier"
-      v-show="modelValue.enableTrafficControl"
     >
       <el-input-number
         v-model="modelValue.trafficMultiplier"
@@ -207,7 +230,11 @@
         style="width: 100%"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+    <div
+      v-show="modelValue.enableTrafficControl"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -217,9 +244,9 @@
     </div>
 
     <el-form-item
+      v-show="modelValue.enableTrafficControl"
       :label="$t('admin.providers.trafficSyncMethod')"
       prop="trafficSyncMethod"
-      v-show="modelValue.enableTrafficControl"
     >
       <el-select
         v-model="modelValue.trafficSyncMethod"
@@ -236,7 +263,11 @@
         />
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
+    <div
+      v-show="modelValue.enableTrafficControl"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -245,14 +276,17 @@
       </el-text>
     </div>
 
-    <el-divider content-position="left" v-show="modelValue.enableTrafficControl">
+    <el-divider
+      v-show="modelValue.enableTrafficControl"
+      content-position="left"
+    >
       <span style="color: #666; font-size: 14px;">{{ $t('admin.providers.trafficStatsConfig') }}</span>
     </el-divider>
 
     <el-form-item
+      v-show="modelValue.enableTrafficControl"
       :label="$t('admin.providers.trafficStatsMode')"
       prop="trafficStatsMode"
-      v-show="modelValue.enableTrafficControl"
     >
       <el-select
         v-model="modelValue.trafficStatsMode"
@@ -260,21 +294,46 @@
         style="width: 100%"
         @change="handlePresetChange"
       >
-        <el-option :label="$t('admin.providers.trafficStatsModeHigh')" value="high" />
-        <el-option :label="$t('admin.providers.trafficStatsModeStandard')" value="standard" />
-        <el-option :label="$t('admin.providers.trafficStatsModeLight')" value="light" />
-        <el-option :label="$t('admin.providers.trafficStatsModeMinimal')" value="minimal" />
-        <el-option :label="$t('admin.providers.trafficStatsModeCustom')" value="custom" />
+        <el-option
+          :label="$t('admin.providers.trafficStatsModeHigh')"
+          value="high"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficStatsModeStandard')"
+          value="standard"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficStatsModeLight')"
+          value="light"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficStatsModeMinimal')"
+          value="minimal"
+        />
+        <el-option
+          :label="$t('admin.providers.trafficStatsModeCustom')"
+          value="custom"
+        />
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;" v-show="modelValue.enableTrafficControl">
-      <el-text size="small" type="info">
+    <div
+      v-show="modelValue.enableTrafficControl"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
         {{ $t('admin.providers.trafficStatsModeTip') }}
       </el-text>
     </div>
 
     <!-- 流量统计详细配置 - 始终显示，但非自定义模式为只读 -->
-    <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
+    <el-row
+      v-show="modelValue.enableTrafficControl"
+      :gutter="20"
+    >
       <el-col :span="12">
         <el-form-item
           :label="$t('admin.providers.trafficCollectInterval')"
@@ -291,8 +350,14 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.trafficCollectIntervalTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
@@ -313,15 +378,24 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.trafficCollectBatchSizeTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
       </el-col>
     </el-row>
 
-    <el-row :gutter="20" v-show="modelValue.enableTrafficControl">
+    <el-row
+      v-show="modelValue.enableTrafficControl"
+      :gutter="20"
+    >
       <el-col :span="12">
         <el-form-item
           :label="$t('admin.providers.trafficLimitCheckInterval')"
@@ -338,8 +412,14 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.trafficLimitCheckIntervalTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>
@@ -360,8 +440,14 @@
             style="width: 100%"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.trafficLimitCheckBatchSizeTip') }}{{ modelValue.trafficStatsMode !== 'custom' ? '（' + $t('common.presetValue') + '）' : '' }}
           </el-text>
         </div>

@@ -113,11 +113,22 @@
       <el-divider content-position="left">
         <span style="font-size: 16px; font-weight: 600; color: var(--text-color-primary);">{{ $t('admin.dashboard.resourceOverview') }}</span>
       </el-divider>
-      <el-row :gutter="20" class="stats-row">
-        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+      <el-row
+        :gutter="20"
+        class="stats-row"
+      >
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="8"
+          :xl="8"
+        >
           <el-card class="resource-card">
             <div class="resource-header">
-              <div class="resource-icon cpu-icon"><i class="fas fa-microchip" /></div>
+              <div class="resource-icon cpu-icon">
+                <i class="fas fa-microchip" />
+              </div>
               <span class="resource-title">{{ $t('admin.dashboard.cpuCores') }}</span>
             </div>
             <div class="resource-numbers">
@@ -133,10 +144,18 @@
             </div>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="8"
+          :xl="8"
+        >
           <el-card class="resource-card">
             <div class="resource-header">
-              <div class="resource-icon memory-icon"><i class="fas fa-memory" /></div>
+              <div class="resource-icon memory-icon">
+                <i class="fas fa-memory" />
+              </div>
               <span class="resource-title">{{ $t('admin.dashboard.memory') }}</span>
             </div>
             <div class="resource-numbers">
@@ -152,10 +171,18 @@
             </div>
           </el-card>
         </el-col>
-        <el-col :xs="24" :sm="12" :md="8" :lg="8" :xl="8">
+        <el-col
+          :xs="24"
+          :sm="12"
+          :md="8"
+          :lg="8"
+          :xl="8"
+        >
           <el-card class="resource-card">
             <div class="resource-header">
-              <div class="resource-icon disk-icon"><i class="fas fa-hdd" /></div>
+              <div class="resource-icon disk-icon">
+                <i class="fas fa-hdd" />
+              </div>
               <span class="resource-title">{{ $t('admin.dashboard.disk') }}</span>
             </div>
             <div class="resource-numbers">

@@ -4,52 +4,116 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('user.domain.title') }}</span>
-          <el-button type="primary" @click="handleCreate">
+          <el-button
+            type="primary"
+            @click="handleCreate"
+          >
             <el-icon><Plus /></el-icon>
             {{ t('user.domain.addDomain') }}
           </el-button>
         </div>
       </template>
 
-      <el-table :data="domains" v-loading="loading" stripe>
-        <el-table-column prop="domainName" :label="t('user.domain.domainName')" />
-        <el-table-column prop="instanceId" :label="t('user.domain.instanceId')" width="100" />
-        <el-table-column prop="protocol" :label="t('user.domain.protocol')" width="100" />
-        <el-table-column prop="internalIP" :label="t('user.domain.internalIp')" />
-        <el-table-column prop="internalPort" :label="t('user.domain.internalPort')" width="100" />
-        <el-table-column prop="enableSSL" :label="t('user.domain.enableSsl')" width="100">
+      <el-table
+        v-loading="loading"
+        :data="domains"
+        stripe
+      >
+        <el-table-column
+          prop="domainName"
+          :label="t('user.domain.domainName')"
+        />
+        <el-table-column
+          prop="instanceId"
+          :label="t('user.domain.instanceId')"
+          width="100"
+        />
+        <el-table-column
+          prop="protocol"
+          :label="t('user.domain.protocol')"
+          width="100"
+        />
+        <el-table-column
+          prop="internalIP"
+          :label="t('user.domain.internalIp')"
+        />
+        <el-table-column
+          prop="internalPort"
+          :label="t('user.domain.internalPort')"
+          width="100"
+        />
+        <el-table-column
+          prop="enableSSL"
+          :label="t('user.domain.enableSsl')"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="row.enableSSL ? (row.hasCert ? 'success' : 'warning') : 'info'" size="small">
+            <el-tag
+              :type="row.enableSSL ? (row.hasCert ? 'success' : 'warning') : 'info'"
+              size="small"
+            >
               {{ row.enableSSL ? (row.hasCert ? 'SSL' : t('user.domain.noCert')) : 'HTTP' }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="status" :label="t('user.domain.status')" width="100">
+        <el-table-column
+          prop="status"
+          :label="t('user.domain.status')"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="row.status === 'active' ? 'success' : row.status === 'error' ? 'danger' : 'warning'" size="small">
+            <el-tag
+              :type="row.status === 'active' ? 'success' : row.status === 'error' ? 'danger' : 'warning'"
+              size="small"
+            >
               {{ row.status === 'active' ? t('user.domain.statusActive') : row.status === 'error' ? t('user.domain.statusError') : t('user.domain.statusPending') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('user.domain.actions')" width="150" fixed="right">
+        <el-table-column
+          :label="t('user.domain.actions')"
+          width="150"
+          fixed="right"
+        >
           <template #default="{ row }">
-            <el-button link type="primary" @click="handleEdit(row)">
+            <el-button
+              link
+              type="primary"
+              @click="handleEdit(row)"
+            >
               <el-icon><Edit /></el-icon>
             </el-button>
-            <el-button link type="danger" @click="handleDelete(row)">
+            <el-button
+              link
+              type="danger"
+              @click="handleDelete(row)"
+            >
               <el-icon><Delete /></el-icon>
             </el-button>
           </template>
         </el-table-column>
       </el-table>
 
-      <el-empty v-if="!loading && domains.length === 0" :description="t('user.domain.noDomains')" />
+      <el-empty
+        v-if="!loading && domains.length === 0"
+        :description="t('user.domain.noDomains')"
+      />
     </el-card>
 
     <!-- 创建/编辑对话框 -->
-    <el-dialog v-model="showDialog" :title="isEdit ? t('user.domain.edit') : t('user.domain.addDomain')" width="560px" destroy-on-close>
+    <el-dialog
+      v-model="showDialog"
+      :title="isEdit ? t('user.domain.edit') : t('user.domain.addDomain')"
+      width="560px"
+      destroy-on-close
+    >
       <!-- DNS 绑定说明 -->
-      <el-alert v-if="!isEdit" type="info" :closable="false" style="margin-bottom: 16px;">
+      <el-alert
+        v-if="!isEdit"
+        type="info"
+        :closable="false"
+        style="margin-bottom: 16px;"
+      >
         <template #title>
           <span>{{ t('user.domain.dnsGuideTitle') }}</span>
         </template>
@@ -60,12 +124,34 @@
         </div>
       </el-alert>
 
-      <el-form ref="formRef" :model="form" :rules="formRules" label-width="130px">
-        <el-form-item :label="t('user.domain.domainName')" prop="domainName">
-          <el-input v-model="form.domainName" placeholder="app.example.com" :disabled="isEdit" />
+      <el-form
+        ref="formRef"
+        :model="form"
+        :rules="formRules"
+        label-width="130px"
+      >
+        <el-form-item
+          :label="t('user.domain.domainName')"
+          prop="domainName"
+        >
+          <el-input
+            v-model="form.domainName"
+            placeholder="app.example.com"
+            :disabled="isEdit"
+          />
         </el-form-item>
-        <el-form-item v-if="!isEdit" :label="t('user.domain.instanceId')" prop="instanceId">
-          <el-select v-model="form.instanceId" :placeholder="t('user.domain.selectInstance')" filterable style="width: 100%" @change="onInstanceChange">
+        <el-form-item
+          v-if="!isEdit"
+          :label="t('user.domain.instanceId')"
+          prop="instanceId"
+        >
+          <el-select
+            v-model="form.instanceId"
+            :placeholder="t('user.domain.selectInstance')"
+            filterable
+            style="width: 100%"
+            @change="onInstanceChange"
+          >
             <el-option
               v-for="inst in userInstances"
               :key="inst.id"
@@ -74,26 +160,65 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item v-if="!isEdit && selectedInstancePublicIP" :label="t('user.domain.nodeIpLabel')">
-          <el-input :model-value="selectedInstancePublicIP" readonly />
-          <div class="form-tip">{{ t('user.domain.nodeIpTip') }}</div>
+        <el-form-item
+          v-if="!isEdit && selectedInstancePublicIP"
+          :label="t('user.domain.nodeIpLabel')"
+        >
+          <el-input
+            :model-value="selectedInstancePublicIP"
+            readonly
+          />
+          <div class="form-tip">
+            {{ t('user.domain.nodeIpTip') }}
+          </div>
         </el-form-item>
-        <el-form-item :label="t('user.domain.internalIp')" prop="internalIP">
-          <el-input v-model="form.internalIP" placeholder="172.17.0.2" />
-          <div class="form-tip">{{ t('user.domain.internalIpTip') }}</div>
+        <el-form-item
+          :label="t('user.domain.internalIp')"
+          prop="internalIP"
+        >
+          <el-input
+            v-model="form.internalIP"
+            placeholder="172.17.0.2"
+          />
+          <div class="form-tip">
+            {{ t('user.domain.internalIpTip') }}
+          </div>
         </el-form-item>
-        <el-form-item :label="t('user.domain.internalPort')" prop="internalPort">
-          <el-input-number v-model="form.internalPort" :min="1" :max="65535" style="width: 100%" />
+        <el-form-item
+          :label="t('user.domain.internalPort')"
+          prop="internalPort"
+        >
+          <el-input-number
+            v-model="form.internalPort"
+            :min="1"
+            :max="65535"
+            style="width: 100%"
+          />
         </el-form-item>
-        <el-form-item :label="t('user.domain.protocol')" prop="protocol">
-          <el-select v-model="form.protocol" style="width: 100%">
-            <el-option label="HTTP" value="http" />
-            <el-option label="HTTPS" value="https" />
+        <el-form-item
+          :label="t('user.domain.protocol')"
+          prop="protocol"
+        >
+          <el-select
+            v-model="form.protocol"
+            style="width: 100%"
+          >
+            <el-option
+              label="HTTP"
+              value="http"
+            />
+            <el-option
+              label="HTTPS"
+              value="https"
+            />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('user.domain.enableSsl')">
           <el-switch v-model="form.enableSSL" />
-          <span class="form-tip" style="margin-left: 8px;">{{ t('user.domain.enableSslTip') }}</span>
+          <span
+            class="form-tip"
+            style="margin-left: 8px;"
+          >{{ t('user.domain.enableSslTip') }}</span>
         </el-form-item>
         <template v-if="form.enableSSL">
           <el-form-item :label="t('user.domain.sslCert')">
@@ -103,7 +228,9 @@
               :rows="4"
               :placeholder="t('user.domain.sslCertPlaceholder')"
             />
-            <div class="form-tip">{{ t('user.domain.sslCertTip') }}</div>
+            <div class="form-tip">
+              {{ t('user.domain.sslCertTip') }}
+            </div>
           </el-form-item>
           <el-form-item :label="t('user.domain.sslKey')">
             <el-input
@@ -116,8 +243,16 @@
         </template>
       </el-form>
       <template #footer>
-        <el-button @click="showDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="handleSubmit">{{ t('common.confirm') }}</el-button>
+        <el-button @click="showDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="submitting"
+          @click="handleSubmit"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

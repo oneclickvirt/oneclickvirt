@@ -36,7 +36,10 @@
         </el-option-group>
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"
@@ -54,7 +57,10 @@
         clearable
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"

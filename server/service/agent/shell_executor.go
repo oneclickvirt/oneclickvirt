@@ -112,7 +112,14 @@ func (a *AgentShellExecutor) Execute(command string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return conn.ExecuteWithTimeout(wrapShellEnv(command), 300*time.Second)
+	output, execErr := conn.ExecuteWithTimeout(wrapShellEnv(command), 300*time.Second)
+	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
+		// 出现执行超时时主动关闭当前 WS 连接，避免“假在线”僵尸连接长期占用。
+		// readLoop 会感知连接关闭并触发 unregister，随后 Agent 自动重连。
+		_ = conn.conn.Close()
+		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
+	}
+	return output, execErr
 }
 
 // ExecuteWithTimeout runs a command on the remote agent with a custom timeout.
@@ -127,7 +134,13 @@ func (a *AgentShellExecutor) ExecuteWithTimeout(command string, timeout time.Dur
 	if err != nil {
 		return "", err
 	}
-	return conn.ExecuteWithTimeout(wrapShellEnv(command), timeout)
+	output, execErr := conn.ExecuteWithTimeout(wrapShellEnv(command), timeout)
+	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
+		// 与 Execute 保持一致：超时即主动断链，快速自愈。
+		_ = conn.conn.Close()
+		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
+	}
+	return output, execErr
 }
 
 // ExecuteWithLogging runs a command and logs debug information around it.
@@ -166,7 +179,12 @@ func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (
 	if err != nil {
 		return "", err
 	}
-	return conn.ExecuteWithTimeout(command, timeout)
+	output, execErr := conn.ExecuteWithTimeout(command, timeout)
+	if execErr != nil && strings.Contains(execErr.Error(), "执行命令超时") {
+		_ = conn.conn.Close()
+		return output, fmt.Errorf("%w；已主动断开连接并触发重连", execErr)
+	}
+	return output, execErr
 }
 
 // ExecuteViaTempScript uploads a shell script to the agent node and executes it

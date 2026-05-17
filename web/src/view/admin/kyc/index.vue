@@ -4,37 +4,92 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('admin.kyc.title') }}</span>
-          <el-radio-group v-model="statusFilter" @change="fetchData" size="small">
-            <el-radio-button value="">{{ t('admin.kyc.filterAll') }}</el-radio-button>
-            <el-radio-button value="pending">{{ t('admin.kyc.filterPending') }}</el-radio-button>
-            <el-radio-button value="approved">{{ t('admin.kyc.filterApproved') }}</el-radio-button>
-            <el-radio-button value="rejected">{{ t('admin.kyc.filterRejected') }}</el-radio-button>
+          <el-radio-group
+            v-model="statusFilter"
+            size="small"
+            @change="fetchData"
+          >
+            <el-radio-button value="">
+              {{ t('admin.kyc.filterAll') }}
+            </el-radio-button>
+            <el-radio-button value="pending">
+              {{ t('admin.kyc.filterPending') }}
+            </el-radio-button>
+            <el-radio-button value="approved">
+              {{ t('admin.kyc.filterApproved') }}
+            </el-radio-button>
+            <el-radio-button value="rejected">
+              {{ t('admin.kyc.filterRejected') }}
+            </el-radio-button>
           </el-radio-group>
         </div>
       </template>
 
-      <el-table :data="records" v-loading="loading" stripe>
-        <el-table-column prop="id" label="ID" width="60" />
-        <el-table-column prop="userId" :label="t('admin.kyc.userId')" width="80" />
-        <el-table-column prop="realName" :label="t('admin.kyc.realName')" />
-        <el-table-column prop="method" :label="t('admin.kyc.method')" width="100" />
-        <el-table-column prop="status" :label="t('admin.kyc.status')" width="100">
+      <el-table
+        v-loading="loading"
+        :data="records"
+        stripe
+      >
+        <el-table-column
+          prop="id"
+          label="ID"
+          width="60"
+        />
+        <el-table-column
+          prop="userId"
+          :label="t('admin.kyc.userId')"
+          width="80"
+        />
+        <el-table-column
+          prop="realName"
+          :label="t('admin.kyc.realName')"
+        />
+        <el-table-column
+          prop="method"
+          :label="t('admin.kyc.method')"
+          width="100"
+        />
+        <el-table-column
+          prop="status"
+          :label="t('admin.kyc.status')"
+          width="100"
+        >
           <template #default="{ row }">
-            <el-tag :type="row.status === 'approved' ? 'success' : row.status === 'rejected' ? 'danger' : 'warning'" size="small">
+            <el-tag
+              :type="row.status === 'approved' ? 'success' : row.status === 'rejected' ? 'danger' : 'warning'"
+              size="small"
+            >
               {{ row.status === 'approved' ? t('admin.kyc.statusApproved') : row.status === 'rejected' ? t('admin.kyc.statusRejected') : t('admin.kyc.statusPending') }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.kyc.createdAt')" width="180">
-          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+        <el-table-column
+          :label="t('admin.kyc.createdAt')"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.createdAt) }}
+          </template>
         </el-table-column>
-        <el-table-column :label="t('admin.kyc.review')" width="200" fixed="right">
+        <el-table-column
+          :label="t('admin.kyc.review')"
+          width="200"
+          fixed="right"
+        >
           <template #default="{ row }">
             <template v-if="row.status === 'pending'">
-              <el-button type="success" size="small" @click="handleReview(row, true)">
+              <el-button
+                type="success"
+                size="small"
+                @click="handleReview(row, true)"
+              >
                 {{ t('admin.kyc.approve') }}
               </el-button>
-              <el-button type="danger" size="small" @click="handleReview(row, false)">
+              <el-button
+                type="danger"
+                size="small"
+                @click="handleReview(row, false)"
+              >
                 {{ t('admin.kyc.reject') }}
               </el-button>
             </template>
@@ -55,11 +110,28 @@
     </el-card>
 
     <!-- 拒绝原因对话框 -->
-    <el-dialog v-model="showRejectDialog" :title="t('admin.kyc.rejectReason')" width="400px" destroy-on-close>
-      <el-input v-model="rejectReason" type="textarea" :rows="3" />
+    <el-dialog
+      v-model="showRejectDialog"
+      :title="t('admin.kyc.rejectReason')"
+      width="400px"
+      destroy-on-close
+    >
+      <el-input
+        v-model="rejectReason"
+        type="textarea"
+        :rows="3"
+      />
       <template #footer>
-        <el-button @click="showRejectDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="submitting" @click="confirmReject">{{ t('common.confirm') }}</el-button>
+        <el-button @click="showRejectDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="submitting"
+          @click="confirmReject"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

@@ -25,14 +25,38 @@
         v-model="modelValue.type"
         :placeholder="$t('admin.providers.serverTypePlaceholder')"
       >
-        <el-option label="Docker" value="docker" />
-        <el-option label="Podman" value="podman" />
-        <el-option label="Containerd" value="containerd" />
-        <el-option label="LXD" value="lxd" />
-        <el-option label="Incus" value="incus" />
-        <el-option label="Proxmox" value="proxmox" />
-        <el-option label="QEMU/KVM" value="qemu" />
-        <el-option label="KubeVirt" value="kubevirt" />
+        <el-option
+          label="Docker"
+          value="docker"
+        />
+        <el-option
+          label="Podman"
+          value="podman"
+        />
+        <el-option
+          label="Containerd"
+          value="containerd"
+        />
+        <el-option
+          label="LXD"
+          value="lxd"
+        />
+        <el-option
+          label="Incus"
+          value="incus"
+        />
+        <el-option
+          label="Proxmox"
+          value="proxmox"
+        />
+        <el-option
+          label="QEMU/KVM"
+          value="qemu"
+        />
+        <el-option
+          label="KubeVirt"
+          value="kubevirt"
+        />
       </el-select>
     </el-form-item>
 
@@ -46,8 +70,14 @@
         :placeholder="isAgentMode ? $t('admin.providers.hostPlaceholderAgent') : $t('admin.providers.hostPlaceholder')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-      <el-text size="small" type="info">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
         {{ isAgentMode ? $t('admin.providers.hostTipAgent') : $t('admin.providers.hostTip') }}
       </el-text>
     </div>
@@ -61,8 +91,14 @@
         :placeholder="$t('admin.providers.portIPPlaceholder')"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-      <el-text size="small" type="info">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
         {{ $t('admin.providers.portIPTip') }}
       </el-text>
     </div>
@@ -77,8 +113,14 @@
         :controls="false"
       />
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-      <el-text size="small" type="info">
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
         {{ $t('admin.providers.portTip') }}
       </el-text>
     </div>
@@ -89,50 +131,102 @@
       prop="discoverMode"
     >
       <el-radio-group v-model="modelValue.discoverMode">
-        <el-radio :label="false">{{ $t('admin.providers.cleanNode') }}</el-radio>
-        <el-radio :label="true">{{ $t('admin.providers.nodeWithInstances') }}</el-radio>
+        <el-radio :label="false">
+          {{ $t('admin.providers.cleanNode') }}
+        </el-radio>
+        <el-radio :label="true">
+          {{ $t('admin.providers.nodeWithInstances') }}
+        </el-radio>
       </el-radio-group>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-      <el-text size="small" type="info">{{ $t('admin.providers.nodeModeTip') }}</el-text>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.nodeModeTip') }}
+      </el-text>
     </div>
 
     <!-- 发现模式配置 - 仅在选择"有实例的节点"时显示 -->
     <template v-if="modelValue.discoverMode">
-      <el-form-item :label="$t('admin.providers.autoImport')" prop="autoImport">
+      <el-form-item
+        :label="$t('admin.providers.autoImport')"
+        prop="autoImport"
+      >
         <el-switch
           v-model="modelValue.autoImport"
           :active-text="$t('common.enabled')"
           :inactive-text="$t('common.disabled')"
         />
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.autoImportTip') }}</el-text>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.autoImportTip') }}
+        </el-text>
       </div>
 
-      <el-form-item v-if="modelValue.autoImport" :label="$t('admin.providers.autoAdjustQuota')" prop="autoAdjustQuota">
+      <el-form-item
+        v-if="modelValue.autoImport"
+        :label="$t('admin.providers.autoAdjustQuota')"
+        prop="autoAdjustQuota"
+      >
         <el-switch
           v-model="modelValue.autoAdjustQuota"
           :active-text="$t('common.enabled')"
           :inactive-text="$t('common.disabled')"
         />
       </el-form-item>
-      <div v-if="modelValue.autoImport" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.autoAdjustQuotaTip') }}</el-text>
+      <div
+        v-if="modelValue.autoImport"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.autoAdjustQuotaTip') }}
+        </el-text>
       </div>
 
-      <el-form-item v-if="modelValue.autoImport" :label="$t('admin.providers.importedInstanceOwner')" prop="importedInstanceOwner">
+      <el-form-item
+        v-if="modelValue.autoImport"
+        :label="$t('admin.providers.importedInstanceOwner')"
+        prop="importedInstanceOwner"
+      >
         <el-input
           v-model="modelValue.importedInstanceOwner"
           :placeholder="$t('admin.providers.importedInstanceOwnerPlaceholder')"
         />
       </el-form-item>
-      <div v-if="modelValue.autoImport" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-        <el-text size="small" type="info">{{ $t('admin.providers.importedInstanceOwnerTip') }}</el-text>
+      <div
+        v-if="modelValue.autoImport"
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.importedInstanceOwnerTip') }}
+        </el-text>
       </div>
     </template>
 
-    <el-form-item :label="$t('common.description')" prop="description">
+    <el-form-item
+      :label="$t('common.description')"
+      prop="description"
+    >
       <el-input
         v-model="modelValue.description"
         type="textarea"
@@ -140,22 +234,60 @@
         :placeholder="$t('admin.providers.descriptionPlaceholder')"
       />
     </el-form-item>
-    <el-form-item :label="$t('common.status')" prop="status">
-      <el-select v-model="modelValue.status" :placeholder="$t('admin.providers.statusPlaceholder')">
-        <el-option :label="$t('common.enabled')" value="active" />
-        <el-option :label="$t('common.disabled')" value="inactive" />
-        <el-option :label="$t('common.partial')" value="partial" />
+    <el-form-item
+      :label="$t('common.status')"
+      prop="status"
+    >
+      <el-select
+        v-model="modelValue.status"
+        :placeholder="$t('admin.providers.statusPlaceholder')"
+      >
+        <el-option
+          :label="$t('common.enabled')"
+          value="active"
+        />
+        <el-option
+          :label="$t('common.disabled')"
+          value="inactive"
+        />
+        <el-option
+          :label="$t('common.partial')"
+          value="partial"
+        />
       </el-select>
     </el-form-item>
-    <el-form-item :label="$t('admin.providers.architecture')" prop="architecture">
-      <el-select v-model="modelValue.architecture" :placeholder="$t('admin.providers.architecturePlaceholder')">
-        <el-option label="amd64 (x86_64)" value="amd64" />
-        <el-option label="arm64 (aarch64)" value="arm64" />
-        <el-option label="s390x (IBM Z)" value="s390x" />
+    <el-form-item
+      :label="$t('admin.providers.architecture')"
+      prop="architecture"
+    >
+      <el-select
+        v-model="modelValue.architecture"
+        :placeholder="$t('admin.providers.architecturePlaceholder')"
+      >
+        <el-option
+          label="amd64 (x86_64)"
+          value="amd64"
+        />
+        <el-option
+          label="arm64 (aarch64)"
+          value="arm64"
+        />
+        <el-option
+          label="s390x (IBM Z)"
+          value="s390x"
+        />
       </el-select>
     </el-form-item>
-    <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
-      <el-text size="small" type="info">{{ $t('admin.providers.architectureTip') }}</el-text>
+    <div
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
+      <el-text
+        size="small"
+        type="info"
+      >
+        {{ $t('admin.providers.architectureTip') }}
+      </el-text>
     </div>
   </el-form>
 </template>

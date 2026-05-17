@@ -104,10 +104,22 @@
             :placeholder="t('admin.config.oauth2ScopesPlaceholder')"
             style="width: 100%"
           >
-            <el-option label="read" value="read" />
-            <el-option label="openid" value="openid" />
-            <el-option label="profile" value="profile" />
-            <el-option label="email" value="email" />
+            <el-option
+              label="read"
+              value="read"
+            />
+            <el-option
+              label="openid"
+              value="openid"
+            />
+            <el-option
+              label="profile"
+              value="profile"
+            />
+            <el-option
+              label="email"
+              value="email"
+            />
           </el-select>
         </el-form-item>
 

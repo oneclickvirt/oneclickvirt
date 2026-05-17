@@ -58,7 +58,10 @@
               />
               <div class="limit-description">
                 {{ t('user.dashboard.instanceCountDesc') }}
-                <span v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined" style="display: block; margin-top: 4px; color: #909399; font-size: 12px;">
+                <span
+                  v-if="userLimits.containerCount !== undefined || userLimits.vmCount !== undefined"
+                  style="display: block; margin-top: 4px; color: #909399; font-size: 12px;"
+                >
                   {{ t('user.dashboard.containerCount') }}: {{ userLimits.containerCount || 0 }} / {{ t('user.dashboard.vmCount') }}: {{ userLimits.vmCount || 0 }}
                 </span>
               </div>

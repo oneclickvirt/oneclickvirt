@@ -190,7 +190,10 @@
                 {{ scope.row.npuDeviceIds ? 'NPU:' + scope.row.npuDeviceIds : $t('admin.instances.gpuEnabled') }}
               </el-tag>
             </template>
-            <span v-else style="color: #c0c4cc; font-size: 12px;">—</span>
+            <span
+              v-else
+              style="color: #c0c4cc; font-size: 12px;"
+            >—</span>
           </template>
         </el-table-column>
         <el-table-column
@@ -255,8 +258,16 @@
             <span :class="{ 'expired': isExpired(scope.row.expiresAt), 'expiring-soon': isExpiringSoon(scope.row.expiresAt) }">
               {{ formatDate(scope.row.expiresAt) }}
             </span>
-            <div v-if="scope.row.isManualExpiry" style="margin-top: 4px;">
-              <el-tag size="small" type="info">{{ $t('admin.instances.manualExpiry') }}</el-tag>
+            <div
+              v-if="scope.row.isManualExpiry"
+              style="margin-top: 4px;"
+            >
+              <el-tag
+                size="small"
+                type="info"
+              >
+                {{ $t('admin.instances.manualExpiry') }}
+              </el-tag>
             </div>
           </template>
         </el-table-column>
@@ -267,7 +278,10 @@
           align="center"
         >
           <template #default="scope">
-            <el-tag :type="scope.row.isFrozen ? 'danger' : 'success'" size="small">
+            <el-tag
+              :type="scope.row.isFrozen ? 'danger' : 'success'"
+              size="small"
+            >
               {{ scope.row.isFrozen ? $t('admin.instances.frozen') : $t('admin.instances.normal') }}
             </el-tag>
           </template>
@@ -387,10 +401,20 @@
             :label="$t('admin.instances.acceleratorConfig')"
           >
             <template v-if="selectedInstance.gpuEnabled">
-              <el-tag type="warning" size="small">{{ $t('admin.instances.gpu') }} {{ selectedInstance.gpuDeviceIds || $t('admin.instances.gpuEnabled') }}</el-tag>&nbsp;
+              <el-tag
+                type="warning"
+                size="small"
+              >
+                {{ $t('admin.instances.gpu') }} {{ selectedInstance.gpuDeviceIds || $t('admin.instances.gpuEnabled') }}
+              </el-tag>&nbsp;
             </template>
             <template v-if="selectedInstance.npuEnabled">
-              <el-tag type="danger" size="small">{{ $t('admin.instances.npu') }} {{ selectedInstance.npuDeviceIds || $t('admin.instances.gpuEnabled') }}</el-tag>
+              <el-tag
+                type="danger"
+                size="small"
+              >
+                {{ $t('admin.instances.npu') }} {{ selectedInstance.npuDeviceIds || $t('admin.instances.gpuEnabled') }}
+              </el-tag>
             </template>
           </el-descriptions-item>
           <el-descriptions-item :label="$t('admin.instances.publicIPv4')">
@@ -590,7 +614,10 @@
     >
       <el-form label-width="100px">
         <el-form-item :label="$t('admin.instances.instanceName')">
-          <el-input :model-value="transferForm.instanceName" disabled />
+          <el-input
+            :model-value="transferForm.instanceName"
+            disabled
+          />
         </el-form-item>
         <el-form-item :label="$t('admin.instances.targetUserId')">
           <el-select
@@ -612,8 +639,16 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="transferDialogVisible = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="transferLoading" @click="confirmTransfer">{{ $t('common.confirm') }}</el-button>
+        <el-button @click="transferDialogVisible = false">
+          {{ $t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="transferLoading"
+          @click="confirmTransfer"
+        >
+          {{ $t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

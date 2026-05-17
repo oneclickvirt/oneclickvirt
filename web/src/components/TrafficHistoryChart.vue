@@ -5,7 +5,7 @@
         <div class="chart-header">
           <span v-if="title">{{ title }}</span>
           <div class="chart-controls">
-            <slot name="extra-actions"></slot>
+            <slot name="extra-actions" />
             <span style="margin-right: 8px; font-size: 14px;">{{ $t('user.traffic.historyChart.timeRange') }}:</span>
             <el-select
               v-model="selectedPeriod"
@@ -13,12 +13,30 @@
               style="width: 120px; margin-right: 16px;"
               @change="loadData"
             >
-              <el-option :label="$t('user.traffic.historyChart.period15m')" value="15m" />
-              <el-option :label="$t('user.traffic.historyChart.period30m')" value="30m" />
-              <el-option :label="$t('user.traffic.historyChart.period1h')" value="1h" />
-              <el-option :label="$t('user.traffic.historyChart.period6h')" value="6h" />
-              <el-option :label="$t('user.traffic.historyChart.period12h')" value="12h" />
-              <el-option :label="$t('user.traffic.historyChart.period24h')" value="24h" />
+              <el-option
+                :label="$t('user.traffic.historyChart.period15m')"
+                value="15m"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.period30m')"
+                value="30m"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.period1h')"
+                value="1h"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.period6h')"
+                value="6h"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.period12h')"
+                value="12h"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.period24h')"
+                value="24h"
+              />
             </el-select>
             <span style="margin-right: 8px; font-size: 14px;">{{ $t('user.traffic.historyChart.dataInterval') }}:</span>
             <el-select
@@ -27,10 +45,22 @@
               style="width: 120px;"
               @change="loadData"
             >
-              <el-option :label="$t('user.traffic.historyChart.interval5m')" :value="5" />
-              <el-option :label="$t('user.traffic.historyChart.interval10m')" :value="10" />
-              <el-option :label="$t('user.traffic.historyChart.interval15m')" :value="15" />
-              <el-option :label="$t('user.traffic.historyChart.interval30m')" :value="30" />
+              <el-option
+                :label="$t('user.traffic.historyChart.interval5m')"
+                :value="5"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.interval10m')"
+                :value="10"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.interval15m')"
+                :value="15"
+              />
+              <el-option
+                :label="$t('user.traffic.historyChart.interval30m')"
+                :value="30"
+              />
             </el-select>
           </div>
         </div>
@@ -44,8 +74,8 @@
       />
       
       <div
-        ref="chartRef"
         v-show="!loading"
+        ref="chartRef"
         class="chart-container"
         style="width: 100%; height: 400px;"
       />

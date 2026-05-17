@@ -77,7 +77,6 @@
               </el-col>
             </el-row>
           </div>
-
         </div>
 
         <!-- 监控配置信息 -->
@@ -86,7 +85,10 @@
           class="config-section"
         >
           <h4>{{ t('user.traffic.detail.monitoringConfig') }}</h4>
-          <el-descriptions :column="2" border>
+          <el-descriptions
+            :column="2"
+            border
+          >
             <el-descriptions-item :label="t('user.traffic.detail.mappedIP')">
               {{ trafficData.mapped_ip || '-' }}
             </el-descriptions-item>

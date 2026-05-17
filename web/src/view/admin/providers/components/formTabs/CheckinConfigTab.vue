@@ -1,5 +1,8 @@
 <template>
-  <div v-loading="loading" class="checkin-config-tab">
+  <div
+    v-loading="loading"
+    class="checkin-config-tab"
+  >
     <el-form
       :model="checkinForm"
       label-width="160px"
@@ -12,8 +15,14 @@
           :inactive-text="$t('common.no')"
         />
       </el-form-item>
-      <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-        <el-text size="small" type="info">
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
           {{ $t('admin.providers.checkinEnabledTip') }}
         </el-text>
       </div>
@@ -28,8 +37,14 @@
             style="width: 200px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.checkinDefaultExpireDaysTip') }}
           </el-text>
         </div>
@@ -43,8 +58,14 @@
             style="width: 200px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.checkinRenewalDaysTip') }}
           </el-text>
         </div>
@@ -58,8 +79,14 @@
             style="width: 200px"
           />
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.checkinMaxExpireDaysTip') }}
           </el-text>
         </div>
@@ -69,12 +96,24 @@
             v-model="checkinForm.overdueAction"
             style="width: 200px"
           >
-            <el-option :label="$t('admin.providers.checkinActionStop')" value="stop" />
-            <el-option :label="$t('admin.providers.checkinActionDelete')" value="delete" />
+            <el-option
+              :label="$t('admin.providers.checkinActionStop')"
+              value="stop"
+            />
+            <el-option
+              :label="$t('admin.providers.checkinActionDelete')"
+              value="delete"
+            />
           </el-select>
         </el-form-item>
-        <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-          <el-text size="small" type="info">
+        <div
+          class="form-tip"
+          style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+        >
+          <el-text
+            size="small"
+            type="info"
+          >
             {{ $t('admin.providers.checkinOverdueActionTip') }}
           </el-text>
         </div>
@@ -84,11 +123,26 @@
             v-model="checkinForm.checkinMethod"
             style="width: 200px"
           >
-            <el-option label="Captcha" value="captcha" />
-            <el-option label="Cloudflare Turnstile" value="turnstile" />
-            <el-option label="Google reCAPTCHA" value="recaptcha" />
-            <el-option label="hCaptcha" value="hcaptcha" />
-            <el-option label="PoW" value="pow" />
+            <el-option
+              label="Captcha"
+              value="captcha"
+            />
+            <el-option
+              label="Cloudflare Turnstile"
+              value="turnstile"
+            />
+            <el-option
+              label="Google reCAPTCHA"
+              value="recaptcha"
+            />
+            <el-option
+              label="hCaptcha"
+              value="hcaptcha"
+            />
+            <el-option
+              label="PoW"
+              value="pow"
+            />
           </el-select>
         </el-form-item>
 
@@ -123,8 +177,14 @@
               style="width: 200px"
             />
           </el-form-item>
-          <div class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;">
-            <el-text size="small" type="info">
+          <div
+            class="form-tip"
+            style="margin-top: -10px; margin-bottom: 15px; margin-left: 160px;"
+          >
+            <el-text
+              size="small"
+              type="info"
+            >
               {{ $t('admin.providers.checkinPowDifficultyTip') }}
             </el-text>
           </div>

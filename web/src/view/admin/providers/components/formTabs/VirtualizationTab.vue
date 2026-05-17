@@ -380,7 +380,11 @@
         </template>
       </el-input>
     </el-form-item>
-    <div v-if="modelValue.type === 'proxmox'" class="form-tip" style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;">
+    <div
+      v-if="modelValue.type === 'proxmox'"
+      class="form-tip"
+      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+    >
       <el-text
         size="small"
         type="info"

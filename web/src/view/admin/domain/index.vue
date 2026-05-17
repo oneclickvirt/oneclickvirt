@@ -2,25 +2,69 @@
   <div class="domain-mgmt-container">
     <el-tabs v-model="activeTab">
       <!-- 域名绑定列表标签页 -->
-      <el-tab-pane :label="t('admin.domain.allDomains')" name="domains">
+      <el-tab-pane
+        :label="t('admin.domain.allDomains')"
+        name="domains"
+      >
         <el-card>
-          <el-table :data="domains" v-loading="loading" stripe>
-            <el-table-column prop="id" label="ID" width="60" />
-            <el-table-column prop="userId" :label="t('admin.domain.userId')" width="80" />
-            <el-table-column prop="instanceId" :label="t('admin.domain.instanceId')" width="80" />
-            <el-table-column prop="domainName" :label="t('admin.domain.domainName')" />
-            <el-table-column prop="internalIP" :label="t('admin.domain.internalIP')" />
-            <el-table-column prop="internalPort" :label="t('admin.domain.internalPort')" width="100" />
-            <el-table-column prop="status" :label="t('admin.domain.status')" width="100">
+          <el-table
+            v-loading="loading"
+            :data="domains"
+            stripe
+          >
+            <el-table-column
+              prop="id"
+              label="ID"
+              width="60"
+            />
+            <el-table-column
+              prop="userId"
+              :label="t('admin.domain.userId')"
+              width="80"
+            />
+            <el-table-column
+              prop="instanceId"
+              :label="t('admin.domain.instanceId')"
+              width="80"
+            />
+            <el-table-column
+              prop="domainName"
+              :label="t('admin.domain.domainName')"
+            />
+            <el-table-column
+              prop="internalIP"
+              :label="t('admin.domain.internalIP')"
+            />
+            <el-table-column
+              prop="internalPort"
+              :label="t('admin.domain.internalPort')"
+              width="100"
+            />
+            <el-table-column
+              prop="status"
+              :label="t('admin.domain.status')"
+              width="100"
+            >
               <template #default="{ row }">
-                <el-tag :type="row.status === 'active' ? 'success' : row.status === 'error' ? 'danger' : 'warning'" size="small">
+                <el-tag
+                  :type="row.status === 'active' ? 'success' : row.status === 'error' ? 'danger' : 'warning'"
+                  size="small"
+                >
                   {{ row.status }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="t('admin.domain.actions')" width="100" fixed="right">
+            <el-table-column
+              :label="t('admin.domain.actions')"
+              width="100"
+              fixed="right"
+            >
               <template #default="{ row }">
-                <el-button link type="danger" @click="handleDelete(row)">
+                <el-button
+                  link
+                  type="danger"
+                  @click="handleDelete(row)"
+                >
                   <el-icon><Delete /></el-icon>
                 </el-button>
               </template>
@@ -30,32 +74,70 @@
       </el-tab-pane>
 
       <!-- 节点域名配置标签页 -->
-      <el-tab-pane :label="t('admin.domain.providerConfig')" name="config">
+      <el-tab-pane
+        :label="t('admin.domain.providerConfig')"
+        name="config"
+      >
         <el-card>
-          <el-table :data="providers" v-loading="configLoading" stripe>
-            <el-table-column prop="id" label="ID" width="60" />
-            <el-table-column prop="name" :label="t('admin.domain.providerName')" />
-            <el-table-column prop="type" :label="t('admin.domain.providerType')" width="100" />
-            <el-table-column :label="t('admin.domain.domainBindingEnabled')" width="120">
+          <el-table
+            v-loading="configLoading"
+            :data="providers"
+            stripe
+          >
+            <el-table-column
+              prop="id"
+              label="ID"
+              width="60"
+            />
+            <el-table-column
+              prop="name"
+              :label="t('admin.domain.providerName')"
+            />
+            <el-table-column
+              prop="type"
+              :label="t('admin.domain.providerType')"
+              width="100"
+            />
+            <el-table-column
+              :label="t('admin.domain.domainBindingEnabled')"
+              width="120"
+            >
               <template #default="{ row }">
-                <el-tag :type="getProviderConfig(row.id)?.enabled ? 'success' : 'info'" size="small">
+                <el-tag
+                  :type="getProviderConfig(row.id)?.enabled ? 'success' : 'info'"
+                  size="small"
+                >
                   {{ getProviderConfig(row.id)?.enabled ? t('common.enabled') : t('common.disabled') }}
                 </el-tag>
               </template>
             </el-table-column>
-            <el-table-column :label="t('admin.domain.maxDomainsPerUser')" width="120">
+            <el-table-column
+              :label="t('admin.domain.maxDomainsPerUser')"
+              width="120"
+            >
               <template #default="{ row }">
                 {{ getProviderConfig(row.id)?.maxDomainsPerUser ?? 3 }}
               </template>
             </el-table-column>
-            <el-table-column :label="t('admin.domain.allowedSuffixes')" min-width="150">
+            <el-table-column
+              :label="t('admin.domain.allowedSuffixes')"
+              min-width="150"
+            >
               <template #default="{ row }">
                 <span>{{ getProviderConfig(row.id)?.allowedSuffixes || t('admin.domain.noSuffixLimit') }}</span>
               </template>
             </el-table-column>
-            <el-table-column :label="t('admin.domain.actions')" width="100" fixed="right">
+            <el-table-column
+              :label="t('admin.domain.actions')"
+              width="100"
+              fixed="right"
+            >
               <template #default="{ row }">
-                <el-button link type="primary" @click="handleEditConfig(row)">
+                <el-button
+                  link
+                  type="primary"
+                  @click="handleEditConfig(row)"
+                >
                   <el-icon><Edit /></el-icon>
                 </el-button>
               </template>
@@ -66,34 +148,76 @@
     </el-tabs>
 
     <!-- 域名配置编辑对话框 -->
-    <el-dialog v-model="showConfigDialog" :title="t('admin.domain.editConfig')" width="520px" destroy-on-close>
-      <el-form ref="configFormRef" :model="configForm" label-width="150px">
+    <el-dialog
+      v-model="showConfigDialog"
+      :title="t('admin.domain.editConfig')"
+      width="520px"
+      destroy-on-close
+    >
+      <el-form
+        ref="configFormRef"
+        :model="configForm"
+        label-width="150px"
+      >
         <el-form-item :label="t('admin.domain.enabled')">
           <el-switch v-model="configForm.enabled" />
         </el-form-item>
         <el-form-item :label="t('admin.domain.maxDomainsPerUser')">
-          <el-input-number v-model="configForm.maxDomainsPerUser" :min="1" :max="100" style="width: 100%" />
+          <el-input-number
+            v-model="configForm.maxDomainsPerUser"
+            :min="1"
+            :max="100"
+            style="width: 100%"
+          />
         </el-form-item>
         <el-form-item :label="t('admin.domain.dnsType')">
-          <el-select v-model="configForm.dnsType" style="width: 100%">
-            <el-option label="Hosts" value="hosts" />
-            <el-option label="Nginx" value="nginx" />
+          <el-select
+            v-model="configForm.dnsType"
+            style="width: 100%"
+          >
+            <el-option
+              label="Hosts"
+              value="hosts"
+            />
+            <el-option
+              label="Nginx"
+              value="nginx"
+            />
           </el-select>
         </el-form-item>
         <el-form-item :label="t('admin.domain.allowedSuffixes')">
-          <el-input v-model="configForm.allowedSuffixes" :placeholder="t('admin.domain.allowedSuffixesPlaceholder')" />
-          <div style="font-size: 12px; color: #909399; margin-top: 2px;">{{ t('admin.domain.allowedSuffixesTip') }}</div>
+          <el-input
+            v-model="configForm.allowedSuffixes"
+            :placeholder="t('admin.domain.allowedSuffixesPlaceholder')"
+          />
+          <div style="font-size: 12px; color: #909399; margin-top: 2px;">
+            {{ t('admin.domain.allowedSuffixesTip') }}
+          </div>
         </el-form-item>
         <el-form-item :label="t('admin.domain.nginxConfigPath')">
-          <el-input v-model="configForm.nginxConfigPath" placeholder="/etc/nginx/conf.d" />
+          <el-input
+            v-model="configForm.nginxConfigPath"
+            placeholder="/etc/nginx/conf.d"
+          />
         </el-form-item>
         <el-form-item :label="t('admin.domain.nginxReloadCmd')">
-          <el-input v-model="configForm.nginxReloadCmd" placeholder="systemctl reload nginx" />
+          <el-input
+            v-model="configForm.nginxReloadCmd"
+            placeholder="systemctl reload nginx"
+          />
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showConfigDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="savingConfig" @click="handleSaveConfig">{{ t('common.confirm') }}</el-button>
+        <el-button @click="showConfigDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="savingConfig"
+          @click="handleSaveConfig"
+        >
+          {{ t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
   </div>

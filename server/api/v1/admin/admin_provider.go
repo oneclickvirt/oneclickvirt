@@ -1242,17 +1242,9 @@ func ExecOnProvider(c *gin.Context) {
 		return
 	}
 
-	execCtx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
-	defer cancel()
-
-	providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
-	if err != nil {
-		common.ResponseWithError(c, common.NewError(common.CodeInternalError, "Provider连接不可用: "+err.Error()))
-		return
-	}
-
 	stdout := ""
 	stderr := ""
+	execFailed := false
 	if dbProvider.ConnectionType == "agent" {
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(dbProvider.ID)
@@ -1265,13 +1257,33 @@ func ExecOnProvider(c *gin.Context) {
 		stdout = output
 		if execErr != nil {
 			stderr = execErr.Error()
+			execFailed = true
 		}
 	} else {
+		execCtx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
+		defer cancel()
+
+		providerInstance, err := provider.EnsureProviderConnected(execCtx, uint(id))
+		if err != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "Provider连接不可用: "+err.Error()))
+			return
+		}
+
 		output, execErr := providerInstance.ExecuteSSHCommand(execCtx, req.Command)
 		stdout = output
 		if execErr != nil {
 			stderr = execErr.Error()
+			execFailed = true
 		}
+	}
+
+	if execFailed {
+		msg := "命令执行失败"
+		if stderr != "" {
+			msg = msg + ": " + stderr
+		}
+		common.ResponseWithError(c, common.NewError(common.CodeBadGateway, msg))
+		return
 	}
 
 	common.ResponseSuccess(c, map[string]interface{}{

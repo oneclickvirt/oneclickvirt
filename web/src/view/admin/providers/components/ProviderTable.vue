@@ -626,8 +626,16 @@
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="pasteUrlDialogVisible = false">{{ $t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="pasteUrlSaving" @click="submitPasteUrl">{{ $t('common.confirm') }}</el-button>
+        <el-button @click="pasteUrlDialogVisible = false">
+          {{ $t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="pasteUrlSaving"
+          @click="submitPasteUrl"
+        >
+          {{ $t('common.confirm') }}
+        </el-button>
       </template>
     </el-dialog>
 
@@ -649,11 +657,11 @@
         />
       </div>
       <template #footer>
-        <el-button @click="remoteDialogVisible = false">{{ $t('common.close') }}</el-button>
+        <el-button @click="remoteDialogVisible = false">
+          {{ $t('common.close') }}
+        </el-button>
       </template>
     </el-dialog>
-
-
   </div>
 </template>
 

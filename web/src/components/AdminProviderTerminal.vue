@@ -1,6 +1,9 @@
 <template>
   <div class="admin-terminal-container">
-    <div ref="terminalRef" class="terminal" />
+    <div
+      ref="terminalRef"
+      class="terminal"
+    />
   </div>
 </template>
 

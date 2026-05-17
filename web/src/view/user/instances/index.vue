@@ -145,7 +145,11 @@
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.system') }}:</span>
-              <span class="value"><OsIcon :name="instance.osType || instance.image" :size="18" style="margin-right: 4px;" />{{ instance.osType }}</span>
+              <span class="value"><OsIcon
+                :name="instance.osType || instance.image"
+                :size="18"
+                style="margin-right: 4px;"
+              />{{ instance.osType }}</span>
             </div>
             <div class="detail-item">
               <span class="label">{{ t('user.instances.createdAt') }}:</span>

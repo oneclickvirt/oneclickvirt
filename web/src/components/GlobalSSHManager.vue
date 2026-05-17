@@ -23,24 +23,24 @@
               <el-button 
                 :icon="Minus"
                 size="small" 
-                @click="minimizeConnection(conn.instanceId)"
                 :title="t('user.instanceDetail.sshMinimize')"
+                @click="minimizeConnection(conn.instanceId)"
               >
                 {{ t('user.instanceDetail.sshMinimize') }}
               </el-button>
               <el-button 
                 :icon="Refresh"
                 size="small" 
-                @click="reconnectSSH(conn.instanceId)"
                 :title="t('user.instanceDetail.sshReconnect')"
+                @click="reconnectSSH(conn.instanceId)"
               >
                 {{ t('user.instanceDetail.sshReconnect') }}
               </el-button>
               <el-button 
                 :icon="FullScreen"
                 size="small" 
-                @click="openSSHInNewWindow(conn)"
                 :title="t('user.instanceDetail.sshOpenInNewWindow')"
+                @click="openSSHInNewWindow(conn)"
               >
                 {{ t('user.instanceDetail.sshNewWindow') }}
               </el-button>
@@ -68,14 +68,17 @@
       class="ssh-minimized-container"
       :style="{ bottom: `${20 + index * 60}px` }"
     >
-      <div class="ssh-minimized-header" @click="restoreConnection(conn.instanceId)">
+      <div
+        class="ssh-minimized-header"
+        @click="restoreConnection(conn.instanceId)"
+      >
         <span>{{ t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }) }}</span>
         <el-button 
           :icon="Close"
           text
           size="small" 
-          @click.stop="closeConnection(conn.instanceId)"
           class="close-btn"
+          @click.stop="closeConnection(conn.instanceId)"
         />
       </div>
     </div>

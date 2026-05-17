@@ -8,7 +8,9 @@
           <div class="shape shape-2" />
           <div class="shape shape-3" />
         </div>
-        <div class="error-code">404</div>
+        <div class="error-code">
+          404
+        </div>
       </div>
       <h1 class="error-title">
         {{ t('notFound.title') }}
@@ -17,10 +19,19 @@
         {{ t('notFound.message') }}
       </p>
       <div class="actions">
-        <el-button type="primary" size="large" round @click="goHome">
+        <el-button
+          type="primary"
+          size="large"
+          round
+          @click="goHome"
+        >
           {{ t('notFound.goHome') }}
         </el-button>
-        <el-button size="large" round @click="goBack">
+        <el-button
+          size="large"
+          round
+          @click="goBack"
+        >
           {{ t('notFound.goBack') }}
         </el-button>
       </div>

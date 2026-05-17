@@ -193,7 +193,11 @@
           <template #default="{ row }">
             <span v-if="row.portType === 'batch' && row.portCount && row.portCount > 1">
               {{ row.hostPort }}-{{ row.hostPortEnd || (row.hostPort + row.portCount - 1) }}
-              <el-tag size="small" type="info" style="margin-left: 5px;">×{{ row.portCount }}</el-tag>
+              <el-tag
+                size="small"
+                type="info"
+                style="margin-left: 5px;"
+              >×{{ row.portCount }}</el-tag>
             </span>
             <span v-else>{{ row.hostPort }}</span>
           </template>
@@ -550,11 +554,20 @@
         <!-- 映射模式：节点侧 / 控制端转发 -->
         <el-form-item :label="$t('admin.portMapping.mappingMode')">
           <el-radio-group v-model="addForm.mappingType">
-            <el-radio label="node">{{ $t('admin.portMapping.mappingModeNode') }}</el-radio>
-            <el-radio label="controller">{{ $t('admin.portMapping.mappingModeController') }}</el-radio>
+            <el-radio label="node">
+              {{ $t('admin.portMapping.mappingModeNode') }}
+            </el-radio>
+            <el-radio label="controller">
+              {{ $t('admin.portMapping.mappingModeController') }}
+            </el-radio>
           </el-radio-group>
           <div style="margin-top: 4px;">
-            <el-text size="small" type="info">{{ $t('admin.portMapping.mappingModeTip') }}</el-text>
+            <el-text
+              size="small"
+              type="info"
+            >
+              {{ $t('admin.portMapping.mappingModeTip') }}
+            </el-text>
           </div>
         </el-form-item>
 
@@ -568,7 +581,12 @@
             :placeholder="$t('admin.portMapping.internalHostPlaceholder')"
           />
           <div style="margin-top: 4px;">
-            <el-text size="small" type="info">{{ $t('admin.portMapping.internalHostTip') }}</el-text>
+            <el-text
+              size="small"
+              type="info"
+            >
+              {{ $t('admin.portMapping.internalHostTip') }}
+            </el-text>
           </div>
         </el-form-item>
         

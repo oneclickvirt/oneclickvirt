@@ -6,16 +6,33 @@
       </template>
 
       <!-- 签到操作 -->
-      <el-form label-width="120px" style="max-width: 600px; margin-bottom: 30px;">
+      <el-form
+        label-width="120px"
+        style="max-width: 600px; margin-bottom: 30px;"
+      >
         <el-form-item :label="t('user.checkin.selectInstance')">
-          <el-select v-model="selectedInstanceId" :placeholder="t('user.checkin.selectInstance')" @change="resetChallenge">
-            <el-option v-for="inst in instances" :key="inst.id" :label="inst.name" :value="inst.id" />
+          <el-select
+            v-model="selectedInstanceId"
+            :placeholder="t('user.checkin.selectInstance')"
+            @change="resetChallenge"
+          >
+            <el-option
+              v-for="inst in instances"
+              :key="inst.id"
+              :label="inst.name"
+              :value="inst.id"
+            />
           </el-select>
         </el-form-item>
 
         <!-- 获取挑战 -->
         <el-form-item>
-          <el-button type="primary" @click="getChallenge" :disabled="!selectedInstanceId" :loading="gettingChallenge">
+          <el-button
+            type="primary"
+            :disabled="!selectedInstanceId"
+            :loading="gettingChallenge"
+            @click="getChallenge"
+          >
             {{ t('user.checkin.getCode') }}
           </el-button>
         </el-form-item>
@@ -23,26 +40,48 @@
         <!-- 内置验证码方式 -->
         <template v-if="challengeData && challengeData.method === 'captcha'">
           <el-form-item :label="t('user.checkin.inputCode')">
-            <el-input v-model="inputCode" style="width: 200px; margin-right: 10px;" />
-            <el-button type="success" @click="doCheckin" :loading="checkingIn">
+            <el-input
+              v-model="inputCode"
+              style="width: 200px; margin-right: 10px;"
+            />
+            <el-button
+              type="success"
+              :loading="checkingIn"
+              @click="doCheckin"
+            >
               {{ t('user.checkin.checkin') }}
             </el-button>
           </el-form-item>
           <el-form-item>
-            <el-tag type="info">{{ challengeData.code }}</el-tag>
+            <el-tag type="info">
+              {{ challengeData.code }}
+            </el-tag>
           </el-form-item>
         </template>
 
         <!-- Turnstile / reCAPTCHA / hCaptcha -->
         <template v-if="challengeData && ['turnstile', 'recaptcha', 'hcaptcha'].includes(challengeData.method)">
           <el-form-item :label="t('user.checkin.verification')">
-            <div ref="captchaContainer" class="captcha-widget"></div>
-            <div v-if="!captchaLoaded" class="captcha-loading">
-              <el-text type="info">{{ t('user.checkin.loadingCaptcha') }}</el-text>
+            <div
+              ref="captchaContainer"
+              class="captcha-widget"
+            />
+            <div
+              v-if="!captchaLoaded"
+              class="captcha-loading"
+            >
+              <el-text type="info">
+                {{ t('user.checkin.loadingCaptcha') }}
+              </el-text>
             </div>
           </el-form-item>
           <el-form-item>
-            <el-button type="success" @click="doCheckin" :loading="checkingIn" :disabled="!captchaToken">
+            <el-button
+              type="success"
+              :loading="checkingIn"
+              :disabled="!captchaToken"
+              @click="doCheckin"
+            >
               {{ t('user.checkin.checkin') }}
             </el-button>
           </el-form-item>
@@ -51,21 +90,37 @@
         <!-- PoW -->
         <template v-if="challengeData && challengeData.method === 'pow'">
           <el-form-item :label="t('user.checkin.powStatus')">
-            <div v-if="powComputing" class="pow-computing">
-              <el-icon class="is-loading"><Loading /></el-icon>
-              <el-text style="margin-left: 8px;">{{ t('user.checkin.powComputing') }}</el-text>
+            <div
+              v-if="powComputing"
+              class="pow-computing"
+            >
+              <el-icon class="is-loading">
+                <Loading />
+              </el-icon>
+              <el-text style="margin-left: 8px;">
+                {{ t('user.checkin.powComputing') }}
+              </el-text>
             </div>
             <div v-else-if="powNonce">
-              <el-tag type="success">{{ t('user.checkin.powSolved') }}</el-tag>
+              <el-tag type="success">
+                {{ t('user.checkin.powSolved') }}
+              </el-tag>
             </div>
             <div v-else>
-              <el-button type="warning" @click="solvePow">
+              <el-button
+                type="warning"
+                @click="solvePow"
+              >
                 {{ t('user.checkin.powStart') }}
               </el-button>
             </div>
           </el-form-item>
           <el-form-item v-if="powNonce">
-            <el-button type="success" @click="doCheckin" :loading="checkingIn">
+            <el-button
+              type="success"
+              :loading="checkingIn"
+              @click="doCheckin"
+            >
               {{ t('user.checkin.checkin') }}
             </el-button>
           </el-form-item>
@@ -75,22 +130,55 @@
       <!-- 签到记录 -->
       <el-divider />
       <h3>{{ t('user.checkin.records') }}</h3>
-      <el-table :data="records" v-loading="loadingRecords" stripe>
-        <el-table-column prop="instanceId" :label="t('user.checkin.instanceName')" width="120" />
-        <el-table-column prop="method" :label="t('user.checkin.method')" width="120">
+      <el-table
+        v-loading="loadingRecords"
+        :data="records"
+        stripe
+      >
+        <el-table-column
+          prop="instanceId"
+          :label="t('user.checkin.instanceName')"
+          width="120"
+        />
+        <el-table-column
+          prop="method"
+          :label="t('user.checkin.method')"
+          width="120"
+        >
           <template #default="{ row }">
-            <el-tag size="small">{{ row.method }}</el-tag>
+            <el-tag size="small">
+              {{ row.method }}
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="renewalDays" :label="t('user.checkin.renewalDays')" width="100" />
-        <el-table-column :label="t('user.checkin.oldExpireAt')" width="180">
-          <template #default="{ row }">{{ formatDate(row.oldExpireAt) }}</template>
+        <el-table-column
+          prop="renewalDays"
+          :label="t('user.checkin.renewalDays')"
+          width="100"
+        />
+        <el-table-column
+          :label="t('user.checkin.oldExpireAt')"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.oldExpireAt) }}
+          </template>
         </el-table-column>
-        <el-table-column :label="t('user.checkin.newExpireAt')" width="180">
-          <template #default="{ row }">{{ formatDate(row.newExpireAt) }}</template>
+        <el-table-column
+          :label="t('user.checkin.newExpireAt')"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.newExpireAt) }}
+          </template>
         </el-table-column>
-        <el-table-column :label="t('user.checkin.checkinTime')" width="180">
-          <template #default="{ row }">{{ formatDate(row.createdAt) }}</template>
+        <el-table-column
+          :label="t('user.checkin.checkinTime')"
+          width="180"
+        >
+          <template #default="{ row }">
+            {{ formatDate(row.createdAt) }}
+          </template>
         </el-table-column>
       </el-table>
       <el-pagination

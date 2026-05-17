@@ -4,14 +4,20 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('admin.redemptionCodes.title') }}</span>
-          <el-button type="primary" @click="openCreateDialog">
+          <el-button
+            type="primary"
+            @click="openCreateDialog"
+          >
             {{ t('admin.redemptionCodes.batchCreate') }}
           </el-button>
         </div>
       </template>
 
       <!-- 过滤栏 -->
-      <el-row :gutter="12" class="filter-bar">
+      <el-row
+        :gutter="12"
+        class="filter-bar"
+      >
         <el-col :span="6">
           <el-input
             v-model="filterCode"
@@ -27,12 +33,30 @@
             clearable
             @change="handleFilterChange"
           >
-            <el-option value="" :label="t('admin.redemptionCodes.allStatus')" />
-            <el-option value="pending_create" :label="t('admin.redemptionCodes.statusPendingCreate')" />
-            <el-option value="creating" :label="t('admin.redemptionCodes.statusCreating')" />
-            <el-option value="pending_use" :label="t('admin.redemptionCodes.statusPendingUse')" />
-            <el-option value="used" :label="t('admin.redemptionCodes.statusUsed')" />
-            <el-option value="deleting" :label="t('admin.redemptionCodes.statusDeleting')" />
+            <el-option
+              value=""
+              :label="t('admin.redemptionCodes.allStatus')"
+            />
+            <el-option
+              value="pending_create"
+              :label="t('admin.redemptionCodes.statusPendingCreate')"
+            />
+            <el-option
+              value="creating"
+              :label="t('admin.redemptionCodes.statusCreating')"
+            />
+            <el-option
+              value="pending_use"
+              :label="t('admin.redemptionCodes.statusPendingUse')"
+            />
+            <el-option
+              value="used"
+              :label="t('admin.redemptionCodes.statusUsed')"
+            />
+            <el-option
+              value="deleting"
+              :label="t('admin.redemptionCodes.statusDeleting')"
+            />
           </el-select>
         </el-col>
         <el-col :span="5">
@@ -42,7 +66,10 @@
             clearable
             @change="handleFilterChange"
           >
-            <el-option value="" :label="t('admin.redemptionCodes.allProviders')" />
+            <el-option
+              value=""
+              :label="t('admin.redemptionCodes.allProviders')"
+            />
             <el-option
               v-for="p in allProviders"
               :key="p.id"
@@ -54,12 +81,23 @@
       </el-row>
 
       <!-- 批量操作栏 -->
-      <div v-if="selectedRows.length > 0" class="batch-actions">
+      <div
+        v-if="selectedRows.length > 0"
+        class="batch-actions"
+      >
         <span style="margin-right: 12px">{{ selectedRows.length }} {{ t('common.selected') }}&nbsp;</span>
-        <el-button type="primary" size="small" @click="handleExport">
+        <el-button
+          type="primary"
+          size="small"
+          @click="handleExport"
+        >
           {{ t('admin.redemptionCodes.export') }}
         </el-button>
-        <el-button type="danger" size="small" @click="handleBatchDelete">
+        <el-button
+          type="danger"
+          size="small"
+          @click="handleBatchDelete"
+        >
           {{ t('admin.redemptionCodes.batchDelete') }}
         </el-button>
       </div>
@@ -70,22 +108,45 @@
         :data="tableData"
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="50" />
-        <el-table-column prop="code" :label="t('admin.redemptionCodes.colCode')" min-width="160" />
-        <el-table-column :label="t('admin.redemptionCodes.colStatus')" width="110">
+        <el-table-column
+          type="selection"
+          width="50"
+        />
+        <el-table-column
+          prop="code"
+          :label="t('admin.redemptionCodes.colCode')"
+          min-width="160"
+        />
+        <el-table-column
+          :label="t('admin.redemptionCodes.colStatus')"
+          width="110"
+        >
           <template #default="scope">
-            <el-tag :type="statusTagType(scope.row.status)" size="small">
+            <el-tag
+              :type="statusTagType(scope.row.status)"
+              size="small"
+            >
               {{ statusLabel(scope.row.status) }}
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column prop="providerName" :label="t('admin.redemptionCodes.colProvider')" width="120" />
-        <el-table-column :label="t('admin.redemptionCodes.colInstanceType')" width="100">
+        <el-table-column
+          prop="providerName"
+          :label="t('admin.redemptionCodes.colProvider')"
+          width="120"
+        />
+        <el-table-column
+          :label="t('admin.redemptionCodes.colInstanceType')"
+          width="100"
+        >
           <template #default="scope">
             {{ scope.row.instanceType === 'container' ? t('admin.redemptionCodes.container') : t('admin.redemptionCodes.vm') }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.redemptionCodes.colCreationMode')" width="110">
+        <el-table-column
+          :label="t('admin.redemptionCodes.colCreationMode')"
+          width="110"
+        >
           <template #default="scope">
             <el-tag
               v-if="scope.row.creationMode === 'copy'"
@@ -103,7 +164,10 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.redemptionCodes.colSpecs')" min-width="200">
+        <el-table-column
+          :label="t('admin.redemptionCodes.colSpecs')"
+          min-width="200"
+        >
           <template #default="scope">
             <span v-if="scope.row.cpuName || scope.row.memoryName">
               CPU: {{ scope.row.cpuName || scope.row.cpuId }} / {{ t('admin.redemptionCodes.memory') }}: {{ scope.row.memoryName || scope.row.memoryId }}
@@ -112,23 +176,41 @@
             </span>
           </template>
         </el-table-column>
-        <el-table-column prop="createdByUser" :label="t('admin.redemptionCodes.colCreatedBy')" width="110" />
-        <el-table-column prop="instanceName" :label="t('admin.redemptionCodes.colInstanceName')" min-width="120">
+        <el-table-column
+          prop="createdByUser"
+          :label="t('admin.redemptionCodes.colCreatedBy')"
+          width="110"
+        />
+        <el-table-column
+          prop="instanceName"
+          :label="t('admin.redemptionCodes.colInstanceName')"
+          min-width="120"
+        >
           <template #default="scope">
             {{ scope.row.instanceName || '-' }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.redemptionCodes.colCreatedAt')" width="160">
+        <el-table-column
+          :label="t('admin.redemptionCodes.colCreatedAt')"
+          width="160"
+        >
           <template #default="scope">
             {{ scope.row.createdAt ? new Date(scope.row.createdAt).toLocaleString() : '' }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.redemptionCodes.colRedeemedAt')" width="160">
+        <el-table-column
+          :label="t('admin.redemptionCodes.colRedeemedAt')"
+          width="160"
+        >
           <template #default="scope">
             {{ scope.row.redeemedAt ? new Date(scope.row.redeemedAt).toLocaleString() : '-' }}
           </template>
         </el-table-column>
-        <el-table-column prop="remark" :label="t('admin.redemptionCodes.colRemark')" min-width="120" />
+        <el-table-column
+          prop="remark"
+          :label="t('admin.redemptionCodes.colRemark')"
+          min-width="120"
+        />
       </el-table>
 
       <!-- 分页 -->
@@ -158,7 +240,10 @@
         :rules="createRules"
         label-width="110px"
       >
-        <el-form-item :label="t('admin.redemptionCodes.colProvider')" prop="providerId">
+        <el-form-item
+          :label="t('admin.redemptionCodes.colProvider')"
+          prop="providerId"
+        >
           <el-select
             v-model="createForm.providerId"
             :placeholder="t('admin.redemptionCodes.providerPlaceholder')"
@@ -179,8 +264,12 @@
           :label="t('admin.redemptionCodes.creationMode')"
         >
           <el-radio-group v-model="createForm.creationMode">
-            <el-radio value="standard">{{ t('admin.redemptionCodes.modeStandard') }}</el-radio>
-            <el-radio value="copy">{{ t('admin.redemptionCodes.modeCopy') }}</el-radio>
+            <el-radio value="standard">
+              {{ t('admin.redemptionCodes.modeStandard') }}
+            </el-radio>
+            <el-radio value="copy">
+              {{ t('admin.redemptionCodes.modeCopy') }}
+            </el-radio>
           </el-radio-group>
           <div style="font-size: 12px; color: #909399; margin-top: 4px;">
             {{ t('admin.redemptionCodes.copyModeTip') }}
@@ -212,11 +301,20 @@
               :value="c.name"
               :label="c.label"
             >
-              <div class="source-container-option" :title="c.label">{{ c.label }}</div>
+              <div
+                class="source-container-option"
+                :title="c.label"
+              >
+                {{ c.label }}
+              </div>
             </el-option>
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.colInstanceType')" prop="instanceType" v-if="createForm.creationMode !== 'copy'">
+        <el-form-item
+          v-if="createForm.creationMode !== 'copy'"
+          :label="t('admin.redemptionCodes.colInstanceType')"
+          prop="instanceType"
+        >
           <el-select
             v-model="createForm.instanceType"
             :placeholder="t('admin.redemptionCodes.instanceTypePlaceholder')"
@@ -236,7 +334,11 @@
             />
           </el-select>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.colSpecs') + ' - ' + t('admin.redemptionCodes.image')" prop="imageId" v-if="createForm.creationMode !== 'copy'">
+        <el-form-item
+          v-if="createForm.creationMode !== 'copy'"
+          :label="t('admin.redemptionCodes.colSpecs') + ' - ' + t('admin.redemptionCodes.image')"
+          prop="imageId"
+        >
           <el-select
             v-model="createForm.imageId"
             :placeholder="t('admin.redemptionCodes.imagePlaceholder')"
@@ -251,9 +353,15 @@
             />
           </el-select>
         </el-form-item>
-        <el-row :gutter="12" v-if="createForm.creationMode !== 'copy'">
+        <el-row
+          v-if="createForm.creationMode !== 'copy'"
+          :gutter="12"
+        >
           <el-col :span="12">
-            <el-form-item label="CPU" prop="cpuId">
+            <el-form-item
+              label="CPU"
+              prop="cpuId"
+            >
               <el-select
                 v-model="createForm.cpuId"
                 :placeholder="t('admin.redemptionCodes.cpuPlaceholder')"
@@ -270,7 +378,10 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.memory')" prop="memoryId">
+            <el-form-item
+              :label="t('admin.redemptionCodes.memory')"
+              prop="memoryId"
+            >
               <el-select
                 v-model="createForm.memoryId"
                 :placeholder="t('admin.redemptionCodes.memoryPlaceholder')"
@@ -287,9 +398,15 @@
             </el-form-item>
           </el-col>
         </el-row>
-        <el-row :gutter="12" v-if="createForm.creationMode !== 'copy'">
+        <el-row
+          v-if="createForm.creationMode !== 'copy'"
+          :gutter="12"
+        >
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.disk')" prop="diskId">
+            <el-form-item
+              :label="t('admin.redemptionCodes.disk')"
+              prop="diskId"
+            >
               <el-select
                 v-model="createForm.diskId"
                 :placeholder="t('admin.redemptionCodes.diskPlaceholder')"
@@ -306,7 +423,10 @@
             </el-form-item>
           </el-col>
           <el-col :span="12">
-            <el-form-item :label="t('admin.redemptionCodes.bandwidth')" prop="bandwidthId">
+            <el-form-item
+              :label="t('admin.redemptionCodes.bandwidth')"
+              prop="bandwidthId"
+            >
               <el-select
                 v-model="createForm.bandwidthId"
                 :placeholder="t('admin.redemptionCodes.bandwidthPlaceholder')"
@@ -335,7 +455,10 @@
             >
               {{ t('admin.redemptionCodes.gpuEnabled') }}
             </el-checkbox>
-            <div v-if="createForm.gpuEnabled" class="gpu-config-panel">
+            <div
+              v-if="createForm.gpuEnabled"
+              class="gpu-config-panel"
+            >
               <div class="gpu-actions-row">
                 <span class="gpu-actions-label">{{ t('admin.redemptionCodes.gpuDeviceIds') }}:</span>
                 <el-button
@@ -347,7 +470,10 @@
                 </el-button>
               </div>
               <!-- 检测结果列表 -->
-              <div v-if="detectedGpus.length > 0" class="gpu-options-wrap">
+              <div
+                v-if="detectedGpus.length > 0"
+                class="gpu-options-wrap"
+              >
                 <el-checkbox-group
                   v-model="selectedGpuIndices"
                   class="gpu-options"
@@ -363,8 +489,20 @@
                   </el-checkbox>
                 </el-checkbox-group>
                 <div class="gpu-batch-actions">
-                  <el-button size="small" text @click="selectAllGpus">{{ t('admin.redemptionCodes.gpuSelectAll') }}</el-button>
-                  <el-button size="small" text @click="deselectAllGpus">{{ t('admin.redemptionCodes.gpuDeselectAll') }}</el-button>
+                  <el-button
+                    size="small"
+                    text
+                    @click="selectAllGpus"
+                  >
+                    {{ t('admin.redemptionCodes.gpuSelectAll') }}
+                  </el-button>
+                  <el-button
+                    size="small"
+                    text
+                    @click="deselectAllGpus"
+                  >
+                    {{ t('admin.redemptionCodes.gpuDeselectAll') }}
+                  </el-button>
                 </div>
               </div>
               <div
@@ -376,7 +514,10 @@
             </div>
           </div>
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.countLabel')" prop="count">
+        <el-form-item
+          :label="t('admin.redemptionCodes.countLabel')"
+          prop="count"
+        >
           <el-input-number
             v-model="createForm.count"
             :min="1"
@@ -385,7 +526,10 @@
             style="width: 140px"
           />
         </el-form-item>
-        <el-form-item :label="t('admin.redemptionCodes.remarkLabel')" prop="remark">
+        <el-form-item
+          :label="t('admin.redemptionCodes.remarkLabel')"
+          prop="remark"
+        >
           <el-input
             v-model="createForm.remark"
             type="textarea"
@@ -397,7 +541,11 @@
       <template #footer>
         <span class="dialog-footer">
           <el-button @click="cancelCreate">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" :loading="createLoading" @click="submitCreate">
+          <el-button
+            type="primary"
+            :loading="createLoading"
+            @click="submitCreate"
+          >
             {{ t('common.create') }}
           </el-button>
         </span>
@@ -412,20 +560,42 @@
     >
       <!-- 步骤1：选择导出字段 -->
       <div v-if="!exportResult">
-        <p style="margin-bottom: 12px; font-weight: 600;">{{ t('admin.redemptionCodes.selectExportFields') }}</p>
-        <el-checkbox-group v-model="exportFields" style="margin-bottom: 16px;">
-          <el-checkbox v-for="field in allExportFields" :key="field.value" :value="field.value" style="margin-bottom: 6px; width: 180px;">
+        <p style="margin-bottom: 12px; font-weight: 600;">
+          {{ t('admin.redemptionCodes.selectExportFields') }}
+        </p>
+        <el-checkbox-group
+          v-model="exportFields"
+          style="margin-bottom: 16px;"
+        >
+          <el-checkbox
+            v-for="field in allExportFields"
+            :key="field.value"
+            :value="field.value"
+            style="margin-bottom: 6px; width: 180px;"
+          >
             {{ field.label }}
           </el-checkbox>
         </el-checkbox-group>
         <div style="margin-bottom: 12px;">
-          <el-button size="small" @click="exportFields = allExportFields.map(f => f.value)">{{ t('admin.redemptionCodes.selectAll') }}</el-button>
-          <el-button size="small" @click="exportFields = []">{{ t('admin.redemptionCodes.deselectAll') }}</el-button>
+          <el-button
+            size="small"
+            @click="exportFields = allExportFields.map(f => f.value)"
+          >
+            {{ t('admin.redemptionCodes.selectAll') }}
+          </el-button>
+          <el-button
+            size="small"
+            @click="exportFields = []"
+          >
+            {{ t('admin.redemptionCodes.deselectAll') }}
+          </el-button>
         </div>
       </div>
       <!-- 步骤2：显示导出结果 -->
       <div v-else>
-        <p style="margin-bottom: 8px">{{ t('admin.redemptionCodes.exportedCodes') }}</p>
+        <p style="margin-bottom: 8px">
+          {{ t('admin.redemptionCodes.exportedCodes') }}
+        </p>
         <el-input
           v-model="exportedCodesText"
           type="textarea"
@@ -434,16 +604,30 @@
         />
       </div>
       <template #footer>
-        <span class="dialog-footer" v-if="!exportResult">
+        <span
+          v-if="!exportResult"
+          class="dialog-footer"
+        >
           <el-button @click="showExportDialog = false">{{ t('common.cancel') }}</el-button>
-          <el-button type="primary" :loading="exportLoading" :disabled="exportFields.length === 0" @click="doExport">
+          <el-button
+            type="primary"
+            :loading="exportLoading"
+            :disabled="exportFields.length === 0"
+            @click="doExport"
+          >
             {{ t('admin.redemptionCodes.export') }}
           </el-button>
         </span>
-        <span class="dialog-footer" v-else>
+        <span
+          v-else
+          class="dialog-footer"
+        >
           <el-button @click="resetExportDialog">{{ t('common.back') }}</el-button>
           <el-button @click="showExportDialog = false; exportResult = null">{{ t('common.close') }}</el-button>
-          <el-button type="primary" @click="copyExportedCodes">
+          <el-button
+            type="primary"
+            @click="copyExportedCodes"
+          >
             {{ t('admin.redemptionCodes.copyAll') }}
           </el-button>
         </span>

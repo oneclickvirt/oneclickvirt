@@ -10,7 +10,8 @@
       />
     </div>
     
-    <div class="right-menu">      <!-- 主题切换按鈕 -->
+    <div class="right-menu">
+      <!-- 主题切换按鈕 -->
       <div class="theme-switcher">
         <el-button
           :title="themeStore.isDark ? t('navbar.lightMode') : t('navbar.darkMode')"
