@@ -180,6 +180,14 @@ export function getProviderCapabilities(providerId) {
   })
 }
 
+// 获取节点缓存的GPU/NPU设备列表（供用户申请时选择）
+export function getProviderGPUs(providerId) {
+  return request({
+    url: `/v1/user/providers/${providerId}/gpus`,
+    method: 'get'
+  })
+}
+
 // 获取实例配置选项（包含预定义的规格配置）
 export function getInstanceConfig(providerId) {
   const params = {}

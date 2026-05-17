@@ -1,9 +1,12 @@
 package user
 
 import (
+	"encoding/json"
 	"strconv"
 
+	"oneclickvirt/global"
 	"oneclickvirt/model/common"
+	providerModel "oneclickvirt/model/provider"
 	"oneclickvirt/model/user"
 	userService "oneclickvirt/service/user"
 
@@ -164,4 +167,74 @@ func GetProviderCapabilities(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, capabilities)
+}
+
+// GetProviderGPUs 获取Provider缓存的GPU/NPU检测结果
+// @Summary 获取Provider GPU/NPU设备列表
+// @Description 获取指定Provider最后一次GPU检测的缓存结果（持久化存储），供用户申请时选择GPU设备
+// @Tags 用户管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param id path uint true "Provider ID"
+// @Success 200 {object} common.Response{data=[]object} "GPU列表"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 401 {object} common.Response "用户未登录"
+// @Failure 404 {object} common.Response "Provider不存在或无缓存数据"
+// @Router /user/provider/{id}/gpus [get]
+func GetProviderGPUs(c *gin.Context) {
+	providerID := c.Param("id")
+	if providerID == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "providerId参数必填"))
+		return
+	}
+
+	id, err := strconv.ParseUint(providerID, 10, 32)
+	if err != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "providerId参数格式错误"))
+		return
+	}
+
+	var provider providerModel.Provider
+	if err := global.APP_DB.Select("id, type, gpu_enabled, gpu_info").
+		Where("id = ? AND (type = ? OR type = ?)", uint(id), "lxd", "incus").
+		First(&provider).Error; err != nil {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"gpus": []interface{}{},
+			"info": "Provider 不存在或非 lxd/incus 类型，不支持GPU直通",
+		})
+		return
+	}
+
+	if provider.GpuInfo == "" {
+		common.ResponseSuccess(c, map[string]interface{}{
+			"gpus": []interface{}{},
+			"info": "该节点尚未执行GPU检测，请联系管理员进行GPU检测",
+		})
+		return
+	}
+
+	var gpus []map[string]interface{}
+	if err := json.Unmarshal([]byte(provider.GpuInfo), &gpus); err != nil {
+		// 兼容旧格式（字符串列表）
+		var oldFormat []string
+		if err2 := json.Unmarshal([]byte(provider.GpuInfo), &oldFormat); err2 == nil {
+			for i, name := range oldFormat {
+				gpus = append(gpus, map[string]interface{}{
+					"index": i,
+					"name":  name,
+				})
+			}
+		} else {
+			common.ResponseSuccess(c, map[string]interface{}{
+				"gpus": []interface{}{},
+				"info": "GPU缓存数据格式异常，请联系管理员重新检测",
+			})
+			return
+		}
+	}
+
+	common.ResponseSuccess(c, map[string]interface{}{
+		"gpus": gpus,
+	})
 }

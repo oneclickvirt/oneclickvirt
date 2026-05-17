@@ -307,7 +307,13 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 // StartNoiseLoop periodically sends random-length noise frames (type "nop")
 // to break DPI traffic-analysis signatures (message-size distribution,
 // bidirectional symmetry, always-on silence patterns).
-// Noise interval: 5-25s random, payload: 0-512 random bytes.
+// Noise interval: 5-25s random, payload: 0-512 random bytes hex-encoded.
+//
+// IMPORTANT: The payload must be a valid JSON value so that the Rust agent's
+// serde_json parser does not choke on the frame.  Raw bytes cannot be embedded
+// directly via json.RawMessage because MarshalJSON returns them verbatim
+// (no escaping), producing invalid JSON.  We hex-encode noise bytes into a
+// {"h":"<hex>"} wrapper, matching the agent's own noise frame format.
 func (a *AgentConn) StartNoiseLoop() {
 	go func() {
 		for {
@@ -325,14 +331,27 @@ func (a *AgentConn) StartNoiseLoop() {
 			}
 
 			noiseLen := rand.Intn(513) // 0-512 random bytes
-			noise := make([]byte, noiseLen)
+			var payload json.RawMessage
 			if noiseLen > 0 {
+				noise := make([]byte, noiseLen)
 				rand.Read(noise)
+				// Encode as hex string inside a JSON object, matching the
+				// Rust agent's nop frame format: {"h":"<hex>"}.
+				hexStr := fmt.Sprintf("%x", noise)
+				payload, _ = json.Marshal(map[string]string{"h": hexStr})
 			}
-			msg, _ := json.Marshal(wsMessage{
+			// When noiseLen == 0, payload stays nil and is omitted via
+			// omitempty, producing the valid frame {"type":"nop"}.
+			msg, err := json.Marshal(wsMessage{
 				Type:    msgTypeNoise,
-				Payload: noise,
+				Payload: payload,
 			})
+			if err != nil || len(msg) == 0 {
+				// Should never happen, but if it does, skip this cycle
+				// instead of sending an empty frame that triggers
+				// "EOF while parsing a value" on the agent.
+				continue
+			}
 			// Best-effort, ignore errors (connection may be closing)
 			_ = a.writeTextMessage(msg, 3*time.Second)
 		}

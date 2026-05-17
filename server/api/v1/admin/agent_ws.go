@@ -5,6 +5,7 @@ package admin
 // 鉴权通过后，连接交由 AgentHub 管理。
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -71,6 +72,16 @@ func AgentWebSocket(c *gin.Context) {
 			zap.Uint("providerID", providerID),
 			zap.Error(err))
 		return
+	}
+
+	// Enable TCP keepalive on the underlying connection so that
+	// intermediate NAT gateways / firewalls don't silently drop the
+	// WebSocket after long idle periods.  Application-level pings
+	// (~30 s) + noise (~5-25 s) already keep the link busy, but TCP
+	// keepalive adds defense-in-depth at the transport layer.
+	if tcpConn, ok := conn.UnderlyingConn().(*net.TCPConn); ok {
+		_ = tcpConn.SetKeepAlive(true)
+		_ = tcpConn.SetKeepAlivePeriod(60 * time.Second)
 	}
 
 	hub := agentSvc.GetHub()

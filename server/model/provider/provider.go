@@ -288,6 +288,7 @@ type Provider struct {
 	// GPU直通配置（仅适用于 LXD 和 Incus 节点）
 	GpuEnabled   bool   `json:"gpuEnabled" gorm:"default:false"` // 是否启用GPU直通（创建实例时自动附加GPU设备）
 	GpuDeviceIds string `json:"gpuDeviceIds" gorm:"size:256"`    // GPU设备ID列表（逗号分隔的PCI ID，如"0,1"），为空则附加所有GPU
+	GpuInfo      string `json:"gpuInfo" gorm:"type:json"`        // 缓存GPU/NPU检测结果（JSON数组），供前端展示选择，免去每次检测
 
 	// 内网穿透连接模式（ConnectionType = "agent" 时节点通过 Rust Agent 主动连回控制端）
 	ConnectionType   string     `json:"connectionType" gorm:"default:ssh;size:16"`  // 连接方式：ssh（控制端主动SSH）/ agent（Agent反向连接）

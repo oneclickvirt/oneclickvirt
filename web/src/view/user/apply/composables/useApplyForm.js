@@ -1,5 +1,5 @@
 // apply/index.vue - 申请表单状态、规格数据与提交逻辑
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -8,7 +8,8 @@ import {
   getFilteredImages,
   getInstanceConfig,
   createInstance,
-  redeemCode
+  redeemCode,
+  getProviderGPUs
 } from '@/api/user'
 
 /**
@@ -73,6 +74,12 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     diskId: [{ required: true, message: t('user.apply.pleaseSelectDiskSpec'), trigger: 'change' }],
     bandwidthId: [{ required: true, message: t('user.apply.pleaseSelectBandwidthSpec'), trigger: 'change' }]
   }))
+
+  // ── GPU state (cached from backend, populated on provider selection) ──
+  const gpuLoading = ref(false)
+  const detectedGpus = ref([])       // [{index, name, vendor, id, ...}]
+  const selectedGpuIndices = ref([]) // indices of selected GPUs
+  const gpuInfoMsg = ref('')         // informational message (e.g. "not yet detected")
 
   // ── Formatters ────────────────────────────────────
 
@@ -254,6 +261,12 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
 
   // ── Submission ─────────────────────────────────
 
+  // Build gpuDeviceIds string from selected GPU indices
+  const buildGpuDeviceIds = () => {
+    if (!configForm.gpuEnabled || selectedGpuIndices.value.length === 0) return ''
+    return selectedGpuIndices.value.join(',')
+  }
+
   const submitApplication = async () => {
     if (submitting.value) {
       ElMessage.warning(t('user.apply.submitInProgress'))
@@ -319,7 +332,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
         bandwidthId: configForm.bandwidthId,
         description: configForm.description,
         gpuEnabled: configForm.gpuEnabled || false,
-        gpuDeviceIds: configForm.gpuDeviceIds || ''
+        gpuDeviceIds: buildGpuDeviceIds()
       })
 
       if (response.code === 200) {
@@ -382,7 +395,47 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       gpuEnabled: false,
       gpuDeviceIds: ''
     })
+    selectedGpuIndices.value = []
     if (selectedProvider.value) await loadFilteredImages()
+  }
+
+  // ── GPU loading (cached results from backend) ──
+
+  const loadProviderGPUs = async (providerId) => {
+    if (!providerId) {
+      detectedGpus.value = []
+      gpuInfoMsg.value = ''
+      return
+    }
+    gpuLoading.value = true
+    gpuInfoMsg.value = ''
+    try {
+      const res = await getProviderGPUs(providerId)
+      if (res.code === 200 && res.data) {
+        const gpus = res.data.gpus || []
+        detectedGpus.value = gpus.map((g, idx) => ({
+          ...g,
+          index: g.index !== undefined ? g.index : idx,
+          label: g.name || g.vendor || `GPU ${g.index !== undefined ? g.index : idx}`
+        }))
+        if (gpus.length === 0 && res.data.info) {
+          gpuInfoMsg.value = res.data.info
+        }
+      }
+    } catch (e) {
+      console.error('获取GPU列表失败:', e)
+      detectedGpus.value = []
+    } finally {
+      gpuLoading.value = false
+    }
+  }
+
+  // Auto-load GPU info when provider changes
+  const selectAllGpus = () => {
+    selectedGpuIndices.value = detectedGpus.value.map((_, i) => i)
+  }
+  const deselectAllGpus = () => {
+    selectedGpuIndices.value = []
   }
 
   return {
@@ -410,6 +463,14 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     onInstanceTypeChange,
     submitApplication,
     submitRedemption,
-    resetForm
+    resetForm,
+    // GPU
+    gpuLoading,
+    detectedGpus,
+    selectedGpuIndices,
+    gpuInfoMsg,
+    loadProviderGPUs,
+    selectAllGpus,
+    deselectAllGpus
   }
 }

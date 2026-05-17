@@ -565,12 +565,13 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	// 检查缓存：GPU 检测结果 5 分钟内有效，避免重复执行耗时命令导致槽位耗尽
+	// 检查缓存：优先内存缓存（5分钟TTL），其次持久化DB缓存
 	forceRefresh := c.DefaultQuery("forceRefresh", "false") == "true"
 	if !forceRefresh {
+		// 1. 内存缓存（5分钟TTL）
 		if cached, ok := gpuDetectionCache.Load(uint(id)); ok {
 			if entry, ok2 := cached.(gpuCacheEntry); ok2 && time.Since(entry.cachedAt) < 5*time.Minute {
-				global.APP_LOG.Debug("GPU检测：命中缓存",
+				global.APP_LOG.Debug("GPU检测：命中内存缓存",
 					zap.Uint("providerID", uint(id)),
 					zap.Duration("age", time.Since(entry.cachedAt)))
 				common.ResponseSuccess(c, map[string]interface{}{
@@ -580,6 +581,24 @@ func DetectGPUs(c *gin.Context) {
 					"rawInfo":      entry.rawInfo,
 					"cached":       true,
 				}, "GPU/NPU检测完成（缓存）")
+				return
+			}
+		}
+		// 2. 持久化DB缓存（跨重启有效）
+		if p.GpuInfo != "" {
+			var cachedGpus []map[string]interface{}
+			if json.Unmarshal([]byte(p.GpuInfo), &cachedGpus) == nil && len(cachedGpus) > 0 {
+				global.APP_LOG.Debug("GPU检测：命中DB持久化缓存",
+					zap.Uint("providerID", uint(id)))
+				// 重建为完整格式
+				gpus, npus := splitGPUsNPUs(cachedGpus)
+				common.ResponseSuccess(c, map[string]interface{}{
+					"gpus":         gpus,
+					"npus":         npus,
+					"accelerators": cachedGpus,
+					"rawInfo":      "",
+					"cached":       true,
+				}, "GPU/NPU检测完成（持久化缓存）")
 				return
 			}
 		}
@@ -611,7 +630,7 @@ func DetectGPUs(c *gin.Context) {
 		}
 	}
 
-	// 写入缓存
+	// 写入内存缓存
 	gpuDetectionCache.Store(uint(id), gpuCacheEntry{
 		gpus:         gpus,
 		npus:         npus,
@@ -619,6 +638,12 @@ func DetectGPUs(c *gin.Context) {
 		rawInfo:      strings.TrimSpace(rawInfo),
 		cachedAt:     time.Now(),
 	})
+
+	// 持久化到 Provider 表，供用户端免检测直接展示 GPU 选项
+	gpuInfoBytes, _ := json.Marshal(gpus)
+	global.APP_DB.Model(&providerModel.Provider{}).
+		Where("id = ?", uint(id)).
+		Update("gpu_info", string(gpuInfoBytes))
 
 	common.ResponseSuccess(c, map[string]interface{}{
 		"gpus":         gpus,
@@ -740,6 +765,21 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 	})
 
 	return devices, strings.Join(rawSections, "\n\n"), nil
+}
+
+// splitGPUsNPUs 从缓存的设备列表中分离 GPU 和 NPU
+func splitGPUsNPUs(devices []map[string]interface{}) ([]map[string]interface{}, []map[string]interface{}) {
+	gpus := make([]map[string]interface{}, 0)
+	npus := make([]map[string]interface{}, 0)
+	for _, d := range devices {
+		kind, _ := d["kind"].(string)
+		if strings.EqualFold(strings.TrimSpace(kind), "npu") {
+			npus = append(npus, d)
+		} else {
+			gpus = append(gpus, d)
+		}
+	}
+	return gpus, npus
 }
 
 // parseLXDGPUInfo 解析 lxc/incus info --resources 中的GPU片段

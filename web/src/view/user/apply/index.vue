@@ -371,7 +371,7 @@
           </el-col>
         </el-row>
 
-        <!-- GPU 直通配置（仅 LXD/Incus 容器实例） -->
+        <!-- GPU 直通配置（仅 LXD/Incus 容器实例，使用后端缓存数据提供勾选） -->
         <el-form-item
           v-if="canConfigureGpuPassthrough"
           :label="t('user.apply.gpuPassthrough')"
@@ -379,19 +379,50 @@
           <div class="gpu-config-wrap">
             <el-checkbox
               v-model="configForm.gpuEnabled"
+              @change="onGpuEnabledChange"
             >
               {{ t('user.apply.gpuEnabled') }}
             </el-checkbox>
             <div v-if="configForm.gpuEnabled" style="margin-top: 8px;">
-              <span style="font-size: 12px; color: #909399; margin-right: 8px;">{{ t('user.apply.gpuDeviceIds') }}:</span>
-              <el-input
-                v-model="configForm.gpuDeviceIds"
-                :placeholder="t('user.apply.gpuDeviceIdsPlaceholder')"
-                style="max-width: 340px;"
-                size="small"
-              />
-              <div style="font-size: 11px; color: #c0c4cc; margin-top: 4px;">
-                {{ t('user.apply.gpuDeviceIdsHint') }}
+              <!-- Available GPUs (cached, checkbox selection) -->
+              <div v-if="detectedGpus.length > 0" class="gpu-options-wrap">
+                <el-checkbox-group
+                  v-model="selectedGpuIndices"
+                  class="gpu-options"
+                >
+                  <el-checkbox
+                    v-for="(gpu, idx) in detectedGpus"
+                    :key="idx"
+                    :value="idx"
+                    :label="idx"
+                    class="gpu-option-item"
+                  >
+                    GPU {{ idx }} — {{ gpu.label || gpu.name || '' }}
+                  </el-checkbox>
+                </el-checkbox-group>
+                <div class="gpu-batch-actions">
+                  <el-button size="small" text @click="selectAllGpus">{{ t('user.apply.gpuSelectAll') }}</el-button>
+                  <el-button size="small" text @click="deselectAllGpus">{{ t('user.apply.gpuDeselectAll') }}</el-button>
+                </div>
+                <div style="font-size: 11px; color: #909399; margin-top: 4px;">
+                  {{ t('user.apply.gpuDeviceIdsHint') }}
+                </div>
+              </div>
+              <div v-else-if="gpuInfoMsg" style="font-size: 12px; color: #909399;">
+                {{ gpuInfoMsg }}
+              </div>
+              <!-- Fallback text input if no cached GPUs -->
+              <div v-else>
+                <span style="font-size: 12px; color: #909399; margin-right: 8px;">{{ t('user.apply.gpuDeviceIds') }}:</span>
+                <el-input
+                  v-model="configForm.gpuDeviceIds"
+                  :placeholder="t('user.apply.gpuDeviceIdsPlaceholder')"
+                  style="max-width: 340px;"
+                  size="small"
+                />
+                <div style="font-size: 11px; color: #c0c4cc; margin-top: 4px;">
+                  {{ t('user.apply.gpuDeviceIdsHint') }}
+                </div>
               </div>
             </div>
           </div>
@@ -517,7 +548,10 @@ const {
   canSelectSpec, formatCpuSpecName, formatImageRequirements,
   loadUserLimits, loadInstanceConfig, loadFilteredImages,
   autoSelectFirstAvailableSpecs, onInstanceTypeChange,
-  submitApplication, submitRedemption, resetForm
+  submitApplication, submitRedemption, resetForm,
+  // GPU
+  gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
+  loadProviderGPUs, selectAllGpus, deselectAllGpus
 } = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
 
 
@@ -532,6 +566,13 @@ const canConfigureGpuPassthrough = computed(() => {
   const isContainer = configForm.type === 'container'
   return isLxdIncus && isContainer
 })
+
+// When GPU enabled checkbox is toggled, load cached GPU info if not already loaded
+const onGpuEnabledChange = (val) => {
+  if (val && detectedGpus.value.length === 0 && selectedProvider.value) {
+    loadProviderGPUs(selectedProvider.value.id)
+  }
+}
 
 const providerGroups = computed(() => {
   const groupMap = new Map()
@@ -600,6 +641,8 @@ const selectProvider = async (provider) => {
   selectedProvider.value = provider
   await loadProviderCapabilities(provider.id)
   await loadInstanceConfig(provider.id)
+  // Preload cached GPU info so the checkbox UI is ready immediately
+  loadProviderGPUs(provider.id)
   if (!canCreateInstanceType(configForm.type)) {
     const capabilities = providerCapabilities.value[provider.id]
     if (capabilities?.supportedTypes?.length > 0) {

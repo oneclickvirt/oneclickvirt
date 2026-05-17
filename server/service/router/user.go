@@ -49,6 +49,7 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/images", user.GetUserSystemImages)
 		UserGroup.GET("/user/images/filtered", user.GetFilteredSystemImages)
 		UserGroup.GET("/user/providers/:id/capabilities", user.GetProviderCapabilities)
+		UserGroup.GET("/user/providers/:id/gpus", user.GetProviderGPUs) // 获取Provider缓存的GPU/NPU设备列表
 		UserGroup.GET("/user/instance-type-permissions", user.GetInstanceTypePermissions)
 		UserGroup.GET("/user/instance-config", user.GetInstanceConfig)
 

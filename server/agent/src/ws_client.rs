@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::collections::HashMap;
+use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex, Semaphore};
@@ -266,7 +267,21 @@ where
     let info_text = serde_json::to_string(&info_frame).map_err(|e| e.to_string())?;
     ws_tx_hi.send(Message::Text(info_text.into())).await.map_err(|e| e.to_string())?;
 
-    while let Some(msg_result) = read.next().await {
+    // Read messages with a 120 s timeout so a silently-broken TCP
+    // connection (e.g. NAT gateway dropping state) doesn't cause the
+    // agent to block forever.  The controller sends application-level
+    // pings every ~30 s and noise every 5-25 s, so a 120 s gap means
+    // the connection is truly dead.
+    loop {
+        let msg_result = match tokio::time::timeout(Duration::from_secs(120), read.next()).await {
+            Ok(Some(result)) => result,
+            Ok(None) => break, // stream ended cleanly
+            Err(_elapsed) => {
+                warn!("WebSocket read timeout (120 s), connection may be dead, reconnecting");
+                return Err("read timeout".to_string());
+            }
+        };
+
         let msg = match msg_result {
             Ok(m) => m,
             Err(e) => return Err(e.to_string()),
@@ -277,6 +292,13 @@ where
                 handle_binary_frame(&data, &sessions).await;
             }
             Message::Text(text) => {
+                // Guard against empty text frames (sent by older/buggy
+                // controllers) which would produce a confusing "EOF while
+                // parsing a value at line 1 column 0" error.
+                if text.is_empty() {
+                    warn!("received empty WS text frame, skipping");
+                    continue;
+                }
                 let frame: WsFrameLocal = match serde_json::from_str(&text) {
                     Ok(f) => f,
                     Err(e) => {
