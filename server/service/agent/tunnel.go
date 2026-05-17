@@ -280,10 +280,10 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 		delete(tm.sessions, connID)
 		delete(tm.hashIndex, connHash)
 		tm.mu.Unlock()
-		// 通知 Agent 关闭隧道
+		// 通知 Agent 关闭隧道（使用短超时，避免阻塞新隧道建立）
 		closePayload, _ := json.Marshal(tunnelClosePayload{ConnID: connID})
 		closeMsg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelClose, Payload: closePayload})
-		_ = tm.ac.writeTextMessage(closeMsg, 5*time.Second)
+		_ = tm.ac.writeTextMessage(closeMsg, 2*time.Second)
 	}()
 
 	// 1. 发送 tunnel_open 给 Agent（幂等重试，使用同一个 connID）
@@ -320,7 +320,7 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 			case <-ticker.C:
 				payload, _ := json.Marshal(tunnelKeepalivePayload{ConnID: connID})
 				msg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelKeepalive, Payload: payload})
-				if err := tm.ac.writeTextMessage(msg, 5*time.Second); err != nil {
+				if err := tm.ac.writeTextMessage(msg, 2*time.Second); err != nil {
 					return
 				}
 				notifyActivity()

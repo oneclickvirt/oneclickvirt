@@ -151,16 +151,12 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 	payload, _ := json.Marshal(shellClosePayload{})
 	msg := wsMessage{Type: msgTypeShellClose, ID: sessionID, Payload: payload}
 	raw, _ := json.Marshal(msg)
-	err := a.writeTextMessage(raw, 10*time.Second)
+	// 使用较短的写超时（3秒），避免清理操作长时间阻塞新会话的建立
+	err := a.writeTextMessage(raw, 3*time.Second)
 	a.mu.Lock()
 	if session, ok := a.shellSessions[sessionID]; ok {
 		delete(a.shellSessions, sessionID)
-		select {
-		case <-session.DoneCh:
-		default:
-			close(session.DoneCh)
-		}
-		close(session.OutputCh)
+		session.safeClose()
 	}
 	a.mu.Unlock()
 	if err != nil {

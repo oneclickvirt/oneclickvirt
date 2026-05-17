@@ -210,19 +210,25 @@ const connect = () => {
       isConnecting = false
       stopHeartbeat()
       
-      if (event.code !== 1000) {
-        terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshDisconnected')}\x1b[0m`)
-        ElMessage.warning(t('user.instanceDetail.sshConnectionClosed'))
-        
-        // 如果不是主动关闭，尝试自动重连
-        if (!isIntentionallyClosed) {
-          terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshReconnecting')}\x1b[0m`)
-          reconnectTimeout = setTimeout(() => {
-            reconnect()
-          }, 3000)
+      // 1000 = Normal Closure (主动关闭)，不尝试重连
+      if (event.code === 1000 || isIntentionallyClosed) {
+        if (terminal) {
+          terminal.writeln(`\x1b[32m${t('user.instanceDetail.sshClosedNormally')}\x1b[0m`)
         }
-      } else {
-        terminal.writeln(`\x1b[32m${t('user.instanceDetail.sshClosedNormally')}\x1b[0m`)
+        return
+      }
+      
+      if (terminal) {
+        terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshDisconnected')}\x1b[0m`)
+      }
+      ElMessage.warning(t('user.instanceDetail.sshConnectionClosed'))
+      
+      // 尝试自动重连
+      if (!isIntentionallyClosed && terminal) {
+        terminal.writeln(`\x1b[33m${t('user.instanceDetail.sshReconnecting')}\x1b[0m`)
+        reconnectTimeout = setTimeout(() => {
+          reconnect()
+        }, 3000)
       }
     }
   } catch (error) {
@@ -267,28 +273,31 @@ const cleanup = () => {
   window.removeEventListener('resize', handleResize)
   
   if (websocket) {
-    websocket.close()
+    const ws = websocket
     websocket = null
+    // 使用 1000 (Normal Closure) 通知后端正常关闭
+    try { ws.close(1000, 'User closed terminal') } catch {}
   }
   
   if (terminal) {
-    terminal.dispose()
+    try { terminal.dispose() } catch {}
     terminal = null
   }
   
   if (fitAddon) {
-    fitAddon.dispose()
+    try { fitAddon.dispose() } catch {}
     fitAddon = null
   }
 }
 
 const reconnect = () => {
-  isIntentionallyClosed = false
+  if (isIntentionallyClosed) return
   stopHeartbeat()
   
   if (websocket) {
-    websocket.close()
+    const ws = websocket
     websocket = null
+    try { ws.close() } catch {}
   }
   
   // 清空终端内容并重新初始化

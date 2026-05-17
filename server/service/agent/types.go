@@ -108,6 +108,24 @@ type AgentShellSession struct {
 	ID       string
 	OutputCh chan []byte
 	DoneCh   chan struct{}
+	closed   bool // 防止重复关闭 OutputCh 导致 panic
+	closeMu  sync.Mutex
+}
+
+// safeClose 安全关闭会话通道，可多次调用不会 panic。
+func (s *AgentShellSession) safeClose() {
+	s.closeMu.Lock()
+	defer s.closeMu.Unlock()
+	if s.closed {
+		return
+	}
+	s.closed = true
+	select {
+	case <-s.DoneCh:
+	default:
+		close(s.DoneCh)
+	}
+	close(s.OutputCh)
 }
 
 // AgentConn — 代表一个已连接的 Agent WebSocket 连接

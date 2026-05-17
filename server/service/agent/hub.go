@@ -390,12 +390,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			ac.mu.Lock()
 			if session, ok := ac.shellSessions[msg.ID]; ok {
 				delete(ac.shellSessions, msg.ID)
-				select {
-				case <-session.DoneCh:
-				default:
-					close(session.DoneCh)
-				}
-				close(session.OutputCh)
+				session.safeClose()
 			}
 			ac.mu.Unlock()
 

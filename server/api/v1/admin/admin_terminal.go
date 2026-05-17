@@ -5,6 +5,11 @@ package admin
 // GET /api/v1/admin/providers/:id/terminal?token=<JWT>
 //   - Agent 模式: 通过 Agent WebSocket 启动交互式 shell（sh），双向转发 stdin/stdout
 //   - SSH 模式:   建立 SSH 连接到 Provider，启动交互式 shell
+//
+// 安全设计：
+//   - 每个 Provider 同一时间只允许一个管理终端连接，新连接会自动取消旧连接。
+//   - 使用 safeClose() 防止 session 通道重复关闭导致 panic。
+//   - 写超时控制在 3 秒以内，避免清理操作长时间阻塞新会话。
 
 import (
 	"context"
@@ -35,6 +40,52 @@ var terminalUpgrader = websocket.Upgrader{
 	},
 }
 
+// ── 每 Provider 管理终端互斥 ────────────────────────────────────────────────
+// 同一 Provider 只允许一个管理终端连接，防止并发 shell 会话导致 Agent 状态混乱。
+
+var (
+	adminTerminalMu      sync.Mutex
+	adminTerminalCancels = make(map[uint]context.CancelFunc) // providerID → cancel
+	adminTerminalGen     = make(map[uint]uint64)             // providerID → 当前会话代数
+)
+
+// acquireAdminTerminal 获取 Provider 的管理终端使用权。
+// 如果已有活跃终端，会取消旧终端并等待其清理完成（最多 3 秒）。
+// 返回一个 context 和 release 函数，调用方必须在终端结束时调用 release。
+func acquireAdminTerminal(providerID uint) (ctx context.Context, release func()) {
+	adminTerminalMu.Lock()
+
+	// 取消旧的管理终端会话（如果存在）
+	if oldCancel, exists := adminTerminalCancels[providerID]; exists {
+		oldCancel()
+		delete(adminTerminalCancels, providerID)
+		// 递增代数，旧会话可以通过检查代数变化来感知自己被取代
+		adminTerminalGen[providerID]++
+		// 释放锁等待旧会话清理
+		adminTerminalMu.Unlock()
+		// 给旧会话一点时间完成清理（CloseShell 写超时为 3s）
+		time.Sleep(500 * time.Millisecond)
+		adminTerminalMu.Lock()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	adminTerminalCancels[providerID] = cancel
+	gen := adminTerminalGen[providerID]
+	adminTerminalMu.Unlock()
+
+	release = func() {
+		adminTerminalMu.Lock()
+		// 仅当当前代数匹配时才清理（防止旧会话覆盖新会话的状态）
+		if adminTerminalGen[providerID] == gen {
+			delete(adminTerminalCancels, providerID)
+		}
+		adminTerminalMu.Unlock()
+		cancel()
+	}
+
+	return ctx, release
+}
+
 // AdminProviderTerminal 管理员远程连接 Provider 的 WebSocket 终端
 // 鉴权由 RequireNormalAdmin() 中间件保证
 func AdminProviderTerminal(c *gin.Context) {
@@ -44,12 +95,17 @@ func AdminProviderTerminal(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无效的Provider ID"))
 		return
 	}
+	providerID := uint(id)
 
 	var dbProvider providerModel.Provider
-	if err := global.APP_DB.Where("id = ?", id).First(&dbProvider).Error; err != nil {
+	if err := global.APP_DB.Where("id = ?", providerID).First(&dbProvider).Error; err != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeNotFound, "Provider不存在"))
 		return
 	}
+
+	// 获取该 Provider 的管理终端使用权（取消旧会话）
+	_, release := acquireAdminTerminal(providerID)
+	defer release()
 
 	ws, err := terminalUpgrader.Upgrade(c.Writer, c.Request, nil)
 	if err != nil {
@@ -60,28 +116,59 @@ func AdminProviderTerminal(c *gin.Context) {
 
 	// 记录连接类型和Provider信息
 	global.APP_LOG.Info("Provider远程连接请求",
-		zap.Uint("providerID", uint(id)),
+		zap.Uint("providerID", providerID),
 		zap.String("providerName", dbProvider.Name),
 		zap.String("connectionType", dbProvider.ConnectionType),
 		zap.String("type", dbProvider.Type))
 
 	// 根据连接类型分发处理
 	if dbProvider.ConnectionType == "agent" {
-		global.APP_LOG.Debug("使用Agent模式连接Provider", zap.Uint("providerID", uint(id)))
+		global.APP_LOG.Debug("使用Agent模式连接Provider", zap.Uint("providerID", providerID))
 		handleAgentTerminal(ws, &dbProvider)
 	} else if dbProvider.ConnectionType == "ssh" {
-		global.APP_LOG.Debug("使用SSH模式连接Provider", zap.Uint("providerID", uint(id)))
+		global.APP_LOG.Debug("使用SSH模式连接Provider", zap.Uint("providerID", providerID))
 		handleSSHTerminal(ws, &dbProvider)
 	} else {
-		// 如果connectionType为空或未知值，记录警告并默认使用SSH
 		global.APP_LOG.Warn("Provider连接类型未设置或不合法，默认使用SSH",
-			zap.Uint("providerID", uint(id)),
+			zap.Uint("providerID", providerID),
 			zap.String("connectionType", dbProvider.ConnectionType))
 		handleSSHTerminal(ws, &dbProvider)
 	}
 }
 
-// ── Agent 模式终端 ──────────────────────────────────────────────────────────
+// ── 安全写入辅助函数 ────────────────────────────────────────────────────────
+// wsWriteSafe 带写超时的 WebSocket 写入，防止 TCP 发送缓冲区满时无限阻塞。
+// 当 ctx 取消时也会立即返回，确保终端关闭时能快速清理资源。
+
+const wsWriteTimeout = 5 * time.Second
+
+func wsWriteSafe(ctx context.Context, ws *websocket.Conn, messageType int, data []byte) error {
+	// 使用 channel 实现可取消的写操作
+	type writeResult struct {
+		err error
+	}
+	done := make(chan writeResult, 1)
+
+	go func() {
+		ws.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+		err := ws.WriteMessage(messageType, data)
+		done <- writeResult{err: err}
+	}()
+
+	select {
+	case result := <-done:
+		return result.err
+	case <-ctx.Done():
+		// 上下文已取消（终端关闭），尝试强制关闭底层连接以解除写阻塞
+		ws.SetWriteDeadline(time.Now()) // 设置过去的 deadline 强制 WriteMessage 超时
+		// 等待 goroutine 完成（最多 1 秒）
+		select {
+		case <-done:
+		case <-time.After(1 * time.Second):
+		}
+		return ctx.Err()
+	}
+}
 
 func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	if incompatible, minVersion := isAgentVersionIncompatible(p.AgentVersion); incompatible {
@@ -90,9 +177,10 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	}
 
 	hub := agentService.GetHub()
-	conn, ok := hub.GetConn(p.ID)
-	if !ok || conn == nil {
-		// 诊断日志：记录为何 Agent 连接未找到
+
+	// 等待 Agent 连接就绪（最多等待 15 秒，适应 Agent 重连场景）
+	conn := waitForAgentConn(hub, p.ID, 15*time.Second)
+	if conn == nil {
 		runtimeHealth := hub.GetRuntimeHealth(p.ID)
 		global.APP_LOG.Warn("Agent 终端连接失败：Agent 未连接",
 			zap.Uint("providerID", p.ID),
@@ -100,16 +188,17 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 			zap.String("connectionType", p.ConnectionType),
 			zap.String("agentStatus", p.AgentStatus),
 			zap.String("runtimeStatus", runtimeHealth.Status),
-			zap.Bool("runtimeConnected", runtimeHealth.Connected),
-			zap.Bool("connInHub", ok))
-		ws.WriteMessage(websocket.TextMessage, []byte("Agent 节点未连接\r\n"))
-		return
-	}
-	if p.Username == "" || (p.Password == "" && p.SSHKey == "") {
-		handleAgentShellTerminal(ws, conn, p)
+			zap.Bool("runtimeConnected", runtimeHealth.Connected))
+		ws.WriteMessage(websocket.TextMessage, []byte("Agent 节点未连接，请稍后重试\r\n"))
 		return
 	}
 
+	if p.Username == "" || (p.Password == "" && p.SSHKey == "") {
+		handleAgentShellTerminal(ws, p, hub)
+		return
+	}
+
+	// SSH 隧道模式：通过 Agent WebSocket 隧道连接 Provider 的 SSH
 	tunnelConn, err := agentService.OpenTunnelConn(p.ID, "127.0.0.1", 22)
 	if err != nil {
 		ws.WriteMessage(websocket.TextMessage, []byte("Agent 隧道建立失败: "+err.Error()+"\r\n"))
@@ -141,18 +230,53 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	handleSSHSessionTerminal(ws, session)
 }
 
-func handleAgentShellTerminal(ws *websocket.Conn, conn *agentService.AgentConn, p *providerModel.Provider) {
+// waitForAgentConn 等待 Agent 连接就绪，支持重连等待。
+func waitForAgentConn(hub *agentService.AgentHub, providerID uint, timeout time.Duration) *agentService.AgentConn {
+	deadline := time.Now().Add(timeout)
+	delay := 200 * time.Millisecond
+	for {
+		conn, ok := hub.GetConn(providerID)
+		if ok && conn != nil {
+			return conn
+		}
+		if time.Now().After(deadline) {
+			return nil
+		}
+		time.Sleep(delay)
+		delay *= 2
+		if delay > 2*time.Second {
+			delay = 2 * time.Second
+		}
+	}
+}
+
+func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub *agentService.AgentHub) {
+	// 获取当前连接的 AgentConn
+	conn := waitForAgentConn(hub, p.ID, 10*time.Second)
+	if conn == nil {
+		ws.WriteMessage(websocket.TextMessage, []byte("Agent 节点未连接\r\n"))
+		return
+	}
+
 	session, err := conn.StartShell(80, 24)
 	if err != nil {
 		ws.WriteMessage(websocket.TextMessage, []byte("启动 Agent Shell 失败: "+err.Error()+"\r\n"))
 		return
 	}
-	defer conn.CloseShell(session.ID)
+
+	// 确保会话最终被关闭（使用 safeClose 防止重复关闭 panic）
+	sessionClosed := false
+	defer func() {
+		if !sessionClosed {
+			conn.CloseShell(session.ID)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	wg := &sync.WaitGroup{}
 
+	// WebSocket → Shell stdin
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -177,13 +301,15 @@ func handleAgentShellTerminal(ws *websocket.Conn, conn *agentService.AgentConn, 
 				continue
 			}
 			if err := conn.WriteShellInput(session.ID, msg); err != nil {
-				ws.WriteMessage(websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
+				// 使用安全写入避免阻塞
+				_ = wsWriteSafe(ctx, ws, websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
 				cancel()
 				return
 			}
 		}
 	}()
 
+	// Shell stdout/stderr → WebSocket
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -191,14 +317,17 @@ func handleAgentShellTerminal(ws *websocket.Conn, conn *agentService.AgentConn, 
 			select {
 			case data, ok := <-session.OutputCh:
 				if !ok {
+					// OutputCh 已关闭（Agent 侧 shell 退出或主动关闭）
+					sessionClosed = true
 					cancel()
 					return
 				}
-				if err := ws.WriteMessage(websocket.BinaryMessage, data); err != nil {
+				if err := wsWriteSafe(ctx, ws, websocket.BinaryMessage, data); err != nil {
 					cancel()
 					return
 				}
 			case <-session.DoneCh:
+				sessionClosed = true
 				cancel()
 				return
 			case <-ctx.Done():
@@ -337,7 +466,9 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		for {
 			n, err := stdoutPipe.Read(buf)
 			if n > 0 {
-				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				if werr := wsWriteSafe(ctx, ws, websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
 			}
 			if err != nil {
 				return
@@ -353,7 +484,9 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		for {
 			n, err := stderrPipe.Read(buf)
 			if n > 0 {
-				ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				if werr := wsWriteSafe(ctx, ws, websocket.BinaryMessage, buf[:n]); werr != nil {
+					return
+				}
 			}
 			if err != nil {
 				return

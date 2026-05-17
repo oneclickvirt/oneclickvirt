@@ -661,6 +661,7 @@
       width="92%"
       top="3vh"
       destroy-on-close
+      :close-on-click-modal="false"
       @closed="handleRemoteDialogClosed"
     >
       <div class="remote-terminal-wrapper">
@@ -668,6 +669,7 @@
           v-if="remoteRow && remoteDialogVisible"
           :provider-id="remoteRow.id"
           :provider-name="remoteRow.name"
+          :visible="remoteDialogVisible"
         />
       </div>
       <template #footer>

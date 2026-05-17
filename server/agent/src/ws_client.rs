@@ -266,6 +266,10 @@ where
     // sequences can cause the agent to become unresponsive.
     let tunnel_permits: Arc<Semaphore> = Arc::new(Semaphore::new(20));
 
+    // Limit concurrent shell sessions to 5 to prevent resource exhaustion
+    // when the controller rapidly opens/closes admin terminals.
+    let shell_permits: Arc<Semaphore> = Arc::new(Semaphore::new(5));
+
     // ── Anti-DPI noise sender ───────────────────────────────────────────
     // Periodically sends random-length noise frames ("nop" type) at
     // irregular intervals (15-55s) to break traffic-analysis signatures:
@@ -530,7 +534,15 @@ where
                         let payload = frame.payload.unwrap_or_default();
                         let ws_tx_hi_clone = ws_tx_hi.clone();
                         let shell_sessions_clone = shell_sessions.clone();
+                        let permits = shell_permits.clone();
                         tokio::spawn(async move {
+                            let _permit = match permits.try_acquire_owned() {
+                                Ok(p) => p,
+                                Err(_) => {
+                                    warn!("shell permit exhausted, dropping shell_open frame");
+                                    return;
+                                }
+                            };
                             if let Err(err) = open_shell_session(req_id, payload, ws_tx_hi_clone, shell_sessions_clone).await {
                                 warn!(error = %err, "failed to open shell session");
                             }
@@ -540,11 +552,15 @@ where
                         let req_id = frame.id.clone().unwrap_or_default();
                         if let Some(payload_val) = frame.payload {
                             if let Ok(payload) = serde_json::from_value::<ShellDataPayload>(payload_val) {
-                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
-                                    let mut stdin = handle.stdin.lock().await;
-                                    let _ = stdin.write_all(payload.data.as_bytes()).await;
-                                    let _ = stdin.flush().await;
-                                }
+                                let sessions = shell_sessions.clone();
+                                tokio::spawn(async move {
+                                    if let Some(handle) = sessions.lock().await.get(&req_id).cloned() {
+                                        let mut stdin = handle.stdin.lock().await;
+                                        // 忽略写入错误（shell 可能已关闭）
+                                        let _ = stdin.write_all(payload.data.as_bytes()).await;
+                                        let _ = stdin.flush().await;
+                                    }
+                                });
                             }
                         }
                     }
@@ -553,9 +569,16 @@ where
                     }
                     "shell_close" => {
                         let req_id = frame.id.clone().unwrap_or_default();
+                        // 先移除会话（防止 shell-wait 任务再次发送 shell_close）
                         if let Some(handle) = shell_sessions.lock().await.remove(&req_id) {
+                            // 杀死 shell 进程（不等待，fire-and-forget）
                             let mut child = handle.child.lock().await;
                             let _ = child.kill().await;
+                            // 尝试 wait 以回收僵尸进程，但不阻塞
+                            let _ = tokio::time::timeout(
+                                Duration::from_secs(2),
+                                child.wait(),
+                            ).await;
                         }
                     }
                     "nop" => {
@@ -621,22 +644,33 @@ async fn open_shell_session(
     spawn_shell_reader(stderr, session_id.clone(), ws_tx.clone());
 
     let shell_sessions_clone = shell_sessions.clone();
+    let ws_tx_clone = ws_tx.clone();
     tokio::spawn(async move {
         let status = {
-            let mut child = handle.child.lock().await;
-            child.wait().await.ok()
+            let mut child_guard = handle.child.lock().await;
+            child_guard.wait().await.ok()
         };
-        shell_sessions_clone.lock().await.remove(&session_id);
-        let reason = status
-            .and_then(|s| s.code().map(|code| format!("shell exited with code {}", code)))
-            .unwrap_or_else(|| "shell closed".to_string());
-        let close_frame = WsFrame {
-            msg_type: "shell_close".to_string(),
-            id: Some(session_id),
-            payload: Some(serde_json::json!({ "reason": reason })),
-        };
-        if let Ok(text) = serde_json::to_string(&close_frame) {
-            let _ = ws_tx.send(Message::Text(text.into())).await;
+        // 仅在会话仍存在时发送 shell_close（防止与显式 shell_close 命令竞争）
+        if shell_sessions_clone.lock().await.remove(&session_id).is_some() {
+            let reason = status
+                .and_then(|s| s.code().map(|code| format!("shell exited with code {}", code)))
+                .unwrap_or_else(|| "shell closed".to_string());
+            let close_frame = WsFrame {
+                msg_type: "shell_close".to_string(),
+                id: Some(session_id),
+                payload: Some(serde_json::json!({ "reason": reason })),
+            };
+            if let Ok(text) = serde_json::to_string(&close_frame) {
+                // 非阻塞发送，防止写路径拥塞时阻塞 shell 清理任务
+                let msg = Message::Text(text.into());
+                if ws_tx_clone.try_send(msg.clone()).is_err() {
+                    // 通道满或已关闭，尝试短超时发送
+                    let _ = tokio::time::timeout(
+                        Duration::from_secs(3),
+                        ws_tx_clone.send(msg),
+                    ).await;
+                }
+            }
         }
     });
 
@@ -661,8 +695,13 @@ where
                         })),
                     };
                     if let Ok(text) = serde_json::to_string(&frame) {
-                        if ws_tx.send(Message::Text(text.into())).await.is_err() {
-                            break;
+                        let msg = Message::Text(text.into());
+                        // 优先非阻塞发送，失败时使用短超时
+                        if ws_tx.try_send(msg.clone()).is_err() {
+                            let _ = tokio::time::timeout(
+                                Duration::from_secs(3),
+                                ws_tx.send(msg),
+                            ).await;
                         }
                     }
                 }
