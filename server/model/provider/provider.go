@@ -320,6 +320,12 @@ func (p *Provider) BeforeCreate(tx *gorm.DB) error {
 		p.ApplyTrafficStatsPreset()
 	}
 
+	// 初始化 JSON 列默认值，避免空字符串写入 MySQL JSON 列导致
+	// "Error 3140: Invalid JSON text: The document is empty."
+	if p.GpuInfo == "" {
+		p.GpuInfo = "[]"
+	}
+
 	return nil
 }
 

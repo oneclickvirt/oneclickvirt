@@ -6,7 +6,6 @@ use futures_util::{SinkExt, StreamExt};
 use rand;
 use regex;
 use serde::{Deserialize, Serialize};
-use socket2::{Domain, Protocol, Socket, Type};
 use std::io::{self};
 use std::process::Stdio;
 use std::sync::Arc;
@@ -784,26 +783,31 @@ fn try_set_keepalive_on_maybe_tls(
 #[cfg(not(unix))]
 fn set_keepalive_on_tcp(_stream: &TcpStream) {
 }
-/// Create a TCP stream with keepalive configured.
+/// Create a TCP stream with keepalive configured using tokio's async connect.
 ///
-/// TCP keepalive parameters:
+/// TCP keepalive parameters (applied after connect via socket2::SockRef):
 ///   - idle:  30 s  (send first probe after 30 s of silence)
 ///   - interval: 10 s  (wait 10 s between probes)
-///   - retries: 3     (close after 3 failed probes)
 ///
-/// Total detection time: 30 + 10*3 = 60 s worst case.
-fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<TcpStream> {
-    let domain = if addr.is_ipv4() {
-        Domain::IPV4
-    } else {
-        Domain::IPV6
-    };
-    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
-    socket.set_keepalive(true)?;
+/// Total detection time: 30 + 10*3 = 60 s worst case (with OS default retries=3).
+///
+/// IMPORTANT: We use tokio::net::TcpStream::connect() (async) instead of
+/// socket2::Socket::connect() on a non-blocking socket.  The latter returns
+/// EINPROGRESS immediately on Linux — the TCP handshake has not completed
+/// yet — which causes every connection attempt to fail.
+async fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<TcpStream> {
+    let stream = TcpStream::connect(*addr).await?;
+
+    // Configure TCP keepalive on the underlying socket via socket2::SockRef.
+    // tokio::net::TcpStream implements AsRawFd on Unix, so SockRef can
+    // operate on its fd directly.
+    use socket2::SockRef;
+    let sock_ref = SockRef::from(&stream);
+    sock_ref.set_keepalive(true)?;
 
     // Configure TCP keepalive timing.
-    // On Linux: full configuration with idle time, probe interval, and retry count.
-    // On macOS: idle time only (TCP_KEEPALIVE), interval/retries not settable via socket2.
+    // On Linux: full configuration with idle time and probe interval.
+    // On macOS: idle time only (TCP_KEEPALIVE), interval not settable via socket2.
     #[cfg(target_os = "linux")]
     {
         let ka = socket2::TcpKeepalive::new()
@@ -811,22 +815,17 @@ fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<T
             .with_interval(Duration::from_secs(10));
         // Note: socket2 0.5 does not expose TCP_KEEPCNT (retries);
         // the OS default (typically 9 on Linux) is sufficient.
-        let _ = socket.set_tcp_keepalive(&ka);
+        let _ = sock_ref.set_tcp_keepalive(&ka);
     }
     #[cfg(not(target_os = "linux"))]
     {
         // Fallback: set idle time via TcpKeepalive (interval uses OS defaults)
         let ka = socket2::TcpKeepalive::new()
             .with_time(Duration::from_secs(30));
-        let _ = socket.set_tcp_keepalive(&ka);
+        let _ = sock_ref.set_tcp_keepalive(&ka);
     }
 
-    socket.set_nonblocking(true)?;
-    socket.connect(&(*addr).into())?;
-
-    // Convert std socket → tokio TcpStream
-    let std_stream: std::net::TcpStream = socket.into();
-    TcpStream::from_std(std_stream)
+    Ok(stream)
 }
 
 /// Connect to the controller WebSocket with TCP keepalive configured
@@ -845,7 +844,7 @@ async fn connect_plain_with_keepalive(
         .parse()
         .map_err(|e| format!("invalid address: {e}"))?;
 
-    let tcp_stream = create_tcp_stream_with_keepalive(&addr)
+    let tcp_stream = create_tcp_stream_with_keepalive(&addr).await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
     let request_uri = parsed_url[url::Position::BeforePath..]
