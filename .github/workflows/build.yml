@@ -122,6 +122,28 @@ jobs:
         cp build/agents/agent-arm64/oneclickvirt-agent-linux-arm64 build/oneclickvirt-agent-linux-arm64
         chmod +x build/oneclickvirt-agent-linux-amd64 build/oneclickvirt-agent-linux-arm64
 
+    - name: Prepare controller agent assets
+      run: |
+        mkdir -p build/controller-agent web/public/controller-agent server/assets/agent
+        cp install_agent.sh build/controller-agent/install_agent.sh
+        cp install_agent.sh web/public/controller-agent/install_agent.sh
+        cp install_agent.sh server/assets/agent/install_agent.sh
+
+        tmp_amd64=$(mktemp -d)
+        cp build/oneclickvirt-agent-linux-amd64 "$tmp_amd64/oneclickvirt-agent"
+        tar -C "$tmp_amd64" -czf build/controller-agent/oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent
+        rm -rf "$tmp_amd64"
+
+        tmp_arm64=$(mktemp -d)
+        cp build/oneclickvirt-agent-linux-arm64 "$tmp_arm64/oneclickvirt-agent"
+        tar -C "$tmp_arm64" -czf build/controller-agent/oneclickvirt-agent-linux-arm64.tar.gz oneclickvirt-agent
+        rm -rf "$tmp_arm64"
+
+        cp build/controller-agent/oneclickvirt-agent-linux-amd64.tar.gz web/public/controller-agent/
+        cp build/controller-agent/oneclickvirt-agent-linux-arm64.tar.gz web/public/controller-agent/
+        cp build/controller-agent/oneclickvirt-agent-linux-amd64.tar.gz server/assets/agent/
+        cp build/controller-agent/oneclickvirt-agent-linux-arm64.tar.gz server/assets/agent/
+
     - name: Update version constants for this release
       run: |
         TAG_NAME="v${{ steps.date.outputs.date }}"
@@ -215,8 +237,8 @@ jobs:
         zip server-allinone-windows-arm64.zip server-allinone-windows-arm64.exe
         
         # Compress agent binaries
-        tar -czf oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-amd64
-        tar -czf oneclickvirt-agent-linux-arm64.tar.gz oneclickvirt-agent-linux-arm64
+        cp controller-agent/oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-amd64.tar.gz
+        cp controller-agent/oneclickvirt-agent-linux-arm64.tar.gz oneclickvirt-agent-linux-arm64.tar.gz
         
         # Remove uncompressed binaries
         rm server-linux-amd64 server-linux-arm64 server-windows-amd64.exe server-windows-arm64.exe

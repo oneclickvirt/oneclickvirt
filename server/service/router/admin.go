@@ -61,6 +61,7 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/providers/:id/status", admin.GetProviderStatus)
 		NormalAdminGroup.GET("/providers/:id/detect-gpus", admin.DetectGPUs)
 		NormalAdminGroup.GET("/providers/:id/stopped-containers", admin.GetStoppedContainers)
+		NormalAdminGroup.GET("/providers/:id/agent-secret", admin.GenerateAgentSecret)
 		NormalAdminGroup.POST("/providers/:id/agent-secret", admin.GenerateAgentSecret)
 		NormalAdminGroup.POST("/providers/:id/exec", admin.ExecOnProvider)
 		NormalAdminGroup.GET("/providers/:id/terminal", admin.AdminProviderTerminal)

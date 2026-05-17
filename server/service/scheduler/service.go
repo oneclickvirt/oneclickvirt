@@ -117,6 +117,13 @@ func (s *SchedulerService) StopScheduler() {
 	s.Stop()
 }
 
+// Shutdown lifecycle compatibility adapter.
+func (s *SchedulerService) Shutdown() {
+	if err := s.Stop(); err != nil {
+		global.APP_LOG.Warn("SchedulerService 关闭失败", zap.Error(err))
+	}
+}
+
 // runTaskScheduler 主调度循环
 func (s *SchedulerService) runTaskScheduler() {
 	defer s.wg.Done()
@@ -473,8 +480,15 @@ func (s *SchedulerService) checkAgentVersions() {
 		}
 		// 仅当 agent 版本明确低于最小兼容版本时才告警；
 		// 版本号格式不一致时跳过（如 date-based vs semver），避免误报。
-		if compareVersions(p.AgentVersion, minVersion) < 0 {
+		cmp := compareVersions(p.AgentVersion, minVersion)
+		if cmp == -1 {
 			global.APP_LOG.Warn("Agent版本过低，与主控不兼容",
+				zap.Uint("providerID", p.ID),
+				zap.String("providerName", p.Name),
+				zap.String("agentVersion", p.AgentVersion),
+				zap.String("minCompatibleVersion", minVersion))
+		} else if cmp == -2 {
+			global.APP_LOG.Debug("Agent版本与主控版本格式不可比，跳过兼容性告警",
 				zap.Uint("providerID", p.ID),
 				zap.String("providerName", p.Name),
 				zap.String("agentVersion", p.AgentVersion),

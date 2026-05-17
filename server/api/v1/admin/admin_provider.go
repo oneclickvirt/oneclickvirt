@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"oneclickvirt/constant"
 	"oneclickvirt/global"
 	"oneclickvirt/middleware"
 	"oneclickvirt/model/admin"
@@ -1139,9 +1140,6 @@ func GenerateAgentSecret(c *gin.Context) {
 	if dbProvider.AgentSecret != "" {
 		secret = dbProvider.AgentSecret
 	} else {
-		agentSvc := agentService.GetHub()
-		_ = agentSvc
-
 		secret, err = agentService.GenerateAgentSecret(uint(id))
 		if err != nil {
 			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "生成密钥失败: "+err.Error()))
@@ -1162,22 +1160,26 @@ func GenerateAgentSecret(c *gin.Context) {
 	// 构造控制端 WebSocket 地址
 	// 默认 wss（加密）。仅当直接 HTTP 无代理且无 TLS 时才降级为 ws。
 	scheme := "wss"
+	forwardedProto := normalizeForwardedProto(c.GetHeader("X-Forwarded-Proto"))
 	if c.Request.TLS == nil {
-		proto := c.GetHeader("X-Forwarded-Proto")
-		if proto == "" {
+		if forwardedProto == "" {
 			// 无反向代理且无 TLS → 回退 ws（开发/测试环境）
 			scheme = "ws"
-		} else if proto == "http" {
+		} else if forwardedProto == "http" {
 			scheme = "ws"
 		}
 	}
-	host := c.Request.Host
-	if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
+	host := strings.TrimSpace(c.Request.Host)
+	if forwardedHost := normalizeForwardedHost(c.GetHeader("X-Forwarded-Host")); forwardedHost != "" {
 		host = forwardedHost
+	}
+	if host == "" {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "无法解析控制端主机地址"))
+		return
 	}
 	// nginx $host 不含端口，需从 X-Forwarded-Port 或 server config 补充端口
 	if !strings.Contains(host, ":") {
-		port := c.GetHeader("X-Forwarded-Port")
+		port := normalizeForwardedPort(c.GetHeader("X-Forwarded-Port"))
 		if port == "" {
 			port = fmt.Sprintf("%d", global.GetAppConfig().System.Addr)
 		}
@@ -1186,34 +1188,45 @@ func GenerateAgentSecret(c *gin.Context) {
 		}
 	}
 	wsURL := fmt.Sprintf("%s://%s/api/v1/ws/agent", scheme, host)
+	httpScheme := "https"
+	if c.Request.TLS == nil {
+		if forwardedProto == "http" || forwardedProto == "" {
+			httpScheme = "http"
+		}
+	}
+	controllerAPIBase := fmt.Sprintf("%s://%s/api/v1/public/agent", httpScheme, host)
 
 	// 构造 CDN 加速安装命令（使用 sh 以保证最广兼容性）
 	cdnBase := "https://cdn.spiritlhl.net"
 	installScript := fmt.Sprintf("%s/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh", cdnBase)
-	installCmd := fmt.Sprintf(
-		"curl -fsSL %s | sh -s -- --ws-url %s --secret %s",
+	installCmdGithub := fmt.Sprintf(
+		"curl -fsSL %s | sh -s -- --ws-url %s --secret %s --agent-source github",
 		installScript, wsURL, secret,
 	)
+	installCmdController := fmt.Sprintf(
+		"curl -fsSL %s/install-agent.sh | sh -s -- --ws-url %s --secret %s --agent-source controller --controller-base-url %s/releases",
+		controllerAPIBase, wsURL, secret, controllerAPIBase,
+	)
+	responseData := map[string]interface{}{
+		"agentSecret":             secret,
+		"wsPath":                  "/api/v1/ws/agent",
+		"wsURL":                   wsURL,
+		"installCmdController":    installCmdController,
+		"installCmdGithub":        installCmdGithub,
+		"controllerInstallScript": fmt.Sprintf("%s/install-agent.sh", controllerAPIBase),
+		"controllerReleaseBase":   fmt.Sprintf("%s/releases", controllerAPIBase),
+		"defaultInstallSource":    "controller",
+	}
 
 	// 判断是否为已有密钥（返回不同提示）
 	if dbProvider.AgentSecret != "" {
-		common.ResponseSuccess(c, map[string]interface{}{
-			"agentSecret": secret,
-			"wsPath":      "/api/v1/ws/agent",
-			"wsURL":       wsURL,
-			"installCmd":  installCmd,
-			"isExisting":  true,
-			"hint":        fmt.Sprintf("密钥已存在（不可刷新）。在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret),
-		}, "Agent 密钥已存在（密钥一旦创建即写死，不支持刷新）")
+		responseData["isExisting"] = true
+		responseData["hint"] = fmt.Sprintf("密钥已存在（不可刷新）。在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret)
+		common.ResponseSuccess(c, responseData, "Agent 密钥已存在（密钥一旦创建即写死，不支持刷新）")
 	} else {
-		common.ResponseSuccess(c, map[string]interface{}{
-			"agentSecret": secret,
-			"wsPath":      "/api/v1/ws/agent",
-			"wsURL":       wsURL,
-			"installCmd":  installCmd,
-			"isExisting":  false,
-			"hint":        fmt.Sprintf("在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret),
-		}, "Agent 密钥已生成")
+		responseData["isExisting"] = false
+		responseData["hint"] = fmt.Sprintf("在 Agent 节点运行安装命令，或手动执行: oneclickvirt-agent --ws-url %s --secret %s", wsURL, secret)
+		common.ResponseSuccess(c, responseData, "Agent 密钥已生成")
 	}
 }
 
@@ -1394,6 +1407,12 @@ func ExecOnProvider(c *gin.Context) {
 	stderr := ""
 	execFailed := false
 	if dbProvider.ConnectionType == "agent" {
+		if incompatible, minVersion := isAgentVersionIncompatible(dbProvider.AgentVersion); incompatible {
+			msg := fmt.Sprintf("Agent版本过低或不兼容（当前: %s，最低要求: %s），请先升级Agent后再执行命令", dbProvider.AgentVersion, minVersion)
+			common.ResponseWithError(c, common.NewError(common.CodeBadGateway, msg))
+			return
+		}
+
 		hub := agentService.GetHub()
 		exec := agentService.NewAgentShellExecutor(dbProvider.ID, hub)
 		runtimeHealth := hub.GetRuntimeHealth(dbProvider.ID)
@@ -1464,4 +1483,106 @@ func ExecOnProvider(c *gin.Context) {
 		"command":    req.Command,
 		"providerID": id,
 	}, "命令执行完成")
+}
+
+func isAgentVersionIncompatible(agentVersion string) (bool, string) {
+	version := strings.TrimSpace(agentVersion)
+	minVersion := strings.TrimSpace(constant.CompatibleAgentVersion)
+	if version == "" || minVersion == "" {
+		return false, minVersion
+	}
+	cmp := compareVersionForCompatibility(version, minVersion)
+	return cmp == -1, minVersion
+}
+
+// compareVersionForCompatibility returns:
+// -1: a < b, 0: a == b, 1: a > b, -2: incomparable format.
+func compareVersionForCompatibility(a, b string) int {
+	a = strings.TrimPrefix(strings.TrimSpace(a), "v")
+	b = strings.TrimPrefix(strings.TrimSpace(b), "v")
+	if a == b {
+		return 0
+	}
+
+	aParts := strings.Split(a, ".")
+	bParts := strings.Split(b, ".")
+	aIsSemver := len(aParts) >= 2
+	bIsSemver := len(bParts) >= 2
+
+	if aIsSemver && bIsSemver {
+		maxLen := len(aParts)
+		if len(bParts) > maxLen {
+			maxLen = len(bParts)
+		}
+		for i := 0; i < maxLen; i++ {
+			var aNum, bNum int
+			if i < len(aParts) {
+				aNum, _ = strconv.Atoi(strings.Split(aParts[i], "-")[0])
+			}
+			if i < len(bParts) {
+				bNum, _ = strconv.Atoi(strings.Split(bParts[i], "-")[0])
+			}
+			if aNum < bNum {
+				return -1
+			}
+			if aNum > bNum {
+				return 1
+			}
+		}
+		return 0
+	}
+
+	if aIsSemver != bIsSemver {
+		return -2
+	}
+
+	if a < b {
+		return -1
+	}
+	return 1
+}
+
+func firstForwardedValue(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+	if idx := strings.Index(value, ","); idx >= 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
+}
+
+func normalizeForwardedProto(value string) string {
+	value = strings.ToLower(firstForwardedValue(value))
+	if value == "http" || value == "https" {
+		return value
+	}
+	return ""
+}
+
+func normalizeForwardedHost(value string) string {
+	value = firstForwardedValue(value)
+	if value == "" {
+		return ""
+	}
+	value = strings.TrimPrefix(value, "http://")
+	value = strings.TrimPrefix(value, "https://")
+	if idx := strings.Index(value, "/"); idx >= 0 {
+		value = value[:idx]
+	}
+	return strings.TrimSpace(value)
+}
+
+func normalizeForwardedPort(value string) string {
+	value = firstForwardedValue(value)
+	if value == "" {
+		return ""
+	}
+	for _, r := range value {
+		if r < '0' || r > '9' {
+			return ""
+		}
+	}
+	return value
 }

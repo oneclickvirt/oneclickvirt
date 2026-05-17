@@ -311,6 +311,13 @@
             <span>{{ $t('admin.providers.agentCmdInstall') }}</span>
             <div style="display:flex;align-items:center;gap:8px;">
               <el-switch
+                v-model="useControllerSource"
+                size="small"
+                :active-text="$t('admin.providers.controllerSource')"
+                :inactive-text="$t('admin.providers.githubSource')"
+                style="--el-switch-on-color: #13ce66;"
+              />
+              <el-switch
                 v-model="useWSS"
                 size="small"
                 :disabled="wssUnavailable"
@@ -321,6 +328,7 @@
               <el-switch
                 v-model="useCDN"
                 size="small"
+                :disabled="useControllerSource"
                 :active-text="$t('admin.providers.cdnAccel')"
                 :inactive-text="$t('admin.providers.cdnDirect')"
                 style="--el-switch-on-color: #13ce66;"
@@ -574,6 +582,7 @@ const { t } = useI18n()
 const localCommand = ref('')
 const useCDN = ref(true)
 const useWSS = ref(true)
+const useControllerSource = ref(true)
 // wssUnavailable: true when the probe detected that wss:// does NOT work
 // on this host. The toggle is forced off and a warning is shown.
 const wssUnavailable = ref(false)
@@ -602,6 +611,10 @@ const props = defineProps({
     default: false
   },
   agentConnectCmd: {
+    type: String,
+    default: ''
+  },
+  agentConnectCmdGithub: {
     type: String,
     default: ''
   },
@@ -635,7 +648,7 @@ const agentStatusLabel = computed(() => {
 })
 
 const installCmdDisplay = computed(() => {
-  let cmd = props.agentConnectCmd || ''
+  let cmd = useControllerSource.value ? props.agentConnectCmd : props.agentConnectCmdGithub
   if (!cmd) return ''
   // WSS/WS toggle: replace scheme in --ws-url parameter
   if (useWSS.value) {
@@ -649,6 +662,14 @@ const installCmdDisplay = computed(() => {
   }
   return cmd
 })
+
+watch(useControllerSource, (isController) => {
+  if (isController) {
+    useCDN.value = false
+  } else {
+    useCDN.value = true
+  }
+}, { immediate: true })
 
 // ── wss:// availability probe ──────────────────────────────────────────
 // When the install command appears, extract the --ws-url host:port and
@@ -714,11 +735,11 @@ const probeWssAvailability = (cmd) => {
 }
 
 // Re-probe whenever a new install command is generated
-watch(() => props.agentConnectCmd, (cmd) => {
+watch(() => [props.agentConnectCmd, props.agentConnectCmdGithub], ([controllerCmd]) => {
   wssUnavailable.value = false
   useWSS.value = true
-  if (cmd) {
-    probeWssAvailability(cmd)
+  if (controllerCmd) {
+    probeWssAvailability(controllerCmd)
   }
 }, { immediate: true })
 

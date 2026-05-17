@@ -168,7 +168,7 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 	// 检查Token是否在黑名单中
 	blacklistService := auth2.GetJWTBlacklistService()
 	if blacklistService.IsBlacklisted(jti) {
-		global.APP_LOG.Error("尝试使用已撤销的Token",
+		global.APP_LOG.Warn("尝试使用已撤销的Token",
 			zap.String("jti", jti))
 		return nil, nil, common.NewError(common.CodeUnauthorized, "认证令牌已失效")
 	}

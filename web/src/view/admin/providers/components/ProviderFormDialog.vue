@@ -37,6 +37,7 @@
           :connection-test-result="connectionTestResult"
           :generating-secret="generatingSecret"
           :agent-connect-cmd="agentConnectCmd"
+          :agent-connect-cmd-github="agentConnectCmdGithub"
           :exec-loading="execLoading"
           :exec-result="execResult"
           :checking-agent-status="checkingAgentStatus"
@@ -216,6 +217,7 @@ const connectionTestResult = ref(null)
 const generatingSecret = ref(false)
 const checkingAgentStatus = ref(false)
 const agentConnectCmd = ref('')
+const agentConnectCmdGithub = ref('')
 
 const isAgentMode = computed(() => formData.value.connectionType === 'agent')
 
@@ -613,29 +615,23 @@ const handleGenerateAgentSecret = async () => {
   if (!formData.value.id) return
   generatingSecret.value = true
   agentConnectCmd.value = ''
+  agentConnectCmdGithub.value = ''
   try {
     const res = await generateAgentSecretAPI(formData.value.id)
-    if (res.data && res.data.installCmd) {
-      agentConnectCmd.value = res.data.installCmd
-      if (res.data.isExisting) {
-        ElMessage.info(t('admin.providers.agentSecretExists'))
-        ElMessageBox.alert(
-          t('admin.providers.agentSecretUpdatedHint'),
-          t('admin.providers.agentSecretUpdated'),
-          { confirmButtonText: t('common.ok'), type: 'info' }
-        )
-      } else {
-        ElMessage.success(t('admin.providers.agentSecretGenerated'))
-      }
-    } else if (res.data && res.data.wsPath) {
-      // Fallback: build install command client-side (defaults to wss)
-      const wsUrl = window.location.origin.replace(/^http/, 'wss') + res.data.wsPath
-      agentConnectCmd.value = `curl -fsSL https://cdn.spiritlhl.net/https://raw.githubusercontent.com/oneclickvirt/oneclickvirt/main/install_agent.sh | sh -s -- --ws-url ${wsUrl} --secret ${res.data.agentSecret || ''}`
-      if (res.data.isExisting) {
-        ElMessage.info(t('admin.providers.agentSecretExists'))
-      } else {
-        ElMessage.success(t('admin.providers.agentSecretGenerated'))
-      }
+    if (!res.data?.installCmdController || !res.data?.installCmdGithub) {
+      throw new Error(t('common.operationFailed'))
+    }
+    agentConnectCmd.value = res.data.installCmdController
+    agentConnectCmdGithub.value = res.data.installCmdGithub
+    if (res.data.isExisting) {
+      ElMessage.info(t('admin.providers.agentSecretExists'))
+      ElMessageBox.alert(
+        t('admin.providers.agentSecretUpdatedHint'),
+        t('admin.providers.agentSecretUpdated'),
+        { confirmButtonText: t('common.ok'), type: 'info' }
+      )
+    } else {
+      ElMessage.success(t('admin.providers.agentSecretGenerated'))
     }
   } catch (error) {
     ElMessage.error(error.message || t('common.operationFailed'))

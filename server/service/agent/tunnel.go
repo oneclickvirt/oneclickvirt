@@ -40,6 +40,9 @@ const (
 	msgTypeTunnelData        = "tunnel_data" // 已废弃，使用二进制帧
 	tunnelSessionIdleTimeout = 5 * time.Minute
 	tunnelKeepaliveInterval  = 30 * time.Second
+	tunnelOpenAckAttempts    = 2
+	tunnelOpenAckTimeout     = 5 * time.Second
+	tunnelOpenRetryBackoff   = 200 * time.Millisecond
 )
 
 type tunnelOpenPayload struct {
@@ -60,6 +63,90 @@ type tunnelClosePayload struct {
 
 type tunnelKeepalivePayload struct {
 	ConnID string `json:"id"`
+}
+
+func validateTunnelTarget(targetHost string, targetPort int) (string, bool) {
+	host := strings.TrimSpace(targetHost)
+	if host == "" || targetPort <= 0 || targetPort > 65535 {
+		return host, false
+	}
+	// host 仅允许常规主机标识，拒绝路径/控制字符，避免异常输入导致隧道建立行为不可预期。
+	if strings.ContainsAny(host, "/\\\r\n\t") {
+		return host, false
+	}
+	if strings.Contains(host, " ") {
+		return host, false
+	}
+	return host, true
+}
+
+func sendTunnelOpenWithRetry(expectedConnID string, sendOpen func() error, ackCh <-chan tunnelAckPayload, maxAttempts int, perAttemptTimeout time.Duration) (tunnelAckPayload, error) {
+	if maxAttempts <= 0 {
+		maxAttempts = 1
+	}
+	if perAttemptTimeout <= 0 {
+		perAttemptTimeout = 5 * time.Second
+	}
+	drainAck := func() {
+		for {
+			select {
+			case <-ackCh:
+			default:
+				return
+			}
+		}
+	}
+
+	var lastErr error
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		// 清空上一次尝试遗留的 ACK，避免陈旧响应干扰当前重试。
+		drainAck()
+
+		if err := sendOpen(); err != nil {
+			lastErr = fmt.Errorf("发送 tunnel_open 失败: %w", err)
+			if attempt < maxAttempts {
+				time.Sleep(tunnelOpenRetryBackoff)
+			}
+			continue
+		}
+
+		timer := time.NewTimer(perAttemptTimeout)
+		for {
+			select {
+			case ack := <-ackCh:
+				// 仅接收当前 connID 的 ACK，忽略错会话或乱序 ACK。
+				if expectedConnID != "" && ack.ConnID != expectedConnID {
+					continue
+				}
+				if !timer.Stop() {
+					select {
+					case <-timer.C:
+					default:
+					}
+				}
+				if ack.OK {
+					return ack, nil
+				}
+				reason := strings.TrimSpace(ack.Error)
+				if reason == "" {
+					reason = "unknown"
+				}
+				return ack, fmt.Errorf("tunnel_ack 返回失败: %s", reason)
+			case <-timer.C:
+				lastErr = fmt.Errorf("等待 tunnel_ack 超时（第 %d/%d 次）", attempt, maxAttempts)
+				if attempt < maxAttempts {
+					time.Sleep(tunnelOpenRetryBackoff)
+				}
+				goto nextAttempt
+			}
+		}
+	nextAttempt:
+	}
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("tunnel_open 握手失败")
+	}
+	return tunnelAckPayload{}, lastErr
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
@@ -129,8 +216,38 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 }
 
 func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPort int) {
-	connID := randomID()
-	connHash := hashString(connID)
+	normalizedHost, ok := validateTunnelTarget(targetHost, targetPort)
+	targetHost = normalizedHost
+	if !ok {
+		global.APP_LOG.Warn("拒绝创建隧道会话：目标参数无效",
+			zap.Uint("providerID", tm.ac.ProviderID),
+			zap.String("targetHost", targetHost),
+			zap.Int("targetPort", targetPort))
+		_ = client.Close()
+		return
+	}
+
+	connID := ""
+	connHash := uint64(0)
+
+	tm.mu.Lock()
+	for attempt := 0; attempt < 8; attempt++ {
+		candidateID := randomID()
+		candidateHash := hashString(candidateID)
+		if _, exists := tm.hashIndex[candidateHash]; exists {
+			continue
+		}
+		connID = candidateID
+		connHash = candidateHash
+		break
+	}
+	if connID == "" {
+		tm.mu.Unlock()
+		global.APP_LOG.Warn("创建隧道会话失败：无法分配唯一 connHash", zap.Uint("providerID", tm.ac.ProviderID))
+		_ = client.Close()
+		return
+	}
+
 	sess := &TunnelSession{
 		connID:   connID,
 		connHash: connHash,
@@ -141,7 +258,6 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 		done:     make(chan struct{}),
 	}
 
-	tm.mu.Lock()
 	tm.sessions[connID] = sess
 	tm.hashIndex[connHash] = sess
 	tm.mu.Unlock()
@@ -163,26 +279,17 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 		_ = tm.ac.writeTextMessage(closeMsg, 5*time.Second)
 	}()
 
-	// 1. 发送 tunnel_open 给 Agent
+	// 1. 发送 tunnel_open 给 Agent（幂等重试，使用同一个 connID）
 	openPayload, _ := json.Marshal(tunnelOpenPayload{ConnID: connID, Host: targetHost, Port: targetPort})
 	openMsg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelOpen, Payload: openPayload})
-	if err := tm.ac.writeTextMessage(openMsg, 10*time.Second); err != nil {
-		global.APP_LOG.Warn("发送 tunnel_open 失败", zap.Error(err))
-		return
-	}
-
-	// 2. 等待 tunnel_ack（最长 10 秒）；由 hub.readLoop 通过 DeliverAck 注入
-	select {
-	case ack := <-sess.ackCh:
-		if !ack.OK {
-			global.APP_LOG.Warn("tunnel_ack 返回失败",
-				zap.String("connID", connID),
-				zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)),
-				zap.String("reason", ack.Error))
-			return
-		}
-	case <-time.After(10 * time.Second):
-		global.APP_LOG.Warn("等待 tunnel_ack 超时", zap.String("connID", connID))
+	_, openErr := sendTunnelOpenWithRetry(connID, func() error {
+		return tm.ac.writeTextMessage(openMsg, 10*time.Second)
+	}, sess.ackCh, tunnelOpenAckAttempts, tunnelOpenAckTimeout)
+	if openErr != nil {
+		global.APP_LOG.Warn("tunnel_open 握手失败",
+			zap.String("connID", connID),
+			zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)),
+			zap.Error(openErr))
 		return
 	}
 

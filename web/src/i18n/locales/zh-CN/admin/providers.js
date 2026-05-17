@@ -754,6 +754,8 @@ export default {
   agentCmdUpgrade: "升级命令",
   agentCmdOcv: "快捷命令 (ocv)",
   agentCmdOcvTip: "安装后可在节点上使用 ocv 命令管理 Agent：ocv status|start|stop|restart|upgrade|uninstall|log",
+  controllerSource: "主控源",
+  githubSource: "GitHub源",
   cdnAccel: "CDN加速",
   cdnDirect: "直连",
   wssSecure: "加密(wss)",

@@ -683,11 +683,21 @@ func (h *AgentHub) GetConn(providerID uint) (*AgentConn, bool) {
 }
 
 // unregister 注销连接（同步更新 DB 状态以确保前端立即可见）。
-func (h *AgentHub) unregister(providerID uint) {
+func (h *AgentHub) unregister(ac *AgentConn) {
+	providerID := ac.ProviderID
+
 	h.mu.Lock()
-	if ac, ok := h.conns[providerID]; ok {
-		ac.StopNoiseLoop()
+	current, ok := h.conns[providerID]
+	if !ok {
+		h.mu.Unlock()
+		return
 	}
+	// 仅注销当前活跃连接；若旧连接延迟退出，不应覆盖新连接状态。
+	if current != ac {
+		h.mu.Unlock()
+		return
+	}
+	current.StopNoiseLoop()
 	delete(h.conns, providerID)
 	h.mu.Unlock()
 
@@ -723,7 +733,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				zap.Stack("stack"))
 		}
 		ac.conn.Close()
-		h.unregister(ac.ProviderID)
+		h.unregister(ac)
 	}()
 
 	ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
@@ -779,7 +789,13 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			if err := json.Unmarshal(msg.Payload, &resp); err == nil {
 				ac.mu.Lock()
 				if ch, ok := ac.pending[msg.ID]; ok {
-					ch <- resp
+					select {
+					case ch <- resp:
+					default:
+						global.APP_LOG.Debug("丢弃重复或过期的 exec 响应",
+							zap.Uint("providerID", ac.ProviderID),
+							zap.String("reqID", msg.ID))
+					}
 				}
 				ac.mu.Unlock()
 			}
@@ -939,7 +955,7 @@ func (h *AgentHub) StartPingLoop() {
 							zap.Uint("providerID", ac.ProviderID),
 							zap.Int("consecutiveFailures", failCount))
 						ac.conn.Close()
-						h.unregister(ac.ProviderID)
+						h.unregister(ac)
 					}
 					continue
 				}

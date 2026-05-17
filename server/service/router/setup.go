@@ -131,6 +131,8 @@ func SetupRouter() *gin.Engine {
 				InitPublicGroup.GET("system-config", public.GetPublicSystemConfig)            // 获取系统配置（优先从数据库读取）
 				InitPublicGroup.GET("version", public.GetVersion)                             // 版本信息——不依赖数据库，DB 宕机时仍可访问
 				InitPublicGroup.GET("build-info", public.GetBuildInfo)                        // 构建信息——不依赖数据库
+				InitPublicGroup.GET("agent/install-agent.sh", public.DownloadAgentInstaller)  // 控制端安装脚本下载
+				InitPublicGroup.GET("agent/releases/:filename", public.DownloadAgentRelease)  // 控制端Agent发布包下载
 			}
 
 			// 认证 API：登录、注册、验证码等——需要数据库但在初始化前就必须可用，不被 DatabaseHealthCheck 拦截

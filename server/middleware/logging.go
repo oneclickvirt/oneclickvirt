@@ -90,6 +90,8 @@ func LoggerMiddleware() gin.HandlerFunc {
 		switch {
 		case status >= 500:
 			global.APP_LOG.Error("HTTP请求处理失败", fields...)
+		case status == 401:
+			global.APP_LOG.Info("HTTP请求未认证", fields...)
 		case status >= 400:
 			global.APP_LOG.Warn("HTTP请求客户端错误", fields...)
 		case status >= 300:

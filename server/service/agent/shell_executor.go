@@ -29,6 +29,10 @@ type AgentShellExecutor struct {
 // 10 个并发槽位足以覆盖 GPU 检测、流量同步、资源采集、健康检查等场景，
 // 同时防止 WebSocket 帧队列过度堆积。
 const maxConcurrentAgentCommands = 10
+const (
+	minConnWaitTimeout = 3 * time.Second
+	maxConnWaitTimeout = 60 * time.Second
+)
 
 // NewAgentShellExecutor creates an AgentShellExecutor for the given provider.
 func NewAgentShellExecutor(providerID uint, hub *AgentHub) *AgentShellExecutor {
@@ -54,10 +58,38 @@ func (a *AgentShellExecutor) releaseExecSlot() {
 	<-a.execSem
 }
 
-func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
+func normalizeConnWaitTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 30 * time.Second
+	}
+	if timeout < minConnWaitTimeout {
+		return minConnWaitTimeout
+	}
+	if timeout > maxConnWaitTimeout {
+		return maxConnWaitTimeout
+	}
+	return timeout
+}
+
+func normalizeSemaphoreWaitTimeout(timeout time.Duration) time.Duration {
+	if timeout <= 0 {
+		return 10 * time.Second
+	}
+	wait := timeout / 2
+	if wait < time.Second {
+		wait = time.Second
+	}
+	if wait > 10*time.Second {
+		wait = 10 * time.Second
+	}
+	return wait
+}
+
+func (a *AgentShellExecutor) getConn(waitTimeout time.Duration) (*AgentConn, error) {
+	waitTimeout = normalizeConnWaitTimeout(waitTimeout)
 	// 使用更长的等待时间（60秒），适应 Agent 重连、网络波动等场景。
 	// Agent 自身的重连间隔通常为 10-30 秒，60 秒窗口足以覆盖绝大多数重连场景。
-	deadline := time.Now().Add(60 * time.Second)
+	deadline := time.Now().Add(waitTimeout)
 	delay := 500 * time.Millisecond
 	maxDelay := 5 * time.Second
 	firstWarning := true
@@ -69,12 +101,12 @@ func (a *AgentShellExecutor) getConn() (*AgentConn, error) {
 		if time.Now().After(deadline) {
 			return nil, fmt.Errorf("agent not connected for provider %d", a.providerID)
 		}
-		if firstWarning && time.Now().After(deadline.Add(-50*time.Second)) {
+		if firstWarning && time.Now().After(deadline.Add(-waitTimeout+10*time.Second)) {
 			// 等待超过 10 秒后记录警告，便于排查
 			if global.APP_LOG != nil {
 				global.APP_LOG.Warn("等待 Agent 连接中",
 					zap.Uint("providerID", a.providerID),
-					zap.Duration("elapsed", 60*time.Second-time.Until(deadline)))
+					zap.Duration("elapsed", waitTimeout-time.Until(deadline)))
 			}
 			firstWarning = false
 		}
@@ -103,12 +135,12 @@ func wrapShellEnv(command string) string {
 // Execute runs a command on the remote agent with a default 300s timeout.
 func (a *AgentShellExecutor) Execute(command string) (string, error) {
 	// 获取并发槽位，最多等待 10 秒
-	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+	if err := a.acquireExecSlot(normalizeSemaphoreWaitTimeout(300 * time.Second)); err != nil {
 		return "", err
 	}
 	defer a.releaseExecSlot()
 
-	conn, err := a.getConn()
+	conn, err := a.getConn(300 * time.Second)
 	if err != nil {
 		return "", err
 	}
@@ -125,12 +157,12 @@ func (a *AgentShellExecutor) Execute(command string) (string, error) {
 // ExecuteWithTimeout runs a command on the remote agent with a custom timeout.
 func (a *AgentShellExecutor) ExecuteWithTimeout(command string, timeout time.Duration) (string, error) {
 	// 获取并发槽位，最多等待 10 秒
-	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+	if err := a.acquireExecSlot(normalizeSemaphoreWaitTimeout(timeout)); err != nil {
 		return "", err
 	}
 	defer a.releaseExecSlot()
 
-	conn, err := a.getConn()
+	conn, err := a.getConn(timeout)
 	if err != nil {
 		return "", err
 	}
@@ -170,12 +202,12 @@ func (a *AgentShellExecutor) ExecuteWithLogging(command string, logPrefix string
 // This is preferred for running local scripts or lightweight polling commands.
 func (a *AgentShellExecutor) ExecuteRaw(command string, timeout time.Duration) (string, error) {
 	// 获取并发槽位，最多等待 10 秒
-	if err := a.acquireExecSlot(10 * time.Second); err != nil {
+	if err := a.acquireExecSlot(normalizeSemaphoreWaitTimeout(timeout)); err != nil {
 		return "", err
 	}
 	defer a.releaseExecSlot()
 
-	conn, err := a.getConn()
+	conn, err := a.getConn(timeout)
 	if err != nil {
 		return "", err
 	}

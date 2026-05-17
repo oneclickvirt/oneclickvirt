@@ -755,6 +755,8 @@ export default {
   agentCmdUpgrade: "Upgrade Command",
   agentCmdOcv: "Shortcut Command (ocv)",
   agentCmdOcvTip: "After installation, use ocv on the node to manage Agent: ocv status|start|stop|restart|upgrade|uninstall|log",
+  controllerSource: "Controller",
+  githubSource: "GitHub",
   cdnAccel: "CDN",
   cdnDirect: "Direct",
   wssSecure: "Secure(wss)",

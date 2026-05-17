@@ -84,6 +84,11 @@ func AdminProviderTerminal(c *gin.Context) {
 // ── Agent 模式终端 ──────────────────────────────────────────────────────────
 
 func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
+	if incompatible, minVersion := isAgentVersionIncompatible(p.AgentVersion); incompatible {
+		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Agent版本不兼容（当前: %s，最低要求: %s），请先升级Agent后再重试\r\n", p.AgentVersion, minVersion)))
+		return
+	}
+
 	hub := agentService.GetHub()
 	conn, ok := hub.GetConn(p.ID)
 	if !ok || conn == nil {

@@ -1,6 +1,6 @@
 #!/bin/sh
 # OneClickVirt Agent Installer
-# Usage: curl -fsSL <url>/install_agent.sh | sh -s -- --ws-url <WS_URL> --secret <SECRET>
+# Usage: curl -fsSL <url>/install_agent.sh | sh -s -- --ws-url <WS_URL> --secret <SECRET> [--agent-source <controller|github>] [--controller-base-url <URL>]
 # Source: https://github.com/oneclickvirt/oneclickvirt
 
 set -e
@@ -30,19 +30,31 @@ log_error()   { log_with_level "${RED}[ERROR]${NC}" "$1" "$2" >&2; }
 # ── argument parsing ──────────────────────────────────────────────────────────
 WS_URL=""
 SECRET=""
+AGENT_SOURCE="github"
+CONTROLLER_BASE_URL=""
 
 while [ "$#" -gt 0 ]; do
   case "$1" in
     --ws-url)  WS_URL="$2";  shift 2 ;;
     --secret)  SECRET="$2";  shift 2 ;;
+    --agent-source) AGENT_SOURCE="$2"; shift 2 ;;
+    --controller-base-url) CONTROLLER_BASE_URL="$2"; shift 2 ;;
     *) log_error "Unknown argument: $1" "未知参数: $1"; exit 1 ;;
   esac
 done
 
 if [ -z "$WS_URL" ] || [ -z "$SECRET" ]; then
-  log_error "Usage: install_agent.sh --ws-url <WS_URL> --secret <SECRET>" "用法: install_agent.sh --ws-url <WS_URL> --secret <SECRET>"
+  log_error "Usage: install_agent.sh --ws-url <WS_URL> --secret <SECRET> [--agent-source <controller|github>] [--controller-base-url <URL>]" "用法: install_agent.sh --ws-url <WS_URL> --secret <SECRET> [--agent-source <controller|github>] [--controller-base-url <URL>]"
   exit 1
 fi
+
+case "$AGENT_SOURCE" in
+  controller|github) ;;
+  *)
+    log_error "Unsupported agent source: ${AGENT_SOURCE}. Use controller or github." "不支持的下载源: ${AGENT_SOURCE}，请使用 controller 或 github。"
+    exit 1
+    ;;
+esac
 
 # ── sanity checks ─────────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
@@ -193,57 +205,82 @@ download_one() {
 
 log_info "Downloading ${BINARY_NAME} ..." "正在下载 ${BINARY_NAME} ..."
 
-# GitHub direct first, CDN as fallback
 DOWNLOADED=0
 GITHUB_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAME}"
-
-# 1. Try GitHub direct first
-if download_one "$GITHUB_URL" && [ -s "$TMP_FILE" ]; then
-  log_success "Downloaded from GitHub." "已从 GitHub 下载完成。"
-  DOWNLOADED=1
-fi
-
-# 2. GitHub failed — check if GitHub is reachable, try CDN only if it's not
-if [ "$DOWNLOADED" -eq 0 ] && ! _github_reachable && _check_cdn_available; then
-  log_warning "GitHub is unreachable, switching to CDN mirrors..." "GitHub 不可达，正在切换到 CDN 镜像..."
-  for CDN in $(cat /tmp/ocv_working_cdns); do
-    CDN_TARGET="${CDN}/${GITHUB_URL}"
-    rm -f "$TMP_FILE"
-    if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
-      log_success "Downloaded via CDN." "已通过 CDN 下载完成。"
-      DOWNLOADED=1
-      break
-    fi
-  done
-  rm -f /tmp/ocv_working_cdns
-fi
-
-# Try with .tar.gz extension (some releases package the binary)
-if [ "$DOWNLOADED" -eq 0 ]; then
-  TAR_URL="${GITHUB_URL}.tar.gz"
-  if download_one "$TAR_URL" && [ -s "$TMP_FILE" ]; then
-    log_info "Extracting the agent binary from the tar.gz archive..." "正在从 tar.gz 压缩包中提取 Agent 二进制文件..."
+if [ "$AGENT_SOURCE" = "controller" ]; then
+  if [ -z "$CONTROLLER_BASE_URL" ]; then
+    log_error "controller source requires --controller-base-url" "controller 下载源必须提供 --controller-base-url"
+    exit 1
+  fi
+  CONTROLLER_TAR_URL="${CONTROLLER_BASE_URL}/oneclickvirt-agent-${BINARY_SUFFIX}.tar.gz"
+  if download_one "$CONTROLLER_TAR_URL" && [ -s "$TMP_FILE" ]; then
+    log_info "Extracting the agent binary from controller archive..." "正在从主控压缩包提取 Agent 二进制文件..."
     TAR_TMP="/tmp/oneclickvirt-agent-extract"
     mkdir -p "$TAR_TMP"
     if tar -xzf "$TMP_FILE" -C "$TAR_TMP" 2>/dev/null; then
       AGENT_EXTRACTED=$(find "$TAR_TMP" -type f -name "oneclickvirt-agent*" | head -1)
-      if [ -n "$AGENT_EXTRACTED" ] && [ -x "$AGENT_EXTRACTED" ]; then
+      if [ -n "$AGENT_EXTRACTED" ] && [ -f "$AGENT_EXTRACTED" ]; then
         mv -f "$AGENT_EXTRACTED" "$TMP_FILE"
-        log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
         DOWNLOADED=1
       elif [ -f "$TAR_TMP/oneclickvirt-agent" ]; then
         mv -f "$TAR_TMP/oneclickvirt-agent" "$TMP_FILE"
-        log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
         DOWNLOADED=1
       fi
     fi
     rm -rf "$TAR_TMP"
   fi
+  if [ "$DOWNLOADED" -eq 1 ]; then
+    log_success "Downloaded from controller." "已从主控下载完成。"
+  fi
+else
+  # GitHub direct first, CDN as fallback
+  if download_one "$GITHUB_URL" && [ -s "$TMP_FILE" ]; then
+    log_success "Downloaded from GitHub." "已从 GitHub 下载完成。"
+    DOWNLOADED=1
+  fi
+
+  # GitHub failed — check if GitHub is reachable, try CDN only if it's not
+  if [ "$DOWNLOADED" -eq 0 ] && ! _github_reachable && _check_cdn_available; then
+    log_warning "GitHub is unreachable, switching to CDN mirrors..." "GitHub 不可达，正在切换到 CDN 镜像..."
+    for CDN in $(cat /tmp/ocv_working_cdns); do
+      CDN_TARGET="${CDN}/${GITHUB_URL}"
+      rm -f "$TMP_FILE"
+      if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
+        log_success "Downloaded via CDN." "已通过 CDN 下载完成。"
+        DOWNLOADED=1
+        break
+      fi
+    done
+    rm -f /tmp/ocv_working_cdns
+  fi
+
+  # Try with .tar.gz extension (some releases package the binary)
+  if [ "$DOWNLOADED" -eq 0 ]; then
+    TAR_URL="${GITHUB_URL}.tar.gz"
+    if download_one "$TAR_URL" && [ -s "$TMP_FILE" ]; then
+      log_info "Extracting the agent binary from the tar.gz archive..." "正在从 tar.gz 压缩包中提取 Agent 二进制文件..."
+      TAR_TMP="/tmp/oneclickvirt-agent-extract"
+      mkdir -p "$TAR_TMP"
+      if tar -xzf "$TMP_FILE" -C "$TAR_TMP" 2>/dev/null; then
+        AGENT_EXTRACTED=$(find "$TAR_TMP" -type f -name "oneclickvirt-agent*" | head -1)
+        if [ -n "$AGENT_EXTRACTED" ] && [ -x "$AGENT_EXTRACTED" ]; then
+          mv -f "$AGENT_EXTRACTED" "$TMP_FILE"
+          log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
+          DOWNLOADED=1
+        elif [ -f "$TAR_TMP/oneclickvirt-agent" ]; then
+          mv -f "$TAR_TMP/oneclickvirt-agent" "$TMP_FILE"
+          log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
+          DOWNLOADED=1
+        fi
+      fi
+      rm -rf "$TAR_TMP"
+    fi
+  fi
 fi
 
 if [ "$DOWNLOADED" -eq 0 ]; then
   log_error "Failed to download ${BINARY_NAME}." "下载 ${BINARY_NAME} 失败。"
-  log_error "All CDN mirrors and direct GitHub downloads were attempted. Check network connectivity or release assets." "已尝试所有 CDN 镜像和 GitHub 直连，请检查网络或发布资源。"
+  log_error "All configured download sources were attempted. Check network connectivity or release assets." "已尝试所有配置的下载源，请检查网络或发布资源。"
   rm -f "$TMP_FILE"
   exit 1
 fi
@@ -305,6 +342,41 @@ _upgrade() {
     aarch64|arm64) BIN="oneclickvirt-agent-linux-arm64" ;;
     *) echo "[ocv] Unsupported arch: $ARCH"; echo "[ocv] 不支持的架构: $ARCH"; exit 1 ;;
   esac
+  ENV_FILE="/opt/oneclickvirt/agent/env"
+  AGENT_SOURCE="github"
+  CONTROLLER_BASE_URL=""
+  if [ -f "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+  fi
+  if [ -n "$AGENT_SOURCE" ] && [ "$AGENT_SOURCE" = "controller" ] && [ -n "$CONTROLLER_BASE_URL" ]; then
+    TMP="/opt/oneclickvirt/agent/${BIN}.tmp"
+    mkdir -p /opt/oneclickvirt/agent
+    if ! curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "${CONTROLLER_BASE_URL}/${BIN}.tar.gz" 2>/dev/null; then
+      echo "[ocv] Controller download failed"
+      echo "[ocv] 主控下载失败"
+      exit 1
+    fi
+    TAR_TMP="/tmp/oneclickvirt-agent-upgrade"
+    rm -rf "$TAR_TMP"
+    mkdir -p "$TAR_TMP"
+    if ! tar -xzf "$TMP" -C "$TAR_TMP" 2>/dev/null; then
+      echo "[ocv] Failed to extract controller package"
+      echo "[ocv] 解压主控包失败"
+      rm -rf "$TAR_TMP" "$TMP"
+      exit 1
+    fi
+    EXTRACTED=$(find "$TAR_TMP" -type f -name "oneclickvirt-agent*" | head -1)
+    [ -z "$EXTRACTED" ] && EXTRACTED="$TAR_TMP/oneclickvirt-agent"
+    if [ ! -f "$EXTRACTED" ]; then
+      echo "[ocv] Agent binary not found in package"
+      echo "[ocv] 压缩包中未找到 agent 二进制文件"
+      rm -rf "$TAR_TMP" "$TMP"
+      exit 1
+    fi
+    mv -f "$EXTRACTED" "$TMP"
+    rm -rf "$TAR_TMP"
+  else
   REPO="oneclickvirt/oneclickvirt"
   for API in https://api.github.com https://githubapi.spiritlhl.workers.dev https://githubapi.spiritlhl.top; do
     local response
@@ -326,6 +398,7 @@ _upgrade() {
     curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}" 2>/dev/null || true
   fi
   [ ! -s "$TMP" ] && echo "[ocv] Download failed" && echo "[ocv] 下载失败" && exit 1
+  fi
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SVC" 2>/dev/null; then
     systemctl stop "$SVC" || true
   fi
@@ -458,6 +531,8 @@ install_service() {
 # OneClickVirt Agent environment (permissions: 0600)
 WS_URL=${WS_URL}
 AGENT_SECRET=${SECRET}
+AGENT_SOURCE=${AGENT_SOURCE}
+CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
 EOF
     chmod 600 "$ENV_FILE"
     chown root:root "$ENV_FILE" 2>/dev/null || true
@@ -513,6 +588,8 @@ EOF
 # OneClickVirt Agent environment (permissions: 0600)
 WS_URL=${WS_URL}
 AGENT_SECRET=${SECRET}
+AGENT_SOURCE=${AGENT_SOURCE}
+CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
 EOF
     chmod 600 "$ENV_FILE"
     chown root:root "$ENV_FILE" 2>/dev/null || true
@@ -595,6 +672,8 @@ EOF
 # OneClickVirt Agent environment (permissions: 0600)
 WS_URL=${WS_URL}
 AGENT_SECRET=${SECRET}
+AGENT_SOURCE=${AGENT_SOURCE}
+CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
 EOF
     chmod 600 "$ENV_FILE"
     chown root:root "$ENV_FILE" 2>/dev/null || true
@@ -634,6 +713,8 @@ EOF
 # OneClickVirt Agent environment (permissions: 0600)
 WS_URL=${WS_URL}
 AGENT_SECRET=${SECRET}
+AGENT_SOURCE=${AGENT_SOURCE}
+CONTROLLER_BASE_URL=${CONTROLLER_BASE_URL}
 EOF
   chmod 600 "$ENV_FILE"
   chown root:root "$ENV_FILE" 2>/dev/null || true

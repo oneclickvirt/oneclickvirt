@@ -53,3 +53,26 @@ func TestMergeAcceleratorRecordPrefersHigherQualitySource(t *testing.T) {
 		t.Fatalf("expected normalized bus to remain stable, got %q", dst["bus"])
 	}
 }
+
+func TestNormalizeForwardedHeaders(t *testing.T) {
+	if got := normalizeForwardedProto("https, http"); got != "https" {
+		t.Fatalf("expected https proto, got %q", got)
+	}
+	if got := normalizeForwardedProto("wss"); got != "" {
+		t.Fatalf("expected unsupported proto to be empty, got %q", got)
+	}
+
+	if got := normalizeForwardedHost("https://panel.example.com:8443, proxy.local"); got != "panel.example.com:8443" {
+		t.Fatalf("expected normalized host, got %q", got)
+	}
+	if got := normalizeForwardedHost("panel.example.com/path"); got != "panel.example.com" {
+		t.Fatalf("expected path-stripped host, got %q", got)
+	}
+
+	if got := normalizeForwardedPort("443, 80"); got != "443" {
+		t.Fatalf("expected first forwarded port, got %q", got)
+	}
+	if got := normalizeForwardedPort("8443/tcp"); got != "" {
+		t.Fatalf("expected invalid forwarded port to be empty, got %q", got)
+	}
+}
