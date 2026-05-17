@@ -847,8 +847,11 @@ async fn connect_plain_with_keepalive(
     let tcp_stream = create_tcp_stream_with_keepalive(&addr).await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
-    let request_uri = parsed_url[url::Position::BeforePath..]
-        .parse::<Uri>()
+    // Parse the full URL as the request URI (same approach as the wss://
+    // path using connect_async).  http::Uri extracts the Host header and
+    // request path from the full URL automatically.
+    let request_uri: Uri = url_str
+        .parse()
         .map_err(|e| format!("invalid URI: {e}"))?;
 
     let request = ClientRequestBuilder::new(request_uri)
