@@ -185,6 +185,8 @@ func NewTunnelManager(ac *AgentConn) *TunnelManager {
 
 // HandleControllerPort 在控制端监听 listenAddr 并将连接转发到 agent 侧的 targetHost:targetPort。
 // 应在 goroutine 中调用，直到 stopCh 关闭才退出。
+// 退出时会关闭所有 in-flight 隧道会话，防止残留的 handleConn goroutine
+// 在监听器停止后继续向 WebSocket 写入数据导致拥塞。
 func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost string, targetPort int, stopCh <-chan struct{}) error {
 	ln, err := net.Listen("tcp", listenAddr)
 	if err != nil {
@@ -199,6 +201,11 @@ func (tm *TunnelManager) HandleControllerPort(listenAddr string, targetHost stri
 	global.APP_LOG.Info("控制端端口转发已启动",
 		zap.String("listen", listenAddr),
 		zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)))
+
+	// 当 HandleControllerPort 返回时，关闭所有未完成的隧道会话。
+	// 这确保在 StopControllerPortForward 等待 doneCh 后，不再有
+	// handleConn goroutine 持有旧的 client 连接向 WebSocket 写数据。
+	defer tm.CloseAllSessions()
 
 	for {
 		conn, err := ln.Accept()
@@ -441,6 +448,34 @@ func (tm *TunnelManager) CloseSession(connID string) {
 	}
 }
 
+// CloseAllSessions 关闭该 TunnelManager 中的所有活跃会话。
+// 当监听器停止（HandleControllerPort 返回）时调用，释放所有 in-flight
+// handleConn goroutine 持有的资源，防止它们在监听器停止后继续写入 WebSocket。
+// 同时关闭 client 连接和 done 通道，确保 handleConn 主循环退出。
+func (tm *TunnelManager) CloseAllSessions() {
+	tm.mu.RLock()
+	defer tm.mu.RUnlock()
+
+	if len(tm.sessions) == 0 {
+		return
+	}
+
+	global.APP_LOG.Debug("关闭所有隧道会话",
+		zap.Uint("providerID", tm.ac.ProviderID),
+		zap.Int("count", len(tm.sessions)))
+
+	for _, sess := range tm.sessions {
+		// 关闭 done 通道（触发 handleConn 主循环退出）
+		select {
+		case <-sess.done:
+		default:
+			close(sess.done)
+		}
+		// 关闭 client 连接（触发读/写 goroutine 退出）
+		sess.client.Close()
+	}
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // 全局 TunnelManager 注册表
 // ──────────────────────────────────────────────────────────────────────────────
@@ -573,6 +608,8 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 
 // StopControllerPortForward 停止指定 Port 的控制端监听，并等待其 goroutine 完全退出。
 // 这确保端口已被释放，后续可立即重新绑定同一端口。
+// 同时关闭所有关联的 in-flight 隧道会话，防止残留的 handleConn goroutine
+// 在监听器停止后继续向 WebSocket 写入数据，导致写路径拥塞。
 func StopControllerPortForward(portID uint) {
 	ctrlListenerMu.Lock()
 	cl, ok := ctrlListeners[portID]
@@ -596,7 +633,13 @@ func StopControllerPortForward(portID uint) {
 // StopControllerPortForwardsByProvider 停止指定 Provider 的所有控制端端口转发监听器。
 // 当 Agent 断开连接时调用，释放已失效的端口资源。
 // Agent 重连后会通过 RecoverControllerPortForwardsByProvider 重新启动。
+// 使用 recoveryMu 防止与 RecoverControllerPortForwardsByProvider 并发执行。
 func StopControllerPortForwardsByProvider(providerID uint) {
+	// 互斥：与 RecoverControllerPortForwardsByProvider 互斥，防止并发操作
+	// 同一 Provider 的监听器导致竞态条件。
+	recoveryMu.Lock()
+	defer recoveryMu.Unlock()
+
 	var ports []providerModel.Port
 	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",
 		providerID, "controller", "active").Find(&ports).Error; err != nil {
@@ -722,19 +765,22 @@ func looksLikeIP(s string) bool {
 // RecoverControllerPortForwardsByProvider 恢复指定 Provider 的所有活跃控制端端口转发。
 // 在 Agent 重连时调用，确保端口转发使用新的 WebSocket 连接。
 // 内置防抖机制：同一 Provider 在 30 秒内不会重复执行恢复操作。
+// 使用 recoveryMu 防止与 StopControllerPortForwardsByProvider 并发执行。
 func RecoverControllerPortForwardsByProvider(providerID uint) {
-	// 防抖：检查上次恢复时间，30 秒内不重复执行
+	// 互斥：与 StopControllerPortForwardsByProvider 互斥，防止并发操作
+	// 同一 Provider 的监听器导致竞态条件。
 	recoveryMu.Lock()
+	defer recoveryMu.Unlock()
+
+	// 防抖：检查上次恢复时间，30 秒内不重复执行
 	if lastTime, exists := recoveringAt[providerID]; exists {
 		if time.Since(lastTime) < 30*time.Second {
-			recoveryMu.Unlock()
 			global.APP_LOG.Debug("跳过重复的端口转发恢复（距上次不足30秒）",
 				zap.Uint("providerID", providerID))
 			return
 		}
 	}
 	recoveringAt[providerID] = time.Now()
-	recoveryMu.Unlock()
 
 	var ports []providerModel.Port
 	if err := global.APP_DB.Where("provider_id = ? AND mapping_type = ? AND status = ?",

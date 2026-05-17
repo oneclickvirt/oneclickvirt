@@ -92,6 +92,16 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	hub := agentService.GetHub()
 	conn, ok := hub.GetConn(p.ID)
 	if !ok || conn == nil {
+		// 诊断日志：记录为何 Agent 连接未找到
+		runtimeHealth := hub.GetRuntimeHealth(p.ID)
+		global.APP_LOG.Warn("Agent 终端连接失败：Agent 未连接",
+			zap.Uint("providerID", p.ID),
+			zap.String("providerName", p.Name),
+			zap.String("connectionType", p.ConnectionType),
+			zap.String("agentStatus", p.AgentStatus),
+			zap.String("runtimeStatus", runtimeHealth.Status),
+			zap.Bool("runtimeConnected", runtimeHealth.Connected),
+			zap.Bool("connInHub", ok))
 		ws.WriteMessage(websocket.TextMessage, []byte("Agent 节点未连接\r\n"))
 		return
 	}

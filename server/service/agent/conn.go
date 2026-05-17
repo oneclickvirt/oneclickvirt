@@ -245,6 +245,13 @@ func (a *AgentConn) StopNoiseLoop() {
 //
 // Interval: 30 s (fixed, deliberately different from the ~15 s app-level
 // ping to avoid harmonic alignment).
+//
+// NOTE: WriteControl is concurrent-safe per gorilla/websocket docs, so we
+// do NOT hold writeMu here.  Holding writeMu would serialize the protocol
+// ping behind potentially slow data writes (up to 10 s timeout), defeating
+// the purpose of a transport-layer keepalive.  SetWriteDeadline is also
+// safe without writeMu because it only affects the next write on this
+// goroutine.
 func (a *AgentConn) StartWSPingLoop() {
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
@@ -255,17 +262,12 @@ func (a *AgentConn) StartWSPingLoop() {
 				return
 			case <-ticker.C:
 			}
-			// WriteControl sends a control frame directly; it does NOT
-			// go through the data write buffer and cannot be blocked by
-			// a stalled WriteMessage call on another goroutine.
-			a.writeMu.Lock()
 			_ = a.conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			err := a.conn.WriteControl(
 				websocket.PingMessage,
 				[]byte{},
 				time.Now().Add(5*time.Second),
 			)
-			a.writeMu.Unlock()
 			if err != nil {
 				global.APP_LOG.Debug("WebSocket protocol ping failed",
 					zap.Uint("providerID", a.ProviderID),

@@ -13,8 +13,9 @@ import (
 
 const (
 	// 仅用于兜底，真正的在线状态由 Agent 上行消息（pong/info/exec_resp 等）维护。
-	// 收紧到 90s 以便在网络半断链场景更快识别离线。
-	readDeadlineWindow = 90 * time.Second
+	// 提高到 120s，与 Agent 侧 ws_client.rs 的 120s 读超时对称，
+	// 避免在 Agent 负载较高、noise 帧延迟时因读超时误判离线。
+	readDeadlineWindow = 120 * time.Second
 	// 限制 online 心跳落库频率，避免每次 ping 都写 DB 引发 N+1 写放大。
 	heartbeatPersistInterval = 30 * time.Second
 	// 执行通道判定窗口：超出该窗口未观察到 exec/shell 回包时标记为 degraded。

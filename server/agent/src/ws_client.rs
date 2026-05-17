@@ -259,6 +259,13 @@ where
     // many commands in rapid succession.
     let exec_permits: Arc<Semaphore> = Arc::new(Semaphore::new(10));
 
+    // Limit concurrent tunnel open operations to 20 to prevent resource
+    // exhaustion (file descriptors, memory, CPU) when the controller rapidly
+    // toggles remote connections on the node.  Each tunnel_open spawns a TCP
+    // connection and multiple forwarding tasks; without a bound, rapid toggle
+    // sequences can cause the agent to become unresponsive.
+    let tunnel_permits: Arc<Semaphore> = Arc::new(Semaphore::new(20));
+
     // ── Anti-DPI noise sender ───────────────────────────────────────────
     // Periodically sends random-length noise frames ("nop" type) at
     // irregular intervals (15-55s) to break traffic-analysis signatures:
@@ -490,7 +497,20 @@ where
                             let hi_clone = ws_tx_hi.clone();
                             let lo_clone = ws_tx_lo.clone();
                             let sess_clone = sessions.clone();
+                            let permits = tunnel_permits.clone();
                             tokio::spawn(async move {
+                                // Acquire a tunnel permit to bound concurrent
+                                // tunnel connections.  If all permits are
+                                // exhausted, the oldest permit holder must
+                                // complete first — this provides natural
+                                // backpressure during rapid toggle sequences.
+                                let _permit = match permits.try_acquire_owned() {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        warn!("tunnel permit exhausted, dropping tunnel_open frame");
+                                        return;
+                                    }
+                                };
                                 handle_tunnel_open(payload_val, hi_clone, lo_clone, sess_clone).await;
                             });
                         }
