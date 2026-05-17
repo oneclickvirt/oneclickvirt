@@ -308,9 +308,12 @@ const formData = ref({
   // 连接方式（内网穿透）
   connectionType: 'ssh',
   agentStatus: 'offline',
+  agentRuntimeStatus: 'offline',
   agentLastSeen: null,
   agentConnectedAt: null,
   agentRemoteIP: '',
+  agentControlLastSeen: null,
+  agentExecLastSeen: null,
   // Proxmox 网桥配置
   nodeInstallType: 'script',
   bridgeNAT: '',
@@ -695,15 +698,20 @@ const handleCheckAgentStatus = async () => {
         portIP: res.data.portIP || formData.value.portIP,
         port: res.data.sshPort || formData.value.port,
         agentStatus: res.data.agentStatus || 'offline',
+        agentRuntimeStatus: res.data.agentRuntimeStatus || res.data.agentStatus || 'offline',
         agentLastSeen: res.data.agentLastSeen || null,
         agentConnectedAt: res.data.agentConnectedAt || null,
         agentRemoteIP: res.data.agentRemoteIP || '',
+        agentControlLastSeen: res.data.agentControlLastSeen || null,
+        agentExecLastSeen: res.data.agentExecLastSeen || null,
         networkType: res.data.networkType || formData.value.networkType,
         enableTrafficControl: res.data.enableTrafficControl ?? formData.value.enableTrafficControl,
         enableResourceMonitoring: res.data.enableResourceMonitoring ?? formData.value.enableResourceMonitoring
       })
-      if (formData.value.agentStatus === 'online') {
+      if ((formData.value.agentRuntimeStatus || formData.value.agentStatus) === 'online') {
         ElMessage.success(t('admin.providers.agentConnected'))
+      } else if ((formData.value.agentRuntimeStatus || formData.value.agentStatus) === 'degraded') {
+        ElMessage.warning(t('admin.providers.agentDegraded'))
       } else {
         ElMessage.warning(t('admin.providers.agentNotConnected'))
       }

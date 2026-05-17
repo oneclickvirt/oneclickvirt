@@ -18,41 +18,57 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
+log_with_level() {
+    local level="$1"
+    local first_line="$2"
+    local second_line="$3"
+    echo -e "${level} ${first_line}"
+    if [ -n "$second_line" ]; then
+        echo -e "${level} ${second_line}"
+    fi
+}
+
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    log_with_level "${BLUE}[INFO]${NC}" "$1" "$2"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    log_with_level "${GREEN}[SUCCESS]${NC}" "$1" "$2"
 }
 
 log_warning() {
-    echo -e "${YELLOW}[WARNING]${NC} $1"
+    log_with_level "${YELLOW}[WARNING]${NC}" "$1" "$2"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    log_with_level "${RED}[ERROR]${NC}" "$1" "$2"
 }
 
-reading() { 
-    printf "\033[32m\033[01m%s\033[0m" "$1"
-    read "$2"
+reading() {
+    if [ $# -eq 3 ]; then
+        printf "\033[32m\033[01m%s\033[0m\n" "$1"
+        printf "\033[32m\033[01m%s\033[0m" "$2"
+        read "$3"
+    else
+        printf "\033[32m\033[01m%s\033[0m" "$1"
+        read "$2"
+    fi
 }
 
 get_latest_version() {
     # 如果用户通过环境变量指定了版本，直接使用
     if [ -n "$INSTALL_VERSION" ]; then
-        log_info "使用指定版本: $INSTALL_VERSION"
+        log_info "Using requested version: $INSTALL_VERSION" "使用指定版本: $INSTALL_VERSION"
         VERSION="$INSTALL_VERSION"
         BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
         return 0
     fi
     
-    log_info "正在获取最新版本信息..."
+    log_info "Fetching the latest release version..." "正在获取最新版本信息..."
     
     local version=""
     for api_url in "${github_api_urls[@]}"; do
-        log_info "尝试从 $api_url 获取版本信息..."
+        log_info "Trying to fetch version metadata from $api_url..." "正在尝试从 $api_url 获取版本信息..."
         
         # 尝试获取最新release信息
         local response
@@ -60,25 +76,25 @@ get_latest_version() {
             version=$(echo "$response" | grep '"tag_name":' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
             
             if [ -n "$version" ] && [ "$version" != "null" ]; then
-                log_success "成功获取最新版本: $version"
+                log_success "Latest version resolved: $version" "成功获取最新版本: $version"
                 VERSION="$version"
                 BASE_URL="https://github.com/${REPO}/releases/download/${VERSION}"
                 return 0
             fi
         fi
         
-        log_warning "从 $api_url 获取版本失败，尝试下一个..."
+        log_warning "Failed to fetch version metadata from $api_url, trying the next endpoint..." "从 $api_url 获取版本失败，正在尝试下一个接口..."
         sleep 1
     done
     
-    log_error "无法从任何API获取最新版本信息"
-    log_error "请检查网络连接或手动指定版本"
+    log_error "Unable to fetch the latest version from any API endpoint." "无法从任何 API 接口获取最新版本信息。"
+    log_error "Please check network connectivity or set INSTALL_VERSION manually." "请检查网络连接，或手动设置 INSTALL_VERSION。"
     return 1
 }
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
-        log_error "此脚本需要以root身份运行"
+        log_error "This script must be run as root." "此脚本需要以 root 身份运行。"
         exit 1
     fi
 }
@@ -93,7 +109,7 @@ detect_arch() {
             echo "arm64"
             ;;
         *)
-            log_error "不支持的架构: $arch"
+            log_error "Unsupported architecture: $arch" "不支持的架构: $arch"
             exit 1
             ;;
     esac
@@ -159,7 +175,7 @@ detect_system() {
     fi
     
     if [ -z "$SYSTEM" ]; then
-        log_warning "无法识别系统，尝试常用包管理器..."
+        log_warning "Unable to detect the operating system, trying common package managers..." "无法识别系统，正在尝试常见包管理器..."
         if command -v apt-get >/dev/null 2>&1; then
             SYSTEM="Unknown-Debian"
             UPDATE_CMD="apt-get update"
@@ -181,12 +197,12 @@ detect_system() {
             UPDATE_CMD="apk update"
             INSTALL_CMD="apk add"
         else
-            log_error "无法识别包管理器，退出安装"
+            log_error "Unable to detect a supported package manager, aborting installation." "无法识别受支持的包管理器，安装终止。"
             exit 1
         fi
     fi
     
-    log_success "检测到系统: $SYSTEM"
+    log_success "Detected operating system: $SYSTEM" "检测到系统: $SYSTEM"
 }
 
 check_dependencies() {
@@ -200,36 +216,36 @@ check_dependencies() {
     done
     
     if [ ${#missing[@]} -ne 0 ]; then
-        log_warning "缺少必要工具: ${missing[*]}"
-        log_info "正在安装缺少的工具..."
+        log_warning "Missing required tools: ${missing[*]}" "缺少必要工具: ${missing[*]}"
+        log_info "Installing missing dependencies..." "正在安装缺少的依赖工具..."
         
         # 如果是非交互模式，询问是否更新系统
         if [ "$noninteractive" != "true" ]; then
-            log_warning "系统更新可能需要较长时间，并可能导致网络短暂中断"
-            reading "是否更新系统包管理器? (y/N): " update_confirm
+            log_warning "A package index update may take some time and could briefly affect network availability." "更新系统包索引可能耗时较长，并可能导致网络短暂波动。"
+            reading "Update package indexes before installing dependencies? (y/N): " "是否先更新系统包索引再安装依赖？(y/N): " update_confirm
             case "$update_confirm" in
                 [Yy]*)
-                    log_info "更新系统包管理器..."
+                    log_info "Updating package indexes..." "正在更新系统包索引..."
                     if ! ${UPDATE_CMD} 2>/dev/null; then
-                        log_warning "系统更新失败，继续安装依赖"
+                        log_warning "Package index update failed, continuing with dependency installation." "系统更新失败，继续安装依赖。"
                     fi
                     ;;
                 *)
-                    log_warning "跳过系统更新，某些包可能安装失败"
+                    log_warning "Skipping package index update; some package installations may fail." "已跳过系统更新，某些软件包可能安装失败。"
                     ;;
             esac
         fi
         
         for dep in "${missing[@]}"; do
-            log_info "安装 $dep..."
+            log_info "Installing $dep..." "正在安装 $dep..."
             if ! ${INSTALL_CMD} "$dep" 2>/dev/null; then
-                log_error "安装 $dep 失败"
+                log_error "Failed to install $dep." "安装 $dep 失败。"
                 exit 1
             fi
         done
-        log_success "依赖工具安装完成"
+        log_success "Dependency installation completed." "依赖工具安装完成。"
     else
-        log_success "所有必要工具已安装"
+        log_success "All required tools are already installed." "所有必要工具均已安装。"
     fi
 }
 
@@ -275,9 +291,9 @@ check_cdn() {
 check_cdn_file() {
     check_cdn "https://raw.githubusercontent.com/spiritLHLS/ecs/main/back/test"
     if [ -n "$cdn_success_url" ]; then
-        log_info "CDN 可用，使用 CDN 加速下载"
+        log_info "CDN mirrors are available; accelerated downloads will be used." "CDN 可用，将使用 CDN 加速下载。"
     else
-        log_warning "CDN 不可用，使用原始链接下载"
+        log_warning "CDN mirrors are unavailable; falling back to direct origin downloads." "CDN 不可用，将使用原始链接下载。"
     fi
 }
 
@@ -351,11 +367,11 @@ download_file() {
         fi
         
         retry_count=$((retry_count + 1))
-        log_warning "下载失败，重试 (${retry_count}/${max_retries}): $url"
+        log_warning "Download failed, retrying (${retry_count}/${max_retries}): $url" "下载失败，正在重试 (${retry_count}/${max_retries}): $url"
         sleep 2
     done
     
-    log_error "下载失败: $url"
+    log_error "Download failed: $url" "下载失败: $url"
     return 1
 }
 
@@ -372,7 +388,7 @@ create_directories() {
     for dir in "${dirs[@]}"; do
         if [ ! -d "$dir" ]; then
             mkdir -p "$dir"
-            log_info "创建目录: $dir"
+            log_info "Creating directory: $dir" "正在创建目录: $dir"
         fi
     done
 }
@@ -389,17 +405,17 @@ install_server() {
     fi
     
     local temp_file="/opt/oneclickvirt/${filename}"
-    log_info "下载服务器二进制文件 (${arch})..."
-    log_info "下载链接: $download_url"
+    log_info "Downloading server binary (${arch})..." "正在下载服务器二进制文件 (${arch})..."
+    log_info "Download URL: $download_url" "下载链接: $download_url"
     
     if download_file "$download_url" "$temp_file"; then
-        log_success "下载完成: $filename"
+        log_success "Download completed: $filename" "下载完成: $filename"
     else
-        log_error "下载失败: $download_url"
+        log_error "Failed to download: $download_url" "下载失败: $download_url"
         exit 1
     fi
     
-    log_info "解压服务器二进制文件..."
+    log_info "Extracting server binary package..." "正在解压服务器二进制文件..."
     if tar -xzf "$temp_file" -C /opt/oneclickvirt/server/; then
         # 检查解压后的文件名并重命名
         if [ -f "/opt/oneclickvirt/server/server-linux-${arch}" ]; then
@@ -413,15 +429,15 @@ install_server() {
             if [ -n "$executable" ]; then
                 mv "$executable" "/opt/oneclickvirt/server/oneclickvirt-server"
             else
-                log_error "未找到可执行文件"
+                log_error "No executable file was found after extraction." "解压后未找到可执行文件。"
                 exit 1
             fi
         fi
         chmod 777 /opt/oneclickvirt/server/oneclickvirt-server
         rm -f "$temp_file"
-        log_success "服务器二进制文件安装完成"
+        log_success "Server binary installation completed." "服务器二进制文件安装完成。"
     else
-        log_error "解压失败"
+        log_error "Extraction failed." "解压失败。"
         exit 1
     fi
 }
@@ -440,45 +456,45 @@ install_web() {
     local web_path
     if [ -n "$custom_web_path" ]; then
         web_path="$custom_web_path"
-        log_info "使用自定义Web路径: $web_path"
+        log_info "Using custom web path: $web_path" "使用自定义 Web 路径: $web_path"
     else
         web_path="/opt/oneclickvirt/web"
-        log_info "使用默认Web路径: $web_path"
+        log_info "Using default web path: $web_path" "使用默认 Web 路径: $web_path"
     fi
     
-    log_info "下载Web应用文件..."
-    log_info "下载链接: $download_url"
+    log_info "Downloading web assets..." "正在下载 Web 应用文件..."
+    log_info "Download URL: $download_url" "下载链接: $download_url"
     
     if download_file "$download_url" "$temp_file"; then
-        log_success "下载完成: $filename"
+        log_success "Download completed: $filename" "下载完成: $filename"
     else
-        log_error "下载失败: $download_url"
+        log_error "Failed to download: $download_url" "下载失败: $download_url"
         exit 1
     fi
     
-    log_info "解压Web应用文件..."
+    log_info "Extracting web assets..." "正在解压 Web 应用文件..."
     if command -v unzip &> /dev/null; then
         if unzip -q "$temp_file" -d "$web_path/"; then
             rm -f "$temp_file"
             chmod 777 "$web_path/"
-            log_success "Web应用文件安装完成: $web_path"
+            log_success "Web assets installed successfully: $web_path" "Web 应用文件安装完成: $web_path"
         else
-            log_error "解压失败"
+            log_error "Extraction failed." "解压失败。"
             exit 1
         fi
     else
-        log_error "未找到unzip工具"
-        log_info "正在安装unzip..."
+        log_error "The unzip utility is missing." "未找到 unzip 工具。"
+        log_info "Installing unzip..." "正在安装 unzip..."
         if ! ${INSTALL_CMD} unzip 2>/dev/null; then
-            log_error "unzip安装失败，跳过Web文件安装"
+            log_error "Failed to install unzip; skipping web asset installation." "unzip 安装失败，跳过 Web 文件安装。"
             return 1
         fi
         if unzip -q "$temp_file" -d "$web_path/"; then
             rm -f "$temp_file"
             chmod 777 "$web_path/"
-            log_success "Web应用文件安装完成: $web_path"
+            log_success "Web assets installed successfully: $web_path" "Web 应用文件安装完成: $web_path"
         else
-            log_error "解压失败"
+            log_error "Extraction failed." "解压失败。"
             exit 1
         fi
     fi
@@ -495,14 +511,14 @@ download_config() {
         download_url="$config_url"
     fi
     
-    log_info "下载配置文件..."
-    log_info "下载链接: $download_url"
+    log_info "Downloading configuration file..." "正在下载配置文件..."
+    log_info "Download URL: $download_url" "下载链接: $download_url"
     
     if download_file "$download_url" "$config_file"; then
         chmod 644 "$config_file"
-        log_success "配置文件下载完成"
+        log_success "Configuration file download completed." "配置文件下载完成。"
     else
-        log_error "配置文件下载失败: $config_url"
+        log_error "Failed to download configuration file: $config_url" "配置文件下载失败: $config_url"
         exit 1
     fi
 }
@@ -510,7 +526,7 @@ download_config() {
 create_readme() {
     local readme_file="/opt/oneclickvirt/server/readme.md"
     
-    log_info "创建使用说明文件..."
+    log_info "Creating the usage guide..." "正在创建使用说明文件..."
     
     cat > "$readme_file" << EOF
 # OneClickVirt 使用方法
@@ -558,13 +574,13 @@ create_readme() {
 - 重载systemd: systemctl daemon-reload
 EOF
 
-    log_success "使用说明文件创建完成"
+    log_success "Usage guide created successfully." "使用说明文件创建完成。"
 }
 
 create_systemd_service() {
     local service_file="/etc/systemd/system/oneclickvirt.service"
     
-    log_info "创建systemd服务文件..."
+    log_info "Creating the systemd service file..." "正在创建 systemd 服务文件..."
     
     cat > "$service_file" << EOF
 [Unit]
@@ -599,40 +615,40 @@ WantedBy=multi-user.target
 EOF
 
     systemctl daemon-reload
-    log_success "systemd服务文件创建完成"
+    log_success "systemd service file created successfully." "systemd 服务文件创建完成。"
 }
 
 create_symlink() {
     if [ ! -L "/usr/local/bin/oneclickvirt" ]; then
         ln -sf /opt/oneclickvirt/server/oneclickvirt-server /usr/local/bin/oneclickvirt
-        log_success "创建命令行链接: /usr/local/bin/oneclickvirt"
+        log_success "CLI symlink created: /usr/local/bin/oneclickvirt" "命令行链接已创建: /usr/local/bin/oneclickvirt"
     else
-        log_info "命令行链接已存在"
+        log_info "CLI symlink already exists." "命令行链接已存在。"
     fi
 }
 
 upgrade_server() {
     if [ ! -f "/opt/oneclickvirt/server/oneclickvirt-server" ]; then
-        log_error "未检测到已安装的版本，请使用 install 选项进行全新安装"
+        log_error "No existing installation was detected; please use the install command for a fresh setup." "未检测到已安装版本，请使用 install 选项进行全新安装。"
         exit 1
     fi
     
-    log_info "开始升级到版本: $VERSION"
+    log_info "Starting upgrade to version: $VERSION" "开始升级到版本: $VERSION"
     
     # 检查服务是否正在运行
     local service_was_running=false
     if systemctl is-active --quiet oneclickvirt 2>/dev/null; then
-        log_info "停止 oneclickvirt 服务..."
+        log_info "Stopping the oneclickvirt service..." "正在停止 oneclickvirt 服务..."
         systemctl stop oneclickvirt
         service_was_running=true
     fi
     
     # 升级服务器二进制文件
-    log_info "升级服务器二进制文件..."
+    log_info "Upgrading server binary..." "正在升级服务器二进制文件..."
     install_server
     
     # 升级Web文件 - 先删除旧文件，再解压新文件
-    log_info "升级Web应用文件..."
+    log_info "Upgrading web assets..." "正在升级 Web 应用文件..."
     
     # 确定Web路径
     local web_path
@@ -644,9 +660,9 @@ upgrade_server() {
     
     # 删除旧的Web文件夹内容（但保留文件夹本身）
     if [ -d "$web_path" ]; then
-        log_info "清理旧的Web文件: $web_path"
+        log_info "Cleaning old web assets at: $web_path" "正在清理旧的 Web 文件: $web_path"
         rm -rf "${web_path:?}"/*
-        log_success "旧Web文件已清理"
+        log_success "Old web assets have been cleaned up." "旧 Web 文件已清理。"
     fi
     
     # 安装新的Web文件
@@ -654,22 +670,22 @@ upgrade_server() {
     
     # 重新启动服务
     if [ "$service_was_running" = true ]; then
-        log_info "重新启动 oneclickvirt 服务..."
+        log_info "Restarting the oneclickvirt service..." "正在重新启动 oneclickvirt 服务..."
         systemctl start oneclickvirt
         sleep 2
         if systemctl is-active --quiet oneclickvirt; then
-            log_success "服务已成功重启"
+            log_success "Service restarted successfully." "服务已成功重启。"
         else
-            log_error "服务启动失败，请检查日志: journalctl -u oneclickvirt -n 50"
+            log_error "Service failed to start; check logs with: journalctl -u oneclickvirt -n 50" "服务启动失败，请检查日志: journalctl -u oneclickvirt -n 50"
         fi
     fi
     
-    log_success "升级完成!"
-    log_info "版本: $VERSION"
-    log_info "配置文件保持不变: /opt/oneclickvirt/server/config.yaml"
-    log_info "Web路径: $web_path"
+    log_success "Upgrade completed successfully." "升级完成！"
+    log_info "Version: $VERSION" "版本: $VERSION"
+    log_info "Configuration file kept unchanged: /opt/oneclickvirt/server/config.yaml" "配置文件保持不变: /opt/oneclickvirt/server/config.yaml"
+    log_info "Web path: $web_path" "Web 路径: $web_path"
     if [ "$service_was_running" = false ]; then
-        log_warning "服务未自动启动，请手动启动: systemctl start oneclickvirt"
+        log_warning "The service was not auto-started; start it manually with: systemctl start oneclickvirt" "服务未自动启动，请手动执行: systemctl start oneclickvirt"
     fi
 }
 
@@ -677,16 +693,16 @@ check_memory_warning() {
     local mem_size
     mem_size=$(get_memory_size)
     if [ -n "$mem_size" ] && [ "$mem_size" -lt 1024 ]; then
-        log_warning "警告: 您的系统内存少于1GB (${mem_size}MB)"
-        log_warning "这可能会影响程序运行性能"
+        log_warning "Warning: system memory is below 1 GB (${mem_size} MB)." "警告：系统内存低于 1GB (${mem_size}MB)。"
+        log_warning "This may affect runtime performance." "这可能会影响程序运行性能。"
         if [ "$noninteractive" != "true" ]; then
-            reading "是否继续安装? (y/N): " confirm
+            reading "Continue with installation? (y/N): " "是否继续安装？(y/N): " confirm
             case "$confirm" in
                 [Yy]*)
-                    log_info "继续安装..."
+                    log_info "Continuing installation..." "继续安装..."
                     ;;
                 *)
-                    log_info "取消安装"
+                    log_info "Installation cancelled." "安装已取消。"
                     exit 0
                     ;;
             esac
@@ -695,34 +711,34 @@ check_memory_warning() {
 }
 
 show_info() {
-    log_success "oneclickvirt 安装完成!"
+    log_success "OneClickVirt installation completed." "oneclickvirt 安装完成！"
     echo ""
-    log_info "安装信息:"
-    log_info "  版本: $VERSION"
-    log_info "  系统: $SYSTEM"
-    log_info "  架构: $(detect_arch)"
-    log_info "  安装路径: /opt/oneclickvirt"
+    log_info "Installation summary:" "安装信息："
+    log_info "  Version: $VERSION" "  版本: $VERSION"
+    log_info "  System: $SYSTEM" "  系统: $SYSTEM"
+    log_info "  Architecture: $(detect_arch)" "  架构: $(detect_arch)"
+    log_info "  Install path: /opt/oneclickvirt" "  安装路径: /opt/oneclickvirt"
     if [ -n "$custom_web_path" ]; then
-        log_info "  Web路径: $custom_web_path (自定义)"
+        log_info "  Web path: $custom_web_path (custom)" "  Web 路径: $custom_web_path (自定义)"
     else
-        log_info "  Web路径: /opt/oneclickvirt/web (默认)"
+        log_info "  Web path: /opt/oneclickvirt/web (default)" "  Web 路径: /opt/oneclickvirt/web (默认)"
     fi
     echo ""
-    log_info "使用方法:"
-    log_info "  查看帮助: oneclickvirt --help"
-    log_info "  启动服务: systemctl start oneclickvirt"
-    log_info "  查看状态: systemctl status oneclickvirt"
-    log_info "  详细说明: /opt/oneclickvirt/server/readme.md"
+    log_info "Quick usage:" "使用方法："
+    log_info "  Help: oneclickvirt --help" "  查看帮助: oneclickvirt --help"
+    log_info "  Start service: systemctl start oneclickvirt" "  启动服务: systemctl start oneclickvirt"
+    log_info "  Service status: systemctl status oneclickvirt" "  查看状态: systemctl status oneclickvirt"
+    log_info "  Full guide: /opt/oneclickvirt/server/readme.md" "  详细说明: /opt/oneclickvirt/server/readme.md"
     echo ""
-    log_warning "请在启动服务前检查并修改配置文件: /opt/oneclickvirt/server/config.yaml"
+    log_warning "Review and update the configuration before starting the service: /opt/oneclickvirt/server/config.yaml" "请在启动服务前检查并修改配置文件: /opt/oneclickvirt/server/config.yaml"
 }
 
 env_check() {
-    log_info "开始环境检查..."
+    log_info "Starting environment checks..." "开始环境检查..."
     
     # 获取最新版本
     if ! get_latest_version; then
-        log_error "无法获取最新版本，安装终止"
+        log_error "Unable to resolve the latest version, installation aborted." "无法获取最新版本，安装终止。"
         exit 1
     fi
     
@@ -730,37 +746,59 @@ env_check() {
     check_memory_warning
     check_dependencies
     check_cdn_file
-    log_success "环境检查完成"
+        log_success "Environment checks completed." "环境检查完成。"
 }
 
 show_help() {
     cat <<"EOF"
+OneClickVirt installer
 OneClickVirt 安装脚本
 
+Usage: $0 [option]
 用法: $0 [选项]
 
+Options:
 选项:
-  env                   仅检查和准备环境
-  install              完整安装 (默认)
-  upgrade              升级已安装的版本
-  help                 显示此帮助信息
-  
-环境变量:
-  CN=true                    强制使用中国镜像
-  noninteractive=true        非交互模式
-  WEB_PATH=/path             自定义Web文件安装路径 (默认: /opt/oneclickvirt/web)
-  INSTALL_VERSION=v1.0.0     指定要安装的版本 (默认: 自动获取最新版本)
+    env                   Check and prepare the environment only
+    env                   仅检查和准备环境
+    install               Full installation (default)
+    install               完整安装（默认）
+    upgrade               Upgrade an existing installation
+    upgrade               升级已安装版本
+    help                  Show this help message
+    help                  显示此帮助信息
 
+Environment variables:
+环境变量:
+    CN=true                    Force China mirrors
+    CN=true                    强制使用中国镜像
+    noninteractive=true        Non-interactive mode
+    noninteractive=true        非交互模式
+    WEB_PATH=/path             Custom web install path (default: /opt/oneclickvirt/web)
+    WEB_PATH=/path             自定义 Web 安装路径（默认: /opt/oneclickvirt/web）
+    INSTALL_VERSION=v1.0.0     Install a specific version (default: latest release)
+    INSTALL_VERSION=v1.0.0     指定安装版本（默认：自动获取最新版本）
+
+Examples:
 示例:
-  $0                                    # 完整安装最新版本
-  $0 env                                # 仅环境检查
-  $0 upgrade                            # 升级到最新版本
-  CN=true $0                            # 使用中国镜像安装
-  noninteractive=true $0                # 非交互安装
-  WEB_PATH=/var/www/html $0             # 自定义Web路径安装
-  INSTALL_VERSION=v1.0.0 $0             # 安装指定版本
-  INSTALL_VERSION=v1.0.0 $0 upgrade     # 升级到指定版本
-  WEB_PATH=/custom/path $0 upgrade      # 升级时指定自定义Web路径
+    $0                                    # Install the latest version
+    $0                                    # 安装最新版本
+    $0 env                                # Environment checks only
+    $0 env                                # 仅进行环境检查
+    $0 upgrade                            # Upgrade to the latest version
+    $0 upgrade                            # 升级到最新版本
+    CN=true $0                            # Install using China mirrors
+    CN=true $0                            # 使用中国镜像安装
+    noninteractive=true $0                # Install without prompts
+    noninteractive=true $0                # 非交互安装
+    WEB_PATH=/var/www/html $0             # Install with a custom web path
+    WEB_PATH=/var/www/html $0             # 使用自定义 Web 路径安装
+    INSTALL_VERSION=v1.0.0 $0             # Install a specific version
+    INSTALL_VERSION=v1.0.0 $0             # 安装指定版本
+    INSTALL_VERSION=v1.0.0 $0 upgrade     # Upgrade to a specific version
+    INSTALL_VERSION=v1.0.0 $0 upgrade     # 升级到指定版本
+    WEB_PATH=/custom/path $0 upgrade      # Upgrade with a custom web path
+    WEB_PATH=/custom/path $0 upgrade      # 升级时指定自定义 Web 路径
 EOF
 }
 
@@ -778,22 +816,22 @@ main() {
             env_check
             # 处理自定义Web路径（仅在 install 模式下询问）
             if [ "$noninteractive" != "true" ] && [ -z "$custom_web_path" ]; then
-                reading "是否使用自定义Web路径? (y/N): " use_custom
+                reading "Use a custom web path? (y/N): " "是否使用自定义 Web 路径？(y/N): " use_custom
                 case "$use_custom" in
                     [Yy]*)
-                        reading "请输入Web路径 (如 /var/www/html): " custom_web_path
+                        reading "Enter the web path (for example: /var/www/html): " "请输入 Web 路径（例如 /var/www/html）: " custom_web_path
                         if [ -n "$custom_web_path" ]; then
-                            log_info "将使用自定义Web路径: $custom_web_path"
+                            log_info "Custom web path selected: $custom_web_path" "将使用自定义 Web 路径: $custom_web_path"
                         else
-                            log_warning "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
+                            log_warning "No path was provided; the default path will be used: /opt/oneclickvirt/web" "未输入路径，将使用默认路径: /opt/oneclickvirt/web"
                         fi
                         ;;
                     *)
-                        log_info "使用默认Web路径: /opt/oneclickvirt/web"
+                        log_info "Using default web path: /opt/oneclickvirt/web" "使用默认 Web 路径: /opt/oneclickvirt/web"
                         ;;
                 esac
             elif [ -n "$custom_web_path" ]; then
-                log_info "检测到环境变量WEB_PATH: $custom_web_path"
+                log_info "Detected WEB_PATH from environment: $custom_web_path" "检测到环境变量 WEB_PATH: $custom_web_path"
             fi
             create_directories
             install_server
@@ -813,7 +851,7 @@ main() {
             show_help
             ;;
         *)
-            log_error "未知选项: $1"
+            log_error "Unknown option: $1" "未知选项: $1"
             show_help
             exit 1
             ;;

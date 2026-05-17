@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/admin"
 	providerModel "oneclickvirt/model/provider"
+	agentService "oneclickvirt/service/agent"
 	"oneclickvirt/utils"
 
 	"go.uber.org/zap"
@@ -194,6 +195,9 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 		trafficUsageMap[usage.ProviderID] = int64(usage.UsedTraffic)
 	}
 
+	// 批量获取 Agent 运行时健康信息（内存态，不触发数据库查询）
+	runtimeHealthMap := agentService.GetHub().GetRuntimeHealthBatch(providerIDs)
+
 	var providerResponses []admin.ProviderManageResponse
 	for _, provider := range providers {
 		// 从映射表中获取统计数据
@@ -236,6 +240,12 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 			CurrentVMCount:        int(instanceCount.VMCount),
 			// 流量使用情况
 			UsedTraffic: usedTraffic,
+		}
+		if provider.ConnectionType == "agent" {
+			runtimeHealth := runtimeHealthMap[provider.ID]
+			providerResponse.AgentRuntimeStatus = runtimeHealth.Status
+			providerResponse.AgentControlLastSeen = runtimeHealth.ControlLastSeen
+			providerResponse.AgentExecLastSeen = runtimeHealth.ExecLastSeen
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}

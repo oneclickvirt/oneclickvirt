@@ -31,15 +31,37 @@ import (
 )
 
 const (
-	// 仅用于兜底，真正的在线状态由 ping + 消息读循环共同维护。
-	readDeadlineWindow = 300 * time.Second
+	// 仅用于兜底，真正的在线状态由 Agent 上行消息（pong/info/exec_resp 等）维护。
+	// 收紧到 90s 以便在网络半断链场景更快识别离线。
+	readDeadlineWindow = 90 * time.Second
 	// 限制 online 心跳落库频率，避免每次 ping 都写 DB 引发 N+1 写放大。
 	heartbeatPersistInterval = 30 * time.Second
+	// 执行通道判定窗口：超出该窗口未观察到 exec/shell 回包时标记为 degraded。
+	execChannelStaleWindow = 3 * time.Minute
+	// 新连接预热窗口：连接建立后短时间内不因 exec 为空而降级。
+	execWarmupWindow = 2 * time.Minute
 )
 
 type agentStatusPersistState struct {
 	status      string
 	lastPersist time.Time
+}
+
+type agentRuntimeState struct {
+	connected   bool
+	connectedAt time.Time
+	lastInbound time.Time
+	lastExec    time.Time
+}
+
+type AgentRuntimeHealth struct {
+	ProviderID       uint       `json:"providerId"`
+	Connected        bool       `json:"connected"`
+	Status           string     `json:"status"` // online / degraded / offline
+	ControlLastSeen  *time.Time `json:"controlLastSeen,omitempty"`
+	ExecLastSeen     *time.Time `json:"execLastSeen,omitempty"`
+	ConnectedAt      *time.Time `json:"connectedAt,omitempty"`
+	ExecChannelStale bool       `json:"execChannelStale"`
 }
 
 func init() {
@@ -389,6 +411,9 @@ type AgentHub struct {
 
 	persistMu         sync.Mutex
 	statusPersistMemo map[uint]agentStatusPersistState // providerID -> 最近一次状态持久化信息
+
+	runtimeMu    sync.RWMutex
+	runtimeState map[uint]agentRuntimeState // providerID -> 运行时连接健康状态
 }
 
 var (
@@ -402,9 +427,122 @@ func GetHub() *AgentHub {
 		globalHub = &AgentHub{
 			conns:             make(map[uint]*AgentConn),
 			statusPersistMemo: make(map[uint]agentStatusPersistState),
+			runtimeState:      make(map[uint]agentRuntimeState),
 		}
 	})
 	return globalHub
+}
+
+func (h *AgentHub) markConnected(providerID uint, now time.Time) {
+	h.runtimeMu.Lock()
+	h.runtimeState[providerID] = agentRuntimeState{
+		connected:   true,
+		connectedAt: now,
+		lastInbound: now,
+	}
+	h.runtimeMu.Unlock()
+}
+
+func (h *AgentHub) markDisconnected(providerID uint) {
+	h.runtimeMu.Lock()
+	state := h.runtimeState[providerID]
+	state.connected = false
+	h.runtimeState[providerID] = state
+	h.runtimeMu.Unlock()
+}
+
+func (h *AgentHub) markInbound(providerID uint, now time.Time, execSignal bool) {
+	h.runtimeMu.Lock()
+	state := h.runtimeState[providerID]
+	if state.connectedAt.IsZero() {
+		state.connectedAt = now
+	}
+	state.connected = true
+	state.lastInbound = now
+	if execSignal {
+		state.lastExec = now
+	}
+	h.runtimeState[providerID] = state
+	h.runtimeMu.Unlock()
+}
+
+func buildRuntimeHealth(providerID uint, now time.Time, state agentRuntimeState) AgentRuntimeHealth {
+	health := AgentRuntimeHealth{
+		ProviderID: providerID,
+		Connected:  state.connected,
+		Status:     "offline",
+	}
+
+	if !state.connected {
+		return health
+	}
+
+	if !state.connectedAt.IsZero() {
+		t := state.connectedAt
+		health.ConnectedAt = &t
+	}
+	if !state.lastInbound.IsZero() {
+		t := state.lastInbound
+		health.ControlLastSeen = &t
+	}
+	if !state.lastExec.IsZero() {
+		t := state.lastExec
+		health.ExecLastSeen = &t
+	}
+
+	if state.lastInbound.IsZero() || now.Sub(state.lastInbound) > readDeadlineWindow+15*time.Second {
+		health.Status = "offline"
+		return health
+	}
+
+	if state.lastExec.IsZero() {
+		if state.connectedAt.IsZero() || now.Sub(state.connectedAt) <= execWarmupWindow {
+			health.Status = "online"
+			return health
+		}
+		health.Status = "degraded"
+		health.ExecChannelStale = true
+		return health
+	}
+
+	if now.Sub(state.lastExec) > execChannelStaleWindow {
+		health.Status = "degraded"
+		health.ExecChannelStale = true
+		return health
+	}
+
+	health.Status = "online"
+	return health
+}
+
+func (h *AgentHub) GetRuntimeHealth(providerID uint) AgentRuntimeHealth {
+	now := time.Now()
+	h.runtimeMu.RLock()
+	state, ok := h.runtimeState[providerID]
+	h.runtimeMu.RUnlock()
+	if !ok {
+		return AgentRuntimeHealth{ProviderID: providerID, Status: "offline", Connected: false}
+	}
+	return buildRuntimeHealth(providerID, now, state)
+}
+
+func (h *AgentHub) GetRuntimeHealthBatch(providerIDs []uint) map[uint]AgentRuntimeHealth {
+	now := time.Now()
+	result := make(map[uint]AgentRuntimeHealth, len(providerIDs))
+
+	h.runtimeMu.RLock()
+	defer h.runtimeMu.RUnlock()
+
+	for _, providerID := range providerIDs {
+		state, ok := h.runtimeState[providerID]
+		if !ok {
+			result[providerID] = AgentRuntimeHealth{ProviderID: providerID, Status: "offline", Connected: false}
+			continue
+		}
+		result[providerID] = buildRuntimeHealth(providerID, now, state)
+	}
+
+	return result
 }
 
 // Register 注册一个新连接并启动读取协程。
@@ -448,6 +586,7 @@ func (h *AgentHub) Register(ac *AgentConn) {
 
 	// 同步更新数据库状态，确保前端检测立即可见
 	now := time.Now()
+	h.markConnected(ac.ProviderID, now)
 	h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 
 	// Agent 重连成功后，如果 Provider 因健康检查连续失败被自动冻结，则自动解冻。
@@ -555,6 +694,7 @@ func (h *AgentHub) unregister(providerID uint) {
 	h.persistMu.Lock()
 	delete(h.statusPersistMemo, providerID)
 	h.persistMu.Unlock()
+	h.markDisconnected(providerID)
 
 	// 清理该 Provider 的 TunnelManager，释放资源
 	RemoveTunnelManager(providerID)
@@ -605,6 +745,10 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		// 每次成功读取后刷新读超时，确保任何活动都能保持连接存活
 		// ping 循环以 ~15s 间隔检测死连接，读超时仅作为最后防线
 		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
+		now := time.Now()
+		// 仅在收到 Agent 上行帧时续命在线，避免“仅写成功但链路已半断”误判。
+		h.markInbound(ac.ProviderID, now, false)
+		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
 		if msgType == websocket.BinaryMessage {
@@ -630,6 +774,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 
 		switch msg.Type {
 		case msgTypeExecResponse:
+			h.markInbound(ac.ProviderID, time.Now(), true)
 			var resp execResponsePayload
 			if err := json.Unmarshal(msg.Payload, &resp); err == nil {
 				ac.mu.Lock()
@@ -689,7 +834,19 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 				}
 			}
 
+		case msgTypeTunnelKeepalive:
+			var keepalive tunnelKeepalivePayload
+			if err := json.Unmarshal(msg.Payload, &keepalive); err == nil {
+				tunnelMgrMu.RLock()
+				mgr, hasMgr := tunnelMgrs[ac.ProviderID]
+				tunnelMgrMu.RUnlock()
+				if hasMgr {
+					mgr.TouchSession(keepalive.ConnID)
+				}
+			}
+
 		case msgTypeShellData:
+			h.markInbound(ac.ProviderID, time.Now(), true)
 			var payload shellDataPayload
 			if err := json.Unmarshal(msg.Payload, &payload); err == nil {
 				ac.mu.Lock()
@@ -722,7 +879,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 	}
 }
 
-// StartPingLoop 定期向所有在线 Agent 发送 ping 帧并更新 AgentLastSeen。
+// StartPingLoop 定期向所有在线 Agent 发送 ping 帧。
 // 检测连续 ping 写入失败，达到阈值后强制断开以触发 Agent 重连。
 //
 // 行为伪装（anti-DPI）：
@@ -751,7 +908,6 @@ func (h *AgentHub) StartPingLoop() {
 			}
 			h.mu.RUnlock()
 
-			now := time.Now()
 			for _, ac := range conns {
 				// Add random noise payload to ping frame (0-64 bytes of base64 noise)
 				noiseLen := rand.Intn(65)
@@ -791,8 +947,6 @@ func (h *AgentHub) StartPingLoop() {
 				ac.mu.Lock()
 				ac.pingFailCount = 0
 				ac.mu.Unlock()
-
-				h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 			}
 		}
 	}()

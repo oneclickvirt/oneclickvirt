@@ -333,18 +333,21 @@ func GetAgentStatus(c *gin.Context) {
 
 	if dbProvider.ConnectionType == "agent" {
 		config, _ := agentService.GetMonitoringConfig(global.APP_DB, uint(providerID))
-		hub := agentService.GetHub()
-		conn, ok := hub.GetConn(uint(providerID))
-		isRunning := ok && conn != nil
+		runtimeHealth := agentService.GetHub().GetRuntimeHealth(uint(providerID))
+		isRunning := runtimeHealth.Connected
 
 		var monitorCount int64
 		global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&monitorCount)
 
 		common.ResponseSuccess(c, gin.H{
-			"is_running":    isRunning,
-			"version":       dbProvider.Version,
-			"config":        config,
-			"monitor_count": monitorCount,
+			"is_running":         isRunning,
+			"version":            dbProvider.Version,
+			"config":             config,
+			"monitor_count":      monitorCount,
+			"status":             runtimeHealth.Status,
+			"control_last_seen":  runtimeHealth.ControlLastSeen,
+			"exec_last_seen":     runtimeHealth.ExecLastSeen,
+			"exec_channel_stale": runtimeHealth.ExecChannelStale,
 		})
 		return
 	}

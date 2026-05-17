@@ -23,6 +23,8 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 use tracing::{info, warn};
 
+const TUNNEL_KEEPALIVE_INTERVAL_SECS: u64 = 30;
+
 /// 一个会话对应的 TCP 写入端（Agent 侧接收控制端的二进制数据并写入本地 TCP）。
 type SessionTx = mpsc::Sender<Vec<u8>>;
 
@@ -60,6 +62,11 @@ struct TunnelAckPayload {
 
 #[derive(Serialize)]
 struct TunnelClosePayload {
+    id: String,
+}
+
+#[derive(Serialize)]
+struct TunnelKeepalivePayload {
     id: String,
 }
 
@@ -123,6 +130,7 @@ pub async fn handle_tunnel_open(
     // Agent → 控制端（TCP → 二进制帧 → lo-priority data channel）
     // Anti-DPI: vary read buffer (8KB-64KB), occasional micro-delay (20% prob).
     let data_sink_clone = data_sink.clone();
+    let hi_sink_keepalive = hi_sink.clone();
     let conn_id_clone = conn_id.clone();
     let sessions_clone = sessions.clone();
     tokio::spawn(async move {
@@ -158,6 +166,35 @@ pub async fn handle_tunnel_open(
         }
         let mut map = sessions_clone.lock().await;
         map.remove(&conn_hash);
+    });
+
+    let sessions_keepalive = sessions.clone();
+    let conn_id_keepalive = conn_id.clone();
+    tokio::spawn(async move {
+        let mut ticker = tokio::time::interval(std::time::Duration::from_secs(
+            TUNNEL_KEEPALIVE_INTERVAL_SECS,
+        ));
+        loop {
+            ticker.tick().await;
+            {
+                let map = sessions_keepalive.lock().await;
+                if !map.contains_key(&conn_hash) {
+                    break;
+                }
+            }
+            let keepalive_payload = TunnelKeepalivePayload {
+                id: conn_id_keepalive.clone(),
+            };
+            if let Ok(body) = serde_json::to_string(&WsFrame {
+                msg_type: "tunnel_keepalive".to_string(),
+                id: None,
+                payload: serde_json::to_value(keepalive_payload).ok(),
+            }) {
+                if hi_sink_keepalive.send(Message::Text(body.into())).await.is_err() {
+                    break;
+                }
+            }
+        }
     });
 
     // 控制端 → Agent 数据写入 TCP
@@ -197,6 +234,10 @@ pub async fn handle_tunnel_close(payload_val: serde_json::Value, sessions: &Sess
         let mut map = sessions.lock().await;
         map.remove(&hash);
     }
+}
+
+pub async fn handle_tunnel_keepalive(_payload_val: serde_json::Value, _sessions: &SessionMap) {
+    // Session-level keepalive: no-op on agent side.
 }
 
 async fn send_ack(ws_sink: WsSink, conn_id: &str, ok: bool, error: Option<String>) {

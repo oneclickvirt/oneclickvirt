@@ -216,17 +216,17 @@
       <!-- Agent 状态（编辑模式） -->
       <el-alert
         v-if="isEditing"
-        :type="modelValue.agentStatus === 'online' ? 'success' : 'warning'"
+        :type="agentAlertType"
         :closable="false"
         style="margin-bottom: 20px;"
       >
         <template #title>
           <span>
             {{ $t('admin.providers.agentStatus') }}:
-            <strong>{{ modelValue.agentStatus === 'online' ? $t('admin.providers.agentStatusOnline') : $t('admin.providers.agentStatusOffline') }}</strong>
+            <strong>{{ agentStatusLabel }}</strong>
           </span>
           <span
-            v-if="modelValue.agentConnectedAt && modelValue.agentStatus === 'online'"
+            v-if="modelValue.agentConnectedAt && effectiveAgentStatus === 'online'"
             style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
           >
             {{ $t('admin.providers.agentOnlineDuration') }}: {{ formatOnlineDuration(modelValue.agentConnectedAt) }}
@@ -236,6 +236,18 @@
             style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
           >
             {{ $t('admin.providers.agentLastSeen') }}: {{ formatDateTime(modelValue.agentLastSeen) }}
+          </span>
+          <span
+            v-if="modelValue.agentControlLastSeen"
+            style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
+          >
+            {{ $t('admin.providers.agentControlLastSeen') }}: {{ formatDateTime(modelValue.agentControlLastSeen) }}
+          </span>
+          <span
+            v-if="modelValue.agentExecLastSeen"
+            style="margin-left: 16px; font-size: 12px; opacity: 0.8;"
+          >
+            {{ $t('admin.providers.agentExecLastSeen') }}: {{ formatDateTime(modelValue.agentExecLastSeen) }}
           </span>
           <span
             v-if="modelValue.agentRemoteIP"
@@ -610,6 +622,17 @@ const props = defineProps({
 const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
 const hasAgentMappedNetworking = computed(() => Boolean(props.modelValue.host && props.modelValue.portIP))
 const showSSHSettings = computed(() => !isAgentMode.value || hasAgentMappedNetworking.value)
+const effectiveAgentStatus = computed(() => props.modelValue.agentRuntimeStatus || props.modelValue.agentStatus || 'offline')
+const agentAlertType = computed(() => {
+  if (effectiveAgentStatus.value === 'online') return 'success'
+  if (effectiveAgentStatus.value === 'degraded') return 'warning'
+  return 'error'
+})
+const agentStatusLabel = computed(() => {
+  if (effectiveAgentStatus.value === 'online') return t('admin.providers.agentStatusOnline')
+  if (effectiveAgentStatus.value === 'degraded') return t('admin.providers.agentStatusDegraded')
+  return t('admin.providers.agentStatusOffline')
+})
 
 const installCmdDisplay = computed(() => {
   let cmd = props.agentConnectCmd || ''

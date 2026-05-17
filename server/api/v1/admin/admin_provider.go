@@ -39,6 +39,8 @@ type gpuCacheEntry struct {
 // gpuDetectionCache GPU 检测结果缓存（5分钟有效期）
 var gpuDetectionCache sync.Map
 
+var normalizedPCIBusRegex = regexp.MustCompile(`(?i)([0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-7])$`)
+
 // GetProviderList 获取提供商列表
 func GetProviderList(c *gin.Context) {
 	var req admin.ProviderListRequest
@@ -300,7 +302,23 @@ func GetProviderDetail(c *gin.Context) {
 		return
 	}
 
-	common.ResponseSuccess(c, providerObj)
+	resp := struct {
+		providerModel.Provider
+		AgentRuntimeStatus   string     `json:"agentRuntimeStatus,omitempty"`
+		AgentControlLastSeen *time.Time `json:"agentControlLastSeen,omitempty"`
+		AgentExecLastSeen    *time.Time `json:"agentExecLastSeen,omitempty"`
+	}{
+		Provider: providerObj,
+	}
+
+	if providerObj.ConnectionType == "agent" {
+		runtimeHealth := agentService.GetHub().GetRuntimeHealth(providerObj.ID)
+		resp.AgentRuntimeStatus = runtimeHealth.Status
+		resp.AgentControlLastSeen = runtimeHealth.ControlLastSeen
+		resp.AgentExecLastSeen = runtimeHealth.ExecLastSeen
+	}
+
+	common.ResponseSuccess(c, resp)
 }
 
 // CheckProviderHealth 检查Provider健康状态
@@ -571,13 +589,15 @@ func DetectGPUs(c *gin.Context) {
 		// 1. 内存缓存（5分钟TTL）
 		if cached, ok := gpuDetectionCache.Load(uint(id)); ok {
 			if entry, ok2 := cached.(gpuCacheEntry); ok2 && time.Since(entry.cachedAt) < 5*time.Minute {
+				normalizedAccelerators := normalizeDetectedAccelerators(entry.accelerators)
+				normalizedGPUs, normalizedNPUs := splitStringGPUsNPUs(normalizedAccelerators)
 				global.APP_LOG.Debug("GPU检测：命中内存缓存",
 					zap.Uint("providerID", uint(id)),
 					zap.Duration("age", time.Since(entry.cachedAt)))
 				common.ResponseSuccess(c, map[string]interface{}{
-					"gpus":         entry.gpus,
-					"npus":         entry.npus,
-					"accelerators": entry.accelerators,
+					"gpus":         normalizedGPUs,
+					"npus":         normalizedNPUs,
+					"accelerators": normalizedAccelerators,
 					"rawInfo":      entry.rawInfo,
 					"cached":       true,
 				}, "GPU/NPU检测完成（缓存）")
@@ -586,16 +606,22 @@ func DetectGPUs(c *gin.Context) {
 		}
 		// 2. 持久化DB缓存（跨重启有效）
 		if p.GpuInfo != "" {
-			var cachedGpus []map[string]interface{}
+			var cachedGpus []map[string]string
 			if json.Unmarshal([]byte(p.GpuInfo), &cachedGpus) == nil && len(cachedGpus) > 0 {
+				normalizedGpus := normalizeDetectedAccelerators(cachedGpus)
+				if len(normalizedGpus) != len(cachedGpus) {
+					if gpuInfoBytes, err := json.Marshal(normalizedGpus); err == nil {
+						global.APP_DB.Model(&providerModel.Provider{}).
+							Where("id = ?", uint(id)).
+							Update("gpu_info", string(gpuInfoBytes))
+					}
+				}
 				global.APP_LOG.Debug("GPU检测：命中DB持久化缓存",
 					zap.Uint("providerID", uint(id)))
-				// 重建为完整格式
-				gpus, npus := splitGPUsNPUs(cachedGpus)
 				common.ResponseSuccess(c, map[string]interface{}{
-					"gpus":         gpus,
-					"npus":         npus,
-					"accelerators": cachedGpus,
+					"gpus":         normalizedGpus,
+					"npus":         []map[string]string{},
+					"accelerators": normalizedGpus,
 					"rawInfo":      "",
 					"cached":       true,
 				}, "GPU/NPU检测完成（持久化缓存）")
@@ -620,15 +646,8 @@ func DetectGPUs(c *gin.Context) {
 		return
 	}
 
-	gpus := make([]map[string]string, 0)
-	npus := make([]map[string]string, 0)
-	for _, d := range accelerators {
-		if strings.EqualFold(strings.TrimSpace(d["kind"]), "npu") {
-			npus = append(npus, d)
-		} else {
-			gpus = append(gpus, d)
-		}
-	}
+	accelerators = normalizeDetectedAccelerators(accelerators)
+	gpus, npus := splitStringGPUsNPUs(accelerators)
 
 	// 写入内存缓存
 	gpuDetectionCache.Store(uint(id), gpuCacheEntry{
@@ -654,10 +673,68 @@ func DetectGPUs(c *gin.Context) {
 	}, "GPU/NPU检测完成")
 }
 
+func splitStringGPUsNPUs(devices []map[string]string) ([]map[string]string, []map[string]string) {
+	gpus := make([]map[string]string, 0)
+	npus := make([]map[string]string, 0)
+	for _, d := range devices {
+		if strings.EqualFold(strings.TrimSpace(d["kind"]), "npu") {
+			npus = append(npus, d)
+		} else {
+			gpus = append(gpus, d)
+		}
+	}
+	return gpus, npus
+}
+
+func normalizeDetectedAccelerators(devices []map[string]string) []map[string]string {
+	merged := make([]map[string]string, 0, len(devices))
+	mergedIndex := make(map[string]int)
+	for _, raw := range devices {
+		device := map[string]string{}
+		for key, value := range raw {
+			device[key] = strings.TrimSpace(value)
+		}
+		if strings.TrimSpace(device["kind"]) == "" {
+			device["kind"] = "gpu"
+		}
+		if strings.TrimSpace(device["product"]) == "" && strings.TrimSpace(device["name"]) != "" {
+			device["product"] = device["name"]
+		}
+		if strings.TrimSpace(device["source"]) == "" {
+			device["source"] = "unknown"
+		}
+
+		key := acceleratorMergeKey(device)
+		if idx, ok := mergedIndex[key]; ok {
+			mergeAcceleratorRecord(merged[idx], device)
+			continue
+		}
+		merged = append(merged, device)
+		mergedIndex[key] = len(merged) - 1
+	}
+
+	sort.SliceStable(merged, func(i, j int) bool {
+		a := merged[i]
+		b := merged[j]
+		if a["kind"] != b["kind"] {
+			return a["kind"] < b["kind"]
+		}
+		if a["id"] != b["id"] {
+			return a["id"] < b["id"]
+		}
+		if normalizePCIBus(a["bus"]) != normalizePCIBus(b["bus"]) {
+			return normalizePCIBus(a["bus"]) < normalizePCIBus(b["bus"])
+		}
+		return a["name"] < b["name"]
+	})
+
+	return merged
+}
+
 func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provider, providerType string) ([]map[string]string, string, error) {
 	devices := make([]map[string]string, 0)
 	rawSections := make([]string, 0)
-	seen := make(map[string]struct{})
+	mergedIndex := make(map[string]int)
 	hadAnySource := false
 
 	addDevice := func(kind, id, name, vendor, bus, source, card string) {
@@ -678,12 +755,6 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 			source = "unknown"
 		}
 
-		key := strings.ToLower(strings.Join([]string{kind, id, name, vendor, bus, source}, "|"))
-		if _, ok := seen[key]; ok {
-			return
-		}
-		seen[key] = struct{}{}
-
 		d := map[string]string{
 			"kind":    kind,
 			"id":      id,
@@ -696,7 +767,15 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 		if card != "" {
 			d["card"] = card
 		}
+
+		key := acceleratorMergeKey(d)
+		if idx, ok := mergedIndex[key]; ok {
+			mergeAcceleratorRecord(devices[idx], d)
+			return
+		}
+
 		devices = append(devices, d)
+		mergedIndex[key] = len(devices) - 1
 	}
 
 	appendRaw := func(title, output string) {
@@ -765,6 +844,75 @@ func detectAccelerators(ctx context.Context, providerInstance providerPkg.Provid
 	})
 
 	return devices, strings.Join(rawSections, "\n\n"), nil
+}
+
+func acceleratorMergeKey(device map[string]string) string {
+	kind := strings.ToLower(strings.TrimSpace(device["kind"]))
+	vendor := strings.ToLower(strings.TrimSpace(device["vendor"]))
+	id := strings.ToLower(strings.TrimSpace(device["id"]))
+	name := normalizeAcceleratorName(device["name"])
+	bus := normalizePCIBus(device["bus"])
+
+	switch {
+	case bus != "":
+		return kind + "|bus|" + bus
+	case vendor != "" && id != "":
+		return kind + "|vendor-id|" + vendor + "|" + id
+	case vendor != "" && name != "":
+		return kind + "|vendor-name|" + vendor + "|" + name
+	case name != "":
+		return kind + "|name|" + name
+	default:
+		return kind + "|raw|" + strings.ToLower(strings.TrimSpace(device["source"])) + "|" + strings.ToLower(strings.TrimSpace(device["card"]))
+	}
+}
+
+func mergeAcceleratorRecord(dst, src map[string]string) {
+	for _, field := range []string{"id", "name", "product", "vendor", "bus", "card"} {
+		if strings.TrimSpace(dst[field]) == "" && strings.TrimSpace(src[field]) != "" {
+			dst[field] = strings.TrimSpace(src[field])
+		}
+	}
+
+	if normalizePCIBus(dst["bus"]) == "" && normalizePCIBus(src["bus"]) != "" {
+		dst["bus"] = strings.TrimSpace(src["bus"])
+	}
+
+	if acceleratorSourceRank(src["source"]) > acceleratorSourceRank(dst["source"]) {
+		dst["source"] = strings.TrimSpace(src["source"])
+	}
+}
+
+func acceleratorSourceRank(source string) int {
+	switch strings.ToLower(strings.TrimSpace(source)) {
+	case "lxc-resources":
+		return 4
+	case "nvidia-smi", "npu-smi":
+		return 3
+	case "lspci":
+		return 2
+	case "unknown":
+		return 1
+	default:
+		return 0
+	}
+}
+
+func normalizeAcceleratorName(name string) string {
+	name = strings.ToLower(strings.TrimSpace(name))
+	name = strings.Join(strings.Fields(name), " ")
+	return name
+}
+
+func normalizePCIBus(bus string) string {
+	bus = strings.ToLower(strings.TrimSpace(bus))
+	if bus == "" {
+		return ""
+	}
+	if matched := normalizedPCIBusRegex.FindStringSubmatch(bus); len(matched) > 1 {
+		return matched[1]
+	}
+	return bus
 }
 
 // splitGPUsNPUs 从缓存的设备列表中分离 GPU 和 NPU
@@ -1247,17 +1395,22 @@ func ExecOnProvider(c *gin.Context) {
 	execFailed := false
 	if dbProvider.ConnectionType == "agent" {
 		hub := agentService.GetHub()
-		conn, ok := hub.GetConn(dbProvider.ID)
-		if !ok || conn == nil {
-			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "Agent 节点未连接，请检查节点是否在线"))
-			return
-		}
 		exec := agentService.NewAgentShellExecutor(dbProvider.ID, hub)
-		output, execErr := exec.ExecuteWithTimeout(req.Command, time.Duration(req.Timeout)*time.Second)
-		stdout = output
-		if execErr != nil {
-			stderr = execErr.Error()
-			execFailed = true
+		runtimeHealth := hub.GetRuntimeHealth(dbProvider.ID)
+		if runtimeHealth.Status == "degraded" {
+			if _, probeErr := exec.ExecuteWithTimeout("printf __ocv_probe__", 5*time.Second); probeErr != nil {
+				stderr = "执行通道探测失败: " + probeErr.Error()
+				execFailed = true
+			}
+		}
+
+		if !execFailed {
+			output, execErr := exec.ExecuteWithTimeout(req.Command, time.Duration(req.Timeout)*time.Second)
+			stdout = output
+			if execErr != nil {
+				stderr = execErr.Error()
+				execFailed = true
+			}
 		}
 	} else {
 		execCtx, cancel := context.WithTimeout(c.Request.Context(), time.Duration(req.Timeout)*time.Second)
@@ -1278,6 +1431,25 @@ func ExecOnProvider(c *gin.Context) {
 	}
 
 	if execFailed {
+		if dbProvider.ConnectionType == "agent" {
+			errLower := strings.ToLower(stderr)
+			looksDisconnected := strings.Contains(errLower, "agent not connected") ||
+				strings.Contains(errLower, "节点未连接") ||
+				strings.Contains(errLower, "connection closed") ||
+				strings.Contains(errLower, "websocket")
+			if looksDisconnected {
+				if err := global.APP_DB.Model(&providerModel.Provider{}).
+					Where("id = ?", dbProvider.ID).
+					Updates(map[string]interface{}{
+						"agent_status":       "offline",
+						"agent_connected_at": nil,
+					}).Error; err != nil {
+					global.APP_LOG.Warn("执行失败后回写 Agent 离线状态失败",
+						zap.Uint("providerID", dbProvider.ID), zap.Error(err))
+				}
+			}
+		}
+
 		msg := "命令执行失败"
 		if stderr != "" {
 			msg = msg + ": " + stderr

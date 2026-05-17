@@ -33,10 +33,13 @@ import (
 // ──────────────────────────────────────────────────────────────────────────────
 
 const (
-	msgTypeTunnelOpen  = "tunnel_open"  // 控制端 → Agent: 请求打开隧道
-	msgTypeTunnelAck   = "tunnel_ack"   // Agent → 控制端: 确认或拒绝
-	msgTypeTunnelClose = "tunnel_close" // 双向: 关闭隧道
-	msgTypeTunnelData  = "tunnel_data"  // 已废弃，使用二进制帧
+	msgTypeTunnelOpen        = "tunnel_open"  // 控制端 → Agent: 请求打开隧道
+	msgTypeTunnelAck         = "tunnel_ack"   // Agent → 控制端: 确认或拒绝
+	msgTypeTunnelClose       = "tunnel_close" // 双向: 关闭隧道
+	msgTypeTunnelKeepalive   = "tunnel_keepalive"
+	msgTypeTunnelData        = "tunnel_data" // 已废弃，使用二进制帧
+	tunnelSessionIdleTimeout = 5 * time.Minute
+	tunnelKeepaliveInterval  = 30 * time.Second
 )
 
 type tunnelOpenPayload struct {
@@ -55,16 +58,21 @@ type tunnelClosePayload struct {
 	ConnID string `json:"id"`
 }
 
+type tunnelKeepalivePayload struct {
+	ConnID string `json:"id"`
+}
+
 // ──────────────────────────────────────────────────────────────────────────────
 // TunnelSession — 控制端侧的单条 TCP 隧道会话
 // ──────────────────────────────────────────────────────────────────────────────
 
 type TunnelSession struct {
 	connID   string
-	connHash uint64      // hashString(connID)，用于二进制帧路由
-	client   net.Conn    // 来自最终用户的 TCP 连接
-	sendCh   chan []byte // 待写入 client 的数据（来自 Agent）
-	ackCh    chan bool   // 等待 tunnel_ack 的通道
+	connHash uint64                // hashString(connID)，用于二进制帧路由
+	client   net.Conn              // 来自最终用户的 TCP 连接
+	sendCh   chan []byte           // 待写入 client 的数据（来自 Agent）
+	ackCh    chan tunnelAckPayload // 等待 tunnel_ack 的通道
+	activity chan struct{}
 	done     chan struct{}
 }
 
@@ -128,7 +136,8 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 		connHash: connHash,
 		client:   client,
 		sendCh:   make(chan []byte, 64),
-		ackCh:    make(chan bool, 1),
+		ackCh:    make(chan tunnelAckPayload, 1),
+		activity: make(chan struct{}, 1),
 		done:     make(chan struct{}),
 	}
 
@@ -164,9 +173,12 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 
 	// 2. 等待 tunnel_ack（最长 10 秒）；由 hub.readLoop 通过 DeliverAck 注入
 	select {
-	case ok := <-sess.ackCh:
-		if !ok {
-			global.APP_LOG.Warn("tunnel_ack 返回失败", zap.String("connID", connID))
+	case ack := <-sess.ackCh:
+		if !ack.OK {
+			global.APP_LOG.Warn("tunnel_ack 返回失败",
+				zap.String("connID", connID),
+				zap.String("target", fmt.Sprintf("%s:%d", targetHost, targetPort)),
+				zap.String("reason", ack.Error))
 			return
 		}
 	case <-time.After(10 * time.Second):
@@ -175,6 +187,33 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 	}
 
 	// 3. 双向数据转发
+	idleTimer := time.NewTimer(tunnelSessionIdleTimeout)
+	defer idleTimer.Stop()
+	notifyActivity := func() {
+		select {
+		case sess.activity <- struct{}{}:
+		default:
+		}
+	}
+
+	go func() {
+		ticker := time.NewTicker(tunnelKeepaliveInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-sess.done:
+				return
+			case <-ticker.C:
+				payload, _ := json.Marshal(tunnelKeepalivePayload{ConnID: connID})
+				msg, _ := json.Marshal(wsMessage{Type: msgTypeTunnelKeepalive, Payload: payload})
+				if err := tm.ac.writeTextMessage(msg, 5*time.Second); err != nil {
+					return
+				}
+				notifyActivity()
+			}
+		}
+	}()
+
 	// Client → Agent（读 TCP，写 WS 二进制帧，[8-byte hash][data]）
 	//
 	// Anti-DPI: vary read buffer size (8KB-64KB) and add occasional
@@ -183,10 +222,12 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 	binary.BigEndian.PutUint64(header, connHash)
 	go func() {
 		for {
+			_ = client.SetReadDeadline(time.Now().Add(tunnelSessionIdleTimeout))
 			bufSize := 8192 + rand.Intn(57344) // 8KB - 64KB random
 			buf := make([]byte, bufSize)
 			n, err := client.Read(buf)
 			if n > 0 {
+				notifyActivity()
 				frame := make([]byte, 8+n)
 				copy(frame[:8], header)
 				copy(frame[8:], buf[:n])
@@ -208,10 +249,24 @@ func (tm *TunnelManager) handleConn(client net.Conn, targetHost string, targetPo
 	// Agent → Client（从 sess.sendCh 写 TCP）
 	for {
 		select {
+		case <-sess.activity:
+			if !idleTimer.Stop() {
+				select {
+				case <-idleTimer.C:
+				default:
+				}
+			}
+			idleTimer.Reset(tunnelSessionIdleTimeout)
 		case data := <-sess.sendCh:
+			notifyActivity()
 			if _, err := client.Write(data); err != nil {
 				return
 			}
+		case <-idleTimer.C:
+			global.APP_LOG.Info("隧道会话空闲超时，主动关闭",
+				zap.String("connID", connID),
+				zap.Duration("idleTimeout", tunnelSessionIdleTimeout))
+			return
 		case <-sess.done:
 			return
 		}
@@ -230,7 +285,10 @@ func (tm *TunnelManager) DeliverByHash(connHash uint64, data []byte) {
 	select {
 	case sess.sendCh <- data:
 	default:
-		// 消费方太慢，丢弃
+		global.APP_LOG.Warn("隧道会话缓冲区已满，主动终止以避免静默丢包",
+			zap.Uint("providerID", tm.ac.ProviderID),
+			zap.Uint64("connHash", connHash))
+		sess.client.Close()
 	}
 }
 
@@ -248,7 +306,20 @@ func (tm *TunnelManager) DeliverAck(ack tunnelAckPayload) {
 		return
 	}
 	select {
-	case sess.ackCh <- ack.OK:
+	case sess.ackCh <- ack:
+	default:
+	}
+}
+
+func (tm *TunnelManager) TouchSession(connID string) {
+	tm.mu.RLock()
+	sess, ok := tm.sessions[connID]
+	tm.mu.RUnlock()
+	if !ok {
+		return
+	}
+	select {
+	case sess.activity <- struct{}{}:
 	default:
 	}
 }

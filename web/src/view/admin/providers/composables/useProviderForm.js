@@ -145,9 +145,12 @@ const buildDefaultForm = () => ({
   gpuDeviceIds: '',
   connectionType: 'ssh',
   agentStatus: 'offline',
+  agentRuntimeStatus: 'offline',
   agentLastSeen: null,
   agentConnectedAt: null,
   agentRemoteIP: '',
+  agentControlLastSeen: null,
+  agentExecLastSeen: null,
   levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
 })
 
@@ -292,9 +295,12 @@ export function useProviderForm(loadProviders) {
     addProviderForm.gpuDeviceIds = provider.gpuDeviceIds || ''
     addProviderForm.connectionType = provider.connectionType || 'ssh'
     addProviderForm.agentStatus = provider.agentStatus || 'offline'
+    addProviderForm.agentRuntimeStatus = provider.agentRuntimeStatus || provider.agentStatus || 'offline'
     addProviderForm.agentLastSeen = provider.agentLastSeen || null
     addProviderForm.agentConnectedAt = provider.agentConnectedAt || null
     addProviderForm.agentRemoteIP = provider.agentRemoteIP || ''
+    addProviderForm.agentControlLastSeen = provider.agentControlLastSeen || null
+    addProviderForm.agentExecLastSeen = provider.agentExecLastSeen || null
     // 实例发现与导入配置
     addProviderForm.discoverMode = provider.pendingDiscovery !== undefined ? provider.pendingDiscovery : false
     addProviderForm.autoImport = provider.discoveryAutoImport !== undefined ? provider.discoveryAutoImport : true

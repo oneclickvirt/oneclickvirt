@@ -186,11 +186,25 @@
           <div class="connection-status">
             <template v-if="scope.row.connectionType === 'agent'">
               <el-tag
-                v-if="scope.row.agentStatus === 'online'"
+                v-if="(scope.row.agentRuntimeStatus || scope.row.agentStatus) === 'online'"
                 size="small"
                 type="success"
               >
                 {{ $t('admin.providers.agentOnlineShort') }}
+              </el-tag>
+              <el-tag
+                v-else-if="(scope.row.agentRuntimeStatus || scope.row.agentStatus) === 'degraded'"
+                size="small"
+                type="warning"
+              >
+                {{ $t('admin.providers.agentDegradedShort') }}
+              </el-tag>
+              <el-tag
+                v-else
+                size="small"
+                type="danger"
+              >
+                {{ $t('admin.providers.agentStatusOffline') }}
               </el-tag>
             </template>
             <template v-else>

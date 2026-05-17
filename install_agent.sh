@@ -12,10 +12,20 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
-log_info()    { printf "${BLUE}[INFO]${NC} %s\n"    "$1"; }
-log_success() { printf "${GREEN}[SUCCESS]${NC} %s\n" "$1"; }
-log_warning() { printf "${YELLOW}[WARNING]${NC} %s\n" "$1"; }
-log_error()   { printf "${RED}[ERROR]${NC} %s\n"   "$1" >&2; }
+log_with_level() {
+  level="$1"
+  first_line="$2"
+  second_line="$3"
+  printf "%b %s\n" "$level" "$first_line"
+  if [ -n "$second_line" ]; then
+    printf "%b %s\n" "$level" "$second_line"
+  fi
+}
+
+log_info()    { log_with_level "${BLUE}[INFO]${NC}" "$1" "$2"; }
+log_success() { log_with_level "${GREEN}[SUCCESS]${NC}" "$1" "$2"; }
+log_warning() { log_with_level "${YELLOW}[WARNING]${NC}" "$1" "$2"; }
+log_error()   { log_with_level "${RED}[ERROR]${NC}" "$1" "$2" >&2; }
 
 # ── argument parsing ──────────────────────────────────────────────────────────
 WS_URL=""
@@ -25,18 +35,18 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --ws-url)  WS_URL="$2";  shift 2 ;;
     --secret)  SECRET="$2";  shift 2 ;;
-    *) log_error "Unknown argument: $1"; exit 1 ;;
+    *) log_error "Unknown argument: $1" "未知参数: $1"; exit 1 ;;
   esac
 done
 
 if [ -z "$WS_URL" ] || [ -z "$SECRET" ]; then
-  log_error "Usage: install_agent.sh --ws-url <WS_URL> --secret <SECRET>"
+  log_error "Usage: install_agent.sh --ws-url <WS_URL> --secret <SECRET>" "用法: install_agent.sh --ws-url <WS_URL> --secret <SECRET>"
   exit 1
 fi
 
 # ── sanity checks ─────────────────────────────────────────────────────────────
 if [ "$(id -u)" -ne 0 ]; then
-  log_error "This script must be run as root."
+  log_error "This script must be run as root." "此脚本必须以 root 身份运行。"
   exit 1
 fi
 
@@ -46,7 +56,7 @@ case "$ARCH" in
   x86_64)          BINARY_SUFFIX="linux-amd64"  ;;
   aarch64|arm64)   BINARY_SUFFIX="linux-arm64"  ;;
   *)
-    log_error "Unsupported architecture: $ARCH"
+    log_error "Unsupported architecture: $ARCH" "不支持的架构: $ARCH"
     exit 1
     ;;
 esac
@@ -62,7 +72,7 @@ CDN_URLS="https://cdn0.spiritlhl.top https://cdn3.spiritlhl.net https://cdn1.spi
 GITHUB_API_URLS="https://api.github.com https://githubapi.spiritlhl.workers.dev https://githubapi.spiritlhl.top"
 
 # ── resolve latest release tag ────────────────────────────────────────────────
-log_info "Fetching latest release version..."
+log_info "Fetching the latest release version..." "正在获取最新版本信息..."
 VERSION=""
 for API_URL in $GITHUB_API_URLS; do
   RESPONSE=$(curl -sL --connect-timeout 10 --max-time 30 \
@@ -72,10 +82,10 @@ for API_URL in $GITHUB_API_URLS; do
 done
 
 if [ -z "$VERSION" ]; then
-  log_error "Failed to fetch latest release version. Check your network."
+  log_error "Failed to fetch the latest release version. Check your network." "获取最新版本失败，请检查网络连接。"
   exit 1
 fi
-log_info "Latest version: ${VERSION}"
+log_info "Latest version: ${VERSION}" "最新版本: ${VERSION}"
 
 # ── check GitHub reachability ─────────────────────────────────────────────────
 _github_reachable() {
@@ -181,7 +191,7 @@ download_one() {
   return 1
 }
 
-log_info "Downloading ${BINARY_NAME} ..."
+log_info "Downloading ${BINARY_NAME} ..." "正在下载 ${BINARY_NAME} ..."
 
 # GitHub direct first, CDN as fallback
 DOWNLOADED=0
@@ -189,18 +199,18 @@ GITHUB_URL="https://github.com/${REPO}/releases/download/${VERSION}/${BINARY_NAM
 
 # 1. Try GitHub direct first
 if download_one "$GITHUB_URL" && [ -s "$TMP_FILE" ]; then
-  log_success "Downloaded from GitHub."
+  log_success "Downloaded from GitHub." "已从 GitHub 下载完成。"
   DOWNLOADED=1
 fi
 
 # 2. GitHub failed — check if GitHub is reachable, try CDN only if it's not
 if [ "$DOWNLOADED" -eq 0 ] && ! _github_reachable && _check_cdn_available; then
-  log_warning "GitHub unreachable, using CDN mirrors..."
+  log_warning "GitHub is unreachable, switching to CDN mirrors..." "GitHub 不可达，正在切换到 CDN 镜像..."
   for CDN in $(cat /tmp/ocv_working_cdns); do
     CDN_TARGET="${CDN}/${GITHUB_URL}"
     rm -f "$TMP_FILE"
     if download_one "$CDN_TARGET" && [ -s "$TMP_FILE" ]; then
-      log_success "Downloaded via CDN."
+      log_success "Downloaded via CDN." "已通过 CDN 下载完成。"
       DOWNLOADED=1
       break
     fi
@@ -212,18 +222,18 @@ fi
 if [ "$DOWNLOADED" -eq 0 ]; then
   TAR_URL="${GITHUB_URL}.tar.gz"
   if download_one "$TAR_URL" && [ -s "$TMP_FILE" ]; then
-    log_info "Extracting agent binary from tar.gz..."
+    log_info "Extracting the agent binary from the tar.gz archive..." "正在从 tar.gz 压缩包中提取 Agent 二进制文件..."
     TAR_TMP="/tmp/oneclickvirt-agent-extract"
     mkdir -p "$TAR_TMP"
     if tar -xzf "$TMP_FILE" -C "$TAR_TMP" 2>/dev/null; then
       AGENT_EXTRACTED=$(find "$TAR_TMP" -type f -name "oneclickvirt-agent*" | head -1)
       if [ -n "$AGENT_EXTRACTED" ] && [ -x "$AGENT_EXTRACTED" ]; then
         mv -f "$AGENT_EXTRACTED" "$TMP_FILE"
-        log_success "Extracted agent binary from archive."
+        log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
         DOWNLOADED=1
       elif [ -f "$TAR_TMP/oneclickvirt-agent" ]; then
         mv -f "$TAR_TMP/oneclickvirt-agent" "$TMP_FILE"
-        log_success "Extracted agent binary from archive."
+        log_success "Agent binary extracted from archive." "已从压缩包提取 Agent 二进制文件。"
         DOWNLOADED=1
       fi
     fi
@@ -232,8 +242,8 @@ if [ "$DOWNLOADED" -eq 0 ]; then
 fi
 
 if [ "$DOWNLOADED" -eq 0 ]; then
-  log_error "Failed to download ${BINARY_NAME}."
-  log_error "Tried all CDN mirrors and direct GitHub. Check network or release assets."
+  log_error "Failed to download ${BINARY_NAME}." "下载 ${BINARY_NAME} 失败。"
+  log_error "All CDN mirrors and direct GitHub downloads were attempted. Check network connectivity or release assets." "已尝试所有 CDN 镜像和 GitHub 直连，请检查网络或发布资源。"
   rm -f "$TMP_FILE"
   exit 1
 fi
@@ -241,14 +251,14 @@ fi
 # ── install binary ────────────────────────────────────────────────────────────
 # Stop existing service before replacing binary
 if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
-  log_info "Stopping existing ${SERVICE_NAME} service..."
+  log_info "Stopping the existing ${SERVICE_NAME} service..." "正在停止现有的 ${SERVICE_NAME} 服务..."
   systemctl stop "$SERVICE_NAME" || true
 fi
 
 mv -f "$TMP_FILE" "$BINARY_PATH"
 chmod +x "$BINARY_PATH"
 ln -sf "$BINARY_PATH" /usr/local/bin/oneclickvirt-agent
-log_success "Binary installed to ${BINARY_PATH}"
+log_success "Binary installed to ${BINARY_PATH}" "二进制文件已安装到 ${BINARY_PATH}"
 
 # ── detect init system and install service ─────────────────────────────────────
 
@@ -263,26 +273,37 @@ SVC="oneclickvirt-agent"
 
 _usage() {
   echo "Usage: ocv {status|start|stop|restart|upgrade|uninstall|install|log}"
+  echo "用法: ocv {status|start|stop|restart|upgrade|uninstall|install|log}"
   echo ""
   echo "Commands:"
+  echo "命令说明:"
   echo "  status     Show agent service status"
+  echo "  status     查看 agent 服务状态"
   echo "  start      Start agent service"
+  echo "  start      启动 agent 服务"
   echo "  stop       Stop agent service"
+  echo "  stop       停止 agent 服务"
   echo "  restart    Restart agent service"
+  echo "  restart    重启 agent 服务"
   echo "  upgrade    Upgrade agent binary to latest release"
+  echo "  upgrade    升级 agent 二进制到最新版本"
   echo "  uninstall  Remove agent and service"
+  echo "  uninstall  卸载 agent 和服务"
   echo "  install    Install/reinstall agent service"
+  echo "  install    安装或重装 agent 服务"
   echo "  log        Show recent agent logs"
+  echo "  log        查看最近的 agent 日志"
   exit 0
 }
 
 _upgrade() {
   echo "[ocv] Downloading latest agent release..."
+  echo "[ocv] 正在下载最新的 agent 发布版本..."
   ARCH=$(uname -m)
   case "$ARCH" in
     x86_64)        BIN="oneclickvirt-agent-linux-amd64" ;;
     aarch64|arm64) BIN="oneclickvirt-agent-linux-arm64" ;;
-    *) echo "[ocv] Unsupported arch: $ARCH"; exit 1 ;;
+    *) echo "[ocv] Unsupported arch: $ARCH"; echo "[ocv] 不支持的架构: $ARCH"; exit 1 ;;
   esac
   REPO="oneclickvirt/oneclickvirt"
   for API in https://api.github.com https://githubapi.spiritlhl.workers.dev https://githubapi.spiritlhl.top; do
@@ -291,7 +312,7 @@ _upgrade() {
     V=$(printf '%s' "$response" | grep -o '"tag_name": *"[^"]*"' | head -1 | grep -o '"[^"]*"$' | tr -d '"')
     [ -n "$V" ] && break
   done
-  [ -z "$V" ] && echo "[ocv] Failed to get latest version" && exit 1
+  [ -z "$V" ] && echo "[ocv] Failed to get latest version" && echo "[ocv] 获取最新版本失败" && exit 1
   TMP="/opt/oneclickvirt/agent/${BIN}.tmp"
   mkdir -p /opt/oneclickvirt/agent
   DOWNLOADED=0
@@ -304,7 +325,7 @@ _upgrade() {
   if [ "$DOWNLOADED" -eq 0 ]; then
     curl -fsSL --connect-timeout 20 --max-time 180 -o "$TMP" "https://github.com/${REPO}/releases/download/${V}/${BIN}" 2>/dev/null || true
   fi
-  [ ! -s "$TMP" ] && echo "[ocv] Download failed" && exit 1
+  [ ! -s "$TMP" ] && echo "[ocv] Download failed" && echo "[ocv] 下载失败" && exit 1
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SVC" 2>/dev/null; then
     systemctl stop "$SVC" || true
   fi
@@ -312,11 +333,13 @@ _upgrade() {
   chmod +x "$AGENT_BIN"
   ln -sf "$AGENT_BIN" /usr/local/bin/oneclickvirt-agent
   echo "[ocv] Upgraded to ${V}. Restarting..."
+  echo "[ocv] 已升级到 ${V}，正在重启..."
   /usr/local/bin/ocv restart
 }
 
 _uninstall() {
   echo "[ocv] Stopping and removing agent..."
+  echo "[ocv] 正在停止并移除 agent..."
   if command -v systemctl >/dev/null 2>&1; then
     systemctl stop "$SVC" 2>/dev/null || true
     systemctl disable "$SVC" 2>/dev/null || true
@@ -338,21 +361,28 @@ _uninstall() {
   rm -f /usr/local/bin/ocv
   rm -rf /opt/oneclickvirt/agent
   echo "[ocv] Agent uninstalled."
+  echo "[ocv] Agent 已卸载。"
 }
 
 _service_status() {
   if command -v systemctl >/dev/null 2>&1 && systemctl is-active --quiet "$SVC" 2>/dev/null; then
     echo "[ocv] Agent is running (systemd)"
+    echo "[ocv] Agent 正在运行（systemd）"
   elif [ -f "/etc/init.d/${SVC}" ] && "/etc/init.d/${SVC}" status 2>/dev/null | grep -q "Running"; then
     echo "[ocv] Agent is running (init.d)"
+    echo "[ocv] Agent 正在运行（init.d）"
   elif command -v rc-service >/dev/null 2>&1 && rc-service "$SVC" status 2>/dev/null; then
     echo "[ocv] Agent is running (OpenRC)"
+    echo "[ocv] Agent 正在运行（OpenRC）"
   elif command -v pgrep >/dev/null 2>&1 && pgrep -f "$AGENT_BIN" >/dev/null 2>&1; then
     echo "[ocv] Agent is running (foreground, PID $(pgrep -f "$AGENT_BIN" | head -1))"
+    echo "[ocv] Agent 正在运行（前台模式，PID $(pgrep -f "$AGENT_BIN" | head -1)）"
   elif ps aux 2>/dev/null | grep -v grep | grep -q "$AGENT_BIN"; then
     echo "[ocv] Agent is running (foreground)"
+    echo "[ocv] Agent 正在运行（前台模式）"
   else
     echo "[ocv] Agent is not running"
+    echo "[ocv] Agent 未运行"
   fi
 }
 
@@ -379,8 +409,10 @@ case "${1:-usage}" in
     command -v rc-service >/dev/null 2>&1 && { rc-service "$SVC" start; exit $?; }
     # Fallback: start directly in background
     echo "[ocv] No service manager found, starting in foreground..."
+    echo "[ocv] 未找到服务管理器，正在以前台方式启动..."
     nohup "$AGENT_BIN" >/var/log/oneclickvirt-agent.log 2>&1 &
     echo "[ocv] Agent started (PID $!)"
+    echo "[ocv] Agent 已启动（PID $!）"
     ;;
   stop)
     _do_stop
@@ -393,21 +425,22 @@ case "${1:-usage}" in
     ;;
   upgrade)   _upgrade ;;
   uninstall) _uninstall ;;
-  install)   echo "[ocv] Run the install script to reinstall." ;;
+  install)   echo "[ocv] Run the install script to reinstall."; echo "[ocv] 如需重装，请重新运行安装脚本。" ;;
   log)
     if command -v journalctl >/dev/null 2>&1; then
-      journalctl -u "$SVC" -n 50 --no-pager 2>/dev/null || echo "[ocv] No journald logs"
+      journalctl -u "$SVC" -n 50 --no-pager 2>/dev/null || { echo "[ocv] No journald logs"; echo "[ocv] 没有找到 journald 日志"; }
     elif [ -f "/var/log/${SVC}.log" ]; then
       tail -50 "/var/log/${SVC}.log"
     else
       echo "[ocv] No logs found"
+      echo "[ocv] 未找到日志"
     fi
     ;;
   *) _usage ;;
 esac
 OCVEOF
   chmod +x /usr/local/bin/ocv
-  log_success "Helper command 'ocv' installed to /usr/local/bin/ocv"
+  log_success "Helper command 'ocv' installed to /usr/local/bin/ocv" "辅助命令 'ocv' 已安装到 /usr/local/bin/ocv"
 }
 
 # Detect init system and install appropriate service
@@ -416,7 +449,7 @@ install_service() {
 
   # ── systemd ──
   if command -v systemctl >/dev/null 2>&1 && [ -d /run/systemd/system ]; then
-    log_info "Detected systemd — installing systemd service..."
+    log_info "Detected systemd; installing the systemd service..." "检测到 systemd，正在安装 systemd 服务..."
 
     # Write secret to a separate env file with restricted permissions (0600)
     # so it does NOT appear in `systemctl cat` or `ps aux` output.
@@ -428,7 +461,7 @@ AGENT_SECRET=${SECRET}
 EOF
     chmod 600 "$ENV_FILE"
     chown root:root "$ENV_FILE" 2>/dev/null || true
-    log_info "Agent environment file created at ${ENV_FILE} (0600)"
+    log_info "Agent environment file created at ${ENV_FILE} with 0600 permissions." "Agent 环境文件已创建: ${ENV_FILE}（权限 0600）。"
 
     cat > "$SERVICE_FILE" << EOF
 [Unit]
@@ -460,11 +493,11 @@ EOF
     systemctl start "$SERVICE_NAME"
     sleep 2
     if systemctl is-active --quiet "$SERVICE_NAME"; then
-      log_success "Agent service started (systemd)."
-      log_info  "Manage: systemctl {start|stop|restart|status} ${SERVICE_NAME}  or  ocv"
-      log_info  "Logs:   journalctl -u ${SERVICE_NAME} -f"
+      log_success "Agent service started successfully (systemd)." "Agent 服务已启动（systemd）。"
+      log_info  "Manage with: systemctl {start|stop|restart|status} ${SERVICE_NAME}  or  ocv" "管理命令: systemctl {start|stop|restart|status} ${SERVICE_NAME}  或  ocv"
+      log_info  "Logs: journalctl -u ${SERVICE_NAME} -f" "日志查看: journalctl -u ${SERVICE_NAME} -f"
     else
-      log_error "Agent service failed to start. Check: journalctl -u ${SERVICE_NAME} -xe"
+      log_error "Agent service failed to start. Check: journalctl -u ${SERVICE_NAME} -xe" "Agent 服务启动失败，请检查: journalctl -u ${SERVICE_NAME} -xe"
       exit 1
     fi
     return 0
@@ -472,7 +505,7 @@ EOF
 
   # ── SysV init (Debian/Ubuntu/RHEL legacy) ──
   if [ -d /etc/init.d ] && { command -v update-rc.d >/dev/null 2>&1 || command -v chkconfig >/dev/null 2>&1; }; then
-    log_info "Detected SysV init — installing init.d script..."
+    log_info "Detected SysV init; installing the init.d script..." "检测到 SysV init，正在安装 init.d 脚本..."
 
     # Write secret to a separate env file with restricted permissions (0600)
     ENV_FILE="${INSTALL_DIR}/env"
@@ -509,11 +542,13 @@ ARGS="--ws-url \${WS_URL} --secret \${AGENT_SECRET}"
 case "\$1" in
   start)
     echo "Starting ${SERVICE_NAME}..."
+    echo "正在启动 ${SERVICE_NAME}..."
     nohup \$BIN \$ARGS >>\$LOGFILE 2>&1 &
     echo \$! > \$PIDFILE
     ;;
   stop)
     echo "Stopping ${SERVICE_NAME}..."
+    echo "正在停止 ${SERVICE_NAME}..."
     [ -f \$PIDFILE ] && kill \$(cat \$PIDFILE) 2>/dev/null
     rm -f \$PIDFILE
     ;;
@@ -521,10 +556,11 @@ case "\$1" in
     \$0 stop; sleep 1; \$0 start
     ;;
   status)
-    [ -f \$PIDFILE ] && kill -0 \$(cat \$PIDFILE) 2>/dev/null && echo "Running" || echo "Not running"
+    [ -f \$PIDFILE ] && kill -0 \$(cat \$PIDFILE) 2>/dev/null && { echo "Running"; echo "正在运行"; } || { echo "Not running"; echo "未运行"; }
     ;;
   *)
     echo "Usage: \$0 {start|stop|restart|status}"
+    echo "用法: \$0 {start|stop|restart|status}"
     exit 1
     ;;
 esac
@@ -539,11 +575,11 @@ EOF
     "/etc/init.d/${SERVICE_NAME}" start
     sleep 2
     if "/etc/init.d/${SERVICE_NAME}" status | grep -q "Running"; then
-      log_success "Agent service started (SysV init)."
-      log_info  "Manage: /etc/init.d/${SERVICE_NAME} {start|stop|restart|status}  or  ocv"
-      log_info  "Logs:   tail -f /var/log/${SERVICE_NAME}.log"
+      log_success "Agent service started successfully (SysV init)." "Agent 服务已启动（SysV init）。"
+      log_info  "Manage with: /etc/init.d/${SERVICE_NAME} {start|stop|restart|status}  or  ocv" "管理命令: /etc/init.d/${SERVICE_NAME} {start|stop|restart|status}  或  ocv"
+      log_info  "Logs: tail -f /var/log/${SERVICE_NAME}.log" "日志查看: tail -f /var/log/${SERVICE_NAME}.log"
     else
-      log_error "Agent failed to start. Check: /var/log/${SERVICE_NAME}.log"
+      log_error "Agent failed to start. Check: /var/log/${SERVICE_NAME}.log" "Agent 启动失败，请检查: /var/log/${SERVICE_NAME}.log"
       exit 1
     fi
     return 0
@@ -551,7 +587,7 @@ EOF
 
   # ── OpenRC (Alpine/Gentoo) ──
   if command -v rc-service >/dev/null 2>&1 && [ -d /etc/init.d ]; then
-    log_info "Detected OpenRC — installing init script..."
+    log_info "Detected OpenRC; installing the init script..." "检测到 OpenRC，正在安装 init 脚本..."
 
     # Write secret to a separate env file with restricted permissions (0600)
     ENV_FILE="${INSTALL_DIR}/env"
@@ -579,18 +615,18 @@ EOF
     rc-service "$SERVICE_NAME" start
     sleep 2
     if rc-service "$SERVICE_NAME" status 2>/dev/null; then
-      log_success "Agent service started (OpenRC)."
-      log_info  "Manage: rc-service ${SERVICE_NAME} {start|stop|restart|status}  or  ocv"
-      log_info  "Logs:   tail -f /var/log/${SERVICE_NAME}.log"
+      log_success "Agent service started successfully (OpenRC)." "Agent 服务已启动（OpenRC）。"
+      log_info  "Manage with: rc-service ${SERVICE_NAME} {start|stop|restart|status}  or  ocv" "管理命令: rc-service ${SERVICE_NAME} {start|stop|restart|status}  或  ocv"
+      log_info  "Logs: tail -f /var/log/${SERVICE_NAME}.log" "日志查看: tail -f /var/log/${SERVICE_NAME}.log"
     else
-      log_error "Agent failed to start. Check: /var/log/${SERVICE_NAME}.log"
+      log_error "Agent failed to start. Check: /var/log/${SERVICE_NAME}.log" "Agent 启动失败，请检查: /var/log/${SERVICE_NAME}.log"
       exit 1
     fi
     return 0
   fi
 
   # ── Fallback: nohup ──
-  log_warning "No supported init system found (systemd/SysV/OpenRC). Starting as foreground process."
+  log_warning "No supported init system was found (systemd/SysV/OpenRC); starting as a foreground process." "未找到受支持的 init 系统（systemd/SysV/OpenRC），将以前台进程方式启动。"
 
   # Create env file with restricted permissions
   ENV_FILE="${INSTALL_DIR}/env"
@@ -608,9 +644,9 @@ EOF
   # readable only by root).
   nohup sh -c ". ${ENV_FILE} && exec ${BINARY_PATH}" \
     >/var/log/oneclickvirt-agent.log 2>&1 &
-  log_success "Agent started (PID $!). Log: /var/log/oneclickvirt-agent.log"
-  log_warning "The agent will NOT auto-start on reboot. Install an init system for persistence."
-  log_info  "Manage: kill \$(pgrep -f oneclickvirt-agent) to stop"
+  log_success "Agent started (PID $!). Log: /var/log/oneclickvirt-agent.log" "Agent 已启动（PID $!）。日志文件: /var/log/oneclickvirt-agent.log"
+  log_warning "The agent will not auto-start after reboot. Install an init system for persistence." "Agent 重启后不会自动启动，如需持久化请安装 init 系统。"
+  log_info  "To stop it, run: kill \$(pgrep -f oneclickvirt-agent)" "停止命令: kill \$(pgrep -f oneclickvirt-agent)"
   return 0
 }
 

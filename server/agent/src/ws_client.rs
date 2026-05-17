@@ -18,7 +18,7 @@ use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
 use tracing::{info, warn};
 use url;
 
-use crate::tunnel::{handle_binary_frame, handle_tunnel_close, handle_tunnel_open, SessionMap, WsFrame};
+use crate::tunnel::{handle_binary_frame, handle_tunnel_close, handle_tunnel_keepalive, handle_tunnel_open, SessionMap, WsFrame};
 
 /// Generic envelope used for all frames.
 #[derive(Serialize, Deserialize, Debug)]
@@ -402,6 +402,11 @@ where
                     "tunnel_close" => {
                         if let Some(payload_val) = frame.payload {
                             handle_tunnel_close(payload_val, &sessions).await;
+                        }
+                    }
+                    "tunnel_keepalive" => {
+                        if let Some(payload_val) = frame.payload {
+                            handle_tunnel_keepalive(payload_val, &sessions).await;
                         }
                     }
                     "shell_open" => {
