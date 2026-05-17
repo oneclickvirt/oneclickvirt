@@ -578,6 +578,10 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			return
 		}
 
+		// 每次成功读取后刷新读超时，确保任何活动都能保持连接存活
+		// （不仅是 pong，exec_resp / tunnel 数据等都应刷新 deadline）
+		ac.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
 		if msgType == websocket.BinaryMessage {
 			if len(data) <= 8 {
@@ -802,7 +806,7 @@ func LookupProviderBySecret(secret string) (uint, error) {
 //  2. 主控重启后 agent_status 与 status 不一致（agent_status=online 但 status=inactive）→ 确认 status
 func (h *AgentHub) recoverProviderOnReconnect(providerID uint, now time.Time) {
 	var p providerModel.Provider
-	if err := global.APP_DB.Select("id, is_frozen, frozen_reason, status, connection_type").
+	if err := global.APP_DB.Select("id, is_frozen, frozen_reason, status, connection_type, allow_claim").
 		Where("id = ?", providerID).First(&p).Error; err != nil {
 		return
 	}
@@ -819,6 +823,7 @@ func (h *AgentHub) recoverProviderOnReconnect(providerID uint, now time.Time) {
 			updates["is_frozen"] = false
 			updates["frozen_at"] = nil
 			updates["frozen_reason"] = ""
+			updates["allow_claim"] = true
 			needsUpdate = true
 			global.APP_LOG.Info("Agent 重连后自动解冻 Provider（此前因健康检查失败被冻结）",
 				zap.Uint("providerID", providerID),
@@ -828,10 +833,12 @@ func (h *AgentHub) recoverProviderOnReconnect(providerID uint, now time.Time) {
 
 	// Agent 重连后，若 general status 为 inactive，确认为 active
 	// 避免主控重启后 agent_status=online 但 status=inactive 的不一致状态
+	// 同时恢复 allow_claim，防止健康检查将其设为 false 后节点显示为"禁用"
 	if p.Status == "inactive" && p.ConnectionType == "agent" {
 		updates["status"] = "active"
+		updates["allow_claim"] = true
 		needsUpdate = true
-		global.APP_LOG.Debug("Agent 重连后确认 Provider 状态不一致",
+		global.APP_LOG.Info("Agent 重连后恢复 Provider 状态为 active",
 			zap.Uint("providerID", providerID),
 			zap.String("old_status", p.Status))
 	}

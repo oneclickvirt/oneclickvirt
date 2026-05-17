@@ -66,7 +66,11 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 		hub := agentService.GetHub()
 		conn, ok := hub.GetConn(provider.ID)
 		agentStatus := "offline"
-		generalStatus := "inactive"
+		// 默认保持原有状态，避免主控重启后健康检查将正常节点误判为 inactive
+		generalStatus := provider.Status
+		if generalStatus == "" {
+			generalStatus = "partial"
+		}
 		var agentHostName, agentVersion string
 
 		if ok && conn != nil {
@@ -86,14 +90,32 @@ func (s *Service) CheckProviderHealthWithOptions(providerID uint, forceRefresh b
 			// 主控刚启动不久（2分钟宽限期内），Agent 可能尚未完成重连，暂不降级为 inactive。
 			// 保留 Provider 当前 status，仅更新 agent_status = offline，避免触发连续失败计数。
 			agentStatus = "offline"
-			generalStatus = provider.Status // 保持原有状态不变
-			if generalStatus == "" {
-				generalStatus = "partial"
-			}
+			// generalStatus 已设置为 provider.Status（保持原有状态不变）
 			global.APP_LOG.Debug("Agent 处于主控启动宽限期，暂不降级 Provider 状态",
 				zap.Uint("providerID", localProviderID),
 				zap.String("provider", localProviderName),
 				zap.String("currentStatus", provider.Status))
+		} else {
+			// 宽限期已过且 Agent 未重连：渐进式降级
+			// active → partial (首次离线), partial → inactive (持续离线)
+			switch provider.Status {
+			case "active":
+				generalStatus = "partial"
+				global.APP_LOG.Debug("Agent 离线，状态从 active 降级为 partial",
+					zap.Uint("providerID", localProviderID),
+					zap.String("provider", localProviderName))
+			case "partial":
+				generalStatus = "inactive"
+				global.APP_LOG.Info("Agent 持续离线，状态从 partial 降级为 inactive",
+					zap.Uint("providerID", localProviderID),
+					zap.String("provider", localProviderName))
+			default:
+				// 已经是 inactive 或未知状态，保持不变
+				generalStatus = provider.Status
+				if generalStatus == "" {
+					generalStatus = "inactive"
+				}
+			}
 		}
 
 		updates := map[string]interface{}{

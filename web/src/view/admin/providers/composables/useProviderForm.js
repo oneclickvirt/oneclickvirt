@@ -404,8 +404,8 @@ export function useProviderForm(loadProviders) {
         vmLimitMemory: formData.vmLimitMemory !== undefined ? formData.vmLimitMemory : true,
         vmLimitDisk: formData.vmLimitDisk !== undefined ? formData.vmLimitDisk : true,
         levelLimits: formatLevelLimitsForBackend(formData.levelLimits || {}),
-        containerPrivileged: formData.containerPrivileged || false,
-        containerAllowNesting: formData.containerAllowNesting || false,
+        containerPrivileged: formData.containerPrivileged !== undefined ? formData.containerPrivileged : false,
+        containerAllowNesting: formData.containerAllowNesting !== undefined ? formData.containerAllowNesting : false,
         containerEnableLxcfs: formData.containerEnableLxcfs !== undefined ? formData.containerEnableLxcfs : true,
         containerCpuAllowance: formData.containerCpuAllowance || '100%',
         discoverMode: formData.discoverMode !== undefined ? formData.discoverMode : false,
@@ -416,7 +416,7 @@ export function useProviderForm(loadProviders) {
         containerMaxProcesses: formData.containerMaxProcesses || 0,
         containerDiskIoLimit: formData.containerDiskIoLimit || '',
         redeemCodeOnly: formData.redeemCodeOnly !== undefined ? formData.redeemCodeOnly : false,
-        gpuEnabled: formData.gpuEnabled || false,
+        gpuEnabled: formData.gpuEnabled !== undefined ? formData.gpuEnabled : false,
         gpuDeviceIds: formData.gpuDeviceIds || '',
         connectionType: formData.connectionType || 'ssh'
       }
