@@ -6,14 +6,17 @@ use futures_util::{SinkExt, StreamExt};
 use rand;
 use regex;
 use serde::{Deserialize, Serialize};
+use socket2::{Domain, Protocol, Socket, Type};
+use std::io::{self};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::net::TcpStream;
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{mpsc, Mutex, Semaphore};
-use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::{client_async, connect_async, tungstenite::Message};
 use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
 use tracing::{info, warn};
 use url;
@@ -96,53 +99,71 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
         };
 
         info!(url = %connect_url, "connecting to controller via WebSocket");
-        // Use ClientRequestBuilder which properly constructs a WebSocket
-        // request from the URI (adding Host, Connection, Upgrade,
-        // Sec-WebSocket-Key, Sec-WebSocket-Version) and THEN appends
-        // custom headers.  Bare Request::builder() does NOT add WebSocket
-        // headers and would cause a handshake failure.
-        let uri: Uri = match connect_url.parse() {
-            Ok(u) => u,
-            Err(e) => {
-                warn!(error = %e, "invalid WebSocket URI, retrying");
-                tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
-                if delay_secs < 60 { delay_secs = (delay_secs * 2).min(60); }
-                continue;
-            }
-        };
-        let request = ClientRequestBuilder::new(uri)
-            .with_header("Authorization", format!("Bearer {}", secret))
-            .with_header("X-Agent-Secret", secret.clone());
 
-        match connect_async(request).await {
-            Ok((ws_stream, _)) => {
-                info!("WebSocket connected to controller");
-                delay_secs = 2; // reset back-off on successful connect
-                if let Err(e) = handle_connection(ws_stream, &secret).await {
-                    warn!(error = %e, "WebSocket connection closed with error");
-                } else {
-                    info!("WebSocket connection closed normally");
-                }
-            }
-            Err(e) => {
-                let err_msg = e.to_string();
-                // If wss:// fails with a TLS-level error (e.g. InvalidContentType,
-                // CorruptMessage, or certificate errors), the server likely does
-                // not have TLS on this port.  Fall back to plain ws:// once.
-                if !ws_fallback_tried
-                    && clean_url.starts_with("wss://")
-                    && is_tls_layer_error(&err_msg)
-                {
-                    warn!(
-                        error = %e,
-                        "wss:// failed with TLS error, falling back to ws:// (plain WebSocket)"
-                    );
-                    ws_fallback_tried = true;
-                    delay_secs = 1; // retry immediately with ws://
+        // For plain ws:// connections, use connect_plain_with_keepalive
+        // which configures TCP keepalive (30s idle, 10s interval, 3 probes)
+        // on the underlying socket for transport-layer dead-connection detection.
+        // For wss:// connections, use the standard connect_async (TLS handled
+        // internally by tokio-tungstenite).
+        if connect_url.starts_with("wss://") {
+            let uri: Uri = match connect_url.parse() {
+                Ok(u) => u,
+                Err(e) => {
+                    warn!(error = %e, "invalid WebSocket URI, retrying");
+                    tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
+                    if delay_secs < 60 { delay_secs = (delay_secs * 2).min(60); }
                     continue;
                 }
-
-                warn!(error = %e, delay_secs, "failed to connect to controller, retrying");
+            };
+            let request = ClientRequestBuilder::new(uri)
+                .with_header("Authorization", format!("Bearer {}", secret))
+                .with_header("X-Agent-Secret", secret.clone());
+            match connect_async(request).await {
+                Ok((ws_stream, _)) => {
+                    // Set TCP keepalive on the underlying socket even for
+                    // wss:// connections (TLS wraps the TCP stream but the
+                    // kernel-level keepalive still applies).
+                    try_set_keepalive_on_maybe_tls(&ws_stream);
+                    info!("WebSocket connected to controller");
+                    delay_secs = 2;
+                    if let Err(e) = handle_connection(ws_stream, &secret).await {
+                        warn!(error = %e, "WebSocket connection closed with error");
+                    } else {
+                        info!("WebSocket connection closed normally");
+                    }
+                }
+                Err(e) => {
+                    let err_msg = e.to_string();
+                    if !ws_fallback_tried
+                        && clean_url.starts_with("wss://")
+                        && is_tls_layer_error(&err_msg)
+                    {
+                        warn!(
+                            error = %e,
+                            "wss:// failed with TLS error, falling back to ws:// (plain WebSocket)"
+                        );
+                        ws_fallback_tried = true;
+                        delay_secs = 1;
+                        continue;
+                    }
+                    warn!(error = %e, delay_secs, "failed to connect to controller, retrying");
+                }
+            }
+        } else {
+            // Plain ws:// with TCP keepalive configured
+            match connect_plain_with_keepalive(&connect_url, &secret).await {
+                Ok(ws_stream) => {
+                    info!("WebSocket connected to controller");
+                    delay_secs = 2;
+                    if let Err(e) = handle_connection(ws_stream, &secret).await {
+                        warn!(error = %e, "WebSocket connection closed with error");
+                    } else {
+                        info!("WebSocket connection closed normally");
+                    }
+                }
+                Err(e) => {
+                    warn!(error = %e, delay_secs, "failed to connect to controller, retrying");
+                }
             }
         }
         tokio::time::sleep(tokio::time::Duration::from_secs(delay_secs)).await;
@@ -183,6 +204,12 @@ where
     let (ws_tx_lo, mut ws_rx_lo) = mpsc::channel::<Message>(512);
 
     // Forwarder: always drain hi-priority channel first.
+    // ── Critical: write.send() is wrapped in a 15 s timeout.
+    // If the underlying TCP send buffer is full (e.g. server stopped
+    // reading), SplitSink::send() can block indefinitely.  A timeout
+    // here breaks the deadlock: the forwarder exits → mpsc channels
+    // close → all senders get errors → handle_connection returns →
+    // run_ws_client reconnects with backoff.
     tokio::spawn(async move {
         loop {
             let msg = match ws_rx_hi.try_recv() {
@@ -202,8 +229,21 @@ where
             };
             match msg {
                 Some(msg) => {
-                    if write.send(msg).await.is_err() {
-                        break;
+                    match tokio::time::timeout(
+                        Duration::from_secs(15),
+                        write.send(msg),
+                    )
+                    .await
+                    {
+                        Ok(Ok(())) => {} // write succeeded
+                        Ok(Err(_)) => {
+                            warn!("write.send returned error, closing write forwarder");
+                            break;
+                        }
+                        Err(_elapsed) => {
+                            warn!("write.send timed out (15 s), closing write forwarder to trigger reconnect");
+                            break;
+                        }
                     }
                 }
                 None => break,
@@ -242,9 +282,23 @@ where
                     Some(serde_json::json!({ "h": hex }))
                 },
             };
-            if let Ok(text) = serde_json::to_string(&frame) {
-                if noise_tx.send(Message::Text(text.into())).await.is_err() {
-                    break; // write channel closed, connection ended
+            let text = match serde_json::to_string(&frame) {
+                Ok(t) => t,
+                Err(_) => continue,
+            };
+            let msg = Message::Text(text.into());
+            // Non-blocking send to avoid stalling the noise task.
+            // If the channel is full (write path congested), skip this
+            // noise cycle — pong responses already serve as keepalive.
+            match noise_tx.try_send(msg) {
+                Ok(()) => {}
+                Err(mpsc::error::TrySendError::Closed(_)) => {
+                    break; // write forwarder exited, connection dead
+                }
+                Err(mpsc::error::TrySendError::Full(_)) => {
+                    // Skip this noise frame rather than blocking.
+                    // The write path is congested; pong keepalives
+                    // will keep the connection alive.
                 }
             }
         }
@@ -363,7 +417,15 @@ where
                             };
                             let resp_text = serde_json::to_string(&resp_frame)
                                 .unwrap_or_else(|e| format!(r#"{{"type":"exec_resp","id":"{}","payload":{{"stdout":"","stderr":"serialize error: {}","exit_code":-1}}}}"#, req_id, e));
-                            let _ = ws_tx_hi_clone.send(Message::Text(resp_text.into())).await;
+                            // Non-blocking send for exec response:
+                            // try_send first, fall back to short timeout.
+                            let resp_msg = Message::Text(resp_text.into());
+                            if ws_tx_hi_clone.try_send(resp_msg.clone()).is_err() {
+                                let _ = tokio::time::timeout(
+                                    Duration::from_secs(10),
+                                    ws_tx_hi_clone.send(resp_msg),
+                                ).await;
+                            }
                         });
                     }
                     "ping" => {
@@ -386,8 +448,43 @@ where
                                 Some(serde_json::json!({ "n": hex }))
                             },
                         };
-                        let pong_text = serde_json::to_string(&pong).map_err(|e| e.to_string())?;
-                        ws_tx_hi.send(Message::Text(pong_text.into())).await.map_err(|e| e.to_string())?;
+                        let pong_text = match serde_json::to_string(&pong) {
+                            Ok(t) => t,
+                            Err(e) => {
+                                warn!(error = %e, "failed to serialize pong frame");
+                                continue;
+                            }
+                        };
+
+                        // Non-blocking send: try_send first (no await), then
+                        // fall back to a short timeout.  This prevents the
+                        // read loop from deadlocking when the mpsc channel is
+                        // full because the write forwarder is stuck on TCP.
+                        let pong_msg = Message::Text(pong_text.into());
+                        match ws_tx_hi.try_send(pong_msg.clone()) {
+                            Ok(()) => {} // fast path succeeded
+                            Err(mpsc::error::TrySendError::Closed(_)) => {
+                                return Err("write channel closed".to_string());
+                            }
+                            Err(mpsc::error::TrySendError::Full(_)) => {
+                                // Channel full — attempt with a short timeout
+                                match tokio::time::timeout(
+                                    Duration::from_secs(5),
+                                    ws_tx_hi.send(pong_msg),
+                                )
+                                .await
+                                {
+                                    Ok(Ok(())) => {} // sent after waiting
+                                    Ok(Err(_)) => {
+                                        return Err("write channel closed".to_string());
+                                    }
+                                    Err(_elapsed) => {
+                                        warn!("pong send timed out (5 s), write path congested, forcing reconnect");
+                                        return Err("pong send timeout".to_string());
+                                    }
+                                }
+                            }
+                        }
                     }
                     "tunnel_open" => {
                         if let Some(payload_val) = frame.payload {
@@ -456,7 +553,20 @@ where
                 return Ok(());
             }
             Message::Ping(data) => {
-                ws_tx_hi.send(Message::Pong(data)).await.map_err(|e| e.to_string())?;
+                // Protocol-level pong: non-blocking send to avoid deadlock.
+                let pong_msg = Message::Pong(data);
+                if ws_tx_hi.try_send(pong_msg).is_err() {
+                    // Channel closed or full — spawn a one-shot task with
+                    // a short timeout so the read loop stays unblocked.
+                    let tx = ws_tx_hi.clone();
+                    tokio::spawn(async move {
+                        let _ = tokio::time::timeout(
+                            Duration::from_secs(5),
+                            tx.send(Message::Pong(vec![])),
+                        )
+                        .await;
+                    });
+                }
             }
             _ => {}
         }
@@ -613,4 +723,140 @@ fn strip_secret_params(url_str: &str) -> String {
         .replace("?&", "?")
         .trim_end_matches('?')
         .to_string()
+}
+/// Set TCP keepalive on the underlying socket of a WebSocketStream that
+/// wraps a MaybeTlsStream<TcpStream>.  Works for both Plain (ws://) and
+/// Rustls (wss://) variants by extracting the raw file descriptor.
+///
+/// This is a best-effort operation: failures are silently ignored since
+/// keepalive is a defense-in-depth measure, not a correctness requirement.
+#[cfg(unix)]
+fn try_set_keepalive_on_maybe_tls(
+    ws: &tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+) {
+    use tokio_tungstenite::MaybeTlsStream;
+
+    let inner = ws.get_ref();
+    match inner {
+        MaybeTlsStream::Plain(tcp) => {
+            set_keepalive_on_tcp(tcp);
+        }
+        MaybeTlsStream::Rustls(tls) => {
+            // tokio_rustls::TlsStream<TcpStream>::get_ref() returns
+            // &(TcpStream, SessionState) — the TcpStream is in .0
+            let (tcp, _) = tls.get_ref();
+            set_keepalive_on_tcp(tcp);
+        }
+        _ => {}
+    }
+}
+
+/// Configure TCP keepalive on a tokio TcpStream using socket2.
+#[cfg(unix)]
+fn set_keepalive_on_tcp(stream: &TcpStream) {
+    use socket2::SockRef;
+    let sock = SockRef::from(stream);
+    let _ = sock.set_keepalive(true);
+    #[cfg(target_os = "linux")]
+    {
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(30))
+            .with_interval(Duration::from_secs(10))
+            .with_retries(3);
+        let _ = sock.set_tcp_keepalive(&ka);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(30));
+        let _ = sock.set_tcp_keepalive(&ka);
+    }
+}
+
+/// no-op on non-Unix platforms (keepalive not supported).
+#[cfg(not(unix))]
+fn try_set_keepalive_on_maybe_tls(
+    _ws: &tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<TcpStream>>,
+) {
+}
+
+#[cfg(not(unix))]
+fn set_keepalive_on_tcp(_stream: &TcpStream) {
+}
+/// Create a TCP stream with keepalive configured.
+///
+/// TCP keepalive parameters:
+///   - idle:  30 s  (send first probe after 30 s of silence)
+///   - interval: 10 s  (wait 10 s between probes)
+///   - retries: 3     (close after 3 failed probes)
+///
+/// Total detection time: 30 + 10*3 = 60 s worst case.
+fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<TcpStream> {
+    let domain = if addr.is_ipv4() {
+        Domain::IPV4
+    } else {
+        Domain::IPV6
+    };
+    let socket = Socket::new(domain, Type::STREAM, Some(Protocol::TCP))?;
+    socket.set_keepalive(true)?;
+
+    // Configure TCP keepalive timing.
+    // On Linux: full configuration with idle time, probe interval, and retry count.
+    // On macOS: idle time only (TCP_KEEPALIVE), interval/retries not settable via socket2.
+    #[cfg(target_os = "linux")]
+    {
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(30))
+            .with_interval(Duration::from_secs(10))
+            .with_retries(3);
+        let _ = socket.set_tcp_keepalive(&ka);
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        // Fallback: set idle time via TcpKeepalive (interval/retries use OS defaults)
+        let ka = socket2::TcpKeepalive::new()
+            .with_time(Duration::from_secs(30));
+        let _ = socket.set_tcp_keepalive(&ka);
+    }
+
+    socket.set_nonblocking(true)?;
+    socket.connect(&(*addr).into())?;
+
+    // Convert std socket → tokio TcpStream
+    let std_stream: std::net::TcpStream = socket.into();
+    TcpStream::from_std(std_stream)
+}
+
+/// Connect to the controller WebSocket with TCP keepalive configured
+/// (for plain ws:// connections only).  wss:// connections use the
+/// standard connect_async path which handles TLS internally.
+async fn connect_plain_with_keepalive(
+    url_str: &str,
+    secret: &str,
+) -> Result<tokio_tungstenite::WebSocketStream<TcpStream>, String> {
+    let parsed_url = url::Url::parse(url_str).map_err(|e| format!("invalid URL: {e}"))?;
+    let host = parsed_url
+        .host_str()
+        .ok_or_else(|| "missing host in URL".to_string())?;
+    let port = parsed_url.port().unwrap_or(80);
+    let addr: std::net::SocketAddr = format!("{host}:{port}")
+        .parse()
+        .map_err(|e| format!("invalid address: {e}"))?;
+
+    let tcp_stream = create_tcp_stream_with_keepalive(&addr)
+        .map_err(|e| format!("TCP connect failed: {e}"))?;
+
+    let request_uri = parsed_url[url::Position::BeforePath..]
+        .parse::<Uri>()
+        .map_err(|e| format!("invalid URI: {e}"))?;
+
+    let request = ClientRequestBuilder::new(request_uri)
+        .with_header("Authorization", format!("Bearer {}", secret))
+        .with_header("X-Agent-Secret", secret.to_string());
+
+    let (ws_stream, _) =
+        client_async(request, tcp_stream)
+            .await
+            .map_err(|e| format!("WebSocket handshake failed: {e}"))?;
+    Ok(ws_stream)
 }

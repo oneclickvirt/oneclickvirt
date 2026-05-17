@@ -71,6 +71,22 @@ jobs:
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Latest release tag: ${TAG}"
 
+      - name: Stage optional agent assets
+        run: |
+          mkdir -p server/assets/agent
+          cp install_agent.sh server/assets/agent/install_agent.sh
+
+          TAG="${{ steps.latest-tag.outputs.tag }}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          for file in oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-arm64.tar.gz; do
+            if curl -fsSL "${BASE_URL}/${file}" -o "server/assets/agent/${file}"; then
+              echo "Staged ${file}"
+            else
+              echo "Warning: failed to stage ${file}; Docker build will fall back to runtime GitHub redirects"
+              rm -f "server/assets/agent/${file}"
+            fi
+          done
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
         with:
@@ -172,6 +188,22 @@ jobs:
             jq -r '.tag_name // "dev"')
           echo "tag=${TAG}" >> $GITHUB_OUTPUT
           echo "Latest release tag: ${TAG}"
+
+      - name: Stage optional agent assets
+        run: |
+          mkdir -p server/assets/agent
+          cp install_agent.sh server/assets/agent/install_agent.sh
+
+          TAG="${{ steps.latest-tag.outputs.tag }}"
+          BASE_URL="https://github.com/${{ github.repository }}/releases/download/${TAG}"
+          for file in oneclickvirt-agent-linux-amd64.tar.gz oneclickvirt-agent-linux-arm64.tar.gz; do
+            if curl -fsSL "${BASE_URL}/${file}" -o "server/assets/agent/${file}"; then
+              echo "Staged ${file}"
+            else
+              echo "Warning: failed to stage ${file}; Docker build will fall back to runtime GitHub redirects"
+              rm -f "server/assets/agent/${file}"
+            fi
+          done
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4

@@ -20,6 +20,8 @@ ARG SERVER_VERSION=dev
 WORKDIR /app/server
 RUN apk add --no-cache git ca-certificates
 COPY server/ ./
+COPY install_agent.sh /app/install_agent.sh
+RUN mkdir -p assets/agent && cp /app/install_agent.sh assets/agent/install_agent.sh
 RUN go mod download
 RUN sed -i "s/const ServerVersion = \".*\"/const ServerVersion = \"${SERVER_VERSION}\"/" constant/version.go && \
     sed -i "s/const CompatibleAgentVersion = \".*\"/const CompatibleAgentVersion = \"${SERVER_VERSION}\"/" constant/version.go
