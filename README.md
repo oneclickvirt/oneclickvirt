@@ -218,6 +218,14 @@ docker run -d \
   oneclickvirt
 ```
 
+Docker builds embed `install_agent.sh` automatically. If you also want the controller image to serve local agent release archives instead of redirecting to GitHub Releases, place these files in `server/assets/agent/` before `docker build`:
+
+```text
+install_agent.sh
+oneclickvirt-agent-linux-amd64.tar.gz
+oneclickvirt-agent-linux-arm64.tar.gz
+```
+
 **Standalone Database Version:**
 
 ```bash
@@ -237,6 +245,8 @@ docker run -d \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```
+
+Direct source builds of the Go controller behave the same way: local agent assets in `server/assets/agent/` are optional, and missing files fall back to the official GitHub installer/releases instead of breaking the build.
 
 </details>
 

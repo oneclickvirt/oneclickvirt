@@ -761,8 +761,9 @@ fn set_keepalive_on_tcp(stream: &TcpStream) {
     {
         let ka = socket2::TcpKeepalive::new()
             .with_time(Duration::from_secs(30))
-            .with_interval(Duration::from_secs(10))
-            .with_retries(3);
+            .with_interval(Duration::from_secs(10));
+        // Note: socket2 0.5 does not expose TCP_KEEPCNT (retries);
+        // the OS default (typically 9 on Linux) is sufficient.
         let _ = sock.set_tcp_keepalive(&ka);
     }
     #[cfg(not(target_os = "linux"))]
@@ -807,13 +808,14 @@ fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<T
     {
         let ka = socket2::TcpKeepalive::new()
             .with_time(Duration::from_secs(30))
-            .with_interval(Duration::from_secs(10))
-            .with_retries(3);
+            .with_interval(Duration::from_secs(10));
+        // Note: socket2 0.5 does not expose TCP_KEEPCNT (retries);
+        // the OS default (typically 9 on Linux) is sufficient.
         let _ = socket.set_tcp_keepalive(&ka);
     }
     #[cfg(not(target_os = "linux"))]
     {
-        // Fallback: set idle time via TcpKeepalive (interval/retries use OS defaults)
+        // Fallback: set idle time via TcpKeepalive (interval uses OS defaults)
         let ka = socket2::TcpKeepalive::new()
             .with_time(Duration::from_secs(30));
         let _ = socket.set_tcp_keepalive(&ka);

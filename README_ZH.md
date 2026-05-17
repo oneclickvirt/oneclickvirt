@@ -219,6 +219,14 @@ docker run -d \
   oneclickvirt
 ```
 
+Docker 构建会自动内嵌 `install_agent.sh`。如果你还希望控制端镜像直接提供本地 Agent 发布包，而不是在下载时 302 跳转到 GitHub Releases，请在执行 `docker build` 前把下面这些文件放到 `server/assets/agent/`：
+
+```text
+install_agent.sh
+oneclickvirt-agent-linux-amd64.tar.gz
+oneclickvirt-agent-linux-arm64.tar.gz
+```
+
 **独立数据库版本：**
 
 ```bash
@@ -238,6 +246,8 @@ docker run -d \
   --restart unless-stopped \
   oneclickvirt:no-db
 ```
+
+直接执行 Go 源码编译时也是同样逻辑：`server/assets/agent/` 里的本地 Agent 资源是可选的，缺失时会回退到官方 GitHub 安装脚本和 Release 包，不会因此导致控制端构建失败。
 
 </details>
 
