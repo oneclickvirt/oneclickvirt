@@ -562,9 +562,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		h.unregister(ac.ProviderID)
 	}()
 
-	ac.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+	ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 	ac.conn.SetPongHandler(func(string) error {
-		ac.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 		return nil
 	})
 
@@ -578,9 +578,9 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			return
 		}
 
-		// 每次成功读取后刷新读超时，确保任何活动都能保持连接存活
-		// （不仅是 pong，exec_resp / tunnel 数据等都应刷新 deadline）
-		ac.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+		// 每次成功读取后刷新读超时（300s），确保任何活动都能保持连接存活
+		// ping 循环以 ~15s 间隔检测死连接，读超时仅作为最后防线
+		ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
 		if msgType == websocket.BinaryMessage {
@@ -616,7 +616,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			}
 
 		case msgTypePong:
-			ac.conn.SetReadDeadline(time.Now().Add(90 * time.Second))
+			ac.conn.SetReadDeadline(time.Now().Add(300 * time.Second))
 
 		case msgTypeInfo:
 			var info infoPayload
@@ -699,21 +699,24 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 }
 
 // StartPingLoop 定期向所有在线 Agent 发送 ping 帧并更新 AgentLastSeen。
-// 检测连续 ping 失败次数，超过阈值（3次=约90s无响应）强制标记离线。
+// 检测连续 ping 失败次数，超过阈值（3次=约45s无响应）强制标记离线。
 //
 // 行为伪装（anti-DPI）：
-//   - ping 间隔使用 ±35% 随机抖动（19.5-40.5s，基准30s），打破固定周期特征
+//   - ping 间隔使用 ±35% 随机抖动（9.75-20.25s，基准15s），打破固定周期特征
 //   - ping 帧附带随机长度的填充字段（noise），模拟 HTTP/2 PING 或浏览器 keepalive
+//
+// 更短的 ping 间隔（15s vs 30s）有助于穿透短超时的中间代理（如 nginx proxy_read_timeout=60s），
+// 确保在任何代理超时之前至少发送 3-4 个 ping 帧保持连接活跃。
 func (h *AgentHub) StartPingLoop() {
-	baseInterval := 30 * time.Second
+	baseInterval := 15 * time.Second
 	go func() {
 		for {
 			// Jitter: base ±35%, avoid exact multiples that DPI can fingerprint
 			jitterRange := float64(baseInterval) * 0.35
 			jitter := time.Duration(rand.Float64()*jitterRange*2 - jitterRange)
 			interval := baseInterval + jitter
-			if interval < 10*time.Second {
-				interval = 10 * time.Second
+			if interval < 5*time.Second {
+				interval = 5 * time.Second
 			}
 			time.Sleep(interval)
 
