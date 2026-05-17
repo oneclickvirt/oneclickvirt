@@ -571,14 +571,15 @@ where
                         let req_id = frame.id.clone().unwrap_or_default();
                         // 先移除会话（防止 shell-wait 任务再次发送 shell_close）
                         if let Some(handle) = shell_sessions.lock().await.remove(&req_id) {
-                            // 杀死 shell 进程（不等待，fire-and-forget）
-                            let mut child = handle.child.lock().await;
-                            let _ = child.kill().await;
-                            // 尝试 wait 以回收僵尸进程，但不阻塞
-                            let _ = tokio::time::timeout(
-                                Duration::from_secs(2),
-                                child.wait(),
-                            ).await;
+                            // 在独立任务中杀进程，不阻塞 read loop
+                            tokio::spawn(async move {
+                                let mut child = handle.child.lock().await;
+                                let _ = child.kill().await;
+                                let _ = tokio::time::timeout(
+                                    Duration::from_secs(5),
+                                    child.wait(),
+                                ).await;
+                            });
                         }
                     }
                     "nop" => {

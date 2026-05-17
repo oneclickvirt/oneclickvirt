@@ -137,37 +137,40 @@ func AdminProviderTerminal(c *gin.Context) {
 }
 
 // ── 安全写入辅助函数 ────────────────────────────────────────────────────────
-// wsWriteSafe 带写超时的 WebSocket 写入，防止 TCP 发送缓冲区满时无限阻塞。
-// 当 ctx 取消时也会立即返回，确保终端关闭时能快速清理资源。
+// wsWriter 为单个管理终端 WebSocket 提供带写超时的安全写入。
+// 内嵌互斥锁确保 gorilla/websocket 的 WriteMessage / SetWriteDeadline 不并发调用，
+// 避免违反库的并发约束导致连接状态损坏。
+// 写超时防止 TCP 发送缓冲区满时无限阻塞。
 
 const wsWriteTimeout = 5 * time.Second
 
-func wsWriteSafe(ctx context.Context, ws *websocket.Conn, messageType int, data []byte) error {
-	// 使用 channel 实现可取消的写操作
-	type writeResult struct {
-		err error
-	}
-	done := make(chan writeResult, 1)
+type wsWriter struct {
+	mu sync.Mutex
+	ws *websocket.Conn
+}
 
-	go func() {
-		ws.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
-		err := ws.WriteMessage(messageType, data)
-		done <- writeResult{err: err}
-	}()
+func newWsWriter(ws *websocket.Conn) *wsWriter {
+	return &wsWriter{ws: ws}
+}
+
+func (w *wsWriter) writeSafe(ctx context.Context, messageType int, data []byte) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+
+	w.mu.Lock()
+	defer w.mu.Unlock()
 
 	select {
-	case result := <-done:
-		return result.err
 	case <-ctx.Done():
-		// 上下文已取消（终端关闭），尝试强制关闭底层连接以解除写阻塞
-		ws.SetWriteDeadline(time.Now()) // 设置过去的 deadline 强制 WriteMessage 超时
-		// 等待 goroutine 完成（最多 1 秒）
-		select {
-		case <-done:
-		case <-time.After(1 * time.Second):
-		}
 		return ctx.Err()
+	default:
 	}
+
+	w.ws.SetWriteDeadline(time.Now().Add(wsWriteTimeout))
+	return w.ws.WriteMessage(messageType, data)
 }
 
 func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
@@ -276,6 +279,9 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 	defer cancel()
 	wg := &sync.WaitGroup{}
 
+	// 创建安全写入器（每连接独立互斥锁，不阻塞其他管理终端）
+	writer := newWsWriter(ws)
+
 	// WebSocket → Shell stdin
 	wg.Add(1)
 	go func() {
@@ -301,8 +307,7 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 				continue
 			}
 			if err := conn.WriteShellInput(session.ID, msg); err != nil {
-				// 使用安全写入避免阻塞
-				_ = wsWriteSafe(ctx, ws, websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
+				_ = writer.writeSafe(ctx, websocket.TextMessage, []byte("\r\nAgent shell 输入失败: "+err.Error()+"\r\n"))
 				cancel()
 				return
 			}
@@ -317,12 +322,11 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 			select {
 			case data, ok := <-session.OutputCh:
 				if !ok {
-					// OutputCh 已关闭（Agent 侧 shell 退出或主动关闭）
 					sessionClosed = true
 					cancel()
 					return
 				}
-				if err := wsWriteSafe(ctx, ws, websocket.BinaryMessage, data); err != nil {
+				if err := writer.writeSafe(ctx, websocket.BinaryMessage, data); err != nil {
 					cancel()
 					return
 				}
@@ -421,13 +425,14 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		return
 	}
 
-	// 优先切换到 login bash，确保交互环境与用户预期一致（PATH、profile、home目录）
+	// 优先切换到 login bash
 	_, _ = stdinPipe.Write([]byte("if command -v bash >/dev/null 2>&1; then exec bash -il; fi\n"))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
 	defer cancel()
 	done := make(chan struct{})
 	wg := &sync.WaitGroup{}
+	writer := newWsWriter(ws)
 
 	// WebSocket → SSH stdin
 	wg.Add(1)
@@ -444,7 +449,6 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 				close(done)
 				return
 			}
-			// 检查是否为 resize 消息
 			var resize struct {
 				Type string `json:"type"`
 				Cols int    `json:"cols"`
@@ -466,7 +470,7 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		for {
 			n, err := stdoutPipe.Read(buf)
 			if n > 0 {
-				if werr := wsWriteSafe(ctx, ws, websocket.BinaryMessage, buf[:n]); werr != nil {
+				if werr := writer.writeSafe(ctx, websocket.BinaryMessage, buf[:n]); werr != nil {
 					return
 				}
 			}
@@ -484,7 +488,7 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		for {
 			n, err := stderrPipe.Read(buf)
 			if n > 0 {
-				if werr := wsWriteSafe(ctx, ws, websocket.BinaryMessage, buf[:n]); werr != nil {
+				if werr := writer.writeSafe(ctx, websocket.BinaryMessage, buf[:n]); werr != nil {
 					return
 				}
 			}

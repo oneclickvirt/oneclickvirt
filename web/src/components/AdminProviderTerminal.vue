@@ -8,7 +8,7 @@
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -19,8 +19,7 @@ const { t } = useI18n()
 
 const props = defineProps({
   providerId: { type: [Number, String], required: true },
-  providerName: { type: String, default: '' },
-  visible: { type: Boolean, default: true }
+  providerName: { type: String, default: '' }
 })
 
 const emit = defineEmits(['close'])
@@ -34,13 +33,6 @@ let isCleanedUp = false
 onMounted(() => nextTick(() => initTerminal()))
 
 onBeforeUnmount(() => cleanup())
-
-// 监听 visible 变化，当对话框关闭时主动断开
-watch(() => props.visible, (val) => {
-  if (!val) {
-    cleanup()
-  }
-})
 
 const initTerminal = () => {
   if (isCleanedUp) return
@@ -116,7 +108,7 @@ const connect = () => {
 
     websocket.onopen = () => {
       if (isCleanedUp) {
-        websocket.close()
+        try { websocket.close() } catch {}
         return
       }
       if (terminal) terminal.write('\x1b[32mConnected.\x1b[0m\r\n')
@@ -181,7 +173,6 @@ const cleanup = () => {
   if (websocket) {
     const ws = websocket
     websocket = null
-    // 使用 1000 (Normal Closure) 状态码通知后端这是正常关闭
     try { ws.close(1000, 'User closed terminal') } catch {}
   }
 

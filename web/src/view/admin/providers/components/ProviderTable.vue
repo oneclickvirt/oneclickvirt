@@ -661,15 +661,14 @@
       width="92%"
       top="3vh"
       destroy-on-close
-      :close-on-click-modal="false"
       @closed="handleRemoteDialogClosed"
     >
       <div class="remote-terminal-wrapper">
         <AdminProviderTerminal
           v-if="remoteRow && remoteDialogVisible"
+          :key="terminalKey"
           :provider-id="remoteRow.id"
           :provider-name="remoteRow.name"
-          :visible="remoteDialogVisible"
         />
       </div>
       <template #footer>
@@ -792,9 +791,11 @@ const handleAction = (action) => {
 // ── 远程连接对话框 ──────────────────────────────────
 const remoteDialogVisible = ref(false)
 const remoteRow = ref(null)
+const terminalKey = ref(0)
 
 const showRemoteDialog = (row) => {
   remoteRow.value = row
+  terminalKey.value++  // 强制 AdminProviderTerminal 重新挂载
   remoteDialogVisible.value = true
   actionsDialogVisible.value = false
 }
