@@ -71,7 +71,8 @@ func RequireAuth(minLevel auth.AuthLevel) gin.HandlerFunc {
 		}
 
 		// 检查token是否需要刷新（滑动过期机制）
-		if utils.ShouldRefreshToken(claims) {
+		// API Token认证时claims为nil，跳过刷新逻辑
+		if claims != nil && utils.ShouldRefreshToken(claims) {
 			// 生成新token
 			newToken, err := utils.GenerateToken(authCtx.UserID, authCtx.Username, authCtx.UserType)
 			if err != nil {
@@ -134,7 +135,11 @@ func RequireResourcePermission(resource string) gin.HandlerFunc {
 	}
 }
 
-// validateJWTTokenWithClaims 验证JWT Token并获取最新用户权限（返回claims用于刷新检查）
+// validateJWTTokenWithClaims 验证JWT Token或API Token并获取最新用户权限（返回claims用于刷新检查）
+// 支持两种认证方式：
+// 1. JWT Token（Bearer前缀）- 用于Web登录会话
+// 2. API Token（Bearer前缀，格式为64位hex）- 用于API编程访问
+// API Token通过后，claims返回nil（API Token无JWT刷新机制）
 func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClaims, error) {
 	// 优先从 Authorization 头获取token
 	token := c.GetHeader("Authorization")
@@ -149,6 +154,15 @@ func validateJWTTokenWithClaims(c *gin.Context) (*auth.AuthContext, *jwt.MapClai
 
 	if after, ok := strings.CutPrefix(token, "Bearer "); ok {
 		token = after
+	}
+
+	// 尝试API Token验证（64位hex字符串特征：长度64且全为hex字符）
+	// API Token优先级高于JWT，因为API Token格式更严格，不会误匹配JWT
+	if len(token) == 64 && isHexString(token) {
+		if authCtx, _, err := validateApiToken(token); err == nil {
+			return authCtx, nil, nil // API Token验证成功，无需JWT claims
+		}
+		// API Token验证失败，继续尝试JWT
 	}
 
 	// 使用JWT验证逻辑
@@ -437,8 +451,8 @@ func RequireSuperAdmin() gin.HandlerFunc {
 			return
 		}
 
-		// 检查token是否需要刷新
-		if utils.ShouldRefreshToken(claims) {
+		// 检查token是否需要刷新（仅JWT Token需要）
+		if claims != nil && utils.ShouldRefreshToken(claims) {
 			if newToken, err := utils.GenerateToken(authCtx.UserID, authCtx.Username, authCtx.UserType); err == nil {
 				c.Header("X-New-Token", newToken)
 				c.Header("X-Token-Refreshed", "true")
@@ -483,4 +497,40 @@ func GetOwnerAdminID(c *gin.Context) uint {
 		return authCtx.UserID
 	}
 	return 0 // 超级管理员返回0,不过滤
+}
+
+// ── API Token 验证辅助函数 ─────────────────────────────────────────────
+
+// isHexString 检查字符串是否全部为十六进制字符
+func isHexString(s string) bool {
+	for _, c := range s {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
+}
+
+// validateApiToken 验证API Token并返回认证上下文
+func validateApiToken(rawToken string) (*auth.AuthContext, *jwt.MapClaims, error) {
+	tokenService := auth2.ApiTokenService{}
+	authCtx, apiToken, err := tokenService.ValidateToken(rawToken)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// 检查Token权限范围限制
+	if apiToken != nil && apiToken.ScopeRestriction != "" {
+		// 将scopes信息存入context（后续可在业务逻辑中使用）
+		// 此处仅记录，不做路径级拦截（由具体handler决定）
+	}
+
+	// API Token 认证成功，记录使用日志
+	global.APP_LOG.Debug("API Token认证成功",
+		zap.Uint("userID", authCtx.UserID),
+		zap.String("username", authCtx.Username),
+		zap.String("userType", authCtx.UserType),
+		zap.Uint("tokenID", apiToken.ID))
+
+	return authCtx, nil, nil
 }

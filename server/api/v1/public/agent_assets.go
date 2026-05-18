@@ -3,6 +3,7 @@ package public
 import (
 	"net/http"
 	"oneclickvirt/assets"
+	"oneclickvirt/model/common"
 	"path/filepath"
 	"regexp"
 
@@ -31,7 +32,7 @@ func DownloadAgentInstaller(c *gin.Context) {
 func DownloadAgentRelease(c *gin.Context) {
 	name := filepath.Base(c.Param("filename"))
 	if !allowedAgentReleaseName.MatchString(name) {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid release filename"})
+		common.ResponseWithError(c, common.NewError(common.CodeInvalidParam, "invalid release filename"))
 		return
 	}
 

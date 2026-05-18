@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"oneclickvirt/model/common"
 	agentSvc "oneclickvirt/service/agent"
 
 	"github.com/gin-gonic/gin"
@@ -53,7 +54,7 @@ func AgentWebSocket(c *gin.Context) {
 		secret = c.GetHeader("X-Agent-Secret")
 	}
 	if secret == "" {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "缺少 secret 参数（支持 query/header）"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "缺少 secret 参数（支持 query/header）"))
 		return
 	}
 
@@ -62,7 +63,7 @@ func AgentWebSocket(c *gin.Context) {
 		global.APP_LOG.Warn("Agent WebSocket 鉴权失败",
 			zap.String("remoteAddr", c.Request.RemoteAddr),
 			zap.Error(err))
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "无效的 secret"})
+		common.ResponseWithError(c, common.NewError(common.CodeUnauthorized, "无效的 secret"))
 		return
 	}
 

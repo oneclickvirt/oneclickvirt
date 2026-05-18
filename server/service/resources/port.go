@@ -426,6 +426,20 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 
 		// 第一个端口作为SSH端口
 		sshHostPort := allocatedPorts[0]
+
+		// 确定映射类型：agent模式且无PortIP时使用控制端转发
+		mappingType := "node"
+		internalHost := ""
+		if providerInfo.ConnectionType == "agent" && providerInfo.PortIP == "" {
+			// Agent模式且无PortIP -> 控制端隧道内穿映射
+			mappingType = "controller"
+			// 获取实例的私有IP作为隧道目标
+			var instance provider.Instance
+			if err := tx.Where("id = ?", instanceID).Select("private_ip").First(&instance).Error; err == nil {
+				internalHost = instance.PrivateIP
+			}
+		}
+
 		sshPort := provider.Port{
 			InstanceID:    instanceID,
 			ProviderID:    providerID,
@@ -439,6 +453,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 			PortType:      "range_mapped", // 标记为区间映射
 			IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
 			MappingMethod: providerInfo.IPv4PortMappingMethod,
+			MappingType:   mappingType,
+			InternalHost:  internalHost,
 		}
 
 		if err := tx.Create(&sshPort).Error; err != nil {
@@ -469,6 +485,8 @@ func (s *PortMappingService) CreateDefaultPortMappings(instanceID uint, provider
 					PortType:      "range_mapped", // 标记为区间映射
 					IPv6Enabled:   providerInfo.NetworkType == "nat_ipv4_ipv6" || providerInfo.NetworkType == "dedicated_ipv4_ipv6" || providerInfo.NetworkType == "ipv6_only",
 					MappingMethod: providerInfo.IPv4PortMappingMethod,
+					MappingType:   mappingType,
+					InternalHost:  internalHost,
 				}
 				portRecords = append(portRecords, portRecord)
 			}

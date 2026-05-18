@@ -44,6 +44,9 @@ func OnInstanceCreated(ctx context.Context, db *gorm.DB, instanceID uint) {
 		}
 	}
 
+	// 刷新控制端端口转发的 InternalHost（实例首次创建后IP已就绪）
+	go refreshControllerPortHosts(db, instanceID)
+
 	// Monitoring registration requires agent to be installed.
 	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)
 	if err != nil || config.MonitoringMode != "agent" || !config.AgentInstalled {
@@ -109,6 +112,9 @@ func OnInstanceRebuilt(ctx context.Context, db *gorm.DB, instanceID uint) {
 			}
 		}
 	}
+
+	// 刷新控制端端口转发的 InternalHost（实例重建后IP可能已变更）
+	go refreshControllerPortHosts(db, instanceID)
 
 	// Update the agent monitor if monitoring is configured.
 	config, err := GetMonitoringConfig(db.WithContext(ctx), instance.ProviderID)

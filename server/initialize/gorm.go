@@ -183,6 +183,9 @@ func RegisterTables(db *gorm.DB) {
 		&checkinModel.CheckinConfig{},       // 签到配置表
 		&checkinModel.CheckinRecord{},       // 签到记录表
 		&checkinModel.CheckinVerification{}, // 签到验证码表
+
+		// API Token表
+		&authModel.ApiToken{}, // API访问令牌表
 	)
 	if err != nil {
 		global.APP_LOG.Error("register table failed", zap.Error(err))

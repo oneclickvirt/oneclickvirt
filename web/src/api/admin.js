@@ -991,3 +991,19 @@ export const execOnProvider = (providerId, command, timeout = 30) => {
     timeout: (timeout + 5) * 1000
   })
 }
+
+// API Token管理（管理员）
+export const adminGetApiTokenList = (params) => {
+  return request({
+    url: '/v1/admin/api-tokens',
+    method: 'get',
+    params
+  })
+}
+
+export const adminDeleteApiToken = (id) => {
+  return request({
+    url: `/v1/admin/api-tokens/${id}`,
+    method: 'delete'
+  })
+}

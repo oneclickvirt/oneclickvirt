@@ -12,16 +12,17 @@ import (
 
 // 统一错误码 — 直接使用 HTTP 状态码，不再使用自定义错误码
 const (
-	CodeSuccess       = http.StatusOK                    // 200
-	CodeBadRequest    = http.StatusBadRequest            // 400
-	CodeUnauthorized  = http.StatusUnauthorized          // 401
-	CodeForbidden     = http.StatusForbidden             // 403
-	CodeNotFound      = http.StatusNotFound              // 404
-	CodeConflict      = http.StatusConflict              // 409
-	CodeTooLarge      = http.StatusRequestEntityTooLarge // 413
-	CodeInternalError = http.StatusInternalServerError   // 500
-	CodeBadGateway    = http.StatusBadGateway            // 502
-	CodeUnavailable   = http.StatusServiceUnavailable    // 503
+	CodeSuccess         = http.StatusOK                    // 200
+	CodeBadRequest      = http.StatusBadRequest            // 400
+	CodeUnauthorized    = http.StatusUnauthorized          // 401
+	CodeForbidden       = http.StatusForbidden             // 403
+	CodeNotFound        = http.StatusNotFound              // 404
+	CodeConflict        = http.StatusConflict              // 409
+	CodeTooLarge        = http.StatusRequestEntityTooLarge // 413
+	CodeTooManyRequests = http.StatusTooManyRequests       // 429
+	CodeInternalError   = http.StatusInternalServerError   // 500
+	CodeBadGateway      = http.StatusBadGateway            // 502
+	CodeUnavailable     = http.StatusServiceUnavailable    // 503
 
 	// 向后兼容别名 — 所有旧常量映射到对应的 HTTP 状态码
 	CodeError                   = CodeBadRequest    // was 1000
@@ -57,16 +58,17 @@ const (
 
 // 错误信息映射
 var ErrorMessages = map[int]string{
-	CodeSuccess:       "操作成功",
-	CodeBadRequest:    "数据验证失败",
-	CodeUnauthorized:  "未授权访问",
-	CodeForbidden:     "禁止访问",
-	CodeNotFound:      "资源不存在",
-	CodeConflict:      "资源冲突",
-	CodeTooLarge:      "请求数据过大",
-	CodeInternalError: "系统内部错误",
-	CodeBadGateway:    "外部API调用失败",
-	CodeUnavailable:   "服务暂时不可用",
+	CodeSuccess:         "操作成功",
+	CodeBadRequest:      "数据验证失败",
+	CodeUnauthorized:    "未授权访问",
+	CodeForbidden:       "禁止访问",
+	CodeNotFound:        "资源不存在",
+	CodeConflict:        "资源冲突",
+	CodeTooLarge:        "请求数据过大",
+	CodeTooManyRequests: "请求过于频繁，请稍后重试",
+	CodeInternalError:   "系统内部错误",
+	CodeBadGateway:      "外部API调用失败",
+	CodeUnavailable:     "服务暂时不可用",
 }
 
 // AppError 统一错误结构

@@ -185,6 +185,14 @@ const userRoutes = computed(() => {
           title: t('sidebar.checkinRenewal'),
           icon: 'Calendar'
         }
+      },
+      {
+        path: '/user/api-tokens',
+        name: 'UserApiTokens',
+        meta: {
+          title: t('sidebar.apiTokenManagement'),
+          icon: 'Key'
+        }
       }
     ],
     // 管理员路由

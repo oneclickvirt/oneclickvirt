@@ -348,6 +348,123 @@ const docTemplate = `{
                 }
             }
         },
+        "/admin/api-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员获取所有用户的API Token列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "管理员获取API Token列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "搜索关键字",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-tokens/:id": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员删除（禁用）任意API Token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "管理员删除API Token",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Token ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "删除成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "删除失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/admin/configuration-tasks": {
             "get": {
                 "security": [
@@ -826,6 +943,67 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/instances/{id}": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员获取指定实例的详细信息",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员管理"
+                ],
+                "summary": "获取实例详情",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "实例不存在",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -6755,6 +6933,26 @@ const docTemplate = `{
                 }
             }
         },
+        "/public/init-progress": {
+            "get": {
+                "description": "轮询此接口获取系统初始化的实时进度，status 为 success 时初始化完成",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "系统初始化"
+                ],
+                "summary": "获取系统初始化进度",
+                "responses": {
+                    "200": {
+                        "description": "进度信息",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/public/init/check": {
             "get": {
                 "description": "检查系统是否需要进行初始化设置",
@@ -7053,6 +7251,184 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "服务器内部错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/api-tokens": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户获取自己的API Token列表",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "获取API Token列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "default": 1,
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "default": 10,
+                        "description": "每页数量",
+                        "name": "pageSize",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "搜索关键字",
+                        "name": "keyword",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "获取成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "object"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "500": {
+                        "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户创建自己的API访问令牌",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "创建API Token",
+                "parameters": [
+                    {
+                        "description": "创建Token请求",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/auth.ApiTokenCreateRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "创建成功",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "$ref": "#/definitions/auth.ApiTokenCreateResponse"
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "创建失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/user/api-tokens/:id": {
+            "delete": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "用户删除（禁用）自己的API Token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "删除API Token",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Token ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "删除成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "删除失败",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -8517,6 +8893,76 @@ const docTemplate = `{
                 }
             }
         },
+        "/user/provider/{id}/gpus": {
+            "get": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "获取指定Provider最后一次GPU检测的缓存结果（持久化存储），供用户申请时选择GPU设备",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户管理"
+                ],
+                "summary": "获取Provider GPU/NPU设备列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "GPU列表",
+                        "schema": {
+                            "allOf": [
+                                {
+                                    "$ref": "#/definitions/common.Response"
+                                },
+                                {
+                                    "type": "object",
+                                    "properties": {
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    }
+                                }
+                            ]
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "401": {
+                        "description": "用户未登录",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "404": {
+                        "description": "Provider不存在或无缓存数据",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/user/redemption-codes/redeem": {
             "post": {
                 "security": [
@@ -8959,6 +9405,81 @@ const docTemplate = `{
                 }
             }
         },
+        "/v1/admin/providers/{id}/agent-secret": {
+            "post": {
+                "description": "为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/providers"
+                ],
+                "summary": "生成或获取 Provider 的 Agent 密钥",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/v1/admin/providers/{id}/exec": {
+            "post": {
+                "description": "通过 SSH（SSH模式）或 Agent WebSocket（Agent模式）在节点上执行 shell 命令",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/providers"
+                ],
+                "summary": "在 Provider 节点上执行命令",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "命令（JSON: {\\",
+                        "name": "command",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {}
+            }
+        },
+        "/v1/admin/providers/{id}/stopped-containers": {
+            "get": {
+                "description": "通过SSH连接到LXD/Incus节点，返回所有Stopped状态的容器名称列表",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "admin/providers"
+                ],
+                "summary": "获取节点上已停止的容器列表（用于复制模式）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
+        },
         "/v1/admin/providers/{provider_id}/traffic/history": {
             "get": {
                 "security": [
@@ -9322,6 +9843,25 @@ const docTemplate = `{
                     }
                 }
             }
+        },
+        "/v1/ws/agent": {
+            "get": {
+                "description": "Rust Agent 通过此端点主动连回控制端，支持内网穿透模式",
+                "tags": [
+                    "agent"
+                ],
+                "summary": "Agent 反向 WebSocket 连接入口",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Agent 鉴权密钥",
+                        "name": "secret",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {}
+            }
         }
     },
     "definitions": {
@@ -9599,13 +10139,8 @@ const docTemplate = `{
         "admin.BatchCreateRedemptionCodesRequest": {
             "type": "object",
             "required": [
-                "bandwidthId",
                 "count",
-                "cpuId",
-                "diskId",
-                "imageId",
                 "instanceType",
-                "memoryId",
                 "providerId"
             ],
             "properties": {
@@ -9620,8 +10155,20 @@ const docTemplate = `{
                 "cpuId": {
                     "type": "string"
                 },
+                "creationMode": {
+                    "description": "复制模式（仅 LXD/Incus 节点）",
+                    "type": "string"
+                },
                 "diskId": {
                     "type": "string"
+                },
+                "gpuDeviceIds": {
+                    "description": "GPU设备ID列表（逗号分隔），为空则附加所有GPU",
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "GPU直通配置（仅 LXD/Incus 容器）",
+                    "type": "boolean"
                 },
                 "imageId": {
                     "type": "integer"
@@ -9640,6 +10187,10 @@ const docTemplate = `{
                     "type": "integer"
                 },
                 "remark": {
+                    "type": "string"
+                },
+                "sourceContainer": {
+                    "description": "复制模式下的源容器名称（仅 copy 模式）",
                     "type": "string"
                 }
             }
@@ -9667,6 +10218,7 @@ const docTemplate = `{
             "properties": {
                 "ids": {
                     "type": "array",
+                    "minItems": 1,
                     "items": {
                         "type": "integer"
                     }
@@ -10059,6 +10611,14 @@ const docTemplate = `{
                 },
                 "instanceId": {
                     "type": "integer"
+                },
+                "internalHost": {
+                    "description": "控制端转发目标地址（容器IP）",
+                    "type": "string"
+                },
+                "mappingType": {
+                    "description": "\"node\"（默认）或 \"controller\"（控制端转发）",
+                    "type": "string"
                 },
                 "portCount": {
                     "description": "端口数量，默认1（单端口），最多1500个",
@@ -10453,6 +11013,51 @@ const docTemplate = `{
                 }
             }
         },
+        "auth.ApiTokenCreateRequest": {
+            "type": "object",
+            "required": [
+                "name"
+            ],
+            "properties": {
+                "expireDays": {
+                    "description": "过期天数（0=永久有效）",
+                    "type": "integer"
+                },
+                "name": {
+                    "description": "Token名称",
+                    "type": "string"
+                },
+                "scopes": {
+                    "description": "权限范围限制",
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "auth.ApiTokenCreateResponse": {
+            "type": "object",
+            "properties": {
+                "expiresAt": {
+                    "type": "string"
+                },
+                "id": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "token": {
+                    "description": "仅在创建时返回完整Token",
+                    "type": "string"
+                },
+                "tokenPrefix": {
+                    "description": "Token前缀（用于列表显示）",
+                    "type": "string"
+                }
+            }
+        },
         "auth.ForgotPasswordRequest": {
             "type": "object",
             "required": [
@@ -10476,6 +11081,10 @@ const docTemplate = `{
         },
         "auth.LoginRequest": {
             "type": "object",
+            "required": [
+                "password",
+                "username"
+            ],
             "properties": {
                 "captcha": {
                     "description": "图形验证码",
@@ -10486,8 +11095,14 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "loginType": {
-                    "description": "登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)",
-                    "type": "string"
+                    "description": "登录类型",
+                    "type": "string",
+                    "enum": [
+                        "username",
+                        "email",
+                        "telegram",
+                        "qq"
+                    ]
                 },
                 "password": {
                     "description": "密码登录时必填",
@@ -10495,12 +11110,16 @@ const docTemplate = `{
                     "example": "password"
                 },
                 "target": {
-                    "description": "验证码登录时的目标: 邮箱地址/TG用户名/QQ号",
+                    "description": "验证码登录时的目标",
                     "type": "string"
                 },
                 "userType": {
-                    "description": "用户类型: admin, user",
-                    "type": "string"
+                    "description": "用户类型",
+                    "type": "string",
+                    "enum": [
+                        "admin",
+                        "user"
+                    ]
                 },
                 "username": {
                     "description": "用户名登录时必填",
@@ -11285,6 +11904,14 @@ const docTemplate = `{
                     "description": "冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)",
                     "type": "string"
                 },
+                "gpuDeviceIds": {
+                    "description": "GPU设备ID列表（逗号分隔）",
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "GPU/NPU直通配置（从兑换码/导入时继承，用于展示和运维参考）",
+                    "type": "boolean"
+                },
                 "hasPortConflict": {
                     "description": "是否存在端口冲突",
                     "type": "boolean"
@@ -11337,6 +11964,18 @@ const docTemplate = `{
                     "description": "网络配置",
                     "type": "string"
                 },
+                "networkType": {
+                    "description": "创建时继承的网络类型（用于reset时恢复IPv6配置）",
+                    "type": "string"
+                },
+                "npuDeviceIds": {
+                    "description": "NPU设备ID列表（逗号分隔）",
+                    "type": "string"
+                },
+                "npuEnabled": {
+                    "description": "是否启用NPU直通",
+                    "type": "boolean"
+                },
                 "osType": {
                     "description": "系统信息",
                     "type": "string"
@@ -11376,6 +12015,10 @@ const docTemplate = `{
                 "providerId": {
                     "description": "关联的Provider ID（与name组合唯一）",
                     "type": "integer"
+                },
+                "providerVmId": {
+                    "description": "虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测",
+                    "type": "string"
                 },
                 "publicIP": {
                     "description": "公网IPv4地址",
@@ -11521,6 +12164,14 @@ const docTemplate = `{
                     "description": "容器嵌套",
                     "type": "boolean"
                 },
+                "copyMode": {
+                    "description": "复制模式（仅 LXD/Incus）",
+                    "type": "boolean"
+                },
+                "copySourceName": {
+                    "description": "复制模式下的源容器名称",
+                    "type": "string"
+                },
                 "cpu": {
                     "type": "string"
                 },
@@ -11544,6 +12195,14 @@ const docTemplate = `{
                     "additionalProperties": {
                         "type": "string"
                     }
+                },
+                "gpuDeviceIds": {
+                    "description": "GPU设备ID列表（逗号分隔），为空则附加所有GPU",
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "GPU直通配置（仅 LXD/Incus）",
+                    "type": "boolean"
                 },
                 "image": {
                     "type": "string"
@@ -11603,9 +12262,44 @@ const docTemplate = `{
                 }
             }
         },
+        "provider.DiscoveredAccelerator": {
+            "type": "object",
+            "properties": {
+                "bus": {
+                    "description": "总线地址（可选）",
+                    "type": "string"
+                },
+                "id": {
+                    "description": "设备ID（如索引或PCI地址）",
+                    "type": "string"
+                },
+                "kind": {
+                    "description": "gpu / npu",
+                    "type": "string"
+                },
+                "name": {
+                    "description": "设备名称",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "来源：devices/lspci/nvidia-smi/npu-smi",
+                    "type": "string"
+                },
+                "vendor": {
+                    "description": "厂商",
+                    "type": "string"
+                }
+            }
+        },
         "provider.DiscoveredInstance": {
             "type": "object",
             "properties": {
+                "accelerators": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/provider.DiscoveredAccelerator"
+                    }
+                },
                 "cpu": {
                     "description": "资源配置",
                     "type": "integer"
@@ -11620,6 +12314,13 @@ const docTemplate = `{
                     "items": {
                         "type": "integer"
                     }
+                },
+                "gpuDeviceIds": {
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "硬件加速配置（主要用于 LXD/Incus 导入场景）",
+                    "type": "boolean"
                 },
                 "image": {
                     "description": "系统信息",
@@ -11644,6 +12345,12 @@ const docTemplate = `{
                 "name": {
                     "description": "实例名称",
                     "type": "string"
+                },
+                "npuDeviceIds": {
+                    "type": "string"
+                },
+                "npuEnabled": {
+                    "type": "boolean"
                 },
                 "osType": {
                     "description": "操作系统类型",
@@ -12463,6 +13170,14 @@ const docTemplate = `{
                     "description": "磁盘规格ID",
                     "type": "string"
                 },
+                "gpuDeviceIds": {
+                    "description": "GPU设备ID列表（逗号分隔），为空则附加所有GPU",
+                    "type": "string"
+                },
+                "gpuEnabled": {
+                    "description": "GPU直通配置（仅 LXD/Incus 容器实例支持）",
+                    "type": "boolean"
+                },
                 "imageId": {
                     "description": "镜像ID（从数据库获取）",
                     "type": "integer"
@@ -12720,7 +13435,8 @@ const docTemplate = `{
                     "type": "string"
                 },
                 "nickname": {
-                    "type": "string"
+                    "type": "string",
+                    "maxLength": 50
                 },
                 "phone": {
                     "type": "string"
@@ -12748,6 +13464,10 @@ const docTemplate = `{
                 "expiresAt": {
                     "description": "实例过期时间",
                     "type": "string"
+                },
+                "hasSshMapping": {
+                    "description": "是否有可用的SSH端口映射（支持Web SSH连接）",
+                    "type": "boolean"
                 },
                 "id": {
                     "type": "integer"
@@ -13015,9 +13735,9 @@ const docTemplate = `{
 // SwaggerInfo holds exported Swagger Info so clients can modify it
 var SwaggerInfo = &swag.Spec{
 	Version:          "1.0",
-	Host:             "0.0.0.0:8888",
+	Host:             "localhost:8888",
 	BasePath:         "/api/v1",
-	Schemes:          []string{"http", "https"},
+	Schemes:          []string{"http"},
 	Title:            "OneClickVirt API",
 	Description:      "一键虚拟化管理平台API接口文档",
 	InfoInstanceName: "swagger",

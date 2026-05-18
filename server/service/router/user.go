@@ -1,6 +1,7 @@
 package router
 
 import (
+	"oneclickvirt/api/v1/auth"
 	"oneclickvirt/api/v1/public"
 	"oneclickvirt/api/v1/traffic"
 	"oneclickvirt/api/v1/user"
@@ -89,5 +90,10 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.POST("/user/checkin/code/:instance_id", user.GenerateCheckinCode)
 		UserGroup.POST("/user/checkin", user.DoCheckin)
 		UserGroup.GET("/user/checkin/records", user.GetCheckinRecords)
+
+		// API Token管理
+		UserGroup.POST("/user/api-tokens", auth.CreateApiToken)
+		UserGroup.GET("/user/api-tokens", auth.GetApiTokenList)
+		UserGroup.DELETE("/user/api-tokens/:id", auth.DeleteApiToken)
 	}
 }

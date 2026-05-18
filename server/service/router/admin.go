@@ -2,6 +2,7 @@ package router
 
 import (
 	"oneclickvirt/api/v1/admin"
+	"oneclickvirt/api/v1/auth"
 	"oneclickvirt/api/v1/config"
 	"oneclickvirt/api/v1/system"
 	"oneclickvirt/api/v1/traffic"
@@ -175,6 +176,11 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 管理员分组管理（普通管理员管理自己的分组信息）
 		NormalAdminGroup.GET("/group-info", admin.GetAdminGroupInfo)
 		NormalAdminGroup.PUT("/group-info", admin.UpdateAdminGroupInfo)
+
+		// API Token管理（管理员可管理自己的Token）
+		NormalAdminGroup.POST("/api-tokens", auth.CreateApiToken)
+		NormalAdminGroup.GET("/api-tokens", auth.GetApiTokenList)
+		NormalAdminGroup.DELETE("/api-tokens/:id", auth.DeleteApiToken)
 	}
 
 	// 超级管理员专用路由（仅admin用户类型，排除normal_admin）
@@ -252,5 +258,9 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// 管理员特殊操作
 		SuperAdminGroup.POST("/users/:id/login-as", admin.AdminLoginAsUser)
 		SuperAdminGroup.POST("/instances/transfer", admin.AdminTransferInstance)
+
+		// API Token管理（超管可查看/删除所有用户的Token）
+		SuperAdminGroup.GET("/api-tokens", auth.AdminGetApiTokenList)
+		SuperAdminGroup.DELETE("/api-tokens/:id", auth.AdminDeleteApiToken)
 	}
 }

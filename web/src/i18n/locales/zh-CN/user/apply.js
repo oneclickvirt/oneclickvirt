@@ -112,5 +112,7 @@ export default {
   gpuEnabled: "启用 GPU 直通",
   gpuDeviceIds: "GPU 设备 ID",
   gpuDeviceIdsPlaceholder: "留空则附加所有GPU，多个ID用逗号分隔（如 0,1）",
-  gpuDeviceIdsHint: "仅 LXD/Incus 容器实例支持，留空将自动附加节点上所有可用 GPU"
+  gpuDeviceIdsHint: "仅 LXD/Incus 容器实例支持，留空将自动附加节点上所有可用 GPU",
+  gpuSelectAll: "全选",
+  gpuDeselectAll: "取消全选"
 }

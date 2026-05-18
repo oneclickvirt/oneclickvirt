@@ -75,3 +75,27 @@ export function sendVerifyCode(data) {
     data
   })
 }
+
+// API Token管理
+export function createApiToken(data) {
+  return request({
+    url: '/v1/user/api-tokens',
+    method: 'post',
+    data
+  })
+}
+
+export function getApiTokenList(params) {
+  return request({
+    url: '/v1/user/api-tokens',
+    method: 'get',
+    params
+  })
+}
+
+export function deleteApiToken(id) {
+  return request({
+    url: `/v1/user/api-tokens/${id}`,
+    method: 'delete'
+  })
+}

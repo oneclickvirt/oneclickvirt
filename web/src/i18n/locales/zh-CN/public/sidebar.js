@@ -24,5 +24,6 @@ export default {
   blockRulesManagement: '封禁规则',
   domainManagement: '域名管理',
   kycManagement: 'KYC管理',
-  oauth2Management: 'OAuth2管理'
+  oauth2Management: 'OAuth2管理',
+  apiTokenManagement: 'API Token管理'
 }

@@ -33,6 +33,7 @@ import userApply from './zh-CN/user/apply.js'
 import userDomain from './zh-CN/user/domain.js'
 import userKyc from './zh-CN/user/kyc.js'
 import userCheckin from './zh-CN/user/checkin.js'
+import userApiTokens from './zh-CN/user/apiTokens.js'
 
 // 管理员模块
 import adminDashboard from './zh-CN/admin/dashboard.js'
@@ -79,7 +80,8 @@ export default {
     apply: userApply,
     domain: userDomain,
     kyc: userKyc,
-    checkin: userCheckin
+    checkin: userCheckin,
+    apiTokens: userApiTokens
   },
   admin: {
     dashboard: adminDashboard,

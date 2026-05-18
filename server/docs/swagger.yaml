@@ -193,8 +193,17 @@ definitions:
         type: integer
       cpuId:
         type: string
+      creationMode:
+        description: 复制模式（仅 LXD/Incus 节点）
+        type: string
       diskId:
         type: string
+      gpuDeviceIds:
+        description: GPU设备ID列表（逗号分隔），为空则附加所有GPU
+        type: string
+      gpuEnabled:
+        description: GPU直通配置（仅 LXD/Incus 容器）
+        type: boolean
       imageId:
         type: integer
       instanceType:
@@ -208,14 +217,12 @@ definitions:
         type: integer
       remark:
         type: string
+      sourceContainer:
+        description: 复制模式下的源容器名称（仅 copy 模式）
+        type: string
     required:
-    - bandwidthId
     - count
-    - cpuId
-    - diskId
-    - imageId
     - instanceType
-    - memoryId
     - providerId
     type: object
   admin.BatchDeleteInviteCodesRequest:
@@ -233,6 +240,7 @@ definitions:
       ids:
         items:
           type: integer
+        minItems: 1
         type: array
     required:
     - ids
@@ -502,6 +510,12 @@ definitions:
         type: integer
       instanceId:
         type: integer
+      internalHost:
+        description: 控制端转发目标地址（容器IP）
+        type: string
+      mappingType:
+        description: '"node"（默认）或 "controller"（控制端转发）'
+        type: string
       portCount:
         description: 端口数量，默认1（单端口），最多1500个
         maximum: 1500
@@ -783,6 +797,37 @@ definitions:
         minimum: 0
         type: integer
     type: object
+  auth.ApiTokenCreateRequest:
+    properties:
+      expireDays:
+        description: 过期天数（0=永久有效）
+        type: integer
+      name:
+        description: Token名称
+        type: string
+      scopes:
+        description: 权限范围限制
+        items:
+          type: string
+        type: array
+    required:
+    - name
+    type: object
+  auth.ApiTokenCreateResponse:
+    properties:
+      expiresAt:
+        type: string
+      id:
+        type: integer
+      name:
+        type: string
+      token:
+        description: 仅在创建时返回完整Token
+        type: string
+      tokenPrefix:
+        description: Token前缀（用于列表显示）
+        type: string
+    type: object
   auth.ForgotPasswordRequest:
     properties:
       captcha:
@@ -806,17 +851,25 @@ definitions:
         description: 图形验证码ID
         type: string
       loginType:
-        description: '登录类型: username(用户名密码), email(邮箱验证码), telegram(TG验证码), qq(QQ验证码)'
+        description: 登录类型
+        enum:
+        - username
+        - email
+        - telegram
+        - qq
         type: string
       password:
         description: 密码登录时必填
         example: password
         type: string
       target:
-        description: '验证码登录时的目标: 邮箱地址/TG用户名/QQ号'
+        description: 验证码登录时的目标
         type: string
       userType:
-        description: '用户类型: admin, user'
+        description: 用户类型
+        enum:
+        - admin
+        - user
         type: string
       username:
         description: 用户名登录时必填
@@ -825,6 +878,9 @@ definitions:
       verifyCode:
         description: 验证码登录时的验证码
         type: string
+    required:
+    - password
+    - username
     type: object
   auth.RegisterRequest:
     properties:
@@ -1375,6 +1431,12 @@ definitions:
       frozenReason:
         description: 冻结原因：expired(到期), node_frozen(节点冻结), manual(手动冻结)
         type: string
+      gpuDeviceIds:
+        description: GPU设备ID列表（逗号分隔）
+        type: string
+      gpuEnabled:
+        description: GPU/NPU直通配置（从兑换码/导入时继承，用于展示和运维参考）
+        type: boolean
       hasPortConflict:
         description: 是否存在端口冲突
         type: boolean
@@ -1416,6 +1478,15 @@ definitions:
       network:
         description: 网络配置
         type: string
+      networkType:
+        description: 创建时继承的网络类型（用于reset时恢复IPv6配置）
+        type: string
+      npuDeviceIds:
+        description: NPU设备ID列表（逗号分隔）
+        type: string
+      npuEnabled:
+        description: 是否启用NPU直通
+        type: boolean
       osType:
         description: 系统信息
         type: string
@@ -1446,6 +1517,9 @@ definitions:
       providerId:
         description: 关联的Provider ID（与name组合唯一）
         type: integer
+      providerVmId:
+        description: 虚拟化平台的实例ID（Proxmox VMID/CTID等），用于接口检测
+        type: string
       publicIP:
         description: 公网IPv4地址
         type: string
@@ -1555,6 +1629,12 @@ definitions:
       allowNesting:
         description: 容器嵌套
         type: boolean
+      copyMode:
+        description: 复制模式（仅 LXD/Incus）
+        type: boolean
+      copySourceName:
+        description: 复制模式下的源容器名称
+        type: string
       cpu:
         type: string
       cpuAllowance:
@@ -1572,6 +1652,12 @@ definitions:
         additionalProperties:
           type: string
         type: object
+      gpuDeviceIds:
+        description: GPU设备ID列表（逗号分隔），为空则附加所有GPU
+        type: string
+      gpuEnabled:
+        description: GPU直通配置（仅 LXD/Incus）
+        type: boolean
       image:
         type: string
       image_path:
@@ -1613,8 +1699,33 @@ definitions:
         description: 是否使用CDN加速下载镜像
         type: boolean
     type: object
+  provider.DiscoveredAccelerator:
+    properties:
+      bus:
+        description: 总线地址（可选）
+        type: string
+      id:
+        description: 设备ID（如索引或PCI地址）
+        type: string
+      kind:
+        description: gpu / npu
+        type: string
+      name:
+        description: 设备名称
+        type: string
+      source:
+        description: 来源：devices/lspci/nvidia-smi/npu-smi
+        type: string
+      vendor:
+        description: 厂商
+        type: string
+    type: object
   provider.DiscoveredInstance:
     properties:
+      accelerators:
+        items:
+          $ref: '#/definitions/provider.DiscoveredAccelerator'
+        type: array
       cpu:
         description: 资源配置
         type: integer
@@ -1626,6 +1737,11 @@ definitions:
         items:
           type: integer
         type: array
+      gpuDeviceIds:
+        type: string
+      gpuEnabled:
+        description: 硬件加速配置（主要用于 LXD/Incus 导入场景）
+        type: boolean
       image:
         description: 系统信息
         type: string
@@ -1644,6 +1760,10 @@ definitions:
       name:
         description: 实例名称
         type: string
+      npuDeviceIds:
+        type: string
+      npuEnabled:
+        type: boolean
       osType:
         description: 操作系统类型
         type: string
@@ -2214,6 +2334,12 @@ definitions:
       diskId:
         description: 磁盘规格ID
         type: string
+      gpuDeviceIds:
+        description: GPU设备ID列表（逗号分隔），为空则附加所有GPU
+        type: string
+      gpuEnabled:
+        description: GPU直通配置（仅 LXD/Incus 容器实例支持）
+        type: boolean
       imageId:
         description: 镜像ID（从数据库获取）
         type: integer
@@ -2398,6 +2524,7 @@ definitions:
       email:
         type: string
       nickname:
+        maxLength: 50
         type: string
       phone:
         type: string
@@ -2417,6 +2544,9 @@ definitions:
       expiresAt:
         description: 实例过期时间
         type: string
+      hasSshMapping:
+        description: 是否有可用的SSH端口映射（支持Web SSH连接）
+        type: boolean
       id:
         type: integer
       image:
@@ -2597,7 +2727,7 @@ definitions:
       uuid:
         type: string
     type: object
-host: 0.0.0.0:8888
+host: localhost:8888
 info:
   contact:
     email: support@swagger.io
@@ -2814,6 +2944,78 @@ paths:
       summary: 批量更新公告状态
       tags:
       - 管理员管理
+  /admin/api-tokens:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取所有用户的API Token列表
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 搜索关键字
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员获取API Token列表
+      tags:
+      - API Token管理
+  /admin/api-tokens/:id:
+    delete:
+      consumes:
+      - application/json
+      description: 管理员删除（禁用）任意API Token
+      parameters:
+      - description: Token ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员删除API Token
+      tags:
+      - API Token管理
   /admin/configuration-tasks:
     get:
       consumes:
@@ -3105,6 +3307,42 @@ paths:
       security:
       - BearerAuth: []
       summary: 获取实例列表
+      tags:
+      - 管理员管理
+  /admin/instances/{id}:
+    get:
+      consumes:
+      - application/json
+      description: 管理员获取指定实例的详细信息
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: 实例不存在
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取实例详情
       tags:
       - 管理员管理
   /admin/instances/{id}/action:
@@ -6733,6 +6971,19 @@ paths:
       summary: 初始化系统
       tags:
       - 系统初始化
+  /public/init-progress:
+    get:
+      description: 轮询此接口获取系统初始化的实时进度，status 为 success 时初始化完成
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 进度信息
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取系统初始化进度
+      tags:
+      - 系统初始化
   /public/init/check:
     get:
       consumes:
@@ -6914,6 +7165,114 @@ paths:
       summary: 获取用户的活跃资源预留
       tags:
       - 用户管理
+  /user/api-tokens:
+    get:
+      consumes:
+      - application/json
+      description: 用户获取自己的API Token列表
+      parameters:
+      - default: 1
+        description: 页码
+        in: query
+        name: page
+        type: integer
+      - default: 10
+        description: 每页数量
+        in: query
+        name: pageSize
+        type: integer
+      - description: 搜索关键字
+        in: query
+        name: keyword
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 获取成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  type: object
+              type: object
+        "500":
+          description: 获取失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取API Token列表
+      tags:
+      - API Token管理
+    post:
+      consumes:
+      - application/json
+      description: 用户创建自己的API访问令牌
+      parameters:
+      - description: 创建Token请求
+        in: body
+        name: request
+        required: true
+        schema:
+          $ref: '#/definitions/auth.ApiTokenCreateRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 创建成功
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  $ref: '#/definitions/auth.ApiTokenCreateResponse'
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 创建失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 创建API Token
+      tags:
+      - API Token管理
+  /user/api-tokens/:id:
+    delete:
+      consumes:
+      - application/json
+      description: 用户删除（禁用）自己的API Token
+      parameters:
+      - description: Token ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 删除API Token
+      tags:
+      - API Token管理
   /user/dashboard:
     get:
       consumes:
@@ -7769,6 +8128,48 @@ paths:
       summary: 获取Provider能力信息
       tags:
       - 用户管理
+  /user/provider/{id}/gpus:
+    get:
+      consumes:
+      - application/json
+      description: 获取指定Provider最后一次GPU检测的缓存结果（持久化存储），供用户申请时选择GPU设备
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: GPU列表
+          schema:
+            allOf:
+            - $ref: '#/definitions/common.Response'
+            - properties:
+                data:
+                  items:
+                    type: object
+                  type: array
+              type: object
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "401":
+          description: 用户未登录
+          schema:
+            $ref: '#/definitions/common.Response'
+        "404":
+          description: Provider不存在或无缓存数据
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 获取Provider GPU/NPU设备列表
+      tags:
+      - 用户管理
   /user/provider/available:
     get:
       consumes:
@@ -8076,6 +8477,57 @@ paths:
       summary: 管理员WebSocket SSH连接
       tags:
       - 管理员/实例
+  /v1/admin/providers/{id}/agent-secret:
+    post:
+      description: 为 agent 连接模式的 Provider 生成新的鉴权密钥（仅首次），后续调用只返回已有密钥。密钥一旦创建即写死，需删除Provider重建才能刷新。
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      summary: 生成或获取 Provider 的 Agent 密钥
+      tags:
+      - admin/providers
+  /v1/admin/providers/{id}/exec:
+    post:
+      description: 通过 SSH（SSH模式）或 Agent WebSocket（Agent模式）在节点上执行 shell 命令
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: '命令（JSON: {\'
+        in: body
+        name: command
+        required: true
+        schema:
+          type: string
+      produces:
+      - application/json
+      responses: {}
+      summary: 在 Provider 节点上执行命令
+      tags:
+      - admin/providers
+  /v1/admin/providers/{id}/stopped-containers:
+    get:
+      description: 通过SSH连接到LXD/Incus节点，返回所有Stopped状态的容器名称列表
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses: {}
+      summary: 获取节点上已停止的容器列表（用于复制模式）
+      tags:
+      - admin/providers
   /v1/admin/providers/{provider_id}/traffic/history:
     get:
       consumes:
@@ -8306,9 +8758,21 @@ paths:
       summary: 获取用户流量历史
       tags:
       - 流量管理
+  /v1/ws/agent:
+    get:
+      description: Rust Agent 通过此端点主动连回控制端，支持内网穿透模式
+      parameters:
+      - description: Agent 鉴权密钥
+        in: query
+        name: secret
+        required: true
+        type: string
+      responses: {}
+      summary: Agent 反向 WebSocket 连接入口
+      tags:
+      - agent
 schemes:
 - http
-- https
 securityDefinitions:
   BearerAuth:
     in: header

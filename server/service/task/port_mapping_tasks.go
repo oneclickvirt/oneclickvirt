@@ -329,7 +329,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	// Provider 会创建一条新的数据库记录，需要删除它并更新原有的记录
 	if result.ID != 0 && result.ID != port.ID {
 		// 删除 provider 创建的重复记录
-		if err := global.APP_DB.Delete(&providerModel.Port{}, result.ID).Error; err != nil {
+		if err := global.APP_DB.Unscoped().Delete(&providerModel.Port{}, result.ID).Error; err != nil {
 			global.APP_LOG.Warn("删除重复端口记录失败",
 				zap.Uint("duplicatePortId", result.ID),
 				zap.Error(err))
@@ -465,7 +465,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	// 控制端转发模式：直接停止 TCP 监听，跳过节点侧删除
 	if port.MappingType == "controller" {
 		agentSvc.StopControllerPortForward(port.ID)
-		if err := global.APP_DB.Delete(&port).Error; err != nil {
+		if err := global.APP_DB.Unscoped().Delete(&port).Error; err != nil {
 			return fmt.Errorf("删除端口映射记录失败: %v", err)
 		}
 		stateManager := GetTaskStateManager()
@@ -566,7 +566,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	s.updateTaskProgress(task.ID, 85, "正在删除数据库记录...")
 
 	// 删除数据库记录
-	if err := global.APP_DB.Delete(&port).Error; err != nil {
+	if err := global.APP_DB.Unscoped().Delete(&port).Error; err != nil {
 		return fmt.Errorf("删除端口映射记录失败: %v", err)
 	}
 

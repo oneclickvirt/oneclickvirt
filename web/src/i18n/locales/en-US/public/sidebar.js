@@ -24,5 +24,6 @@ export default {
   blockRulesManagement: 'Block Rules',
   domainManagement: 'Domain Management',
   kycManagement: 'KYC Management',
-  oauth2Management: 'OAuth2 Management'
+  oauth2Management: 'OAuth2 Management',
+  apiTokenManagement: 'API Token'
 }
