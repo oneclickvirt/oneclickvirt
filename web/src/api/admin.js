@@ -44,6 +44,13 @@ export const cancelUserTaskByAdmin = (taskId) => {
   })
 }
 
+export const getAdminTaskDetail = (taskId) => {
+  return request({
+    url: `/v1/admin/tasks/${taskId}`,
+    method: 'get'
+  })
+}
+
 // 流量监控任务管理（pmacct 旧接口，保留兼容）
 export const trafficMonitorOperation = (data) => {
   return request({

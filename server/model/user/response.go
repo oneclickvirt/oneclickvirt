@@ -113,6 +113,7 @@ type UserTaskResponse struct {
 	StatusMessage    string     `json:"statusMessage"`    // 状态描述
 	CanCancel        bool       `json:"canCancel"`        // 是否可以取消
 	IsForceStoppable bool       `json:"isForceStoppable"` // 是否允许强制停止
+	ProgressLogs     string     `json:"progressLogs"`     // 进度日志（JSON数组）
 	// 排队信息
 	QueuePosition     int `json:"queuePosition"`     // 排队位置（0表示正在执行，>0表示前面有n个任务）
 	EstimatedWaitTime int `json:"estimatedWaitTime"` // 预计等待时间（秒）

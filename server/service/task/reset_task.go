@@ -134,7 +134,7 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 		global.APP_LOG.Warn("重置系统：监控初始化失败", zap.Error(err))
 	}
 
-	s.updateTaskProgress(task.ID, 100, "重置完成")
+	s.updateTaskProgress(task.ID, 100, "step.resetCompleted")
 
 	global.APP_LOG.Info("用户实例重置成功",
 		zap.Uint("taskId", task.ID),
@@ -148,7 +148,7 @@ func (s *TaskService) executeResetTask(ctx context.Context, task *adminModel.Tas
 
 // resetTask_Prepare 阶段1: 准备阶段 - 查询必要信息
 func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Task, taskReq *adminModel.InstanceOperationTaskRequest, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 5, "正在准备重置...")
+	s.updateTaskProgress(task.ID, 5, "step.preparingReset")
 
 	// 解析taskData获取originalStatus（实例重置前的原始状态）
 	var taskData map[string]interface{}
@@ -241,7 +241,7 @@ func (s *TaskService) resetTask_Prepare(ctx context.Context, task *adminModel.Ta
 
 // resetTask_DeleteOldInstance 阶段2: 删除Provider上的旧实例（复用删除逻辑）
 func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 15, "正在删除旧实例...")
+	s.updateTaskProgress(task.ID, 15, "step.deletingOldInstance")
 
 	providerApiService := &provider2.ProviderApiService{}
 
@@ -268,7 +268,7 @@ func (s *TaskService) resetTask_DeleteOldInstance(ctx context.Context, task *adm
 
 // resetTask_CleanupOldInstance 阶段3: 清理旧实例数据库记录和资源（复用删除逻辑）
 func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 25, "正在清理旧实例数据...")
+	s.updateTaskProgress(task.ID, 25, "step.cleaningOldData")
 
 	// 清理pmacct监控（事务外操作）
 	trafficMonitorManager := traffic_monitor.GetManager()
@@ -350,7 +350,7 @@ func (s *TaskService) resetTask_CleanupOldInstance(ctx context.Context, task *ad
 
 // resetTask_CreateNewInstance 阶段4: 创建新实例（复用创建逻辑）
 func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 40, "正在创建新实例...")
+	s.updateTaskProgress(task.ID, 40, "step.creatingNewInstance")
 
 	// 获取用户信息
 	var user userModel.User
@@ -418,7 +418,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 		zap.Uint("newInstanceId", resetCtx.NewInstanceID),
 		zap.String("instanceName", resetCtx.OldInstanceName))
 
-	s.updateTaskProgress(task.ID, 50, "正在调用Provider创建实例...")
+	s.updateTaskProgress(task.ID, 50, "step.callingProviderCreate")
 
 	// 准备创建请求（使用与正常创建完全相同的逻辑）
 	createReq := provider2.CreateInstanceRequest{
@@ -547,7 +547,7 @@ func (s *TaskService) resetTask_CreateNewInstance(ctx context.Context, task *adm
 
 // resetTask_SetPassword 阶段5: 设置新密码
 func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 70, "正在设置新密码...")
+	s.updateTaskProgress(task.ID, 70, "step.settingPassword")
 
 	// 生成新密码
 	resetCtx.NewPassword = utils.GenerateStrongPassword(12)
@@ -594,7 +594,7 @@ func (s *TaskService) resetTask_SetPassword(ctx context.Context, task *adminMode
 
 // resetTask_UpdateInstanceInfo 阶段6: 更新实例信息并确认配额
 func (s *TaskService) resetTask_UpdateInstanceInfo(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 80, "正在更新实例信息...")
+	s.updateTaskProgress(task.ID, 80, "step.updatingInstanceInfo")
 
 	// 使用短事务更新实例信息和确认配额
 	err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {

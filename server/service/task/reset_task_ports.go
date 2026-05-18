@@ -23,7 +23,7 @@ import (
 
 // resetTask_RestorePortMappings 阶段7: 恢复端口映射（直接创建，不使用任务系统）
 func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 88, "正在恢复端口映射...")
+	s.updateTaskProgress(task.ID, 88, "step.restoringPortMappings")
 
 	// 对于LXD/Incus，等待实例获取IP地址
 	if resetCtx.Provider.Type == "lxd" || resetCtx.Provider.Type == "incus" {
@@ -307,7 +307,7 @@ func (s *TaskService) createPortMappingDirect(ctx context.Context, resetCtx *Res
 
 // resetTask_ReinitializeMonitoring 阶段8: 重新初始化监控
 func (s *TaskService) resetTask_ReinitializeMonitoring(ctx context.Context, task *adminModel.Task, resetCtx *ResetTaskContext) error {
-	s.updateTaskProgress(task.ID, 96, "正在重新初始化监控...")
+	s.updateTaskProgress(task.ID, 96, "step.reinitMonitoringService")
 
 	// 检查是否启用流量控制
 	var providerTrafficEnabled bool

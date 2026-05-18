@@ -57,7 +57,8 @@ type AdminTaskListResponse struct {
 // AdminTaskDetailResponse 管理员任务详情响应
 type AdminTaskDetailResponse struct {
 	AdminTaskResponse
-	TaskData string `json:"taskData"` // 任务数据（JSON格式）
+	TaskData     string `json:"taskData"`     // 任务数据（JSON格式）
+	ProgressLogs string `json:"progressLogs"` // 进度日志（JSON数组）
 }
 
 // ForceStopTaskRequest 强制停止任务请求

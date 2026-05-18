@@ -281,6 +281,7 @@ func (s *TaskService) GetUserTasks(userID uint, req userModel.UserTasksRequest) 
 			CompletedAt:           task.CompletedAt,
 			TimeoutDuration:       task.TimeoutDuration,
 			StatusMessage:         task.StatusMessage,
+			ProgressLogs:          task.ProgressLogs,
 			PreallocatedCPU:       task.PreallocatedCPU,
 			PreallocatedMemory:    task.PreallocatedMemory,
 			PreallocatedDisk:      task.PreallocatedDisk,
@@ -704,7 +705,8 @@ func (s *TaskService) GetTaskDetail(taskID uint) (*adminModel.AdminTaskDetailRes
 			PreallocatedDisk:      task.PreallocatedDisk,
 			PreallocatedBandwidth: task.PreallocatedBandwidth,
 		},
-		TaskData: task.TaskData,
+		TaskData:     task.TaskData,
+		ProgressLogs: task.ProgressLogs,
 	}
 
 	// 获取用户信息 - 只查询需要的字段

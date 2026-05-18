@@ -508,7 +508,7 @@
             </el-descriptions-item>
             <el-descriptions-item :label="$t('admin.tasks.progress')">
               <el-progress
-                v-if="detailDialog.task.status === 'running' || detailDialog.task.status === 'processing'"
+                v-if="detailDialog.task.progress !== undefined && detailDialog.task.progress !== null"
                 :percentage="detailDialog.task.progress"
                 :status="detailDialog.task.status === 'failed' ? 'exception' : (detailDialog.task.status === 'completed' ? 'success' : undefined)"
               />
@@ -606,6 +606,31 @@
             >
               {{ detailDialog.task.statusMessage }}
             </el-descriptions-item>
+            <el-descriptions-item
+              :label="$t('admin.tasks.progressLogs')"
+              :span="2"
+            >
+              <div v-if="detailDialog.logsLoading">
+                <el-text type="info">{{ $t('common.loading') }}</el-text>
+              </div>
+              <div v-else-if="detailDialog.task.progressLogs">
+                <el-button link size="small" @click="toggleProgressLogs(detailDialog.task.id)">
+                  {{ expandedLogTaskIds.has(detailDialog.task.id) ? $t('admin.tasks.hideProgressLogs') : $t('admin.tasks.showProgressLogs') }}
+                </el-button>
+                <div v-if="expandedLogTaskIds.has(detailDialog.task.id)" class="progress-log-list">
+                  <div
+                    v-for="(entry, idx) in parseProgressLogs(detailDialog.task.progressLogs)"
+                    :key="idx"
+                    class="progress-log-entry"
+                  >
+                    <span class="log-time">{{ entry.t }}</span>
+                    <el-tag size="small" type="info" style="margin: 0 6px;">{{ entry.p }}%</el-tag>
+                    <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
+                  </div>
+                </div>
+              </div>
+              <el-text v-else type="info">{{ $t('admin.tasks.noProgressLogs') }}</el-text>
+            </el-descriptions-item>
           </el-descriptions>
         </div>
       </el-dialog>
@@ -620,10 +645,11 @@ import { useTaskManagement } from './composables/useTaskManagement'
 const {
   loading, tasks, providers, total, stats,
   filterForm, pagination,
-  forceStopDialog, detailDialog,
+  forceStopDialog, detailDialog, expandedLogTaskIds,
   loadTasks, resetFilter,
   showForceStopDialog, confirmForceStop,
   cancelTask, viewTaskDetail,
+  parseProgressLogs, translateStepMsg, toggleProgressLogs,
   shouldShowPreallocatedConfig,
   getTaskTypeText, getTaskStatusType, getTaskStatusText,
   formatDateTime, formatDuration,
@@ -776,5 +802,31 @@ const {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
+}
+
+.progress-log-list {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+
+.progress-log-entry {
+  display: flex;
+  align-items: center;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.log-time {
+  color: #999;
+  white-space: nowrap;
+  margin-right: 4px;
+}
+
+.log-msg {
+  color: var(--el-text-color-regular);
 }
 </style>

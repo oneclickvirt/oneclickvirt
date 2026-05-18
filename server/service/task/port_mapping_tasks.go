@@ -89,7 +89,7 @@ func (s *TaskService) CreateSyncPortMappingsTask(userID uint, req *adminModel.Sy
 // executeCreatePortMappingTask 执行创建端口映射任务
 func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.CreatePortMappingTaskRequest
@@ -98,7 +98,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (12%)
-	s.updateTaskProgress(task.ID, 12, "正在获取端口映射信息...")
+	s.updateTaskProgress(task.ID, 12, "step.getPortMappingInfo")
 
 	// 获取端口映射记录
 	var port providerModel.Port
@@ -107,7 +107,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (20%)
-	s.updateTaskProgress(task.ID, 20, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 20, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -118,7 +118,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (28%)
-	s.updateTaskProgress(task.ID, 28, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 28, "step.getProviderConfig")
 
 	// 获取Provider信息
 	var providerInfo providerModel.Provider
@@ -134,7 +134,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	localIPv4PortMappingMethod := providerInfo.IPv4PortMappingMethod
 
 	// 更新进度 (35%)
-	s.updateTaskProgress(task.ID, 35, "正在获取实例最新内网IP地址...")
+	s.updateTaskProgress(task.ID, 35, "step.getInstancePrivateIP")
 
 	// 获取实例最新的内网IP地址
 	var currentPrivateIP string
@@ -221,13 +221,13 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (50%)
-	s.updateTaskProgress(task.ID, 50, "正在配置端口映射...")
+	s.updateTaskProgress(task.ID, 50, "step.configuringPortMapping")
 
 	// controller 模式（Agent 隧道转发）：跳过节点侧规则（device_proxy / iptables 等），
 	// 直接启动控制端监听并提前返回。
 	// 非 agent 模式的 provider 不会产生 controller 类型的端口，因此该分支不会误触。
 	if port.MappingType == "controller" {
-		s.updateTaskProgress(task.ID, 70, "正在启动控制端端口转发...")
+		s.updateTaskProgress(task.ID, 70, "step.startingPortForward")
 
 		targetIP := currentPrivateIP
 		if targetIP == "" {
@@ -309,7 +309,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 执行端口映射添加 (70%)
-	s.updateTaskProgress(task.ID, 70, "正在远程服务器上配置端口映射...")
+	s.updateTaskProgress(task.ID, 70, "step.configuringRemotePortMapping")
 
 	result, err := manager.CreatePortMapping(ctx, portMappingType, portReq)
 	if err != nil {
@@ -341,7 +341,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 
 	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上通过 SSH 创建节点侧端口映射 (85%)
 	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" || localProviderType == "proxmoxve" {
-		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
+		s.updateTaskProgress(task.ID, 85, "step.applyingRemotePortMapping")
 
 		// 调用 provider 层的方法在远程服务器上创建实际映射（使用最新获取的内网IP）
 		switch localProviderType {
@@ -387,7 +387,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	// Docker/Podman/Containerd 非 controller 模式：portmapping manager 已处理，无需额外操作
 
 	// 更新进度 (92%)
-	s.updateTaskProgress(task.ID, 92, "正在更新端口状态...")
+	s.updateTaskProgress(task.ID, 92, "step.updatingPortStatus")
 
 	// 更新端口状态为active
 	if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
@@ -422,7 +422,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 // executeDeletePortMappingTask 执行删除端口映射任务
 func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.DeletePortMappingTaskRequest
@@ -431,7 +431,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (15%)
-	s.updateTaskProgress(task.ID, 15, "正在获取端口映射信息...")
+	s.updateTaskProgress(task.ID, 15, "step.getPortMappingInfo")
 
 	// 获取端口映射记录
 	var port providerModel.Port
@@ -448,7 +448,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (25%)
-	s.updateTaskProgress(task.ID, 25, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 25, "step.getInstanceInfo")
 
 	// 获取实例信息（可能实例已被删除）
 	var instance providerModel.Instance
@@ -460,7 +460,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (35%)
-	s.updateTaskProgress(task.ID, 35, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 35, "step.getProviderConfig")
 
 	// 控制端转发模式：直接停止 TCP 监听，跳过节点侧删除
 	if port.MappingType == "controller" {
@@ -490,7 +490,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 		localIPv4PortMappingMethod := providerInfo.IPv4PortMappingMethod
 
 		// 只有Provider存在时才尝试从远程删除 (50%)
-		s.updateTaskProgress(task.ID, 50, "正在从远程服务器删除端口映射...")
+		s.updateTaskProgress(task.ID, 50, "step.deletingPortMappingInfo")
 
 		// 使用 portmapping manager 删除端口映射
 		manager := portmapping.NewManager(&portmapping.ManagerConfig{
@@ -518,7 +518,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 
 		// 对于 LXD/Incus，还需要在远程服务器上实际删除 proxy device (70%)
 		if (localProviderType == "lxd" || localProviderType == "incus") && instance.Name != "" {
-			s.updateTaskProgress(task.ID, 70, "正在从LXD/Incus服务器删除端口映射...")
+			s.updateTaskProgress(task.ID, 70, "step.deletingPortMappingInfo")
 
 			// 获取 Provider 实例
 			providerApiService := &provider2.ProviderApiService{}
@@ -563,7 +563,7 @@ func (s *TaskService) executeDeletePortMappingTask(ctx context.Context, task *ad
 	}
 
 	// 更新进度 (85%)
-	s.updateTaskProgress(task.ID, 85, "正在删除数据库记录...")
+	s.updateTaskProgress(task.ID, 85, "step.cleaningDatabaseRecords")
 
 	// 删除数据库记录
 	if err := global.APP_DB.Unscoped().Delete(&port).Error; err != nil {

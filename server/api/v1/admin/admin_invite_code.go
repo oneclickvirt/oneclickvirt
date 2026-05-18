@@ -32,6 +32,7 @@ func GetInviteCodeList(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	req.Normalize(common.DefaultPageSize)
 
 	inviteService := invite.NewService()
 	codes, total, err := inviteService.GetInviteCodeList(req)

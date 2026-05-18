@@ -49,21 +49,37 @@ func (s *Service) GetAnnouncementList(req admin.AnnouncementListRequest) ([]admi
 		return nil, 0, err
 	}
 
+	// Batch-load creator usernames to avoid N+1 queries
+	creatorIDSet := make(map[uint]struct{})
+	for _, a := range announcements {
+		if a.CreatedBy != nil && *a.CreatedBy != 0 {
+			creatorIDSet[*a.CreatedBy] = struct{}{}
+		}
+	}
+	userMap := make(map[uint]string)
+	if len(creatorIDSet) > 0 {
+		creatorIDs := make([]uint, 0, len(creatorIDSet))
+		for id := range creatorIDSet {
+			creatorIDs = append(creatorIDs, id)
+		}
+		var users []userModel.User
+		if err := global.APP_DB.Select("id", "username").Where("id IN ?", creatorIDs).Find(&users).Error; err == nil {
+			for _, u := range users {
+				userMap[u.ID] = u.Username
+			}
+		}
+	}
+
 	var announcementResponses []admin.AnnouncementResponse
 	for _, announcement := range announcements {
 		var createdByUser string
 		if announcement.CreatedBy != nil && *announcement.CreatedBy != 0 {
-			var user userModel.User
-			if err := global.APP_DB.First(&user, *announcement.CreatedBy).Error; err == nil {
-				createdByUser = user.Username
-			}
+			createdByUser = userMap[*announcement.CreatedBy]
 		}
-
-		announcementResponse := admin.AnnouncementResponse{
+		announcementResponses = append(announcementResponses, admin.AnnouncementResponse{
 			Announcement:  announcement,
 			CreatedByUser: createdByUser,
-		}
-		announcementResponses = append(announcementResponses, announcementResponse)
+		})
 	}
 
 	return announcementResponses, total, nil

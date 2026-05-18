@@ -26,7 +26,7 @@ import (
 // executeDeleteInstanceTask 执行删除实例任务
 func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.DeleteInstanceTaskRequest
@@ -35,7 +35,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 
 	// 更新进度 (10%)
-	s.updateTaskProgress(task.ID, 10, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 10, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -57,7 +57,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 
 	// 更新进度 (15%)
-	s.updateTaskProgress(task.ID, 15, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 15, "step.getProviderConfig")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -70,7 +70,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	localProviderName := provider.Name
 
 	// 更新进度 (20%)
-	s.updateTaskProgress(task.ID, 20, "正在同步流量数据...")
+	s.updateTaskProgress(task.ID, 20, "step.syncTrafficData")
 
 	// 删除前进行最后一次流量同步
 	syncTrigger := traffic.NewSyncTriggerService()
@@ -87,7 +87,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 
 	// 更新进度 (25%)
-	s.updateTaskProgress(task.ID, 25, "正在删除实例...")
+	s.updateTaskProgress(task.ID, 25, "step.deletingInstance")
 
 	// 调用Provider删除实例，重试机制
 	providerApiService := &provider2.ProviderApiService{}
@@ -109,7 +109,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 			if progressIncrement > 70 {
 				progressIncrement = 70
 			}
-			s.updateTaskProgress(task.ID, progressIncrement, fmt.Sprintf("正在删除实例（第%d次尝试）...", attempt))
+			s.updateTaskProgress(task.ID, progressIncrement, fmt.Sprintf("step.deletingInstanceRetry:%d", attempt))
 		}
 
 		if err := providerApiService.DeleteInstanceByProviderID(ctx, localProviderID, instance.Name); err != nil {
@@ -153,7 +153,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	}
 
 	// 更新进度 (80%)
-	s.updateTaskProgress(task.ID, 80, "正在清理pmacct监控数据...")
+	s.updateTaskProgress(task.ID, 80, "step.cleaningMonitorData")
 
 	// 第一步：事务外清理pmacct（可能包含SSH操作）
 	trafficMonitorManager := traffic_monitor.GetManager()
@@ -174,7 +174,7 @@ func (s *TaskService) executeDeleteInstanceTask(ctx context.Context, task *admin
 	firewall.CleanupInstanceApplications(instance.ID)
 
 	// 更新进度 (90%)
-	s.updateTaskProgress(task.ID, 90, "正在清理数据库记录...")
+	s.updateTaskProgress(task.ID, 90, "step.cleaningDatabaseRecords")
 
 	// 第三步：在短事务中批量处理数据库操作
 	dbService := database.GetDatabaseService()

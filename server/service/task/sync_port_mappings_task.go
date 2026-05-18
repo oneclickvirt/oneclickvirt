@@ -22,7 +22,7 @@ import (
 // 检查数据库中的端口映射对应的实例是否在Provider上实际存在，如果不存在则自动清理
 func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.SyncPortMappingsTaskRequest
@@ -37,7 +37,7 @@ func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adm
 	providerID := *task.ProviderID
 
 	// 更新进度 (10%)
-	s.updateTaskProgress(task.ID, 10, "正在获取Provider信息...")
+	s.updateTaskProgress(task.ID, 10, "step.getProviderInfo")
 
 	// 获取Provider
 	var prov providerModel.Provider
@@ -51,7 +51,7 @@ func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adm
 		zap.String("providerName", prov.Name))
 
 	// 更新进度 (20%)
-	s.updateTaskProgress(task.ID, 20, fmt.Sprintf("正在同步Provider %s 的端口映射...", prov.Name))
+	s.updateTaskProgress(task.ID, 20, fmt.Sprintf("step.syncProviderPortMappings:%s", prov.Name))
 
 	providerApiService := &provider2.ProviderApiService{}
 
@@ -62,7 +62,7 @@ func (s *TaskService) executeSyncPortMappingsTask(ctx context.Context, task *adm
 	}
 
 	// 更新进度 (90%)
-	s.updateTaskProgress(task.ID, 90, "同步完成，正在生成报告...")
+	s.updateTaskProgress(task.ID, 90, "step.generatingReport")
 
 	// 生成完成消息
 	var completionMsg strings.Builder

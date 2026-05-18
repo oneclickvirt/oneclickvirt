@@ -435,15 +435,12 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		provider.EnableTrafficControl = true
 		provider.EnableResourceMonitoring = true
 		provider.TrafficSyncMethod = "agent"
-		if provider.Endpoint == "" || provider.PortIP == "" {
+		// Agent模式下，若无公网IP（portIP为空），则强制使用无端口映射模式
+		if provider.PortIP == "" {
 			provider.NetworkType = "no_port_mapping"
 		}
-	} else {
-		// SSH 模式：如果之前是 agent 模式且 networkType 被设为 no_port_mapping，恢复默认
-		if provider.NetworkType == "no_port_mapping" {
-			provider.NetworkType = "nat_ipv4"
-		}
 	}
+	// SSH模式：允许管理员手动设置 no_port_mapping（如节点无公网IPv4的场景），不强制重置
 
 	// 节点级别等级限制配置更新
 	if req.LevelLimits != nil {

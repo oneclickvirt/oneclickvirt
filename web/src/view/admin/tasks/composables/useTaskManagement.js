@@ -1,11 +1,11 @@
 import { ref, reactive, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getAdminTasks, forceStopTask, getTaskOverallStats, cancelUserTaskByAdmin } from '@/api/admin'
+import { getAdminTasks, forceStopTask, getTaskOverallStats, cancelUserTaskByAdmin, getAdminTaskDetail } from '@/api/admin'
 import { getProviderList } from '@/api/admin'
 import { useI18n } from 'vue-i18n'
 
 export function useTaskManagement() {
-  const { t, locale } = useI18n()
+  const { t, te, locale } = useI18n()
 
   const loading = ref(false)
   const tasks = ref([])
@@ -46,8 +46,11 @@ export function useTaskManagement() {
 
   const detailDialog = reactive({
     visible: false,
-    task: null
+    task: null,
+    logsLoading: false
   })
+
+  const expandedLogTaskIds = ref(new Set())
 
   const loadTasks = async () => {
     try {
@@ -165,9 +168,54 @@ export function useTaskManagement() {
     }
   }
 
-  const viewTaskDetail = (task) => {
-    detailDialog.task = task
+  const viewTaskDetail = async (task) => {
+    detailDialog.task = { ...task }
     detailDialog.visible = true
+    detailDialog.logsLoading = true
+    try {
+      const response = await getAdminTaskDetail(task.id)
+      if (response.code === 200 && response.data) {
+        detailDialog.task = { ...detailDialog.task, ...response.data }
+      }
+    } catch (error) {
+      console.error('\u83b7\u53d6\u4efb\u52a1\u8be6\u60c5\u5931\u8d25:', error)
+    } finally {
+      detailDialog.logsLoading = false
+    }
+  }
+
+  const parseProgressLogs = (logsStr) => {
+    if (!logsStr) return []
+    try {
+      return JSON.parse(logsStr)
+    } catch {
+      return []
+    }
+  }
+
+  const translateStepMsg = (m) => {
+    if (!m) return m
+    const colonIdx = m.indexOf(':')
+    if (colonIdx !== -1) {
+      const key = m.substring(0, colonIdx)
+      const param = m.substring(colonIdx + 1)
+      const i18nKey = `admin.tasks.${key}`
+      if (te(i18nKey)) return t(i18nKey, { n: parseInt(param) || param, name: param })
+    } else {
+      const i18nKey = `admin.tasks.${m}`
+      if (te(i18nKey)) return t(i18nKey)
+    }
+    return m
+  }
+
+  const toggleProgressLogs = (taskId) => {
+    const newSet = new Set(expandedLogTaskIds.value)
+    if (newSet.has(taskId)) {
+      newSet.delete(taskId)
+    } else {
+      newSet.add(taskId)
+    }
+    expandedLogTaskIds.value = newSet
   }
 
   const shouldShowPreallocatedConfig = (task) => {
@@ -254,10 +302,11 @@ export function useTaskManagement() {
   return {
     loading, tasks, providers, total, stats,
     filterForm, pagination,
-    forceStopDialog, detailDialog,
+    forceStopDialog, detailDialog, expandedLogTaskIds,
     loadTasks, resetFilter,
     showForceStopDialog, confirmForceStop,
     cancelTask, viewTaskDetail,
+    parseProgressLogs, translateStepMsg, toggleProgressLogs,
     shouldShowPreallocatedConfig,
     getTaskTypeText, getTaskStatusType, getTaskStatusText,
     formatDateTime, formatDuration,

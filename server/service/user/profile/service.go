@@ -354,6 +354,7 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 			ErrorMessage:          task.ErrorMessage,
 			CancelReason:          task.CancelReason,
 			StatusMessage:         task.StatusMessage,
+			ProgressLogs:          task.ProgressLogs,
 			TimeoutDuration:       task.TimeoutDuration,
 			IsForceStoppable:      task.IsForceStoppable,
 			CreatedAt:             task.CreatedAt,

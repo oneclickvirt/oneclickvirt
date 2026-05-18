@@ -323,7 +323,7 @@
 
     <!-- IPv4端口映射方式 -->
     <el-form-item
-      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only'"
+      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only' && modelValue.networkType !== 'no_port_mapping'"
       :label="$t('admin.providers.ipv4PortMappingMethod')"
       prop="ipv4PortMappingMethod"
     >
@@ -343,7 +343,7 @@
       </el-select>
     </el-form-item>
     <div
-      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only'"
+      v-if="(modelValue.type === 'lxd' || modelValue.type === 'incus') && modelValue.networkType !== 'ipv6_only' && modelValue.networkType !== 'no_port_mapping'"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >
@@ -391,7 +391,7 @@
 
     <!-- Proxmox IPv4端口映射方式 -->
     <el-form-item
-      v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only'"
+      v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only' && modelValue.networkType !== 'no_port_mapping'"
       :label="$t('admin.providers.ipv4PortMappingMethod')"
       prop="ipv4PortMappingMethod"
     >
@@ -412,7 +412,7 @@
       </el-select>
     </el-form-item>
     <div
-      v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only'"
+      v-if="modelValue.type === 'proxmox' && modelValue.networkType !== 'ipv6_only' && modelValue.networkType !== 'no_port_mapping'"
       class="form-tip"
       style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
     >

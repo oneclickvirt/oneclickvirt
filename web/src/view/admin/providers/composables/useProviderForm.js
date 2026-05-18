@@ -298,6 +298,12 @@ export function useProviderForm(loadProviders) {
     addProviderForm.redeemCodeOnly = provider.redeemCodeOnly !== undefined ? provider.redeemCodeOnly : false
     addProviderForm.gpuEnabled = provider.gpuEnabled !== undefined ? provider.gpuEnabled : false
     addProviderForm.gpuDeviceIds = provider.gpuDeviceIds || ''
+    // Proxmox 网桥配置
+    addProviderForm.nodeInstallType = provider.nodeInstallType || 'script'
+    addProviderForm.bridgeNAT = provider.bridgeNAT || ''
+    addProviderForm.bridgeDedicatedV4 = provider.bridgeDedicatedV4 || ''
+    addProviderForm.bridgeDedicatedV6 = provider.bridgeDedicatedV6 || ''
+    addProviderForm.natSubnet = provider.natSubnet || ''
     addProviderForm.connectionType = provider.connectionType || 'ssh'
     addProviderForm.agentStatus = provider.agentStatus || 'offline'
     addProviderForm.agentRuntimeStatus = provider.agentRuntimeStatus || provider.agentStatus || 'offline'
@@ -429,6 +435,11 @@ export function useProviderForm(loadProviders) {
         redeemCodeOnly: formData.redeemCodeOnly !== undefined ? formData.redeemCodeOnly : false,
         gpuEnabled: formData.gpuEnabled !== undefined ? formData.gpuEnabled : false,
         gpuDeviceIds: formData.gpuDeviceIds || '',
+        nodeInstallType: formData.nodeInstallType || 'script',
+        bridgeNAT: formData.bridgeNAT || '',
+        bridgeDedicatedV4: formData.bridgeDedicatedV4 || '',
+        bridgeDedicatedV6: formData.bridgeDedicatedV6 || '',
+        natSubnet: formData.natSubnet || '',
         connectionType: formData.connectionType || 'ssh'
       }
 

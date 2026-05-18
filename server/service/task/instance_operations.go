@@ -23,7 +23,7 @@ import (
 // executeStartInstanceTask 执行启动实例任务
 func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -36,7 +36,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (15%)
-	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 15, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -53,7 +53,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (25%)
-	s.updateTaskProgress(task.ID, 25, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 25, "step.getProviderConfig")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -66,10 +66,10 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	localProviderName := provider.Name
 
 	// 更新进度 (40%)
-	s.updateTaskProgress(task.ID, 40, "正在连接Provider服务...")
+	s.updateTaskProgress(task.ID, 40, "step.connectProvider")
 
 	// 更新进度 (50%)
-	s.updateTaskProgress(task.ID, 50, "正在启动实例...")
+	s.updateTaskProgress(task.ID, 50, "step.startingInstance")
 
 	// 调用Provider启动实例
 	providerApiService := &provider2.ProviderApiService{}
@@ -86,10 +86,10 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (70%)
-	s.updateTaskProgress(task.ID, 70, "实例启动成功，正在验证状态...")
+	s.updateTaskProgress(task.ID, 70, "step.verifyingStart")
 
 	// 更新进度 (80%)
-	s.updateTaskProgress(task.ID, 80, "正在更新实例状态...")
+	s.updateTaskProgress(task.ID, 80, "step.updatingInstanceStatus")
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
@@ -132,7 +132,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (90%)
-	s.updateTaskProgress(task.ID, 90, "正在初始化监控服务...")
+	s.updateTaskProgress(task.ID, 90, "step.initMonitoring")
 
 	// 实例启动成功后，异步初始化流量监控和流量同步
 	s.wg.Add(1)
@@ -167,7 +167,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		// 正常超时，继续执行
 
 		// 更新进度（从主任务的90%继续，不重复更新90%）
-		s.updateTaskProgress(taskID, 92, "正在初始化流量监控...")
+		s.updateTaskProgress(taskID, 92, "step.initTrafficMonitor")
 
 		// 检查Provider是否启用流量统计
 		var dbProvider providerModel.Provider
@@ -203,7 +203,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 		agentCancel()
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")
+		s.updateTaskProgress(taskID, 95, "step.syncTrafficData")
 
 		// 实例启动后同步流量数据（仅在流量统计启用且初始化成功时）
 		if pmacctSuccess && trafficEnabled {
@@ -238,7 +238,7 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 // executeStopInstanceTask 执行停止实例任务
 func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -251,7 +251,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	}
 
 	// 更新进度 (15%)
-	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 15, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -268,7 +268,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	}
 
 	// 更新进度 (25%)
-	s.updateTaskProgress(task.ID, 25, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 25, "step.getProviderConfig")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -281,7 +281,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	localProviderName := provider.Name
 
 	// 更新进度 (35%)
-	s.updateTaskProgress(task.ID, 35, "正在同步流量数据...")
+	s.updateTaskProgress(task.ID, 35, "step.syncTrafficData")
 
 	// 停止前同步流量数据（重要！）
 	syncTrigger := traffic.NewSyncTriggerService()
@@ -298,7 +298,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	}
 
 	// 更新进度 (60%)
-	s.updateTaskProgress(task.ID, 60, "正在停止实例...")
+	s.updateTaskProgress(task.ID, 60, "step.stoppingInstance")
 
 	// 调用Provider停止实例
 	providerApiService := &provider2.ProviderApiService{}
@@ -315,10 +315,10 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 	}
 
 	// 更新进度 (80%)
-	s.updateTaskProgress(task.ID, 80, "实例停止成功，正在验证状态...")
+	s.updateTaskProgress(task.ID, 80, "step.verifyingStop")
 
 	// 更新进度 (90%)
-	s.updateTaskProgress(task.ID, 90, "正在更新实例状态...")
+	s.updateTaskProgress(task.ID, 90, "step.updatingInstanceStatus")
 
 	// 更新实例状态为已停止
 	if err := global.APP_DB.Model(&instance).Update("status", "stopped").Error; err != nil {
@@ -344,7 +344,7 @@ func (s *TaskService) executeStopInstanceTask(ctx context.Context, task *adminMo
 // executeRestartInstanceTask 执行重启实例任务
 func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.InstanceOperationTaskRequest
@@ -357,7 +357,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	}
 
 	// 更新进度 (12%)
-	s.updateTaskProgress(task.ID, 12, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 12, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -374,7 +374,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	}
 
 	// 更新进度 (20%)
-	s.updateTaskProgress(task.ID, 20, "正在获取Provider配置...")
+	s.updateTaskProgress(task.ID, 20, "step.getProviderConfig")
 
 	// 获取Provider配置
 	var provider providerModel.Provider
@@ -387,7 +387,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	localProviderName := provider.Name
 
 	// 更新进度 (28%)
-	s.updateTaskProgress(task.ID, 28, "正在同步流量数据...")
+	s.updateTaskProgress(task.ID, 28, "step.syncTrafficData")
 
 	// 重启前同步流量数据
 	syncTrigger := traffic.NewSyncTriggerService()
@@ -404,7 +404,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	}
 
 	// 更新进度 (45%)
-	s.updateTaskProgress(task.ID, 45, "正在重启实例（停止+启动）...")
+	s.updateTaskProgress(task.ID, 45, "step.restartingInstance")
 
 	// 调用Provider重启实例
 	providerApiService := &provider2.ProviderApiService{}
@@ -421,10 +421,10 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	}
 
 	// 更新进度 (65%)
-	s.updateTaskProgress(task.ID, 65, "实例重启成功，正在验证状态...")
+	s.updateTaskProgress(task.ID, 65, "step.verifyingRestart")
 
 	// 更新进度 (75%)
-	s.updateTaskProgress(task.ID, 75, "正在更新实例状态...")
+	s.updateTaskProgress(task.ID, 75, "step.updatingInstanceStatus")
 
 	// 在事务中更新实例状态并确认配额（如果需要）
 	err := global.APP_DB.Transaction(func(tx *gorm.DB) error {
@@ -467,7 +467,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 	}
 
 	// 更新进度 (80%)
-	s.updateTaskProgress(task.ID, 80, "正在重新初始化监控服务...")
+	s.updateTaskProgress(task.ID, 80, "step.reinitMonitoring")
 
 	// 实例重启成功后，异步重新初始化流量监控
 	s.wg.Add(1)
@@ -502,7 +502,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		// 正常超时，继续执行
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 90, "正在重新初始化流量监控...")
+		s.updateTaskProgress(taskID, 90, "step.reinitTrafficMonitor")
 
 		// 检查Provider是否启用流量统计
 		var dbProvider providerModel.Provider
@@ -538,7 +538,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 		agentCancel()
 
 		// 更新进度
-		s.updateTaskProgress(taskID, 95, "正在同步流量数据...")
+		s.updateTaskProgress(taskID, 95, "step.syncTrafficData")
 
 		// 重启后同步流量数据（仅在流量统计启用且初始化成功时）
 		if pmacctSuccess && trafficEnabled {
@@ -574,7 +574,7 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminModel.Task) error {
 	// 初始化进度
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在解析任务数据...")
+	s.updateTaskProgress(task.ID, 5, "step.parseTaskData")
 
 	// 解析任务数据
 	var taskReq adminModel.ResetPasswordTaskRequest
@@ -587,7 +587,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (15%)
-	s.updateTaskProgress(task.ID, 15, "正在获取实例信息...")
+	s.updateTaskProgress(task.ID, 15, "step.getInstanceInfo")
 
 	// 获取实例信息
 	var instance providerModel.Instance
@@ -604,7 +604,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (25%)
-	s.updateTaskProgress(task.ID, 25, "正在验证实例状态...")
+	s.updateTaskProgress(task.ID, 25, "step.verifyingInstanceStatus")
 
 	// 检查实例状态
 	if instance.Status != "running" {
@@ -612,7 +612,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度 (35%)
-	s.updateTaskProgress(task.ID, 35, "正在生成新密码...")
+	s.updateTaskProgress(task.ID, 35, "step.generatingPassword")
 
 	// 生成新密码
 	newPassword := utils.GenerateStrongPassword(12)
@@ -624,7 +624,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 		zap.Uint("userId", instance.UserID))
 
 	// 更新进度
-	s.updateTaskProgress(task.ID, 50, "正在设置新密码...")
+	s.updateTaskProgress(task.ID, 50, "step.settingPassword")
 
 	// 通过Provider重置实例密码
 	providerService := provider2.GetProviderService()
@@ -634,7 +634,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 
 	for attempt := 1; attempt <= maxRetries; attempt++ {
 		if attempt > 1 {
-			s.updateTaskProgress(task.ID, 50+attempt*10, fmt.Sprintf("正在设置新密码（第%d次尝试）...", attempt))
+			s.updateTaskProgress(task.ID, 50+attempt*10, fmt.Sprintf("step.settingPasswordRetry:%d", attempt))
 		}
 
 		err := providerService.SetInstancePassword(ctx, instance.ProviderID, instance.Name, newPassword)
@@ -673,7 +673,7 @@ func (s *TaskService) executeResetPasswordTask(ctx context.Context, task *adminM
 	}
 
 	// 更新进度
-	s.updateTaskProgress(task.ID, 90, "正在更新数据库记录...")
+	s.updateTaskProgress(task.ID, 90, "step.updatingDatabase")
 
 	// 更新数据库中的密码
 	err := global.APP_DB.Model(&instance).Update("password", newPassword).Error

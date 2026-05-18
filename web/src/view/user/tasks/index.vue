@@ -246,7 +246,7 @@
                   >
                     <span class="log-time">{{ entry.t }}</span>
                     <span class="log-badge">{{ entry.p }}%</span>
-                    <span class="log-msg">{{ entry.m }}</span>
+                    <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
                   </div>
                 </div>
               </div>
@@ -424,7 +424,7 @@
                       >
                         <span class="log-time">{{ entry.t }}</span>
                         <span class="log-badge">{{ entry.p }}%</span>
-                        <span class="log-msg">{{ entry.m }}</span>
+                        <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
                       </div>
                     </div>
                   </div>
@@ -493,6 +493,9 @@
 import { onMounted, onUnmounted, onActivated, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUserTaskManagement } from './composables/useUserTaskManagement'
+import { useI18n } from 'vue-i18n'
+
+const { t: t18n, te } = useI18n()
 
 const {
   loading, tasks, providers, total, expandedHistory,
@@ -526,6 +529,21 @@ function parseProgressLogs(logsStr) {
   } catch {
     return []
   }
+}
+
+function translateStepMsg(m) {
+  if (!m) return m
+  const colonIdx = m.indexOf(':')
+  if (colonIdx !== -1) {
+    const key = m.substring(0, colonIdx)
+    const param = m.substring(colonIdx + 1)
+    const i18nKey = `user.tasks.${key}`
+    if (te(i18nKey)) return t18n(i18nKey, { n: parseInt(param) || param, name: param })
+  } else {
+    const i18nKey = `user.tasks.${m}`
+    if (te(i18nKey)) return t18n(i18nKey)
+  }
+  return m
 }
 
 onMounted(async () => {
