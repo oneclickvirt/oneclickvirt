@@ -191,7 +191,17 @@ func SSHWebSocket(c *gin.Context) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
 		return
 	}
-	// 不在这里defer关闭，而是在清理阶段统一强制关闭
+	// 安全兼顾：确保 SSH 资源在任何早期退出路径下都能被释放。
+	// 清理阶段的显式 Close() 仍然必要（需在 goroutine 启动后解除阻塞），
+	// defer 则覆盖 goroutine 启动前的所有提前退出（StdinPipe/RequestPty/Shell 失败等）。
+	defer func() {
+		if session != nil {
+			session.Close()
+		}
+		if sshClient != nil {
+			sshClient.Close()
+		}
+	}()
 
 	// 设置终端模式 - 添加更多vim/vi需要的终端模式
 	modes := ssh.TerminalModes{
@@ -342,6 +352,7 @@ func SSHWebSocket(c *gin.Context) {
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage，避免UTF-8验证问题
 				wsWriteMu.Lock()
+				ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
 				wsWriteMu.Unlock()
 				if writeErr != nil {
@@ -381,6 +392,7 @@ func SSHWebSocket(c *gin.Context) {
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage
 				wsWriteMu.Lock()
+				ws.SetWriteDeadline(time.Now().Add(5 * time.Second))
 				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
 				wsWriteMu.Unlock()
 				if writeErr != nil {
@@ -413,6 +425,9 @@ func SSHWebSocket(c *gin.Context) {
 	if sshClient != nil {
 		sshClient.Close() // 关闭底层连接，强制终止所有goroutine
 	}
+	// 强制解除 ws.ReadMessage() 阻塞，让 stdin goroutine 立即退出，
+	// 而不是等待 defer ws.Close() 触发（否则最多额外延迟 3 秒）。
+	_ = ws.SetReadDeadline(time.Now())
 
 	// 等待所有goroutine退出（最多3秒，因为已经强制关闭连接）
 	goroutineDone := make(chan struct{})

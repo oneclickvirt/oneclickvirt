@@ -183,7 +183,17 @@ func AdminSSHWebSocket(c *gin.Context) {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("SSH连接失败: %v\r\n", err)))
 		return
 	}
-	// 不在这里defer关闭，而是在清理阶段统一强制关闭
+	// 安全兼顾：确保 SSH 资源在任何早期退出路径下都能被释放。
+	// 清理阶段的显式 Close() 仍然必要（需在 goroutine 启动后解除阻塞），
+	// defer 则覆盖 goroutine 启动前的所有提前退出（StdinPipe/RequestPty/Shell 失败等）。
+	defer func() {
+		if sshSession != nil {
+			sshSession.Close()
+		}
+		if sshClient != nil {
+			sshClient.Close()
+		}
+	}()
 
 	// 获取SSH输入输出流
 	sshStdin, err := sshSession.StdinPipe()
@@ -244,8 +254,8 @@ func AdminSSHWebSocket(c *gin.Context) {
 	sshOutputDone := make(chan struct{})
 	sshErrorDone := make(chan struct{})
 	wg := &sync.WaitGroup{} // 跟踪所有goroutine
-	// 保护并发 ws.WriteMessage 调用（gorilla/websocket 每次只允许一个写者）
-	var wsWriteMu sync.Mutex
+	// 使用带写超时的安全写入器（防止客户端TCP缓冲区满时无限阻塞写路径）
+	writer := newWsWriter(ws)
 
 	// WebSocket -> SSH (处理用户输入)
 	wg.Add(1)
@@ -336,10 +346,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage，避免UTF-8验证问题
-				wsWriteMu.Lock()
-				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
-				wsWriteMu.Unlock()
-				if writeErr != nil {
+				if writeErr := writer.writeSafe(ctx, websocket.BinaryMessage, buf[:n]); writeErr != nil {
 					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(writeErr))
 					return
 				}
@@ -375,10 +382,7 @@ func AdminSSHWebSocket(c *gin.Context) {
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage
-				wsWriteMu.Lock()
-				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
-				wsWriteMu.Unlock()
-				if writeErr != nil {
+				if writeErr := writer.writeSafe(ctx, websocket.BinaryMessage, buf[:n]); writeErr != nil {
 					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(writeErr))
 					return
 				}
@@ -386,11 +390,15 @@ func AdminSSHWebSocket(c *gin.Context) {
 		}
 	}()
 
-	// 等待所有goroutine完成或超时
+	// 等待任意goroutine退出即触发清理（防止SSH会话服务端结束后终端冻结）。
+	// 原先顺序等待 wsInputDone→sshOutputDone→sshErrorDone 会在 SSH 进程退出、
+	// 客户端尚未断开时无限等待 wsInputDone，导致终端看起来卡死。
 	go func() {
-		<-wsInputDone
-		<-sshOutputDone
-		<-sshErrorDone
+		select {
+		case <-wsInputDone:
+		case <-sshOutputDone:
+		case <-sshErrorDone:
+		}
 		close(done)
 	}()
 
@@ -416,6 +424,9 @@ func AdminSSHWebSocket(c *gin.Context) {
 	if sshClient != nil {
 		sshClient.Close() // 关闭底层连接，强制终止所有goroutine
 	}
+	// 强制解除 ws.ReadMessage() 阻塞，让 stdin goroutine 立即退出，
+	// 而不是等待 defer ws.Close() 触发（否则最多额外延迟 3 秒）。
+	_ = ws.SetReadDeadline(time.Now())
 
 	// 等待所有goroutine退出（最多3秒）
 	goroutineDone := make(chan struct{})

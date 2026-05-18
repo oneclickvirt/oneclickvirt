@@ -340,6 +340,11 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 	}()
 
 	<-ctx.Done()
+	// 强制解除 ws.ReadMessage() 阻塞，让 stdin goroutine 立即退出。
+	// 当 Agent shell 会话结束（OutputCh 关闭，小 stdout goroutine 调用 cancel()）时，
+	// stdin goroutine 可能阻塞在 ws.ReadMessage()，不设置读超时则 wg.Wait() 永久挂起。
+	// 同理，当管理员切换到同一 Provider 的新终端时，父上下文取消会触发此路径。
+	_ = ws.SetReadDeadline(time.Now())
 	wg.Wait()
 }
 

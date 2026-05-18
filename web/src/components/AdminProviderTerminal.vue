@@ -98,7 +98,14 @@ const connect = () => {
   }
 
   const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws'
-  const host = window.location.host
+  let host = window.location.host
+
+  // 开发环境：如果前端运行在 Vite 端口，WebSocket 直接连接到后端端口
+  if (import.meta.env.MODE === 'development' && import.meta.env.VITE_SERVER_PORT) {
+    const serverPort = import.meta.env.VITE_SERVER_PORT
+    host = `${window.location.hostname}:${serverPort}`
+  }
+
   const wsUrl = `${protocol}://${host}/api/v1/admin/providers/${props.providerId}/terminal?token=${encodeURIComponent(token)}`
 
   if (terminal) terminal.write('\x1b[33mConnecting to ' + (props.providerName || 'provider') + '...\x1b[0m\r\n')

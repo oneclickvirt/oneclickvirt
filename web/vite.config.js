@@ -18,8 +18,7 @@ export default defineConfig(({ mode }) => {
       proxy: {
         [env.VITE_BASE_API || '/api']: {
           target: `${env.VITE_BASE_PATH}:${env.VITE_SERVER_PORT}` || 'http://0.0.0.0:8888',
-          changeOrigin: true,
-          // 可选：调试日志
+          changeOrigin: true,          ws: true, // 代理 WebSocket 连接（ws:// 和 wss://）          // 可选：调试日志
           configure: (proxy, options) => {
             proxy.on('proxyReq', (proxyReq, req, res) => {
               // console.log(`代理请求: ${req.method} ${req.url} -> ${options.target}${proxyReq.path}`)
