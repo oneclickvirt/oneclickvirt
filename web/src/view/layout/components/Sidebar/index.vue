@@ -310,6 +310,14 @@ const userRoutes = computed(() => {
         }
       },
       {
+        path: '/admin/api-tokens',
+        name: 'AdminApiTokens',
+        meta: {
+          title: t('sidebar.adminApiTokenManagement'),
+          icon: 'Key'
+        }
+      },
+      {
         path: '/admin/announcements',
         name: 'AdminAnnouncements',
         meta: {
@@ -358,7 +366,7 @@ const userRoutes = computed(() => {
   // 超级管理员专属路由名称集（normal_admin 不可见）
   const superAdminOnlyRoutes = new Set([
     'AdminUsers', 'AdminConfig', 'AdminPerformance', 'AdminLogs', 'AdminOAuth2Providers',
-    'AdminInviteCodes', 'AdminAnnouncements', 'AdminSystemImages'
+    'AdminInviteCodes', 'AdminAnnouncements', 'AdminSystemImages', 'AdminApiTokens'
   ])
   
   // 判断是否为普通管理员

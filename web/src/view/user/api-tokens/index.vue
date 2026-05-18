@@ -51,8 +51,8 @@
           </el-table-column>
           <el-table-column :label="t('user.apiTokens.status')" prop="status" width="90">
             <template #default="{ row }">
-              <el-tag :type="row.status === 'active' ? 'success' : 'danger'" size="small">
-                {{ row.status === 'active' ? t('user.apiTokens.active') : t('user.apiTokens.disabled') }}
+              <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
+                {{ row.status === 1 ? t('user.apiTokens.active') : t('user.apiTokens.disabled') }}
               </el-tag>
             </template>
           </el-table-column>
@@ -202,7 +202,7 @@ const loadTokens = async () => {
   loading.value = true
   try {
     const res = await getApiTokenList()
-    tokens.value = res.data?.list || res.data || []
+    tokens.value = res.data?.items || []
   } catch {
     ElMessage.error(t('common.operationFailed'))
   } finally {

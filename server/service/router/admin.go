@@ -177,10 +177,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.GET("/group-info", admin.GetAdminGroupInfo)
 		NormalAdminGroup.PUT("/group-info", admin.UpdateAdminGroupInfo)
 
-		// API Token管理（管理员可管理自己的Token）
-		NormalAdminGroup.POST("/api-tokens", auth.CreateApiToken)
-		NormalAdminGroup.GET("/api-tokens", auth.GetApiTokenList)
-		NormalAdminGroup.DELETE("/api-tokens/:id", auth.DeleteApiToken)
 	}
 
 	// 超级管理员专用路由（仅admin用户类型，排除normal_admin）

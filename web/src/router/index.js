@@ -386,6 +386,16 @@ const routes = [
           requiresAuth: true,
           roles: ['admin']
         }
+      },
+      {
+        path: 'api-tokens',
+        name: 'AdminApiTokens',
+        component: () => import('@/view/admin/api-tokens/index.vue'),
+        meta: {
+          title: 'sidebar.adminApiTokenManagement',
+          requiresAuth: true,
+          roles: ['admin']
+        }
       }
     ]
   },

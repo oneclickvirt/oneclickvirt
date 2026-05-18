@@ -55,6 +55,7 @@ import adminBlockRules from './en-US/admin/blockRules.js'
 import adminDomain from './en-US/admin/domain.js'
 import adminKyc from './en-US/admin/kyc.js'
 import adminGroup from './en-US/admin/group.js'
+import adminApiTokens from './en-US/admin/apiTokens.js'
 
 export default {
   common,
@@ -102,7 +103,8 @@ export default {
     blockRules: adminBlockRules,
     domain: adminDomain,
     kyc: adminKyc,
-    group: adminGroup
+    group: adminGroup,
+    apiTokens: adminApiTokens
   },
   validation,
   message,

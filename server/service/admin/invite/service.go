@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"math/big"
 	"oneclickvirt/service/database"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -140,21 +141,7 @@ func (s *Service) CreateInviteCode(req admin.CreateInviteCodeRequest, createdBy 
 		if err := global.APP_DB.Where("code = ?", req.Code).First(&existingCode).Error; err == nil {
 			return fmt.Errorf("邀请码 %s 已存在", req.Code)
 		}
-		var expiresAt *time.Time
-		if req.ExpiresAt != "" {
-			// 使用本地时区解析时间，避免时区问题
-			if parsedTime, err := time.ParseInLocation("2006-01-02 15:04:05", req.ExpiresAt, time.Local); err == nil {
-				expiresAt = &parsedTime
-				global.APP_LOG.Debug("解析自定义邀请码过期时间",
-					zap.String("input", req.ExpiresAt),
-					zap.Time("parsed", parsedTime),
-					zap.String("timezone", parsedTime.Location().String()))
-			} else {
-				global.APP_LOG.Warn("邀请码过期时间解析失败",
-					zap.String("input", req.ExpiresAt),
-					zap.Error(err))
-			}
-		}
+		expiresAt := s.parseInviteExpiresAt(req.ExpiresAt, "解析自定义邀请码过期时间", "邀请码过期时间解析失败")
 		inviteCode := system.InviteCode{
 			Code:        req.Code,
 			CreatorID:   createdBy,
@@ -164,108 +151,116 @@ func (s *Service) CreateInviteCode(req admin.CreateInviteCodeRequest, createdBy 
 			ExpiresAt:   expiresAt,
 			Status:      1,
 		}
-		dbService := database.GetDatabaseService()
-		if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Create(&inviteCode).Error
-		}); err != nil {
+		if err := s.insertInviteCodes([]system.InviteCode{inviteCode}); err != nil {
 			return err
 		}
 		return nil
 	}
-	// 如果没有指定自定义邀请码，按原来的逻辑批量生成
-	codeLength := req.Length
-	if codeLength <= 0 {
-		codeLength = 8 // 默认8位
-	}
 
-	for i := 0; i < req.Count; i++ {
-		code := s.generateInviteCodeWithLength(codeLength)
-		// 确保生成的邀请码不重复
-		var existingCode system.InviteCode
-		for {
-			if err := global.APP_DB.Where("code = ?", code).First(&existingCode).Error; err != nil {
-				if err.Error() == "record not found" {
-					break
-				}
-				return fmt.Errorf("检查邀请码唯一性失败: %v", err)
-			}
-			// 如果邀请码已存在，重新生成
-			code = s.generateInviteCodeWithLength(codeLength)
-		}
-		var expiresAt *time.Time
-		if req.ExpiresAt != "" {
-			// 使用本地时区解析时间，避免时区问题
-			if parsedTime, err := time.ParseInLocation("2006-01-02 15:04:05", req.ExpiresAt, time.Local); err == nil {
-				expiresAt = &parsedTime
-				global.APP_LOG.Debug("解析批量邀请码过期时间",
-					zap.String("input", req.ExpiresAt),
-					zap.Time("parsed", parsedTime),
-					zap.String("timezone", parsedTime.Location().String()))
-			} else {
-				global.APP_LOG.Warn("批量邀请码过期时间解析失败",
-					zap.String("input", req.ExpiresAt),
-					zap.Error(err))
-			}
-		}
-		inviteCode := system.InviteCode{
-			Code:        code,
-			CreatorID:   createdBy,
-			CreatorName: "", // 将由数据库触发器或其他逻辑填充
-			Description: req.Remark,
-			MaxUses:     req.MaxUses,
-			ExpiresAt:   expiresAt,
-			Status:      1,
-		}
-		dbService := database.GetDatabaseService()
-		if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Create(&inviteCode).Error
-		}); err != nil {
-			return err
-		}
-	}
-	return nil
+	_, err := s.generateAndInsertInviteCodes(req, createdBy)
+	return err
 }
 
 // GenerateInviteCodes 生成批量邀请码
 func (s *Service) GenerateInviteCodes(req admin.CreateInviteCodeRequest, createdBy uint) ([]string, error) {
-	var codes []string
+	return s.generateAndInsertInviteCodes(req, createdBy)
+}
+
+func (s *Service) generateAndInsertInviteCodes(req admin.CreateInviteCodeRequest, createdBy uint) ([]string, error) {
+	if req.Count <= 0 {
+		return nil, fmt.Errorf("生成数量必须大于0")
+	}
 
 	codeLength := req.Length
 	if codeLength <= 0 {
-		codeLength = 8 // 默认8位
+		codeLength = 8
 	}
 
-	for i := 0; i < req.Count; i++ {
-		code := s.generateInviteCodeWithLength(codeLength)
+	expiresAt := s.parseInviteExpiresAt(req.ExpiresAt, "解析批量邀请码过期时间", "批量邀请码过期时间解析失败")
 
-		var expiresAt *time.Time
-		if req.ExpiresAt != "" {
-			if parsedTime, err := time.Parse("2006-01-02 15:04:05", req.ExpiresAt); err == nil {
-				expiresAt = &parsedTime
+	const maxRetries = 5
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		inviteCodes, codes := s.buildInviteCodeBatch(req.Count, codeLength, createdBy, req.Remark, req.MaxUses, expiresAt)
+		if err := s.insertInviteCodes(inviteCodes); err != nil {
+			if isDuplicateInviteCodeError(err) && attempt < maxRetries-1 {
+				global.APP_LOG.Warn("批量邀请码生成发生冲突，准备重试",
+					zap.Int("attempt", attempt+1),
+					zap.Int("count", req.Count),
+					zap.Error(err))
+				continue
 			}
-		}
-
-		inviteCode := system.InviteCode{
-			Code:        code,
-			CreatorID:   createdBy,
-			CreatorName: "", // 将由数据库触发器或其他逻辑填充
-			Description: req.Remark,
-			MaxUses:     req.MaxUses,
-			ExpiresAt:   expiresAt,
-			Status:      1,
-		}
-
-		dbService := database.GetDatabaseService()
-		if err := dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
-			return tx.Create(&inviteCode).Error
-		}); err != nil {
 			return nil, err
 		}
+		return codes, nil
+	}
 
+	return nil, fmt.Errorf("生成邀请码失败，请重试")
+}
+
+func (s *Service) buildInviteCodeBatch(count, codeLength int, createdBy uint, remark string, maxUses int, expiresAt *time.Time) ([]system.InviteCode, []string) {
+	inviteCodes := make([]system.InviteCode, 0, count)
+	codes := make([]string, 0, count)
+	generated := make(map[string]struct{}, count)
+
+	for len(inviteCodes) < count {
+		code := s.generateInviteCodeWithLength(codeLength)
+		if _, exists := generated[code]; exists {
+			continue
+		}
+		generated[code] = struct{}{}
+
+		inviteCodes = append(inviteCodes, system.InviteCode{
+			Code:        code,
+			CreatorID:   createdBy,
+			CreatorName: "",
+			Description: remark,
+			MaxUses:     maxUses,
+			ExpiresAt:   expiresAt,
+			Status:      1,
+		})
 		codes = append(codes, code)
 	}
 
-	return codes, nil
+	return inviteCodes, codes
+}
+
+func (s *Service) insertInviteCodes(inviteCodes []system.InviteCode) error {
+	if len(inviteCodes) == 0 {
+		return nil
+	}
+
+	dbService := database.GetDatabaseService()
+	return dbService.ExecuteTransaction(context.Background(), func(tx *gorm.DB) error {
+		return tx.CreateInBatches(inviteCodes, len(inviteCodes)).Error
+	})
+}
+
+func (s *Service) parseInviteExpiresAt(value, debugMessage, warnMessage string) *time.Time {
+	if value == "" {
+		return nil
+	}
+
+	parsedTime, err := time.ParseInLocation("2006-01-02 15:04:05", value, time.Local)
+	if err != nil {
+		global.APP_LOG.Warn(warnMessage,
+			zap.String("input", value),
+			zap.Error(err))
+		return nil
+	}
+
+	global.APP_LOG.Debug(debugMessage,
+		zap.String("input", value),
+		zap.Time("parsed", parsedTime),
+		zap.String("timezone", parsedTime.Location().String()))
+	return &parsedTime
+}
+
+func isDuplicateInviteCodeError(err error) bool {
+	if err == nil {
+		return false
+	}
+	lower := strings.ToLower(err.Error())
+	return strings.Contains(lower, "duplicate") || strings.Contains(lower, "unique")
 }
 
 // generateInviteCodeWithLength 生成指定长度的随机邀请码 (仅数字和英文大写字母)

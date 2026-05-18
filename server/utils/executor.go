@@ -110,11 +110,11 @@ echo "[fallback] failed with exit code $FALLBACK_RC"
 `, cfg.FallbackCmd, marker, marker)
 	}
 
-	script += fmt.Sprintf(`
+	script += `
 echo "TEMP_SCRIPT_FAILED"
 echo "TEMP_SCRIPT_FAILED" > "$MARKER_FILE"
 echo "=== $(date) FAILED - all methods exhausted ==="
 exit 1
-`)
+`
 	return script
 }

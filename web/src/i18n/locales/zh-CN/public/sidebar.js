@@ -25,5 +25,6 @@ export default {
   domainManagement: '域名管理',
   kycManagement: 'KYC管理',
   oauth2Management: 'OAuth2管理',
-  apiTokenManagement: 'API Token管理'
+  apiTokenManagement: 'API Token管理',
+  adminApiTokenManagement: 'API Token管理（超管）'
 }

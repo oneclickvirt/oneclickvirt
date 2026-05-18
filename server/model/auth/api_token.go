@@ -3,7 +3,6 @@ package auth
 import (
 	"time"
 
-	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
 
@@ -35,11 +34,6 @@ type ApiToken struct {
 
 	// 状态
 	Status int `json:"status" gorm:"default:1;index:idx_status"` // 1=启用，0=禁用
-}
-
-func (t *ApiToken) BeforeCreate(tx *gorm.DB) error {
-	// 不再自动生成UUID，Token字段由service层填充
-	return nil
 }
 
 // ApiTokenCreateRequest 创建API Token请求
@@ -79,5 +73,3 @@ type ApiTokenTestResponse struct {
 	UserType  string     `json:"userType"`
 	ExpiresAt *time.Time `json:"expiresAt"`
 }
-
-var _ = uuid.New // ensure uuid import

@@ -301,14 +301,6 @@ export const testSSHConnection = (data) => {
   })
 }
 
-export const updateProviderStatus = (id, status) => {
-  return request({
-    url: `/v1/admin/providers/${id}/status`,
-    method: 'put',
-    data: { status }
-  })
-}
-
 export const getAllInstances = (params) => {
   return request({
     url: '/v1/admin/instances',
