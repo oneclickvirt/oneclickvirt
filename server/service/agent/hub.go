@@ -54,12 +54,25 @@ func GetHub() *AgentHub {
 // Register 注册一个新连接并启动读取协程。
 func (h *AgentHub) Register(ac *AgentConn) {
 	h.mu.Lock()
-	// 如果已有旧连接，关闭它
-	if old, ok := h.conns[ac.ProviderID]; ok {
+	// 如果已有旧连接，关闭底层 TCP 连接，触发 readLoop 退出。
+	// 同时记录旧 conn 指针，在锁外进行完整清理，避免 h.mu 持锁时间过长。
+	var old *AgentConn
+	if o, ok := h.conns[ac.ProviderID]; ok {
+		old = o
 		old.conn.Close()
 	}
 	h.conns[ac.ProviderID] = ac
 	h.mu.Unlock()
+
+	// 在锁外清理旧连接的 goroutine 和 pending 操作：
+	// 旧连接的 readLoop 会因 conn.Close() 收到错误后调用 unregister，
+	// 但 unregister 中 current != old 会提前返回，不会清理以下资源。
+	// 必须在此处显式清理，否则 NoiseLoop/WSPingLoop goroutine 将永久泄漏。
+	if old != nil {
+		old.StopNoiseLoop()
+		old.StopWSPingLoop()
+		old.closeAllSessions() // 通知所有挂起的 exec/shell 操作立即返回错误
+	}
 
 	h.persistMu.Lock()
 	delete(h.statusPersistMemo, ac.ProviderID)
@@ -212,6 +225,10 @@ func (h *AgentHub) unregister(ac *AgentConn) {
 	delete(h.conns, providerID)
 	h.mu.Unlock()
 
+	// 关闭所有挂起的 exec 请求和 shell 会话，确保 ExecuteWithTimeout 和
+	// handleAgentShellTerminal 立即返回错误，而非等待各自的超时（最长 300s/30min）。
+	current.closeAllSessions()
+
 	h.persistMu.Lock()
 	delete(h.statusPersistMemo, providerID)
 	h.persistMu.Unlock()
@@ -270,7 +287,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 		now := time.Now()
 		// 仅在收到 Agent 上行帧时续命在线，避免"仅写成功但链路已半断"误判。
-		h.markInbound(ac.ProviderID, now, false)
+		h.markInbound(ac.ProviderID, now)
 		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 
 		// 二进制帧：隧道数据 [8-byte connID hash][payload]
@@ -297,7 +314,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 
 		switch msg.Type {
 		case msgTypeExecResponse:
-			h.markInbound(ac.ProviderID, time.Now(), true)
+			h.markInbound(ac.ProviderID, time.Now())
 			var resp execResponsePayload
 			if err := json.Unmarshal(msg.Payload, &resp); err == nil {
 				ac.mu.Lock()
@@ -373,7 +390,7 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 			}
 
 		case msgTypeShellData:
-			h.markInbound(ac.ProviderID, time.Now(), true)
+			h.markInbound(ac.ProviderID, time.Now())
 			var payload shellDataPayload
 			if err := json.Unmarshal(msg.Payload, &payload); err == nil {
 				ac.mu.Lock()

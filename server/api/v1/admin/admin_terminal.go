@@ -104,7 +104,7 @@ func AdminProviderTerminal(c *gin.Context) {
 	}
 
 	// 获取该 Provider 的管理终端使用权（取消旧会话）
-	_, release := acquireAdminTerminal(providerID)
+	ctx, release := acquireAdminTerminal(providerID)
 	defer release()
 
 	ws, err := terminalUpgrader.Upgrade(c.Writer, c.Request, nil)
@@ -124,15 +124,15 @@ func AdminProviderTerminal(c *gin.Context) {
 	// 根据连接类型分发处理
 	if dbProvider.ConnectionType == "agent" {
 		global.APP_LOG.Debug("使用Agent模式连接Provider", zap.Uint("providerID", providerID))
-		handleAgentTerminal(ws, &dbProvider)
+		handleAgentTerminal(ws, &dbProvider, ctx)
 	} else if dbProvider.ConnectionType == "ssh" {
 		global.APP_LOG.Debug("使用SSH模式连接Provider", zap.Uint("providerID", providerID))
-		handleSSHTerminal(ws, &dbProvider)
+		handleSSHTerminal(ws, &dbProvider, ctx)
 	} else {
 		global.APP_LOG.Warn("Provider连接类型未设置或不合法，默认使用SSH",
 			zap.Uint("providerID", providerID),
 			zap.String("connectionType", dbProvider.ConnectionType))
-		handleSSHTerminal(ws, &dbProvider)
+		handleSSHTerminal(ws, &dbProvider, ctx)
 	}
 }
 
@@ -173,7 +173,7 @@ func (w *wsWriter) writeSafe(ctx context.Context, messageType int, data []byte) 
 	return w.ws.WriteMessage(messageType, data)
 }
 
-func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
+func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx context.Context) {
 	if incompatible, minVersion := isAgentVersionIncompatible(p.AgentVersion); incompatible {
 		ws.WriteMessage(websocket.TextMessage, []byte(fmt.Sprintf("Agent版本不兼容（当前: %s，最低要求: %s），请先升级Agent后再重试\r\n", p.AgentVersion, minVersion)))
 		return
@@ -197,7 +197,7 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	}
 
 	if p.Username == "" || (p.Password == "" && p.SSHKey == "") {
-		handleAgentShellTerminal(ws, p, hub)
+		handleAgentShellTerminal(ws, p, hub, ctx)
 		return
 	}
 
@@ -230,7 +230,7 @@ func handleAgentTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	}
 	defer session.Close()
 
-	handleSSHSessionTerminal(ws, session)
+	handleSSHSessionTerminal(ws, session, ctx)
 }
 
 // waitForAgentConn 等待 Agent 连接就绪，支持重连等待。
@@ -253,7 +253,7 @@ func waitForAgentConn(hub *agentService.AgentHub, providerID uint, timeout time.
 	}
 }
 
-func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub *agentService.AgentHub) {
+func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub *agentService.AgentHub, parentCtx context.Context) {
 	// 获取当前连接的 AgentConn
 	conn := waitForAgentConn(hub, p.ID, 10*time.Second)
 	if conn == nil {
@@ -275,7 +275,7 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
 	defer cancel()
 	wg := &sync.WaitGroup{}
 
@@ -322,6 +322,9 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 			select {
 			case data, ok := <-session.OutputCh:
 				if !ok {
+					// OutputCh closed means safeClose() has flushed all buffered
+					// data.  Only treat session as closed here, not on DoneCh,
+					// to avoid losing the last bytes still queued in OutputCh.
 					sessionClosed = true
 					cancel()
 					return
@@ -330,10 +333,6 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 					cancel()
 					return
 				}
-			case <-session.DoneCh:
-				sessionClosed = true
-				cancel()
-				return
 			case <-ctx.Done():
 				return
 			}
@@ -346,7 +345,7 @@ func handleAgentShellTerminal(ws *websocket.Conn, p *providerModel.Provider, hub
 
 // ── SSH 模式终端 ────────────────────────────────────────────────────────────
 
-func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider) {
+func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider, ctx context.Context) {
 	sshPort := p.SSHPort
 	if sshPort == 0 {
 		sshPort = 22
@@ -368,7 +367,7 @@ func handleSSHTerminal(ws *websocket.Conn, p *providerModel.Provider) {
 	defer client.Close()
 	defer session.Close()
 
-	handleSSHSessionTerminal(ws, session)
+	handleSSHSessionTerminal(ws, session, ctx)
 }
 
 func buildTerminalSSHConfig(p *providerModel.Provider) (*ssh.ClientConfig, error) {
@@ -394,7 +393,7 @@ func buildTerminalSSHConfig(p *providerModel.Provider) (*ssh.ClientConfig, error
 	}, nil
 }
 
-func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
+func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session, parentCtx context.Context) {
 
 	// 设置 PTY
 	modes := ssh.TerminalModes{
@@ -425,10 +424,8 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 		return
 	}
 
-	// 优先切换到 login bash
-	_, _ = stdinPipe.Write([]byte("if command -v bash >/dev/null 2>&1; then exec bash -il; fi\n"))
-
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Minute)
+	// 不强制切换 shell：RequestPty + Shell() 已为用户启动默认 shell
+	ctx, cancel := context.WithTimeout(parentCtx, 30*time.Minute)
 	defer cancel()
 	done := make(chan struct{})
 	wg := &sync.WaitGroup{}
@@ -466,6 +463,7 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer cancel() // SSH 进程退出时取消 context，解除 stdin goroutine 堵塞
 		buf := make([]byte, 8192)
 		for {
 			n, err := stdoutPipe.Read(buf)
@@ -484,6 +482,7 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer cancel() // SSH 进程退出时取消 context
 		buf := make([]byte, 8192)
 		for {
 			n, err := stderrPipe.Read(buf)
@@ -502,5 +501,12 @@ func handleSSHSessionTerminal(ws *websocket.Conn, session *ssh.Session) {
 	case <-done:
 	case <-ctx.Done():
 	}
+	// 强制解除 ws.ReadMessage() 阻塞以允许 stdin goroutine 退出
+	_ = ws.SetReadDeadline(time.Now())
+	// 关闭 SSH session：触发 stdoutPipe/stderrPipe 的 Read 返回 io.EOF，
+	// 解除 stdout/stderr goroutine 的阻塞，使 wg.Wait() 能及时返回。
+	// 若 WebSocket 由用户关闭（done 触发），不关闭 session 则 goroutine 可能
+	// 阻塞在 Read() 长达 30 分钟（直至 ctx 超时）。
+	_ = session.Close()
 	wg.Wait()
 }

@@ -307,7 +307,6 @@ func GetProviderDetail(c *gin.Context) {
 		providerModel.Provider
 		AgentRuntimeStatus   string     `json:"agentRuntimeStatus,omitempty"`
 		AgentControlLastSeen *time.Time `json:"agentControlLastSeen,omitempty"`
-		AgentExecLastSeen    *time.Time `json:"agentExecLastSeen,omitempty"`
 	}{
 		Provider: providerObj,
 	}
@@ -316,7 +315,6 @@ func GetProviderDetail(c *gin.Context) {
 		runtimeHealth := agentService.GetHub().GetRuntimeHealth(providerObj.ID)
 		resp.AgentRuntimeStatus = runtimeHealth.Status
 		resp.AgentControlLastSeen = runtimeHealth.ControlLastSeen
-		resp.AgentExecLastSeen = runtimeHealth.ExecLastSeen
 	}
 
 	common.ResponseSuccess(c, resp)
@@ -1415,13 +1413,6 @@ func ExecOnProvider(c *gin.Context) {
 
 		hub := agentService.GetHub()
 		exec := agentService.NewAgentShellExecutor(dbProvider.ID, hub)
-		runtimeHealth := hub.GetRuntimeHealth(dbProvider.ID)
-		if runtimeHealth.Status == "degraded" {
-			if _, probeErr := exec.ExecuteWithTimeout("printf __ocv_probe__", 5*time.Second); probeErr != nil {
-				stderr = "执行通道探测失败: " + probeErr.Error()
-				execFailed = true
-			}
-		}
 
 		if !execFailed {
 			output, execErr := exec.ExecuteWithTimeout(req.Command, time.Duration(req.Timeout)*time.Second)

@@ -48,9 +48,8 @@ type ProviderManageResponse struct {
 	InstanceCount int    `json:"instanceCount"`
 	HealthStatus  string `json:"healthStatus"`
 	// Agent 运行时健康状态（由内存连接状态实时计算）
-	AgentRuntimeStatus   string     `json:"agentRuntimeStatus,omitempty"`   // online / degraded / offline
+	AgentRuntimeStatus   string     `json:"agentRuntimeStatus,omitempty"`   // online / offline
 	AgentControlLastSeen *time.Time `json:"agentControlLastSeen,omitempty"` // 最近控制通道上行时间
-	AgentExecLastSeen    *time.Time `json:"agentExecLastSeen,omitempty"`    // 最近执行通道回包时间
 	// 节点资源信息
 	NodeCPUCores     int        `json:"nodeCpuCores"`
 	NodeMemoryTotal  int64      `json:"nodeMemoryTotal"`

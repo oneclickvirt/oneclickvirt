@@ -33,6 +33,7 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 url = "2"
 rand = "0.8"
 socket2 = "0.5"
+libc = "0.2"
 
 [profile.release]
 opt-level = "z"

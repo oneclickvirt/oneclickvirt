@@ -25,6 +25,35 @@ func newAgentConn(providerID uint, conn *websocket.Conn, remoteAddr string) *Age
 		shellSessions: make(map[string]*AgentShellSession),
 		noiseStop:     make(chan struct{}),
 		wsPingStop:    make(chan struct{}),
+		doneCh:        make(chan struct{}),
+	}
+}
+
+// closeAllSessions 关闭所有挂起的 exec 请求和 shell 会话，在 WS 断开时调用。
+// 通过关闭 doneCh 使 ExecuteWithTimeout 立即返回错误；
+// 通过 safeClose() 关闭 shell 会话使 handleAgentShellTerminal 立即退出，
+// 避免等待 30 分钟的上下文超时。
+func (a *AgentConn) closeAllSessions() {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	// 关闭 doneCh（通知所有 ExecuteWithTimeout 立即返回）
+	select {
+	case <-a.doneCh:
+		// 已关闭，跳过
+	default:
+		close(a.doneCh)
+	}
+
+	// 关闭所有 shell 会话（通知 handleAgentShellTerminal 退出）
+	for id, session := range a.shellSessions {
+		session.safeClose()
+		delete(a.shellSessions, id)
+	}
+
+	// 清理 pending exec 请求（避免内存泄漏；ExecuteWithTimeout 通过 doneCh 已被通知）
+	for id := range a.pending {
+		delete(a.pending, id)
 	}
 }
 
@@ -97,6 +126,8 @@ func (a *AgentConn) ExecuteWithTimeout(cmd string, timeout time.Duration) (strin
 		return combined, nil
 	case <-time.After(timeout):
 		return "", fmt.Errorf("执行命令超时（%s）", timeout)
+	case <-a.doneCh:
+		return "", fmt.Errorf("agent 连接已断开")
 	}
 }
 

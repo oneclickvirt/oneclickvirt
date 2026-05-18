@@ -18,10 +18,6 @@ const (
 	readDeadlineWindow = 120 * time.Second
 	// 限制 online 心跳落库频率，避免每次 ping 都写 DB 引发 N+1 写放大。
 	heartbeatPersistInterval = 30 * time.Second
-	// 执行通道判定窗口：超出该窗口未观察到 exec/shell 回包时标记为 degraded。
-	execChannelStaleWindow = 3 * time.Minute
-	// 新连接预热窗口：连接建立后短时间内不因 exec 为空而降级。
-	execWarmupWindow = 2 * time.Minute
 )
 
 // ── 运行时状态与健康 ──────────────────────────────────────────────────────
@@ -35,17 +31,14 @@ type agentRuntimeState struct {
 	connected   bool
 	connectedAt time.Time
 	lastInbound time.Time
-	lastExec    time.Time
 }
 
 type AgentRuntimeHealth struct {
-	ProviderID       uint       `json:"providerId"`
-	Connected        bool       `json:"connected"`
-	Status           string     `json:"status"` // online / degraded / offline
-	ControlLastSeen  *time.Time `json:"controlLastSeen,omitempty"`
-	ExecLastSeen     *time.Time `json:"execLastSeen,omitempty"`
-	ConnectedAt      *time.Time `json:"connectedAt,omitempty"`
-	ExecChannelStale bool       `json:"execChannelStale"`
+	ProviderID      uint       `json:"providerId"`
+	Connected       bool       `json:"connected"`
+	Status          string     `json:"status"` // online / offline
+	ControlLastSeen *time.Time `json:"controlLastSeen,omitempty"`
+	ConnectedAt     *time.Time `json:"connectedAt,omitempty"`
 }
 
 // ── 消息协议（文本帧 JSON） ─────────────────────────────────────────────────
@@ -142,4 +135,5 @@ type AgentConn struct {
 	pingFailCount int           // 连续 ping 失败计数（用于检测连接僵死）
 	noiseStop     chan struct{} // 关闭时停止 noise 帧发送
 	wsPingStop    chan struct{} // 关闭时停止 WebSocket 协议层 ping
+	doneCh        chan struct{} // WS 断开时关闭，通知所有等待中的 exec/shell 操作立即返回
 }

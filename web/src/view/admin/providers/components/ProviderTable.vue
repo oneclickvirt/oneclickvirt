@@ -193,13 +193,6 @@
                 {{ $t('admin.providers.agentOnlineShort') }}
               </el-tag>
               <el-tag
-                v-else-if="(scope.row.agentRuntimeStatus || scope.row.agentStatus) === 'degraded'"
-                size="small"
-                type="warning"
-              >
-                {{ $t('admin.providers.agentDegradedShort') }}
-              </el-tag>
-              <el-tag
                 v-else
                 size="small"
                 type="danger"

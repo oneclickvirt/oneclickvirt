@@ -245,7 +245,6 @@ func (s *Service) GetProviderList(req admin.ProviderListRequest, ownerAdminID ui
 			runtimeHealth := runtimeHealthMap[provider.ID]
 			providerResponse.AgentRuntimeStatus = runtimeHealth.Status
 			providerResponse.AgentControlLastSeen = runtimeHealth.ControlLastSeen
-			providerResponse.AgentExecLastSeen = runtimeHealth.ExecLastSeen
 		}
 		providerResponses = append(providerResponses, providerResponse)
 	}

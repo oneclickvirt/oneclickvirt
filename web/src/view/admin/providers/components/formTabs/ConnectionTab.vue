@@ -638,12 +638,10 @@ const showSSHSettings = computed(() => !isAgentMode.value || hasAgentMappedNetwo
 const effectiveAgentStatus = computed(() => props.modelValue.agentRuntimeStatus || props.modelValue.agentStatus || 'offline')
 const agentAlertType = computed(() => {
   if (effectiveAgentStatus.value === 'online') return 'success'
-  if (effectiveAgentStatus.value === 'degraded') return 'warning'
   return 'error'
 })
 const agentStatusLabel = computed(() => {
   if (effectiveAgentStatus.value === 'online') return t('admin.providers.agentStatusOnline')
-  if (effectiveAgentStatus.value === 'degraded') return t('admin.providers.agentStatusDegraded')
   return t('admin.providers.agentStatusOffline')
 })
 

@@ -11,9 +11,10 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::collections::HashMap;
 use std::time::Duration;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use std::os::unix::io::{OwnedFd, FromRawFd, AsRawFd};
+use tokio::io::unix::AsyncFd;
 use tokio::net::TcpStream;
-use tokio::process::{Child, ChildStdin, Command};
+use tokio::process::Command;
 use tokio::sync::{mpsc, Mutex, Semaphore};
 use tokio_tungstenite::{client_async, connect_async, tungstenite::Message};
 use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
@@ -68,10 +69,21 @@ struct ShellDataPayload {
     data: String,
 }
 
+#[derive(Deserialize, Debug)]
+struct ShellResizePayload {
+    cols: Option<u16>,
+    rows: Option<u16>,
+}
+
+/// Shell session handle using a real PTY (pseudo-terminal).
+/// `master` is the PTY master fd wrapped in AsyncFd for async I/O.
+/// `stdin_tx` sends ordered input bytes to a dedicated writer task.
+/// `child_pid` is used for SIGWINCH (resize) and killpg (close).
 #[derive(Clone)]
 struct ShellHandle {
-    stdin: Arc<Mutex<ChildStdin>>,
-    child: Arc<Mutex<Child>>,
+    stdin_tx: mpsc::Sender<Vec<u8>>,
+    master: Arc<AsyncFd<OwnedFd>>,
+    child_pid: u32,
 }
 
 /// Run the WebSocket reverse-connect loop.
@@ -336,19 +348,24 @@ where
     // agent to block forever.  The controller sends application-level
     // pings every ~30 s and noise every 5-25 s, so a 120 s gap means
     // the connection is truly dead.
-    loop {
+    let mut loop_err: Option<String> = None;
+    'main_loop: loop {
         let msg_result = match tokio::time::timeout(Duration::from_secs(120), read.next()).await {
             Ok(Some(result)) => result,
-            Ok(None) => break, // stream ended cleanly
+            Ok(None) => break 'main_loop, // stream ended cleanly
             Err(_elapsed) => {
                 warn!("WebSocket read timeout (120 s), connection may be dead, reconnecting");
-                return Err("read timeout".to_string());
+                loop_err = Some("read timeout".to_string());
+                break 'main_loop;
             }
         };
 
         let msg = match msg_result {
             Ok(m) => m,
-            Err(e) => return Err(e.to_string()),
+            Err(e) => {
+                loop_err = Some(e.to_string());
+                break 'main_loop;
+            }
         };
 
         match msg {
@@ -439,62 +456,50 @@ where
                         });
                     }
                     "ping" => {
-                        // Anti-DPI: add 0-500ms random jitter before pong
-                        // to break fixed-interval heartbeat fingerprint
-                        let jitter_ms = rand::random::<u64>() % 500;
-                        if jitter_ms > 0 {
-                            tokio::time::sleep(std::time::Duration::from_millis(jitter_ms)).await;
-                        }
-                        // Add small random noise to pong payload (0-16 bytes)
-                        let noise_len = (rand::random::<u8>() % 17) as usize;
-                        let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
-                        let pong = WsFrame {
-                            msg_type: "pong".to_string(),
-                            id: frame.id.clone(),
-                            payload: if noise.is_empty() {
-                                None
-                            } else {
-                                let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
-                                Some(serde_json::json!({ "n": hex }))
-                            },
-                        };
-                        let pong_text = match serde_json::to_string(&pong) {
-                            Ok(t) => t,
-                            Err(e) => {
-                                warn!(error = %e, "failed to serialize pong frame");
-                                continue;
+                        // Spawn pong in a separate task so the jitter sleep never
+                        // blocks the main read loop.  Blocking the loop here would
+                        // delay processing of shell_data / tunnel frames for up to
+                        // 500 ms every heartbeat cycle, making interactive SSH
+                        // sessions noticeably laggy.
+                        let pong_id = frame.id.clone();
+                        let ws_tx_pong = ws_tx_hi.clone();
+                        tokio::spawn(async move {
+                            // Anti-DPI: random jitter before pong
+                            let jitter_ms = rand::random::<u64>() % 500;
+                            if jitter_ms > 0 {
+                                tokio::time::sleep(Duration::from_millis(jitter_ms)).await;
                             }
-                        };
-
-                        // Non-blocking send: try_send first (no await), then
-                        // fall back to a short timeout.  This prevents the
-                        // read loop from deadlocking when the mpsc channel is
-                        // full because the write forwarder is stuck on TCP.
-                        let pong_msg = Message::Text(pong_text.into());
-                        match ws_tx_hi.try_send(pong_msg.clone()) {
-                            Ok(()) => {} // fast path succeeded
-                            Err(mpsc::error::TrySendError::Closed(_)) => {
-                                return Err("write channel closed".to_string());
-                            }
-                            Err(mpsc::error::TrySendError::Full(_)) => {
-                                // Channel full — attempt with a short timeout
-                                match tokio::time::timeout(
-                                    Duration::from_secs(5),
-                                    ws_tx_hi.send(pong_msg),
-                                )
-                                .await
-                                {
-                                    Ok(Ok(())) => {} // sent after waiting
-                                    Ok(Err(_)) => {
-                                        return Err("write channel closed".to_string());
-                                    }
-                                    Err(_elapsed) => {
-                                        warn!("pong send timed out (5 s), write path congested, forcing reconnect");
-                                        return Err("pong send timeout".to_string());
-                                    }
+                            // Add small random noise to pong payload (0-16 bytes)
+                            let noise_len = (rand::random::<u8>() % 17) as usize;
+                            let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
+                            let pong = WsFrame {
+                                msg_type: "pong".to_string(),
+                                id: pong_id,
+                                payload: if noise.is_empty() {
+                                    None
+                                } else {
+                                    let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
+                                    Some(serde_json::json!({ "n": hex }))
+                                },
+                            };
+                            let pong_text = match serde_json::to_string(&pong) {
+                                Ok(t) => t,
+                                Err(e) => {
+                                    warn!(error = %e, "failed to serialize pong frame");
+                                    return;
                                 }
+                            };
+                            let pong_msg = Message::Text(pong_text.into());
+                            // Non-blocking try_send; fall back to a short timeout.
+                            // Failures here are non-fatal: if the write channel is
+                            // closed, the main loop will detect it on the next frame.
+                            if ws_tx_pong.try_send(pong_msg.clone()).is_err() {
+                                let _ = tokio::time::timeout(
+                                    Duration::from_secs(5),
+                                    ws_tx_pong.send(pong_msg),
+                                ).await;
                             }
-                        }
+                        });
                     }
                     "tunnel_open" => {
                         if let Some(payload_val) = frame.payload {
@@ -540,6 +545,16 @@ where
                                 Ok(p) => p,
                                 Err(_) => {
                                     warn!("shell permit exhausted, dropping shell_open frame");
+                                    // Notify the controller that this shell session cannot be opened,
+                                    // so it can close its side immediately rather than hanging.
+                                    let close_frame = WsFrame {
+                                        msg_type: "shell_close".to_string(),
+                                        id: Some(req_id),
+                                        payload: Some(serde_json::json!({ "reason": "shell permit exhausted" })),
+                                    };
+                                    if let Ok(text) = serde_json::to_string(&close_frame) {
+                                        let _ = ws_tx_hi_clone.try_send(Message::Text(text.into()));
+                                    }
                                     return;
                                 }
                             };
@@ -552,33 +567,49 @@ where
                         let req_id = frame.id.clone().unwrap_or_default();
                         if let Some(payload_val) = frame.payload {
                             if let Ok(payload) = serde_json::from_value::<ShellDataPayload>(payload_val) {
-                                let sessions = shell_sessions.clone();
-                                tokio::spawn(async move {
-                                    if let Some(handle) = sessions.lock().await.get(&req_id).cloned() {
-                                        let mut stdin = handle.stdin.lock().await;
-                                        // 忽略写入错误（shell 可能已关闭）
-                                        let _ = stdin.write_all(payload.data.as_bytes()).await;
-                                        let _ = stdin.flush().await;
+                                // Send data to the session's dedicated stdin writer task.
+                                // The channel preserves FIFO order, so stdin bytes always
+                                // arrive in the same order as WebSocket frames — unlike
+                                // spawning a new task per frame which allows out-of-order writes.
+                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
+                                    let data = payload.data.into_bytes();
+                                    // Non-blocking try_send; fall back to short-timeout send
+                                    // to avoid stalling the WS read loop on a full channel.
+                                    if handle.stdin_tx.try_send(data.clone()).is_err() {
+                                        let tx = handle.stdin_tx.clone();
+                                        tokio::spawn(async move {
+                                            let _ = tokio::time::timeout(
+                                                Duration::from_secs(3),
+                                                tx.send(data),
+                                            ).await;
+                                        });
                                     }
-                                });
+                                }
                             }
                         }
                     }
                     "shell_resize" => {
-                        // Current fallback shell ignores resize; keep message for protocol compatibility.
+                        let req_id = frame.id.clone().unwrap_or_default();
+                        if let Some(payload_val) = frame.payload {
+                            if let Ok(payload) = serde_json::from_value::<ShellResizePayload>(payload_val) {
+                                if let Some(handle) = shell_sessions.lock().await.get(&req_id).cloned() {
+                                    let cols = payload.cols.unwrap_or(80);
+                                    let rows = payload.rows.unwrap_or(24);
+                                    pty_resize(handle.master.as_raw_fd(), handle.child_pid, cols, rows);
+                                }
+                            }
+                        }
                     }
                     "shell_close" => {
                         let req_id = frame.id.clone().unwrap_or_default();
-                        // 先移除会话（防止 shell-wait 任务再次发送 shell_close）
+                        // Remove session first (prevents child-wait task from sending a duplicate shell_close).
                         if let Some(handle) = shell_sessions.lock().await.remove(&req_id) {
-                            // 在独立任务中杀进程，不阻塞 read loop
                             tokio::spawn(async move {
-                                let mut child = handle.child.lock().await;
-                                let _ = child.kill().await;
-                                let _ = tokio::time::timeout(
-                                    Duration::from_secs(5),
-                                    child.wait(),
-                                ).await;
+                                // Kill the entire process group so background jobs also die.
+                                pty_kill(handle.child_pid);
+                                // Dropping the handle closes master fd (stopping the reader task)
+                                // and drops stdin_tx (stopping the writer task).
+                                drop(handle);
                             });
                         }
                     }
@@ -593,7 +624,7 @@ where
             }
             Message::Close(_) => {
                 info!("received close frame from controller");
-                return Ok(());
+                break 'main_loop;
             }
             Message::Ping(data) => {
                 // Protocol-level pong: non-blocking send to avoid deadlock.
@@ -613,9 +644,106 @@ where
             }
             _ => {}
         }
+    } // end 'main_loop
+
+    // Cleanup: kill all active shell sessions to prevent orphan processes
+    // after WebSocket disconnect or reconnect.
+    {
+        let mut sessions_guard = shell_sessions.lock().await;
+        for (_, handle) in sessions_guard.drain() {
+            pty_kill(handle.child_pid);
+            // Dropping handle closes stdin_tx (writer task exits) and
+            // decrements master Arc (reader task gets EIO and exits).
+        }
     }
 
-    Ok(())
+    match loop_err {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+/// Find the best available interactive shell (zsh > fish > bash > sh).
+fn find_best_shell() -> Option<String> {
+    let candidates = [
+        "/usr/bin/zsh", "/bin/zsh",
+        "/usr/bin/fish", "/usr/local/bin/fish",
+        "/usr/bin/bash", "/bin/bash",
+        "/bin/sh", "/usr/bin/sh",
+    ];
+    candidates.iter()
+        .find(|p| std::path::Path::new(p).exists())
+        .map(|s| s.to_string())
+}
+
+/// Allocate a PTY master/slave pair, set the initial window size, and
+/// return (master_owned_fd, slave_raw_fd).  The caller is responsible for
+/// closing `slave_raw_fd` in the parent process after spawning the child.
+fn open_pty(cols: u16, rows: u16) -> Result<(OwnedFd, i32), String> {
+    let master_fd = unsafe {
+        libc::posix_openpt(libc::O_RDWR | libc::O_NOCTTY | libc::O_CLOEXEC)
+    };
+    if master_fd < 0 {
+        return Err(format!("posix_openpt: {}", std::io::Error::last_os_error()));
+    }
+    if unsafe { libc::grantpt(master_fd) } < 0 {
+        unsafe { libc::close(master_fd) };
+        return Err(format!("grantpt: {}", std::io::Error::last_os_error()));
+    }
+    if unsafe { libc::unlockpt(master_fd) } < 0 {
+        unsafe { libc::close(master_fd) };
+        return Err(format!("unlockpt: {}", std::io::Error::last_os_error()));
+    }
+    // Set initial window size on the master before opening the slave.
+    let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+    unsafe { libc::ioctl(master_fd, libc::TIOCSWINSZ, &ws) };
+    // Get the slave PTY path.
+    let slave_name_ptr = unsafe { libc::ptsname(master_fd) };
+    if slave_name_ptr.is_null() {
+        unsafe { libc::close(master_fd) };
+        return Err("ptsname returned null".to_string());
+    }
+    let slave_name = unsafe { std::ffi::CStr::from_ptr(slave_name_ptr) }
+        .to_str()
+        .map_err(|e| e.to_string())?
+        .to_owned();
+    // Open the slave PTY.
+    let slave_name_c = std::ffi::CString::new(slave_name).map_err(|e| e.to_string())?;
+    let slave_fd = unsafe { libc::open(slave_name_c.as_ptr(), libc::O_RDWR | libc::O_NOCTTY) };
+    if slave_fd < 0 {
+        unsafe { libc::close(master_fd) };
+        return Err(format!("open slave PTY: {}", std::io::Error::last_os_error()));
+    }
+    // Set O_NONBLOCK on master so tokio's AsyncFd can poll it without blocking.
+    let flags = unsafe { libc::fcntl(master_fd, libc::F_GETFL) };
+    unsafe { libc::fcntl(master_fd, libc::F_SETFL, flags | libc::O_NONBLOCK) };
+    let master_owned = unsafe { OwnedFd::from_raw_fd(master_fd) };
+    Ok((master_owned, slave_fd))
+}
+
+/// Resize the PTY window and deliver SIGWINCH to the shell's process group.
+fn pty_resize(master_fd: i32, child_pid: u32, cols: u16, rows: u16) {
+    unsafe {
+        let ws = libc::winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
+        libc::ioctl(master_fd, libc::TIOCSWINSZ.into(), &ws);
+        let pgid = libc::getpgid(child_pid as libc::pid_t);
+        if pgid > 0 {
+            libc::killpg(pgid, libc::SIGWINCH);
+        } else {
+            libc::kill(child_pid as libc::pid_t, libc::SIGWINCH);
+        }
+    }
+}
+
+/// Kill the shell's entire process group (ensures background jobs also die).
+fn pty_kill(child_pid: u32) {
+    unsafe {
+        let pgid = libc::getpgid(child_pid as libc::pid_t);
+        if pgid > 0 {
+            libc::killpg(pgid, libc::SIGKILL);
+        } else {
+            libc::kill(child_pid as libc::pid_t, libc::SIGKILL);
+        }
+    }
 }
 
 async fn open_shell_session(
@@ -628,30 +756,162 @@ async fn open_shell_session(
         cols: Some(80),
         rows: Some(24),
     });
-    let _ = (payload.cols, payload.rows);
+    let cols = payload.cols.unwrap_or(80);
+    let rows = payload.rows.unwrap_or(24);
 
-    let mut child = spawn_interactive_shell().await?;
-    let stdin = child.stdin.take().ok_or_else(|| "missing shell stdin".to_string())?;
-    let stdout = child.stdout.take().ok_or_else(|| "missing shell stdout".to_string())?;
-    let stderr = child.stderr.take().ok_or_else(|| "missing shell stderr".to_string())?;
+    // Allocate a real PTY (pseudo-terminal).  This gives the shell:
+    //   - proper terminal line discipline (Ctrl+C, backspace, readline, etc.)
+    //   - ANSI/VT100 escape sequence support
+    //   - window resize via SIGWINCH + TIOCSWINSZ
+    //   - merged stdout/stderr stream through a single master fd
+    let (master_owned, slave_fd) = open_pty(cols, rows)?;
+    let shell = find_best_shell()
+        .ok_or_else(|| "no usable shell found (tried zsh, fish, bash, sh)".to_string())?;
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
 
-    let handle = ShellHandle {
-        stdin: Arc::new(Mutex::new(stdin)),
-        child: Arc::new(Mutex::new(child)),
-    };
-    shell_sessions.lock().await.insert(session_id.clone(), handle.clone());
+    // Duplicate slave_fd for stdout and stderr — tokio Command::stdin() takes
+    // ownership of the fd, so we need separate file descriptors for each stdio stream.
+    let slave_stdout = unsafe { libc::dup(slave_fd) };
+    let slave_stderr = unsafe { libc::dup(slave_fd) };
+    if slave_stdout < 0 || slave_stderr < 0 {
+        unsafe {
+            if slave_stdout >= 0 { libc::close(slave_stdout); }
+            if slave_stderr >= 0 { libc::close(slave_stderr); }
+            libc::close(slave_fd);
+        }
+        return Err(format!("dup slave PTY fd: {}", std::io::Error::last_os_error()));
+    }
 
-    spawn_shell_reader(stdout, session_id.clone(), ws_tx.clone());
-    spawn_shell_reader(stderr, session_id.clone(), ws_tx.clone());
+    // Wrap master in AsyncFd for non-blocking async I/O.  Shared via Arc so
+    // both the stdin-writer task and the PTY-reader task can use the same fd.
+    let async_master = Arc::new(
+        AsyncFd::new(master_owned).map_err(|e| format!("AsyncFd::new: {}", e))?
+    );
 
+    let mut cmd = Command::new(&shell);
+    cmd.env("TERM", "xterm-256color")
+       .env("HOME", &home)
+       .env("COLUMNS", cols.to_string())
+       .env("LINES", rows.to_string())
+       .stdin(unsafe { Stdio::from_raw_fd(slave_fd) })
+       .stdout(unsafe { Stdio::from_raw_fd(slave_stdout) })
+       .stderr(unsafe { Stdio::from_raw_fd(slave_stderr) });
+
+    // pre_exec runs in the forked child AFTER dup2 has mapped slave_fd to
+    // fd 0/1/2.  We must:
+    //   1. Call setsid() to create a new session (detach from parent's
+    //      controlling terminal).
+    //   2. Call TIOCSCTTY on fd 0 (now the slave PTY) to set it as the
+    //      controlling terminal for the new session, enabling job control.
+    unsafe {
+        cmd.pre_exec(|| {
+            if libc::setsid() < 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            // fd 0 is the slave PTY after dup2; set as controlling terminal.
+            libc::ioctl(0, libc::TIOCSCTTY.into(), 1 as libc::c_int);
+            Ok(())
+        });
+    }
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    let child_pid = child.id().unwrap_or(0);
+
+    // Ordered stdin writer: channel → PTY master.
+    // Using a channel (not per-frame tokio::spawn) guarantees FIFO write order.
+    let (stdin_tx, mut stdin_rx) = mpsc::channel::<Vec<u8>>(64);
+    let write_master = async_master.clone();
+    tokio::spawn(async move {
+        while let Some(data) = stdin_rx.recv().await {
+            let mut offset = 0;
+            while offset < data.len() {
+                match write_master.writable().await {
+                    Err(_) => return,
+                    Ok(mut guard) => {
+                        match guard.try_io(|inner| {
+                            let n = unsafe {
+                                libc::write(
+                                    inner.as_raw_fd(),
+                                    data[offset..].as_ptr() as *const libc::c_void,
+                                    data.len() - offset,
+                                )
+                            };
+                            if n < 0 { Err(std::io::Error::last_os_error()) }
+                            else { Ok(n as usize) }
+                        }) {
+                            Ok(Ok(n)) => { offset += n; }
+                            Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                            _ => return,
+                        }
+                    }
+                }
+            }
+        }
+    });
+
+    let handle = ShellHandle { stdin_tx, master: async_master.clone(), child_pid };
+    shell_sessions.lock().await.insert(session_id.clone(), handle);
+
+    // PTY reader: master fd → WebSocket.
+    // Reading from the master gives us the shell's combined stdout+stderr.
+    // EIO is the normal EOF signal when the last slave fd is closed (shell exits).
+    let read_master = async_master.clone();
+    let ws_tx_reader = ws_tx.clone();
+    let session_id_reader = session_id.clone();
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; 8192];
+        loop {
+            let mut guard = match read_master.readable().await {
+                Ok(g) => g,
+                Err(_) => break,
+            };
+            let result = guard.try_io(|inner| {
+                let n = unsafe {
+                    libc::read(
+                        inner.as_raw_fd(),
+                        buf.as_mut_ptr() as *mut libc::c_void,
+                        buf.len(),
+                    )
+                };
+                if n < 0 { Err(std::io::Error::last_os_error()) }
+                else { Ok(n as usize) }
+            });
+            match result {
+                Ok(Ok(0)) => break,
+                Ok(Ok(n)) => {
+                    let frame = WsFrame {
+                        msg_type: "shell_data".to_string(),
+                        id: Some(session_id_reader.clone()),
+                        payload: Some(serde_json::json!({
+                            "data": String::from_utf8_lossy(&buf[..n]).to_string()
+                        })),
+                    };
+                    if let Ok(text) = serde_json::to_string(&frame) {
+                        let msg = Message::Text(text.into());
+                        if ws_tx_reader.try_send(msg.clone()).is_err() {
+                            let _ = tokio::time::timeout(
+                                Duration::from_secs(3),
+                                ws_tx_reader.send(msg),
+                            ).await;
+                        }
+                    }
+                }
+                // EIO = shell exited and all slave fds are closed (normal PTY EOF)
+                Ok(Err(e)) if e.raw_os_error() == Some(libc::EIO) => break,
+                Ok(Err(e)) if e.kind() == std::io::ErrorKind::WouldBlock => {}
+                Ok(Err(_)) => break,
+                Err(_would_block) => {}
+            }
+        }
+    });
+
+    // Child-wait task: detect shell exit and notify the controller.
     let shell_sessions_clone = shell_sessions.clone();
     let ws_tx_clone = ws_tx.clone();
     tokio::spawn(async move {
-        let status = {
-            let mut child_guard = handle.child.lock().await;
-            child_guard.wait().await.ok()
-        };
-        // 仅在会话仍存在时发送 shell_close（防止与显式 shell_close 命令竞争）
+        let status = child.wait().await.ok();
+        // Only send shell_close if the session is still registered (not already
+        // closed by an explicit shell_close frame from the controller).
         if shell_sessions_clone.lock().await.remove(&session_id).is_some() {
             let reason = status
                 .and_then(|s| s.code().map(|code| format!("shell exited with code {}", code)))
@@ -662,10 +922,8 @@ async fn open_shell_session(
                 payload: Some(serde_json::json!({ "reason": reason })),
             };
             if let Ok(text) = serde_json::to_string(&close_frame) {
-                // 非阻塞发送，防止写路径拥塞时阻塞 shell 清理任务
                 let msg = Message::Text(text.into());
                 if ws_tx_clone.try_send(msg.clone()).is_err() {
-                    // 通道满或已关闭，尝试短超时发送
                     let _ = tokio::time::timeout(
                         Duration::from_secs(3),
                         ws_tx_clone.send(msg),
@@ -678,73 +936,6 @@ async fn open_shell_session(
     Ok(())
 }
 
-fn spawn_shell_reader<R>(mut reader: R, session_id: String, ws_tx: mpsc::Sender<Message>)
-where
-    R: tokio::io::AsyncRead + Unpin + Send + 'static,
-{
-    tokio::spawn(async move {
-        let mut buf = vec![0u8; 8192];
-        loop {
-            match reader.read(&mut buf).await {
-                Ok(0) => break,
-                Ok(n) => {
-                    let frame = WsFrame {
-                        msg_type: "shell_data".to_string(),
-                        id: Some(session_id.clone()),
-                        payload: Some(serde_json::json!({
-                            "data": String::from_utf8_lossy(&buf[..n]).to_string()
-                        })),
-                    };
-                    if let Ok(text) = serde_json::to_string(&frame) {
-                        let msg = Message::Text(text.into());
-                        // 优先非阻塞发送，失败时使用短超时
-                        if ws_tx.try_send(msg.clone()).is_err() {
-                            let _ = tokio::time::timeout(
-                                Duration::from_secs(3),
-                                ws_tx.send(msg),
-                            ).await;
-                        }
-                    }
-                }
-                Err(_) => break,
-            }
-        }
-    });
-}
-
-async fn spawn_interactive_shell() -> Result<Child, String> {
-    let mut scripted = Command::new("script");
-    scripted
-        .arg("-qfec")
-        .arg("cd /root 2>/dev/null || cd \"$HOME\"; if command -v bash >/dev/null 2>&1; then exec bash -il; fi; exec sh -i")
-        .arg("/dev/null")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    match scripted.spawn() {
-        Ok(child) => Ok(child),
-        Err(_) => {
-            let mut plain = Command::new("bash");
-            plain
-                .arg("-il")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-            match plain.spawn() {
-                Ok(child) => Ok(child),
-                Err(_) => {
-                    let mut sh_plain = Command::new("sh");
-                    sh_plain
-                        .arg("-i")
-                        .stdin(Stdio::piped())
-                        .stdout(Stdio::piped())
-                        .stderr(Stdio::piped());
-                    sh_plain.spawn().map_err(|e| e.to_string())
-                }
-            }
-        }
-    }
-}
 
 /// Strip sensitive query parameters (secret, agent_secret, token) from a URL.
 /// Defense-in-depth: even if the caller passes a URL with the secret embedded,

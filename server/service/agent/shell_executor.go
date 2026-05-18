@@ -124,12 +124,14 @@ func wrapShellEnv(command string) string {
 	if trimmed == "" {
 		return trimmed
 	}
-	// Only source /etc/profile (system-wide, predictable).
+	// Source /etc/profile first to pick up any site-specific PATH entries
+	// (e.g. conda, nix, custom tool installs).  Then unconditionally prepend
+	// all standard FHS directories so commands are always found regardless of
+	// what /etc/profile does or whether it even exists.
 	// Do NOT source ~/.bashrc / ~/.bash_profile — they are user-specific and
-	// may contain interactive prompts, network calls, or commands that hang,
-	// which would block the agent's WebSocket read loop for all commands.
-	// PATH is extended with common binary locations for LXD/Incus tooling.
-	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; export PATH=$PATH:/usr/local/bin:/snap/bin:/usr/sbin:/sbin; %s", command)
+	// may contain interactive prompts or blocking calls.
+	// ${PATH:+:$PATH} safely appends the inherited PATH without a leading colon.
+	return fmt.Sprintf(". /etc/profile >/dev/null 2>&1 || true; export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin${PATH:+:$PATH}; %s", command)
 }
 
 // Execute runs a command on the remote agent with a default 300s timeout.

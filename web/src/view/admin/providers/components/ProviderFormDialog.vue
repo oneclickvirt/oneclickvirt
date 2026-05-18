@@ -699,15 +699,12 @@ const handleCheckAgentStatus = async () => {
         agentConnectedAt: res.data.agentConnectedAt || null,
         agentRemoteIP: res.data.agentRemoteIP || '',
         agentControlLastSeen: res.data.agentControlLastSeen || null,
-        agentExecLastSeen: res.data.agentExecLastSeen || null,
         networkType: res.data.networkType || formData.value.networkType,
         enableTrafficControl: res.data.enableTrafficControl ?? formData.value.enableTrafficControl,
         enableResourceMonitoring: res.data.enableResourceMonitoring ?? formData.value.enableResourceMonitoring
       })
       if ((formData.value.agentRuntimeStatus || formData.value.agentStatus) === 'online') {
         ElMessage.success(t('admin.providers.agentConnected'))
-      } else if ((formData.value.agentRuntimeStatus || formData.value.agentStatus) === 'degraded') {
-        ElMessage.warning(t('admin.providers.agentDegraded'))
       } else {
         ElMessage.warning(t('admin.providers.agentNotConnected'))
       }

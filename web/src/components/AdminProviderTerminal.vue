@@ -28,6 +28,7 @@ const terminalRef = ref(null)
 let terminal = null
 let fitAddon = null
 let websocket = null
+let resizeObserver = null
 let isCleanedUp = false
 
 onMounted(() => nextTick(() => initTerminal()))
@@ -78,10 +79,10 @@ const initTerminal = () => {
   })
 
   // Resize → fit
-  const observer = new ResizeObserver(() => {
+  resizeObserver = new ResizeObserver(() => {
     try { fitAddon.fit() } catch {}
   })
-  if (terminalRef.value) observer.observe(terminalRef.value)
+  if (terminalRef.value) resizeObserver.observe(terminalRef.value)
 
   connect()
 }
@@ -168,6 +169,12 @@ const connect = () => {
 const cleanup = () => {
   if (isCleanedUp) return
   isCleanedUp = true
+
+  // 断开 ResizeObserver 防止内存泄漏
+  if (resizeObserver) {
+    resizeObserver.disconnect()
+    resizeObserver = null
+  }
 
   // 先关闭 WebSocket（触发后端清理）
   if (websocket) {

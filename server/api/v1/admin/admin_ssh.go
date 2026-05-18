@@ -244,6 +244,8 @@ func AdminSSHWebSocket(c *gin.Context) {
 	sshOutputDone := make(chan struct{})
 	sshErrorDone := make(chan struct{})
 	wg := &sync.WaitGroup{} // 跟踪所有goroutine
+	// 保护并发 ws.WriteMessage 调用（gorilla/websocket 每次只允许一个写者）
+	var wsWriteMu sync.Mutex
 
 	// WebSocket -> SSH (处理用户输入)
 	wg.Add(1)
@@ -334,8 +336,11 @@ func AdminSSHWebSocket(c *gin.Context) {
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage，避免UTF-8验证问题
-				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(err))
+				wsWriteMu.Lock()
+				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				wsWriteMu.Unlock()
+				if writeErr != nil {
+					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(writeErr))
 					return
 				}
 			}
@@ -370,8 +375,11 @@ func AdminSSHWebSocket(c *gin.Context) {
 			}
 			if n > 0 {
 				// 使用 BinaryMessage 而不是 TextMessage
-				if err := ws.WriteMessage(websocket.BinaryMessage, buf[:n]); err != nil {
-					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(err))
+				wsWriteMu.Lock()
+				writeErr := ws.WriteMessage(websocket.BinaryMessage, buf[:n])
+				wsWriteMu.Unlock()
+				if writeErr != nil {
+					global.APP_LOG.Warn("写入WebSocket失败", zap.Error(writeErr))
 					return
 				}
 			}

@@ -340,14 +340,12 @@ func GetAgentStatus(c *gin.Context) {
 		global.APP_DB.Model(&monitoringModel.AgentMonitor{}).Where("provider_id = ?", providerID).Count(&monitorCount)
 
 		common.ResponseSuccess(c, gin.H{
-			"is_running":         isRunning,
-			"version":            dbProvider.Version,
-			"config":             config,
-			"monitor_count":      monitorCount,
-			"status":             runtimeHealth.Status,
-			"control_last_seen":  runtimeHealth.ControlLastSeen,
-			"exec_last_seen":     runtimeHealth.ExecLastSeen,
-			"exec_channel_stale": runtimeHealth.ExecChannelStale,
+			"is_running":        isRunning,
+			"version":           dbProvider.Version,
+			"config":            config,
+			"monitor_count":     monitorCount,
+			"status":            runtimeHealth.Status,
+			"control_last_seen": runtimeHealth.ControlLastSeen,
 		})
 		return
 	}

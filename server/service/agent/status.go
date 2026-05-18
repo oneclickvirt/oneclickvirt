@@ -33,7 +33,7 @@ func (h *AgentHub) markDisconnected(providerID uint) {
 	h.runtimeMu.Unlock()
 }
 
-func (h *AgentHub) markInbound(providerID uint, now time.Time, execSignal bool) {
+func (h *AgentHub) markInbound(providerID uint, now time.Time) {
 	h.runtimeMu.Lock()
 	state := h.runtimeState[providerID]
 	if state.connectedAt.IsZero() {
@@ -41,9 +41,6 @@ func (h *AgentHub) markInbound(providerID uint, now time.Time, execSignal bool) 
 	}
 	state.connected = true
 	state.lastInbound = now
-	if execSignal {
-		state.lastExec = now
-	}
 	h.runtimeState[providerID] = state
 	h.runtimeMu.Unlock()
 }
@@ -67,29 +64,9 @@ func buildRuntimeHealth(providerID uint, now time.Time, state agentRuntimeState)
 		t := state.lastInbound
 		health.ControlLastSeen = &t
 	}
-	if !state.lastExec.IsZero() {
-		t := state.lastExec
-		health.ExecLastSeen = &t
-	}
 
 	if state.lastInbound.IsZero() || now.Sub(state.lastInbound) > readDeadlineWindow+15*time.Second {
 		health.Status = "offline"
-		return health
-	}
-
-	if state.lastExec.IsZero() {
-		if state.connectedAt.IsZero() || now.Sub(state.connectedAt) <= execWarmupWindow {
-			health.Status = "online"
-			return health
-		}
-		health.Status = "degraded"
-		health.ExecChannelStale = true
-		return health
-	}
-
-	if now.Sub(state.lastExec) > execChannelStaleWindow {
-		health.Status = "degraded"
-		health.ExecChannelStale = true
 		return health
 	}
 
