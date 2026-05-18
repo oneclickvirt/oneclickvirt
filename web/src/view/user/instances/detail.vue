@@ -177,7 +177,7 @@
             </el-button>
             <!-- Container Exec按钮 -->
             <el-button 
-              v-if="instance.status === 'running' && instance.instanceType === 'container'"
+              v-if="instance.status === 'running' && instance.instance_type === 'container'"
               type="success"
               size="small"
               @click="openExecTerminal"
