@@ -24,18 +24,20 @@ import (
 
 // getExecCommand returns the interactive exec command for a given provider type and instance name
 func getExecCommand(providerType constant.ProviderType, instanceName string) (string, error) {
+	// Start in /root (fallback to /), then prefer bash when available, fall back to sh.
+	const cdWrapper = `sh -c 'cd /root 2>/dev/null || cd /; if command -v bash >/dev/null 2>&1; then exec bash; fi; exec sh'`
 	switch providerType {
 	case constant.ProviderTypeDocker:
-		return fmt.Sprintf("docker exec -it %s /bin/sh", instanceName), nil
+		return fmt.Sprintf("docker exec -it %s %s", instanceName, cdWrapper), nil
 	case constant.ProviderTypePodman:
-		return fmt.Sprintf("podman exec -it %s /bin/sh", instanceName), nil
+		return fmt.Sprintf("podman exec -it %s %s", instanceName, cdWrapper), nil
 	case constant.ProviderTypeContainerd:
 		// nerdctl exec for containerd
-		return fmt.Sprintf("nerdctl exec -it %s /bin/sh", instanceName), nil
+		return fmt.Sprintf("nerdctl exec -it %s %s", instanceName, cdWrapper), nil
 	case constant.ProviderTypeLXD:
-		return fmt.Sprintf("lxc exec %s -- /bin/sh", instanceName), nil
+		return fmt.Sprintf("lxc exec %s -- %s", instanceName, cdWrapper), nil
 	case constant.ProviderTypeIncus:
-		return fmt.Sprintf("incus exec %s -- /bin/sh", instanceName), nil
+		return fmt.Sprintf("incus exec %s -- %s", instanceName, cdWrapper), nil
 	default:
 		return "", fmt.Errorf("provider type %s does not support container exec", providerType)
 	}

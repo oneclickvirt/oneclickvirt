@@ -12,12 +12,12 @@ use tokio_tungstenite::tungstenite::Message;
 use crate::tunnel::WsFrame;
 use super::types::{ShellHandle, ShellOpenPayload};
 
-/// Find the best available interactive shell (zsh > fish > bash > sh).
+/// Find the best available interactive shell (bash preferred, then zsh, fish, sh as fallback).
 pub(super) fn find_best_shell() -> Option<String> {
     let candidates = [
+        "/usr/bin/bash", "/bin/bash",
         "/usr/bin/zsh", "/bin/zsh",
         "/usr/bin/fish", "/usr/local/bin/fish",
-        "/usr/bin/bash", "/bin/bash",
         "/bin/sh", "/usr/bin/sh",
     ];
     candidates.iter()
@@ -118,6 +118,16 @@ pub(super) async fn open_shell_session(
     let shell = find_best_shell()
         .ok_or_else(|| "no usable shell found (tried zsh, fish, bash, sh)".to_string())?;
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".to_string());
+    // Resolve the working directory: prefer /root (standard root home), then $HOME,
+    // then / as a final fallback.  This prevents the shell from inheriting the agent
+    // process's working directory (e.g. /opt/oneclickvirt/agent).
+    let work_dir = if std::path::Path::new("/root").is_dir() {
+        "/root".to_string()
+    } else if std::path::Path::new(&home).is_dir() {
+        home.clone()
+    } else {
+        "/".to_string()
+    };
 
     // Duplicate slave_fd for stdout and stderr — tokio Command::stdin() takes
     // ownership of the fd, so we need separate file descriptors for each stdio stream.
@@ -140,9 +150,10 @@ pub(super) async fn open_shell_session(
 
     let mut cmd = Command::new(&shell);
     cmd.env("TERM", "xterm-256color")
-       .env("HOME", &home)
+       .env("HOME", &work_dir)
        .env("COLUMNS", cols.to_string())
        .env("LINES", rows.to_string())
+       .current_dir(&work_dir)
        .stdin(unsafe { Stdio::from_raw_fd(slave_fd) })
        .stdout(unsafe { Stdio::from_raw_fd(slave_stdout) })
        .stderr(unsafe { Stdio::from_raw_fd(slave_stderr) });
