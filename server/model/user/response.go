@@ -46,16 +46,29 @@ type AvailableResourceResponse struct {
 	Status                string `json:"status"`
 }
 
+type PortMappingResponse struct {
+	ID          uint      `json:"id"`
+	HostPort    int       `json:"hostPort"`
+	GuestPort   int       `json:"guestPort"`
+	Protocol    string    `json:"protocol"`
+	Status      string    `json:"status"`
+	Description string    `json:"description"`
+	IsSSH       bool      `json:"isSSH"`
+	PortType    string    `json:"portType"`
+	MappingType string    `json:"mappingType"`
+	CreatedAt   time.Time `json:"createdAt"`
+}
+
 type UserInstanceResponse struct {
 	providerModel.Instance
-	CanStart       bool                     `json:"canStart"`
-	CanStop        bool                     `json:"canStop"`
-	CanRestart     bool                     `json:"canRestart"`
-	CanDelete      bool                     `json:"canDelete"`
-	PortMappings   []map[string]interface{} `json:"portMappings"`   // 端口映射列表
-	PublicIP       string                   `json:"publicIP"`       // 纯净的公网IP（不含端口）
-	ProviderType   string                   `json:"providerType"`   // Provider虚拟化类型：docker, lxd, incus, proxmox
-	ProviderStatus string                   `json:"providerStatus"` // Provider状态：active, inactive, partial
+	CanStart       bool                  `json:"canStart"`
+	CanStop        bool                  `json:"canStop"`
+	CanRestart     bool                  `json:"canRestart"`
+	CanDelete      bool                  `json:"canDelete"`
+	PortMappings   []PortMappingResponse `json:"portMappings"`   // 端口映射列表
+	PublicIP       string                `json:"publicIP"`       // 纯净的公网IP（不含端口）
+	ProviderType   string                `json:"providerType"`   // Provider虚拟化类型：docker, lxd, incus, proxmox
+	ProviderStatus string                `json:"providerStatus"` // Provider状态：active, inactive, partial
 }
 
 // UserLimitsResponse 用户配额限制响应
@@ -108,6 +121,13 @@ type UserTaskResponse struct {
 	PreallocatedMemory    int `json:"preallocatedMemory"`    // 预分配的内存(MB)
 	PreallocatedDisk      int `json:"preallocatedDisk"`      // 预分配的磁盘(MB)
 	PreallocatedBandwidth int `json:"preallocatedBandwidth"` // 预分配的带宽(Mbps)
+}
+
+type CreateInstanceTaskResponse struct {
+	TaskID    uint      `json:"taskId"`
+	Status    string    `json:"status"`
+	Message   string    `json:"message"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // TaskResponse 通用任务响应（向后兼容）

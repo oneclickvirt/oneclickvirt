@@ -270,8 +270,15 @@ func (s *Service) GetUserTasks(userID uint, req userModel.UserTasksRequest) ([]u
 	}
 
 	// 分页查询
+	// 未筛选时也需要保证活跃/排队中的任务优先出现在前页，避免历史任务淹没当前任务。
 	offset := (page - 1) * pageSize
-	if err := query.Order("created_at DESC").Offset(offset).Limit(pageSize).Find(&tasks).Error; err != nil {
+	if err := query.
+		Order("CASE WHEN status IN ('running', 'processing') THEN 0 WHEN status = 'pending' THEN 1 ELSE 2 END ASC").
+		Order("CASE WHEN status IN ('running', 'processing', 'pending') THEN created_at END ASC").
+		Order("CASE WHEN status NOT IN ('running', 'processing', 'pending') THEN created_at END DESC").
+		Offset(offset).
+		Limit(pageSize).
+		Find(&tasks).Error; err != nil {
 		return nil, 0, fmt.Errorf("查询用户任务失败: %v", err)
 	}
 

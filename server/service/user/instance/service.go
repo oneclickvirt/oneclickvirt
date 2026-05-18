@@ -165,16 +165,19 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 		}
 
 		// 构建端口映射列表
-		var portMappings []map[string]interface{}
+		var portMappings []userModel.PortMappingResponse
 		for _, port := range ports {
-			portMappings = append(portMappings, map[string]interface{}{
-				"id":          port.ID,
-				"hostPort":    port.HostPort,  // 统一使用 hostPort
-				"guestPort":   port.GuestPort, // 统一使用 guestPort
-				"protocol":    port.Protocol,
-				"description": port.Description,
-				"isSSH":       port.IsSSH,
-				"mappingType": port.MappingType, // 映射来源：node(节点侧转发) / controller(控制端转发)
+			portMappings = append(portMappings, userModel.PortMappingResponse{
+				ID:          port.ID,
+				HostPort:    port.HostPort,
+				GuestPort:   port.GuestPort,
+				Protocol:    port.Protocol,
+				Status:      port.Status,
+				Description: port.Description,
+				IsSSH:       port.IsSSH,
+				PortType:    port.PortType,
+				MappingType: port.MappingType,
+				CreatedAt:   port.CreatedAt,
 			})
 		}
 

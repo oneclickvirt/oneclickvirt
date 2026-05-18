@@ -52,11 +52,13 @@ export function useUserTaskManagement() {
     try {
       loading.value = true
       const hasFilter = filterForm.providerId || filterForm.taskType || filterForm.status
-      const params = {}
+      const params = {
+        page: pagination.page,
+        pageSize: pagination.pageSize
+      }
       if (filterForm.providerId) params.providerId = filterForm.providerId
       if (filterForm.taskType) params.taskType = filterForm.taskType
       if (filterForm.status) params.status = filterForm.status
-      if (hasFilter) { params.page = pagination.page; params.pageSize = pagination.pageSize }
       const response = await getUserTasks(params)
       if (response.code === 200) {
         tasks.value = response.data.list || []; total.value = response.data.total || 0

@@ -213,6 +213,7 @@ func ResponseSuccess(c *gin.Context, data interface{}, message ...string) {
 }
 
 func ResponseSuccessWithPagination(c *gin.Context, data interface{}, total int64, page, pageSize int) {
+	page, pageSize = NormalizePagination(page, pageSize, DefaultPageSize)
 	msg := ErrorMessages[CodeSuccess]
 	c.JSON(http.StatusOK, gin.H{
 		"code":    http.StatusOK,

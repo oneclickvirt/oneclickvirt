@@ -121,12 +121,11 @@ func CreateUserInstance(c *gin.Context) {
 		return
 	}
 
-	// 返回任务信息
-	responseData := map[string]interface{}{
-		"taskId":     task.ID,
-		"status":     task.Status,
-		"message":    "实例创建任务已提交，正在后台处理",
-		"created_at": task.CreatedAt,
+	responseData := user.CreateInstanceTaskResponse{
+		TaskID:    task.ID,
+		Status:    task.Status,
+		Message:   "实例创建任务已提交，正在后台处理",
+		CreatedAt: task.CreatedAt,
 	}
 
 	common.ResponseSuccess(c, responseData, "实例创建任务已提交")

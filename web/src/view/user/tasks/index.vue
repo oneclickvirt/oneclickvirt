@@ -460,9 +460,9 @@
       </el-button>
     </el-empty>
 
-    <!-- 分页 - 只在有筛选条件且有数据时显示 -->
+    <!-- 分页 -->
     <div
-      v-if="(filterForm.providerId || filterForm.taskType || filterForm.status) && total > pagination.pageSize"
+	  v-if="total > pagination.pageSize"
       class="pagination"
     >
       <el-pagination

@@ -8,6 +8,7 @@ import (
 	"oneclickvirt/global"
 	"oneclickvirt/model/common"
 	providerModel "oneclickvirt/model/provider"
+	userModel "oneclickvirt/model/user"
 	"oneclickvirt/service/admin/instance"
 
 	"github.com/gin-gonic/gin"
@@ -86,18 +87,19 @@ func GetInstancePorts(c *gin.Context) {
 	}
 
 	// 转换为前端期望的格式
-	formattedPorts := make([]map[string]interface{}, len(ports))
+	formattedPorts := make([]userModel.PortMappingResponse, len(ports))
 	for i, port := range ports {
-		formattedPorts[i] = map[string]interface{}{
-			"id":          port.ID,
-			"hostPort":    port.HostPort,  // 统一使用 hostPort
-			"guestPort":   port.GuestPort, // 统一使用 guestPort
-			"protocol":    port.Protocol,
-			"status":      port.Status,
-			"description": port.Description,
-			"isSSH":       port.IsSSH,
-			"mappingType": port.MappingType, // 映射来源：node(节点侧转发) / controller(控制端转发)
-			"createdAt":   port.CreatedAt,
+		formattedPorts[i] = userModel.PortMappingResponse{
+			ID:          port.ID,
+			HostPort:    port.HostPort,
+			GuestPort:   port.GuestPort,
+			Protocol:    port.Protocol,
+			Status:      port.Status,
+			Description: port.Description,
+			IsSSH:       port.IsSSH,
+			PortType:    port.PortType,
+			MappingType: port.MappingType,
+			CreatedAt:   port.CreatedAt,
 		}
 	}
 
@@ -139,9 +141,8 @@ func GetUserPortMappings(c *gin.Context) {
 	}
 
 	var req struct {
-		Page    int    `form:"page"`
-		Limit   int    `form:"limit"`
-		Keyword string `form:"keyword"`
+		common.PageInfo
+		Limit int `form:"limit"`
 	}
 
 	if err := c.ShouldBindQuery(&req); err != nil {
@@ -149,16 +150,13 @@ func GetUserPortMappings(c *gin.Context) {
 		return
 	}
 
-	// 设置默认值
-	if req.Page <= 0 {
-		req.Page = 1
+	if req.PageSize <= 0 && req.Limit > 0 {
+		req.PageSize = req.Limit
 	}
-	if req.Limit <= 0 {
-		req.Limit = 20
-	}
+	req.Page, req.PageSize = common.NormalizePagination(req.Page, req.PageSize, 20)
 
 	portMappingService := resources.PortMappingService{}
-	ports, total, err := portMappingService.GetUserPortMappings(userID, req.Page, req.Limit, req.Keyword)
+	ports, total, err := portMappingService.GetUserPortMappings(userID, req.Page, req.PageSize, req.Keyword)
 	if err != nil {
 		global.APP_LOG.Error("获取用户端口映射失败", zap.Error(err))
 		common.ResponseWithError(c, common.ClassifyError(err))
@@ -166,9 +164,9 @@ func GetUserPortMappings(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, gin.H{
-		"list":  ports,
-		"total": total,
-		"page":  req.Page,
-		"limit": req.Limit,
+		"list":     ports,
+		"total":    total,
+		"page":     req.Page,
+		"pageSize": req.PageSize,
 	})
 }
