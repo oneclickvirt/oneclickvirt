@@ -99,7 +99,9 @@
         width="140"
       >
         <template #default="scope">
-          {{ scope.row.endpoint ? scope.row.endpoint.split(':')[0] : '-' }}
+          {{ scope.row.connectionType === 'agent'
+            ? (scope.row.agentRemoteIP || '-')
+            : (scope.row.endpoint ? scope.row.endpoint.split(':')[0] : '-') }}
         </template>
       </el-table-column>
       <el-table-column
@@ -107,7 +109,7 @@
         width="120"
       >
         <template #default="scope">
-          {{ scope.row.sshPort || 22 }}
+          {{ scope.row.connectionType === 'agent' ? '-' : (scope.row.sshPort || 22) }}
         </template>
       </el-table-column>
       <el-table-column

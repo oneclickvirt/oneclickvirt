@@ -131,15 +131,25 @@ func AdminSSHWebSocket(c *gin.Context) {
 			sshHost = instance.PublicIP
 		} else if instance.PrivateIP != "" {
 			sshHost = instance.PrivateIP
+			// Agent 模式 provider 的私有IP从控制端不可直接路由，需要通过 Agent WS 隧道转发
+			var provider providerModel.Provider
+			if err := global.APP_DB.Select("connection_type").Where("id = ?", instance.ProviderID).First(&provider).Error; err == nil && provider.ConnectionType == "agent" {
+				useAgentTunnel = true
+				tunnelProviderID = instance.ProviderID
+			}
 		} else {
 			global.APP_LOG.Error("实例没有可用的IP地址")
 			common.ResponseWithError(c, common.NewError(common.CodeInternalError, "实例没有可用的IP地址"))
 			return
 		}
 		sshPort = instance.SSHPort
+		if sshPort == 0 {
+			sshPort = 22
+		}
 		global.APP_LOG.Info("管理员直接使用实例IP和SSH端口连接",
 			zap.String("host", sshHost),
-			zap.Int("sshPort", instance.SSHPort))
+			zap.Int("sshPort", sshPort),
+			zap.Bool("agentTunnel", useAgentTunnel))
 	}
 
 	// 升级到WebSocket

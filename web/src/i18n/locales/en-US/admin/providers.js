@@ -154,6 +154,7 @@ export default {
   serverNameTip: "Set an easily recognizable name for the server",
   hostTip: "IP address or domain name for SSH connection",
   portIPTip: "Public IP for port mapping. If SSH connects via private IP but port mapping requires public IP, enter public here",
+  portIPTipAgent: "Public IP for port mapping in Agent mode. Fill in the node's public IP to enable port forwarding; leave empty to disable port mapping.",
   portTip: "SSH connection port, usually 22 by default",
   descriptionTip: "Server purpose or note information",
   regionTip: "Server region for filtering and display",

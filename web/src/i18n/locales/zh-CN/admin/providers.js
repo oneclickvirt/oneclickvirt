@@ -164,6 +164,7 @@ export default {
   serverNameTip: "为服务器设置一个易于识别的名称",
   hostTip: "SSH连接使用的IP地址或域名",
   portIPTip: "端口映射使用的公网IP。如果SSH通过内网IP连接，而端口映射需要使用公网IP，请在此填写公网IP地址",
+  portIPTipAgent: "Agent模式下端口映射使用的公网IP。如果需要开启端口映射功能，填写节点的公网IP地址；否则留空（不开启端口映射）",
   portTip: "SSH连接端口，默认一般为22",
   descriptionTip: "服务器用途或备注信息",
   regionTip: "服务器所在地域，便于筛选和展示",

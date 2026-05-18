@@ -633,8 +633,8 @@ const props = defineProps({
 })
 
 const isAgentMode = computed(() => props.modelValue.connectionType === 'agent')
-const hasAgentMappedNetworking = computed(() => Boolean(props.modelValue.host && props.modelValue.portIP))
-const showSSHSettings = computed(() => !isAgentMode.value || hasAgentMappedNetworking.value)
+const hasAgentMappedNetworking = computed(() => false)
+const showSSHSettings = computed(() => !isAgentMode.value)
 const effectiveAgentStatus = computed(() => props.modelValue.agentRuntimeStatus || props.modelValue.agentStatus || 'offline')
 const agentAlertType = computed(() => {
   if (effectiveAgentStatus.value === 'online') return 'success'

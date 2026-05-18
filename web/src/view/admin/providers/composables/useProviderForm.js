@@ -154,7 +154,7 @@ const buildDefaultForm = () => ({
   levelLimits: JSON.parse(JSON.stringify(DEFAULT_LEVEL_LIMITS))
 })
 
-const hasAgentMappedNetworking = (formData) => Boolean(formData.host && formData.portIP)
+const hasAgentMappedNetworking = (formData) => Boolean(formData.portIP)
 
 export function useProviderForm(loadProviders) {
   const { t, locale } = useI18n()
@@ -209,20 +209,25 @@ export function useProviderForm(loadProviders) {
   }
 
   const editProvider = (provider) => {
-    let host = provider.endpoint
-    if (provider.endpoint?.includes(':')) {
-      host = provider.endpoint.split(':')[0]
-    }
-    const port = provider.sshPort || 22
     const parsedLevelLimits = parseLevelLimits(provider.levelLimits)
 
     addProviderForm.levelLimits = parsedLevelLimits
     addProviderForm.id = provider.id
     addProviderForm.name = provider.name
     addProviderForm.type = provider.type
-    addProviderForm.host = host
+    // Agent模式不使用SSH IP/端口，始终清空
+    if (provider.connectionType === 'agent') {
+      addProviderForm.host = ''
+      addProviderForm.port = 0
+    } else {
+      let host = provider.endpoint
+      if (provider.endpoint?.includes(':')) {
+        host = provider.endpoint.split(':')[0]
+      }
+      addProviderForm.host = host
+      addProviderForm.port = provider.sshPort || 22
+    }
     addProviderForm.portIP = provider.portIP || ''
-    addProviderForm.port = parseInt(port) || 22
     addProviderForm.username = provider.username || ''
     addProviderForm.password = ''
     addProviderForm.sshKey = ''
@@ -354,9 +359,9 @@ export function useProviderForm(loadProviders) {
       const serverData = {
         name: formData.name,
         type: formData.type,
-        endpoint: formData.host || '',
+        endpoint: isAgentMode ? '' : (formData.host || ''),
         portIP: formData.portIP || '',
-        sshPort: isAgentMode && !formData.host ? 0 : (formData.port || 22),
+        sshPort: isAgentMode ? 0 : (formData.port || 22),
         username: isAgentMode ? (formData.username || '') : formData.username,
         config: '',
         region: formData.region,

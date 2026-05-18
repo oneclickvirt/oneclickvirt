@@ -83,11 +83,12 @@ func (s *MonitorService) RegisterMonitor(
 	providerKind := providerInstance.GetType()
 	instanceName := instance.Name
 
-	// Determine inner IP for per-IP traffic filtering
+	// Determine inner IP for per-IP traffic filtering.
+	// For containers sharing a bridge (NAT), PrivateIP is set → per-IP rules.
+	// For dedicated-IP instances (PrivateIP empty), pass "" → interface-based
+	// counting that excludes private ranges, which is more accurate for
+	// single-tenant veth interfaces.
 	innerIP := instance.PrivateIP
-	if innerIP == "" {
-		innerIP = instance.PublicIP // fallback for dedicated IP setups
-	}
 
 	// Call agent to add monitor
 	resp, err := client.AddMonitor(interfaces, providerKind, instanceName, innerIP)

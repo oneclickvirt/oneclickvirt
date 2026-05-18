@@ -1046,8 +1046,13 @@ fn set_keepalive_on_tcp(_stream: &TcpStream) {
 /// socket2::Socket::connect() on a non-blocking socket.  The latter returns
 /// EINPROGRESS immediately on Linux — the TCP handshake has not completed
 /// yet — which causes every connection attempt to fail.
-async fn create_tcp_stream_with_keepalive(addr: &std::net::SocketAddr) -> io::Result<TcpStream> {
-    let stream = TcpStream::connect(*addr).await?;
+///
+/// `addr` must be a `"host:port"` string.  IPv6 addresses must be wrapped in
+/// brackets, e.g. `"[::1]:8080"`.  Hostnames are resolved via tokio's async
+/// DNS resolver (getaddrinfo).  Do NOT pass a bare `std::net::SocketAddr` —
+/// SocketAddr::parse() rejects hostnames and would break non-IP deployments.
+async fn create_tcp_stream_with_keepalive(addr: &str) -> io::Result<TcpStream> {
+    let stream = TcpStream::connect(addr).await?;
 
     // Configure TCP keepalive on the underlying socket via socket2::SockRef.
     // tokio::net::TcpStream implements AsRawFd on Unix, so SockRef can
@@ -1091,11 +1096,17 @@ async fn connect_plain_with_keepalive(
         .host_str()
         .ok_or_else(|| "missing host in URL".to_string())?;
     let port = parsed_url.port().unwrap_or(80);
-    let addr: std::net::SocketAddr = format!("{host}:{port}")
-        .parse()
-        .map_err(|e| format!("invalid address: {e}"))?;
+    // Build the "host:port" string for tokio's async connect, which handles
+    // DNS resolution, IPv4, and IPv6.  URL parsing strips IPv6 brackets, so
+    // we restore them when the host contains ':', otherwise a bare
+    // "::1:8080" string would be misparse by ToSocketAddrs.
+    let addr_str = if host.contains(':') {
+        format!("[{host}]:{port}")
+    } else {
+        format!("{host}:{port}")
+    };
 
-    let tcp_stream = create_tcp_stream_with_keepalive(&addr).await
+    let tcp_stream = create_tcp_stream_with_keepalive(&addr_str).await
         .map_err(|e| format!("TCP connect failed: {e}"))?;
 
     // Parse the full URL as the request URI (same approach as the wss://

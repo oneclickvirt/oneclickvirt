@@ -141,12 +141,41 @@ pub async fn handle_tunnel_open(
         }
     };
 
-    // 回复 ack（非阻塞发送，防止 hi_sink 通道满时无限挂起）
-    if !send_ack_nonblocking(&hi_sink, &conn_id, true, None) {
-        // ack 未能发送（通道满或已关闭），放弃此隧道
-        warn!(conn_id = %conn_id, "failed to send tunnel_ack (channel congested), dropping tunnel");
-        drop(tcp);
-        return;
+    // 回复成功 ack（带超时的阻塞发送）。
+    // 注意：此处必须使用阻塞 send 而非 try_send + 后台任务。
+    // send_ack_nonblocking 在通道满时会生成后台任务发出 ok:true 的 ack，
+    // 但同时返回 false 让调用方 drop TCP 并 return，session 不会被加入 map。
+    // 若后台任务成功发送了成功 ack，控制端会认为隧道已就绪并开始发送数据，
+    // 但 agent 侧找不到对应 session，导致数据静默丢弃（session 不一致 bug）。
+    // 使用带超时的 .await 确保 ack 真正入队后才继续建立 session；
+    // 若 5 秒内写路径仍拥塞，则视为连接异常，干净地放弃本次隧道。
+    {
+        let ack = TunnelAckPayload { id: conn_id.clone(), ok: true, error: None };
+        let frame = WsFrame {
+            msg_type: "tunnel_ack".to_string(),
+            id: None,
+            payload: serde_json::to_value(ack).ok(),
+        };
+        let text = match serde_json::to_string(&frame) {
+            Ok(t) => t,
+            Err(e) => {
+                warn!(conn_id = %conn_id, error = %e, "failed to serialize tunnel_ack");
+                return;
+            }
+        };
+        match tokio::time::timeout(
+            std::time::Duration::from_secs(TUNNEL_ACK_SEND_TIMEOUT_SECS),
+            hi_sink.send(Message::Text(text.into())),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            _ => {
+                warn!(conn_id = %conn_id, "failed to send tunnel_ack (channel congested or closed), dropping tunnel");
+                drop(tcp);
+                return;
+            }
+        }
     }
 
     let (mut tcp_rx, mut tcp_tx) = tcp.into_split();

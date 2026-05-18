@@ -223,6 +223,70 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 	// 更新进度 (50%)
 	s.updateTaskProgress(task.ID, 50, "正在配置端口映射...")
 
+	// controller 模式（Agent 隧道转发）：跳过节点侧规则（device_proxy / iptables 等），
+	// 直接启动控制端监听并提前返回。
+	// 非 agent 模式的 provider 不会产生 controller 类型的端口，因此该分支不会误触。
+	if port.MappingType == "controller" {
+		s.updateTaskProgress(task.ID, 70, "正在启动控制端端口转发...")
+
+		targetIP := currentPrivateIP
+		if targetIP == "" {
+			targetIP = instance.PrivateIP
+		}
+		if targetIP == "" {
+			global.APP_DB.Model(&port).Update("status", "failed")
+			return fmt.Errorf("无法获取实例内网IP，无法启动控制端端口转发")
+		}
+
+		if err := agentSvc.StartControllerPortForward(port.ID, localProviderID, port.HostPort, targetIP, port.GuestPort); err != nil {
+			global.APP_LOG.Error("启动控制端端口转发失败",
+				zap.Uint("taskId", task.ID),
+				zap.Uint("portId", port.ID),
+				zap.Int("hostPort", port.HostPort),
+				zap.Int("guestPort", port.GuestPort),
+				zap.String("targetIP", targetIP),
+				zap.Error(err))
+			global.APP_DB.Model(&port).Update("status", "failed")
+			return fmt.Errorf("启动控制端端口转发失败: %v", err)
+		}
+
+		global.APP_LOG.Info("控制端端口转发已启动",
+			zap.Uint("portId", port.ID),
+			zap.Int("hostPort", port.HostPort),
+			zap.Int("guestPort", port.GuestPort),
+			zap.String("targetIP", targetIP))
+
+		// 更新端口状态为active
+		if err := global.APP_DB.Model(&port).Updates(map[string]interface{}{
+			"status":         "active",
+			"mapping_method": "controller",
+		}).Error; err != nil {
+			global.APP_LOG.Error("更新端口状态失败", zap.Error(err))
+			return fmt.Errorf("更新端口状态失败: %v", err)
+		}
+
+		stateManager := GetTaskStateManager()
+		taskResult := map[string]interface{}{
+			"portId":    port.ID,
+			"hostPort":  port.HostPort,
+			"guestPort": port.GuestPort,
+			"protocol":  port.Protocol,
+		}
+		if err := stateManager.CompleteMainTask(task.ID, true, "端口映射创建成功（控制端转发）", taskResult); err != nil {
+			global.APP_LOG.Error("完成任务失败", zap.Uint("taskId", task.ID), zap.Error(err))
+		}
+
+		global.APP_LOG.Info("端口映射创建成功（控制端转发）",
+			zap.Uint("taskId", task.ID),
+			zap.Uint("portId", port.ID),
+			zap.Int("hostPort", port.HostPort),
+			zap.Int("guestPort", port.GuestPort))
+
+		return nil
+	}
+
+	// 非 controller 模式：使用 portmapping manager 在节点侧创建规则
+
 	// 使用 portmapping manager 添加端口映射
 	manager := portmapping.NewManager(&portmapping.ManagerConfig{
 		DefaultMappingMethod: localIPv4PortMappingMethod,
@@ -275,11 +339,7 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 			zap.Uint("originalPortId", port.ID))
 	}
 
-	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上实际创建端口映射 (85%)
-	// 对于 Docker/Podman/Containerd 的控制端转发模式，启动控制端监听
-	isControllerMode := port.MappingType == "controller"
-	isContainerRuntime := localProviderType == "docker" || localProviderType == "podman" || localProviderType == "containerd"
-
+	// 对于 LXD/Incus/Proxmox，还需要在远程服务器上通过 SSH 创建节点侧端口映射 (85%)
 	if localProviderType == "lxd" || localProviderType == "incus" || localProviderType == "proxmox" || localProviderType == "proxmoxve" {
 		s.updateTaskProgress(task.ID, 85, "正在应用端口映射到远程服务器...")
 
@@ -323,37 +383,8 @@ func (s *TaskService) executeCreatePortMappingTask(ctx context.Context, task *ad
 		global.APP_LOG.Info("已在远程服务器上应用端口映射",
 			zap.Uint("portId", port.ID),
 			zap.String("providerType", localProviderType))
-	} else if isContainerRuntime && isControllerMode {
-		// Docker/Podman/Containerd 控制端转发模式：启动控制端 TCP 监听，通过 Agent WebSocket 隧道转发
-		s.updateTaskProgress(task.ID, 85, "正在启动控制端端口转发...")
-
-		targetIP := currentPrivateIP
-		if targetIP == "" {
-			targetIP = instance.PrivateIP
-		}
-		if targetIP == "" {
-			global.APP_DB.Model(&port).Update("status", "failed")
-			return fmt.Errorf("无法获取实例内网IP，无法启动控制端端口转发")
-		}
-
-		if err := agentSvc.StartControllerPortForward(port.ID, localProviderID, port.HostPort, targetIP, port.GuestPort); err != nil {
-			global.APP_LOG.Error("启动控制端端口转发失败",
-				zap.Uint("taskId", task.ID),
-				zap.Uint("portId", port.ID),
-				zap.Int("hostPort", port.HostPort),
-				zap.Int("guestPort", port.GuestPort),
-				zap.String("targetIP", targetIP),
-				zap.Error(err))
-			global.APP_DB.Model(&port).Update("status", "failed")
-			return fmt.Errorf("启动控制端端口转发失败: %v", err)
-		}
-
-		global.APP_LOG.Info("控制端端口转发已启动",
-			zap.Uint("portId", port.ID),
-			zap.Int("hostPort", port.HostPort),
-			zap.Int("guestPort", port.GuestPort),
-			zap.String("targetIP", targetIP))
 	}
+	// Docker/Podman/Containerd 非 controller 模式：portmapping manager 已处理，无需额外操作
 
 	// 更新进度 (92%)
 	s.updateTaskProgress(task.ID, 92, "正在更新端口状态...")

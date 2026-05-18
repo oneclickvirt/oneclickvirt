@@ -60,27 +60,29 @@
       </el-select>
     </el-form-item>
 
-    <!-- 主机地址：Agent模式下为可选的标识/内网IP -->
-    <el-form-item
-      :label="isAgentMode ? $t('admin.providers.hostAddressAgent') : $t('admin.providers.hostAddress')"
-      :prop="isAgentMode ? '' : 'host'"
-    >
-      <el-input
-        v-model="modelValue.host"
-        :placeholder="isAgentMode ? $t('admin.providers.hostPlaceholderAgent') : $t('admin.providers.hostPlaceholder')"
-      />
-    </el-form-item>
-    <div
-      class="form-tip"
-      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
-    >
-      <el-text
-        size="small"
-        type="info"
+    <!-- SSH模式：主机地址（Agent模式下不需要SSH IP/端口，由Agent主动连回控制端） -->
+    <template v-if="!isAgentMode">
+      <el-form-item
+        :label="$t('admin.providers.hostAddress')"
+        prop="host"
       >
-        {{ isAgentMode ? $t('admin.providers.hostTipAgent') : $t('admin.providers.hostTip') }}
-      </el-text>
-    </div>
+        <el-input
+          v-model="modelValue.host"
+          :placeholder="$t('admin.providers.hostPlaceholder')"
+        />
+      </el-form-item>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.hostTip') }}
+        </el-text>
+      </div>
+    </template>
 
     <el-form-item
       :label="$t('admin.providers.portIP')"
@@ -99,31 +101,35 @@
         size="small"
         type="info"
       >
-        {{ $t('admin.providers.portIPTip') }}
+        {{ isAgentMode ? $t('admin.providers.portIPTipAgent') : $t('admin.providers.portIPTip') }}
       </el-text>
     </div>
-    <el-form-item
-      :label="$t('admin.providers.port')"
-      :prop="isAgentMode ? '' : 'port'"
-    >
-      <el-input-number
-        v-model="modelValue.port"
-        :min="1"
-        :max="65535"
-        :controls="false"
-      />
-    </el-form-item>
-    <div
-      class="form-tip"
-      style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
-    >
-      <el-text
-        size="small"
-        type="info"
+
+    <!-- SSH模式：SSH端口（Agent模式下不需要） -->
+    <template v-if="!isAgentMode">
+      <el-form-item
+        :label="$t('admin.providers.port')"
+        prop="port"
       >
-        {{ $t('admin.providers.portTip') }}
-      </el-text>
-    </div>
+        <el-input-number
+          v-model="modelValue.port"
+          :min="1"
+          :max="65535"
+          :controls="false"
+        />
+      </el-form-item>
+      <div
+        class="form-tip"
+        style="margin-top: -10px; margin-bottom: 15px; margin-left: 120px;"
+      >
+        <el-text
+          size="small"
+          type="info"
+        >
+          {{ $t('admin.providers.portTip') }}
+        </el-text>
+      </div>
+    </template>
 
     <!-- 节点模式选择 -->
     <el-form-item

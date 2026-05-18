@@ -119,6 +119,11 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	if req.SSHPort > 0 {
 		provider.SSHPort = req.SSHPort
 	}
+	// Agent模式不使用SSH IP/端口：强制清空，确保不保留旧值
+	if req.ConnectionType == "agent" {
+		provider.Endpoint = ""
+		provider.SSHPort = 0
+	}
 	if req.Username != "" {
 		provider.Username = req.Username
 	}
