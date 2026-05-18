@@ -26,5 +26,5 @@ export default {
   kycManagement: 'KYC Management',
   oauth2Management: 'OAuth2 Management',
   apiTokenManagement: 'API Token',
-  adminApiTokenManagement: 'API Tokens (Admin)'
+  adminApiTokenManagement: 'API Tokens Management',
 }
