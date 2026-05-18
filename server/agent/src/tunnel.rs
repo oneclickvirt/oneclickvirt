@@ -112,7 +112,12 @@ pub async fn handle_tunnel_open(
 
     let conn_id = payload.id.clone();
     let conn_hash = fnv1a_64(&conn_id);
-    let addr = format!("{}:{}", payload.host, payload.port);
+    // IPv6 addresses must be wrapped in brackets: [::1]:22 vs 127.0.0.1:22
+    let addr = if payload.host.contains(':') {
+        format!("[{}]:{}", payload.host, payload.port)
+    } else {
+        format!("{}:{}", payload.host, payload.port)
+    };
 
     info!(conn_id = %conn_id, addr = %addr, "opening tunnel to target");
 

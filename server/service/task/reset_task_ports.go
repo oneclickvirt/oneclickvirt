@@ -82,6 +82,7 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 	if resetCtx.Provider.Type == "docker" || resetCtx.Provider.Type == "podman" || resetCtx.Provider.Type == "containerd" ||
 		resetCtx.Provider.Type == "qemu" || resetCtx.Provider.Type == "kubevirt" {
 		for _, oldPort := range resetCtx.OldPortMappings {
+			var createdPort providerModel.Port
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
 				internalHost := oldPort.InternalHost
@@ -107,7 +108,11 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					MappingType:   oldPort.MappingType,
 					InternalHost:  internalHost,
 				}
-				return tx.Create(&newPort).Error
+				if err := tx.Create(&newPort).Error; err != nil {
+					return err
+				}
+				createdPort = newPort
+				return nil
 			})
 
 			if err != nil {
@@ -117,12 +122,24 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 				failCount++
 			} else {
 				successCount++
+				// 控制端转发类型：启动 TCP 监听转发
+				if oldPort.MappingType == "controller" && createdPort.InternalHost != "" {
+					if fwErr := agentLifecycle.StartControllerPortForward(
+						createdPort.ID, resetCtx.Provider.ID,
+						createdPort.HostPort, createdPort.InternalHost, createdPort.GuestPort,
+					); fwErr != nil {
+						global.APP_LOG.Warn("重置后启动控制端端口转发失败",
+							zap.Uint("portID", createdPort.ID), zap.Error(fwErr))
+					}
+				}
 			}
 		}
 	} else {
 		// LXD/Incus/Proxmox：需要先创建数据库记录，然后在远程服务器上配置实际的端口映射
-		// Step 1: 先创建所有端口映射的数据库记录
+		// Step 1: 先创建所有端口映射的数据库记录，并对控制端转发类型启动监听器
+		var controllerPorts []providerModel.Port // 已创建的控制端端口，待启动转发
 		for _, oldPort := range resetCtx.OldPortMappings {
+			var createdPort providerModel.Port
 			err := s.dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 				// 对于控制端转发类型的端口映射，如果实例IP已变更，更新InternalHost
 				internalHost := oldPort.InternalHost
@@ -148,7 +165,11 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					MappingType:   oldPort.MappingType,
 					InternalHost:  internalHost,
 				}
-				return tx.Create(&newPort).Error
+				if err := tx.Create(&newPort).Error; err != nil {
+					return err
+				}
+				createdPort = newPort
+				return nil
 			})
 
 			if err != nil {
@@ -156,10 +177,30 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 					zap.Int("hostPort", oldPort.HostPort),
 					zap.Error(err))
 				failCount++
+			} else {
+				// 收集控制端转发类型的端口，用于后续启动转发
+				if oldPort.MappingType == "controller" {
+					controllerPorts = append(controllerPorts, createdPort)
+				}
+			}
+		}
+
+		// 启动控制端端口转发（在节点侧端口映射配置之前，独立执行）
+		for _, cp := range controllerPorts {
+			if cp.InternalHost == "" {
+				continue
+			}
+			if fwErr := agentLifecycle.StartControllerPortForward(
+				cp.ID, resetCtx.Provider.ID,
+				cp.HostPort, cp.InternalHost, cp.GuestPort,
+			); fwErr != nil {
+				global.APP_LOG.Warn("重置后启动控制端端口转发失败",
+					zap.Uint("portID", cp.ID), zap.Error(fwErr))
 			}
 		}
 
 		// Step 2: 调用 Provider 层的方法，在远程服务器上实际配置端口映射（proxy device）
+		// 注意：控制端转发类型的端口已在上方处理，configureProviderPortMappings 会跳过它们
 		providerApiService := &provider2.ProviderApiService{}
 		prov, _, err := providerApiService.GetProviderByID(resetCtx.Provider.ID)
 		if err != nil {
@@ -170,7 +211,14 @@ func (s *TaskService) resetTask_RestorePortMappings(ctx context.Context, task *a
 				global.APP_LOG.Warn("配置Provider端口映射失败", zap.Error(err))
 				// 端口映射配置失败不阻塞重置流程，已创建的数据库记录保留
 			} else {
-				successCount = len(resetCtx.OldPortMappings)
+				// 非控制端端口的成功数量（控制端端口已单独统计在 controllerPorts 中）
+				nodeSideCount := 0
+				for _, op := range resetCtx.OldPortMappings {
+					if op.MappingType != "controller" {
+						nodeSideCount++
+					}
+				}
+				successCount += nodeSideCount + len(controllerPorts)
 				global.APP_LOG.Info("Provider端口映射配置成功",
 					zap.Int("portCount", successCount))
 			}
@@ -380,8 +428,11 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			return fmt.Errorf("Provider类型断言失败: incus")
 		}
 
-		// 逐个配置端口映射
+		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
 		for _, port := range resetCtx.OldPortMappings {
+			if port.MappingType == "controller" {
+				continue
+			}
 			if err := incusProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
 				global.APP_LOG.Warn("配置Incus端口映射失败",
 					zap.Int("hostPort", port.HostPort),
@@ -413,8 +464,11 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			return fmt.Errorf("Provider类型断言失败: lxd")
 		}
 
-		// 逐个配置端口映射
+		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
 		for _, port := range resetCtx.OldPortMappings {
+			if port.MappingType == "controller" {
+				continue
+			}
 			if err := lxdProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
 				global.APP_LOG.Warn("配置LXD端口映射失败",
 					zap.Int("hostPort", port.HostPort),
@@ -447,8 +501,11 @@ func (s *TaskService) configureProviderPortMappings(ctx context.Context, prov in
 			return fmt.Errorf("Provider类型断言失败: proxmox")
 		}
 
-		// 逐个配置端口映射
+		// 逐个配置端口映射（跳过控制端转发类型，已由 resetTask_RestorePortMappings 处理）
 		for _, port := range resetCtx.OldPortMappings {
+			if port.MappingType == "controller" {
+				continue
+			}
 			if err := proxmoxProv.SetupPortMappingWithIP(ctx, resetCtx.OldInstanceName, port.HostPort, port.GuestPort, port.Protocol, resetCtx.Provider.IPv4PortMappingMethod, instanceIP); err != nil {
 				global.APP_LOG.Warn("配置Proxmox端口映射失败",
 					zap.Int("hostPort", port.HostPort),

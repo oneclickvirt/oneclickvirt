@@ -593,7 +593,9 @@ func StartControllerPortForward(portID uint, providerID uint, listenPort int, ta
 
 	go func() {
 		defer close(doneCh)
-		addr := fmt.Sprintf("0.0.0.0:%d", listenPort)
+		// Listen on all interfaces (IPv4 + IPv6 dual-stack) so controller ports
+		// are reachable over both IPv4 and IPv6.
+		addr := fmt.Sprintf(":%d", listenPort)
 		if err := mgr.HandleControllerPort(addr, targetHost, targetPort, stopCh); err != nil {
 			global.APP_LOG.Error("控制端端口转发异常退出",
 				zap.Uint("portID", portID), zap.Error(err))
