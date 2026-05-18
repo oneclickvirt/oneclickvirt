@@ -13,15 +13,12 @@
             <span>{{ $t('admin.traffic.systemOverview') }}</span>
             <div class="header-actions">
               <el-button
-                size="small"
                 :loading="overviewLoading"
                 @click="loadSystemOverview"
               >
-                <el-icon><Refresh /></el-icon>
                 {{ $t('common.refresh') }}
               </el-button>
               <el-button
-                size="small"
                 type="primary"
                 :loading="syncingAllTraffic"
                 @click="syncAllTrafficData"

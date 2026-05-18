@@ -35,10 +35,8 @@
             <div class="card-header">
               <span>{{ t('user.dashboard.resourceQuota') }}</span>
               <el-button
-                size="small"
                 @click="loadUserLimits"
               >
-                <el-icon><Refresh /></el-icon>
                 {{ t('common.refresh') }}
               </el-button>
             </div>
@@ -199,9 +197,6 @@
 import { ref, reactive, onMounted, onActivated, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus'
-import { 
-  Refresh
-} from '@element-plus/icons-vue'
 import { getUserLimits } from '@/api/user'
 import { getAnnouncements } from '@/api/public'
 import { useUserStore } from '@/pinia/modules/user'

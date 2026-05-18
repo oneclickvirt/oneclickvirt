@@ -8,7 +8,6 @@
             type="primary"
             @click="handleCreate"
           >
-            <el-icon><Plus /></el-icon>
             {{ t('user.domain.addDomain') }}
           </el-button>
         </div>
@@ -261,7 +260,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { getUserDomains, createUserDomain, updateUserDomain, deleteUserDomain } from '@/api/features'
 import { getUserInstances } from '@/api/user'

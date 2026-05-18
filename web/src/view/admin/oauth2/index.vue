@@ -35,10 +35,8 @@
           <span>{{ $t('admin.oauth2.title') }}</span>
           <el-button
             type="primary"
-            size="default"
             @click="handleAdd"
           >
-            <el-icon><Plus /></el-icon>
             {{ $t('admin.oauth2.addProvider') }}
           </el-button>
         </div>

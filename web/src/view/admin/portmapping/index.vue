@@ -5,23 +5,10 @@
         <div class="card-header">
           <span>{{ $t('admin.portMapping.title') }}</span>
           <div class="header-actions">
-            <el-alert
-              type="info"
-              :closable="false"
-              show-icon
-              style="margin-right: 10px;"
-            >
-              <template #title>
-                <span style="font-size: 12px;">
-                  {{ $t('admin.portMapping.rangePortInfo') }}
-                </span>
-              </template>
-            </el-alert>
             <el-button
               type="primary"
               @click="openAddDialog"
             >
-              <el-icon><Plus /></el-icon>
               {{ $t('admin.portMapping.addManualPort') }}
             </el-button>
             <el-button
@@ -39,14 +26,27 @@
                 type="warning"
                 @click="handleSyncPortMappings"
               >
-                <el-icon><RefreshRight /></el-icon>
                 {{ $t('admin.portMapping.syncPortMappings') }}
               </el-button>
             </el-tooltip>
           </div>
         </div>
       </template>
-      
+
+      <!-- 端口说明 -->
+      <el-alert
+        type="info"
+        :closable="false"
+        show-icon
+        style="margin-bottom: 12px;"
+      >
+        <template #title>
+          <span style="font-size: 12px;">
+            {{ $t('admin.portMapping.rangePortInfo') }}
+          </span>
+        </template>
+      </el-alert>
+
       <!-- 搜索和筛选 -->
       <div class="search-bar">
         <el-row :gutter="12">
@@ -623,7 +623,7 @@
 <script setup>
 import { onMounted, onUnmounted } from 'vue'
 import { ElMessageBox } from 'element-plus'
-import { Plus, Loading, Search, CircleCheck, CircleClose, RefreshRight } from '@element-plus/icons-vue'
+import { Loading, Search, CircleCheck, CircleClose } from '@element-plus/icons-vue'
 import { usePortMappingManagement } from './composables/usePortMappingManagement'
 
 const {

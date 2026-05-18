@@ -4,7 +4,7 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('user.apiTokens.title') }}</span>
-          <el-button type="primary" :icon="Plus" @click="showCreateDialog = true">
+          <el-button type="primary" @click="showCreateDialog = true">
             {{ t('user.apiTokens.createToken') }}
           </el-button>
         </div>
@@ -160,7 +160,7 @@
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import { Plus, Delete, CopyDocument } from '@element-plus/icons-vue'
+import { Delete, CopyDocument } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import { createApiToken, getApiTokenList, deleteApiToken } from '@/api/auth'

@@ -18,7 +18,6 @@
               type="primary"
               @click="handleCreate"
             >
-              <el-icon><Plus /></el-icon>
               {{ $t('admin.systemImages.addImage') }}
             </el-button>
           </div>
@@ -621,7 +620,7 @@
 
 <script setup>
 import { onMounted } from 'vue'
-import { Plus, Search } from '@element-plus/icons-vue'
+import { Search } from '@element-plus/icons-vue'
 import OsIcon from '@/components/OsIcon.vue'
 import { useSystemImageManagement } from './composables/useSystemImageManagement'
 

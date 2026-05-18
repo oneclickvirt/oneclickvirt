@@ -10,7 +10,6 @@
               type="primary"
               @click="handleCreateRule"
             >
-              <el-icon><Plus /></el-icon>
               {{ t('admin.blockRules.addRule') }}
             </el-button>
             <el-button
@@ -407,7 +406,7 @@
 <script setup>
 import { ref, reactive, onMounted, watch } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete } from '@element-plus/icons-vue'
+import { Edit, Delete } from '@element-plus/icons-vue'
 import { useI18n } from 'vue-i18n'
 import { blockRulesApi, getAllInstances } from '@/api/admin'
 
