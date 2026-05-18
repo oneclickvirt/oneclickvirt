@@ -46,15 +46,17 @@ func (s *ApiTokenService) CreateToken(userID uint, username, userType string, re
 		return nil, fmt.Errorf("数据库连接不可用")
 	}
 
-	// 限制每个用户最多创建20个有效Token
-	var count int64
-	if err := global.APP_DB.Model(&auth.ApiToken{}).
-		Where("user_id = ? AND status = 1", userID).
-		Count(&count).Error; err != nil {
-		return nil, fmt.Errorf("检查Token数量失败: %w", err)
-	}
-	if count >= 20 {
-		return nil, fmt.Errorf("每个用户最多创建20个有效的API Token")
+	// 普通用户最多创建3个Token，管理员不限
+	if userType == "user" {
+		var count int64
+		if err := global.APP_DB.Model(&auth.ApiToken{}).
+			Where("user_id = ?", userID).
+			Count(&count).Error; err != nil {
+			return nil, fmt.Errorf("检查Token数量失败: %w", err)
+		}
+		if count >= 3 {
+			return nil, fmt.Errorf("普通用户最多创建3个API Token")
+		}
 	}
 
 	// 生成Token
@@ -116,10 +118,6 @@ func (s *ApiTokenService) GetTokenList(userID uint, req auth.ApiTokenListRequest
 	if req.Keyword != "" {
 		query = query.Where("name LIKE ?", "%"+req.Keyword+"%")
 	}
-	if req.Status != nil {
-		query = query.Where("status = ?", *req.Status)
-	}
-
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -149,10 +147,6 @@ func (s *ApiTokenService) GetAdminTokenList(req auth.ApiTokenListRequest) ([]aut
 	if req.Keyword != "" {
 		query = query.Where("name LIKE ? OR username LIKE ?", "%"+req.Keyword+"%", "%"+req.Keyword+"%")
 	}
-	if req.Status != nil {
-		query = query.Where("status = ?", *req.Status)
-	}
-
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
 	}
@@ -172,11 +166,11 @@ func (s *ApiTokenService) GetAdminTokenList(req auth.ApiTokenListRequest) ([]aut
 	return tokens, total, nil
 }
 
-// DeleteToken 删除（禁用）API Token
+// DeleteToken 硬删除 API Token
 func (s *ApiTokenService) DeleteToken(userID uint, tokenID uint) error {
-	result := global.APP_DB.Model(&auth.ApiToken{}).
+	result := global.APP_DB.Unscoped().
 		Where("id = ? AND user_id = ?", tokenID, userID).
-		Update("status", 0)
+		Delete(&auth.ApiToken{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -186,11 +180,11 @@ func (s *ApiTokenService) DeleteToken(userID uint, tokenID uint) error {
 	return nil
 }
 
-// AdminDeleteToken 管理员删除任意API Token
+// AdminDeleteToken 管理员硬删除任意 API Token
 func (s *ApiTokenService) AdminDeleteToken(tokenID uint) error {
-	result := global.APP_DB.Model(&auth.ApiToken{}).
+	result := global.APP_DB.Unscoped().
 		Where("id = ?", tokenID).
-		Update("status", 0)
+		Delete(&auth.ApiToken{})
 	if result.Error != nil {
 		return result.Error
 	}
@@ -198,6 +192,17 @@ func (s *ApiTokenService) AdminDeleteToken(tokenID uint) error {
 		return fmt.Errorf("Token不存在")
 	}
 	return nil
+}
+
+// AdminBatchDeleteTokens 管理员批量硬删除 API Token
+func (s *ApiTokenService) AdminBatchDeleteTokens(ids []uint) error {
+	if len(ids) == 0 {
+		return fmt.Errorf("未指定要删除的Token ID")
+	}
+	result := global.APP_DB.Unscoped().
+		Where("id IN ?", ids).
+		Delete(&auth.ApiToken{})
+	return result.Error
 }
 
 // ValidateToken 验证API Token并返回认证上下文
@@ -219,8 +224,7 @@ func (s *ApiTokenService) ValidateToken(rawToken string) (*auth.AuthContext, *au
 
 	// 检查过期
 	if apiToken.ExpiresAt != nil && time.Now().After(*apiToken.ExpiresAt) {
-		// 自动禁用过期Token
-		global.APP_DB.Model(&apiToken).Update("status", 0)
+		global.APP_DB.Unscoped().Delete(&apiToken)
 		return nil, nil, common.NewError(common.CodeUnauthorized, "API Token已过期")
 	}
 

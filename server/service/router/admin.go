@@ -258,5 +258,6 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		// API Token管理（超管可查看/删除所有用户的Token）
 		SuperAdminGroup.GET("/api-tokens", auth.AdminGetApiTokenList)
 		SuperAdminGroup.DELETE("/api-tokens/:id", auth.AdminDeleteApiToken)
+		SuperAdminGroup.POST("/api-tokens/batch-delete", auth.AdminBatchDeleteApiTokens)
 	}
 }

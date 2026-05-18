@@ -34,5 +34,5 @@ export default {
   scopes: '权限范围',
   scopesHint: '限制Token可访问的API范围，不填则继承用户全部权限',
   totalTokens: '共 {count} 个Token',
-  maxTokensWarning: '每个用户最多创建20个有效的API Token',
+  maxTokensWarning: '普通用户最多创建3个API Token',
 }

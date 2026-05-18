@@ -27,6 +27,17 @@
         <el-button style="margin-left: 10px;" @click="resetFilters">
           {{ t('common.reset') }}
         </el-button>
+        <el-popconfirm
+          v-if="selectedIds.length > 0"
+          :title="t('admin.apiTokens.batchDeleteConfirm', { count: selectedIds.length })"
+          @confirm="handleBatchDelete"
+        >
+          <template #reference>
+            <el-button type="danger" style="margin-left: 10px;">
+              {{ t('admin.apiTokens.batchDelete') }}（{{ selectedIds.length }}）
+            </el-button>
+          </template>
+        </el-popconfirm>
       </div>
 
       <!-- 表格 -->
@@ -35,7 +46,9 @@
         :data="tokens"
         style="width: 100%; margin-top: 16px;"
         stripe
+        @selection-change="handleSelectionChange"
       >
+        <el-table-column type="selection" width="50" />
         <el-table-column :label="t('admin.apiTokens.userId')" prop="userId" width="80" />
         <el-table-column :label="t('admin.apiTokens.username')" prop="username" min-width="120" />
         <el-table-column :label="t('admin.apiTokens.userType')" prop="userType" width="120">
@@ -52,13 +65,6 @@
         <el-table-column :label="t('admin.apiTokens.tokenPrefix')" prop="tokenPrefix" width="140">
           <template #default="{ row }">
             <el-tag type="info" size="small">{{ row.tokenPrefix }}...</el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column :label="t('admin.apiTokens.status')" prop="status" width="90">
-          <template #default="{ row }">
-            <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
-              {{ row.status === 1 ? t('admin.apiTokens.active') : t('admin.apiTokens.disabled') }}
-            </el-tag>
           </template>
         </el-table-column>
         <el-table-column :label="t('admin.apiTokens.useCount')" prop="useCount" width="90" />
@@ -114,7 +120,7 @@ import { ref, onMounted } from 'vue'
 import { Delete, Search } from '@element-plus/icons-vue'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { adminGetApiTokenList, adminDeleteApiToken } from '@/api/admin'
+import { adminGetApiTokenList, adminDeleteApiToken, adminBatchDeleteApiTokens } from '@/api/admin'
 
 const { t } = useI18n()
 
@@ -124,6 +130,7 @@ const total = ref(0)
 const currentPage = ref(1)
 const pageSize = ref(10)
 const keyword = ref('')
+const selectedIds = ref([])
 
 const formatDate = (dateStr) => {
   if (!dateStr) return '-'
@@ -164,6 +171,10 @@ const resetFilters = () => {
   loadTokens()
 }
 
+const handleSelectionChange = (selection) => {
+  selectedIds.value = selection.map((row) => row.id)
+}
+
 const handleDelete = async (id) => {
   try {
     await adminDeleteApiToken(id)
@@ -171,6 +182,18 @@ const handleDelete = async (id) => {
     await loadTokens()
   } catch {
     ElMessage.error(t('admin.apiTokens.deleteFailed'))
+  }
+}
+
+const handleBatchDelete = async () => {
+  if (selectedIds.value.length === 0) return
+  try {
+    await adminBatchDeleteApiTokens(selectedIds.value)
+    ElMessage.success(t('admin.apiTokens.batchDeleteSuccess'))
+    selectedIds.value = []
+    await loadTokens()
+  } catch {
+    ElMessage.error(t('admin.apiTokens.batchDeleteFailed'))
   }
 }
 

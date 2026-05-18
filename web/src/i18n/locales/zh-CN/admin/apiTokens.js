@@ -24,4 +24,8 @@ export default {
   userTypeUser: '普通用户',
   userTypeAdmin: '超级管理员',
   userTypeNormalAdmin: '普通管理员',
+  batchDelete: '批量删除',
+  batchDeleteConfirm: '确认删除所选的 {count} 个API Token？删除后使用这些Token的API请求将立即失效。',
+  batchDeleteSuccess: 'API Token已批量删除',
+  batchDeleteFailed: 'API Token批量删除失败',
 }

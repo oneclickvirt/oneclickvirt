@@ -97,7 +97,7 @@ func GetApiTokenList(c *gin.Context) {
 
 // DeleteApiToken 用户删除自己的API Token
 // @Summary 删除API Token
-// @Description 用户删除（禁用）自己的API Token
+// @Description 用户硬删除自己的API Token
 // @Tags API Token管理
 // @Accept json
 // @Produce json
@@ -166,7 +166,7 @@ func AdminGetApiTokenList(c *gin.Context) {
 
 // AdminDeleteApiToken 管理员删除任意API Token
 // @Summary 管理员删除API Token
-// @Description 管理员删除（禁用）任意API Token
+// @Description 管理员硬删除任意API Token
 // @Tags API Token管理
 // @Accept json
 // @Produce json
@@ -190,4 +190,35 @@ func AdminDeleteApiToken(c *gin.Context) {
 	}
 
 	common.ResponseSuccess(c, nil, "API Token已删除")
+}
+
+// AdminBatchDeleteApiTokens 管理员批量删除API Token
+// @Summary 管理员批量删除API Token
+// @Description 管理员批量硬删除多个API Token
+// @Tags API Token管理
+// @Accept json
+// @Produce json
+// @Security BearerAuth
+// @Param request body object true "包含ids数组的请求体"
+// @Success 200 {object} common.Response "删除成功"
+// @Failure 400 {object} common.Response "参数错误"
+// @Failure 500 {object} common.Response "删除失败"
+// @Router /admin/api-tokens/batch-delete [post]
+func AdminBatchDeleteApiTokens(c *gin.Context) {
+	var req struct {
+		IDs []uint `json:"ids" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || len(req.IDs) == 0 {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "请提供要删除的Token ID列表"))
+		return
+	}
+
+	service := auth2.ApiTokenService{}
+	if err := service.AdminBatchDeleteTokens(req.IDs); err != nil {
+		global.APP_LOG.Error("批量删除API Token失败", zap.Error(err))
+		common.ResponseWithError(c, common.NewError(common.CodeInternalError, err.Error()))
+		return
+	}
+
+	common.ResponseSuccess(c, nil, "API Token已批量删除")
 }

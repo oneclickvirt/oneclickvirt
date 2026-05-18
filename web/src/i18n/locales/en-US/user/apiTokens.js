@@ -34,5 +34,5 @@ export default {
   scopes: 'Scopes',
   scopesHint: 'Restrict API access scope. Leave blank to inherit all user permissions.',
   totalTokens: '{count} token(s) total',
-  maxTokensWarning: 'Maximum 20 active API Tokens per user',
+  maxTokensWarning: 'Regular users can create at most 3 API Tokens',
 }

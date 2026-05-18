@@ -999,3 +999,11 @@ export const adminDeleteApiToken = (id) => {
     method: 'delete'
   })
 }
+
+export const adminBatchDeleteApiTokens = (ids) => {
+  return request({
+    url: '/v1/admin/api-tokens/batch-delete',
+    method: 'post',
+    data: { ids }
+  })
+}

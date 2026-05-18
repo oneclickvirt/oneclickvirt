@@ -49,13 +49,6 @@
               <el-tag type="info" size="small">{{ row.tokenPrefix }}...</el-tag>
             </template>
           </el-table-column>
-          <el-table-column :label="t('user.apiTokens.status')" prop="status" width="90">
-            <template #default="{ row }">
-              <el-tag :type="row.status === 1 ? 'success' : 'danger'" size="small">
-                {{ row.status === 1 ? t('user.apiTokens.active') : t('user.apiTokens.disabled') }}
-              </el-tag>
-            </template>
-          </el-table-column>
           <el-table-column :label="t('user.apiTokens.useCount')" prop="useCount" width="90" />
           <el-table-column :label="t('user.apiTokens.createdAt')" width="160">
             <template #default="{ row }">

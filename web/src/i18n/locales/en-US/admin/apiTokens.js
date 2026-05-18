@@ -24,4 +24,8 @@ export default {
   userTypeUser: 'User',
   userTypeAdmin: 'Super Admin',
   userTypeNormalAdmin: 'Admin',
+  batchDelete: 'Batch Delete',
+  batchDeleteConfirm: 'Delete the selected {count} API Token(s)? API requests using these tokens will immediately fail.',
+  batchDeleteSuccess: 'API Tokens batch deleted',
+  batchDeleteFailed: 'Failed to batch delete API Tokens',
 }
