@@ -99,15 +99,24 @@ where
 
     // ── Anti-DPI noise sender ───────────────────────────────────────────
     // Periodically sends random-length noise frames ("nop" type) at
-    // irregular intervals (15-55s) to break traffic-analysis signatures:
-    // message-size distribution, bidirectional symmetry, dead-air patterns.
+    // irregular intervals (45-120s) to break traffic-analysis signatures.
+    // Interval is deliberately long so the noise does NOT produce a
+    // recognisable high-frequency heartbeat (which would itself become
+    // a fingerprint).  The payload field key is randomised each cycle to
+    // prevent structural matching on {"h":"..."}-style patterns.
     let noise_tx = ws_tx_hi.clone();
     tokio::spawn(async move {
+        // Randomise field key pool; pick one per cycle.
+        const NOISE_KEYS: &[&str] = &["d", "v", "p", "r", "c", "b", "m", "x", "e", "q"];
         loop {
-            let delay_secs = 15 + (rand::random::<u64>() % 41); // 15-55 s
+            let delay_secs = 45 + (rand::random::<u64>() % 76); // 45-120 s
             tokio::time::sleep(std::time::Duration::from_secs(delay_secs)).await;
             let noise_len = rand::random::<usize>() % 513; // 0-512 bytes
             let noise: Vec<u8> = (0..noise_len).map(|_| rand::random::<u8>()).collect();
+            // Pick a random field key for the payload so consecutive noise
+            // frames don't share the same JSON structure.
+            let key_idx = (rand::random::<usize>()) % NOISE_KEYS.len();
+            let key = NOISE_KEYS[key_idx];
             let frame = WsFrame {
                 msg_type: "nop".to_string(),
                 id: None,
@@ -116,7 +125,7 @@ where
                 } else {
                     // Encode as hex string for JSON compatibility
                     let hex: String = noise.iter().map(|b| format!("{:02x}", b)).collect();
-                    Some(serde_json::json!({ "h": hex }))
+                    Some(serde_json::json!({ key: hex }))
                 },
             };
             let text = match serde_json::to_string(&frame) {
@@ -158,18 +167,18 @@ where
     let info_text = serde_json::to_string(&info_frame).map_err(|e| e.to_string())?;
     ws_tx_hi.send(Message::Text(info_text.into())).await.map_err(|e| e.to_string())?;
 
-    // Read messages with a 120 s timeout so a silently-broken TCP
+    // Read messages with a 180 s timeout so a silently-broken TCP
     // connection (e.g. NAT gateway dropping state) doesn't cause the
     // agent to block forever.  The controller sends application-level
-    // pings every ~30 s and noise every 5-25 s, so a 120 s gap means
+    // pings every ~30 s and noise every 45-120 s, so a 180 s gap means
     // the connection is truly dead.
     let mut loop_err: Option<String> = None;
     'main_loop: loop {
-        let msg_result = match tokio::time::timeout(Duration::from_secs(120), read.next()).await {
+        let msg_result = match tokio::time::timeout(Duration::from_secs(180), read.next()).await {
             Ok(Some(result)) => result,
             Ok(None) => break 'main_loop, // stream ended cleanly
             Err(_elapsed) => {
-                warn!("WebSocket read timeout (120 s), connection may be dead, reconnecting");
+                warn!("WebSocket read timeout (180 s), connection may be dead, reconnecting");
                 loop_err = Some("read timeout".to_string());
                 break 'main_loop;
             }

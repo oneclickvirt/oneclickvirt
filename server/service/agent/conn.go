@@ -201,14 +201,18 @@ func (a *AgentConn) CloseShell(sessionID string) error {
 // StartNoiseLoop periodically sends random-length noise frames (type "nop")
 // to break DPI traffic-analysis signatures (message-size distribution,
 // bidirectional symmetry, always-on silence patterns).
-// Noise interval: 5-25s random, payload: 0-512 random bytes hex-encoded.
+// Noise interval: 45-120s random, payload: 0-512 random bytes hex-encoded.
+// The payload field key is randomised each cycle to prevent structural
+// fingerprinting on a fixed {"h":"..."} pattern.
 //
 // IMPORTANT: The payload must be a valid JSON value so that the Rust agent's
 // serde_json parser does not choke on the frame.  Raw bytes cannot be embedded
 // directly via json.RawMessage because MarshalJSON returns them verbatim
 // (no escaping), producing invalid JSON.  We hex-encode noise bytes into a
-// {"h":"<hex>"} wrapper, matching the agent's own noise frame format.
+// {"<key>":"<hex>"} wrapper, with <key> randomly chosen from a small pool.
 func (a *AgentConn) StartNoiseLoop() {
+	// Field key pool — same set as the agent side.
+	noiseKeys := []string{"d", "v", "p", "r", "c", "b", "m", "x", "e", "q"}
 	go func() {
 		for {
 			select {
@@ -216,8 +220,8 @@ func (a *AgentConn) StartNoiseLoop() {
 				return
 			default:
 			}
-			// Random sleep 5-25 s
-			delay := time.Duration(5+rand.Intn(21)) * time.Second
+			// Random sleep 45-120 s
+			delay := time.Duration(45+rand.Intn(76)) * time.Second
 			select {
 			case <-a.noiseStop:
 				return
@@ -229,10 +233,11 @@ func (a *AgentConn) StartNoiseLoop() {
 			if noiseLen > 0 {
 				noise := make([]byte, noiseLen)
 				rand.Read(noise)
-				// Encode as hex string inside a JSON object, matching the
-				// Rust agent's nop frame format: {"h":"<hex>"}.
+				// Encode as hex string inside a JSON object.
+				// Pick a random key each cycle to avoid structural fingerprinting.
+				key := noiseKeys[rand.Intn(len(noiseKeys))]
 				hexStr := fmt.Sprintf("%x", noise)
-				payload, _ = json.Marshal(map[string]string{"h": hexStr})
+				payload, _ = json.Marshal(map[string]string{key: hexStr})
 			}
 			// When noiseLen == 0, payload stays nil and is omitted via
 			// omitempty, producing the valid frame {"type":"nop"}.
@@ -264,46 +269,66 @@ func (a *AgentConn) StopNoiseLoop() {
 // ── WebSocket 协议层 Ping 循环 ──────────────────────────────────────────────
 
 // StartWSPingLoop periodically sends WebSocket protocol-level Ping frames
-// (RFC 6455 §5.5.2).  Protocol pings are handled by the peer's WebSocket
-// stack directly — no JSON parsing, no application-level dispatch — and
-// the peer responds with a Pong that refreshes the read deadline via
-// SetPongHandler.  This provides a transport-layer keepalive that is
-// immune to application-level deadlocks in the write path.
+// (RFC 6455 §5.5.2). Protocol pings are the primary keepalive/liveness path:
+// the peer responds with a Pong that refreshes the read deadline and updates
+// runtime health via SetPongHandler, without exposing a custom JSON heartbeat.
 //
-// Interval: 30 s (fixed, deliberately different from the ~15 s app-level
-// ping to avoid harmonic alignment).
+// Interval: randomized 35-55 s. This lowers traffic frequency and avoids a
+// fixed heartbeat cadence that DPI can fingerprint, while still keeping the
+// connection active through common 60-120 s idle middleboxes.
 //
 // NOTE: WriteControl is concurrent-safe per gorilla/websocket docs, so we
-// do NOT hold writeMu here.  Holding writeMu would serialize the protocol
+// do NOT hold writeMu here. Holding writeMu would serialize the protocol
 // ping behind potentially slow data writes (up to 10 s timeout), defeating
-// the purpose of a transport-layer keepalive.  The deadline is passed
+// the purpose of a transport-layer keepalive. The deadline is passed
 // directly to WriteControl via its deadline parameter — we must NOT call
 // SetWriteDeadline without writeMu, as that would race with
 // writeTextMessage's SetWriteDeadline+WriteMessage sequence and could
 // prematurely truncate an in-progress data write's deadline.
 func (a *AgentConn) StartWSPingLoop() {
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-a.wsPingStop:
 				return
-			case <-ticker.C:
+			default:
 			}
+
+			delay := time.Duration(35+rand.Intn(21)) * time.Second
+			select {
+			case <-a.wsPingStop:
+				return
+			case <-time.After(delay):
+			}
+
 			err := a.conn.WriteControl(
 				websocket.PingMessage,
 				[]byte{},
 				time.Now().Add(5*time.Second),
 			)
 			if err != nil {
-				global.APP_LOG.Debug("WebSocket protocol ping failed",
+				a.mu.Lock()
+				a.pingFailCount++
+				failCount := a.pingFailCount
+				a.mu.Unlock()
+
+				global.APP_LOG.Warn("WebSocket protocol ping failed",
 					zap.Uint("providerID", a.ProviderID),
+					zap.Int("consecutiveFailures", failCount),
 					zap.Error(err))
-				// Don't take action here; the app-level ping loop
-				// already tracks consecutive failures and will force
-				// disconnect if the connection is truly dead.
+				if failCount >= 3 {
+					global.APP_LOG.Error("WebSocket protocol ping 连续失败超过阈值，强制断开",
+						zap.Uint("providerID", a.ProviderID),
+						zap.Int("consecutiveFailures", failCount))
+					a.conn.Close()
+					return
+				}
+				continue
 			}
+
+			a.mu.Lock()
+			a.pingFailCount = 0
+			a.mu.Unlock()
 		}
 	}()
 }

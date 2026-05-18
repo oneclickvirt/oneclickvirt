@@ -15,6 +15,26 @@ use tokio_tungstenite::tungstenite::{http::Uri, ClientRequestBuilder};
 use tracing::{info, warn};
 use url;
 
+/// Derive a browser-like Origin header value from a WebSocket URL.
+/// wss://host:port/path → https://host:port
+/// ws://host:port/path  → http://host:port
+fn origin_from_ws_url(url_str: &str) -> String {
+    if let Ok(parsed) = url::Url::parse(url_str) {
+        let scheme = if parsed.scheme() == "wss" { "https" } else { "http" };
+        let host = parsed.host_str().unwrap_or("localhost");
+        if let Some(port) = parsed.port() {
+            format!("{}://{}:{}", scheme, host, port)
+        } else {
+            format!("{}://{}", scheme, host)
+        }
+    } else {
+        "https://localhost".to_string()
+    }
+}
+
+/// A realistic Chrome browser User-Agent string (Linux x86_64).
+const BROWSER_UA: &str = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+
 use handler::handle_connection;
 
 pub async fn run_ws_client(ws_url: String, secret: String) {
@@ -51,9 +71,11 @@ pub async fn run_ws_client(ws_url: String, secret: String) {
                     continue;
                 }
             };
+            let origin = origin_from_ws_url(&connect_url);
             let request = ClientRequestBuilder::new(uri)
                 .with_header("Authorization", format!("Bearer {}", secret))
-                .with_header("X-Agent-Secret", secret.clone());
+                .with_header("User-Agent", BROWSER_UA)
+                .with_header("Origin", origin);
             match connect_async(request).await {
                 Ok((ws_stream, _)) => {
                     // Set TCP keepalive on the underlying socket even for
@@ -305,9 +327,11 @@ async fn connect_plain_with_keepalive(
         .parse()
         .map_err(|e| format!("invalid URI: {e}"))?;
 
+    let origin = origin_from_ws_url(url_str);
     let request = ClientRequestBuilder::new(request_uri)
         .with_header("Authorization", format!("Bearer {}", secret))
-        .with_header("X-Agent-Secret", secret.to_string());
+        .with_header("User-Agent", BROWSER_UA)
+        .with_header("Origin", origin);
 
     let (ws_stream, _) =
         client_async(request, tcp_stream)

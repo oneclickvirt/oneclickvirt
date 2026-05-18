@@ -268,7 +268,13 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 
 	ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
 	ac.conn.SetPongHandler(func(string) error {
-		ac.conn.SetReadDeadline(time.Now().Add(readDeadlineWindow))
+		now := time.Now()
+		ac.conn.SetReadDeadline(now.Add(readDeadlineWindow))
+		ac.mu.Lock()
+		ac.pingFailCount = 0
+		ac.mu.Unlock()
+		h.markInbound(ac.ProviderID, now)
+		h.updateProviderAgentStatus(ac.ProviderID, "online", &now, ac.remoteAddr, "")
 		return nil
 	})
 
@@ -419,16 +425,17 @@ func (h *AgentHub) readLoop(ac *AgentConn) {
 
 // ── 应用层 Ping 循环 ────────────────────────────────────────────────────────
 
-// StartPingLoop 定期向所有在线 Agent 发送 ping 帧。
+// StartPingLoop 仅作为 legacy 兜底：当链路长时间没有任何入站流量时，
+// 才发送低频应用层 ping，兼容旧 Agent 或异常中间件环境。
 func (h *AgentHub) StartPingLoop() {
-	baseInterval := 15 * time.Second
+	baseInterval := 120 * time.Second
 	go func() {
 		for {
 			jitterRange := float64(baseInterval) * 0.35
 			jitter := time.Duration(rand.Float64()*jitterRange*2 - jitterRange)
 			interval := baseInterval + jitter
-			if interval < 5*time.Second {
-				interval = 5 * time.Second
+			if interval < 75*time.Second {
+				interval = 75 * time.Second
 			}
 			time.Sleep(interval)
 
@@ -440,14 +447,17 @@ func (h *AgentHub) StartPingLoop() {
 			h.mu.RUnlock()
 
 			for _, ac := range conns {
-				noiseLen := rand.Intn(65)
-				noise := make([]byte, noiseLen)
-				if noiseLen > 0 {
-					rand.Read(noise)
+				now := time.Now()
+				h.runtimeMu.RLock()
+				state, ok := h.runtimeState[ac.ProviderID]
+				h.runtimeMu.RUnlock()
+				if ok && !state.lastInbound.IsZero() && now.Sub(state.lastInbound) < 90*time.Second {
+					continue
 				}
+
 				pingFrame := map[string]interface{}{
-					"type":  msgTypePing,
-					"noise": noise,
+					"type": msgTypePing,
+					"id":   randomID(),
 				}
 				pingMsg, _ := json.Marshal(pingFrame)
 
