@@ -70,6 +70,7 @@ func GetAvailableResources(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	req.Normalize(common.DefaultPageSize)
 
 	userServiceInstance := userService.NewService()
 	resources, total, err := userServiceInstance.GetAvailableResources(req)
@@ -163,6 +164,7 @@ func GetUserInstances(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "参数错误"))
 		return
 	}
+	req.Normalize(common.DefaultPageSize)
 
 	userServiceInstance := userService.NewService()
 	instances, total, err := userServiceInstance.GetUserInstances(userID, req)

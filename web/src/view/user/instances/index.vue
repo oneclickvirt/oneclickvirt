@@ -26,7 +26,7 @@
         >
           <el-form-item>
             <el-input
-              v-model="filterForm.instanceName"
+              v-model="filterForm.name"
               :placeholder="t('user.instances.searchByName')"
               clearable
               style="width: 200px;"
@@ -296,7 +296,7 @@ const selectedInstanceForTraffic = ref(null)
 
 
 const filterForm = reactive({
-  instanceName: '',
+  name: '',
   type: '',
   status: '',
   providerName: ''
@@ -349,7 +349,7 @@ const loadInstances = async (showSuccessMsg = false) => {
 // 重置筛选
 const resetFilter = () => {
   Object.assign(filterForm, {
-    instanceName: '',
+    name: '',
     type: '',
     status: '',
     providerName: ''

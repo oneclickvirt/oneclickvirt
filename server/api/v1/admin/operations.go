@@ -106,6 +106,7 @@ func AdminGetKYCList(c *gin.Context) {
 	status := c.Query("status")
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	page, pageSize = common.NormalizePagination(page, pageSize, common.DefaultPageSize)
 
 	svc := &kycService.Service{}
 	records, total, err := svc.AdminGetKYCList(status, page, pageSize)

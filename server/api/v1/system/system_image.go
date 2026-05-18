@@ -82,6 +82,7 @@ func GetSystemImageList(c *gin.Context) {
 	// 分页参数
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	page, pageSize = common.NormalizePagination(page, pageSize, common.DefaultPageSize)
 
 	// 过滤参数
 	providerType := c.Query("providerType")

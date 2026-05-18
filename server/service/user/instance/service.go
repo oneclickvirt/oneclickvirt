@@ -427,6 +427,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		SSHPort:       sshPort,              // 使用映射的公网端口
 		Username:      instance.Username,
 		Password:      instance.Password,
+		ProviderName:  instance.Provider,
 		HasSshMapping: hasSshMapping,        // 是否有可用的SSH端口映射
 		NetworkType:   instance.NetworkType, // 默认使用实例的网络类型（创建时从Provider继承）
 		CreatedAt:     instance.CreatedAt,
@@ -479,7 +480,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		}
 		if task.ProviderID != nil {
 			detail.RelatedTask.ProviderId = *task.ProviderID
-			detail.RelatedTask.ProviderName = provider.Name
+			detail.RelatedTask.ProviderName = detail.ProviderName
 		}
 		if task.InstanceID != nil {
 			detail.RelatedTask.InstanceID = task.InstanceID

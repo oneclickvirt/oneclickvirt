@@ -260,6 +260,7 @@ func GetCheckinRecords(c *gin.Context) {
 
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	pageSize, _ := strconv.Atoi(c.DefaultQuery("pageSize", "10"))
+	page, pageSize = common.NormalizePagination(page, pageSize, common.DefaultPageSize)
 
 	svc := &checkinService.Service{}
 	records, total, err := svc.GetCheckinRecords(userID, page, pageSize)
