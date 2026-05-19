@@ -1,0 +1,74 @@
+<html><body><h1>Test Failed</h1><p>Exit code: 75</p><pre>
+[0;36m========== Environment Integration Test: qemu ==========[0m
+
+[0;34m[INFO][0m 09:42:29 Modules: all
+[0;34m[INFO][0m 09:42:29 Instance types: vm (requested: vm)
+[0;34m[INFO][0m 09:42:29 Execution rule: auto
+[0;34m[INFO][0m 09:42:29 Node hours: 12h
+[0;34m[INFO][0m 09:42:29 Enabled platforms: alice lightnode
+[0;34m[INFO][0m 09:42:29 Active platform will be selected automatically with fallback
+
+[0;36m========== Phase 1: Deploy master on runner ==========[0m
+
+
+[0;36m========== Deploying master locally on runner from source (port 8888) ==========[0m
+
+[0;34m[INFO][0m 09:42:29 Server directory: /home/runner/work/oneclickvirt/oneclickvirt/server
+[0;34m[INFO][0m 09:42:29 Patching config.yaml for CI environment...
+[0;32m[PASS][0m 09:42:29 config.yaml patched
+[0;34m[INFO][0m 09:42:29 Building server binary...
+[0;32m[PASS][0m 09:42:31 Server binary built
+[0;34m[INFO][0m 09:42:31 Server process started (PID 3130), waiting for startup...
+[0;32m[PASS][0m 09:42:36 Server started and responding (PID 3130, elapsed 5s, HTTP 200)
+[0;32m[PASS][0m 09:42:36 Master deployed locally on runner (port 8888)
+
+[0;36m========== Phase 2: Create worker node ==========[0m
+
+[0;34m[INFO][0m 09:42:36 Creating test node: env=qemu hours=12
+[0;34m[INFO][0m 09:42:36 Enabled platforms (priority order): alice lightnode
+[0;34m[INFO][0m 09:42:36 === Trying platform: alice (attempt 1/2) ===
+[0;34m[INFO][0m 09:42:36 Initializing platform: alice
+[0;34m[INFO][0m 09:42:36 [alice] Platform initialized (API: https://app.alice.ws/cli/v1)
+[0;32m[PASS][0m 09:42:36 Platform 'alice' initialized
+[DEBUG] 09:42:36 [alice] list_instances raw: []
+[0;34m[INFO][0m 09:42:36 [alice] Creating new instance (env=qemu hours=12)...
+[0;34m[INFO][0m 09:42:36 [alice] Creating instance: env=qemu hours=12
+[DEBUG] 09:42:36 [alice] GET /evo/permissions HTTP 200
+[DEBUG] 09:42:36 [alice] GET /evo/plans/38/os-images HTTP 200
+[0;31m[FAIL][0m 09:42:36 [alice] Create failed: resource exhaustion (HTTP 400): failed to create server via VirtFusion: no available resources: No hypervisors in the selected group have enough resources.
+[0;31m[FAIL][0m 09:42:36 [alice] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 09:42:36 Platform 'alice' exhausted, trying next...
+[0;34m[INFO][0m 09:42:36 === Trying platform: lightnode (attempt 1/2) ===
+[0;34m[INFO][0m 09:42:36 Initializing platform: lightnode
+[0;34m[INFO][0m 09:42:36 [lightnode] Auto-detecting available region...
+[0;34m[INFO][0m 09:42:37 [lightnode] Using region=fr-marseille-1 zone=fr-marseille-1-a
+[0;34m[INFO][0m 09:42:38 [lightnode] Platform initialized
+[0;32m[PASS][0m 09:42:38 Platform 'lightnode' initialized
+[DEBUG] 09:42:38 [lightnode] list_instances raw: []
+[0;34m[INFO][0m 09:42:38 [lightnode] Creating new instance (env=qemu hours=12)...
+[0;34m[INFO][0m 09:42:38 [lightnode] Creating instance: env=qemu
+[0;32m[PASS][0m 09:42:47 [lightnode] Instance creation requested: ecs-rp00016v6sf8
+[0;34m[INFO][0m 09:42:47 [lightnode] Waiting for async task dn00016v6sh5 (max 600s)...
+[DEBUG] 09:42:47 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:43:03 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:43:19 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:43:35 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:43:50 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:44:06 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:44:22 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:44:38 [lightnode] Task dn00016v6sh5: result=RETRY status=PROCESSING
+[DEBUG] 09:44:53 [lightnode] Task dn00016v6sh5: result=FAIL status=FINISHED
+[0;31m[FAIL][0m 09:44:53 [lightnode] Task dn00016v6sh5 failed: FAIL
+[DEBUG] 09:44:53 [lightnode] Task full response: {"asyncTaskInfo":{"processResult":"FAIL","taskStatus":"FINISHED"},"httpStatus":202,"rowCount":0}
+[1;33m[WARN][0m 09:44:53 [lightnode] Async provisioning failed for ecs-rp00016v6sf8; attempting to release stale instance...
+[0;34m[INFO][0m 09:44:54 [lightnode] Stale instance release returned HTTP 400
+[0;31m[FAIL][0m 09:44:54 [lightnode] create_instance failed (exit=1). Raw output: <empty>
+[1;33m[WARN][0m 09:44:54 Platform 'lightnode' exhausted, trying next...
+[0;31m[FAIL][0m 09:44:54 All enabled platforms failed to create an instance (attempt 1/2)
+[0;31m[FAIL][0m 09:44:54 All enabled platforms failed to create an instance
+[0;31m[FAIL][0m 09:44:54 All platforms failed to create a test node
+[0;31m[FAIL][0m 09:44:54 Failed to create worker node (infrastructure failure, exit=1)
+[0;34m[INFO][0m 09:44:54 This is a transient infrastructure condition, not a test failure.
+[0;34m[INFO][0m 09:44:54 Re-run the workflow when resources are available, or add more cloud platform accounts.
+[0;31m[FAIL][0m 09:44:54 Script exiting with code 75
+[0;34m[INFO][0m 09:44:54 Capturing service logs for debugging...</pre></body></html>
