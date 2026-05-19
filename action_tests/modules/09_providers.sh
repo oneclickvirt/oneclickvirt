@@ -293,9 +293,13 @@ run_module_09() {
     else
         log_warning "connectionType expected 'agent', got '${saved_ct}'"
     fi
-    # Revert to ssh
+    # Revert to ssh — must restore endpoint/sshPort/networkType/containerEnabled/virtualMachineEnabled
+    # because "Update connectionType=agent" forced endpoint="" sshPort=0 networkType="no_port_mapping"
+    # and direct bool assignment zeroed containerEnabled/virtualMachineEnabled.
+    # Without this, SSH health checks fail for ~60 min and the provider is auto-frozen,
+    # causing HTTP 400 in module 29 VM image creates (images 15-22) and module 30 failures.
     test_api "Revert connectionType=ssh" "PUT" "/api/v1/admin/providers/${PROVIDER_ID}" "200" \
-        "{\"connectionType\":\"ssh\",${auth_payload}}" "$group"
+        "{\"connectionType\":\"ssh\",\"endpoint\":\"${WORKER_IP}\",\"sshPort\":22,\"username\":\"root\",\"networkType\":\"nat_ipv4\",\"containerEnabled\":true,\"virtualMachineEnabled\":true,${auth_payload}}" "$group"
     if [[ -n "${ALICE_PRIVATE_KEY:-}" ]]; then
         local escaped_key; escaped_key=$(echo "$ALICE_PRIVATE_KEY" | jq -Rsa .)
         local key_provider; key_provider=$(test_api "Create provider (key auth)" "POST" "/api/v1/admin/providers" "200|409" \
