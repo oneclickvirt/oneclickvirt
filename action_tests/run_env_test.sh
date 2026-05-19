@@ -130,7 +130,7 @@ WORKER_ID_VAL=$(echo "$WORKER_INFO" | jq -r '.instance_id')
 export WORKER_IP; WORKER_IP=$(echo "$WORKER_INFO" | jq -r '.ipv4')
 export NODE_PASSWORD; NODE_PASSWORD=$(echo "$WORKER_INFO" | jq -r '.password // empty')
 export WORKER_PASSWORD="$NODE_PASSWORD"
-WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
+export WORKER_PLATFORM; WORKER_PLATFORM=$(echo "$WORKER_INFO" | jq -r '.platform // empty')
 CREATED_IDS="${WORKER_ID_VAL}"
 export NODE_IP="$WORKER_IP"
 # create_test_node runs inside $() so ACTIVE_PLATFORM and PLATFORM_SSH_KEY_FILE are lost

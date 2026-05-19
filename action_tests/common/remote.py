@@ -37,15 +37,52 @@ def _make_client(host=None, port=None, user=None, password=None,
     client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
 
     if kf and os.path.isfile(kf):
-        # Key-based auth; passphrase is pw if the key is encrypted (no-op otherwise)
-        client.connect(
-            h, port=p, username=u,
-            key_filename=kf,
-            passphrase=pw if pw else None,
-            look_for_keys=False,
-            allow_agent=False,
-            timeout=connect_timeout,
-        )
+        # Load key explicitly to handle both legacy RSA PEM (-----BEGIN RSA PRIVATE KEY-----)
+        # and OpenSSH format (-----BEGIN OPENSSH PRIVATE KEY-----), working around
+        # paramiko version-specific auto-detection issues that raise
+        # "encountered RSA key, expected OPENSSH key".
+        pkey = None
+        _kpass = pw.encode('utf-8') if pw else None
+        for key_class in (paramiko.RSAKey, paramiko.Ed25519Key, paramiko.ECDSAKey, paramiko.DSSKey):
+            try:
+                pkey = key_class.from_private_key_file(kf, password=_kpass)
+                break
+            except Exception:
+                continue
+        if pkey is not None:
+            try:
+                client.connect(
+                    h, port=p, username=u,
+                    pkey=pkey,
+                    look_for_keys=False,
+                    allow_agent=False,
+                    timeout=connect_timeout,
+                )
+            except paramiko.AuthenticationException:
+                # Key-based auth rejected by the server; fall back to password if available.
+                if not pw:
+                    raise
+                client.connect(
+                    h, port=p, username=u,
+                    password=pw,
+                    look_for_keys=False,
+                    allow_agent=False,
+                    timeout=connect_timeout,
+                )
+        elif pw:
+            # Key file could not be parsed; fall back to password auth.
+            client.connect(
+                h, port=p, username=u,
+                password=pw,
+                look_for_keys=False,
+                allow_agent=False,
+                timeout=connect_timeout,
+            )
+        else:
+            raise ValueError(
+                f"SSH key file {kf!r} could not be parsed as any supported key type "
+                "and no password was provided for fallback"
+            )
     elif pw:
         # Password auth
         client.connect(

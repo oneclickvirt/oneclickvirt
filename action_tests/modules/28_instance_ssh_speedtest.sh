@@ -282,7 +282,13 @@ run_module_28() {
     # Build SSH key file fallback for key-based cloud providers.
     local m28_key_file="${PLATFORM_SSH_KEY_FILE:-}"
     local m28_temp_key_file=""
-    if [[ -z "$m28_key_file" && -n "${ALICE_PRIVATE_KEY:-}" ]]; then
+    # Only use ALICE_PRIVATE_KEY as a fallback when the worker was created on the alice
+    # platform.  Using the alice key for instances on other platforms (e.g. lightnode)
+    # will always fail key auth since the alice public key is not in those instances'
+    # authorized_keys.  Check both WORKER_PLATFORM (exported by run_env_test.sh) and the
+    # in-process ACTIVE_PLATFORM variable.
+    local _m28_platform="${WORKER_PLATFORM:-${ACTIVE_PLATFORM:-}}"
+    if [[ -z "$m28_key_file" && -n "${ALICE_PRIVATE_KEY:-}" && "$_m28_platform" == "alice" ]]; then
         m28_temp_key_file=$(mktemp /tmp/m28_ssh_key_XXXXXX.pem)
         chmod 600 "$m28_temp_key_file"
         printf '%s\n' "${ALICE_PRIVATE_KEY}" > "$m28_temp_key_file"

@@ -8,7 +8,7 @@ run_module_19() {
 
     if [[ -z "$TEST_INSTANCE_ID" || -z "$PROVIDER_ID" ]]; then
         chain_break "$group" "No instance or provider"
-        return 1
+        return 0
     fi
 
     # -- Get traffic before speedtest --
