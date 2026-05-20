@@ -175,16 +175,6 @@
               <el-icon><Monitor /></el-icon>
               {{ t('user.instanceDetail.webSSH') }}
             </el-button>
-            <!-- Container Exec按钮 -->
-            <el-button 
-              v-if="instance.status === 'running' && instance.instance_type === 'container'"
-              type="success"
-              size="small"
-              @click="openExecTerminal"
-            >
-              <el-icon><Monitor /></el-icon>
-              {{ t('user.instanceDetail.webExec') }}
-            </el-button>
             <!-- 删除按钮 - 根据权限显示 -->
             <el-button 
               v-if="instanceTypePermissions.canDeleteInstance"
@@ -830,7 +820,6 @@ const {
   viewTaskDetail,
   performAction,
   openSSHTerminal,
-  openExecTerminal,
   showResetPasswordDialog,
   togglePassword,
   truncateIP,
