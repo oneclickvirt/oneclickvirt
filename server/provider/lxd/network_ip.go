@@ -15,8 +15,14 @@ import (
 
 // getInstanceType 获取实例类型
 func (l *LXDProvider) getInstanceType(instanceName string) (string, error) {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取实例类型")
+	}
 	cmd := fmt.Sprintf("lxc info %s | grep \"Type:\" | awk '{print $2}'", instanceName)
-	output, err := l.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
@@ -68,8 +74,14 @@ func (l *LXDProvider) getVMInstanceIP(instanceName string) (string, error) {
 		interfaces := []string{"enp5s0", "eth0"}
 
 		for _, iface := range interfaces {
+			l.mu.RLock()
+			client := l.sshClient
+			l.mu.RUnlock()
+			if client == nil {
+				return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
+			}
 			cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName, iface)
-			output, err := l.sshClient.Execute(cmd)
+			output, err := client.Execute(cmd)
 
 			if err == nil && strings.TrimSpace(output) != "" {
 				vmIP := strings.TrimSpace(output)
@@ -109,8 +121,14 @@ func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error
 		time.Sleep(time.Duration(delay) * time.Second)
 
 		// 容器通常使用 eth0 接口
+		l.mu.RLock()
+		client := l.sshClient
+		l.mu.RUnlock()
+		if client == nil {
+			return "", fmt.Errorf("SSH client不可用，无法获取容器IP")
+		}
 		cmd := fmt.Sprintf("lxc list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName)
-		output, err := l.sshClient.Execute(cmd)
+		output, err := client.Execute(cmd)
 
 		if err == nil && strings.TrimSpace(output) != "" {
 			containerIP := strings.TrimSpace(output)
@@ -135,9 +153,16 @@ func (l *LXDProvider) getContainerInstanceIP(instanceName string) (string, error
 func (l *LXDProvider) getInstanceIPGeneric(instanceName string) (string, error) {
 	global.APP_LOG.Debug("使用通用方法获取IP地址", zap.String("instanceName", instanceName))
 
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取实例IP")
+	}
+
 	// 首先尝试使用 lxc list 简单格式获取IP
 	cmd := fmt.Sprintf("lxc list %s -c 4 --format csv", instanceName)
-	output, err := l.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取实例信息失败: %w", err)
 	}
@@ -224,8 +249,14 @@ func (l *LXDProvider) getHostIP() (string, error) {
 
 	// 3. 最后才从宿主机动态获取 IP地址
 	global.APP_LOG.Debug("从宿主机动态获取IP地址")
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取宿主机IP")
+	}
 	cmd := "ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p' | cut -d/ -f1"
-	output, err := l.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取主机IP失败: %w", err)
 	}
@@ -249,8 +280,14 @@ func (l *LXDProvider) GetInstanceIPv4(ctx context.Context, instanceName string) 
 // GetVethInterfaceName 获取容器对应的宿主机veth接口名称（IPv4）
 // 通过 lxc config show 获取 volatile.eth0.host_name
 func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取veth接口")
+	}
 	cmd := fmt.Sprintf("lxc config show %s | grep 'volatile.eth0.host_name:' | awk '{print $2}'", instanceName)
-	output, err := l.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取veth接口名称失败: %w", err)
 	}
@@ -270,8 +307,14 @@ func (l *LXDProvider) GetVethInterfaceName(instanceName string) (string, error) 
 // GetVethInterfaceNameV6 获取容器对应的宿主机veth接口名称（IPv6）
 // 通过 lxc config show 获取 volatile.eth1.host_name（如果存在）
 func (l *LXDProvider) GetVethInterfaceNameV6(instanceName string) (string, error) {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取veth接口(IPv6)")
+	}
 	cmd := fmt.Sprintf("lxc config show %s | grep 'volatile.eth1.host_name:' | awk '{print $2}'", instanceName)
-	output, err := l.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取veth接口名称(IPv6)失败: %w", err)
 	}

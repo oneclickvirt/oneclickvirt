@@ -294,10 +294,12 @@ func (p *ProxmoxProvider) ConnectAgent(executor utils.ShellExecutor, config prov
 }
 
 func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
+	p.mu.Lock()
 	if p.sshClient != nil {
 		p.sshClient.Close()
 		p.sshClient = nil
 	}
+	p.mu.Unlock()
 
 	// 按providerID清理transport
 	if p.providerID > 0 {
@@ -314,25 +316,32 @@ func (p *ProxmoxProvider) Disconnect(ctx context.Context) error {
 }
 
 func (p *ProxmoxProvider) IsConnected() bool {
-	return p.connected && p.sshClient != nil && p.sshClient.IsHealthy()
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	return p.connected && client != nil && client.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *ProxmoxProvider) EnsureConnection() error {
-	if p.sshClient == nil {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+
+	if client == nil {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !p.sshClient.IsHealthy() {
+	if !client.IsHealthy() {
 		global.APP_LOG.Warn("Proxmox Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(p.config.Host, 32)),
 			zap.Int("port", p.config.Port))
 
-		if err := p.sshClient.Reconnect(); err != nil {
+		if err := client.Reconnect(); err != nil {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !p.sshClient.IsHealthy() {
+		if !client.IsHealthy() {
 			p.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -465,7 +474,13 @@ func (p *ProxmoxProvider) getInternalGateway() string {
 
 // 获取节点名
 func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
-	output, err := p.sshClient.Execute("hostname")
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("SSH client不可用")
+	}
+	output, err := client.Execute("hostname")
 	if err != nil {
 		return err
 	}
@@ -475,14 +490,17 @@ func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
 
 // ExecuteSSHCommand 执行SSH命令
 func (p *ProxmoxProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !p.connected || p.sshClient == nil {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	if !p.connected || client == nil {
 		return "", fmt.Errorf("Proxmox provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.TruncateString(command, 200)))
 
-	output, err := p.sshClient.Execute(command)
+	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.TruncateString(command, 200)),
@@ -516,15 +534,18 @@ func (p *ProxmoxProvider) shouldUseAPI() bool {
 
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (p *ProxmoxProvider) shouldUseSSH() bool {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
 	switch p.config.ExecutionRule {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return p.sshClient != nil && p.connected
+		return client != nil && p.connected
 	case "auto":
 		fallthrough
 	default:
-		return p.sshClient != nil && p.connected
+		return client != nil && p.connected
 	}
 }
 

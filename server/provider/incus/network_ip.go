@@ -14,8 +14,14 @@ import (
 
 // getInstanceType 获取实例类型
 func (i *IncusProvider) getInstanceType(instanceName string) (string, error) {
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取实例类型")
+	}
 	cmd := fmt.Sprintf("incus info %s | grep \"Type:\" | awk '{print $2}'", instanceName)
-	output, err := i.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取实例类型失败: %w", err)
 	}
@@ -68,7 +74,13 @@ func (i *IncusProvider) getVMInstanceIP(instanceName string) (string, error) {
 
 		for _, iface := range interfaces {
 			cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.%s.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName, iface)
-			output, err := i.sshClient.Execute(cmd)
+			i.mu.RLock()
+			client := i.sshClient
+			i.mu.RUnlock()
+			if client == nil {
+				return "", fmt.Errorf("SSH client不可用，无法获取虚拟机IP")
+			}
+			output, err := client.Execute(cmd)
 
 			if err == nil && strings.TrimSpace(output) != "" {
 				vmIP := strings.TrimSpace(output)
@@ -109,7 +121,13 @@ func (i *IncusProvider) getContainerInstanceIP(instanceName string) (string, err
 
 		// 容器通常使用 eth0 接口
 		cmd := fmt.Sprintf("incus list %s --format json | jq -r '.[0].state.network.eth0.addresses[]? | select(.family==\"inet\") | .address' 2>/dev/null", instanceName)
-		output, err := i.sshClient.Execute(cmd)
+		i.mu.RLock()
+		client := i.sshClient
+		i.mu.RUnlock()
+		if client == nil {
+			return "", fmt.Errorf("SSH client不可用，无法获取容器IP")
+		}
+		output, err := client.Execute(cmd)
 
 		if err == nil && strings.TrimSpace(output) != "" {
 			containerIP := strings.TrimSpace(output)
@@ -144,7 +162,13 @@ func (i *IncusProvider) getInstanceIPGeneric(instanceName string) (string, error
 
 		// 使用 incus list 简单格式获取IP
 		cmd := fmt.Sprintf("incus list %s -c 4 --format csv", instanceName)
-		output, err := i.sshClient.Execute(cmd)
+		i.mu.RLock()
+		client := i.sshClient
+		i.mu.RUnlock()
+		if client == nil {
+			return "", fmt.Errorf("SSH client不可用，无法获取实例IP")
+		}
+		output, err := client.Execute(cmd)
 		if err == nil && strings.TrimSpace(output) != "" {
 			global.APP_LOG.Debug("incus list原始输出",
 				zap.String("instanceName", instanceName),
@@ -241,8 +265,14 @@ func (i *IncusProvider) getHostIP() (string, error) {
 
 	// 3. 最后才从宿主机动态获取 IP地址
 	global.APP_LOG.Debug("从宿主机动态获取IP地址")
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
+	if client == nil {
+		return "", fmt.Errorf("SSH client不可用，无法获取宿主机IP")
+	}
 	cmd := "ip addr show | awk '/inet .*global/ && !/inet6/ {print $2}' | sed -n '1p' | cut -d/ -f1"
-	output, err := i.sshClient.Execute(cmd)
+	output, err := client.Execute(cmd)
 	if err != nil {
 		return "", fmt.Errorf("获取主机IP失败: %w", err)
 	}

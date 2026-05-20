@@ -226,10 +226,12 @@ func (i *IncusProvider) getIncusVersion() error {
 }
 
 func (i *IncusProvider) Disconnect(ctx context.Context) error {
+	i.mu.Lock()
 	if i.sshClient != nil {
 		i.sshClient.Close()
 		i.sshClient = nil
 	}
+	i.mu.Unlock()
 
 	// 按providerID清理transport
 	if i.providerID > 0 {
@@ -246,25 +248,32 @@ func (i *IncusProvider) Disconnect(ctx context.Context) error {
 }
 
 func (i *IncusProvider) IsConnected() bool {
-	return i.connected && i.sshClient != nil && i.sshClient.IsHealthy()
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
+	return i.connected && client != nil && client.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (i *IncusProvider) EnsureConnection() error {
-	if i.sshClient == nil {
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
+
+	if client == nil {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !i.sshClient.IsHealthy() {
+	if !client.IsHealthy() {
 		global.APP_LOG.Warn("Incus Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(i.config.Host, 32)),
 			zap.Int("port", i.config.Port))
 
-		if err := i.sshClient.Reconnect(); err != nil {
+		if err := client.Reconnect(); err != nil {
 			i.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !i.sshClient.IsHealthy() {
+		if !client.IsHealthy() {
 			i.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -644,14 +653,17 @@ func (i *IncusProvider) createTLSConfig(certPath, keyPath string) (*tls.Config, 
 
 // ExecuteSSHCommand 执行SSH命令
 func (i *IncusProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !i.connected || i.sshClient == nil {
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
+	if !i.connected || client == nil {
 		return "", fmt.Errorf("Incus provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.TruncateString(command, 200)))
 
-	output, err := i.sshClient.Execute(command)
+	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.TruncateString(command, 200)),
@@ -684,15 +696,18 @@ func (i *IncusProvider) shouldUseAPI() bool {
 
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (i *IncusProvider) shouldUseSSH() bool {
+	i.mu.RLock()
+	client := i.sshClient
+	i.mu.RUnlock()
 	switch i.config.ExecutionRule {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return i.sshClient != nil && i.connected
+		return client != nil && i.connected
 	case "auto":
 		fallthrough
 	default:
-		return i.sshClient != nil && i.connected
+		return client != nil && i.connected
 	}
 }
 

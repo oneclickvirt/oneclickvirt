@@ -139,34 +139,43 @@ func (p *QEMUProvider) ConnectAgent(executor utils.ShellExecutor, config provide
 }
 
 func (p *QEMUProvider) Disconnect(ctx context.Context) error {
+	p.mu.Lock()
 	if p.sshClient != nil {
 		p.sshClient.Close()
 		p.sshClient = nil
 	}
+	p.mu.Unlock()
 	p.connected = false
 	return nil
 }
 
 func (p *QEMUProvider) IsConnected() bool {
-	return p.connected && p.sshClient != nil && p.sshClient.IsHealthy()
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	return p.connected && client != nil && client.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (p *QEMUProvider) EnsureConnection() error {
-	if p.sshClient == nil {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+
+	if client == nil {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !p.sshClient.IsHealthy() {
+	if !client.IsHealthy() {
 		global.APP_LOG.Warn("QEMU Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(p.config.Host, 50)),
 			zap.Int("port", p.config.Port))
 
-		if err := p.sshClient.Reconnect(); err != nil {
+		if err := client.Reconnect(); err != nil {
 			p.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !p.sshClient.IsHealthy() {
+		if !client.IsHealthy() {
 			p.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -214,11 +223,14 @@ func (p *QEMUProvider) GetVersion() string {
 
 // getVersion 获取 QEMU/libvirt 版本
 func (p *QEMUProvider) getVersion() error {
-	if p.sshClient == nil {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	if client == nil {
 		return fmt.Errorf("SSH client not connected")
 	}
 
-	output, err := p.sshClient.Execute("virsh version --short 2>/dev/null || virsh --version 2>/dev/null")
+	output, err := client.Execute("virsh version --short 2>/dev/null || virsh --version 2>/dev/null")
 	if err != nil {
 		p.version = "unknown"
 		return err
@@ -239,14 +251,17 @@ func (p *QEMUProvider) getVersion() error {
 
 // ExecuteSSHCommand 执行SSH命令
 func (p *QEMUProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !p.connected || p.sshClient == nil {
+	p.mu.RLock()
+	client := p.sshClient
+	p.mu.RUnlock()
+	if !p.connected || client == nil {
 		return "", fmt.Errorf("QEMU provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.TruncateString(command, 200)))
 
-	output, err := p.sshClient.Execute(command)
+	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.TruncateString(command, 200)),

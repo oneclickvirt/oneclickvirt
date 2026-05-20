@@ -231,10 +231,12 @@ func (l *LXDProvider) getLXDVersion() error {
 }
 
 func (l *LXDProvider) Disconnect(ctx context.Context) error {
+	l.mu.Lock()
 	if l.sshClient != nil {
 		l.sshClient.Close()
 		l.sshClient = nil
 	}
+	l.mu.Unlock()
 
 	// 按providerID清理transport
 	if l.providerID > 0 {
@@ -251,25 +253,32 @@ func (l *LXDProvider) Disconnect(ctx context.Context) error {
 }
 
 func (l *LXDProvider) IsConnected() bool {
-	return l.connected && l.sshClient != nil && l.sshClient.IsHealthy()
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	return l.connected && client != nil && client.IsHealthy()
 }
 
 // EnsureConnection 确保SSH连接可用，如果连接不健康则尝试重连
 func (l *LXDProvider) EnsureConnection() error {
-	if l.sshClient == nil {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+
+	if client == nil {
 		return fmt.Errorf("SSH client not initialized")
 	}
 
-	if !l.sshClient.IsHealthy() {
+	if !client.IsHealthy() {
 		global.APP_LOG.Warn("LXD Provider SSH连接不健康，尝试重连",
 			zap.String("host", utils.TruncateString(l.config.Host, 50)),
 			zap.Int("port", l.config.Port))
 
-		if err := l.sshClient.Reconnect(); err != nil {
+		if err := client.Reconnect(); err != nil {
 			l.connected = false
 			return fmt.Errorf("failed to reconnect SSH: %w", err)
 		}
-		if !l.sshClient.IsHealthy() {
+		if !client.IsHealthy() {
 			l.connected = false
 			return fmt.Errorf("connection remains unhealthy after reconnect")
 		}
@@ -657,14 +666,17 @@ func (l *LXDProvider) createTLSConfig(certPath, keyPath string) (*tls.Config, er
 
 // ExecuteSSHCommand 执行SSH命令
 func (l *LXDProvider) ExecuteSSHCommand(ctx context.Context, command string) (string, error) {
-	if !l.connected || l.sshClient == nil {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if !l.connected || client == nil {
 		return "", fmt.Errorf("LXD provider not connected")
 	}
 
 	global.APP_LOG.Debug("执行SSH命令",
 		zap.String("command", utils.TruncateString(command, 200)))
 
-	output, err := l.sshClient.Execute(command)
+	output, err := client.Execute(command)
 	if err != nil {
 		global.APP_LOG.Error("SSH命令执行失败",
 			zap.String("command", utils.TruncateString(command, 200)),
@@ -697,15 +709,18 @@ func (l *LXDProvider) shouldUseAPI() bool {
 
 // shouldUseSSH 根据执行规则判断是否应该使用SSH
 func (l *LXDProvider) shouldUseSSH() bool {
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
 	switch l.config.ExecutionRule {
 	case "api_only":
 		return false
 	case "ssh_only":
-		return l.sshClient != nil && l.connected
+		return client != nil && l.connected
 	case "auto":
 		fallthrough
 	default:
-		return l.sshClient != nil && l.connected
+		return client != nil && l.connected
 	}
 }
 

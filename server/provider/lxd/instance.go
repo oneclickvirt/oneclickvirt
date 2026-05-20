@@ -21,12 +21,20 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	// 硬盘大小已在创建容器时通过 -d root,size=... 参数设置
 	// 这里只设置额外的硬盘配额限制
 
+	// 获取 sshClient（带锁保护）
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+
 	// 如果指定了磁盘大小，设置limits.max（官方脚本做法）
 	if config.Disk != "" {
 		diskFormatted := convertDiskFormat(config.Disk)
 		// 注意：这里设置的是 limits.max 而不是 size（size已在创建时设置）
 		setMaxCmd := fmt.Sprintf("lxc config device set %s root limits.max %s", config.Name, diskFormatted)
-		if _, err := l.sshClient.Execute(setMaxCmd); err != nil {
+		if client == nil {
+			global.APP_LOG.Warn("SSH client不可用，跳过设置磁盘limits.max",
+				zap.String("instance", config.Name))
+		} else if _, err := client.Execute(setMaxCmd); err != nil {
 			global.APP_LOG.Warn("设置磁盘limits.max失败",
 				zap.String("command", setMaxCmd),
 				zap.Error(err))
@@ -38,7 +46,27 @@ func (l *LXDProvider) configureInstanceStorage(ctx context.Context, config provi
 	}
 
 	// 如果是容器，配置IO限制
+	// copy模式下容器继承来自profile的root设备，lxc config device set 需要容器有显式root设备
+	// 先确保root设备存在（若不存在则添加），再设置限制
 	if config.InstanceType != "vm" {
+		if client != nil && config.CopyMode {
+			// 检查容器是否有显式root设备
+			checkCmd := fmt.Sprintf("lxc config device list %s", config.Name)
+			output, err := client.Execute(checkCmd)
+			if err != nil || !strings.Contains(output, "root") {
+				// root设备继承自profile，无法直接 device set；先 add 一个显式root设备
+				addRootCmd := fmt.Sprintf("lxc config device add %s root disk path=/ pool=default", config.Name)
+				if _, addErr := client.Execute(addRootCmd); addErr != nil {
+					global.APP_LOG.Warn("copy模式下添加显式root设备失败，跳过IO限制设置",
+						zap.String("instance", config.Name),
+						zap.Error(addErr))
+					return nil
+				}
+				global.APP_LOG.Debug("copy模式下已添加显式root设备",
+					zap.String("instance", config.Name))
+			}
+		}
+
 		// 设置读写带宽限制
 		if err := l.setInstanceDeviceConfig(ctx, config.Name, "root", "limits.read", "500MB"); err != nil {
 			global.APP_LOG.Warn("设置读取带宽限制失败", zap.Error(err))
@@ -165,7 +193,13 @@ func (l *LXDProvider) setInstanceConfig(ctx context.Context, instanceName string
 
 	// SSH方式设置配置
 	cmd := fmt.Sprintf("lxc config set %s %s %s", instanceName, key, value)
-	_, err := l.sshClient.Execute(cmd)
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("SSH client不可用，无法设置实例配置")
+	}
+	_, err := client.Execute(cmd)
 	if err != nil {
 		return fmt.Errorf("SSH设置实例配置失败: %w", err)
 	}
@@ -209,7 +243,13 @@ func (l *LXDProvider) setInstanceDeviceConfig(ctx context.Context, instanceName 
 
 	// SSH方式设置设备配置
 	cmd := fmt.Sprintf("lxc config device set %s %s %s %s", instanceName, deviceName, key, value)
-	_, err := l.sshClient.Execute(cmd)
+	l.mu.RLock()
+	client := l.sshClient
+	l.mu.RUnlock()
+	if client == nil {
+		return fmt.Errorf("SSH client不可用，无法设置实例设备配置")
+	}
+	_, err := client.Execute(cmd)
 	if err != nil {
 		return fmt.Errorf("SSH设置实例设备配置失败: %w", err)
 	}
