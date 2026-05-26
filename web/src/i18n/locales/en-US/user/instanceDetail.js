@@ -78,6 +78,7 @@ export default {
   confirmReset: "Confirm Reset",
   resetPasswordTitle: "Reset Instance Password",
   resetPasswordFailed: "Failed to create password reset task",
+  newPassword: "New Password",
   nothingToCopy: "Nothing to copy",
   copiedToClipboard: "Copied to clipboard",
   statusRunning: "Running",

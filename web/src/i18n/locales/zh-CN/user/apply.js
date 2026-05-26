@@ -114,5 +114,9 @@ export default {
   gpuDeviceIdsPlaceholder: "留空则附加所有GPU，多个ID用逗号分隔（如 0,1）",
   gpuDeviceIdsHint: "仅 LXD/Incus 容器实例支持，留空将自动附加节点上所有可用 GPU",
   gpuSelectAll: "全选",
-  gpuDeselectAll: "取消全选"
+  gpuDeselectAll: "取消全选",
+  loadLimitsFailed: "获取用户限制失败",
+  loadConfigFailed: "获取实例配置失败",
+  loadImagesFailed: "获取镜像列表失败",
+  loadGPUsFailed: "获取GPU列表失败"
 }

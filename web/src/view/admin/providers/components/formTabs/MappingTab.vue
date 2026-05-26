@@ -645,10 +645,9 @@
 </template>
 
 <script setup>
-import { ref, watch } from 'vue'
-import { ElMessage } from 'element-plus'
+import { watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { getProviderIPv4Pool, setProviderIPv4Pool, clearProviderIPv4Pool, deleteProviderIPv4PoolEntry } from '@/api/admin'
+import { useIPv4Pool } from './composables/useIPv4Pool'
 
 const props = defineProps({
   modelValue: {
@@ -659,80 +658,22 @@ const props = defineProps({
 
 const { t } = useI18n()
 
-// ---- IPv4 地址池状态 ----
-const poolEntries = ref([])
-const poolStats = ref({ total: 0, allocated: 0, available: 0 })
-const poolLoading = ref(false)
-const newAddresses = ref('')
-const saving = ref(false)
-
-async function loadPool() {
-  if (!props.modelValue.id) return
-  poolLoading.value = true
-  try {
-    const res = await getProviderIPv4Pool(props.modelValue.id, { page: 1, page_size: 200 })
-    if (res.data) {
-      poolEntries.value = res.data.list || []
-      poolStats.value = res.data.stats || { total: 0, allocated: 0, available: 0 }
-    }
-  } catch {
-    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
-  } finally {
-    poolLoading.value = false
-  }
-}
-
-async function addToPool() {
-  if (!newAddresses.value.trim()) return
-  saving.value = true
-  try {
-    await setProviderIPv4Pool(props.modelValue.id, { addresses: newAddresses.value })
-    ElMessage.success(t('admin.providers.ipv4Pool.addSuccess'))
-    newAddresses.value = ''
-    await loadPool()
-  } catch {
-    ElMessage.error(t('admin.providers.ipv4Pool.addFailed'))
-  } finally {
-    saving.value = false
-  }
-}
-
-async function clearPool() {
-  try {
-    await clearProviderIPv4Pool(props.modelValue.id)
-    ElMessage.success(t('admin.providers.ipv4Pool.clearSuccess'))
-    await loadPool()
-  } catch {
-    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
-  }
-}
-
-async function deleteEntry(entryId) {
-  try {
-    await deleteProviderIPv4PoolEntry(props.modelValue.id, entryId)
-    ElMessage.success(t('admin.providers.ipv4Pool.deleteSuccess'))
-    await loadPool()
-  } catch {
-    ElMessage.error(t('admin.providers.ipv4Pool.loadFailed'))
-  }
-}
-
-// 当提供商 ID 变更（首次登载 / 的切换编辑）时重收pool
-watch(() => props.modelValue.id, (id) => {
-  if (id) loadPool()
-}, { immediate: true })
-
-// 当 networkType 切换为 dedicated_ipv4* 且已有 id 时加载
-watch(() => props.modelValue.networkType, (nt) => {
-  if ((nt === 'dedicated_ipv4' || nt === 'dedicated_ipv4_ipv6') && props.modelValue.id) {
-    loadPool()
-  }
-})
+const {
+  poolEntries,
+  poolStats,
+  poolLoading,
+  newAddresses,
+  saving,
+  loadPool,
+  addToPool,
+  clearPool,
+  deleteEntry,
+} = useIPv4Pool(props)
 
 // 监听节点类型变化，自动更新端口映射方式
 watch(() => props.modelValue.type, (newType) => {
   if (!newType) return
-  
+
   if (['docker', 'podman', 'containerd'].includes(newType)) {
     // Docker/Podman/Containerd: IPv4和IPv6都固定使用 native
     props.modelValue.ipv4PortMappingMethod = 'native'
@@ -754,12 +695,12 @@ watch(() => props.modelValue.type, (newType) => {
 // 监听网络类型变化，自动调整端口映射方式
 watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, networkType]) => {
   if (!type || !networkType) return
-  
+
   if (type === 'proxmox') {
     const isNATMode = networkType === 'nat_ipv4' || networkType === 'nat_ipv4_ipv6'
     const isDedicatedIPv4Mode = networkType === 'dedicated_ipv4' || networkType === 'dedicated_ipv4_ipv6'
     const hasIPv6 = networkType === 'nat_ipv4_ipv6' || networkType === 'dedicated_ipv4_ipv6' || networkType === 'ipv6_only'
-    
+
     // IPv4 端口映射方式处理（仅在网络类型支持IPv4时处理）
     if (networkType !== 'ipv6_only') {
       if (isNATMode) {
@@ -767,17 +708,17 @@ watch(() => [props.modelValue.type, props.modelValue.networkType], ([type, netwo
         props.modelValue.ipv4PortMappingMethod = 'iptables'
       } else if (isDedicatedIPv4Mode) {
         // 独立IP模式：如果当前值不是有效选项（native或iptables），则设为native
-        if (props.modelValue.ipv4PortMappingMethod !== 'native' && 
+        if (props.modelValue.ipv4PortMappingMethod !== 'native' &&
             props.modelValue.ipv4PortMappingMethod !== 'iptables') {
           props.modelValue.ipv4PortMappingMethod = 'native'
         }
       }
     }
-    
+
     // IPv6 端口映射方式处理（仅在网络类型支持IPv6时处理）
     if (hasIPv6) {
       // Proxmox IPv6默认使用native，但也支持iptables
-      if (props.modelValue.ipv6PortMappingMethod !== 'native' && 
+      if (props.modelValue.ipv6PortMappingMethod !== 'native' &&
           props.modelValue.ipv6PortMappingMethod !== 'iptables') {
         props.modelValue.ipv6PortMappingMethod = 'native'
       }

@@ -11,8 +11,8 @@ export const useSSHStore = defineStore('ssh', {
     minimizedConnections: (state) => {
       return Object.entries(state.connections)
         .filter(([_, conn]) => conn.minimized)
-        .map(([instanceId, conn]) => ({
-          instanceId,
+        .map(([connectionKey, conn]) => ({
+          connectionKey,
           ...conn
         }))
     },
@@ -39,6 +39,7 @@ export const useSSHStore = defineStore('ssh', {
         instanceName,
         isAdmin,
         mode,
+        activeView: 'terminal',
         instanceId,
         createdAt: Date.now()
       }
@@ -71,6 +72,12 @@ export const useSSHStore = defineStore('ssh', {
         const conn = this.connections[instanceId]
         conn.visible = !conn.visible
         conn.minimized = !conn.minimized
+      }
+    },
+
+    setActiveView(instanceId, view) {
+      if (this.connections[instanceId]) {
+        this.connections[instanceId].activeView = view
       }
     }
   },

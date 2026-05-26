@@ -87,6 +87,13 @@ export function resetInstancePassword(instanceId) {
   })
 }
 
+export function getInstanceNewPassword(instanceId, taskId) {
+  return request({
+    url: `/v1/user/instances/${instanceId}/password/${taskId}`,
+    method: 'get'
+  })
+}
+
 export function getAvailableProviders() {
   return request({
     url: '/v1/user/providers/available',

@@ -78,6 +78,7 @@ export default {
   confirmReset: "确认重置",
   resetPasswordTitle: "重置实例密码",
   resetPasswordFailed: "创建密码重置任务失败",
+  newPassword: "新密码",
   nothingToCopy: "没有可复制的内容",
   copiedToClipboard: "已复制到剪贴板",
   statusRunning: "运行中",

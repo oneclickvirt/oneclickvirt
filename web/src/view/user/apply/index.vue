@@ -556,249 +556,28 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch, onActivated, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { ElMessage } from 'element-plus'
-import { Refresh } from '@element-plus/icons-vue'
-import { formatMemorySize, formatDiskSize, formatResourceUsage } from '@/utils/unit-formatter'
-import { getFlagEmoji } from '@/utils/countries'
-import { useI18n } from 'vue-i18n'
-import { useApplyProviders } from './composables/useApplyProviders'
-import { useApplyForm } from './composables/useApplyForm'
-import { getProviderHardwareReport } from '@/api/public'
 import OsIcon from '@/components/OsIcon.vue'
-
-const route = useRoute()
-const { t, locale } = useI18n()
+import { Refresh } from '@element-plus/icons-vue'
+import useApplyPage from './useApplyPage'
 
 const {
   loading, refreshing, providers, selectedProvider, providerCapabilities,
   instanceTypePermissions,
   getProviderStatusType, getProviderStatusText, formatProviderLocation,
-  canCreateInstanceType, loadProviders,
-  loadProviderCapabilities, loadInstanceTypePermissions
-} = useApplyProviders()
-
-const {
+  canCreateInstanceType,
   submitting, redeemCodeInput, redeemSubmitting,
   availableImages, instanceConfig, userLimits, configForm, formRef,
   configRules, availableCpuSpecs, selectedImageInfo,
   availableMemorySpecs, availableDiskSpecs, availableBandwidthSpecs,
   canSelectSpec, formatCpuSpecName, formatImageRequirements,
-  loadUserLimits, loadInstanceConfig, loadFilteredImages,
-  autoSelectFirstAvailableSpecs, onInstanceTypeChange,
-  submitApplication, submitRedemption, resetForm,
-  // GPU
+  onInstanceTypeChange, submitApplication, submitRedemption, resetForm,
   gpuLoading, detectedGpus, selectedGpuIndices, gpuInfoMsg,
-  loadProviderGPUs, selectAllGpus, deselectAllGpus
-} = useApplyForm(selectedProvider, providerCapabilities, loadProviderCapabilities, canCreateInstanceType)
-
-
-// Provider group tabs
-const activeGroupTab = ref('')
-
-// GPU 直通配置的条件：仅 LXD/Incus 节点 + 容器实例类型
-const canConfigureGpuPassthrough = computed(() => {
-  if (!selectedProvider.value) return false
-  const providerType = selectedProvider.value.type
-  const isLxdIncus = providerType === 'lxd' || providerType === 'incus'
-  const isContainer = configForm.type === 'container'
-  return isLxdIncus && isContainer
-})
-
-// When GPU enabled checkbox is toggled, load cached GPU info if not already loaded
-const onGpuEnabledChange = (val) => {
-  if (val && detectedGpus.value.length === 0 && selectedProvider.value) {
-    loadProviderGPUs(selectedProvider.value.id)
-  }
-}
-
-const providerGroups = computed(() => {
-  const groupMap = new Map()
-  for (const p of providers.value) {
-    const key = p.groupName || ''
-    if (!groupMap.has(key)) {
-      groupMap.set(key, { name: key, description: p.groupDescription || '', providers: [] })
-    }
-    groupMap.get(key).providers.push(p)
-  }
-  const groups = Array.from(groupMap.values())
-  // Put the default group (empty name) first
-  groups.sort((a, b) => {
-    if (a.name === '') return -1
-    if (b.name === '') return 1
-    return a.name.localeCompare(b.name)
-  })
-  if (groups.length > 0 && !activeGroupTab.value) {
-    activeGroupTab.value = groups[0].name
-  }
-  return groups
-})
-
-const viewHardwareReport = async (providerId) => {
-  try {
-    const res = await getProviderHardwareReport(providerId)
-    const pasteUrl = res.data?.pasteUrl
-    if (pasteUrl) {
-      window.open(pasteUrl, '_blank', 'noopener,noreferrer')
-    } else {
-      ElMessage.warning(t('user.apply.noHardwareReport'))
-    }
-  } catch (error) {
-    console.error('Failed to load hardware report:', error)
-    ElMessage.error(t('user.apply.noHardwareReport'))
-  }
-}
-
-// Bridge: refresh providers + userLimits together
-const refreshData = async () => {
-  if (refreshing.value || loading.value) return
-  try {
-    refreshing.value = true
-    await Promise.allSettled([loadProviders(), loadUserLimits()])
-    ElMessage.success(t('user.apply.dataRefreshed'))
-  } catch (error) {
-    console.error('refreshData failed:', error)
-    ElMessage.error(t('user.apply.refreshFailed'))
-  } finally {
-    refreshing.value = false
-  }
-}
-
-// Bridge: select provider (uses both provider and form state)
-const selectProvider = async (provider) => {
-  if (provider.status === 'offline' || provider.status === 'inactive') {
-    ElMessage.warning(t('user.apply.nodeOffline'))
-    return
-  }
-  const hasAvailableContainer = provider.containerEnabled && (provider.availableContainerSlots === -1 || provider.availableContainerSlots > 0)
-  const hasAvailableVM = provider.vmEnabled && (provider.availableVMSlots === -1 || provider.availableVMSlots > 0)
-  if (!hasAvailableContainer && !hasAvailableVM) {
-    ElMessage.warning(t('user.apply.nodeInsufficientResources'))
-    return
-  }
-  selectedProvider.value = provider
-  await loadProviderCapabilities(provider.id)
-  await loadInstanceConfig(provider.id)
-  // Preload cached GPU info so the checkbox UI is ready immediately
-  loadProviderGPUs(provider.id)
-  if (!canCreateInstanceType(configForm.type)) {
-    const capabilities = providerCapabilities.value[provider.id]
-    if (capabilities?.supportedTypes?.length > 0) {
-      for (const type of ['container', 'vm']) {
-        if (capabilities.supportedTypes.includes(type) && canCreateInstanceType(type)) {
-          configForm.type = type
-          break
-        }
-      }
-    }
-  }
-  if (configForm.type) await loadFilteredImages()
-  configForm.imageId = ''
-  autoSelectFirstAvailableSpecs()
-}
-
-// 监听路由变化
-watch(() => route.path, (newPath, oldPath) => {
-  if (newPath === '/user/apply' && oldPath !== newPath) {
-    loadProviders()
-    loadUserLimits()
-    loadInstanceConfig()
-  }
-}, { immediate: false })
-
-// 监听镜像选择变化
-watch(() => configForm.imageId, (newImageId, oldImageId) => {
-  if (newImageId !== oldImageId && newImageId) {
-    const selectedImage = availableImages.value.find(img => img.id === newImageId)
-    if (selectedImage && selectedImage.minMemoryMB && selectedImage.minDiskMB) {
-      const minMemoryMB = selectedImage.minMemoryMB
-      const minDiskMB = selectedImage.minDiskMB
-      let needAutoSelect = false
-      if (configForm.memoryId) {
-        const currentMemory = instanceConfig.value.memorySpecs?.find(spec => spec.id === configForm.memoryId)
-        if (currentMemory && currentMemory.sizeMB < minMemoryMB) {
-          configForm.memoryId = ''
-          needAutoSelect = true
-          ElMessage.warning(t('user.apply.imageChangeMemoryReset'))
-        }
-      }
-      if (configForm.diskId) {
-        const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
-        if (currentDisk && currentDisk.sizeMB < minDiskMB) {
-          configForm.diskId = ''
-          needAutoSelect = true
-          ElMessage.warning(t('user.apply.imageChangeDiskReset'))
-        }
-      }
-      if (needAutoSelect) autoSelectFirstAvailableSpecs()
-    }
-  }
-})
-
-// 监听 Provider 选择变化，重新验证规格
-watch(() => selectedProvider.value?.id, (newProviderId, oldProviderId) => {
-  if (newProviderId !== oldProviderId && oldProviderId && configForm.imageId) {
-    const selectedImage = availableImages.value.find(img => img.id === configForm.imageId)
-    if (selectedImage && selectedImage.minDiskMB) {
-      const currentDisk = instanceConfig.value.diskSpecs?.find(spec => spec.id === configForm.diskId)
-      if (currentDisk && currentDisk.sizeMB < selectedImage.minDiskMB) {
-        configForm.diskId = ''
-        ElMessage.warning(t('user.apply.providerChangeDiskReset'))
-        if (availableDiskSpecs.value.length > 0) configForm.diskId = availableDiskSpecs.value[0].id
-      }
-    }
-  }
-})
-
-const handleRouterNavigation = (event) => {
-  if (event.detail && event.detail.path === '/user/apply') {
-    loadProviders()
-    loadUserLimits()
-    loadInstanceTypePermissions()
-    loadInstanceConfig()
-  }
-}
-
-const handleForceRefresh = async (event) => {
-  if (event.detail && event.detail.path === '/user/apply') {
-    try {
-      await loadInstanceTypePermissions()
-      await loadProviders()
-      Promise.allSettled([loadInstanceConfig(), loadUserLimits()])
-    } catch (error) {
-      console.error('强制刷新时数据加载失败:', error)
-    }
-  }
-}
-
-onMounted(async () => {
-  window.addEventListener('router-navigation', handleRouterNavigation)
-  window.addEventListener('force-page-refresh', handleForceRefresh)
-  try {
-    await loadInstanceTypePermissions()
-    await loadProviders()
-    Promise.allSettled([loadInstanceConfig(), loadUserLimits()])
-  } catch (error) {
-    console.error('页面初始化失败:', error)
-    ElMessage.error(t('user.apply.pageLoadFailed'))
-  }
-})
-
-onActivated(async () => {
-  try {
-    await loadInstanceTypePermissions()
-    await loadProviders()
-    Promise.allSettled([loadInstanceConfig(), loadUserLimits()])
-  } catch (error) {
-    console.error('页面激活时数据加载失败:', error)
-  }
-})
-
-onUnmounted(() => {
-  window.removeEventListener('router-navigation', handleRouterNavigation)
-  window.removeEventListener('force-page-refresh', handleForceRefresh)
-})
+  selectAllGpus, deselectAllGpus,
+  activeGroupTab, canConfigureGpuPassthrough,
+  onGpuEnabledChange, providerGroups,
+  viewHardwareReport, refreshData, selectProvider,
+  formatMemorySize, formatDiskSize, formatResourceUsage, getFlagEmoji
+} = useApplyPage()
 </script>
 
 <style scoped>

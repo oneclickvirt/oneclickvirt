@@ -30,6 +30,11 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.PUT("/instances/:id/reset-password", admin.ResetInstancePassword)
 		NormalAdminGroup.GET("/instances/:id/password/:taskId", admin.GetInstanceNewPassword)
 		NormalAdminGroup.GET("/instances/:id/ssh", admin.AdminSSHWebSocket)
+		NormalAdminGroup.GET("/instances/:id/sftp/list", admin.AdminInstanceSFTPList)
+		NormalAdminGroup.GET("/instances/:id/sftp/download", admin.AdminInstanceSFTPDownload)
+		NormalAdminGroup.POST("/instances/:id/sftp/upload", admin.AdminInstanceSFTPUpload)
+		NormalAdminGroup.GET("/instances/:id/sftp/upload/status", admin.AdminInstanceSFTPUploadStatus)
+		NormalAdminGroup.POST("/instances/:id/sftp/upload/abort", admin.AdminInstanceSFTPUploadAbort)
 
 		// 兑换码管理
 		NormalAdminGroup.GET("/redemption-codes", admin.GetRedemptionCodeList)
@@ -66,6 +71,11 @@ func InitAdminRouter(Router *gin.RouterGroup) {
 		NormalAdminGroup.POST("/providers/:id/agent-secret", admin.GenerateAgentSecret)
 		NormalAdminGroup.POST("/providers/:id/exec", admin.ExecOnProvider)
 		NormalAdminGroup.GET("/providers/:id/terminal", admin.AdminProviderTerminal)
+		NormalAdminGroup.GET("/providers/:id/sftp/list", admin.AdminProviderSFTPList)
+		NormalAdminGroup.GET("/providers/:id/sftp/download", admin.AdminProviderSFTPDownload)
+		NormalAdminGroup.POST("/providers/:id/sftp/upload", admin.AdminProviderSFTPUpload)
+		NormalAdminGroup.GET("/providers/:id/sftp/upload/status", admin.AdminProviderSFTPUploadStatus)
+		NormalAdminGroup.POST("/providers/:id/sftp/upload/abort", admin.AdminProviderSFTPUploadAbort)
 
 		// 配置导出
 		NormalAdminGroup.POST("/providers/export-configs", admin.ExportProviderConfigs)

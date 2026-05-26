@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { copyToClipboard as copyToClipboardUtil } from '@/utils/clipboard'
-import { performInstanceAction, resetInstancePassword, getFilteredImages } from '@/api/user'
+import { performInstanceAction, resetInstancePassword, getInstanceNewPassword, getFilteredImages } from '@/api/user'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
 export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
@@ -204,6 +204,37 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
     }
   }
 
+  const pollForNewPassword = (instanceId, taskId) => {
+    let attempts = 0
+    const maxAttempts = 20 // up to ~60 seconds (3s intervals)
+
+    const attempt = async () => {
+      attempts++
+      try {
+        const res = await getInstanceNewPassword(instanceId, taskId)
+        if (res.code === 200 && res.data?.newPassword) {
+          const pwd = res.data.newPassword
+          await ElMessageBox.alert(
+            `<div style="word-break:break-all">${t('user.instanceDetail.newPassword')}: <strong style="user-select:all;font-family:monospace">${pwd}</strong></div>`,
+            t('user.instanceDetail.resetPasswordTitle'),
+            { dangerouslyUseHTMLString: true, confirmButtonText: t('user.instanceDetail.confirm') }
+          )
+          await loadInstanceDetail()
+          return
+        }
+      } catch {
+        // task not ready yet or error, continue polling
+      }
+      if (attempts < maxAttempts) {
+        setTimeout(attempt, 3000)
+      } else {
+        ElMessage.warning(`${t('user.tasks.taskID')}: ${taskId} — ${t('user.tasks.checkProgress') || ''}${t('user.tasks.taskList') || '任务列表'}`)
+      }
+    }
+
+    setTimeout(attempt, 3000)
+  }
+
   const showResetPasswordDialog = async () => {
     if (actionLoading.value) {
       ElMessage.warning(t('user.instanceDetail.operationInProgress'))
@@ -227,8 +258,9 @@ export function useInstanceActions(instance, monitoring, loadInstanceDetail) {
         const response = await resetInstancePassword(instance.value.id)
         if (response.code === 200) {
           const taskId = response.data.taskId
-          ElMessage.success(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.checkProgress')}${t('user.tasks.taskList')}${t('common.inLocation')}`)
-          setTimeout(() => { actionLoading.value = false }, 3000)
+          ElMessage.info(`${t('user.instanceDetail.resetPassword')}${t('user.tasks.taskCreated')}${t('common.leftParen')}${t('user.tasks.taskID')}: ${taskId}${t('common.rightParen')}${t('common.comma')}${t('user.tasks.processing')}${t('common.ellipsis')}`)
+          actionLoading.value = false
+          pollForNewPassword(instance.value.id, taskId)
         } else {
           ElMessage.error(response.message || t('user.instanceDetail.resetPasswordFailed'))
           actionLoading.value = false

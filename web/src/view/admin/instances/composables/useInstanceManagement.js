@@ -1,7 +1,7 @@
 import { ref, nextTick } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { getAllInstances, adminInstanceAction, resetInstancePassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
+import { getAllInstances, adminInstanceAction, resetInstancePassword, getAdminInstanceNewPassword, setInstanceExpiry, freezeInstance, unfreezeInstance, getUserList } from '@/api/admin'
 import { adminTransferInstance } from '@/api/features'
 import { useSSHStore } from '@/pinia/modules/ssh'
 
@@ -82,6 +82,37 @@ export function useInstanceManagement() {
 
   const showActionDialog = (instance) => { actionInstance.value = instance; actionDialogVisible.value = true }
 
+  const pollForAdminNewPassword = (instanceId, taskId) => {
+    let attempts = 0
+    const maxAttempts = 20
+
+    const attempt = async () => {
+      attempts++
+      try {
+        const res = await getAdminInstanceNewPassword(instanceId, taskId)
+        if (res.code === 200 && res.data?.newPassword) {
+          const pwd = res.data.newPassword
+          await ElMessageBox.alert(
+            `<div style="word-break:break-all">${t('admin.instances.newPassword')}: <strong style="user-select:all;font-family:monospace">${pwd}</strong></div>`,
+            t('admin.instances.resetPasswordTitle'),
+            { dangerouslyUseHTMLString: true, confirmButtonText: t('common.confirm') }
+          )
+          await loadInstances()
+          return
+        }
+      } catch {
+        // task not ready yet, continue polling
+      }
+      if (attempts < maxAttempts) {
+        setTimeout(attempt, 3000)
+      } else {
+        ElMessage.warning(t('admin.instances.taskCreated', { action: t('admin.instances.resetPassword') }))
+      }
+    }
+
+    setTimeout(attempt, 3000)
+  }
+
   const performAction = async (action) => {
     if (action === 'setExpiry') { actionDialogVisible.value = false; await handleSetInstanceExpiry(actionInstance.value); actionInstance.value = null; return }
     if (action === 'freeze') { actionDialogVisible.value = false; await handleFreezeInstance(actionInstance.value); actionInstance.value = null; return }
@@ -105,11 +136,22 @@ export function useInstanceManagement() {
         const statusMap = { 'start': 'starting', 'stop': 'stopping', 'restart': 'restarting', 'reset': 'resetting', 'resetPassword': instances.value[instanceIndex].status, 'delete': 'deleting' }
         instances.value[instanceIndex].status = statusMap[action]
       }
-      if (action === 'resetPassword') { await resetInstancePassword(instanceId) } else { await adminInstanceAction(instanceId, action) }
-      ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
-      actionDialogVisible.value = false
-      actionInstance.value = null
-      setTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
+      if (action === 'resetPassword') {
+        const pwdRes = await resetInstancePassword(instanceId)
+        const taskId = pwdRes?.data?.taskId
+        ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
+        actionDialogVisible.value = false
+        actionInstance.value = null
+        if (taskId) {
+          pollForAdminNewPassword(instanceId, taskId)
+        }
+      } else {
+        await adminInstanceAction(instanceId, action)
+        ElMessage.success(t('admin.instances.taskCreated', { action: actionText }))
+        actionDialogVisible.value = false
+        actionInstance.value = null
+        setTimeout(() => loadInstances(), action === 'delete' ? 1000 : 500)
+      }
     } catch (error) {
       if (error !== 'cancel') { ElMessage.error(t('admin.instances.actionFailed', { action: actionText })); await loadInstances() }
     } finally {

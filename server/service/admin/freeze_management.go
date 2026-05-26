@@ -26,43 +26,52 @@ func NewFreezeManagementService() *FreezeManagementService {
 	}
 }
 
-// SetUserExpiry 设置用户过期时间
-func (s *FreezeManagementService) SetUserExpiry(userID uint, expiresAt time.Time) error {
-	now := time.Now()
-
+// SetUserExpiry 设置用户过期时间，expiresAt 为 nil 时清除过期时间
+func (s *FreezeManagementService) SetUserExpiry(userID uint, expiresAt *time.Time) error {
 	var u user.User
 	if err := global.APP_DB.First(&u, userID).Error; err != nil {
 		return fmt.Errorf("用户不存在")
 	}
 
-	updates := map[string]interface{}{
-		"expires_at":       expiresAt,
-		"is_manual_expiry": true,
-	}
-
-	// 如果用户因过期而被禁用，且新的过期时间晚于当前时间，自动启用
-	if u.Status == 0 && expiresAt.After(now) {
-		updates["status"] = 1
+	var updates map[string]interface{}
+	if expiresAt == nil {
+		updates = map[string]interface{}{
+			"expires_at":       nil,
+			"is_manual_expiry": false,
+		}
+	} else {
+		now := time.Now()
+		updates = map[string]interface{}{
+			"expires_at":       expiresAt,
+			"is_manual_expiry": true,
+		}
+		// 如果用户因过期而被禁用，且新的过期时间晚于当前时间，自动启用
+		if u.Status == 0 && expiresAt.After(now) {
+			updates["status"] = 1
+		}
 	}
 
 	if err := global.APP_DB.Model(&u).Updates(updates).Error; err != nil {
 		return err
 	}
 
-	// 清除用户认证缓存，确保状态变更克即生效
+	// 清除用户认证缓存，确保状态变更即时生效
 	cache.GetUserCacheService().InvalidateUserCache(userID)
 
-	global.APP_LOG.Info("管理员设置用户过期时间",
-		zap.Uint("user_id", userID),
-		zap.Time("expires_at", expiresAt))
+	if expiresAt != nil {
+		global.APP_LOG.Info("管理员设置用户过期时间",
+			zap.Uint("user_id", userID),
+			zap.Time("expires_at", *expiresAt))
+	} else {
+		global.APP_LOG.Info("管理员清除用户过期时间",
+			zap.Uint("user_id", userID))
+	}
 
 	return nil
 }
 
-// SetProviderExpiry 设置Provider过期时间
-func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt time.Time) error {
-	now := time.Now()
-
+// SetProviderExpiry 设置Provider过期时间，expiresAt 为 nil 时清除过期时间
+func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt *time.Time) error {
 	tx := global.APP_DB.Begin()
 	if tx.Error != nil {
 		return fmt.Errorf("开启事务失败: %w", tx.Error)
@@ -74,34 +83,49 @@ func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt t
 		return fmt.Errorf("Provider不存在")
 	}
 
-	updates := map[string]interface{}{
-		"expires_at":       expiresAt,
-		"is_manual_expiry": true,
-	}
-
-	// 如果Provider因过期而冻结，且新的过期时间晚于当前时间，自动解冻
-	if p.IsFrozen && p.FrozenReason == "expired" && expiresAt.After(now) {
-		updates["is_frozen"] = false
-		updates["frozen_at"] = nil
-		updates["frozen_reason"] = ""
-
-		// 同时解冻因节点冻结而被冻结的实例
-		if err := tx.Model(&provider.Instance{}).
-			Where("provider_id = ? AND frozen_reason = ?", providerID, "node_frozen").
-			Updates(map[string]interface{}{
-				"is_frozen":     false,
-				"frozen_at":     nil,
-				"frozen_reason": "",
-			}).Error; err != nil {
-			return fmt.Errorf("解冻实例失败: %w", err)
+	var updates map[string]interface{}
+	if expiresAt == nil {
+		updates = map[string]interface{}{
+			"expires_at":       nil,
+			"is_manual_expiry": false,
 		}
-	}
+		// 同步清除 Provider 下所有非手动设置过期时间的实例
+		if err := tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND is_manual_expiry = ?", providerID, false).
+			Update("expires_at", nil).Error; err != nil {
+			return fmt.Errorf("同步实例过期时间失败: %w", err)
+		}
+	} else {
+		now := time.Now()
+		updates = map[string]interface{}{
+			"expires_at":       expiresAt,
+			"is_manual_expiry": true,
+		}
 
-	// 更新Provider下所有非手动设置过期时间的实例，同步新的过期时间
-	if err := tx.Model(&provider.Instance{}).
-		Where("provider_id = ? AND is_manual_expiry = ?", providerID, false).
-		Update("expires_at", expiresAt).Error; err != nil {
-		return fmt.Errorf("同步实例过期时间失败: %w", err)
+		// 如果Provider因过期而冻结，且新的过期时间晚于当前时间，自动解冻
+		if p.IsFrozen && p.FrozenReason == "expired" && expiresAt.After(now) {
+			updates["is_frozen"] = false
+			updates["frozen_at"] = nil
+			updates["frozen_reason"] = ""
+
+			// 同时解冻因节点冻结而被冻结的实例
+			if err := tx.Model(&provider.Instance{}).
+				Where("provider_id = ? AND frozen_reason = ?", providerID, "node_frozen").
+				Updates(map[string]interface{}{
+					"is_frozen":     false,
+					"frozen_at":     nil,
+					"frozen_reason": "",
+				}).Error; err != nil {
+				return fmt.Errorf("解冻实例失败: %w", err)
+			}
+		}
+
+		// 更新Provider下所有非手动设置过期时间的实例，同步新的过期时间
+		if err := tx.Model(&provider.Instance{}).
+			Where("provider_id = ? AND is_manual_expiry = ?", providerID, false).
+			Update("expires_at", expiresAt).Error; err != nil {
+			return fmt.Errorf("同步实例过期时间失败: %w", err)
+		}
 	}
 
 	if err := tx.Model(&p).Updates(updates).Error; err != nil {
@@ -112,41 +136,57 @@ func (s *FreezeManagementService) SetProviderExpiry(providerID uint, expiresAt t
 		return err
 	}
 
-	global.APP_LOG.Info("管理员设置Provider过期时间",
-		zap.Uint("provider_id", providerID),
-		zap.Time("expires_at", expiresAt))
+	if expiresAt != nil {
+		global.APP_LOG.Info("管理员设置Provider过期时间",
+			zap.Uint("provider_id", providerID),
+			zap.Time("expires_at", *expiresAt))
+	} else {
+		global.APP_LOG.Info("管理员清除Provider过期时间",
+			zap.Uint("provider_id", providerID))
+	}
 
 	return nil
 }
 
-// SetInstanceExpiry 设置实例过期时间
-func (s *FreezeManagementService) SetInstanceExpiry(instanceID uint, expiresAt time.Time) error {
-	now := time.Now()
-
+// SetInstanceExpiry 设置实例过期时间，expiresAt 为 nil 时清除过期时间
+func (s *FreezeManagementService) SetInstanceExpiry(instanceID uint, expiresAt *time.Time) error {
 	var inst provider.Instance
 	if err := global.APP_DB.First(&inst, instanceID).Error; err != nil {
 		return fmt.Errorf("实例不存在")
 	}
 
-	updates := map[string]interface{}{
-		"expires_at":       expiresAt,
-		"is_manual_expiry": true,
-	}
-
-	// 如果实例因过期而冻结，且新的过期时间晚于当前时间，自动解冻
-	if inst.IsFrozen && inst.FrozenReason == "expired" && expiresAt.After(now) {
-		updates["is_frozen"] = false
-		updates["frozen_at"] = nil
-		updates["frozen_reason"] = ""
+	var updates map[string]interface{}
+	if expiresAt == nil {
+		updates = map[string]interface{}{
+			"expires_at":       nil,
+			"is_manual_expiry": false,
+		}
+	} else {
+		now := time.Now()
+		updates = map[string]interface{}{
+			"expires_at":       expiresAt,
+			"is_manual_expiry": true,
+		}
+		// 如果实例因过期而冻结，且新的过期时间晚于当前时间，自动解冻
+		if inst.IsFrozen && inst.FrozenReason == "expired" && expiresAt.After(now) {
+			updates["is_frozen"] = false
+			updates["frozen_at"] = nil
+			updates["frozen_reason"] = ""
+		}
 	}
 
 	if err := global.APP_DB.Model(&inst).Updates(updates).Error; err != nil {
 		return err
 	}
 
-	global.APP_LOG.Info("管理员设置实例过期时间",
-		zap.Uint("instance_id", instanceID),
-		zap.Time("expires_at", expiresAt))
+	if expiresAt != nil {
+		global.APP_LOG.Info("管理员设置实例过期时间",
+			zap.Uint("instance_id", instanceID),
+			zap.Time("expires_at", *expiresAt))
+	} else {
+		global.APP_LOG.Info("管理员清除实例过期时间",
+			zap.Uint("instance_id", instanceID))
+	}
 
 	return nil
 }

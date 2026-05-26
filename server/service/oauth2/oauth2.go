@@ -94,6 +94,14 @@ func (s *Service) periodicCleanup() {
 	}
 }
 
+// safeStatePreview 返回state令牌的安全预览（最多16个字符）
+func safeStatePreview(state string) string {
+	if len(state) <= 16 {
+		return state
+	}
+	return state[:16] + "..."
+}
+
 // cleanExpiredStates 清理过期的state令牌
 func (s *Service) cleanExpiredStates() {
 	s.mu.Lock()
@@ -139,7 +147,7 @@ func (s *Service) GenerateStateToken(providerID uint) (string, error) {
 
 	global.APP_LOG.Debug("生成OAuth2 state令牌",
 		zap.Uint("provider_id", providerID),
-		zap.String("state", state[:16]+"..."), // 只记录部分state用于调试
+		zap.String("state", safeStatePreview(state)), // 只记录部分state用于调试
 		zap.Time("expiry", expiry),
 		zap.Duration("valid_for", expiryDuration))
 
@@ -158,7 +166,7 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 	if !exists {
 		s.mu.Unlock()
 		global.APP_LOG.Warn("state令牌不存在（可能已过期或已使用）",
-			zap.String("state", state[:16]+"..."))
+			zap.String("state", safeStatePreview(state)))
 		return 0, false
 	}
 
@@ -168,7 +176,7 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 		s.mu.Unlock()
 
 		global.APP_LOG.Warn("state令牌已过期",
-			zap.String("state", state[:16]+"..."),
+			zap.String("state", safeStatePreview(state)),
 			zap.Time("expiry", info.Expiry),
 			zap.Duration("过期时长", time.Since(info.Expiry)))
 		return 0, false
@@ -180,7 +188,7 @@ func (s *Service) ValidateStateToken(state string) (uint, bool) {
 
 	global.APP_LOG.Debug("state令牌验证成功",
 		zap.Uint("provider_id", info.ProviderID),
-		zap.String("state", state[:16]+"..."))
+		zap.String("state", safeStatePreview(state)))
 
 	return info.ProviderID, true
 }
@@ -337,7 +345,9 @@ type UserInfo struct {
 
 // FetchUserInfo 获取OAuth2用户信息
 func (s *Service) FetchUserInfo(provider *oauth2Model.OAuth2Provider, token *oauth2.Token) (map[string]interface{}, error) {
-	client := oauth2.NewClient(context.Background(), oauth2.StaticTokenSource(token))
+	fetchCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	client := oauth2.NewClient(fetchCtx, oauth2.StaticTokenSource(token))
 	resp, err := client.Get(provider.UserInfoURL)
 	if err != nil {
 		return nil, fmt.Errorf("获取用户信息失败: %w", err)
@@ -385,7 +395,9 @@ func (s *Service) HandleCallback(providerID uint, code string) (*user.User, stri
 
 	// 交换授权码获取令牌
 	oauth2Cfg := s.GetOAuth2Config(provider)
-	token, err := oauth2Cfg.Exchange(context.Background(), code)
+	exchangeCtx, exchangeCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer exchangeCancel()
+	token, err := oauth2Cfg.Exchange(exchangeCtx, code)
 	if err != nil {
 		global.APP_LOG.Error("交换OAuth2令牌失败", zap.Error(err))
 		return nil, "", common.NewError(common.CodeOAuth2Failed, "授权失败")
@@ -472,10 +484,10 @@ func (s *Service) SyncUserInfo(usr *user.User, provider *oauth2Model.OAuth2Provi
 
 	// 准备更新数据
 	updates := map[string]interface{}{
-		"OAuth2Username": userInfo.Username,
-		"OAuth2Email":    userInfo.Email,
-		"OAuth2Avatar":   userInfo.Avatar,
-		"OAuth2Extra":    userInfo.RawData,
+		"oauth2_username": userInfo.Username,
+		"oauth2_email":    userInfo.Email,
+		"oauth2_avatar":   userInfo.Avatar,
+		"oauth2_extra":    userInfo.RawData,
 	}
 
 	// 更新昵称（如果用户未自定义）

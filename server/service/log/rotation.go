@@ -229,13 +229,6 @@ func (w *RotatingFileWriter) Write(p []byte) (n int, err error) {
 		return len(p), nil
 	}
 
-	// 检查旧日志清理
-	err = w.removeOldLogs(w.config.BaseDir, w.config.MaxAge)
-	if err != nil {
-		// 清理失败不影响写入
-		fmt.Fprintf(os.Stderr, "[WARN] 清理旧日志失败: %v\n", err)
-	}
-
 	// 打开文件（追加模式）
 	w.file, err = os.OpenFile(filename, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
 	if err != nil {

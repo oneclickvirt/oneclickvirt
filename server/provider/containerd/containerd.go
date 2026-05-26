@@ -21,7 +21,7 @@ const (
 	providerType      = "containerd"
 	cliName           = "nerdctl"
 	ipv4Network       = "containerd-net"
-	ipv4Subnet        = "172.20.0.0/16"
+	ipv4Subnet        = "172.21.0.0/16"
 	ipv6Network       = "containerd-ipv6"
 	imageDir          = "/usr/local/bin/containerd_ct_images"
 	ipv6CheckFile     = "/usr/local/bin/containerd_check_ipv6"

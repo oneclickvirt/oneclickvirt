@@ -38,6 +38,11 @@ func InitUserRouter(Router *gin.RouterGroup) {
 		UserGroup.GET("/user/instances/:id/ports", user.GetInstancePorts)
 		UserGroup.GET("/user/instances/:id/ssh", user.SSHWebSocket)   // WebSocket SSH连接
 		UserGroup.GET("/user/instances/:id/exec", user.ExecWebSocket) // WebSocket Container Exec
+		UserGroup.GET("/user/instances/:id/sftp/list", user.UserSFTPList)
+		UserGroup.GET("/user/instances/:id/sftp/download", user.UserSFTPDownload)
+		UserGroup.POST("/user/instances/:id/sftp/upload", user.UserSFTPUpload)
+		UserGroup.GET("/user/instances/:id/sftp/upload/status", user.UserSFTPUploadStatus)
+		UserGroup.POST("/user/instances/:id/sftp/upload/abort", user.UserSFTPUploadAbort)
 		UserGroup.POST("/user/instances/action", user.InstanceAction)
 
 		// 端口映射

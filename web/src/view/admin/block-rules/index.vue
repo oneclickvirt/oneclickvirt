@@ -511,6 +511,8 @@ async function fetchRules() {
   try {
     const res = await blockRulesApi.getRules()
     rules.value = res?.data || []
+  } catch (err) {
+    ElMessage.error(err?.message || t('common.loadFailed'))
   } finally {
     loadingRules.value = false
   }
@@ -521,6 +523,8 @@ async function fetchApplications() {
   try {
     const res = await blockRulesApi.getApplications()
     applications.value = res?.data || []
+  } catch (err) {
+    ElMessage.error(err?.message || t('common.loadFailed'))
   } finally {
     loadingApps.value = false
   }
@@ -642,7 +646,10 @@ async function handleDeleteRule(row) {
     ElMessage.success(t('admin.blockRules.deleteSuccess'))
     fetchRules()
     fetchApplications()
-  } catch { /* cancelled */ }
+  } catch (err) {
+    if (err === 'cancel' || err?.action === 'cancel' || err?.action === 'close') return
+    ElMessage.error(err?.message || t('common.operationFailed'))
+  }
 }
 
 async function handleToggleEnabled(row, val) {
@@ -687,7 +694,10 @@ async function handleRemoveApplications() {
     })
     ElMessage.success(t('admin.blockRules.removeSuccess'))
     fetchApplications()
-  } catch { /* cancelled */ }
+  } catch (err) {
+    if (err === 'cancel' || err?.action === 'cancel' || err?.action === 'close') return
+    ElMessage.error(err?.message || t('common.operationFailed'))
+  }
 }
 
 onMounted(() => {

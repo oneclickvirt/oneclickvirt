@@ -114,5 +114,9 @@ export default {
   gpuDeviceIdsPlaceholder: "Leave empty to attach all GPUs; use comma-separated IDs (e.g. 0,1)",
   gpuDeviceIdsHint: "Only supported for LXD/Incus container instances. Leave empty to auto-attach all available GPUs on the node.",
   gpuSelectAll: "Select All",
-  gpuDeselectAll: "Deselect All"
+  gpuDeselectAll: "Deselect All",
+  loadLimitsFailed: "Failed to load user limits",
+  loadConfigFailed: "Failed to load instance configuration",
+  loadImagesFailed: "Failed to load images",
+  loadGPUsFailed: "Failed to load GPU list"
 }

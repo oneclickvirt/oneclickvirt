@@ -147,9 +147,11 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 	var providers []providerModel.Provider
 	if len(providerIDs) > 0 {
 		// 只查询必要字段
-		global.APP_DB.Select("id, name, type, region, status, network_type").
+		if err := global.APP_DB.Select("id, name, type, region, status, network_type").
 			Where("id IN ?", providerIDs).
-			Find(&providers)
+			Find(&providers).Error; err != nil {
+			global.APP_LOG.Warn("批量查询Provider信息失败", zap.Error(err))
+		}
 	}
 
 	// 将Provider信息按ID映射
@@ -167,9 +169,11 @@ func (s *Service) GetInstanceList(req admin.InstanceListRequest, ownerAdminID ui
 	var sshPorts []providerModel.Port
 	if len(instanceIDs) > 0 {
 		// 使用索引idx_instance_ssh (instance_id, is_ssh, status)
-		global.APP_DB.Select("instance_id, host_port").
+		if err := global.APP_DB.Select("instance_id, host_port").
 			Where("instance_id IN ? AND is_ssh = ? AND status = ?", instanceIDs, true, "active").
-			Find(&sshPorts)
+			Find(&sshPorts).Error; err != nil {
+			global.APP_LOG.Warn("批量查询SSH端口信息失败", zap.Error(err))
+		}
 	}
 
 	// 将SSH端口映射按instance_id映射

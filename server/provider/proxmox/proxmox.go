@@ -484,7 +484,9 @@ func (p *ProxmoxProvider) getNodeName(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	p.mu.Lock()
 	p.node = utils.CleanCommandOutput(output)
+	p.mu.Unlock()
 	return nil
 }
 
@@ -688,7 +690,9 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 	if err != nil {
 		global.APP_LOG.Warn("获取 Proxmox 版本失败，假设为较新版本",
 			zap.Error(err))
+		p.mu.Lock()
 		p.version = "unknown"
+		p.mu.Unlock()
 		return err
 	}
 
@@ -700,7 +704,9 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 			parts := strings.Split(line, "/")
 			if len(parts) >= 2 {
 				versionStr := parts[1]
+				p.mu.Lock()
 				p.version = versionStr
+				p.mu.Unlock()
 				global.APP_LOG.Debug("获取 Proxmox 版本成功",
 					zap.String("version", p.version),
 					zap.String("node", p.node))
@@ -711,7 +717,9 @@ func (p *ProxmoxProvider) getProxmoxVersion() error {
 
 	global.APP_LOG.Warn("无法解析 Proxmox 版本信息，假设为较新版本",
 		zap.String("output", output))
+	p.mu.Lock()
 	p.version = "unknown"
+	p.mu.Unlock()
 	return fmt.Errorf("无法解析版本信息")
 }
 

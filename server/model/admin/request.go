@@ -76,12 +76,12 @@ type CreateProviderRequest struct {
 	// 存储配置（所有Provider类型通用）
 	StoragePool string `json:"storagePool"` // 存储池名称，用于存储虚拟机磁盘和容器（实际路径将自动检测）
 	// 操作执行配置
-	ExecutionRule string `json:"executionRule" binding:"oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
+	ExecutionRule string `json:"executionRule" binding:"omitempty,oneof=auto api_only ssh_only"` // 操作轮转规则：auto(自动切换), api_only(仅API), ssh_only(仅SSH)
 	// 端口映射配置
-	DefaultPortCount int    `json:"defaultPortCount"`                                                                                                // 每个实例默认映射端口数量，默认10
-	PortRangeStart   int    `json:"portRangeStart"`                                                                                                  // 端口映射范围起始，默认10000
-	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                                    // 端口映射范围结束，默认65535
-	NetworkType      string `json:"networkType" binding:"oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only, no_port_mapping
+	DefaultPortCount int    `json:"defaultPortCount"`                                                                                                          // 每个实例默认映射端口数量，默认10
+	PortRangeStart   int    `json:"portRangeStart"`                                                                                                            // 端口映射范围起始，默认10000
+	PortRangeEnd     int    `json:"portRangeEnd"`                                                                                                              // 端口映射范围结束，默认65535
+	NetworkType      string `json:"networkType" binding:"omitempty,oneof=nat_ipv4 nat_ipv4_ipv6 dedicated_ipv4 dedicated_ipv4_ipv6 ipv6_only no_port_mapping"` // 网络配置类型：nat_ipv4, nat_ipv4_ipv6, dedicated_ipv4, dedicated_ipv4_ipv6, ipv6_only, no_port_mapping
 	// Proxmox 网桥配置（NodeInstallType == "third_party" 时生效）
 	NodeInstallType   string `json:"nodeInstallType"`   // 节点安装类型：script（本项目脚本安装）, third_party（第三方安装）
 	BridgeNAT         string `json:"bridgeNAT"`         // NAT网桥（替代vmbr1），仅proxmox+third_party时生效
@@ -269,20 +269,20 @@ type ProviderListRequest struct {
 
 // SetUserExpiryRequest 设置用户过期时间请求
 type SetUserExpiryRequest struct {
-	UserID    uint      `json:"userId" binding:"required"`
-	ExpiresAt time.Time `json:"expiresAt" binding:"required"`
+	UserID    uint       `json:"userId" binding:"required"`
+	ExpiresAt *time.Time `json:"expiresAt"` // nil = clear expiry
 }
 
 // SetProviderExpiryRequest 设置Provider过期时间请求
 type SetProviderExpiryRequest struct {
-	ProviderID uint      `json:"providerId" binding:"required"`
-	ExpiresAt  time.Time `json:"expiresAt" binding:"required"`
+	ProviderID uint       `json:"providerId" binding:"required"`
+	ExpiresAt  *time.Time `json:"expiresAt"` // nil = clear expiry
 }
 
 // SetInstanceExpiryRequest 设置实例过期时间请求
 type SetInstanceExpiryRequest struct {
-	InstanceID uint      `json:"instanceId" binding:"required"`
-	ExpiresAt  time.Time `json:"expiresAt" binding:"required"`
+	InstanceID uint       `json:"instanceId" binding:"required"`
+	ExpiresAt  *time.Time `json:"expiresAt"` // nil = clear expiry
 }
 
 // UnfreezeInstanceRequest 解冻实例请求

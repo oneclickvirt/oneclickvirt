@@ -1,19 +1,30 @@
 <template>
   <div class="admin-terminal-container">
-    <div
-      ref="terminalRef"
-      class="terminal"
-    />
+    <el-tabs v-model="activeView">
+      <el-tab-pane label="Terminal" name="terminal">
+        <div
+          ref="terminalRef"
+          class="terminal"
+        />
+      </el-tab-pane>
+      <el-tab-pane label="SFTP" name="sftp">
+        <SFTPPanel
+          entity-type="admin-provider"
+          :entity-id="providerId"
+        />
+      </el-tab-pane>
+    </el-tabs>
   </div>
 </template>
 
 <script setup>
-import { ref, onMounted, onBeforeUnmount, nextTick } from 'vue'
+import { ref, onMounted, onBeforeUnmount, nextTick, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
+import SFTPPanel from '@/components/SFTPPanel.vue'
 
 const { t } = useI18n()
 
@@ -25,6 +36,7 @@ const props = defineProps({
 const emit = defineEmits(['close'])
 
 const terminalRef = ref(null)
+const activeView = ref('terminal')
 let terminal = null
 let fitAddon = null
 let websocket = null
@@ -37,6 +49,7 @@ onBeforeUnmount(() => cleanup())
 
 const initTerminal = () => {
   if (isCleanedUp) return
+  if (activeView.value !== 'terminal') return
 
   terminal = new Terminal({
     cursorBlink: true,
@@ -89,6 +102,7 @@ const initTerminal = () => {
 
 const connect = () => {
   if (isCleanedUp) return
+  if (activeView.value !== 'terminal') return
 
   const token = sessionStorage.getItem('token')
   if (!token) {
@@ -201,6 +215,28 @@ const cleanup = () => {
     fitAddon = null
   }
 }
+
+watch(activeView, (view) => {
+  if (view === 'terminal') {
+    if (isCleanedUp) return
+    if (!terminal) {
+      nextTick(() => initTerminal())
+    } else {
+      // terminal exists but websocket may have been closed when switching away
+      // re-connect if no active websocket
+      if (!websocket || websocket.readyState === WebSocket.CLOSED || websocket.readyState === WebSocket.CLOSING) {
+        nextTick(() => connect())
+      }
+    }
+    return
+  }
+  // switching away from terminal: close websocket to free server resources
+  if (websocket) {
+    const ws = websocket
+    websocket = null
+    try { ws.close(1000, 'Switch to SFTP') } catch {}
+  }
+})
 </script>
 
 <style scoped>
@@ -211,6 +247,18 @@ const cleanup = () => {
   padding: 10px;
   border-radius: 4px;
   overflow: hidden;
+}
+
+:deep(.el-tabs) {
+  height: 100%;
+}
+
+:deep(.el-tabs__content) {
+  height: calc(100% - 40px);
+}
+
+:deep(.el-tab-pane) {
+  height: 100%;
 }
 .terminal {
   width: 100%;

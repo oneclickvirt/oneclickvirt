@@ -101,6 +101,7 @@ export default {
   resetPasswordSuccess: "Password reset task created (Task ID: {taskId}), please check the progress in the task list",
   resetPasswordFailed: "Failed to create password reset task",
   resetPasswordError: "Failed to create password reset task, please try again later",
+  newPassword: "New Password",
   deleteConfirm: "Are you sure to delete this instance? The deletion will be executed asynchronously as a task, please check the progress in the task list.",
   deleteTitle: "Delete Instance",
   deleteSuccess: "Deletion task created, please check the task list for progress",

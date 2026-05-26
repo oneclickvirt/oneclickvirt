@@ -3,14 +3,14 @@
     <!-- 所有SSH终端连接（包括显示和最小化的） -->
     <div 
       v-for="conn in allConnections" 
-      :key="conn.instanceId"
+      :key="conn.connectionKey"
     >
       <!-- SSH对话框 -->
       <el-dialog
         v-model="conn.visible"
         :title="t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName })"
         width="80%"
-        :before-close="() => closeConnection(conn.instanceId)"
+        :before-close="() => closeConnection(conn.connectionKey)"
         :destroy-on-close="false"
         :append-to-body="true"
         :close-on-click-modal="false"
@@ -24,7 +24,7 @@
                 :icon="Minus"
                 size="small" 
                 :title="t('user.instanceDetail.sshMinimize')"
-                @click="minimizeConnection(conn.instanceId)"
+                @click="minimizeConnection(conn.connectionKey)"
               >
                 {{ t('user.instanceDetail.sshMinimize') }}
               </el-button>
@@ -32,11 +32,12 @@
                 :icon="Refresh"
                 size="small" 
                 :title="t('user.instanceDetail.sshReconnect')"
-                @click="reconnectSSH(conn.instanceId)"
+                @click="reconnectSSH(conn.connectionKey)"
               >
                 {{ t('user.instanceDetail.sshReconnect') }}
               </el-button>
               <el-button 
+                v-if="conn.mode !== 'exec'"
                 :icon="FullScreen"
                 size="small" 
                 :title="t('user.instanceDetail.sshOpenInNewWindow')"
@@ -48,14 +49,39 @@
           </div>
         </template>
         <div class="ssh-dialog-content">
+          <el-tabs
+            v-if="conn.mode !== 'exec'"
+            :model-value="conn.activeView || 'terminal'"
+            @tab-change="(view) => setConnectionView(conn.connectionKey, view)"
+          >
+            <el-tab-pane label="Terminal" name="terminal" lazy>
+              <SSHTerminal
+                :ref="el => setTerminalRef(conn.connectionKey, el)"
+                :instance-id="conn.instanceId"
+                :instance-name="conn.instanceName"
+                :is-admin="conn.isAdmin || false"
+                :mode="conn.mode || 'ssh'"
+                @close="() => closeConnection(conn.connectionKey)"
+                @error="(error) => handleSSHError(conn.connectionKey, error)"
+              />
+            </el-tab-pane>
+            <el-tab-pane label="SFTP" name="sftp" lazy>
+              <SFTPPanel
+                :entity-type="conn.isAdmin ? 'admin-instance' : 'user-instance'"
+                :entity-id="conn.instanceId"
+              />
+            </el-tab-pane>
+          </el-tabs>
+
           <SSHTerminal
-            :ref="el => setTerminalRef(conn.instanceId, el)"
+            v-else
+            :ref="el => setTerminalRef(conn.connectionKey, el)"
             :instance-id="conn.instanceId"
             :instance-name="conn.instanceName"
             :is-admin="conn.isAdmin || false"
             :mode="conn.mode || 'ssh'"
-            @close="() => closeConnection(conn.instanceId)"
-            @error="(error) => handleSSHError(conn.instanceId, error)"
+            @close="() => closeConnection(conn.connectionKey)"
+            @error="(error) => handleSSHError(conn.connectionKey, error)"
           />
         </div>
       </el-dialog>
@@ -64,13 +90,13 @@
     <!-- 所有最小化的SSH连接悬浮窗 -->
     <div 
       v-for="(conn, index) in minimizedConnections" 
-      :key="`min-${conn.instanceId}`"
+      :key="`min-${conn.connectionKey}`"
       class="ssh-minimized-container"
       :style="{ bottom: `${20 + index * 60}px` }"
     >
       <div
         class="ssh-minimized-header"
-        @click="restoreConnection(conn.instanceId)"
+        @click="restoreConnection(conn.connectionKey)"
       >
         <span>{{ t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }) }}</span>
         <el-button 
@@ -78,7 +104,7 @@
           text
           size="small" 
           class="close-btn"
-          @click.stop="closeConnection(conn.instanceId)"
+          @click.stop="closeConnection(conn.connectionKey)"
         />
       </div>
     </div>
@@ -93,6 +119,7 @@ import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useI18n } from 'vue-i18n'
 import SSHTerminal from '@/components/SSHTerminal.vue'
+import SFTPPanel from '@/components/SFTPPanel.vue'
 
 const { t } = useI18n()
 
@@ -103,8 +130,8 @@ const router = useRouter()
 const terminalRefs = ref({})
 
 const allConnections = computed(() => {
-  return Object.entries(sshStore.connections).map(([instanceId, conn]) => ({
-    instanceId,
+  return Object.entries(sshStore.connections).map(([connectionKey, conn]) => ({
+    connectionKey,
     ...conn
   }))
 })
@@ -115,6 +142,10 @@ const setTerminalRef = (instanceId, el) => {
   if (el) {
     terminalRefs.value[instanceId] = el
   }
+}
+
+const setConnectionView = (connectionKey, view) => {
+  sshStore.setActiveView(connectionKey, view)
 }
 
 const restoreConnection = (instanceId) => {
@@ -167,7 +198,9 @@ const openSSHInNewWindow = (conn) => {
     wsHost = `${window.location.hostname}:${serverPort}`
   }
   
-  const wsUrl = `${protocol}//${wsHost}/api/v1/user/instances/${conn.instanceId}/ssh?token=${encodeURIComponent(token)}`
+  const endpoint = conn.mode === 'exec' ? 'exec' : 'ssh'
+  const rolePrefix = conn.isAdmin ? 'admin' : 'user'
+  const wsUrl = `${protocol}//${wsHost}/api/v1/${rolePrefix}/instances/${conn.instanceId}/${endpoint}?token=${encodeURIComponent(token)}`
   
   const escapeHtml = (str) => str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')
   const sshTitle = escapeHtml(t('user.instanceDetail.sshTerminalTitle', { name: conn.instanceName }))

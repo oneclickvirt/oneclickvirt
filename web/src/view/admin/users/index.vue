@@ -145,185 +145,17 @@
         </div>
       </div>
       
-      <el-table 
-        v-loading="loading" 
-        :data="users" 
-        class="users-table"
-        :row-style="{ height: '60px' }"
-        :cell-style="{ padding: '12px 0' }"
-        :header-cell-style="{ background: '#f5f7fa', padding: '14px 0', fontWeight: '600' }"
+      <UsersTable
+        :users="users"
+        :loading="loading"
         @selection-change="handleSelectionChange"
-      >
-        <el-table-column
-          type="selection"
-          width="55"
-          align="center"
-        />
-        <el-table-column
-          prop="id"
-          label="ID"
-          width="80"
-          align="center"
-        />
-        <el-table-column
-          prop="username"
-          :label="$t('admin.users.username')"
-          min-width="140"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          prop="email"
-          :label="$t('admin.users.email')"
-          min-width="180"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          prop="nickname"
-          :label="$t('admin.users.nickname')"
-          min-width="140"
-          show-overflow-tooltip
-        />
-        <el-table-column
-          prop="level"
-          :label="$t('admin.users.level')"
-          width="100"
-          align="center"
-        >
-          <template #default="scope">
-            <el-tag :type="getLevelTagType(scope.row.level)">
-              {{ $t('admin.users.levelTag', { level: scope.row.level }) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="userType"
-          :label="$t('admin.users.userType')"
-          width="120"
-          align="center"
-        >
-          <template #default="scope">
-            <el-tag :type="getUserTypeTagType(scope.row.userType)">
-              {{ getUserTypeLabel(scope.row.userType) }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="status"
-          :label="$t('common.status')"
-          width="100"
-          align="center"
-        >
-          <template #default="scope">
-            <el-tag :type="scope.row.status === 1 ? 'success' : 'danger'">
-              {{ scope.row.status === 1 ? $t('admin.users.active') : $t('admin.users.disabled') }}
-            </el-tag>
-          </template>
-        </el-table-column>
-        <el-table-column
-          prop="expiresAt"
-          :label="$t('admin.users.expiresAt')"
-          width="180"
-          align="center"
-        >
-          <template #default="scope">
-            <div v-if="scope.row.expiresAt">
-              <el-tag 
-                :type="isExpired(scope.row.expiresAt) ? 'danger' : 'success'"
-                size="small"
-              >
-                {{ formatDateTime(scope.row.expiresAt) }}
-              </el-tag>
-              <div
-                v-if="scope.row.isManualExpiry"
-                style="margin-top: 4px;"
-              >
-                <el-tag
-                  size="small"
-                  type="info"
-                >
-                  {{ $t('admin.users.manualExpiry') }}
-                </el-tag>
-              </div>
-            </div>
-            <span v-else>-</span>
-          </template>
-        </el-table-column>
-        <el-table-column
-          :label="$t('common.actions')"
-          width="350"
-          fixed="right"
-          align="center"
-        >
-          <template #default="scope">
-            <div class="action-buttons">
-              <el-button
-                size="small"
-                @click="editUser(scope.row)"
-              >
-                {{ $t('common.edit') }}
-              </el-button>
-              <el-dropdown @command="(level) => handleSetUserLevel(scope.row, level)">
-                <el-button
-                  size="small"
-                  type="primary"
-                >
-                  {{ $t('admin.users.levelSetting') }}<el-icon class="el-icon--right">
-                    <arrow-down />
-                  </el-icon>
-                </el-button>
-                <template #dropdown>
-                  <el-dropdown-menu>
-                    <el-dropdown-item :command="1">
-                      {{ $t('admin.users.setToLevel', { level: 1 }) }}
-                    </el-dropdown-item>
-                    <el-dropdown-item :command="2">
-                      {{ $t('admin.users.setToLevel', { level: 2 }) }}
-                    </el-dropdown-item>
-                    <el-dropdown-item :command="3">
-                      {{ $t('admin.users.setToLevel', { level: 3 }) }}
-                    </el-dropdown-item>
-                    <el-dropdown-item :command="4">
-                      {{ $t('admin.users.setToLevel', { level: 4 }) }}
-                    </el-dropdown-item>
-                    <el-dropdown-item :command="5">
-                      {{ $t('admin.users.setToLevel', { level: 5 }) }}
-                    </el-dropdown-item>
-                  </el-dropdown-menu>
-                </template>
-              </el-dropdown>
-              <el-button
-                size="small"
-                type="warning"
-                @click="handleSetExpiry(scope.row)"
-              >
-                {{ $t('admin.users.setExpiry') }}
-              </el-button>
-              <el-button
-                size="small"
-                :type="scope.row.status === 1 ? 'danger' : 'success'"
-                @click="handleToggleUserStatus(scope.row)"
-              >
-                {{ scope.row.status === 1 ? $t('admin.users.disable') : $t('admin.users.enable') }}
-              </el-button>
-              <el-button
-                size="small"
-                type="warning"
-                @click="handleResetPassword(scope.row)"
-              >
-                {{ $t('admin.users.resetPassword') }}
-              </el-button>
-              <el-button
-                v-if="scope.row.userType !== 'admin'"
-                size="small"
-                type="info"
-                @click="handleLoginAsUser(scope.row)"
-              >
-                {{ $t('admin.users.loginAs') }}
-              </el-button>
-            </div>
-          </template>
-        </el-table-column>
-      </el-table>
+        @edit="editUser"
+        @set-user-level="handleSetUserLevel"
+        @set-expiry="handleSetExpiry"
+        @toggle-status="handleToggleUserStatus"
+        @reset-password="handleResetPassword"
+        @login-as="handleLoginAsUser"
+      />
 
       <!-- 分页 -->
       <div class="pagination-wrapper">
@@ -339,336 +171,36 @@
       </div>
     </el-card>
 
-    <!-- 添加/编辑用户对话框 -->
-    <el-dialog
-      v-model="showAddDialog"
-      :title="isEditing ? $t('admin.users.editUser') : $t('admin.users.addUser')"
-      width="600px"
-      @close="cancelAddUser"
-    >
-      <el-form
-        ref="addUserFormRef"
-        :model="addUserForm"
-        :rules="addUserRules"
-        label-width="100px"
-      >
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('admin.users.username')"
-              prop="username"
-            >
-              <el-input
-                v-model="addUserForm.username"
-                :disabled="isEditing"
-              />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('admin.users.nickname')"
-              prop="nickname"
-            >
-              <el-input v-model="addUserForm.nickname" />
-            </el-form-item>
-          </el-col>
-        </el-row>
-        
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('admin.users.email')"
-              prop="email"
-            >
-              <el-input v-model="addUserForm.email" />
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('user.profile.phone')"
-              prop="phone"
-            >
-              <el-input v-model="addUserForm.phone" />
-            </el-form-item>
-          </el-col>
-        </el-row>
+    <AddEditUserDialog
+      ref="addUserFormRef"
+      :visible="showAddDialog"
+      :is-editing="isEditing"
+      :add-user-form="addUserForm"
+      :add-user-rules="addUserRules"
+      :loading="addUserLoading"
+      @update:visible="showAddDialog = $event"
+      @cancel="cancelAddUser"
+      @submit="submitAddUser"
+    />
 
-        <el-row
-          v-if="!isEditing"
-          :gutter="20"
-        >
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('login.password')"
-              prop="password"
-            >
-              <el-input
-                v-model="addUserForm.password"
-                type="password"
-              />
-              <div class="password-hint">
-                <el-text
-                  size="small"
-                  type="info"
-                >
-                  {{ $t('register.passwordHint') }}
-                </el-text>
-              </div>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('register.confirmPassword')"
-              prop="confirmPassword"
-            >
-              <el-input
-                v-model="addUserForm.confirmPassword"
-                type="password"
-              />
-            </el-form-item>
-          </el-col>
-        </el-row>
+    <ResetPasswordDialog
+      :visible="showResetPasswordDialog"
+      :reset-password-form="resetPasswordForm"
+      :generated-password="generatedPassword"
+      :loading="resetPasswordLoading"
+      @update:visible="showResetPasswordDialog = $event"
+      @cancel="cancelResetPassword"
+      @confirm="confirmResetPassword"
+      @copy-password="copyPassword"
+    />
 
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('admin.users.userType')"
-              prop="userType"
-            >
-              <el-select
-                v-model="addUserForm.userType"
-                style="width: 100%"
-              >
-                <el-option
-                  :label="$t('admin.users.normalUser')"
-                  value="user"
-                />
-                <el-option
-                  :label="$t('admin.users.normalAdmin')"
-                  value="normal_admin"
-                />
-                <el-option
-                  :label="$t('admin.users.adminUser')"
-                  value="admin"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('common.status')"
-              prop="status"
-            >
-              <el-select
-                v-model="addUserForm.status"
-                style="width: 100%"
-              >
-                <el-option
-                  :label="$t('admin.users.active')"
-                  :value="1"
-                />
-                <el-option
-                  :label="$t('admin.users.disabled')"
-                  :value="0"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-        
-        <el-row :gutter="20">
-          <el-col :span="12">
-            <el-form-item
-              :label="$t('admin.users.level')"
-              prop="level"
-            >
-              <el-select
-                v-model="addUserForm.level"
-                :placeholder="$t('common.selectAll')"
-                style="width: 100%"
-              >
-                <el-option
-                  :label="$t('admin.users.levelTag', { level: 1 })"
-                  :value="1"
-                />
-                <el-option
-                  :label="$t('admin.users.levelTag', { level: 2 })"
-                  :value="2"
-                />
-                <el-option
-                  :label="$t('admin.users.levelTag', { level: 3 })"
-                  :value="3"
-                />
-                <el-option
-                  :label="$t('admin.users.levelTag', { level: 4 })"
-                  :value="4"
-                />
-                <el-option
-                  :label="$t('admin.users.levelTag', { level: 5 })"
-                  :value="5"
-                />
-              </el-select>
-            </el-form-item>
-          </el-col>
-        </el-row>
-      </el-form>
-      
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="cancelAddUser">
-            {{ $t('common.cancel') }}
-          </el-button>
-          <el-button
-            type="primary"
-            :loading="addUserLoading"
-            @click="submitAddUser"
-          >
-            {{ isEditing ? $t('common.save') : $t('common.create') }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 重置密码对话框 -->
-    <el-dialog
-      v-model="showResetPasswordDialog"
-      :title="$t('admin.users.resetPassword')"
-      width="600px"
-      @close="cancelResetPassword"
-    >
-      <div
-        v-if="!generatedPassword"
-        style="text-align: center;"
-      >
-        <el-form
-          label-width="120px"
-          style="max-width: 500px; margin: 0 auto;"
-        >
-          <el-form-item :label="$t('admin.users.username')">
-            <el-input 
-              v-model="resetPasswordForm.username" 
-              disabled
-              style="width: 100%;"
-            />
-          </el-form-item>
-        </el-form>
-        
-        <div style="margin: 20px 0;">
-          <el-text type="info">
-            {{ $t('admin.users.passwordResetInfo') }} <strong>{{ resetPasswordForm.username }}</strong>
-          </el-text>
-        </div>
-        
-        <div style="margin: 20px 0;">
-          <el-text
-            size="small"
-            type="warning"
-          >
-            {{ $t('register.passwordHint') }}
-          </el-text>
-        </div>
-      </div>
-      
-      <!-- 显示生成的密码 -->
-      <div
-        v-else
-        style="text-align: center;"
-      >
-        <el-result
-          icon="success"
-          :title="$t('admin.users.resetPasswordSuccess')"
-          :sub-title="$t('admin.users.passwordResetInfo')"
-        >
-          <template #extra>
-            <div style="margin: 20px 0;">
-              <el-text
-                type="info"
-                style="display: block; margin-bottom: 10px;"
-              >
-                {{ $t('admin.users.newPassword') }}：
-              </el-text>
-              <el-input
-                v-model="generatedPassword"
-                readonly
-                style="width: 300px; font-family: monospace; font-size: 16px;"
-              >
-                <template #append>
-                  <el-button @click="copyPassword">
-                    {{ $t('common.copy') }}
-                  </el-button>
-                </template>
-              </el-input>
-            </div>
-            <div style="margin: 20px 0;">
-              <el-text
-                size="small"
-                type="warning"
-              >
-                {{ $t('register.passwordHint') }}
-              </el-text>
-            </div>
-          </template>
-        </el-result>
-      </div>
-      
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="cancelResetPassword">
-            {{ generatedPassword ? $t('common.close') : $t('common.cancel') }}
-          </el-button>
-          <el-button 
-            v-if="!generatedPassword"
-            type="danger" 
-            :loading="resetPasswordLoading"
-            @click="confirmResetPassword"
-          >
-            {{ $t('admin.users.resetPassword') }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
-
-    <!-- 设置过期时间对话框 -->
-    <el-dialog
-      v-model="showSetExpiryDialog"
-      :title="$t('admin.users.setExpiry')"
-      width="500px"
-    >
-      <el-form
-        label-width="120px"
-      >
-        <el-form-item :label="$t('admin.users.username')">
-          <el-input 
-            v-model="freezeForm.username" 
-            disabled
-          />
-        </el-form-item>
-        <el-form-item :label="$t('admin.users.expiresAt')">
-          <el-date-picker
-            v-model="freezeForm.expiresAt"
-            type="datetime"
-            :placeholder="$t('admin.users.selectExpiryTime')"
-            format="YYYY-MM-DD HH:mm:ss"
-            value-format="YYYY-MM-DDTHH:mm:ssZ"
-            style="width: 100%;"
-          />
-        </el-form-item>
-      </el-form>
-      <template #footer>
-        <div class="dialog-footer">
-          <el-button @click="showSetExpiryDialog = false">
-            {{ $t('common.cancel') }}
-          </el-button>
-          <el-button
-            type="primary"
-            :loading="freezeLoading"
-            @click="confirmSetExpiry"
-          >
-            {{ $t('common.confirm') }}
-          </el-button>
-        </div>
-      </template>
-    </el-dialog>
+    <SetExpiryDialog
+      :visible="showSetExpiryDialog"
+      :freeze-form="freezeForm"
+      :loading="freezeLoading"
+      @update:visible="showSetExpiryDialog = $event"
+      @confirm="confirmSetExpiry"
+    />
   </div>
 </template>
 
@@ -676,6 +208,10 @@
 import { onMounted } from 'vue'
 import { Search, ArrowDown } from '@element-plus/icons-vue'
 import { useUserManagement } from './composables/useUserManagement'
+import UsersTable from './components/UsersTable.vue'
+import AddEditUserDialog from './components/AddEditUserDialog.vue'
+import ResetPasswordDialog from './components/ResetPasswordDialog.vue'
+import SetExpiryDialog from './components/SetExpiryDialog.vue'
 
 const {
   users, loading, showAddDialog, addUserLoading, addUserFormRef, isEditing,

@@ -172,9 +172,17 @@ func (s *MonitoringSchedulerService) startPmacctCollection(ctx context.Context) 
 						}
 					}()
 
-					// 第三层：超时保护
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-					defer cancel()
+					// 第三层：超时保护，并关联到服务生命周期
+					baseCtx, baseCancel := context.WithCancel(context.Background())
+					go func() {
+						select {
+						case <-s.stopChan:
+							baseCancel()
+						case <-baseCtx.Done():
+						}
+					}()
+					ctx, cancel := context.WithTimeout(baseCtx, 5*time.Minute)
+					defer func() { baseCancel(); cancel() }()
 
 					// 检查服务是否已停止
 					select {

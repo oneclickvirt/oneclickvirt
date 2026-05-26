@@ -203,7 +203,9 @@ func (i *IncusProvider) getIncusVersion() error {
 	if err != nil {
 		global.APP_LOG.Warn("获取 Incus 版本失败",
 			zap.Error(err))
+		i.mu.Lock()
 		i.version = "unknown"
+		i.mu.Unlock()
 		return err
 	}
 
@@ -215,13 +217,17 @@ func (i *IncusProvider) getIncusVersion() error {
 			continue
 		}
 		// 提取第一个非空行作为版本号
+		i.mu.Lock()
 		i.version = line
+		i.mu.Unlock()
 		global.APP_LOG.Debug("获取 Incus 版本成功",
 			zap.String("version", i.version))
 		return nil
 	}
 
+	i.mu.Lock()
 	i.version = "unknown"
+	i.mu.Unlock()
 	return fmt.Errorf("无法解析版本信息")
 }
 

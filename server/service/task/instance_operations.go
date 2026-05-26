@@ -152,13 +152,20 @@ func (s *TaskService) executeStartInstanceTask(ctx context.Context, task *adminM
 
 		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
 		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
-		defer waitCancel()
 
-		<-waitCtx.Done()
-
-		// 检查是服务关闭还是正常超时
-		if s.ctx.Err() != nil {
-			// 服务正在关闭
+		select {
+		case <-waitCtx.Done():
+			waitCancel()
+			// 检查是服务关闭还是正常超时
+			if s.ctx.Err() != nil {
+				// 服务正在关闭
+				global.APP_LOG.Debug("启动实例后处理被服务关闭中断",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("taskId", taskID))
+				return
+			}
+		case <-s.ctx.Done():
+			waitCancel()
 			global.APP_LOG.Debug("启动实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))
@@ -487,13 +494,20 @@ func (s *TaskService) executeRestartInstanceTask(ctx context.Context, task *admi
 
 		// 使用服务级别的context和可取消的等待，避免goroutine泄漏
 		waitCtx, waitCancel := context.WithTimeout(s.ctx, 30*time.Second)
-		defer waitCancel()
 
-		<-waitCtx.Done()
-
-		// 检查是服务关闭还是正常超时
-		if s.ctx.Err() != nil {
-			// 服务正在关闭
+		select {
+		case <-waitCtx.Done():
+			waitCancel()
+			// 检查是服务关闭还是正常超时
+			if s.ctx.Err() != nil {
+				// 服务正在关闭
+				global.APP_LOG.Debug("重启实例后处理被服务关闭中断",
+					zap.Uint("instanceId", instanceID),
+					zap.Uint("taskId", taskID))
+				return
+			}
+		case <-s.ctx.Done():
+			waitCancel()
 			global.APP_LOG.Debug("重启实例后处理被服务关闭中断",
 				zap.Uint("instanceId", instanceID),
 				zap.Uint("taskId", taskID))

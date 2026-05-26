@@ -184,12 +184,22 @@ func (p *PodmanPortMapping) ListPortMappings(ctx context.Context, instanceID str
 		return nil, fmt.Errorf("failed to list port mappings: %v", err)
 	}
 
+	// 批量加载所有涉及的provider，避免N+1查询
+	providerCache := make(map[uint]*provider.Provider)
+	for _, port := range ports {
+		if _, ok := providerCache[port.ProviderID]; !ok {
+			if prov, err := p.getProvider(port.ProviderID); err == nil {
+				providerCache[port.ProviderID] = prov
+			}
+		}
+	}
+
 	var results []*portmapping.PortMappingResult
 	for _, port := range ports {
 		result := p.BaseProvider.FromDBModel(&port)
 		result.MappingMethod = "podman-native"
 
-		if providerInfo, err := p.getProvider(port.ProviderID); err == nil {
+		if providerInfo, ok := providerCache[port.ProviderID]; ok {
 			result.HostIP = providerInfo.Endpoint
 			result.PublicIP = p.getPublicIP(providerInfo)
 		}

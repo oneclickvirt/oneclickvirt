@@ -354,7 +354,11 @@ function handleEdit(row) {
 }
 
 async function handleSubmit() {
-  await formRef.value.validate()
+  try {
+    await formRef.value.validate()
+  } catch (_) {
+    return
+  }
   submitting.value = true
   try {
     if (isEdit.value) {
@@ -382,16 +386,26 @@ async function handleSubmit() {
     }
     showDialog.value = false
     fetchData()
+  } catch (error) {
+    ElMessage.error(error?.message || (isEdit.value ? t('user.domain.updateFailed') : t('user.domain.createFailed')))
   } finally {
     submitting.value = false
   }
 }
 
 async function handleDelete(row) {
-  await ElMessageBox.confirm(t('user.domain.confirmDelete'))
-  await deleteUserDomain(row.id)
-  ElMessage.success(t('user.domain.deleteSuccess'))
-  fetchData()
+  try {
+    await ElMessageBox.confirm(t('user.domain.confirmDelete'))
+  } catch (_) {
+    return
+  }
+  try {
+    await deleteUserDomain(row.id)
+    ElMessage.success(t('user.domain.deleteSuccess'))
+    fetchData()
+  } catch (error) {
+    ElMessage.error(error?.message || t('user.domain.deleteFailed'))
+  }
 }
 
 onMounted(() => {

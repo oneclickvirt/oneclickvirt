@@ -32,6 +32,8 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 		}
 		return err
 	}
+	// 保存原始过期时间，用于后续对比是否发生变化
+	originalExpiresAt := provider.ExpiresAt
 
 	// 1. 检查Provider名称是否与其他Provider重复（排除当前Provider）
 	if req.Name != provider.Name {
@@ -342,23 +344,19 @@ func (s *Service) UpdateProvider(req admin.UpdateProviderRequest) error {
 	}
 
 	// 检查Provider过期时间是否发生变化，需要同步到非手动设置过期时间的实例
-	var oldProvider providerModel.Provider
-	if err := global.APP_DB.First(&oldProvider, req.ID).Error; err == nil {
-		// 比较新旧过期时间是否不同
-		expireTimeChanged := false
-		if (oldProvider.ExpiresAt == nil && provider.ExpiresAt != nil) ||
-			(oldProvider.ExpiresAt != nil && provider.ExpiresAt == nil) ||
-			(oldProvider.ExpiresAt != nil && provider.ExpiresAt != nil && !oldProvider.ExpiresAt.Equal(*provider.ExpiresAt)) {
-			expireTimeChanged = true
-		}
+	expireTimeChanged := false
+	if (originalExpiresAt == nil && provider.ExpiresAt != nil) ||
+		(originalExpiresAt != nil && provider.ExpiresAt == nil) ||
+		(originalExpiresAt != nil && provider.ExpiresAt != nil && !originalExpiresAt.Equal(*provider.ExpiresAt)) {
+		expireTimeChanged = true
+	}
 
-		// 如果过期时间发生变化，记录日志并准备同步
-		if expireTimeChanged {
-			global.APP_LOG.Info("Provider过期时间发生变化，将同步非手动设置过期时间的实例",
-				zap.Uint("providerID", req.ID),
-				zap.Any("oldExpiresAt", oldProvider.ExpiresAt),
-				zap.Any("newExpiresAt", provider.ExpiresAt))
-		}
+	// 如果过期时间发生变化，记录日志并准备同步
+	if expireTimeChanged {
+		global.APP_LOG.Info("Provider过期时间发生变化，将同步非手动设置过期时间的实例",
+			zap.Uint("providerID", req.ID),
+			zap.Any("oldExpiresAt", originalExpiresAt),
+			zap.Any("newExpiresAt", provider.ExpiresAt))
 	}
 
 	// 端口映射方式更新

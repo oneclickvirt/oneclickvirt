@@ -1,0 +1,366 @@
+<template>
+  <!-- PMAcct 说明 -->
+  <el-alert
+    :title="$t('admin.providers.pmacctMonitoringDescTitle')"
+    type="warning"
+    :closable="false"
+    show-icon
+    style="margin-bottom: 16px;"
+  >
+    <template #default>
+      <p style="margin: 4px 0 0;">
+        {{ $t('admin.providers.pmacctMonitoringDesc') }}
+      </p>
+    </template>
+  </el-alert>
+
+  <!-- 历史记录视图 -->
+  <div v-if="showHistory">
+    <el-alert
+      :title="$t('admin.providers.trafficMonitorHistory')"
+      type="info"
+      :closable="false"
+      show-icon
+      style="margin-bottom: 20px;"
+    >
+      <template #default>
+        <p>{{ $t('admin.providers.trafficMonitorHistoryMessage') }}</p>
+      </template>
+    </el-alert>
+
+    <!-- 正在运行的任务 -->
+    <div
+      v-if="runningTask"
+      style="margin-bottom: 20px;"
+    >
+      <el-alert
+        :title="$t('admin.providers.runningTrafficMonitorTask')"
+        type="warning"
+        :closable="false"
+        show-icon
+      >
+        <template #default>
+          <p>{{ $t('admin.providers.taskID') }}: {{ runningTask.id }}</p>
+          <p>{{ $t('admin.providers.taskType') }}: {{ getTaskTypeLabel(runningTask.taskType) }}</p>
+          <p>{{ $t('admin.providers.startTime') }}: {{ formatDateTime(runningTask.startedAt) }}</p>
+          <p>{{ $t('admin.providers.progress') }}: {{ runningTask.progress }}%</p>
+        </template>
+      </el-alert>
+    </div>
+
+    <!-- 历史任务列表 -->
+    <div v-if="historyTasks.length > 0">
+      <h4>{{ $t('admin.providers.trafficMonitorHistoryRecords') }}</h4>
+      <el-table
+        :data="historyTasks"
+        size="small"
+        style="margin-bottom: 20px;"
+      >
+        <el-table-column
+          prop="id"
+          :label="$t('admin.providers.taskID')"
+          width="70"
+        />
+        <el-table-column
+          :label="$t('admin.providers.taskType')"
+          width="120"
+        >
+          <template #default="{ row }">
+            <el-tag
+              :type="getTaskTypeTagType(row.taskType)"
+              size="small"
+            >
+              {{ getTaskTypeLabel(row.taskType) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.status')"
+          width="80"
+        >
+          <template #default="{ row }">
+            <el-tag
+              :type="getTaskStatusTagType(row.status)"
+              size="small"
+            >
+              {{ getTaskStatusLabel(row.status) }}
+            </el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.executionTime')"
+          width="140"
+        >
+          <template #default="{ row }">
+            {{ formatDateTime(row.createdAt) }}
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.progress')"
+          width="100"
+        >
+          <template #default="{ row }">
+            <el-progress
+              :percentage="row.progress"
+              :status="row.status === 'failed' ? 'exception' : row.status === 'completed' ? 'success' : undefined"
+            />
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('admin.providers.result')"
+          show-overflow-tooltip
+        >
+          <template #default="{ row }">
+            <span
+              v-if="row.status === 'completed'"
+              style="color: #67C23A;"
+            >
+              {{ $t('common.success') }}: {{ row.successCount }}/{{ row.totalCount }}
+            </span>
+            <span
+              v-else-if="row.status === 'failed'"
+              style="color: #F56C6C;"
+            >
+              {{ row.errorMsg || $t('common.failed') }}
+            </span>
+            <span v-else>{{ row.message || '-' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column
+          :label="$t('common.actions')"
+          width="100"
+        >
+          <template #default="{ row }">
+            <el-button
+              type="primary"
+              size="small"
+              @click="$emit('view-task-log', row.id)"
+            >
+              {{ $t('admin.providers.viewLog') }}
+            </el-button>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <el-pagination
+        v-model:current-page="pagination.page"
+        v-model:page-size="pagination.pageSize"
+        :page-sizes="[5, 10, 20, 50]"
+        :small="false"
+        :background="true"
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="pagination.total"
+        style="justify-content: center;"
+        @size-change="$emit('page-size-change', $event)"
+        @current-change="$emit('page-change', $event)"
+      />
+    </div>
+
+    <!-- PMAcct 操作按钮 -->
+    <div style="text-align: center; margin-top: 20px;">
+      <el-button
+        v-if="runningTask"
+        type="primary"
+        @click="$emit('view-running-task')"
+      >
+        {{ $t('admin.providers.viewRunningTaskLog') }}
+      </el-button>
+      <el-button
+        type="success"
+        @click="$emit('execute-operation', 'enable')"
+      >
+        {{ $t('admin.providers.enableTrafficMonitor') }}
+      </el-button>
+      <el-button
+        type="warning"
+        @click="$emit('execute-operation', 'disable')"
+      >
+        {{ $t('admin.providers.disableTrafficMonitor') }}
+      </el-button>
+      <el-button
+        type="info"
+        @click="$emit('execute-operation', 'detect')"
+      >
+        {{ $t('admin.providers.detectTrafficMonitor') }}
+      </el-button>
+    </div>
+  </div>
+
+  <!-- 任务执行视图 -->
+  <div
+    v-else-if="task"
+    class="task-container"
+  >
+    <el-descriptions
+      :column="2"
+      border
+    >
+      <el-descriptions-item :label="$t('admin.providers.trafficMonitorTaskType')">
+        <el-tag :type="getTaskTypeTagType(task.taskType)">
+          {{ getTaskTypeLabel(task.taskType) }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item :label="$t('admin.providers.trafficMonitorTaskStatus')">
+        <el-tag :type="getTaskStatusTagType(task.status)">
+          {{ getTaskStatusLabel(task.status) }}
+        </el-tag>
+      </el-descriptions-item>
+      <el-descriptions-item
+        :label="$t('admin.providers.trafficMonitorTaskProgress')"
+        :span="2"
+      >
+        <div class="progress-container">
+          <el-progress
+            :percentage="task.progress"
+            :status="task.status === 'failed' ? 'exception' : task.status === 'completed' ? 'success' : undefined"
+          />
+          <div class="progress-details">
+            <span>{{ $t('common.total') }}: {{ task.totalCount }}</span>
+            <span class="success-count">{{ $t('common.success') }}: {{ task.successCount }}</span>
+            <span class="failed-count">{{ $t('common.failed') }}: {{ task.failedCount }}</span>
+          </div>
+        </div>
+      </el-descriptions-item>
+    </el-descriptions>
+
+    <div class="output-section">
+      <div class="section-header">
+        <h4>{{ $t('admin.providers.trafficMonitorTaskOutput') }}</h4>
+        <el-button
+          v-if="task.status === 'running'"
+          type="primary"
+          size="small"
+          :loading="loading"
+          @click="$emit('refresh')"
+        >
+          {{ $t('common.refresh') }}
+        </el-button>
+      </div>
+      <div class="output-content">
+        <pre v-if="task.output">{{ task.output }}</pre>
+        <el-empty
+          v-else
+          :description="task.status === 'pending' ? $t('admin.providers.taskExecuting') : $t('common.noData')"
+          :image-size="80"
+        />
+      </div>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { useI18n } from 'vue-i18n'
+
+const { t } = useI18n()
+
+defineProps({
+  showHistory: { type: Boolean, default: false },
+  task: { type: Object, default: null },
+  runningTask: { type: Object, default: null },
+  historyTasks: { type: Array, default: () => [] },
+  loading: { type: Boolean, default: false },
+  pagination: { type: Object, default: () => ({ page: 1, pageSize: 10, total: 0 }) }
+})
+
+defineEmits(['refresh', 'view-task-log', 'view-running-task', 'execute-operation', 'page-change', 'page-size-change'])
+
+function formatDateTime(dateStr) {
+  if (!dateStr) return '-'
+  return new Date(dateStr).toLocaleString()
+}
+
+function getTaskTypeLabel(taskType) {
+  const map = {
+    enable: t('admin.providers.enableTrafficMonitor'),
+    disable: t('admin.providers.disableTrafficMonitor'),
+    detect: t('admin.providers.detectTrafficMonitor')
+  }
+  return map[taskType] || taskType
+}
+
+function getTaskTypeTagType(taskType) {
+  const map = { enable: 'success', disable: 'warning', detect: 'info' }
+  return map[taskType] || ''
+}
+
+function getTaskStatusLabel(status) {
+  const map = {
+    pending: t('admin.providers.taskPending'),
+    running: t('admin.providers.taskRunning'),
+    completed: t('admin.providers.taskCompleted'),
+    failed: t('admin.providers.taskFailed')
+  }
+  return map[status] || status
+}
+
+function getTaskStatusTagType(status) {
+  const map = { pending: 'info', running: 'warning', completed: 'success', failed: 'danger' }
+  return map[status] || ''
+}
+</script>
+
+<style scoped>
+.task-container {
+  max-height: 600px;
+  overflow-y: auto;
+}
+
+.progress-container { width: 100%; }
+
+.progress-details {
+  display: flex;
+  gap: 20px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text-color-secondary);
+}
+
+.success-count { color: #67c23a; }
+.failed-count { color: #f56c6c; }
+
+.output-section { margin-top: 20px; }
+
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.section-header h4 { margin: 0; font-size: 14px; font-weight: 600; }
+
+.output-content {
+  background: var(--neutral-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 12px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+.output-content pre {
+  margin: 0;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+.output-content::-webkit-scrollbar,
+.task-container::-webkit-scrollbar {
+  width: 8px;
+}
+
+.output-content::-webkit-scrollbar-track,
+.task-container::-webkit-scrollbar-track {
+  background: var(--neutral-bg);
+  border-radius: 4px;
+}
+
+.output-content::-webkit-scrollbar-thumb,
+.task-container::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 4px;
+}
+</style>

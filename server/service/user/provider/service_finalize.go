@@ -25,6 +25,198 @@ import (
 	"gorm.io/gorm"
 )
 
+// gatherInstanceNetworkInfo 在事务外收集实例的网络地址信息（避免在事务中进行远程API调用）
+func (s *Service) gatherInstanceNetworkInfo(ctx context.Context, instance *providerModel.Instance) (instanceUpdates map[string]interface{}, dbProvider providerModel.Provider) {
+	instanceUpdates = map[string]interface{}{
+		"status":   "running",
+		"username": "root",
+	}
+
+	// 查询Provider信息（仅一次DB查询，在事务外执行）
+	if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err != nil {
+		global.APP_LOG.Warn("查询Provider信息失败，使用默认值",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+		return
+	}
+
+	// 设置公网IP
+	if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
+		publicIPSource := dbProvider.PortIP
+		if publicIPSource == "" {
+			publicIPSource = dbProvider.Endpoint
+		}
+		if publicIPSource != "" {
+			if strings.HasPrefix(publicIPSource, "[") {
+				if host, _, err := net.SplitHostPort(publicIPSource); err == nil {
+					instanceUpdates["public_ip"] = host
+				} else {
+					trimmed := strings.TrimPrefix(publicIPSource, "[")
+					trimmed = strings.TrimSuffix(trimmed, "]")
+					instanceUpdates["public_ip"] = trimmed
+				}
+			} else if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
+				if strings.Count(publicIPSource, ":") > 1 {
+					instanceUpdates["public_ip"] = publicIPSource
+				} else {
+					instanceUpdates["public_ip"] = publicIPSource[:colonIndex]
+				}
+			} else {
+				instanceUpdates["public_ip"] = publicIPSource
+			}
+			global.APP_LOG.Debug("设置实例公网IP",
+				zap.String("instanceName", instance.Name),
+				zap.String("portIP", dbProvider.PortIP),
+				zap.String("endpoint", dbProvider.Endpoint),
+				zap.Any("publicIP", instanceUpdates["public_ip"]))
+		}
+	} else {
+		global.APP_LOG.Debug("agent+no_port_mapping模式，跳过设置实例公网IP",
+			zap.String("instanceName", instance.Name),
+			zap.String("connectionType", dbProvider.ConnectionType),
+			zap.String("networkType", dbProvider.NetworkType))
+	}
+
+	// 尝试从Provider获取实例详细信息（远程API调用，必须在事务外执行）
+	actualInstance, err := s.getInstanceDetailsAfterCreation(ctx, instance)
+	if err != nil {
+		global.APP_LOG.Warn("获取实例详细信息失败，使用默认值",
+			zap.Uint("instanceId", instance.ID),
+			zap.Error(err))
+	}
+
+	if actualInstance != nil {
+		if actualInstance.IP != "" {
+			instanceUpdates["private_ip"] = actualInstance.IP
+		}
+		if actualInstance.PrivateIP != "" {
+			instanceUpdates["private_ip"] = actualInstance.PrivateIP
+		}
+		if actualInstance.PublicIP != "" {
+			instanceUpdates["public_ip"] = actualInstance.PublicIP
+		}
+		if actualInstance.IPv6Address != "" {
+			instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
+		}
+		if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+			instanceUpdates["ssh_port"] = 22
+		}
+		if actualInstance.Status != "" {
+			providerStatus := strings.ToLower(actualInstance.Status)
+			if providerStatus == "running" || providerStatus == "active" {
+				instanceUpdates["status"] = "running"
+			} else if providerStatus == "stopped" {
+				instanceUpdates["status"] = "stopped"
+			} else {
+				global.APP_LOG.Warn("Provider返回了非标准状态",
+					zap.String("instanceName", instance.Name),
+					zap.String("providerStatus", actualInstance.Status))
+			}
+		}
+	} else {
+		if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
+			instanceUpdates["ssh_port"] = 22
+		}
+	}
+
+	// 通过Provider API获取详细的IPv4/IPv6地址（远程调用，必须在事务外）
+	if actualInstance != nil {
+		providerSvc := providerService.GetProviderService()
+		if providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID); exists {
+			switch dbProvider.Type {
+			case "lxd":
+				if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
+					if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
+						instanceUpdates["private_ip"] = ipv4Address
+					}
+					if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
+						instanceUpdates["ipv6_address"] = ipv6Address
+					}
+					if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
+						instanceUpdates["public_ipv6"] = publicIPv6
+					}
+				}
+			case "incus":
+				if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
+					if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
+						instanceUpdates["private_ip"] = ipv4Address
+					}
+					if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
+						instanceUpdates["ipv6_address"] = ipv6Address
+					}
+					if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
+						instanceUpdates["public_ipv6"] = publicIPv6
+					}
+				}
+			case "proxmox", "proxmoxve":
+				s.gatherProxmoxNetworkInfo(ctx, providerInstance, instance, &dbProvider, instanceUpdates)
+			case "qemu", "kubevirt":
+				if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
+					if vmInstance.PrivateIP != "" {
+						instanceUpdates["private_ip"] = vmInstance.PrivateIP
+					} else if vmInstance.IP != "" {
+						instanceUpdates["private_ip"] = vmInstance.IP
+					}
+				}
+			}
+		}
+	}
+
+	return instanceUpdates, dbProvider
+}
+
+// gatherProxmoxNetworkInfo 收集Proxmox实例的网络信息（事务外调用）
+func (s *Service) gatherProxmoxNetworkInfo(ctx context.Context, providerInstance provider.Provider, instance *providerModel.Instance, dbProvider *providerModel.Provider, instanceUpdates map[string]interface{}) {
+	type proxmoxWithIPv interface {
+		GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
+		GetInstanceIPv6(ctx context.Context, instanceName string) (string, error)
+		GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error)
+	}
+	if pxProvider, ok := providerInstance.(proxmoxWithIPv); ok {
+		if ipv4Address, err := pxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
+			instanceUpdates["private_ip"] = ipv4Address
+			if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+				instanceUpdates["public_ip"] = ipv4Address
+			}
+		}
+		if ipv6Address, err := pxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
+			if dbProvider.NetworkType == "nat_ipv4_ipv6" {
+				instanceUpdates["ipv6_address"] = ipv6Address
+				if publicIPv6, err := pxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
+					instanceUpdates["public_ipv6"] = publicIPv6
+				}
+			} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
+				instanceUpdates["public_ipv6"] = ipv6Address
+			}
+		}
+		return
+	}
+	// 回退到 GetInstance
+	type proxmoxWithGet interface {
+		GetInstance(ctx context.Context, instanceID string) (*provider.Instance, error)
+	}
+	if pxProvider, ok := providerInstance.(proxmoxWithGet); ok {
+		if proxmoxInstance, err := pxProvider.GetInstance(ctx, instance.Name); err == nil && proxmoxInstance != nil {
+			ip := proxmoxInstance.IP
+			if ip == "" {
+				ip = proxmoxInstance.PrivateIP
+			}
+			if ip != "" {
+				instanceUpdates["private_ip"] = ip
+				if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
+					instanceUpdates["public_ip"] = ip
+				}
+			}
+			if proxmoxInstance.IPv6Address != "" {
+				if dbProvider.NetworkType == "nat_ipv4_ipv6" {
+					instanceUpdates["ipv6_address"] = proxmoxInstance.IPv6Address
+				} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
+					instanceUpdates["public_ipv6"] = proxmoxInstance.IPv6Address
+				}
+			}
+		}
+	}
+}
 
 // finalizeInstanceCreation 阶段3: 结果处理
 func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel.Task, instance *providerModel.Instance, apiError error) error {
@@ -32,7 +224,14 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 	dbService := database.GetDatabaseService()
 
-	// 在事务中处理结果
+	// 在事务外收集实例网络信息（避免长事务中进行远程API调用）
+	var instanceUpdates map[string]interface{}
+	if apiError == nil {
+		global.APP_LOG.Debug("Provider创建实例成功，获取实例详细信息", zap.Uint("taskId", task.ID))
+		instanceUpdates, _ = s.gatherInstanceNetworkInfo(ctx, instance)
+	}
+
+	// 在事务中仅执行DB写入操作（短事务）
 	err := dbService.ExecuteTransaction(ctx, func(tx *gorm.DB) error {
 		if apiError != nil {
 			// Provider创建实例失败的处理
@@ -84,345 +283,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			return nil
 		}
 
-		// Provider创建实例成功的处理
-		global.APP_LOG.Debug("Provider创建实例成功，获取实例详细信息", zap.Uint("taskId", task.ID))
-
-		// 尝试从Provider获取实例详细信息
-		actualInstance, err := s.getInstanceDetailsAfterCreation(ctx, instance)
-		if err != nil {
-			global.APP_LOG.Warn("获取实例详细信息失败，使用默认值",
-				zap.Uint("taskId", task.ID),
-				zap.Error(err))
-		}
-		// 构建实例更新数据
-		instanceUpdates := map[string]interface{}{
-			"status":   "running",
-			"username": "root",
-		}
-
-		// 获取Provider信息以设置公网IP
-		var dbProvider providerModel.Provider
-		if err := global.APP_DB.First(&dbProvider, instance.ProviderID).Error; err == nil {
-			// agent录入模式+无端口映射模式：不设置公网IP
-			// 因为该模式下的端口转发是通过控制端内网穿透实现的，节点本身没有对外的公网IP
-			if !(dbProvider.ConnectionType == "agent" && dbProvider.NetworkType == "no_port_mapping") {
-				// 优先使用PortIP（端口映射专用IP），这是用户明确指定的公网IP
-				// 如果PortIP为空，则使用Endpoint（SSH连接地址）
-				publicIPSource := dbProvider.PortIP
-				if publicIPSource == "" {
-					publicIPSource = dbProvider.Endpoint
-				}
-
-				// 从IP源中提取纯IP地址
-				if publicIPSource != "" {
-					// 移除端口号获取纯IP地址
-					if strings.HasPrefix(publicIPSource, "[") {
-						// 括号IPv6格式: [::1]:port 或 [::1]
-						if host, _, err := net.SplitHostPort(publicIPSource); err == nil {
-							instanceUpdates["public_ip"] = host // ::1
-						} else {
-							// 无端口，直接去掉括号: [::1] → ::1
-							trimmed := strings.TrimPrefix(publicIPSource, "[")
-							trimmed = strings.TrimSuffix(trimmed, "]")
-							instanceUpdates["public_ip"] = trimmed
-						}
-					} else if colonIndex := strings.LastIndex(publicIPSource, ":"); colonIndex > 0 {
-						if strings.Count(publicIPSource, ":") > 1 {
-							instanceUpdates["public_ip"] = publicIPSource // 纯IPv6格式，无括号无端口
-						} else {
-							instanceUpdates["public_ip"] = publicIPSource[:colonIndex] // IPv4格式，移除端口
-						}
-					} else {
-						instanceUpdates["public_ip"] = publicIPSource
-					}
-
-					global.APP_LOG.Debug("设置实例公网IP",
-						zap.String("instanceName", instance.Name),
-						zap.String("portIP", dbProvider.PortIP),
-						zap.String("endpoint", dbProvider.Endpoint),
-						zap.String("publicIPSource", publicIPSource),
-						zap.Any("publicIP", instanceUpdates["public_ip"]))
-				}
-			} else {
-				global.APP_LOG.Debug("agent+no_port_mapping模式，跳过设置实例公网IP",
-					zap.String("instanceName", instance.Name),
-					zap.String("connectionType", dbProvider.ConnectionType),
-					zap.String("networkType", dbProvider.NetworkType))
-			}
-		}
-
-		// 如果成功获取了实例详情，使用真实数据
-		if actualInstance != nil {
-			// 保存内网IP
-			if actualInstance.IP != "" {
-				instanceUpdates["private_ip"] = actualInstance.IP
-			}
-			if actualInstance.PrivateIP != "" {
-				instanceUpdates["private_ip"] = actualInstance.PrivateIP
-			}
-			// 如果Provider返回了公网IP，优先使用
-			if actualInstance.PublicIP != "" {
-				instanceUpdates["public_ip"] = actualInstance.PublicIP
-			}
-			// 保存IPv6地址
-			if actualInstance.IPv6Address != "" {
-				instanceUpdates["ipv6_address"] = actualInstance.IPv6Address
-			}
-			// 容器类Provider（docker/podman/containerd）的SSH端口由预分配端口映射决定，
-			// CreateDefaultPortMappings 已在 executeProviderCreation 阶段写入正确的值，不覆盖。
-			// 其他Provider（lxd/incus/proxmox）使用默认22端口。
-			if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
-				instanceUpdates["ssh_port"] = 22
-			}
-			// 标准化实例状态：将Provider返回的各种运行状态统一为"running"
-			if actualInstance.Status != "" {
-				// 将Provider返回的状态转换为小写进行比较
-				providerStatus := strings.ToLower(actualInstance.Status)
-				// 如果Provider返回的是运行状态（running/active），统一设置为running
-				// 其他状态（如stopped）保持原样
-				if providerStatus == "running" || providerStatus == "active" {
-					instanceUpdates["status"] = "running"
-				} else if providerStatus == "stopped" {
-					instanceUpdates["status"] = "stopped"
-				} else {
-					// 对于其他未知状态，记录日志但保持默认的running状态
-					global.APP_LOG.Warn("Provider返回了非标准状态",
-						zap.String("instanceName", instance.Name),
-						zap.String("providerStatus", actualInstance.Status))
-					// 保持默认的running状态
-				}
-			}
-		} else {
-			// 使用默认值：容器类Provider不覆盖（保留端口分配设置的值），其他Provider默认22
-			if dbProvider.Type != "docker" && dbProvider.Type != "podman" && dbProvider.Type != "containerd" {
-				instanceUpdates["ssh_port"] = 22
-			}
-		}
-
-		// 尝试获取IPv4和IPv6地址（针对LXD、Incus和Proxmox Provider）
-		if actualInstance != nil {
-			providerSvc := providerService.GetProviderService()
-			if providerInstance, exists := providerSvc.GetProviderByID(instance.ProviderID); exists {
-				if dbProvider.Type == "lxd" {
-					if lxdProvider, ok := providerInstance.(*lxd.LXDProvider); ok {
-						// 获取内网IPv4地址
-						ctx := context.Background()
-						if ipv4Address, err := lxdProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Debug("获取到实例内网IPv4地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("ipv4Address", ipv4Address))
-						} else {
-							global.APP_LOG.Warn("获取内网IPv4地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-						// 获取内网IPv6地址
-						if ipv6Address, err := lxdProvider.GetInstanceIPv6(instance.Name); err == nil && ipv6Address != "" {
-							instanceUpdates["ipv6_address"] = ipv6Address
-							global.APP_LOG.Debug("获取到实例内网IPv6地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("ipv6Address", ipv6Address))
-						}
-						// 获取公网IPv6地址
-						if publicIPv6, err := lxdProvider.GetInstancePublicIPv6(instance.Name); err == nil && publicIPv6 != "" {
-							instanceUpdates["public_ipv6"] = publicIPv6
-							global.APP_LOG.Debug("获取到实例公网IPv6地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("publicIPv6", publicIPv6))
-						} else {
-							global.APP_LOG.Warn("获取公网IPv6地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-					}
-				} else if dbProvider.Type == "incus" {
-					if incusProvider, ok := providerInstance.(*incus.IncusProvider); ok {
-						// 获取内网IPv4地址
-						if ipv4Address, err := incusProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Debug("获取到实例内网IPv4地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("ipv4Address", ipv4Address))
-						} else {
-							global.APP_LOG.Warn("获取内网IPv4地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-						// 获取内网IPv6地址
-						if ipv6Address, err := incusProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
-							instanceUpdates["ipv6_address"] = ipv6Address
-							global.APP_LOG.Debug("获取到实例内网IPv6地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("ipv6Address", ipv6Address))
-						}
-						// 获取公网IPv6地址
-						if publicIPv6, err := incusProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-							instanceUpdates["public_ipv6"] = publicIPv6
-							global.APP_LOG.Debug("获取到实例公网IPv6地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("publicIPv6", publicIPv6))
-						} else {
-							global.APP_LOG.Warn("获取公网IPv6地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-					}
-				} else if dbProvider.Type == "proxmox" || dbProvider.Type == "proxmoxve" {
-					// 对于Proxmox Provider，优先使用专门的IPv4/IPv6方法获取地址
-					if proxmoxProvider, ok := providerInstance.(interface {
-						GetInstanceIPv4(ctx context.Context, instanceName string) (string, error)
-						GetInstanceIPv6(ctx context.Context, instanceName string) (string, error)
-						GetInstancePublicIPv6(ctx context.Context, instanceName string) (string, error)
-					}); ok {
-						// 获取内网IPv4地址
-						if ipv4Address, err := proxmoxProvider.GetInstanceIPv4(ctx, instance.Name); err == nil && ipv4Address != "" {
-							instanceUpdates["private_ip"] = ipv4Address
-							global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("ipv4Address", ipv4Address))
-
-							// 对于内网节点（NAT模式），公网IPv4使用Provider的Endpoint（已在前面设置）
-							// 对于独立IP模式（dedicated），实例获取到的内网IP就是公网IP
-							if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-								// 独立IP模式：内网IP就是公网IP
-								instanceUpdates["public_ip"] = ipv4Address
-								global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
-									zap.String("instanceName", instance.Name),
-									zap.String("networkType", dbProvider.NetworkType),
-									zap.String("publicIP", ipv4Address))
-							}
-							// NAT模式下，public_ip已经在前面从Provider的Endpoint设置，这里不需要覆盖
-						} else {
-							global.APP_LOG.Warn("获取Proxmox实例内网IPv4地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-
-						// 获取IPv6地址并根据网络类型决定存储位置
-						if ipv6Address, err := proxmoxProvider.GetInstanceIPv6(ctx, instance.Name); err == nil && ipv6Address != "" {
-							// 检查当前Provider的网络类型
-							if dbProvider.NetworkType == "nat_ipv4_ipv6" {
-								// NAT模式：获取到的是内网IPv6地址
-								instanceUpdates["ipv6_address"] = ipv6Address
-								global.APP_LOG.Debug("获取到Proxmox实例内网IPv6地址（NAT模式）",
-									zap.String("instanceName", instance.Name),
-									zap.String("ipv6Address", ipv6Address))
-
-								// 获取公网IPv6地址
-								if publicIPv6, err := proxmoxProvider.GetInstancePublicIPv6(ctx, instance.Name); err == nil && publicIPv6 != "" {
-									instanceUpdates["public_ipv6"] = publicIPv6
-									global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（NAT模式）",
-										zap.String("instanceName", instance.Name),
-										zap.String("publicIPv6", publicIPv6))
-								} else {
-									global.APP_LOG.Warn("获取Proxmox实例公网IPv6地址失败（NAT模式）",
-										zap.String("instanceName", instance.Name),
-										zap.Error(err))
-								}
-							} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
-								// 直接分配模式（dedicated_ipv4_ipv6, ipv6_only）：获取到的就是公网IPv6地址
-								instanceUpdates["public_ipv6"] = ipv6Address
-								global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（直接分配模式）",
-									zap.String("instanceName", instance.Name),
-									zap.String("networkType", dbProvider.NetworkType),
-									zap.String("publicIPv6", ipv6Address))
-							}
-						} else {
-							global.APP_LOG.Warn("获取Proxmox实例IPv6地址失败",
-								zap.String("instanceName", instance.Name),
-								zap.Error(err))
-						}
-					} else {
-						// 回退到原来的GetInstance方法
-						if proxmoxProvider, ok := providerInstance.(interface {
-							GetInstance(ctx context.Context, instanceID string) (*provider.Instance, error)
-						}); ok {
-							if proxmoxInstance, err := proxmoxProvider.GetInstance(ctx, instance.Name); err == nil && proxmoxInstance != nil {
-								if proxmoxInstance.IP != "" {
-									instanceUpdates["private_ip"] = proxmoxInstance.IP
-									global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
-										zap.String("instanceName", instance.Name),
-										zap.String("privateIP", proxmoxInstance.IP))
-
-									// 对于独立IP模式，内网IP就是公网IP
-									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-										instanceUpdates["public_ip"] = proxmoxInstance.IP
-										global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
-											zap.String("instanceName", instance.Name),
-											zap.String("networkType", dbProvider.NetworkType),
-											zap.String("publicIP", proxmoxInstance.IP))
-									}
-								} else if proxmoxInstance.PrivateIP != "" {
-									instanceUpdates["private_ip"] = proxmoxInstance.PrivateIP
-									global.APP_LOG.Debug("获取到Proxmox实例内网IPv4地址",
-										zap.String("instanceName", instance.Name),
-										zap.String("privateIP", proxmoxInstance.PrivateIP))
-
-									// 对于独立IP模式，内网IP就是公网IP
-									if dbProvider.NetworkType == "dedicated_ipv4" || dbProvider.NetworkType == "dedicated_ipv4_ipv6" {
-										instanceUpdates["public_ip"] = proxmoxInstance.PrivateIP
-										global.APP_LOG.Debug("Proxmox独立IP模式，使用实例IP作为公网IP",
-											zap.String("instanceName", instance.Name),
-											zap.String("networkType", dbProvider.NetworkType),
-											zap.String("publicIP", proxmoxInstance.PrivateIP))
-									}
-								} else {
-									global.APP_LOG.Warn("Proxmox实例返回的IP地址为空",
-										zap.String("instanceName", instance.Name))
-								}
-
-								// 获取IPv6地址并根据网络类型决定存储位置（如果有）
-								if proxmoxInstance.IPv6Address != "" {
-									// 检查当前Provider的网络类型
-									if dbProvider.NetworkType == "nat_ipv4_ipv6" {
-										// NAT模式：这是内网IPv6地址
-										instanceUpdates["ipv6_address"] = proxmoxInstance.IPv6Address
-										global.APP_LOG.Debug("获取到Proxmox实例内网IPv6地址（NAT模式）",
-											zap.String("instanceName", instance.Name),
-											zap.String("ipv6Address", proxmoxInstance.IPv6Address))
-									} else if dbProvider.NetworkType == "dedicated_ipv4_ipv6" || dbProvider.NetworkType == "ipv6_only" {
-										// 直接分配模式：这是公网IPv6地址
-										instanceUpdates["public_ipv6"] = proxmoxInstance.IPv6Address
-										global.APP_LOG.Debug("获取到Proxmox实例公网IPv6地址（直接分配模式）",
-											zap.String("instanceName", instance.Name),
-											zap.String("networkType", dbProvider.NetworkType),
-											zap.String("publicIPv6", proxmoxInstance.IPv6Address))
-									}
-								}
-							} else {
-								global.APP_LOG.Warn("无法从Proxmox Provider获取实例详情",
-									zap.String("instanceName", instance.Name),
-									zap.Error(err))
-							}
-						} else {
-							global.APP_LOG.Warn("Proxmox Provider不支持必要的方法",
-								zap.String("instanceName", instance.Name))
-						}
-					}
-				} else if dbProvider.Type == "qemu" || dbProvider.Type == "kubevirt" {
-					// 对于QEMU/KubeVirt，通过GetInstance获取内网IP
-					if vmInstance, err := providerInstance.GetInstance(ctx, instance.Name); err == nil && vmInstance != nil {
-						if vmInstance.PrivateIP != "" {
-							instanceUpdates["private_ip"] = vmInstance.PrivateIP
-							global.APP_LOG.Debug("获取到VM实例内网IPv4地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("privateIP", vmInstance.PrivateIP))
-						} else if vmInstance.IP != "" {
-							instanceUpdates["private_ip"] = vmInstance.IP
-							global.APP_LOG.Debug("获取到VM实例内网IPv4地址",
-								zap.String("instanceName", instance.Name),
-								zap.String("privateIP", vmInstance.IP))
-						}
-					} else {
-						global.APP_LOG.Warn("获取VM实例详情失败",
-							zap.String("instanceName", instance.Name),
-							zap.String("providerType", dbProvider.Type),
-							zap.Error(err))
-					}
-				}
-			}
-		}
+		// Provider创建实例成功，使用事务外预先收集的数据执行DB写入（短事务）
 		if err := tx.Model(instance).Updates(instanceUpdates).Error; err != nil {
 			return fmt.Errorf("更新实例信息失败: %v", err)
 		}
@@ -743,4 +604,3 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 	}
 	return nil
 }
-

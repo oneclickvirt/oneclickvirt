@@ -136,7 +136,11 @@ func (s *Service) executeProviderCreation(ctx context.Context, task *adminModel.
 				if i >= 20 {
 					delay = 2 * time.Second
 				}
-				time.Sleep(delay)
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return ctx.Err()
+				}
 			}
 		}
 		if !exists || !providerInstance.IsConnected() {

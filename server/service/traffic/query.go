@@ -88,11 +88,16 @@ func computeSegmentTraffic(records []rawTrafficRecord) (totalRx, totalTx int64) 
 	var prevRx, prevTx int64
 
 	for i, r := range records {
-		// 检测计数器重置（当前值 < 前一个值）
-		if i > 0 && (r.RxBytes < prevRx || r.TxBytes < prevTx) {
-			totalRx += segMaxRx
-			totalTx += segMaxTx
-			segMaxRx, segMaxTx = 0, 0
+		if i > 0 {
+			// Rx和Tx独立检测重置，避免一方重置导致另一方计数丢失
+			if r.RxBytes < prevRx {
+				totalRx += segMaxRx
+				segMaxRx = 0
+			}
+			if r.TxBytes < prevTx {
+				totalTx += segMaxTx
+				segMaxTx = 0
+			}
 		}
 		if r.RxBytes > segMaxRx {
 			segMaxRx = r.RxBytes

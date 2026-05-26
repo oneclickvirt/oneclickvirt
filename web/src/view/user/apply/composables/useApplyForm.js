@@ -150,6 +150,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       }
     } catch (error) {
       console.error('获取用户限制失败:', error)
+      ElMessage.error(error?.message || t('user.apply.loadLimitsFailed'))
     }
   }
 
@@ -163,6 +164,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
       }
     } catch (error) {
       console.error('获取实例配置失败:', error)
+      ElMessage.error(error?.message || t('user.apply.loadConfigFailed'))
     }
   }
 
@@ -190,6 +192,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     } catch (error) {
       console.error('获取过滤镜像失败:', error)
       availableImages.value = []
+      ElMessage.error(error?.message || t('user.apply.loadImagesFailed'))
     }
   }
 
@@ -425,6 +428,7 @@ export function useApplyForm(selectedProvider, providerCapabilities, loadProvide
     } catch (e) {
       console.error('获取GPU列表失败:', e)
       detectedGpus.value = []
+      ElMessage.error(e?.message || t('user.apply.loadGPUsFailed'))
     } finally {
       gpuLoading.value = false
     }

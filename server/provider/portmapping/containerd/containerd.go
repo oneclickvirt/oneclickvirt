@@ -19,7 +19,7 @@ import (
 const (
 	containerdCLI     = "nerdctl"
 	containerdNetwork = "containerd-net"
-	containerdSubnet  = "172.20.0.0/16"
+	containerdSubnet  = "172.21.0.0/16"
 )
 
 // ContainerdPortMapping Containerd端口映射实现（独立实现，不依赖docker portmapping包）
@@ -184,12 +184,22 @@ func (c *ContainerdPortMapping) ListPortMappings(ctx context.Context, instanceID
 		return nil, fmt.Errorf("failed to list port mappings: %v", err)
 	}
 
+	// 批量加载所有涉及的provider，避免N+1查询
+	providerCache := make(map[uint]*provider.Provider)
+	for _, port := range ports {
+		if _, ok := providerCache[port.ProviderID]; !ok {
+			if prov, err := c.getProvider(port.ProviderID); err == nil {
+				providerCache[port.ProviderID] = prov
+			}
+		}
+	}
+
 	var results []*portmapping.PortMappingResult
 	for _, port := range ports {
 		result := c.BaseProvider.FromDBModel(&port)
 		result.MappingMethod = "containerd-native"
 
-		if providerInfo, err := c.getProvider(port.ProviderID); err == nil {
+		if providerInfo, ok := providerCache[port.ProviderID]; ok {
 			result.HostIP = providerInfo.Endpoint
 			result.PublicIP = c.getPublicIP(providerInfo)
 		}

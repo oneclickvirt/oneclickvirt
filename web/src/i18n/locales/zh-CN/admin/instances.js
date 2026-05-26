@@ -101,6 +101,7 @@ export default {
   resetPasswordSuccess: "密码重置任务已创建（任务ID: {taskId}），请在任务列表中查看进度",
   resetPasswordFailed: "创建密码重置任务失败",
   resetPasswordError: "创建密码重置任务失败，请稍后重试",
+  newPassword: "新密码",
   deleteConfirm: "确定删除该实例吗？删除操作将以任务形式异步执行，请在任务列表中查看进度。",
   deleteTitle: "删除实例",
   deleteSuccess: "删除任务已创建，请查看任务列表了解进度",

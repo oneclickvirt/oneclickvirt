@@ -25,15 +25,39 @@ import (
 )
 
 // instanceActionMu 每实例操作互斥锁，防止并发操作同一实例产生重复任务（TOCTOU）
-var instanceActionMu sync.Map // map[uint]*sync.Mutex
+// 使用引用计数确保同一时刻只有一个goroutine持有某实例的锁，同时正确回收内存
+type instanceLockEntry struct {
+	mu    sync.Mutex
+	count int
+}
 
-func getInstanceActionLock(instanceID uint) *sync.Mutex {
-	mu, _ := instanceActionMu.LoadOrStore(instanceID, &sync.Mutex{})
-	return mu.(*sync.Mutex)
+var (
+	instanceLocksMu sync.Mutex
+	instanceLocks   = make(map[uint]*instanceLockEntry)
+)
+
+func getInstanceActionLock(instanceID uint) *instanceLockEntry {
+	instanceLocksMu.Lock()
+	lk := instanceLocks[instanceID]
+	if lk == nil {
+		lk = &instanceLockEntry{}
+		instanceLocks[instanceID] = lk
+	}
+	lk.count++
+	instanceLocksMu.Unlock()
+	return lk
 }
 
 func releaseInstanceActionLock(instanceID uint) {
-	instanceActionMu.Delete(instanceID)
+	instanceLocksMu.Lock()
+	lk := instanceLocks[instanceID]
+	if lk != nil {
+		lk.count--
+		if lk.count == 0 {
+			delete(instanceLocks, instanceID)
+		}
+	}
+	instanceLocksMu.Unlock()
 }
 
 // Service 处理用户实例相关功能
@@ -222,10 +246,10 @@ func (s *Service) GetUserInstances(userID uint, req userModel.UserInstanceListRe
 // InstanceAction 执行实例操作
 func (s *Service) InstanceAction(userID uint, req userModel.InstanceActionRequest) error {
 	// 对同一实例加锁，防止并发请求同时通过"已有任务"检查后各自创建任务（TOCTOU）
-	mu := getInstanceActionLock(req.InstanceID)
-	mu.Lock()
+	lk := getInstanceActionLock(req.InstanceID)
+	lk.mu.Lock()
 	defer func() {
-		mu.Unlock()
+		lk.mu.Unlock()
 		releaseInstanceActionLock(req.InstanceID)
 	}()
 
@@ -390,21 +414,45 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		return nil, err
 	}
 
-	// 获取SSH端口映射的公网端口
+	// 并发查询 SSH端口映射、Provider信息、关联任务（消除N+1问题）
+	var (
+		sshPortMapping providerModel.Port
+		provider       providerModel.Provider
+		task           adminModel.Task
+		hasSshMapping  bool
+		hasProvider    bool
+		hasTask        bool
+	)
+	var wg sync.WaitGroup
+	wg.Add(3)
+	go func() {
+		defer wg.Done()
+		if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
+			hasSshMapping = true
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
+			hasProvider = true
+		}
+	}()
+	go func() {
+		defer wg.Done()
+		if err := global.APP_DB.Where("instance_id = ? AND status IN (?, ?, ?)", instanceID, "pending", "processing", "running").
+			Order("created_at DESC").
+			First(&task).Error; err == nil {
+			hasTask = true
+		}
+	}()
+	wg.Wait()
+
+	// 确定SSH端口
 	var sshPort int
-	var sshPortMapping providerModel.Port
-	hasSshMapping := false
-	if err := global.APP_DB.Where("instance_id = ? AND is_ssh = true AND status = 'active'", instanceID).First(&sshPortMapping).Error; err == nil {
+	if hasSshMapping {
 		sshPort = sshPortMapping.HostPort // 使用映射的公网端口
-		// 判断是否可通过Web SSH连接:
-		// - 节点侧映射(nat_ipv4等)始终可用
-		// - 控制端转发(controller)也可用（内网穿透到主控）
-		// - no_port_mapping模式下只有controller类型映射可用
-		hasSshMapping = true
 	} else {
 		sshPort = instance.SSHPort // fallback到默认值
-		// 如果没有端口映射且是标准NAT模式，SSH端口22默认可用
-		// 但如果networkType是no_port_mapping/dedicated_ipv4等，不能用默认22端口
 	}
 
 	detail := &userModel.UserInstanceDetailResponse{
@@ -434,9 +482,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		ExpiresAt:     instance.ExpiresAt,
 	}
 
-	// 查询关联的 Provider 信息
-	var provider providerModel.Provider
-	if err := global.APP_DB.First(&provider, instance.ProviderID).Error; err == nil {
+	if hasProvider {
 		detail.ProviderName = provider.Name
 		detail.ProviderType = provider.Type // Provider虚拟化类型
 		detail.ProviderStatus = provider.Status
@@ -458,11 +504,7 @@ func (s *Service) GetInstanceDetail(userID, instanceID uint) (*userModel.UserIns
 		}
 	}
 
-	// 查询关联的最新任务（如果有正在进行或待处理的任务）
-	var task adminModel.Task
-	if err := global.APP_DB.Where("instance_id = ? AND status IN (?, ?, ?)", instanceID, "pending", "processing", "running").
-		Order("created_at DESC").
-		First(&task).Error; err == nil {
+	if hasTask {
 		// 有关联任务，添加到响应中
 		detail.RelatedTask = &userModel.UserTaskResponse{
 			ID:            task.ID,

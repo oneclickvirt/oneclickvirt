@@ -11,6 +11,7 @@ import (
 	"oneclickvirt/service/lifecycle"
 	"oneclickvirt/service/log"
 	"oneclickvirt/service/pmacct"
+	"oneclickvirt/service/remote"
 	"oneclickvirt/service/resources"
 	"oneclickvirt/service/scheduler"
 	"oneclickvirt/service/storage"
@@ -53,6 +54,9 @@ func InitializeSystem() {
 	// 启动日志速率限制器清理任务
 	logRateLimiter := utils.GetLogRateLimiter()
 	logRateLimiter.StartCleanupTask(global.APP_SHUTDOWN_CONTEXT)
+
+	// 启动SFTP分片后台清理任务
+	remote.StartSFTPChunkCleanupTask(global.APP_SHUTDOWN_CONTEXT, remote.DefaultSFTPChunkCleanupInterval, remote.DefaultChunkPartTTL)
 
 	// 初始化全局SSH连接池
 	sshPool := utils.InitGlobalSSHPool(global.APP_LOG)

@@ -208,7 +208,9 @@ func (l *LXDProvider) getLXDVersion() error {
 	if err != nil {
 		global.APP_LOG.Warn("获取 LXD 版本失败",
 			zap.Error(err))
+		l.mu.Lock()
 		l.version = "unknown"
+		l.mu.Unlock()
 		return err
 	}
 
@@ -220,13 +222,17 @@ func (l *LXDProvider) getLXDVersion() error {
 			continue
 		}
 		// 提取第一个非空行作为版本号
+		l.mu.Lock()
 		l.version = line
+		l.mu.Unlock()
 		global.APP_LOG.Debug("获取 LXD 版本成功",
 			zap.String("version", l.version))
 		return nil
 	}
 
+	l.mu.Lock()
 	l.version = "unknown"
+	l.mu.Unlock()
 	return fmt.Errorf("无法解析版本信息")
 }
 
