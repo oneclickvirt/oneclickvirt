@@ -240,18 +240,13 @@ const loadUserLimits = async () => {
   
   try {
     const response = await getUserLimits()
-    if (response.code === 200) {
-      Object.assign(userLimits, response.data)
-      loadingMsg.close()
-      ElMessage.success(t('user.dashboard.quotaRefreshed'))
-    } else {
-      loadingMsg.close()
-      ElMessage.error(response.message || t('user.dashboard.loadQuotaFailed'))
-    }
+    Object.assign(userLimits, response.data)
+    loadingMsg.close()
+    ElMessage.success(t('user.dashboard.quotaRefreshed'))
   } catch (error) {
     console.error(t('user.dashboard.getUserLimitsFailed'), error)
     loadingMsg.close()
-    ElMessage.error(t('user.dashboard.loadQuotaFailed'))
+    ElMessage.error(error?.message || t('user.dashboard.loadQuotaFailed'))
   }
 }
 
@@ -259,9 +254,7 @@ const loadUserLimits = async () => {
 const loadAnnouncements = async () => {
   try {
     const response = await getAnnouncements({ page: 1, pageSize: 3 })
-    if (response.code === 200) {
-      announcements.value = response.data.list || []
-    }
+    announcements.value = response.data.list || []
   } catch (error) {
     console.error(t('user.dashboard.getAnnouncementsFailed'), error)
   }

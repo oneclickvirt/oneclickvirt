@@ -21,10 +21,17 @@
             <el-icon><Search /></el-icon>
           </template>
         </el-input>
-        <el-button type="primary" style="margin-left: 10px;" @click="handleSearch">
+        <el-button
+          type="primary"
+          style="margin-left: 10px;"
+          @click="handleSearch"
+        >
           {{ t('common.search') }}
         </el-button>
-        <el-button style="margin-left: 10px;" @click="resetFilters">
+        <el-button
+          style="margin-left: 10px;"
+          @click="resetFilters"
+        >
           {{ t('common.reset') }}
         </el-button>
         <el-popconfirm
@@ -33,7 +40,10 @@
           @confirm="handleBatchDelete"
         >
           <template #reference>
-            <el-button type="danger" style="margin-left: 10px;">
+            <el-button
+              type="danger"
+              style="margin-left: 10px;"
+            >
               {{ t('admin.apiTokens.batchDelete') }}（{{ selectedIds.length }}）
             </el-button>
           </template>
@@ -48,10 +58,25 @@
         stripe
         @selection-change="handleSelectionChange"
       >
-        <el-table-column type="selection" width="50" />
-        <el-table-column :label="t('admin.apiTokens.userId')" prop="userId" width="80" />
-        <el-table-column :label="t('admin.apiTokens.username')" prop="username" min-width="120" />
-        <el-table-column :label="t('admin.apiTokens.userType')" prop="userType" width="120">
+        <el-table-column
+          type="selection"
+          width="50"
+        />
+        <el-table-column
+          :label="t('admin.apiTokens.userId')"
+          prop="userId"
+          width="80"
+        />
+        <el-table-column
+          :label="t('admin.apiTokens.username')"
+          prop="username"
+          min-width="120"
+        />
+        <el-table-column
+          :label="t('admin.apiTokens.userType')"
+          prop="userType"
+          width="120"
+        >
           <template #default="{ row }">
             <el-tag
               :type="row.userType === 'admin' ? 'danger' : row.userType === 'normal_admin' ? 'warning' : 'info'"
@@ -61,38 +86,72 @@
             </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.apiTokens.tokenName')" prop="name" min-width="120" />
-        <el-table-column :label="t('admin.apiTokens.tokenPrefix')" prop="tokenPrefix" width="140">
+        <el-table-column
+          :label="t('admin.apiTokens.tokenName')"
+          prop="name"
+          min-width="120"
+        />
+        <el-table-column
+          :label="t('admin.apiTokens.tokenPrefix')"
+          prop="tokenPrefix"
+          width="140"
+        >
           <template #default="{ row }">
-            <el-tag type="info" size="small">{{ row.tokenPrefix }}...</el-tag>
+            <el-tag
+              type="info"
+              size="small"
+            >
+              {{ row.tokenPrefix }}...
+            </el-tag>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.apiTokens.useCount')" prop="useCount" width="90" />
-        <el-table-column :label="t('admin.apiTokens.createdAt')" width="160">
+        <el-table-column
+          :label="t('admin.apiTokens.useCount')"
+          prop="useCount"
+          width="90"
+        />
+        <el-table-column
+          :label="t('admin.apiTokens.createdAt')"
+          width="160"
+        >
           <template #default="{ row }">
             {{ formatDate(row.createdAt) }}
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.apiTokens.expiresAt')" width="160">
+        <el-table-column
+          :label="t('admin.apiTokens.expiresAt')"
+          width="160"
+        >
           <template #default="{ row }">
             <span v-if="!row.expiresAt">{{ t('admin.apiTokens.never') }}</span>
             <span v-else>{{ formatDate(row.expiresAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('admin.apiTokens.lastUsedAt')" width="160">
+        <el-table-column
+          :label="t('admin.apiTokens.lastUsedAt')"
+          width="160"
+        >
           <template #default="{ row }">
             <span v-if="!row.lastUsedAt">{{ t('admin.apiTokens.unused') }}</span>
             <span v-else>{{ formatDate(row.lastUsedAt) }}</span>
           </template>
         </el-table-column>
-        <el-table-column :label="t('common.actions')" width="100" fixed="right">
+        <el-table-column
+          :label="t('common.actions')"
+          width="100"
+          fixed="right"
+        >
           <template #default="{ row }">
             <el-popconfirm
               :title="t('admin.apiTokens.deleteConfirm')"
               @confirm="handleDelete(row.id)"
             >
               <template #reference>
-                <el-button type="danger" size="small" :icon="Delete" />
+                <el-button
+                  type="danger"
+                  size="small"
+                  :icon="Delete"
+                />
               </template>
             </el-popconfirm>
           </template>

@@ -45,12 +45,24 @@ func sanitizeUploadID(raw string) string {
 	return string(b)
 }
 
-func chunkTempPath(remotePath, uploadID string) string {
-	safeID := sanitizeUploadID(uploadID)
-	if safeID == "" {
-		safeID = "default"
+func NormalizeChunkUploadID(raw string) (string, error) {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return "", fmt.Errorf("upload id is required")
 	}
-	return fmt.Sprintf("%s.part.%s", remotePath, safeID)
+	safeID := sanitizeUploadID(trimmed)
+	if safeID == "" || safeID != trimmed {
+		return "", fmt.Errorf("invalid upload id")
+	}
+	return safeID, nil
+}
+
+func chunkTempPath(remotePath, uploadID string) (string, error) {
+	safeID, err := NormalizeChunkUploadID(uploadID)
+	if err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s.part.%s", remotePath, safeID), nil
 }
 
 func QueryChunkUploadStatus(client *sftp.Client, remotePath, uploadID string) (ChunkUploadStatus, error) {
@@ -64,7 +76,10 @@ func QueryChunkUploadStatus(client *sftp.Client, remotePath, uploadID string) (C
 		return ChunkUploadStatus{}, fmt.Errorf("upload id is required")
 	}
 
-	tmpPath := chunkTempPath(remotePath, uploadID)
+	tmpPath, err := chunkTempPath(remotePath, uploadID)
+	if err != nil {
+		return ChunkUploadStatus{}, err
+	}
 	if info, err := client.Stat(tmpPath); err == nil {
 		return ChunkUploadStatus{UploadedBytes: info.Size(), Completed: false}, nil
 	}
@@ -87,7 +102,10 @@ func AbortChunkUpload(client *sftp.Client, remotePath, uploadID string) (bool, e
 		return false, fmt.Errorf("upload id is required")
 	}
 
-	tmpPath := chunkTempPath(remotePath, uploadID)
+	tmpPath, err := chunkTempPath(remotePath, uploadID)
+	if err != nil {
+		return false, err
+	}
 	if err := client.Remove(tmpPath); err != nil {
 		if os.IsNotExist(err) {
 			return false, nil
@@ -162,7 +180,10 @@ func WriteSFTPChunk(client *sftp.Client, meta ChunkUploadMeta, chunk io.Reader) 
 		return 0, false, fmt.Errorf("invalid total chunks")
 	}
 
-	tmpPath := chunkTempPath(meta.RemotePath, meta.UploadID)
+	tmpPath, err := chunkTempPath(meta.RemotePath, meta.UploadID)
+	if err != nil {
+		return 0, false, err
+	}
 	remoteDir := path.Dir(meta.RemotePath)
 	if remoteDir == "" {
 		remoteDir = "/"

@@ -17,7 +17,16 @@ import (
 	"go.uber.org/zap"
 )
 
-// GetProviderMonitors returns all agent monitors for a provider with pagination.
+// GetProviderMonitors godoc
+// @Summary 获取节点监控列表（DB）
+// @Description 获取指定节点下所有Agent监控记录，支持分页
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Param page query int false "页码"
+// @Param pageSize query int false "每页条数"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/monitors [get]
 func GetProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -87,7 +96,14 @@ func GetProviderMonitors(c *gin.Context) {
 	})
 }
 
-// SyncProviderMonitors ensures all active instances have monitors and cleans up stale ones.
+// SyncProviderMonitors godoc
+// @Summary 同步节点监控器
+// @Description 确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/sync [post]
 func SyncProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -134,9 +150,16 @@ func SyncProviderMonitors(c *gin.Context) {
 	common.ResponseSuccess(c, monitors, "同步完成")
 }
 
-// ListAgentMonitors returns the list of monitors from the agent.
-// For agent-mode providers (WebSocket reverse connect), returns MySQL-synced data
-// since the agent's HTTP API is not directly reachable.
+// ListAgentMonitors godoc
+// @Summary 获取Agent监控列表（实时）
+// @Description 直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Param page query int false "页码"
+// @Param pageSize query int false "每页条数"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/agent-monitors [get]
 func ListAgentMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -366,7 +389,15 @@ func listAgentMonitorsFromDB(c *gin.Context, providerID uint, page, pageSize int
 	})
 }
 
-// GetInstanceResources returns resource monitoring data for an instance.
+// GetInstanceResources godoc
+// @Summary 获取实例资源监控数据
+// @Description 获取指定实例的CPU/内存资源监控指标
+// @Tags 管理员/实例
+// @Produce json
+// @Param id path uint true "实例ID"
+// @Param hours query int false "查询时间范围小时数（默认24）"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/instances/{id}/monitoring/resources [get]
 func GetInstanceResources(c *gin.Context) {
 	instanceIDStr := c.Param("id")
 	instanceID, err := strconv.ParseUint(instanceIDStr, 10, 32)
@@ -392,7 +423,14 @@ func GetInstanceResources(c *gin.Context) {
 	common.ResponseSuccess(c, metrics)
 }
 
-// GetProviderResourceSummary returns latest resource usage for all instances of a provider.
+// GetProviderResourceSummary godoc
+// @Summary 获取节点资源汇总
+// @Description 获取节点下所有实例的最新资源使用汇总
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/resources [get]
 func GetProviderResourceSummary(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -412,8 +450,14 @@ func GetProviderResourceSummary(c *gin.Context) {
 	common.ResponseSuccess(c, metrics)
 }
 
-// ClearProviderMonitors clears all agent monitors for a provider.
-// This removes all records from both the agent-side and the local DB.
+// ClearProviderMonitors godoc
+// @Summary 清空节点监控器
+// @Description 清除指定节点下所有Agent监控记录及资源指标
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/clear [delete]
 func ClearProviderMonitors(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

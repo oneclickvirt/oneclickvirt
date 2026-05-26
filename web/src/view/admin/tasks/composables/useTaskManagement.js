@@ -62,15 +62,11 @@ export function useTaskManagement() {
       }
 
       const response = await getAdminTasks(params)
-      if (response.code === 200) {
-        tasks.value = response.data.list || []
-        total.value = response.data.total || 0
-      } else {
-        ElMessage.error(response.message || t('admin.tasks.loadFailed'))
-      }
+      tasks.value = response.data.list || []
+      total.value = response.data.total || 0
     } catch (error) {
       console.error('获取任务列表失败:', error)
-      ElMessage.error(t('admin.tasks.loadFailed'))
+      ElMessage.error(error?.message || t('admin.tasks.loadFailed'))
     } finally {
       loading.value = false
     }
@@ -124,17 +120,13 @@ export function useTaskManagement() {
         reason: forceStopDialog.form.reason
       })
 
-      if (response.code === 200) {
-        ElMessage.success(t('admin.tasks.forceStopSuccess'))
-        forceStopDialog.visible = false
-        loadTasks()
-        loadStats()
-      } else {
-        ElMessage.error(response.message || t('message.operationFailed'))
-      }
+      ElMessage.success(t('admin.tasks.forceStopSuccess'))
+      forceStopDialog.visible = false
+      loadTasks()
+      loadStats()
     } catch (error) {
       console.error('强制停止任务失败:', error)
-      ElMessage.error(t('message.operationFailed'))
+      ElMessage.error(error?.message || t('message.operationFailed'))
     } finally {
       forceStopDialog.loading = false
     }
@@ -153,17 +145,13 @@ export function useTaskManagement() {
       )
 
       const response = await cancelUserTaskByAdmin(task.id)
-      if (response.code === 200) {
-        ElMessage.success(t('admin.tasks.cancelSuccess'))
-        loadTasks()
-        loadStats()
-      } else {
-        ElMessage.error(response.message || t('message.operationFailed'))
-      }
+      ElMessage.success(t('admin.tasks.cancelSuccess'))
+      loadTasks()
+      loadStats()
     } catch (error) {
-      if (error !== 'cancel') {
+      if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
         console.error('取消任务失败:', error)
-        ElMessage.error(t('message.operationFailed'))
+        ElMessage.error(error?.message || t('message.operationFailed'))
       }
     }
   }

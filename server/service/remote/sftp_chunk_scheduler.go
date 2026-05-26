@@ -68,6 +68,15 @@ func RegisterSFTPChunkCleanupTarget(target *SSHAccessTarget, remoteDir string) {
 		sftpCleanupRegistry[key] = state
 	}
 
+	state.target = SSHAccessTarget{
+		ProviderID:     target.ProviderID,
+		Host:           target.Host,
+		Port:           target.Port,
+		Username:       target.Username,
+		Password:       target.Password,
+		PrivateKey:     target.PrivateKey,
+		UseAgentTunnel: target.UseAgentTunnel,
+	}
 	state.lastSeen = now
 	state.dirs[dir] = struct{}{}
 }

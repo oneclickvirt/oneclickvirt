@@ -423,7 +423,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "管理员删除（禁用）任意API Token",
+                "description": "管理员硬删除任意API Token",
                 "consumes": [
                     "application/json"
                 ],
@@ -441,6 +441,57 @@ const docTemplate = `{
                         "name": "id",
                         "in": "path",
                         "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "删除成功",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "400": {
+                        "description": "参数错误",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    },
+                    "500": {
+                        "description": "删除失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/admin/api-tokens/batch-delete": {
+            "post": {
+                "security": [
+                    {
+                        "BearerAuth": []
+                    }
+                ],
+                "description": "管理员批量硬删除多个API Token",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "API Token管理"
+                ],
+                "summary": "管理员批量删除API Token",
+                "parameters": [
+                    {
+                        "description": "包含ids数组的请求体",
+                        "name": "request",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "type": "object"
+                        }
                     }
                 ],
                 "responses": {
@@ -4674,6 +4725,268 @@ const docTemplate = `{
                 }
             }
         },
+        "/api/v1/admin/instances/{id}/monitoring/resources": {
+            "get": {
+                "description": "获取指定实例的CPU/内存资源监控指标",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "获取实例资源监控数据",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "查询时间范围小时数（默认24）",
+                        "name": "hours",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/instances/{id}/sftp/download": {
+            "get": {
+                "description": "下载管理员实例上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/instances/{id}/sftp/list": {
+            "get": {
+                "description": "列出管理员实例远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/instances/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到管理员实例远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/instances/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理实例指定 uploadId 对应临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/instances/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询实例分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/实例"
+                ],
+                "summary": "管理员实例SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
         "/api/v1/admin/logs/cleanup": {
             "post": {
                 "security": [
@@ -4962,6 +5275,566 @@ const docTemplate = `{
                     },
                     "500": {
                         "description": "获取失败",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/agent": {
+            "post": {
+                "description": "将监控Agent部署到指定节点主机（耗时最長十分钟）",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "部署监控Agent",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "部署参数（version可选）",
+                        "name": "body",
+                        "in": "body",
+                        "schema": {
+                            "$ref": "#/definitions/admin.DeployAgentRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "delete": {
+                "description": "从指定节点主机卸载监控Agent",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "卸载监控Agent",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/agent-monitors": {
+            "get": {
+                "description": "直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取Agent监控列表（实时）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/clear": {
+            "delete": {
+                "description": "清除指定节点下所有Agent监控记录及资源指标",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "清空节点监控器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/config": {
+            "get": {
+                "description": "获取指定节点的监控配置",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取监控配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            },
+            "put": {
+                "description": "更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "更新监控配置",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "监控配置",
+                        "name": "body",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/admin.UpdateMonitoringConfigRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/monitors": {
+            "get": {
+                "description": "获取指定节点下所有Agent监控记录，支持分页",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取节点监控列表（DB）",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "integer",
+                        "description": "页码",
+                        "name": "page",
+                        "in": "query"
+                    },
+                    {
+                        "type": "integer",
+                        "description": "每页条数",
+                        "name": "pageSize",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/resources": {
+            "get": {
+                "description": "获取节点下所有实例的最新资源使用汇总",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取节点资源汇总",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/status": {
+            "get": {
+                "description": "检查指定节点的监控Agent运行状态、版本与监控数量",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "获取Agent状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/monitoring/sync": {
+            "post": {
+                "description": "确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/节点"
+                ],
+                "summary": "同步节点监控器",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "节点ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/sftp/download": {
+            "get": {
+                "description": "下载管理员连接到节点宿主机上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/sftp/list": {
+            "get": {
+                "description": "列出管理员连接到节点宿主机后的远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到管理员连接到节点宿主机上的远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理节点宿主机指定 uploadId 对应临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/admin/providers/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询节点宿主机分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "管理员/Provider"
+                ],
+                "summary": "管理员节点SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "Provider ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
                         "schema": {
                             "$ref": "#/definitions/common.Response"
                         }
@@ -5363,6 +6236,233 @@ const docTemplate = `{
                         "type": "string",
                         "description": "按昵称搜索",
                         "name": "nickname",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/user/instances/{id}/sftp/download": {
+            "get": {
+                "description": "下载用户实例上的远程文件",
+                "produces": [
+                    "application/octet-stream"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP下载",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程文件路径",
+                        "name": "path",
+                        "in": "query",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "file"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/user/instances/{id}/sftp/list": {
+            "get": {
+                "description": "列出用户实例远程目录文件",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP目录列表",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程路径",
+                        "name": "path",
+                        "in": "query"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/user/instances/{id}/sftp/upload": {
+            "post": {
+                "description": "上传本地文件到用户实例远程目录",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "file",
+                        "description": "上传文件",
+                        "name": "file",
+                        "in": "formData",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/user/instances/{id}/sftp/upload/abort": {
+            "post": {
+                "description": "清理指定 uploadId 对应的临时分片文件，允许重传",
+                "consumes": [
+                    "multipart/form-data"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传中断清理",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "formData",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "formData"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
+                        "in": "formData"
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "$ref": "#/definitions/common.Response"
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/user/instances/{id}/sftp/upload/status": {
+            "get": {
+                "description": "查询分片上传进度，用于断点续传",
+                "produces": [
+                    "application/json"
+                ],
+                "tags": [
+                    "用户/实例"
+                ],
+                "summary": "用户实例SFTP上传状态",
+                "parameters": [
+                    {
+                        "type": "integer",
+                        "description": "实例ID",
+                        "name": "id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "上传ID",
+                        "name": "uploadId",
+                        "in": "query",
+                        "required": true
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标文件路径",
+                        "name": "targetPath",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "远程目标目录",
+                        "name": "targetDir",
+                        "in": "query"
+                    },
+                    {
+                        "type": "string",
+                        "description": "文件名",
+                        "name": "filename",
                         "in": "query"
                     }
                 ],
@@ -7394,7 +8494,7 @@ const docTemplate = `{
                         "BearerAuth": []
                     }
                 ],
-                "description": "用户删除（禁用）自己的API Token",
+                "description": "用户硬删除自己的API Token",
                 "consumes": [
                     "application/json"
                 ],
@@ -9918,6 +11018,10 @@ const docTemplate = `{
                 "progress": {
                     "type": "integer"
                 },
+                "progressLogs": {
+                    "description": "进度日志（JSON数组）",
+                    "type": "string"
+                },
                 "providerId": {
                     "type": "integer"
                 },
@@ -10683,6 +11787,14 @@ const docTemplate = `{
                 }
             }
         },
+        "admin.DeployAgentRequest": {
+            "type": "object",
+            "properties": {
+                "version": {
+                    "type": "string"
+                }
+            }
+        },
         "admin.ExportRedemptionCodesRequest": {
             "type": "object",
             "properties": {
@@ -10990,6 +12102,33 @@ const docTemplate = `{
                     "type": "integer",
                     "maximum": 99,
                     "minimum": 0
+                }
+            }
+        },
+        "admin.UpdateMonitoringConfigRequest": {
+            "type": "object",
+            "properties": {
+                "agent_port": {
+                    "type": "integer"
+                },
+                "collect_interval": {
+                    "type": "integer"
+                },
+                "extra_exclude_cidrs_v4": {
+                    "type": "string"
+                },
+                "extra_exclude_cidrs_v6": {
+                    "type": "string"
+                },
+                "monitoring_mode": {
+                    "type": "string"
+                },
+                "resource_collect_interval": {
+                    "type": "integer"
+                },
+                "traffic_collect_method": {
+                    "description": "\"nft\" or \"ipt\"",
+                    "type": "string"
                 }
             }
         },
@@ -13682,6 +14821,10 @@ const docTemplate = `{
                 },
                 "progress": {
                     "type": "integer"
+                },
+                "progressLogs": {
+                    "description": "进度日志（JSON数组）",
+                    "type": "string"
                 },
                 "providerId": {
                     "type": "integer"

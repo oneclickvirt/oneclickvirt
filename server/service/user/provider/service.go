@@ -59,7 +59,7 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 	global.APP_LOG.Debug("开始处理创建实例任务", zap.Uint("taskId", task.ID))
 
 	// 初始化进度 (5%)
-	s.updateTaskProgress(task.ID, 5, "正在准备实例创建...")
+	s.updateTaskProgress(task.ID, 5, "step.preparingCreate")
 
 	// 阶段1: 数据库预处理（快速事务） (5% -> 25%)
 	instance, err := s.prepareInstanceCreation(ctx, task)
@@ -78,14 +78,14 @@ func (s *Service) ProcessCreateInstanceTask(ctx context.Context, task *adminMode
 	}
 
 	// 更新进度到30% (开始调用Provider创建实例)
-	s.updateTaskProgress(task.ID, 30, "正在调用Provider创建实例...")
+	s.updateTaskProgress(task.ID, 30, "step.callingProviderCreate")
 
 	// 阶段2: Provider创建实例（无事务，根据ExecutionRule自动选择API或SSH）(30% -> 60%)
 	apiError := s.executeProviderCreation(ctx, task, instance)
 
 	// 阶段3: 结果处理（快速事务）
 	global.APP_LOG.Debug("开始处理实例创建结果", zap.Uint("taskId", task.ID), zap.Bool("hasApiError", apiError != nil))
-	if finalizeErr := s.finalizeInstanceCreation(context.Background(), task, instance, apiError); finalizeErr != nil {
+	if finalizeErr := s.finalizeInstanceCreation(ctx, task, instance, apiError); finalizeErr != nil {
 		if errors.Is(finalizeErr, interfaces.ErrAsyncCompletion) {
 			global.APP_LOG.Info("实例创建已移交后台处理", zap.Uint("taskId", task.ID))
 			return finalizeErr

@@ -167,7 +167,7 @@ func (s *Service) prepareInstanceCreation(ctx context.Context, task *adminModel.
 		zap.Uint("instanceId", instance.ID))
 
 	// 更新进度到25% (数据库预处理完成)
-	s.updateTaskProgress(task.ID, 25, "数据库预处理完成")
+	s.updateTaskProgress(task.ID, 25, "step.dbPreprocessing")
 
 	return &instance, nil
 }

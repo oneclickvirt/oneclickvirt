@@ -604,32 +604,58 @@
               :label="$t('admin.tasks.statusMessage')"
               :span="2"
             >
-              {{ detailDialog.task.statusMessage }}
+              {{ translateStepMsg(detailDialog.task.statusMessage) }}
             </el-descriptions-item>
             <el-descriptions-item
               :label="$t('admin.tasks.progressLogs')"
               :span="2"
             >
               <div v-if="detailDialog.logsLoading">
-                <el-text type="info">{{ $t('common.loading') }}</el-text>
+                <el-text type="info">
+                  {{ $t('common.loading') }}
+                </el-text>
               </div>
               <div v-else-if="detailDialog.task.progressLogs">
-                <el-button link size="small" @click="toggleProgressLogs(detailDialog.task.id)">
+                <task-steps-panel
+                  :task-type="detailDialog.task.taskType"
+                  :progress-logs="detailDialog.task.progressLogs"
+                  :task-status="detailDialog.task.status"
+                  style="margin-bottom: 10px;"
+                />
+                <el-button
+                  link
+                  size="small"
+                  @click="toggleProgressLogs(detailDialog.task.id)"
+                >
                   {{ expandedLogTaskIds.has(detailDialog.task.id) ? $t('admin.tasks.hideProgressLogs') : $t('admin.tasks.showProgressLogs') }}
                 </el-button>
-                <div v-if="expandedLogTaskIds.has(detailDialog.task.id)" class="progress-log-list">
+                <div
+                  v-if="expandedLogTaskIds.has(detailDialog.task.id)"
+                  class="progress-log-list"
+                >
                   <div
                     v-for="(entry, idx) in parseProgressLogs(detailDialog.task.progressLogs)"
                     :key="idx"
                     class="progress-log-entry"
                   >
                     <span class="log-time">{{ entry.t }}</span>
-                    <el-tag size="small" type="info" style="margin: 0 6px;">{{ entry.p }}%</el-tag>
+                    <el-tag
+                      size="small"
+                      type="info"
+                      style="margin: 0 6px;"
+                    >
+                      {{ entry.p }}%
+                    </el-tag>
                     <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
                   </div>
                 </div>
               </div>
-              <el-text v-else type="info">{{ $t('admin.tasks.noProgressLogs') }}</el-text>
+              <el-text
+                v-else
+                type="info"
+              >
+                {{ $t('admin.tasks.noProgressLogs') }}
+              </el-text>
             </el-descriptions-item>
           </el-descriptions>
         </div>
@@ -641,6 +667,7 @@
 <script setup>
 import { Refresh } from '@element-plus/icons-vue'
 import { useTaskManagement } from './composables/useTaskManagement'
+import TaskStepsPanel from '@/components/TaskStepsPanel.vue'
 
 const {
   loading, tasks, providers, total, stats,

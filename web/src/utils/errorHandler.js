@@ -51,14 +51,9 @@ export const errorHandler = {
     if (error.response && error.response.data) {
       const { data } = error.response
       code = data.code || data.status || error.response.status
-      message = data.message || data.msg || data.error || t('errors.requestFailed')
+      // 优先使用后端返回的具体错误消息，仅在无具体消息时才使用通用码映射
+      message = data.message || data.msg || data.error || this.codeMap[code] || t('errors.requestFailed')
       details = data.details || ''
-
-      // 使用错误码映射获取标准错误消息
-      const standardMessage = this.codeMap[code]
-      if (standardMessage) {
-        message = standardMessage
-      }
 
       // 特殊错误码处理
       if (autoRedirect) {

@@ -108,7 +108,7 @@ func writeSFTPDownloadResponse(c *gin.Context, filePath string, reader io.Reader
 // @Param id path uint true "实例ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/instances/{id}/sftp/list [get]
+// @Router /api/v1/admin/instances/{id}/sftp/list [get]
 func AdminInstanceSFTPList(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -147,7 +147,7 @@ func AdminInstanceSFTPList(c *gin.Context) {
 // @Param id path uint true "实例ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /v1/admin/instances/{id}/sftp/download [get]
+// @Router /api/v1/admin/instances/{id}/sftp/download [get]
 func AdminInstanceSFTPDownload(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -204,7 +204,7 @@ func AdminInstanceSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/instances/{id}/sftp/upload [post]
+// @Router /api/v1/admin/instances/{id}/sftp/upload [post]
 func AdminInstanceSFTPUpload(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -228,7 +228,7 @@ func AdminInstanceSFTPUpload(c *gin.Context) {
 // @Param id path uint true "Provider ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/providers/{id}/sftp/list [get]
+// @Router /api/v1/admin/providers/{id}/sftp/list [get]
 func AdminProviderSFTPList(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -267,7 +267,7 @@ func AdminProviderSFTPList(c *gin.Context) {
 // @Param id path uint true "Provider ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /v1/admin/providers/{id}/sftp/download [get]
+// @Router /api/v1/admin/providers/{id}/sftp/download [get]
 func AdminProviderSFTPDownload(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -324,7 +324,7 @@ func AdminProviderSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/providers/{id}/sftp/upload [post]
+// @Router /api/v1/admin/providers/{id}/sftp/upload [post]
 func AdminProviderSFTPUpload(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -351,7 +351,7 @@ func AdminProviderSFTPUpload(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/instances/{id}/sftp/upload/status [get]
+// @Router /api/v1/admin/instances/{id}/sftp/upload/status [get]
 func AdminInstanceSFTPUploadStatus(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -377,7 +377,7 @@ func AdminInstanceSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/providers/{id}/sftp/upload/status [get]
+// @Router /api/v1/admin/providers/{id}/sftp/upload/status [get]
 func AdminProviderSFTPUploadStatus(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -404,7 +404,7 @@ func AdminProviderSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/instances/{id}/sftp/upload/abort [post]
+// @Router /api/v1/admin/instances/{id}/sftp/upload/abort [post]
 func AdminInstanceSFTPUploadAbort(c *gin.Context) {
 	instance, err := getAdminInstanceForSFTP(c)
 	if err != nil {
@@ -431,7 +431,7 @@ func AdminInstanceSFTPUploadAbort(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/admin/providers/{id}/sftp/upload/abort [post]
+// @Router /api/v1/admin/providers/{id}/sftp/upload/abort [post]
 func AdminProviderSFTPUploadAbort(c *gin.Context) {
 	provider, err := getAdminProviderForSFTP(c)
 	if err != nil {
@@ -459,7 +459,13 @@ func handleAdminSFTPUploadStatus(c *gin.Context, target *remote.SSHAccessTarget)
 		filename = "unnamed.bin"
 	}
 	remotePath := adminResolveUploadTargetPath(c.Query("targetPath"), targetDir, filename)
+	remoteDir := remote.NormalizeRemotePath(path.Dir(remotePath))
 	remote.RegisterSFTPChunkCleanupTarget(target, path.Dir(remotePath))
+	uploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+	if idErr != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+		return
+	}
 
 	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
 	if err != nil {
@@ -473,7 +479,7 @@ func handleAdminSFTPUploadStatus(c *gin.Context, target *remote.SSHAccessTarget)
 		common.ResponseWithError(c, common.NewError(common.CodeInternalError, fmt.Sprintf("查询上传状态失败: %v", err)))
 		return
 	}
-	cleanedParts, _ := remote.CleanupExpiredChunkParts(sftpClient, path.Dir(remotePath), remote.DefaultChunkPartTTL)
+	cleanedParts, _ := remote.CleanupExpiredChunkParts(sftpClient, remoteDir, remote.DefaultChunkPartTTL)
 
 	common.ResponseSuccess(c, gin.H{
 		"uploadId":      uploadID,
@@ -493,6 +499,12 @@ func handleAdminSFTPUploadAbort(c *gin.Context, target *remote.SSHAccessTarget) 
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "uploadId不能为空"))
 		return
 	}
+	normalizedUploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+	if idErr != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+		return
+	}
+	uploadID = normalizedUploadID
 
 	targetDir := remote.NormalizeRemotePath(c.DefaultPostForm("targetDir", c.DefaultQuery("targetDir", "/")))
 	filename := path.Base(c.DefaultPostForm("filename", c.DefaultQuery("filename", "unnamed.bin")))
@@ -540,9 +552,18 @@ func handleAdminSFTPUpload(c *gin.Context, target *remote.SSHAccessTarget) {
 	}
 
 	remotePath := adminResolveUploadTargetPath(c.PostForm("targetPath"), targetDir, filename)
-	remote.RegisterSFTPChunkCleanupTarget(target, targetDir)
+	remoteDir := remote.NormalizeRemotePath(path.Dir(remotePath))
+	remote.RegisterSFTPChunkCleanupTarget(target, remoteDir)
 
 	uploadID := strings.TrimSpace(c.PostForm("uploadId"))
+	if uploadID != "" {
+		normalizedUploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+		if idErr != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+			return
+		}
+		uploadID = normalizedUploadID
+	}
 	chunkIndex, parseErr := adminParseUploadInt64(c, "chunkIndex", 0)
 	if parseErr != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, parseErr.Error()))
@@ -571,11 +592,11 @@ func handleAdminSFTPUpload(c *gin.Context, target *remote.SSHAccessTarget) {
 	}
 	defer cleanup()
 
-	if mkErr := sftpClient.MkdirAll(targetDir); mkErr != nil {
+	if mkErr := sftpClient.MkdirAll(remoteDir); mkErr != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, fmt.Sprintf("创建远程目录失败: %v", mkErr)))
 		return
 	}
-	_, _ = remote.CleanupExpiredChunkParts(sftpClient, targetDir, remote.DefaultChunkPartTTL)
+	_, _ = remote.CleanupExpiredChunkParts(sftpClient, remoteDir, remote.DefaultChunkPartTTL)
 
 	src, err := fileHeader.Open()
 	if err != nil {

@@ -23,8 +23,16 @@ type DeployAgentRequest struct {
 	Version string `json:"version"`
 }
 
-// DeployAgent deploys the monitoring agent to a provider host.
-// The provider is identified by the :id URL path parameter.
+// DeployAgent godoc
+// @Summary 部署监控Agent
+// @Description 将监控Agent部署到指定节点主机（耗时最長十分钟）
+// @Tags 管理员/节点
+// @Accept json
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Param body body DeployAgentRequest false "部署参数（version可选）"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/agent [post]
 func DeployAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -141,7 +149,14 @@ func DeployAgent(c *gin.Context) {
 	common.ResponseSuccess(c, gin.H{"config": config, "output": logs}, "Agent部署成功")
 }
 
-// UninstallAgent removes the agent from a provider host.
+// UninstallAgent godoc
+// @Summary 卸载监控Agent
+// @Description 从指定节点主机卸载监控Agent
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/agent [delete]
 func UninstallAgent(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -186,7 +201,14 @@ func UninstallAgent(c *gin.Context) {
 	common.ResponseSuccess(c, nil, "Agent已卸载")
 }
 
-// GetAgentStatus checks the agent status on a provider host.
+// GetAgentStatus godoc
+// @Summary 获取Agent状态
+// @Description 检查指定节点的监控Agent运行状态、版本与监控数量
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/status [get]
 func GetAgentStatus(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

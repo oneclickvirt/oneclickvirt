@@ -398,3 +398,93 @@ func (i *IncusProvider) cleanupRemoteImage(imageName, imageURL, architecture, in
 
 	return i.removeRemoteFile(remotePath)
 }
+
+// ListImages 获取Incus镜像列表（优先API，自动回退SSH）
+func (i *IncusProvider) ListImages(ctx context.Context) ([]provider.Image, error) {
+	if !i.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if i.shouldUseAPI() {
+		images, err := i.apiListImages(ctx)
+		if err == nil {
+			global.APP_LOG.Debug("Incus API调用成功 - 列出镜像")
+			return images, nil
+		}
+		global.APP_LOG.Warn("Incus API失败", zap.Error(err))
+
+		// 检查是否可以回退到SSH
+		if !i.shouldFallbackToSSH() {
+			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		}
+		global.APP_LOG.Debug("回退到SSH方式 - 列出镜像")
+	}
+
+	// 使用SSH方式
+	if !i.shouldUseSSH() {
+		return nil, fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	return i.sshListImages()
+}
+
+// PullImage 拉取Incus镜像（优先API，自动回退SSH）
+func (i *IncusProvider) PullImage(ctx context.Context, image string) error {
+	if !i.connected {
+		return fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if i.shouldUseAPI() {
+		if err := i.apiPullImage(ctx, image); err == nil {
+			global.APP_LOG.Debug("Incus API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
+
+			// 检查是否可以回退到SSH
+			if !i.shouldFallbackToSSH() {
+				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			}
+			global.APP_LOG.Debug("回退到SSH方式 - 拉取镜像", zap.String("image", utils.TruncateString(image, 50)))
+		}
+	}
+
+	// 使用SSH方式
+	if !i.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	return i.sshPullImage(image)
+}
+
+// DeleteImage 删除Incus镜像（优先API，自动回退SSH）
+func (i *IncusProvider) DeleteImage(ctx context.Context, id string) error {
+	if !i.connected {
+		return fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if i.shouldUseAPI() {
+		if err := i.apiDeleteImage(ctx, id); err == nil {
+			global.APP_LOG.Debug("Incus API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("Incus API失败", zap.Error(err))
+
+			// 检查是否可以回退到SSH
+			if !i.shouldFallbackToSSH() {
+				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			}
+			global.APP_LOG.Debug("回退到SSH方式 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+		}
+	}
+
+	// 使用SSH方式
+	if !i.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	return i.sshDeleteImage(id)
+}

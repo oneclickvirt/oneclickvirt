@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"strings"
 	"time"
 
 	"oneclickvirt/global"
@@ -14,6 +15,13 @@ import (
 	"go.uber.org/zap"
 	"gorm.io/gorm"
 )
+
+type trafficUserIDBackfill struct {
+	monitorID  uint
+	instanceID uint
+	oldUserID  uint
+	newUserID  uint
+}
 
 // SyncService synchronizes traffic data from the agent into MySQL history tables.
 type SyncService struct {
@@ -112,32 +120,28 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 		for _, p := range pairs {
 			instanceUserMap[p.ID] = p.UserID
 		}
+		backfills := make([]trafficUserIDBackfill, 0)
+		for i := range monitors {
+			monitor := &monitors[i]
+			if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
+				backfills = append(backfills, trafficUserIDBackfill{
+					monitorID:  monitor.ID,
+					instanceID: monitor.InstanceID,
+					oldUserID:  monitor.UserID,
+					newUserID:  currentUID,
+				})
+				monitor.UserID = currentUID
+			}
+		}
+		if err := applyTrafficUserIDBackfills(tx, backfills); err != nil {
+			return err
+		}
 
 		txSync := &SyncService{db: tx, ctx: s.ctx}
 		for agentID, info := range infoMap {
 			monitor := monitorByAgentID[agentID]
 			if monitor == nil {
 				continue
-			}
-
-			// Refresh monitor.UserID from the instance table if it changed
-			if currentUID, ok := instanceUserMap[monitor.InstanceID]; ok && currentUID != monitor.UserID {
-				oldUID := monitor.UserID
-				monitor.UserID = currentUID
-				if err := tx.Model(monitor).Update("user_id", currentUID).Error; err != nil {
-					return fmt.Errorf("backfill monitor user_id: %w", err)
-				}
-				// Backfill stale user_id in existing pmacct_traffic_records for this instance
-				if oldUID != currentUID {
-					if err := tx.Exec("UPDATE pmacct_traffic_records SET user_id = ? WHERE instance_id = ? AND user_id = ?",
-						currentUID, monitor.InstanceID, oldUID).Error; err != nil {
-						return fmt.Errorf("backfill pmacct user_id: %w", err)
-					}
-					if err := tx.Exec("UPDATE instance_traffic_histories SET user_id = ? WHERE instance_id = ? AND user_id = ?",
-						currentUID, monitor.InstanceID, oldUID).Error; err != nil {
-						return fmt.Errorf("backfill history user_id: %w", err)
-					}
-				}
 			}
 
 			currentTraffic := info.UsedTraffic
@@ -268,6 +272,60 @@ func (s *SyncService) SyncProviderTraffic(providerID uint, config *monitoringMod
 	}
 
 	return nil
+}
+
+func applyTrafficUserIDBackfills(tx *gorm.DB, changes []trafficUserIDBackfill) error {
+	if len(changes) == 0 {
+		return nil
+	}
+
+	monitorIDs := make([]uint, 0, len(changes))
+	monitorArgs := make([]interface{}, 0, len(changes)*2)
+	var monitorCase strings.Builder
+	monitorCase.WriteString("CASE id")
+	for _, change := range changes {
+		monitorIDs = append(monitorIDs, change.monitorID)
+		monitorCase.WriteString(" WHEN ? THEN ?")
+		monitorArgs = append(monitorArgs, change.monitorID, change.newUserID)
+	}
+	monitorCase.WriteString(" ELSE user_id END")
+	if err := tx.Model(&monitoringModel.AgentMonitor{}).
+		Where("id IN ?", monitorIDs).
+		Update("user_id", gorm.Expr(monitorCase.String(), monitorArgs...)).Error; err != nil {
+		return fmt.Errorf("backfill monitor user_id: %w", err)
+	}
+
+	if err := applyTrafficHistoryUserIDBackfill(tx, "pmacct_traffic_records", changes); err != nil {
+		return fmt.Errorf("backfill pmacct user_id: %w", err)
+	}
+	if err := applyTrafficHistoryUserIDBackfill(tx, "instance_traffic_histories", changes); err != nil {
+		return fmt.Errorf("backfill history user_id: %w", err)
+	}
+
+	return nil
+}
+
+func applyTrafficHistoryUserIDBackfill(tx *gorm.DB, table string, changes []trafficUserIDBackfill) error {
+	var query strings.Builder
+	args := make([]interface{}, 0, len(changes)*5)
+
+	query.WriteString("UPDATE ")
+	query.WriteString(table)
+	query.WriteString(" SET user_id = CASE")
+	for _, change := range changes {
+		query.WriteString(" WHEN instance_id = ? AND user_id = ? THEN ?")
+		args = append(args, change.instanceID, change.oldUserID, change.newUserID)
+	}
+	query.WriteString(" ELSE user_id END WHERE ")
+	for i, change := range changes {
+		if i > 0 {
+			query.WriteString(" OR ")
+		}
+		query.WriteString("(instance_id = ? AND user_id = ?)")
+		args = append(args, change.instanceID, change.oldUserID)
+	}
+
+	return tx.Exec(query.String(), args...).Error
 }
 
 // upsertInstanceTrafficHistory upserts instance traffic for the current hour.

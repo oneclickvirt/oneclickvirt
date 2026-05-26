@@ -213,44 +213,51 @@ func (s *QuotaService) getCurrentResourceUsageWithPending(tx *gorm.DB, userID ui
 	// 使用状态常量分别查询稳定状态和过渡状态的实例
 	stableStatuses := constant.GetStableStatuses()
 	transitionalStatuses := constant.GetTransitionalStatuses()
+	type quotaUsageAggregate struct {
+		Count     int64
+		CPU       int
+		Memory    int64
+		Disk      int64
+		Bandwidth int
+	}
 
 	// 稳定状态：running、stopped、error
-	var stableInstances []provider.Instance
+	var stableUsage quotaUsageAggregate
 	err := tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&provider.Instance{}).
+		Select("COUNT(*) AS count, COALESCE(SUM(cpu), 0) AS cpu, COALESCE(SUM(memory), 0) AS memory, COALESCE(SUM(disk), 0) AS disk, COALESCE(SUM(bandwidth), 0) AS bandwidth").
 		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, stableStatuses).
-		Find(&stableInstances).Error
+		Scan(&stableUsage).Error
 	if err != nil {
 		return 0, ResourceUsage{}, ResourceUsage{}, err
 	}
 
 	// 待确认状态：creating、resetting
-	var pendingInstances []provider.Instance
+	var pendingUsage quotaUsageAggregate
 	err = tx.Clauses(clause.Locking{Strength: "SHARE"}).
+		Model(&provider.Instance{}).
+		Select("COUNT(*) AS count, COALESCE(SUM(cpu), 0) AS cpu, COALESCE(SUM(memory), 0) AS memory, COALESCE(SUM(disk), 0) AS disk, COALESCE(SUM(bandwidth), 0) AS bandwidth").
 		Where("user_id = ? AND deleted_at IS NULL AND status IN (?)", userID, transitionalStatuses).
-		Find(&pendingInstances).Error
+		Scan(&pendingUsage).Error
 	if err != nil {
 		return 0, ResourceUsage{}, ResourceUsage{}, err
 	}
 
 	// 总实例数 = 稳定状态 + 待确认状态
-	totalCount := len(stableInstances) + len(pendingInstances)
+	totalCount := int(stableUsage.Count + pendingUsage.Count)
 
-	// 统计稳定状态资源
-	stableResources := ResourceUsage{}
-	for _, instance := range stableInstances {
-		stableResources.CPU += instance.CPU
-		stableResources.Memory += instance.Memory
-		stableResources.Disk += instance.Disk
-		stableResources.Bandwidth += instance.Bandwidth
+	stableResources := ResourceUsage{
+		CPU:       stableUsage.CPU,
+		Memory:    stableUsage.Memory,
+		Disk:      stableUsage.Disk,
+		Bandwidth: stableUsage.Bandwidth,
 	}
 
-	// 统计待确认状态资源
-	pendingResources := ResourceUsage{}
-	for _, instance := range pendingInstances {
-		pendingResources.CPU += instance.CPU
-		pendingResources.Memory += instance.Memory
-		pendingResources.Disk += instance.Disk
-		pendingResources.Bandwidth += instance.Bandwidth
+	pendingResources := ResourceUsage{
+		CPU:       pendingUsage.CPU,
+		Memory:    pendingUsage.Memory,
+		Disk:      pendingUsage.Disk,
+		Bandwidth: pendingUsage.Bandwidth,
 	}
 
 	return totalCount, stableResources, pendingResources, nil

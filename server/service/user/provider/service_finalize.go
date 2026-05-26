@@ -326,7 +326,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 	// 如果Provider创建实例成功，执行后处理任务（同步完成关键任务后再标记完成）
 	if apiError == nil {
-		go func(instanceID uint, providerID uint, taskID uint) {
+		go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
 			defer func() {
 				if r := recover(); r != nil {
 					global.APP_LOG.Error("实例创建后处理任务发生panic",
@@ -362,8 +362,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			global.APP_LOG.Debug("开始执行实例创建后处理任务", zap.Uint("instanceId", instanceID))
 
 			// 更新进度到75% (等待实例SSH服务就绪)
-			s.updateTaskProgress(taskID, 75, "等待实例SSH服务就绪...")
-
+			s.updateTaskProgress(taskID, 75, "step.waitingSSHReady")
 			// 根据Provider类型确定SSH等待时长：QEMU/KubeVirt虚拟机启动慢，需要更长等待
 			sshWaitTimeout := 120 * time.Second
 			var dbProviderForWait providerModel.Provider
@@ -382,22 +381,21 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 智能等待实例SSH服务就绪，传入taskID以便更新进度
-			if err := s.waitForInstanceSSHReady(instanceID, providerID, taskID, sshWaitTimeout); err != nil {
+			if err := s.waitForInstanceSSHReady(taskCtx, instanceID, providerID, taskID, sshWaitTimeout); err != nil {
 				global.APP_LOG.Warn("等待实例SSH就绪超时",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
 				// 继续执行，但后续SSH相关操作可能失败
 			}
 
-			if err := s.ensureInstanceNetworkAddresses(context.Background(), instanceID, providerID); err != nil {
+			if err := s.ensureInstanceNetworkAddresses(taskCtx, instanceID, providerID); err != nil {
 				global.APP_LOG.Warn("实例网络地址补齐失败",
 					zap.Uint("instanceId", instanceID),
 					zap.Error(err))
 			}
 
 			// 更新进度到80% (配置端口映射)
-			s.updateTaskProgress(taskID, 80, "正在配置端口映射...")
-
+			s.updateTaskProgress(taskID, 80, "step.configuringPortMappings")
 			// 创建默认端口映射（对于非Docker或需要补充端口映射的情况）
 			portMappingService := &resources.PortMappingService{}
 
@@ -420,8 +418,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 更新进度到85% (验证监控状态)
-			s.updateTaskProgress(taskID, 85, "正在验证监控状态...")
-
+			s.updateTaskProgress(taskID, 85, "step.verifyingMonitorStatus")
 			// 2. 验证pmacct监控状态（所有 Provider 在创建实例时已经初始化）
 			// Docker/Incus/LXD/Proxmox Provider 在实例创建流程中都已调用 InitializePmacctForInstance
 			// 后处理任务只需验证监控是否存在，避免重复初始化导致数据库约束冲突
@@ -454,7 +451,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 更新进度到90% (设置SSH密码)
-			s.updateTaskProgress(taskID, 90, "正在设置SSH密码...")
+			s.updateTaskProgress(taskID, 90, "step.settingSSHPassword")
 			// 3. 设置实例SSH密码（关键步骤）
 			var currentInstance providerModel.Instance
 			var passwordSetSuccess bool = false
@@ -468,7 +465,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				maxRetries := 2
 				for i := 0; i < maxRetries; i++ {
 					// 创建带2分钟超时的context
-					ctxWithTimeout, cancel := context.WithTimeout(context.Background(), 200*time.Second)
+					ctxWithTimeout, cancel := context.WithTimeout(taskCtx, 200*time.Second)
 					err := providerSvc.SetInstancePassword(ctxWithTimeout, currentInstance.ProviderID, currentInstance.Name, currentInstance.Password)
 					cancel() // 立即释放context资源
 					if err != nil {
@@ -494,7 +491,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 
 				// 密码设置成功后，验证SSH密码认证是否真正可用
 				if passwordSetSuccess {
-					s.updateTaskProgress(taskID, 92, "正在验证SSH密码可用性...")
+					s.updateTaskProgress(taskID, 92, "step.verifyingSSHPassword")
 					var sshVerifyProvider providerModel.Provider
 					if err := global.APP_DB.First(&sshVerifyProvider, providerID).Error; err == nil {
 						verifyHost := sshVerifyProvider.PortIP
@@ -520,8 +517,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 更新进度到95% (配置网络监控)
-			s.updateTaskProgress(taskID, 95, "正在配置网络监控...")
-
+			s.updateTaskProgress(taskID, 95, "step.configuringNetworkMonitor")
 			// 4. pmacct监控已在初始化时完成配置，无需额外步骤
 			if !pmacctInitSuccess {
 				if trafficEnabled {
@@ -541,7 +537,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 				useAgent = monConfig.MonitoringMode != "pmacct"
 			}
 			if useAgent {
-				agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+				agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 				agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
 				agentCancel()
 			} else {
@@ -551,8 +547,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 更新进度到98%
-			s.updateTaskProgress(taskID, 98, "正在启动流量同步...")
-
+			s.updateTaskProgress(taskID, 98, "step.startingTrafficSync")
 			// 5. 触发流量同步（仅在pmacct初始化成功时执行）
 			if pmacctInitSuccess {
 				syncTrigger := traffic.NewSyncTriggerService()
@@ -572,9 +567,9 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			}
 
 			// 最终完成状态判断
-			completionMessage := "实例创建成功"
+			completionMessage := "step.createCompleted"
 			if !passwordSetSuccess && currentInstance.Password != "" {
-				completionMessage = "实例创建成功，但SSH密码设置失败，请手动重置密码"
+				completionMessage = "step.createCompletedWithWarning"
 				global.APP_LOG.Warn("实例创建完成但SSH密码设置失败",
 					zap.Uint("instanceId", instanceID),
 					zap.String("instanceName", currentInstance.Name))
@@ -594,7 +589,7 @@ func (s *Service) finalizeInstanceCreation(ctx context.Context, task *adminModel
 			global.APP_LOG.Debug("实例创建后处理任务完成",
 				zap.Uint("instanceId", instanceID),
 				zap.Bool("passwordSetSuccess", passwordSetSuccess))
-		}(instance.ID, instance.ProviderID, task.ID)
+		}(ctx, instance.ID, instance.ProviderID, task.ID)
 	}
 	global.APP_LOG.Info("实例创建最终化完成", zap.Uint("taskId", task.ID))
 

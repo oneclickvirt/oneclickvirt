@@ -54,7 +54,11 @@
             :model-value="conn.activeView || 'terminal'"
             @tab-change="(view) => setConnectionView(conn.connectionKey, view)"
           >
-            <el-tab-pane label="Terminal" name="terminal" lazy>
+            <el-tab-pane
+              label="Terminal"
+              name="terminal"
+              lazy
+            >
               <SSHTerminal
                 :ref="el => setTerminalRef(conn.connectionKey, el)"
                 :instance-id="conn.instanceId"
@@ -65,7 +69,11 @@
                 @error="(error) => handleSSHError(conn.connectionKey, error)"
               />
             </el-tab-pane>
-            <el-tab-pane label="SFTP" name="sftp" lazy>
+            <el-tab-pane
+              label="SFTP"
+              name="sftp"
+              lazy
+            >
               <SFTPPanel
                 :entity-type="conn.isAdmin ? 'admin-instance' : 'user-instance'"
                 :entity-id="conn.instanceId"

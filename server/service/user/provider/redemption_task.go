@@ -36,7 +36,7 @@ import (
 func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task *adminModel.Task) error {
 	global.APP_LOG.Info("开始处理兑换码实例创建任务", zap.Uint("taskId", task.ID))
 
-	s.updateTaskProgress(task.ID, 5, "正在准备兑换码实例创建...")
+	s.updateTaskProgress(task.ID, 5, "step.preparingRedemptionCreate")
 
 	// 阶段1: 数据库预处理（5% -> 25%）
 	instance, err := s.prepareRedemptionInstanceCreation(ctx, task)
@@ -51,7 +51,7 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 		return err
 	}
 
-	s.updateTaskProgress(task.ID, 30, "正在调用Provider创建实例...")
+	s.updateTaskProgress(task.ID, 30, "step.callingProviderCreate")
 
 	// 阶段2: Provider创建实例（30% -> 70%）—— 直接复用，根据ExecutionRule自动选择API或SSH
 	apiError := s.executeProviderCreation(ctx, task, instance)
@@ -61,7 +61,7 @@ func (s *Service) ProcessCreateRedemptionInstanceTask(ctx context.Context, task 
 		zap.Uint("taskId", task.ID),
 		zap.Bool("hasApiError", apiError != nil))
 
-	if finalizeErr := s.finalizeRedemptionInstanceCreation(context.Background(), task, instance, apiError); finalizeErr != nil {
+	if finalizeErr := s.finalizeRedemptionInstanceCreation(ctx, task, instance, apiError); finalizeErr != nil {
 		// ErrAsyncCompletion 是正常的异步接管信号，不是错误
 		if errors.Is(finalizeErr, interfaces.ErrAsyncCompletion) {
 			global.APP_LOG.Info("兑换码实例创建已移交后台处理", zap.Uint("taskId", task.ID))
@@ -221,7 +221,7 @@ func (s *Service) prepareRedemptionInstanceCreation(ctx context.Context, task *a
 		zap.Uint("taskId", task.ID),
 		zap.Uint("instanceId", instance.ID))
 
-	s.updateTaskProgress(task.ID, 25, "数据库预处理完成")
+	s.updateTaskProgress(task.ID, 25, "step.dbPreprocessing")
 	return &instance, nil
 }
 
@@ -454,7 +454,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 	}
 
 	// 成功后的异步后处理（端口映射配置 + SSH 就绪检测 + 任务完成标记）
-	go func(instanceID uint, providerID uint, taskID uint) {
+	go func(taskCtx context.Context, instanceID uint, providerID uint, taskID uint) {
 		defer func() {
 			if r := recover(); r != nil {
 				global.APP_LOG.Error("兑换码实例后处理发生panic",
@@ -476,7 +476,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			return
 		}
 
-		s.updateTaskProgress(taskID, 75, "等待实例SSH服务就绪...")
+		s.updateTaskProgress(taskID, 75, "step.waitingSSHReady")
 
 		// 根据Provider类型确定SSH等待时长
 		redeemSSHWait := 120 * time.Second
@@ -489,14 +489,14 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				redeemSSHWait = 240 * time.Second
 			}
 		}
-		_ = s.waitForInstanceSSHReady(instanceID, providerID, taskID, redeemSSHWait)
-		if err := s.ensureInstanceNetworkAddresses(context.Background(), instanceID, providerID); err != nil {
+		_ = s.waitForInstanceSSHReady(taskCtx, instanceID, providerID, taskID, redeemSSHWait)
+		if err := s.ensureInstanceNetworkAddresses(taskCtx, instanceID, providerID); err != nil {
 			global.APP_LOG.Warn("兑换码实例网络地址补齐失败",
 				zap.Uint("instanceId", instanceID),
 				zap.Error(err))
 		}
 
-		s.updateTaskProgress(taskID, 80, "正在配置端口映射...")
+		s.updateTaskProgress(taskID, 80, "step.configuringPortMappings")
 		portMappingService := &resources.PortMappingService{}
 		existingPorts, _ := portMappingService.GetInstancePortMappings(instanceID)
 		if len(existingPorts) == 0 {
@@ -514,7 +514,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				zap.Int("existingPortCount", len(existingPorts)))
 		}
 
-		s.updateTaskProgress(taskID, 85, "正在验证监控状态...")
+		s.updateTaskProgress(taskID, 85, "step.verifyingMonitorStatus")
 
 		// 验证 pmacct 监控状态（与 finalizeInstanceCreation 保持一致）
 		pmacctInitSuccess := false
@@ -541,7 +541,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			}
 		}
 
-		s.updateTaskProgress(taskID, 90, "正在配置Agent监控...")
+		s.updateTaskProgress(taskID, 90, "step.configuringAgentMonitor")
 
 		// Agent监控：仅在 agent 监控模式下注册（与 finalizeInstanceCreation 保持一致）
 		var monConfig monitoringModel.MonitoringConfig
@@ -550,7 +550,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			useAgent = monConfig.MonitoringMode != "pmacct"
 		}
 		if useAgent {
-			agentCtx, agentCancel := context.WithTimeout(context.Background(), 2*time.Minute)
+			agentCtx, agentCancel := context.WithTimeout(taskCtx, 2*time.Minute)
 			agentLifecycle.OnInstanceCreated(agentCtx, global.APP_DB, instanceID)
 			agentCancel()
 		} else {
@@ -559,7 +559,7 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 				zap.Uint("providerId", providerID))
 		}
 
-		s.updateTaskProgress(taskID, 98, "正在启动流量同步...")
+		s.updateTaskProgress(taskID, 98, "step.startingTrafficSync")
 
 		// 触发流量同步（仅在 pmacct 初始化成功时执行）
 		if pmacctInitSuccess {
@@ -570,15 +570,15 @@ func (s *Service) finalizeRedemptionInstanceCreation(ctx context.Context, task *
 			global.APP_LOG.Debug("跳过流量同步触发（pmacct初始化失败）", zap.Uint("instanceId", instanceID))
 		}
 
-		s.updateTaskProgress(taskID, 99, "兑换码实例创建完成")
+		s.updateTaskProgress(taskID, 99, "step.redemptionCreateCompleted")
 
 		stateManager := s.taskService.GetStateManager()
 		if stateManager != nil {
-			_ = stateManager.CompleteMainTask(taskID, true, "兑换码实例创建成功", nil)
+			_ = stateManager.CompleteMainTask(taskID, true, "step.redemptionCreateCompleted", nil)
 		}
 
 		global.APP_LOG.Debug("兑换码实例后处理完成", zap.Uint("instanceId", instanceID))
-	}(instance.ID, instance.ProviderID, task.ID)
+	}(ctx, instance.ID, instance.ProviderID, task.ID)
 
 	// 后台goroutine已接管，通知worker pool跳过CompleteTask
 	return interfaces.ErrAsyncCompletion

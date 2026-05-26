@@ -4,7 +4,10 @@
       <template #header>
         <div class="card-header">
           <span>{{ t('user.apiTokens.title') }}</span>
-          <el-button type="primary" @click="showCreateDialog = true">
+          <el-button
+            type="primary"
+            @click="showCreateDialog = true"
+          >
             {{ t('user.apiTokens.createToken') }}
           </el-button>
         </div>
@@ -25,15 +28,24 @@
         style="margin-bottom: 16px"
       />
 
-      <div v-if="loading" class="loading-container">
-        <el-skeleton :rows="3" animated />
+      <div
+        v-if="loading"
+        class="loading-container"
+      >
+        <el-skeleton
+          :rows="3"
+          animated
+        />
       </div>
 
       <el-empty
         v-else-if="tokens.length === 0"
         :description="t('user.apiTokens.noTokens')"
       >
-        <el-button type="primary" @click="showCreateDialog = true">
+        <el-button
+          type="primary"
+          @click="showCreateDialog = true"
+        >
           {{ t('user.apiTokens.createNewToken') }}
         </el-button>
       </el-empty>
@@ -42,39 +54,77 @@
         <div class="tokens-summary">
           {{ t('user.apiTokens.totalTokens', { count: tokens.length }) }}
         </div>
-        <el-table :data="tokens" style="width: 100%" stripe>
-          <el-table-column :label="t('user.apiTokens.tokenName')" prop="name" min-width="120" />
-          <el-table-column :label="t('user.apiTokens.tokenPrefix')" prop="tokenPrefix" width="150">
+        <el-table
+          :data="tokens"
+          style="width: 100%"
+          stripe
+        >
+          <el-table-column
+            :label="t('user.apiTokens.tokenName')"
+            prop="name"
+            min-width="120"
+          />
+          <el-table-column
+            :label="t('user.apiTokens.tokenPrefix')"
+            prop="tokenPrefix"
+            width="150"
+          >
             <template #default="{ row }">
-              <el-tag type="info" size="small">{{ row.tokenPrefix }}...</el-tag>
+              <el-tag
+                type="info"
+                size="small"
+              >
+                {{ row.tokenPrefix }}...
+              </el-tag>
             </template>
           </el-table-column>
-          <el-table-column :label="t('user.apiTokens.useCount')" prop="useCount" width="90" />
-          <el-table-column :label="t('user.apiTokens.createdAt')" width="160">
+          <el-table-column
+            :label="t('user.apiTokens.useCount')"
+            prop="useCount"
+            width="90"
+          />
+          <el-table-column
+            :label="t('user.apiTokens.createdAt')"
+            width="160"
+          >
             <template #default="{ row }">
               {{ formatDate(row.createdAt) }}
             </template>
           </el-table-column>
-          <el-table-column :label="t('user.apiTokens.expiresAt')" width="160">
+          <el-table-column
+            :label="t('user.apiTokens.expiresAt')"
+            width="160"
+          >
             <template #default="{ row }">
               <span v-if="!row.expiresAt">{{ t('user.apiTokens.never') }}</span>
               <span v-else>{{ formatDate(row.expiresAt) }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('user.apiTokens.lastUsedAt')" width="160">
+          <el-table-column
+            :label="t('user.apiTokens.lastUsedAt')"
+            width="160"
+          >
             <template #default="{ row }">
               <span v-if="!row.lastUsedAt">{{ t('user.apiTokens.unused') }}</span>
               <span v-else>{{ formatDate(row.lastUsedAt) }}</span>
             </template>
           </el-table-column>
-          <el-table-column :label="t('common.actions')" width="100" fixed="right">
+          <el-table-column
+            :label="t('common.actions')"
+            width="100"
+            fixed="right"
+          >
             <template #default="{ row }">
               <el-popconfirm
                 :title="t('user.apiTokens.deleteConfirm')"
                 @confirm="handleDelete(row.id)"
               >
                 <template #reference>
-                  <el-button type="danger" size="small" :icon="Delete" />
+                  <el-button
+                    type="danger"
+                    size="small"
+                    :icon="Delete"
+                  />
                 </template>
               </el-popconfirm>
             </template>
@@ -90,8 +140,16 @@
       width="480px"
       @close="resetCreateForm"
     >
-      <el-form ref="createFormRef" :model="createForm" :rules="createRules" label-width="100px">
-        <el-form-item :label="t('user.apiTokens.tokenName')" prop="name">
+      <el-form
+        ref="createFormRef"
+        :model="createForm"
+        :rules="createRules"
+        label-width="100px"
+      >
+        <el-form-item
+          :label="t('user.apiTokens.tokenName')"
+          prop="name"
+        >
           <el-input
             v-model="createForm.name"
             :placeholder="t('user.apiTokens.tokenNamePlaceholder')"
@@ -99,19 +157,30 @@
             show-word-limit
           />
         </el-form-item>
-        <el-form-item :label="t('user.apiTokens.expireDays')" prop="expireDays">
+        <el-form-item
+          :label="t('user.apiTokens.expireDays')"
+          prop="expireDays"
+        >
           <el-input-number
             v-model="createForm.expireDays"
             :min="0"
             :max="3650"
             style="width: 100%"
           />
-          <div class="form-hint">{{ t('user.apiTokens.expireDaysHint') }}</div>
+          <div class="form-hint">
+            {{ t('user.apiTokens.expireDaysHint') }}
+          </div>
         </el-form-item>
       </el-form>
       <template #footer>
-        <el-button @click="showCreateDialog = false">{{ t('common.cancel') }}</el-button>
-        <el-button type="primary" :loading="creating" @click="handleCreate">
+        <el-button @click="showCreateDialog = false">
+          {{ t('common.cancel') }}
+        </el-button>
+        <el-button
+          type="primary"
+          :loading="creating"
+          @click="handleCreate"
+        >
           {{ t('common.confirm') }}
         </el-button>
       </template>
@@ -150,7 +219,10 @@
         </el-button>
       </div>
       <template #footer>
-        <el-button type="primary" @click="showTokenDialog = false; loadTokens()">
+        <el-button
+          type="primary"
+          @click="showTokenDialog = false; loadTokens()"
+        >
           {{ t('common.confirm') }}
         </el-button>
       </template>

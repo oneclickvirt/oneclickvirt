@@ -56,7 +56,10 @@
         min-width="280"
       >
         <template #default="scope">
-          <span class="entry-name" :class="{ dir: scope.row.isDir }">
+          <span
+            class="entry-name"
+            :class="{ dir: scope.row.isDir }"
+          >
             {{ scope.row.isDir ? `📁 ${scope.row.name}` : `📄 ${scope.row.name}` }}
           </span>
         </template>

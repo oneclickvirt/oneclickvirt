@@ -388,14 +388,10 @@ const handleSave = async () => {
       }
 
       const response = await updateOAuth2Config(providerId.value, data)
-      if ((response.code === 200)) {
-        ElMessage.success(t('admin.config.oauth2SaveSuccess'))
-        await loadConfig()
-      } else {
-        ElMessage.error(response.message || t('admin.config.oauth2SaveFailed'))
-      }
+      ElMessage.success(t('admin.config.oauth2SaveSuccess'))
+      await loadConfig()
     } catch (error) {
-      ElMessage.error(t('admin.config.oauth2SaveFailed'))
+      ElMessage.error(error?.message || t('admin.config.oauth2SaveFailed'))
       console.error(error)
     } finally {
       saving.value = false
@@ -416,15 +412,11 @@ const resetRegistrationCount = async () => {
     )
 
     const response = await resetOAuth2RegistrationCount(providerId.value)
-    if ((response.code === 200)) {
-      ElMessage.success(t('admin.config.oauth2ResetCountSuccess'))
-      await loadConfig()
-    } else {
-      ElMessage.error(response.message || t('admin.config.oauth2ResetCountFailed'))
-    }
+    ElMessage.success(t('admin.config.oauth2ResetCountSuccess'))
+    await loadConfig()
   } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error(t('admin.config.oauth2ResetCountFailed'))
+    if (error !== 'cancel' && error?.action !== 'cancel' && error?.action !== 'close') {
+      ElMessage.error(error?.message || t('admin.config.oauth2ResetCountFailed'))
       console.error(error)
     }
   }

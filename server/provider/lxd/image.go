@@ -514,3 +514,96 @@ func (l *LXDProvider) getSSHScriptCDNURL(originalURL string) string {
 	}
 	return ""
 }
+
+// ListImages 获取LXD镜像列表（优先API，自动回退SSH）
+func (l *LXDProvider) ListImages(ctx context.Context) ([]provider.Image, error) {
+	if !l.connected {
+		return nil, fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if l.shouldUseAPI() {
+		images, err := l.apiListImages(ctx)
+		if err == nil {
+			global.APP_LOG.Debug("LXD API调用成功 - 获取镜像列表")
+			return images, nil
+		}
+		global.APP_LOG.Warn("LXD API失败", zap.Error(err))
+
+		// 检查是否可以回退到SSH
+		if !l.shouldFallbackToSSH() {
+			return nil, fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+		}
+		global.APP_LOG.Debug("回退到SSH执行 - 获取镜像列表")
+	}
+
+	// 如果执行规则不允许使用SSH，则返回错误
+	if !l.shouldUseSSH() {
+		return nil, fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	// SSH 方式
+	return l.sshListImages(ctx)
+}
+
+// PullImage 拉取LXD镜像（优先API，自动回退SSH）
+func (l *LXDProvider) PullImage(ctx context.Context, image string) error {
+	if !l.connected {
+		return fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if l.shouldUseAPI() {
+		if err := l.apiPullImage(ctx, image); err == nil {
+			global.APP_LOG.Debug("LXD API调用成功 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
+
+			// 检查是否可以回退到SSH
+			if !l.shouldFallbackToSSH() {
+				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			}
+			global.APP_LOG.Debug("回退到SSH执行 - 拉取镜像", zap.String("image", utils.TruncateString(image, 100)))
+		}
+	}
+
+	// 如果执行规则不允许使用SSH，则返回错误
+	if !l.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	// SSH 方式
+	return l.sshPullImage(ctx, image)
+}
+
+// DeleteImage 删除LXD镜像（优先API，自动回退SSH）
+func (l *LXDProvider) DeleteImage(ctx context.Context, id string) error {
+	if !l.connected {
+		return fmt.Errorf("not connected")
+	}
+
+	// 根据执行规则判断使用哪种方式
+	if l.shouldUseAPI() {
+		if err := l.apiDeleteImage(ctx, id); err == nil {
+			global.APP_LOG.Debug("LXD API调用成功 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+			return nil
+		} else {
+			global.APP_LOG.Warn("LXD API失败", zap.Error(err))
+
+			// 检查是否可以回退到SSH
+			if !l.shouldFallbackToSSH() {
+				return fmt.Errorf("API调用失败且不允许回退到SSH: %w", err)
+			}
+			global.APP_LOG.Debug("回退到SSH执行 - 删除镜像", zap.String("id", utils.TruncateString(id, 50)))
+		}
+	}
+
+	// 如果执行规则不允许使用SSH，则返回错误
+	if !l.shouldUseSSH() {
+		return fmt.Errorf("执行规则不允许使用SSH")
+	}
+
+	// SSH 方式
+	return l.sshDeleteImage(ctx, id)
+}

@@ -66,7 +66,7 @@ func getUserInstanceForSFTP(c *gin.Context) (*providerModel.Instance, error) {
 // @Param id path uint true "实例ID"
 // @Param path query string false "远程路径"
 // @Success 200 {object} common.Response
-// @Router /v1/user/instances/{id}/sftp/list [get]
+// @Router /api/v1/user/instances/{id}/sftp/list [get]
 func UserSFTPList(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -124,7 +124,7 @@ func UserSFTPList(c *gin.Context) {
 // @Param id path uint true "实例ID"
 // @Param path query string true "远程文件路径"
 // @Success 200 {file} binary
-// @Router /v1/user/instances/{id}/sftp/download [get]
+// @Router /api/v1/user/instances/{id}/sftp/download [get]
 func UserSFTPDownload(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -186,7 +186,7 @@ func UserSFTPDownload(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param file formData file true "上传文件"
 // @Success 200 {object} common.Response
-// @Router /v1/user/instances/{id}/sftp/upload [post]
+// @Router /api/v1/user/instances/{id}/sftp/upload [post]
 func UserSFTPUpload(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -207,8 +207,17 @@ func UserSFTPUpload(c *gin.Context) {
 		return
 	}
 	remotePath := resolveUploadTargetPath(c.PostForm("targetPath"), targetDir, filename)
+	remoteDir := remote.NormalizeRemotePath(path.Dir(remotePath))
 
 	uploadID := strings.TrimSpace(c.PostForm("uploadId"))
+	if uploadID != "" {
+		normalizedUploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+		if idErr != nil {
+			common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+			return
+		}
+		uploadID = normalizedUploadID
+	}
 	chunkIndex, parseErr := parseUploadInt64(c, "chunkIndex", 0)
 	if parseErr != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, parseErr.Error()))
@@ -235,7 +244,7 @@ func UserSFTPUpload(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, err.Error()))
 		return
 	}
-	remote.RegisterSFTPChunkCleanupTarget(target, targetDir)
+	remote.RegisterSFTPChunkCleanupTarget(target, remoteDir)
 
 	sftpClient, cleanup, err := remote.OpenSFTPClient(target)
 	if err != nil {
@@ -244,11 +253,11 @@ func UserSFTPUpload(c *gin.Context) {
 	}
 	defer cleanup()
 
-	if mkErr := sftpClient.MkdirAll(targetDir); mkErr != nil {
+	if mkErr := sftpClient.MkdirAll(remoteDir); mkErr != nil {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, fmt.Sprintf("创建远程目录失败: %v", mkErr)))
 		return
 	}
-	_, _ = remote.CleanupExpiredChunkParts(sftpClient, targetDir, remote.DefaultChunkPartTTL)
+	_, _ = remote.CleanupExpiredChunkParts(sftpClient, remoteDir, remote.DefaultChunkPartTTL)
 
 	src, err := fileHeader.Open()
 	if err != nil {
@@ -309,7 +318,7 @@ func UserSFTPUpload(c *gin.Context) {
 // @Param targetDir query string false "远程目标目录"
 // @Param filename query string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/user/instances/{id}/sftp/upload/status [get]
+// @Router /api/v1/user/instances/{id}/sftp/upload/status [get]
 func UserSFTPUploadStatus(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -322,6 +331,12 @@ func UserSFTPUploadStatus(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "uploadId不能为空"))
 		return
 	}
+	normalizedUploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+	if idErr != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+		return
+	}
+	uploadID = normalizedUploadID
 
 	targetDir := remote.NormalizeRemotePath(c.DefaultQuery("targetDir", "/"))
 	filename := path.Base(c.DefaultQuery("filename", "unnamed.bin"))
@@ -372,7 +387,7 @@ func UserSFTPUploadStatus(c *gin.Context) {
 // @Param targetDir formData string false "远程目标目录"
 // @Param filename formData string false "文件名"
 // @Success 200 {object} common.Response
-// @Router /v1/user/instances/{id}/sftp/upload/abort [post]
+// @Router /api/v1/user/instances/{id}/sftp/upload/abort [post]
 func UserSFTPUploadAbort(c *gin.Context) {
 	instance, err := getUserInstanceForSFTP(c)
 	if err != nil {
@@ -388,6 +403,12 @@ func UserSFTPUploadAbort(c *gin.Context) {
 		common.ResponseWithError(c, common.NewError(common.CodeValidationError, "uploadId不能为空"))
 		return
 	}
+	normalizedUploadID, idErr := remote.NormalizeChunkUploadID(uploadID)
+	if idErr != nil {
+		common.ResponseWithError(c, common.NewError(common.CodeValidationError, idErr.Error()))
+		return
+	}
+	uploadID = normalizedUploadID
 
 	targetDir := remote.NormalizeRemotePath(c.DefaultPostForm("targetDir", c.DefaultQuery("targetDir", "/")))
 	filename := path.Base(c.DefaultPostForm("filename", c.DefaultQuery("filename", "unnamed.bin")))

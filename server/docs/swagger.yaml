@@ -37,6 +37,9 @@ definitions:
         type: integer
       progress:
         type: integer
+      progressLogs:
+        description: 进度日志（JSON数组）
+        type: string
       providerId:
         type: integer
       providerName:
@@ -564,6 +567,11 @@ definitions:
     - userType
     - username
     type: object
+  admin.DeployAgentRequest:
+    properties:
+      version:
+        type: string
+    type: object
   admin.ExportRedemptionCodesRequest:
     properties:
       fields:
@@ -782,6 +790,24 @@ definitions:
         maximum: 99
         minimum: 0
         type: integer
+    type: object
+  admin.UpdateMonitoringConfigRequest:
+    properties:
+      agent_port:
+        type: integer
+      collect_interval:
+        type: integer
+      extra_exclude_cidrs_v4:
+        type: string
+      extra_exclude_cidrs_v6:
+        type: string
+      monitoring_mode:
+        type: string
+      resource_collect_interval:
+        type: integer
+      traffic_collect_method:
+        description: '"nft" or "ipt"'
+        type: string
     type: object
   admin.UpdateUserLevelRequest:
     properties:
@@ -2700,6 +2726,9 @@ definitions:
         type: integer
       progress:
         type: integer
+      progressLogs:
+        description: 进度日志（JSON数组）
+        type: string
       providerId:
         type: integer
       providerName:
@@ -2989,7 +3018,7 @@ paths:
     delete:
       consumes:
       - application/json
-      description: 管理员删除（禁用）任意API Token
+      description: 管理员硬删除任意API Token
       parameters:
       - description: Token ID
         in: path
@@ -3014,6 +3043,38 @@ paths:
       security:
       - BearerAuth: []
       summary: 管理员删除API Token
+      tags:
+      - API Token管理
+  /admin/api-tokens/batch-delete:
+    post:
+      consumes:
+      - application/json
+      description: 管理员批量硬删除多个API Token
+      parameters:
+      - description: 包含ids数组的请求体
+        in: body
+        name: request
+        required: true
+        schema:
+          type: object
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: 删除成功
+          schema:
+            $ref: '#/definitions/common.Response'
+        "400":
+          description: 参数错误
+          schema:
+            $ref: '#/definitions/common.Response'
+        "500":
+          description: 删除失败
+          schema:
+            $ref: '#/definitions/common.Response'
+      security:
+      - BearerAuth: []
+      summary: 管理员批量删除API Token
       tags:
       - API Token管理
   /admin/configuration-tasks:
@@ -5596,6 +5657,180 @@ paths:
       summary: 管理员批量更新用户状态
       tags:
       - 管理员管理
+  /api/v1/admin/instances/{id}/monitoring/resources:
+    get:
+      description: 获取指定实例的CPU/内存资源监控指标
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 查询时间范围小时数（默认24）
+        in: query
+        name: hours
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取实例资源监控数据
+      tags:
+      - 管理员/实例
+  /api/v1/admin/instances/{id}/sftp/download:
+    get:
+      description: 下载管理员实例上的远程文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 管理员实例SFTP下载
+      tags:
+      - 管理员/实例
+  /api/v1/admin/instances/{id}/sftp/list:
+    get:
+      description: 列出管理员实例远程目录文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP目录列表
+      tags:
+      - 管理员/实例
+  /api/v1/admin/instances/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到管理员实例远程目录
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传
+      tags:
+      - 管理员/实例
+  /api/v1/admin/instances/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理实例指定 uploadId 对应临时分片文件，允许重传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传中断清理
+      tags:
+      - 管理员/实例
+  /api/v1/admin/instances/{id}/sftp/upload/status:
+    get:
+      description: 查询实例分片上传进度，用于断点续传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员实例SFTP上传状态
+      tags:
+      - 管理员/实例
   /api/v1/admin/logs/cleanup:
     post:
       consumes:
@@ -5774,6 +6009,376 @@ paths:
       summary: 获取系统日志
       tags:
       - 监控管理
+  /api/v1/admin/providers/{id}/monitoring/agent:
+    delete:
+      description: 从指定节点主机卸载监控Agent
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 卸载监控Agent
+      tags:
+      - 管理员/节点
+    post:
+      consumes:
+      - application/json
+      description: 将监控Agent部署到指定节点主机（耗时最長十分钟）
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 部署参数（version可选）
+        in: body
+        name: body
+        schema:
+          $ref: '#/definitions/admin.DeployAgentRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 部署监控Agent
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/agent-monitors:
+    get:
+      description: 直接从 Agent读取监控器列表；Agent模式节点回读数据库缓存
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取Agent监控列表（实时）
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/clear:
+    delete:
+      description: 清除指定节点下所有Agent监控记录及资源指标
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 清空节点监控器
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/config:
+    get:
+      description: 获取指定节点的监控配置
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取监控配置
+      tags:
+      - 管理员/节点
+    put:
+      consumes:
+      - application/json
+      description: 更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 监控配置
+        in: body
+        name: body
+        required: true
+        schema:
+          $ref: '#/definitions/admin.UpdateMonitoringConfigRequest'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 更新监控配置
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/monitors:
+    get:
+      description: 获取指定节点下所有Agent监控记录，支持分页
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 页码
+        in: query
+        name: page
+        type: integer
+      - description: 每页条数
+        in: query
+        name: pageSize
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取节点监控列表（DB）
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/resources:
+    get:
+      description: 获取节点下所有实例的最新资源使用汇总
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取节点资源汇总
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/status:
+    get:
+      description: 检查指定节点的监控Agent运行状态、版本与监控数量
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 获取Agent状态
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/monitoring/sync:
+    post:
+      description: 确保所有运行中实例均有监控器，并清理失效的监控记录（最长5分钟）
+      parameters:
+      - description: 节点ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 同步节点监控器
+      tags:
+      - 管理员/节点
+  /api/v1/admin/providers/{id}/sftp/download:
+    get:
+      description: 下载管理员连接到节点宿主机上的远程文件
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 管理员节点SFTP下载
+      tags:
+      - 管理员/Provider
+  /api/v1/admin/providers/{id}/sftp/list:
+    get:
+      description: 列出管理员连接到节点宿主机后的远程目录文件
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP目录列表
+      tags:
+      - 管理员/Provider
+  /api/v1/admin/providers/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到管理员连接到节点宿主机上的远程目录
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传
+      tags:
+      - 管理员/Provider
+  /api/v1/admin/providers/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理节点宿主机指定 uploadId 对应临时分片文件，允许重传
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传中断清理
+      tags:
+      - 管理员/Provider
+  /api/v1/admin/providers/{id}/sftp/upload/status:
+    get:
+      description: 查询节点宿主机分片上传进度，用于断点续传
+      parameters:
+      - description: Provider ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 管理员节点SFTP上传状态
+      tags:
+      - 管理员/Provider
   /api/v1/admin/storage/cleanup:
     post:
       consumes:
@@ -6023,6 +6628,157 @@ paths:
       summary: 获取用户流量排行榜
       tags:
       - 管理员流量
+  /api/v1/user/instances/{id}/sftp/download:
+    get:
+      description: 下载用户实例上的远程文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程文件路径
+        in: query
+        name: path
+        required: true
+        type: string
+      produces:
+      - application/octet-stream
+      responses:
+        "200":
+          description: OK
+          schema:
+            type: file
+      summary: 用户实例SFTP下载
+      tags:
+      - 用户/实例
+  /api/v1/user/instances/{id}/sftp/list:
+    get:
+      description: 列出用户实例远程目录文件
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程路径
+        in: query
+        name: path
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP目录列表
+      tags:
+      - 用户/实例
+  /api/v1/user/instances/{id}/sftp/upload:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 上传本地文件到用户实例远程目录
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 上传文件
+        in: formData
+        name: file
+        required: true
+        type: file
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传
+      tags:
+      - 用户/实例
+  /api/v1/user/instances/{id}/sftp/upload/abort:
+    post:
+      consumes:
+      - multipart/form-data
+      description: 清理指定 uploadId 对应的临时分片文件，允许重传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: formData
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: formData
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: formData
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: formData
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传中断清理
+      tags:
+      - 用户/实例
+  /api/v1/user/instances/{id}/sftp/upload/status:
+    get:
+      description: 查询分片上传进度，用于断点续传
+      parameters:
+      - description: 实例ID
+        in: path
+        name: id
+        required: true
+        type: integer
+      - description: 上传ID
+        in: query
+        name: uploadId
+        required: true
+        type: string
+      - description: 远程目标文件路径
+        in: query
+        name: targetPath
+        type: string
+      - description: 远程目标目录
+        in: query
+        name: targetDir
+        type: string
+      - description: 文件名
+        in: query
+        name: filename
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            $ref: '#/definitions/common.Response'
+      summary: 用户实例SFTP上传状态
+      tags:
+      - 用户/实例
   /api/v1/user/traffic/instance/{instanceId}:
     get:
       consumes:
@@ -7246,7 +8002,7 @@ paths:
     delete:
       consumes:
       - application/json
-      description: 用户删除（禁用）自己的API Token
+      description: 用户硬删除自己的API Token
       parameters:
       - description: Token ID
         in: path

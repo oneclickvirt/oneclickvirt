@@ -5,7 +5,7 @@
       v-if="instance.relatedTask"
       :title="getTaskTitle(instance.relatedTask)"
       :type="getTaskAlertType(instance.relatedTask.status)"
-      :description="instance.relatedTask.statusMessage || $t('user.instanceDetail.taskProgress', { progress: instance.relatedTask.progress })"
+      :description="translateStepMsg(instance.relatedTask.statusMessage) || $t('user.instanceDetail.taskProgress', { progress: instance.relatedTask.progress })"
       :closable="false"
       show-icon
       style="margin-bottom: 20px;"
@@ -13,7 +13,7 @@
       <template #default>
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <p>{{ instance.relatedTask.statusMessage || $t('user.instanceDetail.taskInProgress', { action: getTaskTypeText(instance.relatedTask.taskType) }) }}</p>
+            <p>{{ translateStepMsg(instance.relatedTask.statusMessage) || $t('user.instanceDetail.taskInProgress', { action: getTaskTypeText(instance.relatedTask.taskType) }) }}</p>
             <el-progress
               :percentage="instance.relatedTask.progress"
               :status="instance.relatedTask.progress === 100 ? 'success' : undefined"
@@ -202,8 +202,11 @@
 </template>
 
 <script setup>
+import { useI18n } from 'vue-i18n'
 import { formatDiskSize, formatMemorySize } from '@/utils/unit-formatter'
 import { useInstanceFormatters } from '../composables/useInstanceFormatters'
+
+const { t, te } = useI18n()
 
 defineProps({
   instance: { type: Object, required: true },
@@ -223,4 +226,19 @@ const {
   getProviderTypeName,
   getProviderTypeColor
 } = useInstanceFormatters()
+
+function translateStepMsg(m) {
+  if (!m) return m
+  const colonIdx = m.indexOf(':')
+  if (colonIdx !== -1) {
+    const key = m.substring(0, colonIdx)
+    const param = m.substring(colonIdx + 1)
+    const i18nKey = `user.tasks.${key}`
+    if (te(i18nKey)) return t(i18nKey, { n: parseInt(param) || param, name: param })
+  } else {
+    const i18nKey = `user.tasks.${m}`
+    if (te(i18nKey)) return t(i18nKey)
+  }
+  return m
+}
 </script>

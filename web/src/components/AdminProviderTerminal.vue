@@ -1,13 +1,19 @@
 <template>
   <div class="admin-terminal-container">
     <el-tabs v-model="activeView">
-      <el-tab-pane label="Terminal" name="terminal">
+      <el-tab-pane
+        label="Terminal"
+        name="terminal"
+      >
         <div
           ref="terminalRef"
           class="terminal"
         />
       </el-tab-pane>
-      <el-tab-pane label="SFTP" name="sftp">
+      <el-tab-pane
+        label="SFTP"
+        name="sftp"
+      >
         <SFTPPanel
           entity-type="admin-provider"
           :entity-id="providerId"

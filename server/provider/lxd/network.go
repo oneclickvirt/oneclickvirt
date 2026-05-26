@@ -55,7 +55,7 @@ func (l *LXDProvider) configureInstanceNetwork(ctx context.Context, config provi
 			zap.Error(err))
 
 		// 如果重启失败，尝试直接使用现有网络配置继续
-		if err := l.tryUseExistingNetworkConfig(config, networkConfig); err != nil {
+		if err := l.tryUseExistingNetworkConfig(ctx, config, networkConfig); err != nil {
 			return fmt.Errorf("重启实例获取网络配置失败且无法使用现有配置: %w", err)
 		}
 		global.APP_LOG.Debug("使用现有网络配置继续",

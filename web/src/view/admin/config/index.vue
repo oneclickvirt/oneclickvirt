@@ -18,7 +18,10 @@
           :label="$t('admin.config.basicAuth')"
           name="auth"
         >
-          <AuthTab :config="config" :loading="loading" />
+          <AuthTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 邮箱SMTP配置 -->
@@ -26,7 +29,10 @@
           :label="$t('admin.config.emailConfig')"
           name="email"
         >
-          <EmailTab :config="config" :loading="loading" />
+          <EmailTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 第三方登录配置 -->
@@ -34,7 +40,10 @@
           :label="$t('admin.config.thirdPartyLogin')"
           name="oauth"
         >
-          <OAuthTab :config="config" :loading="loading" />
+          <OAuthTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 用户等级配置 -->
@@ -42,7 +51,10 @@
           :label="$t('admin.config.userLevel')"
           name="quota"
         >
-          <QuotaTab :config="config" :loading="loading" />
+          <QuotaTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 实例类型权限配置 -->
@@ -50,7 +62,10 @@
           :label="$t('admin.config.instancePermissions')"
           name="instancePermissions"
         >
-          <InstancePermissionsTab :permissions="instanceTypePermissions" :loading="loading" />
+          <InstancePermissionsTab
+            :permissions="instanceTypePermissions"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 实名认证配置 -->
@@ -58,7 +73,10 @@
           :label="$t('admin.config.kycConfig')"
           name="kyc"
         >
-          <KycTab :config="config" :loading="loading" />
+          <KycTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
 
         <!-- 其他配置 -->
@@ -66,7 +84,10 @@
           :label="$t('admin.config.otherConfig')"
           name="other"
         >
-          <OtherTab :config="config" :loading="loading" />
+          <OtherTab
+            :config="config"
+            :loading="loading"
+          />
         </el-tab-pane>
       </el-tabs>
 

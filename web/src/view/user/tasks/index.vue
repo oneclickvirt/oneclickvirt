@@ -189,7 +189,7 @@
                   :status="currentTask.status === 'failed' ? 'exception' : undefined"
                 />
                 <div class="progress-text">
-                  {{ currentTask.statusMessage || getDefaultStatusMessage(currentTask.status) }}
+                  {{ translateStepMsg(currentTask.statusMessage) || getDefaultStatusMessage(currentTask.status) }}
                 </div>
               </div>
               <div class="task-details">
@@ -223,33 +223,14 @@
                   </span>
                 </div>
               </div>
-              <!-- 进度日志（可折叠展示） -->
-              <div
+              <!-- 步骤面板（替代可折叠日志列表） -->
+              <task-steps-panel
                 v-if="currentTask.progressLogs"
-                class="task-progress-logs"
-              >
-                <el-button
-                  link
-                  size="small"
-                  @click="toggleProgressLogs(currentTask.id)"
-                >
-                  {{ expandedLogTaskIds.has(currentTask.id) ? t('user.tasks.hideProgressLogs') : t('user.tasks.showProgressLogs') }}
-                </el-button>
-                <div
-                  v-if="expandedLogTaskIds.has(currentTask.id)"
-                  class="progress-log-list"
-                >
-                  <div
-                    v-for="(entry, idx) in parseProgressLogs(currentTask.progressLogs)"
-                    :key="idx"
-                    class="progress-log-entry"
-                  >
-                    <span class="log-time">{{ entry.t }}</span>
-                    <span class="log-badge">{{ entry.p }}%</span>
-                    <span class="log-msg">{{ translateStepMsg(entry.m) }}</span>
-                  </div>
-                </div>
-              </div>
+                :task-type="currentTask.taskType"
+                :progress-logs="currentTask.progressLogs"
+                :task-status="currentTask.status"
+                class="task-steps"
+              />
             </el-card>
           </div>
         </div>
@@ -462,7 +443,7 @@
 
     <!-- 分页 -->
     <div
-	  v-if="total > pagination.pageSize"
+      v-if="total > pagination.pageSize"
       class="pagination"
     >
       <el-pagination
@@ -494,6 +475,7 @@ import { onMounted, onUnmounted, onActivated, ref } from 'vue'
 import { Refresh } from '@element-plus/icons-vue'
 import { useUserTaskManagement } from './composables/useUserTaskManagement'
 import { useI18n } from 'vue-i18n'
+import TaskStepsPanel from '@/components/TaskStepsPanel.vue'
 
 const { t: t18n, te } = useI18n()
 

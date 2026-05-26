@@ -287,7 +287,7 @@ func (l *LXDProvider) getUserLevelBandwidth(userLevel int) int {
 }
 
 // tryUseExistingNetworkConfig 尝试使用现有的网络配置继续
-func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig, networkConfig NetworkConfig) error {
+func (l *LXDProvider) tryUseExistingNetworkConfig(ctx context.Context, config provider.InstanceConfig, networkConfig NetworkConfig) error {
 	global.APP_LOG.Debug("尝试使用现有网络配置",
 		zap.String("instanceName", config.Name))
 
@@ -381,7 +381,6 @@ func (l *LXDProvider) tryUseExistingNetworkConfig(config provider.InstanceConfig
 		}
 
 		// 重新启动实例
-		ctx := context.Background()
 		if err := l.StartInstance(ctx, config.Name); err != nil {
 			global.APP_LOG.Warn("启动实例失败",
 				zap.String("instanceName", config.Name),

@@ -14,7 +14,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// GetMonitoringConfig returns the monitoring configuration for a provider.
+// GetMonitoringConfig godoc
+// @Summary 获取监控配置
+// @Description 获取指定节点的监控配置
+// @Tags 管理员/节点
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/config [get]
 func GetMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)
@@ -43,8 +50,16 @@ type UpdateMonitoringConfigRequest struct {
 	TrafficCollectMethod    string `json:"traffic_collect_method"` // "nft" or "ipt"
 }
 
-// UpdateMonitoringConfig updates the monitoring configuration for a provider.
-// If the agent is installed, it also syncs the config to the remote agent and restarts it.
+// UpdateMonitoringConfig godoc
+// @Summary 更新监控配置
+// @Description 更新指定节点的监控配置，如果Agent已安装则同步配置到远程Agent
+// @Tags 管理员/节点
+// @Accept json
+// @Produce json
+// @Param id path uint true "节点ID"
+// @Param body body UpdateMonitoringConfigRequest true "监控配置"
+// @Success 200 {object} common.Response
+// @Router /api/v1/admin/providers/{id}/monitoring/config [put]
 func UpdateMonitoringConfig(c *gin.Context) {
 	providerIDStr := c.Param("id")
 	providerID, err := strconv.ParseUint(providerIDStr, 10, 32)

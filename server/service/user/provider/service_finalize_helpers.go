@@ -19,7 +19,7 @@ import (
 
 // waitForInstanceSSHReady 智能等待实例SSH服务就绪
 // 通过轮询检查SSH端口是否可连接，而不是盲目等待固定时间
-func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, maxWaitTime time.Duration) error {
+func (s *Service) waitForInstanceSSHReady(ctx context.Context, instanceID, providerID, taskID uint, maxWaitTime time.Duration) error {
 	// 获取实例信息
 	var instance providerModel.Instance
 	if err := global.APP_DB.First(&instance, instanceID).Error; err != nil {
@@ -74,7 +74,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 			zap.Uint("instanceId", instanceID),
 			zap.String("instanceName", instance.Name),
 			zap.String("networkType", networkType))
-		s.updateTaskProgress(taskID, 79, "无端口映射模式，跳过SSH检测")
+		s.updateTaskProgress(taskID, 79, "step.skipSSHDetection")
 		return nil
 	}
 
@@ -101,6 +101,12 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 	progressEnd := 79
 
 	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("等待SSH服务已取消: %w", ctx.Err())
+		default:
+		}
+
 		attemptCount++
 		elapsed := time.Since(startTime)
 
@@ -117,8 +123,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 		}
 
 		// 更新进度和消息
-		waitMsg := fmt.Sprintf("等待实例SSH服务就绪... (尝试 %d次, 已等待 %ds)", attemptCount, int(elapsed.Seconds()))
-		s.updateTaskProgress(taskID, currentProgress, waitMsg)
+		s.updateTaskProgress(taskID, currentProgress, "step.waitingSSHReady")
 
 		// 仅检测TCP端口连通性（不尝试密码认证，因为此时密码尚未写入实例）
 		address := net.JoinHostPort(sshHost, fmt.Sprintf("%d", sshPort))
@@ -130,7 +135,7 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 				zap.String("instanceName", instance.Name),
 				zap.Duration("waitTime", elapsed),
 				zap.Int("attempts", attemptCount))
-			s.updateTaskProgress(taskID, progressEnd, "实例SSH端口已开放")
+			s.updateTaskProgress(taskID, progressEnd, "step.sshPortOpened")
 			return nil
 		}
 
@@ -143,7 +148,11 @@ func (s *Service) waitForInstanceSSHReady(instanceID, providerID, taskID uint, m
 			zap.String("error", err.Error()))
 
 		// 等待后重试
-		time.Sleep(checkInterval)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("等待SSH服务已取消: %w", ctx.Err())
+		case <-time.After(checkInterval):
+		}
 	}
 }
 
@@ -166,6 +175,12 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 
 	deadline := time.Now().Add(90 * time.Second)
 	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("实例网络地址补齐已取消: %w", ctx.Err())
+		default:
+		}
+
 		updates := map[string]interface{}{}
 
 		switch dbProvider.Type {
@@ -240,7 +255,11 @@ func (s *Service) ensureInstanceNetworkAddresses(ctx context.Context, instanceID
 		if time.Now().After(deadline) {
 			break
 		}
-		time.Sleep(10 * time.Second)
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("实例网络地址补齐已取消: %w", ctx.Err())
+		case <-time.After(10 * time.Second):
+		}
 	}
 
 	return fmt.Errorf("实例内网IP在重试窗口内仍未就绪")

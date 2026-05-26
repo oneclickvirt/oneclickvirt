@@ -55,7 +55,7 @@
             @save-config="handleSaveConfig"
             @toggle-config-editor="showConfigEditor = !showConfigEditor"
             @load-monitors="loadMonitors"
-            @update:showAgentMonitors="showAgentMonitors = $event"
+            @update:show-agent-monitors="showAgentMonitors = $event"
           />
         </el-tab-pane>
 
